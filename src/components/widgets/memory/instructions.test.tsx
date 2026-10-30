@@ -16,7 +16,7 @@ import { useState } from 'react';
 
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { expectProseText } from '@/test-utils';
 
@@ -54,6 +54,19 @@ describe('MemoryInstructions', () => {
 
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.getByText('Always use traefik.')).toBeInTheDocument();
+  });
+
+  it('keeps a draft while the parent draws again, and saves it', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const { rerender } = render(<MemoryInstructions text="" onSave={onSave} />);
+    await user.click(button('Add instructions'));
+    await user.type(screen.getByRole('textbox'), 'Draft.');
+
+    rerender(<MemoryInstructions text="" onSave={onSave} />);
+    expect(screen.getByRole('textbox')).toHaveValue('Draft.');
+    await user.click(button('Save'));
+    expect(onSave).toHaveBeenCalledWith('Draft.');
   });
 
   it('reopens the editor pre-filled on Edit', async () => {

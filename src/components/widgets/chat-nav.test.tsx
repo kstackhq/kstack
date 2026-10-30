@@ -86,6 +86,12 @@ beforeEach(() => {
 });
 
 describe('ChatNav', () => {
+  it('keeps its rows when the layout draws it again', () => {
+    const { rerender } = renderNav();
+    rerender(<ChatNav mode="chat" />);
+    expect(screen.getByRole('link', { name: 'First chat' })).toHaveAttribute('href', '/chat/c1');
+  });
+
   it('offers a new chat without writing one', () => {
     renderNav();
     expect(screen.getByRole('link', { name: /new chat/i })).toHaveAttribute('href', '/chat');

@@ -182,4 +182,17 @@ describe('HistoryNav (standalone-site browser history)', () => {
 
     expect(screen.getByRole('button', { name: 'Go forward' })).toBeDisabled();
   });
+
+  it('reads a stored ceiling that is not JSON as none', async () => {
+    window.history.replaceState({}, '', '/chat');
+    sessionStorage.setItem(FORWARD_CEILING_STORAGE_KEY, '{not json');
+
+    const router = createRouter({ routeTree: buildTree(), history: createBrowserHistory() });
+    await router.load();
+    await act(async () => {
+      render(<RouterProvider router={router} />);
+    });
+
+    expect(screen.getByRole('button', { name: 'Go forward' })).toBeDisabled();
+  });
 });

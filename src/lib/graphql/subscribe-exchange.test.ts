@@ -559,4 +559,38 @@ describe('tauriSubscriptionExchange', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(subscribeCalls()).toBe(1);
   });
+
+  it('drops an op whose subscribe ack lands after the consumer left', async () => {
+    let ack!: (id: number) => void;
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'graphql_subscribe') {
+        return new Promise<number>((resolve) => {
+          ack = resolve;
+        });
+      }
+      return undefined;
+    });
+    const { unsubscribe } = start();
+    await flush();
+    unsubscribe();
+    expect(invokeMock).not.toHaveBeenCalledWith('graphql_unsubscribe', expect.anything());
+
+    ack(9);
+    await flush();
+    expect(invokeMock).toHaveBeenCalledWith('graphql_unsubscribe', { id: 9 });
+  });
+
+  it('reports a subscribe the host refused, and dials again after backoff', async () => {
+    vi.useFakeTimers();
+    invokeMock.mockRejectedValueOnce(new Error('no sidecar'));
+    const { unsubscribe } = start();
+    await flush();
+
+    expect(reportErrorMock).toHaveBeenCalledWith(expect.objectContaining({ source: 'subscription' }));
+    expect(markDisconnectedMock).toHaveBeenCalledWith(KEY);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(subscribeCalls()).toBe(2);
+
+    unsubscribe();
+  });
 });

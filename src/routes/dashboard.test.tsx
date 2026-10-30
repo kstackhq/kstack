@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_DASHBOARD_RESOURCE } from '@/lib/dashboard-resources';
@@ -46,8 +46,34 @@ vi.mock('@/components/widgets/objects-table', () => ({
   ObjectsTable: (props: Record<string, unknown>) => <div data-testid="objects-table">{JSON.stringify(props)}</div>,
 }));
 
-const { useClusterCachedDataKindsMock } = vi.hoisted(() => ({ useClusterCachedDataKindsMock: vi.fn() }));
-vi.mock('@/lib/cluster-cached-data-kinds', () => ({ useClusterCachedDataKinds: useClusterCachedDataKindsMock }));
+// The catalog draws the page again on `catalog.emit()`, as its watch does on each frame.
+const { useClusterCachedDataKindsMock, catalog } = vi.hoisted(() => {
+  const listeners = new Set<() => void>();
+  const state = { version: 0 };
+  return {
+    useClusterCachedDataKindsMock: vi.fn(),
+    catalog: {
+      state,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      emit: () => {
+        state.version += 1;
+        listeners.forEach((l) => l());
+      },
+    },
+  };
+});
+vi.mock('@/lib/cluster-cached-data-kinds', async () => {
+  const { useSyncExternalStore } = await import('react');
+  return {
+    useClusterCachedDataKinds: () => {
+      useSyncExternalStore(catalog.subscribe, () => catalog.state.version);
+      return useClusterCachedDataKindsMock();
+    },
+  };
+});
 
 const { testRoot, Route: appRoute } = (await import('@/routes/_app')) as unknown as {
   testRoot: import('@tanstack/react-router').AnyRoute;
@@ -94,6 +120,13 @@ describe('dashboard route', () => {
     await render('/dashboard?resource=workloads');
     expect(screen.queryByTestId('objects-table')).not.toBeInTheDocument();
     expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
+  });
+
+  it('keeps the table it shows as the catalog’s counts churn', async () => {
+    await render('/dashboard?resource=deployments', [KIND]);
+    useClusterCachedDataKindsMock.mockReturnValue({ kinds: [{ ...KIND, count: 4 }], active: true, phase: 'live' });
+    act(() => catalog.emit());
+    expect(screen.getByTestId('objects-table')).toHaveTextContent('"resource":"deployments"');
   });
 
   it('names the view it is showing', async () => {

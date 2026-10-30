@@ -229,4 +229,32 @@ describe('LogsWatchCard', () => {
     const lost = draw({ task: { ...running, status: 'Lost' } });
     expect(lost.container).toHaveTextContent('lost when Kstack stopped');
   });
+
+  it('says a stopped watch with no line was stopped', () => {
+    const { container } = draw({ task: { ...running, status: 'Stopped' } });
+    expect(container).toHaveTextContent('stopped');
+    expect(rows()).toHaveLength(0);
+  });
+
+  // The transcript reads the action afresh from each frame of the call's row.
+  it('keeps what it watches for when the same action arrives again', () => {
+    const { container, rerender } = draw({ task: running });
+    rerender(
+      <RightSidebarProvider mode="chat">
+        <LogsViewProvider>
+          <LogsWatchCard
+            call={call}
+            action={{ ...action }}
+            task={running}
+            chatID="chat-1"
+            clusterID="cluster-1"
+            mode="chat"
+          />
+        </LogsViewProvider>
+      </RightSidebarProvider>,
+    );
+    expect(container).toHaveTextContent(
+      'watching for /panic|Exception/ from 2026-10-18T13:45:00Z, up to 100 lines, until 2026-10-18T14:00:00Z',
+    );
+  });
 });

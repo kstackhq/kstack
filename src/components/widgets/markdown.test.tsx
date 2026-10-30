@@ -25,6 +25,20 @@ describe('Markdown', () => {
     expect(screen.getByText('kubectl').tagName).toBe('CODE');
   });
 
+  it('renders every heading level at its own level', () => {
+    render(<Markdown text={'# one\n\n## two\n\n### three\n\n#### four\n\n##### five\n\n###### six'} />);
+    ['one', 'two', 'three', 'four', 'five', 'six'].forEach((name, i) => {
+      expect(screen.getByRole('heading', { name, level: i + 1 })).toBeInTheDocument();
+    });
+  });
+
+  it('renders numbered lists, quotes and rules as their elements', () => {
+    const { container } = render(<Markdown text={'1. first\n2. second\n\n> quoted\n\n---'} />);
+    expect(screen.getByRole('list').tagName).toBe('OL');
+    expect(screen.getByText('quoted').closest('blockquote')).toBeInTheDocument();
+    expect(container.querySelector('hr')).toBeInTheDocument();
+  });
+
   // Emphasis needs no handler: the browser's default styles draw all three.
   it('renders emphasis as its elements', () => {
     render(<Markdown text="**bold** _italic_ ~~gone~~" />);

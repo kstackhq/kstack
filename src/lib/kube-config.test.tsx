@@ -91,6 +91,34 @@ describe('useKubeConfig', () => {
     ]);
     expect(kubeConfig.currentContext).toBe('prod');
   });
+  // Every switcher reads this context; a value that moved on each draw would draw them all.
+  it('hands its readers the same value while the clusters stand still', async () => {
+    const seen: unknown[] = [];
+    function Reader() {
+      seen.push(useKubeConfig());
+      return null;
+    }
+    const client = createGraphqlClient();
+    const tree = () => (
+      <UrqlProvider value={client}>
+        <ClustersProvider>
+          <KubeConfigProvider>
+            <Reader />
+          </KubeConfigProvider>
+        </ClustersProvider>
+      </UrqlProvider>
+    );
+    const view = render(tree());
+    await flush();
+    await act(async () => {
+      pushClusters(channelFor, [{ id: 'a', name: 'prod', enabled: true, present: true, isDefault: true }]);
+    });
+
+    const before = seen.length;
+    view.rerender(tree());
+    expect(seen.length).toBeGreaterThan(before);
+    expect(seen.at(-1)).toBe(seen[before - 1]);
+  });
 });
 
 describe('tlsUnverifiedReason', () => {

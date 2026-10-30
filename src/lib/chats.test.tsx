@@ -120,6 +120,17 @@ describe('useChats', () => {
     expect(result.current.chats.map((c) => c.id)).toEqual(['new', 'mid', 'old']);
   });
 
+  // The nav filters the list on every draw; a list that moved each time would
+  // redraw every row.
+  it('hands back the same list until a frame changes it', () => {
+    const { result, rerender } = renderChats();
+    pushChats({ type: 'Added', chat: chat('a', '2026-09-01T10:00:00Z') }, { type: 'Bookmark', chat: null });
+    rerender();
+    const first = result.current.chats;
+    rerender();
+    expect(result.current.chats).toBe(first);
+  });
+
   it('breaks a shared updatedAt by id, descending', () => {
     const { result, rerender } = renderChats();
     const at = '2026-09-01T10:00:00Z';

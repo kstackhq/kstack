@@ -94,11 +94,54 @@ describe('columnsForKind', () => {
     expect(cellText(columns[0], objectWith({ spec: { replicas: 3 } }))).toBe('—');
   });
 
+  it('renders a date as its age, and a date that does not parse as absent', () => {
+    const columns = columnsForKind(widgetGVR, [
+      { name: 'Started', type: 'date', jsonPath: '.status.startedAt', priority: 0 },
+    ]);
+
+    const started = new Date(Date.now() - 5 * 60_000).toISOString();
+    expect(cellText(columns[0], objectWith({ status: { startedAt: started } }))).toMatch(/5 minutes ago/);
+    expect(cellText(columns[0], objectWith({ status: { startedAt: 'soon' } }))).toBe('—');
+  });
+
   it('survives a partial body, which a Deleted row carries', () => {
     const columns = columnsForKind(widgetGVR, [
       { name: 'Replicas', type: 'integer', jsonPath: '.spec.replicas', priority: 0 },
     ]);
 
     expect(cellText(columns[0], objectWith(undefined))).toBe('—');
+  });
+});
+
+describe('pod status', () => {
+  const status = columnsForKind({ apiVersion: 'v1', resource: 'pods' })[1];
+  const failedInit = (terminated: Record<string, unknown>) =>
+    objectWith({
+      spec: { initContainers: [{ name: 'setup' }] },
+      status: { phase: 'Pending', initContainerStatuses: [{ name: 'setup', state: { terminated } }] },
+    });
+
+  // kubectl's printPod: the reason, else the signal, else the exit code.
+  it('names a failed init container by its reason, signal or exit code', () => {
+    expect(cellText(status, failedInit({ reason: 'Error', exitCode: 1 }))).toBe('Init:Error');
+    expect(cellText(status, failedInit({ signal: 9, exitCode: 137 }))).toBe('Init:Signal:9');
+    expect(cellText(status, failedInit({ exitCode: 2 }))).toBe('Init:ExitCode:2');
+  });
+});
+
+describe('deployment columns', () => {
+  const columns = columnsForKind({ apiVersion: 'apps/v1', resource: 'deployments' });
+
+  it('counts ready of desired, up-to-date and available replicas', () => {
+    const o = objectWith({
+      spec: { replicas: 3 },
+      status: { readyReplicas: 2, updatedReplicas: 3, availableReplicas: 1 },
+    });
+    expect(columns.map((c) => c.header)).toEqual(['Ready', 'Up-to-date', 'Available']);
+    expect(columns.map((c) => cellText(c, o))).toEqual(['2/3', '3', '1']);
+  });
+
+  it('reads a body with no status as none ready', () => {
+    expect(columns.map((c) => cellText(c, objectWith({})))).toEqual(['0/0', '0', '0']);
   });
 });

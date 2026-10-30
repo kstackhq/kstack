@@ -28,7 +28,7 @@ import { renderWithRouter } from '@/test-utils';
 // The watch's UI state the hook exposes alongside `nav` — mutated per test to drive
 // the transport-hint footer. Defaults model a live, active subscription (no hint).
 const { NAV, navState } = vi.hoisted(() => ({
-  navState: { active: true, phase: 'live' },
+  navState: { active: true, phase: 'live', nav: null as unknown[] | null },
   NAV: [
     { id: 'overview', label: 'Overview' },
     { id: 'nodes', label: 'Nodes' },
@@ -52,7 +52,7 @@ const { NAV, navState } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/dashboard-nav', () => ({
-  useDashboardNav: () => ({ nav: NAV, active: navState.active, phase: navState.phase }),
+  useDashboardNav: () => ({ nav: navState.nav ?? NAV, active: navState.active, phase: navState.phase }),
 }));
 
 const { DashboardResourceNav } = await import('./dashboard-resource-nav');
@@ -84,6 +84,7 @@ describe('DashboardResourceNav', () => {
     // opts in (the hoisted navState persists across tests otherwise).
     navState.active = true;
     navState.phase = 'live';
+    navState.nav = null;
   });
 
   it('links each resource to the dashboard with its own search param', async () => {
@@ -111,6 +112,18 @@ describe('DashboardResourceNav', () => {
     expect(screen.getByRole('link', { name: /DaemonSets/ })).toHaveTextContent('3');
     // The "Show more…" toggle names how many discovered kinds it hides.
     expect(screen.getByRole('button', { name: 'Show more (1)…' })).toBeInTheDocument();
+  });
+
+  it('draws a group’s new count when the tree arrives again, keeping its kinds', async () => {
+    const { router } = await renderWithRouter(buildTree(), '/dashboard?resource=pods');
+    navState.nav = NAV.map((node) => (node.id === 'workloads' ? { ...node, count: 7 } : node));
+    // A search change draws the nav again, over the hook's next tree.
+    await act(async () => {
+      await router.navigate({ to: '/dashboard', search: { resource: 'pods', kubeContext: 'prod' } });
+    });
+
+    expect(screen.getByRole('link', { name: /Workloads/ })).toHaveTextContent('7');
+    expect(screen.getByRole('link', { name: 'Pods' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('selects a nested child, writing its id to the param', async () => {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { mockTauriCore } from '@/test-utils';
@@ -73,6 +73,23 @@ describe('ReadyGate', () => {
 
     expect(seen).toHaveBeenCalledTimes(1);
     expect(seen.mock.calls[0][0]).toMatchObject({ source: 'network', message: 'sidecar never bound' });
+  });
+
+  it('asks the host again on Retry, and renders its children once it answers', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('sidecar never bound'));
+    render(
+      <ReadyGate>
+        <p>the app</p>
+      </ReadyGate>,
+    );
+    const retry = await screen.findByRole('button', { name: 'Retry' });
+
+    invokeMock.mockResolvedValue(undefined);
+    fireEvent.click(retry);
+
+    expect(screen.getByRole('status')).toHaveAttribute('aria-busy', 'true');
+    expect(await screen.findByText('the app')).toBeInTheDocument();
+    expect(invokeMock).toHaveBeenCalledTimes(2);
   });
 
   it('holds on the error screen under VITE_READY_GATE_HOLD=error', async () => {

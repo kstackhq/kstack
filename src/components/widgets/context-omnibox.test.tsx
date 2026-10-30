@@ -24,7 +24,27 @@ const { useActiveKubeContextMock, setContext, openDialog } = vi.hoisted(() => ({
   setContext: vi.fn(),
   openDialog: vi.fn(),
 }));
-vi.mock('@/lib/active-kube-context', () => ({ useActiveKubeContext: useActiveKubeContextMock }));
+// A context provider draws its readers again when its value changes; `kubeChanged`
+// does that after a `serveContexts`.
+const { kube } = vi.hoisted(() => ({ kube: { version: 0, listeners: new Set<() => void>() } }));
+vi.mock('@/lib/active-kube-context', async () => {
+  const { useSyncExternalStore } = await import('react');
+  const subscribe = (listener: () => void) => {
+    kube.listeners.add(listener);
+    return () => kube.listeners.delete(listener);
+  };
+  return {
+    useActiveKubeContext: () => {
+      useSyncExternalStore(subscribe, () => kube.version);
+      return useActiveKubeContextMock();
+    },
+  };
+});
+const kubeChanged = () =>
+  act(() => {
+    kube.version += 1;
+    kube.listeners.forEach((l) => l());
+  });
 vi.mock('@/lib/dialog', () => ({ useDialog: () => ({ openDialog }), useDialogHost: () => null }));
 
 // The focused log view, which a switch clears.
@@ -255,6 +275,20 @@ describe('ContextOmnibox', () => {
     serveContexts(['prod'], { clusterEntry: { server: 'https://prod:6443', insecureSkipTLSVerify: false } });
     render(<ContextOmnibox />);
     expect(screen.queryByText('Unverified TLS')).not.toBeInTheDocument();
+  });
+
+  it('keeps the cluster in view while the context list grows', () => {
+    render(<ContextOmnibox />);
+    serveContexts(['prod', 'staging', 'qa']);
+    kubeChanged();
+    expect(trigger()).toHaveTextContent('prod');
+  });
+
+  it('keeps saying it is connecting while the context watch answers again', () => {
+    serveContexts([], { phase: 'connecting' });
+    render(<ContextOmnibox />);
+    kubeChanged();
+    expect(trigger()).toHaveTextContent('Connecting…');
   });
 
   it('says it is still connecting rather than "No kubeconfig"', () => {

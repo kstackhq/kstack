@@ -459,6 +459,14 @@ describe('ChatTranscript', () => {
     expect(screen.getByText('Loading messages…')).toBeInTheDocument();
   });
 
+  it('keeps waiting while other props change before the snapshot', () => {
+    const { rerender } = draw([], { phase: 'connecting' });
+    rerender(
+      wrap(<ChatTranscript messages={[]} phase="connecting" mode="chat" chatID="c1" clusterID="1" sandboxAvailable />),
+    );
+    expect(screen.getByText('Loading messages…')).toBeInTheDocument();
+  });
+
   it('shows the empty state once the snapshot has closed', () => {
     draw([]);
     expect(screen.getByText('No messages yet.')).toBeInTheDocument();

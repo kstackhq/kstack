@@ -81,6 +81,17 @@ describe('LogsViewInline', () => {
     expect(rows()[2]).toContain('line 2');
   });
 
+  it('adds the lines that arrive, and keeps them when the card draws again', () => {
+    const a = action();
+    const first = state({ lines: lines(2), loading: true });
+    const { rerender } = render(<LogsViewInline action={a} state={first} />);
+    const grown = state({ lines: lines(3) });
+    rerender(<LogsViewInline action={a} state={grown} />);
+    rerender(<LogsViewInline action={a} state={grown} />);
+    expect(rows()).toHaveLength(3);
+    expect(rows()[2]).toContain('line 2');
+  });
+
   it('spells a message and a pod name through VisibleText', () => {
     const { container } = draw(
       state({

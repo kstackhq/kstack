@@ -120,4 +120,24 @@ describe('useFocusTrap', () => {
     tab();
     expect(document.activeElement).toBe(button('page'));
   });
+
+  // Nothing in the panel takes focus, so Tab stays where it is rather than
+  // walking out onto the page behind.
+  it('holds Tab in a panel with nothing to focus', () => {
+    function Empty() {
+      const ref = useFocusTrap<HTMLDivElement>(true);
+      return (
+        <div>
+          <button type="button">page</button>
+          <div ref={ref} role="dialog" aria-modal aria-label="Panel">
+            nothing here
+          </div>
+        </div>
+      );
+    }
+    render(<Empty />);
+    button('page').focus();
+
+    expect(fireEvent.keyDown(document.activeElement!, { key: 'Tab' })).toBe(false);
+  });
 });

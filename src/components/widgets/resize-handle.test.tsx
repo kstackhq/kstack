@@ -115,4 +115,13 @@ describe('ResizeHandle', () => {
     rerender(<ResizeHandle edge="left" onResize={() => {}} label="Resize" />);
     expect(handle()).toHaveClass('left-0');
   });
+
+  it('keeps reporting after its pane draws it again', () => {
+    const onResize = vi.fn();
+    const { rerender } = render(<ResizeHandle edge="right" onResize={onResize} label="Resize" />);
+    rerender(<ResizeHandle edge="right" onResize={onResize} label="Resize" />);
+
+    drag(250);
+    expect(onResize).toHaveBeenCalledWith(250);
+  });
 });

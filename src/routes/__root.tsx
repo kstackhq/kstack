@@ -28,12 +28,13 @@ import { WindowResizeHandles } from '@/components/widgets/window-resize-handles'
 
 const TanStackRouterDevtools =
   import.meta.env.VITE_ROUTER_DEVTOOLS === 'true'
-    ? lazy(() =>
+    ? /* v8 ignore start -- a dev-run switch (docs/development-switches.md) the suite runs without */
+      lazy(() =>
         import('@tanstack/react-router-devtools').then((res) => ({
           default: res.TanStackRouterDevtools,
         })),
       )
-    : () => null;
+    : /* v8 ignore stop */ () => null;
 
 // One client for the app's lifetime; module-load creation gives routeTree-mounted
 // tests the Provider transitively.

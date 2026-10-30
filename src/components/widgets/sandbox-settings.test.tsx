@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -28,10 +28,53 @@ const { sandbox, path, folders, executables, mac } = vi.hoisted(() => ({
   executables: { current: {} as SandboxExecutables },
   mac: { current: false },
 }));
+// Each hook draws its section again on `answers.moved()`, as the real hooks do
+// when their query or mutation state changes.
+const { answers } = vi.hoisted(() => {
+  const listeners = new Set<() => void>();
+  const state = { version: 0 };
+  return {
+    answers: {
+      state,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      moved: () => {
+        state.version += 1;
+        listeners.forEach((l) => l());
+      },
+    },
+  };
+});
 vi.mock('@/lib/sandbox', () => ({ useSandbox: () => sandbox.current }));
-vi.mock('@/lib/sandbox-path', () => ({ useSandboxPath: () => path.current }));
-vi.mock('@/lib/sandbox-executables', () => ({ useSandboxExecutables: () => executables.current }));
-vi.mock('@/lib/sandbox-folders', () => ({ useSandboxFolders: () => folders.current }));
+vi.mock('@/lib/sandbox-path', async () => {
+  const { useSyncExternalStore } = await import('react');
+  return {
+    useSandboxPath: () => {
+      useSyncExternalStore(answers.subscribe, () => answers.state.version);
+      return path.current;
+    },
+  };
+});
+vi.mock('@/lib/sandbox-executables', async () => {
+  const { useSyncExternalStore } = await import('react');
+  return {
+    useSandboxExecutables: () => {
+      useSyncExternalStore(answers.subscribe, () => answers.state.version);
+      return executables.current;
+    },
+  };
+});
+vi.mock('@/lib/sandbox-folders', async () => {
+  const { useSyncExternalStore } = await import('react');
+  return {
+    useSandboxFolders: () => {
+      useSyncExternalStore(answers.subscribe, () => answers.state.version);
+      return folders.current;
+    },
+  };
+});
 vi.mock('@/lib/platform', () => ({ isMacOS: () => mac.current }));
 
 const { SandboxSettings } = await import('./sandbox-settings');
@@ -218,6 +261,25 @@ describe('SandboxSettings', () => {
     const refreshingRows = screen.getAllByRole('listitem');
     expect(within(refreshingRows[1]).getByRole('button', { name: 'Include' })).toBeDisabled();
     expect(within(refreshingRows[0]).getByRole('button', { name: 'Remove' })).toBeDisabled();
+  });
+
+  it('redraws each row in place as a change goes in flight, keeping what is typed', async () => {
+    withPath({ entries: [entry('/Users/ren/.local/share/mise/shims', 'Pending', { target: '/Users/ren/mise' })] });
+    withFolders({ always: [folder('/Users/ren/code')] });
+    withExecutables({});
+    render(<SandboxSettings />);
+    await userEvent.type(screen.getByRole('textbox', { name: 'Executable name' }), 'k9s');
+
+    withPath({ ...path.current, changing: new Set(['/Users/ren/.local/share/mise/shims']) });
+    withFolders({ ...folders.current, revoking: new Set(['/Users/ren/code']) });
+    withExecutables({ ...executables.current, report: [probed('kubectl')] });
+    act(() => answers.moved());
+
+    expect(screen.getByTestId('target')).toHaveTextContent('/Users/ren/mise');
+    const folderList = within(screen.getByRole('list', { name: 'Folders' }));
+    expect(folderList.getByRole('button', { name: 'Remove' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Add executable' }));
+    expect(executables.current.register).toHaveBeenCalledWith('k9s', '');
   });
 
   it('draws a refused refresh and a refused change', () => {

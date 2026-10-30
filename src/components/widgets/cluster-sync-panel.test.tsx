@@ -1337,6 +1337,87 @@ describe('ClusterSyncPanel', () => {
     expect(await screen.findByText(/3 of 5 kinds syncing, 2 paused/)).toBeInTheDocument();
   });
 
+  it('names the first three offenders and counts the rest', async () => {
+    const user = await openWith([{ uuid: 'u-many', name: 'prod', enabled: true, present: true }]);
+
+    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    act(() =>
+      pushHealth('cache-u-many', {
+        status: 'False',
+        reason: 'Stale',
+        unhealthyKindRefs: ['widgets', 'gadgets', 'gizmos', 'sprockets', 'cogs'].map((resource) => ({
+          apiVersion: 'example.com/v1',
+          resource,
+        })),
+        totalKinds: 9,
+        unhealthyKinds: 5,
+      }),
+    );
+
+    expect(await screen.findByText(/4 of 9 kinds — widgets, gadgets, gizmos \+2 more not syncing/)).toBeInTheDocument();
+  });
+
+  // The clock is frozen so each age reads the same however long the clicks take.
+  it('shows a connected cluster’s uptime in its largest unit', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const since = (ms: number) => new Date(Date.now() - ms).toISOString();
+    const user = await openWith([
+      { uuid: 'u-new', name: 'new', enabled: true, present: true, disconnectedSince: since(30_000) },
+      { uuid: 'u-mid', name: 'mid', enabled: true, present: true, disconnectedSince: since(5 * 60_000) },
+      { uuid: 'u-old', name: 'old', enabled: true, present: true, disconnectedSince: since(3 * 60 * 60_000) },
+    ]);
+
+    const [first, second, third] = await screen.findAllByRole('button', { name: /^active/i });
+    await user.click(first);
+    await user.click(second);
+    await user.click(third);
+
+    expect(await screen.findByText('<1m')).toBeInTheDocument();
+    expect(screen.getByText('5m')).toBeInTheDocument();
+    expect(screen.getByText('3h')).toBeInTheDocument();
+  });
+
+  it('spans each repeated attempt in its largest unit, and counts down past a minute', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+    const user = await openWith([
+      { uuid: 'u-remote', name: 'remote', enabled: true, present: true, connected: 'False' },
+    ]);
+    await user.click(await screen.findByRole('button', { name: /disconnected/i }));
+
+    await act(async () => {
+      pushSchedule(new Date(Date.now() + 90_000).toISOString());
+      pushConnectionEvent({
+        id: '2',
+        type: 'Warning',
+        reason: 'ProbeFailed',
+        message: 'minutes apart',
+        count: 3,
+        firstAt: ago(10 * 60_000),
+        lastAt: ago(60_000),
+      });
+      pushConnectionEvent({
+        id: '1',
+        type: 'Warning',
+        reason: 'ProbeFailed',
+        message: 'hours apart',
+        count: 4,
+        firstAt: ago(5 * 60 * 60_000),
+        lastAt: ago(2 * 60 * 60_000),
+      });
+    });
+
+    expect(await screen.findByText('(9m)')).toBeInTheDocument();
+    expect(screen.getByText('(3h)')).toBeInTheDocument();
+    expect(screen.getByText('in 1m 30s')).toBeInTheDocument();
+  });
+
   it('reports a plain kind count when every kind is healthy', async () => {
     const user = await openWith([{ uuid: 'u-ok', name: 'prod', enabled: true, present: true }]);
 

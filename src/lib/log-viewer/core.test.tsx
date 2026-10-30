@@ -1069,6 +1069,18 @@ describe('the user’s intent', () => {
     expect(m.state().pinnedToEnd).toBe(false);
   });
 
+  it.each(['touchEnd', 'touchCancel'] as const)('ends touch intent on %s', async (end) => {
+    const { m, el } = await following();
+    await input(el, () => fireEvent.touchStart(el));
+    await act(async () => {
+      fireEvent[end](el);
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    // The same move that unpins mid-drag is not the user's once the finger is off.
+    await scrollTo(el, BOTTOM - 100);
+    expect(m.state().pinnedToEnd).toBe(true);
+  });
+
   it('changes nothing on a scroll with no input behind it, or long after one', async () => {
     const { m, el } = await following();
     await scrollTo(el, BOTTOM - 100);

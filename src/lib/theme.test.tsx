@@ -110,6 +110,27 @@ describe('ThemeProvider', () => {
     );
   });
 
+  it('hands its readers the same value while the preference stands still', () => {
+    mockMatchMedia(false);
+    const seen: unknown[] = [];
+    function Reader() {
+      seen.push(useColorScheme());
+      return null;
+    }
+    const { rerender } = render(
+      <ThemeProvider>
+        <Reader />
+      </ThemeProvider>,
+    );
+    rerender(
+      <ThemeProvider>
+        <Reader />
+      </ThemeProvider>,
+    );
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toBe(seen[0]);
+  });
+
   it('follows host-file-updated events (cross-window sync)', () => {
     mockMatchMedia(false);
     renderProvider();

@@ -84,6 +84,11 @@ describe('startErrorLogForwarder', () => {
     expect(seen).toHaveBeenCalledTimes(1);
   });
 
+  it('forwards a record whose context will not serialize without the context', () => {
+    reportError({ source: 'graphql', message: 'odd context', context: { size: 1n } });
+    expect(sent()).toEqual([{ source: 'graphql', message: 'odd context' }]);
+  });
+
   it('swallows a rejected invoke without touching the bus', async () => {
     const seen = vi.fn();
     const off = onError(seen);

@@ -587,6 +587,15 @@ describe('useSelection', () => {
       expect(result.current.anchorCell).toEqual({ rowKey: 4, col: 'Pod' });
     });
 
+    it('cmd+click on the anchor moves it to the nearest row below, whatever order the rows were picked in', () => {
+      const { result } = renderUseSelection(three);
+      act(() => result.current.handleCellMouseDown(7, 'Pod', clickEvent()));
+      act(() => result.current.handleCellMouseDown(6, 'Pod', clickEvent({ metaKey: true })));
+      act(() => result.current.handleCellMouseDown(5, 'Pod', clickEvent({ metaKey: true })));
+      act(() => result.current.handleCellMouseDown(5, 'Pod', clickEvent({ metaKey: true })));
+      expect(result.current.anchorCell).toEqual({ rowKey: 6, col: 'Pod' });
+    });
+
     it('adds cell with ctrl+click', () => {
       const { result } = renderUseSelection();
       act(() => result.current.handleCellMouseDown(0, 'Message', clickEvent()));

@@ -181,6 +181,17 @@ describe('FolderGrantForm', () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
+  it('keeps what was typed when its pane draws it again, and grants it', async () => {
+    const onCancel = vi.fn();
+    const { rerender } = render(<FolderGrantForm durations={['Always']} submitLabel="Grant" onCancel={onCancel} />);
+    await userEvent.type(field(), '/Users/ren/code');
+
+    rerender(<FolderGrantForm durations={['Always']} submitLabel="Grant" onCancel={onCancel} />);
+    expect(field()).toHaveValue('/Users/ren/code');
+    await userEvent.click(screen.getByRole('button', { name: 'Grant' }));
+    expect(folders.current.grant).toHaveBeenCalledWith('/Users/ren/code', false, 'Always');
+  });
+
   it('calls onGranted once the sidecar takes the grant, and not on a refusal', async () => {
     const onGranted = vi.fn();
     withFolders({ grant: vi.fn(async () => false) });

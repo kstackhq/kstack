@@ -64,6 +64,7 @@ function componentStackOf(componentStack: unknown): string | undefined {
   try {
     return typeof componentStack === 'string' ? cap(componentStack, MAX_COMPONENT_STACK_CHARS) : undefined;
   } catch {
+    /* v8 ignore next -- reading a primitive string's length and slice cannot throw */
     return undefined;
   }
 }
