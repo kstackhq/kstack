@@ -217,7 +217,8 @@ Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo
   the same binary on save (`oxc.oxc-vscode`, resolved from `node_modules`).
 - The **React compiler** is on in two places that must stay in step: the babel transform
   (`vite.config.ts`) and the lint rules inside `eslint-plugin-react-hooks` (`recommended-latest` in
-  `eslint.config.ts`). A bail-out the transform would take silently is a lint error instead.
+  `eslint.config.ts`). A bail-out on a broken rule is a lint error; one on syntax the compiler
+  does not support yet (a `Todo`, such as destructuring a computed key) is silent.
 - **Write as though the compiler weren't there** — it bails per-function, silently. So
   `react-hooks/exhaustive-deps` is an **error**, and manual `useMemo`/`useCallback` are ordinary
   tools.

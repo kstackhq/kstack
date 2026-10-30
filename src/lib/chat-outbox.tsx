@@ -287,8 +287,11 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
     /** Hands this chat's draft to another, joined onto whatever is waiting there, and drops the entry. */
     moveDraft: (toChatID: string | null) =>
       setEntries((current) => {
-        const { [key]: from, ...rest } = current;
+        const from = current[key];
         if (from === undefined) return current;
+        // Copied and deleted: the React compiler skips a hook that destructures a computed key.
+        const rest = { ...current };
+        delete rest[key];
         if (!from.draft) return rest;
         const to = outboxKey(mode, toChatID);
         const waiting = rest[to]?.draft ?? '';
