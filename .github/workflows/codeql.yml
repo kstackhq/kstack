@@ -66,16 +66,20 @@ jobs:
               - proto/**
               - src-tauri/**
 
-      # The categories of every language the pull request skips, for reuse-main.
+      # The categories of every language the pull request skips, each with its
+      # language and OS for the job name, for reuse-main.
       - id: skipped
         if: github.event_name == 'pull_request'
         env:
           CHANGED: ${{ toJSON(steps.filter.outputs) }}
         run: |
           jq -c '[
-            (select(.go != "true") | "/language:go/os:" + ("linux", "macos", "windows")),
-            (select(.typescript != "true") | "/language:javascript-typescript"),
-            (select(.rust != "true") | "/language:rust/os:" + ("linux", "macos", "windows"))
+            (select(.go != "true") | ("linux", "macos", "windows")
+              | {lang: "go", os: ., category: "/language:go/os:\(.)"}),
+            (select(.typescript != "true")
+              | {lang: "typescript", category: "/language:javascript-typescript"}),
+            (select(.rust != "true") | ("linux", "macos", "windows")
+              | {lang: "rust", os: ., category: "/language:rust/os:\(.)"})
           ]' <<<"$CHANGED" | sed 's/^/categories=/' >> "$GITHUB_OUTPUT"
 
   # CodeQL analyzes only the files the runner's OS compiles, so Go and Rust
@@ -228,7 +232,7 @@ jobs:
   # It uploads after the real analyses: code scanning grades the check when
   # uploads first arrive and reports any category still missing as not found.
   reuse-main:
-    name: CodeQL · Reuse main (${{ matrix.category }})
+    name: CodeQL · Reuse main (${{ matrix.os && format('{0}, {1}', matrix.lang, matrix.os) || matrix.lang }})
     needs:
       - changes
       - go
@@ -242,7 +246,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        category: ${{ fromJSON(needs.changes.outputs.skipped) }}
+        include: ${{ fromJSON(needs.changes.outputs.skipped) }}
     steps:
       - name: Download main's analysis
         env:
