@@ -59,8 +59,8 @@ jobs:
               - proto/**
               - src-tauri/**
 
-  # The matrix stays fixed and every step past checkout is gated, so each
-  # required check reports on every pull request, green when skipped. A
+  # The matrix stays fixed and the analysis steps are gated, so a pull request
+  # runs every language's job, analyzing only what changed. A
   # skipped language uploads main's latest analysis under its category: its
   # files are unchanged, so code scanning can still compare the pull request to
   # main, and finds nothing new or fixed in that language. An empty SARIF would
