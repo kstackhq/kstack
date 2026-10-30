@@ -32,17 +32,12 @@ import { cn } from '@kubetail/ui/lib/utils';
 
 import { useDialogHost } from '@/lib/dialog';
 
-// Did the event land on a `data-tauri-drag-region` strip?
-function isDragRegionEvent(event: Event): boolean {
-  const { target } = event;
-  return target instanceof Element && target.closest('[data-tauri-drag-region]') !== null;
-}
-
 // Restores window dragging while a dialog is open: the backdrop covers the
 // shell's title-bar drag band, so this band must be portaled to `document.body`
 // (the backdrop's stacking context) to sit above it. Height must match
-// `app-bar.tsx`'s bar (48px on every platform). A press here
-// reads as an outside-press to base-ui — cancelled below.
+// `app-bar.tsx`'s bar (48px on every platform). A press here does not close
+// the dialog: base-ui dismisses a modal dialog only on a press whose target is
+// its backdrop.
 // See docs/adr/2026-08-09-per-platform-window-chrome.md
 function WindowDragBand() {
   return createPortal(
@@ -71,15 +66,7 @@ export function Dialog({ open, onOpenChange, title, description, className, chil
   return (
     <DialogRoot
       open={open}
-      onOpenChange={(nextOpen, eventDetails) => {
-        // Dragging the window must not close the dialog; Escape, the close
-        // button and the backdrop still dismiss it.
-        if (!nextOpen && eventDetails.reason === 'outside-press' && isDragRegionEvent(eventDetails.event)) {
-          eventDetails.cancel();
-          return;
-        }
-        onOpenChange(nextOpen);
-      }}
+      onOpenChange={(nextOpen) => onOpenChange(nextOpen)}
       // Close transition settled — the host may now unmount us.
       onOpenChangeComplete={(nextOpen) => {
         if (!nextOpen) host?.notifyClosed();

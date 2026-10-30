@@ -58,17 +58,6 @@ describe('Dialog', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('stays open when an outside press lands on any drag region', async () => {
-    const onOpenChange = renderDialog();
-    await screen.findByRole('dialog');
-
-    backdrop().setAttribute('data-tauri-drag-region', '');
-    press(backdrop());
-
-    expect(onOpenChange).not.toHaveBeenCalled();
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-  });
-
   it('closes on Escape', async () => {
     const onOpenChange = renderDialog();
     await screen.findByRole('dialog');
