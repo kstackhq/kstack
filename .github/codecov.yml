@@ -1,25 +1,13 @@
-# Coverage gate. CI uploads each suite's report (ci.yml); Codecov merges every
-# upload of a commit and posts the statuses below.
-
-codecov:
-  # No status until CI's own jobs are green.
-  require_ci_to_pass: true
+# Coverage. CI uploads each suite's report and Codecov merges every upload of
+# a commit. CI's Coverage · Gate job (tools/coveragegate) reads the merged
+# result and applies the gate, so Codecov posts no status or check of its own.
 
 coverage:
   status:
-    # The gate: every changed line a report measured is covered. A line no
-    # report measured (a type, a constant, a file no CI target builds) is not
-    # counted.
-    patch:
-      default:
-        target: 100%
-    # The backstop, against the base commit. It alone sees a PR that deletes
-    # or weakens a test. Twenty uncached runs of the Go suite spread 0.058
-    # points; TypeScript did not move.
-    project:
-      default:
-        target: auto
-        threshold: 0.1%
+    patch: false
+    project: false
+
+github_checks: false
 
 # A language whose jobs the path filter skipped keeps its last report.
 flag_management:
@@ -41,12 +29,8 @@ component_management:
       name: Rust
       paths:
         - src-tauri/**
-      statuses:
-        - type: project
-          target: auto
-          threshold: 0.1%
 
-# No comment on the PR: the statuses and the diff's annotations say it all.
+# No comment on the PR: Coverage · Gate reports.
 comment: false
 
 # A Go profile names files by import path.

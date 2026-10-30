@@ -73,7 +73,7 @@ test-changed:
 prompts:
 	cd sidecar && go test ./internal/app ./internal/agent/chat -run MatchesItsGolden -update
 
-# Go coverage of this OS, per function. Not a gate: codecov/patch on the PR is.
+# Go coverage of this OS, per function. Not a gate: CI's Coverage · Gate is.
 # `go tool cover -html=sidecar/coverage.out` opens it line by line.
 cover-go:
 	cd sidecar && go test -coverpkg=./... -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
@@ -92,7 +92,7 @@ check-cache:
 check-switch:
 	cd sidecar && go test -tags liveswitch -count=1 -v -run TestAChatSwitchesAcrossEveryDialect ./internal/agent/catalog
 
-# Frontend coverage, per file. Not a gate: codecov/patch on the PR is.
+# Frontend coverage, per file. Not a gate: CI's Coverage · Gate is.
 cover-js:
 	pnpm vitest run --mode coverage
 

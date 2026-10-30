@@ -638,6 +638,48 @@ jobs:
           flags: rust-${{ matrix.os }}
           fail_ci_if_error: true
 
+  # Reads Codecov's merged result once every upload above is processed, and
+  # fails on an uncovered changed line or a drop in the total
+  # (tools/coveragegate). Codecov's public API needs no token, so a fork's PR
+  # runs it too. A language whose job failed is not waited for.
+  coverage-gate:
+    name: Coverage · Gate
+    needs:
+      - go-coverage
+      - typescript-coverage
+      - rust-coverage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github
+            tools
+      - uses: ./.github/actions/setup-environment
+        with:
+          setup-go: "true"
+      - name: Gate on Codecov's merged result
+        working-directory: ./tools
+        env:
+          GO_RESULT: ${{ needs.go-coverage.result }}
+          TYPESCRIPT_RESULT: ${{ needs.typescript-coverage.result }}
+          RUST_RESULT: ${{ needs.rust-coverage.result }}
+          # Codecov records a PR's uploads under its head, not the merge commit.
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR: ${{ github.event.pull_request.number || 0 }}
+        run: |
+          flags=""
+          if [ "$GO_RESULT" = success ]; then flags="$flags,go-linux,go-darwin,go-windows"; fi
+          if [ "$TYPESCRIPT_RESULT" = success ]; then flags="$flags,typescript"; fi
+          if [ "$RUST_RESULT" = success ]; then flags="$flags,rust-linux,rust-macos,rust-windows"; fi
+          go run ./coveragegate -sha "$SHA" -pr "$PR" -flags "${flags#,}" \
+            -run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
   # Rust · Vet's clippy type-checks the build; this links the real binary,
   # then runs the tests.
   rust-test:

@@ -228,3 +228,4 @@ usually just documentation in the wrong place.
 | 2026-10-29 | [The omnibox is the cluster picker](2026-10-29-the-omnibox-is-the-cluster-picker.md) | frontend | Accepted |
 | 2026-10-30 | [Codecov gates the changed lines, and the total is a backstop](2026-10-30-codecov-gates-the-changed-lines.md) | repo | Accepted |
 | 2026-10-30 | [TypeScript coverage is measured without the React compiler](2026-10-30-typescript-coverage-is-measured-without-the-react-compiler.md) | frontend | Accepted |
+| 2026-10-30 | [The coverage gate runs in CI, on Codecov's merged result](2026-10-30-the-coverage-gate-runs-in-ci-on-codecovs-merged-result.md) | repo | Accepted |

@@ -3,6 +3,7 @@ title: Codecov gates the changed lines, and the total is a backstop
 date: 2026-10-30
 scope: repo
 status: Accepted
+amended_by: [The coverage gate runs in CI, on Codecov's merged result](2026-10-30-the-coverage-gate-runs-in-ci-on-codecovs-merged-result.md)
 ---
 
 # Codecov gates the changed lines, and the total is a backstop
