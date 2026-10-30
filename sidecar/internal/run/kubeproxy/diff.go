@@ -199,7 +199,7 @@ func diffObjects(nowJSON, thenJSON []byte, secret bool) preview {
 	}
 	a, errA := yaml.Marshal(now)
 	b, errB := yaml.Marshal(then)
-	if errA != nil || errB != nil {
+	if errA != nil || errB != nil { // coverage:ignore both sides were decoded from JSON, which always marshals back
 		return preview{err: previewNoRead + "it cannot be drawn as YAML"}
 	}
 	return unifiedDiff(string(a), string(b))

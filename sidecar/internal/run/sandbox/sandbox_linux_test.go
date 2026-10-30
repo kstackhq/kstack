@@ -1323,3 +1323,13 @@ func TestAClosedSandboxMakesNoCommand(t *testing.T) {
 	_, err = s.Command(t.Context(), r)
 	assert.ErrorIs(t, err, errClosed)
 }
+
+// A closed Sandbox's probe starts no run either: the probe fails on it.
+func TestAClosedSandboxTriesNoRun(t *testing.T) {
+	s := lifeline(t)
+	s.self, s.bwrap = os.Args[0], "/usr/bin/bwrap"
+	require.NoError(t, s.Close())
+
+	_, err := s.try(t.Context(), time.Minute)
+	assert.ErrorIs(t, err, errClosed)
+}

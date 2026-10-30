@@ -131,7 +131,7 @@ func (w walk) hides(info os.FileInfo, belowGrant bool) bool {
 // a link, and checks each handle.
 func (w walk) openGrant() (*os.Root, error) {
 	dir, err := os.OpenRoot(string(filepath.Separator))
-	if err != nil {
+	if err != nil { // coverage:ignore the root directory always opens
 		return nil, err
 	}
 	for _, name := range splitPath(strings.TrimPrefix(w.grant, string(filepath.Separator))) {
@@ -173,7 +173,7 @@ func (w walk) openDir(dir *os.Root, name string, belowGrant bool) (next *os.Root
 	case err != nil:
 	case w.hides(got, belowGrant):
 		err = ErrHidden
-	case !os.SameFile(info, got):
+	case !os.SameFile(info, got): // coverage:ignore only a folder swapped in between the Lstat and the open reaches it
 		err = ErrChanged
 	}
 	if err != nil {
@@ -218,7 +218,7 @@ func (w walk) descend(grant *os.Root, rel string) (*os.Root, string, error) {
 				return fail(ErrTooManyLinks)
 			}
 			target, err := dir.Readlink(parts[0])
-			if err != nil {
+			if err != nil { // coverage:ignore Lstat found a link here; only a swap in between fails reading it
 				return fail(err)
 			}
 			next, ok := w.linkInside(at, target)

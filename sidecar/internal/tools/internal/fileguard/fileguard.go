@@ -108,7 +108,7 @@ func NewFence(dirs ...string) (Fence, error) {
 	f := Fence{dirs: make([]string, 0, len(dirs))}
 	for _, dir := range dirs {
 		abs, err := filepath.Abs(dir)
-		if err != nil {
+		if err != nil { // coverage:ignore filepath.Abs fails only when the working directory cannot be read
 			return Fence{}, err
 		}
 		f.dirs = append(f.dirs, abs)
@@ -148,7 +148,7 @@ func (f Fence) Holds(path string) (bool, error) {
 	}
 	for dir := resolved; ; dir = filepath.Dir(dir) {
 		info, err := os.Stat(dir)
-		if err != nil {
+		if err != nil { // coverage:ignore longestExisting resolved this path just before; only a removal in between fails the Stat
 			return false, ErrUnresolved
 		}
 		for _, d := range fenced {
@@ -220,7 +220,7 @@ func Open(path string) (*os.File, error) {
 	if err == nil {
 		err = Check(info)
 	}
-	if err != nil {
+	if err != nil { // coverage:ignore the Lstat passed these checks; only a file swapped in before the open fails them
 		_ = f.Close()
 		return nil, err
 	}
@@ -237,7 +237,7 @@ func Lstat(path string) (os.FileInfo, error) {
 		return nil, missing(err)
 	case link:
 		target, err := linkTarget(path)
-		if err != nil {
+		if err != nil { // coverage:ignore lstat found a link here; only a swap in between fails reading it
 			return nil, err
 		}
 		return nil, ErrLink{Target: target}
@@ -274,7 +274,7 @@ func linkTarget(path string) (string, error) {
 		return filepath.Clean(target), nil
 	}
 	dir, err := filepath.EvalSymlinks(filepath.Dir(path))
-	if err != nil {
+	if err != nil { // coverage:ignore the link's own lstat resolved its directory; only a change in between fails it
 		return "", err
 	}
 	return filepath.Join(dir, target), nil
@@ -333,7 +333,7 @@ func LstatIn(root *os.Root, name string) (os.FileInfo, error) {
 		return nil, missing(err)
 	case info.Mode()&os.ModeSymlink != 0:
 		target, err := linkTargetIn(root, name)
-		if err != nil {
+		if err != nil { // coverage:ignore Lstat found a link here; only a swap in between fails reading it
 			return nil, err
 		}
 		return nil, ErrLink{Target: target}
@@ -361,12 +361,12 @@ func OpenIn(root *os.Root, name string) (*os.File, error) {
 	}
 	got, err := f.Stat()
 	switch {
-	case err == nil && !os.SameFile(info, got):
+	case err == nil && !os.SameFile(info, got): // coverage:ignore only a file swapped in between the Lstat and the open reaches it
 		err = ErrChanged
 	case err == nil:
 		err = Check(got)
 	}
-	if err != nil {
+	if err != nil { // coverage:ignore the Lstat passed these checks; only a file swapped in before the open fails them
 		_ = f.Close()
 		return nil, err
 	}

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -444,6 +445,28 @@ func TestARefusedReadIsReported(t *testing.T) {
 
 	assert.Empty(t, r.Diff)
 	assert.Equal(t, previewNoRead+"no reading", r.DiffError)
+}
+
+// A read the preview cannot make or finish is a cluster that did not answer,
+// and the write still asks: a base whose host no URL can carry, and an answer
+// cut short of its declared length.
+func TestAReadThatFailsIsReported(t *testing.T) {
+	badHost := upstreamFunc(func(context.Context) (Endpoint, error) {
+		return Endpoint{Base: &url.URL{Scheme: "https", Host: "bad host"}, Client: http.DefaultClient}, nil
+	})
+	cut := newAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		_, _ = io.WriteString(w, `{"kind":`)
+	}).upstream()
+	for name, up := range map[string]Upstream{"a bad host": badHost, "a cut answer": cut} {
+		asker := make(fakeAsker, 1)
+		s := serveAsking(t, up, asker)
+
+		r := askedRequest(t, s, asker, "PUT", configMapPath, "application/json", objectNow)
+
+		assert.Empty(t, r.Diff, name)
+		assert.Equal(t, previewNoRead+"the cluster did not answer", r.DiffError, name)
+	}
 }
 
 // An answer that is not a JSON object names the side it came from.

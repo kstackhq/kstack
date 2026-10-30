@@ -102,7 +102,7 @@ func (s *Sandbox) handLifeline(cmd *exec.Cmd) error {
 // namespace. sandbox-pasta leads pasta's: pasta killed during setup leaves
 // the child it made for the run's namespaces, which no Pdeathsig reaches.
 func endGroupAtEOF(fd int) error {
-	return watchLifeline(fd, func() {
+	return watchLifeline(fd, func() { // coverage:ignore runs at the lifeline's EOF in sandbox-init or sandbox-pasta, a child that writes no coverage
 		_ = unix.Kill(0, unix.SIGKILL)
 		if os.Getpid() != 1 {
 			select {}

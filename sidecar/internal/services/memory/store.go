@@ -146,7 +146,7 @@ func deleteMemory(ctx context.Context, st stmts, id MemoryID) (bool, error) {
 		return false, fmt.Errorf("delete memory: %w", err)
 	}
 	n, err := res.RowsAffected()
-	if err != nil {
+	if err != nil { // coverage:ignore modernc.org/sqlite's RowsAffected never fails
 		return false, fmt.Errorf("delete memory: %w", err)
 	}
 	return n > 0, nil

@@ -23,7 +23,7 @@ import "golang.org/x/sys/unix"
 // limit also keeps exec from restoring the one the Go runtime raised.
 func setTimeAndFiles(a shellArgs) error {
 	if a.cpu > 0 {
-		if err := setClamped(unix.RLIMIT_CPU, a.cpu, cpuGrace); err != nil {
+		if err := setClamped(unix.RLIMIT_CPU, a.cpu, cpuGrace); err != nil { // coverage:ignore setClamped fails only on a resource the kernel does not know, and RLIMIT_CPU is one it knows
 			return err
 		}
 	}

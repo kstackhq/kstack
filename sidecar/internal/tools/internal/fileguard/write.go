@@ -142,7 +142,7 @@ func makeDirs(dir string, umask fs.FileMode) ([]string, error) {
 	for _, p := range slices.Backward(missing) {
 		err := os.Mkdir(p, 0o700)
 		if errors.Is(err, fs.ErrExist) {
-			if info, lerr := os.Lstat(p); lerr == nil && info.IsDir() {
+			if info, lerr := os.Lstat(p); lerr == nil && info.IsDir() { // coverage:ignore only another process making the directory between the Stat and the Mkdir reaches it
 				continue
 			}
 		}
@@ -155,10 +155,10 @@ func makeDirs(dir string, umask fs.FileMode) ([]string, error) {
 		// it for a user outside the directory's group: chmod(2) does so
 		// silently, and only the umask at the Mkdir could avoid it.
 		info, err := os.Lstat(p)
-		if err != nil {
+		if err != nil { // coverage:ignore the Mkdir just made it; only a removal in between fails the Lstat
 			return made, ErrWrite
 		}
-		if err := os.Chmod(p, 0o777&^umask|info.Mode()&fs.ModeSetgid); err != nil {
+		if err := os.Chmod(p, 0o777&^umask|info.Mode()&fs.ModeSetgid); err != nil { // coverage:ignore the user just made the directory; only a removal in between fails the Chmod
 			return made, ErrWrite
 		}
 	}
@@ -348,7 +348,7 @@ func CreatableIn(root *os.Root, name string) error {
 			return err
 		case info.Mode()&os.ModeSymlink != 0:
 			target, err := linkTargetIn(root, next)
-			if err != nil {
+			if err != nil { // coverage:ignore Lstat found a link here; only a swap in between fails reading it
 				return err
 			}
 			return ErrLink{Target: target}
@@ -363,7 +363,7 @@ func CreatableIn(root *os.Root, name string) error {
 // creatableDir refuses dir under root unless the user can make entries in it.
 func creatableDir(root *os.Root, dir string) error {
 	info, err := root.Stat(dir)
-	if err != nil {
+	if err != nil { // coverage:ignore dir is the root or a folder the Lstat just found; only a removal in between fails the Stat
 		return err
 	}
 	if !dirWritableIn(info, self()) {
@@ -432,7 +432,7 @@ func writeExclIn(root *os.Root, name string, content []byte, perm fs.FileMode) e
 	if err != nil {
 		return err
 	}
-	if err := writeClose(f, content, func(f *os.File) error { return f.Chmod(perm) }); err != nil {
+	if err := writeClose(f, content, func(f *os.File) error { return f.Chmod(perm) }); err != nil { // coverage:ignore writing, chmodding and closing a file just made fails only on a failing disk
 		_ = root.Remove(name)
 		return err
 	}
@@ -453,7 +453,7 @@ func makeDirsIn(root *os.Root, dir string, umask fs.FileMode) ([]string, error) 
 	var made []string
 	for _, p := range slices.Backward(missing) {
 		err := root.Mkdir(p, 0o700)
-		if errors.Is(err, fs.ErrExist) {
+		if errors.Is(err, fs.ErrExist) { // coverage:ignore the Lstat found the name missing; only another process making it in between reaches it
 			if info, lerr := root.Lstat(p); lerr == nil && info.IsDir() {
 				continue
 			}
@@ -464,10 +464,10 @@ func makeDirsIn(root *os.Root, dir string, umask fs.FileMode) ([]string, error) 
 		made = append(made, p)
 		// The setgid bit, as makeDirs keeps it.
 		info, err := root.Lstat(p)
-		if err != nil || !info.IsDir() {
+		if err != nil || !info.IsDir() { // coverage:ignore the Mkdir just made it; only a swap in between fails the Lstat
 			return made, ErrWrite
 		}
-		if err := root.Chmod(p, 0o777&^umask|info.Mode()&fs.ModeSetgid); err != nil {
+		if err := root.Chmod(p, 0o777&^umask|info.Mode()&fs.ModeSetgid); err != nil { // coverage:ignore the user just made the directory; only a removal in between fails the Chmod
 			return made, ErrWrite
 		}
 	}

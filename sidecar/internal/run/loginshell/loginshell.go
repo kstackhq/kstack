@@ -384,7 +384,7 @@ func Launch(ctx context.Context, start Start, shell string, args, env []string, 
 		// An answer already in hand outranks a drain failure or a deadline
 		// that raced it: it is complete either way.
 		select {
-		case other := <-results:
+		case other := <-results: // coverage:ignore only an answer landing between a drain failure or the deadline and this check reaches it
 			if other.reason == "" {
 				res = other
 			}

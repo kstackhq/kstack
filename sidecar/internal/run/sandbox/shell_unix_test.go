@@ -153,3 +153,27 @@ func TestSetTimeAndFilesSetsTheOpenFilesLimit(t *testing.T) {
 	require.NoError(t, unix.Getrlimit(unix.RLIMIT_NOFILE, &got))
 	assert.Equal(t, unix.Rlimit{Cur: own.Cur, Max: own.Cur}, got)
 }
+
+// The CPU limit is set soft and hard, the grace between them. Set far past
+// any time a test runs, it changes nothing a test notices; the hard limit it
+// lowers stays lowered for the rest of the process.
+func TestSetTimeAndFilesSetsTheCPULimit(t *testing.T) {
+	var own unix.Rlimit
+	require.NoError(t, unix.Getrlimit(unix.RLIMIT_CPU, &own))
+	const far = 1 << 40 // seconds
+
+	require.NoError(t, setTimeAndFiles(shellArgs{cpu: far}))
+
+	var got unix.Rlimit
+	require.NoError(t, unix.Getrlimit(unix.RLIMIT_CPU, &got))
+	assert.Equal(t, unix.Rlimit{Cur: min(far, own.Max), Max: min(far+cpuGrace, own.Max)}, got)
+}
+
+// A run with neither limit sets none.
+func TestSetTimeAndFilesWithNoLimitsSetsNone(t *testing.T) {
+	assert.NoError(t, setTimeAndFiles(shellArgs{}))
+}
+
+func TestSetClampedFailsOnAnUnknownResource(t *testing.T) {
+	assert.ErrorIs(t, setClamped(-1, 7, 0), unix.EINVAL)
+}

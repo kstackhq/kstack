@@ -97,6 +97,26 @@ func TestAPastaThatFailsTheProbeSaysWhy(t *testing.T) {
 	assert.Equal(t, pasta+": Failed to open() /dev/net/tun", reason)
 }
 
+// A pasta probe whose policy never answers fails at its bound, as the bwrap
+// probe's does.
+func TestThePastaProbePolicyIsBounded(t *testing.T) {
+	release := make(chan struct{})
+	// Cleanups run last first, so the build is released before it is waited on.
+	t.Cleanup(policyBuilds.Wait)
+	t.Cleanup(func() { close(release) })
+	old := buildProbePolicy
+	buildProbePolicy = func(*Sandbox, string, string, string) Policy {
+		<-release
+		return Policy{}
+	}
+	t.Cleanup(func() { buildProbePolicy = old })
+	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
+
+	_, err := s.tryPasta(t.Context(), "/bin/true", 10*time.Millisecond)
+
+	assert.EqualError(t, err, "no answer in 10ms")
+}
+
 // A probe past its bound ends pasta's child too. Killed during setup, pasta
 // leaves the child it made for the run's namespaces holding the probe's pipes,
 // so the probe would wait on them forever.

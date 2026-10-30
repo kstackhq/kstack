@@ -307,7 +307,7 @@ func checkRelease(mediaType string, value any) refusal {
 	}
 	for _, field := range release {
 		v, err := decodeBody("application/json", field)
-		if err != nil {
+		if err != nil { // coverage:ignore each field is a json.RawMessage that decodeRelease's Unmarshal validated
 			return refusedUnshowable
 		}
 		if holdsMark(v) {

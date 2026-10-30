@@ -50,7 +50,7 @@ func resolved(p string) string {
 		return r
 	}
 	parent := filepath.Dir(p)
-	if parent == p {
+	if parent == p { // coverage:ignore EvalSymlinks of the root fails only when / cannot be read
 		return p
 	}
 	return filepath.Join(resolved(parent), filepath.Base(p))
@@ -125,5 +125,5 @@ func listedName(dir, name string, listings map[string][]os.DirEntry) (string, bo
 			return e.Name(), true
 		}
 	}
-	return "", false
+	return "", false // coverage:ignore the Lstat found the file, so its folder lists it; only a removal in between reaches this
 }

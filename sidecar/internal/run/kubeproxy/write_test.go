@@ -838,6 +838,14 @@ func TestAWriteWithAQueryThatDoesNotParseIsRefused(t *testing.T) {
 	assert.Empty(t, api.requests())
 }
 
+// A JSON body that does not parse has no keys uniqueKeys can vouch for.
+func TestUniqueKeysRefusesABodyThatDoesNotParse(t *testing.T) {
+	for _, body := range []string{``, `{"a":`, `[1,`} {
+		assert.False(t, uniqueKeys("application/json", []byte(body)), body)
+	}
+	assert.True(t, uniqueKeys("application/json", []byte(`{"a":[1,{"b":2}]}`)))
+}
+
 // A background command's grant has no asker, so it refuses every write as
 // today, under Auto and under an Allow rule alike, and records nothing.
 func TestABackgroundWriteIsRefused(t *testing.T) {

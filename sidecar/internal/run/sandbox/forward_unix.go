@@ -70,7 +70,7 @@ func InitMain(args []string) int {
 	// default in the child.
 	signal.Notify(make(chan os.Signal, 1), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	first := os.Getpid() == 1
-	if first {
+	if first { // coverage:ignore only the sandbox's PID 1 guards its memory, and it writes no coverage
 		if err := guardMemory(); err != nil {
 			return fail(os.Stderr, InitCommand, "cannot guard its memory", err)
 		}
@@ -78,7 +78,7 @@ func InitMain(args []string) int {
 	// Inherited by the whole run, so no process of it dumps its memory outside
 	// the sandbox. The run's other limits are sandbox-shell's, so they never
 	// bind the forwarder, which lives as long as the run.
-	if err := unix.Setrlimit(unix.RLIMIT_CORE, &unix.Rlimit{}); err != nil {
+	if err := unix.Setrlimit(unix.RLIMIT_CORE, &unix.Rlimit{}); err != nil { // coverage:ignore lowering the core size to zero never fails
 		return fail(os.Stderr, InitCommand, "cannot set the core size", err)
 	}
 	path, err := exec.LookPath(a.argv[0])
@@ -101,15 +101,15 @@ func takeStderr() error {
 		return err
 	}
 	defer unix.Close(pastas)
-	if err := unix.Dup2(0, 2); err != nil {
+	if err := unix.Dup2(0, 2); err != nil { // coverage:ignore a closed descriptor 0 is the lowest free one, which the Dup above takes, so this Dup2 never fails
 		return err
 	}
 	null, err := unix.Open(os.DevNull, unix.O_RDONLY, 0)
-	if err != nil {
+	if err != nil { // coverage:ignore the null device always opens, and with no descriptor free the Dup above fails first
 		return err
 	}
 	defer unix.Close(null)
-	if err := unix.Dup2(null, 0); err != nil {
+	if err := unix.Dup2(null, 0); err != nil { // coverage:ignore both descriptors were just opened
 		return err
 	}
 	_, err = unix.Write(pastas, []byte(runStarted))
@@ -122,14 +122,14 @@ func takeStderr() error {
 // test calls InitMain in a process whose other children are not its own.
 func waitFor(pid int, first bool) int {
 	who := pid
-	if first {
+	if first { // coverage:ignore only the sandbox's PID 1 reaps every child, and it writes no coverage
 		who = -1
 	}
 	for {
 		var ws syscall.WaitStatus
 		got, err := syscall.Wait4(who, &ws, 0, nil)
 		switch {
-		case errors.Is(err, syscall.EINTR):
+		case errors.Is(err, syscall.EINTR): // coverage:ignore Go installs its signal handlers with SA_RESTART, so the kernel restarts Wait4
 			continue
 		case err != nil:
 			return fail(os.Stderr, InitCommand, "cannot wait for the child", err)

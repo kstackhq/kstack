@@ -118,3 +118,55 @@ func TestAWatchEndsWithTheService(t *testing.T) {
 	_, err := h.svc.Watch(t.Context(), clusterA)
 	require.ErrorIs(t, err, ErrStopping)
 }
+
+// A watch whose reader stops reading still ends with the service, in its
+// snapshot or in a change: more frames wait than the buffer of one holds, so a
+// send blocks until the stop.
+func TestAWatchNobodyReadsEndsWithTheService(t *testing.T) {
+	for _, inSnapshot := range []bool{true, false} {
+		h := newHarness(t)
+		if inSnapshot {
+			insertModelNotes(t, h.db, "a", "b", "c", "d")
+		}
+		st := h.watch(t, clusterA)
+		if !inSnapshot {
+			expect(t, st, apimeta.DeltaFrameBookmark, "")
+			insertModelNotes(t, h.db, "a", "b", "c", "d")
+			h.db.Notify(appdb.KeyMemories)
+		}
+		expect(t, st, apimeta.DeltaFrameAdded, "a")
+
+		require.NoError(t, h.svc.stop(t.Context()))
+		for range st.Frames {
+		}
+		require.NoError(t, st.Err())
+	}
+}
+
+// A read that fails after the snapshot ends the watch with its reason.
+func TestAWatchWhoseReadFailsEndsWithItsReason(t *testing.T) {
+	h := newHarness(t)
+	h.save(t, clusterA, "n")
+	st := h.watch(t, clusterA)
+	expect(t, st, apimeta.DeltaFrameAdded, "n")
+	expect(t, st, apimeta.DeltaFrameBookmark, "")
+
+	unscannable(t, h.db)
+	h.db.Notify(appdb.KeyMemories)
+	testutil.WaitClosed(t, st.Frames, "the frames")
+	require.ErrorContains(t, st.Err(), "scan memory")
+}
+
+// insertModelNotes files the model's notes under clusterA in one transaction, so
+// a watch reads them all in one pass.
+func insertModelNotes(t *testing.T, db *appdb.DB, names ...string) {
+	t.Helper()
+	tx, err := db.Write.Begin()
+	require.NoError(t, err)
+	for _, name := range names {
+		_, err := tx.Exec(`INSERT INTO memories (id, cluster_id, name, body, written_by, created_at, updated_at)
+		VALUES (?, ?, ?, 'b', 'model', 0, 0)`, appdb.NewID(), string(clusterA), name)
+		require.NoError(t, err)
+	}
+	require.NoError(t, tx.Commit())
+}

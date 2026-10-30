@@ -139,6 +139,12 @@ func TestADeniedSecretReadIsRedactedAndTwoHundred(t *testing.T) {
 		assert.Equal(t, permissions.Denied, r.d)
 		assert.Equal(t, c.why, r.why)
 	}
+
+	// A refusal the asker cannot record still answers redacted.
+	s := serveIn(t, answering(t, secretJSON).upstream(), sessionIn(permissions.Ask, deny), errAsker{errors.New("store refused")})
+	resp, body := s.do(t, s.getSecret(t))
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	assert.JSONEq(t, redactedSecretJSON, body)
 }
 
 // Under Ask a Secret read reaches the cluster only once the user decides:

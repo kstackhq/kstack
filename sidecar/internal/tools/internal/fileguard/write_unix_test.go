@@ -77,6 +77,35 @@ func TestReplaceableRefusesWhatItCannotWrite(t *testing.T) {
 	assert.Equal(t, dir, ro.Prefix)
 }
 
+// A file whose directory is gone since its Lstat cannot be judged: the error
+// passes on, under a path and under a root alike.
+func TestReplaceableAnswersADirectoryGone(t *testing.T) {
+	path, info := existing(t)
+	gone := filepath.Join(filepath.Dir(path), "gone", "x.txt")
+	assert.ErrorIs(t, Replaceable(gone, info), os.ErrNotExist)
+
+	root := testRoot(t)
+	assert.ErrorIs(t, ReplaceableIn(root, filepath.Join("gone", "x.txt"), info), os.ErrNotExist)
+}
+
+// A group that cannot be read off the new file fails the replace's finish.
+func TestKeepGroupAnswersAFileItCannotStat(t *testing.T) {
+	path, info := existing(t)
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	assert.ErrorIs(t, keepGroup(f, info), os.ErrClosed)
+}
+
+// A directory sync that cannot open the directory changes nothing and fails
+// nothing: the file is already in place.
+func TestSyncDirIgnoresADirectoryGone(t *testing.T) {
+	path, _ := existing(t)
+	syncDir(filepath.Join(filepath.Dir(path), "gone"))
+	root := testRoot(t)
+	syncDirIn(root, "gone")
+}
+
 // A new file needs the deepest part of its path that exists to be a directory
 // the user can write and search, and a refusal names that part.
 func TestCreatableRefuses(t *testing.T) {

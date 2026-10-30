@@ -1154,6 +1154,24 @@ func TestASandboxedRunThatCannotBePreparedCouldNotStart(t *testing.T) {
 	}
 }
 
+// A sandboxed run whose tool home cannot be made could not start, naming the
+// tool home, and nothing runs.
+func TestASandboxedRunWithNoToolHomeCouldNotStart(t *testing.T) {
+	tl := tool(t)
+	boxer := &fakeSandboxer{}
+	tl.sandboxer = boxer
+	rt := testRuntime(t)
+	home := tools.ToolHomePath(rt.Dir)
+	require.NoError(t, os.MkdirAll(filepath.Dir(home), 0o700))
+	require.NoError(t, os.WriteFile(home, nil, 0o600))
+
+	text, isError := tl.Run(t.Context(), rt, command("echo ran"))
+
+	assert.True(t, isError)
+	assert.True(t, strings.HasPrefix(text, "could not start: the tool home "+home+" could not be made: "), text)
+	assert.Empty(t, boxer.seen())
+}
+
 // Stored arguments whose workdir is absolute only on Unix, where alone a run
 // could have written them, read the same. A case here is never edited.
 func TestActionOfReadsOldUnixRowsTheSame(t *testing.T) {

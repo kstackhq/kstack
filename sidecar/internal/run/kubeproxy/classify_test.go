@@ -107,6 +107,8 @@ func TestEveryRequestIsClassified(t *testing.T) {
 	assert.Equal(t, "Create namespaces/payments on dev-eks", act.Summary)
 	act = classifyOf("POST", "/api/v1/namespaces", jsonType, `{"metadata":{"generateName":"payments-"}}`)
 	assert.Empty(t, act.Namespace, "a create naming none is in no namespace's scope")
+	act = classifyOf("POST", "/api/v1/namespaces", jsonType, "")
+	assert.Empty(t, act.Namespace, "a create with no body is in no namespace's scope")
 }
 
 func TestAScaleIsClassFourOnlyInAPlainForm(t *testing.T) {

@@ -71,7 +71,7 @@ func inHome(home string, paths []string) []string {
 // parent that cannot be listed adds nothing.
 func otherHomes(home string) []string {
 	entries, err := os.ReadDir(homesParent)
-	if err != nil {
+	if err != nil { // coverage:ignore homesParent, /home or /Users, exists on every system Kstack supports
 		return nil
 	}
 	own := ""

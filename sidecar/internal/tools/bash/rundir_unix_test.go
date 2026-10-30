@@ -284,6 +284,32 @@ func TestTheLockIsTakenOnce(t *testing.T) {
 	assert.FileExists(t, filepath.Join(runs, lockName(555)))
 }
 
+// The login shell's TMPDIR needs its folder, its lock and room in the folder;
+// lacking any, no TMPDIR is made.
+func TestALoginShellTmpDirThatCannotBeMadeIsAnError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root writes any folder")
+	}
+	file := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	_, _, err := TempDir(filepath.Join(file, "tmp"))()
+	assert.ErrorIs(t, err, syscall.ENOTDIR, "a folder under a file")
+
+	taken := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(taken, lockName(os.Getpid())), 0o700))
+	_, _, err = TempDir(taken)()
+	assert.ErrorIs(t, err, syscall.EISDIR, "a folder where the lock goes")
+
+	shut := t.TempDir()
+	_, cleanup, err := TempDir(shut)()
+	require.NoError(t, err)
+	cleanup()
+	require.NoError(t, os.Chmod(shut, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(shut, 0o700) })
+	_, _, err = TempDir(shut)()
+	assert.ErrorIs(t, err, os.ErrPermission, "a folder it cannot write, its lock already held")
+}
+
 // New sweeps the runs and tmp directories as it starts, on a goroutine of its
 // own.
 func TestNewSweepsADeadSidecarsRunDirectories(t *testing.T) {

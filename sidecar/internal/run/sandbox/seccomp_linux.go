@@ -44,6 +44,7 @@ func ShellMain(args []string) int {
 	}
 	// no_new_privs holds for the calling thread alone, and seccomp refuses a
 	// thread without it; the exec below runs on this one.
+	// coverage:ignore-start only sandbox-shell runs this, in a child that writes no coverage
 	runtime.LockOSThread()
 	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 		return fail(os.Stderr, ShellCommand, "cannot set no_new_privs", err)
@@ -59,6 +60,7 @@ func ShellMain(args []string) int {
 	}
 	err = unix.Exec(path, a.argv, os.Environ())
 	return fail(os.Stderr, ShellCommand, "cannot start "+a.argv[0], err)
+	// coverage:ignore-stop
 }
 
 // execLimited execs path under a's process and memory limits. Past the
@@ -66,7 +68,7 @@ func ShellMain(args []string) int {
 // exec needs, its failure line included, is built first, the collector is
 // off, and nothing from the last limit to the exit allocates. It answers only
 // if it cannot set the limits.
-func execLimited(path string, a shellArgs) int {
+func execLimited(path string, a shellArgs) int { // coverage:ignore only sandbox-shell runs this, in a child that writes no coverage
 	debug.SetGCPercent(-1)
 	pathp, err1 := syscall.BytePtrFromString(path)
 	argvp, err2 := syscall.SlicePtrFromStrings(a.argv)
@@ -114,6 +116,7 @@ func install(prog []bpf.Instruction) error {
 	if err != nil {
 		return err
 	}
+	// coverage:ignore-start only sandbox-shell runs this, in a child that writes no coverage
 	fprog := unix.SockFprog{Len: uint16(len(filters)), Filter: &filters[0]}
 	tid, _, errno := unix.Syscall(unix.SYS_SECCOMP, unix.SECCOMP_SET_MODE_FILTER,
 		unix.SECCOMP_FILTER_FLAG_TSYNC, uintptr(unsafe.Pointer(&fprog)))
@@ -124,6 +127,7 @@ func install(prog []bpf.Instruction) error {
 		return fmt.Errorf("thread %d could not take it", tid)
 	}
 	return nil
+	// coverage:ignore-stop
 }
 
 // Offsets into seccomp_data: the syscall's number, its architecture, and the

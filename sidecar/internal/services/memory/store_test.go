@@ -71,3 +71,19 @@ func TestAWatchOverAFailedStoreEndsWithItsReason(t *testing.T) {
 	}
 	assert.Error(t, st.Err())
 }
+
+// A row that does not scan is an error from every read that finds it.
+func TestARowThatDoesNotScanIsAnError(t *testing.T) {
+	h := newHarness(t)
+	h.save(t, clusterA, "n")
+	id := h.get(t, clusterA, "n").ID
+	unscannable(t, h.db)
+	ctx := t.Context()
+
+	_, err := h.svc.Visible(ctx, clusterA)
+	assert.ErrorContains(t, err, "scan memory")
+	assert.ErrorContains(t, h.svc.Save(ctx, clusterA, "n", "b", ""), "select memory")
+	assert.ErrorContains(t, h.svc.Forget(ctx, clusterA, "n"), "select memory")
+	_, err = h.svc.Update(ctx, id, input(new(clusterA), "c"))
+	assert.ErrorContains(t, err, "select memory")
+}

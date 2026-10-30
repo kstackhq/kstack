@@ -200,6 +200,16 @@ func TestTheFilterAssembles(t *testing.T) {
 	assert.Equal(t, unix.SockFilter{Code: 0x06, K: unix.SECCOMP_RET_ALLOW}, got[len(got)-1])
 }
 
+// A program that does not assemble is refused before the kernel is asked, so
+// this runs in the test's own process.
+func TestAProgramThatDoesNotAssembleIsNotInstalled(t *testing.T) {
+	bad := []bpf.Instruction{bpf.LoadAbsolute{Off: 0, Size: 3}}
+
+	_, err := assemble(bad)
+	require.Error(t, err)
+	assert.Error(t, install(bad))
+}
+
 // limitOf is the soft limit /proc/<pid>/limits names on the line beginning
 // with name.
 func limitOf(t *testing.T, limits, name string) string {

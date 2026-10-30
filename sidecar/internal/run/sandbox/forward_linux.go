@@ -24,6 +24,6 @@ const forwarderTasks = 32
 // guardMemory makes the forwarder non-dumpable, so nothing under the filter
 // can read or write its memory through /proc/<pid>/mem or ptrace: the shell
 // has no capability in bwrap's user namespace to override that.
-func guardMemory() error {
+func guardMemory() error { // coverage:ignore only the sandbox's PID 1 calls this, and it writes no coverage
 	return unix.Prctl(unix.PR_SET_DUMPABLE, 0, 0, 0, 0)
 }

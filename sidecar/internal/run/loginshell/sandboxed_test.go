@@ -168,6 +168,20 @@ func TestAStartCutShortIsATimeout(t *testing.T) {
 	assert.False(t, ran)
 }
 
+// With no home to start in, the shell starts at the root. Serial: it unsets
+// this process's HOME.
+func TestAShellWithNoHomeStartsAtTheRoot(t *testing.T) {
+	t.Setenv("HOME", "")
+	sb := &fakeCommander{}
+	start := In(sb, nil, nil, tempDirIn(t.TempDir()))
+
+	_, cleanup, err := start(t.Context(), "/bin/sh", nil, nil)
+	require.NoError(t, err)
+	cleanup()
+	require.Len(t, sb.runs, 1)
+	assert.Equal(t, "/", sb.runs[0].Dir)
+}
+
 func TestMain(m *testing.M) {
 	// A sandboxed run's forwarder and shell launcher are this binary.
 	if code, ok := sandbox.Main(os.Args); ok {

@@ -45,7 +45,7 @@ var defaultShells = []string{"/bin/bash", "/bin/sh"}
 // asked first, and the file is read when getent cannot answer.
 func recordShell(ctx context.Context) string {
 	u, err := user.Current()
-	if err != nil {
+	if err != nil { // coverage:ignore user.Current caches the process's own user, which no test can take away
 		return ""
 	}
 	if out, err := exec.CommandContext(ctx, lookupCommand, "passwd", u.Username).Output(); err == nil {

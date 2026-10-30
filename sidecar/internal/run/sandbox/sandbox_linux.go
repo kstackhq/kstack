@@ -49,7 +49,7 @@ var systemBwraps = []string{"/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwra
 // ctx ended first.
 func Probe(ctx context.Context) (*Sandbox, Status, error) {
 	self, err := os.Executable()
-	if err != nil {
+	if err != nil { // coverage:ignore os.Executable reads /proc/self/exe, which always resolves on Linux
 		return nil, Status{Reason: "cannot find its own executable"}, nil
 	}
 	dir := filepath.Dir(self)

@@ -290,3 +290,17 @@ func TestTheWalkAnswersAnErrorOnTheWay(t *testing.T) {
 	_, err := readWalked(t, g.fence, session.Folder{Path: g.home}, g.in("code/"+strings.Repeat("a", 300)))
 	assert.ErrorIs(t, err, syscall.ENAMETOOLONG)
 }
+
+// A folder on the way that the user cannot open stops the walk with the
+// system's own answer.
+func TestTheWalkAnswersAFolderItCannotOpen(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root opens any folder")
+	}
+	g := newGrantHome(t)
+	require.NoError(t, os.Mkdir(g.in("code/locked"), 0))
+	t.Cleanup(func() { _ = os.Chmod(g.in("code/locked"), 0o700) })
+
+	_, err := readWalked(t, g.fence, session.Folder{Path: g.home}, g.in("code/locked/x"))
+	assert.ErrorIs(t, err, os.ErrPermission)
+}

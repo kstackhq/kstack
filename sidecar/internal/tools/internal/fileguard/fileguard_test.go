@@ -347,3 +347,15 @@ func TestOpenInReadsARegularFile(t *testing.T) {
 	_, err = OpenIn(root, "big.txt")
 	assert.ErrorIs(t, err, ErrTooLarge)
 }
+
+// A link's target cannot be read off a name that is no link, as when the link
+// is swapped for a file after its Lstat: the error passes on.
+func TestALinkTargetOfAFileIsAnError(t *testing.T) {
+	root := testRoot(t)
+	require.NoError(t, root.WriteFile("x.txt", nil, 0o600))
+
+	_, err := linkTarget(filepath.Join(root.Name(), "x.txt"))
+	assert.Error(t, err)
+	_, err = linkTargetIn(root, "x.txt")
+	assert.Error(t, err)
+}

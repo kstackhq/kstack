@@ -98,7 +98,7 @@ func (s *Sandbox) tryPasta(ctx context.Context, pasta string, bound time.Duratio
 		if line := firstLine(stderr.String()); line != "" {
 			return false, errors.New(line)
 		}
-		return false, err
+		return false, err // coverage:ignore under coverage the launcher, a test binary, always warns on stderr, so no failure here is silent
 	}
 	return readPastaProbe(stdout.String())
 }

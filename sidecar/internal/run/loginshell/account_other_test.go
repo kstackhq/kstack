@@ -77,3 +77,17 @@ func TestAccountShellFallsBackWhenThePasswdFileLacksTheUser(t *testing.T) {
 	require.Nil(t, f)
 	require.Equal(t, fallback, got)
 }
+
+// With neither getent nor a passwd file there is no record, so the platform's
+// own shell is taken.
+func TestAccountShellFallsBackWithoutAPasswdFile(t *testing.T) {
+	fallback := writeScript(t, "sh", "#!/bin/sh\nexit 0\n")
+	defer func(cmd, file string, shells []string) {
+		lookupCommand, passwdFile, defaultShells = cmd, file, shells
+	}(lookupCommand, passwdFile, defaultShells)
+	lookupCommand, passwdFile, defaultShells = filepath.Join(t.TempDir(), "getent"), filepath.Join(t.TempDir(), "passwd"), []string{fallback}
+
+	got, f := accountShell(t.Context())
+	require.Nil(t, f)
+	require.Equal(t, fallback, got)
+}

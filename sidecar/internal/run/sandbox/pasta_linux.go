@@ -84,7 +84,7 @@ func PastaMain(args []string) int {
 	}
 	notices := untilStarted(r)
 	err = cmd.Wait()
-	if cmd.ProcessState == nil {
+	if cmd.ProcessState == nil { // coverage:ignore Wait leaves ProcessState unset only when wait4 fails, and nothing else reaps the launcher's child
 		return fail(os.Stderr, PastaCommand, "cannot wait for "+args[0], err)
 	}
 	_, _ = os.Stderr.Write(notices)

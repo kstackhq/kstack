@@ -81,6 +81,14 @@ func TestTheBaseIsZeroOnlyInANamespaceOfItsOwn(t *testing.T) {
 	n, err := (&Sandbox{perNamespace: true, ownUserNS: true}).CountedProcesses(false)
 	require.NoError(t, err)
 	assert.Equal(t, 0, n)
+
+	// A run with the internet asks of pasta's namespace, not bwrap's.
+	n, err = (&Sandbox{perNamespace: true, ownUserNS: true}).CountedProcesses(true)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, n, 1)
+	n, err = (&Sandbox{perNamespace: true, pastaOwnUserNS: true}).CountedProcesses(true)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
 }
 
 func TestANewNamespaceCountsNothing(t *testing.T) {

@@ -127,3 +127,12 @@ func (h *harness) get(t *testing.T, cluster apimeta.ClusterID, name string) Memo
 	t.Fatalf("%s sees no memory %q", cluster, name)
 	return Memory{}
 }
+
+// unscannable puts a view in place of the memories table whose every row fails
+// to scan, its creation time being text.
+func unscannable(t *testing.T, db *appdb.DB) {
+	t.Helper()
+	exec(t, db, `ALTER TABLE memories RENAME TO memories_held`)
+	exec(t, db, `CREATE VIEW memories AS SELECT id, cluster_id, server_uid, name, body,
+	written_by, chat_id, 'never' AS created_at, updated_at FROM memories_held`)
+}

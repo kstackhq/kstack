@@ -444,3 +444,26 @@ func TestInitMainInProcessFailsWithoutTheStderrOnStdin(t *testing.T) {
 	assert.Equal(t, initFailed, InitMain([]string{stderrOnStdinFlag, "--", "/bin/sh", "-c", "touch " + marker}))
 	assert.NoFileExists(t, marker)
 }
+
+// With no stderr of sandbox-pasta's to keep, the forwarder fails before the
+// child starts. In-process it closes the test's own descriptor 2, so it saves
+// and restores it.
+func TestInitMainInProcessFailsWithoutAStderr(t *testing.T) {
+	saved, err := unix.Dup(2)
+	require.NoError(t, err)
+	defer func() {
+		_ = unix.Dup2(saved, 2)
+		_ = unix.Close(saved)
+	}()
+	require.NoError(t, unix.Close(2))
+	marker := filepath.Join(t.TempDir(), "started")
+
+	assert.Equal(t, initFailed, InitMain([]string{stderrOnStdinFlag, "--", "/bin/sh", "-c", "touch " + marker}))
+	assert.NoFileExists(t, marker)
+}
+
+// A child the forwarder cannot wait for, here one that is not its child,
+// fails the forwarder.
+func TestWaitForFailsOnWhatIsNotItsChild(t *testing.T) {
+	assert.Equal(t, initFailed, waitFor(os.Getpid(), false))
+}

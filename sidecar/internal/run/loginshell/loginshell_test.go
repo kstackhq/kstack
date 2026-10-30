@@ -19,6 +19,7 @@ package loginshell
 import (
 	"bytes"
 	"context"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -263,6 +264,26 @@ func TestLaunchReportsAShellThatWillNotStart(t *testing.T) {
 	require.NotNil(t, f)
 	require.Equal(t, reasonNoShell, f.Reason)
 	require.Equal(t, -1, f.ExitCode)
+}
+
+// A start whose command already writes its output somewhere leaves Launch no
+// stream to read: the shell is never started.
+func TestLaunchReportsAShellWhoseOutputIsTaken(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "ran")
+	for name, take := range map[string]func(*exec.Cmd){
+		"stdout": func(c *exec.Cmd) { c.Stdout = io.Discard },
+		"stderr": func(c *exec.Cmd) { c.Stderr = io.Discard },
+	} {
+		start := func(_ context.Context, shell string, args, _ []string) (*exec.Cmd, func(), error) {
+			c := exec.Command(shell, args...)
+			take(c)
+			return c, func() {}, nil
+		}
+		_, f := Launch(t.Context(), start, "/bin/sh", []string{"-c", ": > '" + marker + "'"}, nil, maxOutputBytes, func([]byte, int) bool { return true })
+		require.NotNil(t, f, name)
+		require.Equal(t, reasonNoShell, f.Reason, name)
+		require.NoFileExists(t, marker, name)
+	}
 }
 
 func TestFindDeclinesARelativeSHELL(t *testing.T) {

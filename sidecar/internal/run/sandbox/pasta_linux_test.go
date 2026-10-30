@@ -134,6 +134,16 @@ func TestTheLauncherNeedsTheLifelineItIsTold(t *testing.T) {
 	assert.Equal(t, initFailed, PastaMain([]string{"stray", "--", "/bin/true"}))
 }
 
+// With no descriptor free for the pipe pasta's output goes through, the
+// launcher fails before pasta starts. Serial: it lowers this process's
+// open-files limit.
+func TestTheLauncherNeedsADescriptorForItsPipe(t *testing.T) {
+	stderrTo(t) // keeps the failure line out of the test's output
+	openFilesLimit(t, 3)
+
+	assert.Equal(t, initFailed, PastaMain([]string{"--", "/bin/true"}))
+}
+
 // At the lifeline's EOF the launcher kills its group: the pasta it started,
 // and the child pasta left there.
 func TestTheLauncherEndsPastasGroupAtTheLifelinesEOF(t *testing.T) {
