@@ -41,12 +41,6 @@ component_management:
       name: Rust
       paths:
         - src-tauri/**
-      # Reports only until src-tauri/ has no gap outside the ignored files.
-      statuses:
-        - type: project
-          target: auto
-          threshold: 0.1%
-          informational: true
 
 # No comment on the PR: the statuses and the diff's annotations say it all.
 comment: false
