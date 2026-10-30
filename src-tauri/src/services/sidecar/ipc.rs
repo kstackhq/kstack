@@ -296,13 +296,14 @@ mod tests {
         assert!(err.to_string().contains("kernel limit"), "got: {err}");
     }
 
-    /// A path with nothing listening behind it is refused at once: unlike a
-    /// missing one, waiting will not change it.
+    /// A socket left with nothing listening (a crashed sidecar's) is refused
+    /// at once: unlike a missing one, waiting will not change it.
     #[cfg(unix)]
     #[tokio::test]
     async fn a_refused_dial_is_not_retried() {
         let path = Endpoint::pick(&std::env::temp_dir()).expect("pick");
-        std::fs::write(path.as_arg(), "").unwrap();
+        // std's listener leaves its file behind when dropped.
+        drop(std::os::unix::net::UnixListener::bind(path.as_arg()).unwrap());
 
         let err = ours(path.clone())
             .connect_with_budget(Duration::from_secs(60))
