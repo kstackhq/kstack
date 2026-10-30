@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { useRef } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -39,6 +40,17 @@ const { RightSidebar, RightSidebarToggle } = await import('./right-sidebar');
 
 // Helpers -------------------------------------------------------------
 
+// The content row as the layout draws it: the page, then the panel.
+function Row() {
+  const page = useRef<HTMLElement>(null);
+  return (
+    <div data-testid="row">
+      <main ref={page} />
+      <RightSidebar page={page} />
+    </div>
+  );
+}
+
 // The toggle and the panel sit in different branches of the layout, so a test
 // renders both under the state they share.
 const renderPanel = ({ mode = 'chat' }: { mode?: AppMode } = {}) =>
@@ -46,11 +58,21 @@ const renderPanel = ({ mode = 'chat' }: { mode?: AppMode } = {}) =>
     <RightSidebarProvider mode={mode}>
       <LogsViewProvider>
         <RightSidebarToggle />
-        <RightSidebar />
+        <Row />
         <FocusView />
       </LogsViewProvider>
     </RightSidebarProvider>,
   );
+
+// jsdom lays nothing out, so a drag's bound needs the geometry the layout would give: the
+// row spans the window, the page starts `pageLeft` px in (past the left card), and the
+// panel ends at the window's right edge.
+function layOut({ pageLeft = 0 }: { pageLeft?: number } = {}) {
+  const row = screen.getByTestId('row');
+  Object.defineProperty(row, 'clientWidth', { value: window.innerWidth - pageLeft, configurable: true });
+  vi.spyOn(row.querySelector('main')!, 'getBoundingClientRect').mockReturnValue(new DOMRect(pageLeft, 0, 0, 0));
+  vi.spyOn(panel()!, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, window.innerWidth, 0));
+}
 
 const logsView: LogsView = {
   clusterId: 'cluster-1',
@@ -98,6 +120,7 @@ const clickToggle = () => fireEvent.click(screen.getByRole('button', { name: /to
 // cursor, which the next test would inherit.
 afterEach(() => {
   fireEvent.pointerUp(window);
+  vi.restoreAllMocks();
 });
 
 // Tests ---------------------------------------------------------------
@@ -137,6 +160,7 @@ describe('RightSidebar', () => {
   it('resizes by dragging its inner edge, and persists the width', () => {
     renderPanel();
     clickToggle();
+    layOut();
     expect(panelWidth()).toBe('400px');
 
     // The panel ends at the window's right edge, so its width is what is left of
@@ -152,24 +176,37 @@ describe('RightSidebar', () => {
     expect(panelWidth()).toBe('400px');
   });
 
-  it('clamps the dragged width to 240px and, in chat mode, 1200px for the log viewer’s columns', () => {
+  it('clamps the dragged width at 240px', () => {
     renderPanel();
     clickToggle();
+    layOut();
 
     fireEvent.pointerDown(handle(), { pointerId: 1 });
-    fireEvent.pointerMove(window, { clientX: -500 });
-    expect(panelWidth()).toBe('1200px');
     fireEvent.pointerMove(window, { clientX: 990 });
     expect(panelWidth()).toBe('240px');
   });
 
-  it('clamps the dashboard’s panel, which holds a transcript, at 640px', () => {
-    renderPanel({ mode: 'dashboard' });
+  it.each<AppMode>(['chat', 'dashboard'])('in %s mode, grows until the page reaches its 320px floor', (mode) => {
+    renderPanel({ mode });
     clickToggle();
+    layOut({ pageLeft: 200 });
 
+    // Past the left card, the row is 800px: the page keeps 320px of it.
     fireEvent.pointerDown(handle(), { pointerId: 1 });
     fireEvent.pointerMove(window, { clientX: -500 });
-    expect(panelWidth()).toBe('640px');
+    expect(panelWidth()).toBe('480px');
+    expect(localStorage.getItem(`kstack:right-sidebar-width:${mode}`)).toBe('480');
+  });
+
+  it('leaves the page half the row once the row is under 640px', () => {
+    Object.defineProperty(window, 'innerWidth', { value: 600, configurable: true });
+    renderPanel();
+    clickToggle();
+    layOut();
+
+    fireEvent.pointerDown(handle(), { pointerId: 1 });
+    fireEvent.pointerMove(window, { clientX: 0 });
+    expect(panelWidth()).toBe('300px');
   });
 
   it('gives way to the page on a narrow window, down to its minimum', () => {
@@ -184,6 +221,13 @@ describe('RightSidebar', () => {
     renderPanel();
     clickToggle();
     expect(panelWidth()).toBe('500px');
+  });
+
+  it('keeps a stored width wider than the window, for the row to shrink to fit', () => {
+    localStorage.setItem('kstack:right-sidebar-width:dashboard', '1600');
+    renderPanel({ mode: 'dashboard' });
+    clickToggle();
+    expect(panelWidth()).toBe('1600px');
   });
 
   it('keeps its width per mode, since the two hold different things', () => {

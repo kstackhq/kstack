@@ -20,6 +20,7 @@
 // construction. The column's height is definite (`h-`, not `min-h-`) and `main`
 // clips, so a route scrolls inside it, never the page. Every plain flex item between
 // here and a route's scroller needs `min-h-0` to shrink into it.
+import { useRef } from 'react';
 import { Outlet, useLocation } from '@tanstack/react-router';
 
 import { SidebarProvider } from '@kubetail/ui/elements/sidebar';
@@ -30,7 +31,7 @@ import { LeftSidebar } from '@/components/widgets/left-sidebar';
 import { ChatNav } from '@/components/widgets/chat-nav';
 import { DashboardResourceNav } from '@/components/widgets/dashboard-resource-nav';
 import { ModeNav } from '@/components/widgets/mode-nav';
-import { RightSidebar, RightSidebarToggle } from '@/components/widgets/right-sidebar';
+import { RightSidebar, RightSidebarToggle, pageMinWidth } from '@/components/widgets/right-sidebar';
 import type { AppMode } from '@/lib/app-mode';
 import { ChatOutboxProvider } from '@/lib/chat-outbox';
 import { ChatSwitchProvider } from '@/lib/chat-switch';
@@ -50,6 +51,8 @@ export function AppLayout() {
   // The library's provider persists open/collapsed to a `sidebar_state` cookie it
   // never reads back, so hold the state here to keep it across windows.
   const [sidebarOpen, setSidebarOpen] = usePersistedFlag('sidebar-open', true);
+  // The right sidebar measures the page to stop a drag at the page's floor.
+  const pageRef = useRef<HTMLElement>(null);
 
   return (
     // The dialogs host sits outside the sidebar and the bar alike; the controls in
@@ -87,10 +90,14 @@ export function AppLayout() {
                     header={<ModeNav />}
                     nav={onDashboard ? <DashboardResourceNav /> : <ChatNav mode="chat" />}
                   />
-                  <main className="flex min-h-0 min-w-[min(480px,50%)] flex-1 flex-col overflow-hidden bg-background">
+                  <main
+                    ref={pageRef}
+                    className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+                    style={{ minWidth: pageMinWidth }}
+                  >
                     <Outlet />
                   </main>
-                  <RightSidebar />
+                  <RightSidebar page={pageRef} />
                   {/* Pinned to the row's top-right corner rather than to the page, so it
                 holds its place as the panel opens under it — over the page while
                 closed, over the panel once open. Below the sidebar drawer's z-30

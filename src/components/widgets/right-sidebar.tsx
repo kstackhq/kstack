@@ -22,6 +22,8 @@
 // gets a chat of its own, chat mode the focused log view, or a placeholder while
 // none is set. The panel does not scroll — its contents own a scroller each, and one
 // inside another gives two scrollbars that fight.
+import type { RefObject } from 'react';
+import { useCallback, useRef } from 'react';
 import { PanelRight } from 'lucide-react';
 
 import { Button } from '@kubetail/ui/elements/button';
@@ -35,12 +37,26 @@ import { type WidthBounds, usePersistedWidth } from '@/lib/persisted-width';
 import { useRightSidebar } from '@/lib/right-sidebar';
 
 // Drag-resize bounds (px), per mode like the width itself: the two panels hold different
-// things. Chat mode's holds the log viewer, whose columns want room; the dashboard's holds
-// a transcript. `initial` is wide enough for a transcript to read on first open.
+// things. No fixed maximum: a drag stops where the page reaches its floor, and a stored
+// width wider than the window has room for shrinks to fit. `initial` is wide enough for a
+// transcript to read on first open.
 const WIDTH: Record<AppMode, WidthBounds> = {
-  chat: { min: 240, max: 1200, initial: 400 },
-  dashboard: { min: 240, max: 640, initial: 400 },
+  chat: { min: 240, max: Infinity, initial: 400 },
+  dashboard: { min: 240, max: Infinity, initial: 400 },
 };
+
+// The page's floor, as `min(PAGE_MIN_WIDTH px, 50%)` of the content row: enough for the
+// dashboard's table and the chat composer's controls.
+const PAGE_MIN_WIDTH = 320;
+export const pageMinWidth = `min(${PAGE_MIN_WIDTH}px, 50%)`;
+
+// How wide the panel can be before the page goes under its floor: everything right of the
+// page's left edge, less the floor.
+function room(aside: HTMLElement, page: HTMLElement) {
+  const rowWidth = page.parentElement?.clientWidth ?? 0;
+  const floor = Math.min(PAGE_MIN_WIDTH, rowWidth / 2);
+  return aside.getBoundingClientRect().right - page.getBoundingClientRect().left - floor;
+}
 const widthKey = (mode: AppMode) => `right-sidebar-width:${mode}`;
 
 function Placeholder({ title, detail }: { title: string; detail: string }) {
@@ -78,9 +94,19 @@ export function RightSidebarToggle() {
   );
 }
 
-export function RightSidebar() {
+export function RightSidebar({ page }: { page: RefObject<HTMLElement | null> }) {
   const { mode, open } = useRightSidebar();
   const [width, setWidth] = usePersistedWidth(widthKey(mode), WIDTH[mode]);
+  const asideRef = useRef<HTMLElement>(null);
+
+  const resize = useCallback(
+    (px: number) => {
+      const aside = asideRef.current;
+      setWidth(aside && page.current ? Math.min(px, room(aside, page.current)) : px);
+    },
+    [page, setWidth],
+  );
+
   if (!open) return null;
 
   const onDashboard = mode === 'dashboard';
@@ -89,9 +115,10 @@ export function RightSidebar() {
     // An ordinary item in the content row, so it takes its width from the page
     // rather than covering it, and the row's height makes it flush top and bottom.
     // `relative` anchors the resize handle on its inner edge. It shrinks before the page
-    // does (`app-layout.tsx` gives `<main>` its floor), down to its minimum; the stored width
-    // is left alone for a wider window.
+    // goes under its floor, down to its minimum; the stored width is left alone for a wider
+    // window.
     <aside
+      ref={asideRef}
       data-testid="right-sidebar"
       aria-label={onDashboard ? 'Dashboard chat' : 'Chat details'}
       className="relative flex flex-col overflow-hidden bg-card"
@@ -100,7 +127,7 @@ export function RightSidebar() {
       {onDashboard ? <DashboardChat /> : <ChatPanel />}
       {/* The panel ends at the window's right edge, so what is left of the window
           from the pointer is its width. */}
-      <ResizeHandle edge="left" onResize={setWidth} label="Resize right sidebar" />
+      <ResizeHandle edge="left" onResize={resize} label="Resize right sidebar" />
     </aside>
   );
 }

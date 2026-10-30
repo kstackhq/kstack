@@ -58,6 +58,17 @@ describe('usePersistedWidth', () => {
     expect(result.current[0]).toBe(400);
   });
 
+  it('bounds only the minimum when the maximum is Infinity', () => {
+    localStorage.setItem(storageKey('pane_width'), '9999');
+    const { result } = renderHook(() => usePersistedWidth('pane_width', { ...BOUNDS, max: Infinity }));
+    expect(result.current[0]).toBe(9999);
+
+    act(() => result.current[1](12000));
+    expect(result.current[0]).toBe(12000);
+    act(() => result.current[1](10));
+    expect(result.current[0]).toBe(100);
+  });
+
   it('clamps and stores what it is given', () => {
     const { result } = renderWidth();
     act(() => result.current[1](300));
