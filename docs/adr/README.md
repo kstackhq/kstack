@@ -226,3 +226,4 @@ usually just documentation in the wrong place.
 | 2026-10-28 | [Share one pnpm store across the sandbox's worktrees, in the global virtual store layout](2026-10-28-share-one-pnpm-store-across-sandbox-worktrees.md) | repo | Accepted |
 | 2026-10-29 | [Each persisted format carries its own version stamp, and a downgrade is refused only where it would break](2026-10-29-each-persisted-format-carries-its-own-version-stamp.md) | cross-cutting | Accepted |
 | 2026-10-29 | [The omnibox is the cluster picker](2026-10-29-the-omnibox-is-the-cluster-picker.md) | frontend | Accepted |
+| 2026-10-30 | [Codecov gates the changed lines, and the total is a backstop](2026-10-30-codecov-gates-the-changed-lines.md) | repo | Accepted |

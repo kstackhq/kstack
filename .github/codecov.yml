@@ -1,0 +1,76 @@
+# Coverage gate. CI uploads each suite's report (ci.yml); Codecov merges every
+# upload of a commit and posts the statuses below.
+
+codecov:
+  # No status until CI's own jobs are green.
+  require_ci_to_pass: true
+
+coverage:
+  status:
+    # The gate: every changed line a report measured is covered. A line no
+    # report measured (a type, a constant, a file no CI target builds) is not
+    # counted.
+    patch:
+      default:
+        target: 100%
+    # The backstop, against the base commit. It alone sees a PR that deletes
+    # or weakens a test. Twenty uncached runs of the Go suite spread 0.058
+    # points; TypeScript did not move.
+    project:
+      default:
+        target: auto
+        threshold: 0.1%
+
+# A language whose jobs the path filter skipped keeps its last report.
+flag_management:
+  default_rules:
+    carryforward: true
+
+# One number per language in Codecov's view of a commit.
+component_management:
+  individual_components:
+    - component_id: go
+      name: Go
+      paths:
+        - sidecar/**
+    - component_id: typescript
+      name: TypeScript
+      paths:
+        - src/**
+    - component_id: rust
+      name: Rust
+      paths:
+        - src-tauri/**
+      # Reports only until src-tauri/ has no gap outside the ignored files.
+      statuses:
+        - type: project
+          target: auto
+          threshold: 0.1%
+          informational: true
+
+# No comment on the PR: the statuses and the diff's annotations say it all.
+comment: false
+
+# A Go profile names files by import path.
+fixes:
+  - "github.com/kstackhq/kstack/::"
+
+ignore:
+  # Generated.
+  - sidecar/graph/generated.go
+  - sidecar/graph/model/models_gen.go
+  - sidecar/grpc/authpb/**
+  - sidecar/grpc/pokepb/**
+  - src/gql/**
+  - src/routeTree.ts
+  # Build and CI scripts, run by hand or by go run.
+  - sidecar/scripts/**
+  # The webview's entry point and the test harness.
+  - src/main.tsx
+  - src/test-utils.tsx
+  # Rust's entry point and the OS glue that registers for wake notifications.
+  # Each holds wiring alone; stable Rust has no inline marker, so the whole
+  # file is the exemption.
+  - src-tauri/src/main.rs
+  - src-tauri/src/wake/linux.rs
+  - src-tauri/src/wake/windows.rs

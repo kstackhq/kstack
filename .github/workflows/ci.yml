@@ -74,6 +74,7 @@ jobs:
             shared: &shared
               - .github/actions/setup-environment/**
               - .github/workflows/ci.yml
+              - .github/codecov.yml
             go:
               - *shared
               - Makefile
@@ -417,7 +418,7 @@ jobs:
           key: ${{ steps.setup.outputs.go-cache-key }}
 
   go-coverage:
-    name: Go · Coverage · ${{ matrix.os }}
+    name: Go · Coverage (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.go == 'true'
     strategy:
@@ -437,6 +438,10 @@ jobs:
     # Twice the two suite runs' -timeout, so a hang fails the test binary with
     # a goroutine dump before the runner kills the job.
     timeout-minutes: 60
+    permissions:
+      contents: read
+      # Codecov's upload authenticates with an OIDC token.
+      id-token: write
     steps:
       # The whole history, for the same reason as Go · Build and Test.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -463,6 +468,16 @@ jobs:
           CGO_ENABLED: "0"
           SSH_AUTH_SOCK: ""
         run: go run scripts/coverage.go -out ${{ runner.temp }}/coverage-${{ matrix.os }}.out
+      # A fork's PR cannot mint the OIDC token; the action then uploads
+      # tokenless, which Codecov accepts for a public repository.
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          files: ${{ runner.temp }}/coverage-${{ matrix.os }}.out
+          disable_search: true
+          flags: go-${{ matrix.os }}
+          fail_ci_if_error: true
       - name: Upload the profile
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -555,6 +570,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -566,6 +584,62 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Check coverage against the threshold
         run: make cover-js
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          files: coverage/lcov.info
+          disable_search: true
+          flags: typescript
+          fail_ci_if_error: true
+
+  # One runner per OS, as Go · Coverage: Rust's platform splits are by OS.
+  # The instrumented build is its own profile, so it keeps its own cache.
+  rust-coverage:
+    name: Rust · Coverage (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-24.04
+          - os: macos
+            runner: xcode-27
+          - os: windows
+            runner: windows-2025-vs2026
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-environment
+        with:
+          setup-rust: "true"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
+          cache-save: ${{ env.CACHE_MODE != 'use' }}
+      - uses: ./.github/actions/stub-sidecar
+      # The action's release fixes cargo-llvm-cov's version and checksums.
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-llvm-cov
+      - name: Measure coverage
+        working-directory: ./src-tauri
+        run: cargo llvm-cov --lcov --output-path ${{ runner.temp }}/rust-${{ matrix.os }}.lcov
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          files: ${{ runner.temp }}/rust-${{ matrix.os }}.lcov
+          disable_search: true
+          flags: rust-${{ matrix.os }}
+          fail_ci_if_error: true
 
   # Rust · Vet's clippy type-checks the build; this links the real binary,
   # then runs the tests.
@@ -651,6 +725,7 @@ jobs:
       - go-coverage
       - rust-vet
       - rust-test
+      - rust-coverage
       - typescript-lint
       - typescript-coverage
       - typescript-test

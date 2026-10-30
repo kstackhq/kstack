@@ -53,10 +53,11 @@ const vitestConfig = defineVitestConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
-    // `make cover-js` gates the line percentage against scripts/coverage-threshold.
+    // `make cover-js` gates the line percentage against scripts/coverage-threshold;
+    // CI uploads lcov.info to Codecov.
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json-summary'],
+      reporter: ['text', 'json-summary', 'lcovonly'],
       include: ['src/**/*.{ts,tsx}'],
       // Generated output, the router's wiring, the entry point, and the test
       // harness itself: a test would assert nothing the suite doesn't already.
