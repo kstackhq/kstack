@@ -50,16 +50,13 @@ ignore:
   # The webview's entry point and the test harness.
   - src/main.tsx
   - src/test-utils.tsx
-  # Rust's entry point and the OS glue that registers for wake notifications.
-  # Each holds wiring alone; stable Rust has no inline marker, so the whole
-  # file is the exemption.
+  # Rust files with no line a test can reach; a file with one marks the rest
+  # with `// coverage:ignore-start <reason>` instead. The entry point:
   - src-tauri/src/main.rs
-  # The real runtime's builder, event loop and exit; the decisions it calls
-  # are tested in lib.rs.
-  - src-tauri/src/app.rs
   # The macOS menu bar's construction: AppKit builds menus on the main thread,
   # which no test runs on. What an item does is tested in app_menu/mod.rs.
   - src-tauri/src/app_menu/macos.rs
+  # The OS glue that registers for wake and network notifications on the
+  # system bus or the Win32 API.
   - src-tauri/src/wake/linux.rs
-  - src-tauri/src/wake/macos.rs
   - src-tauri/src/wake/windows.rs

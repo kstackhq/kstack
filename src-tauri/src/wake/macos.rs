@@ -50,6 +50,7 @@ static WAKE_TX: OnceLock<Sender<RawEvent>> = OnceLock::new();
 /// Keeps the observer alive — the notification center holds it only weakly.
 static WAKE_OBSERVER: OnceLock<MainThreadStatic<Retained<WakeObserver>>> = OnceLock::new();
 
+// coverage:ignore-start AppKit calls it on a real wake
 define_class!(
     /// Observer target for `NSWorkspaceDidWakeNotification`. Stateless — it
     /// forwards through the [`WAKE_TX`] global.
@@ -68,7 +69,9 @@ define_class!(
         }
     }
 );
+// coverage:ignore-stop
 
+// coverage:ignore-start registers with the OS on the real runtime's main thread
 /// Spawns the macOS wake + network sources. `shutdown` unused — both sources
 /// die with the process (module docs); accepted to match the cross-platform
 /// shape.
@@ -154,7 +157,22 @@ fn spawn_network_source(tx: Sender<RawEvent>) {
         tracing::warn!(%err, "failed to spawn reachability thread");
     }
 }
+// coverage:ignore-stop
 
 fn is_online(flags: ReachabilityFlags) -> bool {
     core::sc_reachability_is_online(flags.bits())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn online_needs_a_reachable_route_without_a_connection_first() {
+        assert!(is_online(ReachabilityFlags::REACHABLE));
+        assert!(!is_online(
+            ReachabilityFlags::REACHABLE | ReachabilityFlags::CONNECTION_REQUIRED
+        ));
+        assert!(!is_online(ReachabilityFlags::empty()));
+    }
 }

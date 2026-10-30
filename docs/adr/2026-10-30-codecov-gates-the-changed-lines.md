@@ -42,8 +42,9 @@ statuses:
 Neither is a required status check on `main`: like CI's jobs, a red status is read by the reviewer
 before merging. Carryforward keeps a language's last report when the
 path filter skips its jobs. A line a test cannot reach is exempted where it stands, with a reason:
-`/* v8 ignore next -- <reason> */` in TypeScript, `// coverage:ignore <reason>` in Go, and for Rust,
-which has no stable inline marker, a file listed in `.github/codecov.yml`'s `ignore`.
+`/* v8 ignore next -- <reason> */` in TypeScript, `// coverage:ignore <reason>` in Go, and in Rust
+`// coverage:ignore-start <reason>` to `// coverage:ignore-stop`, which `tools/coverignore` drops
+from `cargo llvm-cov`'s report before the upload.
 
 The uploads authenticate with an OIDC token (`use_oidc: true`), so no Codecov token is stored. A
 fork's pull request cannot mint one; the action then uploads tokenless, which Codecov accepts for a

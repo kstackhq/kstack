@@ -6,6 +6,11 @@
 //
 // -dir is the module the profiles measured: its go.mod maps a profile's import
 // paths back to files on disk.
+//
+// With -lcov it filters one lcov report instead, as cargo llvm-cov writes for
+// Rust, where the range markers alone apply:
+//
+//	go run ./coverignore -lcov -o filtered.lcov rust.lcov
 package main
 
 import (
@@ -26,11 +31,11 @@ import (
 	"golang.org/x/tools/cover"
 )
 
-// The markers. `// coverage:ignore <reason>` at the end of a line exempts the
-// statement, or function, that begins on it, body included;
-// `// coverage:ignore-start <reason>` through `// coverage:ignore-stop` exempt
-// the lines between them. A marker without a reason exempts nothing;
-// scripts/check-coverage-markers.sh fails CI on it.
+// The markers. In Go, `// coverage:ignore <reason>` at the end of a line
+// exempts the statement, or function, that begins on it, body included. In Go
+// and Rust, `// coverage:ignore-start <reason>` through `// coverage:ignore-stop`,
+// each on a line of its own, exempt the lines between them. A marker without a
+// reason exempts nothing; scripts/check-coverage-markers.sh fails CI on it.
 var (
 	inline = regexp.MustCompile(`^//\s*coverage:ignore\s+\S`)
 	start  = regexp.MustCompile(`^//\s*coverage:ignore-start\s+\S`)
@@ -39,13 +44,21 @@ var (
 
 func main() {
 	dir := flag.String("dir", ".", "the module the profiles measured")
-	out := flag.String("o", "", "write the merged profile to `path`")
+	lcov := flag.Bool("lcov", false, "filter one lcov report instead of merging Go profiles")
+	out := flag.String("o", "", "write the result to `path`")
 	flag.Parse()
-	if *out == "" || flag.NArg() == 0 {
+	if *out == "" || flag.NArg() == 0 || (*lcov && flag.NArg() != 1) {
 		fmt.Fprintln(os.Stderr, "usage: coverignore -dir <module> -o <out> <profile>...")
+		fmt.Fprintln(os.Stderr, "       coverignore -lcov -o <out> <report>")
 		os.Exit(2)
 	}
-	if err := run(*dir, *out, flag.Args()); err != nil {
+	var err error
+	if *lcov {
+		err = runLcov(flag.Arg(0), *out)
+	} else {
+		err = run(*dir, *out, flag.Args())
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "coverignore:", err)
 		os.Exit(1)
 	}
@@ -184,29 +197,17 @@ func exemptLines(path string) (map[int]bool, error) {
 		return nil, err
 	}
 	lineOf := func(pos token.Pos) int { return fset.Position(pos).Line }
-	exempt := map[int]bool{}
+	var comments []comment
 	marked := map[int]bool{}
-	from := 0
 	for _, group := range file.Comments {
 		for _, c := range group.List {
-			switch {
-			case inline.MatchString(c.Text):
+			comments = append(comments, comment{lineOf(c.Pos()), c.Text})
+			if inline.MatchString(c.Text) {
 				marked[lineOf(c.Pos())] = true
-			case start.MatchString(c.Text):
-				from = lineOf(c.Pos())
-			case stop.MatchString(c.Text) && from > 0:
-				for line := from; line <= lineOf(c.Pos()); line++ {
-					exempt[line] = true
-				}
-				from = 0
 			}
 		}
 	}
-	if from > 0 {
-		for line := from; line <= lineOf(file.End()); line++ {
-			exempt[line] = true
-		}
-	}
+	exempt := rangeLines(comments, lineOf(file.End()))
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch n.(type) {
 		case ast.Stmt, *ast.FuncDecl:
@@ -223,6 +224,36 @@ func exemptLines(path string) (map[int]bool, error) {
 		return false
 	})
 	return exempt, nil
+}
+
+// A comment's line and text, as the range markers are read.
+type comment struct {
+	line int
+	text string
+}
+
+// rangeLines is the set of lines the range markers among comments exempt,
+// start and stop lines included. A start with no stop runs through last.
+func rangeLines(comments []comment, last int) map[int]bool {
+	exempt := map[int]bool{}
+	from := 0
+	for _, c := range comments {
+		switch {
+		case start.MatchString(c.text):
+			from = c.line
+		case stop.MatchString(c.text) && from > 0:
+			for line := from; line <= c.line; line++ {
+				exempt[line] = true
+			}
+			from = 0
+		}
+	}
+	if from > 0 {
+		for line := from; line <= last; line++ {
+			exempt[line] = true
+		}
+	}
+	return exempt
 }
 
 func write(w io.Writer, mode string, profiles []*cover.Profile) error {

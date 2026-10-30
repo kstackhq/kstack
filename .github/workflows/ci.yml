@@ -89,6 +89,7 @@ jobs:
               - .github/actions/stub-sidecar/**
               - proto/**
               - src-tauri/**
+              - tools/coverignore/**
             typescript:
               - *shared
               - .gitignore
@@ -239,6 +240,8 @@ jobs:
       - name: Run format check
         working-directory: ./src-tauri
         run: cargo fmt --all -- --check
+      - name: Check coverage markers
+        run: sh scripts/check-coverage-markers.sh
 
   rust-vet:
     name: Rust · Vet
@@ -617,6 +620,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-rust: "true"
+          setup-go: "true"
           github-token: ${{ secrets.GITHUB_TOKEN }}
           rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
           cache-save: ${{ env.CACHE_MODE != 'use' }}
@@ -629,11 +633,16 @@ jobs:
       - name: Measure coverage
         working-directory: ./src-tauri
         run: cargo llvm-cov --lcov --output-path ${{ runner.temp }}/rust-${{ matrix.os }}.lcov
+      - name: Drop marked lines
+        working-directory: ./tools
+        run: >-
+          go run ./coverignore -lcov -o ${{ runner.temp }}/rust-${{ matrix.os }}-filtered.lcov
+          ${{ runner.temp }}/rust-${{ matrix.os }}.lcov
       - name: Upload to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           use_oidc: true
-          files: ${{ runner.temp }}/rust-${{ matrix.os }}.lcov
+          files: ${{ runner.temp }}/rust-${{ matrix.os }}-filtered.lcov
           disable_search: true
           flags: rust-${{ matrix.os }}
           fail_ci_if_error: true

@@ -15,7 +15,8 @@
 //! The app's wiring: what only the real app runs, on the real runtime, with a
 //! real sidecar and a real exit. Every decision it makes is a function in
 //! `lib.rs` or the module it belongs to, tested there; this file only connects
-//! them, and coverage ignores it.
+//! them. Coverage counts the file; each item is marked with what it needs that
+//! no test has.
 
 use std::io::IsTerminal;
 
@@ -34,13 +35,16 @@ use crate::{
     invoke_handler, logging, page_started, tray, wake,
 };
 
+// coverage:ignore-start AppHandle::exit is unimplemented on the mock runtime
 /// Quits via [`AppHandle::exit`] so the `RunEvent::ExitRequested` teardown
 /// runs — the same path as the tray and macOS-menu "Quit".
 #[tauri::command]
 pub fn quit<R: Runtime>(app: AppHandle<R>) {
     app.exit(0);
 }
+// coverage:ignore-stop
 
+// coverage:ignore-start opens the user's browser
 /// Opens the account page in the user's browser — the webview's avatar menu, the
 /// same page the tray's account item opens.
 ///
@@ -53,7 +57,9 @@ pub fn open_account_url<R: Runtime>(app: AppHandle<R>) -> crate::error::Result<(
     app.opener().open_url(cloud::account_url(), None::<&str>)?;
     Ok(())
 }
+// coverage:ignore-stop
 
+// coverage:ignore-start needs a real window system's monitors
 /// The real runtime's monitors, which the window manager places windows on.
 struct AppMonitors(AppHandle);
 
@@ -70,7 +76,9 @@ impl Monitors for AppMonitors {
         self.0.primary_monitor().ok().flatten()
     }
 }
+// coverage:ignore-stop
 
+// coverage:ignore-start needs a real window system's tray
 /// Builds and installs the system tray icon and menu. Menu callbacks can't
 /// return errors, so failures are logged. Panics if the app has no default
 /// window icon.
@@ -109,7 +117,9 @@ fn build_tray(app: &AppHandle) -> crate::error::Result<()> {
 
     Ok(())
 }
+// coverage:ignore-stop
 
+// coverage:ignore-start needs a real window system's tray
 /// Swaps the tray's menu for one drawn from the latest account snapshot. muda
 /// requires menu mutation on the main thread, hence
 /// [`AppHandle::run_on_main_thread`].
@@ -132,7 +142,9 @@ fn rebuild_tray_menu(app: &AppHandle) {
         tracing::error!(%err, "failed to schedule tray menu rebuild");
     }
 }
+// coverage:ignore-stop
 
+// coverage:ignore-start starts the OS's wake sources on the real runtime
 /// Starts the wake/network-return supervisor for the app's lifetime: the
 /// platform's sources feed [`wake::supervise`].
 fn spawn_wake_poke_supervisor(app: &AppHandle) {
@@ -148,7 +160,9 @@ fn spawn_wake_poke_supervisor(app: &AppHandle) {
         wake::supervise(app, rx, wake::DEBOUNCE_WINDOW).await;
     });
 }
+// coverage:ignore-stop
 
+// coverage:ignore-start exits the real app on a real signal
 /// Routes Unix termination signals (`SIGTERM`/`SIGINT`/`SIGHUP`) through
 /// [`AppHandle::exit`] — the same graceful path as menu/tray "Quit". Tao
 /// installs no signal handlers, so without this a signal skips the `RunEvent`
@@ -182,7 +196,9 @@ fn spawn_signal_handler(app: &AppHandle) {
         }
     });
 }
+// coverage:ignore-stop
 
+// coverage:ignore-start the real runtime's builder, event loop and exit
 /// Builds, configures, and runs the Tauri application (the host's entry
 /// point).
 ///
@@ -320,3 +336,4 @@ pub fn run() {
         }
     });
 }
+// coverage:ignore-stop
