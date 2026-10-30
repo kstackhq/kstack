@@ -60,7 +60,11 @@ jobs:
               - src-tauri/**
 
   # The matrix stays fixed and every step past checkout is gated, so each
-  # required check reports on every pull request, green when skipped.
+  # required check reports on every pull request, green when skipped. A
+  # skipped language uploads main's latest analysis under its category: its
+  # files are unchanged, so code scanning can still compare the pull request to
+  # main, and finds nothing new or fixed in that language. An empty SARIF would
+  # instead show main's open alerts as fixed.
   analyze:
     name: CodeQL · ${{ matrix.language }}
     needs: changes
@@ -107,4 +111,25 @@ jobs:
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         if: needs.changes.outputs[matrix.language] == 'true'
         with:
+          category: /language:${{ matrix.language }}
+
+      - name: Download main's analysis
+        if: needs.changes.outputs[matrix.language] != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CATEGORY: /language:${{ matrix.language }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/main&tool_name=CodeQL&per_page=100" \
+            --jq "[.[] | select(.category == \"$CATEGORY\")][0].id")
+          if [ -z "$id" ] || [ "$id" = null ]; then
+            echo "::error::main has no CodeQL analysis for $CATEGORY"
+            exit 1
+          fi
+          gh api -H "Accept: application/sarif+json" \
+            "repos/$GITHUB_REPOSITORY/code-scanning/analyses/$id" > "$RUNNER_TEMP/main.sarif"
+
+      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        if: needs.changes.outputs[matrix.language] != 'true'
+        with:
+          sarif_file: ${{ runner.temp }}/main.sarif
           category: /language:${{ matrix.language }}
