@@ -14,30 +14,40 @@
 
 //! Reads the OS color scheme to resolve the `system` preference *before* the
 //! first window exists — Tauri only exposes a theme on an already-built window.
-//! Opaque platforms only (Linux windows are transparent). Every failure path
-//! must degrade to light: a wrong answer costs one frame of the wrong — but
-//! never white — background.
+//! Read on the opaque platforms alone (Linux windows are transparent); the
+//! readings' meanings compile everywhere so every platform's tests cover them.
+//! Every failure path must degrade to light: a wrong answer costs one frame of
+//! the wrong — but never white — background.
 
 /// Whether the OS is currently in dark mode.
 ///
-/// `AppleInterfaceStyle` is absent in light mode, `"Dark"` in dark. Read via
-/// `NSUserDefaults` (not `NSAppearance`) so it works before `NSApp` exists.
-/// Any `None` reads as light.
+/// Read via `NSUserDefaults` (not `NSAppearance`) so it works before `NSApp`
+/// exists.
 #[cfg(target_os = "macos")]
 pub fn prefers_dark() -> bool {
     use objc2_foundation::{NSString, NSUserDefaults};
 
     let defaults = NSUserDefaults::standardUserDefaults();
     let key = NSString::from_str("AppleInterfaceStyle");
-    defaults
-        .stringForKey(&key)
-        .is_some_and(|style| style.to_string().eq_ignore_ascii_case("dark"))
+    let style = defaults.stringForKey(&key).map(|style| style.to_string());
+    interface_style_is_dark(style.as_deref())
 }
 
-/// Whether the OS is currently in dark mode.
-///
-/// `AppsUseLightTheme` is the per-user app-theme flag: `0` dark, `1` light. A
-/// missing value (older Windows, or a profile that never set it) reads as light.
+/// macOS `AppleInterfaceStyle`: absent in light mode, `"Dark"` in dark.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn interface_style_is_dark(style: Option<&str>) -> bool {
+    style.is_some_and(|style| style.eq_ignore_ascii_case("dark"))
+}
+
+/// Windows `AppsUseLightTheme`, `None` when it could not be read: `0` is
+/// dark, `1` light. A missing value (older Windows, or a profile that never
+/// set it) reads as light.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn apps_use_light_theme_is_dark(value: Option<u32>) -> bool {
+    value == Some(0)
+}
+
+/// Whether the OS is currently in dark mode, from the per-user app-theme flag.
 #[cfg(target_os = "windows")]
 pub fn prefers_dark() -> bool {
     use std::ffi::c_void;
@@ -70,5 +80,33 @@ pub fn prefers_dark() -> bool {
         )
     };
 
-    status == ERROR_SUCCESS && data == 0
+    apps_use_light_theme_is_dark((status == ERROR_SUCCESS).then_some(data))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_dark_interface_style_is_dark() {
+        assert!(interface_style_is_dark(Some("Dark")));
+        assert!(interface_style_is_dark(Some("dark")));
+        assert!(!interface_style_is_dark(Some("Light")));
+        assert!(!interface_style_is_dark(None));
+    }
+
+    #[test]
+    fn only_a_read_zero_light_theme_flag_is_dark() {
+        assert!(apps_use_light_theme_is_dark(Some(0)));
+        assert!(!apps_use_light_theme_is_dark(Some(1)));
+        assert!(!apps_use_light_theme_is_dark(None));
+    }
+
+    /// The real read answers either way on a CI runner; what it must not do is
+    /// fail.
+    #[cfg(any(target_os = "macos", windows))]
+    #[test]
+    fn the_os_setting_reads_without_failing() {
+        let _ = prefers_dark();
+    }
 }

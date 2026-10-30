@@ -33,8 +33,6 @@ mod dock_menu;
 mod error;
 mod host_file;
 mod logging;
-// Opaque platforms only; Linux windows are transparent (see `window_manager`).
-#[cfg(not(target_os = "linux"))]
 mod os_theme;
 mod paths;
 mod quit;

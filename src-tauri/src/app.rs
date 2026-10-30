@@ -47,6 +47,62 @@ pub fn open_account_url<R: Runtime>(app: AppHandle<R>) -> crate::error::Result<(
     Ok(())
 }
 
+/// Builds and installs the system tray icon and menu. Menu callbacks can't
+/// return errors, so failures are logged. Panics if the app has no default
+/// window icon.
+fn build_tray(app: &AppHandle) -> crate::error::Result<()> {
+    use tauri::tray::{TrayIconBuilder, TrayIconId};
+    use tray::account_menu::{AccountMenuDescriptor, ACCOUNT_SETTINGS_ID};
+    use tray::{TrayAction, QUIT_ID, SHOW_ACCOUNT_SECTION, TRAY_ID};
+
+    // Start signed-out; the account watch supervisor populates on first frame.
+    let account = SHOW_ACCOUNT_SECTION.then_some(AccountMenuDescriptor::SignedOut);
+    let menu = tray::build_tray_menu(app, account)?;
+
+    TrayIconBuilder::with_id(TrayIconId::new(TRAY_ID))
+        .menu(&menu)
+        .icon(
+            app.default_window_icon()
+                .expect("missing default icon")
+                .clone(),
+        )
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            ACCOUNT_SETTINGS_ID => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(err) = open_account_url(app) {
+                        tracing::error!(%err, "failed to open account settings URL");
+                    }
+                });
+            }
+            QUIT_ID => app.exit(0),
+            id => {
+                if let Some(action) = TrayAction::from_id(id) {
+                    tray::run_action(app, action);
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+/// Starts the wake/network-return supervisor for the app's lifetime: the
+/// platform's sources feed [`wake::supervise`].
+fn spawn_wake_poke_supervisor(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let shutdown = app.state::<AppState>().shutdown.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel(wake::CHANNEL_DEPTH);
+
+        // Sources own their teardown (Linux/Windows honor `shutdown`; macOS
+        // leaks its passive observers). `app` lets macOS register on the main thread.
+        wake::spawn_sources(&app, tx, shutdown);
+
+        wake::supervise(app, rx).await;
+    });
+}
+
 /// Routes Unix termination signals (`SIGTERM`/`SIGINT`/`SIGHUP`) through
 /// [`AppHandle::exit`] — the same graceful path as menu/tray "Quit". Tao
 /// installs no signal handlers, so without this a signal skips the `RunEvent`
@@ -144,15 +200,15 @@ pub fn run() {
 
             // Build menu and tray
             app_menu::build_app_menu(app.handle())?;
-            tray::build_tray(app.handle())?;
+            build_tray(app.handle())?;
 
             // Keep the tray's account section live off the sidecar's
             // AuthStateWatch stream.
-            tray::spawn_authstate_subscription(app.handle());
+            tauri::async_runtime::spawn(tray::watch_auth_state(app.handle().clone()));
 
             // Poke the sidecar on OS wake / network-return; see
             // docs/adr/2026-08-09-poke-resync-fanout.md.
-            wake::spawn_wake_poke_supervisor(app.handle());
+            spawn_wake_poke_supervisor(app.handle());
 
             // Custom macOS Dock menu (no Tauri API — see dock_menu module).
             #[cfg(target_os = "macos")]

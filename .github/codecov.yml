@@ -76,4 +76,5 @@ ignore:
   # are tested in lib.rs.
   - src-tauri/src/app.rs
   - src-tauri/src/wake/linux.rs
+  - src-tauri/src/wake/macos.rs
   - src-tauri/src/wake/windows.rs

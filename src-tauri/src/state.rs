@@ -27,7 +27,7 @@ pub struct AppState {
     pub sidecar: SidecarService,
     pub window_manager: WindowManager,
     /// Latest-state holder for the tray's account watch stream, written by
-    /// `spawn_authstate_subscription`.
+    /// `tray::watch_auth_state`.
     pub tray: Arc<Mutex<TraySnapshots>>,
     /// App-wide graceful-shutdown signal, cancelled once on Quit *before* the
     /// sidecar is torn down. Every app-lifetime background task (tray/wake

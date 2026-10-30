@@ -53,4 +53,5 @@ mod platform {
     pub fn spawn_sources(_app: &AppHandle, _tx: Sender<RawEvent>, _shutdown: CancellationToken) {}
 }
 
-pub use supervisor::spawn_wake_poke_supervisor;
+pub use platform::spawn_sources;
+pub use supervisor::{supervise, CHANNEL_DEPTH};

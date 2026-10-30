@@ -74,6 +74,18 @@ pub fn win_connectivity_is_online(level: i32) -> bool {
     level >= LOCAL_ACCESS
 }
 
+/// `SCNetworkReachabilityFlags` bits, per Apple's `SCNetworkReachability.h`.
+const SC_REACHABLE: u32 = 1 << 1;
+const SC_CONNECTION_REQUIRED: u32 = 1 << 2;
+
+/// macOS `SCNetworkReachabilityFlags` → online bool: reachable and needing no
+/// connection first (no on-demand connection or VPN dial).
+// Used by the macOS source + tests; dead elsewhere.
+#[allow(dead_code)]
+pub fn sc_reachability_is_online(flags: u32) -> bool {
+    flags & SC_REACHABLE != 0 && flags & SC_CONNECTION_REQUIRED == 0
+}
+
 /// Edge detection + trailing-edge debounce: a trigger (re)arms the timer to
 /// `window` from now; on expiry `poke().await` runs once per burst. Returns on
 /// `shutdown` (pending poke dropped — the wall-clock detector is the backstop)
@@ -226,6 +238,19 @@ mod tests {
                 "level {level} should be online"
             );
         }
+    }
+
+    #[test]
+    fn sc_reachability_online_when_reachable_without_a_connection_first() {
+        // `kSCNetworkReachabilityFlagsIsDirect`, irrelevant to the answer.
+        const IS_DIRECT: u32 = 1 << 17;
+
+        assert!(sc_reachability_is_online(SC_REACHABLE));
+        assert!(sc_reachability_is_online(SC_REACHABLE | IS_DIRECT));
+        assert!(!sc_reachability_is_online(0));
+        assert!(!sc_reachability_is_online(
+            SC_REACHABLE | SC_CONNECTION_REQUIRED
+        ));
     }
 
     // ----- run_coalescer (trailing-edge debounce, fake clock) -----

@@ -35,7 +35,7 @@ use tauri::AppHandle;
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 
-use super::core::RawEvent;
+use super::core::{self, RawEvent};
 
 /// Wraps a non-`Sync` value so it can live in a `static`. Sound because every
 /// access is on the main thread (see [`crate::dock_menu`] for the same idiom).
@@ -155,31 +155,6 @@ fn spawn_network_source(tx: Sender<RawEvent>) {
     }
 }
 
-/// Online = reachable and needing no user intervention (no on-demand
-/// connection / VPN dial).
 fn is_online(flags: ReachabilityFlags) -> bool {
-    flags.contains(ReachabilityFlags::REACHABLE)
-        && !flags.contains(ReachabilityFlags::CONNECTION_REQUIRED)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reachable_without_connection_required_is_online() {
-        assert!(is_online(ReachabilityFlags::REACHABLE));
-    }
-
-    #[test]
-    fn not_reachable_is_offline() {
-        assert!(!is_online(ReachabilityFlags::empty()));
-    }
-
-    #[test]
-    fn reachable_but_connection_required_is_offline() {
-        assert!(!is_online(
-            ReachabilityFlags::REACHABLE | ReachabilityFlags::CONNECTION_REQUIRED
-        ));
-    }
+    core::sc_reachability_is_online(flags.bits())
 }

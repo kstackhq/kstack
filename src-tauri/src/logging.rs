@@ -379,18 +379,34 @@ impl std::io::Write for Capture {
     }
 }
 
-/// Runs `f` under a capturing subscriber and returns what it wrote.
 #[cfg(test)]
-pub(crate) fn captured(f: impl FnOnce()) -> String {
+impl Capture {
+    /// What was written so far.
+    pub(crate) fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).expect("utf-8 output")
+    }
+}
+
+/// Captures this thread's events until the guard drops — the whole of a
+/// current-thread runtime's tasks, which `captured`'s closure cannot hold.
+#[cfg(test)]
+pub(crate) fn capture_thread() -> (Capture, tracing::subscriber::DefaultGuard) {
     let capture = Capture::default();
     let sink = capture.clone();
     let subscriber = tracing_subscriber::fmt()
         .with_writer(move || sink.clone())
         .with_ansi(false)
         .finish();
-    tracing::subscriber::with_default(subscriber, f);
-    let bytes = capture.0.lock().unwrap().clone();
-    String::from_utf8(bytes).expect("utf-8 output")
+    (capture, tracing::subscriber::set_default(subscriber))
+}
+
+/// Runs `f` under a capturing subscriber and returns what it wrote.
+#[cfg(test)]
+pub(crate) fn captured(f: impl FnOnce()) -> String {
+    let (capture, guard) = capture_thread();
+    f();
+    drop(guard);
+    capture.text()
 }
 
 #[cfg(test)]
