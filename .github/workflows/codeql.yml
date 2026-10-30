@@ -119,10 +119,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CATEGORY: /language:${{ matrix.language }}
         run: |
+          # A cancelled run on main records a failed analysis, which has no SARIF.
           id=$(gh api "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/main&tool_name=CodeQL&per_page=100" \
-            --jq "[.[] | select(.category == \"$CATEGORY\")][0].id")
+            --jq "[.[] | select(.category == \"$CATEGORY\" and .error == \"\")][0].id")
           if [ -z "$id" ] || [ "$id" = null ]; then
-            echo "::error::main has no CodeQL analysis for $CATEGORY"
+            echo "::error::main has no successful CodeQL analysis for $CATEGORY"
             exit 1
           fi
           gh api -H "Accept: application/sarif+json" \
