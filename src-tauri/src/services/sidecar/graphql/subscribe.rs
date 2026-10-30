@@ -216,11 +216,8 @@ async fn open_stream(
         .await
         .map_err(|e| AppError::Io(std::io::Error::other(e)))?;
     // Drive the connection in the background; it ends when the body drops.
-    tokio::spawn(async move {
-        if let Err(err) = conn.await {
-            tracing::debug!(target: "sidecar", %err, "sse connection ended");
-        }
-    });
+    // Its error also fails the request or the body, which report it.
+    tokio::spawn(conn);
 
     let req = Request::builder()
         .method("POST")
@@ -308,11 +305,12 @@ fn error_frame(message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::super::super::ipc::Endpoint;
+    use super::super::super::testutil::read_head;
     use super::*;
     use interprocess::local_socket::{
         traits::tokio::Listener as _, GenericFilePath, ListenerOptions, ToFsName,
     };
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncWriteExt;
     use tokio::sync::mpsc;
 
     /// Targets `path`, expecting the server the test process runs itself.
@@ -353,28 +351,13 @@ mod tests {
             .create_tokio()
             .expect("bind listener");
         tokio::spawn(async move {
-            let Ok(mut stream) = listener.accept().await else {
-                return;
-            };
-            // Drain the request headers.
-            let mut buf = [0u8; 4096];
-            let mut total = Vec::new();
-            while let Ok(n) = stream.read(&mut buf).await {
-                if n == 0 {
-                    break;
-                }
-                total.extend_from_slice(&buf[..n]);
-                if total.windows(4).any(|w| w == b"\r\n\r\n") {
-                    break;
-                }
-            }
+            let mut stream = listener.accept().await.unwrap();
+            read_head(&mut stream).await;
             let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
                         Cache-Control: no-cache\r\nTransfer-Encoding: chunked\r\n\r\n";
             let _ = stream.write_all(head.as_bytes()).await;
-            if !events.is_empty() {
-                let chunk = format!("{:x}\r\n{events}\r\n", events.len());
-                let _ = stream.write_all(chunk.as_bytes()).await;
-            }
+            let chunk = format!("{:x}\r\n{events}\r\n", events.len());
+            let _ = stream.write_all(chunk.as_bytes()).await;
             let _ = stream.flush().await;
             after().await;
             if clean_end {
@@ -554,11 +537,11 @@ mod tests {
         // No `complete` (or any other frame) should arrive — the consumer
         // unsubscribed. The sink simply closes when the task tears down, which
         // surfaces as a timeout (nothing pending) or a clean channel close.
-        match tokio::time::timeout(Duration::from_millis(300), rx.recv()).await {
-            Err(_) => {}   // timed out with nothing pending — good
-            Ok(None) => {} // sink closed without a frame — good
-            Ok(Some(f)) => panic!("unexpected frame after unsubscribe: {f}"),
-        }
+        let after = tokio::time::timeout(Duration::from_millis(300), rx.recv()).await;
+        assert!(
+            !matches!(after, Ok(Some(_))),
+            "unexpected frame after unsubscribe: {after:?}"
+        );
 
         // The entry is gone from the table.
         assert!(lock(&client.subs).is_empty());
@@ -621,5 +604,69 @@ mod tests {
 
         let frame = recv(&mut rx).await;
         assert!(frame.starts_with(r#"{"type":"error"#), "got {frame}");
+    }
+
+    /// A `complete` that carries data ends the stream there; nothing after it
+    /// is forwarded.
+    #[tokio::test]
+    async fn a_complete_with_data_ends_the_stream() {
+        let path = Endpoint::pick(&std::env::temp_dir()).expect("pick");
+        let arg = path.as_arg().to_owned();
+        spawn_sse_server(
+            arg.clone(),
+            "event: complete\ndata: {}\n\nevent: next\ndata: {\"data\":1}\n\n",
+            true,
+            || async {},
+        )
+        .await;
+
+        let client = SubscriptionClient::new(ours(path));
+        let (sink, mut rx) = sink_pair();
+        client
+            .subscribe(
+                "subscription { tick }".to_string(),
+                serde_json::json!({}),
+                sink,
+                "main".to_string(),
+            )
+            .await
+            .expect("subscribe");
+
+        assert_eq!(recv(&mut rx).await, OPEN_FRAME);
+        assert_eq!(recv(&mut rx).await, COMPLETE_FRAME);
+        assert_eq!(rx.recv().await, None, "the sink closes with nothing more");
+        let _ = std::fs::remove_file(arg);
+    }
+
+    /// A sidecar that answers anything but 200 opens nothing: the first frame
+    /// is the error.
+    #[tokio::test]
+    async fn a_non_200_answer_is_an_error_frame() {
+        let path = Endpoint::pick(&std::env::temp_dir()).expect("pick");
+        let arg = path.as_arg().to_owned();
+        let name = arg.as_str().to_fs_name::<GenericFilePath>().unwrap();
+        let listener = ListenerOptions::new().name(name).create_tokio().unwrap();
+        tokio::spawn(async move {
+            let mut stream = listener.accept().await.unwrap();
+            read_head(&mut stream).await;
+            let response = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let client = SubscriptionClient::new(ours(path));
+        let (sink, mut rx) = sink_pair();
+        client
+            .subscribe(
+                "subscription { tick }".to_string(),
+                serde_json::json!({}),
+                sink,
+                "main".to_string(),
+            )
+            .await
+            .expect("subscribe");
+
+        let frame = recv(&mut rx).await;
+        assert!(frame.contains("500"), "got {frame}");
+        let _ = std::fs::remove_file(arg);
     }
 }

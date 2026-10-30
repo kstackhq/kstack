@@ -6,9 +6,9 @@ fn main() {
     );
 
     // Repo-root proto/ is the shared source of truth (also compiled for the Go
-    // sidecar). The host is a client only, so skip server codegen.
+    // sidecar). The host is a client; the server half is for the tests' fake
+    // sidecar (`services/sidecar/testutil.rs`).
     tonic_prost_build::configure()
-        .build_server(false)
         .compile_protos(
             &["../proto/auth.proto", "../proto/poke.proto"],
             &["../proto"],

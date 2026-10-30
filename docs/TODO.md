@@ -549,7 +549,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 ## Host (Tauri/Rust)
 
 - **The log level can only be set by an environment variable.** The host reads `KSTACK_LOG_LEVEL` in
-  `init_process` (`src-tauri/src/lib.rs`). The sidecar reads the same variable in `main.go`, and
+  `env_filter` (`src-tauri/src/logging.rs`). The sidecar reads the same variable in `main.go`, and
   inherits it from the host that spawned it. Someone who starts the app by double-clicking it cannot
   set either one, so the level can only be changed by running the app from a terminal. **Fix:** store
   the level in `host.json` (`src/lib/host-file.ts` owns the read/update/subscribe protocol) and add a

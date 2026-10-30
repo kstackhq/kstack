@@ -17,13 +17,20 @@
 //! `lib.rs` or the module it belongs to, tested there; this file only connects
 //! them, and coverage ignores it.
 
-use tauri::webview::PageLoadEvent;
-use tauri::{AppHandle, Manager, RunEvent, Runtime, WindowEvent};
+use std::io::IsTerminal;
 
+use tauri::webview::PageLoadEvent;
+use tauri::window::Monitor;
+use tauri::{AppHandle, Manager, RunEvent, Runtime, WindowEvent};
+use tauri_plugin_shell::ShellExt;
+use tracing_subscriber::util::SubscriberInitExt;
+
+use crate::paths::Roots;
 use crate::services::sidecar::SidecarService;
 use crate::state::AppState;
+use crate::window_manager::Monitors;
 use crate::{
-    app_menu, cancel_webview_subscriptions, cloud, exit_requested, exited, forget_webview_log,
+    cancel_webview_subscriptions, cloud, exit_requested, exited, forget_webview_log,
     invoke_handler, logging, page_started, tray, wake,
 };
 
@@ -47,17 +54,33 @@ pub fn open_account_url<R: Runtime>(app: AppHandle<R>) -> crate::error::Result<(
     Ok(())
 }
 
+/// The real runtime's monitors, which the window manager places windows on.
+struct AppMonitors(AppHandle);
+
+impl Monitors for AppMonitors {
+    fn of_window(&self, label: &str) -> Option<Monitor> {
+        self.0
+            .get_webview_window(label)?
+            .current_monitor()
+            .ok()
+            .flatten()
+    }
+
+    fn primary(&self) -> Option<Monitor> {
+        self.0.primary_monitor().ok().flatten()
+    }
+}
+
 /// Builds and installs the system tray icon and menu. Menu callbacks can't
 /// return errors, so failures are logged. Panics if the app has no default
 /// window icon.
 fn build_tray(app: &AppHandle) -> crate::error::Result<()> {
     use tauri::tray::{TrayIconBuilder, TrayIconId};
-    use tray::account_menu::{AccountMenuDescriptor, ACCOUNT_SETTINGS_ID};
-    use tray::{TrayAction, QUIT_ID, SHOW_ACCOUNT_SECTION, TRAY_ID};
+    use tray::account_menu::ACCOUNT_SETTINGS_ID;
+    use tray::{TrayAction, QUIT_ID, TRAY_ID};
 
-    // Start signed-out; the account watch supervisor populates on first frame.
-    let account = SHOW_ACCOUNT_SECTION.then_some(AccountMenuDescriptor::SignedOut);
-    let menu = tray::build_tray_menu(app, account)?;
+    // Signed out; the account watch rebuilds it on its first frame.
+    let menu = tray::current_tray_menu(app)?;
 
     TrayIconBuilder::with_id(TrayIconId::new(TRAY_ID))
         .menu(&menu)
@@ -87,6 +110,29 @@ fn build_tray(app: &AppHandle) -> crate::error::Result<()> {
     Ok(())
 }
 
+/// Swaps the tray's menu for one drawn from the latest account snapshot. muda
+/// requires menu mutation on the main thread, hence
+/// [`AppHandle::run_on_main_thread`].
+fn rebuild_tray_menu(app: &AppHandle) {
+    let menu_app = app.clone();
+    let queued = app.run_on_main_thread(move || {
+        let Some(tray) = menu_app.tray_by_id(tray::TRAY_ID) else {
+            return;
+        };
+        match tray::current_tray_menu(&menu_app) {
+            Ok(menu) => {
+                if let Err(err) = tray.set_menu(Some(menu)) {
+                    tracing::error!(%err, "failed to set tray menu");
+                }
+            }
+            Err(err) => tracing::error!(%err, "failed to build tray menu"),
+        }
+    });
+    if let Err(err) = queued {
+        tracing::error!(%err, "failed to schedule tray menu rebuild");
+    }
+}
+
 /// Starts the wake/network-return supervisor for the app's lifetime: the
 /// platform's sources feed [`wake::supervise`].
 fn spawn_wake_poke_supervisor(app: &AppHandle) {
@@ -99,7 +145,7 @@ fn spawn_wake_poke_supervisor(app: &AppHandle) {
         // leaks its passive observers). `app` lets macOS register on the main thread.
         wake::spawn_sources(&app, tx, shutdown);
 
-        wake::supervise(app, rx).await;
+        wake::supervise(app, rx, wake::DEBOUNCE_WINDOW).await;
     });
 }
 
@@ -146,7 +192,13 @@ fn spawn_signal_handler(app: &AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Lives here (not `main`) so it also covers the mobile entry point.
-    let log_reload = logging::init_process();
+    let ansi = logging::use_ansi(
+        std::env::var_os("NO_COLOR"),
+        std::io::stderr().is_terminal(),
+    );
+    let (subscriber, log_reload) =
+        logging::process_subscriber(std::io::stderr, ansi, logging::env_filter());
+    subscriber.init();
 
     let mut builder = tauri::Builder::default();
 
@@ -186,9 +238,16 @@ pub fn run() {
         .setup(move |app| {
             // First: everything below is what a user is asked for when the app
             // fails to start, and until this lands it reaches stderr alone.
-            let log_guards = logging::install_file_layer(&log_reload, app.handle());
+            let roots = Roots::of(app.handle())?;
+            let log_guards = logging::install_file_layer(&log_reload, &roots);
 
-            let state = AppState::new(SidecarService::spawn(app.handle())?, log_guards);
+            let state = AppState::new(
+                SidecarService::spawn(&roots, |args| {
+                    Ok(app.shell().sidecar("kstack-sidecar")?.args(args))
+                })?,
+                log_guards,
+                AppMonitors(app.handle().clone()),
+            );
 
             // Create the main window. All windows are built in code
             // (`tauri.conf.json` declares none); `build_window` owns chrome and
@@ -199,12 +258,14 @@ pub fn run() {
             app.manage(state);
 
             // Build menu and tray
-            app_menu::build_app_menu(app.handle())?;
+            #[cfg(target_os = "macos")]
+            crate::app_menu::macos::install(app.handle())?;
             build_tray(app.handle())?;
 
             // Keep the tray's account section live off the sidecar's
             // AuthStateWatch stream.
-            tauri::async_runtime::spawn(tray::watch_auth_state(app.handle().clone()));
+            let watch = tray::watch_auth_state(app.handle().clone(), rebuild_tray_menu);
+            tauri::async_runtime::spawn(watch);
 
             // Poke the sidecar on OS wake / network-return; see
             // docs/adr/2026-08-09-poke-resync-fanout.md.

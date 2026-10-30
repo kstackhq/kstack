@@ -33,7 +33,7 @@ use crate::error::{AppError, Result};
 #[derive(Debug, Error)]
 enum TransportError {
     #[error("connect: {0}")]
-    Connect(std::io::Error),
+    Connect(AppError),
     #[error("io: {0}")]
     Io(std::io::Error),
     #[error("protocol: {0}")]
@@ -45,7 +45,8 @@ impl From<TransportError> for AppError {
     /// as a `networkError`.
     fn from(err: TransportError) -> Self {
         match err {
-            TransportError::Connect(e) | TransportError::Io(e) => AppError::Io(e),
+            TransportError::Connect(e) => e,
+            TransportError::Io(e) => AppError::Io(e),
             TransportError::Protocol(msg) => {
                 AppError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, msg))
             }
@@ -108,19 +109,17 @@ impl QueryClient {
     ) -> std::result::Result<GraphqlResponse, TransportError> {
         // Hyper's connection-driver task ends when `sender` drops (after the
         // body collect).
-        let stream = self.target.connect().await.map_err(|e| match e {
-            AppError::Io(io) => TransportError::Connect(io),
-            other => TransportError::Protocol(other.to_string()),
-        })?;
+        let stream = self
+            .target
+            .connect()
+            .await
+            .map_err(TransportError::Connect)?;
         let io = TokioIo::new(stream);
         let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
             .await
             .map_err(|e| TransportError::Io(std::io::Error::other(e)))?;
-        tokio::spawn(async move {
-            if let Err(err) = conn.await {
-                tracing::debug!(target: "sidecar", %err, "http1 connection ended");
-            }
-        });
+        // Its error also fails the request, which reports it.
+        tokio::spawn(conn);
 
         let req = Request::builder()
             .method("POST")
@@ -158,12 +157,13 @@ impl QueryClient {
 #[cfg(test)]
 mod tests {
     use super::super::super::ipc::Endpoint;
+    use super::super::super::testutil::read_head;
     use super::*;
     use interprocess::local_socket::{
         traits::tokio::Listener as _, GenericFilePath, ListenerOptions, ToFsName,
     };
     use std::time::Duration;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncWriteExt;
 
     /// Targets `path`, expecting the server the test process runs itself.
     fn ours(path: Endpoint) -> Target {
@@ -190,26 +190,15 @@ mod tests {
             .create_tokio()
             .expect("bind listener");
         tokio::spawn(async move {
-            if let Ok(mut stream) = listener.accept().await {
-                let mut buf = [0u8; 4096];
-                let mut total = Vec::new();
-                while let Ok(n) = stream.read(&mut buf).await {
-                    if n == 0 {
-                        break;
-                    }
-                    total.extend_from_slice(&buf[..n]);
-                    if total.windows(4).any(|w| w == b"\r\n\r\n") {
-                        break;
-                    }
-                }
-                let response = format!(
-                    "HTTP/1.1 {status_line}\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
-                    response_body.len(),
-                    response_body
-                );
-                let _ = stream.write_all(response.as_bytes()).await;
-                let _ = stream.shutdown().await;
-            }
+            let mut stream = listener.accept().await.unwrap();
+            read_head(&mut stream).await;
+            let response = format!(
+                "HTTP/1.1 {status_line}\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+            let _ = stream.shutdown().await;
         });
     }
 
@@ -296,31 +285,20 @@ mod tests {
             .create_tokio()
             .expect("bind");
         tokio::spawn(async move {
-            if let Ok(mut stream) = listener.accept().await {
-                let mut buf = [0u8; 4096];
-                let mut total = Vec::new();
-                while let Ok(n) = stream.read(&mut buf).await {
-                    if n == 0 {
-                        break;
-                    }
-                    total.extend_from_slice(&buf[..n]);
-                    if total.windows(4).any(|w| w == b"\r\n\r\n") {
-                        break;
-                    }
-                }
-                // Announce a body 1 byte over the cap; `Limited` fails once the
-                // announced length exceeds it or bytes accumulate past it.
-                let oversized = MAX_RESPONSE_BYTES + 1;
-                let header = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {oversized}\r\nContent-Type: application/json\r\n\r\n"
-                );
-                let _ = stream.write_all(header.as_bytes()).await;
-                // Write a chunk past the cap so Limited trips even without a
-                // Content-Length pre-check.
-                let chunk = vec![b'x'; MAX_RESPONSE_BYTES + 16];
-                let _ = stream.write_all(&chunk).await;
-                let _ = stream.shutdown().await;
-            }
+            let mut stream = listener.accept().await.unwrap();
+            read_head(&mut stream).await;
+            // Announce a body 1 byte over the cap; `Limited` fails once the
+            // announced length exceeds it or bytes accumulate past it.
+            let oversized = MAX_RESPONSE_BYTES + 1;
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {oversized}\r\nContent-Type: application/json\r\n\r\n"
+            );
+            let _ = stream.write_all(header.as_bytes()).await;
+            // Write a chunk past the cap so Limited trips even without a
+            // Content-Length pre-check.
+            let chunk = vec![b'x'; MAX_RESPONSE_BYTES + 16];
+            let _ = stream.write_all(&chunk).await;
+            let _ = stream.shutdown().await;
         });
 
         let client = QueryClient::new(ours(path));
@@ -408,5 +386,57 @@ mod tests {
             .expect("second should reconnect");
         assert_eq!(second.body, r#"{"data":2}"#);
         let _ = std::fs::remove_file(arg);
+    }
+
+    /// Binds `path` and hands the first connection, its request head read, to
+    /// `respond`.
+    fn serve_once<F, Fut>(path: &Endpoint, respond: F)
+    where
+        F: FnOnce(super::super::super::ipc::Stream) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send,
+    {
+        let name = path.as_arg().to_fs_name::<GenericFilePath>().unwrap();
+        let listener = ListenerOptions::new().name(name).create_tokio().unwrap();
+        tokio::spawn(async move {
+            let mut stream = listener.accept().await.unwrap();
+            read_head(&mut stream).await;
+            respond(stream).await;
+        });
+    }
+
+    /// A body that is not UTF-8 cannot be handed to the webview as text.
+    #[tokio::test]
+    async fn a_body_that_is_not_utf8_is_an_error() {
+        let path = Endpoint::pick(&std::env::temp_dir()).expect("pick");
+        serve_once(&path, |mut stream| async move {
+            let response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n\xff\xfe";
+            stream.write_all(response).await.unwrap();
+        });
+
+        let err = QueryClient::new(ours(path.clone()))
+            .query("{}".to_string())
+            .await
+            .expect_err("a non-UTF-8 body");
+
+        assert!(err.to_string().contains("non-utf8 body"), "got: {err}");
+        let _ = std::fs::remove_file(path.as_arg());
+    }
+
+    /// A sidecar that never answers is given up on at the request budget.
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_sidecar_times_out() {
+        let path = Endpoint::pick(&std::env::temp_dir()).expect("pick");
+        serve_once(&path, |stream| async move {
+            let _held = stream;
+            std::future::pending::<()>().await;
+        });
+
+        let err = QueryClient::new(ours(path.clone()))
+            .query("{}".to_string())
+            .await
+            .expect_err("a timeout");
+
+        assert_eq!(err.to_string(), "query exceeded request budget");
+        let _ = std::fs::remove_file(path.as_arg());
     }
 }

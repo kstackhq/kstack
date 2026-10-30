@@ -80,8 +80,7 @@ mod tests {
         // The `#[from]` impl is what lets `?` promote a foreign error into
         // `AppError` across module boundaries.
         fn read_missing() -> Result<String> {
-            let contents = std::fs::read_to_string("/nonexistent/kstack/test/path")?;
-            Ok(contents)
+            Ok(std::fs::read_to_string("/nonexistent/kstack/test/path")?)
         }
 
         let err = read_missing().expect_err("reading a missing path should fail");

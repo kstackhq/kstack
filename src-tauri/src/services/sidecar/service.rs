@@ -12,18 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::mpsc::{sync_channel, Receiver};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Runtime};
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
-use tauri_plugin_shell::ShellExt;
+use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
 use tokio::sync::watch;
 
 use crate::error::{AppError, Result};
-use crate::paths::{app_cache_dir, app_data_dir, log_dir, runtime_dir};
+use crate::paths::{app_cache_dir, app_data_dir, log_dir, runtime_dir, Roots};
 
 use super::graphql::{FrameSink, GraphqlResponse, QueryClient, SubscriptionClient};
 use super::grpc::{AuthStateStream, GrpcClient};
@@ -89,13 +87,17 @@ pub struct SidecarService {
 }
 
 impl SidecarService {
-    /// Spawns the `kstack-sidecar` binary; a background task drains its event
-    /// stream (log forwarding + termination reporting).
-    pub fn spawn<R: Runtime>(app: &AppHandle<R>) -> Result<Self> {
+    /// Spawns the sidecar; a background task drains its event stream (log
+    /// forwarding + termination reporting). `sidecar` makes the command from
+    /// its arguments: `app.rs` resolves the bundled binary, a test a stand-in.
+    pub fn spawn(
+        roots: &Roots,
+        sidecar: impl FnOnce(Vec<String>) -> Result<Command>,
+    ) -> Result<Self> {
         // Created up front, owner-only, so the sidecar makes its own beneath them.
-        let data = app_data_dir(app)?;
+        let data = app_data_dir(roots)?;
         let dirs = Dirs {
-            cache: app_cache_dir(app, &data)?,
+            cache: app_cache_dir(roots, &data)?,
             runtime: runtime_dir(&data)?,
             data,
         };
@@ -104,7 +106,7 @@ impl SidecarService {
         // The sidecar keeps its own log beside main.log. Failing to place one
         // never stops the app: the flag is omitted and its records come back
         // over the pipes instead.
-        let log_file = match log_dir(app) {
+        let log_file = match log_dir(roots) {
             Ok(dir) => Some(dir.join(SIDECAR_LOG_FILE)),
             Err(e) => {
                 tracing::warn!(err = %e, "no sidecar log file; forwarding its pipes");
@@ -112,11 +114,7 @@ impl SidecarService {
             }
         };
 
-        let (mut rx, child) = app
-            .shell()
-            .sidecar("kstack-sidecar")?
-            .args(cmd_args(&endpoint, &dirs, log_file.as_deref()))
-            .spawn()?;
+        let (mut rx, child) = sidecar(cmd_args(&endpoint, &dirs, log_file.as_deref()))?.spawn()?;
         let pid = child.pid();
         // The sidecar's own account of its startup is in the other file, so
         // main.log records that it was spawned and says where to look.
@@ -138,34 +136,15 @@ impl SidecarService {
 
         let (startup_tx, startup_rx) = watch::channel(Startup::Pending);
 
-        let drain_state = Arc::clone(&state);
+        let drain = Drain {
+            state: Arc::clone(&state),
+            startup_tx,
+            expect_tx,
+            exit_tx,
+        };
         tauri::async_runtime::spawn(async move {
-            while let Some(ev) = rx.recv().await {
-                match ev {
-                    CommandEvent::Stdout(line) => stdout_line(&line, &startup_tx),
-                    CommandEvent::Stderr(line) => forward_sidecar_line(&line),
-                    CommandEvent::Terminated(payload) => {
-                        if exited_cleanly(payload.code, payload.signal) {
-                            tracing::info!(?payload, "sidecar exited");
-                        } else {
-                            tracing::warn!(?payload, "sidecar exited uncleanly");
-                        }
-
-                        // No sidecar, so no peer is legitimate any more.
-                        let _ = expect_tx.send(None);
-
-                        // `kill` must skip the pid fallback after this (pid may
-                        // be reused).
-                        drain_state
-                            .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner())
-                            .exited = true;
-
-                        // Wake any thread blocked in graceful_shutdown.
-                        let _ = exit_tx.try_send(());
-                    }
-                    _ => {}
-                }
+            while let Some(event) = rx.recv().await {
+                drain.on_event(event);
             }
         });
 
@@ -189,18 +168,33 @@ impl SidecarService {
     /// [`Self::graceful_shutdown`] returns `false` at once. Tests only.
     #[cfg(test)]
     pub fn without_process(fatal: Option<&str>) -> Self {
-        Self::detached(None, fatal)
+        Self::detached(None, fatal, Self::nowhere())
     }
 
     /// A service that [`Self::kill`] treats as still running under `pid`, a
     /// process the test started itself. Tests only.
     #[cfg(test)]
     pub fn running_as(pid: u32) -> Self {
-        Self::detached(Some(pid), None)
+        Self::detached(Some(pid), None, Self::nowhere())
+    }
+
+    /// A ready service whose dials reach `endpoint`, served by this process.
+    /// Tests only.
+    #[cfg(test)]
+    pub fn dialing(endpoint: Endpoint) -> Self {
+        let target = Target::expecting(endpoint, Some(std::process::id()));
+        Self::detached(None, None, target)
+    }
+
+    /// A target every dial to is refused.
+    #[cfg(test)]
+    fn nowhere() -> Target {
+        let endpoint = Endpoint::pick(&std::env::temp_dir()).expect("pick an endpoint");
+        Target::expecting(endpoint, None)
     }
 
     #[cfg(test)]
-    fn detached(pid: Option<u32>, fatal: Option<&str>) -> Self {
+    fn detached(pid: Option<u32>, fatal: Option<&str>, target: Target) -> Self {
         let state = Arc::new(Mutex::new(State {
             child: None,
             pid,
@@ -213,8 +207,6 @@ impl SidecarService {
             Some(reason) => Startup::Failed(reason.to_string()),
         };
         let (_, startup_rx) = watch::channel(startup);
-        let endpoint = Endpoint::pick(&std::env::temp_dir()).expect("pick an endpoint");
-        let target = Target::expecting(endpoint, None);
         Self {
             state,
             exit_rx: Mutex::new(exit_rx),
@@ -362,6 +354,45 @@ impl SidecarService {
                 true
             }
             None => false,
+        }
+    }
+}
+
+/// What the drain task updates as the sidecar's events arrive.
+struct Drain {
+    state: Arc<Mutex<State>>,
+    startup_tx: watch::Sender<Startup>,
+    expect_tx: watch::Sender<Option<u32>>,
+    exit_tx: SyncSender<()>,
+}
+
+impl Drain {
+    fn on_event(&self, event: CommandEvent) {
+        match event {
+            CommandEvent::Stdout(line) => stdout_line(&line, &self.startup_tx),
+            CommandEvent::Stderr(line) => forward_sidecar_line(&line),
+            CommandEvent::Terminated(payload) => {
+                if exited_cleanly(payload.code, payload.signal) {
+                    tracing::info!(?payload, "sidecar exited");
+                } else {
+                    tracing::warn!(?payload, "sidecar exited uncleanly");
+                }
+
+                // No sidecar, so no peer is legitimate any more.
+                let _ = self.expect_tx.send(None);
+
+                // `kill` must skip the pid fallback after this (pid may be
+                // reused).
+                self.state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .exited = true;
+
+                // Wake any thread blocked in graceful_shutdown.
+                let _ = self.exit_tx.try_send(());
+            }
+            // `Error`: a pipe could not be read.
+            other => tracing::warn!(event = ?other, "unexpected sidecar event"),
         }
     }
 }
@@ -514,6 +545,8 @@ async fn wait_ready(mut rx: watch::Receiver<Startup>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use crate::testutil::{mock_app, roots, Scratch};
 
     #[test]
     fn a_ready_line_marks_the_sidecar_ready() {
@@ -650,5 +683,110 @@ mod tests {
         assert!(!exited_cleanly(None, Some(9)));
         assert!(!exited_cleanly(Some(0), Some(15)));
         assert!(!exited_cleanly(None, None));
+    }
+
+    /// Spawns `sh -c script` as the sidecar, returning the service and the
+    /// arguments it was handed.
+    #[cfg(unix)]
+    fn spawn_script(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        roots: &Roots,
+        script: &str,
+    ) -> (SidecarService, Vec<String>) {
+        use tauri_plugin_shell::ShellExt;
+
+        let mut handed = Vec::new();
+        let service = SidecarService::spawn(roots, |args| {
+            handed = args;
+            Ok(app.shell().command("sh").args(["-c", script]))
+        })
+        .unwrap();
+        (service, handed)
+    }
+
+    /// The drain task reads the readiness line and forwards stderr; closing
+    /// stdin is the stop, and the exit it brings is seen.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_spawned_sidecar_announces_ready_and_stops_on_eof() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let (service, args) = spawn_script(
+            &app,
+            &roots(scratch.path()),
+            "echo 'READY x'; echo 'a log line' >&2; cat >/dev/null",
+        );
+
+        assert!(args.iter().any(|a| a == "--log-file"), "got: {args:?}");
+        service.ready().await.unwrap();
+        assert!(service.graceful_shutdown(Duration::from_secs(10)));
+        assert!(service.graceful_shutdown(Duration::ZERO), "already stopped");
+        assert!(!service.kill(), "an exited sidecar is not killed");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_sidecar_that_exits_before_ready_fails_startup() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let (service, _) = spawn_script(&app, &roots(scratch.path()), "exit 3");
+
+        let err = service.ready().await.unwrap_err();
+        assert!(err.to_string().contains("exited before"), "got: {err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_ends_a_running_sidecar_through_its_handle() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let (service, _) = spawn_script(&app, &roots(scratch.path()), "read _");
+
+        assert!(service.kill());
+        assert!(!service.kill(), "idempotent");
+    }
+
+    /// A log directory that cannot be made leaves the flag off; the spawn
+    /// goes ahead.
+    #[cfg(unix)]
+    #[test]
+    fn a_sidecar_spawns_without_a_log_directory() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let roots = roots(scratch.path());
+        let logs = log_dir(&roots).unwrap();
+        std::fs::remove_dir(&logs).unwrap();
+        std::fs::write(&logs, "").unwrap();
+
+        let (service, args) = spawn_script(&app, &roots, "exit 0");
+
+        assert!(!args.iter().any(|a| a == "--log-file"), "got: {args:?}");
+        service.kill();
+    }
+
+    /// A pipe read error is logged; it neither readies nor ends the sidecar.
+    #[test]
+    fn a_stream_error_changes_nothing() {
+        let state = Arc::new(Mutex::new(State {
+            child: None,
+            pid: Some(1),
+            exited: false,
+        }));
+        let (startup_tx, startup_rx) = watch::channel(Startup::Pending);
+        let (expect_tx, expect_rx) = watch::channel(Some(1));
+        let (exit_tx, exit_rx) = sync_channel(1);
+        let drain = Drain {
+            state: Arc::clone(&state),
+            startup_tx,
+            expect_tx,
+            exit_tx,
+        };
+
+        drain.on_event(CommandEvent::Error("bad utf-8".into()));
+
+        assert_eq!(*startup_rx.borrow(), Startup::Pending);
+        assert_eq!(*expect_rx.borrow(), Some(1));
+        assert!(exit_rx.try_recv().is_err());
+        assert!(!state.lock().unwrap().exited);
     }
 }

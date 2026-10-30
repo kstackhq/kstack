@@ -238,6 +238,21 @@ mod tests {
         )));
     }
 
+    /// A running sidecar is stopped before the exit, not killed after it.
+    #[cfg(unix)]
+    #[test]
+    fn a_quit_waits_for_a_running_sidecar_to_stop() {
+        let scratch = Scratch::new();
+        let sidecar = crate::testutil::script_sidecar(scratch.path(), "cat >/dev/null");
+        let app = mock_app(scratch.path(), sidecar);
+        let (tx, rx) = mpsc::channel();
+
+        start_quit(app.handle(), 0, move |code| tx.send(code).unwrap());
+
+        assert_eq!(rx.recv().unwrap(), 0);
+        assert!(!app.state::<AppState>().sidecar.kill(), "it had exited");
+    }
+
     #[test]
     fn a_quit_while_one_is_under_way_is_prevented() {
         let scratch = Scratch::new();
@@ -310,7 +325,8 @@ mod tests {
             context: None,
         };
         for message in ["one", "two"] {
-            webview_log::record_from(&state.webview_log, "main", record(message), |_| true);
+            let now = std::time::Instant::now();
+            webview_log::record_from(&state.webview_log, "main", record(message), now, |_| true);
         }
 
         let out = captured(|| {

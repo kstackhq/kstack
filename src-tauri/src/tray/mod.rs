@@ -119,9 +119,10 @@ pub fn build_tray_menu<R: Runtime>(
     app: &AppHandle<R>,
     account: Option<AccountMenuDescriptor>,
 ) -> tauri::Result<Menu<R>> {
-    let new_window = MenuItem::with_id(app, NEW_WINDOW_ID, "New Window", true, None::<&str>)?;
-    let show_main = MenuItem::with_id(app, SHOW_MAIN_ID, "Show Main Window", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, QUIT_ID, "Quit", true, None::<&str>)?;
+    let item = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
+    let new_window = item(NEW_WINDOW_ID, "New Window")?;
+    let show_main = item(SHOW_MAIN_ID, "Show Main Window")?;
+    let quit = item(QUIT_ID, "Quit")?;
 
     let separator = PredefinedMenuItem::separator(app)?;
     let tail: [&dyn IsMenuItem<R>; 4] = [&new_window, &show_main, &separator, &quit];
@@ -132,26 +133,10 @@ pub fn build_tray_menu<R: Runtime>(
     // Account section: "Sign in / Sign up" when signed out, or a submenu
     // titled with the user's name containing "Account Settings" + "Sign out".
     let acct_menu_item: Box<dyn IsMenuItem<R>> = match account {
-        AccountMenuDescriptor::SignedOut => {
-            let item = MenuItem::with_id(
-                app,
-                ACCOUNT_LOGIN_ID,
-                "Sign in / Sign up",
-                true,
-                None::<&str>,
-            )?;
-            Box::new(item)
-        }
+        AccountMenuDescriptor::SignedOut => Box::new(item(ACCOUNT_LOGIN_ID, "Sign in / Sign up")?),
         AccountMenuDescriptor::SignedIn { title } => {
-            let settings = MenuItem::with_id(
-                app,
-                ACCOUNT_SETTINGS_ID,
-                "Account Settings",
-                true,
-                None::<&str>,
-            )?;
-            let sign_out =
-                MenuItem::with_id(app, ACCOUNT_LOGOUT_ID, "Sign out", true, None::<&str>)?;
+            let settings = item(ACCOUNT_SETTINGS_ID, "Account Settings")?;
+            let sign_out = item(ACCOUNT_LOGOUT_ID, "Sign out")?;
             let submenu = SubmenuBuilder::new(app, title)
                 .item(&settings)
                 .item(&sign_out)
@@ -166,11 +151,10 @@ pub fn build_tray_menu<R: Runtime>(
     Menu::with_items(app, &items)
 }
 
-/// Rebuilds the tray menu from the snapshot in [`AppState::tray`]. muda
-/// requires menu mutation on the main thread, hence
-/// [`AppHandle::run_on_main_thread`].
-fn rebuild_tray_menu<R: Runtime>(app: &AppHandle<R>) {
-    // Snapshot under the lock, release before the main-thread dispatch.
+/// The tray menu for the snapshot in [`AppState::tray`]: signed out until
+/// the watch delivers one.
+pub fn current_tray_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    // Snapshot under the lock, released before the menu is built.
     let account_snap = {
         let state = app.state::<AppState>();
         let guard = state.tray.lock().unwrap_or_else(|p| p.into_inner());
@@ -180,30 +164,19 @@ fn rebuild_tray_menu<R: Runtime>(app: &AppHandle<R>) {
             .unwrap_or_else(account_menu::AccountSnapshot::signed_out)
     };
     let account = SHOW_ACCOUNT_SECTION.then(|| build_account_descriptor(&account_snap));
-
-    let menu_app = app.clone();
-    if let Err(err) = app.run_on_main_thread(move || {
-        let Some(tray) = menu_app.tray_by_id(TRAY_ID) else {
-            return;
-        };
-        match build_tray_menu(&menu_app, account) {
-            Ok(menu) => {
-                if let Err(err) = tray.set_menu(Some(menu)) {
-                    tracing::error!(%err, "failed to set tray menu");
-                }
-            }
-            Err(err) => tracing::error!(%err, "failed to build tray menu"),
-        }
-    }) {
-        tracing::error!(%err, "failed to schedule tray menu rebuild");
-    }
+    build_tray_menu(app, account)
 }
 
 /// Supervises the gRPC auth-state watch for the app's lifetime, until
 /// [`AppState::shutdown`] is cancelled. First frame is a full snapshot; failed
 /// opens retry with capped backoff; a stream that ends after delivering data
 /// reconnects promptly, one that ends without data backs off (no busy-loop).
-pub fn watch_auth_state<R: Runtime>(app: AppHandle<R>) -> impl Future<Output = ()> {
+/// `rebuild` redraws the menu after each snapshot: `app.rs` swaps it on the
+/// real tray.
+pub fn watch_auth_state<R: Runtime>(
+    app: AppHandle<R>,
+    rebuild: impl Fn(&AppHandle<R>) + Send + 'static,
+) -> impl Future<Output = ()> {
     /// First retry delay; doubles each failure up to `MAX_BACKOFF`.
     const BASE_BACKOFF: Duration = Duration::from_millis(500);
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
@@ -239,7 +212,7 @@ pub fn watch_auth_state<R: Runtime>(app: AppHandle<R>) -> impl Future<Output = (
                                         .unwrap_or_else(|p| p.into_inner())
                                         .account = Some(account_snapshot_from(&auth_state));
                                 }
-                                rebuild_tray_menu(&app);
+                                rebuild(&app);
                             }
                             Ok(None) => break,
                             Err(err) => {
@@ -283,7 +256,8 @@ pub fn watch_auth_state<R: Runtime>(app: AppHandle<R>) -> impl Future<Output = (
 mod tests {
     use super::*;
     use crate::logging::{capture_thread, captured};
-    use crate::services::sidecar::SidecarService;
+    use crate::services::sidecar::testutil::FakeGrpc;
+    use crate::services::sidecar::{AuthState, Identity, SidecarService};
     use crate::testutil::{mock_app, window, Scratch};
 
     #[test]
@@ -326,7 +300,7 @@ mod tests {
         let shutdown = app.state::<AppState>().shutdown.clone();
         let (capture, _guard) = capture_thread();
 
-        let watch = tokio::spawn(watch_auth_state(app.handle().clone()));
+        let watch = tokio::spawn(watch_auth_state(app.handle().clone(), |_| {}));
         // Paused time jumps through the backoffs: 0.5 + 1 + 2 + 4 seconds, then
         // into the fifth wait.
         tokio::time::sleep(Duration::from_secs(8)).await;
@@ -342,14 +316,65 @@ mod tests {
         assert!(out.contains("backoff=8s"), "the fifth waits 8s: {out}");
     }
 
-    #[test]
-    fn a_rebuild_with_no_tray_installed_changes_nothing() {
+    /// Each snapshot is stored and redrawn; a watch that ends after one
+    /// reconnects.
+    #[tokio::test]
+    async fn a_snapshot_redraws_the_menu_and_an_ended_watch_reconnects() {
+        let fake = FakeGrpc {
+            watch: vec![Ok(AuthState {
+                authenticated: true,
+                identity: Some(Identity {
+                    name: "Ada".into(),
+                    ..Identity::default()
+                }),
+            })],
+            ..FakeGrpc::default()
+        };
+        let mut calls = fake.calls.subscribe();
+        let served = fake.serve();
         let scratch = Scratch::new();
-        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let app = mock_app(
+            scratch.path(),
+            SidecarService::dialing(served.endpoint.clone()),
+        );
+        let (redrawn, mut redraws) = tokio::sync::mpsc::unbounded_channel();
 
-        rebuild_tray_menu(app.handle());
+        let watch = tokio::spawn(watch_auth_state(app.handle().clone(), move |_| {
+            redrawn.send(()).unwrap();
+        }));
+        redraws.recv().await.unwrap();
+        calls.wait_for(|calls| *calls >= 2).await.unwrap();
+        app.state::<AppState>().shutdown.cancel();
+        watch.await.unwrap();
 
-        assert!(app.tray_by_id(TRAY_ID).is_none());
+        let tray = app.state::<AppState>().tray.lock().unwrap().account.clone();
+        assert_eq!(tray.unwrap().name.as_deref(), Some("Ada"));
+    }
+
+    /// A watch that breaks before any snapshot backs off before the next.
+    #[tokio::test]
+    async fn a_watch_broken_before_a_snapshot_backs_off() {
+        let fake = FakeGrpc {
+            watch: vec![Err(tonic::Status::internal("broken"))],
+            ..FakeGrpc::default()
+        };
+        let mut calls = fake.calls.subscribe();
+        let served = fake.serve();
+        let scratch = Scratch::new();
+        let app = mock_app(
+            scratch.path(),
+            SidecarService::dialing(served.endpoint.clone()),
+        );
+        let (capture, _guard) = capture_thread();
+
+        let watch = tokio::spawn(watch_auth_state(app.handle().clone(), |_| {}));
+        calls.wait_for(|calls| *calls >= 2).await.unwrap();
+        app.state::<AppState>().shutdown.cancel();
+        watch.await.unwrap();
+
+        let out = capture.text();
+        assert!(out.contains("auth-state tray watch stream error"), "{out}");
+        assert!(out.contains("ended before any snapshot"), "{out}");
     }
 
     #[test]
@@ -401,12 +426,14 @@ mod tests {
                 .collect()
         }
 
+        /// The section is hidden for the MVP, so the current menu is the
+        /// static items whatever the snapshot.
         #[test]
         fn without_the_account_section_the_menu_is_the_static_items() {
             let scratch = Scratch::new();
             let app = mock_app(scratch.path(), SidecarService::without_process(None));
 
-            let menu = build_tray_menu(app.handle(), None).unwrap();
+            let menu = current_tray_menu(app.handle()).unwrap();
 
             let items = menu.items().unwrap();
             assert_eq!(ids(&items), [NEW_WINDOW_ID, SHOW_MAIN_ID, QUIT_ID]);

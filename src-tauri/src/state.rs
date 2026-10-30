@@ -21,7 +21,7 @@ use crate::quit::Quit;
 use crate::services::sidecar::SidecarService;
 use crate::tray::TraySnapshots;
 use crate::webview_log::{Limiter, LimiterConfig};
-use crate::window_manager::WindowManager;
+use crate::window_manager::{Monitors, WindowManager};
 
 pub struct AppState {
     pub sidecar: SidecarService,
@@ -49,11 +49,15 @@ pub struct AppState {
 impl AppState {
     /// The state `setup` manages: a fresh shutdown signal shared with the
     /// window manager, and the default log pacing.
-    pub fn new(sidecar: SidecarService, log_guards: Vec<WorkerGuard>) -> Self {
+    pub fn new(
+        sidecar: SidecarService,
+        log_guards: Vec<WorkerGuard>,
+        monitors: impl Monitors + 'static,
+    ) -> Self {
         let shutdown = CancellationToken::new();
         Self {
             sidecar,
-            window_manager: WindowManager::new(shutdown.clone()),
+            window_manager: WindowManager::new(shutdown.clone(), monitors),
             tray: Arc::new(Mutex::new(TraySnapshots::default())),
             shutdown,
             quit: Quit::default(),
@@ -87,14 +91,18 @@ mod tests {
     use super::AppState;
     use crate::logging::{file_layer, FileLog};
     use crate::services::sidecar::SidecarService;
-    use crate::testutil::{mock_app, Scratch};
+    use crate::testutil::{mock_app, OneMonitor, Scratch};
 
     /// The guards are the only flush there is: the process never drops them.
     #[test]
     fn flush_log_writes_what_is_queued_and_takes_the_guards() {
         let scratch = Scratch::new();
         let FileLog { layer, guards } = file_layer(scratch.path()).unwrap();
-        let state = AppState::new(SidecarService::without_process(None), guards);
+        let state = AppState::new(
+            SidecarService::without_process(None),
+            guards,
+            OneMonitor(None),
+        );
         let subscriber = tracing_subscriber::registry().with(layer);
         tracing::subscriber::with_default(subscriber, || tracing::info!("the last line"));
 

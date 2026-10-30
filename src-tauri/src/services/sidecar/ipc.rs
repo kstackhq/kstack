@@ -134,7 +134,7 @@ impl Target {
     /// A target expecting a pid that never changes. Tests only — production
     /// reads the channel `spawn` publishes on.
     #[cfg(test)]
-    pub(super) fn expecting(endpoint: Endpoint, pid: Option<u32>) -> Self {
+    pub(crate) fn expecting(endpoint: Endpoint, pid: Option<u32>) -> Self {
         let (tx, rx) = watch::channel(pid);
         // A receiver keeps serving the last value after its sender is gone.
         drop(tx);
@@ -236,7 +236,7 @@ fn refused(detail: impl std::fmt::Display) -> AppError {
 /// tests need the same both-platforms-one-fixture shape (Unix UDS, Windows
 /// named pipe) without cfg branches.
 #[cfg(test)]
-pub(super) fn bind_listener(path: &str) -> interprocess::local_socket::tokio::Listener {
+pub(crate) fn bind_listener(path: &str) -> interprocess::local_socket::tokio::Listener {
     use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
     let name = path.to_fs_name::<GenericFilePath>().expect("to_fs_name");
     ListenerOptions::new()
@@ -248,7 +248,7 @@ pub(super) fn bind_listener(path: &str) -> interprocess::local_socket::tokio::Li
 /// Removes a UDS socket file post-test. No-op on Windows where named pipes are
 /// kernel objects (not files) that vanish on handle close.
 #[cfg(test)]
-pub(super) fn cleanup_path(path: &str) {
+pub(crate) fn cleanup_path(path: &str) {
     #[cfg(unix)]
     let _ = std::fs::remove_file(path);
     #[cfg(windows)]
@@ -276,10 +276,43 @@ mod tests {
         let chosen = Path::new(path.as_arg());
         assert!(
             chosen.starts_with(&base),
-            "{} should start with {}",
-            chosen.display(),
-            base.display()
+            "{chosen:?} should start with {base:?}"
         );
+    }
+
+    /// A path the sidecar could not be handed, or the kernel could not bind,
+    /// is refused before anything listens.
+    #[cfg(unix)]
+    #[test]
+    fn pick_refuses_a_path_that_cannot_be_an_address() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let not_utf8 = Path::new(std::ffi::OsStr::from_bytes(b"/tmp/\xff"));
+        let err = Endpoint::pick(not_utf8).unwrap_err();
+        assert!(err.to_string().contains("not valid UTF-8"), "got: {err}");
+
+        let too_long = std::env::temp_dir().join("x".repeat(UNIX_SUN_PATH_MAX));
+        let err = Endpoint::pick(&too_long).unwrap_err();
+        assert!(err.to_string().contains("kernel limit"), "got: {err}");
+    }
+
+    /// A path with nothing listening behind it is refused at once: unlike a
+    /// missing one, waiting will not change it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_refused_dial_is_not_retried() {
+        let path = Endpoint::pick(&std::env::temp_dir()).expect("pick");
+        std::fs::write(path.as_arg(), "").unwrap();
+
+        let err = ours(path.clone())
+            .connect_with_budget(Duration::from_secs(60))
+            .await
+            .unwrap_err();
+
+        let refused =
+            matches!(&err, AppError::Io(e) if e.kind() == std::io::ErrorKind::ConnectionRefused);
+        assert!(refused, "got: {err}");
+        cleanup_path(path.as_arg());
     }
 
     /// Two picks must never produce the same address — otherwise a second

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Instant;
+
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State, Webview};
 
@@ -69,7 +71,8 @@ pub async fn log_webview<R: Runtime>(
 ) -> Result<()> {
     // Each window holds one webview under the same label, so the window is
     // what resolves it.
-    webview_log::record_from(&state.webview_log, webview.label(), record, |label| {
+    let now = Instant::now();
+    webview_log::record_from(&state.webview_log, webview.label(), record, now, |label| {
         webview.get_webview_window(label).is_some()
     });
     Ok(())
@@ -169,6 +172,39 @@ mod tests {
 
         let err = invoke(&main, "graphql_query", json!({})).unwrap_err();
         assert!(err.as_str().unwrap().contains("body"), "got {err}");
+    }
+
+    /// Every command refuses an argument it cannot read, naming it.
+    #[test]
+    fn a_malformed_argument_is_refused_by_name() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let main = window(&app, "main");
+
+        for (cmd, args, name) in [
+            ("log_webview", json!({ "record": 1 }), "record"),
+            (
+                "graphql_subscribe",
+                json!({ "query": "", "variables": {}, "channel": 1 }),
+                "channel",
+            ),
+            ("graphql_unsubscribe", json!({ "id": "x" }), "id"),
+        ] {
+            let err = invoke(&main, cmd, args).unwrap_err();
+            assert!(err.as_str().unwrap().contains(name), "{cmd}: got {err}");
+        }
+    }
+
+    /// The commands read their state from the app; before `setup` manages it
+    /// there is none to read.
+    #[test]
+    fn a_command_before_the_state_is_managed_is_refused() {
+        let scratch = Scratch::new();
+        let app = crate::testutil::bare_app(scratch.path());
+        let main = window(&app, "main");
+
+        let err = invoke(&main, "ready", json!({})).unwrap_err();
+        assert!(err.as_str().unwrap().contains("state"), "got {err}");
     }
 
     /// A subscription answers with its id at once; a failed dial reaches the

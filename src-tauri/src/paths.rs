@@ -32,20 +32,36 @@ const APP_DIR_NAME: &str = if cfg!(debug_assertions) {
     "Kstack"
 };
 
+/// The platform directories Kstack's own hang off, resolved once from the
+/// app. A test builds one over a scratch directory: Tauri's directory override
+/// does not reach these.
+pub struct Roots {
+    pub local_data: PathBuf,
+    pub cache: PathBuf,
+    pub home: PathBuf,
+}
+
+impl Roots {
+    pub fn of<R: Runtime>(app: &AppHandle<R>) -> Result<Self> {
+        let path = app.path();
+        Ok(Self {
+            local_data: resolved(path.local_data_dir(), "local_data_dir")?,
+            cache: resolved(path.cache_dir(), "cache_dir")?,
+            home: resolved(path.home_dir(), "home_dir")?,
+        })
+    }
+}
+
+fn resolved(dir: tauri::Result<PathBuf>, name: &str) -> Result<PathBuf> {
+    dir.map_err(|e| AppError::Io(std::io::Error::other(format!("resolve {name}: {e}"))))
+}
+
 /// The app's per-machine data directory, created owner-only.
 ///
 /// Human-readable leaf on `local_data_dir`, not Tauri's bundle-id
 /// `app_local_data_dir` (Application Support convention is a display name).
-pub fn app_data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf> {
-    let dir = app
-        .path()
-        .local_data_dir()
-        .map_err(|e| {
-            AppError::Io(std::io::Error::other(format!(
-                "resolve local_data_dir: {e}"
-            )))
-        })?
-        .join(APP_DIR_NAME);
+pub fn app_data_dir(roots: &Roots) -> Result<PathBuf> {
+    let dir = roots.local_data.join(APP_DIR_NAME);
     ensure_data_dir(&dir)?;
     Ok(dir)
 }
@@ -97,12 +113,8 @@ fn ensure_cache_dir(cache_base: &Path, data_dir: &Path) -> Result<PathBuf> {
 
 /// The app's cache directory, created owner-only. `data_dir` is
 /// [`app_data_dir`]'s answer, which Windows hangs the cache off.
-pub fn app_cache_dir<R: Runtime>(app: &AppHandle<R>, data_dir: &Path) -> Result<PathBuf> {
-    let base = app
-        .path()
-        .cache_dir()
-        .map_err(|e| AppError::Io(std::io::Error::other(format!("resolve cache_dir: {e}"))))?;
-    ensure_cache_dir(&base, data_dir)
+pub fn app_cache_dir(roots: &Roots, data_dir: &Path) -> Result<PathBuf> {
+    ensure_cache_dir(&roots.cache, data_dir)
 }
 
 /// Where the log directory sits, given the two roots it can hang off.
@@ -133,12 +145,8 @@ fn ensure_log_dir(home: &Path, data_dir: &Path) -> Result<PathBuf> {
 /// Not Tauri's `app_log_dir`: it names the leaf by bundle id rather than the
 /// display name everything else here uses, and it has no debug variant, so a
 /// dev run would write into an installed release's logs.
-pub fn log_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf> {
-    let home = app
-        .path()
-        .home_dir()
-        .map_err(|e| AppError::Io(std::io::Error::other(format!("resolve home_dir: {e}"))))?;
-    ensure_log_dir(&home, &app_data_dir(app)?)
+pub fn log_dir(roots: &Roots) -> Result<PathBuf> {
+    ensure_log_dir(&roots.home, &app_data_dir(roots)?)
 }
 
 /// The directory for what lives for a session, owner-only: the IPC endpoint,
@@ -425,12 +433,8 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = runtime_dir(Path::new("/unused")).expect("runtime dir");
-        assert_eq!(
-            std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
-            0o700,
-            "{} must be enterable only by this user",
-            dir.display()
-        );
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "{dir:?} must be enterable only by this user");
     }
 
     /// Without `$XDG_RUNTIME_DIR` the fallback lands in a temp dir every user
@@ -598,5 +602,66 @@ mod tests {
     fn runtime_dir_is_a_leaf_on_the_data_dir() {
         let dir = runtime_dir_for(Path::new(r"C:\Users\x\AppData\Local\Kstack"));
         assert_eq!(dir, Path::new(r"C:\Users\x\AppData\Local\Kstack\run"));
+    }
+
+    #[test]
+    fn roots_resolve_on_the_app() {
+        let scratch = crate::testutil::Scratch::new();
+        let app = crate::testutil::mock_app(
+            scratch.path(),
+            crate::services::sidecar::SidecarService::without_process(None),
+        );
+        let roots = Roots::of(app.handle()).unwrap();
+        assert!(roots.local_data.is_absolute());
+        assert!(roots.cache.is_absolute());
+        assert!(roots.home.is_absolute());
+    }
+
+    #[test]
+    fn an_unresolvable_root_is_named_in_the_error() {
+        let err = resolved(Err(tauri::Error::UnknownPath), "home_dir").unwrap_err();
+        assert!(err.to_string().contains("resolve home_dir"), "got: {err}");
+    }
+
+    #[test]
+    fn the_app_directories_hang_off_the_roots() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+
+        let data = app_data_dir(&roots).unwrap();
+        assert_eq!(data, roots.local_data.join(APP_DIR_NAME));
+        assert!(data.is_dir());
+        let cache = app_cache_dir(&roots, &data).unwrap();
+        assert_eq!(cache, cache_dir_for(&roots.cache, &data));
+        assert!(cache.is_dir());
+        let logs = log_dir(&roots).unwrap();
+        assert_eq!(logs, log_dir_for(&roots.home, &data));
+        assert!(logs.is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_dir_is_made_where_none_was() {
+        let scratch = crate::testutil::Scratch::new();
+        let dir = scratch.path().join("run");
+        // SAFETY: `geteuid` reads process state and cannot fail.
+        let uid = unsafe { libc::geteuid() };
+
+        ensure_private_dir(&dir, uid).unwrap();
+
+        assert!(dir.is_dir());
+    }
+
+    /// A parent that is not there fails both ways of making the directory.
+    #[cfg(unix)]
+    #[test]
+    fn a_private_dir_under_a_missing_parent_is_an_error() {
+        let scratch = crate::testutil::Scratch::new();
+        let dir = scratch.path().join("missing").join("run");
+        // SAFETY: `geteuid` reads process state and cannot fail.
+        let uid = unsafe { libc::geteuid() };
+
+        assert!(ensure_private_dir(&dir, uid).is_err());
+        assert!(fresh_private_dir(&dir).is_err());
     }
 }

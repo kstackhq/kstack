@@ -25,19 +25,24 @@ use crate::state::AppState;
 
 /// Trailing-edge debounce: one poke per burst (wake + network-return collapse),
 /// well under the sidecar's ~30s wall-clock backstop.
-const DEBOUNCE_WINDOW: Duration = Duration::from_secs(3);
+pub const DEBOUNCE_WINDOW: Duration = Duration::from_secs(3);
 
 /// Source→coalescer channel depth. A saturated channel drops the excess, which
 /// the coalescer would collapse anyway.
 pub const CHANNEL_DEPTH: usize = 16;
 
-/// Pokes the sidecar once per burst of `rx`'s events, for the app's lifetime;
+/// Pokes the sidecar once per burst of `rx`'s events, `window` after the last
+/// ([`DEBOUNCE_WINDOW`] in the app), for the app's lifetime;
 /// ends when [`AppState::shutdown`] cancels or every source drops. Poke is
 /// best-effort — failures logged and swallowed (the wall-clock detector covers
 /// sleep).
-pub async fn supervise<R: Runtime>(app: AppHandle<R>, rx: mpsc::Receiver<core::RawEvent>) {
+pub async fn supervise<R: Runtime>(
+    app: AppHandle<R>,
+    rx: mpsc::Receiver<core::RawEvent>,
+    window: Duration,
+) {
     let shutdown = app.state::<AppState>().shutdown.clone();
-    core::run_coalescer(rx, DEBOUNCE_WINDOW, shutdown, move || {
+    core::run_coalescer(rx, window, shutdown, move || {
         let app = app.clone();
         async move {
             if let Err(err) = app.state::<AppState>().sidecar.poke().await {
@@ -52,6 +57,7 @@ pub async fn supervise<R: Runtime>(app: AppHandle<R>, rx: mpsc::Receiver<core::R
 mod tests {
     use super::*;
     use crate::logging::capture_thread;
+    use crate::services::sidecar::testutil::FakeGrpc;
     use crate::services::sidecar::SidecarService;
     use crate::testutil::{mock_app, Scratch};
     use crate::wake::core::RawEvent;
@@ -64,7 +70,7 @@ mod tests {
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let (capture, _guard) = capture_thread();
         let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
-        let supervisor = tokio::spawn(supervise(app.handle().clone(), rx));
+        let supervisor = tokio::spawn(supervise(app.handle().clone(), rx, DEBOUNCE_WINDOW));
 
         tx.send(RawEvent::Resumed).await.unwrap();
         tx.send(RawEvent::Resumed).await.unwrap();
@@ -85,6 +91,29 @@ mod tests {
         let (_tx, rx) = mpsc::channel(CHANNEL_DEPTH);
         app.state::<AppState>().shutdown.cancel();
 
-        supervise(app.handle().clone(), rx).await;
+        supervise(app.handle().clone(), rx, DEBOUNCE_WINDOW).await;
+    }
+
+    /// A poke the sidecar answers is not logged.
+    #[tokio::test]
+    async fn a_poke_reaches_the_sidecar() {
+        let fake = FakeGrpc::default();
+        let mut calls = fake.calls.subscribe();
+        let served = fake.serve();
+        let scratch = Scratch::new();
+        let app = mock_app(
+            scratch.path(),
+            SidecarService::dialing(served.endpoint.clone()),
+        );
+        let (capture, _guard) = capture_thread();
+        let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
+        let supervisor = tokio::spawn(supervise(app.handle().clone(), rx, Duration::ZERO));
+
+        tx.send(RawEvent::Resumed).await.unwrap();
+        calls.wait_for(|calls| *calls == 1).await.unwrap();
+        drop(tx);
+        supervisor.await.unwrap();
+
+        assert!(!capture.text().contains("wake poke failed"));
     }
 }

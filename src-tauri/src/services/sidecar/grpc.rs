@@ -164,3 +164,61 @@ fn status_to_err(status: tonic::Status) -> AppError {
         status.message()
     )))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::testutil::FakeGrpc;
+    use super::super::SidecarService;
+    use super::{AuthState, Identity};
+
+    #[tokio::test]
+    async fn every_call_reaches_the_sidecar_over_one_channel() {
+        let fake = FakeGrpc {
+            watch: vec![Ok(AuthState {
+                authenticated: true,
+                identity: Some(Identity::default()),
+            })],
+            ..FakeGrpc::default()
+        };
+        let calls = fake.calls.clone();
+        let served = fake.serve();
+        let sidecar = SidecarService::dialing(served.endpoint.clone());
+
+        sidecar.start_login().await.unwrap();
+        sidecar.logout().await.unwrap();
+        sidecar.poke().await.unwrap();
+        let mut stream = sidecar.watch_auth_state().await.unwrap();
+
+        let state = stream.message().await.unwrap().unwrap();
+        assert!(state.authenticated);
+        assert!(stream.message().await.unwrap().is_none(), "then it ends");
+        assert_eq!(*calls.borrow(), 4);
+    }
+
+    /// A refused call carries its code and message, and drops the channel so
+    /// the next call dials again.
+    #[tokio::test]
+    async fn a_refused_call_is_an_error_naming_its_status() {
+        let served = FakeGrpc {
+            refuse: Some(tonic::Code::Unavailable),
+            ..FakeGrpc::default()
+        }
+        .serve();
+        let sidecar = SidecarService::dialing(served.endpoint.clone());
+
+        let errors = [
+            sidecar.start_login().await.unwrap_err(),
+            sidecar.logout().await.unwrap_err(),
+            sidecar.poke().await.unwrap_err(),
+            sidecar.watch_auth_state().await.err().unwrap(),
+        ];
+
+        for err in errors {
+            let text = err.to_string();
+            assert!(
+                text.contains("grpc") && text.contains("refused"),
+                "got: {text}"
+            );
+        }
+    }
+}

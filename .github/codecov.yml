@@ -41,12 +41,10 @@ component_management:
       name: Rust
       paths:
         - src-tauri/**
-      # Reports only until src-tauri/ has no gap outside the ignored files.
       statuses:
         - type: project
           target: auto
           threshold: 0.1%
-          informational: true
 
 # No comment on the PR: the statuses and the diff's annotations say it all.
 comment: false
@@ -75,6 +73,9 @@ ignore:
   # The real runtime's builder, event loop and exit; the decisions it calls
   # are tested in lib.rs.
   - src-tauri/src/app.rs
+  # The macOS menu bar's construction: AppKit builds menus on the main thread,
+  # which no test runs on. What an item does is tested in app_menu/mod.rs.
+  - src-tauri/src/app_menu/macos.rs
   - src-tauri/src/wake/linux.rs
   - src-tauri/src/wake/macos.rs
   - src-tauri/src/wake/windows.rs

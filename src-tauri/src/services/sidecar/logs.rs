@@ -158,6 +158,10 @@ mod tests {
             parse_record(r#"{"level":"INFO","message":"no timestamp"}"#).is_none(),
             "a partial record is not a record"
         );
+        assert!(
+            parse_record(r#"{"timestamp":"t","level":3,"message":"m"}"#).is_none(),
+            "a level must be a string"
+        );
     }
 
     /// Nothing says how serious such a line is, and neither of the two that

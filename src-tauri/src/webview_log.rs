@@ -321,10 +321,8 @@ impl Bucket {
             .iter()
             .min_by_key(|(_, state)| state.seen_at)
             .map(|(key, _)| key.clone());
-        if let Some(key) = stalest {
-            if let Some(state) = self.signatures.remove(&key) {
-                self.dropped += state.suppressed;
-            }
+        if let Some(state) = stalest.and_then(|key| self.signatures.remove(&key)) {
+            self.dropped += state.suppressed;
         }
     }
 }
@@ -457,13 +455,13 @@ pub fn record_from(
     limiter: &Mutex<Limiter>,
     label: &str,
     record: WebviewRecord,
+    now: Instant,
     is_live: impl Fn(&str) -> bool,
 ) {
     if !is_live(label) {
         return;
     }
     let normalized = normalize(record);
-    let now = Instant::now();
     let (swept, verdict) = {
         let mut limiter = limiter.lock().unwrap_or_else(|p| p.into_inner());
         let swept = limiter.sweep(&is_live);
@@ -860,7 +858,13 @@ mod tests {
     fn a_record_for_a_dead_label_is_dropped_and_leaves_no_entry() {
         let limiter = Mutex::new(Limiter::new(config()));
         let out = captured(|| {
-            record_from(&limiter, "window-9", record("render", "late"), |_| false);
+            record_from(
+                &limiter,
+                "window-9",
+                record("render", "late"),
+                Instant::now(),
+                |_| false,
+            );
         });
         assert!(out.is_empty(), "got: {out}");
         assert!(!limiter.lock().unwrap().has("window-9"));
@@ -898,8 +902,20 @@ mod tests {
             ..config()
         }));
         let out = captured(|| {
-            record_from(&limiter, "main", record("graphql", "one"), |_| true);
-            record_from(&limiter, "main", record("graphql", "two"), |_| true);
+            record_from(
+                &limiter,
+                "main",
+                record("graphql", "one"),
+                Instant::now(),
+                |_| true,
+            );
+            record_from(
+                &limiter,
+                "main",
+                record("graphql", "two"),
+                Instant::now(),
+                |_| true,
+            );
         });
         assert_eq!(out.lines().count(), 1, "the second is dropped, got: {out}");
     }
@@ -912,8 +928,20 @@ mod tests {
             ..config()
         }));
         let out = captured(|| {
-            record_from(&limiter, "main", record("graphql", "one"), |_| true);
-            record_from(&limiter, "main", record("graphql", "two"), |_| true);
+            record_from(
+                &limiter,
+                "main",
+                record("graphql", "one"),
+                Instant::now(),
+                |_| true,
+            );
+            record_from(
+                &limiter,
+                "main",
+                record("graphql", "two"),
+                Instant::now(),
+                |_| true,
+            );
             destroyed(&limiter, "main");
         });
         assert!(out.contains("dropped=1"), "got: {out}");
@@ -933,5 +961,51 @@ mod tests {
         );
         // Still out of ordinary budget: the marker charged nothing and freed nothing.
         assert_eq!(limiter.admit("main", &warn_record(3), t0), Verdict::Drop);
+    }
+
+    /// The command body summarizes both what the lock swept from a closed
+    /// webview and what a refill lets a live one report.
+    #[test]
+    fn the_command_body_summarizes_what_was_swept_and_what_was_dropped() {
+        let limiter = Mutex::new(Limiter::new(LimiterConfig {
+            burst: 1,
+            error_reserve: 0,
+            ..config()
+        }));
+        let t0 = Instant::now();
+        let main_only = |label: &str| label == "main";
+
+        let out = captured(|| {
+            record_from(&limiter, "window-1", record("graphql", "a"), t0, |_| true);
+            record_from(&limiter, "window-1", record("graphql", "b"), t0, |_| true);
+            record_from(&limiter, "main", record("graphql", "c"), t0, main_only);
+            record_from(&limiter, "main", record("graphql", "d"), t0, main_only);
+            let later = t0 + Duration::from_secs(1);
+            record_from(&limiter, "main", record("graphql", "e"), later, main_only);
+        });
+
+        assert!(out.contains("window=\"window-1\" dropped=1"), "got: {out}");
+        assert!(out.contains("window=\"main\" dropped=1"), "got: {out}");
+    }
+
+    #[test]
+    fn every_source_round_trips_its_name() {
+        for name in ["graphql", "subscription", "network", "render", "auth"] {
+            assert_eq!(Source::parse(name).as_str(), name);
+        }
+        assert_eq!(Source::parse("other").as_str(), "unknown");
+    }
+
+    /// Fields that fit their own caps can still overrun the whole once JSON
+    /// escapes them; the whole is then replaced, never cut.
+    #[test]
+    fn reported_fields_too_large_together_are_replaced() {
+        let mut big = record("render", "boom");
+        big.stack = Some("\\".repeat(MAX_STACK_BYTES));
+        big.component_stack = Some("\\".repeat(MAX_COMPONENT_STACK_BYTES));
+
+        let out = captured(|| emit("main", &normalize(big), 0));
+
+        assert_eq!(reported_of(&out), serde_json::json!({ "truncated": true }));
     }
 }

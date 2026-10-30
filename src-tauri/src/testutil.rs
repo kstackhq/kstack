@@ -23,10 +23,15 @@ use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
 use tauri::utils::config::AppDirectoriesOverride;
 use tauri::webview::InvokeRequest;
-use tauri::{App, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::window::Monitor;
+use tauri::{
+    App, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 
+use crate::paths::Roots;
 use crate::services::sidecar::SidecarService;
 use crate::state::AppState;
+use crate::window_manager::Monitors;
 
 /// A fresh directory under the OS temp dir, removed on drop.
 pub struct Scratch(PathBuf);
@@ -55,19 +60,84 @@ impl Drop for Scratch {
 /// An app on the mock runtime serving every command, its app directories
 /// under `root`, managing an [`AppState`] over `sidecar`.
 pub fn mock_app(root: &Path, sidecar: SidecarService) -> App<MockRuntime> {
-    let mut context = mock_context(noop_assets());
-    context.config_mut().app.app_directories_override =
-        Some(AppDirectoriesOverride::Root(root.to_path_buf()));
-    let app = mock_builder()
-        .invoke_handler(crate::invoke_handler())
-        .build(context)
-        .unwrap();
-    app.manage(AppState::new(sidecar, Vec::new()));
+    let app = bare_app(root);
+    app.manage(AppState::new(
+        sidecar,
+        Vec::new(),
+        OneMonitor(Some(monitor((0, 0, 1920, 1080), 1.0))),
+    ));
     app
 }
 
-/// Opens a window directly, past the window manager: the mock runtime has no
-/// monitor for `build_window` to place one on.
+/// [`mock_app`] before `setup` manages its state.
+pub fn bare_app(root: &Path) -> App<MockRuntime> {
+    let mut context = mock_context(noop_assets());
+    context.config_mut().app.app_directories_override =
+        Some(AppDirectoriesOverride::Root(root.to_path_buf()));
+    mock_builder()
+        .plugin(tauri_plugin_shell::init())
+        .invoke_handler(crate::invoke_handler())
+        .build(context)
+        .unwrap()
+}
+
+/// The monitors for the mock runtime, which has none: every window is on the
+/// one given, which is also the primary. `None` is a system whose monitors
+/// cannot be read.
+pub struct OneMonitor(pub Option<Monitor>);
+
+impl Monitors for OneMonitor {
+    fn of_window(&self, _label: &str) -> Option<Monitor> {
+        self.0.clone()
+    }
+
+    fn primary(&self) -> Option<Monitor> {
+        self.0.clone()
+    }
+}
+
+/// A monitor whose work area is `(x, y, width, height)` physical px.
+pub fn monitor(work_area: (i32, i32, u32, u32), scale_factor: f64) -> Monitor {
+    let (x, y, width, height) = work_area;
+    let position = PhysicalPosition::new(x, y);
+    let size = PhysicalSize::new(width, height);
+    tauri_runtime::monitor::Monitor {
+        name: None,
+        size,
+        position,
+        work_area: tauri_runtime::dpi::PhysicalRect { position, size },
+        scale_factor,
+    }
+    .into()
+}
+
+/// A sidecar that is `sh -c script`, its directories under `root`.
+#[cfg(unix)]
+pub fn script_sidecar(root: &Path, script: &str) -> SidecarService {
+    use tauri_plugin_shell::ShellExt;
+
+    // Any app with the shell plugin makes the command; the process outlives it.
+    let shell = mock_builder()
+        .plugin(tauri_plugin_shell::init())
+        .build(mock_context(noop_assets()))
+        .unwrap();
+    SidecarService::spawn(&roots(root), |_| {
+        Ok(shell.shell().command("sh").args(["-c", script]))
+    })
+    .unwrap()
+}
+
+/// Platform roots under `root`, so nothing a test makes lands in the user's
+/// own directories.
+pub fn roots(root: &Path) -> Roots {
+    Roots {
+        local_data: root.join("local"),
+        cache: root.join("cache"),
+        home: root.join("home"),
+    }
+}
+
+/// Opens a window directly, past the window manager.
 pub fn window(app: &App<MockRuntime>, label: &str) -> WebviewWindow<MockRuntime> {
     WebviewWindowBuilder::new(app, label, WebviewUrl::default())
         .build()

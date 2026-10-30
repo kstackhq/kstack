@@ -31,14 +31,19 @@ use crate::error::{AppError, Result};
 #[cfg(not(target_vendor = "apple"))]
 pub fn peer_pid(stream: &Stream) -> Result<u32> {
     let creds = stream.peer_creds().map_err(AppError::Io)?;
-    let pid = creds.pid().ok_or_else(|| {
+    // `pid()` is `i32` on Linux and already `u32` on Windows.
+    #[allow(clippy::unnecessary_cast)]
+    known_pid(creds.pid().map(|pid| pid as u32))
+}
+
+/// The pid from a peer's credentials, which need not carry one.
+#[cfg(not(target_vendor = "apple"))]
+fn known_pid(pid: Option<u32>) -> Result<u32> {
+    pid.ok_or_else(|| {
         AppError::Io(std::io::Error::other(
             "peer credentials carry no process id",
         ))
-    })?;
-    // `pid()` is `i32` on Linux and already `u32` on Windows.
-    #[allow(clippy::unnecessary_cast)]
-    Ok(pid as u32)
+    })
 }
 
 #[cfg(target_vendor = "apple")]
@@ -91,5 +96,13 @@ mod tests {
         );
 
         cleanup_path(endpoint.as_arg());
+    }
+
+    /// A peer whose credentials carry no pid is refused, not taken for pid 0.
+    #[cfg(not(target_vendor = "apple"))]
+    #[test]
+    fn credentials_without_a_pid_are_an_error() {
+        assert_eq!(super::known_pid(Some(42)).unwrap(), 42);
+        assert!(super::known_pid(None).is_err());
     }
 }

@@ -53,7 +53,7 @@ test-go:
 	cd sidecar && go test ./...
 	cd tools && go test ./...
 
-# Rust integration test spawns the real sidecar binary, so build it first.
+# tauri-build fails without the bundled sidecar binary, so build it first.
 test-rust: sidecar
 	cd src-tauri && cargo test
 

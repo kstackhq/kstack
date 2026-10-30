@@ -157,6 +157,22 @@ fn is_app_origin(url: &Url) -> bool {
     )
 }
 
+/// Answers a page's `window.open`: always no. Nothing in the app opens a
+/// window this way, and a popup is a webview the navigation policy does not
+/// govern. An external link stays host-owned — the opener plugin, as the
+/// tray's account item does.
+fn refuse_new_window<R: Runtime>(url: &Url) -> NewWindowResponse<R> {
+    warn!(%url, "refused a new-window request from the webview");
+    NewWindowResponse::Deny
+}
+
+/// Logs a window call that failed. None of them is worth failing the caller.
+fn warn_on_error<T>(result: tauri::Result<T>, what: &str) {
+    if let Err(err) = result {
+        warn!(%err, "{what}");
+    }
+}
+
 /// Down-right step per cascade — about a title bar, so the window beneath
 /// stays grabbable.
 const CASCADE_STEP: f64 = 28.0;
@@ -203,9 +219,8 @@ fn cascade_position(
 /// Unminimizes, shows and focuses `window`.
 fn surface<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
     // A minimized window won't surface on show()/set_focus() alone.
-    if window.is_minimized().unwrap_or(false) {
-        window.unminimize()?;
-    }
+    let minimized = window.is_minimized().unwrap_or(false);
+    minimized.then(|| window.unminimize()).transpose()?;
     window.show()?;
     window.set_focus()?;
     Ok(())
@@ -221,8 +236,17 @@ fn logical_work_area(monitor: &Monitor) -> (f64, f64, f64, f64) {
     (position.x, position.y, size.width, size.height)
 }
 
+/// The monitors a new window is placed against. `app.rs` reads the real
+/// runtime's; Tauri's mock runtime has none, so tests pass their own.
+pub trait Monitors: Send + Sync {
+    /// The monitor the window labelled `label` is on.
+    fn of_window(&self, label: &str) -> Option<Monitor>;
+
+    /// The system's primary monitor.
+    fn primary(&self) -> Option<Monitor>;
+}
+
 /// Owns window creation and focus for the host.
-#[derive(Default)]
 pub struct WindowManager {
     /// Monotonic counter feeding unique window labels.
     next_id: AtomicU64,
@@ -238,22 +262,24 @@ pub struct WindowManager {
     /// would come back over a sidecar that is stopping and vanish when the exit
     /// lands.
     shutdown: CancellationToken,
+
+    monitors: Box<dyn Monitors>,
 }
 
 impl WindowManager {
-    pub fn new(shutdown: CancellationToken) -> Self {
+    pub fn new(shutdown: CancellationToken, monitors: impl Monitors + 'static) -> Self {
         Self {
+            next_id: AtomicU64::new(0),
+            last_built: Mutex::new(None),
             shutdown,
-            ..Self::default()
+            monitors: Box::new(monitors),
         }
     }
 
     /// Hides every window, as a quit begins.
     pub fn hide_all<R: Runtime>(&self, app: &AppHandle<R>) {
         for window in app.webview_windows().values() {
-            if let Err(err) = window.hide() {
-                warn!(%err, "failed to hide a window on quit");
-            }
+            warn_on_error(window.hide(), "failed to hide a window on quit");
         }
     }
 
@@ -288,14 +314,11 @@ impl WindowManager {
         let shutdown = self.shutdown.clone();
         let queued = app.run_on_main_thread(move || {
             if shutdown.is_cancelled() {
-                if let Err(err) = window.hide() {
-                    warn!(%err, "failed to hide a window opened as the quit began");
-                }
+                let hidden = window.hide();
+                warn_on_error(hidden, "failed to hide a window opened as the quit began");
             }
         });
-        if let Err(err) = queued {
-            warn!(%err, "failed to queue the quit check for a window");
-        }
+        warn_on_error(queued, "failed to queue the quit check for a window");
     }
 
     /// Next unique window label; never reused for the process lifetime, even
@@ -320,6 +343,35 @@ impl WindowManager {
                 .as_deref()
                 .and_then(|label| app.get_webview_window(label))
         })
+    }
+
+    /// Logical `(x, y)` for the next window: a cascade step off the anchor on
+    /// its monitor, else centered on the primary. `None` when no monitor can be
+    /// read.
+    fn placement<R: Runtime>(&self, app: &AppHandle<R>) -> Option<(f64, f64)> {
+        // Anchor and its monitor resolve together — an anchor whose monitor
+        // can't be read is no anchor at all. Anything unreadable degrades to a
+        // centered window, never a failed build.
+        let anchored = self.anchor_window(app).and_then(|window| {
+            let monitor = self.monitors.of_window(window.label())?;
+            let position = window
+                .outer_position()
+                .ok()?
+                .to_logical::<f64>(monitor.scale_factor());
+            Some((monitor, (position.x, position.y)))
+        });
+
+        let (monitor, anchor_position) = match anchored {
+            Some((monitor, position)) => (monitor, Some(position)),
+            // The session's first window, or an anchor that vanished mid-build.
+            None => (self.monitors.primary()?, None),
+        };
+
+        Some(cascade_position(
+            anchor_position,
+            (WINDOW_WIDTH, WINDOW_HEIGHT),
+            logical_work_area(&monitor),
+        ))
     }
 
     /// Surface the main window: recreate it if the user closed it, unminimize it
@@ -360,37 +412,10 @@ impl WindowManager {
             // Floor the window so the layout never renders below its narrowest design.
             .min_inner_size(600.0, 400.0)
             .on_navigation(is_app_origin)
-            // Nothing in the app opens a window this way, and a popup is a
-            // webview the policy above does not govern. An external link stays
-            // host-owned — the opener plugin, as the tray's account item does.
-            .on_new_window(|url, _features| {
-                warn!(%url, "refused a new-window request from the webview");
-                NewWindowResponse::Deny
-            });
-
-        // Anchor and its monitor resolve together — an anchor whose monitor
-        // can't be read is no anchor at all. Anything unreadable degrades to a
-        // centered window, never a failed build.
-        let anchored = self.anchor_window(app).and_then(|window| {
-            let monitor = window.current_monitor().ok().flatten()?;
-            let position = window
-                .outer_position()
-                .ok()?
-                .to_logical::<f64>(monitor.scale_factor());
-            Some((monitor, (position.x, position.y)))
-        });
-
-        let (monitor, anchor_position) = match anchored {
-            Some((monitor, position)) => (Some(monitor), Some(position)),
-            // The session's first window, or an anchor that vanished mid-build.
-            None => (app.primary_monitor().ok().flatten(), None),
-        };
+            .on_new_window(|url, _features| refuse_new_window(&url));
 
         // No monitor to measure against — let the OS place the window.
-        if let Some(monitor) = monitor {
-            let work_area = logical_work_area(&monitor);
-            let (x, y) =
-                cascade_position(anchor_position, (WINDOW_WIDTH, WINDOW_HEIGHT), work_area);
+        if let Some((x, y)) = self.placement(app) {
             builder = builder.position(x, y);
         }
 
@@ -457,13 +482,18 @@ impl WindowManager {
 
 #[cfg(test)]
 mod tests {
-    use super::{background_color_for, cascade_position, is_app_origin, WindowManager};
+    use super::{
+        background_color_for, cascade_position, is_app_origin, refuse_new_window, warn_on_error,
+        WindowManager,
+    };
     use crate::host_file::ColorSchemePreference;
     use crate::services::sidecar::SidecarService;
-    use crate::testutil::{mock_app, window, Scratch};
+    use crate::testutil::{mock_app, monitor, window, OneMonitor, Scratch};
     use std::collections::HashSet;
     use std::sync::Arc;
     use std::thread;
+    use tauri::test::MockRuntime;
+    use tauri::webview::NewWindowResponse;
     use tauri::Manager;
     use tauri::Url;
     use tokio_util::sync::CancellationToken;
@@ -524,9 +554,9 @@ mod tests {
     fn build_window_installs_the_navigation_policy() {
         // Both callbacks are the containment for a page that tries to leave, and
         // nothing else in the process reinstates them — an edit to the builder
-        // that drops one is silent at runtime and invisible to every other test
-        // here, because none of them can build a webview. So read the source, the
-        // way `config_declares_no_windows` reads the config.
+        // that drops one is silent at runtime, and the mock runtime never
+        // navigates or opens a popup to call them. So read the source, the way
+        // `config_declares_no_windows` reads the config.
         let source = include_str!("window_manager.rs");
         let (_, after) = source
             .split_once("fn build_window")
@@ -542,9 +572,28 @@ mod tests {
             "build_window must refuse navigation off the app origin"
         );
         assert!(
-            build_window.contains("NewWindowResponse::Deny"),
+            build_window.contains("refuse_new_window"),
             "build_window must refuse `window.open`"
         );
+    }
+
+    #[test]
+    fn a_new_window_request_is_refused() {
+        let url = Url::parse("https://example.com").unwrap();
+        assert!(matches!(
+            refuse_new_window::<MockRuntime>(&url),
+            NewWindowResponse::Deny
+        ));
+    }
+
+    #[test]
+    fn a_failed_window_call_is_logged() {
+        let logged = crate::logging::captured(|| {
+            warn_on_error(Ok(()), "not this");
+            warn_on_error(Err::<(), _>(tauri::Error::UnknownPath), "failed to hide");
+        });
+        assert!(logged.contains("failed to hide"), "got: {logged}");
+        assert!(!logged.contains("not this"), "got: {logged}");
     }
 
     #[test]
@@ -580,14 +629,60 @@ mod tests {
         }
     }
 
+    /// A manager on no readable monitor.
+    fn manager() -> WindowManager {
+        WindowManager::new(CancellationToken::new(), OneMonitor(None))
+    }
+
     #[test]
     fn labels_start_at_one() {
-        let wm = WindowManager::default();
+        let wm = manager();
         assert_eq!(wm.next_label(), "window-1");
     }
 
-    // The mock runtime has no monitor for `build_window` to place a window on,
-    // so these open theirs past the manager.
+    /// The first window centers on the primary monitor; the next steps off it,
+    /// on its monitor, in logical px.
+    #[test]
+    fn windows_open_centered_then_cascade() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        // A 1920x1080 logical work area at scale 2.
+        let wm = WindowManager::new(
+            CancellationToken::new(),
+            OneMonitor(Some(monitor((0, 0, 3840, 2160), 2.0))),
+        );
+
+        assert_eq!(wm.placement(app.handle()), Some((560.0, 240.0)));
+        wm.new_window(app.handle()).unwrap();
+        assert!(app.get_webview_window("window-1").is_some());
+
+        // The mock puts every window at the origin.
+        assert_eq!(wm.placement(app.handle()), Some((28.0, 28.0)));
+        wm.new_window(app.handle()).unwrap();
+        assert!(app.get_webview_window("window-2").is_some());
+    }
+
+    /// With no monitor to measure against, the OS places the window.
+    #[test]
+    fn a_window_opens_with_no_monitor_readable() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let wm = manager();
+
+        assert_eq!(wm.placement(app.handle()), None);
+        wm.new_window(app.handle()).unwrap();
+        assert!(app.get_webview_window("window-1").is_some());
+    }
+
+    #[test]
+    fn a_closed_main_window_is_rebuilt() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+
+        manager().show_main_window(app.handle()).unwrap();
+
+        assert!(app.get_webview_window("main").is_some());
+    }
 
     #[test]
     fn an_open_main_window_is_surfaced_not_rebuilt() {
@@ -595,9 +690,7 @@ mod tests {
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         window(&app, "main");
 
-        WindowManager::default()
-            .show_main_window(app.handle())
-            .unwrap();
+        manager().show_main_window(app.handle()).unwrap();
 
         assert_eq!(app.webview_windows().len(), 1);
     }
@@ -609,7 +702,7 @@ mod tests {
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let main = window(&app, "main");
         let shutdown = CancellationToken::new();
-        let wm = WindowManager::new(shutdown.clone());
+        let wm = WindowManager::new(shutdown.clone(), OneMonitor(None));
         shutdown.cancel();
 
         wm.hide_if_quitting(app.handle(), main);
@@ -624,7 +717,7 @@ mod tests {
     fn the_anchor_is_the_last_window_built_while_it_is_open() {
         let scratch = Scratch::new();
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
-        let wm = WindowManager::default();
+        let wm = manager();
         window(&app, "window-1");
         assert!(wm.anchor_window(app.handle()).is_none(), "none built yet");
 
@@ -743,7 +836,7 @@ mod tests {
 
     #[test]
     fn labels_increase_monotonically() {
-        let wm = WindowManager::default();
+        let wm = manager();
         assert_eq!(wm.next_label(), "window-1");
         assert_eq!(wm.next_label(), "window-2");
         assert_eq!(wm.next_label(), "window-3");
@@ -751,8 +844,8 @@ mod tests {
 
     #[test]
     fn each_manager_has_its_own_counter() {
-        let a = WindowManager::default();
-        let b = WindowManager::default();
+        let a = manager();
+        let b = manager();
         assert_eq!(a.next_label(), "window-1");
         assert_eq!(a.next_label(), "window-2");
         // `b` is independent — it is not advanced by calls on `a`.
@@ -764,7 +857,7 @@ mod tests {
         const THREADS: usize = 8;
         const PER_THREAD: usize = 250;
 
-        let wm = Arc::new(WindowManager::default());
+        let wm = Arc::new(manager());
         let handles: Vec<_> = (0..THREADS)
             .map(|_| {
                 let wm = Arc::clone(&wm);

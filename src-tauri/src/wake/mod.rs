@@ -54,4 +54,4 @@ mod platform {
 }
 
 pub use platform::spawn_sources;
-pub use supervisor::{supervise, CHANNEL_DEPTH};
+pub use supervisor::{supervise, CHANNEL_DEPTH, DEBOUNCE_WINDOW};

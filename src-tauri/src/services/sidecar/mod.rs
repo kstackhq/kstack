@@ -18,6 +18,8 @@ mod ipc;
 mod logs;
 mod peer;
 mod service;
+#[cfg(test)]
+pub mod testutil;
 
 pub use graphql::GraphqlResponse;
 pub use grpc::AuthState;

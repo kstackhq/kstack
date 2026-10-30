@@ -17,11 +17,10 @@
 //! `webview_log` forwards; stderr carries all three processes, tagged, so a dev
 //! run stays one stream on one clock.
 
+use std::ffi::OsString;
 use std::fmt;
-use std::io::IsTerminal;
 use std::path::Path;
 
-use tauri::{AppHandle, Runtime};
 use tracing::{Event, Level, Metadata, Subscriber};
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
@@ -30,10 +29,9 @@ use tracing_subscriber::fmt::writer::{MakeWriter, MakeWriterExt};
 use tracing_subscriber::fmt::FmtContext;
 use tracing_subscriber::layer::{Layer, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{reload, EnvFilter, Registry};
 
-use crate::paths::log_dir;
+use crate::paths::{log_dir, Roots};
 
 /// Swaps the file layer in once a path is known. Boxed because a
 /// `reload::Layer` implements `Layer<S>` for exactly the `S` it names, and
@@ -189,41 +187,50 @@ where
     }
 }
 
-/// Installs the process subscriber: stderr now, a file later.
+/// The process subscriber: stderr now, a file later. `app.rs` installs it.
 ///
 /// The file's directory needs an `AppHandle`, which does not exist this early,
 /// so the file layer arrives through [`install_file_layer`]. Until it does,
-/// events reach stderr only.
+/// events reach `stderr` only.
 ///
 /// The reload layer sits directly on the registry so its `S` is `Registry`;
 /// after `.with(filter)` the accumulated subscriber type is something else and
 /// the handle becomes unwriteable. Order costs nothing — `Layered::enabled`
 /// ANDs across the stack, so the filter still governs every layer.
-pub fn init_process() -> ReloadHandle {
+pub fn process_subscriber<W>(
+    stderr: W,
+    ansi: bool,
+    filter: EnvFilter,
+) -> (impl Subscriber + Send + Sync + 'static, ReloadHandle)
+where
+    W: for<'a> MakeWriter<'a> + Send + Sync + 'static,
+{
     let (file, handle) = reload::Layer::new(None as FileLayer);
-    let filter = EnvFilter::try_from_env("KSTACK_LOG_LEVEL")
-        .or_else(|_| EnvFilter::try_from_default_env())
-        .unwrap_or_else(|_| "info".into());
-
-    tracing_subscriber::registry()
+    let subscriber = tracing_subscriber::registry()
         .with(file)
         .with(filter)
-        .with(stderr_layer(std::io::stderr, use_ansi()))
-        .init();
-
-    handle
+        .with(stderr_layer(stderr, ansi));
+    (subscriber, handle)
 }
 
-/// Whether to colour the terminal. The fmt layer does not check anything, so a
-/// stream redirected to a file would otherwise keep the escapes as garbage.
+/// The level filter: `KSTACK_LOG_LEVEL`, else `RUST_LOG`, else `info`.
+pub fn env_filter() -> EnvFilter {
+    EnvFilter::try_from_env("KSTACK_LOG_LEVEL")
+        .or_else(|_| EnvFilter::try_from_default_env())
+        .unwrap_or_else(|_| "info".into())
+}
+
+/// Whether to colour the terminal, given `NO_COLOR` and whether stderr is a
+/// terminal. The fmt layer does not check anything, so a stream redirected to
+/// a file would otherwise keep the escapes as garbage.
 ///
 /// A debug build always colours: `tauri dev` relays our stderr through its own
 /// process, and that pipe is not a terminal. `NO_COLOR` is the way out of both.
-fn use_ansi() -> bool {
-    if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+pub fn use_ansi(no_color: Option<OsString>, stderr_is_terminal: bool) -> bool {
+    if no_color.is_some_and(|v| !v.is_empty()) {
         return false;
     }
-    cfg!(debug_assertions) || std::io::stderr().is_terminal()
+    cfg!(debug_assertions) || stderr_is_terminal
 }
 
 /// The terminal's view of all three parts of the app. Both arguments are
@@ -247,11 +254,8 @@ where
 /// Never fails the caller: a desktop app that will not start because it cannot
 /// log is worse than one that logs to stderr alone. Call before anything worth
 /// logging — the sidecar's startup above all.
-pub fn install_file_layer<R: Runtime>(
-    handle: &ReloadHandle,
-    app: &AppHandle<R>,
-) -> Vec<WorkerGuard> {
-    match log_dir(app)
+pub fn install_file_layer(handle: &ReloadHandle, roots: &Roots) -> Vec<WorkerGuard> {
+    match log_dir(roots)
         .and_then(|dir| file_layer(&dir))
         .and_then(|FileLog { layer, guards }| {
             // Fails only if the subscriber is gone, which cannot happen here —
@@ -662,14 +666,9 @@ mod tests {
         let dir = temp_dir("readonly");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
 
-        // Root ignores the mode bits, so the assertion below would invert.
-        if std::fs::write(dir.join(".probe"), b"").is_ok() {
-            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
-            std::fs::remove_dir_all(&dir).unwrap();
-            return;
-        }
-
-        assert!(file_layer(&dir).is_err());
+        // Root ignores the mode bits, so the assertion would invert.
+        let root = std::fs::write(dir.join(".probe"), b"").is_ok();
+        assert!(root || file_layer(&dir).is_err());
 
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
@@ -717,5 +716,83 @@ mod tests {
             "got: {contents}"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The process subscriber starts on stderr alone; the file layer swapped
+    /// in afterwards receives what follows.
+    #[test]
+    fn the_file_layer_joins_the_process_subscriber() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let stderr = Capture::default();
+        let sink = stderr.clone();
+        let (subscriber, handle) =
+            process_subscriber(move || sink.clone(), false, EnvFilter::new("info"));
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!("before the file");
+            let guards = install_file_layer(&handle, &roots);
+            tracing::info!("after the file");
+            drop(guards);
+        });
+
+        let file = read_log(&log_dir(&roots).unwrap(), "main.log");
+        assert!(!file.contains("before the file"), "got: {file}");
+        assert!(file.contains("after the file"), "got: {file}");
+        let terminal = stderr.text();
+        assert!(terminal.contains("before the file"), "got: {terminal}");
+        assert!(terminal.contains("after the file"), "got: {terminal}");
+    }
+
+    /// No log directory leaves the process on stderr, with no guards to hold.
+    #[test]
+    fn a_log_directory_that_cannot_be_made_leaves_stderr_alone() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let logs = log_dir(&roots).unwrap();
+        std::fs::remove_dir(&logs).unwrap();
+        std::fs::write(&logs, "").unwrap();
+        let (_, handle) = process_subscriber(std::io::sink, false, EnvFilter::new("info"));
+
+        assert!(install_file_layer(&handle, &roots).is_empty());
+    }
+
+    #[test]
+    fn no_color_turns_colour_off_and_a_terminal_turns_it_on() {
+        assert!(!use_ansi(Some("1".into()), true));
+        assert!(
+            use_ansi(Some("".into()), true),
+            "an empty NO_COLOR is unset"
+        );
+        assert!(use_ansi(None, true));
+        assert_eq!(use_ansi(None, false), cfg!(debug_assertions));
+    }
+
+    #[test]
+    fn every_level_has_its_column_and_colour() {
+        assert_eq!(level_style(&Level::TRACE), ("TRACE", "35"));
+        assert_eq!(level_style(&Level::DEBUG), ("DEBUG", "34"));
+        assert_eq!(level_style(&Level::INFO), (" INFO", "32"));
+        assert_eq!(level_style(&Level::WARN), (" WARN", "33"));
+        assert_eq!(level_style(&Level::ERROR), ("ERROR", "31"));
+    }
+
+    /// CI sets neither variable, so there this reads the `info` fallback.
+    #[test]
+    fn the_filter_falls_back_to_info() {
+        let set = std::env::var_os("KSTACK_LOG_LEVEL").is_some()
+            || std::env::var_os("RUST_LOG").is_some();
+        assert!(set || env_filter().to_string() == "info");
+    }
+
+    /// `Capture` buffers nothing, so a flush keeps what was written.
+    #[test]
+    fn a_capture_flush_keeps_what_was_written() {
+        use std::io::Write;
+
+        let mut capture = Capture::default();
+        capture.write_all(b"line").unwrap();
+        capture.flush().unwrap();
+        assert_eq!(capture.text(), "line");
     }
 }

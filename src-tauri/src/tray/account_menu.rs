@@ -158,19 +158,23 @@ mod tests {
     #[test]
     fn signed_in_snapshot_produces_signed_in_with_name() {
         let snap = AccountSnapshot::signed_in(Some("Ada Lovelace"), Some("a@x.com"));
-        match build_account_descriptor(&snap) {
-            AccountMenuDescriptor::SignedIn { title } => assert_eq!(title, "Ada Lovelace"),
-            _ => panic!("expected SignedIn"),
-        }
+        assert_eq!(
+            build_account_descriptor(&snap),
+            AccountMenuDescriptor::SignedIn {
+                title: "Ada Lovelace".into()
+            }
+        );
     }
 
     #[test]
     fn signed_in_without_name_uses_email() {
         let snap = AccountSnapshot::signed_in(None, Some("a@x.com"));
-        match build_account_descriptor(&snap) {
-            AccountMenuDescriptor::SignedIn { title } => assert_eq!(title, "a@x.com"),
-            _ => panic!("expected SignedIn"),
-        }
+        assert_eq!(
+            build_account_descriptor(&snap),
+            AccountMenuDescriptor::SignedIn {
+                title: "a@x.com".into()
+            }
+        );
     }
 
     #[test]
@@ -180,10 +184,12 @@ mod tests {
             name: None,
             email: None,
         };
-        match build_account_descriptor(&snap) {
-            AccountMenuDescriptor::SignedIn { title } => assert_eq!(title, "Account"),
-            _ => panic!("expected SignedIn"),
-        }
+        assert_eq!(
+            build_account_descriptor(&snap),
+            AccountMenuDescriptor::SignedIn {
+                title: "Account".into()
+            }
+        );
     }
 
     // --- account_snapshot_from ---
