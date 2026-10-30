@@ -25,6 +25,9 @@ import { cn } from '@kubetail/ui/lib/utils';
 // the color.
 const SHAPE = 'rounded-full border-sidebar-border';
 
+// Every bar control is 32px tall: the omnibox, the groups and the buttons in them.
+const HEIGHT = 'h-8';
+
 // Hover is a wash over the bar's own tint rather than the library's fixed
 // `bg-muted`. The `dark:` form is needed too: `ghost` carries its own
 // `dark:hover:bg-muted/50`, which tailwind-merge only replaces with a class
@@ -34,10 +37,10 @@ export const APP_BAR_HOVER_CLASS = 'hover:bg-app-bar-hover dark:hover:bg-app-bar
 const VARIANTS = { variant: 'ghost', size: 'icon' } as const;
 
 /** For a control that cannot be a `Button` — the omnibox's wrapper. */
-export const APP_BAR_CONTROL_CLASS = SHAPE;
+export const APP_BAR_CONTROL_CLASS = cn(SHAPE, HEIGHT);
 
 export function AppBarButton({ className, ...props }: ComponentProps<typeof Button>) {
-  return <Button {...VARIANTS} className={cn(SHAPE, APP_BAR_HOVER_CLASS, className)} {...props} />;
+  return <Button {...VARIANTS} className={cn(SHAPE, 'size-8', APP_BAR_HOVER_CLASS, className)} {...props} />;
 }
 
 /**
@@ -45,7 +48,7 @@ export function AppBarButton({ className, ...props }: ComponentProps<typeof Butt
  * buttons inside stay ghosts, with an `AppBarDivider` between them.
  */
 export function AppBarGroup({ children }: { children: ReactNode }) {
-  return <div className={cn('flex h-9 shrink-0 items-center border', SHAPE)}>{children}</div>;
+  return <div className={cn('flex shrink-0 items-center border', HEIGHT, SHAPE)}>{children}</div>;
 }
 
 export function AppBarDivider() {

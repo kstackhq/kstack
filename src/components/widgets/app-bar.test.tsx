@@ -72,8 +72,8 @@ afterEach(() => {
 describe('AppBar', () => {
   it('holds its height as the layout column’s top band', () => {
     render(<AppBar />);
-    // 56px, and never shrunk by the row below it.
-    expect(screen.getByTestId('app-bar')).toHaveClass('h-14', 'shrink-0');
+    // 48px, and never shrunk by the row below it.
+    expect(screen.getByTestId('app-bar')).toHaveClass('h-12', 'shrink-0');
   });
 
   it('drags the window from anywhere it is not a control, on every platform', () => {

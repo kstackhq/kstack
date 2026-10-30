@@ -55,7 +55,7 @@ const WINDOW_HEIGHT: f64 = 600.0;
 /// App-bar height, the strip the macOS traffic lights sit in. Kept in sync with
 /// `src/components/widgets/app-bar.tsx`.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-const APP_BAR_HEIGHT: f64 = 56.0;
+const APP_BAR_HEIGHT: f64 = 48.0;
 
 /// Inset from the window's left edge to the first traffic light. The webview's
 /// `TRAFFIC_LIGHT_GUTTER` (`app-bar.tsx`) reserves this plus the buttons — bump

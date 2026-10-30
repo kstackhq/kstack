@@ -38,7 +38,7 @@ export function AppBar() {
   const mac = isMacOS();
 
   return (
-    // 56px tall; `window_manager.rs` mirrors the number to center the traffic lights
+    // 48px tall; `window_manager.rs` mirrors the number to center the traffic lights
     // in it. No padding of its own: the close button has to reach the window's
     // corner, and the gutter supplies the macOS inset.
     //
@@ -54,7 +54,7 @@ export function AppBar() {
     <div
       data-testid="app-bar"
       data-tauri-drag-region="deep"
-      className="flex h-14 shrink-0 transform-gpu items-stretch bg-app-bar"
+      className="flex h-12 shrink-0 transform-gpu items-stretch bg-app-bar"
     >
       {mac ? (
         <div

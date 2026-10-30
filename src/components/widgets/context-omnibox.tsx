@@ -13,7 +13,8 @@
 // limitations under the License.
 
 // The app bar's context omnibox: the address bar of the cluster surface, where the
-// cluster is the address. A press anywhere on it but the memory button opens the
+// cluster is the address. The server icon, carrying the window's cluster's verdict,
+// opens its status; the brain opens its memory; a press anywhere else opens the
 // cluster picker, which switches the window's cluster and leads to the Clusters
 // dialog.
 import type { ReactNode, RefObject } from 'react';
@@ -28,32 +29,73 @@ import { cn } from '@kubetail/ui/lib/utils';
 import { APP_BAR_CONTROL_CLASS, APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-button';
 import { ClusterDot } from '@/components/widgets/cluster-dot';
 import { ClusterPicker } from '@/components/widgets/cluster-picker';
+import { ClusterStatusPopover } from '@/components/widgets/cluster-status-popover';
 import { MemoryPopover } from '@/components/widgets/memory';
 import { UnverifiedTLSBadge } from '@/components/widgets/unverified-tls-badge';
 
 import { useActiveCluster } from '@/lib/active-cluster';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { contextHealth } from '@/lib/cluster-health';
-import { useClusters } from '@/lib/clusters';
+import type { Health } from '@/lib/cluster-health';
+import { clusterForContext, useClusters } from '@/lib/clusters';
 import { useMemories } from '@/lib/memories';
 import type { Memory } from '@/lib/memories';
 
-// Everything left of the memory button, reading the window's cluster with its
-// verdict and TLS badge, or why there is none. It carries the pill's left and
-// vertical padding itself, so a press anywhere there lands on it. The glyph's box
-// is the memory button's size, so the label centres on the pill.
+// Clears the icon around the dot's corner. A ring in the pill's colour would do
+// the same, but that colour is translucent in dark mode.
+const DOT_CUTOUT = { maskImage: 'radial-gradient(circle at 100% 100%, transparent 6px, black 6.5px)' };
+
+// The server icon, with the cluster's verdict as a dot in its corner when given one.
+function ServerGlyph({ health }: { health?: Health }) {
+  return (
+    <span data-testid="cluster-glyph" className="relative flex">
+      <Server aria-hidden className="size-4" style={health ? DOT_CUTOUT : undefined} />
+      {health && <ClusterDot tone={health.tone} title={health.summary} className="absolute -right-1 -bottom-1" />}
+    </span>
+  );
+}
+
+// The server icon as its own control, opening the window's cluster's status. Its
+// box is the memory button's size, and its wrapper carries the same padding, so
+// the label centres on the pill. Nothing while the kubeconfig has no context: the
+// trigger draws the bare icon then.
+function StatusButton({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
+  const { context, contexts } = useActiveKubeContext();
+  const { clusters } = useClusters();
+  if (contexts.length === 0) return null;
+
+  const cluster = clusterForContext(clusters, context);
+  const health = contextHealth(clusters, context);
+  return (
+    <div className="flex items-center pl-1">
+      <ClusterStatusPopover anchorRef={anchorRef} context={context} cluster={cluster}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Cluster status: ${health.summary}`}
+          className={cn('size-8 rounded-full text-muted-foreground', APP_BAR_HOVER_CLASS)}
+        >
+          <ServerGlyph health={health} />
+        </Button>
+      </ClusterStatusPopover>
+    </div>
+  );
+}
+
+// Everything between the status and memory buttons, reading the window's cluster
+// with its TLS badge, or why there is none. It fills the pill's height, so a press
+// anywhere there lands on it. With no cluster it also draws the bare icon, where the
+// status button would be.
 function ClusterTrigger({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
   const { context, active, contexts, phase } = useActiveKubeContext();
-  const { clusters } = useClusters();
+  const hasCluster = contexts.length > 0;
 
   let name: string;
   let label: ReactNode;
-  if (contexts.length > 0) {
-    const health = contextHealth(clusters, context);
+  if (hasCluster) {
     name = `Cluster: ${context}`;
     label = (
       <>
-        <ClusterDot tone={health.tone} title={health.summary} />
         <span data-testid="cluster-trigger-name" className="truncate">
           {context}
         </span>
@@ -80,14 +122,17 @@ function ClusterTrigger({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
       <button
         type="button"
         aria-label={name}
-        className={cn('flex h-full min-w-0 flex-1 items-center rounded-full py-1.5 pl-1 text-sm', APP_BAR_HOVER_CLASS)}
+        className={cn(
+          'flex h-full min-w-0 flex-1 items-center rounded-full text-sm',
+          !hasCluster && 'pl-1',
+          APP_BAR_HOVER_CLASS,
+        )}
       >
-        <span
-          data-testid="cluster-trigger-glyph"
-          className="flex size-8 shrink-0 items-center justify-center text-muted-foreground"
-        >
-          <Server aria-hidden className="size-4" />
-        </span>
+        {!hasCluster && (
+          <span className="flex size-8 shrink-0 items-center justify-center text-muted-foreground">
+            <ServerGlyph />
+          </span>
+        )}
         <span className="flex min-w-0 flex-1 items-center justify-center gap-2">{label}</span>
       </button>
     </ClusterPicker>
@@ -133,7 +178,7 @@ function MemoryButton({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> 
 }
 
 export function ContextOmnibox() {
-  // Both popovers hang from the pill itself, not from the control that opens them.
+  // Every popover hangs from the pill itself, not from the control that opens it.
   const pillRef = useRef<HTMLDivElement>(null);
 
   return (
@@ -144,13 +189,13 @@ export function ContextOmnibox() {
       // it should no more move the window than a browser's address bar.
       data-tauri-drag-region="false"
       className={cn(
-        // 44px tall by content: the 32px buttons plus the trigger's padding. No
-        // padding of its own, since a press there would land on no control. The
+        // No vertical padding, since a press there would land on no control. The
         // outline is an inset ring rather than a border, so it adds nothing.
         'flex w-full max-w-160 items-stretch bg-background shadow-sm ring-1 ring-inset ring-app-bar-input-border dark:bg-input/30',
         APP_BAR_CONTROL_CLASS,
       )}
     >
+      <StatusButton anchorRef={pillRef} />
       <ClusterTrigger anchorRef={pillRef} />
       <div className="flex items-center pr-1">
         <MemoryButton anchorRef={pillRef} />

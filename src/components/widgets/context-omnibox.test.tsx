@@ -91,6 +91,7 @@ function serveContexts(
 }
 
 const trigger = () => screen.getByRole('button', { name: /^cluster:/i });
+const statusButton = () => screen.getByRole('button', { name: /^cluster status:/i });
 
 // The picker portals in asynchronously, so wait for its heading rather than reading it.
 const pickerOpened = () => screen.findByText('Clusters', { selector: 'p' });
@@ -170,7 +171,6 @@ describe('ContextOmnibox', () => {
 
   it.each([
     ['name', () => screen.getByText('prod', { selector: '[data-testid="cluster-trigger-name"]' })],
-    ['glyph', () => screen.getByTestId('cluster-trigger-glyph')],
     ['TLS badge', () => screen.getByText('Unverified TLS')],
   ])('opens the cluster picker from the trigger’s %s', async (_part, target) => {
     serveContexts(['prod'], { clusterEntry: { server: 'https://prod:6443', insecureSkipTLSVerify: true } });
@@ -190,6 +190,15 @@ describe('ContextOmnibox', () => {
     expect(screen.queryByText('Clusters', { selector: 'p' })).not.toBeInTheDocument();
   });
 
+  it('opens the cluster’s status, and not the picker, from the server icon', async () => {
+    const user = userEvent.setup();
+    render(<ContextOmnibox />);
+
+    await user.click(statusButton());
+    expect(await screen.findByTestId('cluster-status')).toHaveTextContent('Cluster status');
+    expect(screen.queryByText('Clusters', { selector: 'p' })).not.toBeInTheDocument();
+  });
+
   it('switches cluster from a picker row', async () => {
     const user = userEvent.setup();
     render(<ContextOmnibox />);
@@ -205,12 +214,13 @@ describe('ContextOmnibox', () => {
     });
   });
 
-  it('colours the dot with the window’s cluster’s verdict, its summary as the title', () => {
-    const dot = () => within(trigger()).getByTestId('cluster-dot');
+  it('colours the server icon’s dot with the window’s cluster’s verdict, its summary as the title', () => {
+    const dot = () => within(statusButton()).getByTestId('cluster-dot');
     records.current = [clusterRecord({ context: 'prod' })];
     const { unmount } = render(<ContextOmnibox />);
     expect(dot()).toHaveAttribute('data-tone', 'ok');
     expect(dot()).toHaveAttribute('title', 'Active · Synced');
+    expect(statusButton()).toHaveAccessibleName('Cluster status: Active · Synced');
     unmount();
 
     records.current = [clusterRecord({ context: 'prod', connected: 'False' })];
@@ -261,6 +271,9 @@ describe('ContextOmnibox', () => {
 
     const empty = screen.getByRole('button', { name: 'Cluster: no kubeconfig' });
     expect(empty).toHaveTextContent('No kubeconfig');
+    // No cluster, no status: the bare icon is the picker's.
+    expect(screen.queryByRole('button', { name: /^cluster status/i })).not.toBeInTheDocument();
+    expect(within(empty).getByTestId('cluster-glyph')).toBeInTheDocument();
     await user.click(empty);
     expect(await pickerOpened()).toBeInTheDocument();
   });

@@ -18,13 +18,13 @@ import { TONE } from '@/lib/cluster-health';
 import type { Tone } from '@/lib/cluster-health';
 
 // A cluster's overall tone, as the Clusters dialog's leading circle draws it.
-export function ClusterDot({ tone, title }: { tone: Tone; title?: string }) {
+export function ClusterDot({ tone, title, className }: { tone: Tone; title?: string; className?: string }) {
   return (
     <span
       data-testid="cluster-dot"
       data-tone={tone}
       title={title}
-      className={cn('size-2 shrink-0 rounded-full', TONE[tone].dot)}
+      className={cn('size-2 shrink-0 rounded-full', TONE[tone].dot, className)}
     />
   );
 }

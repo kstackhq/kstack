@@ -14,7 +14,8 @@
 
 // Cluster-registry dialog, grouped into Active (in the current kubeconfig) and
 // Orphaned (leftover cache, context gone). Mutations write through; the resulting
-// clustersWatch push updates the table.
+// clustersWatch push updates the table. Its connection and sync detail panes are
+// also the omnibox's status popover's body.
 import { ChevronDown, Database, Pause, Play, Power, PowerOff, RotateCw, Slash, Trash2 } from 'lucide-react';
 import { type ReactNode, useMemo, useState } from 'react';
 import ReactTimeAgo, { type Formatter } from 'react-timeago';
@@ -314,7 +315,7 @@ type CacheContents = {
 };
 
 // A gauge: each frame replaces the last outright. null until the first frame.
-function useCacheContents(clusterId: string, cacheId: string, pause: boolean): CacheContents | null {
+export function useCacheContents(clusterId: string, cacheId: string, pause: boolean): CacheContents | null {
   const { data } = useWatchSubscription<{ clusterCacheStatsWatch: CacheContents }, CacheContents>(
     { query: ClusterCacheStatsSubscription, variables: { id: clusterId, cacheID: cacheId }, pause },
     perFrame((_prev, resp) => resp.clusterCacheStatsWatch),
@@ -569,10 +570,10 @@ function EventRunList({
   );
 }
 
-// Expanded connection diagnostics + Retry-now. Inline, not a popover: the modal
-// dialog inerts everything outside its subtree, so a body-portaled popover would
-// be unclickable.
-function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; connFailed: boolean }) {
+// Expanded connection diagnostics + Retry-now. In the dialog it is inline, not a
+// popover: the modal dialog inerts everything outside its subtree, so a body-portaled
+// popover would be unclickable.
+export function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; connFailed: boolean }) {
   const detail = connectionDetail(cluster);
   const attempts = useConnectionAttempts(cluster.id);
   const { atMs: nextAttemptAtMs, probing } = useNextCheck(cluster.id);
@@ -706,15 +707,15 @@ function cacheSummary(objectCount: number, kindCount: number): string {
   return `${countLabel(objectCount, 'object')} across ${countLabel(kindCount, 'kind')}`;
 }
 
-// Expanded sync diagnostics. Inline for the same modal-inert reason as
-// ConnectionDetail. Everything subscribes only while expanded — that's what makes
-// the hundred-plus-record per-kind stream affordable.
 // The reasons that are not a fault: caught up, or on the way there. Named as the set to
 // exclude rather than the set to report, so a failure reason added later shows up unlisted
 // rather than silently vanishing from the panel.
 const SETTLING_REASONS = new Set(['Watching', 'Syncing', 'Resyncing', 'Resuming']);
 
-function SyncDetail({
+// Expanded sync diagnostics. Inline for the same modal-inert reason as
+// ConnectionDetail. Everything subscribes only while mounted — that's what makes
+// the hundred-plus-record per-kind stream affordable.
+export function SyncDetail({
   clusterId,
   health,
   cacheId,

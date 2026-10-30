@@ -41,7 +41,7 @@ function isDragRegionEvent(event: Event): boolean {
 // Restores window dragging while a dialog is open: the backdrop covers the
 // shell's title-bar drag band, so this band must be portaled to `document.body`
 // (the backdrop's stacking context) to sit above it. Height must match
-// `app-bar.tsx`'s bar (56px on every platform). A press here
+// `app-bar.tsx`'s bar (48px on every platform). A press here
 // reads as an outside-press to base-ui — cancelled below.
 // See docs/adr/2026-08-09-per-platform-window-chrome.md
 function WindowDragBand() {
@@ -50,7 +50,7 @@ function WindowDragBand() {
       data-testid="dialog-window-drag-region"
       data-tauri-drag-region
       aria-hidden
-      className="fixed inset-x-0 top-0 z-60 h-14"
+      className="fixed inset-x-0 top-0 z-60 h-12"
     />,
     document.body,
   );
