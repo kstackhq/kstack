@@ -36,7 +36,7 @@ jobs:
       go: ${{ github.event_name != 'pull_request' || steps.filter.outputs.go == 'true' }}
       typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.typescript == 'true' }}
       rust: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust == 'true' }}
-      skipped: ${{ steps.skipped.outputs.categories || '[]' }}
+      skipped: ${{ steps.skipped.outputs.analyses || '[]' }}
     steps:
       - id: filter
         if: github.event_name == 'pull_request'
@@ -66,21 +66,18 @@ jobs:
               - proto/**
               - src-tauri/**
 
-      # The categories of every language the pull request skips, each with its
-      # language and OS for the job name, for reuse-main.
+      # The language and OS of every analysis the pull request skips, for
+      # reuse-main's matrix.
       - id: skipped
         if: github.event_name == 'pull_request'
         env:
           CHANGED: ${{ toJSON(steps.filter.outputs) }}
         run: |
           jq -c '[
-            (select(.go != "true") | ("linux", "macos", "windows")
-              | {lang: "go", os: ., category: "/language:go/os:\(.)"}),
-            (select(.typescript != "true")
-              | {lang: "typescript", category: "/language:javascript-typescript"}),
-            (select(.rust != "true") | ("linux", "macos", "windows")
-              | {lang: "rust", os: ., category: "/language:rust/os:\(.)"})
-          ]' <<<"$CHANGED" | sed 's/^/categories=/' >> "$GITHUB_OUTPUT"
+            (select(.go != "true") | {lang: "go", os: ("linux", "macos", "windows")}),
+            (select(.typescript != "true") | {lang: "typescript"}),
+            (select(.rust != "true") | {lang: "rust", os: ("linux", "macos", "windows")})
+          ]' <<<"$CHANGED" | sed 's/^/analyses=/' >> "$GITHUB_OUTPUT"
 
   # CodeQL analyzes only the files the runner's OS compiles, so Go and Rust
   # run once per OS, each under its own category.
@@ -231,8 +228,11 @@ jobs:
   #
   # It uploads after the real analyses: code scanning grades the check when
   # uploads first arrive and reports any category still missing as not found.
+  #
+  # The name leaves out the matrix so a skipped job, whose matrix GitHub never
+  # expands, shows plain text; GitHub appends each entry's values to it.
   reuse-main:
-    name: CodeQL · Reuse main (${{ matrix.os && format('{0}, {1}', matrix.lang, matrix.os) || matrix.lang }})
+    name: CodeQL · Reuse main
     needs:
       - changes
       - go
@@ -248,10 +248,21 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.skipped) }}
     steps:
+      - id: category
+        name: Name the category
+        env:
+          MATRIX_LANG: ${{ matrix.lang }}
+          OS: ${{ matrix.os }}
+        run: |
+          case "$MATRIX_LANG" in
+            typescript) echo "category=/language:javascript-typescript" ;;
+            *) echo "category=/language:$MATRIX_LANG/os:$OS" ;;
+          esac >> "$GITHUB_OUTPUT"
+
       - name: Download main's analysis
         env:
           GH_TOKEN: ${{ github.token }}
-          CATEGORY: ${{ matrix.category }}
+          CATEGORY: ${{ steps.category.outputs.category }}
         run: |
           # A cancelled run on main records a failed analysis, which has no SARIF.
           id=$(gh api "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/main&tool_name=CodeQL&per_page=100" \
@@ -266,4 +277,4 @@ jobs:
       - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: ${{ runner.temp }}/main.sarif
-          category: ${{ matrix.category }}
+          category: ${{ steps.category.outputs.category }}
