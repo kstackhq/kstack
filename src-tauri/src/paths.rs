@@ -434,7 +434,7 @@ mod tests {
 
         let dir = runtime_dir(Path::new("/unused")).expect("runtime dir");
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o700, "{dir:?} must be enterable only by this user");
+        assert_eq!(mode, 0o700, "the runtime dir must be owner-only");
     }
 
     /// Without `$XDG_RUNTIME_DIR` the fallback lands in a temp dir every user
