@@ -51,5 +51,6 @@ CLAUDE.local.md
 # custom
 .worktrees
 
-# Coverage output (make cover-js)
+# Coverage output (make cover-js, make cover-go)
 coverage/
+sidecar/coverage.out

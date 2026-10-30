@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Run the tests the working tree's changes touch: committed, staged, unstaged and
-# untracked, since the branch left main. The full suites and both coverage gates
-# run in CI.
+# untracked, since the branch left main. The full suites and coverage run in CI.
 #
 #   JS    vitest's `related`, which follows imports, so a hook's change runs the
 #         tests of the components using it. A change to the toolchain runs it all.
@@ -51,6 +50,10 @@ else
     # shellcheck disable=SC2086 # one argument per package
     (cd sidecar && go test $go_pkgs)
   fi
+fi
+
+if has '^tools/'; then
+  (cd tools && go test ./...)
 fi
 
 if has '^(src-tauri|proto)/'; then

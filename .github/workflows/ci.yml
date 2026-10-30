@@ -50,7 +50,7 @@ jobs:
   # A push or a dispatch runs them all, so main stays the safety net for a path
   # a filter misses and keeps saving the caches PRs read. Each language job
   # checks its own filter, so tests start beside lint and vet rather than
-  # after them; Go · Coverage's gate skips with the jobs it needs.
+  # after them.
   changes:
     name: Changes
     runs-on: ubuntu-24.04
@@ -75,6 +75,7 @@ jobs:
               - .github/actions/setup-environment/**
               - .github/workflows/ci.yml
               - .github/codecov.yml
+              - scripts/check-coverage-markers.sh
             go:
               - *shared
               - Makefile
@@ -95,7 +96,6 @@ jobs:
               - public/**
               - src/**
               - sidecar/graph/schema.graphqls
-              - scripts/coverage-threshold
               - .oxfmtrc.json
               - codegen.ts
               - eslint.config.ts
@@ -138,6 +138,8 @@ jobs:
       - name: Run linter
         working-directory: ./sidecar
         run: test -z "$(gofmt -l .)"
+      - name: Check coverage markers
+        run: sh scripts/check-coverage-markers.sh
 
   go-vet:
     name: Go · Vet
@@ -166,6 +168,9 @@ jobs:
         run: sh scripts/check-sidecar-deps.sh
       - name: Check go fix
         run: sh scripts/check-go-fix.sh
+      - name: Test tools
+        working-directory: ./tools
+        run: go vet ./... && go test ./...
       # After both passes, so the cache holds the Windows target's builds too,
       # and a failed job leaves the last cache the newest.
       - name: Save Go cache
@@ -353,6 +358,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Lint
         run: pnpm lint
+      - name: Check coverage markers
+        run: sh scripts/check-coverage-markers.sh
 
   ###########################
   # Test jobs
@@ -435,8 +442,8 @@ jobs:
           - os: windows
             runner: windows-2025-vs2026
     runs-on: ${{ matrix.runner }}
-    # Twice the two suite runs' -timeout, so a hang fails the test binary with
-    # a goroutine dump before the runner kills the job.
+    # Twice each suite run's -timeout, so a hang fails the test binary with a
+    # goroutine dump before the runner kills the job.
     timeout-minutes: 60
     permissions:
       contents: read
@@ -462,12 +469,31 @@ jobs:
       # pure-Go os/user and net resolver the release uses. A cached test
       # replays its coverage with it. SSH_AUTH_SOCK is pinned as in Go · Build
       # and Test, since its value keys the login shell's cached results.
+      # -coverpkg=./... counts a helper exercised only from another package's
+      # tests. Instrumenting every package, with no -short, is too slow for
+      # Go's 10-minute default per test binary on Windows.
       - name: Measure coverage
         working-directory: ./sidecar
         env:
           CGO_ENABLED: "0"
           SSH_AUTH_SOCK: ""
-        run: go run scripts/coverage.go -out ${{ runner.temp }}/coverage-${{ matrix.os }}.out
+        run: >-
+          go test -timeout 30m -covermode=atomic -coverpkg=./...
+          -coverprofile=${{ runner.temp }}/untagged.out ./...
+      # -tags debug compiles the environment overrides, which no other build has.
+      - name: Measure coverage (-tags debug)
+        working-directory: ./sidecar
+        env:
+          CGO_ENABLED: "0"
+          SSH_AUTH_SOCK: ""
+        run: >-
+          go test -tags debug -timeout 30m -covermode=atomic -coverpkg=./...
+          -coverprofile=${{ runner.temp }}/debug.out ./...
+      - name: Merge the profiles and drop marked lines
+        working-directory: ./tools
+        run: >-
+          go run ./coverignore -dir ../sidecar -o ${{ runner.temp }}/coverage-${{ matrix.os }}.out
+          ${{ runner.temp }}/untagged.out ${{ runner.temp }}/debug.out
       # A fork's PR cannot mint the OIDC token; the action then uploads
       # tokenless, which Codecov accepts for a public repository.
       - name: Upload to Codecov
@@ -478,46 +504,13 @@ jobs:
           disable_search: true
           flags: go-${{ matrix.os }}
           fail_ci_if_error: true
-      - name: Upload the profile
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: go-coverage-${{ matrix.os }}
-          path: ${{ runner.temp }}/coverage-${{ matrix.os }}.out
-          retention-days: 7
-      # After the profile is written, so a failed job leaves the last cache the newest.
+      # After the upload, so a failed job leaves the last cache the newest.
       - name: Save Go cache
         if: env.CACHE_MODE != 'use'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.setup.outputs.go-cache-path }}
           key: ${{ steps.setup.outputs.go-cache-key }}
-
-  go-coverage-gate:
-    name: Go · Coverage
-    needs: go-coverage
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-environment
-        with:
-          setup-go: "true"
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: go-coverage-*
-          path: ${{ runner.temp }}/coverage
-          merge-multiple: true
-      # One union over the three OSes: a block counts as covered if any OS
-      # covered it. The second line gates the files Linux does not compile,
-      # which are too few to move the first.
-      - name: Check coverage against the thresholds
-        working-directory: ./sidecar
-        run: >-
-          go run scripts/coverage.go -report
-          -linux ${{ runner.temp }}/coverage/coverage-linux.out
-          -darwin ${{ runner.temp }}/coverage/coverage-darwin.out
-          -windows ${{ runner.temp }}/coverage/coverage-windows.out
 
   # Builds Kstack's own bwrap and pasta, loads their AppArmor profiles through
   # the .deb's postinst on a stock 24.04, where user namespaces are restricted,
@@ -582,8 +575,8 @@ jobs:
           setup-node: "true"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Check coverage against the threshold
-        run: make cover-js
+      - name: Measure coverage
+        run: pnpm vitest run --coverage
       - name: Upload to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:

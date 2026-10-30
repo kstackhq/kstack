@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js lint-yaml vet vet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts clean clean-data
+.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js lint-yaml lint-markers vet vet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts clean clean-data
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -51,6 +51,7 @@ test: test-go test-rust test-js
 
 test-go:
 	cd sidecar && go test ./...
+	cd tools && go test ./...
 
 # Rust integration test spawns the real sidecar binary, so build it first.
 test-rust: sidecar
@@ -60,7 +61,7 @@ test-js:
 	pnpm test --run
 
 # Only the tests this branch's changes touch (scripts/test-changed.sh). The
-# check to run while working; CI runs every suite and both coverage gates.
+# check to run while working; CI runs every suite and measures coverage.
 test-changed:
 	bash scripts/test-changed.sh
 
@@ -72,15 +73,10 @@ test-changed:
 prompts:
 	cd sidecar && go test ./internal/app ./internal/agent/chat -run MatchesItsGolden -update
 
-# Go coverage gate. Runs the suite untagged and with `-tags debug` (the only build
-# that compiles the environment overrides), merges the profiles, drops generated
-# files, and fails below sidecar/scripts/coverage-threshold. Add `-- -report` for
-# the per-file list of what is still uncovered.
-#
-# Measures the OS it runs on, so its number is not CI's: CI measures Linux, macOS
-# and Windows and gates their union in `Go · Coverage`.
+# Go coverage of this OS, per function. Not a gate: codecov/patch on the PR is.
+# `go tool cover -html=sidecar/coverage.out` opens it line by line.
 cover-go:
-	cd sidecar && go run scripts/coverage.go $(ARGS)
+	cd sidecar && go test -coverpkg=./... -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
 
 # Sends two turns to every model of every provider whose key is in the environment
 # and prints whether the second read its prefix from the cache. It reaches the
@@ -96,15 +92,12 @@ check-cache:
 check-switch:
 	cd sidecar && go test -tags liveswitch -count=1 -v -run TestAChatSwitchesAcrossEveryDialect ./internal/agent/catalog
 
-# Frontend coverage gate: fails below the line percentage in
-# scripts/coverage-threshold. Excludes generated output and the test harness
-# (vite.config.ts). The threshold is a ratchet — raise it when the number rises,
-# in the change that raised it.
+# Frontend coverage, per file. Not a gate: codecov/patch on the PR is.
 cover-js:
-	pnpm vitest run --coverage --coverage.thresholds.lines=$$(cat scripts/coverage-threshold)
+	pnpm vitest run --coverage
 
 # Run every linter in the repo.
-lint: lint-go lint-rust lint-js lint-yaml
+lint: lint-go lint-rust lint-js lint-yaml lint-markers
 
 # `gofmt -l` lists unformatted files; non-empty = lint failure.
 lint-go:
@@ -127,6 +120,10 @@ lint-yaml:
 	uv tool run yamllint@1.38.0 --strict .
 	go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -config-file .github/ci-config/actionlint.yaml
 	uv tool run zizmor@1.31.1 --config .github/ci-config/zizmor.yml .
+
+# Every coverage marker gives its reason.
+lint-markers:
+	sh scripts/check-coverage-markers.sh
 
 # Static analysis (separate from formatting checks in `lint`).
 vet: vet-go staticcheck-go vet-rust

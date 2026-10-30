@@ -24,3 +24,4 @@ Ref #
 - [ ] Related issue linked above, if any
 - [ ] Commit messages use [conventional commit](https://www.conventionalcommits.org) format
 - [ ] Changes are minimal and focused
+- [ ] Every coverage marker this PR adds (`coverage:ignore`, `v8 ignore`, a `.github/codecov.yml` `ignore` entry) gives a reason that holds

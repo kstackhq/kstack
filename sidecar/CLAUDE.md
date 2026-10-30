@@ -243,16 +243,14 @@ reproduces it from `sidecar/`:
 go test -race -cpu 1 -shuffle=<seed> -count=3 ./internal/agent/chat
 ```
 
-**Coverage is gated.** `make cover-go` runs the suite untagged and with `-tags debug`, merges with
-`-coverpkg=./...`, drops generated files, and fails below `scripts/coverage-threshold`; `make
-cover-go ARGS=-report` lists the gaps. It measures one OS. CI runs the suite on one runner per OS
-(`scripts/coverage.go -out`), merges the three profiles, and gates the union twice:
-`scripts/coverage-threshold` for everything, `scripts/coverage-threshold-platform` for the files
-Linux does not compile. **Raise either threshold when a change lifts coverage; never lower one
-without saying why in the commit body.** CI measures with `CGO_ENABLED=0`, as the release is built
-(every other CI run has cgo, which `-race` needs). What stays uncovered is deliberate: `main()`
-itself, the `serve returned` arm, `testutil`'s failsafe-timeout arms, and I/O failures nothing can
-inject.
+**Coverage is measured in `Go · Coverage (<os>)`**, one runner per OS, beside the tests: the suite
+untagged and with `-tags debug` (the only build with the environment overrides), both with
+`-coverpkg=./...` and `CGO_ENABLED=0`, as the release is built.
+`tools/coverignore` merges the two profiles and drops every block a marker exempts: the statement
+or function whose first line ends in `// coverage:ignore <reason>`, body included, and the lines
+from `// coverage:ignore-start <reason>` to `// coverage:ignore-stop`. Codecov merges the three
+OSes, so a `_windows.go` line is judged by the Windows upload. The gate is the root `CLAUDE.md`'s *Testing conventions*. Generated files are
+in `.github/codecov.yml`'s `ignore`. `make cover-go` prints this OS's numbers per function.
 
 When you change the sidecar's wiring or conventions, update this file or the package's guide in the
 same change. When you change *why*, write an ADR.

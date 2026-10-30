@@ -205,7 +205,7 @@ Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo
 
 - The repo-wide rules above (co-located test files, no magic sleeps) apply here.
 - Run: `make test-changed` while working; `pnpm test --run` (or `make test-js`) for the whole suite. Watch: `pnpm test`.
-- **Coverage is gated.** `make cover-js` fails below the line percentage in `scripts/coverage-threshold`. **Raise it when a change lifts coverage; never lower it without saying why in the commit body.** Exclusions are in `vite.config.ts` (`src/gql/`, `routeTree.ts`, `main.tsx`, `test-utils.tsx`).
+- **Coverage is measured in `TypeScript · Coverage`** and gated by Codecov (root `CLAUDE.md`, *Testing conventions*). A line no test can reach takes `/* v8 ignore next -- <reason> */`. Exclusions are in `vite.config.ts` and `.github/codecov.yml`'s `ignore` (`src/gql/`, `routeTree.ts`, `main.tsx`, `test-utils.tsx`). `make cover-js` prints the per-file numbers.
 
 ## Lint / build
 

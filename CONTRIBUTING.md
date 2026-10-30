@@ -82,7 +82,7 @@ make vet
 make proto
 ```
 
-CI runs every suite and the coverage gates, so you don't need to run `make cover-go` or `make cover-js` locally.
+CI runs every suite and uploads coverage to Codecov. `codecov/patch` lists, in the PR's diff, every changed line no test reached: cover each, or mark it with its reason (`// coverage:ignore <reason>` in Go, `/* v8 ignore next -- <reason> */` in TypeScript).
 
 To fix TypeScript formatting, run `pnpm format`.
 

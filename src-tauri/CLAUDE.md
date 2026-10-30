@@ -109,6 +109,7 @@ Full picture: [`docs/security-model.md`](../docs/security-model.md). What the ho
 - Inline `#[cfg(test)] mod tests` with `#[tokio::test]`; UDS/pipe fixtures via `interprocess`. Factor pure logic into free functions to unit-test it.
 - **No magic sleeps** (root `CLAUDE.md`). Synchronize on the actual signal, or use `#[tokio::test(start_paused = true)]` (`ipc.rs`'s `connect_retries_until_endpoint_appears` is the reference).
 - `make test-rust` — **builds the sidecar first** (an integration test spawns the real binary).
+- **Coverage is measured in `Rust · Coverage`** (`cargo llvm-cov`, one runner per OS) and gated by Codecov (root `CLAUDE.md`, *Testing conventions*). Stable Rust has no inline marker, so a file that cannot be tested — the entry point, the OS glue in `wake/linux.rs` and `wake/windows.rs` — is listed in `.github/codecov.yml`'s `ignore`, and holds wiring alone. The `rust` component's `project` status is informational until `src-tauri/` has no other gap.
 - `make lint-rust` = `cargo fmt --check`; `make vet-rust` = `cargo clippy --all-targets -- -D warnings`.
 - **The compiler is pinned** in `rust-toolchain.toml`; CI reads the channel from it. rustup resolves it from the working directory — **a `rustup`/`cargo` call from the repo root needs `working-directory: ./src-tauri`**, or it silently uses the default toolchain.
 
