@@ -334,8 +334,8 @@ func decodeBody(mediaType string, body []byte) (any, error) {
 	if err := dec.Decode(&value); err != nil {
 		return nil, err
 	}
-	if dec.More() {
-		return nil, errors.New("kubeproxy: a body holds more than one value")
+	if !atEnd(dec) {
+		return nil, errors.New("kubeproxy: a body holds trailing data after its value")
 	}
 	return value, nil
 }
@@ -347,7 +347,14 @@ func uniqueKeys(mediaType string, body []byte) bool {
 		return err == nil
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
-	return uniqueKeysIn(dec) && !dec.More()
+	return uniqueKeysIn(dec) && atEnd(dec)
+}
+
+// atEnd is whether dec holds nothing but whitespace past the value it read.
+// dec.More is not enough: it is false before a stray ']' or '}'.
+func atEnd(dec *json.Decoder) bool {
+	_, err := dec.Token()
+	return err == io.EOF
 }
 
 // uniqueKeysIn reads the next JSON value off dec, false if it does not parse or

@@ -16,6 +16,7 @@ package kubeproxy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"maps"
@@ -844,6 +845,20 @@ func TestUniqueKeysRefusesABodyThatDoesNotParse(t *testing.T) {
 		assert.False(t, uniqueKeys("application/json", []byte(body)), body)
 	}
 	assert.True(t, uniqueKeys("application/json", []byte(`{"a":[1,{"b":2}]}`)))
+}
+
+// A body with anything after its one value is refused, a stray closing bracket
+// included, so the body described is the body the API server reads.
+func TestABodyWithTrailingDataIsRefused(t *testing.T) {
+	for _, body := range []string{`{"a":1}}`, `{"a":1}]`, `{"a":1} x`, `{"a":1} {}`} {
+		_, err := decodeBody("application/json", []byte(body))
+		assert.ErrorContains(t, err, "trailing data", body)
+		assert.False(t, uniqueKeys("application/json", []byte(body)), body)
+	}
+	value, err := decodeBody("application/json", []byte("{\"a\":1}\n"))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"a": json.Number("1")}, value)
+	assert.True(t, uniqueKeys("application/json", []byte("{\"a\":1}\n")))
 }
 
 // A background command's grant has no asker, so it refuses every write as
