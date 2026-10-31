@@ -96,6 +96,10 @@ func (f *fakeTB) Fatalf(format string, args ...any) {
 	f.failed = fmt.Sprintf(format, args...)
 }
 
+func (f *fakeTB) Fatal(args ...any) { f.failed = fmt.Sprint(args...) }
+
+func (f *fakeTB) Skip(...any) {}
+
 // Every helper's promise is the failure, not the happy path — a helper that
 // quietly accepted the wrong outcome would pass tests that should fail. Each
 // case here fails on the spot, with no failsafe timeout to wait out.
@@ -135,4 +139,14 @@ func TestRequireSandboxSkipsUnlessRequired(t *testing.T) {
 		RequireSandbox(t, "no sandbox")
 	})
 	assert.True(t, sub.Skipped())
+}
+
+// CI sets KSTACK_REQUIRE_SANDBOX, and there a test without its sandbox fails rather than skips.
+func TestRequireSandboxFailsWhenRequired(t *testing.T) {
+	t.Setenv("KSTACK_REQUIRE_SANDBOX", "1")
+	f := &fakeTB{}
+
+	RequireSandbox(f, "no sandbox")
+
+	assert.Equal(t, "no sandbox", f.failed)
 }

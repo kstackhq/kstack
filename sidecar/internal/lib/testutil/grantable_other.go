@@ -26,7 +26,7 @@ import (
 func GrantableDir(t testing.TB) string {
 	t.Helper()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
+	if err != nil { // coverage:ignore t.TempDir was just made, so its path resolves
 		t.Fatal(err)
 	}
 	return dir

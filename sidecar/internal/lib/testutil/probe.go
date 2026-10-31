@@ -50,11 +50,11 @@ func (p *Probe[T]) Fire(v T) {
 	}
 	select {
 	case <-p.ch: // make room by dropping the oldest
-	default:
+	default: // coverage:ignore only a receive between the first select and this one empties the full buffer
 	}
 	select {
 	case p.ch <- v:
-	default:
+	default: // coverage:ignore only a concurrent Fire landing between the two selects reaches it
 		// A concurrent Fire claimed the slot we just freed. Its value is at least
 		// as new as ours, so the newest-wins property still holds and dropping
 		// here is correct — retrying instead could spin against a busy producer.

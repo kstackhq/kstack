@@ -39,7 +39,7 @@ func GrantableDir(t testing.TB) string {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	dir, err = filepath.EvalSymlinks(dir)
-	if err != nil {
+	if err != nil { // coverage:ignore the directory was just made, so its path resolves
 		t.Fatal(err)
 	}
 	return dir

@@ -71,7 +71,7 @@ func Wait(t testing.TB, ch <-chan struct{}, what string) {
 	t.Helper()
 	select {
 	case <-ch:
-	case <-time.After(Timeout):
+	case <-time.After(Timeout): // coverage:ignore the failsafe arm: reaching it waits out Timeout
 		t.Fatalf("timed out waiting for %s", what)
 	}
 }
@@ -99,7 +99,7 @@ func Recv[T any](t testing.TB, ch <-chan T, what string) T {
 			t.Fatalf("channel closed while waiting for %s", what)
 		}
 		return v
-	case <-time.After(Timeout):
+	case <-time.After(Timeout): // coverage:ignore the failsafe arm: reaching it waits out Timeout
 		t.Fatalf("timed out waiting for %s", what)
 		var zero T
 		return zero
@@ -131,7 +131,7 @@ func RecvClosed[T any](t testing.TB, ch <-chan T, what string) {
 		if ok {
 			t.Fatalf("%s delivered %v; want a close", what, v)
 		}
-	case <-time.After(Timeout):
+	case <-time.After(Timeout): // coverage:ignore the failsafe arm: reaching it waits out Timeout
 		t.Fatalf("timed out waiting for %s to close", what)
 	}
 }
@@ -147,7 +147,7 @@ func WaitClosed[T any](t testing.TB, ch <-chan T, what string) {
 			if !ok {
 				return
 			}
-		case <-deadline:
+		case <-deadline: // coverage:ignore the failsafe arm: reaching it waits out Timeout
 			t.Fatalf("timed out waiting for %s to close", what)
 		}
 	}
