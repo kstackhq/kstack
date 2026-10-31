@@ -125,3 +125,16 @@ func assertRoundTrip(t *testing.T, accepted <-chan net.Conn, path string) {
 	assert.Equal(t, byte(42), buf[0])
 	require.NoError(t, <-written)
 }
+
+// A peer is refused on anything it cannot prove: credentials the kernel would not
+// give, or another account, whatever its pid.
+func TestRejectNamesWhyAPeerIsRefused(t *testing.T) {
+	refuse := func(p peer, err error) string {
+		l := &authListener{peerOf: func(net.Conn) (peer, error) { return p, err }}
+		return l.reject(nil)
+	}
+
+	assert.Equal(t, "peer credentials unavailable: no creds", refuse(peer{}, errors.New("no creds")))
+	assert.Equal(t, "uid mismatch", refuse(peer{pid: os.Getpid(), uid: os.Getuid() + 1}, nil))
+	assert.Empty(t, refuse(peer{pid: os.Getpid(), uid: os.Getuid()}, nil))
+}

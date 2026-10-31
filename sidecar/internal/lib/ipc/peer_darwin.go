@@ -16,7 +16,7 @@ func peerCreds(fd uintptr) (peer, error) {
 		return peer{}, fmt.Errorf("LOCAL_PEERPID: %w", err)
 	}
 	xucred, err := unix.GetsockoptXucred(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERCRED)
-	if err != nil {
+	if err != nil { // coverage:ignore LOCAL_PEERPID just succeeded on the same socket
 		return peer{}, fmt.Errorf("LOCAL_PEERCRED: %w", err)
 	}
 	return peer{pid: pid, uid: int(xucred.Uid)}, nil

@@ -3,6 +3,7 @@
 package ipc
 
 import (
+	"net"
 	"os"
 	"testing"
 
@@ -41,4 +42,29 @@ func TestPeerCredsFailsOffASocket(t *testing.T) {
 
 	_, err = peerCreds(r.Fd())
 	assert.Error(t, err)
+}
+
+// A connection that is no socket, or whose socket is gone, has no credentials to read.
+func TestPeerOfFailsWithoutASocket(t *testing.T) {
+	a, b := net.Pipe()
+	t.Cleanup(func() { a.Close(); b.Close() })
+	_, err := peerOf(a)
+	assert.ErrorContains(t, err, "peer credentials unavailable")
+
+	_, err = peerOf(&net.UnixConn{})
+	assert.Error(t, err, "a connection with no descriptor")
+
+	path := testEndpoint(t)
+	ln, err := Listen(path)
+	require.NoError(t, err)
+	defer ln.Close()
+	accepted := acceptOne(ln)
+	client, err := dialEndpoint(path)
+	require.NoError(t, err)
+	defer client.Close()
+	server, ok := <-accepted
+	require.True(t, ok)
+	require.NoError(t, server.Close())
+	_, err = peerOf(server)
+	assert.ErrorContains(t, err, "control")
 }

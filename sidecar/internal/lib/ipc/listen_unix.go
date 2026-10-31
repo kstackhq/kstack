@@ -35,7 +35,7 @@ func Listen(path string) (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := os.Chmod(path, 0o600); err != nil { // coverage:ignore the socket was just bound at this path by this process, which owns it
 		_ = ln.Close()
 		return nil, fmt.Errorf("chmod: %w", err)
 	}
