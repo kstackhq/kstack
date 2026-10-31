@@ -126,6 +126,8 @@ func TestProxyAddrIsTheDialsSpelling(t *testing.T) {
 	}
 	_, ok := proxyAddr("")
 	assert.False(t, ok)
+	_, ok = proxyAddr("proxy\x7f.corp")
+	assert.False(t, ok, "a setting that is no URL however read")
 }
 
 // connectProxy is an HTTP proxy that tunnels every CONNECT to target, whatever

@@ -100,7 +100,7 @@ func (t *Tool) convertWithin(ctx context.Context, contentType string, body []byt
 // get is one request of u, with no credential of any kind.
 func (t *Tool) get(ctx context.Context, u *url.URL) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
+	if err != nil { // coverage:ignore u is a parsed http(s) URL, whose String parses again
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Kstack/"+version.Version)

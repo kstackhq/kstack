@@ -62,6 +62,20 @@ func TestWebFetchAnswersAStatusWithoutTheBody(t *testing.T) {
 	assert.Equal(t, "The server answered HTTP 503 Service Unavailable. The body was not read.", text)
 }
 
+// A body cut short is a failure to reach the page, never the part that came.
+func TestWebFetchRefusesABodyCutShort(t *testing.T) {
+	s := newSite(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		conn, buf, err := http.NewResponseController(w).Hijack()
+		require.NoError(t, err)
+		defer conn.Close()
+		_, _ = buf.WriteString("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 10\r\n\r\nhalf")
+		_ = buf.Flush()
+	}))
+	text, isError := run(t, s.tool(s.dialing()), s.url("a.test", "/"))
+	assert.True(t, isError)
+	assert.Equal(t, "WebFetch could not reach the page: connection", text)
+}
+
 func TestWebFetchRefusesABodyPastTheFileLimit(t *testing.T) {
 	s := newSite(t, plain(strings.Repeat("x", tools.FileLimit+1)))
 	text, isError := run(t, s.tool(s.dialing()), s.url("a.test", "/"))

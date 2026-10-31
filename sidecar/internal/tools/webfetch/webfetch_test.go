@@ -39,6 +39,8 @@ func TestWebFetchReadsItsInput(t *testing.T) {
 		`{"url":null}`,
 		`{"url":"https://a.test/","format":"markdown"}`,
 		`{"url":"https://a.test/"} {}`,
+		`{"url":}`,
+		`{"url":"https://a.test/"`,
 		`[]`,
 		``,
 	} {

@@ -108,7 +108,7 @@ func readHTML(contentType string, body []byte, base *url.URL) (page, error) {
 		return page{}, err
 	}
 	doc, err := html.Parse(r)
-	if err != nil {
+	if err != nil { // coverage:ignore html.Parse fails only on a read error, and the body is in memory
 		return page{}, err
 	}
 	title := titleOf(doc)
@@ -126,7 +126,7 @@ func readHTML(contentType string, body []byte, base *url.URL) (page, error) {
 		n.Parent.RemoveChild(n)
 	}
 	md, err := htmltomarkdown.ConvertNode(doc, converter.WithDomain(base.String()))
-	if err != nil {
+	if err != nil { // coverage:ignore ConvertNode fails only on a plugin's setup, and its default plugins set up cleanly
 		return page{}, err
 	}
 	return page{title: title, text: string(md)}, nil

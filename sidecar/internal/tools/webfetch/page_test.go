@@ -178,6 +178,12 @@ func TestTheResultNamesTheTypeAndTitle(t *testing.T) {
 	assert.Equal(t, "WebFetch reads text pages only; this one is "+long[:100]+"….", text)
 }
 
+// An empty HTML body is no page: the charset reader finds nothing to read.
+func TestAnEmptyHTMLBodyIsNoPage(t *testing.T) {
+	_, err := readPage("text/html", nil, base)
+	assert.ErrorIs(t, err, io.EOF)
+}
+
 // A page that cannot be converted says so, never with the error's text.
 func TestAPageThatCannotBeReadSaysSo(t *testing.T) {
 	s := newSite(t, plain("hello"))
