@@ -22,11 +22,10 @@
     </script>
     <style>
       /* The mark before the bundle paints: index.css is not on the page yet, so
-         this hand-mirrors --primary and --primary-foreground, light and dark,
-         keyed on the .dark class the script above sets. index.test.ts pins the
-         four values. Shape matches AppMark at 48px (size-12 rounded-xl text-2xl
-         font-bold), centred the way ReadyGate centres it — at 100svh, since
-         --app-min-h arrives with the CSS. React's first commit replaces it. */
+         this shows the scheme's icon by the .dark class the script above sets.
+         Shape matches AppMark at 48px (size-12), centred the way ReadyGate
+         centres it — at 100svh, since --app-min-h arrives with the CSS. React's
+         first commit replaces it. */
       #root:has(> .boot-mark) {
         display: flex;
         min-height: 100svh;
@@ -34,15 +33,20 @@
         justify-content: center;
       }
       .boot-mark {
-        display: flex;
         width: 3rem;
         height: 3rem;
-        align-items: center;
-        justify-content: center;
-        border-radius: 0.75rem;
-        font: 700 1.5rem/2rem system-ui, sans-serif;
-        background: #9f5436; /* --primary */
-        color: #ffffff; /* --primary-foreground */
+      }
+      .boot-mark img {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .boot-mark .dark-only,
+      .dark .boot-mark .light-only {
+        display: none;
+      }
+      .dark .boot-mark .dark-only {
+        display: block;
       }
       /* ReadyGate's drag strip, so the window drags before the bundle paints. */
       .boot-drag {
@@ -50,15 +54,11 @@
         inset: 0 0 auto;
         height: 48px;
       }
-      .dark .boot-mark {
-        background: #dec1b7; /* --primary */
-        color: #331e16; /* --primary-foreground */
-      }
     </style>
   </head>
 
   <body>
-    <div id="root"><div class="boot-drag" data-tauri-drag-region="deep"></div><div class="boot-mark" aria-hidden="true">K</div></div>
+    <div id="root"><div class="boot-drag" data-tauri-drag-region="deep"></div><div class="boot-mark" aria-hidden="true"><img class="light-only" src="/src/assets/icons/app-light.svg" alt="" /><img class="dark-only" src="/src/assets/icons/app-dark.svg" alt="" /></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

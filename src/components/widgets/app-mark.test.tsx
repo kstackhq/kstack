@@ -20,12 +20,16 @@ import { AppMark } from './app-mark';
 describe('AppMark', () => {
   afterEach(cleanup);
 
-  it('renders the letter decoratively at the size given', () => {
+  it('draws the light and dark icons inline, decoratively, at the size given', () => {
     render(<AppMark size={48} />);
     const mark = screen.getByTestId('app-mark');
-    expect(mark).toHaveTextContent('K');
     expect(mark).toHaveAttribute('aria-hidden', 'true');
     expect(mark).toHaveClass('size-12');
+    const [light, dark] = mark.querySelectorAll('svg');
+    expect(light.querySelector('path')).toHaveAttribute('fill', '#9F5436');
+    expect(light).toHaveClass('dark:hidden');
+    expect(dark.querySelector('path')).toHaveAttribute('fill', '#DEC1B7');
+    expect(dark).toHaveClass('hidden', 'dark:block');
   });
 
   it('draws the sidebar size', () => {

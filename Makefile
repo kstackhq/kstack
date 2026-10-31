@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js lint-yaml lint-markers vet vet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts clean clean-data
+.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js lint-yaml lint-markers vet vet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -146,6 +146,25 @@ check-go-fix:
 
 vet-rust:
 	cd src-tauri && cargo clippy --all-targets -- -D warnings
+
+# Regenerate every icon from the SVG masters in src-icons/: src-tauri/icons/,
+# public/favicon.ico and the webview's copies in src/assets/icons/. Kstack ships
+# no mobile app, so the Android and iOS sets are dropped. icon.icns comes from
+# app-macos.svg, which follows Apple's icon grid. tray.png comes from
+# tray-macos.svg at 18pt @2x, the height tray-icon draws a macOS tray image at.
+icons:
+	rm -rf src-tauri/icons
+	pnpm tauri icon src-icons/app-light.svg
+	rm -rf src-tauri/icons/android src-tauri/icons/ios
+	pnpm tauri icon src-icons/app-macos.svg -o src-tauri/icons/macos
+	mv src-tauri/icons/macos/icon.icns src-tauri/icons/icon.icns
+	rm -rf src-tauri/icons/macos
+	pnpm tauri icon src-icons/tray-macos.svg --png 36 -o src-tauri/icons/tray
+	mv src-tauri/icons/tray/36x36.png src-tauri/icons/tray.png
+	rmdir src-tauri/icons/tray
+	cp src-tauri/icons/icon.ico public/favicon.ico
+	mkdir -p src/assets/icons
+	cp src-icons/app-light.svg src-icons/app-dark.svg src/assets/icons/
 
 clean:
 	rm -rf src-tauri/binaries
