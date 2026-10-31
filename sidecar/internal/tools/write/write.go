@@ -267,7 +267,7 @@ func readOld(file fileguard.File) ([]byte, error) {
 	}
 	defer f.Close()
 	b, err := fileguard.ReadAll(f)
-	if err != nil {
+	if err != nil { // coverage:ignore a regular file just opened fails to read only on an I/O error
 		return nil, unreadable(err)
 	}
 	if fileguard.Binary(b) {
