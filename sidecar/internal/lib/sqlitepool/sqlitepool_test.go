@@ -96,6 +96,25 @@ func TestOpenWriterRepairsAFileThatPredatesTheDSN(t *testing.T) {
 	require.Equal(t, incremental, mode)
 }
 
+// The repair's VACUUM rebuilds every index, so one over a function only another
+// connection knew fails it, and the file is refused rather than handed back unrepaired.
+func TestOpenWriterRefusesAFileItCannotRepair(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	d := &sqlite.Driver{}
+	require.NoError(t, d.RegisterDeterministicScalarFunction("only_there", 1,
+		func(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) { return args[0], nil }))
+	legacy := sql.OpenDB(connector{d: d, dsn: "file:" + path})
+	_, err := legacy.Exec(`CREATE TABLE legacy (id INTEGER PRIMARY KEY, x INTEGER)`)
+	require.NoError(t, err)
+	_, err = legacy.Exec(`CREATE INDEX legacy_x ON legacy (only_there(x))`)
+	require.NoError(t, err)
+	require.NoError(t, legacy.Close())
+
+	_, err = OpenWriter(path)
+
+	require.ErrorContains(t, err, "set auto_vacuum")
+}
+
 // database/sql keeps 2 idle connections by default, so a pool sized above that closes
 // exactly the connections it was sized to open — and the next read reopens them, re-running
 // the DSN's pragmas, on a path a watch walks every 250ms.

@@ -47,7 +47,7 @@ func OpenWriter(path string) (*sql.DB, error) {
 		"&_pragma=auto_vacuum(incremental)" +
 		"&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
+	if err != nil { // coverage:ignore the driver is registered and opens lazily, so sql.Open cannot fail
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
@@ -63,7 +63,7 @@ func OpenWriter(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	for _, p := range []string{path, path + "-wal", path + "-shm"} {
-		if err := os.Chmod(p, 0o600); err != nil && !os.IsNotExist(err) {
+		if err := os.Chmod(p, 0o600); err != nil && !os.IsNotExist(err) { // coverage:ignore only a file another user owns refuses the chmod, and a test cannot make one
 			db.Close()
 			return nil, err
 		}
@@ -74,7 +74,7 @@ func OpenWriter(path string) (*sql.DB, error) {
 	// so without the rewrite a janitor's incremental_vacuum is a no-op on it forever.
 	const autoVacuumIncremental = 2
 	var mode int
-	if err := db.QueryRow(`PRAGMA auto_vacuum`).Scan(&mode); err != nil {
+	if err := db.QueryRow(`PRAGMA auto_vacuum`).Scan(&mode); err != nil { // coverage:ignore the Ping's pragmas already read the header this reads
 		db.Close()
 		return nil, fmt.Errorf("read auto_vacuum: %w", err)
 	}
@@ -103,7 +103,7 @@ func OpenReader(path string, maxConns int) (*sql.DB, error) {
 		"?_pragma=busy_timeout(5000)" +
 		"&_pragma=query_only(true)"
 	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
+	if err != nil { // coverage:ignore the driver is registered and opens lazily, so sql.Open cannot fail
 		return nil, err
 	}
 	db.SetMaxOpenConns(maxConns)
