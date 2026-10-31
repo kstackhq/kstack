@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/supervisor"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 )
 
@@ -362,15 +363,15 @@ func TestAReturningContextIsDialedAgain(t *testing.T) {
 
 	cfg.rotate("prod", "")
 	cfg.changed()
-	require.Eventually(t, lease.Departed, time.Second, time.Millisecond)
+	require.Eventually(t, lease.Departed, testutil.Timeout, time.Millisecond)
 
 	cfg.rotate("prod", "key-1")
 	cfg.changed()
-	require.Eventually(t, func() bool { return !lease.Departed() }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return !lease.Departed() }, testutil.Timeout, time.Millisecond)
 
 	require.Eventually(t, func() bool {
 		return lease.State().Phase() == PhaseProbed
-	}, time.Second, time.Millisecond)
+	}, testutil.Timeout, time.Millisecond)
 	assert.Zero(t, lease.State().Connection.Failures)
 }
 

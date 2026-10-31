@@ -155,12 +155,16 @@ func startService(t *testing.T, s *Service) {
 	t.Cleanup(func() { assert.NoError(t, stop(context.Background())) })
 }
 
-// settled waits until the pool has published a first verdict for the claim, so a test
-// subscribing after it hears the news it goes on to cause rather than the first probe's.
-func settled(t *testing.T, lease Lease) {
+// settled waits until the pool has published a first verdict for contextName, so a test
+// subscribing after it hears the news it goes on to cause rather than the first probe's. It reads
+// the pool's own record, not the claim's State: the supervisor commits before it dispatches the
+// publish, so State can show a verdict whose signal is still a dispatch away.
+func settled(t *testing.T, s *Service, contextName string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		return lease.State().Connection.LastAttempt.Done()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.published[contextName].phase != PhasePending
 	}, testutil.Timeout, time.Millisecond, "a first verdict")
 }
 
@@ -481,12 +485,12 @@ func TestDepartureReachesTheHolder(t *testing.T) {
 	lease := s.Acquire("prod")
 	defer lease.Release()
 	require.Equal(t, "prod", cfg.reads.Await(t, "the claim's own read"))
-	settled(t, lease)
+	settled(t, s, "prod")
 	news := s.Subscribe()
 	defer news.Close()
-	// `settled` waits for the connection probe alone, so a signal still landing from startup
-	// would be read below as the departure — and read that early, the state it asserts on is
-	// one the departure has not reached yet.
+	// `settled` returns once the first verdict is recorded, a step before its signal is sent.
+	// That signal, read below, would pass for the departure — and read that early, the state
+	// it asserts on is one the departure has not reached yet.
 	settleNews(t, news)
 
 	cfg.rotate("prod", "")
@@ -511,13 +515,13 @@ func TestDepartureKeepsTheClaim(t *testing.T) {
 
 	cfg.rotate("prod", "")
 	cfg.changed()
-	require.Eventually(t, lease.Departed, time.Second, time.Millisecond)
+	require.Eventually(t, lease.Departed, testutil.Timeout, time.Millisecond)
 
 	cfg.rotate("prod", "key-1")
 	cfg.changed()
 
 	require.Eventually(t, func() bool { return !lease.Departed() },
-		time.Second, time.Millisecond, "named again, and the same claim reports it")
+		testutil.Timeout, time.Millisecond, "named again, and the same claim reports it")
 	assert.Len(t, s.claimed, 1)
 }
 
@@ -532,12 +536,12 @@ func TestDepartureIsAnnouncedOnce(t *testing.T) {
 	lease := s.Acquire("prod")
 	defer lease.Release()
 	cfg.reads.Await(t, "the claim's own read")
-	settled(t, lease)
+	settled(t, s, "prod")
 	news := s.Subscribe()
 	defer news.Close()
-	// The baseline: `settled` waits for the connection probe alone, so a pass still
-	// landing from startup would be read below as the departure, and the departure's own
-	// signal as a second announcement.
+	// The baseline: `settled` returns once the first verdict is recorded, a step before its
+	// signal is sent. That signal, read below, would pass for the departure, and the
+	// departure's own signal for a second announcement.
 	settleNews(t, news)
 
 	cfg.rotate("prod", "")
@@ -633,13 +637,13 @@ func TestAcquireAsksForANewContextsPresence(t *testing.T) {
 	lease := s.Acquire("prod")
 	defer lease.Release()
 	require.Eventually(t, func() bool { return !lease.Departed() },
-		time.Second, time.Millisecond, "presence was never read")
+		testutil.Timeout, time.Millisecond, "presence was never read")
 
 	cfg.rotate("prod", "")
 	cfg.changed()
 
 	require.Eventually(t, lease.Departed,
-		time.Second, time.Millisecond, "a kubeconfig change never reached the claim")
+		testutil.Timeout, time.Millisecond, "a kubeconfig change never reached the claim")
 }
 
 // A later holder joins what the first one's probe found rather than asking for another read.
@@ -691,7 +695,7 @@ func TestAClaimTakenBeforeStartIsChecked(t *testing.T) {
 
 	startService(t, s)
 
-	require.Eventually(t, lease.Departed, time.Second, time.Millisecond,
+	require.Eventually(t, lease.Departed, testutil.Timeout, time.Millisecond,
 		"a claim taken before Start was never checked")
 }
 
@@ -920,7 +924,7 @@ func TestRetryAndWaitIsNotSatisfiedByARunAlreadyInFlight(t *testing.T) {
 	defer lease.Release()
 	testutil.Recv(t, dialing.Chan(), "the first dial")
 	gate <- struct{}{}
-	settled(t, lease)
+	settled(t, s, "prod")
 
 	// The run that must not answer, put in flight from the test's own goroutine: its dial is
 	// observed here, so it began before the ask below however the two goroutines interleave.
@@ -969,7 +973,7 @@ func TestRetryAndWaitLeavesTheRunAloneWhenItsCallerGoesAway(t *testing.T) {
 	defer lease.Release()
 	testutil.Recv(t, dialing.Chan(), "the first dial")
 	gate <- struct{}{}
-	settled(t, lease)
+	settled(t, s, "prod")
 	first := lease.State().Connection.LastAttempt
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -999,7 +1003,7 @@ func TestRetryAndWaitGivesUpOnARunThatNeverFinishes(t *testing.T) {
 	defer lease.Release()
 	testutil.Recv(t, dialing.Chan(), "the first dial")
 	gate <- struct{}{}
-	settled(t, lease)
+	settled(t, s, "prod")
 
 	// The dial the ask buys parks, so its run begins and never ends. The ceiling is a parameter
 	// for exactly this: the test never outwaits the production one.
