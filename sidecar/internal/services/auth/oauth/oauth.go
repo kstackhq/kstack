@@ -174,7 +174,7 @@ func (c *Client) Refresh(ctx context.Context, refreshToken string) (Token, error
 	t := toToken(tok)
 	// oauth2 already carries the prior refresh token forward; belt-and-braces so a
 	// static refresh token is never lost.
-	if t.RefreshToken == "" {
+	if t.RefreshToken == "" { // coverage:ignore oauth2 already fills an empty refresh token from the one the request sent
 		t.RefreshToken = refreshToken
 	}
 	return t, nil

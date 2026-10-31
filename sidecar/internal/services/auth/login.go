@@ -35,7 +35,7 @@ func browserCommand(goos, rawURL string) (string, []string) {
 
 // defaultOpenBrowser opens rawURL in the default browser. The sidecar inherits the host's
 // GUI session env, so the per-OS opener behaves as it would from the host.
-func defaultOpenBrowser(rawURL string) error {
+func defaultOpenBrowser(rawURL string) error { // coverage:ignore it opens the real browser, which no test may do
 	name, args := browserCommand(runtime.GOOS, rawURL)
 	return exec.Command(name, args...).Start()
 }
@@ -136,7 +136,7 @@ const (
 // one-shot callback.
 func newLoopbackServer(state string) (*loopbackServer, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
+	if err != nil { // coverage:ignore binding an ephemeral loopback port does not fail
 		return nil, err
 	}
 	lb := &loopbackServer{

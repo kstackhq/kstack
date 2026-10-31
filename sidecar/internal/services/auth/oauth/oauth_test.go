@@ -341,6 +341,23 @@ func TestVerifyBadSignature(t *testing.T) {
 	}
 }
 
+// A properly signed token whose identity claim has the wrong type is refused:
+// the signature vouches for the claims, not for their shape.
+func TestVerifyRefusesAClaimOfTheWrongType(t *testing.T) {
+	its := newIDTokenServer(t)
+	defer its.srv.Close()
+
+	c := NewClient(Config{
+		ClientID: "kstack-desktop",
+		Issuer:   its.issuer,
+		JWKSURL:  its.srv.URL + "/jwks",
+	})
+	raw := its.sign(t, its.signKey, "kstack-desktop", map[string]any{"email": 42})
+	if _, err := c.Verify(context.Background(), raw); err == nil {
+		t.Fatal("expected Verify to refuse a numeric email claim")
+	}
+}
+
 // A payload that isn't base64, and one that isn't the claims JSON, are both
 // rejected — the unverified path still has to be a real parse.
 func TestParseIdentityUnverifiedRejectsBadPayloads(t *testing.T) {

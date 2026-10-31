@@ -50,7 +50,7 @@ func (k *keyringStore) Save(tok Token) error {
 		return err
 	}
 	b, err := json.Marshal(tok)
-	if err != nil {
+	if err != nil { // coverage:ignore a Token of strings and a time always marshals
 		return err
 	}
 	return keyring.Set(k.service, keyringUser, string(b))
