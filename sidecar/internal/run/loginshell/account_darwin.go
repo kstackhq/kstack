@@ -38,7 +38,7 @@ var defaultShells = []string{"/bin/zsh"}
 // answers for a network account as well as a local one.
 func recordShell(ctx context.Context) string {
 	u, err := user.Current()
-	if err != nil {
+	if err != nil { // coverage:ignore user.Current caches the process's own user, which no test can take away
 		return ""
 	}
 	out, err := exec.CommandContext(ctx, lookupCommand, "/Search", "-read", "/Users/"+u.Username, "UserShell").Output()
