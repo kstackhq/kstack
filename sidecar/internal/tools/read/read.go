@@ -259,7 +259,7 @@ func present(ctx context.Context, b []byte, in input) (out string, whole, ok boo
 	// Whole, before the range: a key or a multi-line field must not be cut in
 	// half before the rules see it.
 	text := safe.Redact(string(b))
-	if ctx.Err() != nil {
+	if ctx.Err() != nil { // coverage:ignore only a cancel landing during the redaction reaches it
 		return cancelled, false, false
 	}
 	out, whole = numbered(text, in.Offset, in.Limit)
@@ -342,7 +342,7 @@ func load(dir tools.ChatDir, rel string) ([]byte, error) {
 		return nil, errNotHere
 	}
 	b, err := fileguard.ReadAll(f)
-	if err != nil {
+	if err != nil { // coverage:ignore a regular file just opened fails to read only on an I/O error
 		return nil, errNotHere
 	}
 	return b, nil
