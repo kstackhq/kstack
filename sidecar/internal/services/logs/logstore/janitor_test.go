@@ -15,8 +15,10 @@
 package logstore
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -314,16 +316,22 @@ func TestTheJanitorSweepsAfterSweepBytes(t *testing.T) {
 	require.NoError(t, m.Close())
 }
 
-// A sweep whose statement the file refuses, or whose question about the pods fails,
-// fails whole, saying so.
+// A sweep whose statement the file refuses or cannot run, or whose question about the
+// pods fails, fails whole, saying so.
 func TestASweepTheFileRefusesFails(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
 		op, table string
+		ddl       string
+		share     int64
 		podsGone  PodsGone
+		want      string
 	}{
-		"an eviction":        {op: "DELETE", table: "lines"},
-		"a stream's removal": {op: "DELETE", table: "streams", podsGone: goneAre("uid-gone")},
+		"an eviction":                {op: "DELETE", table: "lines"},
+		"an over-share eviction":     {op: "DELETE", table: "lines", share: 100},
+		"a stream's removal":         {op: "DELETE", table: "streams", podsGone: goneAre("uid-gone")},
+		"an orphan chain's removal":  {op: "DELETE", table: "pod_owners", ddl: `INSERT INTO pod_owners VALUES ('uid-orphan', 'uid-rs')`},
+		"the read of the empty rows": {ddl: `DROP TABLE streams`, podsGone: goneAre("uid-gone"), want: "no such table"},
 		"the pods' question": {podsGone: func(context.Context, int64, []string) ([]string, error) {
 			return nil, errors.New("refused")
 		}},
@@ -331,10 +339,17 @@ func TestASweepTheFileRefusesFails(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			c := newClock(100_000)
-			s := newClockedStore(t, sweepRetention(), c)
+			ret := sweepRetention()
+			if tc.share != 0 {
+				ret.Bytes, ret.StreamShare = 1<<40, tc.share
+			}
+			s := newClockedStore(t, ret, c)
 			podStream(t, s, "gone", "uid-gone")
 			id := streamOf(t, s)
 			put(t, s, id, 1, 400, 0, false)
+			if tc.ddl != "" {
+				alter(t, s, tc.ddl)
+			}
 			if tc.op != "" {
 				refuse(t, s, tc.op, tc.table)
 			}
@@ -343,9 +358,28 @@ func TestASweepTheFileRefusesFails(t *testing.T) {
 			err := s.Sweep(t.Context())
 
 			assert.ErrorContains(t, err, "sweep: ")
-			assert.ErrorContains(t, err, "refused")
+			assert.ErrorContains(t, err, cmp.Or(tc.want, "refused"))
 		})
 	}
+}
+
+// A vacuum whose context has ended reads nothing and says why.
+func TestACancelledVacuumFails(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	using(t, s, func(f *file) {
+		_, err := s.m.vacuum(ctx, f)
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+// fileSize reads a file that is not there as empty.
+func TestFileSizeOfAMissingFileIsZero(t *testing.T) {
+	t.Parallel()
+	assert.Zero(t, fileSize(filepath.Join(t.TempDir(), "missing")))
 }
 
 // With nothing written, the janitor still sweeps every Interval.
@@ -475,11 +509,12 @@ func TestASweepClosesAChunkWhoseCloseFailed(t *testing.T) {
 	refuse(t, s, "INSERT", "lines")
 	refuse(t, s, "UPDATE", "chunks")
 	assert.Error(t, endedTail.Close(t.Context(), lines(at(2, 0))))
-	using(t, s, func(f *file) {
-		_, err := f.db.Exec(`DROP TRIGGER refuse_INSERT_lines; DROP TRIGGER refuse_UPDATE_chunks`)
-		require.NoError(t, err)
-	})
 	require.Equal(t, []Chunk{opened(chunk(at(1, 0), at(1, 0)))}, chunksOfStream(t, s, ended), "the close failed")
+
+	sweep(t, s)
+	assert.Equal(t, []Chunk{opened(chunk(at(1, 0), at(1, 0)))}, chunksOfStream(t, s, ended),
+		"a close that fails again leaves the chunk to the next sweep, and the sweep goes on")
+	alter(t, s, `DROP TRIGGER refuse_INSERT_lines; DROP TRIGGER refuse_UPDATE_chunks`)
 
 	sweep(t, s)
 

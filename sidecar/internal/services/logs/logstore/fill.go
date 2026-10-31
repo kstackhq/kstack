@@ -86,7 +86,7 @@ func (s *Store) WriteHeld(ctx context.Context, fills []Fill) (Written, func(), e
 func (s *Store) write(ctx context.Context, fills []Fill, stamp, hold bool) (Written, func(), error) {
 	var w Written
 	var kept []Fill
-	release := func() {}
+	var release func() // nil unless hold, which sets it on success
 	err := s.operate(ctx, func(ctx context.Context, f *file) error {
 		if hold {
 			// From before the transaction until the hold is taken: a sweep evicts under

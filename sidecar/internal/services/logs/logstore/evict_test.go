@@ -125,19 +125,38 @@ func TestEvictingAGoneChunkDoesNothing(t *testing.T) {
 	assert.Equal(t, []Pos{at(1, 0)}, positions(t, s, id))
 }
 
-// An eviction whose delete the file refuses fails, leaving the chunk and its lines.
+// An eviction whose delete of the lines or of the chunk the file refuses fails,
+// leaving the chunk and its lines.
 func TestAnEvictionTheFileRefusesFails(t *testing.T) {
 	t.Parallel()
-	s := newTestStore(t)
-	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))})
-	chunks, err := s.Chunks(t.Context(), id, "")
-	require.NoError(t, err)
-	refuse(t, s, "DELETE", "lines")
+	for _, table := range []string{"lines", "chunks"} {
+		t.Run(table, func(t *testing.T) {
+			t.Parallel()
+			s := newTestStore(t)
+			id := streamOf(t, s)
+			write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))})
+			chunks, err := s.Chunks(t.Context(), id, "")
+			require.NoError(t, err)
+			refuse(t, s, "DELETE", table)
 
-	err = s.Evict(t.Context(), chunks[0].ID, anyStamp)
+			err = s.Evict(t.Context(), chunks[0].ID, anyStamp)
+
+			assert.ErrorContains(t, err, "evict: ")
+			assert.ErrorContains(t, err, "refused")
+			assert.Equal(t, []Pos{at(1, 0)}, positions(t, s, id))
+			assert.Len(t, chunksOfStream(t, s, id), 1)
+		})
+	}
+}
+
+// An eviction that cannot read the chunk's bounds fails.
+func TestAnEvictionThatCannotReadTheChunkFails(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	alter(t, s, `DROP TABLE chunks`)
+
+	err := s.Evict(t.Context(), 1, anyStamp)
 
 	assert.ErrorContains(t, err, "evict: ")
-	assert.ErrorContains(t, err, "refused")
-	assert.Equal(t, []Pos{at(1, 0)}, positions(t, s, id))
+	assert.ErrorContains(t, err, "no such table")
 }

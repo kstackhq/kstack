@@ -65,7 +65,7 @@ func (r Reader) Lines(id int64, from, to Pos, each func(Line) bool) error {
 	defer rows.Close()
 	for rows.Next() {
 		var l Line
-		if err := rows.Scan(&l.TS, &l.Ord, &l.Message); err != nil {
+		if err := rows.Scan(&l.TS, &l.Ord, &l.Message); err != nil { // coverage:ignore a STRICT row always scans into these fields
 			return err
 		}
 		if !each(l) {

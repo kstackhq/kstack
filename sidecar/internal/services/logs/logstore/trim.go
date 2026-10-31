@@ -45,7 +45,7 @@ func trim(ctx context.Context, st stmts, id, finishedAt int64) (bool, error) {
 			return false, err
 		}
 		n, err := res.RowsAffected()
-		if err != nil {
+		if err != nil { // coverage:ignore the sqlite driver's RowsAffected never fails
 			return false, err
 		}
 		removed += n

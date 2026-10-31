@@ -227,7 +227,7 @@ func queryChunks(ctx context.Context, st stmts, stmt stmtID, args ...any) ([]Chu
 	for rows.Next() {
 		var c Chunk
 		var prevNS, prevOrd sql.NullInt64
-		if err := rows.Scan(&c.ID, &c.Pattern, &c.From.TS, &c.From.Ord, &c.To.TS, &c.To.Ord, &prevNS, &prevOrd,
+		if err := rows.Scan(&c.ID, &c.Pattern, &c.From.TS, &c.From.Ord, &c.To.TS, &c.To.Ord, &prevNS, &prevOrd, // coverage:ignore a STRICT row always scans into these fields
 			&c.Backend, &c.AtBeginning, &c.AtEnd, &c.Open, &c.Bytes, &c.ReadAt); err != nil {
 			return nil, err
 		}

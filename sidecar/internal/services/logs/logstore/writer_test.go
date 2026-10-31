@@ -15,6 +15,7 @@
 package logstore
 
 import (
+	"cmp"
 	"context"
 	"testing"
 	"time"
@@ -462,17 +463,82 @@ func TestATailPastATrimGoesOnInAChunkOfItsOwn(t *testing.T) {
 	s, tick := newWriterStore(t, testRetention)
 	row := app()
 	row.FinishedAt = second(2)
-	ids, err := s.PutStreams(t.Context(), []Stream{row})
+	other := app()
+	other.Container, other.ContainerID, other.Default = "proxy", "containerd://2", false
+	ids, err := s.PutStreams(t.Context(), []Stream{row, other})
 	require.NoError(t, err)
 	pings := subscribe(t, s, ids[0])
 	tail := openTail(t, s, ids[0], nil, false)
+	otherTail := openTail(t, s, ids[1], nil, false)
 
+	require.NoError(t, otherTail.Write(t.Context(), lines(at(1, 0))))
 	require.NoError(t, tail.Write(t.Context(), lines(at(1, 0), at(9, 0))))
 	fire(t, tick)
 	testutil.Recv(t, pings, "the first batch's ping")
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(1, 0))}, chunksOfStream(t, s, ids[0]), "the trimmed chunk is closed")
+	assert.Equal(t, []Chunk{opened(chunk(at(1, 0), at(1, 0)))}, chunksOfStream(t, s, ids[1]), "another stream's tail writes on")
 
 	require.NoError(t, tail.Close(t.Context(), lines(at(1, 1))))
 	assert.Equal(t, []Pos{at(1, 0), at(1, 1)}, positions(t, s, ids[0]))
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(1, 0)), chunk(at(1, 1), at(1, 1))}, chunksOfStream(t, s, ids[0]))
+	require.NoError(t, otherTail.Close(t.Context(), nil))
+}
+
+// A tail's write the file refuses or cannot run fails the tail and lands no line: the
+// read of the chunk it continues, its chunk's insert, the close of a chunk it ends, the
+// trim of its finished stream, or the close of the chunk that trim cut.
+func TestATailsWriteTheFileRefusesFailsTheTail(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		breakFile func(t *testing.T, s *Store)
+		prev      *Pos
+		finished  bool
+		last      bool
+		want      string
+	}{
+		"the chunk it continues": {breakFile: func(t *testing.T, s *Store) { alter(t, s, `DROP TABLE chunks`) }, prev: new(at(1, 0)), want: "no such table"},
+		"its chunk's insert":     {breakFile: func(t *testing.T, s *Store) { refuse(t, s, "INSERT", "chunks") }},
+		"its chunk's close":      {breakFile: refuseClose, last: true},
+		"the trim":               {breakFile: func(t *testing.T, s *Store) { refuse(t, s, "DELETE", "lines") }, finished: true},
+		"the trimmed close":      {breakFile: refuseClose, finished: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s, tick := newWriterStore(t, testRetention)
+			row := app()
+			if tc.finished {
+				row.FinishedAt = second(2)
+			}
+			ids, err := s.PutStreams(t.Context(), []Stream{row})
+			require.NoError(t, err)
+			tail := openTail(t, s, ids[0], tc.prev, false)
+			tc.breakFile(t, s)
+
+			batch := lines(at(1, 0), at(9, 0))
+			if tc.last {
+				err = tail.Close(t.Context(), batch)
+			} else {
+				require.NoError(t, tail.Write(t.Context(), batch))
+				fire(t, tick)
+				testutil.Wait(t, tail.Failed(), "the tail's failure")
+				err = tail.Err()
+			}
+
+			assert.ErrorContains(t, err, cmp.Or(tc.want, "refused"))
+			assert.Empty(t, positions(t, s, ids[0]))
+		})
+	}
+}
+
+// A close whose write the file never answers, since the file closed first, answers
+// ErrClosed.
+func TestACloseWhoseFileClosesFirstIsClosed(t *testing.T) {
+	t.Parallel()
+	// A queue nobody drains, as a writer that stopped leaves it.
+	queue := mpsc.New[batch](1, mpsc.WithKeepOpen())
+	file, closeFile := context.WithCancel(t.Context())
+	tail := &Tail{tx: queue.Sender(), file: file, failed: make(chan struct{})}
+	closeFile()
+
+	assert.ErrorIs(t, tail.Close(t.Context(), lines(at(1, 0))), ErrClosed)
 }

@@ -252,5 +252,6 @@ Every read test trusts it, so `server_test.go` pins how it answers each paramete
 kubelet honours; a change to the fake changes that test first.
 The fake cluster service stays in `logs`' `testutil_test.go`; `kubelet`'s claim tests carry a
 smaller one of their own. `breakFile` fails a log file's statements from under the service: a
-trigger that raises fails a write, a dropped table every read of it. A test package keeps its
+trigger that raises fails a write, a dropped table every read of it; `logstore`'s own tests do
+the same with `refuse`, `refuseClose` and `alter`. A test package keeps its
 own copies of the few one-line helpers (`at`, `line`, `lineAt`) rather than importing them.

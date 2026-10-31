@@ -15,6 +15,7 @@
 package logstore
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -126,6 +127,23 @@ func refuse(t *testing.T, s *Store, op, table string) {
 		_, err := f.db.Exec(fmt.Sprintf(`CREATE TRIGGER refuse_%[1]s_%[2]s BEFORE %[1]s ON %[2]s BEGIN SELECT RAISE(ABORT, 'refused'); END`, op, table))
 		require.NoError(t, err)
 	})
+}
+
+// alter runs ddl on the file behind s: a dropped table fails every statement that
+// reads it, and a trigger that raises the writes it names.
+func alter(t *testing.T, s *Store, ddl string) {
+	t.Helper()
+	using(t, s, func(f *file) {
+		_, err := f.db.Exec(ddl)
+		require.NoError(t, err)
+	})
+}
+
+// refuseClose makes the file behind s refuse every close of a chunk, and nothing
+// else a write does to chunks.
+func refuseClose(t *testing.T, s *Store) {
+	t.Helper()
+	alter(t, s, `CREATE TRIGGER refuse_close BEFORE UPDATE OF open ON chunks BEGIN SELECT RAISE(ABORT, 'refused'); END`)
 }
 
 // countStreams reads how many streams the file holds, through the reader pool.
@@ -321,6 +339,20 @@ func TestEveryOperationOnAClosedClaimIsRefused(t *testing.T) {
 		assert.ErrorIs(t, err, ErrClosed, name)
 		assert.ErrorContains(t, err, name+": ", name)
 	}
+}
+
+// An operation the file's close interrupts answers ErrClosed, not the cancel it met.
+func TestAnOperationTheCloseInterruptsIsClosed(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+
+	err := s.operate(t.Context(), func(ctx context.Context, f *file) error {
+		f.cancel() // as the file's close does, while the operation runs
+		<-ctx.Done()
+		return ctx.Err()
+	})
+
+	assert.ErrorIs(t, err, ErrClosed)
 }
 
 // twoStreams files app and a second container of its pod in s and answers their ids.

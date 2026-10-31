@@ -123,7 +123,7 @@ func (m *Manager) sweep(ctx context.Context, cacheID int64, f *file) (sweepRepor
 	}
 	var cands []candidate
 	if m.over(sizes, r.After) {
-		if cands, err = candidates(ctx, f, cutoff); err != nil {
+		if cands, err = candidates(ctx, f, cutoff); err != nil { // coverage:ignore streamBytes just read chunks; only the file failing between reaches it
 			return r, err
 		}
 	}
@@ -168,7 +168,7 @@ func (m *Manager) sweep(ctx context.Context, cacheID int64, f *file) (sweepRepor
 	if _, err := f.set.Stmts().Exec(ctx, stmtRemoveOrphanOwners); err != nil {
 		return r, err
 	}
-	if r.Vacuumed, err = m.vacuum(ctx, f); err != nil {
+	if r.Vacuumed, err = m.vacuum(ctx, f); err != nil { // coverage:ignore only the file failing between the sweep's last statement and its vacuum reaches it
 		return r, err
 	}
 	slog.Debug("log store: swept", "cacheID", cacheID, "before", r.Before, "after", r.After,
@@ -252,13 +252,13 @@ func (m *Manager) vacuum(ctx context.Context, f *file) (bool, error) {
 		return false, err
 	}
 	if free > 0 {
-		if _, err := f.db.ExecContext(ctx, fmt.Sprintf(`PRAGMA incremental_vacuum(%d)`, min(free, m.ret.VacuumPages))); err != nil {
+		if _, err := f.db.ExecContext(ctx, fmt.Sprintf(`PRAGMA incremental_vacuum(%d)`, min(free, m.ret.VacuumPages))); err != nil { // coverage:ignore freelist_count just ran on the same connection
 			return false, err
 		}
 	}
 	if fileSize(f.path+"-wal") > fileSize(f.path) {
 		var busy, logPages, moved int64
-		if err := f.db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logPages, &moved); err != nil {
+		if err := f.db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logPages, &moved); err != nil { // coverage:ignore a checkpoint other connections hold up answers busy, not an error
 			return free > 0, err
 		}
 	}
@@ -284,7 +284,7 @@ func streamBytes(ctx context.Context, f *file) (map[int64]int64, error) {
 	out := map[int64]int64{}
 	for rows.Next() {
 		var id, n int64
-		if err := rows.Scan(&id, &n); err != nil {
+		if err := rows.Scan(&id, &n); err != nil { // coverage:ignore a STRICT row always scans into these fields
 			return nil, err
 		}
 		out[id] = n
@@ -296,14 +296,14 @@ func streamBytes(ctx context.Context, f *file) (map[int64]int64, error) {
 // evicts them: never-read before read, oldest first within each.
 func candidates(ctx context.Context, f *file, cutoff int64) ([]candidate, error) {
 	rows, err := f.set.Stmts().Query(ctx, stmtCandidates, cutoff)
-	if err != nil {
+	if err != nil { // coverage:ignore streamBytes just read chunks; only the file failing between reaches it
 		return nil, err
 	}
 	defer rows.Close()
 	var out []candidate
 	for rows.Next() {
 		var c candidate
-		if err := rows.Scan(&c.id, &c.stream, &c.bytes); err != nil {
+		if err := rows.Scan(&c.id, &c.stream, &c.bytes); err != nil { // coverage:ignore a STRICT row always scans into these fields
 			return nil, err
 		}
 		out = append(out, c)
@@ -322,7 +322,7 @@ func emptyStreams(ctx context.Context, f *file) (map[int64]string, error) {
 	for rows.Next() {
 		var id int64
 		var uid string
-		if err := rows.Scan(&id, &uid); err != nil {
+		if err := rows.Scan(&id, &uid); err != nil { // coverage:ignore a STRICT row always scans into these fields
 			return nil, err
 		}
 		out[id] = uid

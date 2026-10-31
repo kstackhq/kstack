@@ -213,6 +213,28 @@ func TestADefaultMovesWithThePod(t *testing.T) {
 	assert.False(t, defaults()["containerd://2"])
 }
 
+// A default filed again as it is still moves the mark when an instance of its pod
+// is marked otherwise: the filing is not skipped as unchanged.
+func TestARefiledDefaultSettlesItsPod(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	earlier := app()
+	earlier.ContainerID, earlier.Default = "containerd://0", false
+	_, err := s.PutStreams(t.Context(), []Stream{app()})
+	require.NoError(t, err)
+	_, err = s.PutStreams(t.Context(), []Stream{earlier})
+	require.NoError(t, err)
+
+	_, err = s.PutStreams(t.Context(), []Stream{app()})
+	require.NoError(t, err)
+
+	rows, err := s.PodStreams(t.Context(), "web", "api-7f9c", "")
+	require.NoError(t, err)
+	for _, r := range rows {
+		assert.True(t, r.Default, r.ContainerID)
+	}
+}
+
 // Filing rows the file already holds as they are, their pod's owners included, or
 // finishing rows it holds finished, takes no write lock: they pass while another connection holds it.
 func TestUnchangedStreamsTakeNoWrite(t *testing.T) {
@@ -249,19 +271,22 @@ func TestUnchangedStreamsTakeNoWrite(t *testing.T) {
 }
 
 // A filing whose write the file refuses fails whole: the insert, the default's move
-// off another container, and the trim of a stream it finishes.
+// off another container, an owner of its pod, and the trim of a stream it finishes.
 func TestAFilingTheFileRefusesFails(t *testing.T) {
 	t.Parallel()
 	sidecar := app()
 	sidecar.Container, sidecar.ContainerID = "istio-proxy", "containerd://2"
 	done := app()
 	done.FinishedAt = second(5)
+	owned := app()
+	owned.Owners = []string{"uid-rs"}
 	for name, c := range map[string]struct {
 		op, table string
 		put       Stream
 	}{
 		"the insert":         {"INSERT", "streams", app()},
 		"the default's move": {"UPDATE", "streams", app()},
+		"an owner":           {"INSERT", "pod_owners", owned},
 		"the trim":           {"DELETE", "lines", done},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -305,4 +330,16 @@ func TestAFinishTheFileRefusesFails(t *testing.T) {
 			assert.ErrorContains(t, err, "refused")
 		})
 	}
+}
+
+// Finishing a stream fails when the file cannot read its streams.
+func TestAFinishThatCannotReadTheFileFails(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	alter(t, s, `DROP TABLE streams`)
+
+	err := s.FinishStreams(t.Context(), []Stream{app()})
+
+	assert.ErrorContains(t, err, "finish streams: ")
+	assert.ErrorContains(t, err, "no such table")
 }

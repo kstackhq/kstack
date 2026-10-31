@@ -102,7 +102,7 @@ func openFile(path string) (*file, error) {
 	}
 	// After the migrations, so a reader never races the schema onto a fresh file.
 	readDB, err := sqlitepool.OpenReader(path, readerPoolSize)
-	if err != nil {
+	if err != nil { // coverage:ignore the writer just opened and migrated the same file
 		db.Close()
 		return nil, fmt.Errorf("open reader pool: %w", err)
 	}

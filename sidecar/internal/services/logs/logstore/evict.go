@@ -53,7 +53,7 @@ func (f *file) evict(ctx context.Context, id, cutoff int64) (bool, error) {
 			return err
 		}
 		ranges, err := unclaimed(ctx, st, stream, id, c)
-		if err != nil {
+		if err != nil { // coverage:ignore unclaimed reads the chunks the bounds' select just read in this transaction
 			return err
 		}
 		for _, r := range ranges {
@@ -75,7 +75,7 @@ func (f *file) evict(ctx context.Context, id, cutoff int64) (bool, error) {
 // whether another chunk claims it costs half a second on a chunk of short lines.
 func unclaimed(ctx context.Context, st stmts, stream, id int64, c Chunk) ([]Span, error) {
 	rows, err := st.Query(ctx, stmtSelectOverlapping, stream, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord, id)
-	if err != nil {
+	if err != nil { // coverage:ignore the bounds' select just read chunks in this transaction
 		return nil, err
 	}
 	defer rows.Close()
@@ -83,7 +83,7 @@ func unclaimed(ctx context.Context, st stmts, stream, id int64, c Chunk) ([]Span
 	from := c.From
 	for rows.Next() {
 		var o Span
-		if err := rows.Scan(&o.From.TS, &o.From.Ord, &o.To.TS, &o.To.Ord); err != nil {
+		if err := rows.Scan(&o.From.TS, &o.From.Ord, &o.To.TS, &o.To.Ord); err != nil { // coverage:ignore a STRICT row always scans into these fields
 			return nil, err
 		}
 		if o.From.Compare(from) > 0 {
@@ -91,7 +91,7 @@ func unclaimed(ctx context.Context, st stmts, stream, id int64, c Chunk) ([]Span
 		}
 		from = MaxPos(from, o.To.Next())
 	}
-	if err := rows.Err(); err != nil {
+	if err := rows.Err(); err != nil { // coverage:ignore only an I/O error mid-walk reaches it
 		return nil, err
 	}
 	if from.Compare(c.To) <= 0 {

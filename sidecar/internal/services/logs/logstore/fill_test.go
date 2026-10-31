@@ -194,6 +194,20 @@ func TestAHeldWriteHoldsFromItsCommit(t *testing.T) {
 	assert.Empty(t, idsIn(t, s, "chunks"))
 }
 
+// A held write that fails holds nothing, and its release is still safe to call.
+func TestAFailedHeldWriteHoldsNothing(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	id := streamOf(t, s)
+	refuse(t, s, "INSERT", "lines")
+
+	_, release, err := s.WriteHeld(t.Context(), []Fill{{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))}})
+
+	assert.ErrorContains(t, err, "refused")
+	release()
+	using(t, s, func(f *file) { assert.Empty(t, f.heldChunks.n) })
+}
+
 // A tailer is the one writer of the chunk it holds open, so a fill that continues it
 // is a chunk of its own, linked to it: the two are still one span.
 func TestNoFillExtendsAnOpenChunk(t *testing.T) {
@@ -357,6 +371,26 @@ func TestAWriteTheFileRefusesFails(t *testing.T) {
 			assert.ErrorContains(t, err, "write: ")
 			assert.ErrorContains(t, err, "refused")
 			assert.Equal(t, []Pos{at(1, 0), at(2, 0)}, positions(t, s, id))
+		})
+	}
+}
+
+// A write that cannot read the file fails whole, leaving no line behind: the check
+// that a fill's stream row is there, or the chunk a merging fill extends.
+func TestAWriteThatCannotReadTheFileFails(t *testing.T) {
+	t.Parallel()
+	for _, table := range []string{"streams", "chunks"} {
+		t.Run(table, func(t *testing.T) {
+			t.Parallel()
+			s := newTestStore(t)
+			id := streamOf(t, s)
+			alter(t, s, `DROP TABLE `+table)
+
+			_, err := s.Write(t.Context(), []Fill{{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0)), Prev: new(at(2, 0)), Merge: true}}, true)
+
+			assert.ErrorContains(t, err, "write: ")
+			assert.ErrorContains(t, err, "no such table")
+			assert.Empty(t, positions(t, s, id))
 		})
 	}
 }
