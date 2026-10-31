@@ -13,7 +13,8 @@
 // limitations under the License.
 
 // Package clustertest is a cache store for tests outside the cluster package: the
-// real schema and query views, holding the objects a test applies. Test-only.
+// real schema and query views, holding the objects a test applies; and a connection
+// such a test can retire. Test-only.
 package clustertest
 
 import (

@@ -28,6 +28,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustertest"
 )
 
 // endless writes a line each time lines sends, until the request ends.
@@ -218,6 +219,53 @@ func TestADisabledClusterEndsTheClaim(t *testing.T) {
 	_, err = c.Get(t.Context(), "/api/v1/namespaces/prod/pods/web/log", nil)
 	assert.ErrorIs(t, err, ErrRevoked)
 }
+
+// A body being read when its connection is retired ends with ErrRetired, not the
+// cancel that cut it.
+func TestARetiredConnectionEndsTheBody(t *testing.T) {
+	t.Parallel()
+	lines := make(chan string)
+	svc := serving(t, endless(lines))
+	conn := clustertest.Connection(t, svc.lease.conn.BaseURL.String())
+	svc.lease.conn = conn
+	c, err := Acquire(t.Context(), svc, "7", "uid-1")
+	require.NoError(t, err)
+	defer c.Close()
+	body, err := c.Get(t.Context(), "/api/v1/namespaces/prod/pods/web/log", url.Values{"follow": {"true"}})
+	require.NoError(t, err)
+	defer body.Close()
+
+	conn.Retire()
+
+	_, err = bufio.NewReader(body).ReadString('\n')
+	assert.ErrorIs(t, err, ErrRetired)
+}
+
+// The watch's retry waits until its context ends, and a claim whose context ends
+// there is not revoked.
+func TestAWatchWaitingToReopenEndsWithItsContext(t *testing.T) {
+	t.Parallel()
+	frames := make(chan cluster.ClusterWatchFrame, 2)
+	frames <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameAdded, Cluster: enabledCluster()}
+	frames <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameBookmark}
+	close(frames)
+	stream := &cluster.Stream[cluster.ClusterWatchFrame]{Frames: frames}
+
+	// Done is closed while Err is still nil, as a cancel landing after the watch's end
+	// was checked leaves it: the wait for the retry is what sees it.
+	assert.False(t, watchRevoked(endingCtx{t.Context()}, nil, "7", stream, time.Hour))
+}
+
+// endingCtx is a context whose Done is closed but whose Err is nil.
+type endingCtx struct{ context.Context }
+
+func (endingCtx) Done() <-chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
+}
+
+func (endingCtx) Err() error { return nil }
 
 // The body goes on reading while the server goes on writing, and ends when the
 // context does.

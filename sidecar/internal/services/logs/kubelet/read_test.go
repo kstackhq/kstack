@@ -272,15 +272,21 @@ func TestALineIsCleaned(t *testing.T) {
 }
 
 // A line with no timestamp, or one that is not a time, is skipped, as kubetail's
-// reader skips it.
+// reader skips it; under limits it counts toward no second.
 func TestALineWithNoTimestampIsSkipped(t *testing.T) {
 	t.Parallel()
-	s := newLogServer()
-	s.Add("prod/web/app", "garbage", "not a time x", logstest.Stamped(0, "a"))
+	for name, o := range map[string]Options{"no limits": {}, "under limits": {Limits: limitsOf(smallCaps)}} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			s.Add("prod/web/app", "garbage", "not a time "+strings.Repeat("x", 2<<10), logstest.Stamped(0, "a"))
 
-	r := readForward(t.Context(), s.Get, web, Options{})
+			r := readForward(t.Context(), s.Get, web, o)
 
-	assert.Equal(t, []string{"a"}, messages(drain(r)))
+			assert.Equal(t, []string{"a"}, messages(drain(r)))
+			assert.NoError(t, r.Err)
+		})
+	}
 }
 
 // A line past 64 KiB is read to there and the rest skipped, so the cleaned message

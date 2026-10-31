@@ -306,7 +306,7 @@ func (r *reader) tailWindow(first time.Time) error {
 	case !w.Oldest.After(first):
 		// The window reached the log's first line, so every moment after the first is
 		// whole in it. The first moment may not be.
-		if !r.endWindow(time.Time{}) {
+		if !r.endWindow(time.Time{}) { // coverage:ignore only a cancel landing while the window's end waits to be taken reaches it
 			return nil
 		}
 		if start.Equal(first) {
@@ -410,14 +410,14 @@ func (r *reader) timeWindows(first time.Time, end logline.Bound, endAt time.Time
 		case r.ctx.Err() != nil:
 			return nil
 		case !stop.IsZero():
-			if !r.cutWindow() {
+			if !r.cutWindow() { // coverage:ignore only a cancel landing while the window's cut waits to be taken reaches it
 				return nil
 			}
 			start, dense = r.replace(start, endAt, stop, first, dense)
 			target = l.take()
 			continue
 		}
-		if !r.endWindow(start) {
+		if !r.endWindow(start) { // coverage:ignore only a cancel landing while the window's end waits to be taken reaches it
 			return nil
 		}
 		if start.Equal(dense) {
@@ -484,7 +484,7 @@ func (r *reader) replace(start, endAt, stop, first, dense time.Time) (time.Time,
 	switch {
 	case !half.After(start):
 		half = start.Truncate(time.Second).Add(time.Second)
-	case half.After(last):
+	case half.After(last): // coverage:ignore from a second's top or the first line, a halved window never starts past the one-second window
 		half = last
 	}
 	return half, stop
@@ -560,7 +560,7 @@ func (r *reader) send(rec logline.Record) bool {
 // held no line makes start the edge, since the read took every line from there to
 // the point and found none.
 func (r *reader) endWindow(start time.Time) bool {
-	if r.out.SendContext(r.ctx, Item{WindowEnd: true}) != nil {
+	if r.out.SendContext(r.ctx, Item{WindowEnd: true}) != nil { // coverage:ignore only a cancel landing while the window's end waits to be taken reaches it
 		return false
 	}
 	switch {

@@ -230,7 +230,7 @@ spawned it; the host shows it on the start screen. Tests make a newer file with
 - `make test-changed` while working, `make test-go` for the whole suite, `make lint-go` (gofmt), `make vet-go`, `make staticcheck-go` (every GOOS, merged; silence a finding with `//lint:ignore <check> <reason>`). Run `gofmt -w` before committing.
 - **`make vet-go` and CI fail on code `go fix` would rewrite** (`scripts/check-go-fix.sh`), on every GOOS and on the `livecache`/`liveswitch` tags. Run `go fix -stringsbuilder=false ./...` and review the result; `stringsbuilder` stays off.
 - **CI's race step runs `go test -race -short ./...`.** A sweep too slow for the race detector shrinks under `testing.Short()`; a test never skips under it. The nightly stress run passes no `-short`, so the full sweep still runs.
-- A test outside `services/cluster` that needs a real cache store uses `cluster/clustertest` (`NewStore`, `Apply`, `Delete`, `Mirror`, `Read`); it carries the query views.
+- A test outside `services/cluster` that needs a real cache store uses `cluster/clustertest` (`NewStore`, `Apply`, `Delete`, `Mirror`, `Read`); it carries the query views. Its `Connection` is one a test can `Retire`.
 
 **A nightly stress run hunts concurrency bugs** (`.github/workflows/stress.yml`): every CI
 runner, `-shuffle=on -count=3`, one job per `-cpu` value (1 and 4; the `cpu` dispatch input is a

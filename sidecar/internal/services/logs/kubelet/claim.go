@@ -176,7 +176,7 @@ func (c *Claim) Get(ctx context.Context, path string, query url.Values) (io.Read
 	u := conn.BaseURL.JoinPath(path)
 	u.RawQuery = query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
+	if err != nil { // coverage:ignore the URL is the connection's parsed base URL with a path joined, which always parses
 		cancel(nil)
 		return nil, err
 	}
