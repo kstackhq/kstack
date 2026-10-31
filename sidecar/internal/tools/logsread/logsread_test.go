@@ -45,6 +45,18 @@ func TestTheToolIsAShownBoundedRead(t *testing.T) {
 	assert.Equal(t, prompt, tool.Prompt())
 	_, err := tool.Action(json.RawMessage(`{"sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`), "", false)
 	assert.ErrorIs(t, err, errNotShown)
+	assert.Equal(t, callTimeout, tool.CallTimeout(nil))
+}
+
+// Input that is not the tool's is refused before anything is read, through Run too.
+func TestBadInputReadsNothing(t *testing.T) {
+	t.Parallel()
+	tool := New(nil, nil)
+
+	text, isError := tool.Run(t.Context(), tools.Runtime{ClusterID: "7"}, json.RawMessage(`{"hunter2":1}`))
+
+	assert.True(t, isError)
+	assert.Equal(t, `{"error":"bad-input"}`, text)
 }
 
 // webappLogs is the webapp fixture with lines in webapp-a's app container, each a
