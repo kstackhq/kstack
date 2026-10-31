@@ -218,7 +218,12 @@ func TestAKeysFDThatIsNotAPipeIsAnError(t *testing.T) {
 	_ = w.Close()
 	t.Cleanup(func() { _ = r.Close() })
 
-	for _, fd := range []string{strconv.Itoa(dupFD(t, file)), "999", "x", strconv.Itoa(dupFD(t, r))} {
+	// A pipe's write end passes the pipe check and fails the read.
+	_, writeEnd, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = writeEnd.Close() })
+
+	for _, fd := range []string{strconv.Itoa(dupFD(t, file)), "999", "x", strconv.Itoa(dupFD(t, r)), strconv.Itoa(dupFD(t, writeEnd))} {
 		_, _, err := scrubExec([]string{"sidecar", keysFDFlag + fd}, nil, nil)
 		assert.Error(t, err, fd)
 	}

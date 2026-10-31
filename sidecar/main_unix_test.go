@@ -21,13 +21,17 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
 // socketPath returns a bindable AF_UNIX path for one test.
@@ -169,4 +173,48 @@ func TestRunExitsCleanlyWhenItsContextEndsDuringStartup(t *testing.T) {
 
 	require.Equal(t, 0, code)
 	require.NotContains(t, out.String(), "READY")
+}
+
+// runMain starts the test binary as a sidecar running main over args (TestMain
+// reads childEnv) and answers its exit code and what it wrote.
+func runMain(t *testing.T, args ...string) (int, string) {
+	t.Helper()
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	cmd := exec.Command(exe, args...)
+	cmd.Env = append(os.Environ(), childEnv+"=main")
+	out, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	require.ErrorAs(t, err, &exit, "%s", out)
+	return exit.ExitCode(), string(out)
+}
+
+// A sandbox subcommand is the forwarder's or the shell launcher's, run before
+// the sidecar's flags are read.
+func TestMainHandsASandboxSubcommandToTheSandbox(t *testing.T) {
+	code, out := runMain(t, sandbox.ShellCommand)
+	assert.NotEqual(t, 2, code, "the sidecar's flags were never parsed: %s", out)
+	assert.Contains(t, out, sandbox.ShellCommand+": bad arguments")
+}
+
+// A bad flag exits 2, after the flag package says why.
+func TestMainExitsTwoOnABadFlag(t *testing.T) {
+	code, out := runMain(t, "--no-such-flag")
+	assert.Equal(t, 2, code)
+	assert.Contains(t, out, "no-such-flag")
+}
+
+// A log file that cannot be opened leaves stderr as the log, which says so, and
+// the run's own exit code is main's.
+func TestMainLogsToStderrWhenTheLogFileCannotOpen(t *testing.T) {
+	notADir := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(notADir, nil, 0o600))
+	logFile := filepath.Join(notADir, "sidecar.log")
+
+	code, out := runMain(t, "--socket", unbindableEndpoint(t), "--log-file", logFile,
+		"--cache-dir", t.TempDir(), "--runtime-dir", t.TempDir(), "--data-dir", t.TempDir())
+
+	assert.Equal(t, 1, code, out)
+	assert.Contains(t, out, "no log file; logging to stderr only")
+	assert.Contains(t, out, "listen", "the run's error reaches stderr too")
 }

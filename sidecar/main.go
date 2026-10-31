@@ -202,7 +202,7 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 	reason := "signal"
 	select {
 	case <-ctx.Done():
-	case err := <-errCh:
+	case err := <-errCh: // coverage:ignore Serve returns before Shutdown only when its listener fails, which nothing here makes it do
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("serve", "err", err)
 			return 1

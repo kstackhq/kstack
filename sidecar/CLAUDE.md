@@ -59,7 +59,9 @@ the keys on a pipe named by `--keys-fd` and the variables left out, so the launc
 kernel keeps hold no key; the flag is the re-exec's alone, and a flag naming anything but a
 readable pipe stops the start. Then it tightens the umask (the original becomes
 `Config.UserUmask`), parses flags, and installs the logger. `run(ctx, cfg, …)` is
-the tested seam; `main` alone sets `RunLoginShell`, so tests never spawn a shell. `New` runs the
+the tested seam; `main` alone sets `RunLoginShell`, so tests never spawn a shell. `main` itself is
+tested in the test binary started as a sidecar (`runMain`, `TestMain`'s `childEnv`), whose coverage
+merges into the run's; such a test fails before `app.New`, which would run the real shell. `New` runs the
 login shell **before anything reads the environment**. **`READY` promises a socket, not a finished
 startup**: it prints after the bind, before `Start`.
 
