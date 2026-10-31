@@ -99,7 +99,7 @@ func run(parent context.Context, s spec) result {
 	// rather than when the last holder of the pipe does — a process bash
 	// left behind is killed right after, and its hold ends then.
 	r, w, err := os.Pipe()
-	if err != nil {
+	if err != nil { // coverage:ignore a pipe fails only when the process is out of descriptors
 		return result{Error: err.Error()}
 	}
 	ctx, cancel := s.hooks.deadline(parent, s.timeout)
@@ -131,8 +131,8 @@ func run(parent context.Context, s spec) result {
 	_ = r.Close()
 
 	res.Output, res.Discarded = string(out.buf), out.discarded
-	if cmd.ProcessState == nil {
-		res.CodeUnknown = true // Wait could not reap bash, which happens only if the OS failed us
+	if cmd.ProcessState == nil { // coverage:ignore Wait leaves ProcessState unset only when wait4 fails
+		res.CodeUnknown = true
 	} else {
 		res.ExitCode = sandbox.ExitCode(cmd.ProcessState)
 	}

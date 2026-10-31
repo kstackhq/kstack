@@ -45,7 +45,7 @@ const pipeGrace = time.Second
 
 // drainPipe is never reached: a Windows pipe takes no read deadline, so awaitCopy
 // closes it instead.
-func drainPipe(io.Writer, *os.File) {}
+func drainPipe(io.Writer, *os.File) {} // coverage:ignore never called on Windows
 
 // The codes a stop terminates the job with, the ones a shell reports for the
 // signal Unix would send: there is no SIGTERM to give a job.

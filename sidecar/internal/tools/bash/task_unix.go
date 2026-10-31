@@ -45,7 +45,7 @@ var _ tools.Task = (*task)(nil)
 // Stop ends it. Its output goes to out as it arrives, up to s.capture.
 func startTask(ctx context.Context, s spec, out io.Writer) (*task, error) {
 	r, w, err := os.Pipe()
-	if err != nil {
+	if err != nil { // coverage:ignore a pipe fails only when the process is out of descriptors
 		return nil, err
 	}
 	cmd, err := shellCmd(ctx, s, w)

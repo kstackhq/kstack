@@ -108,7 +108,7 @@ func toolVersions(home string) []string {
 	}
 	defer f.Close()
 	text, err := io.ReadAll(io.LimitReader(f, toolVersionsLimit))
-	if err != nil {
+	if err != nil { // coverage:ignore a regular file just opened fails to read only on an I/O error
 		return nil
 	}
 	return parseToolVersions(string(text))

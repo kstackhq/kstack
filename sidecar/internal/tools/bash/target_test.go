@@ -17,6 +17,7 @@ package bash
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -142,6 +143,18 @@ func TestAnUnidentifiedTargetHasNoServerUID(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Empty(t, got.serverUID)
+}
+
+// A target whose kubectl cache cannot be made has none, and says why.
+func TestATargetWithNoCacheFails(t *testing.T) {
+	tl := targetTool(t, map[apimeta.ClusterID]*cluster.Cluster{"7": kubeCluster("prod", "uid-1")})
+	file := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	tl.kubectlDir = filepath.Join(file, "kubectl")
+
+	_, err := tl.target(t.Context(), "7")
+
+	assert.Error(t, err)
 }
 
 // A record that names no kube-context has none on its card, and the run's one

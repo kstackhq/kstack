@@ -180,6 +180,9 @@ type Tool struct {
 	// extraWritable is more a sandboxed run may write: a test's seam, nil in
 	// production.
 	extraWritable []string
+	// onRunDir runs once a sandboxed run's directory is made, before anything
+	// is put in it: a test's hook, nil in production.
+	onRunDir func(path string)
 	// after starts a call's deadline: time.After, or a test's stand-in set by
 	// SetCallDeadline.
 	after func(d time.Duration) <-chan time.Time
@@ -742,6 +745,9 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 	if r.dir, err = newRunDir(t.runsDir, t.tmpDir, os.Getpid()); err != nil {
 		r.end()
 		return nil, err
+	}
+	if t.onRunDir != nil {
+		t.onRunDir(r.dir.path)
 	}
 	reads := []string{r.dir.path}
 	net := sandbox.NetworkPolicy{Internet: internet}

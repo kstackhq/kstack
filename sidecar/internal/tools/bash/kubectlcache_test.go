@@ -135,6 +135,20 @@ func TestTheSweepRemovesNothingItCannotCheck(t *testing.T) {
 	assert.Contains(t, logs.String(), "could not read the clusters to sweep the kubectl cache")
 }
 
+// A cache that is not a folder is left as it is, and the clusters are never
+// read.
+func TestTheSweepLeavesACacheItCannotOpen(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "kubectl")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	logs := testutil.CaptureLogs(t)
+
+	sweepKubectlCache(t.Context(), file, fakeService{err: errors.New("never read")})
+
+	assert.FileExists(t, file)
+	assert.Contains(t, logs.String(), "could not open the kubectl cache to sweep it")
+	assert.NotContains(t, logs.String(), "could not read the clusters")
+}
+
 // New sweeps the kubectl cache as it starts, on a goroutine of its own.
 func TestNewSweepsTheKubectlCache(t *testing.T) {
 	t.Setenv("SHELL", "")

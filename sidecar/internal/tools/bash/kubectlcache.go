@@ -95,7 +95,7 @@ func sweepKubectlCache(ctx context.Context, dir string, clusterSvc cluster.Servi
 	}
 	defer root.Close()
 	entries, err := fs.ReadDir(root.FS(), ".")
-	if err != nil {
+	if err != nil { // coverage:ignore a folder just opened for reading fails to list only on an I/O error
 		slog.Warn("could not list the kubectl cache", "err", err)
 		return
 	}

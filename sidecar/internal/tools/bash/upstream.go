@@ -127,7 +127,7 @@ func (u upstream) Endpoint(ctx context.Context) (kubeproxy.Endpoint, error) {
 	go func() {
 		defer close(done)
 		select {
-		case <-conn.Done():
+		case <-conn.Done(): // coverage:ignore only the cluster service builds a Connection that can be retired
 		case <-u.revoked:
 		case <-ctx.Done():
 		}

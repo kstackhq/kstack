@@ -412,7 +412,7 @@ func (t *Tool) probeRun(ctx context.Context, argv []string) probeResult {
 			slog.Warn("could not remove a probe's directory; the next start sweeps it", "err", err)
 		}
 	}()
-	if err := makeWorkspace(dir); err != nil {
+	if err := makeWorkspace(dir); err != nil { // coverage:ignore the probe's directory was just made, empty and the process's own
 		return probeResult{err: "could not start: " + err.Error()}
 	}
 	// No cluster, no chat and no network: the folders granted always are all

@@ -379,6 +379,65 @@ func TestAProbesSetupFailureKeepsItsError(t *testing.T) {
 	assert.True(t, got[0].Probed)
 }
 
+// A probe whose throwaway directory cannot be made reports why and runs
+// nothing: its folder under a file, or one whose lock it cannot take.
+func TestAProbeWithNoDirectoryRunsNothing(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root writes any folder")
+	}
+	file := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	shut := t.TempDir()
+	require.NoError(t, os.Chmod(shut, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(shut, 0o700) })
+	for name, tmpDir := range map[string]string{"under a file": filepath.Join(file, "tmp"), "unwritable": shut} {
+		t.Run(name, func(t *testing.T) {
+			tl, fake, bin := probingTool(t)
+			writeExecutable(t, bin, "kubectl", "true")
+			tl.tmpDir = tmpDir
+
+			got := tl.ProbeExecutables(t.Context(), nil)
+
+			assert.True(t, strings.HasPrefix(got[0].Error, "could not start: "), got[0].Error)
+			assert.Empty(t, fake.seen())
+		})
+	}
+}
+
+// A probe's directory that cannot be removed is left for the next start's
+// sweep, and the probe still reports.
+func TestAProbeDirectoryThatCannotBeRemovedIsLogged(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root removes any folder")
+	}
+	tl, _, bin := probingTool(t)
+	// HOME is the workspace, two folders under the tmp directory the removal
+	// opens.
+	writeExecutable(t, bin, "kubectl", `/bin/chmod 0 "${HOME%/*/*}"`)
+	t.Cleanup(func() { _ = os.Chmod(tl.tmpDir, 0o700) })
+	logs := testutil.CaptureLogs(t)
+
+	got := tl.ProbeExecutables(t.Context(), nil)
+
+	assert.True(t, got[0].OK, got[0].Error)
+	assert.Contains(t, logs.String(), "could not remove a probe's directory")
+}
+
+// A probe directory's Root makes the folder when asked, and says why it could
+// not.
+func TestAProbeDirectorysRootMakesTheFolder(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	_, err := probeDir(filepath.Join(file, "probe")).Root(true)
+	assert.Error(t, err)
+
+	dir := probeDir(filepath.Join(t.TempDir(), "probe"))
+	root, err := dir.Root(true)
+	require.NoError(t, err)
+	require.NoError(t, root.Close())
+	assert.DirExists(t, dir.Path())
+}
+
 // recording is a real sandbox that keeps each Run it was handed.
 type recording struct {
 	*sandbox.Sandbox

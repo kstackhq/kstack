@@ -324,6 +324,30 @@ func TestARunThatCannotBeMadeReleasesItsClaim(t *testing.T) {
 	assert.Equal(t, int32(1), lease.released.Load())
 }
 
+// A run whose directory cannot take its resolver, its proxy's socket or its
+// kubeconfig fails, releases its claim and removes the directory.
+func TestARunThatCannotBeSetUpEndsIt(t *testing.T) {
+	for _, name := range []string{"resolv.conf", socketName, "kubeconfig"} {
+		t.Run(name, func(t *testing.T) {
+			lease := &fakeLease{serverUID: "uid-1"}
+			tl := proxyTool(t, lease)
+			var dir string
+			tl.onRunDir = func(path string) {
+				dir = path
+				require.NoError(t, os.Mkdir(filepath.Join(path, name), 0o700))
+			}
+			rt := clusterRuntime(t)
+
+			_, err := tl.sandboxedRunFor(t.Context(), &fakeSandboxer{needsResolver: true}, rt, tools.WorkspacePath(rt.Dir), false, session.NetworkChat)
+
+			assert.Error(t, err)
+			assert.Equal(t, int32(1), lease.released.Load())
+			assert.NotEmpty(t, dir)
+			assert.NoDirExists(t, dir)
+		})
+	}
+}
+
 // A sandboxed task that cannot start ends its run: the claim is released and
 // the run's directory goes. It cannot start when its shell is missing, or
 // when the sandbox refuses its policy, whose reason the model reads.

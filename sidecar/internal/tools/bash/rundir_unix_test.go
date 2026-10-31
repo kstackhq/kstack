@@ -96,9 +96,18 @@ func TestAnUnwritableRunsOrTmpDirMakesNoRun(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root writes a read-only directory")
 	}
-	for name, locked := range map[string]int{"runs": 0, "tmp": 1} {
+	for name, c := range map[string]struct {
+		locked int
+		held   bool
+	}{"runs": {0, false}, "tmp": {1, false}, "runs, lock held": {0, true}, "tmp, lock held": {1, true}} {
+		locked := c.locked
 		t.Run(name, func(t *testing.T) {
 			dirs := []string{runsIn(t), t.TempDir()}
+			if c.held {
+				for _, dir := range dirs {
+					require.NoError(t, holdRunLock(dir, 1))
+				}
+			}
 			require.NoError(t, os.Chmod(dirs[locked], 0o500))
 			t.Cleanup(func() { _ = os.Chmod(dirs[locked], 0o700) })
 
@@ -308,6 +317,25 @@ func TestALoginShellTmpDirThatCannotBeMadeIsAnError(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(shut, 0o700) })
 	_, _, err = TempDir(shut)()
 	assert.ErrorIs(t, err, os.ErrPermission, "a folder it cannot write, its lock already held")
+}
+
+// A login shell's TMPDIR that cannot be removed is left for the next start's
+// sweep, and says so.
+func TestALoginShellTmpDirThatCannotBeRemovedIsLogged(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root writes any folder")
+	}
+	tmp := t.TempDir()
+	dir, cleanup, err := TempDir(tmp)()
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(tmp, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(tmp, 0o700) })
+	logs := testutil.CaptureLogs(t)
+
+	cleanup()
+
+	assert.DirExists(t, dir)
+	assert.Contains(t, logs.String(), "could not remove the login shell's TMPDIR")
 }
 
 // New sweeps the runs and tmp directories as it starts, on a goroutine of its

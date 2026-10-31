@@ -15,6 +15,8 @@
 package bash
 
 import (
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,6 +52,19 @@ func TestTheRunsKubeconfigNamesTheCardsContext(t *testing.T) {
 	require.NotNil(t, user)
 	assert.Empty(t, user.Token)
 	assert.Nil(t, user.Exec)
+}
+
+// A kubeconfig is written only where there is none: one already at the path is
+// left as it is.
+func TestTheRunsKubeconfigReplacesNothing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kubeconfig")
+	require.NoError(t, os.WriteFile(path, []byte("planted"), 0o600))
+
+	require.ErrorIs(t, writeKubeconfig(path, "prod", 1, "t"), fs.ErrExist)
+
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "planted", string(b))
 }
 
 // The context's name is the user's kubeconfig text: it is written as data, and

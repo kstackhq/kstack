@@ -268,6 +268,8 @@ replace its own paths](../../../docs/security/2026-09-30-a-run-cannot-replace-it
   grants](../../../docs/security/2026-10-04-path-grants.md). Limits →
   [ADR](../../../docs/adr/2026-10-02-process-limits-are-set-inside-the-run.md).
 - Tests lay folders out under Kstack's three as `app/paths.go` does (`kstackDirs`).
+- `onRunDir` is a test's hook on a run's fresh directory: planting a folder at the resolver,
+  socket or kubeconfig path fails that step of the setup.
 
 **A run with a cluster serves a grant over its socket** (`upstream.go`, `proxy.go`). The claim
 watches the record and revokes on disable, mark or delete. A claim that cannot be made still runs

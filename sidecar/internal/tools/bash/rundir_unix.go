@@ -94,7 +94,7 @@ func holdRunLock(dir string, pid int) error {
 		if err == nil {
 			held, err = f.Stat()
 		}
-		if err != nil {
+		if err != nil { // coverage:ignore a blocking flock and an fstat of a file just opened fail only on an I/O error
 			f.Close()
 			return err
 		}
@@ -102,7 +102,7 @@ func holdRunLock(dir string, pid int) error {
 			heldLocks.files[path] = f
 			return nil
 		}
-		f.Close()
+		f.Close() // coverage:ignore only a sweep removing the lock after this open reaches it, an order no test can fix
 	}
 }
 
@@ -122,7 +122,7 @@ func sweepRunDirs(dir string) {
 	}
 	defer root.Close()
 	entries, err := fs.ReadDir(root.FS(), ".")
-	if err != nil {
+	if err != nil { // coverage:ignore a folder just opened for reading fails to list only on an I/O error
 		slog.Warn("could not list a directory to sweep run directories", "dir", dir, "err", err)
 		return
 	}

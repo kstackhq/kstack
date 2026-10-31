@@ -54,7 +54,7 @@ func writeKubeconfig(path, context string, port int, token string) error {
 	cfg.Contexts[context] = &clientcmdapi.Context{Cluster: context, AuthInfo: kubeUser}
 	cfg.CurrentContext = context
 	raw, err := clientcmd.Write(*cfg)
-	if err != nil {
+	if err != nil { // coverage:ignore a config of strings always encodes
 		return err
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
