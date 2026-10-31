@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js lint-yaml lint-markers vet vet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts clean clean-data
+.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js lint-yaml lint-md lint-markers vet vet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts clean clean-data
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -97,7 +97,7 @@ cover-js:
 	pnpm vitest run --mode coverage
 
 # Run every linter in the repo.
-lint: lint-go lint-rust lint-js lint-yaml lint-markers
+lint: lint-go lint-rust lint-js lint-yaml lint-md lint-markers
 
 # `gofmt -l` lists unformatted files; non-empty = lint failure.
 lint-go:
@@ -120,6 +120,11 @@ lint-yaml:
 	uv tool run yamllint@1.38.0 --strict .
 	go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -config-file .github/ci-config/actionlint.yaml
 	uv tool run zizmor@1.31.1 --config .github/ci-config/zizmor.yml .
+
+# Check local paths and anchors without making CI depend on the network.
+lint-md:
+	cargo install --locked lychee@0.24.2
+	git ls-files '*.md' | lychee --offline --include-fragments --no-progress --exclude 'docs/specs/' --exclude '/docs/adr/path$$' --files-from -
 
 # Every coverage marker gives its reason.
 lint-markers:

@@ -63,6 +63,7 @@ jobs:
       typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.typescript == 'true' }}
       shell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.shell == 'true' }}
       yaml: ${{ github.event_name != 'pull_request' || steps.filter.outputs.yaml == 'true' }}
+      markdown: ${{ github.event_name != 'pull_request' || steps.filter.outputs.markdown == 'true' }}
     steps:
       - id: filter
         if: github.event_name == 'pull_request'
@@ -119,6 +120,10 @@ jobs:
               - Makefile
               - '**/*.yml'
               - '**/*.yaml'
+            markdown:
+              - .github/workflows/ci.yml
+              - Makefile
+              - '**/*.md'
 
   ##############################
   # Lint and vet jobs
@@ -344,6 +349,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: make lint-yaml
+
+  markdown-lint:
+    name: Markdown · Lint
+    needs: changes
+    if: needs.changes.outputs.markdown == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-environment
+        with:
+          setup-rust: "true"
+      - name: Check local Markdown links
+        run: make lint-md
 
   typescript-lint:
     name: TypeScript · Lint
