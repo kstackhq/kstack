@@ -582,6 +582,30 @@ func TestAGroupThatIsNotAnObjectFailsOpen(t *testing.T) {
 	}
 }
 
+// nestedSettings holds a group inside a group.
+type nestedSettings struct {
+	Outer struct {
+		Inner testGroup `json:"inner"`
+	} `json:"outer"`
+}
+
+// A group is checked at every depth, and the error names it by its whole path.
+func TestANestedGroupThatIsNotAnObjectFailsOpen(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "settings.json")
+	require.NoError(t, os.WriteFile(file, []byte(`{"outer": {"inner": 5}}`), 0o600))
+
+	_, err := Open[nestedSettings](file, nil, nil)
+	require.ErrorContains(t, err, "outer.inner is not a JSON object")
+}
+
+// A path through a value that is not an object reaches nothing.
+func TestGetThroughANonObjectIsNil(t *testing.T) {
+	o := object{"group": json.RawMessage(`5`)}
+
+	assert.Nil(t, o.get([]string{"group", "names"}))
+	assert.JSONEq(t, `5`, string(o.get([]string{"group"})))
+}
+
 // A key inside a group that no field names is a newer Kstack's, kept as the
 // top level's are.
 func TestAWriteKeepsTheKeysAGroupDoesNotName(t *testing.T) {
