@@ -766,6 +766,41 @@ func TestCachedKindsSetSyncEnabledReportsARecordAlreadyGoing(t *testing.T) {
 	assert.ErrorContains(t, err, "update cached kind")
 }
 
+// The record can also go between the write and the read back, which reports it missing
+// rather than answering with the record as it was before the switch.
+func TestCachedKindsSetSyncEnabledReportsARecordGoneBeforeTheReadBack(t *testing.T) {
+	ctx := context.Background()
+	d := newTestDeps(t)
+	cluster := createCluster(t, d, "prod")
+	cache := createCache(t, d.cacheClient, cluster, "uid-1")
+	obj := createKind(t, d, cache.ID, deploymentsSpec)
+	d.kindClient = &collectedAfterUpdate{Client: d.kindClient}
+
+	_, err := serviceOver(t, d).CachedKinds().SetSyncEnabled(ctx, ClusterCachedKindID(obj.ID), false)
+
+	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorContains(t, err, "get cached kind")
+}
+
+// collectedAfterUpdate is a kind client whose records read as collected once one has been
+// updated, standing in for a cache teardown landing between the write and the read back.
+type collectedAfterUpdate struct {
+	beehive.Client[ClusterCachedKindSpec, ClusterCachedKindStatus]
+	updated bool
+}
+
+func (c *collectedAfterUpdate) Update(ctx context.Context, id beehive.ObjectID, spec ClusterCachedKindSpec) (*beehive.Object[ClusterCachedKindSpec, ClusterCachedKindStatus], error) {
+	c.updated = true
+	return c.Client.Update(ctx, id, spec)
+}
+
+func (c *collectedAfterUpdate) Get(ctx context.Context, id beehive.ObjectID, loads ...beehive.LoadOption) (*beehive.Object[ClusterCachedKindSpec, ClusterCachedKindStatus], error) {
+	if c.updated {
+		return nil, beehive.ErrNotFound
+	}
+	return c.Client.Get(ctx, id, loads...)
+}
+
 // A pass that cannot read which cache it belongs to fails rather than settling: settling
 // would leave the kind unarmed, and beehive would not come back to it.
 func TestKindPassFailsWhenItsCacheCannotBeRead(t *testing.T) {

@@ -44,6 +44,8 @@ policy](../../../../docs/adr/2026-08-28-arming-is-policy-never-interest.md).
 - Neither cache controller writes a condition. → [ADR: kind records mirror the
   catalog](../../../../docs/adr/2026-09-02-kind-records-mirror-the-catalog.md).
 - Shared dependencies are fields of `deps`, never constructor parameters (`testutil_test.go`).
+  A test fails one store call by swapping the client for a wrapper that embeds the real one
+  (`failingClusterGets`, `scriptedWatches`); an app.db write by a `RAISE(ABORT)` trigger.
 - Every participant is a named `lifecycle.Part`, never a stop closure. → [ADR: lifecycle
   composition](../../../../docs/adr/2026-08-16-lifecycle-composition.md).
 

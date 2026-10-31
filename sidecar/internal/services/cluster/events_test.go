@@ -216,8 +216,8 @@ func TestTerminalErrKeepsTheReasonsAConsumerCanActOn(t *testing.T) {
 
 // Every frame the event watch sends is checked, so a consumer that has gone ends the
 // stream where it stands rather than blocking on a channel nobody drains. The context is
-// cancelled with a send already parked — Frames buffers one, and nothing is reading — so
-// the check is what unblocks it rather than a race with the buffer.
+// cancelled once the first run fills Frames' one-frame buffer, with nothing reading, so
+// the check is what unblocks the second rather than a race with the buffer.
 func TestWatchEventsStopsForAConsumerThatIsGone(t *testing.T) {
 	d, bh := newTestDepsAndBeehive(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -228,6 +228,7 @@ func TestWatchEventsStopsForAConsumerThatIsGone(t *testing.T) {
 
 	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(cluster.ID), new(ConnectionEventCategory))
 	require.NoError(t, err)
+	require.Eventually(t, func() bool { return len(stream.Frames) == 1 }, testutil.Timeout, time.Millisecond, "the first run to fill the buffer")
 	cancel()
 
 	testutil.WaitClosed(t, stream.Frames, "the watch to stop")
@@ -245,6 +246,7 @@ func TestWatchEventsStopsOnTheBookmarkForAConsumerThatIsGone(t *testing.T) {
 
 	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(cluster.ID), new(ConnectionEventCategory))
 	require.NoError(t, err)
+	require.Eventually(t, func() bool { return len(stream.Frames) == 1 }, testutil.Timeout, time.Millisecond, "the first run to fill the buffer")
 	cancel()
 
 	testutil.WaitClosed(t, stream.Frames, "the watch to stop on the bookmark")

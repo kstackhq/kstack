@@ -488,7 +488,7 @@ func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *po
 		return nil, fmt.Errorf("open beehive store: %w", err)
 	}
 	// Everything from here on has both to release on failure.
-	fail := func(err error) (Service, error) {
+	fail := func(err error) (Service, error) { // coverage:ignore only the two failures below call it, and neither happens
 		bhStore.Close()
 		store.Close()
 		return nil, err
@@ -496,7 +496,7 @@ func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *po
 	// WithEventRetention bounds each (object, category) timeline to maxEventRuns runs.
 	// The pass cadences are declared per kind at registration; see startupPass.
 	bh, err := beehive.New(bhStore, beehive.WithEventRetention(maxEventRuns, 0))
-	if err != nil {
+	if err != nil { // coverage:ignore beehive.New fails only on an option's error, and this option returns none
 		return fail(fmt.Errorf("init beehive: %w", err))
 	}
 
@@ -512,7 +512,7 @@ func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *po
 	d := newDeps(bh, db, store, kubeconfigSvc, kubeconnSvc, kubestoreMgr, kubesyncSvc, pokeSvc)
 
 	controllers, err := registerControllers(bh, d)
-	if err != nil {
+	if err != nil { // coverage:ignore a fresh beehive takes each kind's first registration
 		return fail(fmt.Errorf("register cluster controllers: %w", err))
 	}
 

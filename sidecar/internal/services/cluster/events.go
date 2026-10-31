@@ -98,7 +98,7 @@ func (s *service) WatchEvents(ctx context.Context, id ObjectID, category *string
 			return nil
 		}
 		for ev := range src.Events {
-			if !sendFrame(ctx, out, runFrame(ev)) {
+			if !sendFrame(ctx, out, runFrame(ev)) { // coverage:ignore only the consumer leaving while a run is in flight, which the store's own watch races
 				return nil
 			}
 		}

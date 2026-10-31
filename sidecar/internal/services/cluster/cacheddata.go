@@ -504,7 +504,7 @@ func (a cachedDataAPI) ReadOwn(ctx context.Context, clusterID ClusterID, cacheID
 	err = store.ReadOwn(ctx, func(r kubestore.Reading) error {
 		return read(func(sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, error) {
 			res, err := r.Query(sql, maxRows, maxBytes, args...)
-			if cacheGone(err) {
+			if cacheGone(err) { // coverage:ignore a reading holds its file, so a clear or teardown waits for it to end
 				return ClusterCachedDataQueryResult{}, ErrNoCache
 			}
 			return queryResult(cacheID, res, err)

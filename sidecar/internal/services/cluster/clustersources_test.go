@@ -27,6 +27,7 @@ import (
 	"github.com/amorey/beehive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd/api"
 
@@ -223,6 +224,44 @@ type stubSourceController struct {
 func (c *stubSourceController) UpdateStatus(_ context.Context, status ClusterSourceStatus) error {
 	c.updated = &status
 	return c.updateErr
+}
+
+// Only the kubeconfig has an anchor; a row of another source has none to wake.
+func TestClusterSourceNameFor(t *testing.T) {
+	name, ok := clusterSourceNameFor(SourceKubeconfig)
+	assert.True(t, ok)
+	assert.Equal(t, ClusterSourceNameKubeconfig, name)
+
+	_, ok = clusterSourceNameFor("cloud")
+	assert.False(t, ok)
+}
+
+// A snapshot that will not digest fails the pass: no fingerprint means nothing to
+// publish, and settling would leave every record unwoken.
+func TestSourceReconcileFailsOnASnapshotThatWillNotDigest(t *testing.T) {
+	d := newTestDeps(t)
+	cfg := cfgWith("prod")
+	cfg.Extensions = map[string]runtime.Object{"yaml": &runtime.Unknown{ContentType: "application/yaml"}}
+	d.kubeconfigSvc = fakeKubeconfigService{cfg: cfg, loaded: true}
+	c, obj := sourceControllerOver(t, d)
+
+	client := &stubSourceController{}
+	res := c.Reconcile(context.Background(), client, obj)
+
+	assert.ErrorContains(t, res.Err(), "digest kubeconfig")
+	assert.Nil(t, client.updated)
+}
+
+// A row the import cannot insert fails the import and names the context it was for.
+func TestImportReportsAContextItCannotInsert(t *testing.T) {
+	d := newTestDeps(t)
+	_, err := d.db.Write.Exec(`CREATE TRIGGER refuse_import BEFORE INSERT ON clusters BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+	require.NoError(t, err)
+
+	err = importKubeconfigContexts(context.Background(), d.db, d.store, cfgWith("prod"), t0)
+
+	assert.ErrorContains(t, err, `importing context "prod"`)
+	assert.ErrorContains(t, err, "refused")
 }
 
 // The pass creates the records and publishes what it observed for them to wake on.

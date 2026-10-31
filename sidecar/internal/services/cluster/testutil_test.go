@@ -100,6 +100,8 @@ type fakeKubeconn struct {
 	retryErr error
 	// connErr is what every claim's Conn answers, for a fleet nothing reached.
 	connErr error
+	// releases, when set, fires each release's context, so a test can wait for one.
+	releases *testutil.Probe[string]
 }
 
 func (f *fakeKubeconn) Acquire(contextName string) kubeconn.Lease {
@@ -172,7 +174,12 @@ func (l *fakeLease) WatchState() kubeconn.StateSubscription {
 	return l.svc.stateFeed().Watch(l.contextName)
 }
 
-func (l *fakeLease) Release() { l.svc.released = append(l.svc.released, l.contextName) }
+func (l *fakeLease) Release() {
+	l.svc.released = append(l.svc.released, l.contextName)
+	if l.svc.releases != nil {
+		l.svc.releases.Fire(l.contextName)
+	}
+}
 
 // fakeKubestore stands in for the store registry: it records what was cleared and
 // which caches were deleted, and answers with err. The zero value clears everything

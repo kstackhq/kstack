@@ -112,12 +112,12 @@ func listClusters(ctx context.Context, st stmts) ([]ClusterRow, error) {
 	var out []ClusterRow
 	for rows.Next() {
 		r, err := scanClusterRow(rows)
-		if err != nil {
+		if err != nil { // coverage:ignore the table is STRICT with every column CHECKed, so each row it holds scans
 			return nil, fmt.Errorf("list clusters: %w", err)
 		}
 		out = append(out, r)
 	}
-	if err := rows.Err(); err != nil {
+	if err := rows.Err(); err != nil { // coverage:ignore only the read failing between two steps, which nothing can time
 		return nil, fmt.Errorf("list clusters: %w", err)
 	}
 	return out, nil

@@ -62,18 +62,18 @@ func NewStore(t testing.TB) *Store {
 // emptyStore is the bytes of cache 1's file, migrated and closed, made on first use.
 var emptyStore = sync.OnceValues(func() ([]byte, error) {
 	dir, err := os.MkdirTemp("", "clustertest-")
-	if err != nil {
+	if err != nil { // coverage:ignore the system temp directory is writable wherever tests run
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
 	m := kubestore.NewManager(dir, kubestore.Retention{})
 	s, err := m.OpenOrCreate(1)
-	if err != nil {
+	if err != nil { // coverage:ignore a fresh directory always takes a new store
 		m.Close()
 		return nil, err
 	}
 	s.Release()
-	if err := m.Close(); err != nil {
+	if err := m.Close(); err != nil { // coverage:ignore closing a manager whose one store was released fails on nothing
 		return nil, err
 	}
 	return os.ReadFile(filepath.Join(dir, "1.db"))

@@ -447,7 +447,7 @@ func (a clustersAPI) Watch(ctx context.Context, id ClusterID) (*Stream[ClusterWa
 			if frame.Cluster != nil && frame.Cluster.ID != id {
 				continue
 			}
-			if !sendFrame(ctx, out, frame) {
+			if !sendFrame(ctx, out, frame) { // coverage:ignore only the consumer leaving while a frame is in flight between the two pumps
 				return nil
 			}
 		}

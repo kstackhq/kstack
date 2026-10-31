@@ -181,6 +181,13 @@ func TestPumpEndsOnAFailedProjection(t *testing.T) {
 		[]*beehive.Object[testSpec, testStatus]{{ID: 1}}, nil, func() error { return nil })
 
 	assert.ErrorIs(t, err, boom)
+
+	changes := make(chan beehive.ObjectChange[testSpec, testStatus], 1)
+	changes <- beehive.ObjectChange[testSpec, testStatus]{Type: beehive.Modified, ID: 1, Object: &beehive.Object[testSpec, testStatus]{ID: 1}}
+	close(changes)
+	err = failing.pump(context.Background(), make(chan testFrame, 1), nil, changes, func() error { return nil })
+
+	assert.ErrorIs(t, err, boom, "a change after the snapshot ends the stream the same way")
 }
 
 // The pump ends by reporting why its source did, which is the only thing telling a dead

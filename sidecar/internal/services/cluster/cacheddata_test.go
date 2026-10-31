@@ -410,6 +410,11 @@ func TestTheObjectAndEventWatchesGateOnThePairToo(t *testing.T) {
 	events, err := f.data().WatchEvents(ctx, ClusterID("9999"), f.cacheID)
 	require.NoError(t, err)
 	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, events.Frames, "the bookmark").Type)
+
+	narrowed, err := f.data().WatchObjectsIn(ctx, ClusterID("9999"), f.cacheID, "v1", "pods", []string{"prod"})
+	require.NoError(t, err)
+	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, narrowed.Frames, "the bookmark").Type)
+	testutil.WaitClosed(t, narrowed.Frames, "a scope that can never be filled to end")
 }
 
 // A cache with no file has never synced anything, which is empty rather than a fault: the
@@ -656,6 +661,18 @@ func TestReadOwnRefusesWhatQueryRefuses(t *testing.T) {
 
 	other := createCluster(t, f.d, "other")
 	ok, err = f.data().ReadOwn(ctx, clusterIDOf(other), f.cacheID, func(OwnQuery) error { return nil })
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// A clear that ends a reading before it starts is a cache gone, not a fault.
+func TestAReadingAClearEndsIsNotOK(t *testing.T) {
+	f := newDataFixture(t)
+	store := kubestoreFake(f.d)
+	store.afterOpen = func(cacheID int64) { require.NoError(t, store.mgr.Remove(cacheID)) }
+
+	ok, err := f.data().ReadOwn(context.Background(), f.clusterID, f.cacheID, func(OwnQuery) error { return nil })
+
 	require.NoError(t, err)
 	assert.False(t, ok)
 }

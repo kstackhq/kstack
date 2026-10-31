@@ -2087,3 +2087,109 @@ func TestReadActiveReturnsAFailedRecordRead(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, handed)
 }
+
+// A consumer gone mid-diff ends the pump at the frame it left on, without a report. One
+// write renames three rows, so one reread diffs three frames: the test reads the first,
+// the stream's buffer takes the second, and the third waits on a consumer that left.
+func TestClustersWatchListStopsMidDiffForAConsumerThatIsGone(t *testing.T) {
+	d := newRunningDeps(t)
+	for _, name := range []string{"a", "b", "c"} {
+		createCluster(t, d, name)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stream, err := serviceOver(t, d).Clusters().WatchList(ctx)
+	require.NoError(t, err)
+	awaitBookmark(t, stream)
+
+	_, err = d.db.Write.Exec(`UPDATE clusters SET name = 'renamed'`)
+	require.NoError(t, err)
+	d.db.Notify(appdb.KeyClusters)
+	assert.Equal(t, DeltaFrameModified, testutil.Recv(t, stream.Frames, "the first rename").Type)
+	cancel()
+
+	testutil.Wait(t, stream.done, "the pump to end")
+	assert.NoError(t, stream.Err())
+}
+
+// The schedule gauge's consumer can leave before its first reading is taken, and the
+// gauge ends there rather than parking on the send. Nothing reads until the claim is
+// released, which the gauge does only once the send has given up.
+func TestClustersWatchScheduleStopsForAConsumerThatIsGone(t *testing.T) {
+	d := newTestDeps(t)
+	obj := createCluster(t, d, "prod")
+	d.kubeconnSvc = knowing(kubeconn.State{Connection: scheduledAt(probedAt)})
+	pool := d.kubeconnSvc.(*fakeKubeconn)
+	pool.releases = testutil.NewProbe[string](1)
+	ch, cancel := watchSchedule(t, d, clusterIDOf(obj))
+
+	cancel()
+
+	assert.Equal(t, "prod", pool.releases.Await(t, "the claim's release"))
+	_, open := <-ch
+	assert.False(t, open, "the reading nobody took")
+}
+
+// A pool that shuts its feed down ends the gauge, which has nothing left to report.
+func TestClustersWatchScheduleEndsWithThePoolsFeed(t *testing.T) {
+	d := newTestDeps(t)
+	obj := createCluster(t, d, "prod")
+	pool := d.kubeconnSvc.(*fakeKubeconn)
+	ch, _ := watchSchedule(t, d, clusterIDOf(obj))
+
+	pool.stateFeed().Close()
+
+	testutil.WaitClosed(t, ch, "the gauge to end with the feed")
+	assert.Equal(t, []string{"prod"}, pool.released)
+}
+
+// A mark that will not write is reported, never answered as a delete that went through.
+func TestClustersDeleteReportsAMarkThatFailed(t *testing.T) {
+	d := newTestDeps(t)
+	obj := createCluster(t, d, "prod")
+	_, err := d.db.Write.Exec(`CREATE TRIGGER refuse_mark BEFORE UPDATE ON clusters BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+	require.NoError(t, err)
+
+	err = serviceOver(t, d).Clusters().Delete(context.Background(), clusterIDOf(obj))
+
+	assert.ErrorContains(t, err, "refused")
+}
+
+// failingOwnedCaches is the cache client with ListOwnedObjects answering err; everything
+// else is the real client's.
+type failingOwnedCaches struct {
+	beehive.Client[ClusterCacheSpec, ClusterCacheStatus]
+	err error
+}
+
+func (c failingOwnedCaches) ListOwnedObjects(context.Context, beehive.ObjectID, ...beehive.LoadOption) ([]*beehive.Object[ClusterCacheSpec, ClusterCacheStatus], error) {
+	return nil, c.err
+}
+
+// A reading of an identified cluster whose caches will not list fails rather than
+// handing the read a cluster with no cache.
+func TestReadActiveReturnsAFailedCacheList(t *testing.T) {
+	d, status := newClusterStatusDeps(t)
+	obj := storedCluster(t, d, status, true, "uid-1")
+	createCache(t, d.cacheClient, obj, "uid-1")
+	boom := errors.New("store down")
+	d.cacheClient = failingOwnedCaches{Client: d.cacheClient, err: boom}
+
+	handed, err := readActive(t, d, clusterIDOf(obj))
+
+	require.ErrorIs(t, err, boom)
+	assert.Empty(t, handed)
+}
+
+// The runtime store is the second half of the record, and a reading over one that will
+// not answer fails too.
+func TestReadActiveReturnsAFailedRuntimeRead(t *testing.T) {
+	d, closeStore := newTestDepsWithABreakableStore(t)
+	obj := createCluster(t, d, "prod")
+	closeStore()
+
+	handed, err := readActive(t, d, clusterIDOf(obj))
+
+	require.ErrorContains(t, err, "runtime object")
+	assert.Empty(t, handed)
+}

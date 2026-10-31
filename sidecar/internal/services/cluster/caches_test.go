@@ -402,6 +402,8 @@ type cacheControllerClient struct {
 	// is the only way to reach what a pass does when one of them will not land.
 	dependErr error
 	eventErr  error
+	// conditionErr fails the size condition's set and delete.
+	conditionErr error
 }
 
 func (c *cacheControllerClient) AddDependency(_ context.Context, toID beehive.ObjectID) error {
@@ -411,12 +413,12 @@ func (c *cacheControllerClient) AddDependency(_ context.Context, toID beehive.Ob
 
 func (c *cacheControllerClient) SetCondition(_ context.Context, cond Condition) error {
 	c.conditions = append(c.conditions, cond)
-	return nil
+	return c.conditionErr
 }
 
 func (c *cacheControllerClient) DeleteCondition(_ context.Context, conditionType string) error {
 	c.deleted = append(c.deleted, conditionType)
-	return nil
+	return c.conditionErr
 }
 
 func (c *cacheControllerClient) AddEvent(_ context.Context, event beehive.EventSpec) error {
@@ -2424,11 +2426,13 @@ func TestClearingACacheRequeuesItsRecord(t *testing.T) {
 type requeueRecorder struct {
 	beehive.Client[ClusterCacheSpec, ClusterCacheStatus]
 	requeued func(beehive.ObjectID)
+	// err is what every requeue answers.
+	err error
 }
 
 func (r requeueRecorder) Requeue(_ context.Context, id beehive.ObjectID, _ ...beehive.RequeueOption) error {
 	r.requeued(id)
-	return nil
+	return r.err
 }
 
 // The sentinel for this subsystem: a client-go error carries the request URL it failed on,
@@ -2503,4 +2507,203 @@ func TestCachesHealthAnswersNothingForACacheThatDoesNotExist(t *testing.T) {
 	_, ok, err := serviceOver(t, d).Caches().Health(context.Background(), ownerClusterOf(t, d, cacheID), cacheID+1000)
 	require.NoError(t, err)
 	assert.False(t, ok)
+}
+
+// A gauge whose consumer has left ends at the send it was parked on, never reporting
+// the cancellation. The first reading fills the stream's buffer unread, and the second
+// read moves the verdict and ends the context, so the gauge's next send has nowhere to go.
+func TestWatchSyncStatusStopsAtASendTheConsumerLeft(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d, cacheID := syncingCacheWithKinds(t)
+	clusterID := ownerClusterOf(t, d, cacheID)
+	svc := serviceOver(t, d)
+	svc.gaugeCadence = time.Millisecond
+	store := kubestoreFake(d)
+	store.noFile = true
+	reads := 0
+	store.onOpen = func(int64) {
+		reads++
+		if reads == 2 {
+			setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, Live: true})
+			cancel()
+		}
+	}
+
+	stream, err := svc.Caches().WatchSyncStatus(ctx, clusterID, cacheID)
+	require.NoError(t, err)
+
+	testutil.Wait(t, stream.done, "the gauge to stop")
+	assert.Equal(t, 2, reads, "the gauge stopped at the second reading's send")
+	assert.NoError(t, stream.Err())
+}
+
+// failingClusterGets is the cluster client with Get answering err; everything else is
+// the real client's.
+type failingClusterGets struct {
+	beehive.Client[ClusterRuntimeSpec, ClusterStatus]
+	err error
+}
+
+func (c failingClusterGets) Get(context.Context, beehive.ObjectID, ...beehive.LoadOption) (*beehive.Object[ClusterRuntimeSpec, ClusterStatus], error) {
+	return nil, c.err
+}
+
+// failingKindLists is the kind client with ListOwnedObjects answering err; everything
+// else is the real client's.
+type failingKindLists struct {
+	beehive.Client[ClusterCachedKindSpec, ClusterCachedKindStatus]
+	err error
+}
+
+func (c failingKindLists) ListOwnedObjects(context.Context, beehive.ObjectID, ...beehive.LoadOption) ([]*beehive.Object[ClusterCachedKindSpec, ClusterCachedKindStatus], error) {
+	return nil, c.err
+}
+
+// One reading of a cache's verdict or sync detail reports a record it cannot read, as
+// the gauges do, rather than answering a verdict nothing measured.
+func TestTheOneReadingsReportWhatTheyCannotRead(t *testing.T) {
+	ctx := context.Background()
+	boom := errors.New("store down")
+
+	t.Run("the verdict's cluster", func(t *testing.T) {
+		d, cacheID := syncingCacheWithKinds(t)
+		clusterID := ownerClusterOf(t, d, cacheID)
+		d.clusterClient = failingClusterGets{Client: d.clusterClient, err: boom}
+
+		_, ok, err := serviceOver(t, d).Caches().Health(ctx, clusterID, cacheID)
+
+		require.ErrorIs(t, err, boom)
+		assert.False(t, ok)
+	})
+	t.Run("the verdict's kinds", func(t *testing.T) {
+		d, cacheID := syncingCacheWithKinds(t)
+		clusterID := ownerClusterOf(t, d, cacheID)
+		d.kindClient = failingKindLists{Client: d.kindClient, err: boom}
+
+		_, ok, err := serviceOver(t, d).Caches().Health(ctx, clusterID, cacheID)
+
+		require.ErrorIs(t, err, boom)
+		assert.False(t, ok)
+	})
+	t.Run("the sync detail", func(t *testing.T) {
+		d, cacheID := syncingCacheWithKinds(t)
+		clusterID := ownerClusterOf(t, d, cacheID)
+		kubestoreFake(d).err = boom
+
+		_, ok, err := serviceOver(t, d).Caches().SyncStatus(ctx, clusterID, cacheID)
+
+		require.ErrorIs(t, err, boom)
+		assert.False(t, ok)
+	})
+}
+
+// The fold over every cache fails on any one it cannot read, rather than leaving that
+// cache out of a fleet's verdicts.
+func TestTheHealthFoldReportsACacheItCannotRead(t *testing.T) {
+	ctx := context.Background()
+	boom := errors.New("store down")
+
+	t.Run("its cluster", func(t *testing.T) {
+		d, _ := syncingCacheWithKinds(t)
+		d.clusterClient = failingClusterGets{Client: d.clusterClient, err: boom}
+
+		_, err := cachesAPI{serviceOver(t, d)}.readAllCacheHealth(ctx)
+
+		assert.ErrorIs(t, err, boom)
+	})
+	t.Run("its kinds", func(t *testing.T) {
+		d, _ := syncingCacheWithKinds(t)
+		d.kindClient = failingKindLists{Client: d.kindClient, err: boom}
+
+		_, err := cachesAPI{serviceOver(t, d)}.readAllCacheHealth(ctx)
+
+		assert.ErrorIs(t, err, boom)
+	})
+}
+
+// A requeue after a clear that will not land is logged, not returned: the clear itself
+// went through, and the cache's own resync covers the wake.
+func TestCachesClearLogsARequeueThatFailed(t *testing.T) {
+	logs := testutil.CaptureLogs(t)
+	d, status := newClusterStatusDeps(t)
+	cluster := storedCluster(t, d, status, true, "uid-1")
+	cache := createCache(t, d.cacheClient, cluster, "uid-1")
+	d.cacheClient = requeueRecorder{Client: d.cacheClient, requeued: func(beehive.ObjectID) {}, err: errors.New("record gone")}
+
+	got, err := serviceOver(t, d).Caches().Clear(context.Background(), ClusterCacheID(cache.ID))
+
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Contains(t, logs.String(), "requeue after clear failed")
+	assert.Contains(t, logs.String(), "record gone")
+}
+
+// The size condition is the only thing remembering why a cache stopped, so a pass that
+// cannot write it, or cannot clear it on the way out, fails rather than settling.
+func TestCachePassFailsWhenTheSizeConditionWillNotWrite(t *testing.T) {
+	boom := errors.New("store down")
+
+	t.Run("set", func(t *testing.T) {
+		d, status := newClusterStatusDeps(t)
+		cluster := storedCluster(t, d, status, true, "uid-1")
+		cache := createCache(t, d.cacheClient, cluster, "uid-1")
+		kubestoreFake(d).setStats(overLimit())
+
+		res := (&clusterCacheController{deps: d}).Reconcile(context.Background(), &cacheControllerClient{conditionErr: boom}, cache)
+
+		assert.ErrorIs(t, res.Err(), boom)
+		assert.ErrorContains(t, res.Err(), "set cluster cache")
+	})
+	t.Run("clear", func(t *testing.T) {
+		d, status := newClusterStatusDeps(t)
+		cluster := storedCluster(t, d, status, true, "uid-1")
+		cache := createCache(t, d.cacheClient, cluster, "uid-1")
+		cache.Conditions = sizeStopped()
+		kubestoreFake(d).setStats(kubestore.Stats{})
+
+		res := (&clusterCacheController{deps: d}).Reconcile(context.Background(), &cacheControllerClient{conditionErr: boom}, cache)
+
+		assert.ErrorIs(t, res.Err(), boom)
+		assert.ErrorContains(t, res.Err(), "clear cluster cache")
+	})
+}
+
+// A cache whose cluster record will not read cannot be armed, past its owner edge too.
+func TestArmingReportsAClusterRecordItCannotRead(t *testing.T) {
+	d, status := newClusterStatusDeps(t)
+	cluster := storedCluster(t, d, status, true, "uid-1")
+	cache := createCache(t, d.cacheClient, cluster, "uid-1")
+	boom := errors.New("store down")
+	d.clusterClient = failingClusterGets{Client: d.clusterClient, err: boom}
+
+	_, err := (&clusterCacheController{deps: d}).loadCluster(context.Background(), cache)
+
+	assert.ErrorIs(t, err, boom)
+}
+
+// failingKindWrites is the kind client with CreateOrUpdate answering err; everything
+// else is the real client's.
+type failingKindWrites struct {
+	beehive.Client[ClusterCachedKindSpec, ClusterCachedKindStatus]
+	err error
+}
+
+func (c failingKindWrites) CreateOrUpdate(context.Context, string, ClusterCachedKindSpec, ...beehive.Option) (*beehive.Object[ClusterCachedKindSpec, ClusterCachedKindStatus], bool, error) {
+	return nil, false, c.err
+}
+
+// A kind record that will not write fails the mirroring before the prune, which would
+// otherwise answer off a set the write never reached.
+func TestMirroringFailsWhenAKindWillNotWrite(t *testing.T) {
+	d, status := newClusterStatusDeps(t)
+	cluster := storedCluster(t, d, status, true, "uid-1")
+	cache := createCache(t, d.cacheClient, cluster, "uid-1")
+	writeCatalog(t, d, ClusterCacheID(cache.ID), kindRow("v1", "Pod", "pods"))
+	boom := errors.New("store down")
+	d.kindClient = failingKindWrites{Client: d.kindClient, err: boom}
+
+	err := (&clusterCacheController{deps: d}).mirrorKinds(context.Background(), cache)
+
+	assert.ErrorIs(t, err, boom)
 }

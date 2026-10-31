@@ -229,7 +229,7 @@ func (a cachedKindsAPI) Clear(ctx context.Context, id ClusterCachedKindID) (*Clu
 	// no rows left to clear.
 	cacheID, ok, err := a.cacheIDForKind(obj)
 	if err != nil || !ok {
-		if err != nil {
+		if err != nil { // coverage:ignore the Get above loaded the owner, the one thing Owner can fail on
 			return nil, err
 		}
 		return toClusterCachedKind(obj)

@@ -426,6 +426,10 @@ func TestEveryEntryPointReportsAStorageFault(t *testing.T) {
 			_, err := s.CachedData().WatchObjects(ctx, ClusterID("1"), 2, "v1", "pods")
 			return err
 		},
+		"CachedData.WatchObjectsIn": func() error {
+			_, err := s.CachedData().WatchObjectsIn(ctx, ClusterID("1"), 2, "v1", "pods", []string{"prod"})
+			return err
+		},
 		"CachedData.WatchEvents": func() error { _, err := s.CachedData().WatchEvents(ctx, ClusterID("1"), 2); return err },
 		"ListEvents":             func() error { _, err := s.ListEvents(ctx, 1, nil, nil); return err },
 		"WatchEvents":            func() error { _, err := s.WatchEvents(ctx, 1, nil); return err },

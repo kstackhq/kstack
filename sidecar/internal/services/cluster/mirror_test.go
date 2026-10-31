@@ -381,10 +381,17 @@ type scriptedWatches struct {
 	beehive.Client[ClusterRuntimeSpec, ClusterStatus]
 	answers chan error
 	opened  chan chan beehive.ObjectChange[ClusterRuntimeSpec, ClusterStatus]
+	// refused fires on every call that found no answer queued.
+	refused *testutil.Probe[struct{}]
 }
 
 func scriptWatches(d *deps) *scriptedWatches {
-	s := &scriptedWatches{Client: d.clusterClient, answers: make(chan error, 16), opened: make(chan chan beehive.ObjectChange[ClusterRuntimeSpec, ClusterStatus], 16)}
+	s := &scriptedWatches{
+		Client:  d.clusterClient,
+		answers: make(chan error, 16),
+		opened:  make(chan chan beehive.ObjectChange[ClusterRuntimeSpec, ClusterStatus], 16),
+		refused: testutil.NewProbe[struct{}](16),
+	}
 	d.clusterClient = s
 	return s
 }
@@ -396,6 +403,7 @@ func (s *scriptedWatches) WatchList(context.Context, ...beehive.WatchOption) (*b
 			return nil, err
 		}
 	default:
+		s.refused.Fire(struct{}{})
 		return nil, errors.New("store down")
 	}
 	ch := make(chan beehive.ObjectChange[ClusterRuntimeSpec, ClusterStatus])
@@ -447,6 +455,8 @@ func TestMirrorRetriesAReopenThatFailed(t *testing.T) {
 	d.db.Notify(appdb.KeyClusters)
 	testutil.Recv(t, m.passed, "the pass the row signal woke while the watch is down")
 	assert.NotNil(t, runtimeObjectOf(t, d, row.ID))
+	watches.refused.Await(t, "the reopen the ending asked for")
+	watches.refused.Await(t, "a retry that failed too")
 
 	watches.answers <- nil
 	testutil.Recv(t, watches.opened, "the watch reopened on the retry")
@@ -491,4 +501,49 @@ func TestMirrorWakesTheSourceWhenARowGoes(t *testing.T) {
 	})
 
 	testutil.Recv(t, source.passes, "the pass the removal woke")
+}
+
+// A pass waiting to report itself does not hold up the stop: nothing reads passed here,
+// so the first pass's report is parked when the loop is told to end.
+func TestMirrorStopsWhileAPassWaitsToReport(t *testing.T) {
+	d := newRunningDeps(t)
+	m := newClusterMirror(d, time.Hour, time.Hour, time.Hour)
+	m.passed = make(chan struct{})
+	stop, err := m.Start(context.Background())
+	require.NoError(t, err)
+
+	testutil.WaitReturn(t, func() { assert.NoError(t, stop(context.Background())) }, "stop to return")
+}
+
+// refusingDeletes is the cluster client with DeleteByName answering err; everything else
+// is the real client's.
+type refusingDeletes struct {
+	beehive.Client[ClusterRuntimeSpec, ClusterStatus]
+	err error
+}
+
+func (c refusingDeletes) DeleteByName(context.Context, string) error { return c.err }
+
+// An orphan object the runtime store will not delete fails the pass, which the retry
+// comes back for.
+func TestMirrorReportsAnOrphanItCannotDelete(t *testing.T) {
+	d := newRunningDeps(t)
+	_, _, err := d.clusterClient.CreateOrUpdate(context.Background(), "no-such-row", kubeconfigRuntimeSpec("prod"))
+	require.NoError(t, err)
+	d.clusterClient = refusingDeletes{Client: d.clusterClient, err: errors.New("store down")}
+
+	err = newClusterMirror(d, time.Hour, time.Hour, time.Hour).reconcile(context.Background())
+
+	assert.ErrorContains(t, err, "delete orphan runtime object no-such-row")
+}
+
+// A removed row of a source no anchor imports has no source to wake.
+func TestMirrorWakesNoSourceForARowOfAnotherSource(t *testing.T) {
+	source := &stubSourceClient{}
+	m := newClusterMirror(deps{sourceClient: source}, time.Hour, time.Hour, time.Hour)
+
+	m.wakeSource(context.Background(), "cloud")
+
+	assert.Empty(t, source.asked)
+	assert.Empty(t, source.requeued)
 }

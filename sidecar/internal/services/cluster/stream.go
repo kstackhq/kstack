@@ -115,7 +115,7 @@ func (w deltaWatch[Spec, Status, Frame]) streamListWhere(ctx context.Context, sr
 			if !keep(frame) {
 				continue
 			}
-			if !sendFrame(ctx, out, frame) {
+			if !sendFrame(ctx, out, frame) { // coverage:ignore only the consumer leaving while a frame is in flight between the two pumps
 				return nil
 			}
 		}
