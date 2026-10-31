@@ -611,6 +611,8 @@ func (c *fakeCluster) refuseList(k kubestore.Kind, err error) {
 // it is handed over, so a test can drive the stream and see a re-establish for what it is.
 type streams struct {
 	opened *testutil.Probe[*watch.RaceFreeFakeWatcher]
+	// parked fires as a held open starts waiting, so a test can act while the run is on it.
+	parked *testutil.Probe[struct{}]
 
 	// Guarded, because refuse, hold and stopNext are answers a test changes while a stream is
 	// already running — the reactor below reads them from whichever goroutine is opening a watch.
@@ -638,13 +640,14 @@ func (s *streams) takeStop() bool {
 
 // streamKind installs the watch for one collection. Call before the kind is tracked.
 func (c *fakeCluster) streamKind(k kubestore.Kind) *streams {
-	s := &streams{opened: testutil.NewProbe[*watch.RaceFreeFakeWatcher](8)}
+	s := &streams{opened: testutil.NewProbe[*watch.RaceFreeFakeWatcher](8), parked: testutil.NewProbe[struct{}](8)}
 	c.dyn.PrependWatchReactor(k.Resource, func(clienttesting.Action) (bool, watch.Interface, error) {
 		held, err := s.answer()
 		if err != nil {
 			return true, nil, err
 		}
 		if held != nil {
+			s.parked.Fire(struct{}{})
 			<-held
 		}
 		w := watch.NewRaceFreeFake()

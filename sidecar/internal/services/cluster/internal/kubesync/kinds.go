@@ -381,7 +381,7 @@ func (ks *kindSyncer) reopen(ctx context.Context) (watch.Interface, error) {
 // on the connection and the store's single writer at once.
 func (ks *kindSyncer) coldList(ctx context.Context) (string, error) {
 	replace, err := ks.store.BeginReplace(ks.kind)
-	if err != nil {
+	if err != nil { // coverage:ignore open read the cookie off this store just before, so only a removal landing between fails it
 		return "", err
 	}
 

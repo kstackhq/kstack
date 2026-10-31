@@ -527,3 +527,25 @@ func TestAConnectionWithAnUnusableBaseURLIsReported(t *testing.T) {
 	err := getJSON(t.Context(), conn, "/api", &metav1.APIVersions{})
 	assert.ErrorContains(t, err, "build request for /api")
 }
+
+// A column a client cannot render, with no name or no path, is dropped, and a version left
+// with none carries none rather than an empty array.
+func TestEncodeColumnsKeepsOnlyWhatAClientRenders(t *testing.T) {
+	phase := map[string]any{"name": "Phase", "type": "string", "jsonPath": ".status.phase"}
+	for name, tc := range map[string]struct {
+		columns any
+		want    string
+	}{
+		"none declared": {nil, ""},
+		"an unnamed and a pathless column": {[]any{
+			map[string]any{"jsonPath": ".spec.replicas"}, map[string]any{"name": "Age"}, phase,
+		}, `[{"name":"Phase","type":"string","jsonPath":".status.phase","priority":0}]`},
+		"none renderable": {[]any{map[string]any{"name": "Age"}, "Phase"}, ""},
+	} {
+		version := map[string]any{"name": "v1"}
+		if tc.columns != nil {
+			version["additionalPrinterColumns"] = tc.columns
+		}
+		assert.Equal(t, tc.want, encodeColumns(version), name)
+	}
+}

@@ -413,9 +413,8 @@ func encodeColumns(version map[string]any) string {
 	}
 
 	encoded, err := json.Marshal(cols)
-	if err != nil {
-		// Four strings and an int cannot fail to marshal; a kind with no columns is the
-		// honest answer if that ever changes.
+	if err != nil { // coverage:ignore four strings and an int always marshal
+		// A kind with no columns is the honest answer if that ever changes.
 		return ""
 	}
 	return string(encoded)

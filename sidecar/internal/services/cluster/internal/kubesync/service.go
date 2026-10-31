@@ -344,7 +344,7 @@ func (s *Service) stopKind(sess *session, id kindID) {
 // pass would wake every record.
 func (s *Service) publishKind(subject string, snap supervisor.Snapshot) {
 	cacheID, id, ok := parseKindSubject(subject)
-	if !ok {
+	if !ok { // coverage:ignore every subject on the kind supervisor is made by kindSubject
 		return
 	}
 	s.mu.Lock()
@@ -593,10 +593,7 @@ func (s *Service) Start(ctx context.Context) (func(context.Context) error, error
 		s.cancel()
 		// The supervisors first, and not through s.cancel: a run in flight holds the store claim
 		// Close is about to give back, and their loops are bounded by their own contexts.
-		if err := stopKinds(ctx); err != nil {
-			return err
-		}
-		if err := stopDiscovery(ctx); err != nil {
+		if err := errors.Join(stopKinds(ctx), stopDiscovery(ctx)); err != nil {
 			return err
 		}
 		return drain.WithContext(ctx, s.wait)
@@ -642,7 +639,7 @@ func (s *Service) Close() error {
 	}
 	s.discoveryHub.Close()
 	s.kindHub.Close()
-	if err := s.kindSupervisor.Close(); err != nil {
+	if err := s.kindSupervisor.Close(); err != nil { // coverage:ignore Supervisor.Close never fails
 		return err
 	}
 	return s.discoverySupervisor.Close()

@@ -673,3 +673,17 @@ func TestForgetDiscoveryDropsAStoreFailure(t *testing.T) {
 
 	assert.False(t, hasStoreFailure(svc, 1), "a forgotten cache reports nothing")
 }
+
+// A teardown drops the session before it removes the kinds under it, so for a moment the
+// supervisor holds a subject whose cache is not armed. That kind has no answer: the stamps
+// it would be assembled from went with the session.
+func TestAKindUnderAnUnarmedCacheHasNoState(t *testing.T) {
+	svc, _ := newTestService(t)
+	svc.kindSupervisor.Add(kindSubject(7, podKind))
+	_, held := svc.kindSupervisor.Read(kindSubject(7, podKind))
+	require.True(t, held)
+
+	_, ok := svc.GetKindState(7, podKind)
+
+	assert.False(t, ok)
+}

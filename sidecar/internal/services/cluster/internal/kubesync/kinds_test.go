@@ -18,6 +18,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,7 +27,10 @@ import (
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
+	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/supervisor"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
@@ -1036,4 +1041,119 @@ func TestOnlyAnOpenWatchReadsLive(t *testing.T) {
 		return state.Reason == ReasonStale
 	})
 	assert.True(t, state.Live, "a stale stream is still up")
+}
+
+// A subject reads back as the cache and kind it names, the apiVersion's own slash included,
+// and one that does not name both reads as nothing.
+func TestAKindSubjectReadsBackAsItsCacheAndKind(t *testing.T) {
+	deployments := kubestore.Kind{APIVersion: "apps/v1", Kind: "Deployment", Resource: "deployments"}
+	cacheID, id, ok := parseKindSubject(kindSubject(7, deployments))
+	require.True(t, ok)
+	assert.Equal(t, int64(7), cacheID)
+	assert.Equal(t, idOf(deployments), id)
+
+	for _, subject := range []string{"7", "7/pods", "seven/v1/pods"} {
+		_, _, ok := parseKindSubject(subject)
+		assert.False(t, ok, subject)
+	}
+}
+
+// A run with nothing to run against records nothing: a subject that does not parse, a kind
+// nothing tracks, or one tracked under a cache nobody armed, whose claims a run would write
+// through are not there.
+func TestARunWithNothingToRunAgainstIsSkipped(t *testing.T) {
+	svc, _ := newTestService(t)
+	svc.TrackKind(7, podKind)
+	w := kindSync{s: svc, pacing: defaultPacing()}
+
+	for name, subject := range map[string]string{
+		"unparseable": "pods",
+		"untracked":   kindSubject(8, podKind),
+		"unarmed":     kindSubject(7, podKind),
+	} {
+		result := w.Run(t.Context(), supervisor.NewWorkerPass[Reason](subject, nil, supervisor.Snapshot{}))
+		assert.True(t, result.IsSkip(), name)
+	}
+}
+
+// A file removed under a quiet watch fails the run at the reopen, which reads its position
+// off that file, rather than resuming from a position nothing holds.
+func TestACacheRemovedUnderAQuietKindFailsItsReopen(t *testing.T) {
+	cluster := newFakeCluster(t)
+	cluster.serveKind(podKind, true)
+	cluster.hasObjects(podKind, "10")
+	stream := cluster.streamKind(podKind)
+
+	// Short, because this test is about the window elapsing.
+	svc := newSyncingService(t, cluster, func(p *pacing) { p.staleAfter = 50 * time.Millisecond })
+	syncKind(t, svc, 1, podKind)
+	awaitKindReason(t, svc, 1, podKind, ReasonWatching)
+	stream.opened.Await(t, "the watch to open")
+
+	require.NoError(t, svc.storeMgr.(*kubestore.Manager).Remove(1))
+
+	state := awaitKindState(t, svc, 1, podKind, "the reopen to fail on the removed file", func(state KindState) bool {
+		return state.Reason == ReasonSyncFailed
+	})
+	assert.Contains(t, state.Message, kubestore.ErrClosed.Error())
+	_, reopened := stream.opened.TryAwait()
+	assert.False(t, reopened, "a watch was opened from a position nothing holds")
+}
+
+// A resume parked on its open gives up with its run before the window is out, so forgetting the
+// kind does not wait for a server that may never answer.
+func TestAResumeParkedBeforeItsWindowGivesUpWithItsRun(t *testing.T) {
+	cluster := newFakeCluster(t)
+	cluster.serveKind(podKind, true)
+	cluster.hasObjects(podKind, "10", object("v1", "Pod", "one", "1"))
+	stream := cluster.streamKind(podKind)
+
+	svc := newSyncingService(t, cluster)
+	syncKind(t, svc, 1, podKind)
+	awaitKindOpen(t, svc, 1, podKind)
+	stream.opened.Await(t, "the watch to open")
+
+	release := stream.hold()
+	defer release()
+	svc.RestartAll()
+	stream.parked.Await(t, "the resume to park on its open")
+
+	done := make(chan struct{})
+	go func() { defer close(done); svc.ForgetKind(1, podKind) }()
+	testutil.Wait(t, done, "the teardown to return while the open is still held")
+}
+
+// A page that carries nothing touches no file, so a file removed while the last page was being
+// fetched is found at the commit, which fails the run rather than persisting a position.
+func TestACacheRemovedBeforeTheListCommitsFailsTheRun(t *testing.T) {
+	cluster := newFakeCluster(t)
+	cluster.serveKind(podKind, true)
+	cluster.streamKind(podKind)
+	asked := testutil.NewSignal()
+	released := make(chan struct{})
+	release := sync.OnceFunc(func() { close(released) })
+	t.Cleanup(release)
+	// Counted rather than read off the request's continue token, which the fake drops.
+	var pages atomic.Int32
+	cluster.prependList(podKind.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
+		list := &unstructured.UnstructuredList{Object: map[string]any{
+			"apiVersion": "v1", "kind": "PodList", "metadata": map[string]any{"resourceVersion": "10"},
+		}}
+		if pages.Add(1) == 1 {
+			list.SetContinue("page-2")
+			list.Items = append(list.Items, *object("v1", "Pod", "one", "1"))
+			return true, list, nil
+		}
+		asked.Fire()
+		<-released
+		return true, list, nil
+	})
+
+	svc := newSyncingService(t, cluster)
+	syncKind(t, svc, 1, podKind)
+	asked.Wait(t, "the last page to be asked for")
+	require.NoError(t, svc.storeMgr.(*kubestore.Manager).Remove(1))
+	release()
+
+	awaitKindReason(t, svc, 1, podKind, ReasonSyncFailed)
 }
