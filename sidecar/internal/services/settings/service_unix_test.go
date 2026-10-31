@@ -761,3 +761,22 @@ func TestSyncPathSaysWhetherItChanged(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, changed, "an entry dropped")
 }
+
+// A sync whose write the store refuses answers that refusal and changes nothing.
+func TestSyncPathAnswersARefusedWrite(t *testing.T) {
+	z := newZones(t)
+	refusal := Refusal{Field: FieldPath, Reason: "refused by the test"}
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), WithChecks(func(st *Settings) []Refusal {
+		if st.Sandbox.PathResolved {
+			return []Refusal{refusal}
+		}
+		return nil
+	}))
+	require.NoError(t, err)
+	s := NewService(store, func() Zones { return z.zones }, nil, "")
+
+	changed, err := s.SyncPath(t.Context(), []string{z.dir(t, "open/bin")})
+	require.ErrorIs(t, err, refusal)
+	assert.False(t, changed)
+	assert.Empty(t, s.Get().Sandbox.Path)
+}

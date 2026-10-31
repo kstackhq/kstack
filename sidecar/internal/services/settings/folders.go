@@ -66,7 +66,7 @@ func checkFolder(path string, write bool, z zones, pathEntries []string, stored 
 		return refuse("exists", "This folder does not exist.")
 	}
 	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
+	if err != nil { // coverage:ignore the Stat just found the folder; only a removal in between fails this
 		return refuse("exists", "This folder does not exist.")
 	}
 	spelled := sandbox.Spelled([]string{resolved})[0]
@@ -274,7 +274,7 @@ func (s *Service) WideFolders(ctx context.Context) []string {
 		return nil
 	}
 	home, ok := readWithin(ctx, s.syncTimeout, func() string { return sandbox.Resolved([]string{snap.zones.Home})[0] })
-	if !ok {
+	if !ok { // coverage:ignore only a home on a mount that hangs past the bound reaches it
 		return nil
 	}
 	var wide []string
