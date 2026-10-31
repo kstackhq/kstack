@@ -161,9 +161,6 @@ type Kind struct {
 	Reason string
 }
 
-// Namespaced is whether the kind's objects live in namespaces.
-func (k *Kind) Namespaced() bool { return k.Scope == "Namespaced" }
-
 // The card's JSON shape: one section per question the model asks. Every list
 // is sorted and cut to its share.
 type card struct {
@@ -446,8 +443,8 @@ func size(v any) int { return len(marshal(v)) }
 
 func marshal(v any) []byte {
 	raw, err := fencejson.Marshal(v)
-	if err != nil {
-		panic(err) // strings and ints always marshal
+	if err != nil { // coverage:ignore strings and ints always marshal
+		panic(err)
 	}
 	return raw
 }
