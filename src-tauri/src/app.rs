@@ -80,8 +80,8 @@ impl Monitors for AppMonitors {
 
 // coverage:ignore-start needs a real window system's tray
 /// Builds and installs the system tray icon and menu. Menu callbacks can't
-/// return errors, so failures are logged. Panics if the app has no default
-/// window icon.
+/// return errors, so failures are logged. Off macOS, panics if the app has no
+/// default window icon.
 fn build_tray(app: &AppHandle) -> crate::error::Result<()> {
     use tauri::tray::{TrayIconBuilder, TrayIconId};
     use tray::account_menu::ACCOUNT_SETTINGS_ID;
@@ -90,13 +90,22 @@ fn build_tray(app: &AppHandle) -> crate::error::Result<()> {
     // Signed out; the account watch rebuilds it on its first frame.
     let menu = tray::current_tray_menu(app)?;
 
-    TrayIconBuilder::with_id(TrayIconId::new(TRAY_ID))
-        .menu(&menu)
-        .icon(
-            app.default_window_icon()
-                .expect("missing default icon")
-                .clone(),
-        )
+    let builder = TrayIconBuilder::with_id(TrayIconId::new(TRAY_ID)).menu(&menu);
+
+    // A template image: macOS recolours it to suit a light or dark menu bar.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .icon(tauri::include_image!("icons/tray.png"))
+        .icon_as_template(true);
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.icon(
+        app.default_window_icon()
+            .expect("missing default icon")
+            .clone(),
+    );
+
+    builder
         .on_menu_event(|app, event| match event.id.as_ref() {
             ACCOUNT_SETTINGS_ID => {
                 let app = app.clone();

@@ -73,6 +73,7 @@
     "typescript-eslint": "^8.72.0",
     "unplugin-fonts": "^2.0.0",
     "vite": "^8.3.5",
+    "vite-plugin-svgr": "^5.2.0",
     "vitest": "^4.1.12",
     "wonka": "^6.3.6"
   },

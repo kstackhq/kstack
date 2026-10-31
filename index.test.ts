@@ -16,34 +16,21 @@ import { readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
-// index.html's inline style hand-mirrors the mark's tokens from src/index.css, since
-// the sheet is not on the page for the first frames. A token change must fail here
-// rather than desynchronise the first paint.
-
 const html = readFileSync('index.html', 'utf8');
-const css = readFileSync('src/index.css', 'utf8');
-
-// The value of `name` in the first `{ ... }` block that follows `selector`.
-function token(source: string, selector: string, name: string): string {
-  const block = source.slice(source.indexOf(selector));
-  const body = block.slice(block.indexOf('{'), block.indexOf('}'));
-  const at = body.indexOf(`${name}:`);
-  if (at < 0) throw new Error(`${name} not found under ${selector}`);
-  return body.slice(at + name.length + 1, body.indexOf(';', at)).trim();
-}
 
 describe('index.html boot mark', () => {
-  it.each([
-    ['light', ':root', '.boot-mark {'],
-    ['dark', '.dark {', '.dark .boot-mark'],
-  ])('mirrors the %s tokens', (_scheme, cssSelector, htmlSelector) => {
-    expect(token(html, htmlSelector, 'background')).toBe(token(css, cssSelector, '--primary'));
-    expect(token(html, htmlSelector, 'color')).toBe(token(css, cssSelector, '--primary-foreground'));
-  });
-
   it('places the static mark and drag strip inside #root, where the mount replaces them', () => {
-    expect(html).toMatch(
-      /<div id="root"><div class="boot-drag" data-tauri-drag-region="deep"><\/div><div class="boot-mark" aria-hidden="true">K<\/div><\/div>/,
+    expect(html).toContain(
+      '<div id="root"><div class="boot-drag" data-tauri-drag-region="deep"></div><div class="boot-mark" aria-hidden="true">' +
+        '<img class="light-only" src="/src/assets/icons/app-light.svg" alt="" />' +
+        '<img class="dark-only" src="/src/assets/icons/app-dark.svg" alt="" /></div></div>',
     );
+  });
+});
+
+// src/assets/icons/ is make icons' output; an edit there is lost on the next run.
+describe('src/assets/icons', () => {
+  it.each(['app-light.svg', 'app-dark.svg'])('holds src-icons/%s as it is', (name) => {
+    expect(readFileSync(`src/assets/icons/${name}`, 'utf8')).toBe(readFileSync(`src-icons/${name}`, 'utf8'));
   });
 });

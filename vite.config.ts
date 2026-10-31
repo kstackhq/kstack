@@ -3,6 +3,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import Unfonts from 'unplugin-fonts/vite';
 import { defineConfig, mergeConfig } from 'vite';
+import svgr from 'vite-plugin-svgr';
 import { coverageConfigDefaults, defineConfig as defineVitestConfig } from 'vitest/config';
 
 // https://vite.dev/config/
@@ -19,6 +20,7 @@ const viteConfig = (coverage: boolean) =>
         babel({
           presets: [reactCompilerPreset()],
         }),
+      svgr(),
       tailwindcss(),
       Unfonts({
         fontsource: {
