@@ -170,7 +170,7 @@ func (w walk) openDir(dir *os.Root, name string, belowGrant bool) (next *os.Root
 	}
 	got, err := next.Stat(".")
 	switch {
-	case err != nil:
+	case err != nil: // coverage:ignore a stat of a folder just opened fails only on an I/O error
 	case w.hides(got, belowGrant):
 		err = ErrHidden
 	case !os.SameFile(info, got): // coverage:ignore only a folder swapped in between the Lstat and the open reaches it
