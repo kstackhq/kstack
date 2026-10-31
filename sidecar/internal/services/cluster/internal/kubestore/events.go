@@ -130,7 +130,7 @@ func firstParsedTime(u *unstructured.Unstructured, paths ...[]string) int64 {
 // relist-page paths route through.
 func insertEventRow(ctx context.Context, st stmts, row eventRow, stamp writeStamp) error {
 	rawJSON, err := compressRaw(row.RawJSON)
-	if err != nil {
+	if err != nil { // coverage:ignore zlib into a bytes.Buffer cannot fail
 		return err
 	}
 	_, err = st.Exec(ctx, stmtUpsertEvent,

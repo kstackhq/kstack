@@ -108,6 +108,22 @@ func TestATerminatedStateNamesItsOwnInstance(t *testing.T) {
 	assert.Equal(t, new("containerd://a1"), rows[0].LastContainerID)
 }
 
+// A status naming no state names no instance, whatever the status's own id says.
+func TestAStatusWithNoStateNamesNoInstance(t *testing.T) {
+	t.Parallel()
+
+	u := podOf(map[string]any{
+		"containers": []any{map[string]any{"name": "api", "image": "api:1"}},
+	}, map[string]any{
+		"containerStatuses": []any{map[string]any{"name": "api", "containerID": "containerd://a1"}},
+	})
+
+	rows := containersOf(u)
+	require.Len(t, rows, 1)
+	assert.Nil(t, rows[0].State)
+	assert.Nil(t, rows[0].ContainerID)
+}
+
 // An entry that is not an object says nothing, in either list: the container is skipped,
 // and a container whose status is not one reads as having none.
 func TestContainersSkipWhatIsNotAnObject(t *testing.T) {

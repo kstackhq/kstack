@@ -56,13 +56,19 @@ func TestCacheFileIsOwnerOnly(t *testing.T) {
 func TestStatDiskUsageReportsASidecarItCannotStat(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "1.db")
-	require.NoError(t, os.WriteFile(path, []byte("db"), 0o600))
-	require.NoError(t, os.Symlink(path+"-wal", path+"-wal"))
+	for _, sidecar := range []string{"-wal", "-shm"} {
+		t.Run(sidecar, func(t *testing.T) {
+			t.Parallel()
 
-	_, err := statDiskUsage(path)
+			dir := t.TempDir()
+			path := filepath.Join(dir, "1.db")
+			require.NoError(t, os.WriteFile(path, []byte("db"), 0o600))
+			require.NoError(t, os.Symlink(path+sidecar, path+sidecar))
 
-	require.Error(t, err)
-	assert.False(t, os.IsNotExist(err), "a failure, not an absence: %v", err)
+			_, err := statDiskUsage(path)
+
+			require.Error(t, err)
+			assert.False(t, os.IsNotExist(err), "a failure, not an absence: %v", err)
+		})
+	}
 }

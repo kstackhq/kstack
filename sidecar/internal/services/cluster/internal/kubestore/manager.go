@@ -425,7 +425,7 @@ func (m *Manager) countsLocked(ctx context.Context, path string, cacheID int64) 
 // nothing has open.
 func (m *Manager) countsFromDiskLocked(ctx context.Context, path string) (Counts, error) {
 	db, err := openReadOnly(path)
-	if err != nil {
+	if err != nil { // coverage:ignore sql.Open fails only for an unregistered driver
 		return Counts{}, err
 	}
 	defer db.Close() //nolint:errcheck // read-only, nothing to flush
@@ -447,7 +447,7 @@ func (m *Manager) countsFromDiskLocked(ctx context.Context, path string) (Counts
 // bring a removed cache back.
 func openReadOnly(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&mode=ro")
-	if err != nil {
+	if err != nil { // coverage:ignore sql.Open fails only for an unregistered driver
 		return nil, fmt.Errorf("open read-only: %w", err)
 	}
 	db.SetMaxOpenConns(1)
@@ -494,7 +494,7 @@ func openFile(
 
 	// After the migrations, so a reader never races the schema onto a fresh file.
 	readDB, err := sqlitepool.OpenReader(path, readerPoolSize)
-	if err != nil {
+	if err != nil { // coverage:ignore OpenReader is a sql.Open, which fails only for an unregistered driver
 		db.Close()
 		return nil, fmt.Errorf("open reader pool: %w", err)
 	}

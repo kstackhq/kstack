@@ -171,7 +171,7 @@ func checkSizeLimit(ctx context.Context, f *file, limit int64) {
 	// could pause a cache whose contents fit.
 	if usage.wal > usage.db {
 		checkpoint(ctx, f)
-		if usage, err = statDiskUsage(f.path); err != nil {
+		if usage, err = statDiskUsage(f.path); err != nil { // coverage:ignore only the file going during the checkpoint reaches it, and the stat before it found the file
 			slog.Warn("kubestore: size check failed", "cacheID", f.cacheID, "err", err)
 			return
 		}

@@ -41,11 +41,11 @@ func compressRaw(b []byte) ([]byte, error) {
 	w := zlibWriters.Get().(*zlib.Writer)
 	defer zlibWriters.Put(w)
 	w.Reset(&buf)
-	if _, err := w.Write(b); err != nil {
+	if _, err := w.Write(b); err != nil { // coverage:ignore writing into a bytes.Buffer cannot fail
 		return nil, err
 	}
 	// Close flushes; the writer stays reusable through Reset.
-	if err := w.Close(); err != nil {
+	if err := w.Close(); err != nil { // coverage:ignore writing into a bytes.Buffer cannot fail
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -85,7 +85,7 @@ func decompressRawUpTo(b []byte, limit int) ([]byte, error) {
 	if limit >= 0 && len(out) > limit {
 		return nil, errRawTooLarge
 	}
-	if err := r.Close(); err != nil {
+	if err := r.Close(); err != nil { // coverage:ignore ReadAll read to the stream's end without error, which leaves Close nothing to report
 		return nil, err
 	}
 	zlibReaders.Put(r)

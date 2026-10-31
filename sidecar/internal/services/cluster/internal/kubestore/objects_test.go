@@ -527,6 +527,28 @@ func TestInsertObjectRowReportsAnEdgeItCouldNotWrite(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
+	// The references and the selector are side tables of the same write.
+	t.Run("refs", func(t *testing.T) {
+		s := newTestStore(t)
+		dropTable(t, s, "refs")
+
+		assert.Error(t, s.ApplyChange(context.Background(), podKind, watch.Added, pod("uid-1", "api-0", "42")))
+	})
+	for _, table := range []string{"selectors", "selector_terms"} {
+		t.Run(table, func(t *testing.T) {
+			s := newTestStore(t)
+			dropTable(t, s, table)
+
+			assert.Error(t, s.ApplyChange(context.Background(), serviceKind, watch.Added, service("svc", "1", map[string]any{"app": "web"})))
+		})
+	}
+	t.Run("selectors insert", func(t *testing.T) {
+		s := newTestStore(t)
+		failWrites(t, s, "selectors", "INSERT")
+
+		assert.Error(t, s.ApplyChange(context.Background(), serviceKind, watch.Added, service("svc", "1", map[string]any{"app": "web"})))
+		assert.Zero(t, countRows(t, s, `SELECT COUNT(*) FROM objects`), "the object went in without its selector")
+	})
 }
 
 // The log is written before the row goes and in the same transaction, so a log that will

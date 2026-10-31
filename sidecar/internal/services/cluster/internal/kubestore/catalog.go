@@ -121,7 +121,7 @@ func pruneKinds(ctx context.Context, st stmts, rows []KindRow) error {
 		keep[i] = [2]any{r.APIVersion, r.Kind}
 	}
 	keepJSON, err := json.Marshal(keep)
-	if err != nil {
+	if err != nil { // coverage:ignore pairs of strings always marshal
 		return err
 	}
 	_, err = st.Exec(ctx, stmtPruneKinds, string(keepJSON))

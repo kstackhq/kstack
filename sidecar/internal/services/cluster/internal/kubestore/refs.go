@@ -200,7 +200,7 @@ func writeRefs(ctx context.Context, st stmts, row objectRow) error {
 		return nil
 	}
 	refsJSON, err := json.Marshal(row.Refs)
-	if err != nil {
+	if err != nil { // coverage:ignore plain values always marshal
 		return err
 	}
 	_, err = st.Exec(ctx, stmtInsertRefs, row.UID, string(refsJSON))

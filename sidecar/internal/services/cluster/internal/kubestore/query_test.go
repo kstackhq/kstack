@@ -815,6 +815,20 @@ func TestAReadingAfterACloseIsClosed(t *testing.T) {
 	require.ErrorIs(t, err, ErrClosed)
 }
 
+// A reading refuses a second statement as Query does, before it compiles anything.
+func TestAReadingRunsOneStatement(t *testing.T) {
+	t.Parallel()
+
+	s := newTestStore(t)
+	require.NoError(t, s.ReadOwn(context.Background(), func(r Reading) error {
+		_, err := r.Query(`SELECT 1; SELECT 2`, 10, 1<<20)
+		var qe *QueryError
+		require.ErrorAs(t, err, &qe)
+		assert.Equal(t, onlyOneQuery, qe.Message)
+		return nil
+	}))
+}
+
 func TestAQueryAfterACloseIsClosed(t *testing.T) {
 	t.Parallel()
 

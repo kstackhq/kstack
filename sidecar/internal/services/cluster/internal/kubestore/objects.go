@@ -242,7 +242,7 @@ func insertObjectRow(ctx context.Context, st stmts, k Kind, row objectRow, stamp
 		return err
 	}
 	rawJSON, err := compressRaw(row.RawJSON)
-	if err != nil {
+	if err != nil { // coverage:ignore zlib into a bytes.Buffer cannot fail
 		return err
 	}
 	_, err = st.Exec(ctx, stmtUpsertObject,
@@ -272,7 +272,7 @@ func insertObjectRow(ctx context.Context, st stmts, k Kind, row objectRow, stamp
 		// Tuples, so the columns come out of the element's positions. Marshalling
 		// []ownerRef instead gives an array of objects, where `value ->> 0` is NULL.
 		refsJSON, err := json.Marshal(refs)
-		if err != nil {
+		if err != nil { // coverage:ignore pairs of a string and a bool always marshal
 			return err
 		}
 		if _, err := st.Exec(ctx, stmtUpsertOwnerRefs, row.UID, string(refsJSON)); err != nil {
@@ -287,7 +287,7 @@ func insertObjectRow(ctx context.Context, st stmts, k Kind, row objectRow, stamp
 	// it marshals to `null` exactly as the ref slice does.
 	if len(row.Labels) > 0 {
 		labelsJSON, err := json.Marshal(row.Labels)
-		if err != nil {
+		if err != nil { // coverage:ignore a map of strings always marshals
 			return err
 		}
 		// A map marshals to an object, so stmtUpsertLabels reads json_each's own
@@ -316,7 +316,7 @@ func insertObjectRow(ctx context.Context, st stmts, k Kind, row objectRow, stamp
 		// The same guard as the labels': no containers marshals to `null`.
 		if len(row.Containers) > 0 {
 			containersJSON, err := json.Marshal(row.Containers)
-			if err != nil {
+			if err != nil { // coverage:ignore plain values always marshal
 				return err
 			}
 			if _, err := st.Exec(ctx, stmtInsertContainers, row.UID, string(containersJSON)); err != nil {
@@ -398,18 +398,18 @@ func sweepObjects(ctx context.Context, st stmts, k Kind, mark int64, stamp write
 	uids := []string{}
 	for rows.Next() {
 		var uid string
-		if err := rows.Scan(&uid); err != nil {
+		if err := rows.Scan(&uid); err != nil { // coverage:ignore objects.uid is a STRICT table's primary key, never NULL
 			rows.Close()
 			return 0, err
 		}
 		uids = append(uids, uid)
 	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil { // coverage:ignore RETURNING makes every change at the first step, which Query takes
 		return 0, err
 	}
 
 	uidsJSON, err := json.Marshal(uids)
-	if err != nil {
+	if err != nil { // coverage:ignore a list of strings always marshals
 		return 0, err
 	}
 	for _, c := range cascadeTables {

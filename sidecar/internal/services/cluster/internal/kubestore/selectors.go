@@ -87,7 +87,7 @@ func selectorOf(u *unstructured.Unstructured) (selectorRow, bool) {
 	row := selectorRow{Namespace: u.GetNamespace()}
 	for _, r := range reqs {
 		op, ok := termOps[r.Operator()]
-		if !ok {
+		if !ok { // coverage:ignore LabelSelectorAsSelector and SelectorFromSet make only the operators termOps spells
 			// A term the view cannot read would match what the cluster does not.
 			return selectorRow{}, false
 		}
@@ -147,7 +147,7 @@ func writeSelector(ctx context.Context, st stmts, row objectRow) error {
 		return nil
 	}
 	termsJSON, err := json.Marshal(row.Selector.Terms)
-	if err != nil {
+	if err != nil { // coverage:ignore plain values always marshal
 		return err
 	}
 	_, err = st.Exec(ctx, stmtInsertSelectorTerms, row.UID, string(termsJSON))

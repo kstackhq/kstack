@@ -222,6 +222,21 @@ func TestAnEmptyNameIsNoReference(t *testing.T) {
 	assert.Empty(t, refsOf(binding))
 }
 
+// A step of the path that is not an object names nothing below it, and the walk goes on to
+// the next item.
+func TestAStepThatIsNotAnObjectIsNoReference(t *testing.T) {
+	t.Parallel()
+
+	u := bodyOf("v1", "Pod", map[string]any{"spec": map[string]any{
+		"volumes": []any{"cm", map[string]any{"name": "b", "configMap": "cm"},
+			map[string]any{"name": "c", "configMap": map[string]any{"name": "cm"}}},
+	}})
+
+	rows := refsOf(u)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "$.spec.volumes[2].configMap.name", rows[0].Path)
+}
+
 // optional is read where a reference can say it, and nowhere else.
 func TestRefsReadOptional(t *testing.T) {
 	t.Parallel()

@@ -185,7 +185,7 @@ func (f *file) snapshot(ctx context.Context, use func(*sql.Tx) error) error {
 	}
 	defer conn.Close()
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
+	if err != nil { // coverage:ignore only a cancel landing since the connection was taken fails it
 		return err
 	}
 	// A read-only transaction has nothing to undo; ending it frees the snapshot.
@@ -365,7 +365,7 @@ func (f *file) run(ctx context.Context, q querier, wrapped *sql.Stmt, maxRows, m
 		return QueryResult{}, err
 	}
 	defer hold.Close()
-	if !hold.Next() {
+	if !hold.Next() { // coverage:ignore a constant SELECT under context.Background always yields its first row
 		return QueryResult{}, hold.Err()
 	}
 
@@ -378,7 +378,7 @@ func (f *file) run(ctx context.Context, q querier, wrapped *sql.Stmt, maxRows, m
 	}
 	defer rows.Close()
 	var res QueryResult
-	if res.Columns, err = rows.Columns(); err != nil {
+	if res.Columns, err = rows.Columns(); err != nil { // coverage:ignore Columns fails only on closed rows, and only a cancel landing since the query closes them
 		return QueryResult{}, err
 	}
 	size := 0
@@ -388,7 +388,7 @@ func (f *file) run(ctx context.Context, q querier, wrapped *sql.Stmt, maxRows, m
 		for i := range row {
 			ptrs[i] = &row[i]
 		}
-		if err := rows.Scan(ptrs...); err != nil {
+		if err := rows.Scan(ptrs...); err != nil { // coverage:ignore Scan into *any takes every SQLite value; only a cancel landing between Next and Scan fails it
 			return QueryResult{}, err
 		}
 		size += cellBytes(row)
@@ -398,7 +398,7 @@ func (f *file) run(ctx context.Context, q querier, wrapped *sql.Stmt, maxRows, m
 		}
 		res.Rows = append(res.Rows, row)
 	}
-	if err := rows.Err(); err != nil {
+	if err := rows.Err(); err != nil { // coverage:ignore the wrap runs the whole statement in the first step, which QueryContext takes, and modernc interrupts no later one
 		return QueryResult{}, statementError(err)
 	}
 	return res, nil
@@ -418,7 +418,7 @@ func queryConn(ctx context.Context, pool *sql.DB) (*sql.Conn, error) {
 		sqlitelib.SQLITE_LIMIT_ATTACHED: 0,
 		sqlitelib.SQLITE_LIMIT_LENGTH:   queryMaxLength,
 	} {
-		if _, err := sqlite.Limit(conn, id, v); err != nil {
+		if _, err := sqlite.Limit(conn, id, v); err != nil { // coverage:ignore Limit fails only for a connection of another driver
 			conn.Close()
 			return nil, err
 		}

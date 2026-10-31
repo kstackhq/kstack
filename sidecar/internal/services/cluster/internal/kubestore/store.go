@@ -714,7 +714,7 @@ func (r *ReplaceSession) writeObject(ctx context.Context, st stmts, u *unstructu
 	row, err := projectObject(u)
 	if errors.Is(err, errUnprojectable) {
 		return nil
-	} else if err != nil {
+	} else if err != nil { // coverage:ignore projectObject wraps every error it returns in errUnprojectable
 		return err
 	}
 	return insertObjectRow(ctx, st, r.kind, row, stamp)
@@ -725,7 +725,7 @@ func (r *ReplaceSession) writeEvent(ctx context.Context, st stmts, u *unstructur
 	row, err := extractEvent(u)
 	if errors.Is(err, errUnprojectable) {
 		return nil
-	} else if err != nil {
+	} else if err != nil { // coverage:ignore extractEvent wraps every error it returns in errUnprojectable
 		return err
 	}
 	return insertEventRow(ctx, st, row, stamp)
@@ -757,7 +757,7 @@ func (r *ReplaceSession) Commit(ctx context.Context, resourceVersion string) (in
 				return fmt.Errorf("prune events: %w", err)
 			}
 			n, err := res.RowsAffected()
-			if err != nil {
+			if err != nil { // coverage:ignore SQLite's driver always reports the rows affected
 				return fmt.Errorf("prune events: %w", err)
 			}
 			pruned = int(n)
