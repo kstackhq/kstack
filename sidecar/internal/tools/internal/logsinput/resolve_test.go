@@ -17,11 +17,14 @@ package logsinput
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
+	"github.com/kstackhq/kstack/sidecar/internal/tools"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/logsinput/logsinputtest"
 )
 
 // Every refusal of the service reaches the model with the code it carries, and an
@@ -42,4 +45,21 @@ func TestARefusalKeepsItsCode(t *testing.T) {
 	}
 	err := errors.New("db closed")
 	assert.Same(t, err, refusedBy(err))
+	assert.Equal(t, "logs: refused: too-many", (&Refused{Code: refusal.CodeTooMany, Source: -1}).Error())
+}
+
+// A view whose mirror cannot be read fails with the failure: every statement, or the
+// count of a workload's pods for its previous instances.
+func TestAViewTheMirrorCannotReadFails(t *testing.T) {
+	t.Parallel()
+	failed := errors.New("disk I/O error")
+	previous := Input{Sources: []Source{{Namespace: "prod", Kind: tools.LogsSourceDeployment, Name: "webapp", Previous: true}}}
+	every := logsinputtest.Over(nil)
+	every.QueryErr = failed
+	count := logsinputtest.Watching(t)
+	count.QueryErr, count.FailIn = failed, "count(*)"
+	for name, f := range map[string]*logsinputtest.Service{"every statement": every, "the pods' count": count} {
+		_, _, err := Resolve(t.Context(), f, time.Now(), "7", previous)
+		assert.ErrorIs(t, err, failed, name)
+	}
 }

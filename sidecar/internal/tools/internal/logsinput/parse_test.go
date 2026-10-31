@@ -91,6 +91,26 @@ func TestParseReadsAPadding(t *testing.T) {
 		_, err := Parse(json.RawMessage(webapp+`,"before":`+raw+`}`), Fields{"before": &pad})
 		assert.Equal(t, want, Refusal(err), raw)
 	}
+
+	var pad logs.Padding
+	_, err := Parse(json.RawMessage(webapp+`,"before":`), Fields{"before": &pad})
+	assert.Equal(t, want, Refusal(err), "the input ends before the padding")
+}
+
+// An input error names the field it concerns, or says the input is not the tool's.
+func TestAnInputErrorSaysWhatItConcerns(t *testing.T) {
+	t.Parallel()
+	assert.EqualError(t, BadInput("limit", "too big"), "logs input has a bad limit")
+	assert.EqualError(t, &InputError{Source: -1}, "logs input is not one object of the tool's own fields")
+}
+
+// A field whose destination is not one Fields reads into is a bug in the tool.
+func TestAFieldOfAnotherTypePanics(t *testing.T) {
+	t.Parallel()
+	var n int64
+	assert.Panics(t, func() {
+		_, _ = Parse(json.RawMessage(`{"limit":1}`), Fields{"limit": &n})
+	})
 }
 
 // A call may name no sources: a continuation names none, so each tool says

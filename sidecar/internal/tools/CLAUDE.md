@@ -198,6 +198,7 @@ notices (`Notices`, under `NoticesBudget`), the caps `DefaultMessageBytes` and `
 how an action keeps a line (`ReadLine`) and the view around it (`ViewAround`). `logsinputtest` is
 the fake cluster and the fixtures the tools' tests run over (`cluster/clustertest` beneath), and
 `Logs`, a real log service over a fake API server whose lines sit at a fixed moment in the past.
+Its `QueryErr` fails every statement, or with `FailIn` only those whose SQL holds it.
 
 ## KubeQuery (`tools/kubequery`)
 

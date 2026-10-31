@@ -52,7 +52,7 @@ func LogsOf(t *testing.T, objects ...map[string]any) *Logs {
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	base, err := url.Parse(srv.URL)
-	if err != nil {
+	if err != nil { // coverage:ignore an httptest server's URL always parses
 		t.Fatal(err)
 	}
 	f.Conn = &cluster.Connection{BaseURL: base, HTTPClient: srv.Client()}

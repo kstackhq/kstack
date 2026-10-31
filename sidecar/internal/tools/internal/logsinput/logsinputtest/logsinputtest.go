@@ -19,6 +19,7 @@ package logsinputtest
 import (
 	"context"
 	"maps"
+	"strings"
 	"sync"
 	"testing"
 
@@ -36,8 +37,9 @@ type Service struct {
 	CacheHealth cluster.ClusterCacheHealth
 	// Store answers each reading's statements; nil answers no cache.
 	Store *clustertest.Store
-	// QueryErr fails every statement.
+	// QueryErr fails every statement, or with FailIn set, each whose SQL holds it.
 	QueryErr error
+	FailIn   string
 	// Queried is every statement run, under mu: a follow reads the mirror on a
 	// goroutine of its own.
 	mu      sync.Mutex
@@ -95,7 +97,7 @@ func (f fakeCachedData) ReadOwn(ctx context.Context, _ cluster.ClusterID, _ clus
 			f.mu.Lock()
 			f.Queried = append(f.Queried, Queried{sql, args})
 			f.mu.Unlock()
-			if f.QueryErr != nil {
+			if f.QueryErr != nil && strings.Contains(sql, f.FailIn) {
 				return cluster.ClusterCachedDataQueryResult{}, f.QueryErr
 			}
 			return store(sql, maxRows, maxBytes, args...)
