@@ -30,7 +30,7 @@ var ErrBadUUID = errors.New("appdb: not a canonical uuid")
 // above can handle, so it panics.
 func NewID() string {
 	id, err := uuid.NewV7()
-	if err != nil {
+	if err != nil { // coverage:ignore only the OS entropy source failing reaches it
 		panic(fmt.Sprintf("appdb: mint id: %v", err))
 	}
 	return id.String()

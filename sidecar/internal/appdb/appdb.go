@@ -73,7 +73,7 @@ func Open(path string, sweepEvery time.Duration) (*DB, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	r, err := sqlitepool.OpenReader(path, readerPoolSize)
-	if err != nil {
+	if err != nil { // coverage:ignore OpenReader opens lazily and fails only where sql.Open does, which a registered driver never does
 		w.Close()
 		return nil, err
 	}
@@ -133,10 +133,6 @@ const (
 
 // MessagesKey: the chat's message rows changed. Re-read and diff.
 func MessagesKey(chatID string) string { return "messages/" + chatID }
-
-// StreamKey: the chat's in-flight answer grew. Nothing in the file changed; the
-// watcher rebuilds the one overlaid message from memory.
-func StreamKey(chatID string) string { return "stream/" + chatID }
 
 // Notify wakes every subscriber of key. Call it after a commit, never inside the
 // transaction, or a subscriber re-reads the old rows. It never blocks.

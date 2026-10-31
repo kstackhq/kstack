@@ -45,14 +45,14 @@ func migrateTemplate() ([]byte, error) {
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "app.db")
 	db, err := appdb.Open(path, 0)
-	if err != nil {
+	if err != nil { // coverage:ignore a fresh file in a directory just made opens and migrates
 		return nil, fmt.Errorf("migrate template: %w", err)
 	}
 	_, err = db.Write.ExecContext(context.Background(), `PRAGMA wal_checkpoint(TRUNCATE)`)
 	if cerr := db.Close(); err == nil {
 		err = cerr
 	}
-	if err != nil {
+	if err != nil { // coverage:ignore nothing else holds the fresh file, so its checkpoint and close succeed
 		return nil, fmt.Errorf("checkpoint template: %w", err)
 	}
 	return os.ReadFile(path)

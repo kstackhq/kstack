@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // openTestDB is an app.db of this test's own with no janitor running, so a sweep runs
@@ -183,4 +185,47 @@ func TestAJanitorSweepsTheFileItWasOpenedFor(t *testing.T) {
 	default:
 		t.Fatal("Close returned before the janitor stopped")
 	}
+}
+
+// The janitor sweeps on its interval, not only at startup. The first sweep ran at Open
+// and is over once the first freelist is gone, so the second one is the ticker's.
+func TestAJanitorKeepsSweepingOnItsInterval(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "app.db"), time.Millisecond)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	for _, round := range []string{"first", "second"} {
+		fill(t, db, 500)
+		truncateLog(t, db)
+		clear(t, db)
+		require.Eventually(t, func() bool { return freelist(t, db) == 0 },
+			testutil.Timeout, time.Millisecond, "the %s freelist to be swept", round)
+	}
+}
+
+// A vacuum that fails is logged and leaves the freelist for the next sweep. query_only
+// refuses the vacuum's write and nothing else the sweep runs.
+func TestASweepWhoseVacuumFailsLeavesItForTheNext(t *testing.T) {
+	logs := testutil.CaptureLogs(t)
+	db, _ := openTestDB(t)
+	fill(t, db, 500)
+	truncateLog(t, db)
+	clear(t, db)
+	before := freelist(t, db)
+	_, err := db.Write.Exec(`PRAGMA query_only=1`)
+	require.NoError(t, err)
+
+	sweep(context.Background(), db)
+	assert.Contains(t, logs.String(), "appdb: incremental_vacuum failed")
+	require.Equal(t, before, freelist(t, db))
+
+	_, err = db.Write.Exec(`PRAGMA query_only=0`)
+	require.NoError(t, err)
+	sweep(context.Background(), db)
+	assert.Zero(t, freelist(t, db))
+}
+
+// A file that is not there, like a log not yet created, weighs nothing.
+func TestFileSizeOfAMissingFileIsZero(t *testing.T) {
+	assert.Zero(t, fileSize(filepath.Join(t.TempDir(), "app.db-wal")))
 }
