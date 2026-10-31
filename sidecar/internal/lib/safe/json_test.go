@@ -57,7 +57,7 @@ func TestRedactJSONRedactsKeys(t *testing.T) {
 }
 
 func TestRedactJSONRefusesWhatIsNotJSON(t *testing.T) {
-	for _, s := range []string{`text`, `"a string"`, `12`, `{}{}`, `{} x`, `{"a":`, `[1,]`, `{1:2}`, ``} {
+	for _, s := range []string{`text`, `"a string"`, `12`, `{}{}`, `{} x`, `{"a":`, `[1,]`, `[1`, `{1:2}`, ``} {
 		_, ok := safe.RedactJSON(s)
 		assert.False(t, ok, s)
 	}
