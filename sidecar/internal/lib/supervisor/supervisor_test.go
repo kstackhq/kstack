@@ -17,6 +17,7 @@ package supervisor
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -257,6 +258,7 @@ func TestRegisterPanicsWithoutABodyOrAName(t *testing.T) {
 
 	assert.Panics(t, func() { RegisterJob[string](e, "conn", nil) })
 	assert.Panics(t, func() { RegisterJob(e, "", &steered{}) })
+	assert.Panics(t, func() { RegisterWorker[string](e, "sync", nil) })
 }
 
 // OnPass is wiring, set before the supervisor runs — like a registration.
@@ -434,6 +436,17 @@ func TestWakeIgnoresAnUntrackedSubjectAndPanicsOnAnUnknownReconciler(t *testing.
 	noRuns(t, e, "a wake reached a subject nothing tracks")
 
 	assert.Panics(t, func() { e.Wake(subj, "nope") })
+}
+
+// Restart takes a subject nothing tracks as Wake does: a no-op, not a run.
+func TestRestartIgnoresAnUntrackedSubject(t *testing.T) {
+	e, _, id := single(t, Succeeded())
+	e.Add(subj)
+	e.settle()
+	drainRuns(t, e)
+
+	e.Restart("nobody-tracks-this", id)
+	noRuns(t, e, "a restart reached a subject nothing tracks")
 }
 
 // A Wake landing mid-run is redelivered when that run commits: the run in flight had already
@@ -1251,6 +1264,49 @@ func TestAPanickingRunsValueIsHandedBack(t *testing.T) {
 	e.Add("prod")
 
 	assert.Equal(t, "built", p.discarded.Await(t, "the panicking run's value"))
+}
+
+// The zero Result is a body bug the supervisor records as a failure, so a value committed before
+// it is applied nowhere and goes back.
+func TestAZeroResultsValueIsHandedBack(t *testing.T) {
+	e := New()
+	t.Cleanup(func() { assert.NoError(t, e.Close()) })
+	p := &discarding{discarded: testutil.NewProbe[string](4)}
+	p.commits("built")
+	RegisterJob(e, "conn", p)
+	stop := e.Start(t.Context())
+	t.Cleanup(func() { assert.NoError(t, stop(context.Background())) })
+
+	e.Add("prod")
+
+	assert.Equal(t, "built", p.discarded.Await(t, "the zero Result's value"))
+}
+
+// A run Restart stopped records nothing, so what it committed on the way out goes back.
+func TestAStoppedRunsValueIsHandedBack(t *testing.T) {
+	e := New()
+	t.Cleanup(func() { assert.NoError(t, e.Close()) })
+	p := &discarding{discarded: testutil.NewProbe[string](4)}
+	p.res = Succeeded()
+	p.commits("built")
+	inRun, letGo := testutil.NewSignal(), make(chan struct{})
+	var started atomic.Bool
+	p.onRun = func() {
+		if started.CompareAndSwap(false, true) {
+			inRun.Fire()
+			<-letGo
+		}
+	}
+	RegisterJob(e, "conn", p, WithInterval(time.Hour))
+	stop := e.Start(t.Context())
+	t.Cleanup(func() { assert.NoError(t, stop(context.Background())) })
+
+	e.Add("prod")
+	inRun.Wait(t, "the run to be in flight")
+	e.Restart("prod", "conn")
+	close(letGo)
+
+	assert.Equal(t, "built", p.discarded.Await(t, "the stopped run's value"))
 }
 
 // The ordinary path: a value the supervisor applied is the job's own to read back, and handing it

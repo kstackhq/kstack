@@ -93,3 +93,12 @@ func TestNewSnapshotCarriesTheValuesNamed(t *testing.T) {
 	assert.Zero(t, GetJobObservation[string](snap, "conn").LastAttempt, "never run")
 	assert.Panics(t, func() { GetJobObservation[string](snap, "missing") }, "a name it does not carry is a wiring bug")
 }
+
+// The worker seam carries its values as workers, so they read as worker observations and only so.
+func TestNewWorkerSnapshotCarriesTheValuesNamedAsWorkers(t *testing.T) {
+	snap := NewWorkerSnapshot(map[string]any{"sync": "listing"})
+
+	assert.Equal(t, "listing", GetWorkerObservation[string](snap, "sync").Value)
+	assert.False(t, GetWorkerObservation[string](snap, "sync").Live(), "never run")
+	assert.Panics(t, func() { GetJobObservation[string](snap, "sync") }, "a worker read as a job is a wiring bug")
+}
