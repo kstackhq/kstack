@@ -353,11 +353,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-environment
-        with:
-          setup-rust: "true"
+      - name: Collect tracked Markdown files
+        run: git ls-files '*.md' > "$RUNNER_TEMP/markdown-files"
       - name: Check local Markdown links
-        run: make lint-md
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          lycheeVersion: v0.24.2
+          args: >-
+            --offline --include-fragments --no-progress
+            --exclude 'docs/specs/' --exclude '/docs/adr/path$'
+            --files-from '${{ runner.temp }}/markdown-files'
 
   typescript-lint:
     name: TypeScript · Lint
