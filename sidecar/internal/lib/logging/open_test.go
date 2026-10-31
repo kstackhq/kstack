@@ -65,6 +65,25 @@ func TestOpenWritesToTheFileAlone(t *testing.T) {
 	}
 }
 
+// Open is openTo on the process's stderr; with no stderr sink asked for, it writes the
+// file and leaves the test's output alone.
+func TestOpenWritesTheFileItIsGiven(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sidecar.log")
+	logger, closeLog, err := Open(path, false, slog.LevelInfo)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	logger.Info("hello")
+	if err := closeLog(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	if !strings.Contains(read(t, path), `"message":"hello"`) {
+		t.Errorf("the record did not reach the file: %q", read(t, path))
+	}
+}
+
 func TestOpenWritesToBothSinks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sidecar.log")
 	logger, errBuf, err := open(t, path, true)
