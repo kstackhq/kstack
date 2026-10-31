@@ -277,6 +277,21 @@ func TestAuthStateWatchEndsWhenTheSubscriptionCloses(t *testing.T) {
 	require.ErrorIs(t, err, io.EOF)
 }
 
+// A frame that cannot be sent ends the watch with the send's error. proto3 refuses to
+// marshal a string that is not UTF-8, so such an email fails the first send.
+func TestAuthStateWatchEndsOnAFailedSend(t *testing.T) {
+	svc := signedInFakeAuthSvc(auth.Identity{Email: "\xff"})
+	grpcSrv := grpcserver.NewServer(context.Background(), svc, nil)
+	conn := newGRPCTestConn(t, grpcSrv)
+	t.Cleanup(grpcSrv.Stop)
+
+	client := authpb.NewAuthServiceClient(conn)
+	stream, err := client.AuthStateWatch(context.Background(), &authpb.AuthStateWatchRequest{})
+	require.NoError(t, err)
+	_, err = stream.Recv()
+	require.ErrorContains(t, err, "UTF-8")
+}
+
 // HTTP shutdown ends a watch at once but lets an in-flight call finish: the
 // AuthStateWatch stream ends with OK trailers while Logout is still running, and
 // Shutdown returns only after Logout has answered.
