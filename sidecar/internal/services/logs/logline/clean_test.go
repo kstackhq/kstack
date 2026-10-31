@@ -23,7 +23,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Colour and cursor sequences, in their ESC and C1 forms, leave the text alone.
+// Colour and cursor sequences, in their ESC and C1 forms, leave the text alone; a byte
+// that is not UTF-8 is the replacement character.
 func TestStripControlRemovesSequences(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct{ in, want string }{
@@ -40,6 +41,7 @@ func TestStripControlRemovesSequences(t *testing.T) {
 		"lone esc":     {"a\x1bb", "ab"},
 		"unterminated": {"a\x1b[31", "a"},
 		"open osc":     {"a\x1b]0;title", "a"},
+		"invalid utf8": {"a\xffb", "a�b"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			assert.Equal(t, tc.want, StripControl(tc.in))

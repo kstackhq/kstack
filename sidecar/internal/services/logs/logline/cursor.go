@@ -152,7 +152,7 @@ func (j CursorJSON) Cursor() (Cursor, error) {
 // Encode is c as a line cursor: its JSON, base64url with no padding.
 func Encode(c Cursor) string {
 	b, err := json.Marshal(c.ToJSON())
-	if err != nil {
+	if err != nil { // coverage:ignore a cursor's time is an RFC 3339 stamp, whose four-digit year always marshals
 		panic(err) // a struct of strings, a time and an int always marshals
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
