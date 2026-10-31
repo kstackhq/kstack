@@ -39,9 +39,11 @@ type fakeService struct {
 	active   cluster.ActiveCluster
 	attempts int
 	readErr  error
-	// health answers the health read, and healthGone finds no cache.
+	// health answers the health read, healthGone finds no cache, and healthErr
+	// fails it.
 	health     cluster.ClusterCacheHealth
 	healthGone bool
+	healthErr  error
 	// query answers a statement, queryErr fails it, and queryGone finds no file.
 	query     cluster.ClusterCachedDataQueryResult
 	queryErr  error
@@ -90,7 +92,7 @@ func (f fakeClusters) ReadActive(ctx context.Context, _ cluster.ClusterID, read 
 }
 
 func (f fakeCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheHealth, bool, error) {
-	return f.health, !f.healthGone, nil
+	return f.health, !f.healthGone, f.healthErr
 }
 
 func (f fakeCaches) SyncStatus(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncStatus, bool, error) {
@@ -238,6 +240,15 @@ func TestAnyOtherFailureIsReturned(t *testing.T) {
 	_, err = dataQuery(f, `SELECT 1`)
 	require.ErrorIs(t, err, errRead)
 	assert.False(t, errors.Is(err, errNoCache))
+}
+
+// A failed health read fails the query, which never runs.
+func TestAFailedHealthReadIsReturned(t *testing.T) {
+	f := healthy()
+	f.healthErr = errRead
+	_, err := dataQuery(f, `SELECT 1`)
+	require.ErrorIs(t, err, errRead)
+	assert.Empty(t, f.queried)
 }
 
 // The cluster goes by the name the user set, or by its context when there is none.
