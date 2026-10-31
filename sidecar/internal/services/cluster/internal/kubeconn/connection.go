@@ -182,7 +182,7 @@ func (c *Connection) setServerUID(uid string) {
 				return
 			}
 			// Another run stamped first; re-read and judge against what it wrote.
-			continue
+			continue // coverage:ignore only a concurrent stamp between the Load and the swap reaches it
 		case id.conflicted, id.uid == uid:
 			return
 		}

@@ -187,6 +187,45 @@ func TestIdleTimeoutCancelsABodyThatStoppedProgressing(t *testing.T) {
 	assert.ErrorIs(t, err, ErrIdleTimeout)
 }
 
+// A response with no body has nothing left to read, so the request is done at its headers:
+// its context is released and the watchdog retired, and no later tick fires on it.
+func TestIdleTimeoutRetiresAtAResponseWithNoBody(t *testing.T) {
+	t.Parallel()
+
+	var reqCtx context.Context
+	rt, timer := tickedByHand(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		reqCtx = req.Context()
+		return &http.Response{StatusCode: http.StatusNoContent}, nil
+	}))
+
+	resp, err := rt.RoundTrip(listRequest(""))
+
+	require.NoError(t, err)
+	assert.Nil(t, resp.Body)
+	assert.ErrorIs(t, reqCtx.Err(), context.Canceled, "the request's context is released")
+	assert.NotPanics(t, func() { timer.tick(); timer.tick() })
+}
+
+// A tick that lands after the watchdog was stopped neither cancels nor re-arms: the request
+// it watched has already finished.
+func TestAStoppedWatchdogNeverFires(t *testing.T) {
+	t.Parallel()
+
+	cancelled := false
+	timer := &handTimer{}
+	w := newIdleWatchdog(time.Hour, func() { cancelled = true }, func(_ time.Duration, f func()) idleTimer {
+		timer.tick = f
+		return timer
+	})
+
+	w.stop()
+	timer.tick()
+	timer.tick()
+
+	assert.False(t, cancelled)
+	assert.False(t, w.fired.Load())
+}
+
 // A healthy watch is legitimately silent between bookmarks, so an inactivity bound would
 // kill it. It is left with no watchdog at all rather than a longer one — RetryWatcher and
 // HTTP/2 keepalive are what govern a watch.
