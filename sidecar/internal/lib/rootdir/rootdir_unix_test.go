@@ -76,6 +76,20 @@ func TestOpenRefusesALinkSwappedInAfterTheCheck(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotADirectory)
 }
 
+// A directory its owner cannot read is found but cannot be opened, and Open says so.
+func TestOpenRefusesADirectoryItCannotRead(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads a directory whatever its mode")
+	}
+	parent, dir := openTestRoot(t)
+	d := filepath.Join(dir, "d")
+	require.NoError(t, os.Mkdir(d, 0))
+	t.Cleanup(func() { _ = os.Chmod(d, 0o700) })
+
+	_, err := Open(parent, "d", false)
+	assert.ErrorIs(t, err, fs.ErrPermission)
+}
+
 // A command can leave a directory its owner cannot write, such as a Go module
 // cache. RemoveAll still takes the tree.
 func TestRemoveAllTakesAnUnwritableTree(t *testing.T) {
