@@ -312,7 +312,7 @@ func matchRefusal(err error, text string, n int, old, given string) error {
 	case errors.Is(err, errOverlap):
 		return refused("The string to replace matches in overlapping places, so it is not unique. Please provide more context to uniquely identify the instance.\nString: " + echo(given))
 	}
-	return err
+	return err // coverage:ignore matches returns only the three errors above
 }
 
 // toCRLF is s with every \n not already after a \r made \r\n.
@@ -379,7 +379,7 @@ func readOld(file fileguard.File) ([]byte, error) {
 	}
 	defer f.Close()
 	b, err := fileguard.ReadAll(f)
-	if err != nil {
+	if err != nil { // coverage:ignore a regular file just opened fails to read only on an I/O error
 		return nil, unreadable(err)
 	}
 	if fileguard.Binary(b) {

@@ -330,6 +330,7 @@ func TestEditNoMatchNamesTheCause(t *testing.T) {
 		{"Authorization=abc\n", "Authorization: ", redaction},
 		{"a: 1\r\nb: 2\n", "a: 1\nb: 2", mixed},
 		{long + "y\n", strings.Repeat("x", 2000) + "…", cut},
+		{"a: 1\n", "a: 2…", ""},
 		{"a: 1\r\nb: 2\n", "a: 3", ""},
 	} {
 		path := file(t, st, c.body)
@@ -610,6 +611,7 @@ var badInputs = []string{
 	`{"file_path":"/a","old_string":"x","new_string":"y"} 1`,
 	`{"file_path":"/a","old_string":"x","new_string":"y"`,
 	`{"file_path":`,
+	`{1:2}`,
 	`[]`,
 	`not json`,
 }
