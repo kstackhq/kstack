@@ -85,12 +85,12 @@ func (t *Tool) For(target llm.Target) tools.Custom {
 // schemaFor is the input schema with model's enum set to models.
 func schemaFor(models []string) json.RawMessage {
 	var schema map[string]any
-	if err := json.Unmarshal(inputSchema, &schema); err != nil {
-		panic(err) // embedded, and pinned by the tests
+	if err := json.Unmarshal(inputSchema, &schema); err != nil { // coverage:ignore the schema is embedded, and the tests pin it
+		panic(err)
 	}
 	schema["properties"].(map[string]any)["model"].(map[string]any)["enum"] = models
 	b, err := json.Marshal(schema)
-	if err != nil {
+	if err != nil { // coverage:ignore a map decoded from JSON always marshals back
 		panic(err)
 	}
 	return b

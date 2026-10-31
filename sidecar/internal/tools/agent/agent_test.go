@@ -43,6 +43,9 @@ func TestTheAgentInputIsOneValue(t *testing.T) {
 		`{"description":"d","prompt":"p"}x`,
 		`[]`,
 		``,
+		`{"description":"d","prompt":"p"`,
+		`{"description":}`,
+		`{"description":"d",}`,
 	} {
 		_, err := parse(json.RawMessage(raw))
 		assert.Equal(t, `{"error":"bad-input"}`, refusal(err), raw)
@@ -67,6 +70,12 @@ func TestARefusalNamesTheFieldAtFault(t *testing.T) {
 		_, err := parse(json.RawMessage(raw))
 		assert.Equal(t, want, refusal(err), raw)
 	}
+}
+
+// A field's error names the field alone.
+func TestAFieldErrorNamesTheField(t *testing.T) {
+	_, err := parse(json.RawMessage(`{"description":"d"}`))
+	assert.EqualError(t, err, "agent input: bad prompt")
 }
 
 // A call's action is its description and the task it hands on, a general-purpose
