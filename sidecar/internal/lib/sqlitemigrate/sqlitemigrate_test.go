@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/require"
 	// Registers the "sqlite" driver openDB opens through.
@@ -205,4 +206,50 @@ func TestApplyFailsOnAClosedDB(t *testing.T) {
 	require.NoError(t, db.Close())
 	_, err := Apply(context.Background(), db, fsWith(t, nil), "migrations")
 	require.ErrorContains(t, err, "create schema_migrations")
+}
+
+// unreadableFS lists its files but refuses to read them.
+type unreadableFS struct{ fstest.MapFS }
+
+func (unreadableFS) ReadFile(string) ([]byte, error) { return nil, fs.ErrPermission }
+
+// A listed migration that cannot be read stops the run before any migration applies.
+func TestApplyRejectsAnUnreadableMigration(t *testing.T) {
+	db := openDB(t)
+	fsys := unreadableFS{fstest.MapFS{"migrations/0001_first.sql": {Data: []byte(`SELECT 1;`)}}}
+
+	v, err := Apply(context.Background(), db, fsys, "migrations")
+	require.ErrorIs(t, err, fs.ErrPermission)
+	require.ErrorContains(t, err, "0001_first.sql")
+	require.Equal(t, 0, v)
+}
+
+// A migration that cannot open its transaction is not run. A connection already inside
+// one refuses a second BEGIN.
+func TestApplyStopsWhenAMigrationCannotBegin(t *testing.T) {
+	db := openDB(t)
+	db.SetMaxOpenConns(1)
+	_, err := db.Exec(`BEGIN`)
+	require.NoError(t, err)
+	fsys := fsWith(t, map[string]string{"0001_first.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`})
+
+	v, err := Apply(context.Background(), db, fsys, "migrations")
+	require.ErrorContains(t, err, "0001_first.sql")
+	require.Equal(t, 0, v)
+	require.False(t, tableExists(t, db, "alpha"))
+}
+
+// A migration whose version cannot be recorded is rolled back with it, so the next run
+// retries it rather than finding its changes unrecorded.
+func TestApplyRollsBackAMigrationItCannotRecord(t *testing.T) {
+	db := openDB(t)
+	fsys := fsWith(t, map[string]string{
+		"0001_first.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY); DROP TABLE schema_migrations;`,
+	})
+
+	v, err := Apply(context.Background(), db, fsys, "migrations")
+	require.ErrorContains(t, err, "no such table: schema_migrations")
+	require.Equal(t, 0, v)
+	require.False(t, tableExists(t, db, "alpha"))
+	require.True(t, tableExists(t, db, "schema_migrations"))
 }
