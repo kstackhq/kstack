@@ -4464,12 +4464,13 @@ func TestARotatedBackwardReadLinksToNothing(t *testing.T) {
 // the stream as fakeBackend stamps it, then ends with err, clean when nil. Its first
 // line is the GET's oldest, which it tells onOldest. With a gate, it waits for the
 // gate to close before the item at hold. After each window's end it asks more, as a
-// backward read does, and ends clean on a no.
+// backward read does, and ends clean on a no; with unasked, it never asks.
 type scripted struct {
-	items []kubelet.Item
-	err   error
-	hold  int
-	gate  <-chan struct{}
+	items   []kubelet.Item
+	err     error
+	hold    int
+	gate    <-chan struct{}
+	unasked bool
 }
 
 // windows is the items of a backward read of ws, each window oldest first, each
@@ -4512,7 +4513,7 @@ func (b *scripted) read(ctx context.Context, st kubelet.Log, o kubelet.Options) 
 			if out.SendContext(ctx, it) != nil {
 				return
 			}
-			if it.WindowEnd && i < len(b.items)-1 && o.More != nil && !o.More(ctx) {
+			if it.WindowEnd && i < len(b.items)-1 && !b.unasked && o.More != nil && !o.More(ctx) {
 				return
 			}
 		}
@@ -4562,6 +4563,20 @@ func TestAWindowIsWrittenWhenItCompletes(t *testing.T) {
 	close(gate)
 
 	page := testutil.Recv(t, done, "the page")
+	assert.Equal(t, []string{"4", "5", "6", "7", "8", "9"}, messages(page.Records))
+}
+
+// An answer to more the read never took is replaced by the next window's, so a read
+// that goes on without asking is not held up at its next window's end.
+func TestAnUntakenAnswerIsReplaced(t *testing.T) {
+	t.Parallel()
+	backend := &scripted{items: windows(web1Lines(7*time.Second, 8*time.Second, 9*time.Second), web1Lines(4*time.Second, 5*time.Second, 6*time.Second)), unasked: true}
+	svc, f := serviceOn(t, backend)
+	seed(t, svc, f, rowOf("web-1", "app"))
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, PageFrom: PageFromLast, PageSize: 10})
+
+	require.NoError(t, err)
 	assert.Equal(t, []string{"4", "5", "6", "7", "8", "9"}, messages(page.Records))
 }
 

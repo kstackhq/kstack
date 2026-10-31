@@ -15,6 +15,7 @@
 package logs
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -3317,7 +3318,7 @@ func TestAFollowWhoseFileFailsAsItOpensIsRefused(t *testing.T) {
 
 // A follow fails with its log file wherever the file fails under it: reading the
 // pods only the file holds, starting a tailer, walking a finished instance, or
-// walking on past what a fill wrote.
+// walking on past what a fill wrote, its chunks or its lines.
 func TestAFollowFailsWithItsFile(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct {
@@ -3325,11 +3326,13 @@ func TestAFollowFailsWithItsFile(t *testing.T) {
 		since     *time.Time
 		gone      bool
 		afterFill bool
+		table     string
 	}{
 		"reading a gone pod":          {view: webScope, since: moment(0), gone: true},
 		"starting a tailer":           {view: webScope},
 		"walking a finished instance": {view: podView("done")},
 		"walking past a fill":         {view: podView("done"), afterFill: true},
+		"walking a fill's lines":      {view: podView("done"), afterFill: true, table: "lines"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -3344,15 +3347,16 @@ func TestAFollowFailsWithItsFile(t *testing.T) {
 				fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
 				f.store.Delete(t, web1())
 			}
+			table := cmp.Or(c.table, "chunks")
 			if c.afterFill {
-				svc.afterFill = func() { breakFile(t, dir, f, `DROP TABLE chunks`) }
+				svc.afterFill = func() { breakFile(t, dir, f, `DROP TABLE `+table) }
 			} else {
-				breakFile(t, dir, f, `DROP TABLE chunks`)
+				breakFile(t, dir, f, `DROP TABLE `+table)
 			}
 
 			stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: c.view, Since: c.since})
 
-			assert.ErrorContains(t, failsWith(t, stream), "no such table: chunks")
+			assert.ErrorContains(t, failsWith(t, stream), "no such table: "+table)
 		})
 	}
 }
