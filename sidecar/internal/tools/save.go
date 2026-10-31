@@ -56,7 +56,7 @@ func SaveTo(dir ChatDir) Saver {
 			return "", false
 		}
 		_, err = f.WriteString(text)
-		if err = errors.Join(err, f.Close()); err != nil {
+		if err = errors.Join(err, f.Close()); err != nil { // coverage:ignore writing a file just created fails only on a full disk or an I/O error
 			slog.Warn("could not save a tool's result", "err", err)
 			_ = root.Remove(name)
 			return "", false

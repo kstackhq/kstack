@@ -55,6 +55,11 @@ func TestActionKindsIsTheSet(t *testing.T) {
 	assert.False(t, ActionKind("unknown").valid())
 }
 
+// A refusal's error carries the result the model reads.
+func TestARefusalsErrorIsItsResult(t *testing.T) {
+	assert.EqualError(t, &Refusal{Result: `{"error":"bad-input"}`}, `refused: {"error":"bad-input"}`)
+}
+
 // A view's backend half is the log service's input, and the action's JSON keeps
 // its flat shape: the row stores it as written.
 func TestLogsViewActionEmbedsTheInput(t *testing.T) {
