@@ -283,6 +283,19 @@ func TestARuntimeWithNoWatchesOpensNothing(t *testing.T) {
 	assert.False(t, f.opened)
 }
 
+// Input that is not the tool's is refused before anything opens, through Run too.
+func TestBadInputOpensNothing(t *testing.T) {
+	t.Parallel()
+	f := newFakeFollows()
+	tool := New(nil, f)
+
+	text, isError := tool.Run(t.Context(), tools.Runtime{ClusterID: "7", Watches: &fakeWatches{}}, json.RawMessage(`{"hunter2":1}`))
+
+	assert.True(t, isError)
+	assert.Equal(t, `{"error":"bad-input"}`, text)
+	assert.False(t, f.opened)
+}
+
 // watchOver starts a watch over the fixture l at a clock near real time with raw,
 // runs it to its end on a goroutine of its own, as the chat does, and answers how
 // it ended.
