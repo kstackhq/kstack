@@ -151,3 +151,24 @@ func TestStart_StartupCtxCancel_KeepsDetectorRunning(t *testing.T) {
 	}
 	testutil.RecvClosed(t, ch, "the subscriber channel after stop")
 }
+
+// stop is bounded by its own context: a detector slow to exit answers that
+// context's error, and a later stop still waits it out.
+func TestStart_StopGivesUpOnItsContext(t *testing.T) {
+	release := make(chan struct{})
+	// The ticker's stop runs as Run exits, so holding it holds the detector.
+	b := newWithOptions(withNow(func() time.Time { return epoch }), withTicker(func(time.Duration) (<-chan time.Time, func()) {
+		return nil, func() { <-release }
+	}))
+	stop, err := b.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.ErrorIs(t, stop(ctx), context.Canceled)
+
+	close(release)
+	assert.NoError(t, stop(context.Background()))
+}
