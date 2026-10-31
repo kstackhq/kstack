@@ -334,11 +334,11 @@ func chatTools(d toolDeps) (tools.Box, error) {
 		return tools.Box{}, err
 	}
 	writer, err := write.New(d.umask, d.hidden, d.fenced...)
-	if err != nil {
+	if err != nil { // coverage:ignore read.New accepted the same fence
 		return tools.Box{}, err
 	}
 	editor, err := edit.New(d.hidden, d.fenced...)
-	if err != nil {
+	if err != nil { // coverage:ignore read.New accepted the same fence
 		return tools.Box{}, err
 	}
 	fetcher := webfetch.New(webfetch.NewTransport(webfetch.Dialing{

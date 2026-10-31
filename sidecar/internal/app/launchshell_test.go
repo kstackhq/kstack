@@ -23,6 +23,8 @@ import (
 // A key from the shell is added under its provider, and one the launch set wins.
 func TestWithShellKeysPrefersTheLaunch(t *testing.T) {
 	assert.Nil(t, withShellKeys(nil, nil))
+	assert.Equal(t, map[string]string{"anthropic": "sk-ant-shell"},
+		withShellKeys(nil, map[string]string{"ANTHROPIC_API_KEY": "sk-ant-shell"}), "a launch with no keys takes the shell's")
 
 	launch := map[string]string{"openai": "sk-openai-launch"}
 	got := withShellKeys(launch, map[string]string{

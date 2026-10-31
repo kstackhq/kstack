@@ -55,6 +55,12 @@ func TestTheFileToolsAreOfferedWithoutAShell(t *testing.T) {
 	assert.Equal(t, "ls", got.Command.Text)
 }
 
+// The file tools fence Kstack's directories, so a box with none to fence is refused.
+func TestChatToolsRefusesAnEmptyFence(t *testing.T) {
+	_, err := chatTools(toolDeps{umask: 0o022})
+	require.ErrorContains(t, err, "a fence needs a directory")
+}
+
 // A machine with no shell still knows what every stored call did, a TaskStop
 // included.
 func TestAStoredCallsKindIsKnownWithoutAShell(t *testing.T) {

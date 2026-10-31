@@ -19,6 +19,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
 )
 
 func TestSetShellEnvSetsWhatItIsHanded(t *testing.T) {
@@ -29,4 +32,17 @@ func TestSetShellEnvSetsWhatItIsHanded(t *testing.T) {
 
 	require.Equal(t, "/opt/bin:/usr/bin", os.Getenv("PATH"))
 	require.Equal(t, "work", os.Getenv("AWS_PROFILE"))
+}
+
+// With no sandbox, macOS still runs the login shell for its environment, and
+// says it runs unconfined. Serial: it swaps the default logger.
+func TestDarwinRunsTheShellUnconfinedWithNoSandbox(t *testing.T) {
+	logs := testutil.CaptureLogs(t)
+	runs := stubLaunch(t, loginshell.Result{Path: []string{"/usr/bin"}}, nil)
+
+	got := launchShell(t.Context(), nil, []string{t.TempDir()}, t.TempDir())
+
+	require.Equal(t, 1, *runs)
+	require.Equal(t, []string{"/usr/bin"}, got.path)
+	require.Contains(t, logs.String(), "login shell runs unconfined")
 }

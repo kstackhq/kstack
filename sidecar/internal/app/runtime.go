@@ -145,7 +145,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		ClientID:        cfg.OAuthClientID,
 		KeychainService: keychainService,
 	})
-	if err != nil {
+	if err != nil { // coverage:ignore auth.New never returns an error
 		return fail(err)
 	}
 
@@ -172,7 +172,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		shell: shell, fenced: p.Bash.DeniedDirs, hidden: rt.Settings.Hidden, umask: cfg.UserUmask,
 		memory: rt.Memory, clusters: rt.Cluster, logs: rt.Logs,
 	})
-	if err != nil {
+	if err != nil { // coverage:ignore pathsOf always names Kstack's three directories
 		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
 	}
 
