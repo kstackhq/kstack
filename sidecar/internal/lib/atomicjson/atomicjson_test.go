@@ -144,6 +144,9 @@ func TestSaveRejectsUnmarshalableValue(t *testing.T) {
 	if err := atomicjson.Save(path, make(chan int)); err == nil {
 		t.Fatal("Save of a channel returned no error")
 	}
+	if err := atomicjson.SaveIndent(path, make(chan int)); err == nil {
+		t.Fatal("SaveIndent of a channel returned no error")
+	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("Save wrote %s despite failing to marshal", path)
 	}

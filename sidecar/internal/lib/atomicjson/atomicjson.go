@@ -68,6 +68,7 @@ func write(path string, data []byte) error {
 	// Best-effort cleanup if anything below fails.
 	defer func() { _ = os.Remove(tmpName) }()
 
+	// coverage:ignore-start a file this call just created fails only on a full disk or an I/O error, which no test can force
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return err
@@ -79,5 +80,6 @@ func write(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	// coverage:ignore-stop
 	return os.Rename(tmpName, path)
 }
