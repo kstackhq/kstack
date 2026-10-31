@@ -2060,6 +2060,25 @@ func TestChatMutationRefusalsCarryTheirCode(t *testing.T) {
 	}
 }
 
+// The chat's reads map their refusals through the same table: the grants query, and
+// both watches at the subscribe.
+func TestChatReadRefusalsCarryTheirCode(t *testing.T) {
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ChatSvc: refusingChat{err: chat.ErrChatGone}}))
+	defer srv.Close()
+
+	_, code := refusalOf(t, srv, `{ chatGrants(chatID: "`+appdb.NewID()+`") { id } }`)
+	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
+
+	for _, query := range []string{
+		`subscription { chatsWatch { type } }`,
+		`subscription { chatMessagesWatch(chatID: "` + appdb.NewID() + `") { type } }`,
+	} {
+		resp, events := chatFrames(t, srv, query)
+		assert.Contains(t, testutil.Recv(t, events, "the refusal").data, `"code":"KSTACK_RECORD_NOT_FOUND"`, query)
+		resp.Body.Close()
+	}
+}
+
 // Two refusals in one request are two errors: gqlgen stamps a path onto the error a
 // resolver returns, so a shared value would report the first field for both.
 func TestChatRefusalsDoNotShareErrorState(t *testing.T) {
@@ -3274,6 +3293,19 @@ func TestSandboxExecutableMutationsAnswerTheReport(t *testing.T) {
 	assert.Equal(t, "That executable is already listed.", got)
 }
 
+// A prober that shuts its feed down ends the watch, which has nothing left to report.
+func TestSandboxExecutablesWatchEndsWithTheProbersFeed(t *testing.T) {
+	srv, prober := sandboxExecutablesServer(t, true)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesWatch { probing executables { name } } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	executablesReport(t, events, false, []string{"kubectl", "helm", "kustomize", "git", "jq", "yq"})
+
+	prober.hub.Close()
+
+	testutil.WaitClosed(t, events, "the watch to end with the feed")
+}
+
 // A machine with no sandbox answers no tools, on the query and the watch,
 // and refuses the probe and a register.
 func TestSandboxExecutablesAreEmptyWithNoSandbox(t *testing.T) {
@@ -3330,6 +3362,9 @@ func (f *fakeLogs) Fetch(_ context.Context, _ cluster.ClusterID, q logs.FetchReq
 
 func (f *fakeLogs) Follow(_ context.Context, _ cluster.ClusterID, q logs.FollowRequest) (logs.FollowResponse, error) {
 	f.follow = q
+	if f.refused != nil {
+		return logs.FollowResponse{}, f.refused
+	}
 	return logs.FollowResponse{Request: q, Frames: f.stream}, nil
 }
 
@@ -3484,4 +3519,19 @@ func TestLogsFollowReportsItsFailure(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Contains(t, testutil.Recv(t, events, "the failure frame").data, `"watchFailed":true`)
+}
+
+// A follow the service refuses at the subscribe carries the refusal's rule, as a
+// fetch's does.
+func TestLogsFollowCarriesARefusal(t *testing.T) {
+	fake := &fakeLogs{refused: logsrefusal.New(logsrefusal.CodeCursorInvalid, "read again without the cursor")}
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Logs: fake}))
+	defer srv.Close()
+
+	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", request: {scope: `+logsScope+`}) { type } }`)
+	defer resp.Body.Close()
+
+	ev := testutil.Recv(t, events, "the refusal").data
+	assert.Contains(t, ev, `"rule":"cursor-invalid"`)
+	assert.NotContains(t, ev, `"watchFailed"`)
 }

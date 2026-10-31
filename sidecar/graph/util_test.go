@@ -102,6 +102,17 @@ func TestFolderErrNamesARefusedShape(t *testing.T) {
 	}
 }
 
+// A failure that is no refusal stays opaque through the executable and permission
+// mappers: a client can do nothing with a store fault but report it.
+func TestAFailureThatIsNoRefusalStaysOpaque(t *testing.T) {
+	boom := errors.New("settings file unreadable")
+
+	assert.Equal(t, boom, sandboxExecutableErr(boom))
+	got, err := (&Resolver{}).permissionsAfter(context.Background(), boom)
+	assert.Nil(t, got)
+	assert.Equal(t, boom, err)
+}
+
 // A logs refusal is a validation error whose rule is the refusal's code, bare or
 // inside the mirror's refusals, so a client can act on it without reading words.
 func TestLogsErrCarriesTheRefusalsCode(t *testing.T) {

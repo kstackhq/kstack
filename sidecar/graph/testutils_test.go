@@ -17,6 +17,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
@@ -136,7 +137,7 @@ func mutation(t *testing.T, srvURL, mutation string) (map[string]any, []gqlError
 	return resp.Data, resp.Errors
 }
 
-// refusingChat answers every send, cancel, decision and stop with err, for the refusals the real service gives
+// refusingChat answers every send, cancel, decision, stop, grants read and watch with err, for the refusals the real service gives
 // only under conditions a resolver test cannot set up. The embedded Service is nil,
 // so any other call panics, and a test leaning on it by accident fails on its code.
 type refusingChat struct {
@@ -168,6 +169,18 @@ func (c refusingChat) Approve(context.Context, chat.ApprovalID, chat.ApprovalDec
 
 func (c refusingChat) StopBackgroundTask(context.Context, chat.ToolCallID) (bool, error) {
 	return false, c.err
+}
+
+func (c refusingChat) ChatGrants(context.Context, chat.ChatID) ([]permissions.Rule, error) {
+	return nil, c.err
+}
+
+func (c refusingChat) WatchList(context.Context) (*chat.Stream[chat.ChatWatchFrame], error) {
+	return nil, c.err
+}
+
+func (c refusingChat) WatchMessages(context.Context, chat.ChatID) (*chat.Stream[chat.ChatMessageWatchFrame], error) {
+	return nil, c.err
 }
 
 // testSettings is a settings store over a file not yet written: every default.

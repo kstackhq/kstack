@@ -745,7 +745,7 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 		select {
 		case out <- report:
 			return true
-		case <-ctx.Done():
+		case <-ctx.Done(): // coverage:ignore only the subscriber leaving while a report is in flight
 			return false
 		}
 	}
@@ -775,13 +775,13 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 				}
 				state = st
 			case s, ok := <-settingsC:
-				if !ok {
+				if !ok { // coverage:ignore the settings store never closes its hub
 					return
 				}
 				registered = s.Executables
 			}
 			report := &model.SandboxExecutablesReport{Probing: state.Probing, Probes: state.Probes, Executables: sandboxExecutablesOf(bash.ReportOver(state.Last, registered))}
-			if !send(report) {
+			if !send(report) { // coverage:ignore only the subscriber leaving while a report is in flight
 				return
 			}
 		}
