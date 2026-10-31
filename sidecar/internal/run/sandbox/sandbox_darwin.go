@@ -56,7 +56,7 @@ func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, S
 		return nil, Status{Reason: "sandbox-exec not found"}
 	}
 	self, err := os.Executable()
-	if err != nil {
+	if err != nil { // coverage:ignore the kernel always knows a running process's own executable
 		return nil, Status{Reason: "cannot find its own executable"}
 	}
 	home, err := os.UserHomeDir()
