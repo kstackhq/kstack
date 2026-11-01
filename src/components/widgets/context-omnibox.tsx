@@ -139,14 +139,13 @@ function ClusterTrigger({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
   );
 }
 
-// Opens what the window's cluster remembers, lit while it remembers anything, and
-// pulsing once per save: a primary copy of the brain drawn over the base for one
-// run of `--animate-memory-save-pulse` (index.css). Saves that land during a
-// pulse join it rather than restarting it.
+// Opens what the window's cluster remembers. The brain rests gray and pulses
+// once per save: a primary copy drawn over the base for one run of
+// `--animate-memory-save-pulse` (index.css). Saves that land during a pulse
+// join it rather than restarting it.
 function MemoryButton({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
   const { clusterID } = useActiveCluster();
-  const { memories, lastSaved } = useMemories(clusterID);
-  const lit = memories.length > 0;
+  const { lastSaved } = useMemories(clusterID);
   const [pulsed, setPulsed] = useState<Memory>();
   const pulsing = lastSaved !== undefined && lastSaved !== pulsed;
 
@@ -156,12 +155,7 @@ function MemoryButton({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> 
         variant="ghost"
         size="icon-sm"
         aria-label="Memory"
-        data-lit={lit}
-        className={cn(
-          'relative size-8 rounded-full',
-          lit ? 'text-primary' : 'text-muted-foreground',
-          APP_BAR_HOVER_CLASS,
-        )}
+        className={cn('relative size-8 rounded-full text-muted-foreground', APP_BAR_HOVER_CLASS)}
       >
         <Brain aria-hidden />
         {pulsing && (

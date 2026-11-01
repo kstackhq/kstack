@@ -156,17 +156,8 @@ describe('ContextOmnibox', () => {
     expect(screen.getByText('Memory', { selector: 'p' })).toBeInTheDocument();
   });
 
-  it('lights the brain icon while the cluster sees any memory', () => {
-    const { unmount } = render(<ContextOmnibox />);
-    expect(screen.getByRole('button', { name: 'Memory' })).toHaveAttribute('data-lit', 'false');
-    unmount();
-
-    memoriesState.current = [{ id: 'm1' }];
-    render(<ContextOmnibox />);
-    expect(screen.getByRole('button', { name: 'Memory' })).toHaveAttribute('data-lit', 'true');
-  });
-
-  it('pulses the brain icon once per memory saved, until the animation ends', () => {
+  it('keeps the brain icon gray at rest, primary only while a save pulses', () => {
+    const button = () => screen.getByRole('button', { name: 'Memory' });
     const pulse = () => screen.queryByTestId('memory-save-pulse');
     // jsdom has no `AnimationEvent`, so React listens for the webkit-prefixed name there.
     const end = () => fireEvent(pulse()!, new Event('webkitAnimationEnd', { bubbles: true }));
@@ -176,13 +167,18 @@ describe('ContextOmnibox', () => {
         memoriesState.listeners.forEach((listener) => listener());
       });
 
+    memoriesState.current = [{ id: 'm0' }];
     render(<ContextOmnibox />);
+    expect(button()).toHaveClass('text-muted-foreground');
+    expect(button()).not.toHaveClass('text-primary');
     expect(pulse()).not.toBeInTheDocument();
 
     save({ id: 'm1' });
-    expect(pulse()).toBeInTheDocument();
+    expect(pulse()).toHaveClass('text-primary');
+    expect(button()).toHaveClass('text-muted-foreground');
     end();
     expect(pulse()).not.toBeInTheDocument();
+    expect(button()).not.toHaveClass('text-primary');
 
     // Another save of the same memory pulses again.
     save({ id: 'm1' });
