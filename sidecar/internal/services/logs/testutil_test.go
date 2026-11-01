@@ -26,6 +26,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -932,6 +933,8 @@ func seedStamped(t *testing.T, svc *Service, f *fakeService, row logstore.Stream
 	file := fileOf(t, svc, f)
 	ids, err := file.PutStreams(t.Context(), []logstore.Stream{row})
 	require.NoError(t, err)
+	// Callers pass shared fixtures (twoHoles), so stamp a copy: parallel tests would race.
+	fills = slices.Clone(fills)
 	for i := range fills {
 		fills[i].Stream, fills[i].Backend = ids[0], "kubelet"
 	}
