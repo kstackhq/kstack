@@ -19,11 +19,12 @@ import { describe, expect, it } from 'vitest';
 const html = readFileSync('index.html', 'utf8');
 
 describe('index.html boot mark', () => {
-  it('places the static mark and drag strip inside #root, where the mount replaces them', () => {
+  // The <img> attributes size the mark on frames the <style> has not reached.
+  it('places the 48px static mark and drag strip inside #root, where the mount replaces them', () => {
     expect(html).toContain(
       '<div id="root"><div class="boot-drag" data-tauri-drag-region="deep"></div><div class="boot-mark" aria-hidden="true">' +
-        '<img class="light-only" src="/src/assets/icons/app-light.svg" alt="" />' +
-        '<img class="dark-only" src="/src/assets/icons/app-dark.svg" alt="" /></div></div>',
+        '<img class="light-only" src="/src/assets/icons/app-light.svg" width="48" height="48" alt="" />' +
+        '<img class="dark-only" src="/src/assets/icons/app-dark.svg" width="48" height="48" alt="" /></div></div>',
     );
   });
 });

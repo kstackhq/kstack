@@ -30,10 +30,21 @@ describe('AppMark', () => {
     expect(light).toHaveClass('dark:hidden');
     expect(dark.querySelector('path')).toHaveAttribute('fill', '#DEC1B7');
     expect(dark).toHaveClass('hidden', 'dark:block');
+    [light, dark].forEach((svg) => {
+      expect(svg).toHaveAttribute('width', '48');
+      expect(svg).toHaveAttribute('height', '48');
+    });
   });
 
   it('draws the sidebar size', () => {
     render(<AppMark size={24} />);
-    expect(screen.getByTestId('app-mark')).toHaveClass('size-6');
+    const mark = screen.getByTestId('app-mark');
+    expect(mark).toHaveClass('size-6');
+    const svgs = mark.querySelectorAll('svg');
+    expect(svgs).toHaveLength(2);
+    svgs.forEach((svg) => {
+      expect(svg).toHaveAttribute('width', '24');
+      expect(svg).toHaveAttribute('height', '24');
+    });
   });
 });

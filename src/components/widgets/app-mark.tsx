@@ -19,12 +19,13 @@ import LightIcon from '@/assets/icons/app-light.svg?react';
 // Inline SVG, so it draws with the DOM it sits in. Decorative, so whatever draws
 // it says the name itself. index.html carries a static copy for the frames before
 // React mounts; that copy cannot import this, so it restates the 48px shape
-// ReadyGate draws.
+// ReadyGate draws. The svgs carry width/height as well as classes: the SVG files
+// are 1024px, and in dev a frame can draw before index.css applies.
 export function AppMark({ size }: { size: 24 | 48 }) {
   return (
     <span aria-hidden data-testid="app-mark" className={size === 48 ? 'size-12 shrink-0' : 'size-6 shrink-0'}>
-      <LightIcon className="size-full dark:hidden" />
-      <DarkIcon className="hidden size-full dark:block" />
+      <LightIcon width={size} height={size} className="size-full dark:hidden" />
+      <DarkIcon width={size} height={size} className="hidden size-full dark:block" />
     </span>
   );
 }
