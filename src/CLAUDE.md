@@ -182,6 +182,10 @@ Off macOS there is no native menu bar: `AppMenu` (`app-menu.tsx`) owns `Ctrl/Cmd
 
 **Every text box turns off the webview's autocomplete, autocorrect, autocapitalize and inline predictions** (`writingsuggestions`, WebKit's). Draw one with `Input` or `Textarea` from `components/widgets/text-entry.tsx`, never `@kubetail/ui`'s (the lint refuses that import). Prose (the chat composer, a chat title, memory bodies and instructions) passes `prose` and keeps spellcheck; code-like text (a grep, a path, a name, a pattern) has it off. A raw `<input>`/`<textarea>` spreads `CODE_TEXT` or `PROSE_TEXT` from the same file. Each box's test pins its set with `expectCodeText`/`expectProseText` from `@/test-utils`.
 
+## Cursors
+
+**Controls use the default arrow cursor, as native desktop apps do; only links use `cursor-pointer`.** `index.css`'s base layer overrides `@kubetail/ui`'s `cursor: pointer` on `button` and `[role="button"]`. Never add `cursor-pointer` to a button, menu item, tab, `<summary>` or popover trigger.
+
 ## GraphQL — never talks HTTP directly
 
 The webview has **no network access**. urql routes everything through Tauri IPC (`src/lib/graphql/`): queries and mutations via `invoke('graphql_query')` (`invoke-fetch.ts`), subscriptions via `graphql_subscribe`/`graphql_unsubscribe` over a Tauri `Channel` (`subscribe-exchange.ts`, with its own capped-backoff reconnect). Read `src/lib/graphql/client.ts` and its tests before touching transport or retry logic. → [ADR: GraphQL over Tauri IPC](../docs/adr/2026-08-09-graphql-over-tauri-ipc.md).

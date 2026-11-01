@@ -986,7 +986,7 @@ function DisclosureLabel({
       aria-expanded={expanded}
       onClick={onToggle}
       data-tone={tone}
-      className={`${TONE[tone].text} inline-flex cursor-pointer items-center gap-1 rounded-sm underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+      className={`${TONE[tone].text} inline-flex items-center gap-1 rounded-sm underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring`}
     >
       {label}
       <ChevronDown className={`size-3 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden />

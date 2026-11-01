@@ -207,6 +207,13 @@
     isolation: isolate;
   }
 
+  /* Desktop controls show the arrow; only links show the hand. The selectors match
+     `@kubetail/ui`'s `cursor: pointer` rule so this one, coming later, wins. */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: default;
+  }
+
   /*
    * Frameless Linux/Windows windows (see `WindowFrame`): the window is
    * transparent, so the document itself must be transparent to expose the small

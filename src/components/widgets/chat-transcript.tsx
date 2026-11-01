@@ -123,7 +123,7 @@ function Thinking({ summary, stillThinking }: { summary: string; stillThinking: 
   return (
     <details open={open} className="mb-2">
       <summary
-        className="cursor-pointer text-xs text-muted-foreground select-none"
+        className="text-xs text-muted-foreground select-none"
         onClick={(e) => {
           // The attribute is React's: the click sets the pin, never the DOM.
           e.preventDefault();
@@ -147,7 +147,7 @@ function Thinking({ summary, stillThinking }: { summary: string; stillThinking: 
 function ClusterContext({ card }: { card: string }) {
   return (
     <details className="mb-2">
-      <summary className="cursor-pointer text-xs text-muted-foreground select-none">Context</summary>
+      <summary className="text-xs text-muted-foreground select-none">Context</summary>
       <div className="mt-1 border-l-2 border-muted pl-3 text-xs whitespace-pre-wrap text-muted-foreground">
         <VisibleText text={card} />
       </div>
@@ -196,7 +196,7 @@ function Searches({ count, queries }: { count: number; queries: string[] }) {
   }
   return (
     <details className="mt-1">
-      <summary className="cursor-pointer text-xs text-muted-foreground select-none">Searched the web · {count}</summary>
+      <summary className="text-xs text-muted-foreground select-none">Searched the web · {count}</summary>
       <div className="mt-1 border-l-2 border-muted pl-3 text-xs whitespace-pre-wrap text-muted-foreground">
         {queries.join('\n')}
       </div>
@@ -590,7 +590,7 @@ function ToolCalls({
         return (
           <Fragment key={call.id}>
             <details>
-              <summary className="cursor-pointer select-none">
+              <summary className="select-none">
                 <span className="font-mono break-all">
                   <VisibleText text={summary} />
                 </span>
@@ -994,7 +994,7 @@ function ApprovalRequest({
           sent
         ) : (
           <details className="mt-1">
-            <summary className="cursor-pointer text-xs text-muted-foreground">Show the request</summary>
+            <summary className="text-xs text-muted-foreground">Show the request</summary>
             {sent}
           </details>
         )}
