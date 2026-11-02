@@ -1745,9 +1745,10 @@ func TestTheInternetResolves(t *testing.T) {
 }
 
 // mdnsName registers a .local name, at a TEST-NET address, that mDNSResponder
-// alone answers, for the test's life. The host's own name will not do: on
-// GitHub's runners, whose HostName is set, a run without the internet
-// resolves it.
+// alone answers, for the test's life, and returns once it resolves: "Name now
+// registered and active" does not promise the next lookup sees it. The host's
+// own name will not do: on GitHub's runners, whose HostName is set, a run
+// without the internet resolves it.
 func mdnsName(t *testing.T) (name, addr string) {
 	t.Helper()
 	name = "kstack-test-" + strings.ToLower(rand.Text()) + ".local"
@@ -1772,6 +1773,11 @@ func mdnsName(t *testing.T) (name, addr string) {
 		_, _ = io.Copy(io.Discard, out)
 	}()
 	testutil.Wait(t, registered, name+"'s registration")
+	resolves := func() bool {
+		addrs, err := net.LookupHost(name)
+		return err == nil && slices.Contains(addrs, addr)
+	}
+	require.Eventually(t, resolves, testutil.Timeout, 50*time.Millisecond, "%s never resolved", name)
 	return name, addr
 }
 
