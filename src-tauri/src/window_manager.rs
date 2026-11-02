@@ -43,7 +43,7 @@ use crate::host_file::{self, ColorSchemePreference};
 const MAIN_LABEL: &str = "main";
 
 /// Title shown on every window the host creates.
-const WINDOW_TITLE: &str = "kstack";
+const WINDOW_TITLE: &str = "Kstack";
 
 /// Logical size every window opens at.
 const WINDOW_WIDTH: f64 = 800.0;
