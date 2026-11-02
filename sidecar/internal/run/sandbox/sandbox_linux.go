@@ -341,9 +341,9 @@ func (m *mounter) readable(at string) bool {
 
 // lastOver is the last rule mounted on or above p, if any.
 func (m *mounter) lastOver(p string) (rule, bool) {
-	for i := len(m.mounted) - 1; i >= 0; i-- {
-		if within(p, m.mounted[i].at) {
-			return m.mounted[i], true
+	for _, ru := range slices.Backward(m.mounted) {
+		if within(p, ru.at) {
+			return ru, true
 		}
 	}
 	return rule{}, false

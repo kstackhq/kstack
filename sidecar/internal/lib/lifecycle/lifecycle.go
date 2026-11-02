@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 )
 
@@ -124,8 +125,8 @@ func unwind(ctx context.Context, stops []func(context.Context) error) error {
 // first: a stop that fails must not leave the rest running.
 func stopAll(ctx context.Context, stops []func(context.Context) error) error {
 	var errs []error
-	for i := len(stops) - 1; i >= 0; i-- {
-		errs = append(errs, stops[i](ctx))
+	for _, stop := range slices.Backward(stops) {
+		errs = append(errs, stop(ctx))
 	}
 	return errors.Join(errs...)
 }
@@ -133,9 +134,9 @@ func stopAll(ctx context.Context, stops []func(context.Context) error) error {
 // CloseAll closes in reverse, mirroring stopAll.
 func CloseAll(parts []Part) error {
 	var errs []error
-	for i := len(parts) - 1; i >= 0; i-- {
-		if err := parts[i].Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close %s: %w", parts[i].Name, err))
+	for _, part := range slices.Backward(parts) {
+		if err := part.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close %s: %w", part.Name, err))
 		}
 	}
 	return errors.Join(errs...)

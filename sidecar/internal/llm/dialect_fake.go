@@ -235,8 +235,8 @@ func fakeCitations(blocks []Block) []Citation {
 
 // lastText is the index of the last text block, or -1.
 func lastText(blocks []Block) int {
-	for i := len(blocks) - 1; i >= 0; i-- {
-		if blocks[i].Type == BlockText {
+	for i, b := range slices.Backward(blocks) {
+		if b.Type == BlockText {
 			return i
 		}
 	}

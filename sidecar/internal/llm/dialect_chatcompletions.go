@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -319,8 +320,7 @@ type chatCall struct {
 func (r *chatCalls) at(f openai.ChatCompletionChunkChoiceDeltaToolCall) *chatCall {
 	// Newest first: a fragment carrying arguments alone belongs to the call last
 	// opened at its index.
-	for i := len(r.calls) - 1; i >= 0; i-- {
-		c := r.calls[i]
+	for _, c := range slices.Backward(r.calls) {
 		if c.index != f.Index {
 			continue
 		}
