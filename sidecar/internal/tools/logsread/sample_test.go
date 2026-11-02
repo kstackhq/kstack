@@ -69,7 +69,7 @@ func TestTheWidestPagePrintsItsTokensWhole(t *testing.T) {
 	prev, next, _ := pageOf(t, text)
 	require.NotEmpty(t, prev)
 	require.NotEmpty(t, next)
-	header := strings.SplitN(text, "\n2026-", 2)[0]
+	header, _, _ := strings.Cut(text, "\n2026-")
 	assert.LessOrEqual(t, len(header)+logsinput.SampleBudget, tools.InlineLimit, "header %d bytes", len(header))
 	after, _ := readOf(t, l, `{"cursor":"`+next+`","page_size":100}`)
 	assert.Len(t, messagesOf(after), 100)

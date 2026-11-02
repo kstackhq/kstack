@@ -293,7 +293,7 @@ func TestNotesStopAtTheirBudget(t *testing.T) {
 	text, isError, _ := runOn(t, echo(), `{"sources":[`+strings.Join(sources, ",")+`]}`)
 	require.False(t, isError, text)
 
-	words := strings.Split(text, "\n")[0]
+	words, _, _ := strings.Cut(text, "\n")
 	assert.True(t, strings.HasPrefix(words, "No lines of pods/gone-0 in prod and 99 more sources. pods/gone-0: default container."), words)
 	assert.Regexp(t, ` Notes on \d+ more sources left out\.$`, words)
 	assert.Less(t, len(words), notesBudget+200)

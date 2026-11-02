@@ -75,9 +75,9 @@ func TestValidTokenReturnsCachedWhenValid(t *testing.T) {
 		RefreshToken: "refresh",
 		Expiry:       epoch.Add(time.Hour),
 	}}
-	var refreshes int32
+	var refreshes atomic.Int32
 	m := newGrant(store, func(context.Context, string) (Token, error) {
-		atomic.AddInt32(&refreshes, 1)
+		refreshes.Add(1)
 		return Token{}, nil
 	}, withNow(func() time.Time { return epoch }))
 
@@ -88,7 +88,7 @@ func TestValidTokenReturnsCachedWhenValid(t *testing.T) {
 	if got.AccessToken != "cached" {
 		t.Fatalf("want cached, got %q", got.AccessToken)
 	}
-	if n := atomic.LoadInt32(&refreshes); n != 0 {
+	if n := refreshes.Load(); n != 0 {
 		t.Fatalf("want 0 refreshes, got %d", n)
 	}
 }
@@ -142,9 +142,9 @@ func TestValidTokenPersistsAfterRefresh(t *testing.T) {
 // ErrSignedOut instead of calling refresh with an empty token.
 func TestValidTokenSignedOutWhenNoRefreshToken(t *testing.T) {
 	store := &memCredStore{} // zero token: no access token, no refresh token
-	var refreshes int32
+	var refreshes atomic.Int32
 	m := newGrant(store, func(context.Context, string) (Token, error) {
-		atomic.AddInt32(&refreshes, 1)
+		refreshes.Add(1)
 		return Token{}, nil
 	}, withNow(func() time.Time { return epoch }))
 
@@ -152,7 +152,7 @@ func TestValidTokenSignedOutWhenNoRefreshToken(t *testing.T) {
 	if err != ErrSignedOut {
 		t.Fatalf("want ErrSignedOut, got %v", err)
 	}
-	if n := atomic.LoadInt32(&refreshes); n != 0 {
+	if n := refreshes.Load(); n != 0 {
 		t.Fatalf("want 0 refreshes, got %d", n)
 	}
 }
@@ -186,9 +186,9 @@ func TestValidTokenNotCachedWhenSaveFails(t *testing.T) {
 		tok:     Token{AccessToken: "stale", RefreshToken: "refresh", Expiry: epoch.Add(-time.Minute)},
 		saveErr: errors.New("keychain unavailable"),
 	}
-	var refreshes int32
+	var refreshes atomic.Int32
 	m := newGrant(store, func(context.Context, string) (Token, error) {
-		atomic.AddInt32(&refreshes, 1)
+		refreshes.Add(1)
 		return Token{AccessToken: "fresh", RefreshToken: "refresh", Expiry: epoch.Add(time.Hour)}, nil
 	}, withNow(func() time.Time { return epoch }))
 
@@ -200,7 +200,7 @@ func TestValidTokenNotCachedWhenSaveFails(t *testing.T) {
 	if got, err := m.validToken(context.Background()); err == nil {
 		t.Fatalf("want error on second call, got token %q", got.AccessToken)
 	}
-	if n := atomic.LoadInt32(&refreshes); n != 2 {
+	if n := refreshes.Load(); n != 2 {
 		t.Fatalf("want 2 refresh attempts (token never cached), got %d", n)
 	}
 }
@@ -261,9 +261,9 @@ func TestConcurrentValidTokenSingleRefresh(t *testing.T) {
 		RefreshToken: "refresh",
 		Expiry:       epoch.Add(-time.Minute),
 	}}
-	var refreshes int32
+	var refreshes atomic.Int32
 	m := newGrant(store, func(context.Context, string) (Token, error) {
-		atomic.AddInt32(&refreshes, 1)
+		refreshes.Add(1)
 		return Token{AccessToken: "fresh", RefreshToken: "refresh", Expiry: epoch.Add(time.Hour)}, nil
 	}, withNow(func() time.Time { return epoch }))
 
@@ -277,7 +277,7 @@ func TestConcurrentValidTokenSingleRefresh(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	if got := atomic.LoadInt32(&refreshes); got != 1 {
+	if got := refreshes.Load(); got != 1 {
 		t.Fatalf("want exactly 1 refresh, got %d", got)
 	}
 }
