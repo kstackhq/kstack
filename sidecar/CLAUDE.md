@@ -80,7 +80,8 @@ files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
   `services/` (state outliving a request, reached from `graph/`/`grpc/`), `lib/` (no Kstack
   domain; `lib` is never a package name), `llm/`, `run/` (what confines one run), `agent/`
   (above `tools`), and `app`, `appdb` at the top. `sqlitepool` is the one home of the SQLite open
-  contract; `apimeta` is the wire vocabulary no service owns (the delta-frame type, `ObjectID`,
+  contract, and its `WaitClosed` is what a store calls between closing a file's pools and
+  deleting the file; `apimeta` is the wire vocabulary no service owns (the delta-frame type, `ObjectID`,
   `ClusterID`, `ChatID`); `sqlstmt` is a store's statement table (→ [ADR: one statement
   set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)).
 

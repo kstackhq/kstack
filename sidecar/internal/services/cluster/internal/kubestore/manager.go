@@ -265,7 +265,13 @@ func (m *Manager) Clear(cacheID int64) error {
 			return fmt.Errorf("clear: close store: %w", err)
 		}
 	}
-	deleteErr := m.deleteFiles(path)
+	var waitErr error
+	if held {
+		waitErr = sqlitepool.WaitClosed(sqlitepool.CloseBudget, e.file.pools()...)
+	}
+	// The delete runs whatever the wait answered: only Windows refuses it while a
+	// connection is open, and there it reports that itself.
+	deleteErr := errors.Join(waitErr, m.deleteFiles(path))
 
 	// Live claims still hold this entry — swap in a fresh file rather than dropping it,
 	// or every one of them would answer ErrClosed for a cache that is meant to stay
@@ -304,6 +310,7 @@ func (m *Manager) Remove(cacheID int64) error {
 	// the caller's next pass, and until it lands nothing may open the file again.
 	m.removed[cacheID] = true
 
+	var waitErr error
 	if e, held := m.entries[cacheID]; held {
 		f := e.file
 		e.file = nil
@@ -311,8 +318,10 @@ func (m *Manager) Remove(cacheID int64) error {
 		if err := m.closeFile(f); err != nil {
 			return fmt.Errorf("remove: close store: %w", err)
 		}
+		waitErr = sqlitepool.WaitClosed(sqlitepool.CloseBudget, f.pools()...)
 	}
-	if err := m.deleteFiles(m.path(cacheID)); err != nil {
+	// As in Clear, the delete runs whatever the wait answered.
+	if err := errors.Join(waitErr, m.deleteFiles(m.path(cacheID))); err != nil {
 		return fmt.Errorf("remove: delete files: %w", err)
 	}
 	return nil

@@ -240,6 +240,12 @@ func (f *file) close() error {
 	return errors.Join(f.set.Close(), f.own.close(), f.queryDB.Close(), f.ownQueryDB.Close(), f.db.Close(), f.readDB.Close())
 }
 
+// pools is what a delete of the file waits on after close: a connection still in use
+// at close holds the file past it.
+func (f *file) pools() []*sql.DB {
+	return []*sql.DB{f.db, f.readDB, f.queryDB, f.ownQueryDB}
+}
+
 // startJanitor spawns this file's sweeper, or nothing when no interval is set.
 func (f *file) startJanitor(ret Retention) {
 	if ret.Interval <= 0 {

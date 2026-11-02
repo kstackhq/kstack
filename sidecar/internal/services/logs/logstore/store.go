@@ -141,6 +141,12 @@ func (f *file) close() error {
 	return errors.Join(f.set.Close(), f.db.Close(), f.readDB.Close())
 }
 
+// pools is what a delete of the file waits on after close: a connection still in use
+// at close holds the file past it.
+func (f *file) pools() []*sql.DB {
+	return []*sql.DB{f.db, f.readDB}
+}
+
 // bind is ctx ended also when the file closes, so a close interrupts the statements
 // an operation runs under it.
 func (f *file) bind(ctx context.Context) (context.Context, func()) {

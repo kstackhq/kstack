@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitepool"
 )
 
 var (
@@ -183,7 +185,7 @@ func (m *Manager) retireLocked(cacheID int64) error {
 
 	var closeErr error
 	if f != nil {
-		closeErr = f.close()
+		closeErr = errors.Join(f.close(), sqlitepool.WaitClosed(sqlitepool.CloseBudget, f.pools()...))
 	}
 	err := errors.Join(closeErr, deleteFiles(m.path(cacheID)))
 
