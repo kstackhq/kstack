@@ -3404,6 +3404,8 @@ func TestAFollowEndsWhileItSends(t *testing.T) {
 			stream := startFollow(t, ctx, svc, FollowRequest{Scope: c.view, Since: moment(0)})
 
 			assert.Equal(t, "1", recvLine(t, stream, "the first line").Message)
+			// The follow may still be between lines: cancelled then, it never sends the second.
+			require.Eventually(t, func() bool { return len(stream.Frames) == 1 }, testutil.Timeout, time.Millisecond, "the second line to fill the buffer")
 			cancel()
 			// The follow lets its claim go once it has ended.
 			require.Eventually(t, func() bool { return f.lease.released.Load() > released }, testutil.Timeout, time.Millisecond)
