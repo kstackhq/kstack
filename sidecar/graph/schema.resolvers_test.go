@@ -1487,6 +1487,7 @@ func TestResolverErrorsReachTheCaller(t *testing.T) {
 		"Subscription.clustersWatch":         func() error { _, err := r.Subscription().ClustersWatch(ctx); return err },
 		"Subscription.clusterEventsWatch":    func() error { _, err := r.Subscription().ClusterEventsWatch(ctx, id, nil); return err },
 		"Subscription.clusterScheduleWatch":  func() error { _, err := r.Subscription().ClusterScheduleWatch(ctx, id); return err },
+		"Subscription.clusterDataRateWatch":  func() error { _, err := r.Subscription().ClusterDataRateWatch(ctx, id, nil); return err },
 		"Subscription.clusterCachesWatch":    func() error { _, err := r.Subscription().ClusterCachesWatch(ctx); return err },
 		"Subscription.cacheHealthWatch":      func() error { _, err := r.Subscription().ClusterCacheHealthWatch(ctx); return err },
 		"Subscription.cachedKindsWatch":      func() error { _, err := r.Subscription().ClusterCachedKindsWatch(ctx, objID); return err },
@@ -1577,6 +1578,26 @@ func TestGaugeAndTimelineSubscriptionsCarryTheirFirstValue(t *testing.T) {
 	if v := testutil.Recv(t, health, "cache health verdict"); v.CacheID == 0 {
 		t.Errorf("verdict = %+v, want one keyed to a cache", v)
 	}
+}
+
+// The wire's interval is in seconds; an absent one reaches the service as zero, its default.
+func TestClusterDataRateWatchPassesTheIntervalInSeconds(t *testing.T) {
+	ctx := t.Context()
+	svc := newFakeClusterService(clusterFixtures())
+	r := &graph.Resolver{ClusterSvc: svc}
+
+	five := 5
+	rates, err := r.Subscription().ClusterDataRateWatch(ctx, "1", &five)
+	require.NoError(t, err)
+	got := testutil.Recv(t, rates, "the data rate")
+	assert.Equal(t, cluster.ClusterDataRate{ReceivedBytesPerSecond: 2048, SentBytesPerSecond: 512}, *got)
+
+	_, err = r.Subscription().ClusterDataRateWatch(ctx, "1", nil)
+	require.NoError(t, err)
+
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	assert.Equal(t, []time.Duration{5 * time.Second, 0}, svc.dataRateAsked)
 }
 
 // Every Dialect member is named for its API, and the Go set and the schema's are

@@ -60,6 +60,8 @@ type fakeClusterService struct {
 	dataEvents  map[cluster.ClusterID][]cluster.ClusterCachedDataEvent  // cached Kubernetes Events, keyed by ClusterID
 	dataObjects map[cluster.ClusterID][]cluster.ClusterCachedDataObject // cached objects for one kind, keyed by ClusterID
 	watchFail   error                                                   // when set, every watch ends with it after its snapshot
+	// dataRateAsked is each interval WatchDataRate was asked for, guarded by mu.
+	dataRateAsked []time.Duration
 }
 
 // The fake mirrors production's shape: one shared state struct, four accessor
@@ -647,6 +649,24 @@ func (f fakeClusters) WatchSchedule(ctx context.Context, _ cluster.ClusterID) (<
 	return ch, nil
 }
 
+// WatchDataRate is a gauge: one rate on subscribe, then open until ctx ends.
+func (f fakeClusters) WatchDataRate(ctx context.Context, _ cluster.ClusterID, interval time.Duration) (<-chan cluster.ClusterDataRate, error) {
+	f.s.mu.Lock()
+	f.s.dataRateAsked = append(f.s.dataRateAsked, interval)
+	f.s.mu.Unlock()
+	ch := make(chan cluster.ClusterDataRate)
+	go func() {
+		defer close(ch)
+		select {
+		case ch <- cluster.ClusterDataRate{ReceivedBytesPerSecond: 2048, SentBytesPerSecond: 512}:
+		case <-ctx.Done():
+			return
+		}
+		<-ctx.Done()
+	}()
+	return ch, nil
+}
+
 func (f fakeClusters) SetEnabled(_ context.Context, id cluster.ClusterID, enabled bool) (*cluster.Cluster, error) {
 	f.s.mu.Lock()
 	defer f.s.mu.Unlock()
@@ -923,6 +943,10 @@ func (e errClusters) WatchList(context.Context) (*cluster.Stream[cluster.Cluster
 }
 
 func (e errClusters) WatchSchedule(context.Context, cluster.ClusterID) (<-chan cluster.Schedule, error) {
+	return nil, e.err
+}
+
+func (e errClusters) WatchDataRate(context.Context, cluster.ClusterID, time.Duration) (<-chan cluster.ClusterDataRate, error) {
 	return nil, e.err
 }
 

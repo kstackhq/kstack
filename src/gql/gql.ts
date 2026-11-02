@@ -32,6 +32,7 @@ type Documents = {
     "\n  subscription ClusterCacheStats($id: ClusterID!, $cacheID: ObjectID!) {\n    clusterCacheStatsWatch(id: $id, cacheID: $cacheID) {\n      exists\n      bytes\n      dbBytes\n      walBytes\n      shmBytes\n      objectCount\n      kindCount\n    }\n  }\n": typeof types.ClusterCacheStatsDocument,
     "\n  subscription ClusterCachedKinds($cacheID: ObjectID!) {\n    clusterCachedKindsWatch(cacheID: $cacheID) {\n      type\n      kind {\n        id\n        spec {\n          apiVersion\n          resource\n        }\n      }\n    }\n  }\n": typeof types.ClusterCachedKindsDocument,
     "\n  subscription ClusterSchedule($id: ClusterID!) {\n    clusterScheduleWatch(id: $id) {\n      nextRequeueAt\n      probing\n    }\n  }\n": typeof types.ClusterScheduleDocument,
+    "\n  subscription ClusterDataRate($id: ClusterID!) {\n    clusterDataRateWatch(id: $id) {\n      receivedBytesPerSecond\n      sentBytesPerSecond\n    }\n  }\n": typeof types.ClusterDataRateDocument,
     "\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n": typeof types.MemorySaveDocument,
     "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n": typeof types.MemoryDeleteDocument,
     "\n  subscription AuthStateWatch {\n    authStateWatch {\n      authenticated\n      identity {\n        sub\n        email\n        name\n      }\n    }\n  }\n": typeof types.AuthStateWatchDocument,
@@ -94,6 +95,7 @@ const documents: Documents = {
     "\n  subscription ClusterCacheStats($id: ClusterID!, $cacheID: ObjectID!) {\n    clusterCacheStatsWatch(id: $id, cacheID: $cacheID) {\n      exists\n      bytes\n      dbBytes\n      walBytes\n      shmBytes\n      objectCount\n      kindCount\n    }\n  }\n": types.ClusterCacheStatsDocument,
     "\n  subscription ClusterCachedKinds($cacheID: ObjectID!) {\n    clusterCachedKindsWatch(cacheID: $cacheID) {\n      type\n      kind {\n        id\n        spec {\n          apiVersion\n          resource\n        }\n      }\n    }\n  }\n": types.ClusterCachedKindsDocument,
     "\n  subscription ClusterSchedule($id: ClusterID!) {\n    clusterScheduleWatch(id: $id) {\n      nextRequeueAt\n      probing\n    }\n  }\n": types.ClusterScheduleDocument,
+    "\n  subscription ClusterDataRate($id: ClusterID!) {\n    clusterDataRateWatch(id: $id) {\n      receivedBytesPerSecond\n      sentBytesPerSecond\n    }\n  }\n": types.ClusterDataRateDocument,
     "\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n": types.MemorySaveDocument,
     "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n": types.MemoryDeleteDocument,
     "\n  subscription AuthStateWatch {\n    authStateWatch {\n      authenticated\n      identity {\n        sub\n        email\n        name\n      }\n    }\n  }\n": types.AuthStateWatchDocument,
@@ -224,6 +226,10 @@ export function graphql(source: "\n  subscription ClusterCachedKinds($cacheID: O
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  subscription ClusterSchedule($id: ClusterID!) {\n    clusterScheduleWatch(id: $id) {\n      nextRequeueAt\n      probing\n    }\n  }\n"): (typeof documents)["\n  subscription ClusterSchedule($id: ClusterID!) {\n    clusterScheduleWatch(id: $id) {\n      nextRequeueAt\n      probing\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  subscription ClusterDataRate($id: ClusterID!) {\n    clusterDataRateWatch(id: $id) {\n      receivedBytesPerSecond\n      sentBytesPerSecond\n    }\n  }\n"): (typeof documents)["\n  subscription ClusterDataRate($id: ClusterID!) {\n    clusterDataRateWatch(id: $id) {\n      receivedBytesPerSecond\n      sentBytesPerSecond\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

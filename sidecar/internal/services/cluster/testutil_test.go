@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -100,6 +101,9 @@ type fakeKubeconn struct {
 	retryErr error
 	// connErr is what every claim's Conn answers, for a fleet nothing reached.
 	connErr error
+	// conn, when set, is what every claim's Conn hands back. Atomic, since a test replaces it
+	// while a gauge reads it.
+	conn atomic.Pointer[kubeconn.Connection]
 	// releases, when set, fires each release's context, so a test can wait for one.
 	releases *testutil.Probe[string]
 }
@@ -148,12 +152,15 @@ type fakeLease struct {
 	departed bool
 }
 
-// Conn hands back an empty connection, since the only pass that takes one reaches the
-// server through a seam of its own. connErr is what a claim on a cluster nothing reached
-// would answer.
+// Conn hands back the pool's conn, or an empty connection, since the only pass that takes
+// one reaches the server through a seam of its own. connErr is what a claim on a cluster
+// nothing reached would answer.
 func (l *fakeLease) Conn(context.Context) (*kubeconn.Connection, error) {
 	if l.connErr != nil {
 		return nil, l.connErr
+	}
+	if conn := l.svc.conn.Load(); conn != nil {
+		return conn, nil
 	}
 	return &kubeconn.Connection{}, nil
 }

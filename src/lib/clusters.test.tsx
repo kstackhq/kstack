@@ -28,7 +28,7 @@ const { invokeMock, channels, channelFor, factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
 
 const { createGraphqlClient } = await import('@/lib/graphql/client');
-const { formatBytes, ClustersProvider, useClusters } = await import('./clusters');
+const { formatBytes, formatRate, ClustersProvider, useClusters } = await import('./clusters');
 
 // Helpers -------------------------------------------------------------
 
@@ -136,6 +136,23 @@ function renderProvider(probe: React.ReactNode = <Probe />) {
     </UrqlProvider>,
   );
 }
+
+// formatRate ----------------------------------------------------------
+
+describe('formatRate', () => {
+  it('renders an idle connection as zero, not a dash', () => {
+    expect(formatRate(0)).toBe('0 B/s');
+  });
+
+  it('rounds bytes below 1 KiB to whole bytes', () => {
+    expect(formatRate(512.4)).toBe('512 B/s');
+  });
+
+  it('scales as formatBytes does', () => {
+    expect(formatRate(10 * 1024)).toBe('10.0 KB/s');
+    expect(formatRate(2.5 * 1024 ** 2)).toBe('2.5 MB/s');
+  });
+});
 
 // formatBytes ---------------------------------------------------------
 

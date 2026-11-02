@@ -40,7 +40,9 @@ const flush = () => act(async () => {});
 type Row = {
   uuid: string; // '' = pending (the UID probe never succeeded → server.uid null)
   name: string;
-  enabled: boolean;
+  enabled: boolean; // the sync toggle
+  // The cluster's own switch, off: nothing connects. Defaults to on.
+  disabled?: boolean;
   present: boolean;
   isCurrent?: boolean;
   lastUpdateAt?: string;
@@ -144,7 +146,7 @@ function pushClusters(rows: Row[]) {
                 spec: {
                   name: r.name,
                   syncEnabled: r.enabled,
-                  enabled: true,
+                  enabled: !r.disabled,
                   source: { kubeconfig: { context: r.name } },
                 },
                 status: {
@@ -866,6 +868,36 @@ describe('ClusterSyncPanel', () => {
       'graphql_query',
       expect.objectContaining({ body: expect.stringContaining('clusterConnectionRetry') }),
     );
+  });
+
+  it('shows the connection’s data rate once the gauge has measured it', async () => {
+    const user = await openWith([{ uuid: 'u-prod', name: 'prod-us', enabled: true, present: true, connected: 'True' }]);
+    await user.click(await screen.findByRole('button', { name: 'Active' }));
+
+    // The first value arrives an interval after subscribing; until then there is no reading.
+    const row = screen.getByText('Data rate').parentElement!;
+    expect(row).toHaveTextContent('Data rate—');
+
+    await act(async () => {
+      channelFor('clusterDataRateWatch').onmessage!(
+        JSON.stringify({
+          type: 'next',
+          payload: { data: { clusterDataRateWatch: { receivedBytesPerSecond: 2048, sentBytesPerSecond: 0 } } },
+        }),
+      );
+    });
+    expect(row).toHaveTextContent('↓ 2.0 KB/s · ↑ 0 B/s');
+  });
+
+  // The sidecar refuses a disabled cluster's gauge, and that refusal would reach the error bus.
+  it('asks no data rate of a disabled cluster', async () => {
+    const user = await openWith([
+      { uuid: '', name: 'minikube', enabled: false, disabled: true, present: true, connected: 'Unknown' },
+    ]);
+    await user.click(await screen.findByRole('button', { name: 'Connecting' }));
+
+    expect(screen.getByText('Data rate').parentElement).toHaveTextContent('Data rate—');
+    expect(() => channelFor('clusterDataRateWatch')).toThrow();
   });
 
   // The mutation resolves when the probe it asked for has finished, so the button binds to

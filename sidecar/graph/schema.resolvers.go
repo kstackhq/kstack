@@ -611,6 +611,20 @@ func (r *subscriptionResolver) ClusterScheduleWatch(ctx context.Context, id apim
 	return ptrStream(ctx, ch), nil
 }
 
+// ClusterDataRateWatch is the resolver for the clusterDataRateWatch field. The service holds
+// the interval to its range; an absent one is zero, which it reads as the default.
+func (r *subscriptionResolver) ClusterDataRateWatch(ctx context.Context, id apimeta.ClusterID, interval *int) (<-chan *cluster.ClusterDataRate, error) {
+	var every time.Duration
+	if interval != nil {
+		every = time.Duration(*interval) * time.Second
+	}
+	ch, err := r.ClusterSvc.Clusters().WatchDataRate(ctx, id, every)
+	if err != nil {
+		return nil, err
+	}
+	return ptrStream(ctx, ch), nil
+}
+
 // ClusterCachesWatch is the resolver for the clusterCachesWatch field — cache
 // records as a delta watch parallel to clustersWatch, joined to clusters
 // client-side by clusterID.

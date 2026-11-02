@@ -105,6 +105,21 @@ type Connection struct {
 	// reads as never retired.
 	done chan struct{}
 	once sync.Once
+
+	// counts is fed by the dialer under every client built from Config. Its own allocation:
+	// client-go's transport cache keys on the dialer, which must not keep the connection alive.
+	// Nil in a connection nobody built.
+	counts *byteCounts
+}
+
+// Bytes is the wire bytes this connection has received and sent since it was built: TLS
+// ciphertext, headers and framing included. Every socket dialed from Config counts, so an
+// upgraded stream (exec, port-forward) does too.
+func (c *Connection) Bytes() (received, sent uint64) {
+	if c.counts == nil {
+		return 0, 0
+	}
+	return c.counts.received.Load(), c.counts.sent.Load()
 }
 
 // connSeq numbers the connections this process builds. Only ever compared, never read as
@@ -210,11 +225,14 @@ func NewConnection(cfg *rest.Config) (*Connection, error) {
 // and this one is not — the host is already parsed and the rate limiter is ours to set, so
 // nothing a kubeconfig can say reaches it.
 func newConnection(cfg *rest.Config, newDynamic dynamicBuilder) (*Connection, error) {
+	conn := &Connection{seq: connSeq.Add(1), done: make(chan struct{}), counts: &byteCounts{}}
+
 	// A copy, because the tuning below is ours and the caller's config is not.
 	own := rest.CopyConfig(cfg)
 	own.QPS = defaultQPS
 	own.Burst = defaultBurst
 	own.UserAgent = userAgent
+	own.Dial = newCountingDialer(conn.counts)
 	own.Wrap(newIdleTimeoutWrapper(listIdleTimeout))
 
 	// DefaultServerUrlFor rather than DefaultServerURL: it derives the scheme from whether the
@@ -235,15 +253,12 @@ func newConnection(cfg *rest.Config, newDynamic dynamicBuilder) (*Connection, er
 		return nil, fmt.Errorf("build dynamic client: %w", err)
 	}
 
-	return &Connection{
-		Config:     own,
-		BaseURL:    baseURL,
-		APIPath:    apiPath,
-		HTTPClient: httpClient,
-		Dynamic:    dyn,
-		seq:        connSeq.Add(1),
-		done:       make(chan struct{}),
-	}, nil
+	conn.Config = own
+	conn.BaseURL = baseURL
+	conn.APIPath = apiPath
+	conn.HTTPClient = httpClient
+	conn.Dynamic = dyn
+	return conn, nil
 }
 
 // Done closes when this connection is retired: the credentials moved, or the last claim on the

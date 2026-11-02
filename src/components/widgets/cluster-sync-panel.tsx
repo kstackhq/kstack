@@ -35,6 +35,7 @@ import {
   applyChange,
   displayName,
   formatBytes,
+  formatRate,
   useClusters,
 } from '@/lib/clusters';
 import { type AppDialogProps } from '@/lib/dialog';
@@ -570,6 +571,28 @@ function EventRunList({
   );
 }
 
+// The connection's data rate as a gauge: each frame replaces the last. The sidecar sends a
+// value one interval after subscribing and then only when it moved, so null until then.
+// Paused for a disabled cluster, which the sidecar refuses rather than reads as idle.
+const ClusterDataRateSubscription = graphql(`
+  subscription ClusterDataRate($id: ClusterID!) {
+    clusterDataRateWatch(id: $id) {
+      receivedBytesPerSecond
+      sentBytesPerSecond
+    }
+  }
+`);
+
+type DataRate = { receivedBytesPerSecond: number; sentBytesPerSecond: number };
+
+function useDataRate(clusterId: string, pause: boolean): DataRate | null {
+  const { data } = useWatchSubscription<{ clusterDataRateWatch: DataRate }, DataRate>(
+    { query: ClusterDataRateSubscription, variables: { id: clusterId }, pause },
+    perFrame((_prev, resp) => resp.clusterDataRateWatch),
+  );
+  return data ?? null;
+}
+
 // Expanded connection diagnostics + Retry-now. In the dialog it is inline, not a
 // popover: the modal dialog inerts everything outside its subtree, so a body-portaled
 // popover would be unclickable.
@@ -577,6 +600,7 @@ export function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; co
   const detail = connectionDetail(cluster);
   const attempts = useConnectionAttempts(cluster.id);
   const { atMs: nextAttemptAtMs, probing } = useNextCheck(cluster.id);
+  const rate = useDataRate(cluster.id, !cluster.spec.enabled);
   // The mutation resolves when the probe it asked for has finished, so `fetching` IS the
   // answer to "is my re-probe still out" — no timer, and the button agrees with the
   // "checking…" above because both follow the same run. Per row rather than per panel: one
@@ -612,6 +636,12 @@ export function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; co
           }
           formatter={countdownFormatter}
         />
+        <div className="flex gap-2">
+          <dt className="w-28 shrink-0">Data rate</dt>
+          <dd className="tabular-nums">
+            {rate ? `↓ ${formatRate(rate.receivedBytesPerSecond)} · ↑ ${formatRate(rate.sentBytesPerSecond)}` : '—'}
+          </dd>
+        </div>
       </dl>
       <EventRunList title="Recent attempts" runs={attempts} labelOf={(a) => (a.ok ? 'Success' : a.reason)} />
       {/* Force an immediate re-probe (reset backoff). */}

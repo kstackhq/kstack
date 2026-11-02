@@ -1,7 +1,7 @@
 # internal/services/cluster — the cluster subsystem
 
 One file per family (`clusters.go`, `caches.go`, `cachedkinds.go`, `cacheddata.go`), plus
-`mirror.go`, `stream.go`, `events.go`, and private leaves `internal/kubeconn`, `kubesync`,
+`mirror.go`, `stream.go`, `events.go`, `datarate.go`, and private leaves `internal/kubeconn`, `kubesync`,
 `kubestore`. **Leaves speak native vocabulary, never records**; put mechanism in a leaf. → [ADR:
 one package over private
 leaves](../../../../docs/adr/2026-09-30-the-cluster-service-is-one-package-over-private-leaves.md).
@@ -70,6 +70,10 @@ within a timeline only. → [ADR: event timelines](../../../../docs/adr/2026-09-
   `WatchList`. Only the `Deleted` is promised.
 - Gauges are current-on-subscribe, no `Bookmark`. → [ADR: cache health
   fold](../../../../docs/adr/2026-09-02-cache-health-fold.md).
+- The data-rate gauge (`datarate.go`, `Clusters().WatchDataRate`) samples `Connection.Bytes` once per interval
+  (1s–60s, default 2s) through its own claim, reading whichever connection the claim holds. Its
+  first value is one interval in; a replaced or missing connection reads as zero. Ticks come from
+  `service.newTicker`, which a test drives by hand.
 - A cache at its size ceiling stops syncing, held by its record's condition; nothing evicts. →
   [ADR: a stopped cache is held by its
   record](../../../../docs/adr/2026-09-03-a-stopped-cache-is-held-by-its-record.md).
@@ -105,6 +109,11 @@ per context](../../../../docs/adr/2026-08-23-one-connection-per-context.md).
 - `Acquire` never fails or waits; `Conn` never dials.
 - `RetryAndWait` returns once the probe it asked for ran. → [ADR: retry resolves with its
   probe](../../../../docs/adr/2026-08-30-retry-resolves-with-its-probe.md).
+- **Every connection counts its wire bytes** (`bytecount.go`, `Connection.Bytes`): a counting
+  dialer set as the `rest.Config`'s `Dial`, under every transport client-go builds from it, so an
+  open watch counts as it streams and an upgraded stream (exec, port-forward) counts too. TLS
+  ciphertext, headers and framing included. Live only: nothing is persisted, and a new connection
+  counts from zero.
 - Every non-stream request has an idle-read bound, never a deadline. → [ADR: idle-read
   bound](../../../../docs/adr/2026-09-02-idle-read-bound.md).
 - `WatchState` delivers nothing on attach — pair it with `State()`. Every value is a level.

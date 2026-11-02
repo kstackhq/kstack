@@ -285,6 +285,11 @@ type ComplexityRoot struct {
 		Type func(childComplexity int) int
 	}
 
+	ClusterDataRate struct {
+		ReceivedBytesPerSecond func(childComplexity int) int
+		SentBytesPerSecond     func(childComplexity int) int
+	}
+
 	ClusterPermissions struct {
 		Incomplete       func(childComplexity int) int
 		Namespace        func(childComplexity int) int
@@ -817,6 +822,7 @@ type ComplexityRoot struct {
 		ClusterCachedDataObjectsWatch func(childComplexity int, id apimeta.ClusterID, cacheID apimeta.ObjectID, apiVersion string, resource string) int
 		ClusterCachedKindsWatch       func(childComplexity int, cacheID apimeta.ObjectID) int
 		ClusterCachesWatch            func(childComplexity int) int
+		ClusterDataRateWatch          func(childComplexity int, id apimeta.ClusterID, interval *int) int
 		ClusterEventsWatch            func(childComplexity int, id apimeta.ClusterID, category *string) int
 		ClusterScheduleWatch          func(childComplexity int, id apimeta.ClusterID) int
 		ClustersWatch                 func(childComplexity int) int
@@ -970,6 +976,7 @@ type SubscriptionResolver interface {
 	ClustersWatch(ctx context.Context) (<-chan *cluster.ClusterWatchFrame, error)
 	ClusterEventsWatch(ctx context.Context, id apimeta.ClusterID, category *string) (<-chan *cluster.EventWatchFrame, error)
 	ClusterScheduleWatch(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.Schedule, error)
+	ClusterDataRateWatch(ctx context.Context, id apimeta.ClusterID, interval *int) (<-chan *cluster.ClusterDataRate, error)
 	ClusterCachesWatch(ctx context.Context) (<-chan *cluster.ClusterCacheWatchFrame, error)
 	ClusterCacheHealthWatch(ctx context.Context) (<-chan *cluster.ClusterCacheHealth, error)
 	ClusterCachedKindsWatch(ctx context.Context, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedKindWatchFrame, error)
@@ -1934,6 +1941,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ClusterCachedKindWatchFrame.Type(childComplexity), true
+
+	case "ClusterDataRate.receivedBytesPerSecond":
+		if e.ComplexityRoot.ClusterDataRate.ReceivedBytesPerSecond == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ClusterDataRate.ReceivedBytesPerSecond(childComplexity), true
+	case "ClusterDataRate.sentBytesPerSecond":
+		if e.ComplexityRoot.ClusterDataRate.SentBytesPerSecond == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ClusterDataRate.SentBytesPerSecond(childComplexity), true
 
 	case "ClusterPermissions.incomplete":
 		if e.ComplexityRoot.ClusterPermissions.Incomplete == nil {
@@ -4247,6 +4267,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.ClusterCachesWatch(childComplexity), true
+	case "Subscription.clusterDataRateWatch":
+		if e.ComplexityRoot.Subscription.ClusterDataRateWatch == nil {
+			break
+		}
+
+		args, err := ec.field_Subscription_clusterDataRateWatch_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Subscription.ClusterDataRateWatch(childComplexity, args["id"].(apimeta.ClusterID), args["interval"].(*int)), true
 	case "Subscription.clusterEventsWatch":
 		if e.ComplexityRoot.Subscription.ClusterEventsWatch == nil {
 			break
@@ -5111,6 +5142,16 @@ func (ec *executionContext) childFields_ClusterCachedKindWatchFrame(ctx context.
 		return ec.fieldContext_ClusterCachedKindWatchFrame_kind(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ClusterCachedKindWatchFrame", field.Name)
+}
+
+func (ec *executionContext) childFields_ClusterDataRate(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "receivedBytesPerSecond":
+		return ec.fieldContext_ClusterDataRate_receivedBytesPerSecond(ctx, field)
+	case "sentBytesPerSecond":
+		return ec.fieldContext_ClusterDataRate_sentBytesPerSecond(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ClusterDataRate", field.Name)
 }
 
 func (ec *executionContext) childFields_ClusterPermissions(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -7248,6 +7289,28 @@ func (ec *executionContext) field_Subscription_clusterCachedKindsWatch_args(ctx 
 		return nil, err
 	}
 	args["cacheID"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Subscription_clusterDataRateWatch_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "interval",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["interval"] = arg1
 	return args, nil
 }
 
@@ -11122,6 +11185,52 @@ func (ec *executionContext) fieldContext_ClusterCachedKindWatchFrame_kind(_ cont
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _ClusterDataRate_receivedBytesPerSecond(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterDataRate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ClusterDataRate_receivedBytesPerSecond(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ReceivedBytesPerSecond, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ClusterDataRate_receivedBytesPerSecond(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterDataRate", field, false, false, "Float")
+}
+
+func (ec *executionContext) _ClusterDataRate_sentBytesPerSecond(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterDataRate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ClusterDataRate_sentBytesPerSecond(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SentBytesPerSecond, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ClusterDataRate_sentBytesPerSecond(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterDataRate", field, false, false, "Float")
 }
 
 func (ec *executionContext) _ClusterPermissions_namespace(ctx context.Context, field graphql.CollectedField, obj *model.ClusterPermissions) (ret graphql.Marshaler) {
@@ -20189,6 +20298,50 @@ func (ec *executionContext) fieldContext_Subscription_clusterScheduleWatch(ctx c
 	return fc, nil
 }
 
+func (ec *executionContext) _Subscription_clusterDataRateWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_clusterDataRateWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Subscription().ClusterDataRateWatch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["interval"].(*int))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterDataRate) graphql.Marshaler {
+			return ec.marshalNClusterDataRate2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterDataRate(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_clusterDataRateWatch(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ClusterDataRate(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Subscription_clusterDataRateWatch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Subscription_clusterCachesWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
 	return graphql.ResolveFieldStream(
 		ctx,
@@ -24994,6 +25147,44 @@ func (ec *executionContext) _ClusterCachedKindWatchFrame(ctx context.Context, se
 	return out
 }
 
+var clusterDataRateImplementors = []string{"ClusterDataRate"}
+
+func (ec *executionContext) _ClusterDataRate(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterDataRate) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, clusterDataRateImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ClusterDataRate")
+		case "receivedBytesPerSecond":
+			out.Values[i] = ec._ClusterDataRate_receivedBytesPerSecond(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sentBytesPerSecond":
+			out.Values[i] = ec._ClusterDataRate_sentBytesPerSecond(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
 var clusterPermissionsImplementors = []string{"ClusterPermissions"}
 
 func (ec *executionContext) _ClusterPermissions(ctx context.Context, sel ast.SelectionSet, obj *model.ClusterPermissions) graphql.Marshaler {
@@ -28577,6 +28768,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_clusterEventsWatch(ctx, fields[0])
 	case "clusterScheduleWatch":
 		return ec._Subscription_clusterScheduleWatch(ctx, fields[0])
+	case "clusterDataRateWatch":
+		return ec._Subscription_clusterDataRateWatch(ctx, fields[0])
 	case "clusterCachesWatch":
 		return ec._Subscription_clusterCachesWatch(ctx, fields[0])
 	case "clusterCacheHealthWatch":
@@ -29781,6 +29974,14 @@ func (ec *executionContext) marshalNClusterCachedKindWatchFrame2ᚖgithubᚗcom�
 	return ec._ClusterCachedKindWatchFrame(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNClusterDataRate2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterDataRate(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterDataRate) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "ClusterDataRate!")
+		return graphql.Null
+	}
+	return ec._ClusterDataRate(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx context.Context, v any) (apimeta.ClusterID, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := apimeta.ClusterID(tmp)
@@ -29974,6 +30175,20 @@ func (ec *executionContext) marshalNEventWatchFrame2ᚖgithubᚗcomᚋkstackhq�
 		return graphql.Null
 	}
 	return ec._EventWatchFrame(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNFloat2float64(ctx context.Context, v any) (float64, error) {
+	res, err := graphql.UnmarshalFloatContext(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.SelectionSet, v float64) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalFloatContext(v)
+	if res == graphql.Null {
+		graphql.AddInvalidNullFromMarshaler(ctx, "Float!")
+	}
+	return graphql.WrapContextMarshaler(ctx, res)
 }
 
 func (ec *executionContext) unmarshalNGrantDuration2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐGrantDuration(ctx context.Context, v any) (model.GrantDuration, error) {

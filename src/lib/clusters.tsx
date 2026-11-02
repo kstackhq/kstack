@@ -283,3 +283,12 @@ export function formatBytes(bytes: number): string {
   if (bytes < GB) return `${(bytes / MB).toFixed(1)} MB`;
   return `${(bytes / GB).toFixed(1)} GB`;
 }
+
+/**
+ * A data rate in bytes per second, in formatBytes' units. Zero is "0 B/s": an idle
+ * connection is an answer, not a missing one.
+ */
+export function formatRate(bytesPerSecond: number): string {
+  if (bytesPerSecond < KB) return `${Math.round(bytesPerSecond)} B/s`;
+  return `${formatBytes(bytesPerSecond)}/s`;
+}
