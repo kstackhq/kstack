@@ -128,8 +128,7 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 	}
 	defer g.writeLock.Release(1)
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWriteBody))
-	var tooLarge *http.MaxBytesError
-	if errors.As(err, &tooLarge) {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		writeStatus(w, http.StatusForbidden, string(refusedTooLarge))
 		return
 	}

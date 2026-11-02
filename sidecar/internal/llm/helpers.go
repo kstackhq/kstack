@@ -206,8 +206,7 @@ func openAIFailure(ctx context.Context, providerID string, err error) error {
 	if ctx.Err() != nil {
 		return context.Cause(ctx)
 	}
-	var api *openai.Error
-	if errors.As(err, &api) {
+	if api, ok := errors.AsType[*openai.Error](err); ok {
 		return ResponseError(providerID, api.StatusCode, openAIErrorType(api.Type), openAICode(api.Code))
 	}
 	if noResponse(err) {

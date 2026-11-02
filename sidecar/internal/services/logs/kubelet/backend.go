@@ -99,8 +99,7 @@ func FatalError(err error) error {
 	if FailureKind(err) != FailFatal {
 		return nil
 	}
-	var se *StatusError
-	if errors.As(err, &se) {
+	if se, ok := errors.AsType[*StatusError](err); ok {
 		return refusal.New(refusal.CodeUnauthorized, "the cluster refused to show this log: "+se.Error())
 	}
 	return ErrRevoked

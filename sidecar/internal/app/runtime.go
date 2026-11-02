@@ -98,8 +98,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	if err != nil {
 		_ = sb.Close()
 		// This text reaches the user: a newer file names itself and both versions.
-		var newer *sqlitemigrate.NewerSchemaError
-		if errors.As(err, &newer) {
+		if newer, ok := errors.AsType[*sqlitemigrate.NewerSchemaError](err); ok {
 			return nil, fmt.Errorf("app.db was written by a newer Kstack (schema %d; this build reads up to %d)", newer.Recorded, newer.Supported)
 		}
 		return nil, fmt.Errorf("open app database: %w", err)

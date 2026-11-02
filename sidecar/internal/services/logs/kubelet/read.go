@@ -228,8 +228,7 @@ func (r *reader) forward() error {
 		err = errShort
 	}
 	r.edge, r.Oldest = read.last, read.Oldest
-	var loud LoudSecond
-	if errors.As(err, &loud) {
+	if loud, ok := errors.AsType[LoudSecond](err); ok {
 		// The page is cut at the loud second's last nanosecond: past what the read took
 		// of it.
 		r.edge = logline.MomentAt(loud.At.Add(time.Second - 1))
@@ -246,8 +245,7 @@ func (r *reader) forward() error {
 // read stops it, and the page is cut at that second's top.
 func (r *reader) backward() error {
 	err := r.windows()
-	var loud LoudSecond
-	if errors.As(err, &loud) {
+	if loud, ok := errors.AsType[LoudSecond](err); ok {
 		r.edge = logline.MomentAt(loud.At)
 	}
 	return err

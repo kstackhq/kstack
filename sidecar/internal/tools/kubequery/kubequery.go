@@ -163,8 +163,7 @@ func renderFailed(err error) string {
 // refusal is a bad input as the model reads it: the field, never its value.
 func refusal(err error) string {
 	out := map[string]string{"error": "bad-input"}
-	var ie *inputError
-	if errors.As(err, &ie) {
+	if ie, ok := errors.AsType[*inputError](err); ok {
 		if ie.field != "" {
 			out["field"] = ie.field
 		}

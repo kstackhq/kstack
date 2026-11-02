@@ -116,8 +116,7 @@ func refusedBy(err error) error {
 		return err
 	}
 	out := &Refused{Code: r.Code, Source: -1}
-	var unmirrored refusal.Unmirrored
-	if errors.As(err, &unmirrored) {
+	if unmirrored, ok := errors.AsType[refusal.Unmirrored](err); ok {
 		out.Source = unmirrored.Source
 	}
 	return out

@@ -133,8 +133,7 @@ func (f fieldError) Error() string { return "agent input: bad " + string(f) }
 // refusal is the result a refused input answers: the field at fault when there
 // is one, never its value.
 func refusal(err error) string {
-	var f fieldError
-	if errors.As(err, &f) {
+	if f, ok := errors.AsType[fieldError](err); ok {
 		return `{"error":"bad-input","field":"` + string(f) + `"}`
 	}
 	return `{"error":"bad-input"}`

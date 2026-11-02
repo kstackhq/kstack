@@ -600,8 +600,7 @@ func exitCode(err error) int {
 	if err == nil {
 		return 0
 	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
+	if exit, ok := errors.AsType[*exec.ExitError](err); ok {
 		return exit.ExitCode()
 	}
 	return -1

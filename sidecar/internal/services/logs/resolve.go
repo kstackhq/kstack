@@ -147,9 +147,8 @@ func resolve(ctx context.Context, svc cluster.Service, id cluster.ClusterID, sco
 	err := svc.CachedData().ReadActive(ctx, id, maxRows, maxBytes, func(q cluster.CacheReading, active cluster.ActiveCluster) error {
 		r := reading{q}
 		streams, states, uids, err := r.streamsOf(scope)
-		var noNodes refusal.NoNodes
 		var deferred error
-		if errors.As(err, &noNodes) {
+		if _, ok := errors.AsType[refusal.NoNodes](err); ok {
 			// The file's rows of a gone pod may still hold the filter's place.
 			deferred, err = err, nil
 		}

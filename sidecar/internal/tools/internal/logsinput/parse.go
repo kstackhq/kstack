@@ -182,8 +182,7 @@ func parseSource(w walker, i int) (Source, error) {
 		return &InputError{Source: i}
 	})
 	if err != nil {
-		var ie *InputError
-		if errors.As(err, &ie) {
+		if ie, ok := errors.AsType[*InputError](err); ok {
 			ie.Source = i
 		}
 		return Source{}, err

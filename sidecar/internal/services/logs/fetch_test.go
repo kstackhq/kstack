@@ -5320,8 +5320,7 @@ func (w *world) page() {
 	}
 	q.PageSize = 1 + w.rng.Intn(20)
 	page, err := w.svc.Fetch(w.t.Context(), "7", q)
-	var refused refusal.Refusal
-	if errors.As(err, &refused) {
+	if refused, ok := errors.AsType[refusal.Refusal](err); ok {
 		require.NotEmpty(w.t, refused.Code, "every refusal names its code")
 		return
 	}

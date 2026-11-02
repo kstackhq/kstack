@@ -560,8 +560,7 @@ func (w messagesWire) failure(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return context.Cause(ctx)
 	}
-	var api *anthropic.Error
-	if errors.As(err, &api) {
+	if api, ok := errors.AsType[*anthropic.Error](err); ok {
 		// An error event that was not the API's shape has no type: unreadable.
 		if api.Type() == "" {
 			return ReadError(w.providerID)

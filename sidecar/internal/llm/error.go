@@ -114,8 +114,7 @@ func kindOf(err error) string {
 // what is inside that decides: a response the client could not parse is wrapped
 // the same way and carries the response's bytes in its text.
 func noResponse(err error) bool {
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
 		err = urlErr.Err
 	}
 	var netErr net.Error
