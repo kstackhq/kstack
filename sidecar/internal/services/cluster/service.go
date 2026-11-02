@@ -192,9 +192,9 @@ type Clusters interface {
 	// Refuses the records AcquireConnection refuses: an unprobed cluster has no
 	// cadence.
 	WatchSchedule(ctx context.Context, id ClusterID) (<-chan Schedule, error)
-	// WatchDataRate streams the rate of a cluster's connection, sampled once per interval
-	// (held to 1s–60s; zero or less is the default). Refuses what WatchSchedule refuses.
-	WatchDataRate(ctx context.Context, id ClusterID, interval time.Duration) (<-chan ClusterDataRate, error)
+	// WatchDataRate streams the rate of a cluster's connection as a series: the pool's last
+	// samples, then each new one. Refuses what WatchSchedule refuses.
+	WatchDataRate(ctx context.Context, id ClusterID) (<-chan ClusterDataRateSeriesFrame, error)
 	// SetEnabled enables or disables a cluster and returns the updated record.
 	SetEnabled(ctx context.Context, id ClusterID, enabled bool) (*Cluster, error)
 	// SetSyncEnabled toggles a cluster's sync and returns the updated record.
@@ -441,8 +441,6 @@ type service struct {
 	// a change signal would go quiet exactly when it is healthy. A parameter so a test
 	// picks its own timescale.
 	gaugeCadence time.Duration
-	// newTicker paces the data-rate gauge; a test drives the ticks by hand.
-	newTicker func(time.Duration) (<-chan time.Time, func())
 }
 
 // beehiveRuntime gives beehive the lifecycle.StartCloser shape. Start already matches; the
@@ -541,7 +539,7 @@ func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *po
 	parts = append(parts, lifecycle.Part{Name: "cluster mirror", StartCloser: newClusterMirror(d, mirrorResyncInterval, mirrorRewatchDelay, mirrorPassRetry)})
 	parts = append(parts, restartSyncsOnResume(kubesyncSvc, pokeSvc))
 
-	return &service{deps: d, now: time.Now, parts: parts, gaugeCadence: defaultGaugeCadence, newTicker: newTicker}, nil
+	return &service{deps: d, now: time.Now, parts: parts, gaugeCadence: defaultGaugeCadence}, nil
 }
 
 // clusterSourceBootstrap creates the discovery anchors once beehive is up. A Part

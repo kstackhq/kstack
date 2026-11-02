@@ -129,8 +129,11 @@ models:
   ClusterWatchFrame:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterWatchFrame
 
-  ClusterDataRate:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterDataRate
+  ClusterDataRateSeriesFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterDataRateSeriesFrame
+
+  ClusterDataRateSample:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterDataRateSample
 
   ClusterCacheWatchFrame:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheWatchFrame

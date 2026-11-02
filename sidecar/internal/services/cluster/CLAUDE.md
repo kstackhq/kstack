@@ -70,10 +70,10 @@ within a timeline only. → [ADR: event timelines](../../../../docs/adr/2026-09-
   `WatchList`. Only the `Deleted` is promised.
 - Gauges are current-on-subscribe, no `Bookmark`. → [ADR: cache health
   fold](../../../../docs/adr/2026-09-02-cache-health-fold.md).
-- The data-rate gauge (`datarate.go`, `Clusters().WatchDataRate`) samples `Connection.Bytes` once per interval
-  (1s–60s, default 2s) through its own claim, reading whichever connection the claim holds. Its
-  first value is one interval in; a replaced or missing connection reads as zero. Ticks come from
-  `service.newTicker`, which a test drives by hand.
+- The data-rate series (`datarate.go`, `Clusters().WatchDataRate`) streams the pool's ring
+  through its own claim: it subscribes to `Lease.WatchDataRates`, sends `Lease.DataRates` whole
+  (even empty), then on each nudge the samples numbered above the last one sent. → [ADR: a series
+  is a third kind of stream](../../../../docs/adr/2026-11-02-a-series-is-a-third-kind-of-stream-and-the-pool-owns-its-clock.md).
 - A cache at its size ceiling stops syncing, held by its record's condition; nothing evicts. →
   [ADR: a stopped cache is held by its
   record](../../../../docs/adr/2026-09-03-a-stopped-cache-is-held-by-its-record.md).
@@ -114,6 +114,13 @@ per context](../../../../docs/adr/2026-08-23-one-connection-per-context.md).
   open watch counts as it streams and an upgraded stream (exec, port-forward) counts too. TLS
   ciphertext, headers and framing included. Live only: nothing is persisted, and a new connection
   counts from zero.
+- **The pool samples every connection on one clock** (`datarate.go`): one ticker every
+  `DataRateInterval`, run by `Start`, reads each claimed entry's `conn` outside `mu` and appends a
+  sample to the entry's ring under it, skipping an entry no longer claimed. The ring holds
+  `DataRateWindow ÷ DataRateInterval` samples, numbered from 1 for the entry's life; readers
+  compare numbers, never times. A replaced or missing connection samples zero; the first tick
+  only records. `Lease.DataRates` reads the ring; `Lease.WatchDataRates` is a nudge on its own hub,
+  keyed by context, and the caller closes it. A stored `At` keeps its monotonic reading.
 - Every non-stream request has an idle-read bound, never a deadline. → [ADR: idle-read
   bound](../../../../docs/adr/2026-09-02-idle-read-bound.md).
 - `WatchState` delivers nothing on attach — pair it with `State()`. Every value is a level.

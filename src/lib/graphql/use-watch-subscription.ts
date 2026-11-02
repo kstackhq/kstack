@@ -109,6 +109,28 @@ export function perFrame<Data, Result>(
   return (prev, frames) => frames.slice(1).reduce<Result>(step, step(prev, frames[0]));
 }
 
+// One frame of a series: the whole retained window first, then the points since.
+export type SeriesFrame<Point> = { intervalSeconds: number; windowSeconds: number; samples: Point[] };
+
+// How many points a series holds: its window at its interval, and never fewer than one, so a
+// chart and the fold agree on the count.
+export function seriesSlots({ intervalSeconds, windowSeconds }: SeriesFrame<unknown>): number {
+  return Math.max(1, Math.floor(windowSeconds / intervalSeconds));
+}
+
+// The fold every series shares: append each frame's points and keep the last seriesSlots.
+// It reads no timestamps, so a wall clock that steps cannot drop or reorder a point. The
+// first frame folds to a series even when empty, which is how a reader tells "empty" from
+// "not yet".
+export function seriesReducer<Data, Point>(
+  frameOf: (data: Data) => SeriesFrame<Point>,
+): WatchReducer<Data, SeriesFrame<Point>> {
+  return perFrame((prev, data) => {
+    const frame = frameOf(data);
+    return { ...frame, samples: [...(prev?.samples ?? []), ...frame.samples].slice(-seriesSlots(frame)) };
+  });
+}
+
 export function useWatchSubscription<Data, Result, Variables extends AnyVariables = AnyVariables>(
   args: UseSubscriptionArgs<Variables, Data>,
   reduce: WatchReducer<Data, Result>,

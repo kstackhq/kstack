@@ -18,7 +18,7 @@ import { useState } from 'react';
 import { Provider as UrqlProvider } from 'urql';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
-import { flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
+import { clusterRecord, flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
 
 // Mocks ---------------------------------------------------------------
 
@@ -30,12 +30,29 @@ vi.mock('@tauri-apps/api/core', () => factory());
 
 const { createGraphqlClient } = await import('@/lib/graphql/client');
 const { ClustersProvider } = await import('@/lib/clusters');
-const { ClusterSyncPanel } = await import('./cluster-sync-panel');
+const { ClusterSyncPanel, ConnectionDetail } = await import('./cluster-sync-panel');
 const { onError } = await import('@/lib/error-bus');
 
 // Helpers -------------------------------------------------------------
 
 const flush = () => act(async () => {});
+
+// One data-rate sample, and a frame of the series carrying samples.
+const rate = (received: number, sent: number) => ({
+  at: '2026-11-02T12:00:00Z',
+  receivedBytesPerSecond: received,
+  sentBytesPerSecond: sent,
+});
+const rateWindow = (...samples: ReturnType<typeof rate>[]) =>
+  JSON.stringify({
+    type: 'next',
+    payload: { data: { clusterDataRateWatch: { intervalSeconds: 2, windowSeconds: 120, samples } } },
+  });
+
+const subscriptionsTo = (field: string) =>
+  invokeMock.mock.calls.filter(
+    ([cmd, arg]) => cmd === 'graphql_subscribe' && (arg as { query: string }).query.includes(field),
+  ).length;
 
 type Row = {
   uuid: string; // '' = pending (the UID probe never succeeded → server.uid null)
@@ -870,23 +887,56 @@ describe('ClusterSyncPanel', () => {
     );
   });
 
-  it('shows the connection’s data rate once the gauge has measured it', async () => {
+  it('shows the newest sample of the connection’s data rate', async () => {
     const user = await openWith([{ uuid: 'u-prod', name: 'prod-us', enabled: true, present: true, connected: 'True' }]);
     await user.click(await screen.findByRole('button', { name: 'Active' }));
 
-    // The first value arrives an interval after subscribing; until then there is no reading.
+    // Nothing is known until the window arrives.
     const row = screen.getByText('Data rate').parentElement!;
     expect(row).toHaveTextContent('Data rate—');
 
     await act(async () => {
-      channelFor('clusterDataRateWatch').onmessage!(
-        JSON.stringify({
-          type: 'next',
-          payload: { data: { clusterDataRateWatch: { receivedBytesPerSecond: 2048, sentBytesPerSecond: 0 } } },
-        }),
-      );
+      channelFor('clusterDataRateWatch').onmessage!(rateWindow(rate(512, 64), rate(2048, 0)));
     });
     expect(row).toHaveTextContent('↓ 2.0 KB/s · ↑ 0 B/s');
+    // The window draws at once, beside the numbers.
+    expect(row.querySelectorAll('svg polyline')).toHaveLength(2);
+  });
+
+  // A connection idle since the sidecar started has an empty window, which is an answer.
+  it('shows no rate for an empty window', async () => {
+    const user = await openWith([{ uuid: 'u-prod', name: 'prod-us', enabled: true, present: true, connected: 'True' }]);
+    await user.click(await screen.findByRole('button', { name: 'Active' }));
+
+    await act(async () => {
+      channelFor('clusterDataRateWatch').onmessage!(rateWindow());
+    });
+    expect(screen.getByText('Data rate').parentElement).toHaveTextContent('Data rate—');
+  });
+
+  // The status popover and the dialog's row both draw ConnectionDetail. A view mounting into a
+  // shared stream would never see the window, so each opens its own.
+  it('gives a second view of one cluster a stream of its own', async () => {
+    const client = createGraphqlClient();
+    const view = () => (
+      <UrqlProvider value={client}>
+        <ConnectionDetail cluster={clusterRecord({ context: 'prod' })} connFailed={false} />
+      </UrqlProvider>
+    );
+    render(view());
+    await flush();
+    await act(async () => {
+      channelFor('clusterDataRateWatch').onmessage!(rateWindow(rate(100, 0)));
+    });
+
+    const second = render(view());
+    await flush();
+    await act(async () => {
+      channelFor('clusterDataRateWatch').onmessage!(rateWindow(rate(100, 0), rate(4096, 0)));
+    });
+
+    expect(subscriptionsTo('clusterDataRateWatch')).toBe(2);
+    expect(within(second.container).getByText('Data rate').parentElement).toHaveTextContent('↓ 4.0 KB/s · ↑ 0 B/s');
   });
 
   // The sidecar refuses a disabled cluster's gauge, and that refusal would reach the error bus.

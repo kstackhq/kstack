@@ -201,6 +201,11 @@ func (l *fakeLease) WatchState() kubeconn.StateSubscription {
 
 func (l *fakeLease) Departed() bool { return false }
 
+// DataRates and WatchDataRates are the data-rate stream's, which nothing here reads.
+func (l *fakeLease) DataRates() []kubeconn.DataRateSample { return nil }
+
+func (l *fakeLease) WatchDataRates() kubeconn.Subscription { return nil }
+
 func (l *fakeLease) Release() {
 	l.mu.Lock()
 	defer l.mu.Unlock()

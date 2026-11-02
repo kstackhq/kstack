@@ -25,6 +25,7 @@ import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@kubetail/ui/elements/table';
 
+import { DataRateSparkline } from '@/components/widgets/data-rate-sparkline';
 import { Dialog } from '@/components/widgets/dialog';
 import { graphql } from '@/gql';
 import type { ClusterCachedKindsSubscription } from '@/gql/graphql';
@@ -50,7 +51,8 @@ import {
   syncStatus,
 } from '@/lib/cluster-health';
 import { EVENTS_GVR, gvrKey } from '@/lib/gvr';
-import { perFrame, useWatchSubscription, watchPhase } from '@/lib/graphql/use-watch-subscription';
+import { perFrame, seriesReducer, useWatchSubscription, watchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { SeriesFrame } from '@/lib/graphql/use-watch-subscription';
 
 const ClusterEnabledSetMutation = graphql(`
   mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {
@@ -571,24 +573,33 @@ function EventRunList({
   );
 }
 
-// The connection's data rate as a gauge: each frame replaces the last. The sidecar sends a
-// value one interval after subscribing and then only when it moved, so null until then.
-// Paused for a disabled cluster, which the sidecar refuses rather than reads as idle.
+// The connection's data rate as a series: the sidecar's window first, then each new sample.
+// Unshared: the status popover and the dialog's row both draw ConnectionDetail, and a view
+// mounting into a running shared stream would never see the window. Paused for a disabled
+// cluster, which the sidecar refuses rather than reads as idle.
 const ClusterDataRateSubscription = graphql(`
   subscription ClusterDataRate($id: ClusterID!) {
     clusterDataRateWatch(id: $id) {
-      receivedBytesPerSecond
-      sentBytesPerSecond
+      intervalSeconds
+      windowSeconds
+      samples {
+        at
+        receivedBytesPerSecond
+        sentBytesPerSecond
+      }
     }
   }
 `);
 
-type DataRate = { receivedBytesPerSecond: number; sentBytesPerSecond: number };
+type DataRateSample = { at: string; receivedBytesPerSecond: number; sentBytesPerSecond: number };
+type DataRateSeries = SeriesFrame<DataRateSample>;
 
-function useDataRate(clusterId: string, pause: boolean): DataRate | null {
-  const { data } = useWatchSubscription<{ clusterDataRateWatch: DataRate }, DataRate>(
+// Null until the window arrives.
+function useDataRate(clusterId: string, pause: boolean): DataRateSeries | null {
+  const { data } = useWatchSubscription<{ clusterDataRateWatch: DataRateSeries }, DataRateSeries>(
     { query: ClusterDataRateSubscription, variables: { id: clusterId }, pause },
-    perFrame((_prev, resp) => resp.clusterDataRateWatch),
+    seriesReducer((resp) => resp.clusterDataRateWatch),
+    { unshared: true },
   );
   return data ?? null;
 }
@@ -600,7 +611,8 @@ export function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; co
   const detail = connectionDetail(cluster);
   const attempts = useConnectionAttempts(cluster.id);
   const { atMs: nextAttemptAtMs, probing } = useNextCheck(cluster.id);
-  const rate = useDataRate(cluster.id, !cluster.spec.enabled);
+  const rates = useDataRate(cluster.id, !cluster.spec.enabled);
+  const rate = rates?.samples.at(-1);
   // The mutation resolves when the probe it asked for has finished, so `fetching` IS the
   // answer to "is my re-probe still out" — no timer, and the button agrees with the
   // "checking…" above because both follow the same run. Per row rather than per panel: one
@@ -639,7 +651,16 @@ export function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; co
         <div className="flex gap-2">
           <dt className="w-28 shrink-0">Data rate</dt>
           <dd className="tabular-nums">
-            {rate ? `↓ ${formatRate(rate.receivedBytesPerSecond)} · ↑ ${formatRate(rate.sentBytesPerSecond)}` : '—'}
+            {/* Each arrow is its line's color, so the numbers are the sparkline's legend. */}
+            {rate ? (
+              <>
+                <span className="text-(--series-received)">↓</span> {formatRate(rate.receivedBytesPerSecond)} ·{' '}
+                <span className="text-(--series-sent)">↑</span> {formatRate(rate.sentBytesPerSecond)}
+              </>
+            ) : (
+              '—'
+            )}
+            {rates && <DataRateSparkline series={rates} />}
           </dd>
         </div>
       </dl>

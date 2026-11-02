@@ -106,6 +106,37 @@ type fakeKubeconn struct {
 	conn atomic.Pointer[kubeconn.Connection]
 	// releases, when set, fires each release's context, so a test can wait for one.
 	releases *testutil.Probe[string]
+
+	// rateReads, when set, fires each read of a claim's ring, so a test can tell where a
+	// data-rate stream has got to.
+	rateReads *testutil.Probe[string]
+	// rates is every claim's data-rate ring, keyed by context and guarded by ratesMu, and
+	// rateHub its nudges, built on demand.
+	ratesMu  sync.Mutex
+	rates    map[string][]kubeconn.DataRateSample
+	rateOnce sync.Once
+	rateHub  *conflate.Hub[string, struct{}]
+}
+
+// addRate is a tick landing on contextName's ring: the sample, then the nudge.
+func (f *fakeKubeconn) addRate(contextName string, s kubeconn.DataRateSample) {
+	f.ratesMu.Lock()
+	if f.rates == nil {
+		f.rates = map[string][]kubeconn.DataRateSample{}
+	}
+	f.rates[contextName] = append(f.rates[contextName], s)
+	f.ratesMu.Unlock()
+	f.nudge(contextName)
+}
+
+// nudge tells contextName's readers to look, with or without a new sample.
+func (f *fakeKubeconn) nudge(contextName string) {
+	f.rateFeed().Sender().Send(contextName, struct{}{})
+}
+
+func (f *fakeKubeconn) rateFeed() *conflate.Hub[string, struct{}] {
+	f.rateOnce.Do(func() { f.rateHub = conflate.New[string, struct{}]() })
+	return f.rateHub
 }
 
 func (f *fakeKubeconn) Acquire(contextName string) kubeconn.Lease {
@@ -175,6 +206,21 @@ func (l *fakeLease) ConnFor(context.Context, string) (*kubeconn.Connection, erro
 func (l *fakeLease) State() kubeconn.State { return l.state }
 
 func (l *fakeLease) Departed() bool { return l.departed }
+
+func (l *fakeLease) DataRates() []kubeconn.DataRateSample {
+	l.svc.ratesMu.Lock()
+	rates := slices.Clone(l.svc.rates[l.contextName])
+	l.svc.ratesMu.Unlock()
+	if l.svc.rateReads != nil {
+		l.svc.rateReads.Fire(l.contextName)
+	}
+	return rates
+}
+
+func (l *fakeLease) WatchDataRates() kubeconn.Subscription {
+	feed := l.svc.rateFeed()
+	return feed.Receiver(feed.WithKey(l.contextName))
+}
 
 // WatchState is the schedule watch's feed; a cluster pass reads State instead.
 func (l *fakeLease) WatchState() kubeconn.StateSubscription {

@@ -60,8 +60,6 @@ type fakeClusterService struct {
 	dataEvents  map[cluster.ClusterID][]cluster.ClusterCachedDataEvent  // cached Kubernetes Events, keyed by ClusterID
 	dataObjects map[cluster.ClusterID][]cluster.ClusterCachedDataObject // cached objects for one kind, keyed by ClusterID
 	watchFail   error                                                   // when set, every watch ends with it after its snapshot
-	// dataRateAsked is each interval WatchDataRate was asked for, guarded by mu.
-	dataRateAsked []time.Duration
 }
 
 // The fake mirrors production's shape: one shared state struct, four accessor
@@ -649,16 +647,22 @@ func (f fakeClusters) WatchSchedule(ctx context.Context, _ cluster.ClusterID) (<
 	return ch, nil
 }
 
-// WatchDataRate is a gauge: one rate on subscribe, then open until ctx ends.
-func (f fakeClusters) WatchDataRate(ctx context.Context, _ cluster.ClusterID, interval time.Duration) (<-chan cluster.ClusterDataRate, error) {
-	f.s.mu.Lock()
-	f.s.dataRateAsked = append(f.s.dataRateAsked, interval)
-	f.s.mu.Unlock()
-	ch := make(chan cluster.ClusterDataRate)
+// fakeDataRateFrame is the window every fake series opens with.
+var fakeDataRateFrame = cluster.ClusterDataRateSeriesFrame{
+	IntervalSeconds: 2,
+	WindowSeconds:   120,
+	Samples: []cluster.ClusterDataRateSample{
+		{At: time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC), ReceivedBytesPerSecond: 2048, SentBytesPerSecond: 512},
+	},
+}
+
+// WatchDataRate is a series: the window on subscribe, then open until ctx ends.
+func (f fakeClusters) WatchDataRate(ctx context.Context, _ cluster.ClusterID) (<-chan cluster.ClusterDataRateSeriesFrame, error) {
+	ch := make(chan cluster.ClusterDataRateSeriesFrame)
 	go func() {
 		defer close(ch)
 		select {
-		case ch <- cluster.ClusterDataRate{ReceivedBytesPerSecond: 2048, SentBytesPerSecond: 512}:
+		case ch <- fakeDataRateFrame:
 		case <-ctx.Done():
 			return
 		}
@@ -946,7 +950,7 @@ func (e errClusters) WatchSchedule(context.Context, cluster.ClusterID) (<-chan c
 	return nil, e.err
 }
 
-func (e errClusters) WatchDataRate(context.Context, cluster.ClusterID, time.Duration) (<-chan cluster.ClusterDataRate, error) {
+func (e errClusters) WatchDataRate(context.Context, cluster.ClusterID) (<-chan cluster.ClusterDataRateSeriesFrame, error) {
 	return nil, e.err
 }
 

@@ -445,14 +445,26 @@ type ClusterWatchFrame {
 }
 
 """
-How fast a cluster's connection moved data over the last sampling interval. Counted on the
-wire: TLS, headers and framing included, every stream to the API server counted.
+How fast a cluster's connection moved data over one sampling interval. Counted on the wire:
+TLS, headers and framing included, every stream to the API server counted.
 """
-type ClusterDataRate {
+type ClusterDataRateSample {
+  "When the sample was read."
+  at: Time!
   "Bytes per second received from the API server."
   receivedBytesPerSecond: Float!
   "Bytes per second sent to the API server."
   sentBytesPerSecond: Float!
+}
+
+"One frame of `clusterDataRateWatch`, a series."
+type ClusterDataRateSeriesFrame {
+  "Seconds between samples. The same on every frame."
+  intervalSeconds: Int!
+  "How far back the series reaches. The same on every frame. The client keeps the last window ÷ interval points."
+  windowSeconds: Int!
+  "Oldest first. The first frame holds the whole window, and each later frame the samples since."
+  samples: [ClusterDataRateSample!]!
 }
 
 # --- ClusterCache ---
@@ -2201,11 +2213,12 @@ type Mutation {
 }
 
 type Subscription {
-  # Two live shapes, named in every description below. A DELTA WATCH replays the current
+  # Three live shapes, named in every description below. A DELTA WATCH replays the current
   # set, closes that snapshot with one Bookmark, then streams changes (DeltaFrameType) —
   # so a consumer renders an empty state only after the Bookmark. A GAUGE is
-  # current-on-subscribe: its first value IS the snapshot, and no Bookmark rides it.
-  # Every subscription here is endless.
+  # current-on-subscribe: its first value IS the snapshot, and no Bookmark rides it. A
+  # SERIES sends its whole retained window first, even if empty, then only the points
+  # newer than the last frame. Every subscription here is endless.
 
   # --- Any object ---
   "A cache's or a per-kind record's event timeline — `ClusterCache`, `ClusterCachedKind` — as an event log: runs upserted by `Event.id`, the snapshot closed by one `Bookmark` (`EventFrameType`). Optionally one `category`. The point read is that record's own `events` field; a cluster's timeline is `clusterEventsWatch`."
@@ -2221,8 +2234,8 @@ type Subscription {
   "A cluster's next reconcile as a gauge — what keeps a disconnected cluster's countdown live, since scheduling fires no object watch."
   clusterScheduleWatch(id: ClusterID!): Schedule!
 
-  "A cluster's connection data rate as a gauge, sampled every `interval` seconds (held to 1–60; default 2). The first value arrives one interval after subscribing, and a value only when it moved. Zero while there is no connection; it starts again from zero when the connection is replaced. Refused for a disabled cluster or one being deleted."
-  clusterDataRateWatch(id: ClusterID!, interval: Int): ClusterDataRate!
+  "A cluster's connection data rate as a series. The first frame arrives at once and holds the whole window, possibly none. Each later frame holds the samples since the one before. Every tick is sent, zeros included. A replaced or missing connection reads as zero. Refused for a disabled cluster or one being deleted."
+  clusterDataRateWatch(id: ClusterID!): ClusterDataRateSeriesFrame!
 
   # --- ClusterCache ---
   "Cache records as a delta watch, keyed by `cache.id` and joined onto clusters by `clusterID`. Carries no ordering guarantee against `clustersWatch`."

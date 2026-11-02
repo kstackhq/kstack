@@ -35,7 +35,7 @@ vi.mock('../error-bus', () => ({
 }));
 
 const { tauriSubscriptionExchange } = await import('./subscribe-exchange');
-const { scheduleFlush, setWatchFlushScheduler, useWatchSubscription, watchPhase } =
+const { scheduleFlush, seriesReducer, seriesSlots, setWatchFlushScheduler, useWatchSubscription, watchPhase } =
   await import('./use-watch-subscription');
 
 const TICK = gql`
@@ -566,5 +566,47 @@ describe('watchPhase', () => {
 
   it('reads a synced watch on a live connection as live', () => {
     expect(watchPhase(true, true)).toBe('live');
+  });
+});
+
+describe('seriesReducer', () => {
+  type Point = { at: string; v: number };
+  type Frame = { series: { intervalSeconds: number; windowSeconds: number; samples: Point[] } };
+  const frame = (...samples: Point[]): Frame => ({ series: { intervalSeconds: 2, windowSeconds: 6, samples } });
+  const reduce = seriesReducer((data: Frame) => data.series);
+  const point = (v: number, at = `t${v}`): Point => ({ at, v });
+
+  it('folds an empty first frame to an empty series, not to nothing', () => {
+    expect(reduce(undefined, [frame()])).toEqual({ intervalSeconds: 2, windowSeconds: 6, samples: [] });
+  });
+
+  it('appends each frame’s points, oldest first', () => {
+    const first = reduce(undefined, [frame(point(1))]);
+    expect(reduce(first, [frame(point(2)), frame(point(3))]).samples).toEqual([point(1), point(2), point(3)]);
+  });
+
+  // Six seconds at two a point: the client keeps what the sidecar's ring keeps.
+  it('keeps the last window ÷ interval points', () => {
+    const series = reduce(undefined, [frame(point(1), point(2)), frame(point(3), point(4))]);
+    expect(series.samples).toEqual([point(2), point(3), point(4)]);
+  });
+
+  // A wall clock that steps back stamps the next point earlier than the last. The fold reads
+  // no times, so it neither drops nor reorders it.
+  it('appends a point whose time goes backwards', () => {
+    const series = reduce(undefined, [frame(point(1, '12:00:02')), frame(point(2, '12:00:00'))]);
+    expect(series.samples.map((p) => p.v)).toEqual([1, 2]);
+  });
+});
+
+describe('seriesSlots', () => {
+  it('rounds the window down to whole intervals', () => {
+    expect(seriesSlots({ intervalSeconds: 2, windowSeconds: 120, samples: [] })).toBe(120 / 2);
+    expect(seriesSlots({ intervalSeconds: 2, windowSeconds: 7, samples: [] })).toBe(3);
+  });
+
+  // slice(-0) would keep every point, so a window shorter than its interval keeps one.
+  it('holds at least one point', () => {
+    expect(seriesSlots({ intervalSeconds: 5, windowSeconds: 2, samples: [] })).toBe(1);
   });
 });

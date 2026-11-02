@@ -230,3 +230,4 @@ usually just documentation in the wrong place.
 | 2026-10-30 | [TypeScript coverage is measured without the React compiler](2026-10-30-typescript-coverage-is-measured-without-the-react-compiler.md) | frontend | Accepted |
 | 2026-10-30 | [The coverage gate runs in CI, on Codecov's merged result](2026-10-30-the-coverage-gate-runs-in-ci-on-codecovs-merged-result.md) | repo | Accepted |
 | 2026-10-31 | [Ignore the minimatch advisory until its dependents take the fix](2026-10-31-ignore-the-minimatch-advisory-until-its-dependents-take-the-fix.md) | repo | Accepted |
+| 2026-11-02 | [A series is a third kind of stream, and the pool owns its clock](2026-11-02-a-series-is-a-third-kind-of-stream-and-the-pool-owns-its-clock.md) | cross-cutting | Accepted |

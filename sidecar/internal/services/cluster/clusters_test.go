@@ -923,7 +923,7 @@ func TestToClusterCarriesTheDeletionMark(t *testing.T) {
 // tests drive the store directly.
 func serviceOver(t *testing.T, d deps) *service {
 	t.Helper()
-	return &service{deps: d, now: func() time.Time { return t0.Add(time.Hour) }, gaugeCadence: defaultGaugeCadence, newTicker: newTicker}
+	return &service{deps: d, now: func() time.Time { return t0.Add(time.Hour) }, gaugeCadence: defaultGaugeCadence}
 }
 
 func TestClustersGet(t *testing.T) {

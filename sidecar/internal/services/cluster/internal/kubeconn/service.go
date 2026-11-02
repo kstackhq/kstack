@@ -97,6 +97,13 @@ type Lease interface {
 	// context, so one that outlives its claim keeps a hub slot and goes on reporting whatever
 	// claims that name next.
 	WatchState() StateSubscription
+	// DataRates is the context's last samples, oldest first: up to DataRateWindow of them at
+	// DataRateInterval. Empty until the second tick after the context was first claimed.
+	DataRates() []DataRateSample
+	// WatchDataRates fires after each tick adds a sample. It carries no value: the reader
+	// calls DataRates for the samples, so one that falls behind loses nothing. The caller
+	// closes it, as with WatchState.
+	WatchDataRates() Subscription
 	// Departed reports that the kubeconfig no longer names this claim's context.
 	//
 	// Not an error and not final: the file may name it again, and this claim is how the
@@ -118,6 +125,9 @@ type Service struct {
 	// Both keyed by context, both fed by publish.
 	signalHub *conflate.Hub[string, struct{}]
 	stateHub  *watch.Hub[string, State]
+	// rateHub names the contexts the sampler added a sample for. Apart from signalHub, so a
+	// tick never wakes a reconcile.
+	rateHub *conflate.Hub[string, struct{}]
 
 	// mu guards claimed and published together: what publish announces is measured against
 	// who still holds the claim, and nothing may see one without the other.
@@ -129,6 +139,10 @@ type Service struct {
 	// published is the news the fleet was last told per context, compared against so a pass
 	// that moved only timing wakes nobody.
 	published map[string]news
+
+	// dataRateTicker paces the sampler and now stamps its readings; a test drives both by hand.
+	dataRateTicker func() (<-chan time.Time, func())
+	now            func() time.Time
 
 	started atomic.Bool
 	wg      sync.WaitGroup
@@ -144,6 +158,8 @@ type Service struct {
 type entry struct {
 	holders int
 	conn    *Connection
+	// rates is the sampler's ring for this context, guarded by the pool's mu.
+	rates dataRateRing
 }
 
 // New returns a Service over the one reader of the user's kubeconfig.
@@ -158,8 +174,13 @@ func New(kubecfgSvc kubeconfigService) *Service {
 		supervisor: supervisor.New(),
 		signalHub:  conflate.New[string, struct{}](),
 		stateHub:   watch.New[string, State](),
+		rateHub:    conflate.New[string, struct{}](),
 		claimed:    map[string]*entry{},
 		published:  map[string]news{},
+		now:        time.Now,
+		dataRateTicker: func() (<-chan time.Time, func()) {
+			return newTicker(DataRateInterval)
+		},
 	}
 	registerProbes(s.supervisor, kubecfgSvc)
 	s.supervisor.OnPass(s.publish)
@@ -290,9 +311,10 @@ func answers(conn Observation[string], askedAt time.Time) bool {
 // is the same. A holder that cares about one claim watches that claim instead.
 func (s *Service) Subscribe() Subscription { return s.signalHub.Receiver() }
 
-// Start runs the supervisor and the kubeconfig watch. The kubeconfig subscription is taken before
-// Start returns, so nothing it says in between is dropped; the supervisor's queues need no such
-// care, since they hold what a claim taken before Start asked for until its workers run.
+// Start runs the supervisor, the kubeconfig watch and the data-rate sampler. The kubeconfig
+// subscription is taken before Start returns, so nothing it says in between is dropped; the
+// supervisor's queues need no such care, since they hold what a claim taken before Start asked
+// for until its workers run.
 func (s *Service) Start(ctx context.Context) (func(context.Context) error, error) {
 	// Refused rather than tolerated: a second Start puts a second watch and a second pair of
 	// supervisor loops on the same wait groups, so its stop would wait on the first's.
@@ -310,6 +332,12 @@ func (s *Service) Start(ctx context.Context) (func(context.Context) error, error
 	s.wg.Go(func() {
 		defer cfgs.Close()
 		s.watchKubeconfig(loopCtx, cfgs)
+	})
+
+	ticks, stopTicks := s.dataRateTicker()
+	s.wg.Go(func() {
+		defer stopTicks()
+		s.sampleEvery(loopCtx, ticks)
 	})
 
 	return func(ctx context.Context) error {
