@@ -455,8 +455,7 @@ func prepareError(err error) error {
 
 // statementError is a *QueryError for SQLite's refusal, and err itself for anything else.
 func statementError(err error) error {
-	var se *sqlite.Error
-	if errors.As(err, &se) {
+	if se, ok := errors.AsType[*sqlite.Error](err); ok {
 		return &QueryError{Message: se.Error()}
 	}
 	return err

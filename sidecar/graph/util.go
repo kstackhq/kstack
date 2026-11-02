@@ -303,8 +303,7 @@ func valueOf[T any](p *T) T {
 // through: a refusal in the user's words is a validation error carrying them,
 // and anything else stays opaque.
 func sandboxPathErr(err error) error {
-	var refusal settings.PathRefusal
-	if errors.As(err, &refusal) {
+	if refusal, ok := errors.AsType[settings.PathRefusal](err); ok {
 		return gqlerrors.NewValidationError("sandbox-path", refusal.Error())
 	}
 	return err
@@ -362,8 +361,7 @@ func noSandboxExecutables() error {
 // refusal in the user's words is a validation error carrying them, and
 // anything else stays opaque.
 func sandboxExecutableErr(err error) error {
-	var refusal settings.ExecutableRefusal
-	if errors.As(err, &refusal) {
+	if refusal, ok := errors.AsType[settings.ExecutableRefusal](err); ok {
 		return gqlerrors.NewValidationError("sandbox-executable", refusal.Error())
 	}
 	return err
