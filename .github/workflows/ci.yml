@@ -358,6 +358,7 @@ jobs:
       - name: Check local Markdown links
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
+          # Keep in step with version in scripts/check-markdown-links.sh.
           lycheeVersion: v0.24.2
           args: >-
             --config .github/ci-config/lychee.toml
