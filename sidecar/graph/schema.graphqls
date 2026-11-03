@@ -645,14 +645,15 @@ type ClusterCachedKindWatchFrame {
 }
 
 """
-One synced kind, identified exactly. `resource` is what a UI renders, but it does not
-identify a kind on its own: a CRD may reuse a built-in's plural under another api group,
-so anything keying on a kind — looking its sync record up, opening its timeline — needs
-the pair.
+One kind that is not Watching, identified exactly, with its own sync `reason`.
+`resource` is what a UI renders, but it does not identify a kind on its own: a CRD may
+reuse a built-in's plural under another api group, so anything keying on a kind — looking
+its sync record up, opening its timeline — needs the pair.
 """
-type SyncedKindRef {
+type UnhealthyKindRef {
   apiVersion: String!
   resource: String!
+  reason: String!
 }
 
 """
@@ -676,13 +677,14 @@ type ClusterCacheHealth {
   """
   reason: String!
   """
-  The kinds behind a non-Watching verdict, sorted by plural resource. Empty when healthy.
-  A list rather than a rendered phrase: truncation ("+N more") is a layout decision, and a
-  client that keys a subscription on the first offender must not have to parse it back out
+  Every kind that is not Watching, sorted, each with its own `reason`. Empty when healthy.
+  Only the entries whose `reason` is this verdict's are behind it; the rest are catching
+  up. A list rather than a rendered phrase: truncation ("+N more") is a layout decision, and
+  a client that keys a subscription on the first offender must not have to parse it back out
   of prose — which is also why each entry carries its `apiVersion`, since the plural alone
   does not identify a kind.
   """
-  unhealthyKindRefs: [SyncedKindRef!]!
+  unhealthyKindRefs: [UnhealthyKindRef!]!
   """
   Why a `SyncFailed` verdict's first offender failed, as a class: `Forbidden`,
   `Unauthorized`, `NotFound`, `Throttled`, `InternalError`, `ServiceUnavailable`,

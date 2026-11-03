@@ -148,20 +148,27 @@ describe('ClusterStatusPopover', () => {
 
   it('says why a bad sync verdict is bad', async () => {
     const stale = withHealth(clusterRecord({ context: 'prod', reason: 'Stale' }), {
-      unhealthyKindRefs: [{ apiVersion: 'v1', resource: 'pods' }],
-      unhealthyKinds: 1,
+      unhealthyKindRefs: [
+        { apiVersion: 'v1', resource: 'pods', reason: 'Stale' },
+        { apiVersion: 'v1', resource: 'secrets', reason: 'Syncing' },
+      ],
+      unhealthyKinds: 2,
     });
     const { popup } = await openStatus(stale);
 
     expect(within(popup).getByText('Stale')).toHaveAttribute('data-tone', 'attention');
     expect(section(popup, 'Cache')).toHaveTextContent('pods not receiving updates.');
+    expect(popup).not.toHaveTextContent('secrets');
     expect(within(popup).queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('puts a failed sync’s reason in an alert over the sections', async () => {
     const failed = withHealth(clusterRecord({ context: 'prod', reason: 'SyncFailed' }), {
-      unhealthyKindRefs: [{ apiVersion: 'v1', resource: 'pods' }],
-      unhealthyKinds: 1,
+      unhealthyKindRefs: [
+        { apiVersion: 'v1', resource: 'pods', reason: 'SyncFailed' },
+        { apiVersion: 'v1', resource: 'secrets', reason: 'Syncing' },
+      ],
+      unhealthyKinds: 2,
       totalKinds: 3,
     });
     const { popup } = await openStatus(failed);
@@ -170,12 +177,13 @@ describe('ClusterStatusPopover', () => {
     expectOverTheSections(popup, alert);
     expect(alert).toHaveTextContent('Some kinds aren’t syncing');
     expect(alert).toHaveTextContent('pods not syncing');
+    expect(alert).not.toHaveTextContent('secrets');
     expect(section(popup, 'Cache')).not.toHaveTextContent('not syncing');
   });
 
   it('names a failed sync by its class of failure', async () => {
     const failed = withHealth(clusterRecord({ context: 'prod', reason: 'SyncFailed' }), {
-      unhealthyKindRefs: [{ apiVersion: 'v1', resource: 'secrets' }],
+      unhealthyKindRefs: [{ apiVersion: 'v1', resource: 'secrets', reason: 'SyncFailed' }],
       unhealthyKinds: 1,
       totalKinds: 3,
       failure: 'Forbidden',

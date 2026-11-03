@@ -126,6 +126,7 @@ const ClusterCacheHealthWatchSubscription = graphql(`
       unhealthyKindRefs {
         apiVersion
         resource
+        reason
       }
       failure
       totalKinds

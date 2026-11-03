@@ -99,7 +99,7 @@ func TestClusterCacheHealthTrusted(t *testing.T) {
 		assert.Equal(t, trusted, ClusterCacheHealth{Reason: reason}.Trusted(), reason)
 	}
 	lastKnown := ClusterCacheHealth{Reason: "Disconnected", TotalKinds: 1, UnhealthyKinds: 1,
-		UnhealthyKindRefs: []SyncedKindRef{{APIVersion: "v1", Resource: "pods"}}}
+		UnhealthyKindRefs: []UnhealthyKindRef{{SyncedKindRef: SyncedKindRef{APIVersion: "v1", Resource: "pods"}}}}
 	assert.True(t, lastKnown.Trusted())
 }
 
@@ -1306,7 +1306,31 @@ func TestCachesWatchHealthFoldsEveryKindsVerdict(t *testing.T) {
 	assert.Equal(t, "Forbidden", got.Failure, "the first offender's class of failure")
 	assert.Equal(t, 2, got.TotalKinds)
 	assert.Equal(t, 1, got.UnhealthyKinds)
-	assert.Equal(t, []SyncedKindRef{{APIVersion: "apps/v1", Resource: "deployments"}}, got.UnhealthyKindRefs)
+	assert.Equal(t, []UnhealthyKindRef{
+		{SyncedKindRef: SyncedKindRef{APIVersion: "apps/v1", Resource: "deployments"}, Reason: kubesync.ReasonSyncFailed},
+	}, got.UnhealthyKindRefs)
+}
+
+// Each offender carries its own reason, so a consumer can name only the kinds behind the
+// cache's verdict: a kind still on its cold list is not stale, and not failing either.
+func TestCachesWatchHealthGivesEachOffenderItsOwnReason(t *testing.T) {
+	for _, verdict := range []string{kubesync.ReasonStale, kubesync.ReasonSyncFailed} {
+		t.Run(verdict, func(t *testing.T) {
+			d, cacheID := syncingCacheWithKinds(t)
+			setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: verdict})
+			setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncing})
+
+			stream, err := serviceOver(t, d).Caches().WatchHealth(t.Context())
+			require.NoError(t, err)
+
+			got := testutil.Recv(t, stream.Frames, "the cache's folded verdict")
+			assert.Equal(t, verdict, got.Reason)
+			assert.Equal(t, []UnhealthyKindRef{
+				{SyncedKindRef: SyncedKindRef{APIVersion: "apps/v1", Resource: "deployments"}, Reason: verdict},
+				{SyncedKindRef: SyncedKindRef{APIVersion: "v1", Resource: "pods"}, Reason: kubesync.ReasonSyncing},
+			}, got.UnhealthyKindRefs)
+		})
+	}
 }
 
 // The class is part of the verdict: a failure changing class is news on its own.

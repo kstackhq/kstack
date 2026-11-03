@@ -101,7 +101,7 @@ type Row = {
 function healthOf(r: Row): {
   status: string;
   reason: string;
-  unhealthyKindRefs: { apiVersion: string; resource: string }[];
+  unhealthyKindRefs: { apiVersion: string; resource: string; reason: string }[];
   unhealthyKinds: number;
 } {
   if (r.unconfirmed) return { status: 'Unknown', reason: 'Syncing', unhealthyKindRefs: [], unhealthyKinds: 0 };
@@ -109,7 +109,7 @@ function healthOf(r: Row): {
     return {
       status: 'False',
       reason: 'SyncFailed',
-      unhealthyKindRefs: [{ apiVersion: 'example.com/v1', resource: 'widgets' }],
+      unhealthyKindRefs: [{ apiVersion: 'example.com/v1', resource: 'widgets', reason: 'SyncFailed' }],
       unhealthyKinds: 1,
     };
   if (r.noConnection) {
@@ -119,7 +119,7 @@ function healthOf(r: Row): {
     return {
       status: 'False',
       reason: 'Stale',
-      unhealthyKindRefs: [{ apiVersion: 'v1', resource: 'pods' }],
+      unhealthyKindRefs: [{ apiVersion: 'v1', resource: 'pods', reason: 'Stale' }],
       unhealthyKinds: 1,
     };
   if (r.kindsPaused) return { status: 'False', reason: 'Paused', unhealthyKindRefs: [], unhealthyKinds: 2 };
@@ -127,7 +127,7 @@ function healthOf(r: Row): {
     return {
       status: 'False',
       reason: 'QuotaExceeded',
-      unhealthyKindRefs: [{ apiVersion: 'v1', resource: 'pods' }],
+      unhealthyKindRefs: [{ apiVersion: 'v1', resource: 'pods', reason: 'QuotaExceeded' }],
       unhealthyKinds: 1,
     };
   return { status: 'True', reason: 'Watching', unhealthyKindRefs: [], unhealthyKinds: 0 };
@@ -1418,7 +1418,7 @@ describe('ClusterSyncPanel', () => {
       pushHealth('cache-u-kinds', {
         status: 'False',
         reason: 'Stale',
-        unhealthyKindRefs: [{ apiVersion: 'example.com/v1', resource: 'widgets' }],
+        unhealthyKindRefs: [{ apiVersion: 'example.com/v1', resource: 'widgets', reason: 'Stale' }],
         totalKinds: 3,
         unhealthyKinds: 1,
       }),
@@ -1428,8 +1428,8 @@ describe('ClusterSyncPanel', () => {
   });
 
   // unhealthyKinds counts every kind that is not currently Watching; unhealthyKindRefs
-  // names only the ones the fold ranked as offenders. A cache mid-pause has the count with
-  // no names, which used to render an empty gap: "63 of 150 kinds —  not syncing".
+  // may name none of them. A cache mid-pause has the count with no names, which must not
+  // render as an empty gap: "63 of 150 kinds —  not syncing".
   it('names no offenders when the rollup counts unhealthy kinds without naming any', async () => {
     const user = await openWith([{ uuid: 'u-pausing', name: 'prod', enabled: true, present: true }]);
 
@@ -1471,6 +1471,7 @@ describe('ClusterSyncPanel', () => {
         unhealthyKindRefs: ['widgets', 'gadgets', 'gizmos', 'sprockets', 'cogs'].map((resource) => ({
           apiVersion: 'example.com/v1',
           resource,
+          reason: 'Stale',
         })),
         totalKinds: 9,
         unhealthyKinds: 5,
@@ -1602,6 +1603,24 @@ describe('ClusterSyncPanel', () => {
     expect(screen.getByText(/pod watch went quiet/i)).toBeInTheDocument();
   });
 
+  it('blames the watch, not a kind still syncing, when a cache is stale', async () => {
+    const user = await openWith([{ uuid: 'u-stale', name: 'prod', enabled: true, present: true, stale: true }]);
+    await act(async () => {
+      pushHealth('cache-u-stale', {
+        status: 'False',
+        reason: 'Stale',
+        unhealthyKindRefs: [{ apiVersion: 'v1', resource: 'pods', reason: 'Syncing' }],
+        totalKinds: 1,
+        unhealthyKinds: 1,
+      });
+    });
+
+    await user.click(await screen.findByRole('button', { name: /stale/i }));
+
+    expect(await screen.findByText(/the watch may have stopped delivering updates/i)).toBeInTheDocument();
+    expect(screen.queryByText(/pods not receiving updates/i)).not.toBeInTheDocument();
+  });
+
   // The rollup names its offenders by kind, and the timeline has to follow the exact one.
   // A CRD may reuse a built-in's plural under its own api group, so matching on the plural
   // alone opened whichever record happened to match first — rendering a healthy kind's
@@ -1616,7 +1635,7 @@ describe('ClusterSyncPanel', () => {
       pushHealth('cache-u-gw', {
         status: 'False',
         reason: 'SyncFailed',
-        unhealthyKindRefs: [{ apiVersion: 'example.com/v1', resource: 'gateways' }],
+        unhealthyKindRefs: [{ apiVersion: 'example.com/v1', resource: 'gateways', reason: 'SyncFailed' }],
         totalKinds: 2,
         unhealthyKinds: 1,
       });
@@ -1822,7 +1841,7 @@ describe('syncReason', () => {
     cacheID: 'cache-u',
     status: 'False' as const,
     reason: 'Watching',
-    unhealthyKindRefs: [] as { apiVersion: string; resource: string }[],
+    unhealthyKindRefs: [] as { apiVersion: string; resource: string; reason: string }[],
     failure: '',
     totalKinds: 10,
     unhealthyKinds: 0,
@@ -1831,12 +1850,26 @@ describe('syncReason', () => {
     lastLiveAt: null,
     ...over,
   });
-  const pods = { apiVersion: 'v1', resource: 'pods' };
-  const deployments = { apiVersion: 'apps/v1', resource: 'deployments' };
+  const pods = (reason: string) => ({ apiVersion: 'v1', resource: 'pods', reason });
+  const deployments = (reason: string) => ({ apiVersion: 'apps/v1', resource: 'deployments', reason });
 
   it('names the kinds a stale cache is not hearing from', () => {
-    const h = health({ reason: 'Stale', unhealthyKindRefs: [pods, deployments], unhealthyKinds: 2 });
+    const h = health({ reason: 'Stale', unhealthyKindRefs: [pods('Stale'), deployments('Stale')], unhealthyKinds: 2 });
     expect(syncReason({ label: 'Stale', tone: 'attention' }, h)).toBe('pods, deployments not receiving updates.');
+  });
+
+  it('calls no kind stale that is only syncing', () => {
+    const h = health({
+      reason: 'Stale',
+      unhealthyKindRefs: [deployments('Stale'), pods('Syncing')],
+      unhealthyKinds: 2,
+    });
+    expect(syncReason({ label: 'Stale', tone: 'attention' }, h)).toBe('deployments not receiving updates.');
+  });
+
+  it('blames the watch when no kind behind a stale verdict is named', () => {
+    const h = health({ reason: 'Stale', unhealthyKindRefs: [pods('Syncing')], unhealthyKinds: 1 });
+    expect(syncReason({ label: 'Stale', tone: 'attention' }, h)).toBe('The watch may have stopped delivering updates.');
   });
 
   it('blames the watch when a stale cache names no kind', () => {
@@ -1850,12 +1883,21 @@ describe('syncReason', () => {
   });
 
   it('summarises the failing kinds', () => {
-    const h = health({ reason: 'SyncFailed', unhealthyKindRefs: [pods], unhealthyKinds: 1 });
+    const h = health({ reason: 'SyncFailed', unhealthyKindRefs: [pods('SyncFailed')], unhealthyKinds: 1 });
     expect(syncReason({ label: 'Error', tone: 'error' }, h)).toBe('9 of 10 kinds — pods not syncing');
   });
 
+  it('calls no kind failing that is only syncing', () => {
+    const h = health({
+      reason: 'SyncFailed',
+      unhealthyKindRefs: [deployments('SyncFailed'), pods('Syncing')],
+      unhealthyKinds: 2,
+    });
+    expect(syncReason({ label: 'Error', tone: 'error' }, h)).toBe('8 of 10 kinds — deployments not syncing');
+  });
+
   it('gives no reason for a healthy or muted verdict, or without a rollup', () => {
-    const failing = health({ reason: 'SyncFailed', unhealthyKindRefs: [pods], unhealthyKinds: 1 });
+    const failing = health({ reason: 'SyncFailed', unhealthyKindRefs: [pods('SyncFailed')], unhealthyKinds: 1 });
     expect(syncReason({ label: 'Synced', tone: 'ok' }, health({}))).toBeNull();
     expect(syncReason({ label: 'Stalled', tone: 'muted' }, failing)).toBeNull();
     expect(syncReason({ label: 'Degraded', tone: 'attention' }, health({ reason: 'QuotaExceeded' }))).toBeNull();

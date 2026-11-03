@@ -129,6 +129,13 @@ type SyncedKindRef struct {
 	Resource   string
 }
 
+// UnhealthyKindRef is one kind that is not Watching, with its own reason, so a consumer
+// can tell the kinds behind a cache's verdict from those merely catching up.
+type UnhealthyKindRef struct {
+	SyncedKindRef
+	Reason string
+}
+
 // toClusterCachedKind builds the served record from the stored object.
 func toClusterCachedKind(obj *beehive.Object[ClusterCachedKindSpec, ClusterCachedKindStatus]) (*ClusterCachedKind, error) {
 	owner, err := toOwnerRef(obj)

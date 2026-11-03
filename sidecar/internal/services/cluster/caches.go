@@ -122,12 +122,13 @@ type ClusterCacheHealth struct {
 	// renders this exactly as it renders a per-kind verdict.
 	Status ConditionStatus
 	Reason string
-	// UnhealthyKindRefs names the kinds behind a non-Watching verdict, sorted — the
-	// identity a consumer can act on (look the kind's record up, key a subscription on
-	// it), not a rendered phrase. Empty when healthy. It is a list rather than a message
-	// because truncation ("+2 more") is a layout decision, and the consumer that needs the
-	// first offender must not have to parse it back out of prose.
-	UnhealthyKindRefs []SyncedKindRef
+	// UnhealthyKindRefs names every kind that is not Watching, sorted, each with its own
+	// reason — the identity a consumer can act on (look the kind's record up, key a
+	// subscription on it), not a rendered phrase. Empty when healthy. Only the entries whose
+	// reason is the cache's are behind the verdict; the rest are catching up. It is a
+	// list rather than a message because truncation ("+2 more") is a layout decision, and the
+	// consumer that needs the first offender must not have to parse it back out of prose.
+	UnhealthyKindRefs []UnhealthyKindRef
 	// Failure is the first offender's class of failure (a kubeconn.Reason such as Forbidden);
 	// empty when unclassified or not failing.
 	Failure string
@@ -530,7 +531,7 @@ func (a cachesAPI) readCacheHealth(
 		}
 		if state.Reason != kubesync.ReasonWatching {
 			ref := syncedKindRefOf(kindObj.Spec)
-			health.UnhealthyKindRefs = append(health.UnhealthyKindRefs, ref)
+			health.UnhealthyKindRefs = append(health.UnhealthyKindRefs, UnhealthyKindRef{SyncedKindRef: ref, Reason: state.Reason})
 			stateByRef[ref] = state
 		}
 		if state.LastUpdateAt.After(newestUpdateAt) {
@@ -550,7 +551,9 @@ func (a cachesAPI) readCacheHealth(
 	}
 
 	health.UnhealthyKinds = len(health.UnhealthyKindRefs)
-	slices.SortFunc(health.UnhealthyKindRefs, compareSyncedKindRefs)
+	slices.SortFunc(health.UnhealthyKindRefs, func(a, b UnhealthyKindRef) int {
+		return compareSyncedKindRefs(a.SyncedKindRef, b.SyncedKindRef)
+	})
 	health.LastUpdateAt = optionalTime(newestUpdateAt)
 	if !anyKindUnproven {
 		health.LastLiveAt = optionalTime(oldestLiveAt)
@@ -581,7 +584,7 @@ func (a cachesAPI) readCacheHealth(
 	default:
 		// The first offender's own reason and failure, so a consumer reading the verdict
 		// beside the first ref sees one story.
-		first := stateByRef[health.UnhealthyKindRefs[0]]
+		first := stateByRef[health.UnhealthyKindRefs[0].SyncedKindRef]
 		health.Reason, health.Failure = first.Reason, string(first.Failure)
 	}
 	return health, nil

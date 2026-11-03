@@ -196,7 +196,10 @@ func TestLastKnownCarriesSince(t *testing.T) {
 	f := healthy()
 	live := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
 	f.health = cluster.ClusterCacheHealth{Reason: "Disconnected", TotalKinds: 2, LastLiveAt: &live,
-		UnhealthyKindRefs: []cluster.SyncedKindRef{{APIVersion: "v1", Resource: "namespaces"}, {APIVersion: "v1", Resource: "nodes"}}}
+		UnhealthyKindRefs: []cluster.UnhealthyKindRef{
+			{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "namespaces"}},
+			{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "nodes"}},
+		}}
 
 	got, err := dataQuery(f, `SELECT 1`)
 

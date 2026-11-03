@@ -169,8 +169,8 @@ models:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedKindWatchFrame
   ClusterCacheHealth:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheHealth
-  SyncedKindRef:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.SyncedKindRef
+  UnhealthyKindRef:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.UnhealthyKindRef
 
   ClusterCacheStats:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheStats

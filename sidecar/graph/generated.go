@@ -841,11 +841,6 @@ type ComplexityRoot struct {
 		SandboxExecutablesWatch       func(childComplexity int) int
 	}
 
-	SyncedKindRef struct {
-		APIVersion func(childComplexity int) int
-		Resource   func(childComplexity int) int
-	}
-
 	ToolAction struct {
 		Command     func(childComplexity int) int
 		Delegate    func(childComplexity int) int
@@ -885,6 +880,12 @@ type ComplexityRoot struct {
 		Duration func(childComplexity int) int
 		ID       func(childComplexity int) int
 		Status   func(childComplexity int) int
+	}
+
+	UnhealthyKindRef struct {
+		APIVersion func(childComplexity int) int
+		Reason     func(childComplexity int) int
+		Resource   func(childComplexity int) int
 	}
 
 	WriteAction struct {
@@ -4392,19 +4393,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Subscription.SandboxExecutablesWatch(childComplexity), true
 
-	case "SyncedKindRef.apiVersion":
-		if e.ComplexityRoot.SyncedKindRef.APIVersion == nil {
-			break
-		}
-
-		return e.ComplexityRoot.SyncedKindRef.APIVersion(childComplexity), true
-	case "SyncedKindRef.resource":
-		if e.ComplexityRoot.SyncedKindRef.Resource == nil {
-			break
-		}
-
-		return e.ComplexityRoot.SyncedKindRef.Resource(childComplexity), true
-
 	case "ToolAction.command":
 		if e.ComplexityRoot.ToolAction.Command == nil {
 			break
@@ -4599,6 +4587,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ToolCallApproval.Status(childComplexity), true
+
+	case "UnhealthyKindRef.apiVersion":
+		if e.ComplexityRoot.UnhealthyKindRef.APIVersion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UnhealthyKindRef.APIVersion(childComplexity), true
+	case "UnhealthyKindRef.reason":
+		if e.ComplexityRoot.UnhealthyKindRef.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UnhealthyKindRef.Reason(childComplexity), true
+	case "UnhealthyKindRef.resource":
+		if e.ComplexityRoot.UnhealthyKindRef.Resource == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UnhealthyKindRef.Resource(childComplexity), true
 
 	case "WriteAction.content":
 		if e.ComplexityRoot.WriteAction.Content == nil {
@@ -6142,16 +6149,6 @@ func (ec *executionContext) childFields_SettingsRefusal(ctx context.Context, fie
 	return nil, fmt.Errorf("no field named %q was found under type SettingsRefusal", field.Name)
 }
 
-func (ec *executionContext) childFields_SyncedKindRef(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "apiVersion":
-		return ec.fieldContext_SyncedKindRef_apiVersion(ctx, field)
-	case "resource":
-		return ec.fieldContext_SyncedKindRef_resource(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type SyncedKindRef", field.Name)
-}
-
 func (ec *executionContext) childFields_ToolAction(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "description":
@@ -6232,6 +6229,18 @@ func (ec *executionContext) childFields_ToolCallApproval(ctx context.Context, fi
 		return ec.fieldContext_ToolCallApproval_duration(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ToolCallApproval", field.Name)
+}
+
+func (ec *executionContext) childFields_UnhealthyKindRef(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "apiVersion":
+		return ec.fieldContext_UnhealthyKindRef_apiVersion(ctx, field)
+	case "resource":
+		return ec.fieldContext_UnhealthyKindRef_resource(ctx, field)
+	case "reason":
+		return ec.fieldContext_UnhealthyKindRef_reason(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type UnhealthyKindRef", field.Name)
 }
 
 func (ec *executionContext) childFields_WriteAction(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -9240,8 +9249,8 @@ func (ec *executionContext) _ClusterCacheHealth_unhealthyKindRefs(ctx context.Co
 			return obj.UnhealthyKindRefs, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []cluster.SyncedKindRef) graphql.Marshaler {
-			return ec.marshalNSyncedKindRef2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐSyncedKindRefᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []cluster.UnhealthyKindRef) graphql.Marshaler {
+			return ec.marshalNUnhealthyKindRef2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐUnhealthyKindRefᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -9254,7 +9263,7 @@ func (ec *executionContext) fieldContext_ClusterCacheHealth_unhealthyKindRefs(_ 
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_SyncedKindRef(ctx, field)
+			return ec.childFields_UnhealthyKindRef(ctx, field)
 		},
 	}
 	return fc, nil
@@ -21101,52 +21110,6 @@ func (ec *executionContext) fieldContext_Subscription_authStateWatch(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _SyncedKindRef_apiVersion(ctx context.Context, field graphql.CollectedField, obj *cluster.SyncedKindRef) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SyncedKindRef_apiVersion(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.APIVersion, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_SyncedKindRef_apiVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SyncedKindRef", field, false, false, "String")
-}
-
-func (ec *executionContext) _SyncedKindRef_resource(ctx context.Context, field graphql.CollectedField, obj *cluster.SyncedKindRef) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SyncedKindRef_resource(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Resource, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_SyncedKindRef_resource(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SyncedKindRef", field, false, false, "String")
-}
-
 func (ec *executionContext) _ToolAction_description(ctx context.Context, field graphql.CollectedField, obj *tools.Action) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -22025,6 +21988,75 @@ func (ec *executionContext) _ToolCallApproval_duration(ctx context.Context, fiel
 }
 func (ec *executionContext) fieldContext_ToolCallApproval_duration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ToolCallApproval", field, false, false, "ApprovalDuration")
+}
+
+func (ec *executionContext) _UnhealthyKindRef_apiVersion(ctx context.Context, field graphql.CollectedField, obj *cluster.UnhealthyKindRef) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UnhealthyKindRef_apiVersion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.APIVersion, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UnhealthyKindRef_apiVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UnhealthyKindRef", field, false, false, "String")
+}
+
+func (ec *executionContext) _UnhealthyKindRef_resource(ctx context.Context, field graphql.CollectedField, obj *cluster.UnhealthyKindRef) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UnhealthyKindRef_resource(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Resource, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UnhealthyKindRef_resource(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UnhealthyKindRef", field, false, false, "String")
+}
+
+func (ec *executionContext) _UnhealthyKindRef_reason(ctx context.Context, field graphql.CollectedField, obj *cluster.UnhealthyKindRef) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UnhealthyKindRef_reason(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UnhealthyKindRef_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UnhealthyKindRef", field, false, false, "String")
 }
 
 func (ec *executionContext) _WriteAction_path(ctx context.Context, field graphql.CollectedField, obj *tools.WriteAction) (ret graphql.Marshaler) {
@@ -29064,44 +29096,6 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 	}
 }
 
-var syncedKindRefImplementors = []string{"SyncedKindRef"}
-
-func (ec *executionContext) _SyncedKindRef(ctx context.Context, sel ast.SelectionSet, obj *cluster.SyncedKindRef) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, syncedKindRefImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferred := graphql.NewDeferredGroup(ctx)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("SyncedKindRef")
-		case "apiVersion":
-			out.Values[i] = ec._SyncedKindRef_apiVersion(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "resource":
-			out.Values[i] = ec._SyncedKindRef_resource(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	if n := len(deferred.Defers); n > 0 {
-		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
-		ec.ProcessDeferredGroup(deferred)
-	}
-
-	return out
-}
-
 var toolActionImplementors = []string{"ToolAction"}
 
 func (ec *executionContext) _ToolAction(ctx context.Context, sel ast.SelectionSet, obj *tools.Action) graphql.Marshaler {
@@ -29328,6 +29322,49 @@ func (ec *executionContext) _ToolCallApproval(ctx context.Context, sel ast.Selec
 		case "duration":
 			out.Values[i] = ec._ToolCallApproval_duration(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var unhealthyKindRefImplementors = []string{"UnhealthyKindRef"}
+
+func (ec *executionContext) _UnhealthyKindRef(ctx context.Context, sel ast.SelectionSet, obj *cluster.UnhealthyKindRef) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, unhealthyKindRefImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("UnhealthyKindRef")
+		case "apiVersion":
+			out.Values[i] = ec._UnhealthyKindRef_apiVersion(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resource":
+			out.Values[i] = ec._UnhealthyKindRef_resource(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._UnhealthyKindRef_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		default:
@@ -31486,26 +31523,6 @@ func (ec *executionContext) marshalNString2ᚕstringᚄ(ctx context.Context, sel
 	return ret
 }
 
-func (ec *executionContext) marshalNSyncedKindRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐSyncedKindRef(ctx context.Context, sel ast.SelectionSet, v cluster.SyncedKindRef) graphql.Marshaler {
-	return ec._SyncedKindRef(ctx, sel, &v)
-}
-
-func (ec *executionContext) marshalNSyncedKindRef2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐSyncedKindRefᚄ(ctx context.Context, sel ast.SelectionSet, v []cluster.SyncedKindRef) graphql.Marshaler {
-	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
-		fc := graphql.GetFieldContext(ctx)
-		fc.Result = &v[i]
-		return ec.marshalNSyncedKindRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐSyncedKindRef(ctx, sel, v[i])
-	})
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
 func (ec *executionContext) unmarshalNTime2timeᚐTime(ctx context.Context, v any) (time.Time, error) {
 	res, err := graphql.UnmarshalTime(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -31588,6 +31605,26 @@ var (
 		chat.ToolCallRunsOnProvider: "Provider",
 	}
 )
+
+func (ec *executionContext) marshalNUnhealthyKindRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐUnhealthyKindRef(ctx context.Context, sel ast.SelectionSet, v cluster.UnhealthyKindRef) graphql.Marshaler {
+	return ec._UnhealthyKindRef(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNUnhealthyKindRef2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐUnhealthyKindRefᚄ(ctx context.Context, sel ast.SelectionSet, v []cluster.UnhealthyKindRef) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNUnhealthyKindRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐUnhealthyKindRef(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
 
 func (ec *executionContext) marshalN__Directive2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐDirective(ctx context.Context, sel ast.SelectionSet, v introspection.Directive) graphql.Marshaler {
 	return ec.___Directive(ctx, sel, &v)

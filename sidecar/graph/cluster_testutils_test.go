@@ -341,9 +341,12 @@ func (f fakeCaches) WatchHealth(ctx context.Context) (*cluster.Stream[cluster.Cl
 		for _, c := range f.s.cachedKinds[i].Conditions {
 			if c.Type == string(cluster.ConditionSynced) && c.Reason != "Watching" {
 				h.Status, h.Reason = c.Status, c.Reason
-				h.UnhealthyKindRefs = append(h.UnhealthyKindRefs, cluster.SyncedKindRef{
-					APIVersion: f.s.cachedKinds[i].Spec.APIVersion,
-					Resource:   f.s.cachedKinds[i].Spec.Resource,
+				h.UnhealthyKindRefs = append(h.UnhealthyKindRefs, cluster.UnhealthyKindRef{
+					SyncedKindRef: cluster.SyncedKindRef{
+						APIVersion: f.s.cachedKinds[i].Spec.APIVersion,
+						Resource:   f.s.cachedKinds[i].Spec.Resource,
+					},
+					Reason: c.Reason,
 				})
 				h.UnhealthyKinds++
 			}

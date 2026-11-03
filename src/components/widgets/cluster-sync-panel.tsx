@@ -759,9 +759,9 @@ function kindsSyncingLabel(health: ClusterCacheHealth): string {
   if (idle === 0) return countLabel(health.totalKinds, 'kind');
   const syncing = `${health.totalKinds - idle} of ${countLabel(health.totalKinds, 'kind')}`;
   if (health.unhealthyKinds === 0) return `${syncing} syncing, ${health.pausedKinds} paused`;
-  // unhealthyKinds counts every non-Watching kind; unhealthyKindRefs names only the
-  // ranked offenders. Mid-pause there's a count with no names — say how many are
-  // syncing and stop.
+  // unhealthyKinds counts every non-Watching kind; offenderList names only those behind
+  // the verdict. Mid-pause there's a count with no names — say how many are syncing and
+  // stop.
   const offenders = offenderList(health);
   const paused = health.pausedKinds > 0 ? `, ${health.pausedKinds} paused` : '';
   if (!offenders) return `${syncing} syncing${paused}`;
@@ -772,9 +772,11 @@ function kindsSyncingLabel(health: ClusterCacheHealth): string {
 // wire carries the full sorted list.
 const OFFENDER_CAP = 3;
 
+// Names only the kinds whose own reason is the cache's: under a Stale or SyncFailed
+// verdict, a kind still on its cold list is neither.
 function offenderList(health: ClusterCacheHealth): string {
   // Plural alone; the ref's api group is for keying, not display.
-  const names = health.unhealthyKindRefs.map((k) => k.resource);
+  const names = health.unhealthyKindRefs.filter((k) => k.reason === health.reason).map((k) => k.resource);
   if (names.length <= OFFENDER_CAP) return names.join(', ');
   return `${names.slice(0, OFFENDER_CAP).join(', ')} +${names.length - OFFENDER_CAP} more`;
 }
@@ -784,9 +786,8 @@ function offenderList(health: ClusterCacheHealth): string {
 export function syncReason(status: Status, health: ClusterCacheHealth | null | undefined): string | null {
   if (!health || (status.tone !== 'error' && status.tone !== 'attention')) return null;
   if (health.reason === 'Stale') {
-    return health.unhealthyKindRefs.length
-      ? `${offenderList(health)} not receiving updates.`
-      : 'The watch may have stopped delivering updates.';
+    const offenders = offenderList(health);
+    return offenders ? `${offenders} not receiving updates.` : 'The watch may have stopped delivering updates.';
   }
   if (health.reason === 'StoreFailed') return 'The cache file will not open.';
   if (health.unhealthyKinds > 0) return kindsSyncingLabel(health);
@@ -862,15 +863,14 @@ export function SyncDetail({
   // Staleness is engine-derived, never inferred from a stamp's age — a
   // quiet-but-healthy cache legitimately has an old lastUpdateAt.
   const stale = health.reason === 'Stale';
+  const offenders = offenderList(health);
   return (
     <div className="space-y-2 rounded-md border bg-muted/30 p-3">
       <p className="text-sm font-medium">Sync status</p>
       {stale ? (
         <p className={`text-xs ${TONE.attention.text}`}>
           Possibly stale —{' '}
-          {health.unhealthyKindRefs.length
-            ? `${offenderList(health)} not receiving updates.`
-            : 'the watch may have stopped delivering updates.'}
+          {offenders ? `${offenders} not receiving updates.` : 'the watch may have stopped delivering updates.'}
         </p>
       ) : null}
       <dl className="space-y-0.5 text-xs text-muted-foreground">
