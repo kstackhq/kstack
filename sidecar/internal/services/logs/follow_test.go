@@ -1047,22 +1047,32 @@ func TestAResolveReadsOneStateOfTheMirror(t *testing.T) {
 	boot := func() map[string]any { return pod("boot", "uid-boot", "node-a", nil, container{name: "app"}) }
 	f := newMirror(t, append(webObjects(), withInit(waiting(boot()), "init"))...)
 	svc, _ := serviceOver(t, f, s)
+	// The finished init container is read once, by a fill that ends on its own. Held at
+	// the gate, the fill's end, and the resolve it starts, wait for the hook.
+	gate := make(chan struct{})
+	p := &logstest.Pauser{Gate: gate}
+	svc.backends = []namedBackend{{"kubelet", func(get kubelet.Getter) kubelet.Backend { return kubelet.New(p.On(get)) }}}
 	stream, _ := openFollowOf(t, svc, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "boot", AllContainers: true}}})
 	var started sync.Once
 	read := testutil.NewProbe[struct{}](1)
 	f.set(func() {
-		f.mirrorRead = read
 		f.beforeStatement = func(text string) {
 			if strings.Contains(text, "coalesce(c.container_id, '') = ''") {
-				started.Do(func() { f.store.Apply(t, withInit(boot(), "init")) })
+				started.Do(func() {
+					f.store.Apply(t, withInit(boot(), "init"))
+					// Armed here, since the fill checks its lines against the mirror
+					// first: the resolve this statement is part of is the reading in
+					// flight, so the first to return.
+					f.set(func() { f.mirrorRead = read })
+				})
 			}
 		}
 	})
 
-	s.End("prod/boot/init")
-	// Once the resolve the init container's end starts has read the mirror, the
-	// follow either ends or waits on its watches.
-	read.Await(t, "the resolve after init's end")
+	close(gate)
+	// Once that resolve has read the mirror, the follow either ends or waits on its
+	// watches.
+	read.Await(t, "the resolve after init's read")
 	select {
 	case f.pods <- podFrame(cluster.DeltaFrameModified, "boot"):
 	case frame := <-stream.Frames:
