@@ -471,11 +471,32 @@ type Paths struct {
 
 func (s *service) SetCacheFiles(owner CacheFileOwner) { s.cacheFiles.set(owner) }
 
+// Option tunes New.
+type Option func(*options)
+
+type options struct {
+	faults string
+}
+
+// WithFaults is KSTACK_FAULTS, the request failures a debug sidecar injects into every
+// connection (kubeconn.ParseFaults). New refuses a spec it cannot read.
+func WithFaults(spec string) Option {
+	return func(o *options) { o.faults = spec }
+}
+
 // New builds the cluster boundary over the app's database and its files at
 // paths: it prepares its statements, opens the runtime store, registers the
 // controllers, and leaves everything stopped until Start. The log files a cache's clear
 // and removal reach arrive by SetCacheFiles, once the logs service exists.
-func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *poke.Service) (Service, error) {
+func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *poke.Service, opts ...Option) (Service, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	faults, err := kubeconn.ParseFaults(o.faults)
+	if err != nil {
+		return nil, fmt.Errorf("KSTACK_FAULTS: %w", err)
+	}
 	store, err := sqlstmt.Prepare[stmtID](context.Background(), db.Write, db.Read, statements)
 	if err != nil {
 		return nil, fmt.Errorf("prepare cluster statements: %w", err)
@@ -504,13 +525,13 @@ func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *po
 
 	// The one that names credentials: everything above it asks about a kube-context or a
 	// cluster, and this is what turns one into the credentials a probe dials.
-	kubeconnSvc := kubeconn.New(kubeconfigSvc)
+	kubeconnSvc := kubeconn.New(kubeconfigSvc, kubeconn.WithFaults(faults))
 	// One store per cache under the registry, which the boundary reads, clears, and
 	// removes.
 	kubestoreMgr := kubestore.NewManager(paths.KubestoreDir, kubestore.DefaultRetention)
 	// What fills them: it discovers what each cluster serves and mirrors every served kind
 	// into that cluster's file. Armed by the cache and kind passes, never by a reader.
-	kubesyncSvc := kubesync.New(kubeconnSvc, kubestoreMgr)
+	kubesyncSvc := kubesync.New(kubeconnSvc, syncStores(kubestoreMgr, faults))
 	d := newDeps(bh, db, store, kubeconfigSvc, kubeconnSvc, kubestoreMgr, kubesyncSvc, pokeSvc)
 
 	controllers, err := registerControllers(bh, d)

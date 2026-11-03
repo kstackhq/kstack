@@ -162,8 +162,9 @@ type entry struct {
 	rates dataRateRing
 }
 
-// New returns a Service over the one reader of the user's kubeconfig.
-func New(kubecfgSvc kubeconfigService) *Service {
+// New returns a Service over the one reader of the user's kubeconfig. opts tune every
+// connection its probe builds.
+func New(kubecfgSvc kubeconfigService, opts ...Option) *Service {
 	// Here rather than in the composition root because the vars are read when a transport is
 	// built, and this package builds them — a call the root has to remember is one that goes
 	// missing.
@@ -182,7 +183,7 @@ func New(kubecfgSvc kubeconfigService) *Service {
 			return newTicker(DataRateInterval)
 		},
 	}
-	registerProbes(s.supervisor, kubecfgSvc)
+	registerProbes(s.supervisor, kubecfgSvc, opts)
 	s.supervisor.OnPass(s.publish)
 	return s
 }

@@ -129,6 +129,12 @@ per context](../../../../docs/adr/2026-08-23-one-connection-per-context.md).
   compare numbers, never times. A replaced or missing connection samples zero; the first tick
   only records. `Lease.DataRates` reads the ring; `Lease.WatchDataRates` is a nudge on its own hub,
   keyed by context, and the caller closes it. A stored `At` keeps its monotonic reading.
+- **A debug build injects `KSTACK_FAULTS`** (`faults_debug.go`; a release build has the stubs in
+  `faults_release.go`): `ParseFaults`' rules reach every connection through `WithFaults` on `New`
+  or `NewConnection`, as a wrapper on the `rest.Config` inside the idle-read bound, and
+  `store=fail` swaps the store manager kubesync arms with (the cluster package's own
+  `faults_debug.go`, behind `cluster.WithFaults`). A `quiet` watch keeps one sequence per
+  collection path on the wrapper, which lives and dies with its connection. → [`docs/development-switches.md`](../../../../docs/development-switches.md#injected-faults).
 - Every non-stream request has an idle-read bound, never a deadline. → [ADR: idle-read
   bound](../../../../docs/adr/2026-09-02-idle-read-bound.md).
 - `WatchState` delivers nothing on attach — pair it with `State()`. Every value is a level.

@@ -334,7 +334,7 @@ func TestNewConnectionReportsAClientItCannotBuild(t *testing.T) {
 	failing := errors.New("no dynamic client")
 	build := func(*rest.Config, *http.Client) (dynamic.Interface, error) { return nil, failing }
 
-	_, err := newConnection(&rest.Config{Host: "https://one.example"}, build)
+	_, err := newConnection(&rest.Config{Host: "https://one.example"}, options{}, build)
 
 	assert.ErrorIs(t, err, failing)
 }

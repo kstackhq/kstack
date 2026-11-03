@@ -122,8 +122,9 @@ Full picture: [`docs/security-model.md`](../docs/security-model.md).
 
 - **Every endpoint is an argument** (`configFromArgs`). The environment reaches the config only
   through `applyEnvOverrides`, a no-op without `-tags debug` (`make sidecar-dev` builds one, for a
-  run with no host), via the `getenv` it is handed. `KSTACK_LOG_LEVEL` is the one variable a
-  release build reads directly: a log level redirects nothing.
+  run with no host), via the `getenv` it is handed; `KSTACK_FAULTS`, which fails cluster requests,
+  is among what it reads. `KSTACK_LOG_LEVEL` is the one variable a release build reads directly:
+  a log level redirects nothing.
   **Provider keys are the exception**: read in every build, registered with `safe.AddSecret`
   before the logger exists, then stripped from the process (`takeProviderKeys`); the shell's keys
   join `Config.LLMKeys` and are never set on the process. `config_test.go` pins it. → [provider
@@ -247,7 +248,8 @@ go test -race -cpu 1 -shuffle=<seed> -count=3 ./internal/agent/chat
 ```
 
 **Coverage is measured in `Go · Coverage (<os>)`**, one runner per OS, beside the tests: the suite
-untagged and with `-tags debug` (the only build with the environment overrides), both with
+untagged and with `-tags debug` (the only build with the environment overrides and
+`KSTACK_FAULTS`; a test only that build can pass carries `//go:build debug`), both with
 `-coverpkg=./...` and `CGO_ENABLED=0`, as the release is built.
 `tools/coverignore` merges the two profiles and drops every block a marker exempts: the statement
 or function whose first line ends in `// coverage:ignore <reason>`, body included, and the lines

@@ -627,6 +627,14 @@ func TestAppClosesTheDatabaseWhenAConstructorFails(t *testing.T) {
 	}
 }
 
+// A KSTACK_FAULTS spec the build cannot honour stops the start naming the variable,
+// which run prints as FATAL for the start screen.
+func TestAFaultSpecTheBuildCannotHonourFailsNew(t *testing.T) {
+	_, err := New(t.Context(), withDirs(t, Config{Faults: "get pods=teapot"}))
+
+	require.ErrorContains(t, err, "KSTACK_FAULTS: ")
+}
+
 // A sandbox file that is not a JSON object fails New naming it, before app.db
 // opens.
 func TestABadSettingsFileFailsNew(t *testing.T) {

@@ -73,10 +73,10 @@ type connInfo struct {
 // silently undersize that wait.
 const connectionTimeout = 10 * time.Second
 
-func registerProbes(e *supervisor.Supervisor, kubecfg kubeconfigService) {
+func registerProbes(e *supervisor.Supervisor, kubecfg kubeconfigService, connOpts []Option) {
 	// A reachability check that has taken ten seconds has answered, so the timeout is
 	// shorter than the supervisor's default (a whole interval).
-	supervisor.RegisterJob(e, nameConnection, &connectionProbe{kubecfgSvc: kubecfg},
+	supervisor.RegisterJob(e, nameConnection, &connectionProbe{kubecfgSvc: kubecfg, connOpts: connOpts},
 		supervisor.WithInterval(30*time.Second), supervisor.WithTimeout(connectionTimeout))
 
 	// The four behind reachability declare both edges on it: they cannot run without a
@@ -143,6 +143,8 @@ const apiDiscoveryPath = "/api"
 // change.
 type connectionProbe struct {
 	kubecfgSvc kubeconfigService
+	// connOpts tune every connection this probe builds.
+	connOpts []Option
 }
 
 // Run resolves the context, keeps its connection current, and dials the server once.
@@ -190,7 +192,7 @@ func (p *connectionProbe) Run(ctx context.Context, pass *supervisor.JobPass[conn
 	// the request over this connection. A first identification records none, so nothing here
 	// rebuilds a connection merely because the probe behind it answered.
 	if next.conn == nil || next.fingerprint != fingerprint || next.conn.conflicted() {
-		conn, err := NewConnection(cfg)
+		conn, err := NewConnection(cfg, p.connOpts...)
 		next = connInfo{conn: conn, fingerprint: fingerprint}
 		if err != nil {
 			// Nothing was dialed; the remedy is the same file fix a context that will

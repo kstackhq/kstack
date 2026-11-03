@@ -131,6 +131,14 @@ func TestNewRejectsAnUnopenableStore(t *testing.T) {
 	assert.ErrorContains(t, err, "open beehive store")
 }
 
+// A spec the build cannot honour stops the start naming the variable, so the start screen
+// says which setting to fix.
+func TestNewRefusesAFaultSpecItCannotRead(t *testing.T) {
+	_, err := New(openTestDB(t), testPaths(t), newTestKubeconfig(t), nil, WithFaults("get pods=teapot"))
+
+	assert.ErrorContains(t, err, "KSTACK_FAULTS: ")
+}
+
 // A database the statements cannot be prepared on is a startup failure.
 func TestNewRejectsADatabaseThatWillNotPrepare(t *testing.T) {
 	db := openTestDB(t)

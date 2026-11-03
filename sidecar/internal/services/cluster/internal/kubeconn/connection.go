@@ -211,12 +211,28 @@ func (c *Connection) setServerUID(uid string) {
 // dynamicBuilder builds a connection's dynamic client.
 type dynamicBuilder func(cfg *rest.Config, c *http.Client) (dynamic.Interface, error)
 
+// Option tunes the connections a Service builds, or the one NewConnection builds.
+type Option func(*options)
+
+type options struct {
+	faults Faults
+}
+
+// WithFaults fails the requests faults names inside the connection, before the transport.
+func WithFaults(faults Faults) Option {
+	return func(o *options) { o.faults = faults }
+}
+
 // NewConnection materializes the clients for one set of credentials.
 //
 // NewForConfigAndClient, never NewForConfig: the latter builds a fresh client and a fresh
 // pool, which is the whole thing one connection per context exists to avoid.
-func NewConnection(cfg *rest.Config) (*Connection, error) {
-	return newConnection(cfg, func(cfg *rest.Config, c *http.Client) (dynamic.Interface, error) {
+func NewConnection(cfg *rest.Config, opts ...Option) (*Connection, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return newConnection(cfg, o, func(cfg *rest.Config, c *http.Client) (dynamic.Interface, error) {
 		return dynamic.NewForConfigAndClient(cfg, c)
 	})
 }
@@ -225,7 +241,7 @@ func NewConnection(cfg *rest.Config) (*Connection, error) {
 // seam in the build: every other failure here is reachable from a config a caller can write,
 // and this one is not — the host is already parsed and the rate limiter is ours to set, so
 // nothing a kubeconfig can say reaches it.
-func newConnection(cfg *rest.Config, newDynamic dynamicBuilder) (*Connection, error) {
+func newConnection(cfg *rest.Config, o options, newDynamic dynamicBuilder) (*Connection, error) {
 	conn := &Connection{seq: connSeq.Add(1), done: make(chan struct{}), counts: &byteCounts{}}
 
 	// A copy, because the tuning below is ours and the caller's config is not.
@@ -234,7 +250,6 @@ func newConnection(cfg *rest.Config, newDynamic dynamicBuilder) (*Connection, er
 	own.Burst = defaultBurst
 	own.UserAgent = userAgent
 	own.Dial = newCountingDialer(conn.counts)
-	own.Wrap(newIdleTimeoutWrapper(listIdleTimeout))
 
 	// DefaultServerUrlFor rather than DefaultServerURL: it derives the scheme from whether the
 	// config actually carries CA or client-cert data, so a scheme-less plain-HTTP endpoint (a
@@ -243,6 +258,12 @@ func newConnection(cfg *rest.Config, newDynamic dynamicBuilder) (*Connection, er
 	if err != nil {
 		return nil, fmt.Errorf("resolve server URL: %w", err)
 	}
+	// The fault wrapper first, since each later Wrap is the outer one: the idle bound then
+	// bounds a faulted request as it does a real one.
+	if wrap := o.faults.wrapper(baseURL.Path); wrap != nil {
+		own.Wrap(wrap)
+	}
+	own.Wrap(newIdleTimeoutWrapper(listIdleTimeout))
 
 	httpClient, err := rest.HTTPClientFor(own)
 	if err != nil {

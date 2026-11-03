@@ -28,8 +28,32 @@ These work only in a sidecar built with `-tags debug`, which `tauri dev` and `ma
 | `KSTACK_DATA_DIR`, `KSTACK_CACHE_DIR`, `KSTACK_RUNTIME_DIR` | Replace the directories the host passes. |
 | `KSTACK_KEYCHAIN_SERVICE` | Use another keychain entry. |
 | `KSTACK_<PROVIDER>_BASE_URL` | Move a model provider's base URL, the provider id upper-cased with `-` as `_` (`baseURLVar` in `sidecar/internal/agent/catalog/providers.go`). |
+| `KSTACK_FAULTS` | Fail cluster requests inside every connection, so the failure states draw from real data. See [Injected faults](#injected-faults). |
 
 A debug sidecar also adds a fake model to the catalog, so a dev run can chat without an API key.
+
+### Injected faults
+
+`KSTACK_FAULTS` holds rules split by `;`. A rule is `<verbs> <resource>=<fault>`, or `store=fail`. Verbs are a comma-separated list of `get`, `list` and `watch`. The resource is the plural lower-case name in the request path (`secrets`, `deployments`), `*` for every resource, or `api` for the discovery root the connection probe dials. The first matching rule wins. Every rule applies to every cluster.
+
+A matching request never leaves the connection, so everything above it runs for real: the probe ladder, the kind verdicts, the health rollup, and the agent's kubectl. Only a `GET` matches; a subresource (`pods/<name>/log`) and a group or version listing never do. The rules are read at start: change them by restarting.
+
+| Fault | The connection answers | What the app shows |
+| --- | --- | --- |
+| `401`, `403`, `404`, `429`, `500`, `503` | That status, with a Kubernetes `Status` body | `Unauthorized`, `Forbidden`, … on the attempts or the kind's events |
+| `refused` | A refused dial | `Unreachable` |
+| `tls` | An unknown certificate authority | `TLSInvalid` |
+| `timeout` | Nothing until the request's context ends; `get` and `list` only | `Timeout` on a probe; *server stopped sending data* on a list, after two to four minutes |
+| `quiet` | Per collection, a first watch that sends nothing and a reopen that hangs; `watch` only | *Stale*, after ten minutes |
+| `store=fail` | Every cache's store refuses to open | *Storage error* on the cache |
+
+A rule the sidecar cannot read stops its start, quoting the rule.
+
+```sh
+KSTACK_FAULTS='list,watch secrets=403' pnpm tauri dev  # a kind refused for its permissions
+KSTACK_FAULTS='get api=refused' pnpm tauri dev         # an unreachable server
+KSTACK_FAULTS='watch pods=quiet' pnpm tauri dev        # a stale watch
+```
 
 ## Build and test
 

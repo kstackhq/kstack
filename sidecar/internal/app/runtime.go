@@ -123,7 +123,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.Kubeconfig = kubeconfig.New(cfg.KubeconfigPath, rt.Poke)
 	rt.add("kubeconfig service", rt.Kubeconfig)
 
-	rt.Cluster, err = cluster.New(db, p.Cluster, rt.Kubeconfig, rt.Poke)
+	rt.Cluster, err = cluster.New(db, p.Cluster, rt.Kubeconfig, rt.Poke, cluster.WithFaults(cfg.Faults))
 	if err != nil {
 		return fail(err)
 	}

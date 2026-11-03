@@ -131,6 +131,7 @@ func applyEnvOverrides(cfg *config, getenv func(string) string) {
 	set(&cfg.App.CacheDir, "KSTACK_CACHE_DIR")
 	set(&cfg.App.RuntimeDir, "KSTACK_RUNTIME_DIR")
 	set(&cfg.App.KeychainService, "KSTACK_KEYCHAIN_SERVICE")
+	set(&cfg.App.Faults, "KSTACK_FAULTS")
 	for id, name := range catalog.BaseURLVars() {
 		url := getenv(name)
 		if url == "" {

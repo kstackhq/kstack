@@ -75,10 +75,12 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 		"KSTACK_CACHE_DIR":        "/tmp/override-cache",
 		"KSTACK_RUNTIME_DIR":      "/tmp/override-run",
 		"KSTACK_KEYCHAIN_SERVICE": "Kstack-override",
+		"KSTACK_FAULTS":           "get api=refused",
 	}
 
 	want := productionConfig
 	if debugBuild {
+		want.App.Faults = "get api=refused"
 		want.App.OAuthIssuerURL = "https://issuer.override"
 		want.App.OAuthClientID = "override"
 		want.App.DataDir = "/tmp/override"

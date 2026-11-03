@@ -85,6 +85,9 @@ type Config struct {
 	// AddFake adds the fake to the catalog, last, so a dev run answers with no
 	// key. Debug builds only.
 	AddFake bool
+	// Faults is KSTACK_FAULTS, the request failures every cluster connection
+	// injects (docs/development-switches.md). Only a debug build sets it.
+	Faults string
 	// fake is a test's own fake, added as AddFake adds one, so the test can
 	// stage its replies.
 	fake *llm.Fake
