@@ -468,6 +468,10 @@ func (f fakeCachedData) Query(context.Context, cluster.ClusterID, cluster.Cluste
 	return cluster.ClusterCachedDataQueryResult{}, false, nil
 }
 
+func (f fakeCachedData) ListedKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (map[cluster.SyncedKindRef]bool, bool, error) {
+	return nil, false, nil
+}
+
 func (f fakeCachedData) ReadOwn(context.Context, cluster.ClusterID, cluster.ClusterCacheID, func(cluster.OwnQuery) error) (bool, error) {
 	return false, nil
 }

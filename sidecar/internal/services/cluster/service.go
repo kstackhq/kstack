@@ -332,6 +332,11 @@ type CachedData interface {
 	// cache the pair does not resolve to, or one with no file. A statement SQLite
 	// refuses is a *QueryError.
 	Query(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error)
+	// ListedKinds is the kinds whose list has committed, in this session or an earlier
+	// one: a kind's cookie is on disk from its list's commit until a relist's first
+	// page clears it. ok is false for a cache the pair does not resolve to, or one
+	// with no file.
+	ListedKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (map[SyncedKindRef]bool, bool, error)
 	// ReadOwn runs read over one snapshot of the cache, each statement it runs one the
 	// sidecar wrote, on a connection kept between such readings: a reader joining
 	// what several statements answer never joins two states of the cache. ok is false

@@ -129,6 +129,10 @@ type ClusterCacheHealth struct {
 	// list rather than a message because truncation ("+2 more") is a layout decision, and the
 	// consumer that needs the first offender must not have to parse it back out of prose.
 	UnhealthyKindRefs []UnhealthyKindRef
+	// UnansweredKindRefs names every kind that has reported no state this session, sorted:
+	// the kinds behind a Connecting verdict. Not on the wire, so no frame is sent for a
+	// change to it alone; KubeQuery reads it.
+	UnansweredKindRefs []SyncedKindRef
 	// Failure is the first offender's class of failure (a kubeconn.Reason such as Forbidden);
 	// empty when unclassified or not failing.
 	Failure string
@@ -152,13 +156,22 @@ type ClusterCacheHealth struct {
 
 // Trusted reports whether the cache's rows are this cluster's to answer from:
 // listed at least once, under no cache-wide failure. Stale rows are trusted; a
-// reader says how stale.
+// reader says how stale. Under Connecting, KubeQuery trusts a kind by its cookie
+// instead (ListedKinds).
 func (h ClusterCacheHealth) Trusted() bool {
 	switch h.Reason {
-	case "", ReasonConnecting, ReasonSizeLimit, kubesync.ReasonStoreFailed, kubesync.ReasonIdentityMismatch:
+	case "", ReasonConnecting, ReasonSizeLimit:
 		return false
 	}
-	return true
+	return !RefusedCacheWide(h.Reason)
+}
+
+// RefusedCacheWide reports whether a reason, a cache's or a kind's, withholds every
+// row of the cache: the connection answers as another cluster, or the file failed.
+// Trusted and the per-kind reading under Connecting both refuse through it, so the
+// two never disagree.
+func RefusedCacheWide(reason string) bool {
+	return reason == kubesync.ReasonStoreFailed || reason == kubesync.ReasonIdentityMismatch
 }
 
 // ClusterCacheSyncStatus is one cache's sync detail: how discovery is doing, and a row per
@@ -529,6 +542,7 @@ func (a cachesAPI) readCacheHealth(
 			// Unproven as well as unanswered: a kind that has said nothing has proved nothing,
 			// so it withholds the cache's proof like any other kind carrying none.
 			anyKindUnanswered, anyKindUnproven = true, true
+			health.UnansweredKindRefs = append(health.UnansweredKindRefs, syncedKindRefOf(kindObj.Spec))
 			continue
 		}
 		if state.Reason != kubesync.ReasonWatching {
@@ -556,11 +570,13 @@ func (a cachesAPI) readCacheHealth(
 	slices.SortFunc(health.UnhealthyKindRefs, func(a, b UnhealthyKindRef) int {
 		return compareSyncedKindRefs(a.SyncedKindRef, b.SyncedKindRef)
 	})
+	slices.SortFunc(health.UnansweredKindRefs, compareSyncedKindRefs)
 	health.LastUpdateAt = optionalTime(newestUpdateAt)
 	if !anyKindUnproven {
 		health.LastLiveAt = optionalTime(oldestLiveAt)
 	}
 
+	discovery, _ := a.s.kubesyncSvc.GetDiscoveryState(int64(cacheID))
 	switch {
 	case FindCondition(cacheObj.Conditions, ConditionSynced) != nil:
 		// The cache's own decision, above every arm below: a cache stopped at its size
@@ -572,11 +588,14 @@ func (a cachesAPI) readCacheHealth(
 		// Ahead of every arm below: paused kinds are skipped, so a fully paused cache has
 		// no offenders and nothing unanswered — and the Watching arm would call it healthy.
 		health.Reason = ReasonPaused
-	case storeFailed(a.s.kubesyncSvc.GetDiscoveryState(int64(cacheID))):
-		// The cache's own verdict, above the per-kind fold: a file that will not open arms
+	case discovery.Reason == kubesync.ReasonStoreFailed, discovery.Reason == kubesync.ReasonIdentityMismatch:
+		// The cache's own verdicts, above the per-kind fold. A file that will not open arms
 		// nothing, so every kind reads as unanswered and the default below would report a
-		// permanently broken cache as still connecting.
-		health.Reason = kubesync.ReasonStoreFailed
+		// permanently broken cache as still connecting. A context reaching another server
+		// is a cache-wide refusal, and a kind reports it only once its own run has hit the
+		// gate: until every kind has, the cache would read Connecting, which answers from
+		// the other cluster's rows.
+		health.Reason = discovery.Reason
 	case health.TotalKinds == 0 || anyKindUnanswered:
 		// Still connecting, which is not Paused: an enabled cluster's cache has no kinds
 		// until its sweep has run, and calling that paused would show a user their own
@@ -590,12 +609,6 @@ func (a cachesAPI) readCacheHealth(
 		health.Reason, health.Failure = first.Reason, string(first.Failure)
 	}
 	return health, nil
-}
-
-// storeFailed reads the one discovery verdict the rollup folds, in the shape the getter
-// answers in.
-func storeFailed(state kubesync.DiscoveryState, ok bool) bool {
-	return ok && state.Reason == kubesync.ReasonStoreFailed
 }
 
 // syncedKindRefOf is the (APIVersion, Resource) pair that identifies a kind on the wire.
@@ -893,7 +906,7 @@ func (a cachesAPI) clusterFor(
 
 // sameHealth reports whether a cache's verdict moved. The refs are a slice, so the
 // struct is not comparable — and re-emitting an unchanged gauge is exactly what the
-// cadence must not do.
+// cadence must not do. UnansweredKindRefs is not on the wire, so it is not compared.
 func sameHealth(a, b ClusterCacheHealth) bool {
 	return a.Status == b.Status && a.Reason == b.Reason && a.Failure == b.Failure &&
 		a.TotalKinds == b.TotalKinds && a.UnhealthyKinds == b.UnhealthyKinds &&

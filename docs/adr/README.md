@@ -234,3 +234,4 @@ usually just documentation in the wrong place.
 | 2026-11-03 | [Connected carries the probe's class of failure as its reason](2026-11-03-connected-carries-the-probes-class-of-failure.md) | cross-cutting | Accepted |
 | 2026-11-03 | [A failed kind sync carries its class of failure beside its reason](2026-11-03-a-failed-sync-carries-its-class-of-failure.md) | cross-cutting | Accepted |
 | 2026-11-03 | [A kind reads Stale only when its watch stops sending bookmarks](2026-11-03-a-kind-reads-stale-only-when-its-bookmarks-stop.md) | sidecar | Accepted |
+| 2026-11-03 | [A Connecting cache answers KubeQuery from the kinds that have listed](2026-11-03-a-connecting-cache-answers-from-the-kinds-that-have-listed.md) | sidecar | Accepted |

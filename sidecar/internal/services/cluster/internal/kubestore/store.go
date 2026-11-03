@@ -821,6 +821,33 @@ func setCookie(ctx context.Context, st stmts, apiVersion, resource, resourceVers
 	return setMeta(ctx, st, cookieKey(apiVersion, resource), resourceVersion)
 }
 
+// ListedKinds is every catalog kind with a cookie: the kinds whose list has committed,
+// in this session or an earlier one.
+func (s *Store) ListedKinds(ctx context.Context) ([]Kind, error) {
+	f, done, err := s.use()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	var listed []Kind
+	err = inReadTx(ctx, f, "read listed kinds", func(st stmts) error {
+		rows, err := st.Query(ctx, stmtSelectListedKinds)
+		if err != nil { // coverage:ignore a cancel fails the transaction before its first statement
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var k Kind
+			if err := rows.Scan(&k.APIVersion, &k.Kind, &k.Resource); err != nil { // coverage:ignore three text columns scan into three strings
+				return err
+			}
+			listed = append(listed, k)
+		}
+		return rows.Err()
+	})
+	return listed, err
+}
+
 // deleteCookie durably removes one kind's resume position, so the next start cold-lists.
 func deleteCookie(ctx context.Context, st stmts, apiVersion, resource string) error {
 	_, err := st.Exec(ctx, stmtDeleteMeta, cookieKey(apiVersion, resource))
@@ -829,8 +856,8 @@ func deleteCookie(ctx context.Context, st stmts, apiVersion, resource string) er
 
 // cookieKey is the cluster_meta key one kind's watch resourceVersion is stored under.
 // Never parsed back — apiVersion and resource are read from the caller's own arguments,
-// not recovered from the key. The refs view (query_views.sql) builds the same key to ask
-// whether a kind is listed, so the two change together.
+// not recovered from the key. The refs view (query_views.sql) and stmtSelectListedKinds
+// build the same key to ask whether a kind is listed, so the three change together.
 func cookieKey(apiVersion, resource string) string {
 	return "cookie/" + apiVersion + "/" + resource
 }

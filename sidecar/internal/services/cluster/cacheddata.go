@@ -494,6 +494,27 @@ func (a cachedDataAPI) Query(ctx context.Context, clusterID ClusterID, cacheID C
 	return a.query(ctx, clusterID, cacheID, sql, maxRows, maxBytes, args)
 }
 
+func (a cachedDataAPI) ListedKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (map[SyncedKindRef]bool, bool, error) {
+	store, ok, err := a.openQueried(ctx, clusterID, cacheID)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	defer store.Release()
+
+	kinds, err := store.ListedKinds(ctx)
+	if cacheGone(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read cache %d listed kinds: %w", cacheID, err)
+	}
+	listed := map[SyncedKindRef]bool{}
+	for _, k := range kinds {
+		listed[SyncedKindRef{APIVersion: k.APIVersion, Resource: k.Resource}] = true
+	}
+	return listed, true, nil
+}
+
 func (a cachedDataAPI) ReadOwn(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, read func(OwnQuery) error) (bool, error) {
 	store, ok, err := a.openQueried(ctx, clusterID, cacheID)
 	if err != nil || !ok {

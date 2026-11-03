@@ -85,6 +85,7 @@ const (
 	stmtSelectMeta
 	stmtCountKind
 	stmtSelectKinds
+	stmtSelectListedKinds
 	stmtSelectEvents
 	stmtSelectObjectBody
 	stmtSelectObjects
@@ -326,6 +327,12 @@ var statements = []sqlstmt.Statement{
 		       COALESCE(kc.printer_columns, ''), COALESCE(knt.count, 0)
 		FROM kind_catalog kc
 		LEFT JOIN kind_counts knt ON knt.api_version = kc.api_version AND knt.kind = kc.kind
+		ORDER BY kc.api_version, kc.kind`),
+	// The key is cookieKey's, as the refs view builds it.
+	stmtSelectListedKinds: sqlstmt.OnReader(`
+		SELECT kc.api_version, kc.kind, kc.resource
+		FROM kind_catalog kc
+		JOIN cluster_meta m ON m.key = 'cookie/' || kc.api_version || '/' || kc.resource
 		ORDER BY kc.api_version, kc.kind`),
 	stmtSelectEvents: sqlstmt.OnReader(`
 		SELECT ` + eventColumns + `

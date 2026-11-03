@@ -665,6 +665,48 @@ func TestReadOwnRefusesWhatQueryRefuses(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// ListedKinds is the store's listed kinds keyed as the health names them; a cache of
+// another cluster is not ok.
+func TestListedKindsReadsTheKindsWithACookie(t *testing.T) {
+	ctx := context.Background()
+	f := newDataFixture(t)
+	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
+		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: kubestore.ScopeNamespaced},
+		{APIVersion: "apps/v1", Kind: "Deployment", Resource: "deployments", Scope: kubestore.ScopeNamespaced},
+	}, true, 7))
+	require.NoError(t, f.store.SetCookie(ctx, "v1", "pods", "20"))
+	f.stopWorkers()
+
+	listed, ok, err := f.data().ListedKinds(ctx, f.clusterID, f.cacheID)
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, map[SyncedKindRef]bool{{APIVersion: "v1", Resource: "pods"}: true}, listed)
+
+	other := createCluster(t, f.d, "other")
+	_, ok, err = f.data().ListedKinds(ctx, clusterIDOf(other), f.cacheID)
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// A clear that ends the listed-kinds read is a cache gone, not a fault; any other
+// failure of it is reported.
+func TestListedKindsOfACacheAClearEndsIsNotOK(t *testing.T) {
+	f := newDataFixture(t)
+	store := kubestoreFake(f.d)
+	store.afterOpen = func(cacheID int64) { require.NoError(t, store.mgr.Remove(cacheID)) }
+
+	_, ok, err := f.data().ListedKinds(context.Background(), f.clusterID, f.cacheID)
+	require.NoError(t, err)
+	assert.False(t, ok)
+
+	f = newDataFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	kubestoreFake(f.d).afterOpen = func(int64) { cancel() }
+	_, ok, err = f.data().ListedKinds(ctx, f.clusterID, f.cacheID)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.False(t, ok)
+}
+
 // A clear that ends a reading before it starts is a cache gone, not a fault.
 func TestAReadingAClearEndsIsNotOK(t *testing.T) {
 	f := newDataFixture(t)

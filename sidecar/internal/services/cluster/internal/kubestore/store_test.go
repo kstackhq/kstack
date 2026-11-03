@@ -545,6 +545,42 @@ func TestCookieRoundtripIsPerKind(t *testing.T) {
 	require.Equal(t, "200", v)
 }
 
+// ListedKinds is the catalog kinds with a cookie: not a catalog kind without one, nor
+// a cookie the catalog lacks, and a cleared cookie leaves the list.
+func TestListedKindsAreTheCatalogKindsWithACookie(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newTestStore(t)
+	require.NoError(t, store.SyncKinds(ctx, []KindRow{
+		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: ScopeNamespaced},
+		{APIVersion: "apps/v1", Kind: "Deployment", Resource: "deployments", Scope: ScopeNamespaced},
+	}, true, 7))
+	require.NoError(t, store.SetCookie(ctx, "v1", "pods", "20"))
+	require.NoError(t, store.SetCookie(ctx, "apps/v1", "deployments", "30"))
+	require.NoError(t, store.SetCookie(ctx, "batch/v1", "jobs", "40"))
+
+	listed, err := store.ListedKinds(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []Kind{{"apps/v1", "Deployment", "deployments"}, {"v1", "Pod", "pods"}}, listed)
+
+	require.NoError(t, store.ClearKind(ctx, Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"}))
+	listed, err = store.ListedKinds(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []Kind{{"apps/v1", "Deployment", "deployments"}}, listed)
+}
+
+func TestListedKindsAfterACloseIsClosed(t *testing.T) {
+	t.Parallel()
+
+	_, err := closedStore(t).ListedKinds(context.Background())
+	require.ErrorIs(t, err, ErrClosed)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = newTestStore(t).ListedKinds(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestStoreClearKindRemovesOnlyThatKindsCookie(t *testing.T) {
 	t.Parallel()
 

@@ -85,6 +85,13 @@ within a timeline only. → [ADR: event timelines](../../../../docs/adr/2026-09-
   joiners share that read. A subscriber diffs against its own last frames, so a late one
   still starts from every cache's verdict. A failed read ends the run for all of them; the
   next subscriber starts a fresh one.
+- **Under `Connecting`, KubeQuery trusts a kind by its cookie**: `CachedData().ListedKinds`
+  reads the catalog kinds with one (`kubestore.ListedKinds`, one join on the key the `refs` view
+  builds), against the fold's `UnansweredKindRefs`, which is not on the wire. Discovery's
+  `StoreFailed` and `IdentityMismatch` are the cache's verdict ahead of the per-kind fold. `Trusted()` and `ReadActiveCache` are
+  cache-wide and still withhold a `Connecting` cache. → [ADR: a Connecting cache answers from the
+  kinds that have
+  listed](../../../../docs/adr/2026-11-03-a-connecting-cache-answers-from-the-kinds-that-have-listed.md).
 - The data-rate series (`datarate.go`, `Clusters().WatchDataRate`) streams the pool's ring
   through its own claim: it subscribes to `Lease.WatchDataRates`, sends `Lease.DataRates` whole
   (even empty), then on each nudge the samples numbered above the last one sent. → [ADR: a series

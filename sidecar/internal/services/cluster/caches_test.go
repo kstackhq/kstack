@@ -101,6 +101,15 @@ func TestClusterCacheHealthTrusted(t *testing.T) {
 	lastKnown := ClusterCacheHealth{Reason: "Disconnected", TotalKinds: 1, UnhealthyKinds: 1,
 		UnhealthyKindRefs: []UnhealthyKindRef{{SyncedKindRef: SyncedKindRef{APIVersion: "v1", Resource: "pods"}}}}
 	assert.True(t, lastKnown.Trusted())
+
+	for reason, refused := range map[string]bool{
+		kubesync.ReasonStoreFailed:      true,
+		kubesync.ReasonIdentityMismatch: true,
+		ReasonConnecting:                false,
+		kubesync.ReasonSyncFailed:       false,
+	} {
+		assert.Equal(t, refused, RefusedCacheWide(reason), reason)
+	}
 }
 
 func TestCachesGet(t *testing.T) {
@@ -1456,6 +1465,30 @@ func TestCachesWatchHealthReadsAKindWithNoAnswerAsConnecting(t *testing.T) {
 	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
 	assert.Equal(t, ReasonConnecting, got.Reason)
 	assert.Empty(t, got.UnhealthyKindRefs, "a kind that has not answered is not an offender")
+	assert.Equal(t, []SyncedKindRef{syncedKindRefOf(deploymentsSpec)}, got.UnansweredKindRefs)
+}
+
+// Every kind that has not answered is named, sorted, and a kind that answers leaves
+// the list. A tick may land between the two answers and send the list half-emptied,
+// so the test reads until it is empty: the verdict moves once both have answered.
+func TestCachesWatchHealthNamesEveryKindThatHasNotAnswered(t *testing.T) {
+	d, cacheID := syncingCacheWithKinds(t)
+
+	stream, err := serviceOver(t, d).Caches().WatchHealth(t.Context())
+	require.NoError(t, err)
+
+	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
+	assert.Equal(t, []SyncedKindRef{syncedKindRefOf(deploymentsSpec), syncedKindRefOf(podsSpec)}, got.UnansweredKindRefs)
+
+	setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncing})
+	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncing})
+	got = testutil.Recv(t, stream.Frames, "the verdict once a kind answered")
+	if len(got.UnansweredKindRefs) > 0 {
+		assert.Equal(t, []SyncedKindRef{syncedKindRefOf(deploymentsSpec)}, got.UnansweredKindRefs)
+		got = testutil.Recv(t, stream.Frames, "the verdict once both answered")
+	}
+	assert.Equal(t, kubesync.ReasonSyncing, got.Reason)
+	assert.Empty(t, got.UnansweredKindRefs)
 }
 
 // **A paused kind is skipped, not folded.** It never reaches GetKindState, so it can never
@@ -1479,6 +1512,7 @@ func TestCachesWatchHealthSkipsAPausedKindWithoutLosingItFromTheCensus(t *testin
 	assert.Equal(t, 2, got.TotalKinds, "the census keeps it")
 	assert.Equal(t, 1, got.PausedKinds)
 	assert.Equal(t, 0, got.UnhealthyKinds, "a paused kind is not unhealthy")
+	assert.Empty(t, got.UnansweredKindRefs, "a paused kind is not unanswered")
 }
 
 // The gauge dedupes per cache against a hand-written comparison, so a field nothing
@@ -1539,6 +1573,22 @@ func TestCachesWatchHealthReportsACacheWhoseStoreWillNotOpen(t *testing.T) {
 	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
 	assert.Equal(t, ConditionFalse, got.Status)
 	assert.Equal(t, kubesync.ReasonStoreFailed, got.Reason)
+}
+
+// A context that reaches another server is the cache's verdict before any kind's: the
+// kinds have not answered yet, and Connecting would answer from the other cluster's rows.
+func TestCachesWatchHealthReportsAnIdentityMismatchBeforeAnyKindAnswers(t *testing.T) {
+	d, cacheID := syncingCacheWithKinds(t)
+	syncFake(d).setDiscoveryState(int64(cacheID), kubesync.DiscoveryState{Reason: kubesync.ReasonIdentityMismatch})
+
+	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	require.NoError(t, err)
+
+	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
+	assert.Equal(t, ConditionFalse, got.Status)
+	assert.Equal(t, kubesync.ReasonIdentityMismatch, got.Reason)
+	assert.False(t, got.Trusted())
+	assert.Equal(t, []SyncedKindRef{syncedKindRefOf(deploymentsSpec), syncedKindRefOf(podsSpec)}, got.UnansweredKindRefs)
 }
 
 // --- the per-cache sync detail ---
