@@ -178,9 +178,7 @@ func TestAReadFailureCarriesNoText(t *testing.T) {
 }
 
 func TestAWithheldResultCarriesNoRows(t *testing.T) {
-	f := healthy()
-	f.health.Reason = "Connecting"
-	text, isError := run(t, f, `{"sql":"SELECT 1"}`)
+	text, isError := run(t, connecting(), `{"sql":"SELECT 1"}`)
 	assert.False(t, isError)
 	assert.Equal(t, `{"cluster":"prod","freshness":{"status":"syncing"}}`, text)
 }

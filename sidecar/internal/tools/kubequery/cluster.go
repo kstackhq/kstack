@@ -60,20 +60,24 @@ func (t *Tool) read(ctx context.Context, clusterID cluster.ClusterID, active clu
 	if name := active.Cluster.Spec.Name; name != nil && *name != "" {
 		a.cluster = *name
 	}
-	// No cache withholds, so the query below always has a cache.
-	var health *cluster.ClusterCacheHealth
-	if active.Cache != nil {
-		h, ok, err := t.svc.Caches().Health(ctx, clusterID, active.Cache.ID)
-		if err != nil {
-			return answer{}, err
-		}
-		if !ok {
-			return answer{}, errNoCache
-		}
-		health = &h
+	if active.Cache == nil {
+		a.freshness = clustercard.MarshalFreshness(clustercard.Freshness(nil))
+		a.withheld = true
+		return a, nil
 	}
-	a.freshness = clustercard.MarshalFreshness(clustercard.Freshness(health))
-	if health == nil || !health.Trusted() {
+	health, ok, err := t.svc.Caches().Health(ctx, clusterID, active.Cache.ID)
+	if err != nil {
+		return answer{}, err
+	}
+	if !ok {
+		return answer{}, errNoCache
+	}
+	fr, answers, err := t.freshness(ctx, clusterID, active.Cache.ID, health)
+	if err != nil {
+		return answer{}, err
+	}
+	a.freshness = clustercard.MarshalFreshness(fr)
+	if !answers {
 		a.withheld = true
 		return a, nil
 	}
@@ -86,4 +90,20 @@ func (t *Tool) read(ctx context.Context, clusterID cluster.ClusterID, active clu
 	}
 	a.rows = rows
 	return a, nil
+}
+
+// freshness is the verdict over the active cache and whether its rows answer.
+// A Connecting cache answers from the kinds that have listed, in this session or
+// an earlier one, which the store says. A cache with no file has listed nothing:
+// a new cache reads Connecting before its arm creates the file.
+func (t *Tool) freshness(ctx context.Context, clusterID cluster.ClusterID, cacheID cluster.ClusterCacheID, health cluster.ClusterCacheHealth) (clustercard.FreshnessSection, bool, error) {
+	if health.Reason != cluster.ReasonConnecting {
+		return clustercard.Freshness(&health), health.Trusted(), nil
+	}
+	listed, _, err := t.svc.CachedData().ListedKinds(ctx, clusterID, cacheID)
+	if err != nil {
+		return clustercard.FreshnessSection{}, false, err
+	}
+	fr, answers := clustercard.ConnectingFreshness(health, listed)
+	return fr, answers, nil
 }

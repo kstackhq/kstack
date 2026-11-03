@@ -52,9 +52,12 @@ Every result carries `cluster`, the cluster's display name or else its kube-cont
 `paused`, `last-known` with `since`, `unknown` with a `reason`, or `partial` with `notWatching`
 naming the kinds behind. `since` is the cache-wide stamp the card carries: when every kind was last
 seen live. Under `syncing` and `unknown` the rows are withheld and only the verdict goes: a count
-over a store the app does not trust is a false answer with a number on it. The verdict is read
-off the cluster's health, and the query runs inside the same `ReadActive` reading, so the rows and
-the verdict describe one cache.
+over a store the app does not trust is a false answer with a number on it. A `Connecting` cache
+answers from the kinds that listed in an earlier session, as `last-known` or `partial` with reason
+`Connecting`; `syncing` names the kinds never listed whose list runs, `unknown` those whose cannot.
+The verdict is read off the cluster's health, and the query runs inside the same `ReadActive`
+reading, so the rows and the verdict describe one cache. Under `Connecting` the cookies are a third
+read between them, which the ADR accepts.
 
 ## KubeQuery's views
 

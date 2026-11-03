@@ -203,8 +203,13 @@ Its `QueryErr` fails every statement, or with `FailIn` only those whose SQL hold
 ## KubeQuery (`tools/kubequery`)
 
 **KubeQuery is read-only SQL over the chat's cluster's cache, run without asking.** It is `Custom` and `Bounded` (10 s), never `Gated`. `parse` is strict (a `;` only at the
-end). `Run` (`cluster.go`) reads one `ReadActive`, the cache's health, and queries only when
-`health.Trusted()`, so the rows and the verdict describe one cache. Errors: `sql` (through
+end). `Run` (`cluster.go`) reads one `ReadActive`, the cache's health, and queries only when the
+verdict answers: `health.Trusted()`, or **a `Connecting` cache once some kind has rows**
+(`CachedData().ListedKinds`, `clustercard.ConnectingFreshness`). That answer reads `last-known`
+or `partial` with reason `Connecting`; `syncing` names the kinds never listed whose list runs,
+`unknown` those whose cannot. → [ADR: a
+Connecting cache answers from the kinds that have
+listed](../../../docs/adr/2026-11-03-a-connecting-cache-answers-from-the-kinds-that-have-listed.md). Errors: `sql` (through
 `safe.String`), `no-cache`, `read-failed` with none of its text. Cells go through
 `safe.RedactJSON`/`safe.Redact`. **No answer ends mid-row**: past `InlineLimit` it is saved via
 `Persisted`, and a head too large for any row is `too-large`. `prompts/kubequery.md` lists only the

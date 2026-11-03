@@ -50,6 +50,11 @@ type fakeService struct {
 	queryGone bool
 	// queried is every statement run, with the cache and caps it was given.
 	queried []queried
+	// listed is the kinds whose list has committed; listedGone finds no file, and
+	// listedErr fails the read.
+	listed     map[cluster.SyncedKindRef]bool
+	listedGone bool
+	listedErr  error
 }
 
 // queried is one statement a fake ran.
@@ -115,6 +120,10 @@ func (f fakeCachedData) Query(_ context.Context, _ cluster.ClusterID, cacheID cl
 	return f.query, !f.queryGone, nil
 }
 
+func (f fakeCachedData) ListedKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (map[cluster.SyncedKindRef]bool, bool, error) {
+	return f.listed, !f.listedGone, f.listedErr
+}
+
 // healthy is a cluster named prod whose active cache, 11, is watching.
 func healthy() *fakeService {
 	return &fakeService{
@@ -127,6 +136,17 @@ func healthy() *fakeService {
 		},
 		health: cluster.ClusterCacheHealth{Reason: "Watching", TotalKinds: 2},
 	}
+}
+
+// connecting is healthy's cluster at a start: its cache's kinds have not answered,
+// and none has listed.
+func connecting() *fakeService {
+	f := healthy()
+	f.health = cluster.ClusterCacheHealth{Reason: cluster.ReasonConnecting, TotalKinds: 2, UnansweredKindRefs: []cluster.SyncedKindRef{
+		{APIVersion: "apps/v1", Resource: "deployments"},
+		{APIVersion: "v1", Resource: "pods"},
+	}}
+	return f
 }
 
 // dataQuery runs sql over cluster 7's cache, as the tool does.
@@ -168,16 +188,56 @@ func TestAQueryReadsTheHealthNotTheCardsFacts(t *testing.T) {
 }
 
 func TestSyncingAndUnknownWithholdTheRows(t *testing.T) {
-	for reason, status := range map[string]string{"Connecting": `{"status":"syncing"}`, "SizeLimit": `{"status":"unknown","reason":"SizeLimit"}`} {
-		f := healthy()
-		f.health.Reason = reason
-
+	unknown := healthy()
+	unknown.health.Reason = "SizeLimit"
+	for status, f := range map[string]*fakeService{
+		`{"status":"syncing"}`:                      connecting(),
+		`{"status":"unknown","reason":"SizeLimit"}`: unknown,
+	} {
 		got, err := dataQuery(f, `SELECT 1`)
 
 		require.NoError(t, err)
-		assert.Equal(t, answer{cluster: "prod", freshness: []byte(status), withheld: true}, got, reason)
-		assert.Empty(t, f.queried, reason)
+		assert.Equal(t, answer{cluster: "prod", freshness: []byte(status), withheld: true}, got, status)
+		assert.Empty(t, f.queried, status)
 	}
+}
+
+// After a restart, a Connecting cache answers from a kind listed in an earlier
+// session and says its rows may be out of date; a kind never listed is named as
+// still syncing.
+func TestAConnectingCacheAnswersFromKindsListedBefore(t *testing.T) {
+	f := connecting()
+	f.listed = map[cluster.SyncedKindRef]bool{{APIVersion: "v1", Resource: "pods"}: true}
+	f.query = cluster.ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}}
+
+	got, err := dataQuery(f, `SELECT name FROM objects`)
+
+	require.NoError(t, err)
+	assert.Equal(t, answer{
+		cluster:   "prod",
+		freshness: []byte(`{"status":"last-known","reason":"Connecting","syncing":{"names":["apps/v1/deployments"]}}`),
+		rows:      f.query,
+	}, got)
+	assert.Len(t, f.queried, 1)
+}
+
+// A Connecting cache with no kind listed withholds as before, and so does one
+// with no file yet, which has listed nothing; a failed read of what has listed
+// is returned.
+func TestAConnectingCacheWithNothingListedWithholds(t *testing.T) {
+	for name, f := range map[string]*fakeService{"nothing listed": connecting(), "no file": connecting()} {
+		f.listedGone = name == "no file"
+		got, err := dataQuery(f, `SELECT 1`)
+		require.NoError(t, err, name)
+		assert.Equal(t, answer{cluster: "prod", freshness: []byte(`{"status":"syncing"}`), withheld: true}, got, name)
+		assert.Empty(t, f.queried, name)
+	}
+
+	f := connecting()
+	f.listedErr = errRead
+	_, err := dataQuery(f, `SELECT 1`)
+	assert.ErrorIs(t, err, errRead)
+	assert.Empty(t, f.queried)
 }
 
 func TestNoCacheWithholdsAndRunsNothing(t *testing.T) {
