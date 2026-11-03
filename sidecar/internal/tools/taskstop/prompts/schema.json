@@ -7,7 +7,7 @@
   "properties": {
     "task_id": {
       "type": "string",
-      "description": "The ID of the background command to stop."
+      "description": "The ID of the task to stop: a background command's, an agent's or a watch's, as its result gave it."
     }
   }
 }

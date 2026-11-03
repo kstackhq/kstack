@@ -19,7 +19,6 @@ package chat
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,8 +35,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 )
-
-var update = flag.Bool("update", false, "rewrite the golden files in testdata")
 
 // A question's context block, pinned as the model reads it in testdata/context.md:
 // the card, the notes, the workspace, the view and the sandbox, in that order, in

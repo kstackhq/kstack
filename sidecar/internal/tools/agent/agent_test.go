@@ -32,7 +32,7 @@ func TestTheDescriptionListsEveryType(t *testing.T) {
 
 	assert.Equal(t, Name, def.Name)
 	for _, typ := range types {
-		assert.Contains(t, def.Description, "\n- "+typ+": ")
+		assert.Contains(t, def.Description, "The one agent type, "+typ+",")
 	}
 }
 
@@ -136,7 +136,7 @@ func TestAnAgentCallHasNoDeadline(t *testing.T) {
 func TestThePromptSaysTheReportComesLater(t *testing.T) {
 	assert.Contains(t, New().Prompt(), "its report reaches you later as a task notification")
 	assert.Contains(t, New().Prompt(), "Never fabricate or predict a pending agent's report")
-	assert.Contains(t, description, "Your call answers at once, and the agent's report arrives later as a notification.")
+	assert.Contains(t, description, "get its report back as a notification")
 	assert.Contains(t, description, "wait for its notification")
 	assert.NotContains(t, description, "Your call waits")
 }

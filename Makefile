@@ -67,11 +67,12 @@ test-changed:
 
 # Rewrites the goldens that pin what the model reads: the system prompt and every
 # tool's offer, per kind of run and machine (sidecar/internal/app/testdata/prompt/),
-# and a question's context block (sidecar/internal/agent/chat/testdata/context.md).
+# a question's context block (sidecar/internal/agent/chat/testdata/context.md) and
+# the subagent's assembled prompt (sidecar/internal/agent/chat/testdata/subagent_prompt.md).
 # Run it after changing a prompt, an offer or their assembly, and review the diff:
 # it is the model's view of the change, byte for byte where the cache depends on it.
 prompts:
-	cd sidecar && go test ./internal/app ./internal/agent/chat -run MatchesItsGolden -update
+	cd sidecar && go test ./internal/app ./internal/agent/chat -run 'MatchesItsGolden|TestTheSubagentsPromptIsAssembledInOrder' -update
 
 # Go coverage of this OS, per function. Not a gate: CI's Coverage · Gate is.
 # `go tool cover -html=sidecar/coverage.out` opens it line by line.

@@ -31,7 +31,7 @@ import (
 func TestTheDefinitionTakesAURL(t *testing.T) {
 	def := (&Tool{}).Definition()
 	assert.Equal(t, Name, def.Name)
-	assert.True(t, strings.HasPrefix(def.Description, "Fetches a web page from the user's machine and returns it as markdown.\n"))
+	assert.True(t, strings.HasPrefix(def.Description, "Fetches a web page, from the user's machine, as markdown.\n"))
 	assert.Contains(t, def.Description, "Every fetch waits for the user to approve the URL.")
 	var schema struct {
 		AdditionalProperties bool                       `json:"additionalProperties"`

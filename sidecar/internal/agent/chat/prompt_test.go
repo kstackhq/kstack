@@ -95,9 +95,10 @@ func TestTheSystemPromptExplainsTheSandboxSection(t *testing.T) {
 	t.Parallel()
 
 	assert.Contains(t, promptSystem, "The last section, `## Sandbox`, says where this chat's commands run: "+
-		"`sandboxed` in the sandbox, `outside` as the user, each waiting for their approval. "+
+		"`sandboxed` in the sandbox, which runs each unasked, or `outside` as the user, which waits for their approval of each. "+
 		"In the sandbox, `network` says whether they reach the internet: `off`, `on for this chat`, `on for this message`, "+
-		"or `unavailable on this machine`. It is absent on a machine with no sandbox.")
+		"or `unavailable on this machine`; `read` and `readWrite` list the user's folders the sandbox reaches, "+
+		"and `Read`, `Write` and `Edit` open them without asking. It is absent on a machine with no sandbox.")
 }
 
 // The monitor's prompt is its own file, whole, and tells it nobody is there to

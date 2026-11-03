@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"flag"
 	"os"
 	"path/filepath"
 	"slices"
@@ -49,6 +50,9 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/logswatch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/read"
 )
+
+// update rewrites the golden files in testdata; `make prompts` passes it.
+var update = flag.Bool("update", false, "rewrite the golden files in testdata")
 
 // openTestDB is an app.db of this test's own, with no janitor, holding the cluster
 // rows the tests file chats under. dir is the data directory, so a test that reopens

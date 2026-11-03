@@ -1,4 +1,4 @@
-Fetches a web page from the user's machine and returns it as markdown.
+Fetches a web page, from the user's machine, as markdown.
 
 - Every fetch waits for the user to approve the URL.
 - HTTP is upgraded to HTTPS. Local and private addresses, and hostnames without a dot, are refused.

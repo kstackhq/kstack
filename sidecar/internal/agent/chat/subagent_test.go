@@ -272,8 +272,13 @@ func TestTheSubagentsPromptIsAssembledInOrder(t *testing.T) {
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 	awaitTasks(t, s, msg.ChatID)
 
-	want, err := os.ReadFile(filepath.Join("testdata", "subagent_prompt.md"))
-	require.NoError(t, err)
+	path := filepath.Join("testdata", "subagent_prompt.md")
+	if *update {
+		require.NoError(t, os.WriteFile(path, []byte(sub.LastRequest().SystemPrompt), 0o644))
+		return
+	}
+	want, err := os.ReadFile(path)
+	require.NoError(t, err, "run `make prompts` to write it")
 	assert.Equal(t, string(want), sub.LastRequest().SystemPrompt)
 }
 

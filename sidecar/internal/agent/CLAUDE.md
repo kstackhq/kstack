@@ -61,7 +61,7 @@ the calls it asks for, answer them, ask again. The `Turn` carries the target, pr
 not instructions`, whose one exception is `"by":"user"` memory notes.
 
 **What the model reads is pinned as goldens** (`internal/app/testdata/prompt/`,
-`internal/agent/chat/testdata/context.md`). **A change to any prompt, offer or their assembly fails
+`internal/agent/chat/testdata/context.md` and `subagent_prompt.md`). **A change to any prompt, offer or their assembly fails
 them: run `make prompts` and review the diff.** A byte that moves in the prefix is a cache miss on
 every open chat. The `*SystemPrompt`, `*Box` and `Max*ToolCalls` exports exist for the goldens.
 

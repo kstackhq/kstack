@@ -867,7 +867,7 @@ func TestTheDefinitionIsTheReferences(t *testing.T) {
 		schema.Properties["network"])
 	assert.Len(t, schema.Properties, 6)
 
-	assert.True(t, strings.HasPrefix(def.Description, "Executes a bash command and returns its output.\n"), def.Description)
+	assert.True(t, strings.HasPrefix(def.Description, "Executes a shell command and returns its output.\n"), def.Description)
 	assert.Contains(t, def.Description, "`timeout` is in milliseconds: default 120000, max 600000.")
 	assert.Contains(t, def.Description, "- Each command runs in a new process of the user's shell, in `workdir` when given, else the chat's workspace, "+
 		"a directory that keeps its files for the rest of the chat. "+
@@ -1089,7 +1089,7 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.Contains(t, got, sandboxPrompt+"\n"+shared)
 	assert.NotContains(t, got, "Every command waits")
 	assert.True(t, strings.HasPrefix(sandboxPrompt, "Unless the user has switched this chat outside the sandbox, commands run in a sandbox"+
-		" and do not wait for the user, but for a change to the cluster."), sandboxPrompt)
+		" and wait for nobody, but for a change to the cluster."), sandboxPrompt)
 	assert.Contains(t, sandboxPrompt, "A command outside the sandbox waits for the user to approve it")
 	assert.Contains(t, sandboxPrompt, "A denied command was not run")
 	assert.Contains(t, sandboxPrompt, "`could not start`")
@@ -1097,43 +1097,37 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 		assert.Contains(t, p, "say what it will change before you run it")
 		assert.NotContains(t, p, "before you ask")
 	}
-	assert.Contains(t, sandboxPrompt, "If a command needs what the sandbox lacks — the user's files or credentials, "+
-		"or a service account token — say so and what for. "+
-		"A path a command could not read is one the user can grant, in Settings or from the chat: "+
-		"say which path and what for, rather than work around it. "+
-		"The user can switch this chat to run commands outside the sandbox; the question's context says whether they have. "+
-		"Do not work around the sandbox.")
-	assert.Contains(t, sandboxPrompt, "It reaches the chat's cluster alone, with the user's own access.", "a sandboxed run reaches the cluster through the proxy")
-	assert.Contains(t, sandboxPrompt, "A request that changes the cluster runs at once when the user's rules allow it, waits for the user to approve it, "+
-		"or comes back `Forbidden` because the user's mode for this context, or one of their rules, refuses it.", "a write is decided by the mode and the rules")
-	assert.Contains(t, sandboxPrompt, "A `Forbidden` that names the mode or a rule is the user's decision, not an error to work around", "a refusal is the user's")
+	assert.Contains(t, sandboxPrompt, "If a command needs what the sandbox lacks — a file, a credential, a service account token — say so and what for. "+
+		"A folder the user can grant, in Settings or from under the command that failed, is one to ask for by path and purpose, "+
+		"and run the command again once they have; do not work around the sandbox. "+
+		"The user can switch this chat outside the sandbox; the context says whether they have.")
+	assert.Contains(t, sandboxPrompt, "The cluster is reached through its proxy either way: the chat's cluster alone, with the user's own access.", "a sandboxed run reaches the cluster through the proxy")
+	assert.Contains(t, sandboxPrompt, "A change runs at once when the user's rules allow it, waits for the user to approve it, "+
+		"or comes back `Forbidden` naming the mode or rule that refuses it", "a write is decided by the mode and the rules")
+	assert.Contains(t, sandboxPrompt, "the user's decision, not an error to work around: say what was refused and why. A denied request is `Forbidden` too.", "a refusal is the user's")
 	assert.Contains(t, sandboxPrompt, "A dry run of a built-in resource runs at once, so `kubectl diff` and `--dry-run=server` preview such a change without asking; a dry run of a custom resource waits like the change.", "a dry run is a read")
-	assert.Contains(t, sandboxPrompt, "give a command that changes the cluster one that leaves the user time to read each request", "the wait counts against the timeout")
-	assert.Contains(t, sandboxPrompt, "a service account token and a change past 1 MiB come back `Forbidden`, and so does a change from a background command")
+	assert.Contains(t, sandboxPrompt, "give a command that changes the cluster time for the user to read each request", "the wait counts against the timeout")
+	assert.Contains(t, sandboxPrompt, "Exec, attach, port-forward, a service account token, a change past 1 MiB and a change from a background command come back `Forbidden`.")
 	assert.Contains(t, sandboxPrompt, "Change a Secret with `kubectl apply --server-side`: a client-side apply first reads the Secret, which asks, "+
 		"and fails on `[redacted]` if the read is not allowed.")
 	assert.Contains(t, sandboxPrompt, "A Secret's values, and a helm release's, read `[redacted]` unless the user allows showing them: "+
-		"a read of Secret data asks, and the user can allow it once, for the command, for this chat, or always.", "a Secret read asks")
-	assert.Contains(t, sandboxPrompt, "Listing Secrets' names asks for nothing, and a background command reads them `[redacted]`.")
+		"a read of Secret data asks, and the user can allow it once, for the command, for this chat, or always;", "a Secret read asks")
+	assert.Contains(t, sandboxPrompt, "listing Secrets' names asks nothing, and a background command reads them `[redacted]`.")
 	assert.Contains(t, sandboxPrompt, "`[redacted]` after such a request is the user's answer: do not ask them to run the command outside the sandbox for it.")
 	assert.Contains(t, sandboxPrompt, "helm keeps each release in a Secret, so every helm command asks, and `helm upgrade` more than once; "+
 		"allowing it for this chat stops the asking. A helm change is refused when the command read Secret data `[redacted]`, and its refusal says so.")
 	assert.NotContains(t, sandboxPrompt, "a helm change and", "a helm change is not refused outright")
 	assert.NotContains(t, sandboxPrompt, "reaches no network")
-	assert.Contains(t, sandboxPrompt, "The sandbox reaches the internet only when the question's context says its `network` is on.")
-	assert.Contains(t, sandboxPrompt, "A command that needs the internet otherwise can set `network: true`, which asks the user to approve that command; "+
-		"a refused request is the user's decision.")
-	assert.Contains(t, sandboxPrompt, "With the internet a command still holds no credential, so `gh`, `aws` and a private registry have no login in the sandbox.")
-	assert.Contains(t, sandboxPrompt, "The cluster is reached through its proxy either way.")
-	assert.Contains(t, sandboxPrompt, "What follows about the user's own credentials, `kubectl diff` and `--dry-run=server` is for a command run outside the sandbox.")
-	assert.Contains(t, sandboxPrompt, "The sandbox has the user's tools and none of their shell's functions, aliases or variables. "+
-		"`HOME` is the workspace. A tool that cannot find its own files under the home needs a folder the user grants, "+
-		"which they can do from under the command that failed or in Settings: say which folder and why, "+
-		"and run the command again once they have.", "what a sandboxed run starts from")
+	assert.Contains(t, sandboxPrompt, "The sandbox reaches the internet only when the context says its `network` is on.")
+	assert.Contains(t, sandboxPrompt, "A command that needs it otherwise can set `network: true`, which asks the user to approve that command; "+
+		"a refusal is their decision.")
+	assert.Contains(t, sandboxPrompt, "With the internet a command still holds no credential, so `gh`, `aws` and a private registry have no login.")
+	assert.NotContains(t, sandboxPrompt, "is for a command run outside the sandbox", "the dry-run advice holds in the sandbox too")
+	assert.Contains(t, sandboxPrompt, "It has the user's tools and none of their shell's functions, aliases or variables; "+
+		"`HOME` is the workspace; `sudo` does not work.", "what a sandboxed run starts from")
 	assert.NotContains(t, sandboxPrompt, "or this chat switched outside the sandbox", "one folder is never a reason to leave the sandbox")
-	assert.Contains(t, sandboxPrompt, "The sandbox reaches none of the user's credentials, and of the user's files the folders "+
-		"they granted alone, which the question's context lists: it reads each, and writes those granted read and write.", "the grants")
-	assert.Contains(t, sandboxPrompt, "`Read`, `Write` and `Edit` reach a granted folder as they reach the workspace.")
+	assert.Contains(t, sandboxPrompt, "The sandbox holds none of the user's credentials and, of their files, only the folders "+
+		"the question's context lists under `read` and `readWrite`.", "the grants")
 	assert.NotContains(t, sandboxPrompt, "and none of the user's files")
 	assert.NotContains(t, sandboxPrompt, "you can leave")
 	assert.Equal(t, 1, strings.Count(got, "## Bash"))
@@ -1170,9 +1164,8 @@ func TestNoPromptNamesTheFlag(t *testing.T) {
 func TestThePromptNamesTheWorkspace(t *testing.T) {
 	for _, tl := range []*Tool{{kind: "bash", platform: "linux"}, {kind: "bash", platform: "linux", sandboxer: &fakeSandboxer{}}} {
 		got := tl.Prompt()
-		assert.Contains(t, got, "Every command starts in the chat's workspace, the path the context's `Workspace` section names, "+
-			"which keeps its files for the rest of the chat. `Read`, `Write` and `Edit` work on them, and `Read` opens them without asking.")
-		assert.Contains(t, got, "Keep a file you need again in the workspace; put one you need for a moment under `mktemp`.")
+		assert.Contains(t, got, "Every command starts in the chat's workspace, whose files `Read`, `Write` and `Edit` open without asking. "+
+			"Keep a file you need again there; put one you need for a moment under `mktemp`.")
 		assert.NotContains(t, got, "never a relative path")
 	}
 }
@@ -1285,7 +1278,7 @@ func TestAFailedConfinedRunSaysWhereItRan(t *testing.T) {
 // The sandbox prompt says sudo does not work, what the limits are and how a
 // process past one ends, and what a thread that cannot start means.
 func TestThePromptSaysSudoDoesNotWork(t *testing.T) {
-	assert.Contains(t, sandboxPrompt, "`sudo` does not work in the sandbox.")
+	assert.Contains(t, sandboxPrompt, "`sudo` does not work.")
 	assert.Contains(t, sandboxPrompt, "limited in memory and open files, and in the foreground in count and CPU time")
 	assert.Contains(t, sandboxPrompt, "exit 152")
 	assert.Contains(t, sandboxPrompt, "cannot create a thread")
@@ -1307,7 +1300,7 @@ func defaultEntries() settings.RunPath {
 // runs at once next time, one allowed for the command for the rest of it and
 // asks again in the next, and a background command changes nothing.
 func TestThePromptSaysWhatAnAllowKeeps(t *testing.T) {
-	assert.Contains(t, sandboxPrompt, "A change the user allowed for this chat, or always, runs at once the next time a foreground command sends it")
-	assert.Contains(t, sandboxPrompt, "A change allowed for the command runs at once for the rest of that command, and asks again in the next one.")
-	assert.Contains(t, sandboxPrompt, "so does a change from a background command")
+	assert.Contains(t, sandboxPrompt, "A change allowed for this chat, or always, runs unasked the next time a foreground command sends one in the same context and namespace")
+	assert.Contains(t, sandboxPrompt, "one allowed for the command runs unasked for the rest of that command alone.")
+	assert.Contains(t, sandboxPrompt, "a change from a background command come back `Forbidden`")
 }
