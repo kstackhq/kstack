@@ -183,7 +183,8 @@ fn page_started<R: Runtime>(app: &AppHandle<R>, label: &str) {
     webview_log::page_loaded(label);
 }
 
-/// Every command the webview may invoke.
+/// Every command the webview may invoke. `build.rs`'s `COMMANDS` names the
+/// same set, so each has a permission a capability can grant.
 fn invoke_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         commands::ready,
@@ -209,6 +210,41 @@ mod tests {
     use crate::services::sidecar::SidecarService;
     use crate::testutil::{mock_app, Scratch};
     use crate::webview_log::{Limiter, LimiterConfig, WebviewRecord};
+
+    /// The items of the `[...]` list that opens at the first `marker` in `source`.
+    fn items_after<'a>(source: &'a str, marker: &str) -> Vec<&'a str> {
+        let (_, after) = source.split_once(marker).expect("source has the list");
+        let (list, _) = after.split_once(']').expect("the list closes");
+        list.split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .collect()
+    }
+
+    #[test]
+    fn every_command_is_in_the_app_manifest() {
+        // A command left out of `build.rs`'s `COMMANDS` has no permission for a
+        // capability to grant, so Tauri denies it in every window. The mock
+        // runtime checks no capability, so read both lists from source.
+        // `generate_handler!` names paths (`commands::ready`); the command is
+        // the last segment. This test's own literals come after the handler,
+        // so the first match is the list.
+        let mut handled: Vec<&str> = items_after(include_str!("lib.rs"), "generate_handler![")
+            .into_iter()
+            .map(|path| path.rsplit("::").next().unwrap())
+            .collect();
+        let mut manifest: Vec<&str> =
+            items_after(include_str!("../build.rs"), "COMMANDS: &[&str] = &[")
+                .into_iter()
+                .map(|name| name.trim_matches('"'))
+                .collect();
+        handled.sort_unstable();
+        manifest.sort_unstable();
+        assert_eq!(
+            handled, manifest,
+            "build.rs's COMMANDS must name every handler and nothing else"
+        );
+    }
 
     #[test]
     fn closing_the_last_window_keeps_the_app_running() {

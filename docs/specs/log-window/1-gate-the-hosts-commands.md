@@ -1,7 +1,7 @@
 ---
 title: Gate the host's commands
 scope: host
-status: Planned
+status: Implemented
 ---
 
 # Gate the host's commands
@@ -71,8 +71,8 @@ that reason.
 ## Tasks
 
 1. **The manifest.** `AppManifest::commands` in `build.rs`; the test over `lib.rs` and
-   `build.rs`.
-2. **The capability.** `default.json`'s new list; the pinning test grows to it.
+   `build.rs`. Done.
+2. **The capability.** `default.json`'s new list; the pinning test grows to it. Done.
 
 ## Tests
 
