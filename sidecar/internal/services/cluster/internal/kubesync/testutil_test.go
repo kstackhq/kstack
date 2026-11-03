@@ -763,13 +763,13 @@ func awaitKindReason(t *testing.T, svc *Service, cacheID int64, k kubestore.Kind
 }
 
 // awaitKindOpen waits for one kind's watch to be open and returns the state that said so.
-// Watching and Stale both say it: an idle watch is reopened one window after Watching, a reopen
-// held a window more reads Stale, and a test that shrank the window cannot count on reading
-// Watching before it does.
+// Watching and Resuming both say it: an idle watch is reopened one window after Watching, a
+// reopen held a window more reads Resuming, and a test that shrank the window cannot count on
+// reading Watching before it does.
 func awaitKindOpen(t *testing.T, svc *Service, cacheID int64, k kubestore.Kind) KindState {
 	t.Helper()
 	return awaitKindState(t, svc, cacheID, k, "a kind's watch to be open", func(state KindState) bool {
-		return state.Reason == ReasonWatching || state.Reason == ReasonStale
+		return state.Reason == ReasonWatching || state.Reason == ReasonResuming
 	})
 }
 

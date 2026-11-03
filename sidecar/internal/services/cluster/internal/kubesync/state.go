@@ -75,8 +75,8 @@ const (
 	ReasonResuming = "Resuming"
 	// ReasonWatching: caught up and streaming deltas, proven live.
 	ReasonWatching = "Watching"
-	// ReasonStale: caught up, but the reopen after a quiet window is taking longer than the
-	// window.
+	// ReasonStale: caught up, but a stream that has sent a bookmark has since gone
+	// bookmarkStaleAfter without a frame. A stream that sends none never reads Stale.
 	ReasonStale = "Stale"
 	// ReasonSyncFailed: the run failed and is retrying.
 	ReasonSyncFailed = "SyncFailed"
@@ -137,8 +137,8 @@ type DiscoveryState struct {
 //   - **Silence is ambiguous.** A watch sending nothing is either a quiet collection or a
 //     wedged connection. LastLiveAt is what separates them — a delta, a bookmark, or a
 //     frameless stream that stood a whole window, stamped at its open, since not every
-//     collection sends bookmarks — and Stale is what the reopen after that window reads as
-//     once it takes longer than the threshold.
+//     collection sends bookmarks — and Stale is a stream that has bookmarked and then gone
+//     silent, since only its silence is evidence.
 //   - **A healthy stream has no next attempt.** NextRetryAt is set only while a run is
 //     down, where a pass always has one scheduled.
 //   - **Flapping hides at an instant.** A watch that reconnects every thirty seconds reads
@@ -157,7 +157,7 @@ type KindState struct {
 	// worker being live. Kept rather than folded away because it is the one join a consumer
 	// cannot redo: reconstructing it means enumerating which reasons a running stream reports,
 	// and that set is this package's to change. Stale is live — the run is up and serving its
-	// rows while the watch reopens — and Syncing is not, since the cold list is still running.
+	// rows while its watch is silent — and Syncing is not, since the cold list is still running.
 	Live bool
 
 	// LastUpdateAt is when data last arrived; LastLiveAt the last proof the stream is

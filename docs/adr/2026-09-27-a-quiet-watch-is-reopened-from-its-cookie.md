@@ -3,7 +3,9 @@ title: A quiet watch is reopened from its cookie, and reads Stale only when the 
 date: 2026-09-27
 scope: sidecar
 status: Accepted
-amended_by: [A quiet reopen the server refuses as expired relists in place](2026-09-29-an-expired-quiet-reopen-relists-in-place.md)
+amended_by:
+  - [A quiet reopen the server refuses as expired relists in place](2026-09-29-an-expired-quiet-reopen-relists-in-place.md)
+  - [A kind reads Stale only when its watch stops sending bookmarks](2026-11-03-a-kind-reads-stale-only-when-its-bookmarks-stop.md)
 ---
 
 # A quiet watch is reopened from its cookie, and reads Stale only when the reopen hangs

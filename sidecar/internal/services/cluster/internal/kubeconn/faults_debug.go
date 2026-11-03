@@ -39,6 +39,8 @@ import (
 	"syscall"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/transport"
 )
 
@@ -63,6 +65,7 @@ const (
 	faultTLS     = "tls"
 	faultTimeout = "timeout"
 	faultQuiet   = "quiet"
+	faultStalled = "stalled"
 )
 
 // resourceName is a resource as a request path spells it, the discovery root's "api" among them.
@@ -125,12 +128,12 @@ func parseRule(lhs, fault string) (rule, error) {
 		if slices.Contains(r.verbs, "watch") {
 			return rule{}, errors.New("timeout is for get and list; a quiet watch is quiet")
 		}
-	case faultQuiet:
+	case faultQuiet, faultStalled:
 		if slices.ContainsFunc(r.verbs, func(v string) bool { return v != "watch" }) {
-			return rule{}, errors.New("quiet is for watch only")
+			return rule{}, fmt.Errorf("%s is for watch only", fault)
 		}
 	default:
-		return rule{}, fmt.Errorf("fault %q is not 401, 403, 404, 429, 500, 503, refused, tls, timeout or quiet", fault)
+		return rule{}, fmt.Errorf("fault %q is not 401, 403, 404, 429, 500, 503, refused, tls, timeout, quiet or stalled", fault)
 	}
 	return r, nil
 }
@@ -250,13 +253,15 @@ func (t *faultRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		return hang(req)
 	case faultQuiet:
 		return t.quietOpen(req)
+	case faultStalled:
+		return stalledResponse(req), nil
 	default:
 		return statusResponse(req, r.code), nil
 	}
 }
 
-// quietOpen plays one collection's quiet sequence, which kubesync reads as Stale: a silent first
-// open proves the watch alive for a window, and the reopen after it hangs past a second.
+// quietOpen plays one collection's quiet sequence, which kubesync reads as Resuming: a silent
+// first open proves the watch alive for a window, and the reopen after it hangs past a second.
 //
 // An open first retires a sequence whose first open's context has ended. A stopped worker ends
 // that context however far it got, so a replacement never meets a reopen left by one gone.
@@ -308,6 +313,24 @@ func (t *faultRoundTripper) retire(path string, seq *quietSequence) {
 func silentResponse(req *http.Request, onClose func()) *http.Response {
 	body := &silentBody{ctx: req.Context(), closed: make(chan struct{}), onClose: onClose}
 	// -1: unknown, as a streamed watch's is.
+	return jsonResponse(req, http.StatusOK, body, -1)
+}
+
+// stalledResponse is a watch that sends one bookmark at the position it was opened at, then
+// nothing, which kubesync reads as Stale. The bookmark's kind is a placeholder: the fault does
+// not know the collection's, and kubesync reads only the position.
+func stalledResponse(req *http.Request) *http.Response {
+	bookmark, _ := json.Marshal(metav1.WatchEvent{
+		Type: string(watch.Bookmark),
+		Object: runtime.RawExtension{Raw: fmt.Appendf(nil,
+			`{"kind":"Bookmark","apiVersion":"v1","metadata":{"resourceVersion":%q}}`,
+			req.URL.Query().Get("resourceVersion"))},
+	})
+	silent := &silentBody{ctx: req.Context(), closed: make(chan struct{})}
+	body := struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(append(bookmark, '\n')), silent), silent}
 	return jsonResponse(req, http.StatusOK, body, -1)
 }
 

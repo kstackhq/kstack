@@ -126,17 +126,84 @@ func TestABookmarkProvesTheStreamLiveWithoutData(t *testing.T) {
 	assert.Equal(t, before.LastUpdateAt, after.LastUpdateAt, "and is not data")
 }
 
+// A stream that has sent a bookmark has shown it sends them, so its silence is evidence.
+func TestABookmarkedStreamThatGoesSilentReadsStaleUntilItsNextFrame(t *testing.T) {
+	cluster := newFakeCluster(t)
+	cluster.serveKind(podKind, true)
+	cluster.hasObjects(podKind, "10")
+	stream := cluster.streamKind(podKind)
+
+	// Short, because this test is about the silence elapsing; the window stays long, so no
+	// reopen lands under it and the frame below is the stream's.
+	svc := newSyncingService(t, cluster, func(p *pacing) { p.bookmarkStaleAfter = 50 * time.Millisecond })
+	syncKind(t, svc, 1, podKind)
+	w := stream.opened.Await(t, "the watch to open")
+
+	w.Action(watch.Bookmark, object("v1", "Pod", "", "42"))
+	stale := awaitKindState(t, svc, 1, podKind, "the silence to read Stale", func(state KindState) bool {
+		return state.Reason == ReasonStale
+	})
+
+	// The silence runs again from this frame and may read Stale before the wait looks. Stale
+	// to Stale commits nothing, so a Stale dated after the first passed through Watching.
+	w.Action(watch.Added, object("v1", "Pod", "one", "43"))
+	awaitKindState(t, svc, 1, podKind, "the frame to set it back to Watching", func(state KindState) bool {
+		return state.Reason == ReasonWatching || state.SinceAt.After(stale.SinceAt)
+	})
+}
+
+// A hung reopen proves nothing a Stale stream's silence did not, so it stays Stale until a
+// frame arrives.
+func TestAStaleStreamWhoseReopenHangsStaysStaleUntilTheReopenLands(t *testing.T) {
+	cluster := newFakeCluster(t)
+	cluster.serveKind(podKind, true)
+	cluster.hasObjects(podKind, "10")
+	stream := cluster.streamKind(podKind)
+
+	const window = 100 * time.Millisecond
+	svc := newSyncingService(t, cluster, func(p *pacing) {
+		p.staleAfter = window
+		p.bookmarkStaleAfter = 20 * time.Millisecond
+	})
+	syncKind(t, svc, 1, podKind)
+	stream.opened.Await(t, "the watch to open").Action(watch.Bookmark, object("v1", "Pod", "", "42"))
+	stale := awaitKindState(t, svc, 1, podKind, "the silence to read Stale", func(state KindState) bool {
+		return state.Reason == ReasonStale
+	})
+
+	// Deferred as well as released below: a held open holds the fake cluster's lock.
+	release := stream.hold()
+	defer release()
+	stream.parked.Await(t, "the reopen to hang")
+	news := svc.WatchKindNews()
+	t.Cleanup(news.Close)
+	// A bounded wait: the negative assertion, three times the window a slow open announces at.
+	testutil.NoRecv(t, news.Chan(), 3*window, "the hung reopen to move the reason")
+	state, _ := svc.GetKindState(1, podKind)
+	assert.Equal(t, stale.SinceAt, state.SinceAt, "the stream still reads Stale")
+
+	release()
+	awaitKindReason(t, svc, 1, podKind, ReasonWatching)
+}
+
 func TestAQuietWatchIsReopenedFromItsCookieAndStaysWatching(t *testing.T) {
 	cluster := newFakeCluster(t)
 	cluster.serveKind(podKind, true)
 	cluster.hasObjects(podKind, "10")
 	stream := cluster.streamKind(podKind)
 
-	// Short, because this test is about the window elapsing.
-	svc := newSyncingService(t, cluster, func(p *pacing) { p.staleAfter = 50 * time.Millisecond })
+	// Short, because this test is about the window elapsing. The silence is shorter still, so
+	// a stream that read it without a bookmark would show as Stale.
+	svc := newSyncingService(t, cluster, func(p *pacing) {
+		p.staleAfter = 50 * time.Millisecond
+		p.bookmarkStaleAfter = 10 * time.Millisecond
+	})
 	syncKind(t, svc, 1, podKind)
 	stream.opened.Await(t, "the watch to open")
 	cluster.listed.Drain()
+	watching := awaitKindState(t, svc, 1, podKind, "the watch to read Watching", func(state KindState) bool {
+		return state.Reason == ReasonWatching
+	})
 
 	// Nothing ever arrives: a collection with nothing to say, and no bookmarks to say it with.
 	stream.opened.Await(t, "the quiet watch to be reopened")
@@ -147,6 +214,7 @@ func TestAQuietWatchIsReopenedFromItsCookieAndStaysWatching(t *testing.T) {
 	state := awaitKindState(t, svc, 1, podKind, "the reopen to prove the stream live", func(state KindState) bool {
 		return state.Reason == ReasonWatching && !state.LastLiveAt.IsZero()
 	})
+	assert.Equal(t, watching.SinceAt, state.SinceAt, "a stream with no bookmark never read Stale")
 	assert.Zero(t, state.Restarts, "and the reopen is not the stream going down")
 }
 
@@ -163,12 +231,12 @@ func TestAQuietWatchsReplacementMustProveItself(t *testing.T) {
 	syncKind(t, svc, 1, podKind)
 	stream.opened.Await(t, "the watch to open")
 
-	// The reopen is held until it reads Stale, which is after the window's stamp. Deferred as
-	// well as released below: a held open holds the fake cluster's lock.
+	// The reopen is held until it reads Resuming, which is after the window's stamp. Deferred
+	// as well as released below: a held open holds the fake cluster's lock.
 	release := stream.hold()
 	defer release()
 	windowed := awaitKindState(t, svc, 1, podKind, "the reopen to hang past the window", func(state KindState) bool {
-		return state.Reason == ReasonStale
+		return state.Reason == ReasonResuming
 	})
 	require.False(t, windowed.LastLiveAt.IsZero(), "the quiet window proves the stream it closed")
 	// Stopped before it is handed over, so it closes before its own window can elapse.
@@ -233,7 +301,9 @@ func TestAQuietWatchWhoseReopenIsExpiredRelistsInPlace(t *testing.T) {
 	}
 }
 
-func TestAQuietWatchWhoseReopenHangsReadsStale(t *testing.T) {
+// A hung reopen over a stream that sent no bookmark is a slow server, not stale rows: the
+// connection's pings fail a dead one's streams long before the window.
+func TestAQuietWatchWhoseReopenHangsReadsResuming(t *testing.T) {
 	cluster := newFakeCluster(t)
 	cluster.serveKind(podKind, true)
 	cluster.hasObjects(podKind, "10")
@@ -248,7 +318,7 @@ func TestAQuietWatchWhoseReopenHangsReadsStale(t *testing.T) {
 	// test that fails before releasing it wedges every other call on that cluster.
 	release := stream.hold()
 	defer release()
-	awaitKindReason(t, svc, 1, podKind, ReasonStale)
+	awaitKindReason(t, svc, 1, podKind, ReasonResuming)
 
 	release()
 	awaitKindReason(t, svc, 1, podKind, ReasonWatching)
@@ -726,13 +796,9 @@ func TestASlowResumeThatFinishesReportsTheStreamItEstablished(t *testing.T) {
 	awaitKindReason(t, svc, 1, podKind, ReasonResuming)
 
 	// The announcement is the resume being slow, not the stream being down: once it lands,
-	// the verdict is the stream's. Stale is the stream's too — an idle watch reaches it one
-	// window after Watching, and this window is short — so the wait accepts either rather
-	// than racing the timer.
+	// the verdict is the stream's.
 	release()
-	awaitKindState(t, svc, 1, podKind, "the stream's verdict to replace the announcement", func(state KindState) bool {
-		return state.Reason == ReasonWatching || state.Reason == ReasonStale
-	})
+	awaitKindReason(t, svc, 1, podKind, ReasonWatching)
 }
 
 func TestAResumeParkedOnItsOpenStillGivesUpWithItsRun(t *testing.T) {
@@ -1067,14 +1133,14 @@ func TestOnlyAnOpenWatchReadsLive(t *testing.T) {
 
 	assert.True(t, awaitKindOpen(t, svc, 1, podKind).Live, "a kind whose watch is open is live")
 
-	// A quiet watch's reopen that hangs reads Stale — and stays live, because the run is up
+	// A quiet watch's reopen that hangs reads Resuming — and stays live, because the run is up
 	// and serving its rows.
 	release := stream.hold()
 	defer release()
-	state = awaitKindState(t, svc, 1, podKind, "the stream to stop being known current", func(state KindState) bool {
-		return state.Reason == ReasonStale
+	state = awaitKindState(t, svc, 1, podKind, "the reopen to hang past the window", func(state KindState) bool {
+		return state.Reason == ReasonResuming
 	})
-	assert.True(t, state.Live, "a stale stream is still up")
+	assert.True(t, state.Live, "a resuming stream is still up")
 }
 
 // A subject reads back as the cache and kind it names, the apiVersion's own slash included,

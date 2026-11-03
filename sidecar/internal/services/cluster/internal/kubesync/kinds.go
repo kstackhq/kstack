@@ -72,9 +72,12 @@ func parseKindSubject(subject string) (int64, kindID, bool) {
 // passes defaultPacing, so no test outwaits a production number.
 type pacing struct {
 	// staleAfter is how long a watch may go without a frame before it is reopened from the
-	// cookie, and how long an open may take before its verdict says so: Stale for that reopen,
-	// Resuming for a resume. Both are "this stream has stopped being current".
+	// cookie, and how long an open may take before its verdict says Resuming.
 	staleAfter time.Duration
+	// bookmarkStaleAfter is how long a stream that has sent a bookmark may go without a frame
+	// before it reads Stale: the apiserver's watch cache bookmarks about once a minute, so a
+	// few missed in a row. Under staleAfter, or the reopen would always come first.
+	bookmarkStaleAfter time.Duration
 	// backoff is the ladder a failing run climbs — the supervisor's, so a kind's retry countdown
 	// reads the same as a sweep's. It is also the floor under a clean restart, which is what
 	// stops a server that closes every watch after one frame reopening in a tight loop.
@@ -90,6 +93,7 @@ type pacing struct {
 func defaultPacing() pacing {
 	return pacing{
 		staleAfter:           5 * time.Minute,
+		bookmarkStaleAfter:   3 * time.Minute,
 		backoff:              supervisor.Backoff{Base: time.Second, Factor: 2, Cap: time.Minute},
 		pageSize:             500,
 		kindStartConcurrency: 16,
@@ -282,6 +286,10 @@ type kindSyncer struct {
 	// open past the window its rows are current for. Reset per stream, since a quiet watch's
 	// replacement must prove itself. A plain field because one goroutine runs the whole sync.
 	proved bool
+	// bookmarked marks the current stream as having sent a bookmark, so its silence is
+	// evidence: only such a stream reads Stale. Reset per stream, since its replacement may be
+	// served by an apiserver that sends none.
+	bookmarked bool
 	// relist forces this run to cold-list, for the one failure a resume cannot retry its way
 	// out of: the position the cookie names is the position the server dropped.
 	relist bool
@@ -365,15 +373,20 @@ func (ks *kindSyncer) relistInPlace(ctx context.Context) (watch.Interface, error
 	return ks.open(ctx)
 }
 
-// reopen resumes a quiet watch from the cookie. An open that hangs past the window reads Stale: a
-// stream that was watching has stopped proving itself.
+// reopen resumes a quiet watch from the cookie. An open that hangs past the window reads
+// Resuming, as a slow resume does: the connection's pings fail a dead one's streams long before
+// then, so a hang over a live one is a slow server. A stream already Stale has nothing to
+// announce, since the hang proves nothing its silence did not.
 func (ks *kindSyncer) reopen(ctx context.Context) (watch.Interface, error) {
 	k := ks.kind
 	cookie, _, err := ks.store.Cookie(ctx, k.APIVersion, k.Resource)
 	if err != nil {
 		return nil, err
 	}
-	return ks.openWatch(ctx, cookie, ReasonStale)
+	if ks.reason == ReasonStale {
+		return ks.openWatch(ctx, cookie, "")
+	}
+	return ks.openWatch(ctx, cookie, ReasonResuming)
 }
 
 // coldList replaces this kind's rows from a paginated LIST and returns the position a watch
@@ -478,16 +491,19 @@ func (ks *kindSyncer) applyDeltas(ctx context.Context, watcher watch.Interface) 
 
 	opened := time.Now()
 	ks.proved = false
+	ks.bookmarked = false
 	ks.report(ReasonWatching)
 
-	stale := time.NewTimer(ks.pacing.staleAfter)
+	quiet := time.NewTimer(ks.pacing.staleAfter)
+	defer quiet.Stop()
+	stale := time.NewTimer(ks.pacing.bookmarkStaleAfter)
 	defer stale.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-stale.C:
+		case <-quiet.C:
 			// Standing open a whole window counts as proof the watch itself works: a server
 			// that takes one and drops it never gets this far. A stream with no frame is also
 			// proof its rows were current when it opened, since a position the server no longer
@@ -498,6 +514,11 @@ func (ks *kindSyncer) applyDeltas(ctx context.Context, watcher watch.Interface) 
 			}
 			ks.proved = true
 			return errQuietWindow
+		case <-stale.C:
+			// Silence is evidence only from a stream that has shown it bookmarks.
+			if ks.bookmarked {
+				ks.report(ReasonStale)
+			}
 		case event, ok := <-watcher.ResultChan():
 			if !ok {
 				return nil
@@ -505,7 +526,8 @@ func (ks *kindSyncer) applyDeltas(ctx context.Context, watcher watch.Interface) 
 			if err := ks.apply(ctx, event); err != nil {
 				return err
 			}
-			stale.Reset(ks.pacing.staleAfter)
+			quiet.Reset(ks.pacing.staleAfter)
+			stale.Reset(ks.pacing.bookmarkStaleAfter)
 		}
 	}
 }
@@ -529,6 +551,7 @@ func (ks *kindSyncer) apply(ctx context.Context, event watch.Event) error {
 			return err
 		}
 		ks.proved = true
+		ks.bookmarked = true
 		ks.sess.stampLive(ks.id, time.Now())
 		ks.report(ReasonWatching)
 		return nil

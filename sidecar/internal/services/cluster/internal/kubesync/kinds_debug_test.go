@@ -14,9 +14,9 @@
 
 //go:build debug
 
-// The quiet fault drives kubesync's Stale verdict, so it is pinned against kubesync: a real
-// connection carrying the rules, its lists and watches over HTTP rather than the in-memory
-// client the other kind tests use.
+// The quiet and stalled faults drive kubesync's Resuming and Stale verdicts, so they are pinned
+// against kubesync: a real connection carrying the rules, its lists and watches over HTTP rather
+// than the in-memory client the other kind tests use.
 package kubesync
 
 import (
@@ -64,7 +64,7 @@ func newQuietService(t *testing.T, cluster *fakeCluster, spec string, opts ...fu
 	return svc, pool
 }
 
-func TestAQuietWatchReadsWatchingThenStale(t *testing.T) {
+func TestAQuietWatchReadsWatchingThenResuming(t *testing.T) {
 	cluster := newFakeCluster(t)
 	cluster.listsOverHTTP(podKind)
 	svc, _ := newQuietService(t, cluster, "watch pods=quiet",
@@ -73,7 +73,29 @@ func TestAQuietWatchReadsWatchingThenStale(t *testing.T) {
 	syncKind(t, svc, 1, podKind)
 
 	awaitKindReason(t, svc, 1, podKind, ReasonWatching)
-	awaitKindReason(t, svc, 1, podKind, ReasonStale)
+	awaitKindReason(t, svc, 1, podKind, ReasonResuming)
+}
+
+// Each stalled open bookmarks and goes silent, so the kind reads Stale until the window's reopen
+// lands and bookmarks again.
+func TestAStalledWatchReadsStaleThenWatchingOnItsReopen(t *testing.T) {
+	cluster := newFakeCluster(t)
+	cluster.listsOverHTTP(podKind)
+	svc, _ := newQuietService(t, cluster, "watch pods=stalled", func(p *pacing) {
+		p.staleAfter = 100 * time.Millisecond
+		p.bookmarkStaleAfter = 20 * time.Millisecond
+	})
+
+	syncKind(t, svc, 1, podKind)
+
+	stale := awaitKindState(t, svc, 1, podKind, "the silence to read Stale", func(state KindState) bool {
+		return state.Reason == ReasonStale
+	})
+	// The reopen's silence may read Stale again before the wait looks. Stale to Stale commits
+	// nothing, so a Stale dated after the first passed through Watching.
+	awaitKindState(t, svc, 1, podKind, "the reopen to read Watching", func(state KindState) bool {
+		return state.SinceAt.After(stale.SinceAt) && (state.Reason == ReasonWatching || state.Reason == ReasonStale)
+	})
 }
 
 // Every kind's first open answers at once, so none holds the one start slot the other needs.
@@ -112,7 +134,7 @@ func TestAQuietKindForgottenWhileItsReopenHangsWatchesAgainWhenTracked(t *testin
 	svc, _ := newQuietService(t, cluster, "watch pods=quiet",
 		func(p *pacing) { p.staleAfter = 50 * time.Millisecond })
 	syncKind(t, svc, 1, podKind)
-	awaitKindReason(t, svc, 1, podKind, ReasonStale)
+	awaitKindReason(t, svc, 1, podKind, ReasonResuming)
 
 	svc.ForgetKind(1, podKind)
 	svc.TrackKind(1, podKind)

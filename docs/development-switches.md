@@ -44,7 +44,8 @@ A matching request never leaves the connection, so everything above it runs for 
 | `refused` | A refused dial | `Unreachable` |
 | `tls` | An unknown certificate authority | `TLSInvalid` |
 | `timeout` | Nothing until the request's context ends; `get` and `list` only | `Timeout` on a probe; *server stopped sending data* on a list, after two to four minutes |
-| `quiet` | Per collection, a first watch that sends nothing and a reopen that hangs; `watch` only | *Stale*, after ten minutes |
+| `quiet` | Per collection, a first watch that sends nothing and a reopen that hangs; `watch` only | *Resuming*, after ten minutes |
+| `stalled` | A watch that sends one bookmark, then nothing; `watch` only | *Stale*, after three minutes, until the reopen two minutes later |
 | `store=fail` | Every cache's store refuses to open | *Storage error* on the cache |
 
 A rule the sidecar cannot read stops its start, quoting the rule.
@@ -52,7 +53,8 @@ A rule the sidecar cannot read stops its start, quoting the rule.
 ```sh
 KSTACK_FAULTS='list,watch secrets=403' pnpm tauri dev  # a kind refused for its permissions
 KSTACK_FAULTS='get api=refused' pnpm tauri dev         # an unreachable server
-KSTACK_FAULTS='watch pods=quiet' pnpm tauri dev        # a stale watch
+KSTACK_FAULTS='watch pods=quiet' pnpm tauri dev        # a reopen that hangs
+KSTACK_FAULTS='watch pods=stalled' pnpm tauri dev      # a stale watch
 ```
 
 ## Build and test

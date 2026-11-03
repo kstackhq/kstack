@@ -134,7 +134,8 @@ per context](../../../../docs/adr/2026-08-23-one-connection-per-context.md).
   or `NewConnection`, as a wrapper on the `rest.Config` inside the idle-read bound, and
   `store=fail` swaps the store manager kubesync arms with (the cluster package's own
   `faults_debug.go`, behind `cluster.WithFaults`). A `quiet` watch keeps one sequence per
-  collection path on the wrapper, which lives and dies with its connection. → [`docs/development-switches.md`](../../../../docs/development-switches.md#injected-faults).
+  collection path on the wrapper, which lives and dies with its connection; a `stalled` watch
+  keeps nothing. → [`docs/development-switches.md`](../../../../docs/development-switches.md#injected-faults).
 - Every non-stream request has an idle-read bound, never a deadline. → [ADR: idle-read
   bound](../../../../docs/adr/2026-09-02-idle-read-bound.md).
 - `WatchState` delivers nothing on attach — pair it with `State()`. Every value is a level.
@@ -164,11 +165,15 @@ Speaks cache ids, contexts, server UIDs and GVRs; never records.
 
 The sweep (`discovery.go`) writes only on a changed fingerprint. → [ADR: discovery sweep
 rules](../../../../docs/adr/2026-09-02-discovery-sweep-rules.md). The kind sync (`kinds.go`) is one stream
-per run; a quiet window reopens from the cookie and an expired reopen relists in place. → [ADR:
+per run; a quiet window reopens from the cookie and an expired reopen relists in place. **Only a
+stream that has sent a bookmark reads `Stale`**, after `bookmarkStaleAfter` without a frame; a
+reopen that hangs reads `Resuming`. Keep `bookmarkStaleAfter` under `staleAfter`. → [ADR:
 kind sync verdicts](../../../../docs/adr/2026-09-02-kind-sync-verdicts.md), [ADR: a quiet watch is
 reopened](../../../../docs/adr/2026-09-27-a-quiet-watch-is-reopened-from-its-cookie.md), [ADR: an expired
 quiet reopen relists in
-place](../../../../docs/adr/2026-09-29-an-expired-quiet-reopen-relists-in-place.md).
+place](../../../../docs/adr/2026-09-29-an-expired-quiet-reopen-relists-in-place.md), [ADR: a kind
+reads Stale only when its bookmarks
+stop](../../../../docs/adr/2026-11-03-a-kind-reads-stale-only-when-its-bookmarks-stop.md).
 
 ## The store (`internal/kubestore`)
 

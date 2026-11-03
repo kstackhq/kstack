@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
@@ -41,7 +42,7 @@ func TestParseFaultsReadsEveryVerbAndFault(t *testing.T) {
 	t.Parallel()
 
 	faults, err := ParseFaults("get,list,watch secrets=403; get api=refused; list * = tls; " +
-		"get pods=timeout; watch pods=quiet; list nodes=401; list nodes=404; list nodes=429; " +
+		"get pods=timeout; watch pods=quiet; watch pods=stalled; list nodes=401; list nodes=404; list nodes=429; " +
 		"list nodes=500; list nodes=503; store=fail")
 
 	require.NoError(t, err)
@@ -51,6 +52,7 @@ func TestParseFaultsReadsEveryVerbAndFault(t *testing.T) {
 		{verbs: []string{"list"}, resource: "*", fault: "tls"},
 		{verbs: []string{"get"}, resource: "pods", fault: "timeout"},
 		{verbs: []string{"watch"}, resource: "pods", fault: "quiet"},
+		{verbs: []string{"watch"}, resource: "pods", fault: "stalled"},
 		{verbs: []string{"list"}, resource: "nodes", fault: "401", code: 401},
 		{verbs: []string{"list"}, resource: "nodes", fault: "404", code: 404},
 		{verbs: []string{"list"}, resource: "nodes", fault: "429", code: 429},
@@ -83,6 +85,7 @@ func TestParseFaultsRefusesAMistypedRuleNamingIt(t *testing.T) {
 		"get, pods=403",      // an empty verb
 		"get Pods=403",       // not a path's resource name
 		"list pods=quiet",    // quiet on a verb that is not watch
+		"get pods=stalled",   // stalled on a verb that is not watch
 		"watch pods=timeout", // timeout on a watch
 		"store=broken",       // a store fault that is not fail
 	} {
@@ -372,6 +375,28 @@ func TestAQuietWatchIsSilentThenItsReopenHangsUntilItsContextEnds(t *testing.T) 
 	again := testutil.Recv(t, openPods(conn, t.Context()), "the next worker's open to answer")
 	require.NoError(t, again.err)
 	again.w.Stop()
+	_, reached := c.requests.TryAwait()
+	assert.False(t, reached, "no watch reached the server")
+}
+
+// A stalled watch has shown it bookmarks, so its silence after is a stream that stopped.
+func TestAStalledWatchSendsOneBookmarkAtItsPositionThenNothing(t *testing.T) {
+	t.Parallel()
+
+	c := serveCluster(t)
+	conn := faultedConnTo(t, c.Server, "watch pods=stalled")
+
+	for _, position := range []string{"42", "43"} {
+		w, err := conn.Dynamic.Resource(podsGVR).Watch(t.Context(),
+			metav1.ListOptions{ResourceVersion: position, AllowWatchBookmarks: true})
+		require.NoError(t, err)
+		event := testutil.Recv(t, w.ResultChan(), "the bookmark")
+		require.Equal(t, watch.Bookmark, event.Type, "%v", event.Object)
+		assert.Equal(t, position, event.Object.(*unstructured.Unstructured).GetResourceVersion())
+		testutil.NoRecv(t, w.ResultChan(), quietWindow, "an event after the bookmark")
+		w.Stop()
+		testutil.RecvClosed(t, w.ResultChan(), "the stopped watch to end")
+	}
 	_, reached := c.requests.TryAwait()
 	assert.False(t, reached, "no watch reached the server")
 }
