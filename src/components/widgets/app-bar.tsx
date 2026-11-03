@@ -26,6 +26,7 @@ import { NotificationButton } from '@/components/widgets/notification-button';
 import { SettingsButton } from '@/components/widgets/settings-button';
 import { WindowControls } from '@/components/widgets/window-controls';
 import { isMacOS } from '@/lib/platform';
+import { dismissPopupsOnWindowDrag } from '@/lib/window-drag';
 
 // Space (px) reserved for the macOS traffic lights: the host places the first at
 // x=20 (`window_manager.rs`) and the three end near x=72; the rest is breathing
@@ -46,6 +47,8 @@ export function AppBar() {
     // included, rather than only the elements that carry the attribute. Tauri's
     // hit test walks up from what was pressed and stops at the first clickable
     // element, so the buttons in here still click; the omnibox opts out below.
+    // A press that drags never ends in a click, so `dismissPopupsOnWindowDrag`
+    // clicks for it, closing any open popup.
     //
     // `transform-gpu` pins the band to a retained compositor layer — without it
     // WebKitGTK re-rasters during an interactive resize and the transparent Linux
@@ -54,6 +57,7 @@ export function AppBar() {
     <div
       data-testid="app-bar"
       data-tauri-drag-region="deep"
+      onPointerDown={dismissPopupsOnWindowDrag}
       className="flex h-12 shrink-0 transform-gpu items-stretch bg-app-bar"
     >
       {mac ? (

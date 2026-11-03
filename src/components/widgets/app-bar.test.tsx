@@ -88,6 +88,15 @@ describe('AppBar', () => {
     expect(screen.getByTestId('app-bar')).toHaveAttribute('data-tauri-drag-region', 'deep');
   });
 
+  it('clicks the pressed element when the press drags the window', () => {
+    render(<AppBar />);
+    const spacer = screen.getAllByTestId('app-bar-spacer')[0];
+    const onClick = vi.fn();
+    spacer.addEventListener('click', onClick);
+    fireEvent.pointerDown(spacer, { button: 0 });
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
   it('centers the omnibox between the two spacers', () => {
     render(<AppBar />);
     const bands = Array.from(screen.getByTestId('app-bar').children);
