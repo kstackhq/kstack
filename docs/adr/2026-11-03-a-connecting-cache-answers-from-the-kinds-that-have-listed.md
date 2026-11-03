@@ -30,13 +30,14 @@ catalog kinds that have a cookie, through `kubestore.ListedKinds`: one join on t
 (`ClusterCacheHealth.UnansweredKindRefs`, not served on the wire).
 `clustercard.ConnectingFreshness` splits every kind not `Watching` by its cookie:
 
-- A kind with a cookie answers, and its rows may be out of date. A kind whose reason `Trusted()`
-  refuses cache-wide, `IdentityMismatch` or `StoreFailed`, is named under `unknown` instead, so
-  the per-kind path never serves what the cache-wide one withholds. With no kind `Watching`, the
+- A kind with a cookie answers, and its rows may be out of date. A kind whose reason is
+  `RefusedCacheWide` (`IdentityMismatch`, `StoreFailed`), the predicate `Trusted()` refuses
+  through, is named under `unknown` instead, so the per-kind path never serves what the
+  cache-wide one withholds. With no kind `Watching`, the
   answer's freshness is `last-known` with reason `Connecting`. With some kind `Watching`, it is
   `partial`, and `notWatching` names the kinds behind.
 - A kind with no cookie is named: under `syncing` while it has said nothing or its list is
-  running, under `unknown` when its sync has stopped (`Forbidden`, `SyncFailed`), so the model
+  running, under `unknown` when no list is running (`SyncFailed`, `NoConnection`), so the model
   does not promise rows that are not coming. A relist in place keeps the kind's old rows, so
   either's rows are incomplete or out of date rather than absent; the prompt tells the model an
   object of such a kind missing from a result may exist.

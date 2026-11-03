@@ -622,6 +622,90 @@ func TestUntrustedRowsAreSyncingOrUnknown(t *testing.T) {
 	}
 }
 
+// A Connecting cache answers once some kind has rows: one listed in an earlier
+// session, or one Watching. With every kind behind, the whole answer is
+// last-known; with one Watching, the kinds behind are named, under the same
+// reason. A kind that never listed is named either way: syncing while its list
+// runs, unknown while none does. A listed kind whose reason is refused
+// cache-wide is unknown too, never an answer. With no rows nothing answers.
+func TestAConnectingCacheAnswersFromTheKindsThatHaveListed(t *testing.T) {
+	pods := cluster.SyncedKindRef{APIVersion: "v1", Resource: "pods"}
+	nodes := cluster.SyncedKindRef{APIVersion: "v1", Resource: "nodes"}
+	widgets := cluster.SyncedKindRef{APIVersion: "example.com/v1", Resource: "widgets"}
+	connecting := func(unanswered ...cluster.SyncedKindRef) cluster.ClusterCacheHealth {
+		return cluster.ClusterCacheHealth{Reason: cluster.ReasonConnecting, TotalKinds: 3, UnansweredKindRefs: unanswered}
+	}
+	unhealthy := func(h cluster.ClusterCacheHealth, ref cluster.SyncedKindRef, reason string) cluster.ClusterCacheHealth {
+		h.UnhealthyKindRefs = append(h.UnhealthyKindRefs, cluster.UnhealthyKindRef{SyncedKindRef: ref, Reason: reason})
+		return h
+	}
+	names := func(names ...string) *list { return &list{Names: names} }
+
+	for name, tc := range map[string]struct {
+		health  cluster.ClusterCacheHealth
+		listed  map[cluster.SyncedKindRef]bool
+		want    FreshnessSection
+		answers bool
+	}{
+		"every kind listed before": {
+			health:  connecting(widgets, nodes, pods),
+			listed:  map[cluster.SyncedKindRef]bool{pods: true, nodes: true, widgets: true},
+			want:    FreshnessSection{Status: StatusLastKnown, Reason: "Connecting"},
+			answers: true,
+		},
+		"one kind never listed": {
+			health:  connecting(widgets, nodes, pods),
+			listed:  map[cluster.SyncedKindRef]bool{pods: true, nodes: true},
+			want:    FreshnessSection{Status: StatusLastKnown, Reason: "Connecting", Syncing: names("example.com/v1/widgets")},
+			answers: true,
+		},
+		"one kind watching": {
+			health:  unhealthy(connecting(widgets), nodes, "Resuming"),
+			listed:  map[cluster.SyncedKindRef]bool{pods: true, nodes: true},
+			want:    FreshnessSection{Status: statusPartial, Reason: "Connecting", NotWatching: names("v1/nodes"), Syncing: names("example.com/v1/widgets")},
+			answers: true,
+		},
+		"one kind watching, the rest never listed": {
+			health:  connecting(widgets, nodes),
+			listed:  map[cluster.SyncedKindRef]bool{pods: true},
+			want:    FreshnessSection{Status: statusPartial, Reason: "Connecting", Syncing: names("example.com/v1/widgets", "v1/nodes")},
+			answers: true,
+		},
+		"a kind never listed whose list is not running": {
+			health:  unhealthy(unhealthy(connecting(pods), widgets, "SyncFailed"), nodes, "Resyncing"),
+			listed:  map[cluster.SyncedKindRef]bool{pods: true},
+			want:    FreshnessSection{Status: StatusLastKnown, Reason: "Connecting", Syncing: names("v1/nodes"), Unknown: names("example.com/v1/widgets")},
+			answers: true,
+		},
+		"a kind never listed with no connection": {
+			health:  unhealthy(connecting(pods, nodes), widgets, "NoConnection"),
+			listed:  map[cluster.SyncedKindRef]bool{pods: true},
+			want:    FreshnessSection{Status: StatusLastKnown, Reason: "Connecting", Syncing: names("v1/nodes"), Unknown: names("example.com/v1/widgets")},
+			answers: true,
+		},
+		"a listed kind of another cluster": {
+			health: unhealthy(unhealthy(connecting(), nodes, "IdentityMismatch"), pods, "IdentityMismatch"),
+			listed: map[cluster.SyncedKindRef]bool{pods: true, nodes: true},
+			want:   FreshnessSection{Status: statusPartial, Reason: "Connecting", Unknown: names("v1/nodes", "v1/pods")},
+			// widgets, the third kind, is Watching: it alone answers.
+			answers: true,
+		},
+		"every listed kind of another cluster": {
+			health: unhealthy(unhealthy(connecting(widgets), nodes, "IdentityMismatch"), pods, "IdentityMismatch"),
+			listed: map[cluster.SyncedKindRef]bool{pods: true, nodes: true},
+			want:   FreshnessSection{Status: StatusSyncing},
+		},
+		"no kind listed": {
+			health: connecting(widgets, nodes, pods),
+			want:   FreshnessSection{Status: StatusSyncing},
+		},
+	} {
+		got, answers := ConnectingFreshness(tc.health, tc.listed)
+		assert.Equal(t, tc.want, got, name)
+		assert.Equal(t, tc.answers, answers, name)
+	}
+}
+
 // The verdict reads the health reading alone. A cluster with sync switched off
 // reads Paused with no counts, and Paused answers before any count is read.
 func TestTheVerdictIsTheHealthReadings(t *testing.T) {

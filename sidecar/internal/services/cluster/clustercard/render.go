@@ -187,12 +187,16 @@ type connectionSection struct {
 // FreshnessSection says whether what follows is current: one verdict over the
 // active cache. Since is when the app last saw the cluster live, carried under
 // last-known alone; NotWatching names the kinds whose own reason is a partial
-// verdict's. KubeQuery's answer carries it too.
+// verdict's. KubeQuery's answer carries it too, and there alone the kinds never
+// listed are named, their rows missing: Syncing those whose list is running,
+// Unknown those whose is not.
 type FreshnessSection struct {
 	Status      string `json:"status"`
 	Reason      string `json:"reason,omitempty"`
 	Since       string `json:"since,omitempty"`
 	NotWatching *list  `json:"notWatching,omitempty"`
+	Syncing     *list  `json:"syncing,omitempty"`
+	Unknown     *list  `json:"unknown,omitempty"`
 }
 
 // inventorySection says what is in it, each list under its own status.
@@ -272,7 +276,7 @@ func Freshness(h *cluster.ClusterCacheHealth) FreshnessSection {
 		var names []string
 		for _, ref := range h.UnhealthyKindRefs {
 			if ref.Reason == h.Reason {
-				names = append(names, ref.APIVersion+"/"+ref.Resource)
+				names = append(names, kindName(ref.SyncedKindRef))
 			}
 		}
 		if len(names) == 0 {
@@ -288,6 +292,61 @@ func Freshness(h *cluster.ClusterCacheHealth) FreshnessSection {
 	}
 	return fr
 }
+
+// ConnectingFreshness is the verdict over a Connecting cache for a reader that
+// knows which kinds have listed, in this session or an earlier one, and whether
+// the cache answers at all. A kind behind that has listed answers from rows that
+// may be out of date, unless its reason is RefusedCacheWide: rows of another
+// cluster, or a store that failed, go under Unknown. One that never listed is
+// named, its rows incomplete: under Syncing while it has said nothing or a list
+// is running, else under Unknown, since no list is running and nothing arrives
+// until one does (SyncFailed, NoConnection). With a kind Watching, only the
+// kinds behind are named; with every kind behind, the whole answer is
+// last-known. Nothing answers until some kind has rows: then the verdict is
+// Freshness's, syncing.
+func ConnectingFreshness(h cluster.ClusterCacheHealth, listed map[cluster.SyncedKindRef]bool) (FreshnessSection, bool) {
+	var old, syncing, unknown []string
+	for _, ref := range h.UnansweredKindRefs {
+		if listed[ref] {
+			old = append(old, kindName(ref))
+		} else {
+			syncing = append(syncing, kindName(ref))
+		}
+	}
+	for _, ref := range h.UnhealthyKindRefs {
+		switch {
+		case cluster.RefusedCacheWide(ref.Reason):
+			unknown = append(unknown, kindName(ref.SyncedKindRef))
+		case listed[ref.SyncedKindRef]:
+			old = append(old, kindName(ref.SyncedKindRef))
+		case ref.Reason == "Syncing" || ref.Reason == "Resyncing":
+			syncing = append(syncing, kindName(ref.SyncedKindRef))
+		default:
+			unknown = append(unknown, kindName(ref.SyncedKindRef))
+		}
+	}
+	behind := len(h.UnansweredKindRefs) + len(h.UnhealthyKindRefs)
+	someWatching := behind < h.TotalKinds-h.PausedKinds
+	if len(old) == 0 && !someWatching {
+		return Freshness(&h), false
+	}
+	fr := FreshnessSection{Status: StatusLastKnown, Reason: cluster.ReasonConnecting}
+	if someWatching {
+		fr.Status = statusPartial
+		if len(old) > 0 {
+			fr.NotWatching = list{}.withNames(sorted(old), notWatchingShare)
+		}
+	}
+	if len(syncing) > 0 {
+		fr.Syncing = list{}.withNames(sorted(syncing), notWatchingShare)
+	}
+	if len(unknown) > 0 {
+		fr.Unknown = list{}.withNames(sorted(unknown), notWatchingShare)
+	}
+	return fr, true
+}
+
+func kindName(ref cluster.SyncedKindRef) string { return ref.APIVersion + "/" + ref.Resource }
 
 // MarshalFreshness is the section as the card marshals it, for an answer that
 // carries it.
