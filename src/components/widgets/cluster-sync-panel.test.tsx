@@ -32,7 +32,7 @@ vi.mock('@tauri-apps/api/core', () => factory());
 
 const { createGraphqlClient } = await import('@/lib/graphql/client');
 const { ClustersProvider } = await import('@/lib/clusters');
-const { ClusterSyncPanel, ConnectionDetail } = await import('./cluster-sync-panel');
+const { ClusterSyncPanel, ConnectionDetail, syncReason } = await import('./cluster-sync-panel');
 const { onError } = await import('@/lib/error-bus');
 const { DialogProvider, useDialog } = await import('@/lib/dialog');
 
@@ -447,7 +447,10 @@ function pushDiscoveryEvent(ev: {
 // (mounts the schedule subscription).
 function pushSchedule(nextRequeueAt: string | null, probing = false) {
   channelFor('clusterScheduleWatch').onmessage!(
-    JSON.stringify({ type: 'next', payload: { data: { clusterScheduleWatch: { nextRequeueAt, probing } } } }),
+    JSON.stringify({
+      type: 'next',
+      payload: { data: { clusterScheduleWatch: { nextRequeueAt, probing, failures: 0 } } },
+    }),
   );
 }
 
@@ -953,8 +956,7 @@ describe('ClusterSyncPanel', () => {
     expect(screen.getByText('Data rate').parentElement).toHaveTextContent('Data rate—');
   });
 
-  // The status popover and the dialog's row both draw ConnectionDetail. A view mounting into a
-  // shared stream would never see the window, so each opens its own.
+  // A view mounting into a shared stream would never see the window, so each opens its own.
   it('gives a second view of one cluster a stream of its own', async () => {
     const client = createGraphqlClient();
     const view = () => (
@@ -1812,5 +1814,51 @@ describe('ClusterSyncPanel', () => {
       'graphql_query',
       expect.objectContaining({ body: expect.stringContaining('clusterDelete') }),
     );
+  });
+});
+
+describe('syncReason', () => {
+  const health = (over: Record<string, unknown>) => ({
+    cacheID: 'cache-u',
+    status: 'False' as const,
+    reason: 'Watching',
+    unhealthyKindRefs: [] as { apiVersion: string; resource: string }[],
+    failure: '',
+    totalKinds: 10,
+    unhealthyKinds: 0,
+    pausedKinds: 0,
+    lastUpdateAt: null,
+    lastLiveAt: null,
+    ...over,
+  });
+  const pods = { apiVersion: 'v1', resource: 'pods' };
+  const deployments = { apiVersion: 'apps/v1', resource: 'deployments' };
+
+  it('names the kinds a stale cache is not hearing from', () => {
+    const h = health({ reason: 'Stale', unhealthyKindRefs: [pods, deployments], unhealthyKinds: 2 });
+    expect(syncReason({ label: 'Stale', tone: 'attention' }, h)).toBe('pods, deployments not receiving updates.');
+  });
+
+  it('blames the watch when a stale cache names no kind', () => {
+    const h = health({ reason: 'Stale' });
+    expect(syncReason({ label: 'Stale', tone: 'attention' }, h)).toBe('The watch may have stopped delivering updates.');
+  });
+
+  it('says a cache whose file will not open', () => {
+    const h = health({ reason: 'StoreFailed' });
+    expect(syncReason({ label: 'Storage error', tone: 'error' }, h)).toBe('The cache file will not open.');
+  });
+
+  it('summarises the failing kinds', () => {
+    const h = health({ reason: 'SyncFailed', unhealthyKindRefs: [pods], unhealthyKinds: 1 });
+    expect(syncReason({ label: 'Error', tone: 'error' }, h)).toBe('9 of 10 kinds — pods not syncing');
+  });
+
+  it('gives no reason for a healthy or muted verdict, or without a rollup', () => {
+    const failing = health({ reason: 'SyncFailed', unhealthyKindRefs: [pods], unhealthyKinds: 1 });
+    expect(syncReason({ label: 'Synced', tone: 'ok' }, health({}))).toBeNull();
+    expect(syncReason({ label: 'Stalled', tone: 'muted' }, failing)).toBeNull();
+    expect(syncReason({ label: 'Degraded', tone: 'attention' }, health({ reason: 'QuotaExceeded' }))).toBeNull();
+    expect(syncReason({ label: 'Syncing', tone: 'ok' }, null)).toBeNull();
   });
 });

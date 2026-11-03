@@ -211,7 +211,7 @@ describe('ContextOmnibox', () => {
     render(<ContextOmnibox />);
 
     await user.click(statusButton());
-    expect(await screen.findByTestId('cluster-status')).toHaveTextContent('Cluster status');
+    expect(await screen.findByTestId('cluster-status')).toHaveAccessibleName('Cluster status');
     expect(screen.queryByText('Clusters', { selector: 'p' })).not.toBeInTheDocument();
   });
 

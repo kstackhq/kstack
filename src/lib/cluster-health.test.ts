@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { clusterRecord } from '@/test-utils';
-import { contextHealth, overallTone } from '@/lib/cluster-health';
+import { cacheFailureSummary, connectionFailureSummary, contextHealth, overallTone } from '@/lib/cluster-health';
 
 describe('overallTone', () => {
   it('rolls up to the most severe of the two sub-system tones', () => {
@@ -26,6 +26,39 @@ describe('overallTone', () => {
     expect(overallTone('ok', 'attention')).toBe('attention');
     expect(overallTone('error', 'attention')).toBe('error');
     expect(overallTone('ok', 'error')).toBe('error');
+  });
+});
+
+describe('connectionFailureSummary', () => {
+  it('names the probe’s class of failure', () => {
+    expect(connectionFailureSummary('Unreachable')).toBe('Can’t reach the server');
+    expect(connectionFailureSummary('TLSInvalid')).toBe('Server certificate rejected');
+    expect(connectionFailureSummary('Unauthorized')).toBe('Credentials rejected');
+  });
+
+  it('reads an unclassified, unknown or missing reason as a bare failure', () => {
+    expect(connectionFailureSummary('ProbeFailed')).toBe('Connection failed');
+    expect(connectionFailureSummary('constructor')).toBe('Connection failed');
+    expect(connectionFailureSummary(undefined)).toBe('Connection failed');
+  });
+});
+
+describe('cacheFailureSummary', () => {
+  it('names a failed sync by its class of failure', () => {
+    expect(cacheFailureSummary('SyncFailed', 'Forbidden')).toBe('Permission denied');
+    expect(cacheFailureSummary('SyncFailed', 'NotFound')).toBe('Resource no longer served');
+    expect(cacheFailureSummary('SyncFailed', 'Timeout')).toBe('Server didn’t answer in time');
+  });
+
+  it('names a failed sync with no class, or an unknown one, as a failed sync', () => {
+    expect(cacheFailureSummary('SyncFailed')).toBe('Some kinds aren’t syncing');
+    expect(cacheFailureSummary('SyncFailed', '')).toBe('Some kinds aren’t syncing');
+    expect(cacheFailureSummary('SyncFailed', 'Bogus')).toBe('Some kinds aren’t syncing');
+  });
+
+  it('names a failed store, and anything else as a cache error', () => {
+    expect(cacheFailureSummary('StoreFailed')).toBe('Cache storage failed');
+    expect(cacheFailureSummary(undefined)).toBe('Cache error');
   });
 });
 

@@ -42,6 +42,7 @@ import {
 import { type AppDialogProps, useDialogHost } from '@/lib/dialog';
 import {
   type Group,
+  type Status,
   type Tone,
   TONE,
   connectionStatus,
@@ -375,30 +376,37 @@ const ClusterScheduleSubscription = graphql(`
     clusterScheduleWatch(id: $id) {
       nextRequeueAt
       probing
+      failures
     }
   }
 `);
 
-type NextCheck = { atMs: number | null; probing: boolean };
+// `failures` counts the connection attempts in a row that have failed.
+export type NextCheckState = { atMs: number | null; probing: boolean; failures: number };
 
-function useNextCheck(clusterId: string): NextCheck {
+export function useNextCheck(clusterId: string): NextCheckState {
   // Null `nextRequeueAt` = reconcile in flight (`probing`) or nothing scheduled.
   // Hold the last time only across the in-flight window; with `probing` false a
   // null must clear the countdown, not freeze a stale one.
   const { data } = useWatchSubscription<
-    { clusterScheduleWatch: { nextRequeueAt: string | null; probing: boolean } },
-    { nextRequeueAt: string | null; probing: boolean }
+    { clusterScheduleWatch: { nextRequeueAt: string | null; probing: boolean; failures: number } },
+    { nextRequeueAt: string | null; probing: boolean; failures: number }
   >(
     { query: ClusterScheduleSubscription, variables: { id: clusterId } },
     perFrame((prev, resp) => {
-      const { nextRequeueAt, probing } = resp.clusterScheduleWatch;
+      const { nextRequeueAt, probing, failures } = resp.clusterScheduleWatch;
       return {
         nextRequeueAt: nextRequeueAt ?? (probing ? (prev?.nextRequeueAt ?? null) : null),
         probing,
+        failures,
       };
     }),
   );
-  return { atMs: parseTimeOrNull(data?.nextRequeueAt ?? null), probing: data?.probing ?? false };
+  return {
+    atMs: parseTimeOrNull(data?.nextRequeueAt ?? null),
+    probing: data?.probing ?? false,
+    failures: data?.failures ?? 0,
+  };
 }
 
 // Single source for the colSpan numbers below.
@@ -479,7 +487,7 @@ const countdownFormatter: Formatter = (_value, _unit, _suffix, epochMs) => {
 
 // maxPeriod={1} forces a per-second re-render; react-timeago otherwise throttles
 // to once-a-minute above 60s, freezing a countdown.
-function RelativeTime({ ms, formatter = relativeFormatter }: { ms: number; formatter?: Formatter }) {
+export function RelativeTime({ ms, formatter = relativeFormatter }: { ms: number; formatter?: Formatter }) {
   return <ReactTimeAgo date={ms} component="span" formatter={formatter} maxPeriod={1} />;
 }
 
@@ -574,9 +582,8 @@ function EventRunList({
 }
 
 // The connection's data rate as a series: the sidecar's window first, then each new sample.
-// Unshared: the status popover and the dialog's row both draw ConnectionDetail, and a view
-// mounting into a running shared stream would never see the window. Paused for a disabled
-// cluster, which the sidecar refuses rather than reads as idle.
+// Unshared: a view mounting into a running shared stream would never see the window. Paused
+// for a disabled cluster, which the sidecar refuses rather than reads as idle.
 const ClusterDataRateSubscription = graphql(`
   subscription ClusterDataRate($id: ClusterID!) {
     clusterDataRateWatch(id: $id) {
@@ -595,7 +602,7 @@ type DataRateSample = { at: string; receivedBytesPerSecond: number; sentBytesPer
 type DataRateSeries = SeriesFrame<DataRateSample>;
 
 // Null until the window arrives.
-function useDataRate(clusterId: string, pause: boolean): DataRateSeries | null {
+export function useDataRate(clusterId: string, pause: boolean): DataRateSeries | null {
   const { data } = useWatchSubscription<{ clusterDataRateWatch: DataRateSeries }, DataRateSeries>(
     { query: ClusterDataRateSubscription, variables: { id: clusterId }, pause },
     seriesReducer((resp) => resp.clusterDataRateWatch),
@@ -604,21 +611,77 @@ function useDataRate(clusterId: string, pause: boolean): DataRateSeries | null {
   return data ?? null;
 }
 
+// Forces an immediate re-probe, resetting the backoff. The mutation resolves when the probe
+// it asked for has finished, so `fetching` is the answer to "is my re-probe still out": no
+// timer, and the button agrees with `NextCheck`'s "checking…" because both follow the same
+// run. A failure needs no handling: the client's errorReportExchange puts every operation
+// error on the bus. A press holds the button as `retryingLabel`; `checking`, a probe the caller
+// sees running whoever asked for it, holds it as `checkingLabel`.
+export function RetryButton({
+  clusterId,
+  label = 'Retry now',
+  size = 'sm',
+  retryingLabel = 'Retrying…',
+  checking = false,
+  checkingLabel = 'Checking…',
+}: {
+  clusterId: string;
+  label?: string;
+  size?: 'xs' | 'sm';
+  retryingLabel?: string;
+  checking?: boolean;
+  checkingLabel?: string;
+}) {
+  const [{ fetching }, retry] = useMutation(ClusterConnectionRetryMutation);
+  const busy = fetching || checking;
+  let text = label;
+  if (fetching) text = retryingLabel;
+  else if (checking) text = checkingLabel;
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size={size}
+      disabled={busy}
+      onClick={() => {
+        retry({ id: clusterId });
+      }}
+    >
+      <RotateCw className={`size-3.5 ${busy ? 'animate-spin' : ''}`} aria-hidden />
+      {text}
+    </Button>
+  );
+}
+
+// The next check: a countdown, "checking…" with a spinner while a probe runs, or a dash when
+// none is due. Always something, so the row it fills never reflows.
+export function NextCheck({ clusterId }: { clusterId: string }) {
+  const { atMs, probing } = useNextCheck(clusterId);
+  if (probing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <Spinner size="xs" className="mr-0" />
+        checking…
+      </span>
+    );
+  }
+  if (atMs === null) return <>—</>;
+  return <Countdown ms={atMs} />;
+}
+
+// "in 1m 30s", ticking each second, then "now".
+export function Countdown({ ms }: { ms: number }) {
+  return <RelativeTime ms={ms} formatter={countdownFormatter} />;
+}
+
 // Expanded connection diagnostics + Retry-now. In the dialog it is inline, not a
 // popover: the modal dialog inerts everything outside its subtree, so a body-portaled
 // popover would be unclickable.
 export function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; connFailed: boolean }) {
   const detail = connectionDetail(cluster);
   const attempts = useConnectionAttempts(cluster.id);
-  const { atMs: nextAttemptAtMs, probing } = useNextCheck(cluster.id);
   const rates = useDataRate(cluster.id, !cluster.spec.enabled);
   const rate = rates?.samples.at(-1);
-  // The mutation resolves when the probe it asked for has finished, so `fetching` IS the
-  // answer to "is my re-probe still out" — no timer, and the button agrees with the
-  // "checking…" above because both follow the same run. Per row rather than per panel: one
-  // hook up in the panel would spin every open row's button. A failure needs no handling —
-  // the client's errorReportExchange puts every operation error on the bus.
-  const [{ fetching }, retry] = useMutation(ClusterConnectionRetryMutation);
 
   return (
     <div className="space-y-2 rounded-md border bg-muted/30 p-3">
@@ -631,23 +694,12 @@ export function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; co
           fallback={detail.unconfirmed ? '—' : '0m'}
           formatter={elapsedCoarseFormatter}
         />
-        {/* Probing → "checking…" spinner; nothing scheduled → neutral placeholder.
-            The row stays mounted either way so the panel never reflows. */}
-        <DetailRow
-          label="Next check"
-          ms={probing ? null : nextAttemptAtMs}
-          fallback={
-            probing ? (
-              <span className="inline-flex items-center gap-1">
-                <Spinner size="xs" className="mr-0" />
-                checking…
-              </span>
-            ) : (
-              '—'
-            )
-          }
-          formatter={countdownFormatter}
-        />
+        <div className="flex gap-2">
+          <dt className="w-28 shrink-0">Next check</dt>
+          <dd className="tabular-nums">
+            <NextCheck clusterId={cluster.id} />
+          </dd>
+        </div>
         <div className="flex gap-2">
           <dt className="w-28 shrink-0">Data rate</dt>
           <dd className="tabular-nums">
@@ -665,25 +717,13 @@ export function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; co
         </div>
       </dl>
       <EventRunList title="Recent attempts" runs={attempts} labelOf={(a) => (a.ok ? 'Success' : a.reason)} />
-      {/* Force an immediate re-probe (reset backoff). */}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={fetching}
-        onClick={() => {
-          retry({ id: cluster.id });
-        }}
-      >
-        <RotateCw className={`size-3.5 ${fetching ? 'animate-spin' : ''}`} aria-hidden />
-        {fetching ? 'Retrying…' : 'Retry now'}
-      </Button>
+      <RetryButton clusterId={cluster.id} />
     </div>
   );
 }
 
 // "120 kinds" / "1 kind" — suffix-"s" pluralisation covers every noun counted here.
-function countLabel(n: number, noun: string): string {
+export function countLabel(n: number, noun: string): string {
   return `${n.toLocaleString()} ${n === 1 ? noun : `${noun}s`}`;
 }
 
@@ -737,6 +777,20 @@ function offenderList(health: ClusterCacheHealth): string {
   const names = health.unhealthyKindRefs.map((k) => k.resource);
   if (names.length <= OFFENDER_CAP) return names.join(', ');
   return `${names.slice(0, OFFENDER_CAP).join(', ')} +${names.length - OFFENDER_CAP} more`;
+}
+
+// One line saying why a bad sync verdict is bad, off the rollup alone. A muted verdict
+// names its own cause; a reason the rollup cannot explain gets no line rather than a guess.
+export function syncReason(status: Status, health: ClusterCacheHealth | null | undefined): string | null {
+  if (!health || (status.tone !== 'error' && status.tone !== 'attention')) return null;
+  if (health.reason === 'Stale') {
+    return health.unhealthyKindRefs.length
+      ? `${offenderList(health)} not receiving updates.`
+      : 'The watch may have stopped delivering updates.';
+  }
+  if (health.reason === 'StoreFailed') return 'The cache file will not open.';
+  if (health.unhealthyKinds > 0) return kindsSyncingLabel(health);
+  return null;
 }
 
 // Which per-kind record's transition log to show. Deterministic and sticky (first

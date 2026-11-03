@@ -59,7 +59,7 @@ function ServerGlyph({ health }: { health?: Health }) {
 // box is the memory button's size, and its wrapper carries the same padding, so
 // the label centres on the pill. Nothing while the kubeconfig has no context: the
 // trigger draws the bare icon then.
-function StatusButton({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
+function StatusButton() {
   const { context, contexts } = useActiveKubeContext();
   const { clusters } = useClusters();
   if (contexts.length === 0) return null;
@@ -68,7 +68,7 @@ function StatusButton({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> 
   const health = contextHealth(clusters, context);
   return (
     <div className="flex items-center pl-1">
-      <ClusterStatusPopover anchorRef={anchorRef} context={context} cluster={cluster}>
+      <ClusterStatusPopover context={context} cluster={cluster}>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -189,7 +189,7 @@ export function ContextOmnibox() {
         APP_BAR_CONTROL_CLASS,
       )}
     >
-      <StatusButton anchorRef={pillRef} />
+      <StatusButton />
       <ClusterTrigger anchorRef={pillRef} />
       <div className="flex items-center pr-1">
         <MemoryButton anchorRef={pillRef} />

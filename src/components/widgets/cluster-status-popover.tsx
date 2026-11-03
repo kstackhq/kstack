@@ -12,95 +12,405 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The window's cluster's status, opened from the omnibox's server icon: its
-// connection and sync verdicts, each over the Clusters dialog's own detail pane.
-import type { ReactElement, RefObject } from 'react';
+// The window's cluster's status, opened from the omnibox's server icon: a header with the
+// overall verdict, then three sections (kubeconfig, connection, cache) and a footer linking
+// to the Clusters dialog beside a reconnect. Every value is always drawn, a dash standing in
+// for a missing one, so the popup never reflows while it is open. The history and the
+// controls that act on it stay in the Clusters dialog.
+import { type ReactElement, type ReactNode, useState } from 'react';
+import { type Formatter } from 'react-timeago';
 
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-import { X } from 'lucide-react';
+import { ArrowRight, Check, CircleAlert, Server } from 'lucide-react';
 
+import { Alert, AlertDescription, AlertTitle } from '@kubetail/ui/elements/alert';
 import { Button } from '@kubetail/ui/elements/button';
-import { PopoverClose } from '@kubetail/ui/elements/popover';
+import { Popover, PopoverTrigger } from '@kubetail/ui/elements/popover';
 
-import { ConnectionDetail, SyncDetail, useCacheContents } from '@/components/widgets/cluster-sync-panel';
-import { OmniboxPopover } from '@/components/widgets/omnibox-popover';
+import { ClusterDot } from '@/components/widgets/cluster-dot';
+import {
+  Countdown,
+  type NextCheckState,
+  RelativeTime,
+  RetryButton,
+  countLabel,
+  syncReason,
+  useCacheContents,
+  useDataRate,
+  useNextCheck,
+} from '@/components/widgets/cluster-sync-panel';
+import { DataRateSparkline } from '@/components/widgets/data-rate-sparkline';
+import { VisibleText } from '@/components/widgets/visible-text';
 
-import { TONE, connectionStatus, syncStatus } from '@/lib/cluster-health';
-import type { Status } from '@/lib/cluster-health';
-import type { Cluster } from '@/lib/clusters';
+import {
+  type Status,
+  TONE,
+  type Tone,
+  cacheFailureSummary,
+  connectionFailureSummary,
+  connectionStatus,
+  findCondition,
+  overallTone,
+  syncStatus,
+} from '@/lib/cluster-health';
+import { type Cluster, type ClusterCacheHealth, formatRate } from '@/lib/clusters';
+import { useDialog } from '@/lib/dialog';
 
-function Verdict({ axis, status }: { axis: string; status: Status }) {
+// The header's pill: the overall tone in one word.
+const PILL: Record<Tone, { label: string; className: string }> = {
+  ok: { label: 'Healthy', className: 'border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950' },
+  attention: { label: 'Degraded', className: 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950' },
+  error: { label: 'Unhealthy', className: 'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950' },
+  muted: { label: 'Inactive', className: 'border-border bg-muted' },
+};
+
+// The header's subtitle, one phrase per axis.
+function summary(connection: Status, sync: Status): string {
+  const conn = connection.tone === 'ok' ? 'Connection stable' : connection.label;
+  const cache = sync.label === 'Synced' ? 'cache in sync' : `cache ${sync.label.toLowerCase()}`;
+  return `${conn} · ${cache}`;
+}
+
+const MINUTE_MS = 60_000;
+
+// "3d 4h 12m", minute-grained so it does not tick every second; "<1m" at first.
+const uptimeFormatter: Formatter = (_value, _unit, _suffix, epochMs) => {
+  const minutes = Math.floor(Math.max(0, Date.now() - epochMs) / MINUTE_MS);
+  const m = minutes % 60;
+  const h = Math.floor(minutes / 60) % 24;
+  const d = Math.floor(minutes / (24 * 60));
+  if (minutes < 1) return '<1m';
+  if (minutes < 60) return `${m}m`;
+  if (minutes < 24 * 60) return `${h}h ${m}m`;
+  return `${d}d ${h}h ${m}m`;
+};
+
+function Section({ title, verdict, children }: { title: string; verdict?: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex gap-2">
-      <dt className="w-24 shrink-0 text-muted-foreground">{axis}</dt>
-      <dd data-tone={status.tone} className={TONE[status.tone].text}>
-        {status.label}
-      </dd>
+    <section className="space-y-2 border-t px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-xs text-muted-foreground">{title}</h3>
+        {verdict}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+// A section's verdict: a check when healthy, the tone's dot otherwise.
+function Verdict({ status, label = status.label }: { status: Status; label?: string }) {
+  return (
+    <span data-tone={status.tone} className={`inline-flex items-center gap-1 text-xs ${TONE[status.tone].text}`}>
+      {status.tone === 'ok' ? <Check className="size-3.5" aria-hidden /> : <ClusterDot tone={status.tone} />}
+      {label}
+    </span>
+  );
+}
+
+function Stat({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="truncate text-sm font-medium tabular-nums">{children}</dd>
     </div>
   );
 }
 
-function ClusterStatus({ cluster }: { cluster: Cluster }) {
-  const connection = connectionStatus(cluster, 'active');
-  const sync = syncStatus(cluster, 'active');
-  const { activeCache } = cluster;
-  const health = activeCache?.health;
-  const contents = useCacheContents(cluster.id, activeCache?.id ?? '', !activeCache);
+// A kubeconfig value: cut to the cell, the whole on hover; a dash when the kubeconfig has none.
+function KubeconfigValue({ text }: { text: string | undefined }) {
+  if (!text) return '—';
+  return (
+    <span className="block truncate" title={text}>
+      <VisibleText text={text} />
+    </span>
+  );
+}
+
+function KubeconfigSection({ context, cluster }: { context: string; cluster: Cluster }) {
+  const { kubeconfig } = cluster.status.source;
+  const rows: [string, string | undefined][] = [
+    ['Context', context],
+    ['Server', kubeconfig?.cluster.entry?.server],
+    ['User', kubeconfig?.user.name],
+  ];
+  return (
+    <Section title="Kubeconfig">
+      <dl className="grid grid-cols-[4rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
+        {rows.map(([label, value]) => (
+          <div key={label} className="contents">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="min-w-0 font-mono">
+              <KubeconfigValue text={value} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </Section>
+  );
+}
+
+// Seconds alone ("95s ago"): the sparkline spans two minutes, and a minute-grained age would
+// give half its points the same label.
+const secondsAgoFormatter: Formatter = (_value, _unit, _suffix, epochMs) =>
+  `${Math.floor(Math.max(0, Date.now() - epochMs) / 1000)}s ago`;
+
+// A hovered sparkline sample: its download rate and age.
+function rateTooltip(sample: { at: string; receivedBytesPerSecond: number }) {
+  return (
+    <>
+      {formatRate(sample.receivedBytesPerSecond)} ·{' '}
+      <RelativeTime ms={Date.parse(sample.at)} formatter={secondsAgoFormatter} />
+    </>
+  );
+}
+
+// The shared verdict's "Active" reads as "Connected" under a section about the connection.
+function connectionVerdictLabel(status: Status): string {
+  return status.tone === 'ok' ? 'Connected' : status.label;
+}
+
+function ConnectionSection({ cluster }: { cluster: Cluster }) {
+  const status = connectionStatus(cluster, 'active');
+  const connected = findCondition(cluster.conditions, 'Connected');
+  // Up or down, the condition's transition is when that began. `unconfirmed` is a previous
+  // sidecar's write: when it began is not known yet.
+  const down = connected?.status === 'False';
+  const sinceMs =
+    connected && connected.status !== 'Unknown' && !connected.unconfirmed ? Date.parse(connected.transitionedAt) : NaN;
+  const rates = useDataRate(cluster.id, !cluster.spec.enabled);
+  const rate = rates?.samples.at(-1);
 
   return (
-    <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
-      <dl className="space-y-0.5 text-sm">
-        <Verdict axis="Connection" status={connection} />
-        <Verdict axis="Sync" status={sync} />
+    <Section title="Connection" verdict={<Verdict status={status} label={connectionVerdictLabel(status)} />}>
+      <dl className="grid grid-cols-3 items-end gap-2">
+        <Stat label={down ? 'Downtime' : 'Uptime'}>
+          {Number.isNaN(sinceMs) ? '—' : <RelativeTime ms={sinceMs} formatter={uptimeFormatter} />}
+        </Stat>
+        <Stat label="Download">{rate ? formatRate(rate.receivedBytesPerSecond) : '—'}</Stat>
+        {rates && (
+          <DataRateSparkline
+            series={rates}
+            receivedOnly
+            scale="sqrt"
+            tooltip={rateTooltip}
+            className="block h-6 w-full"
+          />
+        )}
       </dl>
-      <ConnectionDetail cluster={cluster} connFailed={connection.tone === 'error'} />
-      {/* A pending or never-synced cluster has no rollup, so nothing to detail. */}
-      {health && <SyncDetail clusterId={cluster.id} health={health} cacheId={health.cacheID} contents={contents} />}
-    </div>
+    </Section>
+  );
+}
+
+// "3 attempts · Retrying in 28s". While a probe runs the countdown is gone and the footer's
+// button says so.
+function RetryLine({ check }: { check: NextCheckState }) {
+  const attempts = check.failures > 0 ? countLabel(check.failures, 'attempt') : null;
+  const due = !check.probing && check.atMs !== null ? check.atMs : null;
+  if (!attempts && due === null) return null;
+  // Tabular figures, so the countdown's digits do not jitter as it ticks.
+  return (
+    <span className="block tabular-nums">
+      {attempts}
+      {attempts && due !== null && ' · '}
+      {due !== null && (
+        <>
+          Retrying <Countdown ms={due} />
+        </>
+      )}
+    </span>
+  );
+}
+
+// A synced or syncing cache's verdict counts its kinds; any other verdict is its label.
+function cacheVerdictLabel(status: Status, health: ClusterCacheHealth | null | undefined): string {
+  if (!health || health.totalKinds === 0) return status.label;
+  const total = health.totalKinds;
+  if (status.label === 'Syncing') return `Syncing ${health.unhealthyKinds} of ${total} kinds`;
+  if (status.label !== 'Synced') return status.label;
+  // A paused kind is not watched, so "all" holds only while none is paused.
+  if (health.pausedKinds === 0) return `Watching all kinds (${total})`;
+  return `Watching ${total - health.unhealthyKinds - health.pausedKinds} of ${total} kinds`;
+}
+
+function CacheSection({ cluster }: { cluster: Cluster }) {
+  const status = syncStatus(cluster, 'active');
+  const cache = cluster.activeCache;
+  const health = cache?.health;
+  const reason = syncReason(status, health);
+  const contents = useCacheContents(cluster.id, cache?.id ?? '', !cache);
+  const lastEventMs = Date.parse(health?.lastUpdateAt ?? '');
+
+  return (
+    <Section title="Cache" verdict={<Verdict status={status} label={cacheVerdictLabel(status, health)} />}>
+      {/* An error's reason is in the alert above the sections. */}
+      {reason && status.tone !== 'error' && <p className="text-xs text-muted-foreground">{reason}</p>}
+      <dl className="grid grid-cols-3 gap-2">
+        <Stat label="Populated kinds">{contents ? contents.kindCount.toLocaleString() : '—'}</Stat>
+        <Stat label="Objects">{contents ? contents.objectCount.toLocaleString() : '—'}</Stat>
+        <Stat label="Last event">{Number.isNaN(lastEventMs) ? '—' : <RelativeTime ms={lastEventMs} />}</Stat>
+      </dl>
+    </Section>
+  );
+}
+
+// A failed connection: the probe's class of failure over its message, then the retry line.
+function ConnectionAlert({ cluster, check }: { cluster: Cluster; check: NextCheckState }) {
+  const connected = findCondition(cluster.conditions, 'Connected');
+  const detail = connected?.message || connected?.reason;
+  return (
+    <Alert variant="destructive" className="px-3 py-2 text-xs">
+      <CircleAlert />
+      <AlertTitle className="text-xs">{connectionFailureSummary(connected?.reason)}</AlertTitle>
+      <AlertDescription className="text-xs">
+        {detail && (
+          <p>
+            <VisibleText text={detail} />
+          </p>
+        )}
+        <RetryLine check={check} />
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+// A failed sync: its class of failure over `syncReason`'s line.
+function CacheAlert({ status, health }: { status: Status; health: ClusterCacheHealth | null | undefined }) {
+  const reason = syncReason(status, health);
+  return (
+    <Alert variant="destructive" className="px-3 py-2 text-xs">
+      <CircleAlert />
+      <AlertTitle className="text-xs">{cacheFailureSummary(health?.reason, health?.failure)}</AlertTitle>
+      {reason && <AlertDescription className="text-xs">{reason}</AlertDescription>}
+    </Alert>
+  );
+}
+
+// The context, the overall tone as a pill and a one-line subtitle; `children` are the alerts.
+function Header({ context, tone, subtitle }: { context: string; tone: Tone; subtitle: string }) {
+  return (
+    <header className="shrink-0 space-y-0.5 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <Server className="size-4 shrink-0" aria-hidden />
+        <p className="min-w-0 flex-1 truncate text-sm font-semibold" title={context}>
+          <VisibleText text={context} />
+        </p>
+        <span
+          data-tone={tone}
+          className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs ${PILL[tone].className} ${TONE[tone].text}`}
+        >
+          <ClusterDot tone={tone} />
+          {PILL[tone].label}
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground">{subtitle}</p>
+    </header>
+  );
+}
+
+// View details opens the Clusters dialog on this cluster's connection pane, closing the popup.
+// Down, the button retries the probe now; up, it reconnects. Either holds while a probe runs,
+// whoever asked for it.
+function Footer({
+  cluster,
+  failed,
+  probing,
+  onClose,
+}: {
+  cluster: Cluster;
+  failed: boolean;
+  probing: boolean;
+  onClose: () => void;
+}) {
+  const { openDialog } = useDialog();
+  const labels = failed
+    ? { label: 'Retry now', retryingLabel: 'Retrying…', checkingLabel: 'Retrying…' }
+    : { label: 'Reconnect', retryingLabel: 'Reconnecting…', checkingLabel: 'Checking…' };
+  return (
+    <footer className="flex shrink-0 items-center justify-between border-t bg-muted/50 px-3 py-2">
+      <Button
+        variant="link"
+        size="xs"
+        className="h-auto px-0 text-foreground"
+        onClick={() => {
+          onClose();
+          openDialog('clusters', { clusterId: cluster.id, pane: 'connection' });
+        }}
+      >
+        View details
+        <ArrowRight aria-hidden />
+      </Button>
+      <RetryButton clusterId={cluster.id} size="xs" checking={probing} {...labels} />
+    </footer>
+  );
+}
+
+// The popup over a record. The schedule gauge is read once here: a second subscriber to the
+// same shared stream, mounting after the first, would miss its current value.
+function ClusterStatus({ context, cluster, onClose }: { context: string; cluster: Cluster; onClose: () => void }) {
+  const connection = connectionStatus(cluster, 'active');
+  const sync = syncStatus(cluster, 'active');
+  const check = useNextCheck(cluster.id);
+  const failed = connection.tone === 'error';
+  return (
+    <>
+      <Header context={context} tone={overallTone(connection.tone, sync.tone)} subtitle={summary(connection, sync)} />
+      {/* Content-sized; scrolls when the window is too short for it. The alerts scroll too, so a
+          long message never pushes the footer's buttons out of the popup. */}
+      <div className="min-h-0 flex-auto overflow-y-auto">
+        {(failed || sync.tone === 'error') && (
+          <div className="space-y-2 px-3 pb-2.5">
+            {failed && <ConnectionAlert cluster={cluster} check={check} />}
+            {sync.tone === 'error' && <CacheAlert status={sync} health={cluster.activeCache?.health} />}
+          </div>
+        )}
+        <KubeconfigSection context={context} cluster={cluster} />
+        <ConnectionSection cluster={cluster} />
+        <CacheSection cluster={cluster} />
+      </div>
+      <Footer cluster={cluster} failed={failed} probing={check.probing} onClose={onClose} />
+    </>
   );
 }
 
 // `cluster` is the context's record, absent until the sidecar has reached it.
 export function ClusterStatusPopover({
-  anchorRef,
   context,
   cluster,
   children,
 }: {
-  anchorRef: RefObject<HTMLElement | null>;
   context: string;
   cluster: Cluster | undefined;
   children: ReactElement;
 }) {
-  const popup = (
-    <PopoverPrimitive.Popup
-      data-testid="cluster-status"
-      className="flex max-w-[calc(100vw-16px)] flex-col gap-3 rounded-xl border bg-popover p-[18px] text-popover-foreground shadow-lg outline-hidden"
-      style={{ width: 'max(var(--anchor-width), 480px)', maxHeight: 'var(--available-height)' }}
-    >
-      <div className="flex items-center gap-2">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <p className="text-base font-medium">Cluster status</p>
-          <p className="truncate text-xs text-muted-foreground">{context}</p>
-        </div>
-        <PopoverClose
-          render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" />}
-          aria-label="Close"
-        >
-          <X aria-hidden />
-        </PopoverClose>
-      </div>
-      {cluster ? (
-        <ClusterStatus cluster={cluster} />
-      ) : (
-        <p className="text-sm text-muted-foreground">Kstack has not reached this cluster yet.</p>
-      )}
-    </PopoverPrimitive.Popup>
-  );
-
+  const [open, setOpen] = useState(false);
   return (
-    <OmniboxPopover anchorRef={anchorRef} popup={popup}>
-      {children}
-    </OmniboxPopover>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger render={children} />
+      <PopoverPrimitive.Portal>
+        {/* Hangs below the server icon, its left edge on the icon's. z-50, as the library's
+            popover content has: above the sidebar drawer and its scrim. It never flips above:
+            its height is capped at the room below, which would otherwise trip the flip. */}
+        <PopoverPrimitive.Positioner
+          align="start"
+          side="bottom"
+          sideOffset={8}
+          collisionAvoidance={{ side: 'none' }}
+          className="z-50"
+        >
+          <PopoverPrimitive.Popup
+            data-testid="cluster-status"
+            aria-label="Cluster status"
+            className="flex w-80 max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg outline-hidden"
+            style={{ maxHeight: 'var(--available-height)' }}
+          >
+            {cluster ? (
+              <ClusterStatus context={context} cluster={cluster} onClose={() => setOpen(false)} />
+            ) : (
+              <Header context={context} tone="muted" subtitle="Kstack has not reached this cluster yet." />
+            )}
+          </PopoverPrimitive.Popup>
+        </PopoverPrimitive.Positioner>
+      </PopoverPrimitive.Portal>
+    </Popover>
   );
 }

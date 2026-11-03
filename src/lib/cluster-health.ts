@@ -58,6 +58,35 @@ export function connectionStatus(c: Cluster, group: Group): Status {
   return { label: 'Connecting', tone: 'attention' };
 }
 
+// A request's class of failure (the sidecar's kubeconn.Reason), in a few words: a failed
+// `Connected` condition's reason, or a failed sync's `failure`.
+const FAILURES = new Map([
+  ['Unreachable', 'Can’t reach the server'],
+  ['TLSInvalid', 'Server certificate rejected'],
+  ['Timeout', 'Server didn’t answer in time'],
+  ['ContextNotFound', 'Context missing from kubeconfig'],
+  ['ResolveFailed', 'Kubeconfig entry can’t be used'],
+  ['Unauthorized', 'Credentials rejected'],
+  ['Forbidden', 'Permission denied'],
+  ['NotFound', 'Resource no longer served'],
+  ['InternalError', 'Server error'],
+  ['ServiceUnavailable', 'Server unavailable'],
+  ['Throttled', 'Rate limited by the server'],
+  ['Malformed', 'Unexpected response from the server'],
+]);
+
+export function connectionFailureSummary(reason: string | undefined): string {
+  return FAILURES.get(reason ?? '') ?? 'Connection failed';
+}
+
+// An `error` sync verdict, in a few words: a failed sync by its class of failure where it has
+// one.
+export function cacheFailureSummary(reason: string | undefined, failure?: string): string {
+  if (reason === 'SyncFailed') return FAILURES.get(failure ?? '') ?? 'Some kinds aren’t syncing';
+  if (reason === 'StoreFailed') return 'Cache storage failed';
+  return 'Cache error';
+}
+
 // Gates on the live `Connected` condition first (a dropped connection leaves the
 // engine reporting a stale "Watching"), then reads the rollup.
 export function syncStatus(c: Cluster, group: Group): Status {

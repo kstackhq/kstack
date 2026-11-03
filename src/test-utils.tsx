@@ -170,6 +170,7 @@ export function clusterRecord({
               status: reason === 'Watching' ? 'True' : 'False',
               reason,
               unhealthyKindRefs: [],
+              failure: '',
               totalKinds: 1,
               unhealthyKinds: 0,
               pausedKinds: 0,
