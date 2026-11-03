@@ -19,7 +19,7 @@ with the chat. This spec lets a view leave the sidebar for a window of its own.
   place at a time.
 - **A log window belongs to one app window**, the one that opened it. The host keeps the pair
   and enforces it: a log window reaches its own app window and no other, and it closes when
-  that window closes or switches cluster.
+  that window closes or leaves the cluster.
 - **The log window is the viewer under a slim bar.** The bar names the cluster and the chat and
   has **Show chat**, which brings the app window back. The native title names the chat and the
   cluster too, for the OS's window switchers.
@@ -28,8 +28,10 @@ with the chat. This spec lets a view leave the sidebar for a window of its own.
 - **The selection still rides a send.** The log window pushes its viewport to the app window
   through the host, and the composer's chip says the lines come from a window.
 
-Beside the feature, the spec gates the host's commands per window. Today every command is open
-to every window, so a capability file for log windows could grant nothing narrower.
+Beside the feature, the spec gates the host's commands per window, and takes the page's own
+event sending out of both capabilities. Today every command is open to every window, so a
+capability file for log windows could grant nothing narrower, and any page can emit any event
+to any window, so a pair the host kept would be a pair a page could forge.
 
 ## What is not in this spec
 
@@ -58,7 +60,7 @@ match, and the cluster's dot already has a colour.
 | Event | The log window |
 | --- | --- |
 | Its app window closes | Closes. The host closes it on the app window's `Destroyed`. |
-| Its app window switches cluster | Closes, as the sidebar's view clears today. |
+| Its app window's active cluster changes, by any path | Closes, as the sidebar's view clears today. |
 | Its app window moves to another chat or mode | Stays open and live. Its selection stops riding until the app window is back on its chat. |
 | Its chat is deleted | Draws *This chat was deleted.*, as `OpenChat` does, and stops reading. |
 | Its cluster is deleted | Draws the viewer's own errors until the chat's deletion follows. |
@@ -83,70 +85,85 @@ lights, placed for the slimmer bar, and its hidden title. Linux and Windows draw
 
 ## Design
 
-### 1. The host gates its commands per window
+### 1. The host gates its commands per window, and no page emits events
 
 `build.rs` lists every command in `tauri_build::AppManifest::commands`, so each needs an
-`allow-<command>` permission in a capability. `capabilities/default.json` (`main`,
-`window-*`) adds an allow for every command it serves today and for the app-window commands
-below. A new `capabilities/logs.json` (`logs-*`) grants `core:default`, the five window-chrome
-permissions, `ready`, `graphql_query`, `graphql_subscribe`, `graphql_unsubscribe`,
-`log_webview` and the log-window commands below. It grants neither `new_window`,
-`update_host_file`, `quit` nor `open_account_url`. A test pins each file's list, as
-`default_capability_grants_only_window_chrome` does today.
+`allow-<command>` permission in a capability. A command left off the list is denied in every
+window, so the omission shows at once; a test reads `lib.rs`'s `generate_handler!` and
+`build.rs`'s list and asserts they match, to name the missing one.
+
+Neither capability grants `core:default`. It carries `core:event:default`, whose `allow-emit`
+and `allow-emit-to` let a page send any event to any window, and a page's emit is
+indistinguishable from the host's at the listener. Each file lists `core:default`'s parts
+instead, with `core:event:allow-listen` and `core:event:allow-unlisten` in place of
+`core:event:default`. Nothing in `src/` emits an event today.
+
+- `capabilities/default.json` (`main`, `window-*`): those parts, the five window-chrome
+  permissions, an allow for every command it serves today, and the app-window commands below.
+- `capabilities/logs.json` (`logs-*`): those parts, the five window-chrome permissions,
+  `ready`, `graphql_query`, `graphql_subscribe`, `graphql_unsubscribe`, `log_webview`, and the
+  log-window commands below. It grants neither `new_window`, `update_host_file`, `quit` nor
+  `open_account_url`.
+
+A test pins each file's list, as `default_capability_grants_only_window_chrome` does today.
 
 ### 2. The host builds and pairs log windows
 
 `WindowManager` labels a log window `logs-N`, off the counter that labels `window-N`.
 `build_window` takes the URL, the size and the bar height the traffic lights center in, so one
-function builds both kinds. A log window opens at 1000×700 with the app window's
-`min_inner_size`, cascaded off the app window that opened it.
+function builds both kinds. A log window loads `/logs`, opens at 1000×700 with the app
+window's `min_inner_size`, and cascades off the app window that opened it. Its page asks the
+host what to draw, so the URL carries nothing.
 
-The pairing is a `Mutex<HashMap>` on the manager, `logs label → { app label, chatId, callId }`.
-Every command reads the caller's label off its `tauri::Webview` argument, as `log_webview`
-does, never off the payload. A log window therefore reaches its own app window and no other,
-and an app window its own log windows.
+The pairing is a `Mutex<HashMap>` on the manager, `logs label → { app label, chatId, callId,
+grep, viewport }`. Every command reads the caller's label off its `tauri::Webview` argument, as
+`log_webview` does, never off the payload. A log window therefore reaches its own app window
+and no other, and an app window its own log windows.
 
 | Command | From | Does |
 | --- | --- | --- |
-| `log_window_open { chatId, callId, grep? }` | app window | Focuses the caller's window on that call if one is open, else builds one. Returns the label. |
+| `log_window_open { chatId, callId, grep? }` | app window | Focuses the caller's window on that call if one is open, keeping that window's grep, else builds one. Returns the label. |
 | `log_window_focus { callId }` | app window | Focuses the caller's window on that call. |
-| `log_windows` | app window | The caller's `{ label, callId }` pairs, so a reloaded page can rebuild its cards. |
+| `log_windows` | app window | The caller's log windows: `{ label, callId, viewport }` each, the viewport the last one pushed, so a reloaded page rebuilds its cards and its mirrors. |
 | `log_window_close_all` | app window | Closes the caller's log windows. |
-| `log_window_viewport { viewport }` | log window | Emits `log-window:viewport { label, callId, viewport }` to the caller's app window. |
+| `log_window_view` | log window | The caller's `{ chatId, callId, grep }`. |
+| `log_window_viewport { viewport }` | log window | Keeps it as the caller's last, and emits `log-window:viewport { label, callId, viewport }` to the caller's app window. |
 | `log_window_title { parts }` | log window | Sets the caller's native title from `window_title::build(parts)`. |
 | `log_window_show_source` | log window | Focuses the caller's app window and emits `log-window:show-chat { chatId }` there. |
 
-Two events reach an app window on their own: `log-window:closed { label, callId }` when one
-of its log windows is destroyed, and the host closes every log window paired to an app window
-on that window's `Destroyed`.
+Three events reach an app window from the host alone: `log-window:focused { label }` on a log
+window's `Focused(true)`, `log-window:closed { label, callId }` when one is destroyed, and the
+viewport above. On an app window's `Destroyed`, the host closes every log window paired to it.
 
 `chatId`, `callId` and `grep` are opaque to the host, which bounds their length and nothing
-else. They enter the window's URL as path segments and a query parameter through `Url`'s
-segment and query APIs, never through `format!`.
+else. The viewport is opaque too; the host bounds its serialized size.
 
 ### 3. The title is built by the host
 
 `src-tauri/src/window_title.rs` has one function, `build(parts: &[&str]) -> String`. It drops
-every `Cc` character and every bidi or invisible format character (U+061C, U+200B–U+200F,
-U+202A–U+202E, U+2060–U+2069, U+FEFF, U+00AD) from each part, cuts the part to 60 characters on
-a character boundary, and joins the parts with ` · `. The webview sends the parts; it never
-sends a title.
+from each part what `visible-text.ts` treats as invisible: every `Cc`, `Cf`, `Cs`, `Zl`, `Zp`
+and `Zs` character, every `Default_Ignorable_Code_Point`, and U+2800, with the space kept. The
+classes come from a crate or a generated table, with tests on each class. It cuts the part to
+60 characters on a character boundary, puts `Logs` first, and joins with ` · `. The webview
+sends the parts; it never sends a title.
 
 ### 4. The log window's route
 
 `src/routes/_logs.tsx` is a pathless layout rendering `LogsWindowLayout`
 (`src/layouts/logs-window-layout.tsx`): the bar over the routed page, no sidebars, no
-`AppDialogs`. `src/routes/logs-window.tsx` is `/logs/$chatId/$callId` with search
-`{ grep?: string }`.
+`AppDialogs`. `src/routes/logs-window.tsx` is `/logs`. `ReadyGate` and `index.html` draw a
+48px drag strip before the bar mounts; in this window it overhangs the viewer's top by 8px for
+that moment, which is harmless.
 
-The route watches `chatsWatch` for the chat's title and cluster, and `chatMessagesWatch` for
-the call. Until both bookmarks land it draws nothing. Then:
+The route calls `log_window_view` on mount, then watches `chatsWatch` for the chat's title and
+cluster and `chatMessagesWatch` for the call. Until the answer and both bookmarks land it draws
+nothing. Then:
 
 - a chat the map lacks draws *This chat was deleted.*;
 - a call the chat lacks, or one `viewOfCall` returns nothing for, draws *This log view is not
   available.*;
-- otherwise it draws `LogViewer` with the view, the grep from the URL, and a
-  `LogViewportHandle` of its own.
+- otherwise it draws `LogViewer` with the view, the grep, and a `LogViewportHandle` of its
+  own.
 
 `viewOfCall(call)` in `src/lib/logs-view.tsx` is the mapping the three cards make today: a
 LogsView call's action, or a LogsRead or LogsWatch call's `viewAround`. The cards and the route
@@ -163,16 +180,24 @@ title and the cluster's name whenever one changes.
 
 The viewer writes the window's handle as it does the sidebar's. A subscriber on the handle
 sends `log_window_viewport` at most once per animation frame, and only when the viewport
-changed.
+changed. What it sends is the viewport with `selection` cut to `MAX_SELECTED` lines, a
+`selectedCount`, and a `selectionRevision` that steps when the viewer writes a new selection
+array. The snapshot carries no more than that, and the composer's × needs the revision.
 
 ### 5. The app window's side
 
 `src/lib/log-windows.tsx` adds `LogWindowsProvider` under `LogsViewProvider` in `AppLayout`.
 It holds the window's log windows by call id: seeded from `log_windows` on mount, added by
-`open`, dropped by `log-window:closed`. For each it keeps a `LogViewportHandle` mirror fed by
-`log-window:viewport`, and the time its window was last focused. It exposes
-`open(view)`, which calls `log_window_open` and then, if the sidebar shows that call, clears
-the focused view and closes the sidebar, and `focus(callId)`.
+`open`, dropped by `log-window:closed`. For each it keeps a `LogViewportHandle` mirror and the
+time of its last `log-window:focused`. The mirror is fed by `log-window:viewport`, keeping its
+previous selection array while the revision is unchanged, so the composer's compare by
+identity holds: a scroll or a new tail line does not bring back a selection the user dismissed
+with ×. It exposes `open(view)`, which calls `log_window_open` and then, if the sidebar shows
+that call, clears the focused view and closes the sidebar, and `focus(callId)`.
+
+Whenever the active cluster differs from the one its windows were opened on, the provider
+calls `log_window_close_all`. That covers every path that changes `kubeContext`: the picker's
+popover, history back and forward, and `OpenChat`'s *Switch to it*.
 
 - **The cards** draw *Open in window* beside Expand or *View around this*. While their call
   has a window they draw *Showing in a window* with *Show window* instead, where *Showing in the
@@ -181,19 +206,20 @@ the focused view and closes the sidebar, and `focus(callId)`.
 - **The composer** picks the view that rides: the sidebar's while it is open on this chat,
   else the mirror of the log window on this chat focused last, else none. `shownView` becomes
   `{ view, viewport, where: 'sidebar' | 'window' }` and the chip reads `where`.
-- **The cluster picker's popover** calls `log_window_close_all` beside the clears it runs
-  today.
 - **`log-window:show-chat`** navigates to `/chat/$chatId`. Its cluster is the window's, since a
-  switch would have closed the log window.
+  change would have closed the log window.
 
 ## Decisions this spec asks for
 
 - **Move, not copy.** One place per view keeps the card's state and the snapshot's source
   unambiguous.
-- **The host owns the pair.** A page cannot forge a link to another window, and a closing app
-  window is a host event its page may not live to see.
-- **A log window closes with its app window and on its cluster switch.** No orphans, no
+- **The host owns the pair, and no page emits.** A page cannot forge a link to another
+  window or an event from the host, and a closing app window is a host event its page may not
+  live to see.
+- **A log window closes with its app window and on its cluster change.** No orphans, no
   detached state.
+- **The log window asks the host what to draw.** The pair already holds it, so the URL
+  encodes nothing and a reload still works.
 - **The viewport is pushed, not pulled.** The chip needs the count live, and a pull at send
   would make `onSend` wait on another window.
 - **The sidebar's view wins over a log window's.** It is beside the composer; the user sees it
@@ -205,52 +231,58 @@ the focused view and closes the sidebar, and `focus(callId)`.
 
 All start Planned.
 
-1. **Gate the commands.** `AppManifest::commands` in `build.rs`; every current command allowed
-   in `default.json`; the test pins the list. No behaviour change. *(host)*
+1. **Gate the commands and drop the page's emit.** `AppManifest::commands` in `build.rs`;
+   `default.json` lists `core:default`'s parts without emit and allows every current command;
+   the tests pin both. No behaviour change. *(host)*
 2. **The title builder.** `window_title.rs` and its tests. *(host)*
-3. **Log windows in the host.** The `logs-N` label, `logs.json`, the pairing, the seven
-   commands, the two events, closing with the app window. *(host, needs 1 and 2)*
-4. **The route and the layout.** `_logs`, `/logs/$chatId/$callId`, `LogsWindowLayout`,
-   `viewOfCall`, the title and viewport pushes. *(frontend, needs 3)*
+3. **Log windows in the host.** The `logs-N` label, `logs.json`, the pairing, the eight
+   commands, the three events, closing with the app window. *(host, needs 1 and 2)*
+4. **The route and the layout.** `_logs`, `/logs`, `LogsWindowLayout`, `viewOfCall`, the title
+   and viewport pushes. *(frontend, needs 3)*
 5. **The app window's side.** `LogWindowsProvider`, the cards' and the panel's buttons, the
-   composer's pick and chip, the cluster switch, *Show chat*. *(frontend, needs 4)*
+   composer's pick and chip, the cluster change, *Show chat*. *(frontend, needs 4)*
 
 Tasks 1 and 2 can be built at the same time.
 
 ## Tests
 
-- **Task 1.** `default_capability_grants_only_window_chrome` grows to the gated list. A test
-  reads `build.rs` and asserts every handler in `invoke_handler` is in the manifest's list, so a
-  new command cannot be forgotten.
-- **Task 2.** `build` drops each listed character class, cuts on a character boundary, and
-  joins with the separator; an empty part is kept, so the positions stay stable.
+- **Task 1.** `default_capability_grants_only_window_chrome` grows to the gated list and
+  asserts no `core:default` and no emit permission. A test reads `lib.rs`'s handler list and
+  `build.rs`'s manifest list and asserts they match.
+- **Task 2.** `build` drops each listed class, keeps the space, cuts on a character boundary,
+  puts `Logs` first and joins with the separator; an empty part is kept, so the positions stay
+  stable.
 - **Task 3.** The label prefix; `logs_capability_grants_the_viewer_and_nothing_else`; open
-  focuses an existing window on the same call and builds for another; a log window's command
-  reaches only its own app window, and an app window's only its own log windows; the pair is
-  dropped and `log-window:closed` emitted on destroy; an app window's destroy closes its log
-  windows; a `chatId` over the bound is refused. Each uses the mock runtime and
-  `testutil::OneMonitor`.
-- **Task 4.** The route draws nothing before both bookmarks, each notice after them, and the
-  viewer with the URL's grep; the title is sent with the three parts and resent when one
-  changes; the viewport is sent once per frame and not when unchanged; `viewOfCall` for the
-  three call kinds and for a call with no action.
+  focuses an existing window on the same call, keeping its grep, and builds for another; a log
+  window's command reaches only its own app window, and an app window's only its own log
+  windows; `log_window_view` answers the pair; `log-window:focused` is emitted on focus; the
+  pair is dropped and `log-window:closed` emitted on destroy; `log_windows` returns the last
+  viewport pushed; an app window's destroy closes its log windows; a `chatId` over the bound and
+  a viewport over the bound are refused. Each uses the mock runtime and `testutil::OneMonitor`.
+- **Task 4.** The route draws nothing before the answer and both bookmarks, each notice after
+  them, and the viewer with the pair's grep; the title is sent with the three parts and resent
+  when one changes; the viewport is sent once per frame, not when unchanged, with the selection
+  cut to `MAX_SELECTED` and the revision stepping on a new array; `viewOfCall` for the three
+  call kinds and for a call with no action.
 - **Task 5.** `open` moves a view out of the sidebar and focuses an open window; a card draws
   each of its three states; the composer picks the sidebar's view over a window's, the window
-  focused last among windows, and none when the chat differs; the chip's two wordings; a
-  cluster switch closes the windows; `log-window:show-chat` navigates to the chat.
+  focused last among windows, and none when the chat differs; a push with the same revision
+  keeps the mirror's selection array, so a dismissed selection stays dismissed; the chip's two
+  wordings; each cluster-change path closes the windows; `log-window:show-chat` navigates to
+  the chat.
 
 ## Security
 
 - **What widens.** A second window kind holds the whole GraphQL surface, since it reads logs
   through `graphql_query`, which forwards operations unexamined. The CSP stays the containment.
-- **What narrows.** Every command is gated per window. A log window cannot open windows,
-  change host preferences, quit the app or open the account URL. Each capability's list is
-  pinned.
+- **What narrows.** Every command is gated per window. No page can emit an event. A log window
+  cannot open windows, change host preferences, quit the app or open the account URL. Each
+  capability's list is pinned.
 - **What holds it.** A page never names a target window: every lookup starts from the caller's
-  label. The native title is attacker-controlled text, built by the host from stripped and
-  bounded parts. A viewport crossing windows is drawn only as a count in the chip and as data
-  in the snapshot, never as HTML. A view travels in a URL and host events, never in
-  `localStorage`, which every window shares.
+  label, and only the host emits. The native title is attacker-controlled text, built by the
+  host from stripped and bounded parts. A viewport crossing windows is bounded, and drawn only
+  as a count in the chip and as data in the snapshot, never as HTML. A view travels in the
+  host's pair and its events, never in `localStorage`, which every window shares.
 - **Residual.** A compromised log window page can do to its cluster what a compromised app
   window page can.
 
@@ -258,11 +290,11 @@ Tasks 1 and 2 can be built at the same time.
 
 - `src/CLAUDE.md`: *Layouts* names `_logs` and `LogsWindowLayout`; the right sidebar's section
   says a view moves to a window and how a card reads while it is there; the composer's snapshot
-  rule names the pick.
-- `src-tauri/CLAUDE.md`: labels are `main`, `window-N` or `logs-N`; the pairing; the gate and
-  the two capability files; `window_title`.
-- `docs/security-model.md`: the capability row names both files and the gate; a row for the
-  title, pinned by `window_title`'s tests.
+  rule names the pick and the revision.
+- `src-tauri/CLAUDE.md`: labels are `main`, `window-N` or `logs-N`; the pairing; the gate, the
+  dropped emit and the two capability files; `window_title`.
+- `docs/security-model.md`: the capability row names both files, the gate and the dropped
+  emit; a row for the title, pinned by `window_title`'s tests.
 - `docs/security/`: a review record for the new window and its commands.
 - An ADR: *a log window belongs to one app window, and the host keeps the pair*.
 
@@ -271,6 +303,6 @@ Tasks 1 and 2 can be built at the same time.
 Before any build or test in the Linux sandbox, run `bash scripts/sandbox-dev-setup.sh`. While
 working, `make test-changed`. At the gate: `make test`, `make lint`, `make vet`, and a green
 `Coverage · Gate` on the PR. Then by hand, on each platform: open a view in a window from the
-header and from a card, close the app window and watch the log window close, switch cluster and
-watch it close, select lines in the window and send from the chat, and read the title in the
-OS's window switcher.
+header and from a card, close the app window and watch the log window close, change cluster by
+the picker and by history and watch it close, select lines in the window, dismiss them with ×
+and scroll, and send from the chat, and read the title in the OS's window switcher.
