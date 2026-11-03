@@ -68,7 +68,8 @@ One Kubernetes-style status condition: an independently-tracked aspect of the
 record's observed state. Connection-controller conditions (on `Cluster.conditions`),
 two aspects with two subjects — whether we reached it, and whether these credentials
 could name it: `Connected` (the last probe reached the API server; reasons
-Connecting/Connected/ResolveFailed/ProbeFailed/Inactive) and `Identified` (the probe
+Connecting/Connected/Inactive, or a failed probe's class — Unreachable, TLSInvalid, Timeout,
+Unauthorized, Forbidden, … — and ProbeFailed when unclassified) and `Identified` (the probe
 could tell which cluster answered; reasons Identified/UIDUnreadable/Connecting/
 NoConnection/Inactive). Reaching a server needs no authorization and naming it does, so
 `Identified` fails on its own — and a cluster it fails for never gets a `ClusterCache`,
@@ -177,6 +178,8 @@ type Schedule {
   show a definite "checking now" while the probe's round-trips are in flight.
   """
   probing: Boolean!
+  "How many connection attempts in a row have failed; zero once one succeeds."
+  failures: Int!
 }
 
 """
@@ -680,6 +683,13 @@ type ClusterCacheHealth {
   does not identify a kind.
   """
   unhealthyKindRefs: [SyncedKindRef!]!
+  """
+  Why a `SyncFailed` verdict's first offender failed, as a class: `Forbidden`,
+  `Unauthorized`, `NotFound`, `Throttled`, `InternalError`, `ServiceUnavailable`,
+  `Unreachable`, `TLSInvalid` or `Timeout`. Empty when the failure is not a request's or
+  the verdict is not `SyncFailed`.
+  """
+  failure: String!
   "How many kinds this cache syncs."
   totalKinds: Int!
   "How many of them are not currently Watching."

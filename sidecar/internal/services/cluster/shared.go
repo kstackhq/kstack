@@ -315,8 +315,8 @@ const (
 	ReasonConnecting = "Connecting"
 	// ReasonConnected: the last connection probe succeeded.
 	ReasonConnected = "Connected"
-	// ReasonProbeFailed: credentials resolved but the dial/identity probe
-	// failed.
+	// ReasonProbeFailed: the connection probe failed and gave no class of failure.
+	// A classified failure carries the probe's own reason instead (kubeconn.Reason).
 	ReasonProbeFailed = "ProbeFailed"
 	// ReasonUnreachable: the health probe's transport failed outright.
 	ReasonUnreachable = "Unreachable"
@@ -412,6 +412,9 @@ type Schedule struct {
 	// inferred from the countdown so the webview can show a definite "checking
 	// now". Merged into this gauge because a probe start/end fires no WatchList.
 	Probing bool `json:"probing"`
+	// Failures counts the connection probe's consecutive failed attempts, zero once one
+	// succeeds.
+	Failures int `json:"failures"`
 }
 
 // The delta-watch frame type is shared vocabulary (internal/lib/apimeta), aliased here so

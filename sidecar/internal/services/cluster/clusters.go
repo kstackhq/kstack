@@ -585,7 +585,7 @@ func (a clustersAPI) WatchSchedule(ctx context.Context, id ClusterID) (<-chan Sc
 // flight keeps the time it was dispatched for, which is the current reconcile rather than the
 // next one — so probing carries no countdown.
 func clusterSchedule(st kubeconn.State) Schedule {
-	sched := Schedule{Probing: st.Connection.InFlight()}
+	sched := Schedule{Probing: st.Connection.InFlight(), Failures: st.Connection.Failures}
 	if at := st.Connection.NextAttempt.ScheduledAt; !sched.Probing && !at.IsZero() {
 		sched.NextRequeueAt = &at
 	}
@@ -929,9 +929,12 @@ func (c *clusterController) reconcileConnection(obj *beehive.Object[ClusterRunti
 		// record back, with the kind's cadence behind it covering a signal that went missing.
 		finding.reason, finding.message = ReasonConnecting, "probe pending"
 	case kubeconn.PhaseUnreached:
-		// The credentials resolve and the server would not answer. Left to the probe's own
-		// cadence rather than failing the pass, which has nothing to retry.
-		finding.reason, finding.message = ReasonProbeFailed, observed.Connection.LastAttempt.Message
+		// The server would not answer. Left to the probe's own cadence rather than failing
+		// the pass, which has nothing to retry. The reason is the probe's own class of
+		// failure (Unreachable, TLSInvalid, Unauthorized, …), since each has its own remedy.
+		attempt := observed.Connection.LastAttempt
+		finding.reason = cmp.Or(string(attempt.Reason), ReasonProbeFailed)
+		finding.message = attempt.Message
 	default:
 		finding.reason = ReasonConnected
 	}

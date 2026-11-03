@@ -128,6 +128,9 @@ type ClusterCacheHealth struct {
 	// because truncation ("+2 more") is a layout decision, and the consumer that needs the
 	// first offender must not have to parse it back out of prose.
 	UnhealthyKindRefs []SyncedKindRef
+	// Failure is the first offender's class of failure (a kubeconn.Reason such as Forbidden);
+	// empty when unclassified or not failing.
+	Failure string
 	// TotalKinds is how many kinds this cache mirrors; UnhealthyKinds how many are not
 	// currently Watching (len(UnhealthyKindRefs), which is capped by nothing).
 	TotalKinds     int
@@ -503,7 +506,7 @@ func (a cachesAPI) readCacheHealth(
 		anyKindUnproven   bool
 		newestUpdateAt    time.Time
 		oldestLiveAt      time.Time
-		reasonByRef       = map[SyncedKindRef]string{}
+		stateByRef        = map[SyncedKindRef]kubesync.KindState{}
 	)
 	for _, kindObj := range kindObjs {
 		if kindObj.DeletionRequestedAt != nil {
@@ -528,7 +531,7 @@ func (a cachesAPI) readCacheHealth(
 		if state.Reason != kubesync.ReasonWatching {
 			ref := syncedKindRefOf(kindObj.Spec)
 			health.UnhealthyKindRefs = append(health.UnhealthyKindRefs, ref)
-			reasonByRef[ref] = state.Reason
+			stateByRef[ref] = state
 		}
 		if state.LastUpdateAt.After(newestUpdateAt) {
 			newestUpdateAt = state.LastUpdateAt
@@ -576,9 +579,10 @@ func (a cachesAPI) readCacheHealth(
 	case health.UnhealthyKinds == 0:
 		health.Status, health.Reason = ConditionTrue, kubesync.ReasonWatching
 	default:
-		// The first offender's own reason, so a consumer reading the verdict beside the
-		// first ref sees one story.
-		health.Reason = reasonByRef[health.UnhealthyKindRefs[0]]
+		// The first offender's own reason and failure, so a consumer reading the verdict
+		// beside the first ref sees one story.
+		first := stateByRef[health.UnhealthyKindRefs[0]]
+		health.Reason, health.Failure = first.Reason, string(first.Failure)
 	}
 	return health, nil
 }
@@ -886,7 +890,7 @@ func (a cachesAPI) clusterFor(
 // struct is not comparable — and re-emitting an unchanged gauge is exactly what the
 // cadence must not do.
 func sameHealth(a, b ClusterCacheHealth) bool {
-	return a.Status == b.Status && a.Reason == b.Reason &&
+	return a.Status == b.Status && a.Reason == b.Reason && a.Failure == b.Failure &&
 		a.TotalKinds == b.TotalKinds && a.UnhealthyKinds == b.UnhealthyKinds &&
 		a.PausedKinds == b.PausedKinds &&
 		slices.Equal(a.UnhealthyKindRefs, b.UnhealthyKindRefs) &&

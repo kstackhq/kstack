@@ -323,8 +323,38 @@ func TestReconcileLogsAFailedProbe(t *testing.T) {
 	ev := loggedEvent(t, client)
 	assert.Equal(t, ConnectionEventCategory, ev.Category)
 	assert.Equal(t, beehive.EventWarning, ev.Type)
-	assert.Equal(t, ReasonProbeFailed, ev.Reason)
+	assert.Equal(t, string(kubeconn.ReasonUnreachable), ev.Reason)
 	assert.Contains(t, ev.Message, "connection refused")
+}
+
+// Each class of failure has its own remedy, so Connected names the probe's class.
+func TestReconcileNamesTheProbesClassOfFailure(t *testing.T) {
+	refused := kubeconn.Observation[string]{
+		Attempts: kubeconn.Attempts{LastAttempt: finished(kubeconn.ReasonTLSInvalid, "x509: unknown authority")},
+	}
+	c := identityControllerOver(t, knowing(kubeconn.State{Connection: refused}))
+	obj := createCluster(t, c.deps, "prod")
+
+	client := &stubControllerClient{}
+	reconcileCluster(t, c, client, obj)
+
+	cond := conditionOfType(t, client, ConditionConnected)
+	assert.Equal(t, string(kubeconn.ReasonTLSInvalid), cond.Reason)
+	assert.Equal(t, "x509: unknown authority", cond.Message)
+}
+
+// A failure the probe left unclassified still reads as a failure.
+func TestReconcileCallsAnUnclassifiedFailureProbeFailed(t *testing.T) {
+	unclassified := kubeconn.Observation[string]{
+		Attempts: kubeconn.Attempts{LastAttempt: finished(kubeconn.ReasonUnknown, "boom")},
+	}
+	c := identityControllerOver(t, knowing(kubeconn.State{Connection: unclassified}))
+	obj := createCluster(t, c.deps, "prod")
+
+	client := &stubControllerClient{}
+	reconcileCluster(t, c, client, obj)
+
+	assert.Equal(t, ReasonProbeFailed, conditionOfType(t, client, ConditionConnected).Reason)
 }
 
 // A working cluster still writes one, so the timeline shows when it came up rather than
@@ -629,7 +659,7 @@ func TestReconcileLeavesIdentityUnassessedWhenTheProbeFailed(t *testing.T) {
 	client := &stubControllerClient{}
 	reconcileCluster(t, c, client, obj)
 
-	assert.Equal(t, ReasonProbeFailed, conditionOfType(t, client, ConditionConnected).Reason)
+	assert.Equal(t, string(kubeconn.ReasonUnreachable), conditionOfType(t, client, ConditionConnected).Reason)
 	assert.Equal(t, ReasonNoConnection, conditionOfType(t, client, ConditionIdentified).Reason)
 }
 
@@ -1317,6 +1347,19 @@ func TestClustersWatchScheduleReportsTheConnectionProbe(t *testing.T) {
 	require.NotNil(t, got.NextRequeueAt)
 	assert.Equal(t, dialAt, *got.NextRequeueAt)
 	assert.False(t, got.Probing)
+}
+
+// A down connection's countdown comes with how many attempts in a row have failed.
+func TestClustersWatchScheduleCountsTheFailedAttempts(t *testing.T) {
+	d := newTestDeps(t)
+	obj := createCluster(t, d, "prod")
+	failing := scheduledAt(probedAt.Add(30 * time.Second))
+	failing.Failures = 3
+	d.kubeconnSvc = knowing(kubeconn.State{Connection: failing})
+
+	ch, _ := watchSchedule(t, d, clusterIDOf(obj))
+
+	assert.Equal(t, 3, testutil.Recv(t, ch, "the current schedule").Failures)
 }
 
 // Every probe but the connection suspends while it is down, so a disconnected cluster's

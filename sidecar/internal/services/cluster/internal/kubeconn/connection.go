@@ -35,6 +35,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
@@ -392,7 +393,12 @@ func classify(err error) Reason {
 	var status *httpErr
 	switch {
 	case errors.As(err, &status):
-		return statusReason(status.code)
+		// A code with no meaning of its own is Malformed rather than a fault of the API
+		// server's: the likeliest sender is a proxy between us and it.
+		if reason, ok := statusReason(int32(status.code)); ok {
+			return reason
+		}
+		return ReasonMalformed
 	case isTLSError(err):
 		return ReasonTLSInvalid
 	case errors.Is(err, context.DeadlineExceeded):
@@ -410,23 +416,46 @@ func classify(err error) Reason {
 	}
 }
 
-// statusReason names a response the server did give. A code with no meaning of its own is
-// Malformed rather than a fault of the API server's: the likeliest sender is a proxy between us
-// and it.
-func statusReason(code int) Reason {
+// ClassifyRequest names why a request through a Connection's clients failed: a Status the API
+// server answered with, or the transport failing under it. Anything else — a watch that ended
+// early, a frame that would not apply — is ReasonUnknown, since naming it would claim a cause
+// nobody observed.
+func ClassifyRequest(err error) Reason {
+	var status apierrors.APIStatus
+	var transport *url.Error
+	switch {
+	case errors.As(err, &status):
+		// A Status is the API server's own, so a 404 means the resource is gone, and a code
+		// with no reason of its own stays unknown rather than pointing at a proxy.
+		code := status.Status().Code
+		if code == http.StatusNotFound {
+			return ReasonNotFound
+		}
+		reason, _ := statusReason(code)
+		return reason
+	case errors.As(err, &transport), errors.Is(err, context.DeadlineExceeded):
+		return classify(err)
+	default:
+		return ReasonUnknown
+	}
+}
+
+// statusReason names a response by its code; false, with ReasonUnknown, for a code with no
+// reason of its own.
+func statusReason(code int32) (Reason, bool) {
 	switch code {
 	case http.StatusUnauthorized:
-		return ReasonUnauthorized
+		return ReasonUnauthorized, true
 	case http.StatusForbidden:
-		return ReasonForbidden
+		return ReasonForbidden, true
 	case http.StatusTooManyRequests:
-		return ReasonThrottled
+		return ReasonThrottled, true
 	case http.StatusInternalServerError:
-		return ReasonInternalError
+		return ReasonInternalError, true
 	case http.StatusServiceUnavailable:
-		return ReasonServiceUnavailable
+		return ReasonServiceUnavailable, true
 	default:
-		return ReasonMalformed
+		return ReasonUnknown, false
 	}
 }
 

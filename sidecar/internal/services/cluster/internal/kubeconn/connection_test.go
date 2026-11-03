@@ -31,6 +31,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 )
@@ -198,6 +201,36 @@ func TestClassify(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, classify(tt.err))
+		})
+	}
+}
+
+func TestClassifyRequest(t *testing.T) {
+	t.Parallel()
+
+	pods := schema.GroupResource{Resource: "pods"}
+	tests := []struct {
+		name string
+		err  error
+		want Reason
+	}{
+		{"forbidden", apierrors.NewForbidden(pods, "", errors.New("cannot list")), ReasonForbidden},
+		{"unauthorized", apierrors.NewUnauthorized("expired"), ReasonUnauthorized},
+		{"gone from the server", apierrors.NewNotFound(pods, ""), ReasonNotFound},
+		{"throttled", apierrors.NewTooManyRequests("slow down", 1), ReasonThrottled},
+		{"server fault", apierrors.NewInternalError(errors.New("boom")), ReasonInternalError},
+		{"restarting", apierrors.NewServiceUnavailable("upgrading"), ReasonServiceUnavailable},
+		{"wrapped", fmt.Errorf("list pods: %w", apierrors.NewForbidden(pods, "", errors.New("no"))), ReasonForbidden},
+		{"a status with no code of note", apierrors.FromObject(&metav1.Status{Message: "too old resource version"}), ReasonUnknown},
+		{"connection refused", wrapped(&net.OpError{Err: syscall.ECONNREFUSED}), ReasonUnreachable},
+		{"untrusted CA", wrapped(x509.UnknownAuthorityError{}), ReasonTLSInvalid},
+		{"our deadline", fmt.Errorf("list: %w", context.DeadlineExceeded), ReasonTimeout},
+		{"not a request's failure", errors.New("watch closed having proved nothing"), ReasonUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ClassifyRequest(tt.err))
 		})
 	}
 }

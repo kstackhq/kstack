@@ -157,6 +157,7 @@ type ComplexityRoot struct {
 
 	ClusterCacheHealth struct {
 		CacheID           func(childComplexity int) int
+		Failure           func(childComplexity int) int
 		LastLiveAt        func(childComplexity int) int
 		LastUpdateAt      func(childComplexity int) int
 		PausedKinds       func(childComplexity int) int
@@ -803,6 +804,7 @@ type ComplexityRoot struct {
 	}
 
 	Schedule struct {
+		Failures      func(childComplexity int) int
 		NextRequeueAt func(childComplexity int) int
 		Probing       func(childComplexity int) int
 	}
@@ -1425,6 +1427,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ClusterCacheHealth.CacheID(childComplexity), true
+	case "ClusterCacheHealth.failure":
+		if e.ComplexityRoot.ClusterCacheHealth.Failure == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ClusterCacheHealth.Failure(childComplexity), true
 	case "ClusterCacheHealth.lastLiveAt":
 		if e.ComplexityRoot.ClusterCacheHealth.LastLiveAt == nil {
 			break
@@ -4159,6 +4167,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SandboxStatus.Reason(childComplexity), true
 
+	case "Schedule.failures":
+		if e.ComplexityRoot.Schedule.Failures == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Schedule.Failures(childComplexity), true
 	case "Schedule.nextRequeueAt":
 		if e.ComplexityRoot.Schedule.NextRequeueAt == nil {
 			break
@@ -4926,6 +4940,8 @@ func (ec *executionContext) childFields_ClusterCacheHealth(ctx context.Context, 
 		return ec.fieldContext_ClusterCacheHealth_reason(ctx, field)
 	case "unhealthyKindRefs":
 		return ec.fieldContext_ClusterCacheHealth_unhealthyKindRefs(ctx, field)
+	case "failure":
+		return ec.fieldContext_ClusterCacheHealth_failure(ctx, field)
 	case "totalKinds":
 		return ec.fieldContext_ClusterCacheHealth_totalKinds(ctx, field)
 	case "unhealthyKinds":
@@ -6100,6 +6116,8 @@ func (ec *executionContext) childFields_Schedule(ctx context.Context, field grap
 		return ec.fieldContext_Schedule_nextRequeueAt(ctx, field)
 	case "probing":
 		return ec.fieldContext_Schedule_probing(ctx, field)
+	case "failures":
+		return ec.fieldContext_Schedule_failures(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Schedule", field.Name)
 }
@@ -9240,6 +9258,29 @@ func (ec *executionContext) fieldContext_ClusterCacheHealth_unhealthyKindRefs(_ 
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _ClusterCacheHealth_failure(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheHealth) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ClusterCacheHealth_failure(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Failure, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ClusterCacheHealth_failure(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterCacheHealth", field, false, false, "String")
 }
 
 func (ec *executionContext) _ClusterCacheHealth_totalKinds(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheHealth) (ret graphql.Marshaler) {
@@ -20181,6 +20222,29 @@ func (ec *executionContext) fieldContext_Schedule_probing(_ context.Context, fie
 	return graphql.NewScalarFieldContext("Schedule", field, false, false, "Boolean")
 }
 
+func (ec *executionContext) _Schedule_failures(ctx context.Context, field graphql.CollectedField, obj *cluster.Schedule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Schedule_failures(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Failures, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Schedule_failures(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Schedule", field, false, false, "Int")
+}
+
 func (ec *executionContext) _SearchAction_query(ctx context.Context, field graphql.CollectedField, obj *tools.SearchAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24467,6 +24531,11 @@ func (ec *executionContext) _ClusterCacheHealth(ctx context.Context, sel ast.Sel
 			}
 		case "unhealthyKindRefs":
 			out.Values[i] = ec._ClusterCacheHealth_unhealthyKindRefs(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "failure":
+			out.Values[i] = ec._ClusterCacheHealth_failure(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -28838,6 +28907,11 @@ func (ec *executionContext) _Schedule(ctx context.Context, sel ast.SelectionSet,
 			}
 		case "probing":
 			out.Values[i] = ec._Schedule_probing(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "failures":
+			out.Values[i] = ec._Schedule_failures(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

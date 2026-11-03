@@ -29,11 +29,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/supervisor"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/internal/kubeconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/internal/kubestore"
 )
 
@@ -364,6 +366,38 @@ func TestAWatchRefusedIsRetried(t *testing.T) {
 	awaitKindState(t, svc, 1, podKind, "a run down for the watch it was refused", func(state KindState) bool {
 		return state.Reason == ReasonSyncFailed && strings.Contains(state.Message, "the watch is forbidden")
 	})
+}
+
+func TestAForbiddenWatchNamesItsClassOfFailure(t *testing.T) {
+	cluster := newFakeCluster(t)
+	cluster.serveKind(podKind, true)
+	cluster.hasObjects(podKind, "10")
+	stream := cluster.streamKind(podKind)
+	stream.refuse(apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "", errors.New("cannot watch")))
+
+	svc := newSyncingService(t, cluster)
+	syncKind(t, svc, 1, podKind)
+
+	awaitKindState(t, svc, 1, podKind, "a run down, refused for its permissions", func(state KindState) bool {
+		return state.Reason == ReasonSyncFailed && state.Failure == kubeconn.ReasonForbidden
+	})
+}
+
+// A failure that is not a request's names no class, since nothing observed one.
+func TestAFailureThatIsNotARequestsNamesNoClass(t *testing.T) {
+	cluster := newFakeCluster(t)
+	cluster.serveKind(podKind, true)
+	cluster.hasObjects(podKind, "10")
+	stream := cluster.streamKind(podKind)
+	stream.refuse(errors.New("the watch is forbidden"))
+
+	svc := newSyncingService(t, cluster)
+	syncKind(t, svc, 1, podKind)
+
+	state := awaitKindState(t, svc, 1, podKind, "a run down", func(state KindState) bool {
+		return state.Reason == ReasonSyncFailed
+	})
+	assert.Empty(t, state.Failure)
 }
 
 func TestAWatchThatErrorsOutIsRetried(t *testing.T) {

@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/internal/kubeconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/internal/kubestore"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/internal/kubesync"
 )
@@ -1293,7 +1294,7 @@ func TestCachesWatchHealthFoldsEveryKindsVerdict(t *testing.T) {
 		Reason: kubesync.ReasonWatching, Live: true, LastUpdateAt: now, LastLiveAt: now,
 	})
 	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{
-		Reason: kubesync.ReasonSyncFailed, LastLiveAt: now.Add(-time.Hour),
+		Reason: kubesync.ReasonSyncFailed, Failure: kubeconn.ReasonForbidden, LastLiveAt: now.Add(-time.Hour),
 	})
 
 	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
@@ -1302,9 +1303,26 @@ func TestCachesWatchHealthFoldsEveryKindsVerdict(t *testing.T) {
 	got := testutil.Recv(t, stream.Frames, "the cache's folded verdict")
 	assert.Equal(t, ConditionFalse, got.Status)
 	assert.Equal(t, kubesync.ReasonSyncFailed, got.Reason)
+	assert.Equal(t, "Forbidden", got.Failure, "the first offender's class of failure")
 	assert.Equal(t, 2, got.TotalKinds)
 	assert.Equal(t, 1, got.UnhealthyKinds)
 	assert.Equal(t, []SyncedKindRef{{APIVersion: "apps/v1", Resource: "deployments"}}, got.UnhealthyKindRefs)
+}
+
+// The class is part of the verdict: a failure changing class is news on its own.
+func TestCachesWatchHealthSendsAFailureThatChangesClass(t *testing.T) {
+	d, cacheID := syncingCacheWithKinds(t)
+	setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, LastLiveAt: probedAt})
+	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncFailed, Failure: kubeconn.ReasonTimeout})
+	svc := serviceOver(t, d)
+	svc.gaugeCadence = time.Millisecond
+
+	stream, err := svc.Caches().WatchHealth(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "Timeout", testutil.Recv(t, stream.Frames, "the verdict").Failure)
+
+	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncFailed, Failure: kubeconn.ReasonForbidden})
+	assert.Equal(t, "Forbidden", testutil.Recv(t, stream.Frames, "the verdict with its new class").Failure)
 }
 
 // Every kind watching is the one verdict a cache can report as healthy.

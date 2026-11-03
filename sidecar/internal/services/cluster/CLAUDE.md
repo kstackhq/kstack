@@ -41,6 +41,14 @@ policy](../../../../docs/adr/2026-08-28-arming-is-policy-never-interest.md).
 - **Deletion is the mark.** `Clusters().Delete` marks and returns (refusing a row its source still
   declares, `ErrDeclaredBySource`; the toggles refuse a marked row as `ErrNotFound`); the mirror tears down and the
   row goes last. The connection gate reads the mark off the **row** (`connectableContext`).
+- **A failed `Connected` carries the probe's `kubeconn.Reason`** (`Unreachable`, `TLSInvalid`,
+  `Unauthorized`, …), `ProbeFailed` when unclassified; the webview names each. → [ADR: Connected
+  carries the probe's class of
+  failure](../../../../docs/adr/2026-11-03-connected-carries-the-probes-class-of-failure.md).
+- **A failed kind keeps the reason `SyncFailed` and carries its class as `KindState.Failure`**
+  (`kubeconn.ClassifyRequest`, empty when the failure is not a request's); the health fold
+  passes the first offender's on as `failure`. → [ADR: a failed kind sync carries its class of
+  failure](../../../../docs/adr/2026-11-03-a-failed-sync-carries-its-class-of-failure.md).
 - Neither cache controller writes a condition. → [ADR: kind records mirror the
   catalog](../../../../docs/adr/2026-09-02-kind-records-mirror-the-catalog.md).
 - Shared dependencies are fields of `deps`, never constructor parameters (`testutil_test.go`).

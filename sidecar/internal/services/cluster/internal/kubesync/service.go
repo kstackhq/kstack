@@ -545,6 +545,7 @@ func kindStateOf(snap supervisor.Snapshot, stamps kindStamps) (KindState, bool) 
 			// Every way a stream fails reads the same to a consumer — NeverReady and the
 			// rest are the supervisor's vocabulary, and the message is what says which.
 			reason = ReasonSyncFailed
+			state.Failure = kubeconn.ClassifyRequest(o.LastAttempt.Err)
 			// The streak's start rather than the last retry in it: "failing since 10:02" is
 			// what a reader wants, where "failing since a second ago" is not.
 			state.SinceAt = o.FailingSince

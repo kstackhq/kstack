@@ -3,6 +3,8 @@ title: The Cluster pass folds its claim into two conditions and never writes tim
 date: 2026-09-02
 scope: sidecar
 status: Accepted
+amended_by:
+  - [Connected carries the probe's class of failure as its reason](2026-11-03-connected-carries-the-probes-class-of-failure.md)
 ---
 
 # The Cluster pass folds its claim into two conditions and never writes timing

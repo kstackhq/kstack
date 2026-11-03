@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/supervisor"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/internal/kubeconn"
 )
 
 // The supervisor's bookkeeping, aliased rather than copied so an Observation carries exactly
@@ -145,6 +146,9 @@ type DiscoveryState struct {
 type KindState struct {
 	Reason  string
 	Message string
+	// Failure is a SyncFailed run's class of failure, ReasonUnknown when the failure is not a
+	// request's or the kind is not failing.
+	Failure kubeconn.Reason
 	// SinceAt is when Reason last moved — "watching since 10:02", which is what a stream
 	// has instead of a last-attempt stamp.
 	SinceAt time.Time
