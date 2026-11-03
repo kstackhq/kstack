@@ -80,6 +80,21 @@ describe('useDialog', () => {
     expect(result.current.mountedDialog).toBe('settings');
   });
 
+  it('carries the cluster detail the Clusters dialog was opened on', () => {
+    const { result } = renderDialog();
+    expect(result.current.clusterDetail).toBeNull();
+
+    act(() => result.current.openDialog('clusters', { clusterId: 'c1', pane: 'connection' }));
+    expect(result.current.clusterDetail).toEqual({ clusterId: 'c1', pane: 'connection' });
+  });
+
+  it('clears the cluster detail on an open that names none', () => {
+    const { result } = renderDialog();
+    act(() => result.current.openDialog('clusters', { clusterId: 'c1', pane: 'connection' }));
+    act(() => result.current.openDialog('clusters'));
+    expect(result.current.clusterDetail).toBeNull();
+  });
+
   it('refuses to work outside a provider, which would silently drop opens', () => {
     expect(() => renderHook(() => useDialog())).toThrow(/within a DialogProvider/);
   });

@@ -15,7 +15,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { PopupResizeHandles } from './resize-handles';
+import { PopupResizeHandles } from './popup-resize-handles';
 
 // jsdom doesn't implement pointer capture; the handles call it, so stub it out.
 if (!HTMLElement.prototype.setPointerCapture) {

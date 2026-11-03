@@ -17,7 +17,7 @@
 // clustersWatch push updates the table. Its connection and sync detail panes are
 // also the omnibox's status popover's body.
 import { ChevronDown, Database, Pause, Play, Power, PowerOff, RotateCw, Slash, Trash2 } from 'lucide-react';
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import ReactTimeAgo, { type Formatter } from 'react-timeago';
 import { useMutation } from 'urql';
 
@@ -39,7 +39,7 @@ import {
   formatRate,
   useClusters,
 } from '@/lib/clusters';
-import { type AppDialogProps } from '@/lib/dialog';
+import { type AppDialogProps, useDialogHost } from '@/lib/dialog';
 import {
   type Group,
   type Tone,
@@ -1048,6 +1048,7 @@ function DisclosureLabel({
 function ClusterRow({
   cluster,
   group,
+  initialDetail,
   onSetEnabled,
   onToggle,
   onClearCache,
@@ -1055,6 +1056,8 @@ function ClusterRow({
 }: {
   cluster: Cluster;
   group: Group;
+  // The pane the dialog was opened on, for this row alone.
+  initialDetail: DetailPane;
   onSetEnabled: (enabled: boolean) => void;
   onToggle: (enabled: boolean) => void;
   onClearCache: () => void;
@@ -1072,7 +1075,12 @@ function ClusterRow({
   const overall = overallStatus(connection, status);
   const orphaned = group === 'orphaned';
   const connFailed = connection.tone === 'error';
-  const [openDetail, setOpenDetail] = useState<DetailPane>(null);
+  const [openDetail, setOpenDetail] = useState<DetailPane>(initialDetail);
+  const rowRef = useRef<HTMLTableRowElement>(null);
+  // Once per mount: `initialDetail` never changes.
+  useEffect(() => {
+    if (initialDetail) rowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [initialDetail]);
   const toggleDetail = (pane: Exclude<DetailPane, null>) => setOpenDetail(openDetail === pane ? null : pane);
   // Sync label is a disclosure only once the rollup has streamed in — a
   // pending/never-synced row has nothing to open.
@@ -1085,7 +1093,7 @@ function ClusterRow({
 
   return (
     <>
-      <TableRow>
+      <TableRow ref={rowRef}>
         <TableCell className={`${STATUS_CELL_CLASS} align-top`}>
           <span
             role="img"
@@ -1217,6 +1225,9 @@ export function ClusterSyncPanel({ open, onOpenChange }: AppDialogProps) {
   // holds the list back until the Bookmark), so "No clusters yet." below can only be
   // reached once the fleet is genuinely known.
   const phase = watchPhase(clusters !== null, connected);
+  // Read once as the dialog mounts: it mounts per open, and the detail is that open's.
+  const host = useDialogHost();
+  const [detail] = useState(host?.clusterDetail ?? null);
 
   // Actions write through; the clustersWatch push is the source of truth. A failure needs
   // no handling here — the client's errorReportExchange puts every operation error on the
@@ -1280,6 +1291,7 @@ export function ClusterSyncPanel({ open, onOpenChange }: AppDialogProps) {
                   key={c.id}
                   cluster={c}
                   group={g.key}
+                  initialDetail={detail?.clusterId === c.id ? detail.pane : null}
                   onSetEnabled={(enabled) => clusterEnabledSetMut({ id: c.id, enabled })}
                   onToggle={(syncEnabled) => clusterSyncEnabledSetMut({ id: c.id, syncEnabled })}
                   // The cache's own id, not the cluster's: a UID migration leaves the

@@ -24,11 +24,16 @@ import { createContext, useContext, useMemo, useState } from 'react';
 // Add a dialog by extending this union and rendering it in the `AppDialogs` host.
 export type DialogId = 'clusters' | 'settings';
 
+// The Clusters dialog row, and which of its panes, to open on.
+export type ClusterDetail = { clusterId: string; pane: 'connection' | 'sync' };
+
 type DialogContextValue = {
   activeDialog: DialogId | null;
   // Trails `activeDialog` through the exit animation.
   mountedDialog: DialogId | null;
-  openDialog: (id: DialogId) => void;
+  openDialog: (id: DialogId, clusterDetail?: ClusterDetail) => void;
+  // The last open's; null when it named none. Read once, as the Clusters dialog mounts.
+  clusterDetail: ClusterDetail | null;
   closeDialog: () => void;
   // Close transition settled → unmount, unless a dialog is open. Called by the
   // shared `Dialog` wrapper only.
@@ -47,11 +52,14 @@ const DialogContext = createContext<DialogContextValue | null>(null);
 export function DialogProvider({ children }: { children: ReactNode }) {
   const [activeDialog, setActiveDialog] = useState<DialogId | null>(null);
   const [mountedDialog, setMountedDialog] = useState<DialogId | null>(null);
+  const [clusterDetail, setClusterDetail] = useState<ClusterDetail | null>(null);
   const value = useMemo<DialogContextValue>(
     () => ({
       activeDialog,
       mountedDialog,
-      openDialog: (id) => {
+      clusterDetail,
+      openDialog: (id, detail) => {
+        setClusterDetail(detail ?? null);
         setMountedDialog(id);
         setActiveDialog(id);
       },
@@ -62,7 +70,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
         if (activeDialog === null) setMountedDialog(null);
       },
     }),
-    [activeDialog, mountedDialog],
+    [activeDialog, mountedDialog, clusterDetail],
   );
   return <DialogContext.Provider value={value}>{children}</DialogContext.Provider>;
 }

@@ -20,6 +20,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished,
 
 import { clusterRecord, flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
 
+import type { ClusterDetail } from '@/lib/dialog';
+
 // Mocks ---------------------------------------------------------------
 
 // Frames pushed here are asserted on immediately.
@@ -32,6 +34,7 @@ const { createGraphqlClient } = await import('@/lib/graphql/client');
 const { ClustersProvider } = await import('@/lib/clusters');
 const { ClusterSyncPanel, ConnectionDetail } = await import('./cluster-sync-panel');
 const { onError } = await import('@/lib/error-bus');
+const { DialogProvider, useDialog } = await import('@/lib/dialog');
 
 // Helpers -------------------------------------------------------------
 
@@ -471,6 +474,42 @@ function renderPanel() {
       </ClustersProvider>
     </UrqlProvider>,
   );
+}
+
+// Mounts the panel the way AppDialogs does: only while the provider has it mounted, so
+// the panel reads the open's cluster detail as it mounts.
+function HostedHarness({ detail }: { detail: ClusterDetail }) {
+  const { activeDialog, mountedDialog, openDialog, closeDialog } = useDialog();
+  return (
+    <>
+      <button type="button" onClick={() => openDialog('clusters', detail)}>
+        Details
+      </button>
+      {mountedDialog === 'clusters' && (
+        <ClusterSyncPanel open={activeDialog === 'clusters'} onOpenChange={(open) => !open && closeDialog()} />
+      )}
+    </>
+  );
+}
+
+async function openOnDetail(rows: Row[], detail: ClusterDetail) {
+  const user = userEvent.setup();
+  render(
+    <UrqlProvider value={createGraphqlClient()}>
+      <ClustersProvider>
+        <DialogProvider>
+          <HostedHarness detail={detail} />
+        </DialogProvider>
+      </ClustersProvider>
+    </UrqlProvider>,
+  );
+  await flush();
+  await act(async () => {
+    openStreams();
+    pushClusters(rows);
+  });
+  await user.click(screen.getByRole('button', { name: 'Details' }));
+  return user;
 }
 
 // Render the panel, push rows, and open the dialog.
@@ -1665,6 +1704,34 @@ describe('ClusterSyncPanel', () => {
     expect(await screen.findByText(/^connection$/i, { selector: 'p' })).toBeInTheDocument();
     expect(screen.queryByText(/connection failed/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+  });
+
+  it('opens on the row and pane it was asked for, scrolled into view', async () => {
+    const scroll = vi.mocked(Element.prototype.scrollIntoView);
+    scroll.mockClear();
+    await openOnDetail(
+      [
+        { uuid: 'u-prod', name: 'prod-us', enabled: true, present: true },
+        { uuid: 'u-dev', name: 'dev-eu', enabled: true, present: true },
+      ],
+      { clusterId: 'u-dev', pane: 'connection' },
+    );
+
+    expect(await screen.findByText(/^connection$/i, { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /retry/i })).toHaveLength(1);
+    const devRow = screen.getByText('dev-eu').closest('tr')!;
+    expect(within(devRow).getByRole('button', { name: /^active$/i })).toHaveAttribute('aria-expanded', 'true');
+    expect(scroll.mock.contexts).toContain(devRow);
+  });
+
+  it('opens no pane for a cluster it does not list', async () => {
+    await openOnDetail([{ uuid: 'u-prod', name: 'prod-us', enabled: true, present: true }], {
+      clusterId: 'u-gone',
+      pane: 'connection',
+    });
+
+    await screen.findByRole('rowgroup', { name: /active/i });
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
   });
 
   it('omits a row group that has no members', async () => {

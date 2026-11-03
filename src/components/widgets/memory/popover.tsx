@@ -27,6 +27,7 @@ import { PopoverClose } from '@kubetail/ui/elements/popover';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 
 import { OmniboxPopover } from '@/components/widgets/omnibox-popover';
+import { PopupResizeHandles } from '@/components/widgets/popup-resize-handles';
 
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { clusterForContext, useClusters } from '@/lib/clusters';
@@ -37,7 +38,6 @@ import { MemoryInstructions } from './instructions';
 import { MemoryList } from './list';
 import { GENERAL, MemoryRail } from './rail';
 import type { Scope } from './rail';
-import { PopupResizeHandles } from './resize-handles';
 import { useMemoryWrites } from './writes';
 
 function Banner({ cluster, defaultCluster, onBack }: { cluster: string; defaultCluster: string; onBack: () => void }) {
