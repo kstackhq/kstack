@@ -121,7 +121,7 @@ type Fields map[string]any
 func Parse(raw json.RawMessage, own Fields) (Input, error) {
 	in := Input{}
 	dec := json.NewDecoder(bytes.NewReader(raw))
-	w := walker{dec}
+	w := walker{dec, raw}
 	err := w.object(func(key string) error {
 		switch key {
 		case "description":
@@ -182,7 +182,9 @@ func parseSource(w walker, i int) (Source, error) {
 		return &InputError{Source: i}
 	})
 	if err != nil {
-		if ie, ok := errors.AsType[*InputError](err); ok {
+		// A document the decoder could not finish names no source: where a
+		// syntax error surfaces differs between Go releases.
+		if ie, ok := errors.AsType[*InputError](err); ok && json.Valid(w.raw) {
 			ie.Source = i
 		}
 		return Source{}, err
@@ -242,8 +244,11 @@ func parseFilters(w walker, out *[]tools.LogsViewFilter) error {
 	return nil
 }
 
-// walker reads one JSON value token by token.
-type walker struct{ dec *json.Decoder }
+// walker reads one JSON value, raw, token by token.
+type walker struct {
+	dec *json.Decoder
+	raw []byte
+}
 
 // object reads {, each key once and in turn through each, and }.
 func (w walker) object(each func(key string) error) error {

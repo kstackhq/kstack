@@ -123,3 +123,16 @@ func TestParseTakesNoSources(t *testing.T) {
 		assert.Empty(t, in.Sources, raw)
 	}
 }
+
+// A truncated document names no source, wherever the Go release's decoder
+// reports the syntax error; a field it ends inside is still named.
+func TestATruncatedDocumentNamesNoSource(t *testing.T) {
+	t.Parallel()
+	source := `{"sources":[{"namespace":"prod","resource":"pods/a"}`
+	for _, raw := range []string{source, source + ` `, source + `,`, `{"sources":[{"namespace":"prod"`, `{"sources":[`} {
+		_, err := Parse(json.RawMessage(raw), nil)
+		assert.Equal(t, `{"error":"bad-input"}`, Refusal(err), raw)
+	}
+	_, err := Parse(json.RawMessage(`{"filters":{"node":["a"`), nil)
+	assert.Equal(t, `{"error":"bad-input","field":"filters.node"}`, Refusal(err))
+}
