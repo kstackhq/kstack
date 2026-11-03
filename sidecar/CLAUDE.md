@@ -255,7 +255,7 @@ untagged and with `-tags debug` (the only build with the environment overrides a
 or function whose first line ends in `// coverage:ignore <reason>`, body included, and the lines
 from `// coverage:ignore-start <reason>` to `// coverage:ignore-stop`. Codecov merges the three
 OSes, so a `_windows.go` line is judged by the Windows upload. The gate is the root `CLAUDE.md`'s *Testing conventions*. Generated files are
-in `.github/codecov.yml`'s `ignore`. `make cover-go` prints this OS's numbers per function.
+in `.github/codecov.yml`'s `ignore`. `make cover-go` prints this OS's numbers per function; `make cover-changed`, the changed lines this OS leaves uncovered.
 
 When you change the sidecar's wiring or conventions, update this file or the package's guide in the
 same change. When you change *why*, write an ADR.

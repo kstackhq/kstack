@@ -496,6 +496,7 @@ jobs:
       # Go's 10-minute default per test binary on Windows. Both passes run in
       # bash: PowerShell splits -coverpkg=./... at its dot, which empties
       # -coverpkg and hands ./... to the test binary, turning off the test cache.
+      # scripts/cover-changed.sh measures as this job does; change both together.
       - name: Measure coverage
         working-directory: ./sidecar
         shell: bash
@@ -601,6 +602,7 @@ jobs:
           setup-node: "true"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      # scripts/cover-changed.sh measures as this job does; change both together.
       - name: Measure coverage
         run: pnpm vitest run --mode coverage
       - name: Upload to Codecov
@@ -649,6 +651,7 @@ jobs:
         uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: cargo-llvm-cov
+      # scripts/cover-changed.sh measures as this job does; change both together.
       - name: Measure coverage
         working-directory: ./src-tauri
         run: cargo llvm-cov --lcov --output-path ${{ runner.temp }}/rust-${{ matrix.os }}.lcov

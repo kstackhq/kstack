@@ -61,6 +61,7 @@ pnpm tauri dev
 
 ```console
 make test-changed  # tests touched by your branch
+make cover-changed # changed lines no local test covers
 make test          # all tests
 make lint
 make vet

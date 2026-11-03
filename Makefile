@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js lint-yaml lint-md lint-markers vet vet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
+.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js cover-changed lint lint-go lint-rust lint-js lint-yaml lint-md lint-markers vet vet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -95,6 +95,12 @@ check-switch:
 # Frontend coverage, per file. Not a gate: CI's Coverage · Gate is.
 cover-js:
 	pnpm vitest run --mode coverage
+
+# The changed lines this OS's tests leave uncovered (scripts/cover-changed.sh).
+# Run it before pushing; CI's Coverage · Gate has the last word. FULL=1 runs
+# every Go test, RUST=1 measures Rust too.
+cover-changed:
+	bash scripts/cover-changed.sh
 
 # Run every linter in the repo.
 lint: lint-go lint-rust lint-js lint-yaml lint-md lint-markers
