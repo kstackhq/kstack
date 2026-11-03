@@ -21,6 +21,7 @@ component_management:
       name: Go
       paths:
         - sidecar/**
+        - cli/**
     - component_id: typescript
       name: TypeScript
       paths:

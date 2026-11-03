@@ -2,6 +2,7 @@
 # Runs staticcheck over the sidecar once per GOOS, and over the live checks'
 # build tags, then merges the runs. A single run reports code used only by
 # another platform as unused; -merge reports U1000 only when every run agrees.
+# The CLI splits only a test file by platform, so one run covers it.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,3 +20,6 @@ for tag in livecache liveswitch; do
 	"$work/staticcheck" -f binary -tags "$tag" ./internal/agent/catalog >"$work/$tag.bin"
 done
 "$work/staticcheck" -merge "$work"/*.bin
+
+cd "$root/cli"
+"$work/staticcheck" ./...

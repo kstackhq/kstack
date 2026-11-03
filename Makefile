@@ -51,6 +51,7 @@ test: test-go test-rust test-js
 
 test-go:
 	cd sidecar && go test ./...
+	cd cli && go test ./...
 	cd tools && go test ./...
 
 # tauri-build fails without the bundled sidecar binary, so build it first.
@@ -75,9 +76,10 @@ prompts:
 	cd sidecar && go test ./internal/app ./internal/agent/chat -run 'MatchesItsGolden|TestTheSubagentsPromptIsAssembledInOrder' -update
 
 # Go coverage of this OS, per function. Not a gate: CI's Coverage · Gate is.
-# `go tool cover -html=sidecar/coverage.out` opens it line by line.
+# `go tool cover -html=sidecar/coverage.out` opens it line by line (cli/ likewise).
 cover-go:
 	cd sidecar && go test -coverpkg=./... -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
+	cd cli && go test -coverpkg=./... -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
 
 # Sends two turns to every model of every provider whose key is in the environment
 # and prints whether the second read its prefix from the cache. It reaches the
@@ -108,7 +110,7 @@ lint: lint-go lint-rust lint-js lint-yaml lint-md lint-markers
 
 # `gofmt -l` lists unformatted files; non-empty = lint failure.
 lint-go:
-	@cd sidecar && unformatted=$$(gofmt -l .); \
+	@unformatted=$$(gofmt -l sidecar cli); \
 		if [ -n "$$unformatted" ]; then \
 			echo "gofmt: files need formatting:"; echo "$$unformatted"; exit 1; \
 		fi
@@ -143,6 +145,7 @@ vet: vet-go staticcheck-go vet-rust
 # them compiling.
 vet-go: check-sidecar-deps check-go-fix
 	cd sidecar && go vet ./... && go vet -tags livecache ./internal/agent/catalog && go vet -tags liveswitch ./internal/agent/catalog
+	cd cli && go vet ./...
 
 # One run per GOOS and live-check tag, merged (scripts/staticcheck.sh).
 staticcheck-go:
@@ -151,7 +154,7 @@ staticcheck-go:
 check-sidecar-deps:
 	sh scripts/check-sidecar-deps.sh
 
-# Fails if go fix's modernizers would rewrite the sidecar (scripts/check-go-fix.sh).
+# Fails if go fix's modernizers would rewrite the sidecar or the CLI (scripts/check-go-fix.sh).
 check-go-fix:
 	sh scripts/check-go-fix.sh
 

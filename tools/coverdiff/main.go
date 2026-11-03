@@ -2,11 +2,11 @@
 // no test reached, as Coverage · Gate would flag them. scripts/cover-changed.sh
 // runs it:
 //
-//	go run ./coverdiff -root .. -diff changes.diff -go merged.out -lcov lcov.info
+//	go run ./coverdiff -root .. -diff changes.diff -go sidecar=merged.out -lcov lcov.info
 //
 // -diff is a unified diff (`git diff -U0`) whose added lines are the changed
-// lines. -go is a Go cover profile of the module in -godir, whose go.mod maps
-// its import paths back to files. Each -lcov is a report whose SF paths are
+// lines. Each -go is a module's directory, relative to -root, and a Go cover
+// profile of it; the module's go.mod maps its import paths back to files. Each -lcov is a report whose SF paths are
 // relative to -root or absolute. Every path printed is relative to -root.
 //
 // It prints `file:line` and the line's state for each one, and exits 1 when it
@@ -20,21 +20,25 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 )
 
 func main() {
 	var cfg config
 	flag.StringVar(&cfg.root, "root", ".", "the repository the paths are relative to")
 	flag.StringVar(&cfg.diff, "diff", "", "unified diff of the changes")
-	flag.StringVar(&cfg.goDir, "godir", "sidecar", "the Go module the -go profile measured, relative to -root")
-	flag.StringVar(&cfg.goProfile, "go", "", "a Go cover profile")
+	flag.Func("go", "<module dir>=<Go cover profile> (repeatable)", func(v string) error {
+		p, err := parseGoProfile(v)
+		cfg.goProfiles = append(cfg.goProfiles, p)
+		return err
+	})
 	flag.Func("lcov", "an lcov report (repeatable)", func(path string) error {
 		cfg.lcov = append(cfg.lcov, path)
 		return nil
 	})
 	flag.Parse()
 	if cfg.diff == "" || flag.NArg() > 0 {
-		fmt.Fprintln(os.Stderr, "usage: coverdiff -root <repo> -diff <diff> [-godir <dir> -go <profile>] [-lcov <report>]...")
+		fmt.Fprintln(os.Stderr, "usage: coverdiff -root <repo> -diff <diff> [-go <dir>=<profile>]... [-lcov <report>]...")
 		os.Exit(2)
 	}
 	err := run(cfg, os.Stdout)
@@ -48,11 +52,23 @@ func main() {
 }
 
 type config struct {
-	root      string
-	diff      string
-	goDir     string
-	goProfile string
-	lcov      []string
+	root       string
+	diff       string
+	goProfiles []goProfile
+	lcov       []string
+}
+
+// goProfile is a Go cover profile and the module it measured.
+type goProfile struct {
+	dir, path string
+}
+
+func parseGoProfile(v string) (goProfile, error) {
+	dir, path, ok := strings.Cut(v, "=")
+	if !ok || dir == "" || path == "" {
+		return goProfile{}, fmt.Errorf("want <module dir>=<profile>, got %q", v)
+	}
+	return goProfile{dir: dir, path: path}, nil
 }
 
 // errUncovered is the verdict; the lines that earned it are already printed.
@@ -97,8 +113,8 @@ func run(cfg config, out io.Writer) error {
 		return err
 	}
 	cov := coverage{}
-	if cfg.goProfile != "" {
-		if err := readGo(cov, cfg.root, cfg.goDir, cfg.goProfile); err != nil {
+	for _, p := range cfg.goProfiles {
+		if err := readGo(cov, cfg.root, p.dir, p.path); err != nil {
 			return err
 		}
 	}

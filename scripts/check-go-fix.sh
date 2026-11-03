@@ -1,5 +1,6 @@
 #!/bin/sh
-# Fails if `go fix` would rewrite the sidecar on any platform or build tag CI builds.
+# Fails if `go fix` would rewrite the sidecar on any platform or build tag CI
+# builds, or the CLI.
 # stringsbuilder is off: it turns short `+=` helpers into Builder calls that read worse.
 set -eu
 
@@ -20,7 +21,8 @@ done
 for tag in livecache liveswitch; do
 	check go fix $flags -tags $tag -diff ./internal/agent/catalog
 done
+check go -C ../cli fix $flags -diff ./...
 if [ "$status" -ne 0 ]; then
-	echo "Run 'go fix $flags ./...' in sidecar/ (with the GOOS or tag above) and review the result."
+	echo "Run 'go fix $flags ./...' in sidecar/ or cli/ (with the GOOS or tag above) and review the result."
 fi
 exit $status

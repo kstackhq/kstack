@@ -4,7 +4,8 @@
 #
 #   JS    vitest's `related`, which follows imports, so a hook's change runs the
 #         tests of the components using it. A change to the toolchain runs it all.
-#   Go    the changed packages. A change to go.mod or go.sum runs it all.
+#   Go    the changed packages, in sidecar/ and cli/. A change to a module's
+#         go.mod or go.sum runs that module's whole suite.
 #   Rust  the whole suite, and only when src-tauri/ or proto/ changed: it builds
 #         the sidecar first, and is the slowest of the three.
 #
@@ -42,15 +43,17 @@ else
   fi
 fi
 
-if has '^sidecar/go\.(mod|sum)$'; then
-  (cd sidecar && go test ./...)
-else
-  go_pkgs=$(grep -E '^sidecar/.*\.go$' <<<"$changed" | xargs -r -n1 dirname | sort -u | existing | sed 's|^sidecar|.|' || true)
-  if [ -n "$go_pkgs" ]; then
-    # shellcheck disable=SC2086 # one argument per package
-    (cd sidecar && go test $go_pkgs)
+for mod in sidecar cli; do
+  if has "^$mod/go\.(mod|sum)$"; then
+    (cd "$mod" && go test ./...)
+  else
+    go_pkgs=$(grep -E "^$mod/.*\.go$" <<<"$changed" | xargs -r -n1 dirname | sort -u | existing | sed "s|^$mod|.|" || true)
+    if [ -n "$go_pkgs" ]; then
+      # shellcheck disable=SC2086 # one argument per package
+      (cd "$mod" && go test $go_pkgs)
+    fi
   fi
-fi
+done
 
 if has '^tools/'; then
   (cd tools && go test ./...)

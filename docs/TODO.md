@@ -711,6 +711,29 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   the sidecar beside the watch's own diff, and a second subscription while the dialog is open.
   **Trigger:** `ScopeBudget` or `BodyMax` growing enough that the stream's size shows.
 
+## CLI
+
+- **`kstack app` cannot install from a real Linux release.** The CLI downloads and installs
+  `Kstack.AppImage` into `~/Applications` (`cli/internal/desktop/install.go`), and `Locate` also
+  reads a desktop entry's `Exec` to find one. Linux will ship only the `.deb` and `.rpm`, which
+  install system-wide and need admin rights. **Decide:** print how to install a package, or
+  download the right one for the distro and install it through `sudo`/`pkexec`. Either way the
+  AppImage install, its `Locate` candidates and `desktopExec` go; `/usr/bin/kstack` stays the one
+  place to look. Until then, two known faults stand: a failed copy leaves a partial AppImage
+  that `Locate` then finds, and `desktopExec` does not unquote a quoted `Exec`.
+- **`kstack app` on macOS cannot recover from a failed install, and reports a failed launch as
+  success.** `ditto` copies straight into `~/Applications/Kstack.app`
+  (`cli/internal/desktop/install.go`), so a cancelled copy or a full disk leaves a partial bundle
+  that `Locate` then finds, and no later run reinstalls. **Fix:** copy into a temporary sibling and
+  rename it into place once complete. `Launch` (`system.go`) starts `open -a` and releases it, so
+  an app Launch Services rejects still exits 0 with nothing shown. **Fix:** run `open` through
+  `Run` and return its error; without `-W` it returns once the app is launched.
+- **`kstack app` cannot install from a real Windows release.** The CLI expects an NSIS
+  `Kstack-setup.exe` and runs it with `/S` for a per-user install into `%LOCALAPPDATA%\Kstack`
+  (`cli/internal/desktop/install.go`, `download.go`). `release.yml` ships only a signed `.msi`.
+  **Decide:** install the `.msi` (`msiexec /i … /passive`, a UAC prompt, `ProgramFiles`), or add a
+  signed NSIS build to the release.
+
 ## Security
 
 The current picture — boundaries, and which protections a test actually pins — is
@@ -721,6 +744,12 @@ accounts for every finding from the [2 September threat model](security/2026-09-
 A risk we decide to accept is recorded as a **By decision** row in
 [`security-model.md`](security-model.md), each linking the ADR that accepted it — so an accepted
 risk stays distinguishable from an unnoticed one, and is not repeated here.
+
+- **Verify the installer `kstack app` downloads before running it (high once downloads are
+  hosted; CLI owner).** `cli/internal/desktop` fetches the installer over HTTPS from a placeholder
+  URL and runs it with no signature or checksum check, so whoever controls the URL controls the
+  install. Before the URL serves real installers, check a signature (or a checksum from a signed
+  manifest) and record the protection in [`security-model.md`](security-model.md).
 
 - **Decide what to do about colour that hides a log line from the eye (low; logs owner).** A
   kept SGR sequence can set a foreground that matches its background, or the theme's own

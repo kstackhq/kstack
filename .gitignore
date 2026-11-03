@@ -54,3 +54,4 @@ CLAUDE.local.md
 # Coverage output (make cover-js, make cover-go)
 coverage/
 sidecar/coverage.out
+cli/coverage.out

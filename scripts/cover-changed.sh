@@ -4,8 +4,8 @@
 # aid, not the gate: CI's Coverage · Gate merges every OS's runs, so a line only
 # another OS's tests reach is listed here.
 #
-#   Go    when sidecar/ changed: the changed packages' tests, or every test
-#         with FULL=1 or a change to go.mod or go.sum.
+#   Go    per module, sidecar/ and cli/, when it changed: the changed packages'
+#         tests, or every test with FULL=1 or a change to its go.mod or go.sum.
 #   JS    when src/ changed: the whole suite.
 #   Rust  when src-tauri/ or proto/ changed, and only with RUST=1: it needs
 #         cargo-llvm-cov and is the slowest of the three.
@@ -50,24 +50,29 @@ diff_opts=(-U0 --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/)
 
 reports=()
 
-if has '^sidecar/'; then
-  if [ "${FULL:-}" = 1 ] || has '^sidecar/go\.(mod|sum)$'; then
+# Each Go module as CI measures it: the sidecar also under -tags debug.
+for mod in sidecar cli; do
+  has "^$mod/" || continue
+  if [ "${FULL:-}" = 1 ] || has "^$mod/go\.(mod|sum)$"; then
     go_pkgs=./...
   else
-    go_pkgs=$(grep -E '^sidecar/.*\.go$' <<<"$changed" | xargs -r -n1 dirname | sort -u | existing | sed 's|^sidecar|.|' || true)
+    go_pkgs=$(grep -E "^$mod/.*\.go$" <<<"$changed" | xargs -r -n1 dirname | sort -u | existing | sed "s|^$mod|.|" || true)
   fi
-  if [ -n "$go_pkgs" ]; then
-    # shellcheck disable=SC2086 # one argument per package
-    (
-      cd sidecar
-      export CGO_ENABLED=0 SSH_AUTH_SOCK=""
-      go test -timeout 30m -covermode=atomic -coverpkg=./... -coverprofile="$out/untagged.out" $go_pkgs
-      go test -tags debug -timeout 30m -covermode=atomic -coverpkg=./... -coverprofile="$out/debug.out" $go_pkgs
-    )
-    (cd tools && go run ./coverignore -dir ../sidecar -o "$out/go.out" "$out/untagged.out" "$out/debug.out")
-    reports+=(-go "$out/go.out")
-  fi
-fi
+  [ -n "$go_pkgs" ] || continue
+  profiles=("$out/$mod-untagged.out")
+  [ "$mod" != sidecar ] || profiles+=("$out/$mod-debug.out")
+  # shellcheck disable=SC2086 # one argument per package
+  (
+    cd "$mod"
+    export CGO_ENABLED=0 SSH_AUTH_SOCK=""
+    go test -timeout 30m -covermode=atomic -coverpkg=./... -coverprofile="$out/$mod-untagged.out" $go_pkgs
+    if [ "$mod" = sidecar ]; then
+      go test -tags debug -timeout 30m -covermode=atomic -coverpkg=./... -coverprofile="$out/$mod-debug.out" $go_pkgs
+    fi
+  )
+  (cd tools && go run ./coverignore -dir "../$mod" -o "$out/$mod.out" "${profiles[@]}")
+  reports+=(-go "$mod=$out/$mod.out")
+done
 
 if has '^src/'; then
   # lcov alone: the per-file table would bury the lines listed below.

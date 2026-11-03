@@ -9,7 +9,7 @@ set -eu
 cd "$(dirname "$0")/.."
 
 status=0
-if git grep -nE '//[[:space:]]*coverage:ignore(-start)?[[:space:]]*$' -- 'sidecar/*.go'; then
+if git grep -nE '//[[:space:]]*coverage:ignore(-start)?[[:space:]]*$' -- 'sidecar/*.go' 'cli/*.go'; then
   status=1
 fi
 if git grep -nE 'coverage:ignore' -- 'src-tauri/*.rs' |

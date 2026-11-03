@@ -5,6 +5,7 @@ A Kubernetes desktop app. Three parts that talk to each other:
 - **`src/`** — React webview. See `src/CLAUDE.md`.
 - **`src-tauri/`** — Tauri/Rust native host (windows, tray, sidecar lifecycle). See `src-tauri/CLAUDE.md`.
 - **`sidecar/`** — Go sidecar (GraphQL API, Kubernetes + cloud logic). See `sidecar/CLAUDE.md`.
+- **`cli/`** — the `kstack` CLI, a Go module of its own: `kstack app` opens (installing if missing) the desktop app; `kstack` alone opens a placeholder TUI. See `cli/CLAUDE.md`.
 - **`tools/`** — a Go module holding CI's Go tools (`govulncheck`, `staticcheck`) as `tool` dependencies, so Dependabot moves them. Run one with `go tool <name>` from `tools/`.
 - **`src-icons/`** — the icon masters (SVG). `app-light.svg` and `app-dark.svg` are full-size: the Windows/Linux app icon and the webview's `AppMark`. The `-macos` masters are macOS's alone: `app-macos.svg` (Apple's grid, an 824px square on 1024) for `icon.icns`, and `tray-macos.svg` (full-size, since tray-icon fits the image to 18pt) for the template tray. `make icons` generates `src-tauri/icons/`, `public/favicon.ico` and the webview's copies in `src/assets/icons/`; edit only the masters.
 - **`proto/`** — shared gRPC contract (host↔sidecar). Single source of truth, compiled to Go (committed, via `protoc`) and Rust (via `src-tauri/build.rs`). Run `make proto` after editing.

@@ -14,6 +14,8 @@ on:
     paths:
       - sidecar/go.mod
       - sidecar/go.sum
+      - cli/go.mod
+      - cli/go.sum
       - tools/go.mod
       - tools/go.sum
       - src-tauri/Cargo.toml
@@ -52,14 +54,16 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-go: "true"
-          # Go · Vet's cache holds sidecar's and tools' modules, so a run
+          # Go · Vet's cache holds sidecar's, cli's and tools' modules, so a run
           # downloads only what landed since, and a module proxy blip
           # rarely reaches it.
           go-cache-key: go-vet-ubuntu-24.04
       # tools/go.mod pins govulncheck, where Dependabot moves it.
       - name: Run govulncheck
         working-directory: ./tools
-        run: go tool govulncheck -C ../sidecar ./...
+        run: |
+          go tool govulncheck -C ../sidecar ./...
+          go tool govulncheck -C ../cli ./...
 
   rust-audit:
     name: Rust · Audit

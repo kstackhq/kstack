@@ -82,6 +82,7 @@ jobs:
               - proto/**
               - scripts/**
               - sidecar/**
+              - cli/**
               - src-tauri/linux/**
               - tools/**
             rust:
@@ -137,8 +138,7 @@ jobs:
         with:
           setup-go: "true"
       - name: Run linter
-        working-directory: ./sidecar
-        run: test -z "$(gofmt -l .)"
+        run: test -z "$(gofmt -l sidecar cli)"
       - name: Check coverage markers
         run: sh scripts/check-coverage-markers.sh
 
@@ -165,6 +165,9 @@ jobs:
       - name: Run vetter (GOOS=windows)
         working-directory: ./sidecar
         run: GOOS=windows go vet ./...
+      - name: Run vetter (CLI)
+        working-directory: ./cli
+        run: go vet ./... && GOOS=windows go vet ./...
       - name: Check sidecar dependencies
         run: sh scripts/check-sidecar-deps.sh
       - name: Check go fix
@@ -437,6 +440,14 @@ jobs:
         env:
           SSH_AUTH_SOCK: ""
         run: go test -race -short -gcflags='modernc.org/...=-d=checkptr=0' ./...
+      - name: Run CLI tests
+        if: ${{ matrix.os == 'windows' && matrix.arch == 'arm64' }}
+        working-directory: ./cli
+        run: go test ./...
+      - name: Run CLI race tests
+        if: ${{ !(matrix.os == 'windows' && matrix.arch == 'arm64') }}
+        working-directory: ./cli
+        run: go test -race ./...
       # After every test passed, so a failed job leaves its runner's last cache
       # the newest. The test flags must match a PR's, or a PR replays nothing.
       - name: Save Go cache
@@ -516,18 +527,24 @@ jobs:
         run: >-
           go test -tags debug -timeout 30m -covermode=atomic -coverpkg=./...
           -coverprofile="$RUNNER_TEMP/debug.out" ./...
+      - name: Measure CLI coverage
+        working-directory: ./cli
+        shell: bash
+        run: >-
+          go test -covermode=atomic -coverpkg=./...
+          -coverprofile="$RUNNER_TEMP/cli.out" ./...
       - name: Merge the profiles and drop marked lines
         working-directory: ./tools
-        run: >-
-          go run ./coverignore -dir ../sidecar -o ${{ runner.temp }}/coverage-${{ matrix.os }}.out
-          ${{ runner.temp }}/untagged.out ${{ runner.temp }}/debug.out
+        run: |
+          go run ./coverignore -dir ../sidecar -o ${{ runner.temp }}/coverage-${{ matrix.os }}.out ${{ runner.temp }}/untagged.out ${{ runner.temp }}/debug.out
+          go run ./coverignore -dir ../cli -o ${{ runner.temp }}/coverage-cli-${{ matrix.os }}.out ${{ runner.temp }}/cli.out
       # A fork's PR cannot mint the OIDC token; the action then uploads
       # tokenless, which Codecov accepts for a public repository.
       - name: Upload to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           use_oidc: true
-          files: ${{ runner.temp }}/coverage-${{ matrix.os }}.out
+          files: ${{ runner.temp }}/coverage-${{ matrix.os }}.out,${{ runner.temp }}/coverage-cli-${{ matrix.os }}.out
           disable_search: true
           flags: go-${{ matrix.os }}
           fail_ci_if_error: true
