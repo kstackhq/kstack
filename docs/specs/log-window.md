@@ -48,7 +48,9 @@ with `allow-listen` can listen for any window's events.
 **1. Opening.** Both places, and it moves. The panel's header gets *Open in window* beside its
 close. A card gets *Open in window* beside Expand or *View around this*, in chat mode alone. A
 view is in one place at a time: the card has one state to draw, and the snapshot has one
-source.
+source. What moves is the view and the grep the user applied. The window's viewer opens at
+the action's anchor, as a fresh Expand does, so the scroll position, a pause and a selection
+do not carry over.
 
 **2. Linking.** Three ways, none of them a number or a colour. The log window's bar shows the
 cluster's dot and name, the chat's title, and *Show chat*. Its native title reads
@@ -65,7 +67,7 @@ match, and the cluster's dot already has a colour.
 | Its app window's active cluster changes, by any path | Closes, as the sidebar's view clears today. |
 | Its app window moves to another chat or mode | Stays open and live. Its selection stops riding until the app window is back on its chat. |
 | Its chat is deleted | Draws *This chat was deleted.*, as `OpenChat` does, and stops reading. |
-| Its cluster is deleted | Draws the viewer's own errors until the chat's deletion follows. |
+| Its cluster is deleted | The app window's context yields to the kubeconfig's default, which is a cluster change: the row above applies. With no other context the app window has no cluster, the log window stays, and the chat's deletion follows. |
 
 A log window never outlives its app window, so there is no detached state to draw.
 
@@ -74,10 +76,12 @@ or *Show window* on a call that already has one focuses it. There is no cap.
 
 **5. The snapshot.** It rides, under today's rule: the view is the composer's chat's and the
 app window is in chat mode. The log window pushes its viewport to the host, and the host
-sends it down the app window's channel, which no other page holds. The composer keeps reading a `LogViewportHandle` at the
-press, so `onSend` stays synchronous. With both a sidebar view and log windows on one chat, the
-sidebar's view rides while the sidebar is open, else the log window focused last. The chip says
-which: *N selected lines from the sidebar* or *from a log window*.
+sends it down the app window's channel, which no other page holds. The push carries the first
+`MAX_SELECTED` selected lines and the full count, and the chip and the snapshot read the
+count. The composer keeps reading a `LogViewportHandle` at the press, so `onSend` stays
+synchronous. With both a sidebar view and log windows on one chat, the sidebar's view rides
+while the sidebar is open, else the log window focused last. The chip says which: *N selected
+lines from the sidebar* or *from a log window*.
 
 **6. Chrome.** A slim bar, 40px, with no menu, omnibox or history. macOS keeps its traffic
 lights, placed for the slimmer bar, and its hidden title. Linux and Windows draw
@@ -123,29 +127,44 @@ window's `min_inner_size`, and cascades off the app window that opened it. Its p
 host what to draw, so the URL carries nothing.
 
 The pairing is a `Mutex<HashMap>` on the manager, `logs label → { app label, clusterId,
-chatId, callId, grep, viewport }`. Beside it, one `Channel` per app label, made by
-`log_windows_watch`; a reload's call replaces it, and the app window's `Destroyed` drops it. Every command reads the caller's label off its `tauri::Webview` argument, as
-`log_webview` does, never off the payload. A log window therefore reaches its own app window
-and no other, and an app window its own log windows.
+chatId, callId, grep, generation, focusSeq, viewport }`. `generation` steps on each load of
+the log window's page, `focusSeq` is the value of one host counter when the window was last
+focused, and `viewport` is the last one its page pushed. Beside the map, one `Channel` per
+app label, made by `log_windows_watch`; a reload's call replaces it, and the app window's
+`Destroyed` drops it.
+
+Every command reads the caller's label off its `tauri::Webview` argument, as `log_webview`
+does, never off the payload. A log window therefore reaches its own app window and no other,
+and an app window its own log windows.
 
 | Command | From | Does |
 | --- | --- | --- |
-| `log_windows_watch(channel)` | app window | Keeps the channel as the caller's. Every frame below goes down it. |
+| `log_windows_watch(channel)` | app window | Keeps the channel as the caller's and sends a `snapshot` of the caller's log windows down it first. Every later frame goes down it in order. |
 | `log_window_open { clusterId, chatId, callId, grep? }` | app window | Focuses the caller's window on that call if one is open, keeping that window's grep, else builds one. Returns the label. |
 | `log_window_focus { callId }` | app window | Focuses the caller's window on that call. |
-| `log_windows` | app window | The caller's log windows: `{ label, clusterId, callId, viewport }` each, the viewport the last one pushed, so a reloaded page rebuilds its cards and its mirrors. |
 | `log_window_close_all` | app window | Closes the caller's log windows. |
-| `log_window_view` | log window | The caller's `{ chatId, callId, grep }`, the grep the last one pushed, so a reload keeps the toolbar's. |
-| `log_window_viewport { viewport }` | log window | Keeps it, and its `grep`, as the caller's last, and sends `{ viewport: { label, callId, viewport } }` down the app window's channel. |
+| `log_window_view` | log window | Steps the caller's `generation`, clears its retained viewport, and sends an empty `viewport` frame to the app window, so a reloaded page's old selection cannot ride. Returns `{ chatId, callId, grep, generation }`, the grep the last push carried, so a reload keeps the toolbar's. |
+| `log_window_viewport { viewport }` | log window | Refused unless `viewport.generation` is the caller's current one and the payload is within the bound. Keeps it, and its `grep`, as the caller's last, and sends a `viewport` frame to the app window. |
 | `log_window_title { parts }` | log window | Sets the caller's native title from `window_title::build(parts)`. |
-| `log_window_show_source` | log window | Focuses the caller's app window and sends `{ showChat: { chatId } }` down its channel. |
+| `log_window_show_source` | log window | Focuses the caller's app window and sends a `showChat` frame down its channel. |
 
-The channel carries four frames, one key each: `viewport` and `showChat` above,
-`focused { label }` on a log window's `Focused(true)`, and `closed { label, callId }` when one
-is destroyed. On an app window's `Destroyed`, the host closes every log window paired to it.
+The channel carries six frames, one key each, in the order the host saw them, so the page
+never has to merge a list with a stream:
+
+- `snapshot { windows }`: first on every channel. Each window is `{ label, clusterId, chatId,
+  callId, focusSeq, viewport }`.
+- `opened { window }`: the same shape, after `log_window_open` builds one. `open`'s return is
+  the label alone; the page's entry comes from this frame.
+- `viewport { label, viewport }`: after a push, and the empty one on a reload.
+- `focused { label, focusSeq }`: on a log window's `Focused(true)`.
+- `closed { label }`: when one is destroyed.
+- `showChat { chatId }`: from `log_window_show_source`.
+
+On an app window's `Destroyed`, the host closes every log window paired to it.
 
 `chatId`, `callId` and `grep` are opaque to the host, which bounds their length and nothing
-else. The viewport is opaque too; the host bounds its serialized size.
+else. The viewport is opaque too; the host refuses one whose JSON is over 256 KiB with an
+error the page handles (§4).
 
 ### 3. The title is built by the host
 
@@ -189,35 +208,44 @@ title and the cluster's name whenever one changes.
 
 The viewer writes the window's handle as it does the sidebar's. A subscriber on the handle
 sends `log_window_viewport` at most once per animation frame, and only when the viewport
-changed. What it sends is the viewport with `selection` cut to `MAX_SELECTED` lines, a
-`selectedCount`, and a `selectionRevision` that steps when the viewer writes a new selection
-array. The snapshot carries no more than that, and the composer's × needs the revision.
+changed. What it sends is the viewport with `selection` cut to `MAX_SELECTED` lines, the
+page's `generation` from `log_window_view`, and a `selectionRevision` that steps when the
+viewer writes a new selection array. The snapshot carries no more lines than that, and the
+composer's × needs the generation and the revision together, since a reloaded page's
+revisions start over. A push the host refuses as too large is sent again with no selected
+lines and the count kept, so the mirror moves on and no older lines stay eligible.
+
+`LogViewport` gains `selectedCount`, which the viewer writes as `selection.length`.
+`snapshotOf` and the chip read it in place of the array's length, so a count over
+`MAX_SELECTED` survives the wire.
 
 ### 5. The app window's side
 
 `src/lib/log-windows.tsx` adds `LogWindowsProvider` under `LogsViewProvider` in `AppLayout`.
-It calls `log_windows_watch` with a channel on mount and reads the frames. It holds the
-window's log windows by call id: seeded from `log_windows`, added by `open`, dropped by a
-`closed` frame. For each it keeps its cluster, a `LogViewportHandle` mirror and the time of
-its last `focused` frame. The mirror is fed by `viewport` frames, keeping its previous
-selection array while the revision is unchanged, so the composer's compare by
-identity holds: a scroll or a new tail line does not bring back a selection the user dismissed
-with ×. It exposes `open(view)`, which calls `log_window_open` and then, if the sidebar shows
-that call, clears the focused view and closes the sidebar, and `focus(callId)`.
+It calls `log_windows_watch` with a channel on mount and folds the frames, in order, into one
+map by label: `snapshot` replaces it, `opened` adds, `closed` removes, `focused` stamps the
+window's `focusSeq`, and `viewport` writes its mirror. For each window it keeps its cluster,
+chat and call, its `focusSeq`, and a `LogViewportHandle` mirror. The mirror keeps its previous
+selection array while the generation and the revision are unchanged, so the composer's
+compare by identity holds: a scroll or a new tail line does not bring back a selection the
+user dismissed with ×, and a reload's empty frame clears it. It exposes `open(view)`, which
+calls `log_window_open` and then, if the sidebar shows that call, clears the focused view and
+closes the sidebar, and `focus(callId)`.
 
 The provider calls `log_window_close_all` when `useActiveCluster` has a `clusterID` and it
 differs from its windows'. That covers every path that changes `kubeContext`: the picker's
-popover, history back and forward, and `OpenChat`'s *Switch to it*. It does nothing while
-`clusterID` is undefined: before the clusters bookmark, on a reload, and when the cluster's
-record is deleted, which the lifetime table leaves to the log window.
+popover, history back and forward, `OpenChat`'s *Switch to it*, and the fallback to the
+kubeconfig's default when the active context is deleted. It does nothing while `clusterID` is
+undefined: before the clusters bookmark, on a reload, and when no context is left.
 
 - **The cards** draw *Open in window* beside Expand or *View around this*. While their call
   has a window they draw *Showing in a window* with *Show window* instead, where *Showing in the
   sidebar* goes today.
 - **The panel's header** draws *Open in window* beside its close.
 - **The composer** picks the view that rides: the sidebar's while it is open on this chat,
-  else the mirror of the log window on this chat focused last, else none. `shownView` becomes
-  `{ view, viewport, where: 'sidebar' | 'window' }` and the chip reads `where`.
+  else the mirror of this chat's log window with the highest `focusSeq`, else none.
+  `shownView` becomes `{ view, viewport, where: 'sidebar' | 'window' }`, and the chip reads
+  `where` and `selectedCount`. Its × takes the lines and the count out of the send together.
 - **A `showChat` frame** navigates to `/chat/$chatId`. Its cluster is the window's, since a
   change would have closed the log window.
 
@@ -225,9 +253,13 @@ record is deleted, which the lifetime table leaves to the log window.
 
 - **Move, not copy.** One place per view keeps the card's state and the snapshot's source
   unambiguous.
+- **A move resets the viewer.** The view and the grep carry; scroll, pause and selection do
+  not. Carrying them would mean shipping the viewer's state through the host for one click.
 - **The host owns the pair, and talks to an app window over its channel.** A page cannot
   forge a link to another window, send an event as the host, or listen for another window's,
   and a closing app window is a host event its page may not live to see.
+- **One watch, snapshot first.** The app window folds one ordered stream, so a `closed` can
+  never race a list that still has the window.
 - **A log window closes with its app window and on its cluster change.** No orphans, no
   detached state.
 - **The log window asks the host what to draw.** The pair already holds it, so the URL
@@ -247,11 +279,11 @@ All start Planned.
    `default.json` lists `core:default`'s parts without emit, menu and tray and allows every
    current command; the tests pin both. No behaviour change. *(host)*
 2. **The title builder.** `window_title.rs` and its tests. *(host)*
-3. **Log windows in the host.** The `logs-N` label, `logs.json`, the pairing, the nine
-   commands, the channel and its four frames, closing with the app window. *(host, needs 1
+3. **Log windows in the host.** The `logs-N` label, `logs.json`, the pairing, the eight
+   commands, the channel and its six frames, closing with the app window. *(host, needs 1
    and 2)*
-4. **The route and the layout.** `_logs`, `/logs`, `LogsWindowLayout`, `viewOfCall`, the title
-   and viewport pushes. *(frontend, needs 3)*
+4. **The route and the layout.** `_logs`, `/logs`, `LogsWindowLayout`, `viewOfCall`,
+   `selectedCount`, the title and viewport pushes. *(frontend, needs 3)*
 5. **The app window's side.** `LogWindowsProvider`, the cards' and the panel's buttons, the
    composer's pick and chip, the cluster change, *Show chat*. *(frontend, needs 4)*
 
@@ -260,31 +292,37 @@ Tasks 1 and 2 can be built at the same time.
 ## Tests
 
 - **Task 1.** `default_capability_grants_only_window_chrome` grows to the gated list and
-  asserts no `core:default`, no emit, menu or tray permission. A test reads `lib.rs`'s handler list and
-  `build.rs`'s manifest list and asserts they match.
+  asserts no `core:default`, no emit, menu or tray permission. A test reads `lib.rs`'s handler
+  list and `build.rs`'s manifest list and asserts they match.
 - **Task 2.** `build` drops each listed class, keeps the space, cuts on a character boundary,
   puts `Logs` first and joins with the separator; an empty part is kept, so the positions stay
   stable.
 - **Task 3.** The label prefix; `logs_capability_grants_the_viewer_and_nothing_else`; open
   focuses an existing window on the same call, keeping its grep, and builds for another; a log
   window's command reaches only its own app window, and an app window's only its own log
-  windows; frames reach the channel of the paired app window and no other; a second
-  `log_windows_watch` replaces the first; `log_window_view` answers the pair with the grep last
-  pushed; `focused` is sent on focus; the pair is dropped and `closed` sent on destroy;
-  `log_windows` returns each window's cluster and last viewport; an app window's destroy closes its log windows; a `chatId` over the bound and
-  a viewport over the bound are refused. Each uses the mock runtime and `testutil::OneMonitor`.
+  windows; frames reach the channel of the paired app window and no other; a `snapshot` is
+  first on every channel and a second `log_windows_watch` replaces the first; `opened` follows
+  a build; `log_window_view` steps the generation, clears the viewport, sends the empty frame
+  and answers with the grep last pushed; a push with a stale generation is refused; `focused`
+  carries a rising `focusSeq`; the pair is dropped and `closed` sent on destroy; an app
+  window's destroy closes its log windows; a `chatId` over the bound and a viewport over 256
+  KiB are refused. Each uses the mock runtime and `testutil::OneMonitor`.
 - **Task 4.** The route draws nothing before the answer and both bookmarks, each notice after
   them, and the viewer with the pair's grep; the title is sent with the three parts and resent
   when one changes; the viewport is sent once per frame, not when unchanged, with the selection
-  cut to `MAX_SELECTED` and the revision stepping on a new array; `viewOfCall` for the three
-  call kinds and for a call with no action.
-- **Task 5.** `open` moves a view out of the sidebar and focuses an open window; a card draws
-  each of its three states; the composer picks the sidebar's view over a window's, the window
-  focused last among windows, and none when the chat differs; a push with the same revision
-  keeps the mirror's selection array, so a dismissed selection stays dismissed; the chip's two
-  wordings; each cluster-change path closes the windows, and a reload, the clusters watch
-  before its bookmark, and a deleted cluster close none; a `showChat` frame navigates to the
-  chat.
+  cut to `MAX_SELECTED`, the count whole, the generation, and the revision stepping on a new
+  array; a refused push is sent again with no lines and the count; `snapshotOf` sends
+  `selectedCount` from the viewport; `viewOfCall` for the three call kinds and for a call with
+  no action.
+- **Task 5.** The frames fold in order, and a `closed` after a `snapshot` that lacks the
+  window is a no-op; `open` moves a view out of the sidebar and focuses an open window; a card
+  draws each of its three states; the composer picks the sidebar's view over a window's, the
+  highest `focusSeq` among windows, and none when the chat differs; a frame with the same
+  generation and revision keeps the mirror's selection array, so a dismissed selection stays
+  dismissed, and a new generation clears it; the chip reads the count over the lines, and ×
+  drops both; each cluster-change path closes the windows, the deleted context's fallback
+  included, and a reload, the clusters watch before its bookmark, and no context left close
+  none; a `showChat` frame navigates to the chat.
 
 ## Security
 
@@ -295,10 +333,11 @@ Tasks 1 and 2 can be built at the same time.
   or open the account URL. Each capability's list is pinned.
 - **What holds it.** A page never names a target window: every lookup starts from the caller's
   label, and what the host says to an app window rides a channel that page made, so a listener
-  on another window's events hears none of it. The native title is attacker-controlled text, built by the
-  host from stripped and bounded parts. A viewport crossing windows is bounded, and drawn only
-  as a count in the chip and as data in the snapshot, never as HTML. A view travels in the
-  host's pair and its events, never in `localStorage`, which every window shares.
+  on another window's events hears none of it. The native title is attacker-controlled text,
+  built by the host from stripped and bounded parts. A viewport crossing windows is bounded,
+  stamped with its page's generation so a reloaded page's old lines cannot ride, and drawn
+  only as a count in the chip and as data in the snapshot, never as HTML. A view travels in
+  the host's pair and its frames, never in `localStorage`, which every window shares.
 - **Residual.** A compromised log window page can do to its cluster what a compromised app
   window page can.
 
@@ -306,11 +345,12 @@ Tasks 1 and 2 can be built at the same time.
 
 - `src/CLAUDE.md`: *Layouts* names `_logs` and `LogsWindowLayout`; the right sidebar's section
   says a view moves to a window and how a card reads while it is there; the composer's snapshot
-  rule names the pick and the revision.
+  rule names the pick, the count and the generation.
 - `src-tauri/CLAUDE.md`: labels are `main`, `window-N` or `logs-N`; the pairing and the
   channel; the gate, the dropped permissions and the two capability files; `window_title`.
 - `docs/security-model.md`: the capability row names both files, the gate and the dropped
-  permissions; a row saying the host's frames to an app window ride its own channel; a row for the title, pinned by `window_title`'s tests.
+  permissions; a row saying the host's frames to an app window ride its own channel; a row
+  for the title, pinned by `window_title`'s tests.
 - `docs/security/`: a review record for the new window and its commands.
 - An ADR: *a log window belongs to one app window, and the host keeps the pair*.
 
@@ -321,4 +361,5 @@ working, `make test-changed`. At the gate: `make test`, `make lint`, `make vet`,
 `Coverage · Gate` on the PR. Then by hand, on each platform: open a view in a window from the
 header and from a card, close the app window and watch the log window close, change cluster by
 the picker and by history and watch it close, select lines in the window, dismiss them with ×
-and scroll, and send from the chat, and read the title in the OS's window switcher.
+and scroll, reload the log window and send from the chat, and read the title in the OS's
+window switcher.
