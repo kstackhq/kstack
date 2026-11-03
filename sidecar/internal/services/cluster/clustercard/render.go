@@ -186,8 +186,8 @@ type connectionSection struct {
 
 // FreshnessSection says whether what follows is current: one verdict over the
 // active cache. Since is when the app last saw the cluster live, carried under
-// last-known alone; NotWatching names the kinds behind a partial verdict.
-// KubeQuery's answer carries it too.
+// last-known alone; NotWatching names the kinds whose own reason is a partial
+// verdict's. KubeQuery's answer carries it too.
 type FreshnessSection struct {
 	Status      string `json:"status"`
 	Reason      string `json:"reason,omitempty"`
@@ -263,11 +263,20 @@ func Freshness(h *cluster.ClusterCacheHealth) FreshnessSection {
 	case "Paused":
 		return FreshnessSection{Status: StatusPaused}
 	}
+	// Every non-Watching kind counts, syncing ones too: with none Watching, no
+	// watch can move the live stamp.
 	allBehind := len(h.UnhealthyKindRefs) >= h.TotalKinds-h.PausedKinds
 	if !allBehind {
+		// Only the kinds whose own reason is the verdict's: under Stale or
+		// SyncFailed, a kind still on its cold list is neither.
 		var names []string
 		for _, ref := range h.UnhealthyKindRefs {
-			names = append(names, ref.APIVersion+"/"+ref.Resource)
+			if ref.Reason == h.Reason {
+				names = append(names, ref.APIVersion+"/"+ref.Resource)
+			}
+		}
+		if len(names) == 0 {
+			return FreshnessSection{Status: statusPartial}
 		}
 		return FreshnessSection{Status: statusPartial, NotWatching: list{}.withNames(sorted(names), notWatchingShare)}
 	}

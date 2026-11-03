@@ -105,12 +105,13 @@ func inventoryPart(t *testing.T, card, key string) map[string]any {
 	return m
 }
 
-// refs is each apiVersion/resource as the health reading names a kind behind.
-func refs(names ...string) []cluster.UnhealthyKindRef {
+// refs is each apiVersion/resource as the health reading names a kind behind,
+// each with reason as its own.
+func refs(reason string, names ...string) []cluster.UnhealthyKindRef {
 	var out []cluster.UnhealthyKindRef
 	for _, name := range names {
 		i := strings.LastIndex(name, "/")
-		out = append(out, cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: name[:i], Resource: name[i+1:]}})
+		out = append(out, cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: name[:i], Resource: name[i+1:]}, Reason: reason})
 	}
 	return out
 }
@@ -149,7 +150,7 @@ func TestRenderFreshnessFromTheHealthVerdict(t *testing.T) {
 			f := fullFacts()
 			f.Cache.Health.Reason = tc.health
 			// Offenders a cache-wide arm must not count.
-			f.Cache.Health.UnhealthyKindRefs = refs("v1/pods")
+			f.Cache.Health.UnhealthyKindRefs = refs("SyncFailed", "v1/pods")
 			assert.Equal(t, tc.want, part(t, Render(f), "freshness"))
 		})
 	}
@@ -165,7 +166,7 @@ func TestRenderFreshnessTellsLastKnownFromPartialByCount(t *testing.T) {
 		f := fullFacts()
 		f.Cache.Health = cluster.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 4, PausedKinds: 1}
 		for i := range n {
-			f.Cache.Health.UnhealthyKindRefs = append(f.Cache.Health.UnhealthyKindRefs, refs(fmt.Sprintf("v1/kind%d", i))...)
+			f.Cache.Health.UnhealthyKindRefs = append(f.Cache.Health.UnhealthyKindRefs, refs("SyncFailed", fmt.Sprintf("v1/kind%d", i))...)
 		}
 		return f
 	}
@@ -179,7 +180,7 @@ func TestRenderFreshnessTellsLastKnownFromPartialByCount(t *testing.T) {
 // kind is behind — the one state in which no kind can move the stamp.
 func TestRenderSinceIsTheLastLiveProofOfALastKnownCache(t *testing.T) {
 	f := fullFacts()
-	f.Cache.Health = cluster.ClusterCacheHealth{Reason: "NoConnection", TotalKinds: 2, UnhealthyKindRefs: refs("v1/pods", "v1/nodes")}
+	f.Cache.Health = cluster.ClusterCacheHealth{Reason: "NoConnection", TotalKinds: 2, UnhealthyKindRefs: refs("NoConnection", "v1/pods", "v1/nodes")}
 	at := time.Date(2026, 9, 14, 8, 30, 15, 500, time.FixedZone("x", 3600))
 	f.Cache.Health.LastLiveAt = &at
 	assert.Equal(t, map[string]any{"status": "last-known", "reason": "NoConnection", "since": "2026-09-14T07:30:15Z"}, part(t, Render(f), "freshness"))
@@ -381,7 +382,7 @@ func adversarial() Facts {
 			f.Cache.Kinds = append(f.Cache.Kinds, Kind{
 				APIVersion: group + "/v1", Kind: fmt.Sprintf("Kind%03d", k), Resource: resource, Reason: "SyncFailed",
 			})
-			f.Cache.Health.UnhealthyKindRefs = append(f.Cache.Health.UnhealthyKindRefs, cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: group + "/v1", Resource: resource}})
+			f.Cache.Health.UnhealthyKindRefs = append(f.Cache.Health.UnhealthyKindRefs, cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: group + "/v1", Resource: resource}, Reason: f.Cache.Health.Reason})
 		}
 	}
 	f.Cache.Health.TotalKinds, f.Cache.Health.PausedKinds = len(f.Cache.Kinds), 0
@@ -488,7 +489,7 @@ func TestRenderKeepsEveryValueInsideTheShape(t *testing.T) {
 	f.Name, f.Context, f.Version, f.Connection, f.TLS = forged, forged, forged, forged, forged
 	f.Cache.Health.Reason = forged
 	f.Cache.Namespaces = []string{forged}
-	f.Cache.Health.UnhealthyKindRefs = []cluster.UnhealthyKindRef{{SyncedKindRef: cluster.SyncedKindRef{APIVersion: forged, Resource: forged}}}
+	f.Cache.Health.UnhealthyKindRefs = []cluster.UnhealthyKindRef{{SyncedKindRef: cluster.SyncedKindRef{APIVersion: forged, Resource: forged}, Reason: forged}}
 	f.Cache.Kinds = append(f.Cache.Kinds, Kind{APIVersion: forged + "/v1", Kind: forged, Resource: forged, Reason: "Watching"})
 
 	got := Render(f)
@@ -625,8 +626,9 @@ func TestUntrustedRowsAreSyncingOrUnknown(t *testing.T) {
 // reads Paused with no counts, and Paused answers before any count is read.
 func TestTheVerdictIsTheHealthReadings(t *testing.T) {
 	live := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
-	pods := cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "pods"}}
-	nodes := cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "nodes"}}
+	pods := cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "pods"}, Reason: "SyncFailed"}
+	nodes := cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "nodes"}, Reason: "SyncFailed"}
+	secrets := cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "secrets"}, Reason: "Syncing"}
 	tests := map[string]struct {
 		health cluster.ClusterCacheHealth
 		want   FreshnessSection
@@ -641,6 +643,21 @@ func TestTheVerdictIsTheHealthReadings(t *testing.T) {
 		"one kind of two behind": {
 			cluster.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 2, UnhealthyKindRefs: []cluster.UnhealthyKindRef{pods}},
 			FreshnessSection{Status: statusPartial, NotWatching: &list{Names: []string{"v1/pods"}}},
+		},
+		// A kind still on its cold list is not behind a SyncFailed verdict.
+		"one kind failing, one syncing": {
+			cluster.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 3, UnhealthyKindRefs: []cluster.UnhealthyKindRef{pods, secrets}},
+			FreshnessSection{Status: statusPartial, NotWatching: &list{Names: []string{"v1/pods"}}},
+		},
+		// No kind carries the verdict's reason, so none is named.
+		"only syncing kinds behind": {
+			cluster.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 3, UnhealthyKindRefs: []cluster.UnhealthyKindRef{secrets}},
+			FreshnessSection{Status: statusPartial},
+		},
+		// A syncing kind still counts toward every kind behind.
+		"every unpaused kind behind, one syncing": {
+			cluster.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 2, UnhealthyKindRefs: []cluster.UnhealthyKindRef{pods, secrets}},
+			FreshnessSection{Status: StatusLastKnown, Reason: "SyncFailed"},
 		},
 		"every unpaused kind behind": {
 			cluster.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 3, PausedKinds: 1, UnhealthyKindRefs: []cluster.UnhealthyKindRef{nodes, pods}, LastLiveAt: &live},
