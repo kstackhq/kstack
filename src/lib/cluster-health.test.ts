@@ -77,7 +77,7 @@ describe('contextHealth', () => {
   it('reads a connected, watching record as ok', () => {
     expect(contextHealth([clusterRecord({ context: 'prod' })], 'prod')).toEqual({
       tone: 'ok',
-      summary: 'Active · Synced',
+      summary: 'Active · Current',
     });
   });
 

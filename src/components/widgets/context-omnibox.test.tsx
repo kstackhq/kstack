@@ -235,8 +235,8 @@ describe('ContextOmnibox', () => {
     records.current = [clusterRecord({ context: 'prod' })];
     const { unmount } = render(<ContextOmnibox />);
     expect(dot()).toHaveAttribute('data-tone', 'ok');
-    expect(dot()).toHaveAttribute('title', 'Active · Synced');
-    expect(statusButton()).toHaveAccessibleName('Cluster status: Active · Synced');
+    expect(dot()).toHaveAttribute('title', 'Active · Current');
+    expect(statusButton()).toHaveAccessibleName('Cluster status: Active · Current');
     unmount();
 
     records.current = [clusterRecord({ context: 'prod', connected: 'False' })];

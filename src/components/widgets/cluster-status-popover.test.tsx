@@ -146,7 +146,7 @@ describe('ClusterStatusPopover', () => {
     expect(queries.some((q) => /eventsWatch/.test(q))).toBe(false);
   });
 
-  it('says why a bad sync verdict is bad', async () => {
+  it('marks a stale sync verdict as needing attention', async () => {
     const stale = withHealth(clusterRecord({ context: 'prod', reason: 'Stale' }), {
       unhealthyKindRefs: [
         { apiVersion: 'v1', resource: 'pods', reason: 'Stale' },
@@ -156,10 +156,74 @@ describe('ClusterStatusPopover', () => {
     });
     const { popup } = await openStatus(stale);
 
-    expect(within(popup).getByText('Stale')).toHaveAttribute('data-tone', 'attention');
-    expect(section(popup, 'Cache')).toHaveTextContent('pods not receiving updates.');
+    expect(within(section(popup, 'Cache')).getByText('Stale')).toHaveAttribute('data-tone', 'attention');
+  });
+
+  it('names a stale sync’s stale kinds in an alert over the sections', async () => {
+    const stale = withHealth(clusterRecord({ context: 'prod', reason: 'Stale' }), {
+      unhealthyKindRefs: [
+        { apiVersion: 'v1', resource: 'pods', reason: 'Stale' },
+        { apiVersion: 'v1', resource: 'secrets', reason: 'Syncing' },
+      ],
+      unhealthyKinds: 2,
+    });
+    const { popup } = await openStatus(stale);
+
+    const alert = within(popup).getByRole('alert');
+    expectOverTheSections(popup, alert);
+    expect(alert).toHaveTextContent(
+      /^pods not receiving updatesData shown may be out of date\. Kstack will restart watches automatically until updates resume\.$/,
+    );
+    expect(section(popup, 'Cache')).not.toHaveTextContent('not receiving updates');
     expect(popup).not.toHaveTextContent('secrets');
+  });
+
+  it('titles a stale sync that names no kinds', async () => {
+    const stale = withHealth(clusterRecord({ context: 'prod', reason: 'Stale' }), { unhealthyKindRefs: [] });
+    const { popup } = await openStatus(stale);
+    expect(within(popup).getByRole('alert')).toHaveTextContent('Some kinds aren’t receiving updates');
+  });
+
+  it('counts a stale sync’s kinds past three', async () => {
+    const refs = ['configmaps', 'pods', 'secrets', 'services'].map((resource) => ({
+      apiVersion: 'v1',
+      resource,
+      reason: 'Stale',
+    }));
+    const stale = withHealth(clusterRecord({ context: 'prod', reason: 'Stale' }), {
+      unhealthyKindRefs: [...refs, { apiVersion: 'v1', resource: 'nodes', reason: 'Syncing' }],
+      unhealthyKinds: 5,
+      totalKinds: 10,
+    });
+    const { popup } = await openStatus(stale);
+    expect(within(popup).getByRole('alert')).toHaveTextContent('4 kinds not receiving updates');
+  });
+
+  it('says no kind is receiving updates when every unpaused kind is stale', async () => {
+    const refs = ['configmaps', 'pods', 'secrets', 'services'].map((resource) => ({
+      apiVersion: 'v1',
+      resource,
+      reason: 'Stale',
+    }));
+    const stale = withHealth(clusterRecord({ context: 'prod', reason: 'Stale' }), {
+      unhealthyKindRefs: refs,
+      unhealthyKinds: 4,
+      totalKinds: 5,
+      pausedKinds: 1,
+    });
+    const { popup } = await openStatus(stale);
+    expect(within(popup).getByRole('alert')).toHaveTextContent('No kinds are receiving updates');
+  });
+
+  it('keeps an unknown verdict’s reason line in the Cache section', async () => {
+    const degraded = withHealth(clusterRecord({ context: 'prod', reason: 'SomethingNew' }), {
+      unhealthyKindRefs: [{ apiVersion: 'v1', resource: 'pods', reason: 'SomethingNew' }],
+      unhealthyKinds: 1,
+      totalKinds: 3,
+    });
+    const { popup } = await openStatus(degraded);
     expect(within(popup).queryByRole('alert')).not.toBeInTheDocument();
+    expect(section(popup, 'Cache')).toHaveTextContent('pods');
   });
 
   it('puts a failed sync’s reason in an alert over the sections', async () => {
@@ -209,7 +273,7 @@ describe('ClusterStatusPopover', () => {
 
   it('gives a healthy sync verdict no reason line', async () => {
     const { popup } = await openStatus(clusterRecord({ context: 'prod' }));
-    expect(within(section(popup, 'Cache')).getByText('Watching all kinds (1)')).toHaveAttribute('data-tone', 'ok');
+    expect(within(section(popup, 'Cache')).getByText('Current')).toHaveAttribute('data-tone', 'ok');
     expect(popup).not.toHaveTextContent(/not receiving|not syncing|will not open/);
   });
 
@@ -245,9 +309,25 @@ describe('ClusterStatusPopover', () => {
     act(() => pushSchedule(in90s(), false, 3));
     expect(alert).toHaveTextContent(/3 attempts · Retrying in 1m \d+s$/);
 
-    // While a probe runs the countdown goes; the button says it is checking.
+    // While a probe runs the countdown gives way to the retry itself.
     act(() => pushSchedule(null, true, 3));
-    expect(alert).toHaveTextContent(/3 attempts$/);
+    expect(alert).toHaveTextContent(/3 attempts · Retrying now…$/);
+  });
+
+  it('counts a down connection’s attempts alone while no retry is scheduled', async () => {
+    const { popup } = await openStatus(clusterRecord({ context: 'prod', connected: 'False' }));
+    act(() => pushSchedule(null, false, 2));
+    expect(within(popup).getByRole('alert')).toHaveTextContent(/2 attempts$/);
+  });
+
+  it('draws no retry line for a probe before any attempt has failed', async () => {
+    const failed = withConnected(clusterRecord({ context: 'prod', connected: 'False' }), {
+      reason: 'Unreachable',
+      message: 'connection refused',
+    });
+    const { popup } = await openStatus(failed);
+    act(() => pushSchedule(null, true, 0));
+    expect(within(popup).getByRole('alert')).not.toHaveTextContent(/attempt|Retrying/);
   });
 
   it('reconnects a live connection, held as reconnecting until its probe is done', async () => {
@@ -528,19 +608,20 @@ describe('ClusterStatusPopover', () => {
     expect(within(popup).getByText('Last event').nextElementSibling).toHaveTextContent('—');
   });
 
-  it('counts only the watching kinds in a synced verdict with paused kinds', async () => {
+  it('counts the paused kinds in a current verdict', async () => {
     const cluster = withHealth(clusterRecord({ context: 'prod' }), { totalKinds: 48, pausedKinds: 2 });
     const { popup } = await openStatus(cluster);
-    expect(section(popup, 'Cache')).toHaveTextContent('Watching 46 of 48 kinds');
+    expect(within(section(popup, 'Cache')).getByText('Current · 2 paused')).toHaveAttribute('data-tone', 'ok');
   });
 
-  it('counts the kinds still catching up in a syncing verdict', async () => {
+  it('counts the caught-up kinds in a syncing verdict, leaving out the paused ones', async () => {
     const cluster = withHealth(clusterRecord({ context: 'prod', reason: 'Syncing' }), {
       totalKinds: 48,
       unhealthyKinds: 5,
+      pausedKinds: 2,
     });
     const { popup } = await openStatus(cluster);
-    expect(within(section(popup, 'Cache')).getByText('Syncing 5 of 48 kinds')).toHaveAttribute('data-tone', 'ok');
+    expect(within(section(popup, 'Cache')).getByText('Syncing (41/46)…')).toHaveAttribute('data-tone', 'ok');
   });
 
   it('names a syncing cache by its label before discovery lands', async () => {

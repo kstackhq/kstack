@@ -642,7 +642,7 @@ describe('ClusterSyncPanel', () => {
 
     // Status + formatted cache sizes (binary units). The sizes stream per row — the
     // cache record they used to ride stops changing once its sync settles.
-    expect(within(active).getByText(/^synced$/i)).toBeInTheDocument();
+    expect(within(active).getByText(/^current$/i)).toBeInTheDocument();
     expect(within(active).getByText(/^paused$/i)).toBeInTheDocument();
     expect(within(orphaned).getByText(/^stopped$/i)).toBeInTheDocument();
     act(() => {
@@ -715,7 +715,7 @@ describe('ClusterSyncPanel', () => {
     ]);
 
     const active = await screen.findByRole('rowgroup', { name: /active/i });
-    expect(within(active).getByRole('cell', { name: 'Synced' })).toBeInTheDocument();
+    expect(within(active).getByRole('cell', { name: 'Current' })).toBeInTheDocument();
     expect(within(active).getByRole('cell', { name: 'Stalled' })).toBeInTheDocument();
     expect(within(active).getByRole('cell', { name: 'Error' })).toBeInTheDocument();
   });
@@ -823,7 +823,7 @@ describe('ClusterSyncPanel', () => {
 
     // One indicator per row, named by both axes (the tooltip summary), tinted by
     // the most severe of the two.
-    expect(await screen.findByRole('img', { name: 'Active · Synced' })).toHaveAttribute('data-tone', 'ok');
+    expect(await screen.findByRole('img', { name: 'Active · Current' })).toHaveAttribute('data-tone', 'ok');
     expect(screen.getByRole('img', { name: 'Disconnected · Stalled' })).toHaveAttribute('data-tone', 'error');
     expect(screen.getByRole('img', { name: 'Connecting · Not synced' })).toHaveAttribute('data-tone', 'attention');
     expect(screen.getByRole('img', { name: 'Unavailable · Stopped' })).toHaveAttribute('data-tone', 'muted');
@@ -845,7 +845,7 @@ describe('ClusterSyncPanel', () => {
     expect(screen.getByText('Connecting', { selector: '[data-tone]' })).toHaveAttribute('data-tone', 'attention');
     expect(screen.getByText('Unavailable', { selector: '[data-tone]' })).toHaveAttribute('data-tone', 'muted');
     // Sync axis.
-    expect(screen.getByText('Synced', { selector: '[data-tone]' })).toHaveAttribute('data-tone', 'ok');
+    expect(screen.getByText('Current', { selector: '[data-tone]' })).toHaveAttribute('data-tone', 'ok');
     // Stalled is a *gated* value (its fault is the connection, not sync), so it
     // grays out rather than going amber — the red "Disconnected" carries the cause.
     expect(screen.getByText('Stalled', { selector: '[data-tone]' })).toHaveAttribute('data-tone', 'muted');
@@ -1028,8 +1028,8 @@ describe('ClusterSyncPanel', () => {
     const user = await openWith([{ uuid: 'u-sync', name: 'prod', enabled: true, present: true }]);
 
     // The sync-status label is a disclosure trigger for a row with an active cache (its
-    // verdict has streamed in). A healthy cached row reads "Synced".
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    // verdict has streamed in). A healthy cached row reads "Current".
+    await user.click(await screen.findByRole('button', { name: /current/i }));
 
     // The transition log is per kind, so it stays paused until a kind record names one —
     // subscribing before that would open a stream guaranteed to carry nothing.
@@ -1073,7 +1073,7 @@ describe('ClusterSyncPanel', () => {
   // long history reads "No sync events yet." until its first run arrives.
   it('withholds the empty sync-event state until the snapshot closes', async () => {
     const user = await openWith([{ uuid: 'u-sync', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     await act(async () => pushCachedKind('g-events', 'events', 'Watching'));
 
     // Subscribed, nothing delivered: still loading, so no verdict either way.
@@ -1099,7 +1099,7 @@ describe('ClusterSyncPanel', () => {
     ]);
 
     // Open the sync-status disclosure (the row has an active cache).
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
 
     // The freshness line answers "is my cache current?" directly from lastUpdateAt
     // — a live relative counter, independent of the (separate) sync-event history.
@@ -1109,7 +1109,7 @@ describe('ClusterSyncPanel', () => {
 
   it('names each failing kind with the reason that kind reported', async () => {
     const user = await openWith([{ uuid: 'u-mixed', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
 
     // A cache's kinds fail independently, so one forbidden CRD is invisible in every other
     // reading — the rollup can name it but cannot say why.
@@ -1129,7 +1129,7 @@ describe('ClusterSyncPanel', () => {
 
   it('leaves a kind that is still starting out of the failing list', async () => {
     const user = await openWith([{ uuid: 'u-cold', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
 
     // A cold-listing cache reports every kind as Syncing. Reading those as offenders would
     // name all of them the moment a cache is armed, cleared, or resumed.
@@ -1153,7 +1153,7 @@ describe('ClusterSyncPanel', () => {
   // why, and the rollup alone renders an amber "Degraded" with no reason beside it.
   it("reports a cache whose file will not open, with the driver's message", async () => {
     const user = await openWith([{ uuid: 'u-store', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
 
     await act(async () => pushSyncStatus([], 'StoreFailed', 'disk full'));
 
@@ -1176,7 +1176,7 @@ describe('ClusterSyncPanel', () => {
   // layer down. Its own section instead, because that is where the resume control belongs.
   it('lists a paused kind apart from the kinds that are failing', async () => {
     const user = await openWith([{ uuid: 'u-paused', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
 
     await act(async () => {
       pushCachedKind('g-pods', 'pods', 'Paused');
@@ -1198,7 +1198,7 @@ describe('ClusterSyncPanel', () => {
   // sent the wrong id would pause somebody else's kind.
   it('resumes a paused kind by its own record id', async () => {
     const user = await openWith([{ uuid: 'u-resume', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     await act(async () => {
       pushCachedKind('g-crd', 'widgets', 'Paused', 'example.com/v1');
       pushCachedKind('g-pods', 'pods', 'Watching');
@@ -1217,7 +1217,7 @@ describe('ClusterSyncPanel', () => {
   // this over — a storming CRD or a forbidden collection — so the control sits on its row.
   it('pauses a failing kind from the row that reports it', async () => {
     const user = await openWith([{ uuid: 'u-pause', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     await act(async () => {
       pushCachedKind('g-crd', 'widgets', 'SyncFailed', 'example.com/v1');
       pushSyncStatus([{ apiVersion: 'example.com/v1', resource: 'widgets', reason: 'SyncFailed' }]);
@@ -1232,7 +1232,7 @@ describe('ClusterSyncPanel', () => {
   // can resume a kind — so a kind pushed past it would be paused with no way back.
   it('reaches a paused kind past the list cap', async () => {
     const user = await openWith([{ uuid: 'u-cap', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     const many = Array.from({ length: 6 }, (_, i) => ({
       apiVersion: 'example.com/v1',
       resource: `widget${i + 1}`,
@@ -1290,7 +1290,7 @@ describe('ClusterSyncPanel', () => {
       throw new Error(`unexpected ${cmd}`);
     });
     const user = await openWith([{ uuid: 'u-fail', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     await act(async () => {
       pushCachedKind('g-crd', 'widgets', 'SyncFailed', 'example.com/v1');
       pushSyncStatus([{ apiVersion: 'example.com/v1', resource: 'widgets', reason: 'SyncFailed' }]);
@@ -1306,7 +1306,7 @@ describe('ClusterSyncPanel', () => {
 
   it('shows no failing-kind list while every kind is watching', async () => {
     const user = await openWith([{ uuid: 'u-ok', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
 
     await act(async () => pushSyncStatus([{ apiVersion: 'v1', resource: 'pods', reason: 'Watching' }]));
 
@@ -1315,7 +1315,7 @@ describe('ClusterSyncPanel', () => {
 
   it("shows the kind-discovery history off the cache record, not any kind's", async () => {
     const user = await openWith([{ uuid: 'u-disc', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
 
     await act(async () =>
       pushDiscoveryEvent({
@@ -1354,7 +1354,7 @@ describe('ClusterSyncPanel', () => {
       },
     ]);
 
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
 
     expect(await screen.findByText(/last update received/i)).toBeInTheDocument();
     expect(await screen.findByText('1h ago')).toBeInTheDocument();
@@ -1367,7 +1367,7 @@ describe('ClusterSyncPanel', () => {
   it('summarises cache contents from the live gauge, thousands-grouped', async () => {
     const user = await openWith([{ uuid: 'u-big', name: 'prod', enabled: true, present: true }]);
 
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     act(() => pushCacheStats(2203, 120));
 
     // Locale-grouped and pluralised.
@@ -1387,7 +1387,7 @@ describe('ClusterSyncPanel', () => {
     expect(await screen.findByText('1.2 MB')).toBeInTheDocument();
 
     // Expanding must not need a fresh frame to show the same numbers.
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     expect(await screen.findByText('2,203 objects across 120 kinds')).toBeInTheDocument();
   });
 
@@ -1398,7 +1398,7 @@ describe('ClusterSyncPanel', () => {
   it('updates the cache summary as the sync fills, without the cache record changing', async () => {
     const user = await openWith([{ uuid: 'u-grow', name: 'prod', enabled: true, present: true }]);
 
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     act(() => pushCacheStats(156, 12));
     expect(await screen.findByText('156 objects across 12 kinds')).toBeInTheDocument();
 
@@ -1410,7 +1410,7 @@ describe('ClusterSyncPanel', () => {
   it('reports per-kind sync health from the rollup, naming the kinds that are not syncing', async () => {
     const user = await openWith([{ uuid: 'u-kinds', name: 'prod', enabled: true, present: true }]);
 
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     // The fold is the sidecar's — it knows all hundred-plus kinds and already skipped any
     // verdict a previous process wrote. The panel renders it, and must not re-derive it:
     // a second definition of health here could disagree with the badge above it.
@@ -1433,7 +1433,7 @@ describe('ClusterSyncPanel', () => {
   it('names no offenders when the rollup counts unhealthy kinds without naming any', async () => {
     const user = await openWith([{ uuid: 'u-pausing', name: 'prod', enabled: true, present: true }]);
 
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     act(() =>
       pushHealth('cache-u-pausing', {
         status: 'False',
@@ -1454,7 +1454,7 @@ describe('ClusterSyncPanel', () => {
   it('accounts for paused kinds in the syncing summary', async () => {
     const user = await openWith([{ uuid: 'u-pcount', name: 'prod', enabled: true, present: true }]);
 
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     act(() => pushHealth('cache-u-pcount', { totalKinds: 5, unhealthyKinds: 0, pausedKinds: 2 }));
 
     expect(await screen.findByText(/3 of 5 kinds syncing, 2 paused/)).toBeInTheDocument();
@@ -1463,7 +1463,7 @@ describe('ClusterSyncPanel', () => {
   it('names the first three offenders and counts the rest', async () => {
     const user = await openWith([{ uuid: 'u-many', name: 'prod', enabled: true, present: true }]);
 
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     act(() =>
       pushHealth('cache-u-many', {
         status: 'False',
@@ -1545,7 +1545,7 @@ describe('ClusterSyncPanel', () => {
   it('reports a plain kind count when every kind is healthy', async () => {
     const user = await openWith([{ uuid: 'u-ok', name: 'prod', enabled: true, present: true }]);
 
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
     act(() => pushHealth('cache-u-ok', { totalKinds: 2 }));
 
     expect(await screen.findByText('2 kinds')).toBeInTheDocument();
@@ -1554,7 +1554,7 @@ describe('ClusterSyncPanel', () => {
   it('omits the cache summary when the cache holds no objects', async () => {
     const user = await openWith([{ uuid: 'u-empty', name: 'prod', enabled: true, present: true }]);
 
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
 
     // An empty cache is already covered by the freshness line; no "0 objects" noise.
     expect(await screen.findByText(/no updates received yet/i)).toBeInTheDocument();
@@ -1574,7 +1574,7 @@ describe('ClusterSyncPanel', () => {
       },
     ]);
 
-    // The sync column reflects the stalled state (not a healthy "Synced").
+    // The sync column reflects the stalled state (not a healthy "Current").
     const staleBtn = await screen.findByRole('button', { name: /stale/i });
     await user.click(staleBtn);
 
@@ -1627,7 +1627,7 @@ describe('ClusterSyncPanel', () => {
   // history under the failing kind's heading.
   it('opens the timeline of the offending kind, not another kind sharing its plural', async () => {
     const user = await openWith([{ uuid: 'u-gw', name: 'prod', enabled: true, present: true }]);
-    await user.click(await screen.findByRole('button', { name: /synced/i }));
+    await user.click(await screen.findByRole('button', { name: /current/i }));
 
     await act(async () => {
       pushCachedKind('g-builtin', 'gateways', 'Watching', 'gateway.networking.k8s.io/v1');
@@ -1898,7 +1898,7 @@ describe('syncReason', () => {
 
   it('gives no reason for a healthy or muted verdict, or without a rollup', () => {
     const failing = health({ reason: 'SyncFailed', unhealthyKindRefs: [pods('SyncFailed')], unhealthyKinds: 1 });
-    expect(syncReason({ label: 'Synced', tone: 'ok' }, health({}))).toBeNull();
+    expect(syncReason({ label: 'Current', tone: 'ok' }, health({}))).toBeNull();
     expect(syncReason({ label: 'Stalled', tone: 'muted' }, failing)).toBeNull();
     expect(syncReason({ label: 'Degraded', tone: 'attention' }, health({ reason: 'QuotaExceeded' }))).toBeNull();
     expect(syncReason({ label: 'Syncing', tone: 'ok' }, null)).toBeNull();

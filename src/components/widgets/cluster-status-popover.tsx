@@ -21,7 +21,7 @@ import { type ReactElement, type ReactNode, useState } from 'react';
 import { type Formatter } from 'react-timeago';
 
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-import { ArrowRight, Check, CircleAlert, Server } from 'lucide-react';
+import { ArrowRight, Check, CircleAlert, Server, TriangleAlert } from 'lucide-react';
 
 import { Alert, AlertDescription, AlertTitle } from '@kubetail/ui/elements/alert';
 import { Button } from '@kubetail/ui/elements/button';
@@ -67,7 +67,7 @@ const PILL: Record<Tone, { label: string; className: string }> = {
 // The header's subtitle, one phrase per axis.
 function summary(connection: Status, sync: Status): string {
   const conn = connection.tone === 'ok' ? 'Connection stable' : connection.label;
-  const cache = sync.label === 'Synced' ? 'cache in sync' : `cache ${sync.label.toLowerCase()}`;
+  const cache = sync.label === 'Current' ? 'cache in sync' : `cache ${sync.label.toLowerCase()}`;
   return `${conn} · ${cache}`;
 }
 
@@ -201,35 +201,38 @@ function ConnectionSection({ cluster }: { cluster: Cluster }) {
   );
 }
 
-// "3 attempts · Retrying in 28s". While a probe runs the countdown is gone and the footer's
-// button says so.
+// "3 attempts · Retrying in 28s", then "3 attempts · Retrying now…" while the probe runs.
 function RetryLine({ check }: { check: NextCheckState }) {
   const attempts = check.failures > 0 ? countLabel(check.failures, 'attempt') : null;
-  const due = !check.probing && check.atMs !== null ? check.atMs : null;
-  if (!attempts && due === null) return null;
+  let next: ReactNode = null;
+  if (check.probing) {
+    if (attempts) next = 'Retrying now…';
+  } else if (check.atMs !== null) {
+    next = (
+      <>
+        Retrying <Countdown ms={check.atMs} />
+      </>
+    );
+  }
+  if (!attempts && !next) return null;
   // Tabular figures, so the countdown's digits do not jitter as it ticks.
   return (
     <span className="block tabular-nums">
       {attempts}
-      {attempts && due !== null && ' · '}
-      {due !== null && (
-        <>
-          Retrying <Countdown ms={due} />
-        </>
-      )}
+      {attempts && next && ' · '}
+      {next}
     </span>
   );
 }
 
-// A synced or syncing cache's verdict counts its kinds; any other verdict is its label.
+// A syncing cache's verdict counts its progress, and a current one its paused kinds. A paused
+// kind never syncs, so it is left out of the progress.
 function cacheVerdictLabel(status: Status, health: ClusterCacheHealth | null | undefined): string {
   if (!health || health.totalKinds === 0) return status.label;
-  const total = health.totalKinds;
-  if (status.label === 'Syncing') return `Syncing ${health.unhealthyKinds} of ${total} kinds`;
-  if (status.label !== 'Synced') return status.label;
-  // A paused kind is not watched, so "all" holds only while none is paused.
-  if (health.pausedKinds === 0) return `Watching all kinds (${total})`;
-  return `Watching ${total - health.unhealthyKinds - health.pausedKinds} of ${total} kinds`;
+  const active = health.totalKinds - health.pausedKinds;
+  if (status.label === 'Syncing') return `Syncing (${active - health.unhealthyKinds}/${active})…`;
+  if (status.label === 'Current' && health.pausedKinds > 0) return `Current · ${health.pausedKinds} paused`;
+  return status.label;
 }
 
 function CacheSection({ cluster }: { cluster: Cluster }) {
@@ -242,8 +245,10 @@ function CacheSection({ cluster }: { cluster: Cluster }) {
 
   return (
     <Section title="Cache" verdict={<Verdict status={status} label={cacheVerdictLabel(status, health)} />}>
-      {/* An error's reason is in the alert above the sections. */}
-      {reason && status.tone !== 'error' && <p className="text-xs text-muted-foreground">{reason}</p>}
+      {/* An error's or a stale sync's reason is in the alert above the sections. */}
+      {reason && status.tone !== 'error' && health?.reason !== 'Stale' && (
+        <p className="text-xs text-muted-foreground">{reason}</p>
+      )}
       <dl className="grid grid-cols-3 gap-2">
         <Stat label="Populated kinds">{contents ? contents.kindCount.toLocaleString() : '—'}</Stat>
         <Stat label="Objects">{contents ? contents.objectCount.toLocaleString() : '—'}</Stat>
@@ -281,6 +286,34 @@ function CacheAlert({ status, health }: { status: Status; health: ClusterCacheHe
       <CircleAlert />
       <AlertTitle className="text-xs">{cacheFailureSummary(health?.reason, health?.failure)}</AlertTitle>
       {reason && <AlertDescription className="text-xs">{reason}</AlertDescription>}
+    </Alert>
+  );
+}
+
+// `Alert` has no amber variant, so an `attention` alert takes the tone's shade, as the
+// destructive variant does red.
+const ATTENTION_ALERT =
+  'px-3 py-2 text-xs text-amber-600 dark:text-amber-400 [&>svg]:text-current *:data-[slot=alert-description]:text-amber-600/90 dark:*:data-[slot=alert-description]:text-amber-400/90';
+
+// A stale sync's title: up to three stale kinds by name, past that a count, which picks out no
+// kind the alphabet happened to put first. The Clusters dialog lists them all.
+function staleTitle(health: ClusterCacheHealth): string {
+  const names = health.unhealthyKindRefs.filter((k) => k.reason === 'Stale').map((k) => k.resource);
+  if (names.length === 0) return 'Some kinds aren’t receiving updates';
+  if (names.length <= 3) return `${names.join(', ')} not receiving updates`;
+  if (names.length >= health.totalKinds - health.pausedKinds) return 'No kinds are receiving updates';
+  return `${countLabel(names.length, 'kind')} not receiving updates`;
+}
+
+// A stale sync: the kinds whose watch is reopening, and what that means for their data.
+function StaleAlert({ health }: { health: ClusterCacheHealth }) {
+  return (
+    <Alert className={ATTENTION_ALERT}>
+      <TriangleAlert />
+      <AlertTitle className="text-xs">{staleTitle(health)}</AlertTitle>
+      <AlertDescription className="text-xs">
+        Data shown may be out of date. Kstack will restart watches automatically until updates resume.
+      </AlertDescription>
     </Alert>
   );
 }
@@ -351,16 +384,19 @@ function ClusterStatus({ context, cluster, onClose }: { context: string; cluster
   const sync = syncStatus(cluster, 'active');
   const check = useNextCheck(cluster.id);
   const failed = connection.tone === 'error';
+  const health = cluster.activeCache?.health;
+  const stale = sync.tone === 'attention' && health?.reason === 'Stale' ? health : null;
   return (
     <>
       <Header context={context} tone={overallTone(connection.tone, sync.tone)} subtitle={summary(connection, sync)} />
       {/* Content-sized; scrolls when the window is too short for it. The alerts scroll too, so a
           long message never pushes the footer's buttons out of the popup. */}
       <div className="min-h-0 flex-auto overflow-y-auto">
-        {(failed || sync.tone === 'error') && (
+        {(failed || sync.tone === 'error' || stale) && (
           <div className="space-y-2 px-3 pb-2.5">
             {failed && <ConnectionAlert cluster={cluster} check={check} />}
-            {sync.tone === 'error' && <CacheAlert status={sync} health={cluster.activeCache?.health} />}
+            {sync.tone === 'error' && <CacheAlert status={sync} health={health} />}
+            {stale && <StaleAlert health={stale} />}
           </div>
         )}
         <KubeconfigSection context={context} cluster={cluster} />

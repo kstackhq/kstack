@@ -115,7 +115,7 @@ export function syncStatus(c: Cluster, group: Group): Status {
       return { label: 'Stale', tone: 'attention' };
     // Steady state: all kinds caught up and streaming deltas.
     case 'Watching':
-      return { label: 'Synced', tone: 'ok' };
+      return { label: 'Current', tone: 'ok' };
     // Waiting on credentials; muted like Stalled, since the sync itself is fine.
     case 'NoConnection':
       return { label: 'Connecting', tone: 'muted' };
