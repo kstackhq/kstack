@@ -9,8 +9,16 @@ const COMMANDS: &[&str] = &[
     "new_window",
     "update_host_file",
     "quit",
-    "log_webview",
+    "webview_record_error",
     "open_account_url",
+    "log_window_subscribe",
+    "log_window_open",
+    "log_window_focus",
+    "log_window_close_all",
+    "log_window_view",
+    "log_window_viewport",
+    "log_window_title",
+    "log_window_show_chat",
 ];
 
 fn main() {

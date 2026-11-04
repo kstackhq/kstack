@@ -115,7 +115,7 @@ while macOS's native menu runs them in Rust. Start the app with `pnpm tauri dev`
 | `graphql_query`, `graphql_subscribe`, `graphql_unsubscribe` | The cluster list loads, and a view that subscribes opens and closes. |
 | `new_window` | *New Window* from `AppMenu` opens a window. |
 | `update_host_file` | Changing the theme sticks across a new window. |
-| `log_webview` | A console error from the page lands in `webview.log`. |
+| `webview_record_error` | A console error from the page lands in `webview.log`. |
 | `open_account_url` | Clicking the account avatar opens the browser. |
 | `quit` | *Quit* from `AppMenu` quits. |
 
