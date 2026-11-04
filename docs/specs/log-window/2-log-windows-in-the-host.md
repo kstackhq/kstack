@@ -27,12 +27,13 @@ yet: no page calls any of this until step 3.
 ### 1. The capability
 
 `capabilities/logs.json` (`logs-*`) grants what `default.json` grants after step 1, less the
-app-window commands, plus the log-window commands below: `core:default`'s parts without
-emit, menu and tray, the five window-chrome permissions, `ready`, `graphql_query`,
-`graphql_subscribe`, `graphql_unsubscribe`, `log_webview`, `log_window_view`,
-`log_window_viewport`, `log_window_title` and `log_window_show_source`. It grants neither
+app-window commands, plus the log-window commands below: `core:window:default`,
+`core:webview:default`, `core:event:allow-listen` and `core:event:allow-unlisten`, the five
+window-chrome permissions, `ready`, `graphql_query`, `graphql_subscribe`,
+`graphql_unsubscribe`, `log_webview`, `log_window_view`, `log_window_viewport`,
+`log_window_title` and `log_window_show_source`. It grants neither
 `new_window`, `update_host_file`, `quit` nor `open_account_url`. A test pins the list, as
-`default_capability_grants_only_window_chrome` does.
+`default_capability_grants_what_the_app_window_calls` does.
 
 ### 2. Labels and building
 
