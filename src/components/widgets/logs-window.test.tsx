@@ -17,6 +17,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Chat, ChatMessage, ChatToolCall } from '@/lib/chats';
 import type { Cluster } from '@/lib/clusters';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { LogViewportHandle } from '@/lib/log-viewport';
+import type { ViewportPush } from '@/lib/log-window-push';
 import type { LogsViewAction } from '@/lib/logs-view';
 import {
   clusterRecord,
@@ -80,27 +82,55 @@ function publish(change: () => void) {
 }
 
 // The viewer has a suite of its own; here it says what it was handed, and counts its
-// mounts, since a remount loses its scroll, pause and selection.
+// mounts, since a remount loses its scroll, pause and selection. It writes its viewport
+// as the real one does: a fresh selection on mount, the empty viewport on unmount.
 const { viewerMounts } = vi.hoisted(() => ({ viewerMounts: { count: 0 } }));
 vi.mock('@/components/widgets/log-viewer', async () => {
   const { useEffect } = await import('react');
+  const { EMPTY_LOG_VIEWPORT } = await import('@/lib/log-viewport');
   return {
     LogViewer: ({
       clusterId,
       query,
+      viewport,
       onGrepApplied,
     }: {
       clusterId: string;
       query: { grep: string };
+      viewport: LogViewportHandle;
       onGrepApplied: (grep: string) => void;
     }) => {
       useEffect(() => {
         viewerMounts.count += 1;
-      }, []);
+        viewport.set({ ...EMPTY_LOG_VIEWPORT, grep: query.grep, selection: [] });
+        return () => viewport.set(EMPTY_LOG_VIEWPORT);
+        // The real viewer writes its grep as it changes; a mount's is enough here.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [viewport]);
+      const select = (messages: string[]) => {
+        const selection = messages.map((message) => ({
+          timestamp: '2026-10-08T14:04:00Z',
+          stream: { namespace: 'prod', pod: 'web-0', container: 'app', previous: false },
+          message,
+        }));
+        viewport.set({ ...viewport.get(), selection, selectedCount: selection.length });
+      };
       return (
         <div data-testid="log-viewer" data-cluster={clusterId} data-grep={query.grep}>
           <button type="button" onClick={() => onGrepApplied('panic')}>
             apply panic
+          </button>
+          <button type="button" onClick={() => select(['boom', 'bang'])}>
+            select two
+          </button>
+          <button type="button" onClick={() => select(['again'])}>
+            select one
+          </button>
+          <button
+            type="button"
+            onClick={() => viewport.set({ ...viewport.get(), visible: viewport.get().visible + 1 })}
+          >
+            scroll
           </button>
         </div>
       );
@@ -148,6 +178,12 @@ function answering(view: () => Promise<Answer>) {
 
 // Lets the answer to `log_window_view` land.
 const settle = () => act(async () => {});
+
+// The page sends what it holds as the user leaves for the app window.
+const blur = () => act(async () => window.dispatchEvent(new Event('blur')));
+
+const pushes = () =>
+  invokeMock.mock.calls.filter(([cmd]) => cmd === 'log_window_viewport').map(([, arg]) => arg as ViewportPush);
 
 const titles = () => invokeMock.mock.calls.filter(([cmd]) => cmd === 'log_window_title').map(([, arg]) => arg);
 
@@ -391,5 +427,96 @@ describe("LogsWindow's title", () => {
     render(<LogsWindow />);
     await screen.findByText('This chat was deleted.');
     expect(titles()).toEqual([]);
+  });
+});
+
+describe("LogsWindow's viewport push", () => {
+  it("pushes the viewer's selection with the answer's generation and the action's grep", async () => {
+    live();
+    answering(() => Promise.resolve({ ...answer, generation: 4 }));
+    render(<LogsWindow />);
+    await screen.findByTestId('log-viewer');
+    fireEvent.click(screen.getByRole('button', { name: 'select two' }));
+    await blur();
+
+    expect(pushes()).toEqual([
+      expect.objectContaining({
+        generation: 4,
+        grep: 'error',
+        viewport: expect.objectContaining({
+          selection: [expect.objectContaining({ message: 'boom' }), expect.objectContaining({ message: 'bang' })],
+          selectedCount: 2,
+        }),
+      }),
+    ]);
+  });
+
+  it('names the grep applied here, over the open one', async () => {
+    live();
+    answering(() => Promise.resolve({ ...answer, grep: 'warn' }));
+    render(<LogsWindow />);
+    await screen.findByTestId('log-viewer');
+    await blur();
+    expect(pushes().at(-1)!.grep).toBe('warn');
+
+    fireEvent.click(screen.getByRole('button', { name: 'apply panic' }));
+    await blur();
+    expect(pushes().at(-1)!.grep).toBe('panic');
+  });
+
+  it('empties the push when a notice replaces the viewer, and keeps the grep and the revision across a remount', async () => {
+    live();
+    render(<LogsWindow />);
+    await screen.findByTestId('log-viewer');
+    fireEvent.click(screen.getByRole('button', { name: 'apply panic' }));
+    fireEvent.click(screen.getByRole('button', { name: 'select two' }));
+    await blur();
+    const before = pushes().at(-1)!.viewport.selectionRevision;
+
+    publish(() => {
+      state.chats = { chats: [], phase: 'live' };
+    });
+    await blur();
+    expect(pushes().at(-1)).toMatchObject({ grep: 'panic', viewport: { selection: [], selectedCount: 0 } });
+
+    publish(() => live());
+    expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-grep', 'panic');
+    fireEvent.click(screen.getByRole('button', { name: 'select one' }));
+    await blur();
+    expect(pushes().at(-1)!.viewport.selectionRevision).toBeGreaterThan(before + 1);
+  });
+
+  it('sends a scroll alone after 250 ms', async () => {
+    live();
+    render(<LogsWindow />);
+    await screen.findByTestId('log-viewer');
+    await blur();
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'scroll' }));
+      await act(() => vi.advanceTimersByTimeAsync(249));
+      expect(pushes()).toHaveLength(1);
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      expect(pushes()).toHaveLength(2);
+      expect(pushes()[1].viewport.visible).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports a refused push', async () => {
+    live();
+    const reported = vi.fn();
+    const off = onError(reported);
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'log_window_view') return Promise.resolve(answer);
+      if (cmd === 'log_window_viewport') return Promise.reject(new Error('a push over its bound'));
+      return Promise.resolve();
+    });
+    render(<LogsWindow />);
+    await screen.findByTestId('log-viewer');
+    await blur();
+    expect(reported).toHaveBeenCalledWith(expect.objectContaining({ message: 'a push over its bound' }));
+    off();
   });
 });

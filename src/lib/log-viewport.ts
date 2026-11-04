@@ -14,18 +14,24 @@
 
 // What the log viewer knows that nothing else does, readable on demand. The viewer
 // writes its state here as it changes; a reader pulls it once when it needs it —
-// the composer at send, for the snapshot that rides the question — so nothing
-// streams the viewer's state anywhere. The shape is useSyncExternalStore's.
+// the composer at send, for the snapshot that rides the question. The sidebar's
+// handle is read in place; a log window's is pushed to a mirror in its app window
+// (`log-window-push.ts`). The shape is useSyncExternalStore's.
 
 import type { CoreState, LogLine } from '@/lib/log-viewer';
+
+/** A selected line as the snapshot reads it. */
+export type SelectedLine = Pick<LogLine, 'timestamp' | 'stream' | 'message'>;
 
 export type LogViewport = Pick<CoreState, 'range' | 'atEnd' | 'pinnedToEnd' | 'visible'> & {
   /** Whether the user paused the viewer: no line arrives until they play it again. */
   paused: boolean;
   /** The grep the viewer runs, which the user can change from the view's. Null with no viewer. */
   grep: string | null;
-  /** The lines the user selected, in order. */
-  selection: LogLine[];
+  /** The lines the user selected, in order: all of them, or the first a log window's push carried. */
+  selection: SelectedLine[];
+  /** How many lines the user selected. */
+  selectedCount: number;
 };
 
 export type LogViewportHandle = {
@@ -43,6 +49,7 @@ export const EMPTY_LOG_VIEWPORT: LogViewport = {
   visible: 0,
   grep: null,
   selection: [],
+  selectedCount: 0,
 };
 
 export function createLogViewportHandle(): LogViewportHandle {

@@ -19,9 +19,11 @@ import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LogLine } from '@/lib/log-viewer';
-import { EMPTY_LOG_VIEWPORT } from '@/lib/log-viewport';
+import { createLogViewportHandle, EMPTY_LOG_VIEWPORT } from '@/lib/log-viewport';
+import type { LogViewportHandle } from '@/lib/log-viewport';
+import type { LogWindow } from '@/lib/log-windows';
 import type { LogsViewAction } from '@/lib/logs-view';
-import { expectProseText } from '@/test-utils';
+import { expectProseText, fakeLogWindows } from '@/test-utils';
 
 // One seam: urql's hooks. The outbox is the real one, since what the composer draws
 // is its entry, and so is the catalog it picks from.
@@ -43,6 +45,7 @@ vi.mock('@/gql', () => ({
 const { ChatOutboxProvider, useChatOutbox } = await import('@/lib/chat-outbox');
 const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
 const { RightSidebarProvider, useRightSidebar } = await import('@/lib/right-sidebar');
+const { LogWindowsContext } = await import('@/lib/log-windows');
 const { ChatComposer } = await import('./chat-composer');
 
 const accepted = () => ({ data: { chatSend: { id: 'm2', chatID: 'c1', seq: 2, status: 'Streaming' } } });
@@ -83,14 +86,20 @@ function ViewControls() {
       </button>
       <button
         type="button"
-        onClick={() => viewport.set({ ...EMPTY_LOG_VIEWPORT, selection: [0, 1, 2].map(selectedLine) })}
+        onClick={() =>
+          viewport.set({ ...EMPTY_LOG_VIEWPORT, selection: [0, 1, 2].map(selectedLine), selectedCount: 3 })
+        }
       >
         Select three
       </button>
       <button
         type="button"
         onClick={() =>
-          viewport.set({ ...EMPTY_LOG_VIEWPORT, selection: Array.from({ length: 212 }, (_, i) => selectedLine(i)) })
+          viewport.set({
+            ...EMPTY_LOG_VIEWPORT,
+            selection: Array.from({ length: 212 }, (_, i) => selectedLine(i)),
+            selectedCount: 212,
+          })
         }
       >
         Select 212
@@ -106,6 +115,14 @@ function ViewControls() {
   );
 }
 
+// The log window the app window's provider would pick for chat c1, if any: its call
+// and the mirror of its viewport.
+const inWindow: { current: { window: LogWindow; viewport: LogViewportHandle } | null } = { current: null };
+const logWindows = {
+  ...fakeLogWindows().value,
+  shownWindowOf: (chatId: string) => (chatId === 'c1' ? inWindow.current : null),
+};
+
 // The providers outlive the composer, as the layout's do. `replaced` swaps the
 // key, so the composer unmounts and a fresh one opens on the same chat.
 function Harness({ replaced = false, ...props }: Props & { replaced?: boolean }) {
@@ -113,24 +130,26 @@ function Harness({ replaced = false, ...props }: Props & { replaced?: boolean })
     <RightSidebarProvider mode={props.mode ?? 'chat'}>
       <LogsViewProvider>
         <ViewControls />
-        <ChatOutboxProvider>
-          <Profiler id="composer" onRender={composerRendered}>
-            <ChatComposer
-              key={replaced ? 'second' : 'first'}
-              chatID="c1"
-              mode="chat"
-              clusterID="1"
-              phase="live"
-              last={null}
-              onCreated={onCreated}
-              sandboxDisabled={false}
-              networkEnabled={false}
-              {...props}
-            />
-          </Profiler>
-          {/* The entry the composer writes into, which the transcript's Ask again reads. */}
-          <SendStatus chatID={props.chatID ?? 'c1'} />
-        </ChatOutboxProvider>
+        <LogWindowsContext.Provider value={logWindows}>
+          <ChatOutboxProvider>
+            <Profiler id="composer" onRender={composerRendered}>
+              <ChatComposer
+                key={replaced ? 'second' : 'first'}
+                chatID="c1"
+                mode="chat"
+                clusterID="1"
+                phase="live"
+                last={null}
+                onCreated={onCreated}
+                sandboxDisabled={false}
+                networkEnabled={false}
+                {...props}
+              />
+            </Profiler>
+            {/* The entry the composer writes into, which the transcript's Ask again reads. */}
+            <SendStatus chatID={props.chatID ?? 'c1'} />
+          </ChatOutboxProvider>
+        </LogWindowsContext.Provider>
       </LogsViewProvider>
     </RightSidebarProvider>
   );
@@ -940,7 +959,7 @@ describe('the view', () => {
     fireEvent.click(button('Focus c1'));
     expect(screen.getByText('With the view in the sidebar')).toBeInTheDocument();
     fireEvent.click(button('Select three'));
-    expect(screen.getByText('With the view and 3 selected lines')).toBeInTheDocument();
+    expect(screen.getByText('With the view in the sidebar and 3 selected lines')).toBeInTheDocument();
 
     expect((await sent()).snapshot).toMatchObject({
       callID: 'call-1',
@@ -956,7 +975,7 @@ describe('the view', () => {
     fireEvent.click(button('Select three'));
     fireEvent.click(button(unsend));
 
-    expect(screen.getByText('With the view (3 selected lines not sent)')).toBeInTheDocument();
+    expect(screen.getByText('With the view in the sidebar (3 selected lines not sent)')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: unsend })).toBeNull();
     expect(screen.getByTestId('viewer-selection')).toHaveTextContent('3');
     expect((await sent()).snapshot).toMatchObject({ callID: 'call-1', selected: [], selectedCount: 0 });
@@ -967,7 +986,9 @@ describe('the view', () => {
     fireEvent.click(button('Focus c1'));
     fireEvent.click(button('Select 212'));
 
-    expect(screen.getByText('With the view and 212 selected lines (the first 50 sent)')).toBeInTheDocument();
+    expect(
+      screen.getByText('With the view in the sidebar and 212 selected lines (the first 50 sent)'),
+    ).toBeInTheDocument();
     expect((await sent()).snapshot).toMatchObject({ selectedCount: 212 });
   });
 
@@ -980,7 +1001,7 @@ describe('the view', () => {
     fireEvent.click(button(unsend));
     fireEvent.click(button('Select three'));
 
-    expect(screen.getByText('With the view and 3 selected lines')).toBeInTheDocument();
+    expect(screen.getByText('With the view in the sidebar and 3 selected lines')).toBeInTheDocument();
     expect((await sent()).snapshot).toMatchObject({ selectedCount: 3 });
   });
 
@@ -1047,6 +1068,83 @@ describe('the view', () => {
   it('does not ride on the dashboard', async () => {
     renderComposer({ mode: 'dashboard' });
     fireEvent.click(button('Focus c1'));
+    expect(screen.queryByText(/With the view/)).toBeNull();
+    expect((await sent()).snapshot).toBeNull();
+  });
+});
+
+// A log window's selection reaches the composer as its mirror, which the app window's
+// provider folds from the window's pushes.
+describe('the view in a window', () => {
+  beforeEach(() => localStorage.clear());
+
+  const unsend = "Don't send the selected lines";
+  const sent = async () => {
+    type('what is this?');
+    await click('Send');
+    return sendMock.mock.calls[0][0];
+  };
+
+  // The window on call-9 of chat c1, its mirror holding `carried` lines of `count` selected.
+  const windowWith = (carried: number, count = carried) => {
+    const viewport = createLogViewportHandle();
+    viewport.set({
+      ...EMPTY_LOG_VIEWPORT,
+      visible: 5,
+      selection: Array.from({ length: carried }, (_, i) => selectedLine(i)),
+      selectedCount: count,
+    });
+    inWindow.current = {
+      window: { label: 'logs-1', clusterId: '1', chatId: 'c1', callId: 'call-9', focusSeq: 1 },
+      viewport,
+    };
+    return viewport;
+  };
+
+  beforeEach(() => {
+    inWindow.current = null;
+  });
+
+  it("rides the mirror of this chat's window when the sidebar shows none", async () => {
+    windowWith(2);
+    renderComposer();
+    expect(screen.getByText('With the view in a window and 2 selected lines')).toBeInTheDocument();
+    expect((await sent()).snapshot).toMatchObject({
+      callID: 'call-9',
+      lines: 5,
+      selectedCount: 2,
+      selected: [{ message: 'line 0' }, { message: 'line 1' }],
+    });
+  });
+
+  it("prefers the sidebar's view of this chat", async () => {
+    windowWith(2);
+    renderComposer();
+    fireEvent.click(button('Focus c1'));
+    expect(screen.getByText('With the view in the sidebar')).toBeInTheDocument();
+    expect((await sent()).snapshot).toMatchObject({ callID: 'call-1', selectedCount: 0 });
+  });
+
+  it('draws each row of the chip, and × sends neither lines nor count', async () => {
+    const viewport = windowWith(0);
+    renderComposer();
+    expect(screen.getByText('With the view in a window')).toBeInTheDocument();
+
+    act(() => viewport.set({ ...viewport.get(), selection: [0, 1, 2].map(selectedLine), selectedCount: 70 }));
+    expect(screen.getByText('With the view in a window and 70 selected lines (the first 3 sent)')).toBeInTheDocument();
+
+    fireEvent.click(button(unsend));
+    expect(screen.getByText('With the view in a window (70 selected lines not sent)')).toBeInTheDocument();
+    expect((await sent()).snapshot).toMatchObject({ callID: 'call-9', selected: [], selectedCount: 0 });
+  });
+
+  it.each([
+    ['with no chat', { chatID: null }],
+    ['on the dashboard', { mode: 'dashboard' as const }],
+    ['for another chat', { chatID: 'c2' }],
+  ])('does not ride %s', async (_, props) => {
+    windowWith(2);
+    renderComposer(props);
     expect(screen.queryByText(/With the view/)).toBeNull();
     expect((await sent()).snapshot).toBeNull();
   });

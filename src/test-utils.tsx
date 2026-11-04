@@ -375,6 +375,7 @@ export function fakeLogWindows() {
       windowOf: (chatId: string, callId: string) => windows.find((w) => w.chatId === chatId && w.callId === callId),
       open: vi.fn(),
       focus: vi.fn(),
+      shownWindowOf: () => null,
     },
   };
 }

@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { StrictMode } from 'react';
+import { Profiler, StrictMode, useEffect, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createLogViewportHandle, EMPTY_LOG_VIEWPORT } from '@/lib/log-viewport';
+import type { LogViewportHandle } from '@/lib/log-viewport';
+import type { ViewportPush } from '@/lib/log-window-push';
 import type { LogsView } from '@/lib/logs-view';
 import { mockTauriCore } from '@/test-utils';
 
@@ -29,12 +32,12 @@ const { navigateMock, active, listeners } = vi.hoisted(() => ({
 }));
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigateMock }));
 vi.mock('@/lib/active-cluster', async () => {
-  const { useSyncExternalStore } = await import('react');
+  const react = await import('react');
   const subscribe = (l: () => void) => {
     listeners.add(l);
     return () => listeners.delete(l);
   };
-  return { useActiveCluster: () => ({ clusterID: useSyncExternalStore(subscribe, () => active.clusterID) }) };
+  return { useActiveCluster: () => ({ clusterID: react.useSyncExternalStore(subscribe, () => active.clusterID) }) };
 });
 
 const { onError } = await import('@/lib/error-bus');
@@ -72,14 +75,26 @@ const viewOn = (clusterId: string, callId = 'call-1', grep?: string): LogsView =
   ...(grep !== undefined && { grep }),
 });
 
-const windowOn = (label: string, clusterId: string, callId = 'call-1') => ({
-  label,
-  clusterId,
-  chatId: 'chat-1',
-  callId,
-  focusSeq: 1,
-  push: null,
-});
+const windowOn = (
+  label: string,
+  clusterId: string,
+  callId = 'call-1',
+  { focusSeq = 1, push = null as ViewportPush | null, chatId = 'chat-1' } = {},
+) => ({ label, clusterId, chatId, callId, focusSeq, push });
+
+// A push from page load `generation` with `count` lines selected, under `revision`.
+const pushOf = (count: number, { generation = 1, revision = 1, visible = 1 } = {}): ViewportPush => {
+  const selection = Array.from({ length: count }, (_, i) => ({
+    timestamp: '2026-10-08T14:04:00Z',
+    stream: { namespace: 'prod', pod: 'web-0', container: 'app', previous: false },
+    message: `line ${i}`,
+  }));
+  return {
+    generation,
+    grep: null,
+    viewport: { ...EMPTY_LOG_VIEWPORT, visible, selection, selectedCount: count, selectionRevision: revision },
+  };
+};
 
 function setCluster(id: string | undefined) {
   act(() => {
@@ -88,8 +103,7 @@ function setCluster(id: string | undefined) {
   });
 }
 
-// Sends a frame down the channel the last subscribe was handed. StrictMode runs the
-// channel's initializer twice, so the fake's list holds one React threw away.
+// Sends a frame down the channel the last subscribe was handed, the one the host keeps.
 function frame(f: unknown) {
   act(() => {
     const [{ channel }] = sent('log_window_subscribe').slice(-1) as { channel: { onmessage: (f: unknown) => void } }[];
@@ -212,12 +226,25 @@ describe('LogWindowsProvider: the subscription', () => {
     expect(screen.getByTestId('window')).toHaveTextContent('none');
   });
 
-  it('ignores the viewport and focused frames', async () => {
+  it("folds a frame on either double-mount subscribe's channel, whichever the host kept", async () => {
+    render(<StrictMode>{wrap(<Probe />)}</StrictMode>);
+    await flush();
+    const [first, second] = (sent('log_window_subscribe') as { channel: { onmessage: (f: unknown) => void } }[]).map(
+      (s) => s.channel,
+    );
+    act(() => first.onmessage({ snapshot: { windows: [windowOn('logs-1', 'c-a')] } }));
+    expect(screen.getByTestId('window')).toHaveTextContent('logs-1');
+    act(() => second.onmessage({ closed: { label: 'logs-1' } }));
+    expect(screen.getByTestId('window')).toHaveTextContent('none');
+  });
+
+  it('ignores a frame it does not know', async () => {
     render(wrap(<Probe />));
     await flush();
-    frame({ viewport: { label: 'logs-1', push: null } });
-    frame({ focused: { label: 'logs-1', focusSeq: 3 } });
-    expect(screen.getByTestId('window')).toHaveTextContent('none');
+    frame({ snapshot: { windows: [windowOn('logs-1', 'c-a')] } });
+    frame({ resized: { label: 'logs-1' } });
+    expect(screen.getByTestId('window')).toHaveTextContent('logs-1');
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('navigates to the chat a showChat frame names', async () => {
@@ -237,9 +264,11 @@ describe('LogWindowsProvider: the subscription', () => {
       cmd === 'log_window_subscribe' ? pending.shift()!.promise : Promise.resolve(),
     );
     render(<StrictMode>{wrap(<Probe />)}</StrictMode>);
+    // Tauri ends a channel when the host drops the side a subscribe handed it, and the
+    // second subscribe drops the first's, so each must hand the host a channel of its own.
     const subscribes = sent('log_window_subscribe') as { channel: unknown }[];
     expect(subscribes).toHaveLength(2);
-    expect(subscribes[0].channel).toBe(subscribes[1].channel);
+    expect(subscribes[0].channel).not.toBe(subscribes[1].channel);
 
     const [early, late] = order;
     answers[early].resolve({ page: early + 1 });
@@ -250,6 +279,137 @@ describe('LogWindowsProvider: the subscription', () => {
     expect(screen.getByTestId('window')).toHaveTextContent('logs-1');
     fireEvent.click(screen.getByText('focus'));
     expect(sent('log_window_focus')).toEqual([{ page: 2, callId: 'call-1' }]);
+  });
+});
+
+// Reads the window `shownWindowOf` picks for a chat, and its mirror, as the composer
+// does. `held` keeps each mirror it was handed, and `renders` counts its commits.
+const held: LogViewportHandle[] = [];
+const none = createLogViewportHandle();
+let renders = 0;
+const counted = () => {
+  renders += 1;
+};
+function ShownReader({ chatId }: { chatId: string }) {
+  const shown = useLogWindows().shownWindowOf(chatId);
+  useEffect(() => {
+    if (shown && held.at(-1) !== shown.viewport) held.push(shown.viewport);
+  });
+  const viewport = shown?.viewport ?? none;
+  const count = useSyncExternalStore(viewport.subscribe, () => viewport.get().selectedCount);
+  return <output data-testid="shown">{shown ? `${shown.window.label}:${count}` : 'none'}</output>;
+}
+function Shown({ chatId = 'chat-1' }: { chatId?: string }) {
+  return (
+    <Profiler id="shown" onRender={counted}>
+      <ShownReader chatId={chatId} />
+    </Profiler>
+  );
+}
+
+describe('LogWindowsProvider: the mirrors', () => {
+  beforeEach(() => {
+    held.length = 0;
+    renders = 0;
+  });
+
+  it("seeds a mirror from a snapshot's and an opened window's push, and drops it on closed", async () => {
+    render(wrap(<Shown />));
+    await flush();
+    frame({ snapshot: { windows: [windowOn('logs-1', 'c-a', 'call-1', { push: pushOf(1) })] } });
+    expect(screen.getByTestId('shown')).toHaveTextContent('logs-1:1');
+    frame({ opened: { window: windowOn('logs-2', 'c-a', 'call-2', { focusSeq: 2, push: pushOf(2) }) } });
+    expect(screen.getByTestId('shown')).toHaveTextContent('logs-2:2');
+    frame({ closed: { label: 'logs-2' } });
+    expect(screen.getByTestId('shown')).toHaveTextContent('logs-1:1');
+  });
+
+  it('folds a later snapshot into the mirror a reader holds, and drops one a snapshot lacks', async () => {
+    render(wrap(<Shown />));
+    await flush();
+    frame({ snapshot: { windows: [windowOn('logs-1', 'c-a')] } });
+    expect(screen.getByTestId('shown')).toHaveTextContent('logs-1:0');
+    frame({ snapshot: { windows: [windowOn('logs-1', 'c-a', 'call-1', { push: pushOf(3) })] } });
+    expect(screen.getByTestId('shown')).toHaveTextContent('logs-1:3');
+    expect(held).toHaveLength(1);
+
+    frame({ snapshot: { windows: [] } });
+    expect(screen.getByTestId('shown')).toHaveTextContent('none');
+    frame({ snapshot: { windows: [windowOn('logs-1', 'c-a')] } });
+    expect(held).toHaveLength(2);
+    expect(held[1].get().selectedCount).toBe(0);
+  });
+
+  it("folds a viewport frame into the mirror, re-rendering none of the provider's consumers", async () => {
+    render(wrap(<Shown />));
+    await flush();
+    frame({ snapshot: { windows: [windowOn('logs-1', 'c-a')] } });
+    const before = renders;
+    frame({ viewport: { label: 'logs-1', push: pushOf(4) } });
+    frame({ viewport: { label: 'logs-9', push: pushOf(4) } });
+    expect(held[0].get().selectedCount).toBe(4);
+    // The reader re-renders for the mirror it reads, and for nothing else.
+    expect(renders).toBe(before + 1);
+
+    frame({ viewport: { label: 'logs-1', push: null } });
+    expect(held[0].get()).toBe(EMPTY_LOG_VIEWPORT);
+  });
+
+  it("keeps a mirror's selection while a push names the same one", async () => {
+    render(wrap(<Shown />));
+    await flush();
+    frame({ snapshot: { windows: [windowOn('logs-1', 'c-a', 'call-1', { push: pushOf(2) })] } });
+    const kept = held[0].get().selection;
+    frame({ viewport: { label: 'logs-1', push: pushOf(2, { visible: 9 }) } });
+    expect(held[0].get().selection).toBe(kept);
+    frame({ viewport: { label: 'logs-1', push: pushOf(2, { generation: 2 }) } });
+    expect(held[0].get().selection).not.toBe(kept);
+  });
+
+  it('answers none from a value held across a closed frame, whose mirror is gone', async () => {
+    let latest: (chatId: string) => unknown = () => null;
+    function Hold() {
+      const { shownWindowOf } = useLogWindows();
+      useEffect(() => {
+        latest = shownWindowOf;
+      });
+      return null;
+    }
+    render(wrap(<Hold />));
+    await flush();
+    frame({ snapshot: { windows: [windowOn('logs-1', 'c-a')] } });
+    const before = latest;
+    expect(before('chat-1')).not.toBeNull();
+    frame({ closed: { label: 'logs-1' } });
+    expect(before('chat-1')).toBeNull();
+  });
+
+  it('picks the window focused last, as focused frames say, and none for a chat with none', async () => {
+    render(
+      wrap(
+        <>
+          <Shown />
+          <Shown chatId="chat-2" />
+        </>,
+      ),
+    );
+    await flush();
+    frame({
+      snapshot: {
+        windows: [
+          windowOn('logs-1', 'c-a', 'call-1', { focusSeq: 1 }),
+          windowOn('logs-2', 'c-a', 'call-2', { focusSeq: 2 }),
+          windowOn('logs-3', 'c-a', 'call-3', { focusSeq: 9, chatId: 'chat-3' }),
+        ],
+      },
+    });
+    const [one, two] = screen.getAllByTestId('shown');
+    expect(one).toHaveTextContent('logs-2');
+    expect(two).toHaveTextContent('none');
+    frame({ focused: { label: 'logs-1', focusSeq: 3 } });
+    expect(one).toHaveTextContent('logs-1');
+    frame({ focused: { label: 'logs-9', focusSeq: 4 } });
+    expect(one).toHaveTextContent('logs-1');
   });
 });
 

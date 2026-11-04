@@ -83,6 +83,7 @@ const draw = ({
             windowOf: (chatId, callId) => windows.find((w) => w.chatId === chatId && w.callId === callId),
             open,
             focus,
+            shownWindowOf: () => null,
           }}
         >
           <Card mode={mode} clusterID={clusterID ?? undefined} />
@@ -91,7 +92,13 @@ const draw = ({
     </RightSidebarProvider>,
   );
 
-const inWindow: LogWindow = { label: 'logs-1', clusterId: 'cluster-1', chatId: 'chat-1', callId: 'call-1' };
+const inWindow: LogWindow = {
+  label: 'logs-1',
+  clusterId: 'cluster-1',
+  chatId: 'chat-1',
+  callId: 'call-1',
+  focusSeq: 1,
+};
 
 beforeEach(() => {
   open.mockReset();

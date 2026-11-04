@@ -38,6 +38,7 @@ describe('snapshotOf', () => {
       visible: 10,
       grep: 'panic',
       selection: [line(0), line(1)],
+      selectedCount: 2,
     };
     expect(snapshotOf({ callId: 'call-1' }, viewport)).toEqual({
       callID: 'call-1',
@@ -81,10 +82,19 @@ describe('snapshotOf', () => {
 
   it('keeps the first fifty selected lines and counts them all', () => {
     const selection = Array.from({ length: 80 }, (_, i) => line(i));
-    const snapshot = snapshotOf({ callId: 'call-1' }, { ...EMPTY_LOG_VIEWPORT, selection });
+    const snapshot = snapshotOf({ callId: 'call-1' }, { ...EMPTY_LOG_VIEWPORT, selection, selectedCount: 80 });
     expect(snapshot.selected).toHaveLength(MAX_SELECTED);
     expect(snapshot.selected[0].message).toBe('line 0');
     expect(snapshot.selected.at(-1)!.message).toBe('line 49');
     expect(snapshot.selectedCount).toBe(80);
+  });
+
+  it("sends the viewport's count, which a window's carried lines can fall short of", () => {
+    const snapshot = snapshotOf(
+      { callId: 'call-1' },
+      { ...EMPTY_LOG_VIEWPORT, selection: [line(0), line(1)], selectedCount: 7 },
+    );
+    expect(snapshot.selected).toHaveLength(2);
+    expect(snapshot.selectedCount).toBe(7);
   });
 });

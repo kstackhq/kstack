@@ -29,11 +29,16 @@ import { displayName, useClusters } from '@/lib/clusters';
 import type { Cluster } from '@/lib/clusters';
 import { reportHostError } from '@/lib/error-bus';
 import { createLogViewportHandle } from '@/lib/log-viewport';
+import type { LogViewportHandle } from '@/lib/log-viewport';
+import { createViewportPublisher } from '@/lib/log-window-push';
 import { viewOfCall } from '@/lib/logs-view';
 import type { LogsView } from '@/lib/logs-view';
 
-/** What the page reads of `log_window_view`'s answer. `grep` is null when the open carried none. */
-type Answer = { chatId: string; callId: string; grep: string | null };
+/**
+ * What the page reads of `log_window_view`'s answer. `grep` is null when the open carried
+ * none; `generation` is the page load the host counts, which every push names.
+ */
+type Answer = { chatId: string; callId: string; grep: string | null; generation: number };
 
 function Notice({ children }: { children: ReactNode }) {
   return (
@@ -130,12 +135,38 @@ function Paired({ answer }: { answer: Answer }) {
   if (!loading && !sameShown(shown, next)) setShown(next);
   const drawn = loading ? shown : next;
 
+  // The viewport and the grep applied here outlive the viewer, which a notice unmounts,
+  // so the push keeps the grep and a viewer mounted again continues the revisions.
+  const [viewport] = useState(createLogViewportHandle);
+  const [applied, setApplied] = useState<string | null>(null);
+  // The grep in effect: applied here, else the open's, else the action's.
+  const chosen = applied ?? answer.grep;
+  const grep = chosen ?? drawn?.view.action.grep ?? null;
+  const [publisher] = useState(() =>
+    createViewportPublisher({
+      generation: answer.generation,
+      grep,
+      viewport,
+      send: (push) => invoke('log_window_viewport', push),
+      report: reportHostError,
+    }),
+  );
+  useEffect(() => publisher.start(), [publisher]);
+  useEffect(() => publisher.setGrep(grep), [publisher, grep]);
+  // The user is leaving for the app window, where the push is read.
+  useEffect(() => {
+    window.addEventListener('blur', publisher.flush);
+    return () => window.removeEventListener('blur', publisher.flush);
+  }, [publisher]);
+
   let body: ReactNode;
   if (drawn) {
     body = (
       <View
         view={drawn.view}
-        openGrep={answer.grep}
+        grep={chosen ?? drawn.view.action.grep}
+        viewport={viewport}
+        onGrepApplied={setApplied}
         chatTitle={drawn.chatTitle}
         clusterName={drawn.cluster ? displayName(drawn.cluster) : ''}
       />
@@ -160,21 +191,20 @@ function Paired({ answer }: { answer: Answer }) {
 
 function View({
   view,
-  openGrep,
+  grep,
+  viewport,
+  onGrepApplied,
   chatTitle,
   clusterName,
 }: {
   view: LogsView;
-  /** The grep the open carried, if any. */
-  openGrep: string | null;
+  /** The grep the user applied here, over the open's, over the action's. */
+  grep: string;
+  viewport: LogViewportHandle;
+  onGrepApplied: (grep: string) => void;
   chatTitle: string;
   clusterName: string;
 }) {
-  const [viewport] = useState(createLogViewportHandle);
-  // The grep the user applied here, over the open's, over the action's.
-  const [applied, setApplied] = useState<string | null>(null);
-  const grep = applied ?? openGrep ?? view.action.grep;
-
   // The host builds the native title from these parts; an empty one keeps its place.
   const [first] = view.action.sources;
   const source = `${first.kind} ${first.name} in ${first.namespace}`;
@@ -193,7 +223,7 @@ function View({
         openAt={view.action.anchor}
         pinToEnd={view.action.pinToEnd}
         viewport={viewport}
-        onGrepApplied={setApplied}
+        onGrepApplied={onGrepApplied}
       />
     </div>
   );

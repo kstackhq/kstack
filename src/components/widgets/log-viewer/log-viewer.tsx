@@ -322,6 +322,7 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport, onGrep
       visible,
       grep: grepNow.current,
       selection: selection.current,
+      selectedCount: selection.current.length,
     });
   }, [store, viewport]);
   const onPausedChange = (next: boolean) => {

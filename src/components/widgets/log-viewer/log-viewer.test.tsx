@@ -351,6 +351,7 @@ describe('LogViewer', () => {
       visible: shown,
       grep: '',
       selection: [],
+      selectedCount: 0,
     });
   });
 
@@ -368,6 +369,7 @@ describe('LogViewer', () => {
       visible: 0,
       grep: null,
       selection: [],
+      selectedCount: 0,
     });
   });
 
