@@ -71,8 +71,7 @@ fetch_protoc() {
 
 	protoc=$dir/$target/bin/protoc$exe
 	if [ ! -x "$protoc" ]; then
-		rm -rf "$dir/$target"
-		unzip -q "$zip" -d "$dir/$target"
+		unzip -qo "$zip" -d "$dir/$target"
 	fi
 }
 
