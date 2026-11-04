@@ -111,7 +111,7 @@ func refs(reason string, names ...string) []cluster.UnhealthyKindRef {
 	var out []cluster.UnhealthyKindRef
 	for _, name := range names {
 		i := strings.LastIndex(name, "/")
-		out = append(out, cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: name[:i], Resource: name[i+1:]}, Reason: reason})
+		out = append(out, cluster.UnhealthyKindRef{KindRef: cluster.KindRef{APIVersion: name[:i], Resource: name[i+1:]}, Reason: reason})
 	}
 	return out
 }
@@ -382,7 +382,7 @@ func adversarial() Facts {
 			f.Cache.Kinds = append(f.Cache.Kinds, Kind{
 				APIVersion: group + "/v1", Kind: fmt.Sprintf("Kind%03d", k), Resource: resource, Reason: "SyncFailed",
 			})
-			f.Cache.Health.UnhealthyKindRefs = append(f.Cache.Health.UnhealthyKindRefs, cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: group + "/v1", Resource: resource}, Reason: f.Cache.Health.Reason})
+			f.Cache.Health.UnhealthyKindRefs = append(f.Cache.Health.UnhealthyKindRefs, cluster.UnhealthyKindRef{KindRef: cluster.KindRef{APIVersion: group + "/v1", Resource: resource}, Reason: f.Cache.Health.Reason})
 		}
 	}
 	f.Cache.Health.TotalKinds, f.Cache.Health.PausedKinds = len(f.Cache.Kinds), 0
@@ -489,7 +489,7 @@ func TestRenderKeepsEveryValueInsideTheShape(t *testing.T) {
 	f.Name, f.Context, f.Version, f.Connection, f.TLS = forged, forged, forged, forged, forged
 	f.Cache.Health.Reason = forged
 	f.Cache.Namespaces = []string{forged}
-	f.Cache.Health.UnhealthyKindRefs = []cluster.UnhealthyKindRef{{SyncedKindRef: cluster.SyncedKindRef{APIVersion: forged, Resource: forged}, Reason: forged}}
+	f.Cache.Health.UnhealthyKindRefs = []cluster.UnhealthyKindRef{{KindRef: cluster.KindRef{APIVersion: forged, Resource: forged}, Reason: forged}}
 	f.Cache.Kinds = append(f.Cache.Kinds, Kind{APIVersion: forged + "/v1", Kind: forged, Resource: forged, Reason: "Watching"})
 
 	got := Render(f)
@@ -629,70 +629,70 @@ func TestUntrustedRowsAreSyncingOrUnknown(t *testing.T) {
 // runs, unknown while none does. A listed kind whose reason is refused
 // cache-wide is unknown too, never an answer. With no rows nothing answers.
 func TestAConnectingCacheAnswersFromTheKindsThatHaveListed(t *testing.T) {
-	pods := cluster.SyncedKindRef{APIVersion: "v1", Resource: "pods"}
-	nodes := cluster.SyncedKindRef{APIVersion: "v1", Resource: "nodes"}
-	widgets := cluster.SyncedKindRef{APIVersion: "example.com/v1", Resource: "widgets"}
-	connecting := func(unanswered ...cluster.SyncedKindRef) cluster.ClusterCacheHealth {
+	pods := cluster.KindRef{APIVersion: "v1", Resource: "pods"}
+	nodes := cluster.KindRef{APIVersion: "v1", Resource: "nodes"}
+	widgets := cluster.KindRef{APIVersion: "example.com/v1", Resource: "widgets"}
+	connecting := func(unanswered ...cluster.KindRef) cluster.ClusterCacheHealth {
 		return cluster.ClusterCacheHealth{Reason: cluster.ReasonConnecting, TotalKinds: 3, UnansweredKindRefs: unanswered}
 	}
-	unhealthy := func(h cluster.ClusterCacheHealth, ref cluster.SyncedKindRef, reason string) cluster.ClusterCacheHealth {
-		h.UnhealthyKindRefs = append(h.UnhealthyKindRefs, cluster.UnhealthyKindRef{SyncedKindRef: ref, Reason: reason})
+	unhealthy := func(h cluster.ClusterCacheHealth, ref cluster.KindRef, reason string) cluster.ClusterCacheHealth {
+		h.UnhealthyKindRefs = append(h.UnhealthyKindRefs, cluster.UnhealthyKindRef{KindRef: ref, Reason: reason})
 		return h
 	}
 	names := func(names ...string) *list { return &list{Names: names} }
 
 	for name, tc := range map[string]struct {
 		health  cluster.ClusterCacheHealth
-		listed  map[cluster.SyncedKindRef]bool
+		listed  map[cluster.KindRef]bool
 		want    FreshnessSection
 		answers bool
 	}{
 		"every kind listed before": {
 			health:  connecting(widgets, nodes, pods),
-			listed:  map[cluster.SyncedKindRef]bool{pods: true, nodes: true, widgets: true},
+			listed:  map[cluster.KindRef]bool{pods: true, nodes: true, widgets: true},
 			want:    FreshnessSection{Status: StatusLastKnown, Reason: "Connecting"},
 			answers: true,
 		},
 		"one kind never listed": {
 			health:  connecting(widgets, nodes, pods),
-			listed:  map[cluster.SyncedKindRef]bool{pods: true, nodes: true},
+			listed:  map[cluster.KindRef]bool{pods: true, nodes: true},
 			want:    FreshnessSection{Status: StatusLastKnown, Reason: "Connecting", Syncing: names("example.com/v1/widgets")},
 			answers: true,
 		},
 		"one kind watching": {
 			health:  unhealthy(connecting(widgets), nodes, "Resuming"),
-			listed:  map[cluster.SyncedKindRef]bool{pods: true, nodes: true},
+			listed:  map[cluster.KindRef]bool{pods: true, nodes: true},
 			want:    FreshnessSection{Status: statusPartial, Reason: "Connecting", NotWatching: names("v1/nodes"), Syncing: names("example.com/v1/widgets")},
 			answers: true,
 		},
 		"one kind watching, the rest never listed": {
 			health:  connecting(widgets, nodes),
-			listed:  map[cluster.SyncedKindRef]bool{pods: true},
+			listed:  map[cluster.KindRef]bool{pods: true},
 			want:    FreshnessSection{Status: statusPartial, Reason: "Connecting", Syncing: names("example.com/v1/widgets", "v1/nodes")},
 			answers: true,
 		},
 		"a kind never listed whose list is not running": {
 			health:  unhealthy(unhealthy(connecting(pods), widgets, "SyncFailed"), nodes, "Resyncing"),
-			listed:  map[cluster.SyncedKindRef]bool{pods: true},
+			listed:  map[cluster.KindRef]bool{pods: true},
 			want:    FreshnessSection{Status: StatusLastKnown, Reason: "Connecting", Syncing: names("v1/nodes"), Unknown: names("example.com/v1/widgets")},
 			answers: true,
 		},
 		"a kind never listed with no connection": {
 			health:  unhealthy(connecting(pods, nodes), widgets, "NoConnection"),
-			listed:  map[cluster.SyncedKindRef]bool{pods: true},
+			listed:  map[cluster.KindRef]bool{pods: true},
 			want:    FreshnessSection{Status: StatusLastKnown, Reason: "Connecting", Syncing: names("v1/nodes"), Unknown: names("example.com/v1/widgets")},
 			answers: true,
 		},
 		"a listed kind of another cluster": {
 			health: unhealthy(unhealthy(connecting(), nodes, "IdentityMismatch"), pods, "IdentityMismatch"),
-			listed: map[cluster.SyncedKindRef]bool{pods: true, nodes: true},
+			listed: map[cluster.KindRef]bool{pods: true, nodes: true},
 			want:   FreshnessSection{Status: statusPartial, Reason: "Connecting", Unknown: names("v1/nodes", "v1/pods")},
 			// widgets, the third kind, is Watching: it alone answers.
 			answers: true,
 		},
 		"every listed kind of another cluster": {
 			health: unhealthy(unhealthy(connecting(widgets), nodes, "IdentityMismatch"), pods, "IdentityMismatch"),
-			listed: map[cluster.SyncedKindRef]bool{pods: true, nodes: true},
+			listed: map[cluster.KindRef]bool{pods: true, nodes: true},
 			want:   FreshnessSection{Status: StatusSyncing},
 		},
 		"no kind listed": {
@@ -710,9 +710,9 @@ func TestAConnectingCacheAnswersFromTheKindsThatHaveListed(t *testing.T) {
 // reads Paused with no counts, and Paused answers before any count is read.
 func TestTheVerdictIsTheHealthReadings(t *testing.T) {
 	live := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
-	pods := cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "pods"}, Reason: "SyncFailed"}
-	nodes := cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "nodes"}, Reason: "SyncFailed"}
-	secrets := cluster.UnhealthyKindRef{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "secrets"}, Reason: "Syncing"}
+	pods := cluster.UnhealthyKindRef{KindRef: cluster.KindRef{APIVersion: "v1", Resource: "pods"}, Reason: "SyncFailed"}
+	nodes := cluster.UnhealthyKindRef{KindRef: cluster.KindRef{APIVersion: "v1", Resource: "nodes"}, Reason: "SyncFailed"}
+	secrets := cluster.UnhealthyKindRef{KindRef: cluster.KindRef{APIVersion: "v1", Resource: "secrets"}, Reason: "Syncing"}
 	tests := map[string]struct {
 		health cluster.ClusterCacheHealth
 		want   FreshnessSection

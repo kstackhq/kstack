@@ -132,7 +132,7 @@ type ClusterCacheHealth struct {
 	// UnansweredKindRefs names every kind that has reported no state this session, sorted:
 	// the kinds behind a Connecting verdict. Not on the wire, so no frame is sent for a
 	// change to it alone; KubeQuery reads it.
-	UnansweredKindRefs []SyncedKindRef
+	UnansweredKindRefs []KindRef
 	// Failure is the first offender's class of failure (a kubeconn.Reason such as Forbidden);
 	// empty when unclassified or not failing.
 	Failure string
@@ -522,7 +522,7 @@ func (a cachesAPI) readCacheHealth(
 		anyKindUnproven   bool
 		newestUpdateAt    time.Time
 		oldestLiveAt      time.Time
-		stateByRef        = map[SyncedKindRef]kubesync.KindState{}
+		stateByRef        = map[KindRef]kubesync.KindState{}
 	)
 	for _, kindObj := range kindObjs {
 		if kindObj.DeletionRequestedAt != nil {
@@ -542,12 +542,12 @@ func (a cachesAPI) readCacheHealth(
 			// Unproven as well as unanswered: a kind that has said nothing has proved nothing,
 			// so it withholds the cache's proof like any other kind carrying none.
 			anyKindUnanswered, anyKindUnproven = true, true
-			health.UnansweredKindRefs = append(health.UnansweredKindRefs, syncedKindRefOf(kindObj.Spec))
+			health.UnansweredKindRefs = append(health.UnansweredKindRefs, kindRefOf(kindObj.Spec))
 			continue
 		}
 		if state.Reason != kubesync.ReasonWatching {
-			ref := syncedKindRefOf(kindObj.Spec)
-			health.UnhealthyKindRefs = append(health.UnhealthyKindRefs, UnhealthyKindRef{SyncedKindRef: ref, Reason: state.Reason})
+			ref := kindRefOf(kindObj.Spec)
+			health.UnhealthyKindRefs = append(health.UnhealthyKindRefs, UnhealthyKindRef{KindRef: ref, Reason: state.Reason})
 			stateByRef[ref] = state
 		}
 		if state.LastUpdateAt.After(newestUpdateAt) {
@@ -568,9 +568,9 @@ func (a cachesAPI) readCacheHealth(
 
 	health.UnhealthyKinds = len(health.UnhealthyKindRefs)
 	slices.SortFunc(health.UnhealthyKindRefs, func(a, b UnhealthyKindRef) int {
-		return compareSyncedKindRefs(a.SyncedKindRef, b.SyncedKindRef)
+		return compareKindRefs(a.KindRef, b.KindRef)
 	})
-	slices.SortFunc(health.UnansweredKindRefs, compareSyncedKindRefs)
+	slices.SortFunc(health.UnansweredKindRefs, compareKindRefs)
 	health.LastUpdateAt = optionalTime(newestUpdateAt)
 	if !anyKindUnproven {
 		health.LastLiveAt = optionalTime(oldestLiveAt)
@@ -605,20 +605,20 @@ func (a cachesAPI) readCacheHealth(
 	default:
 		// The first offender's own reason and failure, so a consumer reading the verdict
 		// beside the first ref sees one story.
-		first := stateByRef[health.UnhealthyKindRefs[0].SyncedKindRef]
+		first := stateByRef[health.UnhealthyKindRefs[0].KindRef]
 		health.Reason, health.Failure = first.Reason, string(first.Failure)
 	}
 	return health, nil
 }
 
-// syncedKindRefOf is the (APIVersion, Resource) pair that identifies a kind on the wire.
-func syncedKindRefOf(spec ClusterCachedKindSpec) SyncedKindRef {
-	return SyncedKindRef{APIVersion: spec.APIVersion, Resource: spec.Resource}
+// kindRefOf is the (APIVersion, Resource) pair that identifies a kind on the wire.
+func kindRefOf(spec ClusterCachedKindSpec) KindRef {
+	return KindRef{APIVersion: spec.APIVersion, Resource: spec.Resource}
 }
 
-// compareSyncedKindRefs orders kinds by apiVersion, then resource, so rendered lists are
+// compareKindRefs orders kinds by apiVersion, then resource, so rendered lists are
 // stable across ticks.
-func compareSyncedKindRefs(a, b SyncedKindRef) int {
+func compareKindRefs(a, b KindRef) int {
 	return cmp.Or(cmp.Compare(a.APIVersion, b.APIVersion), cmp.Compare(a.Resource, b.Resource))
 }
 
@@ -728,7 +728,7 @@ func (a cachesAPI) readSyncStatus(ctx context.Context, cacheID ClusterCacheID) (
 			APIVersion:  kindObj.Spec.APIVersion,
 			Kind:        kindObj.Spec.Kind,
 			Resource:    kindObj.Spec.Resource,
-			ObjectCount: objectCounts[syncedKindRefOf(kindObj.Spec)],
+			ObjectCount: objectCounts[kindRefOf(kindObj.Spec)],
 		}
 		// The record's own verdict first: a paused kind is forgotten, so the read below
 		// would come back empty and the row would carry no reason at all.
@@ -753,7 +753,7 @@ func (a cachesAPI) readSyncStatus(ctx context.Context, cacheID ClusterCacheID) (
 
 // readObjectCountsByKind is every mirrored kind's row count in one read. A cache with no file
 // has none, which is a paused cache or one nothing has swept — not an error.
-func (a cachesAPI) readObjectCountsByKind(ctx context.Context, cacheID ClusterCacheID) (map[SyncedKindRef]int, error) {
+func (a cachesAPI) readObjectCountsByKind(ctx context.Context, cacheID ClusterCacheID) (map[KindRef]int, error) {
 	store, ok, err := a.s.kubestoreMgr.OpenExisting(int64(cacheID))
 	if err != nil {
 		return nil, fmt.Errorf("open cluster cache %d: %w", cacheID, err)
@@ -767,9 +767,9 @@ func (a cachesAPI) readObjectCountsByKind(ctx context.Context, cacheID ClusterCa
 	if err != nil {
 		return nil, fmt.Errorf("read cluster cache %d kinds: %w", cacheID, err)
 	}
-	counts := make(map[SyncedKindRef]int, len(rows))
+	counts := make(map[KindRef]int, len(rows))
 	for _, row := range rows {
-		counts[SyncedKindRef{APIVersion: row.APIVersion, Resource: row.Resource}] = row.Count
+		counts[KindRef{APIVersion: row.APIVersion, Resource: row.Resource}] = row.Count
 	}
 	return counts, nil
 }

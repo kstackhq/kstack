@@ -342,7 +342,7 @@ func (f fakeCaches) WatchHealth(ctx context.Context) (*cluster.Stream[cluster.Cl
 			if c.Type == string(cluster.ConditionSynced) && c.Reason != "Watching" {
 				h.Status, h.Reason = c.Status, c.Reason
 				h.UnhealthyKindRefs = append(h.UnhealthyKindRefs, cluster.UnhealthyKindRef{
-					SyncedKindRef: cluster.SyncedKindRef{
+					KindRef: cluster.KindRef{
 						APIVersion: f.s.cachedKinds[i].Spec.APIVersion,
 						Resource:   f.s.cachedKinds[i].Spec.Resource,
 					},
@@ -468,7 +468,7 @@ func (f fakeCachedData) Query(context.Context, cluster.ClusterID, cluster.Cluste
 	return cluster.ClusterCachedDataQueryResult{}, false, nil
 }
 
-func (f fakeCachedData) ListedKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (map[cluster.SyncedKindRef]bool, bool, error) {
+func (f fakeCachedData) ListedKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (map[cluster.KindRef]bool, bool, error) {
 	return nil, false, nil
 }
 

@@ -276,7 +276,7 @@ func Freshness(h *cluster.ClusterCacheHealth) FreshnessSection {
 		var names []string
 		for _, ref := range h.UnhealthyKindRefs {
 			if ref.Reason == h.Reason {
-				names = append(names, kindName(ref.SyncedKindRef))
+				names = append(names, kindName(ref.KindRef))
 			}
 		}
 		if len(names) == 0 {
@@ -304,7 +304,7 @@ func Freshness(h *cluster.ClusterCacheHealth) FreshnessSection {
 // kinds behind are named; with every kind behind, the whole answer is
 // last-known. Nothing answers until some kind has rows: then the verdict is
 // Freshness's, syncing.
-func ConnectingFreshness(h cluster.ClusterCacheHealth, listed map[cluster.SyncedKindRef]bool) (FreshnessSection, bool) {
+func ConnectingFreshness(h cluster.ClusterCacheHealth, listed map[cluster.KindRef]bool) (FreshnessSection, bool) {
 	var old, syncing, unknown []string
 	for _, ref := range h.UnansweredKindRefs {
 		if listed[ref] {
@@ -316,13 +316,13 @@ func ConnectingFreshness(h cluster.ClusterCacheHealth, listed map[cluster.Synced
 	for _, ref := range h.UnhealthyKindRefs {
 		switch {
 		case cluster.RefusedCacheWide(ref.Reason):
-			unknown = append(unknown, kindName(ref.SyncedKindRef))
-		case listed[ref.SyncedKindRef]:
-			old = append(old, kindName(ref.SyncedKindRef))
+			unknown = append(unknown, kindName(ref.KindRef))
+		case listed[ref.KindRef]:
+			old = append(old, kindName(ref.KindRef))
 		case ref.Reason == "Syncing" || ref.Reason == "Resyncing":
-			syncing = append(syncing, kindName(ref.SyncedKindRef))
+			syncing = append(syncing, kindName(ref.KindRef))
 		default:
-			unknown = append(unknown, kindName(ref.SyncedKindRef))
+			unknown = append(unknown, kindName(ref.KindRef))
 		}
 	}
 	behind := len(h.UnansweredKindRefs) + len(h.UnhealthyKindRefs)
@@ -346,7 +346,7 @@ func ConnectingFreshness(h cluster.ClusterCacheHealth, listed map[cluster.Synced
 	return fr, true
 }
 
-func kindName(ref cluster.SyncedKindRef) string { return ref.APIVersion + "/" + ref.Resource }
+func kindName(ref cluster.KindRef) string { return ref.APIVersion + "/" + ref.Resource }
 
 // MarshalFreshness is the section as the card marshals it, for an answer that
 // carries it.

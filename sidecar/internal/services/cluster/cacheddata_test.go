@@ -680,7 +680,7 @@ func TestListedKindsReadsTheKindsWithACookie(t *testing.T) {
 	listed, ok, err := f.data().ListedKinds(ctx, f.clusterID, f.cacheID)
 	require.NoError(t, err)
 	assert.True(t, ok)
-	assert.Equal(t, map[SyncedKindRef]bool{{APIVersion: "v1", Resource: "pods"}: true}, listed)
+	assert.Equal(t, map[KindRef]bool{{APIVersion: "v1", Resource: "pods"}: true}, listed)
 
 	other := createCluster(t, f.d, "other")
 	_, ok, err = f.data().ListedKinds(ctx, clusterIDOf(other), f.cacheID)

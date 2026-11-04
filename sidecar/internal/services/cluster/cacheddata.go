@@ -494,7 +494,7 @@ func (a cachedDataAPI) Query(ctx context.Context, clusterID ClusterID, cacheID C
 	return a.query(ctx, clusterID, cacheID, sql, maxRows, maxBytes, args)
 }
 
-func (a cachedDataAPI) ListedKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (map[SyncedKindRef]bool, bool, error) {
+func (a cachedDataAPI) ListedKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (map[KindRef]bool, bool, error) {
 	store, ok, err := a.openQueried(ctx, clusterID, cacheID)
 	if err != nil || !ok {
 		return nil, false, err
@@ -508,9 +508,9 @@ func (a cachedDataAPI) ListedKinds(ctx context.Context, clusterID ClusterID, cac
 	if err != nil {
 		return nil, false, fmt.Errorf("read cache %d listed kinds: %w", cacheID, err)
 	}
-	listed := map[SyncedKindRef]bool{}
+	listed := map[KindRef]bool{}
 	for _, k := range kinds {
-		listed[SyncedKindRef{APIVersion: k.APIVersion, Resource: k.Resource}] = true
+		listed[KindRef{APIVersion: k.APIVersion, Resource: k.Resource}] = true
 	}
 	return listed, true, nil
 }

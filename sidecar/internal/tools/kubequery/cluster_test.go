@@ -52,7 +52,7 @@ type fakeService struct {
 	queried []queried
 	// listed is the kinds whose list has committed; listedGone finds no file, and
 	// listedErr fails the read.
-	listed     map[cluster.SyncedKindRef]bool
+	listed     map[cluster.KindRef]bool
 	listedGone bool
 	listedErr  error
 }
@@ -120,7 +120,7 @@ func (f fakeCachedData) Query(_ context.Context, _ cluster.ClusterID, cacheID cl
 	return f.query, !f.queryGone, nil
 }
 
-func (f fakeCachedData) ListedKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (map[cluster.SyncedKindRef]bool, bool, error) {
+func (f fakeCachedData) ListedKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (map[cluster.KindRef]bool, bool, error) {
 	return f.listed, !f.listedGone, f.listedErr
 }
 
@@ -142,7 +142,7 @@ func healthy() *fakeService {
 // and none has listed.
 func connecting() *fakeService {
 	f := healthy()
-	f.health = cluster.ClusterCacheHealth{Reason: cluster.ReasonConnecting, TotalKinds: 2, UnansweredKindRefs: []cluster.SyncedKindRef{
+	f.health = cluster.ClusterCacheHealth{Reason: cluster.ReasonConnecting, TotalKinds: 2, UnansweredKindRefs: []cluster.KindRef{
 		{APIVersion: "apps/v1", Resource: "deployments"},
 		{APIVersion: "v1", Resource: "pods"},
 	}}
@@ -207,7 +207,7 @@ func TestSyncingAndUnknownWithholdTheRows(t *testing.T) {
 // still syncing.
 func TestAConnectingCacheAnswersFromKindsListedBefore(t *testing.T) {
 	f := connecting()
-	f.listed = map[cluster.SyncedKindRef]bool{{APIVersion: "v1", Resource: "pods"}: true}
+	f.listed = map[cluster.KindRef]bool{{APIVersion: "v1", Resource: "pods"}: true}
 	f.query = cluster.ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}}
 
 	got, err := dataQuery(f, `SELECT name FROM objects`)
@@ -257,8 +257,8 @@ func TestLastKnownCarriesSince(t *testing.T) {
 	live := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
 	f.health = cluster.ClusterCacheHealth{Reason: "Disconnected", TotalKinds: 2, LastLiveAt: &live,
 		UnhealthyKindRefs: []cluster.UnhealthyKindRef{
-			{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "namespaces"}},
-			{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "nodes"}},
+			{KindRef: cluster.KindRef{APIVersion: "v1", Resource: "namespaces"}},
+			{KindRef: cluster.KindRef{APIVersion: "v1", Resource: "nodes"}},
 		}}
 
 	got, err := dataQuery(f, `SELECT 1`)

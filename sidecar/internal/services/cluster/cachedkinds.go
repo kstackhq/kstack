@@ -121,10 +121,10 @@ type ClusterCachedKindWatchFrame struct {
 	Kind *ClusterCachedKind
 }
 
-// SyncedKindRef identifies one synced kind exactly. The plural alone is what a UI
-// renders, but it does not IDENTIFY a kind — a CRD may reuse a built-in's plural
-// under another api group — so anything that keys on a kind needs the pair.
-type SyncedKindRef struct {
+// KindRef identifies one kind exactly, whatever its sync state. The plural alone is
+// what a UI renders, but it does not IDENTIFY a kind — a CRD may reuse a built-in's
+// plural under another api group — so anything that keys on a kind needs the pair.
+type KindRef struct {
 	APIVersion string
 	Resource   string
 }
@@ -132,7 +132,7 @@ type SyncedKindRef struct {
 // UnhealthyKindRef is one kind that is not Watching, with its own reason, so a consumer
 // can tell the kinds behind a cache's verdict from those merely catching up.
 type UnhealthyKindRef struct {
-	SyncedKindRef
+	KindRef
 	Reason string
 }
 

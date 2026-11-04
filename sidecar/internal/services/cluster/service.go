@@ -336,7 +336,7 @@ type CachedData interface {
 	// one: a kind's cookie is on disk from its list's commit until a relist's first
 	// page clears it. ok is false for a cache the pair does not resolve to, or one
 	// with no file.
-	ListedKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (map[SyncedKindRef]bool, bool, error)
+	ListedKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (map[KindRef]bool, bool, error)
 	// ReadOwn runs read over one snapshot of the cache, each statement it runs one the
 	// sidecar wrote, on a connection kept between such readings: a reader joining
 	// what several statements answer never joins two states of the cache. ok is false

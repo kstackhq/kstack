@@ -325,7 +325,7 @@ func TestCardFoldsTheSyncRowsOntoTheCatalog(t *testing.T) {
 	f := healthy()
 	at := time.Date(2026, 9, 14, 7, 30, 15, 0, time.UTC)
 	f.health = cluster.ClusterCacheHealth{Reason: "SyncFailed", LastLiveAt: &at, TotalKinds: 2, PausedKinds: 1,
-		UnhealthyKindRefs: []cluster.UnhealthyKindRef{{SyncedKindRef: cluster.SyncedKindRef{APIVersion: "v1", Resource: "nodes"}}}}
+		UnhealthyKindRefs: []cluster.UnhealthyKindRef{{KindRef: cluster.KindRef{APIVersion: "v1", Resource: "nodes"}}}}
 	f.sync.Kinds[0].Reason = "Paused"
 	f.sync.Kinds[1].Reason = "SyncFailed"
 	got := cardOf(f)

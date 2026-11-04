@@ -99,7 +99,7 @@ func TestClusterCacheHealthTrusted(t *testing.T) {
 		assert.Equal(t, trusted, ClusterCacheHealth{Reason: reason}.Trusted(), reason)
 	}
 	lastKnown := ClusterCacheHealth{Reason: "Disconnected", TotalKinds: 1, UnhealthyKinds: 1,
-		UnhealthyKindRefs: []UnhealthyKindRef{{SyncedKindRef: SyncedKindRef{APIVersion: "v1", Resource: "pods"}}}}
+		UnhealthyKindRefs: []UnhealthyKindRef{{KindRef: KindRef{APIVersion: "v1", Resource: "pods"}}}}
 	assert.True(t, lastKnown.Trusted())
 
 	for reason, refused := range map[string]bool{
@@ -1316,7 +1316,7 @@ func TestCachesWatchHealthFoldsEveryKindsVerdict(t *testing.T) {
 	assert.Equal(t, 2, got.TotalKinds)
 	assert.Equal(t, 1, got.UnhealthyKinds)
 	assert.Equal(t, []UnhealthyKindRef{
-		{SyncedKindRef: SyncedKindRef{APIVersion: "apps/v1", Resource: "deployments"}, Reason: kubesync.ReasonSyncFailed},
+		{KindRef: KindRef{APIVersion: "apps/v1", Resource: "deployments"}, Reason: kubesync.ReasonSyncFailed},
 	}, got.UnhealthyKindRefs)
 }
 
@@ -1335,8 +1335,8 @@ func TestCachesWatchHealthGivesEachOffenderItsOwnReason(t *testing.T) {
 			got := testutil.Recv(t, stream.Frames, "the cache's folded verdict")
 			assert.Equal(t, verdict, got.Reason)
 			assert.Equal(t, []UnhealthyKindRef{
-				{SyncedKindRef: SyncedKindRef{APIVersion: "apps/v1", Resource: "deployments"}, Reason: verdict},
-				{SyncedKindRef: SyncedKindRef{APIVersion: "v1", Resource: "pods"}, Reason: kubesync.ReasonSyncing},
+				{KindRef: KindRef{APIVersion: "apps/v1", Resource: "deployments"}, Reason: verdict},
+				{KindRef: KindRef{APIVersion: "v1", Resource: "pods"}, Reason: kubesync.ReasonSyncing},
 			}, got.UnhealthyKindRefs)
 		})
 	}
@@ -1465,7 +1465,7 @@ func TestCachesWatchHealthReadsAKindWithNoAnswerAsConnecting(t *testing.T) {
 	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
 	assert.Equal(t, ReasonConnecting, got.Reason)
 	assert.Empty(t, got.UnhealthyKindRefs, "a kind that has not answered is not an offender")
-	assert.Equal(t, []SyncedKindRef{syncedKindRefOf(deploymentsSpec)}, got.UnansweredKindRefs)
+	assert.Equal(t, []KindRef{kindRefOf(deploymentsSpec)}, got.UnansweredKindRefs)
 }
 
 // Every kind that has not answered is named, sorted, and a kind that answers leaves
@@ -1478,13 +1478,13 @@ func TestCachesWatchHealthNamesEveryKindThatHasNotAnswered(t *testing.T) {
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
-	assert.Equal(t, []SyncedKindRef{syncedKindRefOf(deploymentsSpec), syncedKindRefOf(podsSpec)}, got.UnansweredKindRefs)
+	assert.Equal(t, []KindRef{kindRefOf(deploymentsSpec), kindRefOf(podsSpec)}, got.UnansweredKindRefs)
 
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncing})
 	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncing})
 	got = testutil.Recv(t, stream.Frames, "the verdict once a kind answered")
 	if len(got.UnansweredKindRefs) > 0 {
-		assert.Equal(t, []SyncedKindRef{syncedKindRefOf(deploymentsSpec)}, got.UnansweredKindRefs)
+		assert.Equal(t, []KindRef{kindRefOf(deploymentsSpec)}, got.UnansweredKindRefs)
 		got = testutil.Recv(t, stream.Frames, "the verdict once both answered")
 	}
 	assert.Equal(t, kubesync.ReasonSyncing, got.Reason)
@@ -1588,7 +1588,7 @@ func TestCachesWatchHealthReportsAnIdentityMismatchBeforeAnyKindAnswers(t *testi
 	assert.Equal(t, ConditionFalse, got.Status)
 	assert.Equal(t, kubesync.ReasonIdentityMismatch, got.Reason)
 	assert.False(t, got.Trusted())
-	assert.Equal(t, []SyncedKindRef{syncedKindRefOf(deploymentsSpec), syncedKindRefOf(podsSpec)}, got.UnansweredKindRefs)
+	assert.Equal(t, []KindRef{kindRefOf(deploymentsSpec), kindRefOf(podsSpec)}, got.UnansweredKindRefs)
 }
 
 // --- the per-cache sync detail ---
@@ -1722,16 +1722,16 @@ func TestSameTimeComparesTheInstantNotThePointer(t *testing.T) {
 
 // Kinds are ordered by apiVersion and then resource, so a rendered list holds still
 // between ticks rather than reshuffling on whatever order the store returned.
-func TestSyncedKindRefsSortByApiVersionThenResource(t *testing.T) {
-	refs := []SyncedKindRef{
+func TestKindRefsSortByApiVersionThenResource(t *testing.T) {
+	refs := []KindRef{
 		{APIVersion: "v1", Resource: "pods"},
 		{APIVersion: "apps/v1", Resource: "statefulsets"},
 		{APIVersion: "apps/v1", Resource: "deployments"},
 	}
 
-	slices.SortFunc(refs, compareSyncedKindRefs)
+	slices.SortFunc(refs, compareKindRefs)
 
-	assert.Equal(t, []SyncedKindRef{
+	assert.Equal(t, []KindRef{
 		{APIVersion: "apps/v1", Resource: "deployments"},
 		{APIVersion: "apps/v1", Resource: "statefulsets"},
 		{APIVersion: "v1", Resource: "pods"},
