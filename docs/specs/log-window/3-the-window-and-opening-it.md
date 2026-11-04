@@ -32,8 +32,9 @@ the composer says nothing about log windows.
 ### 1. The route and the layout
 
 `src/routes/_logs.tsx` is a pathless layout rendering `LogsWindowLayout`
-(`src/layouts/logs-window-layout.tsx`): the bar over the routed page, no sidebars, no
-`AppDialogs`. `src/routes/logs-window.tsx` is `/logs`. The layout keeps the app layout's
+(`src/layouts/logs-window-layout.tsx`): one column, no sidebars, no `AppDialogs`. The page
+(`src/components/widgets/logs-window.tsx`) draws the bar over its content in every state,
+since the bar names what the page reads. `src/routes/logs-window.tsx` is `/logs`. The layout keeps the app layout's
 height chain (`h-(--app-min-h) min-h-0`, `min-h-0` on each plain flex item), so the viewer
 scrolls and the window never does.
 
@@ -69,8 +70,8 @@ the panel's alone.
 
 `viewOfCall(call)` in `src/lib/logs-view.tsx` is the mapping the three cards make today: a
 LogsView call's action, a LogsRead call's `action.viewAround`, or a LogsWatch call's
-`background.viewAround`, which stays null while the watch runs. The cards and the route
-share it.
+`background.viewAround`, which stays null while the watch runs. The route reads the call
+through it; the cards keep reading the action and task they are handed.
 
 The window holds no provider state of its own. The grep the user applies from the toolbar is
 route state. Columns and wrap still read the shared `kstack:log-viewer-*` keys, as app-wide
@@ -86,7 +87,7 @@ cluster's dot and name and the chat's title through `VisibleText`, then *Show ch
 calls `log_window_show_chat` and opts out of dragging. A cluster the clusters map lacks, as
 when it was deleted and no other context is left, draws no dot or name. An effect sends
 `log_window_title` with the first source, the chat's title and the cluster's name whenever one
-changes. The first source is `namespace/kind/name`, as `SourceLine` names it; a missing
+changes. The first source is `<kind> <name> in <namespace>`, as `SourceLine` names it; a missing
 cluster or an empty chat title sends an empty part, which the host keeps in place. Each notice
 state sends no title, so the window keeps the host's.
 

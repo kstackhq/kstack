@@ -32,6 +32,7 @@ import type { AppMode } from '@/lib/app-mode';
 import { DashboardChat } from '@/components/widgets/dashboard-chat';
 import { LogsViewPanel } from '@/components/widgets/logs-view-panel';
 import { ResizeHandle } from '@/components/widgets/resize-handle';
+import { useLogWindows } from '@/lib/log-windows';
 import { useLogsView } from '@/lib/logs-view';
 import { type WidthBounds, usePersistedWidth } from '@/lib/persisted-width';
 import { useRightSidebar } from '@/lib/right-sidebar';
@@ -71,9 +72,20 @@ function Placeholder({ title, detail }: { title: string; detail: string }) {
 function ChatPanel() {
   const { view, viewport, setGrep } = useLogsView();
   const { close } = useRightSidebar();
+  const { ready, open } = useLogWindows();
   // The panel's close is the toggle's collapse: the view stays focused, with its grep,
-  // for the toggle or the card's Expand to bring back.
-  if (view) return <LogsViewPanel view={view} viewport={viewport} onClose={close} onGrepApplied={setGrep} />;
+  // for the toggle or the card's Expand to bring back. Open in window moves it.
+  if (view) {
+    return (
+      <LogsViewPanel
+        view={view}
+        viewport={viewport}
+        onClose={close}
+        onOpenInWindow={ready ? () => open(view) : undefined}
+        onGrepApplied={setGrep}
+      />
+    );
+  }
   return <Placeholder title="Conversation" detail="What the chat is working from will appear here." />;
 }
 

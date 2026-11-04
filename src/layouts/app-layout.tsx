@@ -35,6 +35,7 @@ import { RightSidebar, RightSidebarToggle, pageMinWidth } from '@/components/wid
 import type { AppMode } from '@/lib/app-mode';
 import { ChatOutboxProvider } from '@/lib/chat-outbox';
 import { ChatSwitchProvider } from '@/lib/chat-switch';
+import { LogWindowsProvider } from '@/lib/log-windows';
 import { LogsViewProvider } from '@/lib/logs-view';
 import { ConnectionStatus } from '@/lib/connection-status';
 import { DialogProvider } from '@/lib/dialog';
@@ -73,42 +74,46 @@ export function AppLayout() {
             {/* The focused view opens the right sidebar when it is set, so it sits
             inside the sidebar's state and above the row that draws it. */}
             <LogsViewProvider>
-              <SidebarProvider
-                open={sidebarOpen}
-                onOpenChange={setSidebarOpen}
-                className="h-(--app-min-h) min-h-0 flex-col"
-              >
-                <AppBar />
-                {/* `relative`: too narrow for the card beside the page, `LeftSidebar`
+              {/* The log windows move the focused view out of the sidebar, so they sit
+              inside both. */}
+              <LogWindowsProvider>
+                <SidebarProvider
+                  open={sidebarOpen}
+                  onOpenChange={setSidebarOpen}
+                  className="h-(--app-min-h) min-h-0 flex-col"
+                >
+                  <AppBar />
+                  {/* `relative`: too narrow for the card beside the page, `LeftSidebar`
               floats it over this row. `overflow-clip`: the three items' minimum
               widths can sum past a narrow window, and an absolute element with no
               nearer positioned ancestor anchors here, past `main`'s clip. */}
-                <div className="relative flex min-h-0 flex-1 overflow-clip">
-                  {/* The mode switch is pinned: it is how you leave whatever the nav below
+                  <div className="relative flex min-h-0 flex-1 overflow-clip">
+                    {/* The mode switch is pinned: it is how you leave whatever the nav below
                 is showing, so it must not scroll away with it. */}
-                  <LeftSidebar
-                    header={<ModeNav />}
-                    nav={onDashboard ? <DashboardResourceNav /> : <ChatNav mode="chat" />}
-                  />
-                  <main
-                    ref={pageRef}
-                    className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
-                    style={{ minWidth: pageMinWidth }}
-                  >
-                    <Outlet />
-                  </main>
-                  <RightSidebar page={pageRef} />
-                  {/* Pinned to the row's top-right corner rather than to the page, so it
+                    <LeftSidebar
+                      header={<ModeNav />}
+                      nav={onDashboard ? <DashboardResourceNav /> : <ChatNav mode="chat" />}
+                    />
+                    <main
+                      ref={pageRef}
+                      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+                      style={{ minWidth: pageMinWidth }}
+                    >
+                      <Outlet />
+                    </main>
+                    <RightSidebar page={pageRef} />
+                    {/* Pinned to the row's top-right corner rather than to the page, so it
                 holds its place as the panel opens under it — over the page while
                 closed, over the panel once open. Below the sidebar drawer's z-30
                 scrim: a covered control must not be clickable.
                 The 16px inset mirrors where the card's own toggle lands (`p-2` on
                 the card plus `p-2` on its header), so the two sit level. */}
-                  <div className="absolute top-4 right-4 z-20">
-                    <RightSidebarToggle />
+                    <div className="absolute top-4 right-4 z-20">
+                      <RightSidebarToggle />
+                    </div>
                   </div>
-                </div>
-              </SidebarProvider>
+                </SidebarProvider>
+              </LogWindowsProvider>
             </LogsViewProvider>
           </RightSidebarProvider>
           <AppDialogs />

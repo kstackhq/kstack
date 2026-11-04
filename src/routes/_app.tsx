@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Pathless layout route: wraps chat/dashboard in `AppLayout` so they share the
-// sidebar (secondary windows will nest under their own layout route). Owns the
+// sidebar (a log window's page nests under `_logs` instead). Owns the
 // window's search params — `kubeContext` and the dashboard's `resource` and `chat`
 // — and `retainSearchParams` carries them across the mode switch, so coming back to
 // the dashboard returns to the resource you left.

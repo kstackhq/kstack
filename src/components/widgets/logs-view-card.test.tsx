@@ -14,6 +14,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { fakeLogWindows } from '@/test-utils';
+
 import type { AppMode } from '@/lib/app-mode';
 import type { ChatToolCall } from '@/lib/chats';
 import type { FetchQuery } from '@/lib/log-viewer';
@@ -33,10 +35,15 @@ vi.mock('@/lib/logs-client', () => ({
 }));
 
 const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
+const { LogWindowsContext } = await import('@/lib/log-windows');
+const { windows, value: logWindows } = fakeLogWindows();
 const { RightSidebarProvider, useRightSidebar } = await import('@/lib/right-sidebar');
 const { LogsViewCard } = await import('./logs-view-card');
 
 beforeEach(() => {
+  windows.length = 0;
+  logWindows.open.mockReset();
+  logWindows.focus.mockReset();
   fetched.length = 0;
   localStorage.clear();
 });
@@ -126,15 +133,17 @@ const draw = ({
   render(
     <RightSidebarProvider mode={mode}>
       <LogsViewProvider>
-        <LogsViewCard
-          call={call}
-          action={view}
-          chatID="chat-1"
-          clusterID={clusterID ?? undefined}
-          mode={mode}
-          until={until}
-        />
-        <Focused />
+        <LogWindowsContext.Provider value={logWindows}>
+          <LogsViewCard
+            call={call}
+            action={view}
+            chatID="chat-1"
+            clusterID={clusterID ?? undefined}
+            mode={mode}
+            until={until}
+          />
+          <Focused />
+        </LogWindowsContext.Provider>
       </LogsViewProvider>
     </RightSidebarProvider>,
   );
@@ -161,6 +170,27 @@ describe('LogsViewCard', () => {
     expect(screen.getByTestId('focused')).toHaveTextContent('cluster-1/chat-1/call-1');
     expect(screen.queryByRole('button', { name: 'Expand' })).not.toBeInTheDocument();
     expect(screen.getByText('Showing in the sidebar')).toBeInTheDocument();
+  });
+
+  it('Open in window moves the call’s view to a window', () => {
+    draw();
+    fireEvent.click(screen.getByRole('button', { name: 'Open in window' }));
+    expect(logWindows.open).toHaveBeenCalledWith({
+      clusterId: 'cluster-1',
+      chatId: 'chat-1',
+      callId: 'call-1',
+      action,
+    });
+  });
+
+  it('says the view is in a window, with Show window and no preview, while its call has one', () => {
+    windows.push({ label: 'logs-1', clusterId: 'cluster-1', chatId: 'chat-1', callId: 'call-1' });
+    draw();
+    expect(screen.getByText('Showing in a window')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Expand' })).not.toBeInTheDocument();
+    expect(inline()).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show window' }));
+    expect(logWindows.focus).toHaveBeenCalledWith('call-1');
   });
 
   it('holds Expand until the chat’s cluster is known', () => {

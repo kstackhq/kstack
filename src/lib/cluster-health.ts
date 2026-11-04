@@ -138,10 +138,15 @@ export function overallStatus(connection: Status, sync: Status): Health {
   return { tone: overallTone(connection.tone, sync.tone), summary: `${connection.label} · ${sync.label}` };
 }
 
+// A cluster record's health, as its active cache and connection give it.
+export function clusterHealth(record: Cluster): Health {
+  return overallStatus(connectionStatus(record, 'active'), syncStatus(record, 'active'));
+}
+
 // A kubeconfig context's health: its record's, or muted while no record matches,
 // which is also every context's before the clusters snapshot lands.
 export function contextHealth(clusters: Cluster[] | null, context: string): Health {
   const record = clusterForContext(clusters, context);
   if (!record) return { tone: 'muted', summary: 'Not reached' };
-  return overallStatus(connectionStatus(record, 'active'), syncStatus(record, 'active'));
+  return clusterHealth(record);
 }
