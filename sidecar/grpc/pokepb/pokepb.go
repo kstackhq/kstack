@@ -7,4 +7,4 @@
 // Never hand-edit them.
 package pokepb
 
-//go:generate protoc --proto_path=../../../proto --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative ../../../proto/poke.proto
+//go:generate sh ../../../scripts/protoc.sh --proto_path=../../../proto --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative ../../../proto/poke.proto

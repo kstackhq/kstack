@@ -74,7 +74,7 @@ files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 - `graph/` — schema, generated code, resolvers. Resolver deps are non-nil; tests wire fakes. A
   domain refusal reaches the wire as `KSTACK_VALIDATION_ERROR` through a mapper in `graph/util.go`.
   A `Chat` folder grant with no `chatID` is refused, never widened to every chat.
-- `grpc/` — committed protoc output; regenerate with `make proto`, **never hand-edit `*.pb.go`**.
+- `grpc/` — committed protoc output; regenerate with `make proto`, **never hand-edit `*.pb.go`**. It runs `scripts/protoc.sh`, which fetches the pinned `protoc` and builds the plugins from `go.mod`'s `tool` block.
 - `internal/` → [ADR: services, lib and the
   rest](../docs/adr/2026-10-06-sidecar-packages-group-into-services-lib-and-the-rest.md):
   `services/` (state outliving a request, reached from `graph/`/`grpc/`), `lib/` (no Kstack
