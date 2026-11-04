@@ -147,10 +147,12 @@ Follow the [PR template](./.github/pull_request_template.md). Your PR should inc
 
 ### PR Checklist
 
-- [ ] Add the correct emoji to the PR title
-- [ ] Related issue linked above, if any
-- [ ] Commit messages use [conventional commit](https://www.conventionalcommits.org) format
+- [ ] The title leads with the change type's emoji
+- [ ] The related issue, if any, is linked above
+- [ ] Commit messages are [conventional commits](https://www.conventionalcommits.org)
 - [ ] Changes are minimal and focused
+- [ ] Every changed line is covered (`coverage / Gate`), or marked with the reason no test can reach it
+- [ ] Docs this change makes stale are updated in it: the area's `CLAUDE.md`, an ADR for a changed decision, `docs/security-model.md`, `docs/persisted-data.md`
 
 ## Issues and Specs
 
