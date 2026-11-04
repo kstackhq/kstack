@@ -96,6 +96,21 @@ bind "$BUILD_ROOT/dist" "$REPO/dist"
 # env file is shared by every worktree in the sandbox, so the store path must not
 # depend on $REPO. Unset PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE and reinstall to
 # rule out the layout when something fails only in the sandbox.
+#
+# Go is pinned to CI's version, read from setup-environment's go-version
+# default. A go.mod's go line is only a minimum, and GOTOOLCHAIN=auto switches
+# only upward, so the sandbox's newer go would otherwise run every check. +auto
+# still upgrades if a go.mod ever requires a newer Go.
+GO_VERSION="$(awk '
+  /^  go-version:/ { in_go = 1; next }
+  /^  [^ ]/        { in_go = 0 }
+  in_go && /^    default:/ { gsub(/[^0-9.]/, "", $2); print $2; exit }
+' "$REPO/.github/actions/setup-environment/action.yml")"
+if [ -z "$GO_VERSION" ]; then
+  echo "✗ no go-version default in .github/actions/setup-environment/action.yml" >&2
+  exit 1
+fi
+
 sudo touch "$PERSIST"
 sudo sed -i \
   -e '/KSTACK_SANDBOX_ENV/d' \
@@ -104,16 +119,18 @@ sudo sed -i \
   -e '/^export PNPM_CONFIG_STORE_DIR=/d' \
   -e '/^export PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE=/d' \
   -e '/^export PATH=.*\.cargo\/bin/d' \
+  -e '/^export GOTOOLCHAIN=/d' \
   "$PERSIST"
 sudo tee -a "$PERSIST" >/dev/null <<EOF
-# KSTACK_SANDBOX_ENV — Linux build outputs, kept out of the macOS host's paths.
+# KSTACK_SANDBOX_ENV — Linux build outputs kept out of the macOS host's paths, and Go pinned to CI's.
 export CARGO_TARGET_DIR="$OVERLAY_ROOT/target"
 export CARGO_PROFILE_DEV_DEBUG=line-tables-only
 export PNPM_CONFIG_STORE_DIR="$PNPM_STORE"
 export PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE=true
+export GOTOOLCHAIN=go$GO_VERSION+auto
 export PATH="\$HOME/.cargo/bin:\$HOME/.local/share/pnpm:\$PATH"
 EOF
-echo "✓ env vars written to $PERSIST"
+echo "✓ env vars written to $PERSIST (Go pinned to $GO_VERSION)"
 
 echo
 echo "Done. Open a new shell (or 'source $PERSIST') to pick up the env vars."
