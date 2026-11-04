@@ -13,8 +13,9 @@ with the chat. When the last step lands, a view can leave the sidebar for a wind
 - **A log window belongs to one app window**, the one that opened it. The host keeps the pair
   and enforces it: a log window reaches its own app window and no other, and it closes when
   that window closes or leaves the cluster.
-- **The log window is the viewer under a slim bar.** The bar names the cluster and the chat and
-  has **Show chat**, which brings the app window back. The native title names the chat and the
+- **The log window is the panel's header and the viewer under a slim bar.** The bar names the
+  cluster and the chat and has **Show chat**, which brings the app window back. The header
+  names the sources, as the sidebar's does. The native title names the chat and the
   cluster too, for the OS's window switchers.
 - **In the app window, the card reads *Showing in a window*** with **Show window**, where
   *Showing in the sidebar* is drawn today.
@@ -51,7 +52,8 @@ lists the docs to update. *Verification* is the commands to run, then what to ch
 ## Answers to #507
 
 **1. Opening.** Both places, and it moves. The panel's header gets *Open in window* beside its
-close. A card gets *Open in window* beside Expand or *View around this*, in chat mode alone. A
+close. A card gets *Open in window* beside Expand or *View around this*, in chat mode alone, and
+drops its inline preview while the view is in a window. A
 view is in one place at a time: the card has one state to draw, and the snapshot has one
 source. What moves is the view and the grep the user applied. The window's viewer opens at
 the action's anchor, as a fresh Expand does, so the scroll position, a pause and a selection
@@ -69,7 +71,7 @@ match, and the cluster's dot already has a colour. (Steps 2 and 3.)
 | Event | The log window |
 | --- | --- |
 | Its app window closes | Closes. The host closes it on the app window's `Destroyed`. |
-| Its app window's active cluster changes, by any path | Closes, as the sidebar's view clears today. |
+| Its app window's active cluster changes, by any path | Closes. Today the sidebar's view clears on the picker's change alone; a log window closes on every path. |
 | Its app window moves to another chat or mode | Stays open and live. Its selection stops riding until the app window is back on its chat. |
 | Its chat is deleted | Draws *This chat was deleted.*, as `OpenChat` does, and stops reading. |
 | Its cluster is deleted | The app window's context yields to the kubeconfig's default, which is a cluster change: the row above applies. With no other context the app window has no cluster, the log window stays, and the chat's deletion follows. |
