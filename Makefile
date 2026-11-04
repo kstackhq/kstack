@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js cover-changed lint lint-go lint-rust lint-js lint-yaml lint-md lint-markers vet vet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
+.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js cover-changed lint lint-go lint-rust lint-js lint-yaml lint-sh lint-md lint-markers vetvet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -106,7 +106,7 @@ cover-changed:
 	bash scripts/cover-changed.sh
 
 # Run every linter in the repo.
-lint: lint-go lint-rust lint-js lint-yaml lint-md lint-markers
+lint: lint-go lint-rust lint-js lint-yaml lint-sh lint-md lint-markers
 
 # `gofmt -l` lists unformatted files; non-empty = lint failure.
 lint-go:
@@ -122,13 +122,19 @@ lint-js:
 	pnpm lint
 
 # Every YAML file, then the workflows and composite actions: actionlint
-# type-checks them and shellchecks their `run:` blocks (when shellcheck is on
-# PATH), zizmor audits them against .github/ci-config/zizmor.yml. zizmor's
-# online audits run only when GH_TOKEN is set, as in CI.
+# type-checks them and shellchecks their `run:` blocks, zizmor audits them
+# against .github/ci-config/zizmor.yml. zizmor's online audits run only when
+# GH_TOKEN is set, as in CI. tools/go.mod pins actionlint, where Dependabot
+# moves it.
 lint-yaml:
 	uv tool run yamllint@1.38.0 --strict .
-	go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -config-file .github/ci-config/actionlint.yaml
+	sc=$$(sh scripts/shellcheck-path.sh) && cd tools && \
+		go tool actionlint -shellcheck "$$sc" -config-file ../.github/ci-config/actionlint.yaml
 	uv tool run zizmor@1.31.1 --config .github/ci-config/zizmor.yml .
+
+# The shell scripts, with the pinned shellcheck (scripts/shellcheck-path.sh).
+lint-sh:
+	sc=$$(sh scripts/shellcheck-path.sh) && "$$sc" scripts/*.sh src-tauri/linux/*.sh
 
 # Check local paths and anchors without making CI depend on the network.
 lint-md:

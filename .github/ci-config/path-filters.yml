@@ -48,6 +48,7 @@ typescript:
 # ci.yml's alone.
 shell:
   - .github/workflows/ci.yml
+  - Makefile
   - '**/*.sh'
 yaml:
   - .github/**
@@ -55,5 +56,7 @@ yaml:
   - .yamllint.yml
   - .yamllintignore
   - Makefile
+  - scripts/shellcheck-path.sh
+  - tools/go.mod
   - '**/*.yml'
   - '**/*.yaml'
