@@ -4,7 +4,7 @@
 //   - patch: every changed line a report measured is covered;
 //   - project: the total is no more than -threshold points below the base.
 //
-// CI's coverage / Gate job (.github/workflows/coverage.yml) runs it after every
+// CI's Coverage · Gate job (.github/workflows/coverage.yml) runs it after every
 // coverage job:
 //
 //	go run ./coveragegate -sha <head> -pr <n> -base <sha> -run <run url> -flags go-linux,typescript

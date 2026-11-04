@@ -7,7 +7,7 @@
 # Keeping the newest copy, rather than this run's, means a failed save leaves
 # the last good cache in place.
 #
-#   sh scripts/prune-caches.sh <ref>
+#   sh .github/actions/prune-caches/prune-caches.sh <ref>
 #
 # Needs GH_TOKEN with actions: write, and GITHUB_REPOSITORY.
 set -eu

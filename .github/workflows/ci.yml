@@ -64,63 +64,17 @@ jobs:
       shell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.shell == 'true' }}
       yaml: ${{ github.event_name != 'pull_request' || steps.filter.outputs.yaml == 'true' }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+          sparse-checkout: .github
       - id: filter
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
-          # Go covers what Sandbox · AppArmor builds and runs. Rust builds
-          # against a stub sidecar, so the sidecar is not its input.
-          filters: |
-            shared: &shared
-              - .github/actions/setup-environment/**
-              - .github/workflows/ci.yml
-              - .github/workflows/coverage.yml
-              - .github/codecov.yml
-              - scripts/check-coverage-markers.sh
-            go:
-              - *shared
-              - Makefile
-              - proto/**
-              - scripts/**
-              - sidecar/**
-              - cli/**
-              - src-tauri/linux/**
-              - tools/**
-            rust:
-              - *shared
-              - .github/actions/stub-sidecar/**
-              - proto/**
-              - src-tauri/**
-              - tools/coverignore/**
-            typescript:
-              - *shared
-              - .gitignore
-              - Makefile
-              - public/**
-              - src/**
-              - sidecar/graph/schema.graphqls
-              - .oxfmtrc.json
-              - codegen.ts
-              - eslint.config.ts
-              - index.html
-              - index.test.ts
-              - package.json
-              - pnpm-lock.yaml
-              - pnpm-workspace.yaml
-              - tsconfig*.json
-              - vite.config.ts
-              - vitest.setup.ts
-            shell:
-              - .github/workflows/ci.yml
-              - '**/*.sh'
-            yaml:
-              - .github/**
-              - .gitignore
-              - .yamllint.yml
-              - .yamllintignore
-              - Makefile
-              - '**/*.yml'
-              - '**/*.yaml'
+          # Shared with coverage.yml.
+          filters: .github/ci-config/path-filters.yml
 
   ##############################
   # Lint and vet jobs
@@ -458,21 +412,6 @@ jobs:
           path: ${{ steps.setup.outputs.go-cache-path }}
           key: ${{ steps.setup.outputs.go-cache-key }}
 
-  # Measures each selected language's coverage and gates on Codecov's merged
-  # result (coverage.yml). Its checks read "coverage / Go (linux)" and so on.
-  coverage:
-    needs: changes
-    permissions:
-      contents: read
-      # Codecov's upload authenticates with an OIDC token.
-      id-token: write
-    uses: ./.github/workflows/coverage.yml
-    with:
-      go: ${{ needs.changes.outputs.go == 'true' }}
-      rust: ${{ needs.changes.outputs.rust == 'true' }}
-      typescript: ${{ needs.changes.outputs.typescript == 'true' }}
-      cache-mode: ${{ needs.changes.outputs.cache-mode }}
-
   # Builds Kstack's own bwrap and pasta, loads their AppArmor profiles through
   # the .deb's postinst on a stock 24.04, where user namespaces are restricted,
   # and runs the sandbox's chains through them as an ordinary user.
@@ -600,7 +539,6 @@ jobs:
       - go-vet
       - go-staticcheck
       - go-test
-      - coverage
       - rust-vet
       - rust-test
       - typescript-lint
@@ -615,8 +553,5 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: scripts
-      - name: Prune caches
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: sh scripts/prune-caches.sh "$GITHUB_REF"
+          sparse-checkout: .github/actions/prune-caches
+      - uses: ./.github/actions/prune-caches

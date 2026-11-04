@@ -3,42 +3,74 @@ name: coverage
 permissions:
   contents: read
 
-# ci.yml calls this on every pull request, push to main and dispatch, saying
-# which languages its path filter selected. A push to wip/* starts it alone,
-# with no inputs, and runs every language: that gives the branch's tip the
-# Codecov report a PR into it is compared with. The PR it merged ran the other
-# checks.
+# Runs beside ci.yml on its own triggers, plus a push to wip/*: that gives the
+# branch's tip the Codecov report a PR into it is compared with. The PR it
+# merged ran the other checks.
 on:
-  workflow_call:
-    inputs:
-      go:
-        type: boolean
-        required: true
-      rust:
-        type: boolean
-        required: true
-      typescript:
-        type: boolean
-        required: true
-      cache-mode:
-        description: ci.yml's CACHE_MODE
-        type: string
-        required: true
+  pull_request:
+    branches:
+      - "**"
   push:
     branches:
+      - main
       - wip/**
+  workflow_dispatch:
+    inputs:
+      cache-mode:
+        description: >-
+          use: restore the Go and Rust caches, save none. update: also save a
+          new Go cache. rebuild: start the Go cache from empty and save it.
+          Off main, a saved cache is that branch's alone; PRs never read it.
+        type: choice
+        options:
+          - use
+          - update
+          - rebuild
+        default: use
+
+# As in ci.yml: a PR's new push cancels its last run, and every other run has
+# a group of its own.
+concurrency:
+  group: coverage-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  CACHE_MODE: ${{ inputs.cache-mode || 'use' }}
+  # As in ci.yml: a dispatch takes its input, a push to main updates, every
+  # other run uses.
+  CACHE_MODE: ${{ inputs.cache-mode || github.ref == 'refs/heads/main' && 'update' || 'use' }}
   # As in ci.yml: rust-cache keys on CARGO_* variables.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
-# A language runs when ci.yml selected it or on a push to wip/*. On a call,
-# github.event_name is the caller's, and ci.yml selects every language on a push.
 jobs:
+  # A pull request measures a language when one of its paths in
+  # .github/ci-config/path-filters.yml, which ci.yml's Changes reads too,
+  # changed. A push or a dispatch measures them all.
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: read
+    outputs:
+      cache-mode: ${{ env.CACHE_MODE }}
+      go: ${{ github.event_name != 'pull_request' || steps.filter.outputs.go == 'true' }}
+      rust: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust == 'true' }}
+      typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.typescript == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+          sparse-checkout: .github
+      - id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: .github/ci-config/path-filters.yml
+
   go:
-    name: Go (${{ matrix.os }})
-    if: inputs.go || github.event_name == 'push'
+    name: Coverage · Go (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     strategy:
       fail-fast: false
       # One runner per OS: every platform split in the sidecar is by OS, none
@@ -135,8 +167,9 @@ jobs:
           key: ${{ steps.setup.outputs.go-cache-key }}
 
   typescript:
-    name: TypeScript (linux)
-    if: inputs.typescript || github.event_name == 'push'
+    name: Coverage · TypeScript (linux)
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -165,8 +198,9 @@ jobs:
   # One runner per OS, as Go's: Rust's platform splits are by OS.
   # The instrumented build is its own profile, so it keeps its own cache.
   rust:
-    name: Rust (${{ matrix.os }})
-    if: inputs.rust || github.event_name == 'push'
+    name: Coverage · Rust (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -221,12 +255,13 @@ jobs:
   # (tools/coveragegate). Codecov's public API needs no token, so a fork's PR
   # runs it too. A language whose job failed is not waited for.
   gate:
-    name: Gate
+    name: Coverage · Gate
     needs:
+      - changes
       - go
       - typescript
       - rust
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -258,3 +293,23 @@ jobs:
           if [ "$RUST_RESULT" = success ]; then flags="$flags,rust-linux,rust-macos,rust-windows"; fi
           go run ./coveragegate -sha "$SHA" -pr "$PR" -base "$BASE" -flags "${flags#,}" \
             -run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+  # As ci.yml's: leaves one copy of each cache on the ref. It runs after the
+  # Rust jobs because rust-cache saves in a post step.
+  cache-prune:
+    name: Caches · Prune
+    needs:
+      - changes
+      - go
+      - rust
+    if: always() && needs.changes.outputs.cache-mode != 'use'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/actions/prune-caches
+      - uses: ./.github/actions/prune-caches

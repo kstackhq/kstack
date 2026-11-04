@@ -220,11 +220,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: scripts
-      - name: Prune caches
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: sh scripts/prune-caches.sh "$GITHUB_REF"
+          sparse-checkout: .github/actions/prune-caches
+      - uses: ./.github/actions/prune-caches
 
   # A skipped category's files are unchanged, so uploading main's analysis
   # under it lets code scanning still compare the pull request to main, and

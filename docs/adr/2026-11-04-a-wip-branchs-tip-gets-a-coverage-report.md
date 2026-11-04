@@ -3,6 +3,7 @@ title: A wip branch's tip gets a coverage report, and a missing base fails the g
 date: 2026-11-04
 scope: repo
 status: Accepted
+amended_by: [Coverage runs on its own triggers, reading the path filters ci.yml reads](2026-11-04-coverage-runs-on-its-own-triggers-from-shared-path-filters.md)
 ---
 
 # A wip branch's tip gets a coverage report, and a missing base fails the gate at once

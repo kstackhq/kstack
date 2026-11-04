@@ -1,0 +1,59 @@
+# dorny/paths-filter's filters, read by ci.yml's and coverage.yml's Changes
+# jobs. A pull request runs a language's checks and its coverage when a path
+# here changed, so the two cannot drift: a path that ran the tests but not the
+# coverage would pass its changed lines as "0 of 0 covered".
+#
+# Go covers what Sandbox · AppArmor builds and runs. Rust builds against a stub
+# sidecar, so the sidecar is not its input.
+shared: &shared
+  - .github/actions/setup-environment/**
+  - .github/ci-config/path-filters.yml
+  - .github/workflows/ci.yml
+  - .github/workflows/coverage.yml
+  - .github/codecov.yml
+  - scripts/check-coverage-markers.sh
+go:
+  - *shared
+  - Makefile
+  - proto/**
+  - scripts/**
+  - sidecar/**
+  - cli/**
+  - src-tauri/linux/**
+  - tools/**
+rust:
+  - *shared
+  - .github/actions/stub-sidecar/**
+  - proto/**
+  - src-tauri/**
+  - tools/coverignore/**
+typescript:
+  - *shared
+  - .gitignore
+  - Makefile
+  - public/**
+  - src/**
+  - sidecar/graph/schema.graphqls
+  - .oxfmtrc.json
+  - codegen.ts
+  - eslint.config.ts
+  - index.html
+  - index.test.ts
+  - package.json
+  - pnpm-lock.yaml
+  - pnpm-workspace.yaml
+  - tsconfig*.json
+  - vite.config.ts
+  - vitest.setup.ts
+# ci.yml's alone.
+shell:
+  - .github/workflows/ci.yml
+  - '**/*.sh'
+yaml:
+  - .github/**
+  - .gitignore
+  - .yamllint.yml
+  - .yamllintignore
+  - Makefile
+  - '**/*.yml'
+  - '**/*.yaml'
