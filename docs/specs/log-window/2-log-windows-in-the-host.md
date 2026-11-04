@@ -29,7 +29,7 @@ yet: no page calls any of this until step 3.
 The step adds eight commands, four per window kind. Each is named in `build.rs`'s `COMMANDS`
 and `lib.rs`'s `generate_handler!`, so `every_command_is_in_the_app_manifest` holds them.
 
-`capabilities/default.json` (`main`, `window-*`) grows by `allow-log-windows-watch`,
+`capabilities/default.json` (`main`, `window-*`) grows by `allow-log-window-subscribe`,
 `allow-log-window-open`, `allow-log-window-focus` and `allow-log-window-close-all`, and
 `default_capability_grants_what_the_app_window_calls` grows to match.
 
@@ -37,7 +37,7 @@ and `lib.rs`'s `generate_handler!`, so `every_command_is_in_the_app_manifest` ho
 `core:event:allow-listen` and `core:event:allow-unlisten`, the five window-chrome permissions,
 `allow-ready`, `allow-graphql-query`, `allow-graphql-subscribe`, `allow-graphql-unsubscribe`,
 `allow-log-webview`, `allow-log-window-view`, `allow-log-window-viewport`,
-`allow-log-window-title` and `allow-log-window-show-source`. It grants neither
+`allow-log-window-title` and `allow-log-window-show-chat`. It grants neither
 `allow-new-window`, `allow-update-host-file`, `allow-quit`, `allow-open-account-url` nor any
 app-window log command. `logs_capability_grants_the_viewer_and_nothing_else` pins the list.
 
@@ -74,7 +74,7 @@ log window the user closes still goes through `CloseRequested`.
 `src-tauri/src/log_windows.rs` holds the pairing behind one `Mutex`:
 
 - **Pages**, `app label → { page, channel }`. `page` is a number from a host counter,
-  minted by each `log_windows_watch`. It names one app page's lifetime: it ends when that
+  minted by each `log_window_subscribe`. It names one app page's lifetime: it ends when that
   page's window is destroyed or its page reloads.
 - **Entries**, `logs label → { app label, state, clusterId, chatId, callId, grep, generation,
   focusSeq, push }`. `logs-N` labels are never reused, so a label names one entry for the
@@ -91,7 +91,7 @@ Each entry's fields:
 - `push` is the last `log_window_viewport` the page sent, or none.
 
 **Every send on a channel happens under the lock**, together with the change it reports.
-`log_windows_watch` swaps the channel and sends the `snapshot` under the same lock, so no frame
+`log_window_subscribe` swaps the channel and sends the `snapshot` under the same lock, so no frame
 can land before the snapshot or describe a change the snapshot already holds.
 
 **The app window sees only `Live` entries.** A `Building` entry is in no `snapshot`, and no
@@ -179,14 +179,14 @@ one push; step 4 caps how often one is sent.
 
 | Command | From | Does |
 | --- | --- | --- |
-| `log_windows_watch(channel)` | app window | Mints a page, keeps it and the channel as the caller's, replacing any earlier pair, sends a `snapshot` of the caller's `Live` log windows down it, and returns `{ page }`. |
+| `log_window_subscribe(channel)` | app window | Mints a page, keeps it and the channel as the caller's, replacing any earlier pair, sends a `snapshot` of the caller's `Live` log windows down it, and returns `{ page }`. |
 | `log_window_open { page, clusterId, chatId, callId, grep? }` | app window | Opens or surfaces the caller's window on that call, as §4 says. Returns the label once the window exists. |
 | `log_window_focus { page, callId }` | app window | Surfaces the caller's `Live` window on that call. |
 | `log_window_close_all { page }` | app window | Removes and destroys the caller's log windows, cancelling any still building. |
 | `log_window_view` | log window | Returns `{ chatId, callId, grep, generation }`: the grep of the last push, else the open's, so a reload keeps the toolbar's. |
 | `log_window_viewport { generation, grep, viewport }` | log window | Refused unless `generation` is the caller's current one and the payload is within 256 KiB. Keeps the payload as the caller's `push` and its `grep` as the caller's grep; sends a `viewport` frame if the entry is `Live`. |
 | `log_window_title { parts }` | log window | Refused unless `parts` holds at most three strings, each within 4 KiB. Sets the caller's native title from `window_title::build(parts)`. |
-| `log_window_show_source` | log window | Surfaces the caller's app window and sends a `showChat` frame down its channel. |
+| `log_window_show_chat` | log window | Surfaces the caller's app window and sends a `showChat` frame down its channel. |
 
 ### 6. The channel's frames
 
@@ -200,7 +200,7 @@ never has to merge a list with a stream:
   `Live` entry's page reloads.
 - `focused { label, focusSeq }`: on a `Live` log window's `Focused(true)`.
 - `closed { label }`: when a `Live` entry is removed by a close or its own destroy.
-- `showChat { chatId }`: from `log_window_show_source`.
+- `showChat { chatId }`: from `log_window_show_chat`.
 
 ### 7. The window events
 
@@ -219,7 +219,7 @@ a test drives any interleaving of them directly, with no window built.
   queued from another thread can create a new window under that label.
 - **A `PageLoadEvent::Started`** steps a log window's generation and clears its push. On an
   app window it ends the page and drops the channel; its log windows stay, and the next
-  `log_windows_watch` lists them.
+  `log_window_subscribe` lists them.
 
 `app.rs` adds the `Focused` arm to its `RunEvent::WindowEvent` match and calls the `lib.rs`
 handler; it decides nothing.
@@ -239,8 +239,8 @@ Rust `&str` cannot hold. It cuts each part to 60 characters on a character bound
 - **The host owns the pair, and talks to an app window over its channel.** A page cannot
   forge a link to another window, send an event as the host, or listen for another window's,
   and a closing app window is a host event its page may not live to see.
-- **One watch, snapshot first, every send under the lock.** The app window folds one ordered
-  stream, so a `closed` can never race a list that still has the window.
+- **One subscription, snapshot first, every send under the lock.** The app window folds one
+  ordered stream, so a `closed` can never race a list that still has the window.
 - **The log window asks the host what to draw.** The pair already holds it, so the URL
   encodes nothing and a reload still works.
 - **The host stamps each page load.** A reloaded page's revisions start over, so the host
@@ -281,7 +281,7 @@ Tasks 1 and 2 can be built at the same time.
   `None` and `surface_window` shows nothing once a quit has begun; `log_windows.rs` and its
   wiring call `destroy()` and never `close()`, read from source as
   `build_window_installs_the_navigation_policy` does.
-- **The page.** `log_windows_watch` returns a new page each time, and a `snapshot` is first
+- **The page.** `log_window_subscribe` returns a new page each time, and a `snapshot` is first
   on its channel; a second replaces the first. Each app-window command is refused with an
   ended page: after the window's destroy, after its page reloads, and after `main` is
   destroyed and rebuilt, where the rebuilt window's page works and the old one's open, queued
@@ -308,7 +308,7 @@ Tasks 1 and 2 can be built at the same time.
   `Cancelled`; a log window's command reaches only its own app window, and an app window's
   only its own log windows; each app-window command from a `logs-N` caller and each
   log-window command from a `main` or `window-N` caller is refused and changes nothing, so a
-  `logs-N` caller of `log_windows_watch` mints no page; frames reach the channel of the paired
+  `logs-N` caller of `log_window_subscribe` mints no page; frames reach the channel of the paired
   app window and no other; an app window's page load ends its page and
   keeps its log windows; a log window's page load steps the generation, clears the push and
   sends the null frame; `log_window_view` answers the same twice, with the grep last pushed; a

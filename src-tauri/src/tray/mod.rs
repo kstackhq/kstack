@@ -81,7 +81,7 @@ pub fn run_action<R: Runtime>(app: &AppHandle<R>, action: TrayAction) -> JoinHan
     // Auth actions are fire-and-forget RPCs; the result comes back through the
     // watch stream and rebuilds the menu. Window builds go to the blocking
     // pool — never the main thread (WebView2 deadlock) or an async worker (see
-    // `commands::new_window`).
+    // `window_manager::on_blocking_pool`).
     match action {
         TrayAction::Login => tauri::async_runtime::spawn(async move {
             let started = app.state::<AppState>().sidecar.start_login().await;

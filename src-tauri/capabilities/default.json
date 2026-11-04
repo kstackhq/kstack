@@ -21,6 +21,10 @@
     "allow-update-host-file",
     "allow-quit",
     "allow-log-webview",
-    "allow-open-account-url"
+    "allow-open-account-url",
+    "allow-log-window-subscribe",
+    "allow-log-window-open",
+    "allow-log-window-focus",
+    "allow-log-window-close-all"
   ]
 }

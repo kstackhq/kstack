@@ -59,26 +59,26 @@ The bar is 40px and the drag region, as the app bar is. macOS keeps its traffic 
 step 2 placed for this height, and its hidden title. Linux and Windows draw `WindowControls`
 at the right with no `AppMenu`, so `Ctrl+N` and `Ctrl+Q` do nothing there. It draws the
 cluster's dot and name and the chat's title through `VisibleText`, then *Show chat*, which
-calls `log_window_show_source` and opts out of dragging. An effect sends `log_window_title`
+calls `log_window_show_chat` and opts out of dragging. An effect sends `log_window_title`
 with the first source, the chat's title and the cluster's name whenever one changes.
 
 ### 3. The app window's side
 
 `src/lib/log-windows.tsx` adds `LogWindowsProvider` under `LogsViewProvider` in `AppLayout`.
-It calls `log_windows_watch` with a channel on mount, keeps the `page` it returns, and passes
+It calls `log_window_subscribe` with a channel on mount, keeps the `page` it returns, and passes
 it in every app-window command. It folds the frames, in order, into one map by label:
 `snapshot` replaces it, `opened` adds, `closed` removes. For each window it keeps its cluster,
 chat and call; the frames' `push` is step 4's.
 
-Each mount's watch replaces the last and ends its page, and the answers can arrive out of
+Each mount's subscribe replaces the last and ends its page, and the answers can arrive out of
 order. The provider keeps the page of its current mount and drops an answer that lands after
 that mount's cleanup; React's dev-mode double mount would otherwise leave it holding an ended
 page, with every command refused.
 
-It exposes `open(view)` and `focus(callId)`, which do nothing until the watch returns its page.
-`open` calls `log_window_open`, which returns once the window exists; then, if the sidebar
-shows that call, it clears the focused view and closes the sidebar. A refused or failed open
-leaves the sidebar as it was and reports through `error-log.ts`.
+It exposes `open(view)` and `focus(callId)`, which do nothing until the subscribe returns its
+page. `open` calls `log_window_open`, which returns once the window exists; then, if the
+sidebar shows that call, it clears the focused view and closes the sidebar. A refused or failed
+open leaves the sidebar as it was and reports through `error-log.ts`.
 
 The provider calls `log_window_close_all` when `useActiveCluster` has a `clusterID` and it
 differs from its windows'. That covers every path that changes `kubeContext`: the picker's
@@ -117,7 +117,7 @@ undefined: before the clusters bookmark, on a reload, and when no context is lef
 - **The app window.** The frames fold in order, and a `closed` after a `snapshot` that lacks
   the window is a no-op; `open` moves a view out of the sidebar and focuses an open window,
   and a failed open leaves the sidebar as it was; every command carries the page, and none is
-  sent before the watch returns it; after a double mount whose first answer lands last, the
+  sent before the subscribe returns it; after a double mount whose first answer lands last, the
   provider keeps the second page; a card draws each of its three states; each cluster-change
   path closes the windows, the deleted context's fallback included, and a reload, the clusters
   watch before its bookmark, and no context left close none; a `showChat` frame navigates to

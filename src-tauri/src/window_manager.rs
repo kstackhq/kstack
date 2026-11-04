@@ -45,17 +45,55 @@ const MAIN_LABEL: &str = "main";
 /// Title shown on every window the host creates.
 const WINDOW_TITLE: &str = "Kstack";
 
-/// Logical size every window opens at.
-const WINDOW_WIDTH: f64 = 800.0;
-const WINDOW_HEIGHT: f64 = 600.0;
+/// The label prefixes of the two kinds of window the manager mints, both off
+/// one counter: an app window is `main` or `window-N`, a log window `logs-N`.
+const APP_PREFIX: &str = "window-";
+const LOGS_PREFIX: &str = "logs-";
+
+/// Whether `label` is an app window's.
+pub fn is_app_label(label: &str) -> bool {
+    label == MAIN_LABEL || label.starts_with(APP_PREFIX)
+}
+
+/// Whether `label` is a log window's.
+pub fn is_logs_label(label: &str) -> bool {
+    label.starts_with(LOGS_PREFIX)
+}
+
+/// What one kind of window opens with.
+struct WindowSpec {
+    /// The page, under the app's origin.
+    path: &'static str,
+    /// Logical size.
+    size: (f64, f64),
+    /// The bar the macOS traffic lights center in.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    bar_height: f64,
+}
+
+const APP_WINDOW: WindowSpec = WindowSpec {
+    path: "index.html",
+    size: (800.0, 600.0),
+    bar_height: APP_BAR_HEIGHT,
+};
+
+/// A log window's page asks the host what to draw, so its URL carries nothing.
+const LOG_WINDOW: WindowSpec = WindowSpec {
+    path: "logs",
+    size: (1000.0, 700.0),
+    bar_height: LOG_BAR_HEIGHT,
+};
 
 // Traffic-light geometry: used only on macOS, but compiled and unit-tested on
 // every platform so CI covers the arithmetic (hence `allow(dead_code)`).
 
 /// App-bar height, the strip the macOS traffic lights sit in. Kept in sync with
 /// `src/components/widgets/app-bar.tsx`.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const APP_BAR_HEIGHT: f64 = 48.0;
+
+/// A log window's bar height, the strip its traffic lights sit in. The
+/// webview's log-window bar is drawn at this height.
+const LOG_BAR_HEIGHT: f64 = 40.0;
 
 /// Inset from the window's left edge to the first traffic light. The webview's
 /// `TRAFFIC_LIGHT_GUTTER` (`app-bar.tsx`) reserves this plus the buttons — bump
@@ -164,6 +202,19 @@ fn is_app_origin(url: &Url) -> bool {
 fn refuse_new_window<R: Runtime>(url: &Url) -> NewWindowResponse<R> {
     warn!(%url, "refused a new-window request from the webview");
     NewWindowResponse::Deny
+}
+
+/// Runs `build` on the blocking pool. Must stay `spawn_blocking`, never `spawn`
+/// or the main thread: `build()` parks its thread until the webview exists — a
+/// main-thread build deadlocks Windows (WebView2's controller is created by the
+/// main-thread event loop), and parking an async worker would starve
+/// `graphql_query`.
+pub async fn on_blocking_pool<T: Send + 'static>(
+    build: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(build)
+        .await
+        .map_err(|err| std::io::Error::other(format!("window build task failed: {err}")))?
 }
 
 /// Logs a window call that failed. None of them is worth failing the caller.
@@ -286,13 +337,51 @@ impl WindowManager {
     /// Create a fresh window with a unique label (`window-1`, `window-2`, …) —
     /// never reuses an existing one. Opens nothing once a quit has begun.
     pub fn new_window<R: Runtime>(&self, app: &AppHandle<R>) -> Result<()> {
-        if self.quitting() {
-            return Ok(());
-        }
         let label = self.next_label();
-        let window = self.build_window(app, &label)?;
-        self.hide_if_quitting(app, window);
+        self.open(app, &label, &APP_WINDOW, None)?;
         Ok(())
+    }
+
+    /// Builds the log window `label`, placed off its app window `anchor`.
+    /// `None` when a quit has begun and it built nothing.
+    pub fn open_log_window<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        label: &str,
+        anchor: &str,
+    ) -> Result<Option<WebviewWindow<R>>> {
+        self.open(app, label, &LOG_WINDOW, Some(anchor))
+    }
+
+    /// Builds the window `label` unless a quit has begun.
+    fn open<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        label: &str,
+        spec: &WindowSpec,
+        anchor: Option<&str>,
+    ) -> Result<Option<WebviewWindow<R>>> {
+        if self.quitting() {
+            return Ok(None);
+        }
+        let window = self.build_window(app, label, spec, anchor)?;
+        self.hide_if_quitting(app, window.clone());
+        Ok(Some(window))
+    }
+
+    /// Unminimizes, shows and focuses the window `label`. `false` when there is
+    /// no such window, or a quit has begun and it showed nothing.
+    pub fn surface_window<R: Runtime>(&self, app: &AppHandle<R>, label: &str) -> Result<bool> {
+        if self.quitting() {
+            return Ok(false);
+        }
+        let Some(window) = app.get_webview_window(label) else {
+            return Ok(false);
+        };
+        // Queued whatever surface returns: a step may fail after show() went out.
+        let surfaced = surface(&window);
+        self.hide_if_quitting(app, window);
+        surfaced.map(|()| true)
     }
 
     /// Whether a quit has begun, logged when it has: the ask that reached here
@@ -321,17 +410,35 @@ impl WindowManager {
         warn_on_error(queued, "failed to queue the quit check for a window");
     }
 
-    /// Next unique window label; never reused for the process lifetime, even
-    /// across concurrent callers.
+    /// Next unique app-window label, `window-N`.
     fn next_label(&self) -> String {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
-        format!("window-{id}")
+        self.mint(APP_PREFIX)
     }
 
-    /// The cascade anchor: the focused window, else the last one built (the
-    /// tray/Dock menus can be clicked while another app holds focus). `None`
-    /// only when no windows are open.
-    fn anchor_window<R: Runtime>(&self, app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
+    /// Next unique log-window label, `logs-N`.
+    pub fn next_logs_label(&self) -> String {
+        self.mint(LOGS_PREFIX)
+    }
+
+    /// Next unique label under `prefix`, off one counter for both kinds;
+    /// never reused for the process lifetime, even across concurrent callers.
+    fn mint(&self, prefix: &str) -> String {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+        format!("{prefix}{id}")
+    }
+
+    /// The cascade anchor: the window `label` names, else the focused window,
+    /// else the last one built (the tray/Dock menus can be clicked while
+    /// another app holds focus). `None` when that window is gone, or no windows
+    /// are open.
+    fn anchor_window<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        label: Option<&str>,
+    ) -> Option<WebviewWindow<R>> {
+        if let Some(label) = label {
+            return app.get_webview_window(label);
+        }
         let focused = app
             .webview_windows()
             .into_values()
@@ -345,14 +452,19 @@ impl WindowManager {
         })
     }
 
-    /// Logical `(x, y)` for the next window: a cascade step off the anchor on
-    /// its monitor, else centered on the primary. `None` when no monitor can be
-    /// read.
-    fn placement<R: Runtime>(&self, app: &AppHandle<R>) -> Option<(f64, f64)> {
+    /// Logical `(x, y)` for the next window of `size`: a cascade step off the
+    /// anchor (see [`Self::anchor_window`]) on its monitor, else centered on the
+    /// primary. `None` when no monitor can be read.
+    fn placement<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        anchor: Option<&str>,
+        size: (f64, f64),
+    ) -> Option<(f64, f64)> {
         // Anchor and its monitor resolve together — an anchor whose monitor
         // can't be read is no anchor at all. Anything unreadable degrades to a
         // centered window, never a failed build.
-        let anchored = self.anchor_window(app).and_then(|window| {
+        let anchored = self.anchor_window(app, anchor).and_then(|window| {
             let monitor = self.monitors.of_window(window.label())?;
             let position = window
                 .outer_position()
@@ -369,7 +481,7 @@ impl WindowManager {
 
         Some(cascade_position(
             anchor_position,
-            (WINDOW_WIDTH, WINDOW_HEIGHT),
+            size,
             logical_work_area(&monitor),
         ))
     }
@@ -382,7 +494,7 @@ impl WindowManager {
         }
         let window = match app.get_webview_window(MAIN_LABEL) {
             Some(window) => window,
-            None => self.build_window(app, MAIN_LABEL)?,
+            None => self.build_window(app, MAIN_LABEL, &APP_WINDOW, None)?,
         };
         // Queued whatever surface returns: a step may fail after show() went out.
         let surfaced = surface(&window);
@@ -396,8 +508,9 @@ impl WindowManager {
     /// frameless, Linux additionally transparent. See
     /// docs/adr/2026-08-09-per-platform-window-chrome.md.
     ///
-    /// Positioned explicitly on every platform: AppKit auto-cascades an
-    /// unpositioned window, Linux/Windows pile up.
+    /// Positioned explicitly on every platform, off `anchor` when given
+    /// ([`Self::placement`]): AppKit auto-cascades an unpositioned window,
+    /// Linux/Windows pile up.
     ///
     /// Every window it builds refuses to navigate off the app origin
     /// ([`is_app_origin`]) and refuses `window.open` outright.
@@ -405,23 +518,27 @@ impl WindowManager {
         &self,
         app: &AppHandle<R>,
         label: &str,
+        spec: &WindowSpec,
+        anchor: Option<&str>,
     ) -> Result<WebviewWindow<R>> {
-        let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
+        let (width, height) = spec.size;
+        let url = WebviewUrl::App(spec.path.into());
+        let mut builder = WebviewWindowBuilder::new(app, label, url)
             .title(WINDOW_TITLE)
-            .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
+            .inner_size(width, height)
             // Floor the window so the layout never renders below its narrowest design.
             .min_inner_size(600.0, 400.0)
             .on_navigation(is_app_origin)
             .on_new_window(|url, _features| refuse_new_window(&url));
 
         // No monitor to measure against — let the OS place the window.
-        if let Some((x, y)) = self.placement(app) {
+        if let Some((x, y)) = self.placement(app, anchor, spec.size) {
             builder = builder.position(x, y);
         }
 
         #[cfg(target_os = "macos")]
         {
-            let (x, y) = traffic_light_position(APP_BAR_HEIGHT);
+            let (x, y) = traffic_light_position(spec.bar_height);
             builder = builder
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
                 .hidden_title(true)
@@ -652,12 +769,15 @@ mod tests {
             OneMonitor(Some(monitor((0, 0, 3840, 2160), 2.0))),
         );
 
-        assert_eq!(wm.placement(app.handle()), Some((560.0, 240.0)));
+        assert_eq!(
+            wm.placement(app.handle(), None, WINDOW),
+            Some((560.0, 240.0))
+        );
         wm.new_window(app.handle()).unwrap();
         assert!(app.get_webview_window("window-1").is_some());
 
         // The mock puts every window at the origin.
-        assert_eq!(wm.placement(app.handle()), Some((28.0, 28.0)));
+        assert_eq!(wm.placement(app.handle(), None, WINDOW), Some((28.0, 28.0)));
         wm.new_window(app.handle()).unwrap();
         assert!(app.get_webview_window("window-2").is_some());
     }
@@ -669,7 +789,7 @@ mod tests {
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let wm = manager();
 
-        assert_eq!(wm.placement(app.handle()), None);
+        assert_eq!(wm.placement(app.handle(), None, WINDOW), None);
         wm.new_window(app.handle()).unwrap();
         assert!(app.get_webview_window("window-1").is_some());
     }
@@ -719,14 +839,97 @@ mod tests {
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let wm = manager();
         window(&app, "window-1");
-        assert!(wm.anchor_window(app.handle()).is_none(), "none built yet");
+        assert!(
+            wm.anchor_window(app.handle(), None).is_none(),
+            "none built yet"
+        );
 
         *wm.last_built.lock().unwrap() = Some("window-1".into());
-        let anchor = wm.anchor_window(app.handle()).unwrap();
+        let anchor = wm.anchor_window(app.handle(), None).unwrap();
         assert_eq!(anchor.label(), "window-1");
 
         *wm.last_built.lock().unwrap() = Some("window-2".into());
-        assert!(wm.anchor_window(app.handle()).is_none(), "closed");
+        assert!(wm.anchor_window(app.handle(), None).is_none(), "closed");
+    }
+
+    #[test]
+    fn a_log_window_is_labelled_off_the_window_counter() {
+        let wm = manager();
+        assert_eq!(wm.next_label(), "window-1");
+        assert_eq!(wm.next_logs_label(), "logs-2");
+    }
+
+    #[test]
+    fn labels_have_a_kind() {
+        use super::{is_app_label, is_logs_label};
+        for label in ["main", "window-1"] {
+            assert!(is_app_label(label) && !is_logs_label(label), "{label}");
+        }
+        assert!(is_logs_label("logs-2") && !is_app_label("logs-2"));
+        for label in ["mainx", "windows", "logs", "other"] {
+            assert!(!is_app_label(label) && !is_logs_label(label), "{label}");
+        }
+    }
+
+    /// The anchor is the app window that opened it, even when another window
+    /// was built last. The mock puts every window at the origin, so this checks
+    /// the window chosen, not the position.
+    #[test]
+    fn a_log_window_anchors_on_its_app_window() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let wm = manager();
+        window(&app, "main");
+        window(&app, "window-1");
+        *wm.last_built.lock().unwrap() = Some("window-1".into());
+
+        let anchor = wm.anchor_window(app.handle(), Some("main")).unwrap();
+
+        assert_eq!(anchor.label(), "main");
+    }
+
+    #[test]
+    fn a_log_window_with_no_anchor_centers_at_its_own_size() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let wm = WindowManager::new(
+            CancellationToken::new(),
+            OneMonitor(Some(monitor((0, 0, 1920, 1080), 1.0))),
+        );
+
+        let placed = wm.placement(app.handle(), None, super::LOG_WINDOW.size);
+
+        assert_eq!(placed, Some((460.0, 190.0)));
+    }
+
+    #[test]
+    fn a_log_window_is_built_and_surfaced() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let wm = manager();
+        window(&app, "main");
+
+        let built = wm.open_log_window(app.handle(), "logs-1", "main").unwrap();
+
+        assert_eq!(built.unwrap().label(), "logs-1");
+        assert!(wm.surface_window(app.handle(), "logs-1").unwrap());
+        assert!(!wm.surface_window(app.handle(), "logs-9").unwrap(), "gone");
+    }
+
+    #[test]
+    fn no_log_window_opens_or_shows_once_a_quit_has_begun() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let shutdown = CancellationToken::new();
+        let wm = WindowManager::new(shutdown.clone(), OneMonitor(None));
+        window(&app, "logs-1");
+        shutdown.cancel();
+
+        let built = wm.open_log_window(app.handle(), "logs-2", "main").unwrap();
+
+        assert!(built.is_none());
+        assert!(app.get_webview_window("logs-2").is_none());
+        assert!(!wm.surface_window(app.handle(), "logs-1").unwrap());
     }
 
     #[test]
@@ -843,8 +1046,57 @@ mod tests {
                 "allow-quit",
                 "allow-log-webview",
                 "allow-open-account-url",
+                "allow-log-window-subscribe",
+                "allow-log-window-open",
+                "allow-log-window-focus",
+                "allow-log-window-close-all",
             ],
             "the app window holds what it calls and nothing else — add a permission here only with the consumer that needs it"
+        );
+        assert_eq!(
+            capability["windows"],
+            serde_json::json!(["main", "window-*"])
+        );
+    }
+
+    #[test]
+    fn logs_capability_grants_the_viewer_and_nothing_else() {
+        // A log window reads logs and draws its own bar. It opens no window,
+        // changes no preference, quits nothing, opens no URL and calls no
+        // app-window log command.
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/logs.json"))
+                .expect("valid capability JSON");
+        assert_eq!(capability["windows"], serde_json::json!(["logs-*"]));
+        let permissions: Vec<&str> = capability["permissions"]
+            .as_array()
+            .expect("permissions is a list")
+            .iter()
+            .map(|p| p.as_str().expect("permission is a string"))
+            .collect();
+        assert_eq!(
+            permissions,
+            [
+                "core:window:default",
+                "core:webview:default",
+                "core:event:allow-listen",
+                "core:event:allow-unlisten",
+                "core:window:allow-start-dragging",
+                "core:window:allow-start-resize-dragging",
+                "core:window:allow-minimize",
+                "core:window:allow-toggle-maximize",
+                "core:window:allow-close",
+                "allow-ready",
+                "allow-graphql-query",
+                "allow-graphql-subscribe",
+                "allow-graphql-unsubscribe",
+                "allow-log-webview",
+                "allow-log-window-view",
+                "allow-log-window-viewport",
+                "allow-log-window-title",
+                "allow-log-window-show-chat",
+            ],
+            "a log window holds what it calls and nothing else"
         );
     }
 
@@ -893,7 +1145,7 @@ mod tests {
 
     // A roomy 1920x1080 work area at the origin, and the size every window
     // opens at — the common case the cascade is tuned for.
-    const WINDOW: (f64, f64) = (super::WINDOW_WIDTH, super::WINDOW_HEIGHT);
+    const WINDOW: (f64, f64) = super::APP_WINDOW.size;
     const ROOMY: (f64, f64, f64, f64) = (0.0, 0.0, 1920.0, 1080.0);
     const STEP: f64 = super::CASCADE_STEP;
 

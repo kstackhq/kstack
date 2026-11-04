@@ -31,6 +31,7 @@ mod commands;
 mod dock_menu;
 mod error;
 mod host_file;
+mod log_windows;
 mod logging;
 mod os_theme;
 mod paths;
@@ -41,6 +42,7 @@ mod tray;
 mod wake;
 mod webview_log;
 mod window_manager;
+mod window_title;
 
 #[cfg(test)]
 mod testutil;
@@ -178,9 +180,27 @@ fn forget_webview_log<R: Runtime>(app: &AppHandle<R>, label: &str) {
 /// JS teardown.
 fn page_started<R: Runtime>(app: &AppHandle<R>, label: &str) {
     cancel_webview_subscriptions(app, label);
+    if let Some(state) = app.try_state::<AppState>() {
+        state.log_windows.page_started(label);
+    }
     // A reload keeps the label and replaces the JS context; the marker is how
     // two crashes across it read as two.
     webview_log::page_loaded(label);
+}
+
+/// `label`'s window was destroyed: its subscriptions and log pacing go, and so
+/// do its log windows, or its own entry if it is one.
+fn window_destroyed<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    cancel_webview_subscriptions(app, label);
+    forget_webview_log(app, label);
+    log_windows::destroyed(app, label);
+}
+
+/// `label`'s window took focus.
+fn window_focused<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    if let Some(state) = app.try_state::<AppState>() {
+        state.log_windows.focused(label);
+    }
 }
 
 /// Every command the webview may invoke. `build.rs`'s `COMMANDS` names the
@@ -196,6 +216,14 @@ fn invoke_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 's
         app::quit,
         commands::log_webview,
         app::open_account_url,
+        commands::log_window_subscribe,
+        commands::log_window_open,
+        commands::log_window_focus,
+        commands::log_window_close_all,
+        commands::log_window_view,
+        commands::log_window_viewport,
+        commands::log_window_title,
+        commands::log_window_show_chat,
     ]
 }
 
@@ -371,6 +399,47 @@ mod tests {
 
         assert!(out.contains("dropped=1"), "got: {out}");
         assert_eq!(state.webview_log.lock().unwrap().evict("main"), 0);
+    }
+
+    /// An app window's destroy removes its live log windows. The mock runtime
+    /// keeps a destroyed window listed until its event loop runs, so this reads
+    /// the pair.
+    #[test]
+    fn an_app_windows_destroy_takes_its_log_windows() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let state = app.state::<AppState>();
+        let channel = tauri::ipc::Channel::new(|_| Ok(()));
+        let page = state.log_windows.subscribe("main", channel).unwrap();
+        crate::log_windows::live_for_test(&state.log_windows, page, "logs-1");
+        crate::testutil::window(&app, "logs-1");
+
+        window_destroyed(app.handle(), "main");
+
+        assert!(state.log_windows.view("logs-1").is_err());
+    }
+
+    /// A live log window's focus and page load reach its app window.
+    #[test]
+    fn a_log_windows_focus_and_page_load_reach_its_app_window() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let state = app.state::<AppState>();
+        let (tx, rx) = mpsc::channel();
+        let channel = tauri::ipc::Channel::new(move |body| {
+            let frame: serde_json::Value = body.deserialize().unwrap();
+            tx.send(frame.as_object().unwrap().keys().next().unwrap().clone())
+                .unwrap();
+            Ok(())
+        });
+        let page = state.log_windows.subscribe("main", channel).unwrap();
+        crate::log_windows::live_for_test(&state.log_windows, page, "logs-1");
+
+        page_started(app.handle(), "logs-1");
+        window_focused(app.handle(), "logs-1");
+
+        let frames: Vec<String> = rx.try_iter().collect();
+        assert_eq!(frames, ["snapshot", "opened", "viewport", "focused"]);
     }
 
     /// The first page load can beat `setup`, so it finds no state to touch.
