@@ -1,10 +1,10 @@
 # internal/services/cluster — the cluster subsystem
 
 One file per family (`clusters.go`, `caches.go`, `cachedkinds.go`, `cacheddata.go`), plus
-`mirror.go`, `stream.go`, `events.go`, `datarate.go`, and private leaves `internal/kubeconn`, `kubesync`,
-`kubestore`. **Leaves speak native vocabulary, never records**; put mechanism in a leaf. → [ADR:
-one package over private
-leaves](../../../../docs/adr/2026-09-30-the-cluster-service-is-one-package-over-private-leaves.md).
+`mirror.go`, `stream.go`, `events.go`, `datarate.go`, `sharedgauge.go`, and private leaves
+`internal/kubeconn`, `kubesync`, `kubestore`. **Leaves speak native vocabulary, never
+records**; put mechanism in a leaf.
+→ [ADR: one package over private leaves](../../../../docs/adr/2026-09-30-the-cluster-service-is-one-package-over-private-leaves.md).
 
 **A cluster is a row in `app.db`; beehive holds its runtime.** The mirror (`mirror.go`) is the one
 writer of each row's `Cluster` object, named by the row id, through `runtimeSpecOf(row)`.
@@ -78,6 +78,13 @@ within a timeline only. → [ADR: event timelines](../../../../docs/adr/2026-09-
   `WatchList`. Only the `Deleted` is promised.
 - Gauges are current-on-subscribe, no `Bookmark`. → [ADR: cache health
   fold](../../../../docs/adr/2026-09-02-cache-health-fold.md).
+- **The health gauge reads once per cadence for every subscriber** (`sharedgauge.go`): the
+  first `WatchHealth` subscriber starts the loop, the last to leave stops it, and each
+  reading reaches every subscriber as a latest value. A join asks for a read, so a
+  subscriber's first reading is one begun after it joined, current-on-subscribe, and
+  joiners share that read. A subscriber diffs against its own last frames, so a late one
+  still starts from every cache's verdict. A failed read ends the run for all of them; the
+  next subscriber starts a fresh one.
 - The data-rate series (`datarate.go`, `Clusters().WatchDataRate`) streams the pool's ring
   through its own claim: it subscribes to `Lease.WatchDataRates`, sends `Lease.DataRates` whole
   (even empty), then on each nudge the samples numbered above the last one sent. → [ADR: a series

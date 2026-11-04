@@ -441,6 +441,8 @@ type service struct {
 	// a change signal would go quiet exactly when it is healthy. A parameter so a test
 	// picks its own timescale.
 	gaugeCadence time.Duration
+	// health is the one read loop every WatchHealth subscriber shares.
+	health *sharedGauge[[]ClusterCacheHealth]
 }
 
 // beehiveRuntime gives beehive the lifecycle.StartCloser shape. Start already matches; the
@@ -560,7 +562,9 @@ func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *po
 	parts = append(parts, lifecycle.Part{Name: "cluster mirror", StartCloser: newClusterMirror(d, mirrorResyncInterval, mirrorRewatchDelay, mirrorPassRetry)})
 	parts = append(parts, restartSyncsOnResume(kubesyncSvc, pokeSvc))
 
-	return &service{deps: d, now: time.Now, parts: parts, gaugeCadence: defaultGaugeCadence}, nil
+	s := &service{deps: d, now: time.Now, parts: parts, gaugeCadence: defaultGaugeCadence}
+	s.health = newSharedGauge(cachesAPI{s}.readAllCacheHealth)
+	return s, nil
 }
 
 // clusterSourceBootstrap creates the discovery anchors once beehive is up. A Part

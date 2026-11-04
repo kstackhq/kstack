@@ -953,7 +953,9 @@ func TestToClusterCarriesTheDeletionMark(t *testing.T) {
 // tests drive the store directly.
 func serviceOver(t *testing.T, d deps) *service {
 	t.Helper()
-	return &service{deps: d, now: func() time.Time { return t0.Add(time.Hour) }, gaugeCadence: defaultGaugeCadence}
+	s := &service{deps: d, now: func() time.Time { return t0.Add(time.Hour) }, gaugeCadence: defaultGaugeCadence}
+	s.health = newSharedGauge(cachesAPI{s}.readAllCacheHealth)
+	return s
 }
 
 func TestClustersGet(t *testing.T) {

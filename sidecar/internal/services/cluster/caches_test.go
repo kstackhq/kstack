@@ -2749,3 +2749,29 @@ func TestMirroringFailsWhenAKindWillNotWrite(t *testing.T) {
 
 	assert.ErrorIs(t, err, boom)
 }
+
+// Every window shares one health loop, so a window opened later joins a loop that is
+// already running. It still starts from every cache's verdict, read fresh: a cache made
+// since the loop last read is in its first frames. That read is everyone's: the early
+// window hears of the new cache from it, long before its own cadence would have.
+func TestCachesWatchHealthGivesALateSubscriberEveryVerdict(t *testing.T) {
+	d, status := newClusterStatusDeps(t)
+	cluster := storedCluster(t, d, status, true, "uid-1")
+	first := createCache(t, d.cacheClient, cluster, "uid-1")
+	svc := serviceOver(t, d)
+	svc.gaugeCadence = time.Hour
+
+	early, err := svc.Caches().WatchHealth(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, ClusterCacheID(first.ID), testutil.Recv(t, early.Frames, "the first verdict").CacheID)
+
+	second := createCache(t, d.cacheClient, cluster, "uid-2")
+	late, err := svc.Caches().WatchHealth(t.Context())
+	require.NoError(t, err)
+	got := []ClusterCacheID{
+		testutil.Recv(t, late.Frames, "the first verdict, late").CacheID,
+		testutil.Recv(t, late.Frames, "the second verdict, late").CacheID,
+	}
+	assert.ElementsMatch(t, []ClusterCacheID{ClusterCacheID(first.ID), ClusterCacheID(second.ID)}, got)
+	assert.Equal(t, ClusterCacheID(second.ID), testutil.Recv(t, early.Frames, "the join's read, early").CacheID)
+}

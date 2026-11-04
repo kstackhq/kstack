@@ -453,34 +453,36 @@ func (a cachesAPI) measureCache(ctx context.Context, cacheID ClusterCacheID) (Cl
 // the cache's pass made and wrote down — and the pause it records outlives the file it was
 // made on, which no live read could answer for.
 //
-// It re-emits on a cadence, which is what carries the stamps a filled cache reports: those
-// move in healthy steady state precisely when a change signal would be silent.
+// It re-reads on a cadence, which is what carries the stamps a filled cache reports: those
+// move in healthy steady state precisely when a change signal would be silent. The read is
+// the same for every subscriber, so one loop serves them all, reading afresh for a join;
+// each subscriber diffs against its own last frames, so a late one still starts from every
+// cache's verdict.
 func (a cachesAPI) WatchHealth(ctx context.Context) (*Stream[ClusterCacheHealth], error) {
 	return NewStream(ctx, func(ctx context.Context, out chan<- ClusterCacheHealth) error {
-		ticker := time.NewTicker(a.s.gaugeCadence)
-		defer ticker.Stop()
+		readings := a.s.health.subscribe(a.s.gaugeCadence)
+		defer readings.Close()
 
+		// sent is the last frame per cache the latest reading reports: a removed cache
+		// leaves it with the reading, so it never outgrows the live caches.
 		sent := map[ClusterCacheID]ClusterCacheHealth{}
 		for {
-			healths, err := a.readAllCacheHealth(ctx)
+			healths, err := readings.Next(ctx)
 			if err != nil {
 				return err
 			}
+			next := make(map[ClusterCacheID]ClusterCacheHealth, len(healths))
 			for _, health := range healths {
 				if prev, ok := sent[health.CacheID]; ok && sameHealth(prev, health) {
+					next[health.CacheID] = prev
 					continue
 				}
 				if !sendFrame(ctx, out, health) {
 					return nil
 				}
-				sent[health.CacheID] = health
+				next[health.CacheID] = health
 			}
-
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-ticker.C:
-			}
+			sent = next
 		}
 	}), nil
 }
