@@ -34,9 +34,10 @@ the composer says nothing about log windows.
 48px drag strip before the bar mounts; in this window it overhangs the viewer's top by 8px for
 that moment, which is harmless.
 
-The route calls `log_window_view` on mount, then watches `chatsWatch` for the chat's title and
-cluster and `chatMessagesWatch` for the call. Until the answer and both bookmarks land it draws
-nothing. Then:
+The route calls `log_window_view` on mount, which only reads, so React's dev-mode double mount
+is harmless; the host steps the generation on the page load itself. It then watches `chatsWatch`
+for the chat's title and cluster and `chatMessagesWatch` for the call. Until the answer and both
+bookmarks land it draws nothing. Then:
 
 - a chat the map lacks draws *This chat was deleted.*;
 - a call the chat lacks, or one `viewOfCall` returns nothing for, draws *This log view is not
@@ -64,11 +65,20 @@ with the first source, the chat's title and the cluster's name whenever one chan
 ### 3. The app window's side
 
 `src/lib/log-windows.tsx` adds `LogWindowsProvider` under `LogsViewProvider` in `AppLayout`.
-It calls `log_windows_watch` with a channel on mount and folds the frames, in order, into one
-map by label: `snapshot` replaces it, `opened` adds, `closed` removes. For each window it
-keeps its cluster, chat and call. It exposes `open(view)`, which calls `log_window_open` and
-then, if the sidebar shows that call, clears the focused view and closes the sidebar, and
-`focus(callId)`.
+It calls `log_windows_watch` with a channel on mount, keeps the `page` it returns, and passes
+it in every app-window command. It folds the frames, in order, into one map by label:
+`snapshot` replaces it, `opened` adds, `closed` removes. For each window it keeps its cluster,
+chat and call; the frames' `push` is step 4's.
+
+Each mount's watch replaces the last and ends its page, and the answers can arrive out of
+order. The provider keeps the page of its current mount and drops an answer that lands after
+that mount's cleanup; React's dev-mode double mount would otherwise leave it holding an ended
+page, with every command refused.
+
+It exposes `open(view)` and `focus(callId)`, which do nothing until the watch returns its page.
+`open` calls `log_window_open`, which returns once the window exists; then, if the sidebar
+shows that call, it clears the focused view and closes the sidebar. A refused or failed open
+leaves the sidebar as it was and reports through `error-log.ts`.
 
 The provider calls `log_window_close_all` when `useActiveCluster` has a `clusterID` and it
 differs from its windows'. That covers every path that changes `kubeContext`: the picker's
@@ -105,10 +115,13 @@ undefined: before the clusters bookmark, on a reload, and when no context is lef
   them, and the viewer with the pair's grep; the title is sent with the three parts and resent
   when one changes; `viewOfCall` for the three call kinds and for a call with no action.
 - **The app window.** The frames fold in order, and a `closed` after a `snapshot` that lacks
-  the window is a no-op; `open` moves a view out of the sidebar and focuses an open window; a
-  card draws each of its three states; each cluster-change path closes the windows, the
-  deleted context's fallback included, and a reload, the clusters watch before its bookmark,
-  and no context left close none; a `showChat` frame navigates to the chat.
+  the window is a no-op; `open` moves a view out of the sidebar and focuses an open window,
+  and a failed open leaves the sidebar as it was; every command carries the page, and none is
+  sent before the watch returns it; after a double mount whose first answer lands last, the
+  provider keeps the second page; a card draws each of its three states; each cluster-change
+  path closes the windows, the deleted context's fallback included, and a reload, the clusters
+  watch before its bookmark, and no context left close none; a `showChat` frame navigates to
+  the chat.
 
 ## Security
 
