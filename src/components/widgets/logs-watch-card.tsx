@@ -16,8 +16,8 @@
 // A running watch says so; a finished one draws the lines it held as its task
 // carries them, stripped, redacted and cut, with why it ended. Nothing is fetched,
 // so a reload, an evicted log or a gone cluster draws the same card. View around
-// this makes the watch's view at its first line the focused view, as a LogsRead
-// card's does, in chat mode alone.
+// this makes the watch's view at its first line the focused view, and Open in window
+// moves it to a window, as a LogsRead card's buttons do, in chat mode alone.
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -26,14 +26,13 @@ import { Button } from '@kubetail/ui/elements/button';
 import { logLine } from '@/components/widgets/logs-read-card';
 import { GapRow, LineRow, readsOneStream } from '@/components/widgets/logs-view-inline';
 import { SourceLine } from '@/components/widgets/logs-view-lines';
+import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { AppMode } from '@/lib/app-mode';
 import type { ChatToolCall } from '@/lib/chats';
 import { INLINE_LINES } from '@/lib/inline-log-lines';
 import type { LogsWatchAction, LogsWatchTask } from '@/lib/logs-view';
-import { useLogsView } from '@/lib/logs-view';
-import { useRightSidebar } from '@/lib/right-sidebar';
 import { descriptionLine } from '@/lib/visible-text';
 
 // A watch's byte limit when the call names none.
@@ -105,13 +104,11 @@ export function LogsWatchCard({
   clusterID: string | undefined;
   mode: AppMode;
 }) {
-  const { view, set } = useLogsView();
-  const { open } = useRightSidebar();
+  const place = useViewPlace(chatID, call.id, mode);
   const [all, setAll] = useState(false);
   const [first] = action.sources;
   const more = action.sources.length - 1;
   const line = descriptionLine(call.action?.description ?? '');
-  const shown = mode === 'chat' && open && view?.chatId === chatID && view.callId === call.id;
   const held = task?.matched ?? [];
   const lines = all ? held : held.slice(0, INLINE_LINES);
   const viewAround = task?.viewAround ?? null;
@@ -127,24 +124,16 @@ export function LogsWatchCard({
           <Waits action={action} />
           {line !== '' && <ModelDescription line={line} />}
         </div>
-        {mode === 'chat' &&
-          viewAround &&
-          (shown ? (
-            <span className="shrink-0 opacity-70">Showing in the sidebar</span>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              disabled={clusterID === undefined}
-              onClick={() => {
-                if (clusterID !== undefined)
-                  set({ clusterId: clusterID, chatId: chatID, callId: call.id, action: viewAround });
-              }}
-            >
-              View around this
-            </Button>
-          ))}
+        {mode === 'chat' && viewAround && (
+          <LogsViewButtons
+            label="View around this"
+            place={place}
+            chatID={chatID}
+            callID={call.id}
+            clusterID={clusterID}
+            action={viewAround}
+          />
+        )}
       </div>
       {state !== null && <p className="mt-1 opacity-70">{state}</p>}
       {held.length > 0 && (

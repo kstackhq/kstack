@@ -54,3 +54,15 @@ export function AppBarGroup({ children }: { children: ReactNode }) {
 export function AppBarDivider() {
   return <div className="h-4.5 w-px shrink-0 bg-sidebar-border" aria-hidden />;
 }
+
+// Space (px) reserved for the macOS traffic lights: the host places the first at
+// x=20 (`window_manager.rs`) and the three end near x=72; the rest is breathing
+// room. Eyeball against the native buttons when tuning.
+const TRAFFIC_LIGHT_GUTTER = 96;
+
+/** The macOS traffic lights' place at a bar's left end, in the app and log windows. */
+export function TrafficLightGutter() {
+  return (
+    <div data-testid="traffic-light-gutter" aria-hidden className="shrink-0" style={{ width: TRAFFIC_LIGHT_GUTTER }} />
+  );
+}

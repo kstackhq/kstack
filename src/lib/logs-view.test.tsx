@@ -16,7 +16,8 @@ import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { RightSidebarProvider, useRightSidebar } from '@/lib/right-sidebar';
-import { LogsViewProvider, useLogsView } from './logs-view';
+import type { ChatToolCall } from '@/lib/chats';
+import { LogsViewProvider, useLogsView, viewOfCall } from './logs-view';
 import type { LogsView } from './logs-view';
 
 const view: LogsView = {
@@ -96,5 +97,31 @@ describe('useLogsView', () => {
 
   it('needs its provider', () => {
     expect(() => renderHook(() => useLogsView())).toThrow('within a LogsViewProvider');
+  });
+});
+
+describe('viewOfCall', () => {
+  const callWith = (action: Record<string, unknown> | null, background: unknown = null) =>
+    ({ id: 'call-1', action, background }) as unknown as ChatToolCall;
+  const around = { ...view.action, grep: 'around' };
+
+  it("is a LogsView call's action", () => {
+    expect(viewOfCall(callWith({ logsView: view.action, logsRead: null, logsWatch: null }))).toBe(view.action);
+  });
+
+  it("is a LogsRead call's view around", () => {
+    expect(viewOfCall(callWith({ logsView: null, logsRead: { viewAround: around }, logsWatch: null }))).toBe(around);
+  });
+
+  it("is a LogsWatch call's task's view around, null while the watch runs", () => {
+    const watch = { logsView: null, logsRead: null, logsWatch: {} };
+    expect(viewOfCall(callWith(watch, { viewAround: around }))).toBe(around);
+    expect(viewOfCall(callWith(watch, { viewAround: null }))).toBeNull();
+    expect(viewOfCall(callWith(watch, null))).toBeNull();
+  });
+
+  it('is null for a call with no action, or one of another tool', () => {
+    expect(viewOfCall(callWith(null))).toBeNull();
+    expect(viewOfCall(callWith({ logsView: null, logsRead: null, logsWatch: null }))).toBeNull();
   });
 });

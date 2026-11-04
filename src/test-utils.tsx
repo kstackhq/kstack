@@ -18,6 +18,7 @@ import type { AnyRoute } from '@tanstack/react-router';
 import { expect, vi } from 'vitest';
 
 import type { Cluster } from '@/lib/clusters';
+import type { LogWindow } from '@/lib/log-windows';
 import { setWatchFlushScheduler } from '@/lib/graphql/use-watch-subscription';
 
 export type FakeChannel = { onmessage?: (raw: string) => void };
@@ -50,7 +51,8 @@ export function mockTauriCore() {
     liveChannel: () => channels.at(-1)!,
     factory: () => ({
       invoke: (...args: unknown[]) => invokeMock(...args),
-      Channel: function FakeChannelCtor(this: FakeChannel) {
+      Channel: function FakeChannelCtor(this: FakeChannel, onmessage?: (raw: string) => void) {
+        if (onmessage) this.onmessage = onmessage;
         channels.push(this);
       },
     }),
@@ -360,4 +362,19 @@ export function expectCodeText(el: HTMLElement) {
 export function expectProseText(el: HTMLElement) {
   expectNoSuggestions(el);
   expect(el).toHaveAttribute('spellcheck', 'true');
+}
+
+// A `LogWindowsContext` value for a suite that draws what reads the app window's log
+// windows: `windows` holds the calls that have one; `open` and `focus` record calls.
+export function fakeLogWindows() {
+  const windows: LogWindow[] = [];
+  return {
+    windows,
+    value: {
+      ready: true,
+      windowOf: (chatId: string, callId: string) => windows.find((w) => w.chatId === chatId && w.callId === callId),
+      open: vi.fn(),
+      focus: vi.fn(),
+    },
+  };
 }
