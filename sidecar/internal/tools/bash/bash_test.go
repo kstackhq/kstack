@@ -636,11 +636,12 @@ func TestNewTakesNoSandboxAsNone(t *testing.T) {
 		t.Skip("no bash found on this machine")
 	}
 	assert.Nil(t, none.sandboxer)
-	assert.JSONEq(t, string(inputSchema), string(none.Definition().InputSchema))
+	assert.JSONEq(t, string(unsandboxedSchema), string(none.Definition().InputSchema))
 
 	some, ok := New(Paths{ShellDir: t.TempDir()}, 0, &sandbox.Sandbox{}, nil, nil)
 	require.True(t, ok)
 	assert.NotNil(t, some.sandboxer)
+	assert.JSONEq(t, string(inputSchema), string(some.Definition().InputSchema))
 }
 
 // spec is a run of line on tl's bash, keeping capture bytes, with every bound an
@@ -834,7 +835,7 @@ func TestTheApprovalAndRunReadTheInputTheSameWay(t *testing.T) {
 // the user reads the description above the command on the approval request: it
 // names what the command changes and never vouches for it.
 func TestTheDefinitionIsTheReferences(t *testing.T) {
-	var tl Tool
+	tl := Tool{sandboxer: &fakeSandboxer{}}
 	def := tl.Definition()
 	assert.Equal(t, "Bash", def.Name)
 	assert.Equal(t, Name, def.Name)
@@ -879,9 +880,27 @@ func TestTheDefinitionIsTheReferences(t *testing.T) {
 		"Set it only for a command that needs the internet in a chat whose question's context says the sandbox has none.\n")
 	assert.NotContains(t, def.Description, "Monitor")
 	assert.NotContains(t, string(def.InputSchema), "dangerouslyDisableSandbox")
+}
 
-	sandboxed := Tool{sandboxer: &fakeSandboxer{}}
-	assert.Equal(t, def, sandboxed.Definition(), "one schema, with a sandbox or without")
+// Without a sandbox, network would change nothing, so it is not offered; the
+// rest of the offer is the sandboxed one's.
+func TestTheDefinitionWithoutASandboxOffersNoNetwork(t *testing.T) {
+	var tl Tool
+	def := tl.Definition()
+	sandboxed := (&Tool{sandboxer: &fakeSandboxer{}}).Definition()
+	assert.Equal(t, Name, def.Name)
+	assert.NotContains(t, def.Description, "network")
+	assert.Equal(t, strings.Replace(sandboxed.Description,
+		"- `network` asks the user to give one sandboxed command the internet. "+
+			"Set it only for a command that needs the internet in a chat whose question's context says the sandbox has none.\n", "", 1),
+		def.Description)
+
+	var got, want map[string]any
+	require.NoError(t, json.Unmarshal(def.InputSchema, &got))
+	require.NoError(t, json.Unmarshal(sandboxed.InputSchema, &want))
+	delete(want["properties"].(map[string]any), "network")
+	assert.Equal(t, want, got)
+	assert.Contains(t, string(def.InputSchema), "&&", "not HTML-escaped")
 }
 
 // workdirDescription is workdir's description, for a chat that runs either way.

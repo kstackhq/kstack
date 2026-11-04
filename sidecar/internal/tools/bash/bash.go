@@ -435,13 +435,59 @@ func (t *Tool) CallTimeout(raw json.RawMessage) time.Duration {
 	return in.Timeout + killGrace + callMargin + t.snapTimeout
 }
 
-// Definition is the offer: a function named Bash, run by the sidecar.
+// Definition is the offer: a function named Bash, run by the sidecar. Without a
+// sandbox it offers no network, which only a sandboxed run can be given; parse
+// still accepts the key, so a stored call reads as before.
 func (t *Tool) Definition() llm.ToolDefinition {
+	if t.sandboxer == nil {
+		return llm.ToolDefinition{Name: Name, Description: unsandboxedDescription, InputSchema: unsandboxedSchema}
+	}
 	return llm.ToolDefinition{
 		Name:        Name,
 		Description: description,
 		InputSchema: json.RawMessage(inputSchema),
 	}
+}
+
+// unsandboxedDescription and unsandboxedSchema are the offer less network.
+var (
+	unsandboxedDescription = withoutNetworkBullet(description)
+	unsandboxedSchema      = withoutNetworkProperty(inputSchema)
+)
+
+// withoutNetworkBullet is desc less the line of its network bullet.
+func withoutNetworkBullet(desc string) string {
+	before, rest, _ := strings.Cut(desc, "- `network`")
+	_, after, _ := strings.Cut(rest, "\n")
+	return before + after
+}
+
+// withoutNetworkProperty is schema less its network property, which the struct
+// leaves out. The struct keeps schema.json's order, which a map would sort.
+func withoutNetworkProperty(schema []byte) json.RawMessage {
+	var s struct {
+		Type                 string   `json:"type"`
+		AdditionalProperties bool     `json:"additionalProperties"`
+		Required             []string `json:"required"`
+		Properties           struct {
+			Command         json.RawMessage `json:"command"`
+			Description     json.RawMessage `json:"description"`
+			Timeout         json.RawMessage `json:"timeout"`
+			RunInBackground json.RawMessage `json:"run_in_background"`
+			Workdir         json.RawMessage `json:"workdir"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(schema, &s); err != nil { // coverage:ignore the schema is embedded, and the tests pin it
+		panic(err)
+	}
+	// Unescaped, so a description's `&&` reaches the model as written.
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil { // coverage:ignore raw JSON just decoded always encodes
+		panic(err)
+	}
+	return b.Bytes()
 }
 
 // Prompt is the tool's section of the system prompt: Kstack's own lines, opened

@@ -220,7 +220,6 @@ Executes a shell command and returns its output.
 - Command output is displayed to you, not reliably to the user.
 - `timeout` is in milliseconds: default 120000, max 600000.
 - `run_in_background` runs the command detached: it keeps running across turns and re-invokes you when it exits. No `&` needed. Check on it with `Read` on its output file; stop it with `TaskStop`.
-- `network` asks the user to give one sandboxed command the internet. Set it only for a command that needs the internet in a chat whose question's context says the sandbox has none.
 
 {
   "type": "object",
@@ -244,10 +243,6 @@ Executes a shell command and returns its output.
     "run_in_background": {
       "type": "boolean",
       "description": "Set to true to run this command in the background."
-    },
-    "network": {
-      "type": "boolean",
-      "description": "Set to true to ask the user to give this one command the internet, in a chat whose question's context says the sandbox has none. It changes nothing outside the sandbox."
     },
     "workdir": {
       "type": "string",
