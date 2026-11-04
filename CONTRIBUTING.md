@@ -55,7 +55,7 @@ Each area has its own `CLAUDE.md` with its conventions. The root [`CLAUDE.md`](.
 `sidecar/graph/schema.graphqls` defines the GraphQL API for both the sidecar and the UI. After editing it, regenerate both sides:
 
 ```bash
-cd sidecar && go run github.com/99designs/gqlgen generate
+cd sidecar && go tool gqlgen generate
 cd .. && pnpm codegen
 ```
 

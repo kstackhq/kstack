@@ -81,7 +81,7 @@ root `CLAUDE.md`. All commands below run from the repository root unless explici
 
 - **Go checks:** `make test-go`, `make lint-go`, `make vet-go`. During development use focused
   `cd sidecar && go test ./internal/<affected-package>`; broaden before handing off the task.
-- **Wire checks:** `cd sidecar && go run github.com/99designs/gqlgen generate`, then from root
+- **Wire checks:** `cd sidecar && go tool gqlgen generate`, then from root
   `pnpm codegen`, `pnpm build`, `make test-js`, `make lint-js`. Never hand-edit generated files.
 - **Full checks at a spec's integration gate:** `make test`, `make lint`, `make vet`, and green
   `codecov/patch` and `codecov/project` on the PR. Include codegen/build checks when wire changed.

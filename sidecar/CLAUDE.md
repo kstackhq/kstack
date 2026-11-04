@@ -187,7 +187,7 @@ A leaf: wall-clock gap detector (15s tick, 2× factor) plus a `gochan/broadcast`
 `graph/schema.graphqls` is authoritative and also feeds the frontend's codegen. One file, sectioned by noun, `Query`/`Mutation`/`Subscription` at the end. After editing:
 
 ```sh
-cd sidecar && go run github.com/99designs/gqlgen generate
+cd sidecar && go tool gqlgen generate
 ```
 
 Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-edit `generated.go`/`models_gen.go`.** Re-run the frontend `pnpm codegen`. Renaming a schema file is a two-pass regen: delete the old `*.resolvers.go` between passes and check no body came through as `panic("not implemented")`.

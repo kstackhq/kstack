@@ -1,6 +1,6 @@
 package graph
 
-//go:generate go run github.com/99designs/gqlgen generate
+//go:generate go tool gqlgen generate
 
 // Hand-written; gqlgen never regenerates this file. Add resolver dependencies here.
 
