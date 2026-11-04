@@ -6,8 +6,9 @@
 //
 // -diff is a unified diff (`git diff -U0`) whose added lines are the changed
 // lines. Each -go is a module's directory, relative to -root, and a Go cover
-// profile of it; the module's go.mod maps its import paths back to files. Each -lcov is a report whose SF paths are
-// relative to -root or absolute. Every path printed is relative to -root.
+// profile of it; the module's go.mod maps its import paths back to files.
+// Each -lcov is a report whose SF paths are relative to -root or absolute.
+// Every path printed is relative to -root.
 //
 // It prints `file:line` and the line's state for each one, and exits 1 when it
 // lists any. A line no report measured is not listed: the gate skips it too.

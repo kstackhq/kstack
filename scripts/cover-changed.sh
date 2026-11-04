@@ -50,7 +50,9 @@ diff_opts=(-U0 --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/)
 
 reports=()
 
-# Each Go module as CI measures it: the sidecar also under -tags debug.
+# Each Go module as CI measures it: the sidecar with CGO_ENABLED=0 and an
+# empty SSH_AUTH_SOCK, once untagged and once under -tags debug; the CLI once,
+# plain.
 for mod in sidecar cli; do
   has "^$mod/" || continue
   if [ "${FULL:-}" = 1 ] || has "^$mod/go\.(mod|sum)$"; then
@@ -64,10 +66,12 @@ for mod in sidecar cli; do
   # shellcheck disable=SC2086 # one argument per package
   (
     cd "$mod"
-    export CGO_ENABLED=0 SSH_AUTH_SOCK=""
-    go test -timeout 30m -covermode=atomic -coverpkg=./... -coverprofile="$out/$mod-untagged.out" $go_pkgs
     if [ "$mod" = sidecar ]; then
+      export CGO_ENABLED=0 SSH_AUTH_SOCK=""
+      go test -timeout 30m -covermode=atomic -coverpkg=./... -coverprofile="$out/$mod-untagged.out" $go_pkgs
       go test -tags debug -timeout 30m -covermode=atomic -coverpkg=./... -coverprofile="$out/$mod-debug.out" $go_pkgs
+    else
+      go test -covermode=atomic -coverpkg=./... -coverprofile="$out/$mod-untagged.out" $go_pkgs
     fi
   )
   (cd tools && go run ./coverignore -dir "../$mod" -o "$out/$mod.out" "${profiles[@]}")

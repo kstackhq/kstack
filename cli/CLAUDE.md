@@ -40,4 +40,4 @@ placeholders.
 - Lip Gloss queries the terminal's background on start. A harness driving the binary through a
   bare pty must answer it (OSC 11 and the cursor report), or the TUI waits.
 
-`make test`, `make lint`, `make vet` and `make test-changed` include this module, as CI's Go jobs do.
+`make test`, `make lint`, `make vet` and `make test-changed` include this module, as CI's Go jobs do. So do `make cover-go` and `make cover-changed`; the latter measures it as CI's `Go · Coverage` job does, without the sidecar's `CGO_ENABLED=0`, empty `SSH_AUTH_SOCK` or `-tags debug`.
