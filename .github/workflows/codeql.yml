@@ -7,9 +7,11 @@ on:
   push:
     branches:
       - main
+      - wip/**
   pull_request:
     branches:
       - main
+      - wip/**
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
@@ -25,8 +27,8 @@ env:
 
 jobs:
   # A pull request analyzes a language only when a path it reads changed. A
-  # push, the schedule or a dispatch analyzes them all, so main's baseline
-  # stays complete.
+  # push, the schedule or a dispatch analyzes them all, so the baseline of
+  # main and of each wip branch stays complete.
   changes:
     name: Changes
     runs-on: ubuntu-24.04
@@ -68,7 +70,7 @@ jobs:
               - src-tauri/**
 
       # The language and OS of every analysis the pull request skips, for
-      # reuse-main's matrix.
+      # reuse-base's matrix.
       - id: skipped
         if: github.event_name == 'pull_request'
         env:
@@ -223,18 +225,18 @@ jobs:
           sparse-checkout: .github/actions/prune-caches
       - uses: ./.github/actions/prune-caches
 
-  # A skipped category's files are unchanged, so uploading main's analysis
-  # under it lets code scanning still compare the pull request to main, and
-  # find nothing new or fixed there. An empty SARIF would instead show main's
-  # open alerts as fixed.
+  # A skipped category's files are unchanged, so uploading the base branch's
+  # analysis under it lets code scanning still compare the pull request to its
+  # base, and find nothing new or fixed there. An empty SARIF would instead
+  # show the base's open alerts as fixed.
   #
   # It uploads after the real analyses: code scanning grades the check when
   # uploads first arrive and reports any category still missing as not found.
   #
   # The name leaves out the matrix so a skipped job, whose matrix GitHub never
   # expands, shows plain text; GitHub appends each entry's values to it.
-  reuse-main:
-    name: CodeQL · Reuse main
+  reuse-base:
+    name: CodeQL · Reuse base
     needs:
       - changes
       - go
@@ -261,22 +263,24 @@ jobs:
             *) echo "category=/language:$MATRIX_LANG/os:$OS" ;;
           esac >> "$GITHUB_OUTPUT"
 
-      - name: Download main's analysis
+      - name: Download the base branch's analysis
         env:
           GH_TOKEN: ${{ github.token }}
           CATEGORY: ${{ steps.category.outputs.category }}
         run: |
-          # A cancelled run on main records a failed analysis, which has no SARIF.
-          id=$(gh api "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/main&tool_name=CodeQL&per_page=100" \
+          # A cancelled run records a failed analysis, which has no SARIF. A
+          # wip branch has none until its first push run, so a pull request
+          # into it fails here until then.
+          id=$(gh api "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/$GITHUB_BASE_REF&tool_name=CodeQL&per_page=100" \
             --jq "[.[] | select(.category == \"$CATEGORY\" and .error == \"\")][0].id")
           if [ -z "$id" ] || [ "$id" = null ]; then
-            echo "::error::main has no successful CodeQL analysis for $CATEGORY"
+            echo "::error::$GITHUB_BASE_REF has no successful CodeQL analysis for $CATEGORY; push to it to run one"
             exit 1
           fi
           gh api -H "Accept: application/sarif+json" \
-            "repos/$GITHUB_REPOSITORY/code-scanning/analyses/$id" > "$RUNNER_TEMP/main.sarif"
+            "repos/$GITHUB_REPOSITORY/code-scanning/analyses/$id" > "$RUNNER_TEMP/base.sarif"
 
       - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
-          sarif_file: ${{ runner.temp }}/main.sarif
+          sarif_file: ${{ runner.temp }}/base.sarif
           category: ${{ steps.category.outputs.category }}
