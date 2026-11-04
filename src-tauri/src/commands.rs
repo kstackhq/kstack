@@ -496,6 +496,8 @@ mod tests {
         let log_window = app.get_webview_window(label.as_str().unwrap()).unwrap();
         let focus = json!({ "page": page, "callId": "a" });
         assert_eq!(invoke(&main, "log_window_focus", focus), Ok(json!(null)));
+        let none = json!({ "page": page, "callId": "z" });
+        assert_eq!(invoke(&main, "log_window_focus", none), Ok(json!(null)));
 
         let closed = invoke(&main, "log_window_close_all", json!({ "page": page }));
 
@@ -522,6 +524,8 @@ mod tests {
             invoke(&log_window, "log_window_viewport", push),
             Ok(json!(null))
         );
+        let missing = json!({ "generation": view["generation"], "grep": "x" });
+        assert!(invoke(&log_window, "log_window_viewport", missing).is_err());
         let parts = json!({ "parts": ["chat", "pod"] });
         assert_eq!(
             invoke(&log_window, "log_window_title", parts),

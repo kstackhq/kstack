@@ -677,7 +677,9 @@ fn destroy_labels<R: Runtime>(app: &AppHandle<R>, labels: Vec<String>) {
 /// Destroys `window` without asking its page, which could cancel a close.
 fn destroy_window<R: Runtime>(window: &WebviewWindow<R>) {
     if let Err(err) = window.destroy() {
+        // coverage:ignore-start the mock runtime's destroy never fails
         warn!(%err, window = window.label(), "failed to destroy a log window");
+        // coverage:ignore-stop
     }
 }
 
@@ -703,6 +705,8 @@ mod tests {
     use tauri::ipc::Channel;
 
     use super::*;
+    use crate::services::sidecar::SidecarService;
+    use crate::testutil::{mock_app, window, Scratch};
 
     /// A channel that records each frame it carries.
     fn recorder() -> (Channel<Frame>, Arc<Mutex<Vec<Value>>>) {
@@ -757,10 +761,13 @@ mod tests {
 
     /// Reserves `call_id`'s new window, returning its label.
     fn building(windows: &LogWindows, page: u64, call_id: &str, mint: &mut Mint) -> String {
-        match reserve(windows, page, call_id, mint) {
-            Reserved::Build(label) => label,
-            other => panic!("a new call builds, got {other:?}"),
-        }
+        let reserved = reserve(windows, page, call_id, mint);
+        let label = format!("logs-{}", mint.0);
+        assert!(
+            matches!(reserved, Reserved::Build(ref built) if *built == label),
+            "a new call builds, got {reserved:?}"
+        );
+        label
     }
 
     /// Reserves and builds `call_id`'s window, returning its label.
@@ -773,7 +780,9 @@ mod tests {
     fn receiver(reserved: Reserved) -> watch::Receiver<Outcome> {
         match reserved {
             Reserved::Wait(outcome) => outcome,
+            // coverage:ignore-start runs only when a test fails
             other => panic!("expected a wait, got {other:?}"),
+            // coverage:ignore-stop
         }
     }
 
@@ -902,6 +911,30 @@ mod tests {
         );
     }
 
+    /// A frame its channel fails to carry is dropped, and the pair carries on.
+    #[test]
+    fn page_a_failed_send_is_dropped() {
+        let windows = LogWindows::default();
+        let failing = Channel::new(|_| Err(tauri::Error::UnknownPath));
+
+        let page = windows.subscribe("main", failing).unwrap();
+
+        live(&windows, page, "a", &mut Mint(0));
+    }
+
+    /// An app window's focus and a missing label's removal change nothing.
+    #[test]
+    fn page_only_a_log_window_is_tracked() {
+        let (windows, page, frames) = subscribed();
+        live(&windows, page, "a", &mut Mint(0));
+        take(&frames);
+
+        windows.focused("main");
+        assert!(!windows.lock().remove("logs-9"));
+
+        assert!(take(&frames).is_empty());
+    }
+
     // The build.
 
     /// A building entry is in no snapshot and sends nothing; `opened` carries
@@ -999,9 +1032,8 @@ mod tests {
         let (windows, page, _) = subscribed();
         let mut mint = Mint(0);
         let reserved = windows.reserve("main", page, call("a"), Some("one".into()), || mint.next());
-        let Ok(Reserved::Build(label)) = reserved else {
-            panic!("builds");
-        };
+        assert!(matches!(reserved, Ok(Reserved::Build(_))));
+        let label = "logs-1".to_string();
         windows.built(&label);
 
         let again = windows.reserve("main", page, call("a"), Some("two".into()), || mint.next());
@@ -1037,6 +1069,65 @@ mod tests {
         let frames = take(&reloaded);
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0]["opened"]["window"]["label"], label);
+    }
+
+    /// A build's late failure, after a close cancelled it, changes nothing:
+    /// its waiters already heard `Cancelled`.
+    #[tokio::test]
+    async fn build_a_failure_after_a_close_is_ignored() {
+        let (windows, page, _) = subscribed();
+        let mut mint = Mint(0);
+        let label = building(&windows, page, "a", &mut mint);
+        let outcome = receiver(reserve(&windows, page, "a", &mut mint));
+        windows.close_all("main", page).unwrap();
+
+        windows.failed(&label, &AppError::Build("late".into()));
+
+        assert!(matches!(wait(outcome).await, Err(AppError::Cancelled)));
+    }
+
+    /// An open on a call whose window is building waits for that build's
+    /// label.
+    #[test]
+    fn build_open_waits_on_a_building_window() {
+        use std::future::Future;
+        use std::task::{Context, Poll, Waker};
+
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let log_windows = &app.state::<AppState>().log_windows;
+        let page = log_windows.subscribe("main", recorder().0).unwrap();
+        let reserved = log_windows.reserve("main", page, call("a"), None, || "logs-9".into());
+        assert!(matches!(reserved, Ok(Reserved::Build(_))));
+
+        let mut opening = Box::pin(open(app.handle().clone(), "main", page, call("a"), None));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(matches!(opening.as_mut().poll(&mut cx), Poll::Pending));
+        assert!(log_windows.built("logs-9"));
+
+        let opened = tauri::async_runtime::block_on(opening);
+        assert_eq!(opened.unwrap(), "logs-9");
+    }
+
+    /// A build that a close cancelled while it ran destroys its window and is
+    /// cancelled.
+    #[test]
+    fn build_one_cancelled_while_it_ran_is_cancelled() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        window(&app, "main");
+        let log_windows = &app.state::<AppState>().log_windows;
+        let page = log_windows.subscribe("main", recorder().0).unwrap();
+        let reserved = log_windows.reserve("main", page, call("a"), None, || "logs-9".into());
+        assert!(matches!(reserved, Ok(Reserved::Build(_))));
+        log_windows.close_all("main", page).unwrap();
+
+        let label = "logs-9".to_string();
+        let built = build(app.handle().clone(), label, "main".into());
+
+        let built = tauri::async_runtime::block_on(built);
+        assert!(matches!(built, Err(AppError::Cancelled)));
+        assert!(log_windows.view("logs-9").is_err());
     }
 
     // Cancellation.
