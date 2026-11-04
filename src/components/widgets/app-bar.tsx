@@ -18,7 +18,7 @@
 // and caption buttons; the frameless platforms get `AppMenu` on the left and
 // `WindowControls` on the right.
 // See docs/adr/2026-08-09-per-platform-window-chrome.md
-import { AppBarDivider, AppBarGroup } from '@/components/widgets/app-bar-button';
+import { AppBarDivider, AppBarGroup, TrafficLightGutter } from '@/components/widgets/app-bar-button';
 import { AppMenu } from '@/components/widgets/app-menu';
 import { ContextOmnibox } from '@/components/widgets/context-omnibox';
 import { HistoryNav } from '@/components/widgets/history-nav';
@@ -27,11 +27,6 @@ import { SettingsButton } from '@/components/widgets/settings-button';
 import { WindowControls } from '@/components/widgets/window-controls';
 import { isMacOS } from '@/lib/platform';
 import { dismissPopupsOnWindowDrag } from '@/lib/window-drag';
-
-// Space (px) reserved for the macOS traffic lights: the host places the first at
-// x=20 (`window_manager.rs`) and the three end near x=72; the rest is breathing
-// room. Eyeball against the native buttons when tuning.
-const TRAFFIC_LIGHT_GUTTER = 96;
 
 export function AppBar() {
   // `AppMenu` registers the `Ctrl/Cmd+N`/`Q` accelerators while it is mounted, so
@@ -60,16 +55,7 @@ export function AppBar() {
       onPointerDown={dismissPopupsOnWindowDrag}
       className="flex h-12 shrink-0 transform-gpu items-stretch bg-app-bar"
     >
-      {mac ? (
-        <div
-          data-testid="traffic-light-gutter"
-          aria-hidden
-          className="shrink-0"
-          style={{ width: TRAFFIC_LIGHT_GUTTER }}
-        />
-      ) : (
-        <AppMenu />
-      )}
+      {mac ? <TrafficLightGutter /> : <AppMenu />}
       {/* 16px from the chrome on the left. */}
       <div data-testid="app-bar-controls" className="ml-4 flex items-center gap-2">
         <HistoryNav />

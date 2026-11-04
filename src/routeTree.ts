@@ -18,10 +18,14 @@ import { Route as indexRoute } from '@/routes/index';
 import { Route as chatRoute } from '@/routes/chat';
 import { Route as chatIdRoute } from '@/routes/chat-id';
 import { Route as dashboardRoute } from '@/routes/dashboard';
+import { Route as logsRoute } from '@/routes/_logs';
+import { Route as logsWindowRoute } from '@/routes/logs-window';
 
 // Chat and Dashboard are peers under the pathless `_app` layout route so they
 // share the sidebar shell; `/` only redirects to the default view. A chat is a
-// route of its own (`/chat/$chatId`) so each window can be in a different one.
+// route of its own (`/chat/$chatId`) so each window can be in a different one. A log
+// window's page sits under its own pathless layout, `_logs`.
 export const routeTree = rootRoute.addChildren([
   appRoute.addChildren([indexRoute, chatRoute, chatIdRoute, dashboardRoute]),
+  logsRoute.addChildren([logsWindowRoute]),
 ]);

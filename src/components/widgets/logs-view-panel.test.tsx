@@ -16,7 +16,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { LogsView } from '@/lib/logs-view';
 import { createLogViewportHandle } from '@/lib/log-viewport';
-import { LogsViewPanel } from './logs-view-panel';
+import { LogsViewHeader, LogsViewPanel } from './logs-view-panel';
 
 // The viewer has a suite of its own; this file is about the panel around it.
 // The viewport the viewer was handed, by identity.
@@ -84,7 +84,13 @@ const view: LogsView = {
 describe('LogsViewPanel', () => {
   it('names the first source and how many more, then every source, the filters and the grep', () => {
     render(
-      <LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} onGrepApplied={() => {}} />,
+      <LogsViewPanel
+        view={view}
+        viewport={createLogViewportHandle()}
+        onClose={() => {}}
+        onOpenInWindow={() => {}}
+        onGrepApplied={() => {}}
+      />,
     );
     expect(screen.getByRole('heading')).toHaveTextContent(
       'Logs: Deployment webapp in prod (app, istio-proxy) and 1 more',
@@ -101,20 +107,38 @@ describe('LogsViewPanel', () => {
   it('says where the view opens and whether it is pinned', () => {
     const tail = { ...view, action: { ...view.action, anchor: { kind: 'Tail' as const, at: null }, pinToEnd: true } };
     render(
-      <LogsViewPanel view={tail} viewport={createLogViewportHandle()} onClose={() => {}} onGrepApplied={() => {}} />,
+      <LogsViewPanel
+        view={tail}
+        viewport={createLogViewportHandle()}
+        onClose={() => {}}
+        onOpenInWindow={() => {}}
+        onGrepApplied={() => {}}
+      />,
     );
     expect(screen.getByText(/newest line/)).toHaveTextContent('at the newest line, pinned to the end');
 
     const head = { ...view, action: { ...view.action, anchor: { kind: 'Head' as const, at: null } } };
     render(
-      <LogsViewPanel view={head} viewport={createLogViewportHandle()} onClose={() => {}} onGrepApplied={() => {}} />,
+      <LogsViewPanel
+        view={head}
+        viewport={createLogViewportHandle()}
+        onClose={() => {}}
+        onOpenInWindow={() => {}}
+        onGrepApplied={() => {}}
+      />,
     );
     expect(screen.getByText(/^from the start$/)).toBeInTheDocument();
   });
 
   it('spells a reordering character in a name out, never drawing it', () => {
     render(
-      <LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} onGrepApplied={() => {}} />,
+      <LogsViewPanel
+        view={view}
+        viewport={createLogViewportHandle()}
+        onClose={() => {}}
+        onOpenInWindow={() => {}}
+        onGrepApplied={() => {}}
+      />,
     );
     expect(screen.getByTitle('An invisible character')).toBeInTheDocument();
   });
@@ -128,6 +152,7 @@ describe('LogsViewPanel', () => {
         }}
         viewport={createLogViewportHandle()}
         onClose={() => {}}
+        onOpenInWindow={() => {}}
         onGrepApplied={() => {}}
       />,
     );
@@ -139,22 +164,57 @@ describe('LogsViewPanel', () => {
   it('closes from its button', () => {
     const onClose = vi.fn();
     render(
-      <LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={onClose} onGrepApplied={() => {}} />,
+      <LogsViewPanel
+        view={view}
+        viewport={createLogViewportHandle()}
+        onClose={onClose}
+        onOpenInWindow={() => {}}
+        onGrepApplied={() => {}}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Close log view' }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it('opens the view in a window from its button', () => {
+    const onOpenInWindow = vi.fn();
+    render(
+      <LogsViewPanel
+        view={view}
+        viewport={createLogViewportHandle()}
+        onClose={() => {}}
+        onOpenInWindow={onOpenInWindow}
+        onGrepApplied={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open in window' }));
+    expect(onOpenInWindow).toHaveBeenCalledOnce();
+  });
+
   it('mounts the viewer on the view’s cluster with the viewport it is handed', () => {
     const viewport = createLogViewportHandle();
-    render(<LogsViewPanel view={view} viewport={viewport} onClose={() => {}} onGrepApplied={() => {}} />);
+    render(
+      <LogsViewPanel
+        view={view}
+        viewport={viewport}
+        onClose={() => {}}
+        onOpenInWindow={() => {}}
+        onGrepApplied={() => {}}
+      />,
+    );
     expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-cluster', 'cluster-1');
     expect(mountedWith.viewport).toBe(viewport);
   });
 
   it('mounts the viewer at the action’s anchor, pinned as the action says', () => {
     render(
-      <LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} onGrepApplied={() => {}} />,
+      <LogsViewPanel
+        view={view}
+        viewport={createLogViewportHandle()}
+        onClose={() => {}}
+        onOpenInWindow={() => {}}
+        onGrepApplied={() => {}}
+      />,
     );
     expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-open-at', '2026-10-08T14:02:00Z');
     expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-pinned', 'false');
@@ -167,6 +227,7 @@ describe('LogsViewPanel', () => {
         view={{ ...view, grep: 'panic' }}
         viewport={createLogViewportHandle()}
         onClose={() => {}}
+        onOpenInWindow={() => {}}
         onGrepApplied={onGrepApplied}
       />,
     );
@@ -183,9 +244,29 @@ describe('LogsViewPanel', () => {
         view={{ ...view, grep: '' }}
         viewport={createLogViewportHandle()}
         onClose={() => {}}
+        onOpenInWindow={() => {}}
         onGrepApplied={() => {}}
       />,
     );
     expect(screen.queryByText(/matching/)).not.toBeInTheDocument();
+  });
+});
+
+describe('LogsViewPanel without a window handler', () => {
+  it('draws the close alone', () => {
+    render(
+      <LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} onGrepApplied={() => {}} />,
+    );
+    expect(screen.getByRole('button', { name: 'Close log view' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open in window' })).not.toBeInTheDocument();
+  });
+});
+
+describe('LogsViewHeader', () => {
+  it('draws neither button without its handler', () => {
+    render(<LogsViewHeader view={view} grep="panic" />);
+    expect(screen.getByRole('heading')).toHaveTextContent(/^Logs: Deployment webapp/);
+    expect(screen.getByText(/matching/)).toHaveTextContent('matching /panic/');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });

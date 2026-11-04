@@ -13,17 +13,17 @@
 // limitations under the License.
 // A LogsView call in the transcript: one block naming what the view reads and
 // where it opened, the model's description, the receipt it read, Expand, which
-// makes this call the focused view, and the view's lines in a fixed window. While
-// the sidebar shows the call, the card says so in Expand's place and draws no
-// window. On the dashboard, which has no panel for a view yet, there is no Expand
-// at all. Expand and the window wait for the chat's cluster.
+// makes this call the focused view, Open in window, and the view's lines in a fixed
+// window. While the sidebar or a log window shows the call, the card says where in
+// the buttons' place and draws no window (`logs-view-buttons.tsx`). On the dashboard,
+// which has no panel for a view yet, there are no buttons at all. The buttons and
+// the window wait for the chat's cluster.
 import { useState } from 'react';
 import { useClient } from 'urql';
 
-import { Button } from '@kubetail/ui/elements/button';
-
 import { LogsViewInline } from '@/components/widgets/logs-view-inline';
 import { anchorLine, SourceLine } from '@/components/widgets/logs-view-lines';
+import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { AppMode } from '@/lib/app-mode';
@@ -31,8 +31,6 @@ import type { ChatToolCall } from '@/lib/chats';
 import { INLINE_LOADING, useInlineLogLines } from '@/lib/inline-log-lines';
 import { createLogsClient } from '@/lib/logs-client';
 import type { LogsViewAction } from '@/lib/logs-view';
-import { useLogsView } from '@/lib/logs-view';
-import { useRightSidebar } from '@/lib/right-sidebar';
 import { descriptionLine } from '@/lib/visible-text';
 
 // The window over the chat's cluster, its client built once per mount.
@@ -68,12 +66,10 @@ export function LogsViewCard({
   /** The next view's `resolvedAt`, where this one stopped being live. Null while this is the chat's newest view, which alone may run live. */
   until: string | null;
 }) {
-  const { view, set } = useLogsView();
-  const { open } = useRightSidebar();
+  const place = useViewPlace(chatID, call.id, mode);
   const [first] = action.sources;
   const more = action.sources.length - 1;
   const line = descriptionLine(call.action?.description ?? '');
-  const shown = mode === 'chat' && open && view?.chatId === chatID && view.callId === call.id;
   return (
     <div className="mt-1 rounded-md border px-3 py-2">
       <div className="flex items-start gap-2">
@@ -101,24 +97,18 @@ export function LogsViewCard({
             </p>
           )}
         </div>
-        {mode === 'chat' &&
-          (shown ? (
-            <span className="shrink-0 opacity-70">Showing in the sidebar</span>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              disabled={clusterID === undefined}
-              onClick={() => {
-                if (clusterID !== undefined) set({ clusterId: clusterID, chatId: chatID, callId: call.id, action });
-              }}
-            >
-              Expand
-            </Button>
-          ))}
+        {mode === 'chat' && (
+          <LogsViewButtons
+            label="Expand"
+            place={place}
+            chatID={chatID}
+            callID={call.id}
+            clusterID={clusterID}
+            action={action}
+          />
+        )}
       </div>
-      {!shown &&
+      {place === 'card' &&
         (clusterID === undefined ? (
           <LogsViewInline action={action} state={INLINE_LOADING} />
         ) : (

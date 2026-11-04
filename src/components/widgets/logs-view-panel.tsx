@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // The log view the right sidebar draws in chat mode: a header naming what the
-// focused view reads, a close that collapses the sidebar, and the viewer under them. The panel
-// does not scroll; the viewer owns its scroller.
-import { X } from 'lucide-react';
+// focused view reads, *Open in window*, a close that collapses the sidebar, and the
+// viewer under them. The panel does not scroll; the viewer owns its scroller. A log
+// window draws the same header, without the buttons.
+import { ExternalLink, X } from 'lucide-react';
 
 import { Button } from '@kubetail/ui/elements/button';
+import { cn } from '@kubetail/ui/lib/utils';
 
 import { LogViewer } from '@/components/widgets/log-viewer';
 import { anchorLine, Names, SourceLine } from '@/components/widgets/logs-view-lines';
@@ -24,17 +26,27 @@ import { VisibleText } from '@/components/widgets/visible-text';
 import type { LogsView } from '@/lib/logs-view';
 import type { LogViewportHandle } from '@/lib/log-viewport';
 
-// `grep` is the viewer's, which its toolbar can change from the action's.
-function Header({ view, grep, onClose }: { view: LogsView; grep: string; onClose: () => void }) {
+// `grep` is the viewer's, which its toolbar can change from the action's. Each button
+// draws only with its handler.
+export function LogsViewHeader({
+  view,
+  grep,
+  onClose,
+  onOpenInWindow,
+  className,
+}: {
+  view: LogsView;
+  grep: string;
+  onClose?: () => void;
+  onOpenInWindow?: () => void;
+  className?: string;
+}) {
   const { sources, filters, anchor, pinToEnd } = view.action;
   const [first] = sources;
   const more = sources.length - 1;
   const detail = 'truncate text-xs text-muted-foreground';
   return (
-    // The layout pins the sidebar toggle over the panel's top-right corner (16px in,
-    // 28px square), so the header leaves that corner alone: the close sits level with
-    // the toggle and 12px to its left.
-    <header className="flex items-start gap-2 border-b p-4 pr-14">
+    <header className={cn('flex items-start gap-2 border-b p-4', className)}>
       <div className="min-w-0 flex-1 text-sm">
         <h2 className="truncate font-semibold">
           Logs: <SourceLine source={first} />
@@ -65,9 +77,22 @@ function Header({ view, grep, onClose }: { view: LogsView; grep: string; onClose
           </p>
         )}
       </div>
-      <Button variant="ghost" size="icon-sm" aria-label="Close log view" onClick={onClose}>
-        <X aria-hidden />
-      </Button>
+      {onOpenInWindow && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Open in window"
+          title="Open in window"
+          onClick={onOpenInWindow}
+        >
+          <ExternalLink aria-hidden />
+        </Button>
+      )}
+      {onClose && (
+        <Button variant="ghost" size="icon-sm" aria-label="Close log view" onClick={onClose}>
+          <X aria-hidden />
+        </Button>
+      )}
     </header>
   );
 }
@@ -76,18 +101,24 @@ export function LogsViewPanel({
   view,
   viewport,
   onClose,
+  onOpenInWindow,
   onGrepApplied,
 }: {
   view: LogsView;
   viewport: LogViewportHandle;
   onClose: () => void;
+  /** Absent until the log windows' provider is ready, which hides the button. */
+  onOpenInWindow?: () => void;
   /** Called with each grep the user applies from the viewer's toolbar. */
   onGrepApplied: (grep: string) => void;
 }) {
   const grep = view.grep ?? view.action.grep;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Header view={view} grep={grep} onClose={onClose} />
+      {/* The layout pins the sidebar toggle over the panel's top-right corner (16px in,
+          28px square), so the header leaves that corner alone: the buttons sit level
+          with the toggle and 12px to its left. */}
+      <LogsViewHeader view={view} grep={grep} onClose={onClose} onOpenInWindow={onOpenInWindow} className="pr-14" />
       {/* Keyed on the call: a new call lands at its anchor, a re-render of the same
           call leaves the user where they scrolled. */}
       <LogViewer

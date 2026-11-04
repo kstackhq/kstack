@@ -50,6 +50,20 @@ vi.mock('@/components/widgets/settings-button', () => ({
 vi.mock('@/lib/connection-status', () => ({
   ConnectionStatus: () => <div data-testid="connection-status" />,
 }));
+// The log windows' provider talks to the host and reads the window's cluster; its own
+// suite covers it. Here it serves an inert value, and says it was mounted.
+const { logWindowsMounted } = vi.hoisted(() => ({ logWindowsMounted: { current: false } }));
+vi.mock('@/lib/log-windows', async (importOriginal) => {
+  const { LogWindowsContext, useLogWindows } = await importOriginal<typeof import('@/lib/log-windows')>();
+  const value = { ready: true, windowOf: () => undefined, open: () => {}, focus: () => {} };
+  return {
+    useLogWindows,
+    LogWindowsProvider: ({ children }: { children: import('react').ReactNode }) => {
+      logWindowsMounted.current = true;
+      return <LogWindowsContext.Provider value={value}>{children}</LogWindowsContext.Provider>;
+    },
+  };
+});
 // The real resource nav builds its tree from the active cluster's kinds (urql +
 // clusters providers); this test only checks that it mounts on dashboard, so stub
 // it with a nav that keeps the accessible "Resources" name the assertions match.
@@ -311,5 +325,11 @@ describe('AppLayout', () => {
   it('renders the connection-status banner', async () => {
     await renderWithRouter(buildTree(), '/');
     expect(screen.getByTestId('connection-status')).toBeInTheDocument();
+  });
+
+  it('mounts the log windows, which the panel and the cards reach', async () => {
+    logWindowsMounted.current = false;
+    await renderWithRouter(buildTree(), '/');
+    expect(logWindowsMounted.current).toBe(true);
   });
 });

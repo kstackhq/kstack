@@ -48,6 +48,11 @@ export function reportError(error: AppError): void {
   target.dispatchEvent(new CustomEvent(ERROR_EVENT, { detail: error }));
 }
 
+/** Reports a host command that failed or was refused. */
+export function reportHostError(e: unknown): void {
+  reportError({ source: 'network', message: errorMessage(e), cause: e });
+}
+
 export function onError(handler: (error: AppError) => void): () => void {
   const listener = (e: Event) => handler((e as CustomEvent<AppError>).detail);
   target.addEventListener(ERROR_EVENT, listener);

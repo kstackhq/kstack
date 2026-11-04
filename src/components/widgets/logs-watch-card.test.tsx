@@ -14,6 +14,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { fakeLogWindows } from '@/test-utils';
+
 import type { AppMode } from '@/lib/app-mode';
 import type { ChatToolCall } from '@/lib/chats';
 import type { LogsWatchAction, LogsWatchTask } from '@/lib/logs-view';
@@ -24,10 +26,15 @@ vi.mock('urql', () => ({ useClient: () => requested.push('client') }));
 vi.mock('@/lib/logs-client', () => ({ createLogsClient: () => requested.push('logs client') }));
 
 const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
+const { LogWindowsContext } = await import('@/lib/log-windows');
+const { windows, value: logWindows } = fakeLogWindows();
 const { RightSidebarProvider } = await import('@/lib/right-sidebar');
 const { LogsWatchCard } = await import('./logs-watch-card');
 
 beforeEach(() => {
+  windows.length = 0;
+  logWindows.open.mockReset();
+  logWindows.focus.mockReset();
   requested.length = 0;
   localStorage.clear();
 });
@@ -117,12 +124,22 @@ const draw = ({
   mode = 'chat',
   watch = action,
   task = matched,
-}: { mode?: AppMode; watch?: LogsWatchAction; task?: LogsWatchTask | null } = {}) =>
+  clusterID = 'cluster-1',
+}: { mode?: AppMode; watch?: LogsWatchAction; task?: LogsWatchTask | null; clusterID?: string | null } = {}) =>
   render(
     <RightSidebarProvider mode={mode}>
       <LogsViewProvider>
-        <LogsWatchCard call={call} action={watch} task={task} chatID="chat-1" clusterID="cluster-1" mode={mode} />
-        <Focused />
+        <LogWindowsContext.Provider value={logWindows}>
+          <LogsWatchCard
+            call={call}
+            action={watch}
+            task={task}
+            chatID="chat-1"
+            clusterID={clusterID ?? undefined}
+            mode={mode}
+          />
+          <Focused />
+        </LogWindowsContext.Provider>
       </LogsViewProvider>
     </RightSidebarProvider>,
   );
@@ -193,6 +210,32 @@ describe('LogsWatchCard', () => {
     expect(screen.getByText('Showing in the sidebar')).toBeInTheDocument();
   });
 
+  it('Open in window moves the task’s view around to a window', () => {
+    draw();
+    fireEvent.click(screen.getByRole('button', { name: 'Open in window' }));
+    expect(logWindows.open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clusterId: 'cluster-1',
+        chatId: 'chat-1',
+        callId: 'call-1',
+        action: matched.viewAround,
+      }),
+    );
+  });
+
+  it('holds its buttons until the chat’s cluster is known', () => {
+    draw({ clusterID: null });
+    expect(screen.getByRole('button', { name: 'View around this' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Open in window' })).toBeDisabled();
+  });
+
+  it('says the view is in a window while its call has one', () => {
+    windows.push({ label: 'logs-1', clusterId: 'cluster-1', chatId: 'chat-1', callId: 'call-1' });
+    draw();
+    expect(screen.getByText('Showing in a window')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View around this' })).not.toBeInTheDocument();
+  });
+
   it('has no View around this on the dashboard', () => {
     draw({ mode: 'dashboard' });
     expect(screen.queryByRole('button', { name: 'View around this' })).not.toBeInTheDocument();
@@ -242,14 +285,16 @@ describe('LogsWatchCard', () => {
     rerender(
       <RightSidebarProvider mode="chat">
         <LogsViewProvider>
-          <LogsWatchCard
-            call={call}
-            action={{ ...action }}
-            task={running}
-            chatID="chat-1"
-            clusterID="cluster-1"
-            mode="chat"
-          />
+          <LogWindowsContext.Provider value={logWindows}>
+            <LogsWatchCard
+              call={call}
+              action={{ ...action }}
+              task={running}
+              chatID="chat-1"
+              clusterID="cluster-1"
+              mode="chat"
+            />
+          </LogWindowsContext.Provider>
         </LogsViewProvider>
       </RightSidebarProvider>,
     );

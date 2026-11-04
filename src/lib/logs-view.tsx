@@ -48,6 +48,18 @@ export type LogsView = {
   grep?: string;
 };
 
+/**
+ * The view a call opens, as its card's Expand or View around this sets it: a LogsView
+ * call's action, a LogsRead call's view around, or a LogsWatch task's, which arrives
+ * when the watch ends. Null for any other call.
+ */
+export function viewOfCall(call: Pick<ChatToolCall, 'action' | 'background'>): LogsViewAction | null {
+  if (call.action?.logsView) return call.action.logsView;
+  if (call.action?.logsRead) return call.action.logsRead.viewAround;
+  if (call.action?.logsWatch) return call.background?.viewAround ?? null;
+  return null;
+}
+
 type LogsViewContextValue = {
   view: LogsView | null;
   /** Focuses a view, keeping the user's grep when it is the call already focused. */

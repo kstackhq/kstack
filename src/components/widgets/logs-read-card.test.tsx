@@ -14,6 +14,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { fakeLogWindows } from '@/test-utils';
+
 import type { AppMode } from '@/lib/app-mode';
 import type { ChatToolCall } from '@/lib/chats';
 import type { LogsReadAction } from '@/lib/logs-view';
@@ -24,10 +26,15 @@ vi.mock('urql', () => ({ useClient: () => requested.push('client') }));
 vi.mock('@/lib/logs-client', () => ({ createLogsClient: () => requested.push('logs client') }));
 
 const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
+const { LogWindowsContext } = await import('@/lib/log-windows');
+const { windows, value: logWindows } = fakeLogWindows();
 const { RightSidebarProvider } = await import('@/lib/right-sidebar');
 const { LogsReadCard } = await import('./logs-read-card');
 
 beforeEach(() => {
+  windows.length = 0;
+  logWindows.open.mockReset();
+  logWindows.focus.mockReset();
   requested.length = 0;
   localStorage.clear();
 });
@@ -109,12 +116,18 @@ function Focused() {
   );
 }
 
-const draw = ({ mode = 'chat', read = action }: { mode?: AppMode; read?: LogsReadAction } = {}) =>
+const draw = ({
+  mode = 'chat',
+  read = action,
+  clusterID = 'cluster-1',
+}: { mode?: AppMode; read?: LogsReadAction; clusterID?: string | null } = {}) =>
   render(
     <RightSidebarProvider mode={mode}>
       <LogsViewProvider>
-        <LogsReadCard call={call} action={read} chatID="chat-1" clusterID="cluster-1" mode={mode} />
-        <Focused />
+        <LogWindowsContext.Provider value={logWindows}>
+          <LogsReadCard call={call} action={read} chatID="chat-1" clusterID={clusterID ?? undefined} mode={mode} />
+          <Focused />
+        </LogWindowsContext.Provider>
       </LogsViewProvider>
     </RightSidebarProvider>,
   );
@@ -189,6 +202,33 @@ describe('LogsReadCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View around this' }));
     expect(screen.getByTestId('focused')).toHaveTextContent('cluster-1/chat-1/call-1/2026-10-17T09:14:00Z');
     expect(screen.getByText('Showing in the sidebar')).toBeInTheDocument();
+  });
+
+  it('Open in window moves the read’s view around to a window', () => {
+    draw();
+    fireEvent.click(screen.getByRole('button', { name: 'Open in window' }));
+    expect(logWindows.open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clusterId: 'cluster-1',
+        chatId: 'chat-1',
+        callId: 'call-1',
+        action: action.viewAround,
+      }),
+    );
+  });
+
+  it('holds its buttons until the chat’s cluster is known', () => {
+    draw({ clusterID: null });
+    expect(screen.getByRole('button', { name: 'View around this' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Open in window' })).toBeDisabled();
+  });
+
+  it('says the view is in a window while its call has one, and keeps the lines it read', () => {
+    windows.push({ label: 'logs-1', clusterId: 'cluster-1', chatId: 'chat-1', callId: 'call-1' });
+    draw();
+    expect(screen.getByText('Showing in a window')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View around this' })).not.toBeInTheDocument();
+    expect(rows().length).toBeGreaterThan(0);
   });
 
   it('has no View around this on the dashboard, or for a read of no line', () => {

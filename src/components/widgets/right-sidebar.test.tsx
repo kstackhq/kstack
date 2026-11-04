@@ -16,10 +16,12 @@ import { useRef } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { LogWindowsContext } from '@/lib/log-windows';
 import { LogsViewProvider, useLogsView } from '@/lib/logs-view';
 import type { LogsView } from '@/lib/logs-view';
 import { RightSidebarProvider } from '@/lib/right-sidebar';
 import type { AppMode } from '@/lib/app-mode';
+import { fakeLogWindows } from '@/test-utils';
 
 // The panel's contents have a suite of their own, and the real widgets want a router,
 // a urql client, the Tauri bridge and a layout. This file is about which one is mounted.
@@ -37,6 +39,8 @@ vi.mock('@/components/widgets/log-viewer', () => ({
 }));
 
 const { RightSidebar, RightSidebarToggle } = await import('./right-sidebar');
+
+const { value: logWindows } = fakeLogWindows();
 
 // Helpers -------------------------------------------------------------
 
@@ -57,9 +61,11 @@ const renderPanel = ({ mode = 'chat' }: { mode?: AppMode } = {}) =>
   render(
     <RightSidebarProvider mode={mode}>
       <LogsViewProvider>
-        <RightSidebarToggle />
-        <Row />
-        <FocusView />
+        <LogWindowsContext.Provider value={logWindows}>
+          <RightSidebarToggle />
+          <Row />
+          <FocusView />
+        </LogWindowsContext.Provider>
       </LogsViewProvider>
     </RightSidebarProvider>,
   );
@@ -263,6 +269,21 @@ describe('RightSidebar', () => {
     // The view stays focused, so the toggle brings it back.
     clickToggle();
     expect(screen.getByRole('heading', { name: /Logs: Deployment webapp in prod/ })).toBeInTheDocument();
+  });
+
+  it('opens the focused log view in a window from its header', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'focus view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open in window' }));
+    expect(logWindows.open).toHaveBeenCalledWith(expect.objectContaining({ chatId: 'chat-1', callId: 'call-1' }));
+  });
+
+  it('draws no Open in window until the log windows are ready', () => {
+    logWindows.ready = false;
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'focus view' }));
+    expect(screen.queryByRole('button', { name: 'Open in window' })).not.toBeInTheDocument();
+    logWindows.ready = true;
   });
 
   it('keeps the user’s grep for the focused view across a collapse', () => {

@@ -16,13 +16,15 @@
 // them, stripped, redacted and cut, a line outside the range tagged with its side.
 // Nothing is fetched, so a reload, an evicted log or a gone cluster draws the same
 // lines. A footer says what the model saw beyond them. View around this makes the
-// read's view the focused view, as a LogsView card's Expand does, in chat mode alone.
+// read's view the focused view, and Open in window moves it to a window, as a LogsView
+// card's buttons do, in chat mode alone.
 import { useState } from 'react';
 
 import { Button } from '@kubetail/ui/elements/button';
 
 import { GapRow, LineRow, type LineTag, readsOneStream } from '@/components/widgets/logs-view-inline';
 import { SourceLine } from '@/components/widgets/logs-view-lines';
+import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { AppMode } from '@/lib/app-mode';
@@ -31,8 +33,6 @@ import { INLINE_LINES } from '@/lib/inline-log-lines';
 import { compareTimestamps, previousNanosecond } from '@/lib/log-viewer';
 import type { LogLine } from '@/lib/log-viewer';
 import type { LogsReadAction } from '@/lib/logs-view';
-import { useLogsView } from '@/lib/logs-view';
-import { useRightSidebar } from '@/lib/right-sidebar';
 import { descriptionLine } from '@/lib/visible-text';
 
 type Line = LogsReadAction['lines'][number];
@@ -122,13 +122,11 @@ export function LogsReadCard({
   clusterID: string | undefined;
   mode: AppMode;
 }) {
-  const { view, set } = useLogsView();
-  const { open } = useRightSidebar();
+  const place = useViewPlace(chatID, call.id, mode);
   const [all, setAll] = useState(false);
   const [first] = action.sources;
   const more = action.sources.length - 1;
   const line = descriptionLine(call.action?.description ?? '');
-  const shown = mode === 'chat' && open && view?.chatId === chatID && view.callId === call.id;
   const oneStream = readsOneStream(action);
   const lines = all ? action.lines : action.lines.slice(0, INLINE_LINES);
   const { viewAround, since } = action;
@@ -154,24 +152,16 @@ export function LogsReadCard({
           </p>
           {line !== '' && <ModelDescription line={line} />}
         </div>
-        {mode === 'chat' &&
-          viewAround &&
-          (shown ? (
-            <span className="shrink-0 opacity-70">Showing in the sidebar</span>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              disabled={clusterID === undefined}
-              onClick={() => {
-                if (clusterID !== undefined)
-                  set({ clusterId: clusterID, chatId: chatID, callId: call.id, action: viewAround });
-              }}
-            >
-              View around this
-            </Button>
-          ))}
+        {mode === 'chat' && viewAround && (
+          <LogsViewButtons
+            label="View around this"
+            place={place}
+            chatID={chatID}
+            callID={call.id}
+            clusterID={clusterID}
+            action={viewAround}
+          />
+        )}
       </div>
       <div
         data-testid="logs-read"

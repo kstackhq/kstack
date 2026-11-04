@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChatClusterWrite, ChatMessage, ChatToolCall } from '@/lib/chats';
 import type { FetchQuery } from '@/lib/log-viewer';
+import { fakeLogWindows } from '@/test-utils';
 
 // The seams: urql's hooks, and the client a view's window reads through, which reads
 // nothing and says what it was asked. The outbox is the real one, since Ask again is its
@@ -47,6 +48,10 @@ const { ChatOutboxProvider } = await import('@/lib/chat-outbox');
 const { chatGrantsContext } = await import('@/lib/chat-grants');
 const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
 const { RightSidebarProvider } = await import('@/lib/right-sidebar');
+const { LogWindowsContext } = await import('@/lib/log-windows');
+
+// The app window has no log windows here; the cards' own suites cover theirs.
+const { value: noLogWindows } = fakeLogWindows();
 const { APPROVE_ARM_MS, ChatTranscript, viewEnds } = await import('./chat-transcript');
 
 const opus = {
@@ -72,12 +77,14 @@ beforeEach(() => {
 });
 
 // The providers the layout mounts around the transcript: the outbox Ask again
-// sends from, and the focused view the card sets. One wrapper for every tree, so
-// a rerender keeps the transcript mounted.
+// sends from, the focused view the card sets, and the log windows it reads. One
+// wrapper for every tree, so a rerender keeps the transcript mounted.
 const wrap = (ui: ReactNode, mode: 'chat' | 'dashboard' = 'chat') => (
   <RightSidebarProvider mode={mode}>
     <LogsViewProvider>
-      <ChatOutboxProvider>{ui}</ChatOutboxProvider>
+      <LogWindowsContext.Provider value={noLogWindows}>
+        <ChatOutboxProvider>{ui}</ChatOutboxProvider>
+      </LogWindowsContext.Provider>
     </LogsViewProvider>
   </RightSidebarProvider>
 );
