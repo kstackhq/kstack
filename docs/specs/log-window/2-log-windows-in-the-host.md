@@ -36,7 +36,7 @@ and `lib.rs`'s `generate_handler!`, so `every_command_is_in_the_app_manifest` ho
 `capabilities/logs.json` (`logs-*`) grants `core:window:default`, `core:webview:default`,
 `core:event:allow-listen` and `core:event:allow-unlisten`, the five window-chrome permissions,
 `allow-ready`, `allow-graphql-query`, `allow-graphql-subscribe`, `allow-graphql-unsubscribe`,
-`allow-log-webview`, `allow-log-window-view`, `allow-log-window-viewport`,
+`allow-webview-record-error`, `allow-log-window-view`, `allow-log-window-viewport`,
 `allow-log-window-title` and `allow-log-window-show-chat`. It grants neither
 `allow-new-window`, `allow-update-host-file`, `allow-quit`, `allow-open-account-url` nor any
 app-window log command. `logs_capability_grants_the_viewer_and_nothing_else` pins the list.
@@ -97,13 +97,13 @@ can land before the snapshot or describe a change the snapshot already holds.
 **The app window sees only `Live` entries.** A `Building` entry is in no `snapshot`, and no
 frame names it until `opened`.
 
-Every command reads the caller's label off its `tauri::Webview` argument, as `log_webview`
-does, never off the payload. A log window therefore reaches its own app window and no other,
-and an app window its own log windows. Each command also checks the label's kind before it
-reads or changes anything: an app-window command refuses a caller that is not `main` or
-`window-N`, and a log-window command one that is not `logs-N`. That refusal stands beside the
-capability that already denies the call, so a `logs-N` page can never mint a page or record an
-entry of its own.
+Every command reads the caller's label off its `tauri::Webview` argument, as
+`webview_record_error` does, never off the payload. A log window therefore reaches its own app
+window and no other, and an app window its own log windows. Each command also checks the label's
+kind before it reads or changes anything: an app-window command refuses a caller that is not
+`main` or `window-N`, and a log-window command one that is not `logs-N`. That refusal stands
+beside the capability that already denies the call, so a `logs-N` page can never mint a page or
+record an entry of its own.
 
 **An app window's commands also carry the `page` it was given**, and each is refused
 unless it is the caller's current one. The label says which window asks; the page says which

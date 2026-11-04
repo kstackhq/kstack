@@ -59,7 +59,7 @@ pub fn update_host_file<R: Runtime>(app: AppHandle<R>, patch: HostFilePatch) -> 
 ///
 /// `async` so a hot error path runs on the runtime, not the main thread.
 #[tauri::command]
-pub async fn log_webview<R: Runtime>(
+pub async fn webview_record_error<R: Runtime>(
     state: State<'_, AppState>,
     webview: Webview<R>,
     record: WebviewRecord,
@@ -286,7 +286,7 @@ mod tests {
         let main = window(&app, "main");
 
         for (cmd, args, name) in [
-            ("log_webview", json!({ "record": 1 }), "record"),
+            ("webview_record_error", json!({ "record": 1 }), "record"),
             (
                 "graphql_subscribe",
                 json!({ "query": "", "variables": {}, "channel": 1 }),
@@ -379,7 +379,7 @@ mod tests {
 
     /// The label records are paced under is the calling webview's.
     #[test]
-    fn log_webview_paces_records_under_the_calling_webviews_label() {
+    fn webview_record_error_paces_records_under_the_calling_webviews_label() {
         let scratch = Scratch::new();
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let state = app.state::<AppState>();
@@ -392,7 +392,10 @@ mod tests {
 
         for message in ["one", "two"] {
             let args = json!({ "record": { "source": "graphql", "message": message } });
-            assert_eq!(invoke(&other, "log_webview", args), Ok(json!(null)));
+            assert_eq!(
+                invoke(&other, "webview_record_error", args),
+                Ok(json!(null))
+            );
         }
 
         let withheld = state.webview_log.lock().unwrap().evict("window-1");

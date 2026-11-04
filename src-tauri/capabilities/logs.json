@@ -17,7 +17,7 @@
     "allow-graphql-query",
     "allow-graphql-subscribe",
     "allow-graphql-unsubscribe",
-    "allow-log-webview",
+    "allow-webview-record-error",
     "allow-log-window-view",
     "allow-log-window-viewport",
     "allow-log-window-title",

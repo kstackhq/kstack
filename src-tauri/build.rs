@@ -9,7 +9,7 @@ const COMMANDS: &[&str] = &[
     "new_window",
     "update_host_file",
     "quit",
-    "log_webview",
+    "webview_record_error",
     "open_account_url",
     "log_window_subscribe",
     "log_window_open",

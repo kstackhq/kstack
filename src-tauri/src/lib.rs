@@ -214,7 +214,7 @@ fn invoke_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 's
         commands::new_window,
         commands::update_host_file,
         app::quit,
-        commands::log_webview,
+        commands::webview_record_error,
         app::open_account_url,
         commands::log_window_subscribe,
         commands::log_window_open,

@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Forwards every error on the bus to the host's `log_webview` command, so it
-// lands in `main.log`. Started from `main.tsx` before React mounts: a startup
-// failure or an `ErrorBoundary` crash happens above anything a component could
-// reach. The host re-applies its own caps and rate limits; these are the
-// frontend's share of bounding what crosses IPC.
+// Forwards every error on the bus to the host's `webview_record_error` command,
+// so it lands in `main.log`. Started from `main.tsx` before React mounts: a
+// startup failure or an `ErrorBoundary` crash happens above anything a
+// component could reach. The host re-applies its own caps and rate limits;
+// these are the frontend's share of bounding what crosses IPC.
 
 import { invoke } from '@tauri-apps/api/core';
 
@@ -109,7 +109,7 @@ export function startErrorLogForwarder(): () => void {
     const record = toRecord(error, dropped);
     dropped = 0;
     inFlight += 1;
-    invoke('log_webview', { record })
+    invoke('webview_record_error', { record })
       .catch(() => {})
       .finally(() => {
         inFlight -= 1;

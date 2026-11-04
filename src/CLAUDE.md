@@ -27,7 +27,7 @@ The whole picture is [`docs/security-model.md`](../docs/security-model.md). What
 
 ## Errors reach the host's log
 
-`reportError` (`src/lib/error-bus.ts`) is the one producer; `src/lib/error-log.ts` is the sink: `startErrorLogForwarder` sends each record to the host's `log_webview`, and `installGlobalErrorHandlers` reports `error`/`unhandledrejection` as `render`. Both are called in `main.tsx` **before `createRoot`**. A module that throws while loading is not covered. **`errorReportExchange` forwards every GraphQL operation error**, so a component never calls `reportError` for one.
+`reportError` (`src/lib/error-bus.ts`) is the one producer; `src/lib/error-log.ts` is the sink: `startErrorLogForwarder` sends each record to the host's `webview_record_error`, and `installGlobalErrorHandlers` reports `error`/`unhandledrejection` as `render`. Both are called in `main.tsx` **before `createRoot`**. A module that throws while loading is not covered. **`errorReportExchange` forwards every GraphQL operation error**, so a component never calls `reportError` for one.
 
 - An `AppError`'s `context` holds **explicitly chosen keys, never a serialized `cause`** — a `CombinedError` holds GraphQL payloads full of cluster text.
 - The forwarder reads each field under its own guard (a getter can throw), caps strings, swallows a rejected invoke, and **never calls `reportError` on failure** (that would loop).
