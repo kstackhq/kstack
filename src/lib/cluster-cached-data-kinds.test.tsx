@@ -220,6 +220,12 @@ describe('useClusterCachedDataKinds', () => {
     expect(lastArgs?.pause).toBe(true);
     expect(paused.current.kinds).toEqual([]);
     expect(paused.current.active).toBe(false);
+    expect(paused.current.cacheID).toBeUndefined();
+  });
+
+  it('names the cache its kinds came from', () => {
+    const { result } = renderKinds();
+    expect(result.current.cacheID).toBe('cache-1');
   });
 
   it('refuses a read outside the provider', () => {
@@ -234,6 +240,7 @@ describe('useClusterCachedDataKinds', () => {
 
     expect(lastArgs?.pause).toBe(true);
     expect(result.current.active).toBe(false);
+    expect(result.current.cacheID).toBeUndefined();
     expect(result.current.kinds).toEqual([]);
   });
 

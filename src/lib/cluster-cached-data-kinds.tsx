@@ -54,7 +54,13 @@ const ClusterCachedDataKindsWatchSubscription = graphql(`
 // The `kind` payload of a change — structurally a `ServerKind`.
 type KindRow = NonNullable<ClusterCachedDataKindsWatchSubscriptionType['clusterCachedDataKindsWatch']['kind']>;
 
-type ClusterCachedDataKindsContextValue = { kinds: ServerKind[]; active: boolean; phase: WatchPhase };
+// `cacheID` is the cache the kinds came from, undefined whenever `active` is false.
+type ClusterCachedDataKindsContextValue = {
+  kinds: ServerKind[];
+  active: boolean;
+  cacheID: string | undefined;
+  phase: WatchPhase;
+};
 
 const ClusterCachedDataKindsContext = createContext<ClusterCachedDataKindsContextValue | null>(null);
 
@@ -83,8 +89,13 @@ export function ClusterCachedDataKindsProvider({ enabled, children }: { enabled:
   );
 
   const value = useMemo<ClusterCachedDataKindsContextValue>(
-    () => ({ kinds: enabled ? items : [], active: enabled && active, phase }),
-    [items, enabled, active, phase],
+    () => ({
+      kinds: enabled ? items : [],
+      active: enabled && active,
+      cacheID: enabled && active ? cacheID : undefined,
+      phase,
+    }),
+    [items, enabled, active, cacheID, phase],
   );
   return <ClusterCachedDataKindsContext.Provider value={value}>{children}</ClusterCachedDataKindsContext.Provider>;
 }
