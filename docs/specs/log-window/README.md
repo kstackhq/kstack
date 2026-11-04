@@ -83,12 +83,12 @@ or *Show window* on a call that already has one focuses it. There is no cap. (St
 
 **5. The snapshot.** It rides, under today's rule: the view is the composer's chat's and the
 app window is in chat mode. The log window pushes its viewport to the host, and the host
-sends it down the app window's channel, which no other page holds. The push carries the first
-`MAX_SELECTED` selected lines and the full count, and the chip and the snapshot read the
-count. The composer keeps reading a `LogViewportHandle` at the press, so `onSend` stays
-synchronous. With both a sidebar view and log windows on one chat, the sidebar's view rides
-while the sidebar is open, else the log window focused last. The chip says which: *N selected
-lines from the sidebar* or *from a log window*. (Step 4.)
+sends it down the app window's channel, which no other page holds. The push carries whole
+selected lines up to a size bound and the full count, and the chip and the
+snapshot read the count. The composer keeps reading a `LogViewportHandle` at the press, so
+`onSend` stays synchronous. With both a sidebar view and log windows on one chat, the
+sidebar's view rides while the sidebar is open, else the log window focused last. The chip
+says which: *With the view in the sidebar* or *in a window*. (Step 4.)
 
 **6. Chrome.** A slim bar, 40px, with no menu, omnibox or history. macOS keeps its traffic
 lights, placed for the slimmer bar, and its hidden title. Linux and Windows draw
