@@ -115,6 +115,23 @@ describe('dashboard route', () => {
     expect(screen.getByTestId('objects-table')).toHaveTextContent('"namespaced":true');
   });
 
+  it('waits for the catalog before calling a deep-linked kind unknown', async () => {
+    useClusterCachedDataKindsMock.mockReturnValue({ kinds: [], active: true, phase: 'connecting' });
+    await renderWithRouter(testRoot.addChildren([appRoute.addChildren([dashboardRoute])]), '/dashboard?resource=pods');
+    expect(screen.getByText(/loading resources/i)).toBeInTheDocument();
+    expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a group row its placeholder at once, with no catalog to wait for', async () => {
+    useClusterCachedDataKindsMock.mockReturnValue({ kinds: [], active: true, phase: 'connecting' });
+    await renderWithRouter(
+      testRoot.addChildren([appRoute.addChildren([dashboardRoute])]),
+      '/dashboard?resource=workloads',
+    );
+    expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
+    expect(screen.queryByText(/loading resources/i)).not.toBeInTheDocument();
+  });
+
   it('falls back to a placeholder for a view with no kind behind it', async () => {
     // A group row, or a deep link the catalog has never heard of.
     await render('/dashboard?resource=workloads');

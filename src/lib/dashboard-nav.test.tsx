@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import { renderHook } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The hook composes `useWatchSubscription` with the active-context → cluster/cache
@@ -44,6 +45,16 @@ vi.mock('@/lib/clusters', async (importOriginal) => ({
 vi.mock('@/lib/active-kube-context', () => ({ useActiveKubeContext: useActiveKubeContextMock }));
 
 const { useDashboardNav } = await import('./dashboard-nav');
+const { ClusterCachedDataKindsProvider } = await import('./cluster-cached-data-kinds');
+
+// The catalog's subscription lives in its provider, as the layout mounts it.
+function renderNav() {
+  return renderHook(() => useDashboardNav(), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <ClusterCachedDataKindsProvider enabled>{children}</ClusterCachedDataKindsProvider>
+    ),
+  });
+}
 
 const REPLICASET = {
   apiVersion: 'apps/v1',
@@ -124,7 +135,7 @@ beforeEach(() => {
 describe('useDashboardNav', () => {
   it('builds discovered kinds with live counts from the snapshot delta burst', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
-    const { result, rerender } = renderHook(() => useDashboardNav());
+    const { result, rerender } = renderNav();
 
     // Before any frame: curated-only.
     expect(hasDiscovered(result.current.nav)).toBe(false);
@@ -139,7 +150,7 @@ describe('useDashboardNav', () => {
 
   it('updates a kind’s count live on a Modified frame', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
-    const { result, rerender } = renderHook(() => useDashboardNav());
+    const { result, rerender } = renderNav();
 
     pushFrame('Added', REPLICASET);
     rerender();
@@ -153,7 +164,7 @@ describe('useDashboardNav', () => {
 
   it('reveals a newly-discovered kind on an Added frame and removes one on Deleted', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
-    const { result, rerender } = renderHook(() => useDashboardNav());
+    const { result, rerender } = renderNav();
 
     pushFrame('Added', REPLICASET);
     pushFrame('Added', CONTROLLER_REVISION);
@@ -174,7 +185,7 @@ describe('useDashboardNav', () => {
     useClustersMock.mockReturnValue({
       clusters: [clusterFixture({ status: 'True', reason: 'Watching' }, 'c1', 'uid-1')],
     });
-    const { result, rerender } = renderHook(() => useDashboardNav());
+    const { result, rerender } = renderNav();
     expect(lastArgs?.variables?.cacheID).toBe('c1');
 
     pushFrame('Added', REPLICASET);
@@ -201,7 +212,7 @@ describe('useDashboardNav', () => {
     useClustersMock.mockReturnValue({
       clusters: [clusterFixture({ status: 'True', reason: 'Watching' }, 'c1', 'uid-1')],
     });
-    const { result, rerender } = renderHook(() => useDashboardNav());
+    const { result, rerender } = renderNav();
     expect(lastArgs?.variables?.cacheID).toBe('c1');
 
     pushFrame('Added', REPLICASET);
@@ -227,7 +238,7 @@ describe('useDashboardNav', () => {
     useClustersMock.mockReturnValue({
       clusters: [clusterFixture({ status: 'True', reason: 'Watching' }, 'c1', 'uid-1')],
     });
-    const { result, rerender } = renderHook(() => useDashboardNav());
+    const { result, rerender } = renderNav();
     pushFrame('Added', REPLICASET); // c1's snapshot
     rerender();
 
@@ -264,7 +275,7 @@ describe('useDashboardNav', () => {
 
   it('resets the catalog on a transport reset so kinds deleted during an outage are gone after the replay', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
-    const { result, rerender } = renderHook(() => useDashboardNav());
+    const { result, rerender } = renderNav();
 
     pushFrame('Added', REPLICASET);
     pushFrame('Added', CONTROLLER_REVISION);
@@ -286,7 +297,7 @@ describe('useDashboardNav', () => {
 
   it('falls back to curated-only after a transport reset when the replayed snapshot is empty', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
-    const { result, rerender } = renderHook(() => useDashboardNav());
+    const { result, rerender } = renderNav();
 
     pushFrame('Added', REPLICASET);
     rerender();
@@ -303,7 +314,7 @@ describe('useDashboardNav', () => {
     // No cluster matches "prod" (departed/disabled); also covers a cluster with no
     // active cache (cacheID undefined ⇒ subscription paused).
     useClustersMock.mockReturnValue({ clusters: [] });
-    const { result } = renderHook(() => useDashboardNav());
+    const { result } = renderNav();
     expect(hasDiscovered(result.current.nav)).toBe(false);
     expect(lastArgs?.pause).toBe(true);
   });
@@ -315,14 +326,14 @@ describe('useDashboardNav', () => {
     // that must not surface as a connection problem.
     useClustersMock.mockReturnValue({ clusters: [clusterFixture(null)] });
     statusState.snapshot = { connected: false, generation: 0 };
-    const { result } = renderHook(() => useDashboardNav());
+    const { result } = renderNav();
     expect(result.current.active).toBe(false);
     expect(lastArgs?.pause).toBe(true);
   });
 
   it('reports active + live once the catalog has streamed on a healthy connection', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
-    const { result, rerender } = renderHook(() => useDashboardNav());
+    const { result, rerender } = renderNav();
     expect(result.current.active).toBe(true);
 
     pushFrame('Added', REPLICASET);
@@ -333,7 +344,7 @@ describe('useDashboardNav', () => {
 
   it('reports reconnecting when a live watch drops but keeps its last-known catalog', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
-    const { result, rerender } = renderHook(() => useDashboardNav());
+    const { result, rerender } = renderNav();
     pushFrame('Added', REPLICASET);
     pushBookmark();
     rerender();
@@ -349,7 +360,7 @@ describe('useDashboardNav', () => {
   it('reports connecting when the active watch has dialed but no frame has landed', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
     statusState.snapshot = { connected: false, generation: 0 };
-    const { result } = renderHook(() => useDashboardNav());
+    const { result } = renderNav();
     expect(result.current.active).toBe(true);
     expect(result.current.phase).toBe('connecting');
   });

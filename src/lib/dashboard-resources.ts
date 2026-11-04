@@ -211,6 +211,13 @@ function curatedLeafIdForKind(k: ServerKind): string | undefined {
   return group !== undefined && group === apiGroupOf(k.apiVersion) ? k.resource : undefined;
 }
 
+// Whether an id can resolve to a discovered kind once the catalog lands: a curated leaf a
+// kind backs, or an id outside the curated tree (`group/resource`). A group row, and
+// Overview, never will.
+export function mayNameDiscoveredKind(id: DashboardResource): boolean {
+  return Object.hasOwn(CURATED_LEAF_API_GROUP, id) || findNode(DASHBOARD_NAV, id) === undefined;
+}
+
 // A kind's nav node id: curated built-ins by bare plural ("pods"), others by
 // `group/resource`. The single home for this rule — bucketing and the count join
 // both key by it.

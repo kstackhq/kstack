@@ -88,8 +88,8 @@ export type WatchOptions = {
   // so consumers share — and one that mounts into a stream already running never
   // sees the snapshot that opened it, leaving it to fold deltas onto nothing. Costs
   // a second cold list and a second connection per extra consumer, so it is the
-  // caller's call: set it where a watch has more than one, and the one that mounts
-  // late (a sidebar reopening) must still read as complete.
+  // caller's call: set it where a watch has more than one and one can mount late (a
+  // popover reopening), unless a provider above them all can hold the one watch.
   unshared?: boolean;
 };
 

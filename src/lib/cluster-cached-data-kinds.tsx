@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The active cluster's discovered kind catalog as a live `ServerKind[]` — shared by
-// the dashboard nav and the object tables (which resolve a curated nav id like "pods"
+// The active cluster's discovered kind catalog as a live `ServerKind[]`, read by the
+// dashboard nav and the object tables (which resolve a curated nav id like "pods"
 // back to its full apiVersion/resource/scope here). `clusterCachedDataKindsWatch` is a
 // per-cache delta watch; per-kind `count` is live (an object write re-emits as
 // `Modified`). Reduced via `useCacheDeltaWatch`, whose cacheID provenance guard keeps
 // two caches' kinds from mixing — see docs/adr/2026-08-09-delta-watch-protocol.md
+import { createContext, useContext, useMemo } from 'react';
+
 import { graphql } from '@/gql';
 import type { ClusterCachedDataKindsWatchSubscription as ClusterCachedDataKindsWatchSubscriptionType } from '@/gql/graphql';
 import { useActiveCluster } from '@/lib/active-cluster';
@@ -52,23 +54,23 @@ const ClusterCachedDataKindsWatchSubscription = graphql(`
 // The `kind` payload of a change — structurally a `ServerKind`.
 type KindRow = NonNullable<ClusterCachedDataKindsWatchSubscriptionType['clusterCachedDataKindsWatch']['kind']>;
 
-// The active context's discovered kinds, live. Paused (empty) without an active
-// cache. Provenance is just the cacheID — the variables carry no kind — so a cache
-// swap moves the key and re-subscribes. Insertion order (no sort).
-//
-// `unshared`: the catalog has two consumers (the sidebar nav and the dashboard
-// route), and the sidebar's unmounts whenever the card collapses. Sharing one stream
-// would leave the reopened nav folding deltas onto nothing — the snapshot that
-// opened the stream is long gone — so each consumer dials its own and always reads
-// a complete catalog.
-export function useClusterCachedDataKinds(): { kinds: ServerKind[]; active: boolean; phase: WatchPhase } {
+type ClusterCachedDataKindsContextValue = { kinds: ServerKind[]; active: boolean; phase: WatchPhase };
+
+const ClusterCachedDataKindsContext = createContext<ClusterCachedDataKindsContextValue | null>(null);
+
+// Holds the window's one catalog subscription, above both consumers, so it outlives the
+// nav's card. `enabled` is false off the dashboard, where nothing reads the catalog, and
+// the value reports it: a paused watch with no kinds, never one still connecting.
+export function ClusterCachedDataKindsProvider({ enabled, children }: { enabled: boolean; children: React.ReactNode }) {
   const { clusterID, cacheID, active } = useActiveCluster();
 
+  // Provenance is just the cacheID — the variables carry no kind — so a cache swap
+  // moves the key and re-subscribes.
   const { items, phase } = useCacheDeltaWatch<ClusterCachedDataKindsWatchSubscriptionType, KindRow>(
     {
       query: ClusterCachedDataKindsWatchSubscription,
       variables: { id: clusterID ?? '', cacheID: cacheID ?? '' },
-      pause: !active,
+      pause: !enabled || !active,
     },
     {
       select: (d) => {
@@ -77,9 +79,20 @@ export function useClusterCachedDataKinds(): { kinds: ServerKind[]; active: bool
       },
       keyOf: gvrKey,
       currentProvenance: joinProvenance(cacheID ?? ''),
-      unshared: true,
     },
   );
 
-  return { kinds: items, active, phase };
+  const value = useMemo<ClusterCachedDataKindsContextValue>(
+    () => ({ kinds: enabled ? items : [], active: enabled && active, phase }),
+    [items, enabled, active, phase],
+  );
+  return <ClusterCachedDataKindsContext.Provider value={value}>{children}</ClusterCachedDataKindsContext.Provider>;
+}
+
+// The active context's discovered kinds, live. Empty while paused: no active cache,
+// or the provider disabled. Insertion order (no sort).
+export function useClusterCachedDataKinds(): ClusterCachedDataKindsContextValue {
+  const ctx = useContext(ClusterCachedDataKindsContext);
+  if (!ctx) throw new Error('useClusterCachedDataKinds must be used inside <ClusterCachedDataKindsProvider>');
+  return ctx;
 }

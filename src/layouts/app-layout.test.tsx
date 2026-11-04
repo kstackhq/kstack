@@ -59,6 +59,15 @@ vi.mock('@/components/widgets/chat-nav', () => ({
 // The layout mounts the chat outbox, whose send wants a client. Nothing here sends.
 vi.mock('urql', () => ({ useMutation: () => [{}, vi.fn()] }));
 vi.mock('@/gql', () => ({ graphql: () => ({}) }));
+// The kind catalog's provider subscribes; record what it was told instead, and mark
+// its place in the tree.
+const { catalogEnabled } = vi.hoisted(() => ({ catalogEnabled: vi.fn() }));
+vi.mock('@/lib/cluster-cached-data-kinds', () => ({
+  ClusterCachedDataKindsProvider: ({ enabled, children }: { enabled: boolean; children: React.ReactNode }) => {
+    catalogEnabled(enabled);
+    return <div data-testid="kind-catalog">{children}</div>;
+  },
+}));
 vi.mock('@/components/widgets/dashboard-resource-nav', () => ({
   DashboardResourceNav: () => <nav aria-label="Resources" />,
 }));
@@ -168,6 +177,23 @@ describe('AppLayout', () => {
     const { container } = await renderWithRouter(buildTree(), '/dashboard');
     const nav = screen.getByRole('navigation', { name: 'Resources' });
     expect(sidebarOf(container).contains(nav)).toBe(true);
+  });
+
+  it('holds the kind catalog above the resource nav and the page, which both read it', async () => {
+    await renderWithRouter(buildTree(), '/dashboard');
+    const catalog = screen.getByTestId('kind-catalog');
+    expect(catalog.contains(screen.getByRole('navigation', { name: 'Resources' }))).toBe(true);
+    expect(catalog.contains(screen.getByTestId('page-content'))).toBe(true);
+  });
+
+  it('runs the kind catalog on the dashboard alone', async () => {
+    await renderWithRouter(buildTree(), '/dashboard');
+    expect(catalogEnabled).toHaveBeenLastCalledWith(true);
+  });
+
+  it('pauses the kind catalog in chat mode', async () => {
+    await renderWithRouter(buildTree(), '/chat');
+    expect(catalogEnabled).toHaveBeenLastCalledWith(false);
   });
 
   it('omits the resource nav outside dashboard mode', async () => {

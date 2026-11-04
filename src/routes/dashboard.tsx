@@ -16,12 +16,15 @@ import { useMemo } from 'react';
 
 import { createRoute } from '@tanstack/react-router';
 
+import { Spinner } from '@kubetail/ui/elements/spinner';
+
 import { EventsTable } from '@/components/widgets/events-table';
 import { ObjectsTable } from '@/components/widgets/objects-table';
 import { useClusterCachedDataKinds } from '@/lib/cluster-cached-data-kinds';
 import {
   buildDashboardNav,
   dashboardResourceLabel,
+  mayNameDiscoveredKind,
   resolveDashboardResource,
   serverKindForResource,
 } from '@/lib/dashboard-resources';
@@ -37,11 +40,13 @@ export const Route = createRoute({
 });
 
 // Panel pick: `events` → bespoke `EventsTable`; any resolved discovered kind →
-// generic `ObjectsTable`; no kind (group/overview row, unloaded catalog) →
-// placeholder. Label and kind resolve against the same live catalog the sidebar uses.
+// generic `ObjectsTable`; no kind (group/overview row, unknown resource) → placeholder.
+// A resource the catalog could still name waits behind a spinner for its Bookmark; a
+// group row shows the placeholder at once. Label and kind resolve against the same live
+// catalog the sidebar uses.
 function Dashboard() {
   const { resource } = Route.useSearch();
-  const { kinds } = useClusterCachedDataKinds();
+  const { kinds, active, phase } = useClusterCachedDataKinds();
   const resolved = resolveDashboardResource(resource);
   // The catalog re-emits on count churn — memoize so a Modified frame doesn't
   // rebuild the tree / rescan the catalog every render.
@@ -60,6 +65,13 @@ function Dashboard() {
         namespaced={serverKind.scope === 'Namespaced'}
         printerColumns={serverKind.printerColumns}
       />
+    );
+  } else if (active && phase === 'connecting' && mayNameDiscoveredKind(resolved)) {
+    panel = (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Spinner size="sm" />
+        Loading resources…
+      </div>
     );
   } else {
     panel = <p className="text-sm text-muted-foreground">The {label.toLowerCase()} view is coming soon.</p>;

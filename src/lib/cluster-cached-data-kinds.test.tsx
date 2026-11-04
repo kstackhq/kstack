@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { renderHook } from '@testing-library/react';
+import { render, renderHook, screen } from '@testing-library/react';
+import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mocks ---------------------------------------------------------------
@@ -37,7 +39,7 @@ vi.mock('@/lib/clusters', () => ({
 }));
 vi.mock('@/lib/active-cluster', () => ({ useActiveCluster: useActiveClusterMock }));
 
-const { useClusterCachedDataKinds } = await import('./cluster-cached-data-kinds');
+const { ClusterCachedDataKindsProvider, useClusterCachedDataKinds } = await import('./cluster-cached-data-kinds');
 
 // Helpers -------------------------------------------------------------
 
@@ -53,6 +55,17 @@ function kind(resource: string, over: Partial<{ apiVersion: string; count: numbe
   };
 }
 
+// The provider holds the subscription; the hook under test reads it.
+function wrap(enabled = true) {
+  return ({ children }: { children: ReactNode }) => (
+    <ClusterCachedDataKindsProvider enabled={enabled}>{children}</ClusterCachedDataKindsProvider>
+  );
+}
+
+function renderKinds(enabled = true) {
+  return renderHook(() => useClusterCachedDataKinds(), { wrapper: wrap(enabled) });
+}
+
 const resources = (kinds: { resource: string }[]) => kinds.map((k) => k.resource);
 
 // urql accumulator stand-in — folds a delta through the reducer captured on the last
@@ -61,7 +74,6 @@ let acc: unknown;
 let lastArgs: { variables?: { cacheID?: string }; pause?: boolean } | undefined;
 let lastReducer: ((prev: unknown, frames: unknown[]) => unknown) | undefined;
 let connected: boolean;
-let lastOpts: { unshared?: boolean } | undefined;
 
 function pushFrame(type: string, entity: unknown, cacheID = lastArgs?.variables?.cacheID) {
   acc = lastReducer!(acc, [{ clusterCachedDataKindsWatch: { type, cacheID, kind: entity } }]);
@@ -79,21 +91,18 @@ beforeEach(() => {
   lastReducer = undefined;
   connected = true;
   useActiveClusterMock.mockReturnValue({ clusterID: '1', cacheID: 'cache-1', active: true });
-  useWatchSubscriptionMock.mockImplementation(
-    (args: typeof lastArgs, reducer: typeof lastReducer, opts: { unshared?: boolean } | undefined) => {
-      lastArgs = args;
-      lastReducer = reducer;
-      lastOpts = opts;
-      return { data: acc, connected };
-    },
-  );
+  useWatchSubscriptionMock.mockImplementation((args: typeof lastArgs, reducer: typeof lastReducer) => {
+    lastArgs = args;
+    lastReducer = reducer;
+    return { data: acc, connected };
+  });
 });
 
 // Tests ---------------------------------------------------------------
 
 describe('useClusterCachedDataKinds', () => {
   it('accumulates the catalog in the order the cache served it', () => {
-    const { result, rerender } = renderHook(() => useClusterCachedDataKinds());
+    const { result, rerender } = renderKinds();
     pushFrame('Added', kind('deployments'));
     pushFrame('Added', kind('pods', { apiVersion: 'v1' }));
     pushBookmark();
@@ -104,7 +113,7 @@ describe('useClusterCachedDataKinds', () => {
   });
 
   it('stays connecting until the Bookmark closes the snapshot', () => {
-    const { result, rerender } = renderHook(() => useClusterCachedDataKinds());
+    const { result, rerender } = renderKinds();
     pushFrame('Added', kind('deployments'));
     rerender();
     // A partial snapshot is not the catalog: rendering "no kinds" here is the bug.
@@ -116,7 +125,7 @@ describe('useClusterCachedDataKinds', () => {
   });
 
   it('applies a live count change in place, keyed on apiVersion and plural', () => {
-    const { result, rerender } = renderHook(() => useClusterCachedDataKinds());
+    const { result, rerender } = renderKinds();
     pushFrame('Added', kind('deployments', { count: 1 }));
     pushBookmark();
     pushFrame('Modified', kind('deployments', { count: 7 }));
@@ -127,7 +136,7 @@ describe('useClusterCachedDataKinds', () => {
   });
 
   it('keeps two groups’ same plural apart', () => {
-    const { result, rerender } = renderHook(() => useClusterCachedDataKinds());
+    const { result, rerender } = renderKinds();
     pushFrame('Added', kind('widgets', { apiVersion: 'a.example.com/v1' }));
     pushFrame('Added', kind('widgets', { apiVersion: 'b.example.com/v1' }));
     pushBookmark();
@@ -137,7 +146,7 @@ describe('useClusterCachedDataKinds', () => {
   });
 
   it('drops a kind the cache stopped serving', () => {
-    const { result, rerender } = renderHook(() => useClusterCachedDataKinds());
+    const { result, rerender } = renderKinds();
     pushFrame('Added', kind('deployments'));
     pushFrame('Added', kind('pods', { apiVersion: 'v1' }));
     pushBookmark();
@@ -148,7 +157,7 @@ describe('useClusterCachedDataKinds', () => {
   });
 
   it('ignores a straggler from a superseded cache', () => {
-    const { result, rerender } = renderHook(() => useClusterCachedDataKinds());
+    const { result, rerender } = renderKinds();
     pushFrame('Added', kind('deployments'));
     pushBookmark();
     pushFrame('Added', kind('secrets', { apiVersion: 'v1' }), 'cache-0');
@@ -157,16 +166,71 @@ describe('useClusterCachedDataKinds', () => {
     expect(resources(result.current.kinds)).toEqual(['deployments']);
   });
 
-  it('takes its own connection, so a remounted consumer still lists', () => {
-    renderHook(() => useClusterCachedDataKinds());
-    // The catalog has two consumers and the sidebar's unmounts on collapse; sharing
-    // one stream would leave the reopened one folding deltas onto nothing.
-    expect(lastOpts?.unshared).toBe(true);
+  it('serves every consumer from one subscription', () => {
+    const { result } = renderHook(() => ({ nav: useClusterCachedDataKinds(), route: useClusterCachedDataKinds() }), {
+      wrapper: wrap(),
+    });
+
+    // One render, two consumers, one watch.
+    expect(useWatchSubscriptionMock).toHaveBeenCalledTimes(1);
+    expect(result.current.nav).toBe(result.current.route);
+  });
+
+  it('gives a consumer mounted late the whole catalog', () => {
+    // As urql serves a running stream: the instance that opened it folds every frame,
+    // one mounting later sees none of them. Only a watch held above the consumer passes.
+    let instances = 0;
+    useWatchSubscriptionMock.mockImplementation((args: typeof lastArgs, reducer: typeof lastReducer) => {
+      const [instance] = useState(() => {
+        instances += 1;
+        return instances;
+      });
+      if (instance > 1) return { data: undefined, connected };
+      lastArgs = args;
+      lastReducer = reducer;
+      return { data: acc, connected };
+    });
+    function Names() {
+      const { kinds, phase } = useClusterCachedDataKinds();
+      return <p>{`${phase}: ${resources(kinds).join(',')}`}</p>;
+    }
+    function Window({ navOpen }: { navOpen: boolean }) {
+      return <ClusterCachedDataKindsProvider enabled>{navOpen && <Names />}</ClusterCachedDataKindsProvider>;
+    }
+    const { rerender } = render(<Window navOpen />);
+    pushFrame('Added', kind('deployments'));
+    pushBookmark();
+    rerender(<Window navOpen={false} />);
+
+    // The nav's card reopening: its first read is the complete, live catalog.
+    rerender(<Window navOpen />);
+    expect(screen.getByText('live: deployments')).toBeInTheDocument();
+    expect(instances).toBe(1);
+  });
+
+  it('pauses while disabled, so nothing subscribes outside the dashboard', () => {
+    const { result, rerender } = renderKinds();
+    pushFrame('Added', kind('deployments'));
+    pushBookmark();
+    rerender();
+    expect(result.current.kinds).toHaveLength(1);
+
+    // Leaving the dashboard: the catalog it read there does not linger.
+    const { result: paused } = renderKinds(false);
+    expect(lastArgs?.pause).toBe(true);
+    expect(paused.current.kinds).toEqual([]);
+    expect(paused.current.active).toBe(false);
+  });
+
+  it('refuses a read outside the provider', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => renderHook(() => useClusterCachedDataKinds())).toThrow(/ClusterCachedDataKindsProvider/);
+    error.mockRestore();
   });
 
   it('pauses without an active cache, so nothing subscribes', () => {
     useActiveClusterMock.mockReturnValue({ clusterID: undefined, cacheID: undefined, active: false });
-    const { result } = renderHook(() => useClusterCachedDataKinds());
+    const { result } = renderKinds();
 
     expect(lastArgs?.pause).toBe(true);
     expect(result.current.active).toBe(false);
@@ -174,7 +238,7 @@ describe('useClusterCachedDataKinds', () => {
   });
 
   it('re-subscribes under the new cache when the cluster swaps', () => {
-    const { result, rerender } = renderHook(() => useClusterCachedDataKinds());
+    const { result, rerender } = renderKinds();
     pushFrame('Added', kind('deployments'));
     pushBookmark();
     rerender();
@@ -189,7 +253,7 @@ describe('useClusterCachedDataKinds', () => {
   });
 
   it('holds the catalog while the transport reconnects', () => {
-    const { result, rerender } = renderHook(() => useClusterCachedDataKinds());
+    const { result, rerender } = renderKinds();
     pushFrame('Added', kind('deployments'));
     pushBookmark();
     rerender();

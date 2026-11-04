@@ -21,6 +21,7 @@ import {
   dashboardResourceLabel,
   DEFAULT_DASHBOARD_RESOURCE,
   flattenNav,
+  mayNameDiscoveredKind,
   resolveDashboardResource,
 } from './dashboard-resources';
 import type { DashboardNavNode, ServerKind } from './dashboard-resources';
@@ -83,6 +84,18 @@ describe('resolveDashboardResource', () => {
   it('passes a present value through, including dynamic ids', () => {
     expect(resolveDashboardResource('pods')).toBe('pods');
     expect(resolveDashboardResource('apps/replicasets')).toBe('apps/replicasets');
+  });
+});
+
+describe('mayNameDiscoveredKind', () => {
+  it('is true for a curated leaf a kind backs, and for an id outside the curated tree', () => {
+    expect(mayNameDiscoveredKind('pods')).toBe(true);
+    expect(mayNameDiscoveredKind('apps/replicasets')).toBe(true);
+  });
+
+  it('is false for a group row and for Overview, which no kind ever backs', () => {
+    expect(mayNameDiscoveredKind('workloads')).toBe(false);
+    expect(mayNameDiscoveredKind('overview')).toBe(false);
   });
 });
 

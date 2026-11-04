@@ -114,21 +114,21 @@ describe('useWatchSubscription', () => {
   });
 
   it('lists again for an unshared consumer that remounts beside a live one', async () => {
-    // The sidebar collapsing and reopening while the page keeps the same watch: a
-    // shared stream would hand the remounted consumer no snapshot, leaving it to
-    // fold later deltas onto nothing.
+    // A popover closing and reopening while the page keeps the same watch: a shared
+    // stream would hand the remounted consumer no snapshot, leaving it to fold later
+    // deltas onto nothing.
     const wrapper = makeWrapper();
     const page = renderWatch(wrapper, { unshared: true });
-    const sidebar = renderWatch(wrapper, { unshared: true });
+    const popover = renderWatch(wrapper, { unshared: true });
     await waitFor(() => expect(channels.length).toBe(2));
 
     await emitOn(0, OPEN);
     await emitOn(0, NEXT(1));
     await emitOn(1, OPEN);
     await emitOn(1, NEXT(1));
-    expect(state(sidebar).data).toEqual([1]);
+    expect(state(popover).data).toEqual([1]);
 
-    sidebar.unmount();
+    popover.unmount();
     const reopened = renderWatch(wrapper, { unshared: true });
     await waitFor(() => expect(channels.length).toBe(3));
 
