@@ -55,7 +55,7 @@ vi.mock('@/lib/connection-status', () => ({
 const { logWindowsMounted } = vi.hoisted(() => ({ logWindowsMounted: { current: false } }));
 vi.mock('@/lib/log-windows', async (importOriginal) => {
   const { LogWindowsContext, useLogWindows } = await importOriginal<typeof import('@/lib/log-windows')>();
-  const value = { ready: true, windowOf: () => undefined, open: () => {}, focus: () => {} };
+  const value = { ready: true, windowOf: () => undefined, open: () => {}, focus: () => {}, shownWindowOf: () => null };
   return {
     useLogWindows,
     LogWindowsProvider: ({ children }: { children: import('react').ReactNode }) => {

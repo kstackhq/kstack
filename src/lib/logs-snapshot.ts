@@ -40,6 +40,6 @@ export function snapshotOf(view: Pick<LogsView, 'callId'>, viewport: LogViewport
       previous: line.stream.previous,
       message: line.message,
     })),
-    selectedCount: viewport.selection.length,
+    selectedCount: viewport.selectedCount,
   };
 }

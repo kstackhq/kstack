@@ -25,6 +25,7 @@ describe('createLogViewportHandle', () => {
       visible: 0,
       grep: null,
       selection: [],
+      selectedCount: 0,
     });
   });
 
@@ -41,6 +42,7 @@ describe('createLogViewportHandle', () => {
       visible: 3,
       grep: '',
       selection: [],
+      selectedCount: 0,
     };
     viewport.set(next);
     expect(viewport.get()).toBe(next);

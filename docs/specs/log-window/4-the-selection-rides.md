@@ -1,7 +1,7 @@
 ---
 title: The selection rides
 scope: frontend
-status: Planned
+status: Implemented
 ---
 
 # The selection rides

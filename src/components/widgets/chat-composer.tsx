@@ -44,7 +44,8 @@ import type { Created } from '@/lib/chat-outbox';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import { inFlight } from '@/lib/chats';
 import type { ChatMessage } from '@/lib/chats';
-import type { LogLine } from '@/lib/log-viewer';
+import type { LogViewportHandle, SelectedLine } from '@/lib/log-viewport';
+import { useLogWindows } from '@/lib/log-windows';
 import { MAX_SELECTED, snapshotOf } from '@/lib/logs-snapshot';
 import { useLogsView } from '@/lib/logs-view';
 import type { Model } from '@/lib/models';
@@ -166,13 +167,21 @@ function groupByProvider(models: Model[]): OptionGroup[] {
   return [...byProvider.values()];
 }
 
-// The chip's words: what rides the send with the view.
-function viewLine(count: number, riding: boolean): string {
-  if (count === 0) return 'With the view in the sidebar';
+/** Where the view that rides the send is drawn. */
+type Place = 'sidebar' | 'window';
+
+/** The view that rides the send: its call, the handle its lines are read from, and where it is. */
+type ShownView = { callId: string; viewport: LogViewportHandle; where: Place };
+
+// The chip's words: what rides the send with the view. `count` is every line
+// selected, `carried` the lines the send would carry.
+function viewLine(where: Place, count: number, carried: number, riding: boolean): string {
+  const view = `With the view in ${where === 'sidebar' ? 'the sidebar' : 'a window'}`;
+  if (count === 0) return view;
   const lines = `${count} selected ${count === 1 ? 'line' : 'lines'}`;
-  if (!riding) return `With the view (${lines} not sent)`;
-  if (count > MAX_SELECTED) return `With the view and ${lines} (the first ${MAX_SELECTED} sent)`;
-  return `With the view and ${lines}`;
+  if (!riding) return `${view} (${lines} not sent)`;
+  if (carried < count) return `${view} and ${lines} (the first ${carried} sent)`;
+  return `${view} and ${lines}`;
 }
 
 export function ChatComposer({
@@ -231,17 +240,30 @@ export function ChatComposer({
   });
   const [, chatCancel] = useMutation(ChatCancelMutation);
 
-  // What the user looks at rides the send: the focused view, when it is this
-  // chat's and the sidebar beside the chat shows it, with the selected lines unless
-  // × removed them. The viewer writes a new selection array only when the selection
-  // changes, so reading it by identity keeps a following tail from drawing the
-  // composer again, and a new selection is never `removed`.
-  const { view, viewport } = useLogsView();
+  // What the user looks at rides the send, in chat mode on a chat: the focused view
+  // while the sidebar beside the chat shows it, else this chat's log window focused
+  // last, with the selected lines unless × removed them. The viewer writes a new
+  // selection array only when the selection changes, and a window's mirror keeps its
+  // array while the push names the same one, so reading it by identity keeps a
+  // following tail from drawing the composer again, and a new selection is never
+  // `removed`.
+  const { view, viewport: sidebarViewport } = useLogsView();
   const { open: sidebarOpen } = useRightSidebar();
-  const shownView = mode === 'chat' && sidebarOpen && chatID !== null && view?.chatId === chatID ? view : null;
+  const { shownWindowOf } = useLogWindows();
+  let shownView: ShownView | null = null;
+  if (mode === 'chat' && chatID !== null) {
+    const inWindow = shownWindowOf(chatID);
+    if (sidebarOpen && view?.chatId === chatID) {
+      shownView = { callId: view.callId, viewport: sidebarViewport, where: 'sidebar' };
+    } else if (inWindow) {
+      shownView = { callId: inWindow.window.callId, viewport: inWindow.viewport, where: 'window' };
+    }
+  }
+  const viewport = shownView?.viewport ?? sidebarViewport;
   const selection = useSyncExternalStore(viewport.subscribe, () => viewport.get().selection);
-  const [removed, setRemoved] = useState<LogLine[] | null>(null);
-  const riding = selection.length > 0 && selection !== removed;
+  const selectedCount = useSyncExternalStore(viewport.subscribe, () => viewport.get().selectedCount);
+  const [removed, setRemoved] = useState<SelectedLine[] | null>(null);
+  const riding = selectedCount > 0 && selection !== removed;
 
   // A send that lands after the window has moved on must not move it again. It moves
   // on by unmounting the composer — and, for a chat that has not started, by
@@ -312,10 +334,11 @@ export function ChatComposer({
 
   const onSend = () => {
     if (canSend && shownDisabled !== undefined && shownNetwork !== undefined) {
-      // Pulled at the press: nothing streams the viewer's state anywhere.
+      // Read at the press: the sidebar's handle as its viewer wrote it, a window's
+      // mirror as its last push left it.
       const shown = viewport.get();
       const snapshot = shownView
-        ? snapshotOf(shownView, shown.selection === removed ? { ...shown, selection: [] } : shown)
+        ? snapshotOf(shownView, shown.selection === removed ? { ...shown, selection: [], selectedCount: 0 } : shown)
         : null;
       follow(submit({ sandboxDisabled: shownDisabled, networkEnabled: shownNetwork }, snapshot));
     }
@@ -372,7 +395,7 @@ export function ChatComposer({
       )}
       {shownView && (
         <p className="flex w-fit items-center gap-1 rounded-full border px-2 text-xs text-muted-foreground">
-          <span>{viewLine(selection.length, riding)}</span>
+          <span>{viewLine(shownView.where, selectedCount, Math.min(selection.length, MAX_SELECTED), riding)}</span>
           {riding && (
             <Button
               type="button"

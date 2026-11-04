@@ -22,18 +22,25 @@ import type { ReactNode } from 'react';
 
 import { useActiveCluster } from '@/lib/active-cluster';
 import { reportHostError } from '@/lib/error-bus';
+import type { LogViewportHandle } from '@/lib/log-viewport';
+import { createMirror } from '@/lib/log-window-push';
+import type { ViewportMirror, ViewportPush } from '@/lib/log-window-push';
 import { useLogsView } from '@/lib/logs-view';
 import type { LogsView } from '@/lib/logs-view';
 import { useRightSidebar } from '@/lib/right-sidebar';
 
-/** One live log window of this app window. */
-export type LogWindow = { label: string; clusterId: string; chatId: string; callId: string };
+/** One live log window of this app window. `focusSeq` rises each time one is focused. */
+export type LogWindow = { label: string; clusterId: string; chatId: string; callId: string; focusSeq: number };
 
-// The host's frames this page reads; it ignores the others.
+/** A window as the host's frames carry it: with its last push, which goes to its mirror. */
+type Pushed = LogWindow & { push: ViewportPush | null };
+
 type Frame =
-  | { snapshot: { windows: LogWindow[] } }
-  | { opened: { window: LogWindow } }
+  | { snapshot: { windows: Pushed[] } }
+  | { opened: { window: Pushed } }
   | { closed: { label: string } }
+  | { viewport: { label: string; push: ViewportPush | null } }
+  | { focused: { label: string; focusSeq: number } }
   | { showChat: { chatId: string } };
 
 type LogWindowsContextValue = {
@@ -45,6 +52,8 @@ type LogWindowsContextValue = {
   open: (view: LogsView) => void;
   /** Surfaces the window on a call. */
   focus: (callId: string) => void;
+  /** A chat's window focused last, and its mirror, if it has one. */
+  shownWindowOf: (chatId: string) => { window: LogWindow; viewport: LogViewportHandle } | null;
 };
 
 export const LogWindowsContext = createContext<LogWindowsContextValue | null>(null);
@@ -56,6 +65,10 @@ export function LogWindowsProvider({ children }: { children: ReactNode }) {
   const { clusterID } = useActiveCluster();
   const [page, setPage] = useState<number | null>(null);
   const [windows, setWindows] = useState<ReadonlyMap<string, LogWindow>>(() => new Map());
+  // Each live window's viewport, out of React state: a push re-renders only what reads
+  // its mirror. A mirror is never replaced while its window lives, so a reader holding
+  // it keeps hearing.
+  const [mirrors] = useState(() => new Map<string, ViewportMirror>());
   // The last cluster check: the cluster the windows belong to, the page it ran
   // under, and how many snapshots had landed.
   const checked = useRef<{ cluster?: string; page: number | null; snapshots: number }>({ page: null, snapshots: 0 });
@@ -75,21 +88,44 @@ export function LogWindowsProvider({ children }: { children: ReactNode }) {
     queue.current = queue.current.then(command).catch(reportHostError);
   }, []);
 
-  // One channel for the provider's life, kept across the dev-mode remount so both
-  // subscribes hand the host the same one. The host mints pages from one rising
-  // counter, so the largest answer is the current page whichever subscribe it
-  // answered last.
-  const channel = useRef<Channel<Frame> | null>(null);
+  // A channel per subscribe: Tauri ends a channel when the host drops the side a
+  // subscribe handed it, and a later subscribe (the dev-mode remount's) drops the
+  // earlier one's. The host sends only on the channel it kept, and every channel
+  // folds through the same handler. The host mints pages from one rising counter, so
+  // the largest answer is the current page whichever subscribe it answered last.
   useEffect(() => {
-    channel.current ??= new Channel<Frame>((frame) => {
+    // Folds a window's push into its mirror, made on first sight, and returns the window.
+    const seen = ({ push, ...w }: Pushed): LogWindow => {
+      let mirror = mirrors.get(w.label);
+      if (!mirror) {
+        mirror = createMirror();
+        mirrors.set(w.label, mirror);
+      }
+      mirror.fold(push);
+      return w;
+    };
+    const channel = new Channel<Frame>((frame) => {
       if ('snapshot' in frame) {
         snapshots.current += 1;
-        setWindows(new Map(frame.snapshot.windows.map((w) => [w.label, w])));
+        const next = new Map(frame.snapshot.windows.map((w) => [w.label, seen(w)]));
+        mirrors.forEach((_, label) => {
+          if (!next.has(label)) mirrors.delete(label);
+        });
+        setWindows(next);
       } else if ('opened' in frame) {
-        const w = frame.opened.window;
+        const w = seen(frame.opened.window);
         setWindows((last) => new Map(last).set(w.label, w));
+      } else if ('viewport' in frame) {
+        mirrors.get(frame.viewport.label)?.fold(frame.viewport.push);
+      } else if ('focused' in frame) {
+        const { label, focusSeq } = frame.focused;
+        setWindows((last) => {
+          const w = last.get(label);
+          return w ? new Map(last).set(label, { ...w, focusSeq }) : last;
+        });
       } else if ('closed' in frame) {
         const { label } = frame.closed;
+        mirrors.delete(label);
         setWindows((last) => {
           if (!last.has(label)) return last;
           const next = new Map(last);
@@ -100,11 +136,11 @@ export function LogWindowsProvider({ children }: { children: ReactNode }) {
         latest.current.navigate({ to: '/chat/$chatId', params: { chatId: frame.showChat.chatId } });
       }
     });
-    invoke<{ page: number }>('log_window_subscribe', { channel: channel.current }).then(
+    invoke<{ page: number }>('log_window_subscribe', { channel }).then(
       (answer) => setPage((last) => Math.max(last ?? 0, answer.page)),
       reportHostError,
     );
-  }, []);
+  }, [mirrors]);
 
   // The windows belong to the app window's cluster, so a change to another closes
   // them all. The first cluster after the subscribe is held with no close; the
@@ -162,8 +198,21 @@ export function LogWindowsProvider({ children }: { children: ReactNode }) {
   const ready = page !== null && clusterID !== undefined;
   const value = useMemo<LogWindowsContextValue>(() => {
     const byCall = new Map([...windows.values()].map((w) => [`${w.chatId}/${w.callId}`, w]));
-    return { ready, windowOf: (chatId, callId) => byCall.get(`${chatId}/${callId}`), open, focus };
-  }, [ready, windows, open, focus]);
+    // Each chat's window focused last.
+    const shownByChat = new Map<string, LogWindow>();
+    windows.forEach((w) => {
+      const last = shownByChat.get(w.chatId);
+      if (!last || w.focusSeq > last.focusSeq) shownByChat.set(w.chatId, w);
+    });
+    const shownWindowOf = (chatId: string) => {
+      const shown = shownByChat.get(chatId);
+      // The channel drops a mirror at once and the window from the map on the next
+      // render, so a value from before it can name a window whose mirror is gone.
+      const mirror = shown && mirrors.get(shown.label);
+      return shown && mirror ? { window: shown, viewport: mirror.viewport } : null;
+    };
+    return { ready, windowOf: (chatId, callId) => byCall.get(`${chatId}/${callId}`), open, focus, shownWindowOf };
+  }, [ready, windows, mirrors, open, focus]);
   return <LogWindowsContext.Provider value={value}>{children}</LogWindowsContext.Provider>;
 }
 

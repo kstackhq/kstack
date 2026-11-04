@@ -230,7 +230,7 @@ describe('LogsWatchCard', () => {
   });
 
   it('says the view is in a window while its call has one', () => {
-    windows.push({ label: 'logs-1', clusterId: 'cluster-1', chatId: 'chat-1', callId: 'call-1' });
+    windows.push({ label: 'logs-1', clusterId: 'cluster-1', chatId: 'chat-1', callId: 'call-1', focusSeq: 1 });
     draw();
     expect(screen.getByText('Showing in a window')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'View around this' })).not.toBeInTheDocument();
