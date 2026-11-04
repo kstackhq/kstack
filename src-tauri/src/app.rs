@@ -31,8 +31,8 @@ use crate::services::sidecar::SidecarService;
 use crate::state::AppState;
 use crate::window_manager::Monitors;
 use crate::{
-    cancel_webview_subscriptions, cloud, exit_requested, exited, forget_webview_log,
-    invoke_handler, logging, page_started, tray, wake,
+    cloud, exit_requested, exited, invoke_handler, logging, page_started, tray, wake,
+    window_destroyed, window_focused,
 };
 
 // coverage:ignore-start AppHandle::exit is unimplemented on the mock runtime
@@ -234,7 +234,7 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // Show/recreate the main window. Must be `spawn_blocking`, not the
             // main thread (WebView2 main-thread build deadlocks — see
-            // `commands::new_window`) and not `spawn` (the build parks its
+            // `window_manager::on_blocking_pool`) and not `spawn` (the build parks its
             // thread until the window exists).
             let app = app.clone();
             tauri::async_runtime::spawn_blocking(move || {
@@ -330,10 +330,12 @@ pub fn run() {
                 label,
                 event: WindowEvent::Destroyed,
                 ..
-            } => {
-                cancel_webview_subscriptions(app_handle, &label);
-                forget_webview_log(app_handle, &label);
-            }
+            } => window_destroyed(app_handle, &label),
+            RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::Focused(true),
+                ..
+            } => window_focused(app_handle, &label),
             RunEvent::ExitRequested { api, code, .. } => {
                 let app = app_handle.clone();
                 if exit_requested(app_handle, code, move |code| app.exit(code)) {

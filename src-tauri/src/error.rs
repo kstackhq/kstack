@@ -42,6 +42,20 @@ pub enum AppError {
 
     #[error("log subscriber error: {0}")]
     LogReload(#[from] tracing_subscriber::reload::Error),
+
+    /// A log window's open was cancelled: a close, a destroy or a quit
+    /// overtook it.
+    #[error("cancelled")]
+    Cancelled,
+
+    /// A command was refused before it changed anything.
+    #[error("refused: {0}")]
+    Refused(&'static str),
+
+    /// A log window's build failed, as its message, since every open waiting
+    /// on it reads its own copy.
+    #[error("{0}")]
+    Build(String),
 }
 
 /// Serializes as the error's `Display` string — the Tauri-boundary contract, so
@@ -73,6 +87,16 @@ mod tests {
         let json = serde_json::to_string(&err).expect("AppError should serialize");
         assert_eq!(json, format!("\"{err}\""));
         assert_eq!(json, "\"denied\"");
+    }
+
+    /// The two refusals a log-window command makes read as what they are.
+    #[test]
+    fn a_cancelled_or_refused_call_names_itself() {
+        assert_eq!(AppError::Cancelled.to_string(), "cancelled");
+        assert_eq!(
+            AppError::Refused("an ended page").to_string(),
+            "refused: an ended page"
+        );
     }
 
     #[test]

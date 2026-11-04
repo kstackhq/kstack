@@ -34,7 +34,7 @@ type Sent = {
 
 function sent(): Sent[] {
   return invokeMock.mock.calls
-    .filter(([cmd]) => cmd === 'log_webview')
+    .filter(([cmd]) => cmd === 'webview_record_error')
     .map(([, arg]) => (arg as { record: Sent }).record);
 }
 

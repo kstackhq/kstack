@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing_appender::non_blocking::WorkerGuard;
 
+use crate::log_windows::LogWindows;
 use crate::quit::Quit;
 use crate::services::sidecar::SidecarService;
 use crate::tray::TraySnapshots;
@@ -41,9 +42,11 @@ pub struct AppState {
     /// The log files' worker-thread guards, taken by [`AppState::flush_log`].
     /// Empty when no log file could be opened.
     pub log_guards: Mutex<Vec<WorkerGuard>>,
-    /// Per-webview pacing of `log_webview`, keyed by label; entries are
+    /// Per-webview pacing of `webview_record_error`, keyed by label; entries are
     /// evicted on `WindowEvent::Destroyed`.
     pub webview_log: Mutex<Limiter>,
+    /// The log windows and the app windows that opened them.
+    pub log_windows: LogWindows,
 }
 
 impl AppState {
@@ -63,6 +66,7 @@ impl AppState {
             quit: Quit::default(),
             log_guards: Mutex::new(log_guards),
             webview_log: Mutex::new(Limiter::new(LimiterConfig::DEFAULT)),
+            log_windows: LogWindows::default(),
         }
     }
 
