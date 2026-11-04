@@ -804,12 +804,14 @@ mod tests {
     }
 
     #[test]
-    fn default_capability_grants_only_window_chrome() {
+    fn default_capability_grants_what_the_app_window_calls() {
         // A capability is authority handed to a page that already holds the whole
         // cluster surface, so it is granted when a consumer needs it and not before.
         // Nothing judges that but a reader, so pin the list: a new permission has to
         // be added here too, where the diff is about authority rather than a feature.
-        // Pinned beside the CSP because `build_window` creates the windows this
+        // The list grants no emit, so a page cannot send an event as the host, and
+        // no menu, tray, image, resources, path or app API, which nothing in `src/`
+        // calls. Pinned beside the CSP because `build_window` creates the windows this
         // capability names.
         let capability: serde_json::Value =
             serde_json::from_str(include_str!("../capabilities/default.json"))
@@ -823,14 +825,26 @@ mod tests {
         assert_eq!(
             permissions,
             [
-                "core:default",
+                "core:window:default",
+                "core:webview:default",
+                "core:event:allow-listen",
+                "core:event:allow-unlisten",
                 "core:window:allow-start-dragging",
                 "core:window:allow-start-resize-dragging",
                 "core:window:allow-minimize",
                 "core:window:allow-toggle-maximize",
                 "core:window:allow-close",
+                "allow-ready",
+                "allow-graphql-query",
+                "allow-graphql-subscribe",
+                "allow-graphql-unsubscribe",
+                "allow-new-window",
+                "allow-update-host-file",
+                "allow-quit",
+                "allow-log-webview",
+                "allow-open-account-url",
             ],
-            "the webview holds window chrome and nothing else — add a permission here only with the consumer that needs it"
+            "the app window holds what it calls and nothing else — add a permission here only with the consumer that needs it"
         );
     }
 
