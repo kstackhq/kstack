@@ -3,6 +3,8 @@ title: The coverage gate runs in CI, on Codecov's merged result
 date: 2026-10-30
 scope: repo
 status: Accepted
+amended_by:
+  - [A wip branch's tip gets a coverage report](2026-11-04-a-wip-branchs-tip-gets-a-coverage-report.md)
 ---
 
 # The coverage gate runs in CI, on Codecov's merged result

@@ -74,6 +74,7 @@ jobs:
             shared: &shared
               - .github/actions/setup-environment/**
               - .github/workflows/ci.yml
+              - .github/workflows/coverage.yml
               - .github/codecov.yml
               - scripts/check-coverage-markers.sh
             go:
@@ -457,104 +458,20 @@ jobs:
           path: ${{ steps.setup.outputs.go-cache-path }}
           key: ${{ steps.setup.outputs.go-cache-key }}
 
-  go-coverage:
-    name: Go · Coverage (${{ matrix.os }})
+  # Measures each selected language's coverage and gates on Codecov's merged
+  # result (coverage.yml). Its checks read "coverage / Go (linux)" and so on.
+  coverage:
     needs: changes
-    if: needs.changes.outputs.go == 'true'
-    strategy:
-      fail-fast: false
-      # One runner per OS: every platform split in the sidecar is by OS, none
-      # by architecture, so three profiles hold every file. macOS 27 is the
-      # release users run; nothing in the sidecar branches on the macOS version.
-      matrix:
-        include:
-          - os: linux
-            runner: ubuntu-24.04
-          - os: darwin
-            runner: xcode-27
-          - os: windows
-            runner: windows-2025-vs2026
-    runs-on: ${{ matrix.runner }}
-    # Twice each suite run's -timeout, so a hang fails the test binary with a
-    # goroutine dump before the runner kills the job.
-    timeout-minutes: 60
     permissions:
       contents: read
       # Codecov's upload authenticates with an OIDC token.
       id-token: write
-    steps:
-      # The whole history, for the same reason as Go · Build and Test.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - id: setup
-        uses: ./.github/actions/setup-environment
-        with:
-          setup-go: "true"
-          # macOS skips its Seatbelt tests without KSTACK_REQUIRE_SANDBOX=1.
-          setup-sandbox: "true"
-          go-cache-key: ${{ github.job }}-${{ matrix.runner }}
-          go-cache-mode: ${{ env.CACHE_MODE }}
-      - name: Date files by their last commit
-        run: go run scripts/restore-mtime.go
-      # Built as scripts/build-sidecar.go ships it, so the run tests the
-      # pure-Go os/user and net resolver the release uses. A cached test
-      # replays its coverage with it. SSH_AUTH_SOCK is pinned as in Go · Build
-      # and Test, since its value keys the login shell's cached results.
-      # -coverpkg=./... counts a helper exercised only from another package's
-      # tests. Instrumenting every package, with no -short, is too slow for
-      # Go's 10-minute default per test binary on Windows. Both passes run in
-      # bash: PowerShell splits -coverpkg=./... at its dot, which empties
-      # -coverpkg and hands ./... to the test binary, turning off the test cache.
-      # scripts/cover-changed.sh measures as this job does; change both together.
-      - name: Measure coverage
-        working-directory: ./sidecar
-        shell: bash
-        env:
-          CGO_ENABLED: "0"
-          SSH_AUTH_SOCK: ""
-        run: >-
-          go test -timeout 30m -covermode=atomic -coverpkg=./...
-          -coverprofile="$RUNNER_TEMP/untagged.out" ./...
-      # -tags debug compiles the environment overrides, which no other build has.
-      - name: Measure coverage (-tags debug)
-        working-directory: ./sidecar
-        shell: bash
-        env:
-          CGO_ENABLED: "0"
-          SSH_AUTH_SOCK: ""
-        run: >-
-          go test -tags debug -timeout 30m -covermode=atomic -coverpkg=./...
-          -coverprofile="$RUNNER_TEMP/debug.out" ./...
-      - name: Measure CLI coverage
-        working-directory: ./cli
-        shell: bash
-        run: >-
-          go test -covermode=atomic -coverpkg=./...
-          -coverprofile="$RUNNER_TEMP/cli.out" ./...
-      - name: Merge the profiles and drop marked lines
-        working-directory: ./tools
-        run: |
-          go run ./coverignore -dir ../sidecar -o ${{ runner.temp }}/coverage-${{ matrix.os }}.out ${{ runner.temp }}/untagged.out ${{ runner.temp }}/debug.out
-          go run ./coverignore -dir ../cli -o ${{ runner.temp }}/coverage-cli-${{ matrix.os }}.out ${{ runner.temp }}/cli.out
-      # A fork's PR cannot mint the OIDC token; the action then uploads
-      # tokenless, which Codecov accepts for a public repository.
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          use_oidc: true
-          files: ${{ runner.temp }}/coverage-${{ matrix.os }}.out,${{ runner.temp }}/coverage-cli-${{ matrix.os }}.out
-          disable_search: true
-          flags: go-${{ matrix.os }}
-          fail_ci_if_error: true
-      # After the upload, so a failed job leaves the last cache the newest.
-      - name: Save Go cache
-        if: env.CACHE_MODE != 'use'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ steps.setup.outputs.go-cache-path }}
-          key: ${{ steps.setup.outputs.go-cache-key }}
+    uses: ./.github/workflows/coverage.yml
+    with:
+      go: ${{ needs.changes.outputs.go == 'true' }}
+      rust: ${{ needs.changes.outputs.rust == 'true' }}
+      typescript: ${{ needs.changes.outputs.typescript == 'true' }}
+      cache-mode: ${{ needs.changes.outputs.cache-mode }}
 
   # Builds Kstack's own bwrap and pasta, loads their AppArmor profiles through
   # the .deb's postinst on a stock 24.04, where user namespaces are restricted,
@@ -601,132 +518,6 @@ jobs:
           sudo aa-status | grep -E 'kstack_(bwrap|pasta)'
       - name: Run the sandbox's chains
         run: scripts/check-sandbox-chain.sh
-
-  typescript-coverage:
-    name: TypeScript · Coverage
-    needs: changes
-    if: needs.changes.outputs.typescript == 'true'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-environment
-        with:
-          setup-node: "true"
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      # scripts/cover-changed.sh measures as this job does; change both together.
-      - name: Measure coverage
-        run: pnpm vitest run --mode coverage
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          use_oidc: true
-          files: coverage/lcov.info
-          disable_search: true
-          flags: typescript
-          fail_ci_if_error: true
-
-  # One runner per OS, as Go · Coverage: Rust's platform splits are by OS.
-  # The instrumented build is its own profile, so it keeps its own cache.
-  rust-coverage:
-    name: Rust · Coverage (${{ matrix.os }})
-    needs: changes
-    if: needs.changes.outputs.rust == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: linux
-            runner: ubuntu-24.04
-          - os: macos
-            runner: xcode-27
-          - os: windows
-            runner: windows-2025-vs2026
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-environment
-        with:
-          setup-rust: "true"
-          setup-go: "true"
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
-          cache-save: ${{ env.CACHE_MODE != 'use' }}
-      - uses: ./.github/actions/stub-sidecar
-      # The action's release fixes cargo-llvm-cov's version and checksums.
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
-        with:
-          tool: cargo-llvm-cov
-      # scripts/cover-changed.sh measures as this job does; change both together.
-      - name: Measure coverage
-        working-directory: ./src-tauri
-        run: cargo llvm-cov --lcov --output-path ${{ runner.temp }}/rust-${{ matrix.os }}.lcov
-      - name: Drop marked lines
-        working-directory: ./tools
-        run: >-
-          go run ./coverignore -lcov -o ${{ runner.temp }}/rust-${{ matrix.os }}-filtered.lcov
-          ${{ runner.temp }}/rust-${{ matrix.os }}.lcov
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          use_oidc: true
-          files: ${{ runner.temp }}/rust-${{ matrix.os }}-filtered.lcov
-          disable_search: true
-          flags: rust-${{ matrix.os }}
-          fail_ci_if_error: true
-
-  # Reads Codecov's merged result once every upload above is processed, and
-  # fails on an uncovered changed line or a drop in the total
-  # (tools/coveragegate). Codecov's public API needs no token, so a fork's PR
-  # runs it too. A language whose job failed is not waited for.
-  coverage-gate:
-    name: Coverage · Gate
-    needs:
-      - go-coverage
-      - typescript-coverage
-      - rust-coverage
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          sparse-checkout: |
-            .github
-            tools
-      - uses: ./.github/actions/setup-environment
-        with:
-          setup-go: "true"
-      - name: Gate on Codecov's merged result
-        working-directory: ./tools
-        env:
-          GO_RESULT: ${{ needs.go-coverage.result }}
-          TYPESCRIPT_RESULT: ${{ needs.typescript-coverage.result }}
-          RUST_RESULT: ${{ needs.rust-coverage.result }}
-          # Codecov records a PR's uploads under its head, not the merge commit.
-          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          PR: ${{ github.event.pull_request.number || 0 }}
-        run: |
-          flags=""
-          if [ "$GO_RESULT" = success ]; then flags="$flags,go-linux,go-darwin,go-windows"; fi
-          if [ "$TYPESCRIPT_RESULT" = success ]; then flags="$flags,typescript"; fi
-          if [ "$RUST_RESULT" = success ]; then flags="$flags,rust-linux,rust-macos,rust-windows"; fi
-          go run ./coveragegate -sha "$SHA" -pr "$PR" -flags "${flags#,}" \
-            -run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
   # Rust · Vet's clippy type-checks the build; this links the real binary,
   # then runs the tests.
@@ -809,12 +600,10 @@ jobs:
       - go-vet
       - go-staticcheck
       - go-test
-      - go-coverage
+      - coverage
       - rust-vet
       - rust-test
-      - rust-coverage
       - typescript-lint
-      - typescript-coverage
       - typescript-test
       - typescript-build
     if: always() && needs.changes.outputs.cache-mode != 'use'

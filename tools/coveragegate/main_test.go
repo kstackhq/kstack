@@ -256,6 +256,48 @@ func TestFailsOnAnUploadCodecovCouldNotProcess(t *testing.T) {
 	}
 }
 
+func TestFailsAtOnceWhenTheBaseHasNoReport(t *testing.T) {
+	// The comparison and the base commit are both missing.
+	f := ready(compared(ptr(hit)))
+	delete(f.answers, "/compare/?pullid=7")
+	cfg := goLinux
+	cfg.base = "wiptip"
+	_, _, err := gate(t, cfg, f)
+	var noBase *noBaseError
+	if !errors.As(err, &noBase) || !strings.Contains(err.Error(), "no report for base commit wiptip") {
+		t.Fatalf("err = %v, want a noBaseError for wiptip", err)
+	}
+	if strings.Contains(err.Error(), "Codecov delay") {
+		t.Errorf("blames a delay: %v", err)
+	}
+	if got := f.seen[len(f.seen)-1]; got != "/commits/wiptip/" || len(f.seen) != 4 {
+		t.Errorf("requests = %v, want one poll ending at the base", f.seen)
+	}
+}
+
+func TestFailsAtOnceWhenAPushsParentHasNoReport(t *testing.T) {
+	f := ready(compared(ptr(hit)))
+	delete(f.answers, "/compare/?pullid=7")
+	_, _, err := gate(t, config{flags: []string{"go-linux"}}, f)
+	var noBase *noBaseError
+	if !errors.As(err, &noBase) || noBase.base != "parent" {
+		t.Fatalf("err = %v, want a noBaseError for parent", err)
+	}
+}
+
+func TestWaitsForAComparisonWhoseBaseHasAReport(t *testing.T) {
+	f := ready(compared(ptr(hit)))
+	delete(f.answers, "/compare/?pullid=7")
+	f.answers["/commits/base/"] = []any{commit{State: "complete"}}
+	cfg := goLinux
+	cfg.base = "base"
+	cfg.timeout = 20 * time.Millisecond
+	_, _, err := gate(t, cfg, f)
+	if err == nil || !strings.Contains(err.Error(), "not a coverage failure") {
+		t.Fatalf("err = %v, want a timeout", err)
+	}
+}
+
 func TestGatesNothingWhenNoJobUploaded(t *testing.T) {
 	f := &fake{}
 	out, _, err := gate(t, config{}, f)

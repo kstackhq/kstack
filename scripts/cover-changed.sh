@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # List the lines the working tree changes since the branch left main that a
 # local coverage run measured and no test reached (tools/coverdiff). A pre-push
-# aid, not the gate: CI's Coverage · Gate merges every OS's runs, so a line only
+# aid, not the gate: CI's coverage / Gate merges every OS's runs, so a line only
 # another OS's tests reach is listed here.
 #
 #   Go    per module, sidecar/ and cli/, when it changed: the changed packages'
@@ -10,7 +10,7 @@
 #   Rust  when src-tauri/ or proto/ changed, and only with RUST=1: it needs
 #         cargo-llvm-cov and is the slowest of the three.
 #
-# Each suite is measured as .github/workflows/ci.yml's coverage jobs measure
+# Each suite is measured as .github/workflows/coverage.yml's jobs measure
 # it; a change to one belongs in the other. BASE is as in scripts/test-changed.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."

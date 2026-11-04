@@ -4,13 +4,15 @@
 //   - patch: every changed line a report measured is covered;
 //   - project: the total is no more than -threshold points below the base.
 //
-// CI's Coverage · Gate job runs it after every coverage job:
+// CI's coverage / Gate job (.github/workflows/coverage.yml) runs it after every
+// coverage job:
 //
-//	go run ./coveragegate -sha <head> -pr <n> -run <run url> -flags go-linux,typescript
+//	go run ./coveragegate -sha <head> -pr <n> -base <sha> -run <run url> -flags go-linux,typescript
 //
 // -flags names the uploads this run made; each is waited for. -pr 0 compares
-// the commit with its parent, as on a push to main. Codecov's public API needs
-// no token, so a fork's pull request runs it too.
+// the commit with its parent, as on a push. A base Codecov has no report for
+// fails at once, since no wait gives it one. Codecov's public API needs no
+// token, so a fork's pull request runs it too.
 package main
 
 import (
@@ -30,6 +32,7 @@ import (
 type config struct {
 	sha       string
 	pr        int
+	base      string // the pull request's base commit; -pr 0 uses the head's parent
 	run       string // the CI run's URL, as Codecov records it on each upload
 	flags     []string
 	threshold float64
@@ -43,6 +46,7 @@ func main() {
 	flag.StringVar(&api, "api", "https://api.codecov.io/api/v2/github/kstackhq/repos/kstack", "Codecov API root of the repository")
 	flag.StringVar(&cfg.sha, "sha", "", "head commit")
 	flag.IntVar(&cfg.pr, "pr", 0, "pull request number; 0 compares the commit with its parent")
+	flag.StringVar(&cfg.base, "base", "", "the pull request's base commit")
 	flag.StringVar(&cfg.run, "run", "", "URL of the CI run that made the uploads")
 	flag.StringVar(&flags, "flags", "", "comma-separated flags the run uploaded")
 	flag.Float64Var(&cfg.threshold, "threshold", 0.1, "points the total may fall below the base")
@@ -158,9 +162,22 @@ func (c *codecov) get(ctx context.Context, path string, v any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: %s", path, resp.Status)
+		return &statusError{path: path, code: resp.StatusCode, status: resp.Status}
 	}
 	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+type statusError struct {
+	path   string
+	code   int
+	status string
+}
+
+func (e *statusError) Error() string { return "GET " + e.path + ": " + e.status }
+
+func notFound(err error) bool {
+	var s *statusError
+	return errors.As(err, &s) && s.code == http.StatusNotFound
 }
 
 // An uploadError is an upload Codecov failed to process. No wait changes it.
@@ -168,6 +185,16 @@ type uploadError struct{ flags string }
 
 func (e *uploadError) Error() string {
 	return "Codecov failed to process upload " + e.flags + "; re-run its coverage job"
+}
+
+// A noBaseError is a base commit Codecov has no report for, so the comparison
+// cannot exist. A CI run on the base's branch gives it one; waiting does not.
+type noBaseError struct{ base string }
+
+func (e *noBaseError) Error() string {
+	return "Codecov has no report for base commit " + e.base + ", so it cannot compare this commit with it. " +
+		"Only CI's push runs (main and wip/*) upload a base's coverage: " +
+		"re-run this job once the base's run has uploaded"
 }
 
 // wait polls until fetch has the comparison, for at most cfg.timeout.
@@ -182,7 +209,8 @@ func wait(ctx context.Context, cfg config, cc *codecov) (*comparison, error) {
 			return cmp, nil
 		}
 		var bad *uploadError
-		if errors.As(err, &bad) {
+		var noBase *noBaseError
+		if errors.As(err, &bad) || errors.As(err, &noBase) {
 			return nil, err
 		}
 		// A request the deadline cut short says nothing about Codecov.
@@ -214,15 +242,21 @@ func fetch(ctx context.Context, cfg config, cc *codecov) (*comparison, error) {
 		return nil, errors.New("commit is " + c.State)
 	}
 
+	base := cfg.base
 	q := url.Values{}
 	if cfg.pr != 0 {
 		q.Set("pullid", fmt.Sprint(cfg.pr))
 	} else {
-		q.Set("base", c.Parent)
+		base = c.Parent
+		q.Set("base", base)
 		q.Set("head", cfg.sha)
 	}
 	var cmp comparison
 	if err := cc.get(ctx, "/compare/?"+q.Encode(), &cmp); err != nil {
+		// The head is complete, so a missing comparison may be a missing base.
+		if notFound(err) && base != "" && notFound(cc.get(ctx, "/commits/"+base+"/", &commit{})) {
+			return nil, &noBaseError{base}
+		}
 		return nil, err
 	}
 	// A pull request's comparison follows its head, which Codecov moves when it
@@ -335,7 +369,7 @@ func (v verdict) report(out, summary io.Writer) {
 	}
 	fmt.Fprintln(out, "project:", v.project)
 
-	fmt.Fprintf(summary, "## Coverage · Gate\n\n**patch**: %s\n\n", v.patch)
+	fmt.Fprintf(summary, "## Coverage gate\n\n**patch**: %s\n\n", v.patch)
 	for _, u := range v.uncovered {
 		fmt.Fprintf(summary, "- `%s:%d` %s\n", u.file, u.line, u.state)
 	}

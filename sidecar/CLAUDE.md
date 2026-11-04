@@ -247,7 +247,7 @@ reproduces it from `sidecar/`:
 go test -race -cpu 1 -shuffle=<seed> -count=3 ./internal/agent/chat
 ```
 
-**Coverage is measured in `Go · Coverage (<os>)`**, one runner per OS, beside the tests: the suite
+**Coverage is measured in `coverage / Go (<os>)`**, one runner per OS, beside the tests: the suite
 untagged and with `-tags debug` (the only build with the environment overrides and
 `KSTACK_FAULTS`; a test only that build can pass carries `//go:build debug`), both with
 `-coverpkg=./...` and `CGO_ENABLED=0`, as the release is built.
