@@ -46,13 +46,13 @@ export const bodyFits = (body: string) => utf8.encode(body).length <= BODY_MAX_B
 const fold = (text: string) =>
   text
     .normalize('NFD')
-    .replace(/\p{M}/gu, '')
+    .replaceAll(/\p{M}/gu, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-');
+    .replaceAll(/[^a-z0-9]+/g, '-');
 
 // The name derived from a body, cut at a word boundary when one is in reach.
 export function slugify(text: string): string {
-  const slug = fold(text).replace(/^-|-$/g, '');
+  const slug = fold(text).replaceAll(/^-|-$/g, '');
   const cut = slug.slice(0, NAME_MAX);
   if (slug.length <= NAME_MAX || slug[NAME_MAX] === '-') return cut;
   const hyphen = cut.lastIndexOf('-');

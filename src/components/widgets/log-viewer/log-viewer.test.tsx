@@ -50,7 +50,7 @@ const VIEW = 200;
 const SCROLLER = '[tabindex="0"][style*="overflow"]';
 const isScroller = (el: HTMLElement) => el.matches(SCROLLER);
 const sizerHeight = (el: HTMLElement) =>
-  parseFloat((el.firstElementChild as HTMLElement | null)?.style.height ?? '') || 0;
+  Number.parseFloat((el.firstElementChild as HTMLElement | null)?.style.height ?? '') || 0;
 const tops = new WeakMap<HTMLElement, number>();
 const stubbed: [string, PropertyDescriptor | undefined][] = [];
 
@@ -96,20 +96,17 @@ function stubLayout() {
   vi.stubGlobal(
     'ResizeObserver',
     class {
-      // oxlint-disable-next-line class-methods-use-this -- the stub's sizes never change
       observe() {}
 
-      // oxlint-disable-next-line class-methods-use-this -- the stub's sizes never change
       unobserve() {}
 
-      // oxlint-disable-next-line class-methods-use-this -- a fake has nothing to release
       disconnect() {}
     },
   );
 }
 
 function unstubLayout() {
-  stubbed.reverse().forEach(([name, descriptor]) => {
+  stubbed.toReversed().forEach(([name, descriptor]) => {
     if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
     else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
   });
@@ -173,7 +170,7 @@ function scripted() {
     },
   };
   built.current = client;
-  return { fetches, follows, refusal, last: () => fetches[fetches.length - 1] };
+  return { fetches, follows, refusal, last: () => fetches.at(-1)! };
 }
 
 // --- Mounting. ---
@@ -420,7 +417,7 @@ describe('LogViewer', () => {
       mount();
       await answer(s.fetches[0], page(0, 20, { edges: { ...START, ...END } }));
       await act(async () => {
-        s.follows[s.follows.length - 1].onFrame({ kind: 'Ended', reason: 'the pod was deleted' });
+        s.follows.at(-1)!.onFrame({ kind: 'Ended', reason: 'the pod was deleted' });
       });
       await frame(2);
       expect(screen.getByText(/No new lines:/)).toHaveTextContent('No new lines: the pod was deleted');
@@ -786,10 +783,8 @@ describe('LogViewer', () => {
             requestAnimationFrame(() => this.callback([{ target } as ResizeObserverEntry], this));
           }
 
-          // oxlint-disable-next-line class-methods-use-this -- the stub's sizes never change
           unobserve() {}
 
-          // oxlint-disable-next-line class-methods-use-this -- a fake has nothing to release
           disconnect() {}
         },
       );

@@ -84,7 +84,7 @@ const COLUMNS: VirtualColumn<ClusterCachedDataEvent>[] = [
     className: 'w-32 tabular-nums',
     cell: (e) => {
       // lastSeen is null when the source Event carried no timestamp.
-      const lastSeenMs = e.lastSeen ? Date.parse(e.lastSeen) : NaN;
+      const lastSeenMs = e.lastSeen ? Date.parse(e.lastSeen) : Number.NaN;
       return Number.isNaN(lastSeenMs) ? '—' : <ReactTimeAgo date={lastSeenMs} component="span" maxPeriod={60} />;
     },
   },

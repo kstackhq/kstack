@@ -81,7 +81,11 @@ function stateOf(task: LogsWatchTask | null, until: string): ReactNode {
       return 'stopped';
     case 'Lost':
       return 'lost when Kstack stopped';
-    default:
+    case 'Matched':
+    // A command's and an agent's ends.
+    case 'Exited':
+    case 'Completed':
+    case undefined:
       return null;
   }
 }

@@ -67,7 +67,7 @@ export class DoubleTailedArray<T> {
     const count = Math.min(n, this.length);
     const fromHead = Math.min(count, this.head.length);
     // The head is reversed, so its first elements are at its end.
-    const dropped = this.head.splice(this.head.length - fromHead).reverse();
+    const dropped = this.head.splice(this.head.length - fromHead).toReversed();
     this.keyOffset += count;
     return dropped.concat(this.tail.splice(0, count - fromHead));
   }
@@ -77,7 +77,7 @@ export class DoubleTailedArray<T> {
     const count = Math.min(n, this.length);
     const fromTail = Math.min(count, this.tail.length);
     // The head is reversed, so its last elements are at its start.
-    const dropped = this.head.splice(0, count - fromTail).reverse();
+    const dropped = this.head.splice(0, count - fromTail).toReversed();
     return dropped.concat(this.tail.splice(this.tail.length - fromTail));
   }
 }

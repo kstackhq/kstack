@@ -29,10 +29,10 @@ vi.mock('@/lib/chats', async (importOriginal) => ({
   useChats: useChatsMock,
 }));
 vi.mock('urql', () => ({
-  useMutation: (doc: { __kind?: string }) => [{ fetching: false }, doc.__kind === 'delete' ? deleteMock : renameMock],
+  useMutation: (doc: { kind?: string }) => [{ fetching: false }, doc.kind === 'delete' ? deleteMock : renameMock],
 }));
 vi.mock('@/gql', () => ({
-  graphql: (source: string) => ({ __kind: source.includes('chatDelete') ? 'delete' : 'rename' }),
+  graphql: (source: string) => ({ kind: source.includes('chatDelete') ? 'delete' : 'rename' }),
 }));
 // The window's cluster: the list is the active cluster's chats and nobody else's.
 const { useActiveClusterMock } = vi.hoisted(() => ({ useActiveClusterMock: vi.fn() }));

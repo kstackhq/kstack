@@ -238,4 +238,5 @@ usually just documentation in the wrong place.
 | 2026-11-04 | [A wip branch's tip gets a coverage report, and a missing base fails the gate at once](2026-11-04-a-wip-branchs-tip-gets-a-coverage-report.md) | repo | Accepted |
 | 2026-11-04 | [Coverage runs on its own triggers, reading the path filters ci.yml reads](2026-11-04-coverage-runs-on-its-own-triggers-from-shared-path-filters.md) | repo | Accepted |
 | 2026-11-04 | [A log window belongs to one app window, and the host keeps the pair](2026-11-04-a-log-window-belongs-to-one-app-window-and-the-host-keeps-the-pair.md) | cross-cutting | Accepted |
-| 2026-11-05 | [Lint the webview with oxlint, every rule an error](2026-11-05-lint-the-webview-with-oxlint-every-rule-an-error.md) | frontend | Accepted |
+| 2026-11-05 | [Lint the webview with oxlint, every rule an error](2026-11-05-lint-the-webview-with-oxlint-every-rule-an-error.md) | frontend | Superseded by [2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list](2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list.md) |
+| 2026-11-05 | [Lint the webview with oxlint's categories and a chosen rule list](2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list.md) | frontend | Accepted |

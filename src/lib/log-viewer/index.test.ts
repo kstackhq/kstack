@@ -17,7 +17,7 @@ import * as library from '.';
 
 describe('the library’s index', () => {
   it('exports the core, its store and its reader, the window and its first snapshot, the line order and the step back from a moment, and leaves the fake out', () => {
-    expect(Object.keys(library).sort()).toEqual([
+    expect(Object.keys(library).toSorted()).toEqual([
       'CORE_INITIAL_STATE',
       'LogViewerCore',
       'LogWindow',

@@ -180,7 +180,7 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
         clusterID={chat?.clusterID}
         phase={phase}
         last={messages.at(-1) ?? null}
-        lastAnswer={messages.filter((m) => m.role === 'Assistant').at(-1) ?? null}
+        lastAnswer={messages.findLast((m) => m.role === 'Assistant') ?? null}
         sandboxAvailable={sandbox.available}
         sandboxDisabled={chat?.sandboxDisabled}
         networkAvailable={sandbox.networkAvailable}

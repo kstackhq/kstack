@@ -78,7 +78,7 @@ function GrepBox({ grep, error, onSubmit }: { grep: string; error: string | null
 function Option({ label, checked, onChange }: { label: string; checked: boolean; onChange: (on: boolean) => void }) {
   return (
     <Label className="font-normal">
-      <Checkbox checked={checked} onCheckedChange={(on) => onChange(on === true)} />
+      <Checkbox checked={checked} onCheckedChange={(on) => onChange(on)} />
       {label}
     </Label>
   );

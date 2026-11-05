@@ -96,7 +96,7 @@ export function useClusterCachedDataObjects(kind: GVR): {
   );
 
   // Sort by (namespace, name) so the table order is stable across delta churn.
-  const objects = useMemo(() => [...items].sort(byNamespaceThenName), [items]);
+  const objects = useMemo(() => items.toSorted(byNamespaceThenName), [items]);
 
   return { objects, active, phase };
 }

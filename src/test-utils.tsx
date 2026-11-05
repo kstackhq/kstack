@@ -52,7 +52,7 @@ export function mockTauriCore() {
     factory: () => ({
       invoke: (...args: unknown[]) => invokeMock(...args),
       Channel: function FakeChannelCtor(this: FakeChannel, onmessage?: (raw: string) => void) {
-        // oxlint-disable-next-line react/no-this-in-sfc -- a constructor, called with `new` as Tauri's `Channel` is
+        // oxlint-disable-next-line react/no-this-in-sfc, unicorn/prefer-add-event-listener -- a constructor, called with `new` as Tauri's `Channel` is, and no `EventTarget`
         if (onmessage) this.onmessage = onmessage;
         channels.push(this);
       },
@@ -341,7 +341,6 @@ export function stubLayout(clientHeight: number) {
         this.cb();
       }
 
-      // oxlint-disable-next-line class-methods-use-this -- a fake has nothing to release
       disconnect() {}
     },
   );

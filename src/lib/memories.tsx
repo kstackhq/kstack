@@ -79,7 +79,7 @@ export function useMemories(clusterID: string | undefined): {
   );
 
   const items = data?.items;
-  const memories = useMemo(() => [...(items?.values() ?? [])].sort(clusterFirstByName), [items]);
+  const memories = useMemo(() => [...(items?.values() ?? [])].toSorted(clusterFirstByName), [items]);
 
   return { memories, lastSaved: data?.lastSaved, phase: watchPhase(!!data?.synced, connected) };
 }

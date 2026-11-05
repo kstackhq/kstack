@@ -1066,7 +1066,7 @@ async function walk(seed: number) {
       byContainer.set(key, [...(byContainer.get(key) ?? []), i]);
     });
     byContainer.forEach((indexes, name) => {
-      const sorted = [...indexes].sort((a, b) => a - b);
+      const sorted = indexes.toSorted((a, b) => a - b);
       for (let k = 1; k < sorted.length; k += 1) {
         for (let i = sorted[k - 1] + 1; i < sorted[k]; i += 1) {
           if (fake.lineAt(i).stream.pod === name)

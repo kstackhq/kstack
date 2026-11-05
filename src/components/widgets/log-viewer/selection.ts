@@ -78,7 +78,7 @@ export function getPlainAttribute(line: LogLine, col: Column): string {
       return line.place.os;
     case 'Arch':
       return line.place.arch;
-    default:
+    case 'Message':
       return stripAnsi(line.message);
   }
 }
@@ -118,7 +118,7 @@ export function formatCellsForCopy(
   lineOfKey: (key: number) => LogLine | undefined,
 ): string {
   return [...selectedCells.keys()]
-    .sort((a, b) => a - b)
+    .toSorted((a, b) => a - b)
     .map((rowKey) => {
       const line = lineOfKey(rowKey);
       return line ? formatRow(line, columns, selectedCells.get(rowKey)) : '';
@@ -194,7 +194,7 @@ function nextSelectedCellInReadingOrder(
 ): Cell | null {
   const cols: Column[] = columns.filter(isSelectableColumn);
   const ordered = [...selectedCells.keys()]
-    .sort((a, b) => a - b)
+    .toSorted((a, b) => a - b)
     .flatMap((rowKey) => cols.filter((col) => selectedCells.get(rowKey)?.has(col)).map((col) => ({ rowKey, col })));
   if (ordered.length === 0) return null;
 
@@ -329,7 +329,7 @@ function startDocumentDrag<T>(args: {
     e.preventDefault();
     pendingX = e.clientX;
     pendingY = e.clientY;
-    if (rafId === null) rafId = requestAnimationFrame(processMove);
+    rafId ??= requestAnimationFrame(processMove);
   };
 
   const onMouseUp = (e: MouseEvent) => {
@@ -544,7 +544,7 @@ function useSelectionKeyboard(
 /** The lines under `keys`, in key order. */
 function linesOf(keys: Iterable<number>, rows: SelectionRows): LogLine[] {
   return [...keys]
-    .sort((a, b) => a - b)
+    .toSorted((a, b) => a - b)
     .map(rows.lineOfKey)
     .filter((line) => line !== undefined);
 }

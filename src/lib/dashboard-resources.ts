@@ -244,7 +244,9 @@ export function buildDashboardNav(serverKinds: readonly ServerKind[]): Dashboard
     list.push({ id, label: k.kind });
     buckets.set(group, list);
   });
-  buckets.forEach((list) => list.sort((a, b) => a.label.localeCompare(b.label)));
+  buckets.forEach((list) => {
+    list.sort((a, b) => a.label.localeCompare(b.label));
+  });
 
   const withCount = (node: DashboardNavNode): DashboardNavNode => {
     const count = countById.get(node.id);

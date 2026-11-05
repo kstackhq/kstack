@@ -45,7 +45,7 @@ const isScroller = (el: Element) => el.classList.contains('scroller');
 
 function sizerHeight(el: Element): number {
   const sizer = el.firstElementChild as HTMLElement | null;
-  return sizer ? parseFloat(sizer.style.height) || 0 : 0;
+  return sizer ? Number.parseFloat(sizer.style.height) || 0 : 0;
 }
 
 function maxTop(el: Element): number {
@@ -226,7 +226,7 @@ function scripted() {
     refuseNextFollow: () => {
       state.refuseFollow = true;
     },
-    last: () => fetches[fetches.length - 1],
+    last: () => fetches.at(-1)!,
   };
 }
 
@@ -1427,7 +1427,7 @@ describe('the bound', () => {
     await answer(s.last(), page(0, 50, { edges: START }));
     await frame(3);
 
-    const rows = [...m.view.container.querySelectorAll<HTMLElement>('[data-key]')].sort(
+    const rows = [...m.view.container.querySelectorAll<HTMLElement>('[data-key]')].toSorted(
       (a, b) => Number(a.dataset.start) - Number(b.dataset.start),
     );
     rows.slice(1).forEach((row, k) => {

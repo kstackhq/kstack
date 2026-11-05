@@ -79,9 +79,9 @@ export function useClusterCachedDataEvents(): { events: ClusterCachedDataEvent[]
   // forms). Null lastSeen sorts oldest.
   const events = useMemo(
     () =>
-      [...items]
+      items
         .map((e) => ({ e, ms: e.lastSeen ? Date.parse(e.lastSeen) : 0 }))
-        .sort((a, b) => b.ms - a.ms)
+        .toSorted((a, b) => b.ms - a.ms)
         .map((x) => x.e),
     [items],
   );

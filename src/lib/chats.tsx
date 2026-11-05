@@ -369,7 +369,7 @@ export function useChats(): { chats: Chat[]; phase: WatchPhase } {
   // tie, so the order is at least stable.
   const chats = useMemo(
     () =>
-      [...(items?.values() ?? [])].sort(
+      [...(items?.values() ?? [])].toSorted(
         (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || b.id.localeCompare(a.id),
       ),
     [items],
@@ -392,7 +392,7 @@ export function useChatMessages(chatID: string): { messages: ChatMessage[]; phas
 
   const items = data?.items;
   // `seq` is the order; `createdAt` is not, since two windows can send into one chat.
-  const messages = useMemo(() => [...(items?.values() ?? [])].sort((a, b) => a.seq - b.seq), [items]);
+  const messages = useMemo(() => [...(items?.values() ?? [])].toSorted((a, b) => a.seq - b.seq), [items]);
 
   return { messages, phase: watchPhase(!!data?.synced, connected) };
 }
@@ -571,7 +571,7 @@ export function waitingRequestsOf(calls: ChatToolCall[]): WaitingRequest[] {
         .map((w) => ({ call, approval: w.approval, change: w }));
       return [...own, ...writes];
     })
-    .sort((a, b) => (a.approval.id < b.approval.id ? -1 : 1));
+    .toSorted((a, b) => (a.approval.id < b.approval.id ? -1 : 1));
 }
 
 /**

@@ -173,7 +173,9 @@ function ConnectionSection({ cluster }: { cluster: Cluster }) {
   // sidecar's write: when it began is not known yet.
   const down = connected?.status === 'False';
   const sinceMs =
-    connected && connected.status !== 'Unknown' && !connected.unconfirmed ? Date.parse(connected.transitionedAt) : NaN;
+    connected && connected.status !== 'Unknown' && !connected.unconfirmed
+      ? Date.parse(connected.transitionedAt)
+      : Number.NaN;
   const rates = useDataRate(cluster.id, !cluster.spec.enabled);
   const rate = rates?.samples.at(-1);
 

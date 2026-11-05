@@ -72,6 +72,7 @@ function Code({ className, children, ...p }: ComponentProps<'code'>) {
 
   let body = children;
   if (lang !== undefined && typeof children === 'string' && loaded(lang)) {
+    // oxlint-disable-next-line typescript/no-unsafe-assignment -- tsgolint fails to resolve `toJsxRuntime`'s `JSX.Element`, which tsc reads
     body = toJsxRuntime(highlight(lang, children), { Fragment, jsx, jsxs });
   }
   return (

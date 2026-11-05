@@ -36,6 +36,8 @@ type ObjectsTableProps = {
   printerColumns?: readonly PrinterColumn[];
 };
 
+const NO_COLUMNS: readonly PrinterColumn[] = [];
+
 const rowKey = (o: ClusterCachedDataObject) => o.uid;
 
 const NAMESPACE_COLUMN: VirtualColumn<ClusterCachedDataObject> = {
@@ -62,12 +64,18 @@ const AGE_COLUMN: VirtualColumn<ClusterCachedDataObject> = {
   header: 'Age',
   className: 'w-32 tabular-nums',
   cell: (o) => {
-    const createdMs = o.creationTimestamp ? Date.parse(o.creationTimestamp) : NaN;
+    const createdMs = o.creationTimestamp ? Date.parse(o.creationTimestamp) : Number.NaN;
     return Number.isNaN(createdMs) ? '—' : <ReactTimeAgo date={createdMs} component="span" maxPeriod={60} />;
   },
 };
 
-export function ObjectsTable({ apiVersion, resource, kind, namespaced, printerColumns = [] }: ObjectsTableProps) {
+export function ObjectsTable({
+  apiVersion,
+  resource,
+  kind,
+  namespaced,
+  printerColumns = NO_COLUMNS,
+}: ObjectsTableProps) {
   const gvr = { apiVersion, resource };
   const { objects, active, phase } = useClusterCachedDataObjects(gvr);
   // Kind-specific columns between Name and Age; [] when neither the registry nor the kind

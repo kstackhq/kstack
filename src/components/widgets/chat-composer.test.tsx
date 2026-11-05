@@ -34,11 +34,11 @@ const { sendMock, cancelMock, catalog, reexecute } = vi.hoisted(() => ({
 }));
 
 vi.mock('urql', () => ({
-  useMutation: (doc: { __kind?: string }) => [{}, doc.__kind === 'cancel' ? cancelMock : sendMock],
+  useMutation: (doc: { kind?: string }) => [{}, doc.kind === 'cancel' ? cancelMock : sendMock],
   useQuery: () => [catalog.current, reexecute],
 }));
 vi.mock('@/gql', () => ({
-  graphql: (source: string) => ({ __kind: source.includes('chatCancel') ? 'cancel' : 'send' }),
+  graphql: (source: string) => ({ kind: source.includes('chatCancel') ? 'cancel' : 'send' }),
 }));
 
 const { ChatOutboxProvider, useChatOutbox } = await import('@/lib/chat-outbox');

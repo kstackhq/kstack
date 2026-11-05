@@ -102,7 +102,7 @@ describe('DashboardResourceNav', () => {
     const pods = screen.getByRole('link', { name: 'Pods' });
     expect(pods).toHaveAttribute('href', '/dashboard?resource=pods');
     expect(screen.getByRole('link', { name: /DaemonSets/ })).toBeInTheDocument();
-    const inset = (el: HTMLElement) => parseFloat(el.style.paddingLeft);
+    const inset = (el: HTMLElement) => Number.parseFloat(el.style.paddingLeft);
     expect(inset(pods)).toBeGreaterThan(inset(workloads));
   });
 
@@ -183,7 +183,7 @@ describe('DashboardResourceNav', () => {
     expect(showLess).toBeInTheDocument();
     const replicaset = screen.getByRole('link', { name: 'ReplicaSet' });
     expect(replicaset).toBeInTheDocument();
-    const inset = (el: HTMLElement) => parseFloat(el.style.paddingLeft);
+    const inset = (el: HTMLElement) => Number.parseFloat(el.style.paddingLeft);
     expect(inset(replicaset)).toBeCloseTo(inset(screen.getByRole('link', { name: 'Pods' })));
     // The toggle's own label aligns with the resource labels too.
     expect(inset(showLess)).toBeCloseTo(inset(replicaset));

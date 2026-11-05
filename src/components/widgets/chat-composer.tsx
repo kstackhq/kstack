@@ -101,6 +101,8 @@ type ChatComposerProps = {
   onSwitchNetwork?: (enabled: boolean) => void;
 };
 
+const noop = () => {};
+
 type Option = { value: string; label: string };
 type OptionGroup = { label?: string; options: Option[] };
 
@@ -132,7 +134,7 @@ function Segment({
       <DropdownMenuContent align="start" sideOffset={6} className="max-h-80 min-w-40 overflow-y-auto">
         {/* Called with the value alone: base-ui also passes event details, which the
             setter would take as a stray second argument. */}
-        <DropdownMenuRadioGroup value={value} onValueChange={(next) => onSelect(next)}>
+        <DropdownMenuRadioGroup value={value} onValueChange={(next: string) => onSelect(next)}>
           {groups.map((g, i) => (
             <DropdownMenuGroup key={g.label ?? i}>
               {headed && <DropdownMenuLabel>{g.label}</DropdownMenuLabel>}
@@ -196,8 +198,8 @@ export function ChatComposer({
   networkReason = '',
   networkEnabled,
   switching = false,
-  onSwitchSandbox = () => {},
-  onSwitchNetwork = () => {},
+  onSwitchSandbox = noop,
+  onSwitchNetwork = noop,
 }: ChatComposerProps) {
   const { models, loaded, failed, retry: askAgainForModels } = useModels();
   // Without a catalog there is no pick and nothing can be sent.

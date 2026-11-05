@@ -30,24 +30,21 @@ import type { Column } from './columns';
 import { getPlainAttribute } from './selection';
 
 function items(line: LogLine, col: Column) {
-  switch (col) {
-    case 'Timestamp':
-      return (
-        <>
-          <ContextMenuItem onClick={() => copyToClipboard(getPlainAttribute(line, col))}>
-            Copy timestamp
-          </ContextMenuItem>
-          {/* The drawn time leaves out today's date; this is the whole of it. */}
-          <ContextMenuItem onClick={() => copyToClipboard(line.timestamp)}>Copy as RFC 3339</ContextMenuItem>
-        </>
-      );
-    case 'Message':
-      return (
-        <ContextMenuItem onClick={() => copyToClipboard(getPlainAttribute(line, col))}>Copy message</ContextMenuItem>
-      );
-    default:
-      return <ContextMenuItem onClick={() => copyToClipboard(getPlainAttribute(line, col))}>Copy</ContextMenuItem>;
+  if (col === 'Timestamp') {
+    return (
+      <>
+        <ContextMenuItem onClick={() => copyToClipboard(getPlainAttribute(line, col))}>Copy timestamp</ContextMenuItem>
+        {/* The drawn time leaves out today's date; this is the whole of it. */}
+        <ContextMenuItem onClick={() => copyToClipboard(line.timestamp)}>Copy as RFC 3339</ContextMenuItem>
+      </>
+    );
   }
+  if (col === 'Message') {
+    return (
+      <ContextMenuItem onClick={() => copyToClipboard(getPlainAttribute(line, col))}>Copy message</ContextMenuItem>
+    );
+  }
+  return <ContextMenuItem onClick={() => copyToClipboard(getPlainAttribute(line, col))}>Copy</ContextMenuItem>;
 }
 
 export function CellContextMenu({ col, line, children }: { col: Column; line: LogLine; children: ReactElement }) {

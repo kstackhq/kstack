@@ -45,7 +45,7 @@ vi.mock('@/lib/memories', () => ({
   },
 }));
 vi.mock('urql', () => ({
-  useMutation: (doc: unknown) => [{}, String(JSON.stringify(doc)).includes('memoryDelete') ? deleteMock : saveMock],
+  useMutation: (doc: unknown) => [{}, JSON.stringify(doc).includes('memoryDelete') ? deleteMock : saveMock],
 }));
 const { MemoryPopover, MemoryPopoverContent } = await import('./popover');
 

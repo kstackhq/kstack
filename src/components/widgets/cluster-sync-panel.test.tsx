@@ -342,7 +342,7 @@ function pushCacheStatsFor(cacheId: string, bytes: number) {
 // mutation over the same invoke, so the assertion has to pick its own out of the log.
 function lastMutation(name: string): Record<string, unknown> | undefined {
   const calls = invokeMock.mock.calls.filter(
-    ([cmd, arg]) => cmd === 'graphql_query' && String((arg as { body: string }).body).includes(name),
+    ([cmd, arg]) => cmd === 'graphql_query' && (arg as { body: string }).body.includes(name),
   );
   const last = calls.at(-1);
   if (!last) return undefined;
@@ -1001,7 +1001,7 @@ describe('ClusterSyncPanel', () => {
       if (cmd === 'graphql_subscribe') return 1;
       if (cmd === 'graphql_unsubscribe') return undefined;
       if (cmd === 'graphql_query') {
-        if (String((arg as { body: string }).body).includes('clusterConnectionRetry')) await probing;
+        if ((arg as { body: string }).body.includes('clusterConnectionRetry')) await probing;
         return { status: 200, body: JSON.stringify({ data: { clusterConnectionRetry: true } }) };
       }
       throw new Error(`unexpected ${cmd}`);

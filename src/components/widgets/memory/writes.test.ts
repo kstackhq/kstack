@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { saveMock, deleteMock } = vi.hoisted(() => ({ saveMock: vi.fn(), deleteMock: vi.fn() }));
 vi.mock('urql', () => ({
-  useMutation: (doc: unknown) => [{}, String(JSON.stringify(doc)).includes('memoryDelete') ? deleteMock : saveMock],
+  useMutation: (doc: unknown) => [{}, JSON.stringify(doc).includes('memoryDelete') ? deleteMock : saveMock],
 }));
 
 const { bodyFits, slugify, typedName, uniqueName, useMemoryWrites } = await import('./writes');

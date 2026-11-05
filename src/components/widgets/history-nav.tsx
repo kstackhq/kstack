@@ -63,9 +63,7 @@ function useHistoryNav() {
   // Highest index still reachable forward; never below the current entry.
   // Lazily initialized once per mount.
   const ceilingRef = useRef<number | null>(null);
-  if (ceilingRef.current === null) {
-    ceilingRef.current = Math.max(readStoredCeiling(getCurrentKey(history)), getCurrentIndex(history));
-  }
+  ceilingRef.current ??= Math.max(readStoredCeiling(getCurrentKey(history)), getCurrentIndex(history));
 
   const subscribe = useCallback(
     (onChange: () => void) =>

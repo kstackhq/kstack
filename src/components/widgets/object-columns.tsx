@@ -40,6 +40,7 @@ export type ObjectColumn = {
 };
 
 // Defaults to {} so a missing body flows through the optional chains to "—".
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- `rawJSON` is untyped; the argument names the kind's shape
 function body<T>(o: ClusterCachedDataObject): T {
   return (o.rawJSON ?? {}) as T;
 }

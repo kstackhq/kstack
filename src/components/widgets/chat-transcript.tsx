@@ -224,7 +224,9 @@ function toolCallTag(call: ChatToolCall): string {
       return 'running…';
     case 'Interrupted':
       return 'cancelled — may have run';
-    default:
+    case 'Succeeded':
+    case 'AwaitingApproval':
+    case null:
       return '';
   }
 }
@@ -247,7 +249,7 @@ function backgroundTag(task: NonNullable<ChatToolCall['background']>): string {
       return 'expired';
     case 'Stopped':
       return 'stopped';
-    default:
+    case 'Lost':
       return 'lost';
   }
 }
@@ -422,10 +424,11 @@ function EditStrings({ edit }: { edit: EditAction }) {
 
 type EditShown = { old: boolean; new: boolean };
 
+const folds = (text: string) => cutText(text, COMMAND_CHARS, COMMAND_LINES).rest !== '';
+
 // Whether either of an edit's strings is still folded.
 function editFolded(edit: EditAction, shown: EditShown): boolean {
-  const folded = (text: string) => cutText(text, COMMAND_CHARS, COMMAND_LINES).rest !== '';
-  return (folded(edit.oldString) && !shown.old) || (folded(edit.newString) && !shown.new);
+  return (folds(edit.oldString) && !shown.old) || (folds(edit.newString) && !shown.new);
 }
 
 // An edit's two strings: the text that goes over the text that replaces it,
@@ -473,7 +476,7 @@ function EditBlocks({
           <p className="mt-1 text-xs text-muted-foreground">{edgesOf(edit.newString)}</p>
         </>
       )}
-      {edit.oldString.replace(/\s/g, '') === edit.newString.replace(/\s/g, '') && (
+      {edit.oldString.replaceAll(/\s/g, '') === edit.newString.replaceAll(/\s/g, '') && (
         <p className="mt-1 text-xs text-muted-foreground">The two differ only in whitespace.</p>
       )}
     </>
@@ -715,7 +718,8 @@ function clusterWriteTag(w: ChatClusterWrite): string {
       return 'allowed';
     case 'Refused':
       return 'refused';
-    default:
+    case 'Pending':
+    case 'Abandoned':
       return 'not answered';
   }
 }
@@ -1200,7 +1204,11 @@ function agentNoticeEnd(notice: TaskNotice): string {
       return 'Agent failed';
     case 'stopped':
       return notice.stoppedBy === 'unanswered' ? 'Agent stopped: no answer in 30 minutes' : 'Agent stopped';
-    default:
+    case 'lost':
+    // The rest are a command's and a watch's ends.
+    case 'exited':
+    case 'matched':
+    case 'expired':
       return 'Agent lost when Kstack stopped';
   }
 }
@@ -1216,7 +1224,10 @@ function watchNoticeEnd(notice: TaskNotice): string {
       return 'Log watch failed';
     case 'stopped':
       return 'Log watch stopped';
-    default:
+    case 'lost':
+    // The rest are a command's and an agent's ends.
+    case 'exited':
+    case 'completed':
       return 'Log watch lost when Kstack stopped';
   }
 }
@@ -1229,7 +1240,12 @@ function noticeEnd(notice: TaskNotice): string {
         : `Background command finished · exit ${notice.exitCode}`;
     case 'stopped':
       return 'Background command stopped';
-    default:
+    case 'lost':
+    // The rest are an agent's and a watch's ends.
+    case 'completed':
+    case 'failed':
+    case 'matched':
+    case 'expired':
       return 'Background command lost when Kstack stopped';
   }
 }
@@ -1386,7 +1402,7 @@ function Message({
 function questionBefore(messages: ChatMessage[], index: number): string | null {
   const question = messages
     .slice(0, index)
-    .reverse()
+    .toReversed()
     .find((m) => m.role === 'User');
   if (!question) return '';
   const text = textOf(question.content);

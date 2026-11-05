@@ -117,7 +117,7 @@ export async function readInline(client: Client, plan: InlinePlan): Promise<Inli
  */
 export function appendLine(lines: LogLine[], line: LogLine): LogLine[] {
   if (lines.some((held) => held.cursor === line.cursor)) return lines;
-  return [...lines, line].sort((a, b) => compareTimestamps(a.timestamp, b.timestamp)).slice(-INLINE_LINES);
+  return [...lines, line].toSorted((a, b) => compareTimestamps(a.timestamp, b.timestamp)).slice(-INLINE_LINES);
 }
 
 export type InlineState = {

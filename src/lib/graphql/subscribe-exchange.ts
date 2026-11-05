@@ -137,6 +137,7 @@ export const tauriSubscriptionExchange = subscriptionExchange({
             scheduleReconnect(message, cause, report);
           };
 
+          // oxlint-disable-next-line unicorn/prefer-add-event-listener -- Tauri's `Channel` is no `EventTarget`
           channel.onmessage = (raw) => {
             if (isStale()) return;
             let msg: SubMessage;

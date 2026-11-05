@@ -89,7 +89,7 @@ export function FolderGrantForm({ chatID, durations, submitLabel, initial, onGra
         />
         {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- Checkbox renders its control inside */}
         <label className="flex shrink-0 items-center gap-1.5 text-xs">
-          <Checkbox checked={write} onCheckedChange={(checked) => setWrite(checked === true)} />
+          <Checkbox checked={write} onCheckedChange={(checked) => setWrite(checked)} />
           read and write
         </label>
         {durations.length > 1 && (

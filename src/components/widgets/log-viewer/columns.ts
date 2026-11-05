@@ -112,10 +112,8 @@ export function dotColor(namespace: string, pod: string, container: string): str
   let hash = 0x811c9dc5;
   const text = `${namespace}/${pod}/${container}`;
   for (let i = 0; i < text.length; i += 1) {
-    // oxlint-disable-next-line no-bitwise -- the hash is bitwise by definition
     hash ^= text.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193);
   }
-  // oxlint-disable-next-line no-bitwise -- unsigned, so the index is never negative
   return DOT_PALETTE[(hash >>> 0) % DOT_PALETTE.length];
 }

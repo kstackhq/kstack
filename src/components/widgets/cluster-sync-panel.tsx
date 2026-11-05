@@ -425,7 +425,7 @@ function ToneText({ tone, children }: { tone: Tone; children: ReactNode }) {
 }
 
 function parseTimeOrNull(iso: string | null | undefined): number | null {
-  const ms = iso ? Date.parse(iso) : NaN;
+  const ms = iso ? Date.parse(iso) : Number.NaN;
   return Number.isNaN(ms) ? null : ms;
 }
 
@@ -726,6 +726,10 @@ export function countLabel(n: number, noun: string): string {
   return `${n.toLocaleString()} ${n === 1 ? noun : `${noun}s`}`;
 }
 
+// formatBytes renders 0 as an em dash, which reads as "unknown" here — a cache nothing holds
+// open has no WAL or shm file, and zero is the answer.
+const partBytes = (n: number) => (n > 0 ? formatBytes(n) : '0 B');
+
 // On-disk size, streamed for the same reason as the object counts: the cache
 // record stops changing once its sync settles. One subscription per row, and the
 // panel is a dialog — nothing mounts while closed.
@@ -736,10 +740,7 @@ export function countLabel(n: number, noun: string): string {
 // checkpointing is keeping up.
 function CacheSizeCell({ contents }: { contents: CacheContents | null }) {
   if (!contents?.exists) return <>—</>;
-  // formatBytes renders 0 as an em dash, which reads as "unknown" here — a cache nothing holds
-  // open has no WAL or shm file, and zero is the answer.
-  const part = (n: number) => (n > 0 ? formatBytes(n) : '0 B');
-  const breakdown = `SQLite ${part(contents.dbBytes)} · WAL ${part(contents.walBytes)} · shm ${part(contents.shmBytes)}`;
+  const breakdown = `SQLite ${partBytes(contents.dbBytes)} · WAL ${partBytes(contents.walBytes)} · shm ${partBytes(contents.shmBytes)}`;
   // A native title, as the attempt timestamps use: the dialog inerts everything outside its
   // subtree, so a body-portaled tooltip would not show.
   return <span title={breakdown}>{formatBytes(contents.bytes)}</span>;

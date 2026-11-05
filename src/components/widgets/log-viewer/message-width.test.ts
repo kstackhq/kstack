@@ -35,7 +35,6 @@ beforeEach(() => {
         this.callback();
       }
 
-      // oxlint-disable-next-line class-methods-use-this -- a fake has nothing to release
       disconnect() {}
     },
   );

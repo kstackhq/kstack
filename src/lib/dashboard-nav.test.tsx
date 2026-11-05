@@ -172,7 +172,7 @@ describe('useDashboardNav', () => {
     expect(
       workloadsExtra(result.current.nav)
         .map((c) => c.id)
-        .sort(),
+        .toSorted(),
     ).toEqual(['apps/controllerrevisions', 'apps/replicasets']);
 
     // A kind leaving the catalog is dropped.
@@ -253,7 +253,7 @@ describe('useDashboardNav', () => {
     expect(
       workloadsExtra(result.current.nav)
         .map((c) => c.id)
-        .sort(),
+        .toSorted(),
     ).toEqual(['apps/controllerrevisions', 'apps/replicasets']);
 
     // A late straggler from the superseded c1 subscription must NOT wipe c2's catalog:
@@ -263,7 +263,7 @@ describe('useDashboardNav', () => {
     expect(
       workloadsExtra(result.current.nav)
         .map((c) => c.id)
-        .sort(),
+        .toSorted(),
     ).toEqual(['apps/controllerrevisions', 'apps/replicasets']);
 
     // A subsequent legitimate c2 delta still patches the intact catalog (it isn't reset
@@ -283,7 +283,7 @@ describe('useDashboardNav', () => {
     expect(
       workloadsExtra(result.current.nav)
         .map((c) => c.id)
-        .sort(),
+        .toSorted(),
     ).toEqual(['apps/controllerrevisions', 'apps/replicasets']);
 
     // The transport reconnects: replicasets was deleted during the outage, so

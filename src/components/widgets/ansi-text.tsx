@@ -31,7 +31,10 @@ export type AnsiRun = { text: string; style?: CSSProperties };
 function styleOf(span: HTMLElement): CSSProperties | undefined {
   const entries = Array.from(span.style)
     .filter((prop) => prop !== 'visibility')
-    .map((prop) => [prop.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()), span.style.getPropertyValue(prop)]);
+    .map((prop): [string, string] => [
+      prop.replaceAll(/-([a-z])/g, (_, c: string) => c.toUpperCase()),
+      span.style.getPropertyValue(prop),
+    ]);
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 

@@ -2,7 +2,7 @@
 title: Lint the webview with oxlint, every rule an error
 date: 2026-11-05
 scope: frontend
-status: Accepted
+status: Superseded by [2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list](2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list.md)
 ---
 
 # Lint the webview with oxlint, every rule an error

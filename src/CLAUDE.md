@@ -216,11 +216,20 @@ Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo
 ## Lint / build
 
 - `pnpm lint` (oxlint, then `oxfmt --check`) → `make lint-js`. Run before committing. `pnpm format`
-  writes, sorting imports too. → [ADR: lint the webview with oxlint](../docs/adr/2026-11-05-lint-the-webview-with-oxlint-every-rule-an-error.md)
-- **Linting is oxlint** (`.oxlintrc.json`): oxlint's `correctness` category, airbnb's rules beyond
-  it by name, and type-aware rules through `oxlint-tsgolint`. A rule the category already enables,
-  or an option at oxlint's default, is not listed. **Every rule is an error and a warning fails the
-  run.** Kstack's own rules are `lint/oxlint-plugin.js`, tested in `lint/oxlint-plugin.test.ts`.
+  writes, sorting imports too. → [ADR: lint the webview with oxlint's categories](../docs/adr/2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list.md)
+- **Linting is oxlint** (`.oxlintrc.json`): the `correctness`, `suspicious` and `perf` categories,
+  rules from the other categories named one by one, and type-aware rules through `oxlint-tsgolint`.
+  A rule an enabled category already turns on is listed only to give it options or turn it off,
+  with the reason beside it. **Every rule is an error and a warning fails the run.** Kstack's own
+  rules are `lint/oxlint-plugin.js`, tested in `lint/oxlint-plugin.test.ts`.
+- **What the rules ask for**: no `any` and no value typed `any` outside tests; `toSorted` and
+  `toReversed`, never a `sort` or `reverse` in place on an array others hold; `??` for a nullish
+  default, `||` where an empty string or `false` should fall through; a default prop that is an
+  object, array or function is a module constant. `for…of` is allowed, `for…in` is not.
+- **A switch over a union lists every member** and needs no `default`; a `default` does not stand in
+  for a missing one. Any other switch has a `default`.
+- **`tsc` checks fallthrough, implicit returns and `import type`** (`noFallthroughCasesInSwitch`,
+  `noImplicitReturns`, `verbatimModuleSyntax`); the lint has no rule for them.
 - **A disable comment is `oxlint-disable…` and gives its reason**:
   `// oxlint-disable-next-line <rule> -- <why the rule is wrong here>`. `kstack/disable-needs-reason`
   fails one without, an unused one fails, and `eslint-disable` comments are not read.

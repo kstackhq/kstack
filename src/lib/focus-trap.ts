@@ -56,7 +56,7 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean) {
         return;
       }
       const first = items[0];
-      const last = items[items.length - 1];
+      const last = items.at(-1)!;
       const current = document.activeElement;
       // Focus outside (a click on the page behind, or the browser's own start of
       // the cycle) comes back to the panel rather than continuing through it.

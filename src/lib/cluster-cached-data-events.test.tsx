@@ -190,7 +190,7 @@ describe('useClusterCachedDataEvents', () => {
     pushFrame('Added', evt('a'));
     pushFrame('Added', evt('b'));
     rerender();
-    expect(uids(result.current.events).sort()).toEqual(['a', 'b']);
+    expect(uids(result.current.events).toSorted()).toEqual(['a', 'b']);
 
     // Reconnect: 'a' was deleted during the outage, so the replay carries only 'b'
     // (no Deleted frame ever arrives for 'a').

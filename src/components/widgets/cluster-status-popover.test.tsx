@@ -37,8 +37,7 @@ function withHealth(cluster: Cluster, over: Record<string, unknown>): Cluster {
 
 function retryCalls() {
   return invokeMock.mock.calls.filter(
-    ([cmd, arg]) =>
-      cmd === 'graphql_query' && String((arg as { body: string }).body).includes('clusterConnectionRetry'),
+    ([cmd, arg]) => cmd === 'graphql_query' && (arg as { body: string }).body.includes('clusterConnectionRetry'),
   );
 }
 
@@ -142,7 +141,7 @@ describe('ClusterStatusPopover', () => {
     const queries = invokeMock.mock.calls
       .filter(([cmd]) => cmd === 'graphql_subscribe')
       .map(([, arg]) => (arg as { query: string }).query);
-    expect(queries.some((q) => /eventsWatch/.test(q))).toBe(false);
+    expect(queries.some((q) => q.includes('eventsWatch'))).toBe(false);
   });
 
   it('marks a stale sync verdict as needing attention', async () => {
@@ -599,7 +598,7 @@ describe('ClusterStatusPopover', () => {
     const queries = invokeMock.mock.calls
       .filter(([cmd]) => cmd === 'graphql_subscribe')
       .map(([, arg]) => (arg as { query: string }).query);
-    expect(queries.some((q) => /clusterCacheStatsWatch/.test(q))).toBe(false);
+    expect(queries.some((q) => q.includes('clusterCacheStatsWatch'))).toBe(false);
   });
 
   it('gives a cache with no write yet no last event', async () => {
