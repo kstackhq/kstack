@@ -177,7 +177,7 @@ function Row({
         className={cn('mt-1 size-3 rounded-[3px] [&_svg]:size-2.5!', checkbox)}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="text-sm break-words whitespace-pre-wrap text-card-foreground">{memory.body}</p>
+        <p className="text-sm wrap-break-word whitespace-pre-wrap text-card-foreground">{memory.body}</p>
         <Provenance memory={memory} />
       </div>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -235,7 +235,7 @@ function BulkBar({
     <div className="-mx-2 flex items-center justify-between pr-5 pl-1">
       <div className="flex items-start gap-1">
         <SelectAllCheckbox selected={selected} total={total} onToggle={onToggleAll} />
-        <div className="flex flex-col text-xs leading-4">
+        <div className="flex flex-col text-xs/4 ">
           <span className="font-medium">{selected} selected</span>
           <span className="text-muted-foreground">{total} memories in total</span>
         </div>

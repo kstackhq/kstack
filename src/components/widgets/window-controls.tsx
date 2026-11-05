@@ -42,9 +42,9 @@ function close() {
 const BUTTON_CLASS = `flex h-full w-8 items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${APP_BAR_HOVER_CLASS}`;
 
 const CONTROLS = [
-  { label: 'Minimize', onClick: minimize, icon: <Minus className="h-4 w-4" aria-hidden /> },
-  { label: 'Maximize', onClick: toggleMaximize, icon: <Square className="h-3.5 w-3.5" aria-hidden /> },
-  { label: 'Close', onClick: close, icon: <X className="h-4 w-4" aria-hidden /> },
+  { label: 'Minimize', onClick: minimize, icon: <Minus className="size-4 " aria-hidden /> },
+  { label: 'Maximize', onClick: toggleMaximize, icon: <Square className="size-3.5 " aria-hidden /> },
+  { label: 'Close', onClick: close, icon: <X className="size-4 " aria-hidden /> },
 ] as const;
 
 export function WindowControls() {

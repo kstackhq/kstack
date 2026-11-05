@@ -35,10 +35,10 @@ export function LeftSidebarPill() {
       <div className="flex flex-col items-center gap-1 rounded-lg bg-card p-1 shadow-lg ring-1 ring-sidebar-border">
         <LeftSidebarToggle />
         <Link to="/chat" aria-label="Chat" className={ITEM}>
-          <MessageCircle className="h-4 w-4" aria-hidden />
+          <MessageCircle className="size-4 " aria-hidden />
         </Link>
         <Link to="/dashboard" aria-label="Dashboard" className={ITEM}>
-          <LayoutDashboard className="h-4 w-4" aria-hidden />
+          <LayoutDashboard className="size-4 " aria-hidden />
         </Link>
       </div>
     </div>

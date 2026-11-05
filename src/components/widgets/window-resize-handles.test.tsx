@@ -64,7 +64,7 @@ describe('WindowResizeHandles', () => {
   it('puts the corners after the edges, so they win the overlap', () => {
     const { container } = render(<WindowResizeHandles />);
     const corners = gripsOf(container).slice(4);
-    expect(corners.every((el) => el.className.includes('h-5 w-5'))).toBe(true);
+    expect(corners.every((el) => el.classList.contains('size-5'))).toBe(true);
   });
 
   it('starts a native resize in the grip’s own direction', () => {

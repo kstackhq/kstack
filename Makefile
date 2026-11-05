@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js cover-changed lint lint-go lint-rust lint-js lint-yaml lint-sh lint-md lint-markers vetvet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
+.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js cover-changed lint lint-go lint-rust lint-js lint-tailwind lint-yaml lint-sh lint-md lint-markers vetvet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -102,7 +102,7 @@ cover-changed:
 	bash scripts/cover-changed.sh
 
 # Run every linter in the repo.
-lint: lint-go lint-rust lint-js lint-yaml lint-sh lint-md lint-markers
+lint: lint-go lint-rust lint-js lint-tailwind lint-yaml lint-sh lint-md lint-markers
 
 # `gofmt -l` lists unformatted files; non-empty = lint failure.
 lint-go:
@@ -116,6 +116,10 @@ lint-rust:
 
 lint-js:
 	pnpm lint
+
+# The webview's Tailwind classes, apart from lint-js for its time (`.oxlintrc.tailwind.json`).
+lint-tailwind:
+	pnpm lint:tailwind
 
 # Every YAML file, then the workflows and composite actions: actionlint
 # type-checks them and shellchecks their `run:` blocks, zizmor audits them

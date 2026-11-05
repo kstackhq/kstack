@@ -208,7 +208,7 @@ function AbsoluteTimeForm({ onApply }: { onApply: (at: Date) => void }) {
           />
           <Clock
             aria-hidden
-            className={`absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 ${error ? 'text-destructive' : 'text-muted-foreground'}`}
+            className={`absolute top-1/2 left-2.5 size-4  -translate-y-1/2 ${error ? 'text-destructive' : 'text-muted-foreground'}`}
           />
         </div>
       </div>

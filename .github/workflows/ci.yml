@@ -334,6 +334,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Lint
         run: pnpm lint
+      - name: Lint Tailwind classes
+        run: pnpm lint:tailwind
       - name: Check coverage markers
         run: sh scripts/check-coverage-markers.sh
 

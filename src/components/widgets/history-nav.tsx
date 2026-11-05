@@ -99,11 +99,11 @@ export function HistoryNav() {
   return (
     <AppBarGroup>
       <AppBarButton aria-label="Go back" disabled={!canGoBack} onClick={goBack} className={buttonClass}>
-        <ChevronLeft className="h-4 w-4" aria-hidden />
+        <ChevronLeft className="size-4 " aria-hidden />
       </AppBarButton>
       <AppBarDivider />
       <AppBarButton aria-label="Go forward" disabled={!canGoForward} onClick={goForward} className={buttonClass}>
-        <ChevronRight className="h-4 w-4" aria-hidden />
+        <ChevronRight className="size-4 " aria-hidden />
       </AppBarButton>
     </AppBarGroup>
   );

@@ -65,7 +65,7 @@ export function AppMenu() {
         aria-label="Application menu"
         className="flex h-full items-center rounded px-2 outline-none hover:bg-app-bar-hover focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <Menu className="h-4 w-4" aria-hidden />
+        <Menu className="size-4 " aria-hidden />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" sideOffset={4} className="min-w-48">
         <DropdownMenuItem onClick={newWindow}>

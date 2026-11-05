@@ -29,7 +29,7 @@ export function LeftSidebarToggle() {
       onClick={toggleSidebar}
       className="shrink-0 text-muted-foreground"
     >
-      <PanelLeft className="h-4 w-4" aria-hidden />
+      <PanelLeft className="size-4 " aria-hidden />
     </Button>
   );
 }

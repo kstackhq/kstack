@@ -92,7 +92,7 @@ export function LogsViewCard({
           </p>
           {line !== '' && <ModelDescription line={line} />}
           {call.output !== '' && (
-            <p className="break-words opacity-70">
+            <p className="wrap-break-word opacity-70">
               <VisibleText text={call.output} />
             </p>
           )}

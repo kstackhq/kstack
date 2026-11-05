@@ -176,7 +176,7 @@ Live data: `ClusterCachedDataKindsProvider` (`src/lib/cluster-cached-data-kinds.
 - **Folders** (`useSandboxFolders(chatID?)` in `src/lib/sandbox-folders.tsx`; `grant` runs under `chatGrantsContext`). **`FolderGrantForm`** (`folder-grant-form.tsx`) is the one form a folder is granted from, here and in the transcript; it sends the path exactly as typed. Remove is disabled while `rulesHeld`. *Never readable* is read-only. → [path grants](../docs/security/2026-10-04-path-grants.md).
 - **Permissions** (`permission-settings.tsx`, `usePermissionSettings` in `src/lib/permission-settings.tsx`). It re-asks `permissionSettings` on every opening and on focus. **The hook alone spells the wire's dotted keys** (`permissions.defaultMode`, `.modes`, `.rules`); everything else uses `PermissionField`. While the file holds values Kstack cannot read, that field's edits are disabled and *Discard what Kstack cannot read* (`permissionDiscardRefused`) sits behind a confirm naming them. *Clear* acts on a context's own entry, never a pattern it matches. → [the permissions engine](../docs/security/2026-10-02-the-permissions-engine.md).
 
-**The window frame is per-platform** (macOS native / Windows frameless-opaque / Linux frameless-transparent). `WindowFrame` (`window-frame.tsx`, at `__root.tsx`) paints Linux's border and shadow. `WindowResizeHandles` is its **sibling**, never a child — the frame's `contain: paint` would clip it. `main.tsx` adds `<html class="frameless">` on Linux only. **Full-height screens use `min-h-[var(--app-min-h)]`, never `min-h-svh`.** Maximized Linux goes full-bleed (`useWindowMaximized`). → [ADR: per-platform window chrome](../docs/adr/2026-08-09-per-platform-window-chrome.md).
+**The window frame is per-platform** (macOS native / Windows frameless-opaque / Linux frameless-transparent). `WindowFrame` (`window-frame.tsx`, at `__root.tsx`) paints Linux's border and shadow. `WindowResizeHandles` is its **sibling**, never a child — the frame's `contain: paint` would clip it. `main.tsx` adds `<html class="frameless">` on Linux only. **Full-height screens use `min-h-(--app-min-h)`, never `min-h-svh`.** Maximized Linux goes full-bleed (`useWindowMaximized`). → [ADR: per-platform window chrome](../docs/adr/2026-08-09-per-platform-window-chrome.md).
 
 Off macOS there is no native menu bar: `AppMenu` (`app-menu.tsx`) owns `Ctrl/Cmd+N`/`Ctrl/Cmd+Q` and invokes `new_window`/`quit`; `WindowControls` (`window-controls.tsx`) draws the caption buttons.
 
@@ -223,6 +223,14 @@ Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo
   A rule an enabled category already turns on is listed only to give it options or turn it off,
   with the reason beside it. **Every rule is an error and a warning fails the run.** Kstack's own
   rules are `lint/oxlint-plugin.js`, tested in `lint/oxlint-plugin.test.ts`.
+- **Tailwind classes are `pnpm lint:tailwind`** (`.oxlintrc.tailwind.json`, `make lint-tailwind`),
+  a run apart from `pnpm lint` because loading Tailwind takes most of its ~6s. It checks `className`
+  and `cn(...)` against `src/index.css`'s design system: the canonical spelling (`wrap-break-word`,
+  not `break-words`; `size-4`, not `h-4 w-4`), no class Tailwind does not know, and no two classes
+  setting the same property. `pnpm lint:tailwind --fix` rewrites a spelling. A class string built
+  anywhere else is not checked. Order and wrapping are `oxfmt`'s. **Run it after changing classes.**
+  CI's `TypeScript · Lint` runs it.
+  → [ADR: lint Tailwind classes in a run of their own](../docs/adr/2026-11-05-lint-tailwind-classes-in-a-run-of-their-own.md)
 - **What the rules ask for**: no `any` and no value typed `any` outside tests; `toSorted` and
   `toReversed`, never a `sort` or `reverse` in place on an array others hold; `??` for a nullish
   default, `||` where an empty string or `false` should fall through; a default prop that is an

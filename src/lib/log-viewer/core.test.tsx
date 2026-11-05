@@ -234,7 +234,7 @@ function scripted() {
 
 function draw(rows: CoreRows) {
   return (
-    <div className="sizer" style={{ height: rows.totalSize, position: 'relative' }}>
+    <div style={{ height: rows.totalSize, position: 'relative' }}>
       {rows.loading && <span data-testid="loading" />}
       {rows.failed && <span data-testid="failed" />}
       {rows.rows.map((row) => (

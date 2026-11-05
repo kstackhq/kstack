@@ -51,7 +51,7 @@ export function ChatGrants({ chatID }: { chatID: string }) {
           <ul aria-label="Allowed for this chat" className="flex flex-col gap-1">
             {rules.map((rule) => (
               <li key={rule.id} className="flex items-start justify-between gap-2">
-                <span className="min-w-0 break-words">
+                <span className="min-w-0 wrap-break-word">
                   <VisibleText text={rule.line} />
                   {refused.get(rule.id) && <span className="block text-muted-foreground">{refused.get(rule.id)}</span>}
                 </span>

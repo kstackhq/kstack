@@ -453,7 +453,7 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport, onGrep
           edgeRowHeight={LOG_ROW_PX}
           estimateRowHeight={wrap ? wrapped : estimateRowHeight}
           measureElement={wrap ? measureHeight : undefined}
-          className="relative min-h-0 w-full flex-1 font-mono text-xs leading-6"
+          className="relative min-h-0 w-full flex-1 font-mono text-xs/6 "
         >
           {(rows) => (
             <Rows

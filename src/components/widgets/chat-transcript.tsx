@@ -691,7 +691,7 @@ function AllowAnswer({
       <Button type="button" size="xs" variant="outline" disabled={disabled} onClick={onClick}>
         {label}
       </Button>
-      <span className="text-xs break-words text-muted-foreground">
+      <span className="text-xs wrap-break-word text-muted-foreground">
         <VisibleText text={rule} />
       </span>
     </div>

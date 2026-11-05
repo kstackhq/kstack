@@ -55,8 +55,8 @@ function buildHandles(edge: { h: string; w: string }, corner: string) {
 
 // Linux: wide strips filling the transparent gutter. Windows (full-bleed): thin
 // edge-hugging strips so the resize cursor stays at the very edge.
-const LINUX_HANDLES = buildHandles({ h: 'h-4', w: 'w-4' }, 'h-5 w-5');
-const NARROW_HANDLES = buildHandles({ h: 'h-[5px]', w: 'w-[5px]' }, 'h-2.5 w-2.5');
+const LINUX_HANDLES = buildHandles({ h: 'h-4', w: 'w-4' }, 'size-5');
+const NARROW_HANDLES = buildHandles({ h: 'h-[5px]', w: 'w-[5px]' }, 'size-2.5');
 
 export function WindowResizeHandles() {
   const maximized = useWindowMaximized();

@@ -544,7 +544,7 @@ function EventRunList({
       <ul
         className={`grid max-h-40 ${
           showDuration ? 'grid-cols-[auto_auto_auto_1fr]' : 'grid-cols-[auto_auto_1fr]'
-        } divide-y overflow-x-auto overflow-y-auto rounded-md border text-xs`}
+        } divide-y overflow-auto  rounded-md border text-xs`}
       >
         {runs.map((a) => {
           const firstMs = parseTimeOrNull(a.firstAt);
