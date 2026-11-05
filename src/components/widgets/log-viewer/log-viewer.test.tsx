@@ -612,7 +612,9 @@ describe('LogViewer', () => {
       // The user scrolls away from where the view landed.
       const scroller = container.querySelector<HTMLElement>(SCROLLER)!;
       fireEvent.wheel(scroller);
-      scroller.scrollTop -= 5 * LOG_ROW_PX;
+      act(() => {
+        scroller.scrollTop -= 5 * LOG_ROW_PX;
+      });
       await frame();
       const { from } = viewport.get().range!;
       expect(from).not.toBe(line(30).timestamp);

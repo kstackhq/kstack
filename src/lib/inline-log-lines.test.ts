@@ -342,10 +342,11 @@ describe('useInlineLogLines', () => {
   });
 
   const settle = () => act(() => vi.advanceTimersByTimeAsync(0));
-  const write = (fake: FakeClient) => {
-    vi.advanceTimersByTime(1000);
-    fake.append(1);
-  };
+  const write = (fake: FakeClient) =>
+    act(() => {
+      vi.advanceTimersByTime(1000);
+      fake.append(1);
+    });
 
   it('follows while live, and freezes at until when a newer view arrives', async () => {
     const fake = log();
