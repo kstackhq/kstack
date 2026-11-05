@@ -156,6 +156,7 @@ jobs:
           use_oidc: true
           files: ${{ runner.temp }}/coverage-${{ matrix.os }}.out,${{ runner.temp }}/coverage-cli-${{ matrix.os }}.out
           disable_search: true
+          plugins: noop
           flags: go-${{ matrix.os }}
           fail_ci_if_error: true
       # After the upload, so a failed job leaves the last cache the newest.
@@ -192,6 +193,7 @@ jobs:
           use_oidc: true
           files: coverage/lcov.info
           disable_search: true
+          plugins: noop
           flags: typescript
           fail_ci_if_error: true
 
@@ -248,6 +250,7 @@ jobs:
           use_oidc: true
           files: ${{ runner.temp }}/rust-${{ matrix.os }}-filtered.lcov
           disable_search: true
+          plugins: noop
           flags: rust-${{ matrix.os }}
           fail_ci_if_error: true
 
