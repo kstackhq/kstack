@@ -17,12 +17,6 @@ overrides:
   shell-quote: ^1.11.0
   ws: ^8.21.3
   zod@4: ^4.6.6
-auditConfig:
-  ignoreGhsas:
-    # braces <= 3.0.3 (every release) has no patch. Dev-only, under GraphQL
-    # codegen, expanding our own globs. Remove once braces ships a fix.
-    # → docs/adr/2026-10-03-ignore-the-braces-advisory-until-it-has-a-patch.md
-    - GHSA-vfj7-8cjw-p6xm
 minimumReleaseAgeExclude:
   # Younger than the minimum release age. Drop once it ages past it.
   - fancy-ansi@0.2.2
