@@ -2,7 +2,8 @@
 # Runs staticcheck over the sidecar once per GOOS, and over the live checks'
 # build tags, then merges the runs. A single run reports code used only by
 # another platform as unused; -merge reports U1000 only when every run agrees.
-# The CLI splits only a test file by platform, so one run covers it.
+# The CLI splits only a test file by platform, so one run covers it; the tools
+# module needs one run too.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,4 +23,7 @@ done
 "$work/staticcheck" -merge "$work"/*.bin
 
 cd "$root/cli"
+"$work/staticcheck" ./...
+
+cd "$root/tools"
 "$work/staticcheck" ./...

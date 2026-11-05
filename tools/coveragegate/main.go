@@ -244,8 +244,8 @@ func wait(ctx context.Context, cfg config, cc *codecov, out io.Writer) (*result,
 			return nil, err
 		}
 		if rateLimited(err) {
-			return nil, fmt.Errorf("Codecov is rate-limited (%v). "+
-				"This is not a coverage failure: re-run the job once the limit resets", err)
+			return nil, fmt.Errorf("rate-limited by Codecov (%v); "+
+				"this is not a coverage failure: re-run the job once the limit resets", err)
 		}
 		// A request the deadline cut short says nothing about Codecov.
 		if ctx.Err() == nil {
@@ -256,8 +256,8 @@ func wait(ctx context.Context, cfg config, cc *codecov, out io.Writer) (*result,
 		}
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("Codecov did not finish processing %s within %s (%v). "+
-				"This is a Codecov delay, not a coverage failure: re-run the job", cfg.sha, cfg.timeout, pending)
+			return nil, fmt.Errorf("timed out: Codecov did not finish processing %s within %s (%v); "+
+				"this is a Codecov delay, not a coverage failure: re-run the job", cfg.sha, cfg.timeout, pending)
 		case <-time.After(cfg.interval):
 		}
 	}
