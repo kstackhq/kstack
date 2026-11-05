@@ -32,7 +32,7 @@ import { useLogsView } from '@/lib/logs-view';
 import { ClusterList } from './list';
 
 function Notice({ children }: { children: ReactNode }) {
-  return <p className="flex items-center gap-1.5 px-3 py-2 text-sm text-muted-foreground">{children}</p>;
+  return <div className="flex items-center gap-1.5 px-3 py-2 text-sm text-muted-foreground">{children}</div>;
 }
 
 export function ClusterPicker({
