@@ -16,7 +16,6 @@
 // checking any row swaps the heading for a bulk bar. Every delete confirms. A
 // memory may have been written by the model from cluster data, so every field is
 // drawn as text, never as markdown.
-import { Checkbox as CheckboxPrimitive } from '@base-ui/react/checkbox';
 import { Button } from '@kubetail/ui/elements/button';
 import { Checkbox } from '@kubetail/ui/elements/checkbox';
 import {
@@ -27,7 +26,7 @@ import {
 } from '@kubetail/ui/elements/dropdown-menu';
 import { Separator } from '@kubetail/ui/elements/separator';
 import { cn } from '@kubetail/ui/lib/utils';
-import { Check, Minus, MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
 import { Dialog } from '@/components/widgets/dialog';
@@ -87,7 +86,7 @@ function MemoryEditor({
   };
 
   return (
-    <fieldset disabled={saving} className="flex flex-col gap-1.5 pt-0.5 pb-1">
+    <fieldset disabled={saving} className="flex flex-col gap-1.5 pt-0.5 pr-1.5 pb-1 pl-1">
       <Textarea
         prose
         aria-label="Body"
@@ -162,22 +161,16 @@ function Row({
   return (
     <div
       className={cn(
-        // A row spans the list's inset (`-mx-1`), so its fill runs 8px into the
-        // panel's padding. Its left padding, the box and the gap put the text
-        // under the heading's `pl-3`; `pr-3.5` and the trigger's own padding
-        // end the icon as far from the right.
-        'group/row -mx-1 flex items-start gap-1 rounded-xl py-3 pr-3.5 pl-1 hover:bg-secondary focus-within:bg-secondary',
+        // Its left padding, the box and the gap put the text under the
+        // heading's `px-6`, 32px inside the panel's border.
+        'group/row flex items-start gap-1 rounded-xl py-3 pr-1.5 pl-1 hover:bg-secondary focus-within:bg-secondary',
         selected && 'bg-card hover:bg-card focus-within:bg-card',
         menuOpen && !selected && 'bg-secondary',
       )}
     >
-      <Checkbox
-        checked={selected}
-        onCheckedChange={onToggle}
-        className={cn('mt-1 size-3 rounded-[3px] [&_svg]:size-2.5!', checkbox)}
-      />
+      <Checkbox checked={selected} onCheckedChange={onToggle} className={cn('mt-0.5', checkbox)} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="text-sm wrap-break-word whitespace-pre-wrap text-card-foreground">{memory.body}</p>
+        <p className="text-sm wrap-break-word whitespace-pre-wrap text-secondary-foreground">{memory.body}</p>
         <Provenance memory={memory} />
       </div>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -198,24 +191,6 @@ function Row({
   );
 }
 
-// The library's `Checkbox` draws a check mark in every state, so the select-all
-// control, which must show a dash while partly selected, draws its own.
-function SelectAllCheckbox({ selected, total, onToggle }: { selected: number; total: number; onToggle: () => void }) {
-  const all = selected === total;
-  return (
-    <CheckboxPrimitive.Root
-      checked={all}
-      indeterminate={!all}
-      onCheckedChange={onToggle}
-      className="mt-0.5 flex size-3 shrink-0 items-center justify-center rounded-[3px] border border-input bg-background outline-none focus-visible:ring-3 focus-visible:ring-ring/50 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground data-indeterminate:border-primary data-indeterminate:bg-primary data-indeterminate:text-primary-foreground"
-    >
-      <CheckboxPrimitive.Indicator className="grid place-content-center [&>svg]:size-2.5">
-        {all ? <Check /> : <Minus />}
-      </CheckboxPrimitive.Indicator>
-    </CheckboxPrimitive.Root>
-  );
-}
-
 function BulkBar({
   selected,
   total,
@@ -230,12 +205,12 @@ function BulkBar({
   onDelete: () => void;
 }) {
   return (
-    // Spans the panel's padding as the rows do, so the select-all box sits over
-    // theirs and the buttons end where their actions icons do.
-    <div className="-mx-2 flex items-center justify-between pr-5 pl-1">
+    // The select-all box sits over the rows' boxes, and the buttons end where
+    // their actions icons do.
+    <div className="flex items-center justify-between pr-[18px] pl-1">
       <div className="flex items-start gap-1">
-        <SelectAllCheckbox selected={selected} total={total} onToggle={onToggleAll} />
-        <div className="flex flex-col text-xs/4 ">
+        <Checkbox checked={selected === total} onCheckedChange={onToggleAll} />
+        <div className="flex flex-col text-xs/4">
           <span className="font-medium">{selected} selected</span>
           <span className="text-muted-foreground">{total} memories in total</span>
         </div>
@@ -328,12 +303,10 @@ export function MemoryList({
         />
       ) : (
         // Over the rows' text, past their checkbox column.
-        <p className="pl-3 text-xs font-medium text-muted-foreground">SAVED MEMORIES</p>
+        <p className="px-6 text-xs font-medium text-muted-foreground">SAVED MEMORIES</p>
       )}
-      {/* The list runs 8px into the panel's padding, and the rows' fills with
-          it. The inset is the list's, not each row's, so an editor's focus
-          ring is not clipped by the scroller. */}
-      <div className={cn('-mx-2 flex min-h-0 flex-1 flex-col overflow-y-auto px-1', selecting && 'gap-0.5')}>
+      {/* The right padding keeps the rows' fills clear of the scrollbar. */}
+      <div className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto pr-3', selecting && 'gap-0.5')}>
         {adding && (
           <MemoryEditor
             taken={taken}
@@ -346,11 +319,15 @@ export function MemoryList({
           />
         )}
         {memories.length === 0 && !adding && (
-          <p className="py-2 pl-4 text-xs text-muted-foreground">No saved memories yet.</p>
+          <p className="py-2 pl-6 text-xs text-muted-foreground">No saved memories yet.</p>
         )}
         {memories.map((memory, i) => (
           <Fragment key={memory.id}>
-            {!selecting && i > 0 && <Separator className="mx-3 w-auto" />}
+            {!selecting && i > 0 && (
+              // A hairline in the hover fill's colour, short of the fill's
+              // rounded ends, so a hovered row's edge never shows a line.
+              <Separator className="mx-3 bg-secondary data-horizontal:h-[0.5px] data-horizontal:w-auto" />
+            )}
             {editingId === memory.id ? (
               <MemoryEditor
                 memory={memory}

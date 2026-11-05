@@ -12,195 +12,146 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The memory popover: a rail of clusters beside the selected one's instructions
-// and saved memories. A cluster row lists that cluster's own memories, General
-// the ones for every cluster, all read and written through the sidecar. The
-// instructions are local state; nothing stores them yet.
+// The memory popover: the window's cluster's instructions and saved memories,
+// read and written through the sidecar. The instructions are local state;
+// nothing stores them yet.
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { Button } from '@kubetail/ui/elements/button';
-import { PopoverClose } from '@kubetail/ui/elements/popover';
+import { Popover, PopoverClose, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import { Spinner } from '@kubetail/ui/elements/spinner';
-import { X } from 'lucide-react';
+import { ArrowRight, X } from 'lucide-react';
 import { useState } from 'react';
-import type { ReactElement, RefObject } from 'react';
+import type { ReactElement } from 'react';
 
-import { OmniboxPopover } from '@/components/widgets/omnibox-popover';
-import { PopupResizeHandles } from '@/components/widgets/popup-resize-handles';
+import { useActiveCluster } from '@/lib/active-cluster';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
-import { clusterForContext, useClusters } from '@/lib/clusters';
 import { useMemories } from '@/lib/memories';
 import type { Memory } from '@/lib/memories';
-import { usePersistedWidth } from '@/lib/persisted-width';
 
 import { MemoryInstructions } from './instructions';
 import { MemoryList } from './list';
-import { GENERAL, MemoryRail } from './rail';
-import type { Scope } from './rail';
 import { useMemoryWrites } from './writes';
 
-function Banner({ cluster, defaultCluster, onBack }: { cluster: string; defaultCluster: string; onBack: () => void }) {
-  return (
-    <div className="flex h-7 shrink-0 items-center gap-2 rounded-lg bg-accent px-3">
-      <p className="min-w-0 flex-1 truncate text-xs text-accent-foreground" title={`Viewing ${cluster}’s memory.`}>
-        Viewing {cluster}’s memory.
-      </p>
-      <Button variant="link" size="xs" className="h-auto px-0" onClick={onBack}>
-        Back to {defaultCluster}
-      </Button>
-    </div>
-  );
-}
-
-// One rail row's memories. `scopeID` is the cluster the row names, null for
-// General; `watchID` is the cluster whose watch carries them, since every
-// cluster's watch also carries the memories for every cluster.
+// The cluster's own memories. Its watch also carries the memories for every
+// cluster; the popover leaves those out.
 function MemoryDetail({
   scope,
-  scopeID,
-  watchID,
+  clusterID,
+  adding,
+  onAddDone,
 }: {
   scope: string;
-  scopeID: string | null | undefined;
-  watchID: string | undefined;
+  clusterID: string | undefined;
+  adding: boolean;
+  onAddDone: () => void;
 }) {
-  const { memories, phase } = useMemories(watchID);
+  const { memories, phase } = useMemories(clusterID);
   const { save, remove } = useMemoryWrites();
-  const [adding, setAdding] = useState(false);
 
-  if (!watchID || scopeID === undefined) {
-    return <p className="py-2 text-xs text-muted-foreground">Kstack has not reached this cluster yet.</p>;
+  if (!clusterID) {
+    return <p className="px-6 py-2 text-xs text-muted-foreground">Kstack has not reached this cluster yet.</p>;
   }
   if (phase === 'connecting') return <Spinner />;
 
-  const own = memories.filter((m) => m.clusterID === scopeID);
+  const own = memories.filter((m) => m.clusterID === clusterID);
   const onSave = (memory: Memory | undefined, name: string, body: string) =>
-    save({ id: memory?.id ?? null, clusterID: memory ? memory.clusterID : scopeID, name, body });
+    save({ id: memory?.id ?? null, clusterID, name, body });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-[18px]">
-      <MemoryList
-        scope={scope}
-        memories={own}
-        adding={adding}
-        onSave={onSave}
-        onAddDone={() => setAdding(false)}
-        onDelete={remove}
-      />
-      <Button variant="outline" className="w-full" disabled={adding} onClick={() => setAdding(true)}>
-        Add memory
-      </Button>
-    </div>
+    <MemoryList scope={scope} memories={own} adding={adding} onSave={onSave} onAddDone={onAddDone} onDelete={remove} />
   );
 }
 
 export function MemoryPopoverContent() {
-  // The window's cluster leads the rail, then the kubeconfig's other contexts.
-  // The selection tracks the window's cluster until a row is picked; General
-  // stands in while the window has none.
-  const { context, contexts } = useActiveKubeContext();
-  const { clusters: records } = useClusters();
-  const idOf = (name: string) => clusterForContext(records, name)?.id;
-  const clusters = contexts.map((c) => c.name).filter((name) => name !== context);
-  if (context) clusters.unshift(context);
-  const [picked, setPicked] = useState<Scope | null>(null);
-  const selected: Scope = picked ?? (context ? { kind: 'cluster', name: context } : GENERAL);
-  const general = selected.kind === 'general';
-  const name = general ? 'General' : selected.name;
-  // Keys the scope's draft and instructions apart from a context named General.
-  const key = general ? 'general' : `cluster:${selected.name}`;
-
-  const [instructions, setInstructions] = useState<Record<string, string>>({});
-
-  // General is a bucket of its own, not another cluster's memory.
-  const viewingOther = !general && context !== '' && selected.name !== context;
-  // General's memories ride any cluster's watch: the window's, else the first known.
-  const watchID = general ? (idOf(context) ?? records?.[0]?.id) : idOf(selected.name);
+  const { context } = useActiveKubeContext();
+  const { clusterID } = useActiveCluster();
+  const [instructions, setInstructions] = useState('');
+  const [adding, setAdding] = useState(false);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-[18px]">
-      <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-2">
-          <p className="flex-1 text-base font-medium">Memory</p>
+    <div className="flex h-full min-h-0 flex-col gap-[18px]">
+      <header className="flex shrink-0 items-start">
+        <div className="flex min-w-0 flex-1 flex-col gap-1 pt-3 pl-6">
+          <p className="text-base font-medium">{context ? `${context} memory` : 'Memory'}</p>
+          <p className="text-xs text-muted-foreground">
+            Notes the chats on {context || 'this cluster'} read. Kstack saves some as you talk; you can add, edit and
+            delete them.
+          </p>
+        </div>
+        {/* In the popup's corner, 2px inside its border. */}
+        <div className="shrink-0 p-0.5">
           <PopoverClose
-            render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" />}
+            render={<Button variant="ghost" size="icon-sm" className="size-8 text-foreground" />}
             aria-label="Close"
           >
             <X aria-hidden />
           </PopoverClose>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Notes the chats on this cluster read. Kstack saves some as you talk; you can add, edit and delete them.
-        </p>
-      </div>
-      <div className="flex min-h-0 flex-1 items-start">
-        <MemoryRail clusters={clusters} selected={selected} onSelect={setPicked} />
-        {/* Keyed on the selection so a draft in progress never carries over.
-            `min-w-70` keeps the instructions editor's buttons on one line; the
-            rail gives way to it. */}
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col px-[18px]">
         <div
-          key={key}
           data-testid="memory-detail"
-          className="flex h-full min-w-70 flex-1 flex-col gap-[18px] rounded-xl border bg-background p-3"
+          className="flex min-h-0 flex-1 flex-col gap-6 rounded-xl border bg-background px-2 py-3"
         >
-          {viewingOther && (
-            <Banner
-              cluster={name}
-              defaultCluster={context}
-              onBack={() => setPicked({ kind: 'cluster', name: context })}
-            />
+          {context ? (
+            <>
+              <MemoryInstructions text={instructions} onSave={setInstructions} />
+              <MemoryDetail scope={context} clusterID={clusterID} adding={adding} onAddDone={() => setAdding(false)} />
+            </>
+          ) : (
+            <p className="px-6 py-2 text-xs text-muted-foreground">Pick a cluster to see its memory.</p>
           )}
-          <div className="flex min-h-0 flex-1 flex-col gap-6">
-            <MemoryInstructions
-              text={instructions[key] ?? ''}
-              onSave={(text) => setInstructions((prev) => ({ ...prev, [key]: text }))}
-            />
-            <MemoryDetail scope={name} scopeID={general ? null : idOf(selected.name)} watchID={watchID} />
-          </div>
         </div>
       </div>
+      {/* Nothing manages every memory yet, so the link leads nowhere. */}
+      <footer className="flex shrink-0 items-center justify-between border-t bg-muted/50 px-[18px] py-2">
+        <Button variant="ghost" size="sm" className="text-xs text-foreground">
+          Manage all memories
+          <ArrowRight aria-hidden className="size-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs"
+          disabled={!clusterID || adding}
+          onClick={() => setAdding(true)}
+        >
+          Add memory
+        </Button>
+      </footer>
     </div>
   );
 }
 
-// A width of 0 is one the user never dragged: the popup takes the omnibox's,
-// but no less than `WIDTH.min`, which holds the rail's and the detail pane's
-// minimums. The window bounds what is drawn, never what is stored. The width's bound is
-// the viewport's, not `--available-width`: that moves with the popup's own
-// position, so a popup wider than the window would chase it every frame.
-const WIDTH = { min: 480, max: 1600, initial: 0 };
-const HEIGHT = { min: 320, max: 1200, initial: 490 };
-
-// `usePersistedWidth` is a clamped, remembered number; the height is one too.
-function MemoryPopup() {
-  const [width, setWidth] = usePersistedWidth('memory-popover-width', WIDTH);
-  const [height, setHeight] = usePersistedWidth('memory-popover-height', HEIGHT);
+// Hangs below the brain button, its right edge on the button's. z-50, as the
+// library's popover content has: above the sidebar drawer and its scrim. It
+// never flips above: its height is capped at the room below, which would
+// otherwise trip the flip.
+export function MemoryPopover({ children }: { children: ReactElement }) {
+  // Keyed on the window's cluster, so its instructions and any draft never
+  // carry over to another.
+  const { context } = useActiveKubeContext();
 
   return (
-    <PopoverPrimitive.Popup
-      data-testid="memory-popup"
-      className="relative max-w-[calc(100vw-16px)] rounded-xl border bg-popover text-popover-foreground shadow-lg outline-hidden"
-      style={{
-        width: width ? `${width}px` : `max(var(--anchor-width), ${WIDTH.min}px)`,
-        height: `min(${height}px, var(--available-height))`,
-      }}
-    >
-      <MemoryPopoverContent />
-      <PopupResizeHandles onWidth={setWidth} onHeight={setHeight} label="Resize memory" />
-    </PopoverPrimitive.Popup>
-  );
-}
-
-// Hung from the omnibox, not the brain button that opens it.
-export function MemoryPopover({
-  anchorRef,
-  children,
-}: {
-  anchorRef: RefObject<HTMLElement | null>;
-  children: ReactElement;
-}) {
-  return (
-    <OmniboxPopover anchorRef={anchorRef} popup={<MemoryPopup />}>
-      {children}
-    </OmniboxPopover>
+    <Popover>
+      <PopoverTrigger render={children} />
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Positioner
+          align="end"
+          side="bottom"
+          sideOffset={8}
+          collisionAvoidance={{ side: 'none' }}
+          className="z-50"
+        >
+          <PopoverPrimitive.Popup
+            data-testid="memory-popup"
+            className="w-155 max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg outline-hidden"
+            style={{ height: 'min(476px, var(--available-height))' }}
+          >
+            <MemoryPopoverContent key={context} />
+          </PopoverPrimitive.Popup>
+        </PopoverPrimitive.Positioner>
+      </PopoverPrimitive.Portal>
+    </Popover>
   );
 }

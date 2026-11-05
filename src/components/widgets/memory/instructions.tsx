@@ -86,7 +86,7 @@ export function MemoryInstructions({ text, onSave }: { text: string; onSave: (te
   return (
     // In line with the memory list's text, past its checkbox column, and as
     // far in on the right.
-    <div className="flex flex-col gap-1.5 px-3">
+    <div className="flex flex-col gap-1.5 px-6">
       <p className="text-xs font-medium text-muted-foreground">INSTRUCTIONS</p>
       {body}
     </div>

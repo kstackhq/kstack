@@ -406,7 +406,7 @@ describe('MemoryList', () => {
     const trigger = button('Actions for traefik-only');
     expect(trigger).not.toHaveClass('hidden');
     expect(trigger).toHaveClass('opacity-0', 'group-focus-within/row:opacity-100');
-    expect(screen.getByRole('checkbox')).toHaveClass('invisible', 'group-focus-within/row:visible');
+    expect(screen.getByRole('checkbox')).toHaveClass('invisible', 'group-hover/row:visible');
 
     trigger.focus();
     await user.keyboard('{Enter}');

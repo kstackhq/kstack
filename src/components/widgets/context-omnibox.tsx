@@ -140,14 +140,14 @@ function ClusterTrigger({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
 // once per save: a primary copy drawn over the base for one run of
 // `--animate-memory-save-pulse` (index.css). Saves that land during a pulse
 // join it rather than restarting it.
-function MemoryButton({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
+function MemoryButton() {
   const { clusterID } = useActiveCluster();
   const { lastSaved } = useMemories(clusterID);
   const [pulsed, setPulsed] = useState<Memory>();
   const pulsing = lastSaved !== undefined && lastSaved !== pulsed;
 
   return (
-    <MemoryPopover anchorRef={anchorRef}>
+    <MemoryPopover>
       <Button
         variant="ghost"
         size="icon-sm"
@@ -189,7 +189,7 @@ export function ContextOmnibox() {
       <StatusButton />
       <ClusterTrigger anchorRef={pillRef} />
       <div className="flex items-center pr-1">
-        <MemoryButton anchorRef={pillRef} />
+        <MemoryButton />
       </div>
     </div>
   );

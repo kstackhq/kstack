@@ -53,7 +53,7 @@ cluster no longer has.
 | Sidecar settings | `<data>/settings.json` | `lib/jsonsettings`, `services/settings` | preference | `schemaVersion` 1 | upgrade in `Open` (none written yet) | read; a write keeps its unknown keys and its version | `TestAWriteStampsTheVersion`, `TestAWriteKeepsTheKeysNoFieldNames` |
 | Host file | `<config>/host.json` | `src-tauri/src/host_file.rs` | preference | `schemaVersion` 1 | none | read; a write drops unknown fields and stamps 1 (accepted gap, ADR) | `update_stamps_current_version` |
 | Sign-in token | OS keyring, service `Kstack` | `services/auth` | disposable (sign in again) | none | — | unknown fields ignored | — |
-| Pane state | `localStorage` `kstack:sidebar-open`, `kstack:sidebar-width`, the right sidebar's per-mode open and width, `kstack:memory-popover-*`, `kstack:log-viewer-wrap` | `src/lib/persisted-flag.ts`, `persisted-width.ts` | disposable | none | a bad value reads as the default | — | `persisted-*.test.ts` |
+| Pane state | `localStorage` `kstack:sidebar-open`, `kstack:sidebar-width`, the right sidebar's per-mode open and width, `kstack:log-viewer-wrap` | `src/lib/persisted-flag.ts`, `persisted-width.ts` | disposable | none | a bad value reads as the default | — | `persisted-*.test.ts` |
 | Log-viewer columns | `localStorage` `kstack:log-viewer-columns` | `log-viewer/columns.ts` | disposable | none | unknown names dropped, bad JSON reads as the default | — | `columns.test.ts` |
 
 ## Not persisted formats

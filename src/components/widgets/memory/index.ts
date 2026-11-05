@@ -12,6 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The memory widgets. The popover is the surface the omnibox opens; the rail,
+// The memory widgets. The popover is the surface the omnibox opens; its
 // instructions, list and writes are its own.
 export { MemoryPopover } from './popover';
