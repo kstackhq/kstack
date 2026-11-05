@@ -28,7 +28,7 @@ file's `[line, coverage]` pairs, and `/commits/<sha>/` carries each commit's `to
 - The changed lines are the lines `git diff <base>...<head>` adds. A push run's base is the head's
   parent, as Codecov records it. The gate job checks out the whole history.
 - The head's line coverage comes from `/report/?sha=<head>`; the head's and the base's totals from
-  `/commits/<sha>/`. A base `/commits/` does not know is a `noBaseError`, as before.
+  `/commits/<sha>/`. A base `/commits/` does not know fails at once, as before.
 - An error keeps Codecov's `detail`. A 403 whose detail names a rate limit fails at once, asking
   for a re-run; other errors are retried.
 - Each poll prints its reason for waiting when the reason changes.

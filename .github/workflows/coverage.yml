@@ -287,14 +287,14 @@ jobs:
           RUST_RESULT: ${{ needs.rust.result }}
           # Codecov records a PR's uploads under its head, not the merge commit.
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          PR: ${{ github.event.pull_request.number || 0 }}
+          # Empty on a push, whose base is the commit's parent.
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           flags=""
           if [ "$GO_RESULT" = success ]; then flags="$flags,go-linux,go-darwin,go-windows"; fi
           if [ "$TYPESCRIPT_RESULT" = success ]; then flags="$flags,typescript"; fi
           if [ "$RUST_RESULT" = success ]; then flags="$flags,rust-linux,rust-macos,rust-windows"; fi
-          go run ./coveragegate -sha "$SHA" -pr "$PR" -base "$BASE" -flags "${flags#,}" \
+          go run ./coveragegate -sha "$SHA" -base "$BASE" -flags "${flags#,}" \
             -run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
   # As ci.yml's: leaves one copy of each cache on the ref. It runs after the

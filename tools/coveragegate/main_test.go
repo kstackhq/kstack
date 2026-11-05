@@ -97,7 +97,7 @@ func repo(t *testing.T, n int) string {
 	return dir
 }
 
-// gate runs the tool in dir against f with cfg's pr, base, flags and timeout.
+// gate runs the tool in dir against f with cfg's base, flags and timeout.
 func gate(t *testing.T, dir string, cfg config, f *fake) (out, summary string, err error) {
 	t.Helper()
 	srv := httptest.NewServer(f)
@@ -136,32 +136,28 @@ func processed(flag string) upload {
 	return upload{Flags: []string{flag}, State: "processed", BuildURL: runURL}
 }
 
-func ptr(n int) *int { return &n }
+// unmeasured stands in measuring's arguments for a line no report measured.
+const unmeasured = -1
 
 // measuring is the head's report for repo(t, len(coverage)): line i+1 has
-// coverage[i], and a nil entry is a line no report measured. The first
-// unchanged line is measured and missed, so it is not the patch's.
-func measuring(coverage ...*int) report {
-	var rep report
-	rep.Files = make([]struct {
-		Name         string   `json:"name"`
-		LineCoverage [][2]int `json:"line_coverage"`
-	}, 1)
-	rep.Files[0].Name = file
+// coverage[i]. The first unchanged line is measured and missed, so it is not
+// the patch's.
+func measuring(coverage ...int) report {
+	f := reportFile{Name: file}
 	for i, c := range coverage {
-		if c != nil {
-			rep.Files[0].LineCoverage = append(rep.Files[0].LineCoverage, [2]int{i + 1, *c})
+		if c != unmeasured {
+			f.LineCoverage = append(f.LineCoverage, [2]int{i + 1, c})
 		}
 	}
-	rep.Files[0].LineCoverage = append(rep.Files[0].LineCoverage, [2]int{len(coverage) + 1, miss})
-	return rep
+	f.LineCoverage = append(f.LineCoverage, [2]int{len(coverage) + 1, miss})
+	return report{Files: []reportFile{f}}
 }
 
-// goLinux gates pull request 7 into base after one upload.
-var goLinux = config{pr: 7, base: "base", flags: []string{"go-linux"}}
+// goLinux gates a pull request into base after one upload.
+var goLinux = config{base: "base", flags: []string{"go-linux"}}
 
 func TestPassesWhenEveryChangedLineIsCovered(t *testing.T) {
-	f := ready(measuring(ptr(hit), nil, ptr(hit)))
+	f := ready(measuring(hit, unmeasured, hit))
 	out, summary, err := gate(t, repo(t, 3), goLinux, f)
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
@@ -175,15 +171,10 @@ func TestPassesWhenEveryChangedLineIsCovered(t *testing.T) {
 	if !strings.Contains(summary, "**patch**: 2 of 2") {
 		t.Errorf("summary:\n%s", summary)
 	}
-	for _, uri := range f.seen {
-		if strings.HasPrefix(uri, "/compare/") {
-			t.Errorf("requested %s", uri)
-		}
-	}
 }
 
 func TestFailsOnAnUncoveredOrPartialChangedLine(t *testing.T) {
-	out, summary, err := gate(t, repo(t, 3), goLinux, ready(measuring(ptr(hit), ptr(miss), ptr(partial))))
+	out, summary, err := gate(t, repo(t, 3), goLinux, ready(measuring(hit, miss, partial)))
 	if !errors.Is(err, errFailed) {
 		t.Fatalf("err = %v, want errFailed\n%s", err, out)
 	}
@@ -207,7 +198,7 @@ func TestFailsOnAnUncoveredOrPartialChangedLine(t *testing.T) {
 
 func TestFailsWhenTheTotalDropsPastTheThreshold(t *testing.T) {
 	// 90.00% to 89.85%: 0.15 points.
-	f := ready(measuring(ptr(hit)))
+	f := ready(measuring(hit))
 	f.answers["/commits/base/"] = []any{commit{State: "complete", Totals: &totals{Lines: 2000, Hits: 1800}}}
 	f.answers["/commits/head/"] = []any{commit{State: "complete", Totals: &totals{Lines: 2000, Hits: 1797}}}
 	out, _, err := gate(t, repo(t, 1), goLinux, f)
@@ -221,7 +212,7 @@ func TestFailsWhenTheTotalDropsPastTheThreshold(t *testing.T) {
 
 func TestPassesADropWithinTheThreshold(t *testing.T) {
 	// 90.00% to 89.95%: 0.05 points.
-	f := ready(measuring(ptr(hit)))
+	f := ready(measuring(hit))
 	f.answers["/commits/base/"] = []any{commit{State: "complete", Totals: &totals{Lines: 2000, Hits: 1800}}}
 	f.answers["/commits/head/"] = []any{commit{State: "complete", Totals: &totals{Lines: 2000, Hits: 1799}}}
 	out, _, err := gate(t, repo(t, 1), goLinux, f)
@@ -234,7 +225,7 @@ func TestPassesADropWithinTheThreshold(t *testing.T) {
 }
 
 func TestDoesNotJudgeTheProjectWithoutBaseTotals(t *testing.T) {
-	f := ready(measuring(ptr(hit)))
+	f := ready(measuring(hit))
 	f.answers["/commits/base/"] = []any{commit{State: "complete"}}
 	out, summary, err := gate(t, repo(t, 1), goLinux, f)
 	if err != nil {
@@ -255,7 +246,7 @@ func TestWaitsForEveryUploadAndTheCommit(t *testing.T) {
 	pending := processed("typescript")
 	pending.State = "uploaded"
 	anotherRun := upload{Flags: []string{"rust-linux"}, State: "uploaded", BuildURL: "https://github.com/kstackhq/kstack/actions/runs/0"}
-	f := ready(measuring(ptr(hit)))
+	f := ready(measuring(hit))
 	f.answers["/commits/head/uploads/?page_size=100"] = []any{
 		uploads(),
 		uploads(processed("go-linux")),
@@ -264,7 +255,7 @@ func TestWaitsForEveryUploadAndTheCommit(t *testing.T) {
 		uploads(processed("go-linux"), processed("typescript"), anotherRun),
 	}
 	f.answers["/commits/head/"] = []any{commit{State: "pending"}, commit{State: "complete", Totals: even}}
-	out, _, err := gate(t, repo(t, 1), config{pr: 7, base: "base", flags: []string{"go-linux", "typescript"}}, f)
+	out, _, err := gate(t, repo(t, 1), config{base: "base", flags: []string{"go-linux", "typescript"}}, f)
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
@@ -296,7 +287,7 @@ func TestWaitsForEveryUploadAndTheCommit(t *testing.T) {
 }
 
 func TestComparesAPushWithItsParent(t *testing.T) {
-	f := ready(measuring(ptr(miss)))
+	f := ready(measuring(miss))
 	delete(f.answers, "/commits/base/")
 	out, _, err := gate(t, repo(t, 1), config{flags: []string{"go-linux"}}, f)
 	if !errors.Is(err, errFailed) {
@@ -308,7 +299,7 @@ func TestComparesAPushWithItsParent(t *testing.T) {
 }
 
 func TestWaitsForAPushsParent(t *testing.T) {
-	f := ready(measuring(ptr(hit)))
+	f := ready(measuring(hit))
 	f.answers["/commits/head/"] = []any{commit{State: "complete"}, commit{State: "complete", Parent: "parent", Totals: even}}
 	out, _, err := gate(t, repo(t, 1), config{flags: []string{"go-linux"}}, f)
 	if err != nil {
@@ -319,16 +310,8 @@ func TestWaitsForAPushsParent(t *testing.T) {
 	}
 }
 
-func TestNeedsABaseForAPullRequest(t *testing.T) {
-	f := &fake{}
-	_, _, err := gate(t, "", config{pr: 7, flags: []string{"go-linux"}}, f)
-	if err == nil || !strings.Contains(err.Error(), "-pr needs -base") || len(f.seen) != 0 {
-		t.Fatalf("err = %v, requests = %v", err, f.seen)
-	}
-}
-
 func TestFailsWhenGitCannotDiff(t *testing.T) {
-	f := ready(measuring(ptr(hit)))
+	f := ready(measuring(hit))
 	f.answers["/commits/missing/"] = []any{commit{State: "complete", Totals: even}}
 	cfg := goLinux
 	cfg.base = "missing"
@@ -357,7 +340,7 @@ func TestATimeoutIsNotACoverageFailure(t *testing.T) {
 }
 
 func TestFailsAtOnceWhenCodecovIsRateLimited(t *testing.T) {
-	f := ready(measuring(ptr(hit)))
+	f := ready(measuring(hit))
 	f.answers["/report/?sha=head"] = []any{status{http.StatusForbidden, map[string]string{"detail": "Github API rate limit error: Forbidden"}}}
 	_, _, err := gate(t, repo(t, 1), goLinux, f)
 	if err == nil || errors.Is(err, errFailed) {
@@ -374,8 +357,8 @@ func TestFailsAtOnceWhenCodecovIsRateLimited(t *testing.T) {
 }
 
 func TestRetriesAnotherForbidden(t *testing.T) {
-	f := ready(measuring(ptr(hit)))
-	f.answers["/report/?sha=head"] = []any{status{http.StatusForbidden, map[string]string{"detail": "Not yet"}}, measuring(ptr(hit))}
+	f := ready(measuring(hit))
+	f.answers["/report/?sha=head"] = []any{status{http.StatusForbidden, map[string]string{"detail": "Not yet"}}, measuring(hit)}
 	out, _, err := gate(t, repo(t, 1), goLinux, f)
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
@@ -387,7 +370,7 @@ func TestRetriesAnotherForbidden(t *testing.T) {
 
 func TestRetriesAFailedCommitRequest(t *testing.T) {
 	for _, uri := range []string{"/commits/head/", "/commits/base/"} {
-		f := ready(measuring(ptr(hit)))
+		f := ready(measuring(hit))
 		f.answers[uri] = append([]any{status{http.StatusBadGateway, nil}}, f.answers[uri]...)
 		out, _, err := gate(t, repo(t, 1), goLinux, f)
 		if err != nil {
@@ -412,13 +395,12 @@ func TestFailsOnAnUploadCodecovCouldNotProcess(t *testing.T) {
 }
 
 func TestFailsAtOnceWhenTheBaseHasNoReport(t *testing.T) {
-	f := ready(measuring(ptr(hit)))
+	f := ready(measuring(hit))
 	cfg := goLinux
 	cfg.base = "wiptip"
 	_, _, err := gate(t, "", cfg, f)
-	var noBase *noBaseError
-	if !errors.As(err, &noBase) || !strings.Contains(err.Error(), "no report for base commit wiptip") {
-		t.Fatalf("err = %v, want a noBaseError for wiptip", err)
+	if err == nil || !strings.Contains(err.Error(), "no report for base commit wiptip") {
+		t.Fatalf("err = %v, want no report for wiptip", err)
 	}
 	if strings.Contains(err.Error(), "Codecov delay") {
 		t.Errorf("blames a delay: %v", err)
@@ -429,12 +411,11 @@ func TestFailsAtOnceWhenTheBaseHasNoReport(t *testing.T) {
 }
 
 func TestFailsAtOnceWhenAPushsParentHasNoReport(t *testing.T) {
-	f := ready(measuring(ptr(hit)))
+	f := ready(measuring(hit))
 	delete(f.answers, "/commits/parent/")
 	_, _, err := gate(t, "", config{flags: []string{"go-linux"}}, f)
-	var noBase *noBaseError
-	if !errors.As(err, &noBase) || noBase.base != "parent" {
-		t.Fatalf("err = %v, want a noBaseError for parent", err)
+	if err == nil || !strings.Contains(err.Error(), "no report for base commit parent") {
+		t.Fatalf("err = %v, want no report for parent", err)
 	}
 }
 
