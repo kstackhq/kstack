@@ -55,7 +55,7 @@ import {
   textOf,
   waitingRequestsOf,
 } from '@/lib/chats';
-import type { ChatClusterWrite, ChatMessage, ChatToolCall, Source, TaskNotice } from '@/lib/chats';
+import type { ChatClusterWrite, ChatMessage, ChatToolCall, Source, TaskNotice, TaskNoticeOf } from '@/lib/chats';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useHeldStill } from '@/lib/held-still';
 import { modelOf, useModels } from '@/lib/models';
@@ -1192,11 +1192,11 @@ function ApprovalRequest({
 function noticeHead(notice: TaskNotice): string {
   if (notice.kind === 'agent') return agentNoticeEnd(notice);
   if (notice.kind === 'watch') return watchNoticeEnd(notice);
-  return noticeEnd(notice) + (notice.agentDescription !== '' ? ' · started by an agent' : '');
+  return commandNoticeEnd(notice) + (notice.agentDescription !== '' ? ' · started by an agent' : '');
 }
 
 // An agent's end. Its report is not drawn here: the user reads it in the Agent call.
-function agentNoticeEnd(notice: TaskNotice): string {
+function agentNoticeEnd(notice: TaskNoticeOf<'agent'>): string {
   switch (notice.status) {
     case 'completed':
       return 'Agent finished';
@@ -1205,16 +1205,12 @@ function agentNoticeEnd(notice: TaskNotice): string {
     case 'stopped':
       return notice.stoppedBy === 'unanswered' ? 'Agent stopped: no answer in 30 minutes' : 'Agent stopped';
     case 'lost':
-    // The rest are a command's and a watch's ends.
-    case 'exited':
-    case 'matched':
-    case 'expired':
       return 'Agent lost when Kstack stopped';
   }
 }
 
 // A watch's end. Its lines are not drawn here: the user reads them on its card.
-function watchNoticeEnd(notice: TaskNotice): string {
+function watchNoticeEnd(notice: TaskNoticeOf<'watch'>): string {
   switch (notice.status) {
     case 'matched':
       return 'Log watch matched';
@@ -1225,14 +1221,11 @@ function watchNoticeEnd(notice: TaskNotice): string {
     case 'stopped':
       return 'Log watch stopped';
     case 'lost':
-    // The rest are a command's and an agent's ends.
-    case 'exited':
-    case 'completed':
       return 'Log watch lost when Kstack stopped';
   }
 }
 
-function noticeEnd(notice: TaskNotice): string {
+function commandNoticeEnd(notice: TaskNoticeOf<'command'>): string {
   switch (notice.status) {
     case 'exited':
       return notice.exitCode === null
@@ -1241,11 +1234,6 @@ function noticeEnd(notice: TaskNotice): string {
     case 'stopped':
       return 'Background command stopped';
     case 'lost':
-    // The rest are an agent's and a watch's ends.
-    case 'completed':
-    case 'failed':
-    case 'matched':
-    case 'expired':
       return 'Background command lost when Kstack stopped';
   }
 }

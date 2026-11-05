@@ -465,6 +465,29 @@ describe('noticesOf', () => {
     expect(Object.keys(notices[0])).not.toContain('result');
   });
 
+  it('reads a status its kind never ends in as lost', () => {
+    const task = (kind: string | undefined, status: string) => ({
+      type: 'task_notification',
+      task: { kind, id: `${kind}-${status}`, status },
+    });
+    const notices = noticesOf([
+      task(undefined, 'completed'),
+      task('command', 'matched'),
+      task('agent', 'exited'),
+      task('agent', 'expired'),
+      task('watch', 'exited'),
+      task('watch', 'completed'),
+    ]);
+    expect(notices.map((n) => [n.kind, n.status])).toEqual([
+      ['command', 'lost'],
+      ['command', 'lost'],
+      ['agent', 'lost'],
+      ['agent', 'lost'],
+      ['watch', 'lost'],
+      ['watch', 'lost'],
+    ]);
+  });
+
   it('reads the agent whose call started the command', () => {
     expect(
       noticesOf([{ ...exited, task: { ...exited.task, agent_description: 'Build it' } }])[0].agentDescription,

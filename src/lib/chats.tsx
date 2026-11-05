@@ -574,20 +574,30 @@ export function waitingRequestsOf(calls: ChatToolCall[]): WaitingRequest[] {
     .toSorted((a, b) => (a.approval.id < b.approval.id ? -1 : 1));
 }
 
+// The statuses each kind of task ends in.
+const NOTICE_ENDS = {
+  command: ['exited', 'stopped', 'lost'],
+  agent: ['completed', 'failed', 'stopped', 'lost'],
+  watch: ['matched', 'expired', 'failed', 'stopped', 'lost'],
+} as const;
+
+const NOTICE_STATUSES = new Set<string>(Object.values(NOTICE_ENDS).flat());
+
 /**
  * How one background task ended, as a notice told the model: what the
  * transcript draws of the sidecar's `llm.TaskNotice`. A task is a background
- * command, an agent or a log watch; a notice naming no kind reads as a command's. `stoppedBy` is who stopped a stopped task,
- * '' otherwise. `description` and `command` are the model's text, one line
- * each, cut by the sidecar; `agentDescription` is the description of the Agent
- * call whose subagent started a command, '' for the answer's own. An agent's
- * report and error, and a watch's sample, are the model's copy, never read here:
- * the user reads the report in the Agent call and the lines on the watch's card.
+ * command, an agent or a log watch; a notice naming no kind reads as a
+ * command's. `stoppedBy` is who stopped a stopped task, '' otherwise.
+ * `description` and `command` are the model's text, one line each, cut by the
+ * sidecar; `agentDescription` is the description of the Agent call whose
+ * subagent started a command, '' for the answer's own. An agent's report and
+ * error, and a watch's sample, are the model's copy, never read here: the user
+ * reads the report in the Agent call and the lines on the watch's card.
  */
-export type TaskNotice = {
+export type TaskNoticeOf<K extends keyof typeof NOTICE_ENDS> = {
   id: string;
-  kind: 'command' | 'agent' | 'watch';
-  status: 'exited' | 'completed' | 'failed' | 'matched' | 'expired' | 'stopped' | 'lost';
+  kind: K;
+  status: (typeof NOTICE_ENDS)[K][number];
   stoppedBy: string;
   exitCode: number | null;
   description: string;
@@ -595,16 +605,14 @@ export type TaskNotice = {
   agentDescription: string;
 };
 
-const NOTICE_STATUSES = new Set(['exited', 'completed', 'failed', 'matched', 'expired', 'stopped', 'lost']);
-
-const NOTICE_KINDS = new Set(['agent', 'watch']);
+export type TaskNotice = TaskNoticeOf<'command'> | TaskNoticeOf<'agent'> | TaskNoticeOf<'watch'>;
 
 const stringOr = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 /**
  * The notices a message carries, in order: each background task whose end rode
  * it to the model. The one reader of a notice block; a block of any other shape
- * is dropped.
+ * is dropped. A status its kind never ends in reads as lost.
  */
 export function noticesOf(content: unknown): TaskNotice[] {
   if (!Array.isArray(content)) return [];
@@ -623,17 +631,19 @@ export function noticesOf(content: unknown): TaskNotice[] {
       agent_description: agentDescription,
     } = task as Record<string, unknown>;
     if (typeof id !== 'string' || typeof status !== 'string' || !NOTICE_STATUSES.has(status)) return [];
+    const ofKind = kind === 'agent' || kind === 'watch' ? kind : 'command';
+    const ends: readonly string[] = NOTICE_ENDS[ofKind];
     return [
       {
         id,
-        kind: typeof kind === 'string' && NOTICE_KINDS.has(kind) ? (kind as TaskNotice['kind']) : 'command',
-        status: status as TaskNotice['status'],
+        kind: ofKind,
+        status: ends.includes(status) ? status : 'lost',
         stoppedBy: stringOr(stoppedBy),
         exitCode: typeof code === 'number' ? code : null,
         description: stringOr(description),
         command: stringOr(command),
         agentDescription: stringOr(agentDescription),
-      },
+      } as TaskNotice,
     ];
   });
 }
