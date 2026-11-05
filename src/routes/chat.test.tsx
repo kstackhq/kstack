@@ -21,7 +21,8 @@ import { renderWithRouter } from '@/test-utils';
 // stack `__root` builds.
 vi.mock('@/routes/_app', async () => {
   const { createRootRoute, createRoute, Outlet } = await import('@tanstack/react-router');
-  const testRoot = createRootRoute();
+  const { NotFound } = await import('@/routes/__root');
+  const testRoot = createRootRoute({ notFoundComponent: NotFound });
   return {
     testRoot,
     Route: createRoute({ getParentRoute: () => testRoot, id: 'app', component: () => <Outlet /> }),
