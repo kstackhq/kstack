@@ -5,6 +5,7 @@ scope: repo
 status: Accepted
 amended_by:
   - [A wip branch's tip gets a coverage report](2026-11-04-a-wip-branchs-tip-gets-a-coverage-report.md)
+  - [The coverage gate diffs the commits itself](2026-11-05-the-coverage-gate-diffs-the-commits-itself.md)
 ---
 
 # The coverage gate runs in CI, on Codecov's merged result

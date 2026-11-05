@@ -240,3 +240,4 @@ usually just documentation in the wrong place.
 | 2026-11-04 | [A log window belongs to one app window, and the host keeps the pair](2026-11-04-a-log-window-belongs-to-one-app-window-and-the-host-keeps-the-pair.md) | cross-cutting | Accepted |
 | 2026-11-05 | [Lint the webview with oxlint, every rule an error](2026-11-05-lint-the-webview-with-oxlint-every-rule-an-error.md) | frontend | Superseded by [2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list](2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list.md) |
 | 2026-11-05 | [Lint the webview with oxlint's categories and a chosen rule list](2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list.md) | frontend | Accepted |
+| 2026-11-05 | [The coverage gate diffs the commits itself, and reads only Codecov's stored reports](2026-11-05-the-coverage-gate-diffs-the-commits-itself.md) | repo | Accepted |

@@ -253,8 +253,9 @@ jobs:
 
   # Reads Codecov's merged result once every upload above is processed, and
   # fails on an uncovered changed line or a drop in the total
-  # (tools/coveragegate). Codecov's public API needs no token, so a fork's PR
-  # runs it too. A language whose job failed is not waited for.
+  # (tools/coveragegate). It diffs the base and the head itself, so it needs
+  # their history. Codecov's public API needs no token, so a fork's PR runs it
+  # too. A language whose job failed is not waited for.
   gate:
     name: Coverage · Gate
     needs:
@@ -270,10 +271,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
-          sparse-checkout: |
-            .github
-            tools
       - uses: ./.github/actions/setup-environment
         with:
           setup-go: "true"

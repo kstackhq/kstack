@@ -22,6 +22,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/kstackhq/kstack/tools/internal/unidiff"
 )
 
 func main() {
@@ -144,4 +146,14 @@ func run(cfg config, out io.Writer) error {
 		return errUncovered
 	}
 	return nil
+}
+
+// readDiff returns the lines each file of the unified diff at path adds.
+func readDiff(path string) (map[string][]int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return unidiff.Added(f)
 }

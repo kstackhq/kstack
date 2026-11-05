@@ -7,6 +7,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -19,11 +22,16 @@ const (
 )
 
 // A fake Codecov. Each request URI answers from its queue and the last answer
-// repeats; a URI with no queue is a 404.
+// repeats; a URI with no queue is a 404. A status answer sets the code.
 type fake struct {
 	mu      sync.Mutex
 	answers map[string][]any
 	seen    []string
+}
+
+type status struct {
+	code int
+	body any
 }
 
 func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -39,16 +47,64 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(queue) > 1 {
 		f.answers[uri] = queue[1:]
 	}
-	json.NewEncoder(w).Encode(queue[0])
+	answer := queue[0]
+	if s, ok := answer.(status); ok {
+		w.WriteHeader(s.code)
+		answer = s.body
+	}
+	json.NewEncoder(w).Encode(answer)
 }
 
-// gate runs the tool against f with cfg's pr, flags and timeout.
-func gate(t *testing.T, cfg config, f *fake) (out, summary string, err error) {
+// git runs git in dir, isolated from the machine's configuration.
+func git(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, b)
+	}
+}
+
+const file = "src/a,b.ts"
+
+// repo is a git repository whose branches base and parent hold file with two
+// lines, and whose branch head adds n lines above them.
+func repo(t *testing.T, n int) string {
+	t.Helper()
+	dir := t.TempDir()
+	write := func(body string) {
+		t.Helper()
+		path := filepath.Join(dir, file)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, dir, "init", "-q", "-b", "base")
+	write("kept1\nkept2\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-q", "-m", "base")
+	git(t, dir, "branch", "parent")
+	git(t, dir, "checkout", "-q", "-b", "head")
+	write(strings.Repeat("added\n", n) + "kept1\nkept2\n")
+	git(t, dir, "commit", "-q", "-am", "head")
+	return dir
+}
+
+// gate runs the tool in dir against f with cfg's pr, base, flags and timeout.
+func gate(t *testing.T, dir string, cfg config, f *fake) (out, summary string, err error) {
 	t.Helper()
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	cfg.sha = sha
 	cfg.run = runURL
+	cfg.dir = dir
 	cfg.threshold = 0.1
 	cfg.interval = time.Millisecond
 	if cfg.timeout == 0 {
@@ -60,12 +116,17 @@ func gate(t *testing.T, cfg config, f *fake) (out, summary string, err error) {
 	return o.String(), s.String(), err
 }
 
-// ready is a Codecov that has processed go-linux and has cmp for the pull request.
-func ready(cmp comparison) *fake {
+var even = &totals{Lines: 1000, Hits: 900}
+
+// ready is a Codecov that has processed go-linux, with even totals at the
+// head and at base and parent, and rep as the head's report.
+func ready(rep report) *fake {
 	return &fake{answers: map[string][]any{
 		"/commits/head/uploads/?page_size=100": {uploads(processed("go-linux"))},
-		"/commits/head/":                       {commit{State: "complete", Parent: "parent"}},
-		"/compare/?pullid=7":                   {cmp},
+		"/commits/head/":                       {commit{State: "complete", Parent: "parent", Totals: even}},
+		"/commits/base/":                       {commit{State: "complete", Totals: even}},
+		"/commits/parent/":                     {commit{State: "complete", Totals: even}},
+		"/report/?sha=head":                    {rep},
 	}}
 }
 
@@ -77,35 +138,31 @@ func processed(flag string) upload {
 
 func ptr(n int) *int { return &n }
 
-func measured(n int, coverage *int, added bool) line {
-	var l line
-	l.Number.Head, l.Coverage.Head, l.Added = ptr(n), coverage, added
-	return l
-}
-
-var even = &totals{Lines: 1000, Hits: 900}
-
-// compared is a comparison of sha whose one file adds a line per entry of
-// coverage, numbered from 1; a nil entry is a line no report measured. Its
-// line 100 is unchanged, measured and missed, so it is not the patch's.
-func compared(coverage ...*int) comparison {
-	cmp := comparison{HeadCommit: sha, BaseCommit: "base"}
-	cmp.Totals.Base, cmp.Totals.Head = even, even
-	var f file
-	f.Name.Head = "src/a,b.ts"
-	f.Lines = append(f.Lines, measured(100, ptr(miss), false))
+// measuring is the head's report for repo(t, len(coverage)): line i+1 has
+// coverage[i], and a nil entry is a line no report measured. The first
+// unchanged line is measured and missed, so it is not the patch's.
+func measuring(coverage ...*int) report {
+	var rep report
+	rep.Files = make([]struct {
+		Name         string   `json:"name"`
+		LineCoverage [][2]int `json:"line_coverage"`
+	}, 1)
+	rep.Files[0].Name = file
 	for i, c := range coverage {
-		f.Lines = append(f.Lines, measured(i+1, c, true))
+		if c != nil {
+			rep.Files[0].LineCoverage = append(rep.Files[0].LineCoverage, [2]int{i + 1, *c})
+		}
 	}
-	cmp.Files = []file{f}
-	return cmp
+	rep.Files[0].LineCoverage = append(rep.Files[0].LineCoverage, [2]int{len(coverage) + 1, miss})
+	return rep
 }
 
-// goLinux gates pull request 7 after one upload.
-var goLinux = config{pr: 7, flags: []string{"go-linux"}}
+// goLinux gates pull request 7 into base after one upload.
+var goLinux = config{pr: 7, base: "base", flags: []string{"go-linux"}}
 
 func TestPassesWhenEveryChangedLineIsCovered(t *testing.T) {
-	out, summary, err := gate(t, goLinux, ready(compared(ptr(hit), nil, ptr(hit))))
+	f := ready(measuring(ptr(hit), nil, ptr(hit)))
+	out, summary, err := gate(t, repo(t, 3), goLinux, f)
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
@@ -118,12 +175,17 @@ func TestPassesWhenEveryChangedLineIsCovered(t *testing.T) {
 	if !strings.Contains(summary, "**patch**: 2 of 2") {
 		t.Errorf("summary:\n%s", summary)
 	}
+	for _, uri := range f.seen {
+		if strings.HasPrefix(uri, "/compare/") {
+			t.Errorf("requested %s", uri)
+		}
+	}
 }
 
 func TestFailsOnAnUncoveredOrPartialChangedLine(t *testing.T) {
-	out, summary, err := gate(t, goLinux, ready(compared(ptr(hit), ptr(miss), ptr(partial))))
+	out, summary, err := gate(t, repo(t, 3), goLinux, ready(measuring(ptr(hit), ptr(miss), ptr(partial))))
 	if !errors.Is(err, errFailed) {
-		t.Fatalf("err = %v, want errFailed", err)
+		t.Fatalf("err = %v, want errFailed\n%s", err, out)
 	}
 	for _, want := range []string{
 		"patch: 1 of 3 changed lines covered",
@@ -135,7 +197,7 @@ func TestFailsOnAnUncoveredOrPartialChangedLine(t *testing.T) {
 			t.Errorf("out lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "line=100") {
+	if strings.Contains(out, "line=4") {
 		t.Errorf("annotated an unchanged line:\n%s", out)
 	}
 	if !strings.Contains(summary, "- `src/a,b.ts:3` partially covered") {
@@ -145,9 +207,10 @@ func TestFailsOnAnUncoveredOrPartialChangedLine(t *testing.T) {
 
 func TestFailsWhenTheTotalDropsPastTheThreshold(t *testing.T) {
 	// 90.00% to 89.85%: 0.15 points.
-	cmp := compared(ptr(hit))
-	cmp.Totals.Base, cmp.Totals.Head = &totals{Lines: 2000, Hits: 1800}, &totals{Lines: 2000, Hits: 1797}
-	out, _, err := gate(t, goLinux, ready(cmp))
+	f := ready(measuring(ptr(hit)))
+	f.answers["/commits/base/"] = []any{commit{State: "complete", Totals: &totals{Lines: 2000, Hits: 1800}}}
+	f.answers["/commits/head/"] = []any{commit{State: "complete", Totals: &totals{Lines: 2000, Hits: 1797}}}
+	out, _, err := gate(t, repo(t, 1), goLinux, f)
 	if !errors.Is(err, errFailed) {
 		t.Fatalf("err = %v, want errFailed\n%s", err, out)
 	}
@@ -158,9 +221,10 @@ func TestFailsWhenTheTotalDropsPastTheThreshold(t *testing.T) {
 
 func TestPassesADropWithinTheThreshold(t *testing.T) {
 	// 90.00% to 89.95%: 0.05 points.
-	cmp := compared(ptr(hit))
-	cmp.Totals.Base, cmp.Totals.Head = &totals{Lines: 2000, Hits: 1800}, &totals{Lines: 2000, Hits: 1799}
-	out, _, err := gate(t, goLinux, ready(cmp))
+	f := ready(measuring(ptr(hit)))
+	f.answers["/commits/base/"] = []any{commit{State: "complete", Totals: &totals{Lines: 2000, Hits: 1800}}}
+	f.answers["/commits/head/"] = []any{commit{State: "complete", Totals: &totals{Lines: 2000, Hits: 1799}}}
+	out, _, err := gate(t, repo(t, 1), goLinux, f)
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
@@ -169,10 +233,10 @@ func TestPassesADropWithinTheThreshold(t *testing.T) {
 	}
 }
 
-func TestDoesNotJudgeTheProjectWithoutABase(t *testing.T) {
-	cmp := compared(ptr(hit))
-	cmp.Totals.Base = nil
-	out, summary, err := gate(t, goLinux, ready(cmp))
+func TestDoesNotJudgeTheProjectWithoutBaseTotals(t *testing.T) {
+	f := ready(measuring(ptr(hit)))
+	f.answers["/commits/base/"] = []any{commit{State: "complete"}}
+	out, summary, err := gate(t, repo(t, 1), goLinux, f)
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
@@ -181,24 +245,26 @@ func TestDoesNotJudgeTheProjectWithoutABase(t *testing.T) {
 	}
 }
 
-func TestWaitsForEveryUploadTheCommitAndTheComparison(t *testing.T) {
+func TestPercentOfAnEmptyReportIsZero(t *testing.T) {
+	if got := percent(&totals{}); got != 0 {
+		t.Errorf("percent = %v", got)
+	}
+}
+
+func TestWaitsForEveryUploadAndTheCommit(t *testing.T) {
 	pending := processed("typescript")
 	pending.State = "uploaded"
 	anotherRun := upload{Flags: []string{"rust-linux"}, State: "uploaded", BuildURL: "https://github.com/kstackhq/kstack/actions/runs/0"}
-	stale := compared(ptr(miss))
-	stale.HeadCommit = "older"
-	f := &fake{answers: map[string][]any{
-		"/commits/head/uploads/?page_size=100": {
-			uploads(),
-			uploads(processed("go-linux")),
-			uploads(processed("go-linux"), pending),
-			// Another run's pending upload is not waited for.
-			uploads(processed("go-linux"), processed("typescript"), anotherRun),
-		},
-		"/commits/head/":     {commit{State: "pending"}, commit{State: "complete"}},
-		"/compare/?pullid=7": {stale, compared(ptr(hit))},
-	}}
-	out, _, err := gate(t, config{pr: 7, flags: []string{"go-linux", "typescript"}}, f)
+	f := ready(measuring(ptr(hit)))
+	f.answers["/commits/head/uploads/?page_size=100"] = []any{
+		uploads(),
+		uploads(processed("go-linux")),
+		uploads(processed("go-linux"), pending),
+		// Another run's pending upload is not waited for.
+		uploads(processed("go-linux"), processed("typescript"), anotherRun),
+	}
+	f.answers["/commits/head/"] = []any{commit{State: "pending"}, commit{State: "complete", Totals: even}}
+	out, _, err := gate(t, repo(t, 1), config{pr: 7, base: "base", flags: []string{"go-linux", "typescript"}}, f)
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
@@ -210,36 +276,125 @@ func TestWaitsForEveryUploadTheCommitAndTheComparison(t *testing.T) {
 		"/commits/head/",
 		"/commits/head/uploads/?page_size=100",
 		"/commits/head/",
-		"/compare/?pullid=7",
-		"/commits/head/uploads/?page_size=100",
-		"/commits/head/",
-		"/compare/?pullid=7",
+		"/commits/base/",
+		"/report/?sha=head",
 	}
 	if got := strings.Join(f.seen, "\n"); got != strings.Join(want, "\n") {
 		t.Errorf("requests:\n%s\nwant:\n%s", got, strings.Join(want, "\n"))
 	}
+	// Each reason it waited is printed once, as it changes.
+	for _, line := range []string{
+		"waiting: upload go-linux is not listed",
+		"waiting: upload typescript is not listed",
+		"waiting: upload typescript is uploaded",
+		"waiting: commit is pending",
+	} {
+		if strings.Count(out, line+"\n") != 1 {
+			t.Errorf("out has %q %d times:\n%s", line, strings.Count(out, line+"\n"), out)
+		}
+	}
 }
 
 func TestComparesAPushWithItsParent(t *testing.T) {
-	f := ready(compared(ptr(hit)))
-	f.answers["/compare/?base=parent&head=head"] = f.answers["/compare/?pullid=7"]
-	delete(f.answers, "/compare/?pullid=7")
-	out, _, err := gate(t, config{flags: []string{"go-linux"}}, f)
+	f := ready(measuring(ptr(miss)))
+	delete(f.answers, "/commits/base/")
+	out, _, err := gate(t, repo(t, 1), config{flags: []string{"go-linux"}}, f)
+	if !errors.Is(err, errFailed) {
+		t.Fatalf("err = %v, want errFailed\n%s\n%v", err, out, f.seen)
+	}
+	if !strings.Contains(out, "src/a,b.ts:1 not covered") || !strings.Contains(out, "at base parent: ok") {
+		t.Errorf("out:\n%s", out)
+	}
+}
+
+func TestWaitsForAPushsParent(t *testing.T) {
+	f := ready(measuring(ptr(hit)))
+	f.answers["/commits/head/"] = []any{commit{State: "complete"}, commit{State: "complete", Parent: "parent", Totals: even}}
+	out, _, err := gate(t, repo(t, 1), config{flags: []string{"go-linux"}}, f)
 	if err != nil {
-		t.Fatalf("err = %v\n%s\n%v", err, out, f.seen)
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "waiting: Codecov has no parent for head") {
+		t.Errorf("out:\n%s", out)
+	}
+}
+
+func TestNeedsABaseForAPullRequest(t *testing.T) {
+	f := &fake{}
+	_, _, err := gate(t, "", config{pr: 7, flags: []string{"go-linux"}}, f)
+	if err == nil || !strings.Contains(err.Error(), "-pr needs -base") || len(f.seen) != 0 {
+		t.Fatalf("err = %v, requests = %v", err, f.seen)
+	}
+}
+
+func TestFailsWhenGitCannotDiff(t *testing.T) {
+	f := ready(measuring(ptr(hit)))
+	f.answers["/commits/missing/"] = []any{commit{State: "complete", Totals: even}}
+	cfg := goLinux
+	cfg.base = "missing"
+	_, _, err := gate(t, repo(t, 1), cfg, f)
+	if err == nil || errors.Is(err, errFailed) || !strings.Contains(err.Error(), "git diff missing...head") {
+		t.Fatalf("err = %v, want git's error", err)
 	}
 }
 
 func TestATimeoutIsNotACoverageFailure(t *testing.T) {
 	cfg := goLinux
 	cfg.timeout = 20 * time.Millisecond
-	_, _, err := gate(t, cfg, &fake{})
+	out, _, err := gate(t, "", cfg, &fake{})
 	if err == nil || errors.Is(err, errFailed) {
 		t.Fatalf("err = %v, want a timeout", err)
 	}
 	for _, want := range []string{"did not finish processing head within 20ms", "not a coverage failure"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err lacks %q: %v", want, err)
+		}
+	}
+	// What it waited on is in the log before the timeout's error.
+	if !strings.Contains(out, "waiting: GET /commits/head/uploads/?page_size=100: 404 Not Found\n") {
+		t.Errorf("out:\n%s", out)
+	}
+}
+
+func TestFailsAtOnceWhenCodecovIsRateLimited(t *testing.T) {
+	f := ready(measuring(ptr(hit)))
+	f.answers["/report/?sha=head"] = []any{status{http.StatusForbidden, map[string]string{"detail": "Github API rate limit error: Forbidden"}}}
+	_, _, err := gate(t, repo(t, 1), goLinux, f)
+	if err == nil || errors.Is(err, errFailed) {
+		t.Fatalf("err = %v, want a rate limit", err)
+	}
+	for _, want := range []string{"rate-limited", "Github API rate limit error: Forbidden", "re-run the job"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err lacks %q: %v", want, err)
+		}
+	}
+	if n := strings.Count(strings.Join(f.seen, "\n"), "/report/"); n != 1 {
+		t.Errorf("requested the report %d times, want 1", n)
+	}
+}
+
+func TestRetriesAnotherForbidden(t *testing.T) {
+	f := ready(measuring(ptr(hit)))
+	f.answers["/report/?sha=head"] = []any{status{http.StatusForbidden, map[string]string{"detail": "Not yet"}}, measuring(ptr(hit))}
+	out, _, err := gate(t, repo(t, 1), goLinux, f)
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "waiting: GET /report/?sha=head: 403 Forbidden: Not yet\n") {
+		t.Errorf("out:\n%s", out)
+	}
+}
+
+func TestRetriesAFailedCommitRequest(t *testing.T) {
+	for _, uri := range []string{"/commits/head/", "/commits/base/"} {
+		f := ready(measuring(ptr(hit)))
+		f.answers[uri] = append([]any{status{http.StatusBadGateway, nil}}, f.answers[uri]...)
+		out, _, err := gate(t, repo(t, 1), goLinux, f)
+		if err != nil {
+			t.Fatalf("%s: err = %v\n%s", uri, err, out)
+		}
+		if !strings.Contains(out, "waiting: GET "+uri+": 502 Bad Gateway\n") {
+			t.Errorf("%s: out:\n%s", uri, out)
 		}
 	}
 }
@@ -250,19 +405,17 @@ func TestFailsOnAnUploadCodecovCouldNotProcess(t *testing.T) {
 	f := &fake{answers: map[string][]any{
 		"/commits/head/uploads/?page_size=100": {uploads(broken)},
 	}}
-	_, _, err := gate(t, goLinux, f)
+	_, _, err := gate(t, "", goLinux, f)
 	if err == nil || errors.Is(err, errFailed) || !strings.Contains(err.Error(), "failed to process upload go-linux") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestFailsAtOnceWhenTheBaseHasNoReport(t *testing.T) {
-	// The comparison and the base commit are both missing.
-	f := ready(compared(ptr(hit)))
-	delete(f.answers, "/compare/?pullid=7")
+	f := ready(measuring(ptr(hit)))
 	cfg := goLinux
 	cfg.base = "wiptip"
-	_, _, err := gate(t, cfg, f)
+	_, _, err := gate(t, "", cfg, f)
 	var noBase *noBaseError
 	if !errors.As(err, &noBase) || !strings.Contains(err.Error(), "no report for base commit wiptip") {
 		t.Fatalf("err = %v, want a noBaseError for wiptip", err)
@@ -270,37 +423,24 @@ func TestFailsAtOnceWhenTheBaseHasNoReport(t *testing.T) {
 	if strings.Contains(err.Error(), "Codecov delay") {
 		t.Errorf("blames a delay: %v", err)
 	}
-	if got := f.seen[len(f.seen)-1]; got != "/commits/wiptip/" || len(f.seen) != 4 {
+	if got := f.seen[len(f.seen)-1]; got != "/commits/wiptip/" || len(f.seen) != 3 {
 		t.Errorf("requests = %v, want one poll ending at the base", f.seen)
 	}
 }
 
 func TestFailsAtOnceWhenAPushsParentHasNoReport(t *testing.T) {
-	f := ready(compared(ptr(hit)))
-	delete(f.answers, "/compare/?pullid=7")
-	_, _, err := gate(t, config{flags: []string{"go-linux"}}, f)
+	f := ready(measuring(ptr(hit)))
+	delete(f.answers, "/commits/parent/")
+	_, _, err := gate(t, "", config{flags: []string{"go-linux"}}, f)
 	var noBase *noBaseError
 	if !errors.As(err, &noBase) || noBase.base != "parent" {
 		t.Fatalf("err = %v, want a noBaseError for parent", err)
 	}
 }
 
-func TestWaitsForAComparisonWhoseBaseHasAReport(t *testing.T) {
-	f := ready(compared(ptr(hit)))
-	delete(f.answers, "/compare/?pullid=7")
-	f.answers["/commits/base/"] = []any{commit{State: "complete"}}
-	cfg := goLinux
-	cfg.base = "base"
-	cfg.timeout = 20 * time.Millisecond
-	_, _, err := gate(t, cfg, f)
-	if err == nil || !strings.Contains(err.Error(), "not a coverage failure") {
-		t.Fatalf("err = %v, want a timeout", err)
-	}
-}
-
 func TestGatesNothingWhenNoJobUploaded(t *testing.T) {
 	f := &fake{}
-	out, _, err := gate(t, config{}, f)
+	out, _, err := gate(t, "", config{}, f)
 	if err != nil || !strings.Contains(out, "nothing to gate") || len(f.seen) != 0 {
 		t.Fatalf("err = %v, out = %q, requests = %v", err, out, f.seen)
 	}

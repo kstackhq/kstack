@@ -5,17 +5,20 @@
 //   - project: the total is no more than -threshold points below the base.
 //
 // CI's Coverage · Gate job (.github/workflows/coverage.yml) runs it after every
-// coverage job:
+// coverage job, in a checkout holding both commits' history:
 //
 //	go run ./coveragegate -sha <head> -pr <n> -base <sha> -run <run url> -flags go-linux,typescript
 //
-// -flags names the uploads this run made; each is waited for. -pr 0 compares
-// the commit with its parent, as on a push. A base Codecov has no report for
-// fails at once, since no wait gives it one. Codecov's public API needs no
-// token, so a fork's pull request runs it too.
+// -flags names the uploads this run made; each is waited for. The changed
+// lines are those `git diff <base>...<head>` adds; -pr 0 takes the head's
+// parent as the base, as on a push. Codecov supplies the head's line coverage
+// and both commits' totals. A base Codecov has no report for fails at once,
+// since no wait gives it one. Codecov's public API needs no token, so a fork's
+// pull request runs it too.
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,8 +28,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/kstackhq/kstack/tools/internal/unidiff"
 )
 
 type config struct {
@@ -35,6 +42,7 @@ type config struct {
 	base      string // the pull request's base commit; -pr 0 uses the head's parent
 	run       string // the CI run's URL, as Codecov records it on each upload
 	flags     []string
+	dir       string // the git checkout the diff is taken in; empty is the working directory
 	threshold float64
 	timeout   time.Duration
 	interval  time.Duration
@@ -84,11 +92,18 @@ func run(ctx context.Context, cfg config, cc *codecov, out, summary io.Writer) e
 		fmt.Fprintln(out, "No coverage job uploaded a report in this run; nothing to gate.")
 		return nil
 	}
-	cmp, err := wait(ctx, cfg, cc)
+	if cfg.pr != 0 && cfg.base == "" {
+		return errors.New("-pr needs -base")
+	}
+	res, err := wait(ctx, cfg, cc, out)
 	if err != nil {
 		return err
 	}
-	v := judge(cmp, cfg.threshold)
+	changed, err := changedLines(ctx, cfg.dir, res.base, cfg.sha)
+	if err != nil {
+		return err
+	}
+	v := judge(res, changed, cfg.threshold)
 	v.report(out, summary)
 	if v.failed {
 		return errFailed
@@ -96,8 +111,7 @@ func run(ctx context.Context, cfg config, cc *codecov, out, summary io.Writer) e
 	return nil
 }
 
-// Codecov's API, the parts read here. A comparison nests each side's value
-// under head or base.
+// Codecov's API, the parts read here.
 
 type upload struct {
 	Flags    []string `json:"flags"`
@@ -106,18 +120,9 @@ type upload struct {
 }
 
 type commit struct {
-	State  string `json:"state"`
-	Parent string `json:"parent"`
-}
-
-type comparison struct {
-	HeadCommit string `json:"head_commit"`
-	BaseCommit string `json:"base_commit"`
-	Totals     struct {
-		Base *totals `json:"base"`
-		Head *totals `json:"head"`
-	} `json:"totals"`
-	Files []file `json:"files"`
+	State  string  `json:"state"`
+	Parent string  `json:"parent"`
+	Totals *totals `json:"totals"` // nil while the commit has no report
 }
 
 type totals struct {
@@ -125,16 +130,12 @@ type totals struct {
 	Hits  int `json:"hits"`
 }
 
-type file struct {
-	Name  struct{ Head string } `json:"name"`
-	Lines []line                `json:"lines"`
-}
-
-// A line of a compared file; Coverage is nil where no report measured it.
-type line struct {
-	Number   struct{ Head *int } `json:"number"`
-	Coverage struct{ Head *int } `json:"coverage"`
-	Added    bool                `json:"added"`
+// A commit's report: each file's measured lines as [line, coverage] pairs.
+type report struct {
+	Files []struct {
+		Name         string   `json:"name"`
+		LineCoverage [][2]int `json:"line_coverage"`
+	} `json:"files"`
 }
 
 // Codecov's coverage of a line.
@@ -143,6 +144,14 @@ const (
 	miss    = 1
 	partial = 2
 )
+
+// A result is what the gate reads from Codecov once the head is processed.
+type result struct {
+	base       string
+	head       *totals
+	baseTotals *totals
+	coverage   map[string]map[int]int // file, then line, to hit, miss or partial
+}
 
 // A codecov reads one repository from Codecov's API.
 type codecov struct {
@@ -162,7 +171,12 @@ func (c *codecov) get(ctx context.Context, path string, v any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return &statusError{path: path, code: resp.StatusCode, status: resp.Status}
+		var body struct {
+			Detail string `json:"detail"`
+		}
+		// A body that is not Codecov's JSON leaves the detail empty.
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&body)
+		return &statusError{path: path, code: resp.StatusCode, status: resp.Status, detail: body.Detail}
 	}
 	return json.NewDecoder(resp.Body).Decode(v)
 }
@@ -171,13 +185,28 @@ type statusError struct {
 	path   string
 	code   int
 	status string
+	detail string // Codecov's reason, when it gives one
 }
 
-func (e *statusError) Error() string { return "GET " + e.path + ": " + e.status }
+func (e *statusError) Error() string {
+	msg := "GET " + e.path + ": " + e.status
+	if e.detail != "" {
+		msg += ": " + e.detail
+	}
+	return msg
+}
 
 func notFound(err error) bool {
 	var s *statusError
 	return errors.As(err, &s) && s.code == http.StatusNotFound
+}
+
+// rateLimited reports a 403 Codecov answers when a limit it shares with every
+// anonymous caller runs out.
+func rateLimited(err error) bool {
+	var s *statusError
+	return errors.As(err, &s) && s.code == http.StatusForbidden &&
+		strings.Contains(strings.ToLower(s.detail), "rate limit")
 }
 
 // An uploadError is an upload Codecov failed to process. No wait changes it.
@@ -197,24 +226,32 @@ func (e *noBaseError) Error() string {
 		"re-run this job once the base's run has uploaded"
 }
 
-// wait polls until fetch has the comparison, for at most cfg.timeout.
-func wait(ctx context.Context, cfg config, cc *codecov) (*comparison, error) {
+// wait polls until fetch has the result, for at most cfg.timeout, and prints
+// each new reason it is still waiting.
+func wait(ctx context.Context, cfg config, cc *codecov, out io.Writer) (*result, error) {
 	ctx, cancel := context.WithTimeout(ctx, cfg.timeout)
 	defer cancel()
 
 	pending := errors.New("no request answered")
 	for {
-		cmp, err := fetch(ctx, cfg, cc)
+		res, err := fetch(ctx, cfg, cc)
 		if err == nil {
-			return cmp, nil
+			return res, nil
 		}
 		var bad *uploadError
 		var noBase *noBaseError
 		if errors.As(err, &bad) || errors.As(err, &noBase) {
 			return nil, err
 		}
+		if rateLimited(err) {
+			return nil, fmt.Errorf("Codecov is rate-limited (%v). "+
+				"This is not a coverage failure: re-run the job once the limit resets", err)
+		}
 		// A request the deadline cut short says nothing about Codecov.
 		if ctx.Err() == nil {
+			if err.Error() != pending.Error() {
+				fmt.Fprintln(out, "waiting:", err)
+			}
 			pending = err
 		}
 		select {
@@ -226,45 +263,50 @@ func wait(ctx context.Context, cfg config, cc *codecov) (*comparison, error) {
 	}
 }
 
-// fetch returns the comparison once every upload the run made is processed,
-// the commit is complete and the comparison is of this commit. Until then its
-// error says what Codecov is still working on.
-func fetch(ctx context.Context, cfg config, cc *codecov) (*comparison, error) {
+// fetch returns the result once every upload the run made is processed and
+// the commit is complete. Until then its error says what Codecov is still
+// working on.
+func fetch(ctx context.Context, cfg config, cc *codecov) (*result, error) {
 	if err := uploadsProcessed(ctx, cfg, cc); err != nil {
 		return nil, err
 	}
 
-	var c commit
-	if err := cc.get(ctx, "/commits/"+cfg.sha+"/", &c); err != nil {
+	var head commit
+	if err := cc.get(ctx, "/commits/"+cfg.sha+"/", &head); err != nil {
 		return nil, err
 	}
-	if c.State != "complete" {
-		return nil, errors.New("commit is " + c.State)
+	if head.State != "complete" {
+		return nil, errors.New("commit is " + head.State)
 	}
 
-	base := cfg.base
-	q := url.Values{}
-	if cfg.pr != 0 {
-		q.Set("pullid", fmt.Sprint(cfg.pr))
-	} else {
-		base = c.Parent
-		q.Set("base", base)
-		q.Set("head", cfg.sha)
+	res := &result{base: cfg.base, head: head.Totals, coverage: map[string]map[int]int{}}
+	if cfg.pr == 0 {
+		if head.Parent == "" {
+			return nil, errors.New("Codecov has no parent for " + cfg.sha)
+		}
+		res.base = head.Parent
 	}
-	var cmp comparison
-	if err := cc.get(ctx, "/compare/?"+q.Encode(), &cmp); err != nil {
-		// The head is complete, so a missing comparison may be a missing base.
-		if notFound(err) && base != "" && notFound(cc.get(ctx, "/commits/"+base+"/", &commit{})) {
-			return nil, &noBaseError{base}
+	var base commit
+	if err := cc.get(ctx, "/commits/"+res.base+"/", &base); err != nil {
+		if notFound(err) {
+			return nil, &noBaseError{res.base}
 		}
 		return nil, err
 	}
-	// A pull request's comparison follows its head, which Codecov moves when it
-	// sees the head's first upload.
-	if cmp.HeadCommit != cfg.sha {
-		return nil, errors.New("comparison is of " + cmp.HeadCommit)
+	res.baseTotals = base.Totals
+
+	var rep report
+	if err := cc.get(ctx, "/report/?"+url.Values{"sha": {cfg.sha}}.Encode(), &rep); err != nil {
+		return nil, err
 	}
-	return &cmp, nil
+	for _, f := range rep.Files {
+		lines := map[int]int{}
+		for _, lc := range f.LineCoverage {
+			lines[lc[0]] = lc[1]
+		}
+		res.coverage[f.Name] = lines
+	}
+	return res, nil
 }
 
 // uploadsProcessed is nil once Codecov has processed every flag in cfg.flags
@@ -300,13 +342,27 @@ func uploadsProcessed(ctx context.Context, cfg config, cc *codecov) error {
 	return nil
 }
 
+// changedLines returns the lines `git diff base...head` adds in dir, by file.
+func changedLines(ctx context.Context, dir, base, head string) (map[string][]int, error) {
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.quotePath=false", "diff",
+		"-U0", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", base+"..."+head)
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	diff, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff %s...%s: %v: %s", base, head, err, strings.TrimSpace(stderr.String()))
+	}
+	return unidiff.Added(bytes.NewReader(diff))
+}
+
 type uncovered struct {
 	file  string
 	line  int
 	state string // "not covered" or "partially covered"
 }
 
-// A verdict is the gate's reading of a comparison, worded for the report.
+// A verdict is the gate's reading of a result, worded for the report.
 type verdict struct {
 	patch     string
 	uncovered []uncovered
@@ -314,28 +370,34 @@ type verdict struct {
 	failed    bool
 }
 
-func judge(cmp *comparison, threshold float64) verdict {
+func judge(res *result, changed map[string][]int, threshold float64) verdict {
 	var v verdict
 
+	files := make([]string, 0, len(changed))
+	for f := range changed {
+		files = append(files, f)
+	}
+	sort.Strings(files)
 	measured := 0
-	for _, f := range cmp.Files {
-		for _, l := range f.Lines {
-			if !l.Added || l.Number.Head == nil || l.Coverage.Head == nil {
+	for _, f := range files {
+		for _, n := range changed[f] {
+			c, ok := res.coverage[f][n]
+			if !ok {
 				continue
 			}
 			measured++
-			switch *l.Coverage.Head {
+			switch c {
 			case miss:
-				v.uncovered = append(v.uncovered, uncovered{f.Name.Head, *l.Number.Head, "not covered"})
+				v.uncovered = append(v.uncovered, uncovered{f, n, "not covered"})
 			case partial:
-				v.uncovered = append(v.uncovered, uncovered{f.Name.Head, *l.Number.Head, "partially covered"})
+				v.uncovered = append(v.uncovered, uncovered{f, n, "partially covered"})
 			}
 		}
 	}
 	v.patch = fmt.Sprintf("%d of %d changed lines covered", measured-len(v.uncovered), measured)
 	v.failed = len(v.uncovered) > 0
 
-	base, head := cmp.Totals.Base, cmp.Totals.Head
+	base, head := res.baseTotals, res.head
 	if base == nil || head == nil {
 		v.project = "no base report to compare against; not judged"
 		return v
@@ -347,7 +409,7 @@ func judge(cmp *comparison, threshold float64) verdict {
 		v.failed = true
 	}
 	v.project = fmt.Sprintf("%.2f%% at the head, %.2f%% at base %.7s: %s",
-		percent(head), percent(base), cmp.BaseCommit, outcome)
+		percent(head), percent(base), res.base, outcome)
 	return v
 }
 
