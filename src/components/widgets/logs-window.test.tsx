@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Chat, ChatMessage, ChatToolCall } from '@/lib/chats';
@@ -186,6 +186,13 @@ const pushes = () =>
   invokeMock.mock.calls.filter(([cmd]) => cmd === 'log_window_viewport').map(([, arg]) => arg as ViewportPush);
 
 const titles = () => invokeMock.mock.calls.filter(([cmd]) => cmd === 'log_window_title').map(([, arg]) => arg);
+
+// The viewer mounts from the answer's `then`, outside `act`, so the commit's effects can run
+// after it appears. The title is one of them, sent in the same commit as the blur listener.
+const viewerShown = async () => {
+  await screen.findByTestId('log-viewer');
+  await waitFor(() => expect(titles()).not.toHaveLength(0));
+};
 
 beforeEach(() => {
   invokeMock.mockReset();
@@ -403,7 +410,7 @@ describe("LogsWindow's title", () => {
   it('sends the first source, the chat title and the cluster name, and again when one changes', async () => {
     live();
     render(<LogsWindow />);
-    await screen.findByTestId('log-viewer');
+    await viewerShown();
     expect(titles()).toEqual([{ parts: ['Deployment web in prod', 'Why is web down', 'prod'] }]);
 
     publish(() => {
@@ -417,7 +424,7 @@ describe("LogsWindow's title", () => {
     live({ title: '' });
     state.clusters = { clusters: [], connected: true };
     render(<LogsWindow />);
-    await screen.findByTestId('log-viewer');
+    await viewerShown();
     expect(titles()).toEqual([{ parts: ['Deployment web in prod', '', ''] }]);
   });
 
@@ -435,7 +442,7 @@ describe("LogsWindow's viewport push", () => {
     live();
     answering(() => Promise.resolve({ ...answer, generation: 4 }));
     render(<LogsWindow />);
-    await screen.findByTestId('log-viewer');
+    await viewerShown();
     fireEvent.click(screen.getByRole('button', { name: 'select two' }));
     await blur();
 
@@ -455,7 +462,7 @@ describe("LogsWindow's viewport push", () => {
     live();
     answering(() => Promise.resolve({ ...answer, grep: 'warn' }));
     render(<LogsWindow />);
-    await screen.findByTestId('log-viewer');
+    await viewerShown();
     await blur();
     expect(pushes().at(-1)!.grep).toBe('warn');
 
@@ -467,7 +474,7 @@ describe("LogsWindow's viewport push", () => {
   it('empties the push when a notice replaces the viewer, and keeps the grep and the revision across a remount', async () => {
     live();
     render(<LogsWindow />);
-    await screen.findByTestId('log-viewer');
+    await viewerShown();
     fireEvent.click(screen.getByRole('button', { name: 'apply panic' }));
     fireEvent.click(screen.getByRole('button', { name: 'select two' }));
     await blur();
@@ -489,7 +496,7 @@ describe("LogsWindow's viewport push", () => {
   it('sends a scroll alone after 250 ms', async () => {
     live();
     render(<LogsWindow />);
-    await screen.findByTestId('log-viewer');
+    await viewerShown();
     await blur();
     vi.useFakeTimers();
     try {
@@ -514,7 +521,7 @@ describe("LogsWindow's viewport push", () => {
       return Promise.resolve();
     });
     render(<LogsWindow />);
-    await screen.findByTestId('log-viewer');
+    await viewerShown();
     await blur();
     expect(reported).toHaveBeenCalledWith(expect.objectContaining({ message: 'a push over its bound' }));
     off();
