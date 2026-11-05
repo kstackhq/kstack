@@ -21,7 +21,6 @@
 // window can change the grants and each window caches its own, so the query is
 // also asked again whenever the window takes focus.
 import { useCallback, useEffect, useState } from 'react';
-
 import { useMutation, useQuery } from 'urql';
 import type { CombinedError } from 'urql';
 

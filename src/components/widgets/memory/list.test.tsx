@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useState } from 'react';
-
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Memory } from '@/lib/memories';
 import { expectCodeText, expectProseText } from '@/test-utils';
+
 import { MemoryList } from './list';
 
 vi.mock('@/lib/dialog', () => ({ useDialogHost: () => null }));

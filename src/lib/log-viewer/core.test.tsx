@@ -304,7 +304,7 @@ async function flush() {
 /** One animation frame, in its own act so React commits before the next. */
 async function frame(count = 1) {
   for (let i = 0; i < count; i += 1) {
-    // eslint-disable-next-line no-await-in-loop -- each frame is its own act
+    // oxlint-disable-next-line no-await-in-loop -- each frame is its own act
     await act(async () => {
       await vi.advanceTimersByTimeAsync(16);
     });
@@ -587,7 +587,7 @@ async function unbatched(fn: () => void) {
   try {
     fn();
     for (let i = 0; i < 5; i += 1) {
-      // eslint-disable-next-line no-await-in-loop -- one scheduler task each
+      // oxlint-disable-next-line no-await-in-loop -- one scheduler task each
       await new Promise<void>((resolve) => {
         nextTask(resolve);
       });

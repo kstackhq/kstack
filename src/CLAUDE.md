@@ -14,7 +14,7 @@ The whole picture is [`docs/security-model.md`](../docs/security-model.md). What
   - A subagent's request is the same request, opening with *An agent asks:* and its `Agent` call's description → [the Agent tool](../docs/security/2026-09-25-agent-tool.md).
   - **Requests are drawn whether or not an answer streams, several at once, in the order asked**; buttons are live on a `Pending` approval while the message's `awaitingApproval` holds; **Approve arms only after its place on screen holds still for `APPROVE_ARM_MS` (500ms)**, re-arming on any move. The composer's *Show* and the chat list's dot point to a request and never approve one → [background agents](../docs/security/2026-09-25-background-agents.md).
 - **The model's description of a command is its claim, never the app's.** One line, through `VisibleText`, italic and quoted, labelled *The model says:* on the request, never in place of the command and never brighter than it → [the command description](../docs/security/2026-09-23-the-command-description.md).
-- **Cluster data is attacker-controlled text.** `src/` has no HTML sink — no `innerHTML`, `dangerouslySetInnerHTML` or `eval` — and the `custom/cluster-data-is-text` config in `eslint.config.ts` fails the lint on one, and on a template engine by import or call. Printer columns go through the restricted reader in `src/lib/jsonpath.ts`.
+- **Cluster data is attacker-controlled text.** `src/` has no HTML sink — no `innerHTML`, `dangerouslySetInnerHTML` or `eval` — and `kstack/no-restricted-syntax`, `react/no-danger` and `no-restricted-imports` in `.oxlintrc.json` fail the lint on one, and on a template engine by import or call. Printer columns go through the restricted reader in `src/lib/jsonpath.ts`.
 - **A chat answer inherits this.** `markdown.tsx` renders to React elements with raw HTML left as text; no rehype plugin may put HTML back.
 - **The log viewer and the exec window inherit this.** Output is untrusted bytes: no HTML interpretation, terminal control sequences stripped. The sidecar strips each log line of every control but its SGR sequences (`services/logs`), and the viewer draws every cell through `VisibleText`, the message's colours through `AnsiText` (`components/widgets/ansi-text.tsx`: fancy-ansi's escaped output, parsed in an inert `DOMParser` document and read back as styled runs, never inserted). Copy writes a message without its sequences. The exec window, when it lands, brings both. → [log lines keep their colours](../docs/security/2026-10-19-log-lines-keep-their-colours.md).
 
@@ -215,18 +215,29 @@ Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo
 
 ## Lint / build
 
-- `pnpm lint` (ESLint: airbnb-extended, then `oxfmt --check`) → `make lint-js`. Run before
-  committing. `pnpm format` writes.
-- **Formatting is oxfmt** (`.oxfmtrc.json`); its output matches prettier's, so
-  `eslint-config-prettier` stays. The `lint`/`format` scripts pass **globs only**: a directory
+- `pnpm lint` (oxlint, then `oxfmt --check`) → `make lint-js`. Run before committing. `pnpm format`
+  writes, sorting imports too. → [ADR: lint the webview with oxlint](../docs/adr/2026-11-05-lint-the-webview-with-oxlint-every-rule-an-error.md)
+- **Linting is oxlint** (`.oxlintrc.json`): oxlint's `correctness` category, airbnb's rules beyond
+  it by name, and type-aware rules through `oxlint-tsgolint`. A rule the category already enables,
+  or an option at oxlint's default, is not listed. **Every rule is an error and a warning fails the
+  run.** Kstack's own rules are `lint/oxlint-plugin.js`, tested in `lint/oxlint-plugin.test.ts`.
+- **A disable comment is `oxlint-disable…` and gives its reason**:
+  `// oxlint-disable-next-line <rule> -- <why the rule is wrong here>`. `kstack/disable-needs-reason`
+  fails one without, an unused one fails, and `eslint-disable` comments are not read.
+- **A promise nothing awaits is marked `void`** (`typescript/no-floating-promises`): an urql
+  mutation or a `navigate` fired from a handler, for example. A JSX handler may return one.
+- **Formatting is oxfmt** (`.oxfmtrc.json`), which also sorts imports: packages, `@/`, then relative
+  paths, a blank line between. The `lint`/`format` scripts pass **globs only**: a directory
   argument mixed with a glob silently narrows to the glob's extensions. `.vscode/settings.json` runs
-  the same binary on save (`oxc.oxc-vscode`, resolved from `node_modules`).
+  the same binaries in the editor (`oxc.oxc-vscode`, resolved from `node_modules`).
 - The **React compiler** is on in two places that must stay in step: the babel transform
-  (`vite.config.ts`, off in `--mode coverage`) and the lint rules inside `eslint-plugin-react-hooks`
-  (`recommended-latest` in `eslint.config.ts`). A bail-out on a broken rule is a lint error; one on
-  syntax the compiler does not support yet (a `Todo`, such as destructuring a computed key) is silent.
+  (`vite.config.ts`, off in `--mode coverage`) and `eslint-plugin-react-hooks`' rules, which oxlint
+  loads as the JS plugin `react-hooks-js` (`recommended-latest`'s rules, in `.oxlintrc.json`). Its
+  rules are named `react-hooks-js/…`; oxlint's native `react/*` ports of them are off. A bail-out on
+  a broken rule is a lint error; one on syntax the compiler does not support yet (a `Todo`, such as
+  destructuring a computed key) is silent.
 - **Write as though the compiler weren't there** — it bails per-function, silently. So
-  `react-hooks/exhaustive-deps` is an **error**, and manual `useMemo`/`useCallback` are ordinary
+  `react-hooks-js/exhaustive-deps` is an **error**, and manual `useMemo`/`useCallback` are ordinary
   tools.
 - In the Linux sandbox, `node_modules` is symlinks into a store every worktree shares, and a package resolves only the dependencies it declares. Never edit a file under it. An error seen only there is most likely an undeclared dependency → [ADR: share one pnpm store across sandbox worktrees](../docs/adr/2026-10-28-share-one-pnpm-store-across-sandbox-worktrees.md).
 - **An `*.svg?react` import is a React component** drawing the SVG inline (`vite-plugin-svgr`, in `vite.config.ts`); a plain `*.svg` import is a URL.

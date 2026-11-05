@@ -16,6 +16,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { renderWithRouter } from '@/test-utils';
+
 import { LogsWindowLayout } from './logs-window-layout';
 
 describe('LogsWindowLayout', () => {

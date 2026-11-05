@@ -72,7 +72,7 @@ make test-changed
 # All tests
 make test
 
-# Formatters and linters (gofmt, cargo fmt, eslint + oxfmt)
+# Formatters and linters (gofmt, cargo fmt, oxlint + oxfmt)
 make lint
 
 # Static analysis (go vet, staticcheck, go fix, cargo clippy)

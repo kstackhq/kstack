@@ -15,16 +15,15 @@
 // focused view reads, *Open in window*, a close that collapses the sidebar, and the
 // viewer under them. The panel does not scroll; the viewer owns its scroller. A log
 // window draws the same header, without the buttons.
-import { ExternalLink, X } from 'lucide-react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { cn } from '@kubetail/ui/lib/utils';
+import { ExternalLink, X } from 'lucide-react';
 
 import { LogViewer } from '@/components/widgets/log-viewer';
 import { anchorLine, Names, SourceLine } from '@/components/widgets/logs-view-lines';
 import { VisibleText } from '@/components/widgets/visible-text';
-import type { LogsView } from '@/lib/logs-view';
 import type { LogViewportHandle } from '@/lib/log-viewport';
+import type { LogsView } from '@/lib/logs-view';
 
 // `grep` is the viewer's, which its toolbar can change from the action's. Each button
 // draws only with its handler.

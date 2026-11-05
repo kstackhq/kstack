@@ -23,7 +23,7 @@ type Anchor = LogsViewAction['anchor'];
 // VisibleText.
 export function Names({ names }: { names: string[] }) {
   return names.map((name, i) => (
-    // eslint-disable-next-line react/no-array-index-key
+    // oxlint-disable-next-line react/no-array-index-key -- names can repeat, and the list is drawn whole
     <span key={i}>
       {i > 0 && ', '}
       <VisibleText text={name} />

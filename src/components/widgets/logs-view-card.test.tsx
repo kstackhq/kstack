@@ -14,12 +14,11 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { fakeLogWindows } from '@/test-utils';
-
 import type { AppMode } from '@/lib/app-mode';
 import type { ChatToolCall } from '@/lib/chats';
 import type { FetchQuery } from '@/lib/log-viewer';
 import type { LogsViewAction } from '@/lib/logs-view';
+import { fakeLogWindows } from '@/test-utils';
 
 // The seam: the client the window builds reads nothing, and says what it was asked.
 const { fetched } = vi.hoisted(() => ({ fetched: [] as FetchQuery[] }));

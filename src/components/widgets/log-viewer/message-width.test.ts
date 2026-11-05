@@ -16,8 +16,8 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Column } from './columns';
-import type { WidthKey } from './widths';
 import { MIN_MESSAGE_PX, useMessageWidth } from './message-width';
+import type { WidthKey } from './widths';
 
 let resize: () => void = () => {};
 
@@ -35,7 +35,7 @@ beforeEach(() => {
         this.callback();
       }
 
-      // eslint-disable-next-line class-methods-use-this -- a fake has nothing to release
+      // oxlint-disable-next-line class-methods-use-this -- a fake has nothing to release
       disconnect() {}
     },
   );

@@ -18,9 +18,8 @@ import { useState } from 'react';
 import { Provider as UrqlProvider } from 'urql';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
-import { clusterRecord, flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
-
 import type { ClusterDetail } from '@/lib/dialog';
+import { clusterRecord, flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
 
 // Mocks ---------------------------------------------------------------
 
@@ -988,7 +987,7 @@ describe('ClusterSyncPanel', () => {
     await user.click(await screen.findByRole('button', { name: 'Connecting' }));
 
     expect(screen.getByText('Data rate').parentElement).toHaveTextContent('Data rate—');
-    expect(() => channelFor('clusterDataRateWatch')).toThrow();
+    expect(() => channelFor('clusterDataRateWatch')).toThrow('no subscription for clusterDataRateWatch');
   });
 
   // The mutation resolves when the probe it asked for has finished, so the button binds to

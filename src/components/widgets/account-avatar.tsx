@@ -15,9 +15,6 @@
 // The app bar's session control: one avatar in both states, whose menu offers
 // Sign in while the session is absent and Account/Sign out once it is there. A
 // session is an add-on, not a gate, so the app runs signed out too.
-import { LogOut, User, UserRound } from 'lucide-react';
-
-import { AppBarButton } from '@/components/widgets/app-bar-button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,9 +22,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@kubetail/ui/elements/dropdown-menu';
-
 import { invoke } from '@tauri-apps/api/core';
+import { LogOut, User, UserRound } from 'lucide-react';
 
+import { AppBarButton } from '@/components/widgets/app-bar-button';
 import { useAuthState } from '@/lib/auth';
 
 /** Host command the menu drives. Keep in sync with `commands.rs`. */

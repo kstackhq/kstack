@@ -88,7 +88,7 @@ describe('ErrorBoundary', () => {
     const reload = vi.fn();
     Object.defineProperty(window, 'location', {
       configurable: true,
-      value: { ...window.location, reload },
+      value: { reload },
     });
 
     const user = userEvent.setup();

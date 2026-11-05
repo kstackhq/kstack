@@ -17,11 +17,10 @@
 // with a sandbox, since without one every command asks and nothing here
 // applies. Every context, pattern and rule line is user or cluster text, drawn
 // through VisibleText.
-import { useId, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
+import { useId, useState } from 'react';
+import type { ReactNode, SubmitEvent } from 'react';
 
 import { Dialog } from '@/components/widgets/dialog';
 import { Input } from '@/components/widgets/text-entry';
@@ -318,7 +317,7 @@ function RuleForm({ disabled, onAdd }: { disabled: boolean; onAdd: (input: RuleI
         })
       : set({ class: value });
 
-  const submit = (e: FormEvent) => {
+  const submit = (e: SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     onAdd({ ...draft, class: klass });
   };

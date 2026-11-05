@@ -104,8 +104,7 @@ vi.mock('@/components/widgets/log-viewer', async () => {
         viewerMounts.count += 1;
         viewport.set({ ...EMPTY_LOG_VIEWPORT, grep: query.grep, selection: [] });
         return () => viewport.set(EMPTY_LOG_VIEWPORT);
-        // The real viewer writes its grep as it changes; a mount's is enough here.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // oxlint-disable-next-line react-hooks-js/exhaustive-deps -- the real viewer writes its grep as it changes; a mount's is enough here
       }, [viewport]);
       const select = (messages: string[]) => {
         const selection = messages.map((message) => ({

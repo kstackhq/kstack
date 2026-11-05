@@ -21,9 +21,9 @@
 import { useState } from 'react';
 import { useClient } from 'urql';
 
+import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
 import { LogsViewInline } from '@/components/widgets/logs-view-inline';
 import { anchorLine, SourceLine } from '@/components/widgets/logs-view-lines';
-import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { AppMode } from '@/lib/app-mode';

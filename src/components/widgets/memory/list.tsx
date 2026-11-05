@@ -16,11 +16,7 @@
 // checking any row swaps the heading for a bulk bar. Every delete confirms. A
 // memory may have been written by the model from cluster data, so every field is
 // drawn as text, never as markdown.
-import { Fragment, useState } from 'react';
-
 import { Checkbox as CheckboxPrimitive } from '@base-ui/react/checkbox';
-import { Check, Minus, MoreHorizontal } from 'lucide-react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { Checkbox } from '@kubetail/ui/elements/checkbox';
 import {
@@ -31,10 +27,13 @@ import {
 } from '@kubetail/ui/elements/dropdown-menu';
 import { Separator } from '@kubetail/ui/elements/separator';
 import { cn } from '@kubetail/ui/lib/utils';
+import { Check, Minus, MoreHorizontal } from 'lucide-react';
+import { Fragment, useState } from 'react';
 
 import { Dialog } from '@/components/widgets/dialog';
 import { Input, Textarea } from '@/components/widgets/text-entry';
 import type { Memory } from '@/lib/memories';
+
 import { BODY_RULE, bodyFits, slugify, typedName, uniqueName } from './writes';
 
 function Provenance({ memory }: { memory: Memory }) {

@@ -23,12 +23,10 @@
 // 768px) rather than a second media query of our own: it is what the toggle
 // branches on, and a component rendering off a different rule would leave that
 // button flipping a state nothing shows.
+import { useSidebar } from '@kubetail/ui/elements/sidebar';
+import { useLocation } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
-
-import { useLocation } from '@tanstack/react-router';
-
-import { useSidebar } from '@kubetail/ui/elements/sidebar';
 
 import { LeftSidebarCard } from '@/components/widgets/left-sidebar-card';
 import { LeftSidebarPill } from '@/components/widgets/left-sidebar-pill';

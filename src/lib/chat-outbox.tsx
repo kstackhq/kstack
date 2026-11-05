@@ -19,7 +19,6 @@
 // must settle into its entry whatever became of the box that started it.
 import type { ReactNode } from 'react';
 import { createContext, useContext, useMemo, useState } from 'react';
-
 import { useMutation } from 'urql';
 
 import { graphql } from '@/gql';

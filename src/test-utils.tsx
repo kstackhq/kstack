@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, render } from '@testing-library/react';
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router';
 import type { AnyRoute } from '@tanstack/react-router';
+import { act, render } from '@testing-library/react';
 import { expect, vi } from 'vitest';
 
 import type { Cluster } from '@/lib/clusters';
-import type { LogWindow } from '@/lib/log-windows';
 import { setWatchFlushScheduler } from '@/lib/graphql/use-watch-subscription';
+import type { LogWindow } from '@/lib/log-windows';
 
 export type FakeChannel = { onmessage?: (raw: string) => void };
 
@@ -52,6 +52,7 @@ export function mockTauriCore() {
     factory: () => ({
       invoke: (...args: unknown[]) => invokeMock(...args),
       Channel: function FakeChannelCtor(this: FakeChannel, onmessage?: (raw: string) => void) {
+        // oxlint-disable-next-line react/no-this-in-sfc -- a constructor, called with `new` as Tauri's `Channel` is
         if (onmessage) this.onmessage = onmessage;
         channels.push(this);
       },
@@ -340,7 +341,7 @@ export function stubLayout(clientHeight: number) {
         this.cb();
       }
 
-      // eslint-disable-next-line class-methods-use-this -- a fake has nothing to release
+      // oxlint-disable-next-line class-methods-use-this -- a fake has nothing to release
       disconnect() {}
     },
   );

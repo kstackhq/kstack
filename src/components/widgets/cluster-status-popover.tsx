@@ -17,15 +17,13 @@
 // to the Clusters dialog beside a reconnect. Every value is always drawn, a dash standing in
 // for a missing one, so the popup never reflows while it is open. The history and the
 // controls that act on it stay in the Clusters dialog.
-import { type ReactElement, type ReactNode, useState } from 'react';
-import { type Formatter } from 'react-timeago';
-
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-import { ArrowRight, Check, CircleAlert, Server, TriangleAlert } from 'lucide-react';
-
 import { Alert, AlertDescription, AlertTitle } from '@kubetail/ui/elements/alert';
 import { Button } from '@kubetail/ui/elements/button';
 import { Popover, PopoverTrigger } from '@kubetail/ui/elements/popover';
+import { ArrowRight, Check, CircleAlert, Server, TriangleAlert } from 'lucide-react';
+import { type ReactElement, type ReactNode, useState } from 'react';
+import { type Formatter } from 'react-timeago';
 
 import { ClusterDot } from '@/components/widgets/cluster-dot';
 import {
@@ -41,7 +39,6 @@ import {
 } from '@/components/widgets/cluster-sync-panel';
 import { DataRateSparkline } from '@/components/widgets/data-rate-sparkline';
 import { VisibleText } from '@/components/widgets/visible-text';
-
 import {
   type Status,
   TONE,

@@ -83,17 +83,20 @@ describe('ansiRuns', () => {
 
 describe('AnsiText', () => {
   it('draws coloured text in a styled span', () => {
+    // oxlint-disable-next-line react/jsx-curly-brace-presence -- a JSX attribute string reads no escapes
     const { container } = render(<AnsiText text={'a\x1b[32mb'} />);
     expect(container).toHaveTextContent('ab');
     expect(container.querySelector('span[style]')).toHaveStyle({ color: 'var(--ansi-green, #4e9a06)' });
   });
 
   it('spells out what cluster text could hide inside a colour', () => {
+    // oxlint-disable-next-line react/jsx-curly-brace-presence -- a JSX attribute string reads no escapes
     const { container } = render(<AnsiText text={'\x1b[31mok‮evil'} />);
     expect(container.querySelector('span mark')).not.toBeNull();
   });
 
   it('draws no element from markup in the text', () => {
+    // oxlint-disable-next-line react/jsx-curly-brace-presence -- a JSX attribute string reads no escapes
     const { container } = render(<AnsiText text={'\x1b[31m<b>bold</b><img src=x>'} />);
     expect(container.querySelector('b, img')).toBeNull();
     expect(container).toHaveTextContent('<b>bold</b><img src=x>');

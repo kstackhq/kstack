@@ -17,11 +17,9 @@
 // warning. What the chat runs with is the row's, so the button draws the list
 // watch's value and never its own. The mutation is `useNetworkSwitch`'s
 // (`@/lib/network-switch`).
-import { useState } from 'react';
-
-import { Globe, GlobeOff } from 'lucide-react';
-
 import { Button } from '@kubetail/ui/elements/button';
+import { Globe, GlobeOff } from 'lucide-react';
+import { useState } from 'react';
 
 import { Dialog } from '@/components/widgets/dialog';
 

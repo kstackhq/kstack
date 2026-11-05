@@ -50,7 +50,7 @@ export function AnsiText({ text }: { text: string }) {
   const runs = useMemo(() => (text.includes('\x1b') ? ansiRuns(text) : null), [text]);
   if (!runs) return <VisibleText text={text} />;
   return runs.map((run, i) => (
-    // eslint-disable-next-line react/no-array-index-key
+    // oxlint-disable-next-line react/no-array-index-key -- a message's runs are cut afresh and never reorder
     <span key={i} style={run.style}>
       <VisibleText text={run.text} />
     </span>

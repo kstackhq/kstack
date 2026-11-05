@@ -16,11 +16,9 @@
 // Leaving the sandbox is said in a dialog before it is done; coming back needs no
 // warning. What the chat runs is the row's, so the button draws the list watch's
 // value and never its own. The mutation is `useSandboxSwitch`'s (`@/lib/sandbox-switch`).
-import { useState } from 'react';
-
-import { ShieldCheck, ShieldOff } from 'lucide-react';
-
 import { Button } from '@kubetail/ui/elements/button';
+import { ShieldCheck, ShieldOff } from 'lucide-react';
+import { useState } from 'react';
 
 import { Dialog } from '@/components/widgets/dialog';
 

@@ -23,14 +23,12 @@
 // and trusted only on a match, so a new visit in the same tab can't inherit a
 // dead Forward.
 // See docs/adr/2026-08-09-url-params-as-window-state.md
-import { useCallback, useRef, useSyncExternalStore } from 'react';
-
 import { useRouter } from '@tanstack/react-router';
 import type { RouterHistory } from '@tanstack/react-router';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useCallback, useRef, useSyncExternalStore } from 'react';
 
 import { AppBarButton, AppBarDivider, AppBarGroup } from '@/components/widgets/app-bar-button';
-
 import { storageKey } from '@/lib/storage-key';
 
 // Exported so tests can seed a pre-reload value.

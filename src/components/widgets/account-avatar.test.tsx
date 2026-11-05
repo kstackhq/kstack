@@ -108,6 +108,7 @@ describe('AccountAvatar', () => {
       const user = await openMenu();
       await user.click(await menuItem('Sign in'));
       await Promise.resolve();
+      expect(login).toHaveBeenCalledTimes(1);
     });
 
     it('declines a second press while one login is in flight', async () => {
@@ -170,6 +171,7 @@ describe('AccountAvatar', () => {
 
       await user.click(await menuItem('Account'));
       await Promise.resolve();
+      expect(invokeMock).toHaveBeenCalledWith('open_account_url');
     });
 
     it('signs out from the menu', async () => {
@@ -189,6 +191,7 @@ describe('AccountAvatar', () => {
 
       await user.click(await menuItem('Sign out'));
       await Promise.resolve();
+      expect(logout).toHaveBeenCalledTimes(1);
     });
   });
 });

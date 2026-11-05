@@ -18,9 +18,6 @@
 // replaces the default width rather than stacking. Under `DialogProvider` it
 // reports close-completion so a lazily-mounted dialog unmounts only after its
 // exit animation.
-import type { ReactNode } from 'react';
-import { createPortal } from 'react-dom';
-
 import {
   Dialog as DialogRoot,
   DialogContent,
@@ -29,6 +26,8 @@ import {
   DialogTitle,
 } from '@kubetail/ui/elements/dialog';
 import { cn } from '@kubetail/ui/lib/utils';
+import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 import { useDialogHost } from '@/lib/dialog';
 

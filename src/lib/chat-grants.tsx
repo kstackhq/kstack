@@ -19,7 +19,6 @@
 // asked again on focus and after a removal; an approval in this window names
 // the rule's type (`chatGrantsContext`), which asks it again too.
 import { useCallback, useEffect, useState } from 'react';
-
 import { useMutation, useQuery } from 'urql';
 
 import { graphql } from '@/gql';

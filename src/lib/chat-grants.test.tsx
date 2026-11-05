@@ -59,7 +59,7 @@ describe('useChatGrants', () => {
     );
     const { result } = renderHook(() => useChatGrants('c1'));
     act(() => {
-      result.current.remove('r1');
+      void result.current.remove('r1');
     });
     expect(removeMock).toHaveBeenCalledWith({ chatID: 'c1', id: 'r1' });
     expect(result.current.removing).toBe('r1');

@@ -14,16 +14,16 @@
 
 // The log viewer's controls: jump to a time, to the start or to the end, pause and play, a grep
 // box, and a View popover for the columns and wrap. The pin has no button: scrolling pins and unpins.
-import { Columns3, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
-import { useId, useState } from 'react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { Checkbox } from '@kubetail/ui/elements/checkbox';
 import { Label } from '@kubetail/ui/elements/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
+import { Columns3, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
+import { useId, useState } from 'react';
 
 import { Input } from '@/components/widgets/text-entry';
 import { VisibleText } from '@/components/widgets/visible-text';
+
 import { COLUMNS, type Column } from './columns';
 import { JumpToTime } from './jump-to-time';
 

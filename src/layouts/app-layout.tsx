@@ -20,26 +20,25 @@
 // construction. The column's height is definite (`h-`, not `min-h-`) and `main`
 // clips, so a route scrolls inside it, never the page. Every plain flex item between
 // here and a route's scroller needs `min-h-0` to shrink into it.
-import { useRef } from 'react';
-import { Outlet, useLocation } from '@tanstack/react-router';
-
 import { SidebarProvider } from '@kubetail/ui/elements/sidebar';
+import { Outlet, useLocation } from '@tanstack/react-router';
+import { useRef } from 'react';
 
 import { AppBar } from '@/components/widgets/app-bar';
 import { AppDialogs } from '@/components/widgets/app-dialogs';
-import { LeftSidebar } from '@/components/widgets/left-sidebar';
 import { ChatNav } from '@/components/widgets/chat-nav';
 import { DashboardResourceNav } from '@/components/widgets/dashboard-resource-nav';
+import { LeftSidebar } from '@/components/widgets/left-sidebar';
 import { ModeNav } from '@/components/widgets/mode-nav';
 import { RightSidebar, RightSidebarToggle, pageMinWidth } from '@/components/widgets/right-sidebar';
 import type { AppMode } from '@/lib/app-mode';
 import { ChatOutboxProvider } from '@/lib/chat-outbox';
 import { ChatSwitchProvider } from '@/lib/chat-switch';
 import { ClusterCachedDataKindsProvider } from '@/lib/cluster-cached-data-kinds';
-import { LogWindowsProvider } from '@/lib/log-windows';
-import { LogsViewProvider } from '@/lib/logs-view';
 import { ConnectionStatus } from '@/lib/connection-status';
 import { DialogProvider } from '@/lib/dialog';
+import { LogWindowsProvider } from '@/lib/log-windows';
+import { LogsViewProvider } from '@/lib/logs-view';
 import { usePersistedFlag } from '@/lib/persisted-flag';
 import { RightSidebarProvider } from '@/lib/right-sidebar';
 

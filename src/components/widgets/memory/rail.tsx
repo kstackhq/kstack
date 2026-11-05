@@ -15,12 +15,10 @@
 // The memory popover's left rail: a collapsible Cluster group over the General
 // row, as wide as the user last dragged it. Selection is the popover's; the
 // rail only draws it.
-import { useState } from 'react';
-
-import { ChevronDown } from 'lucide-react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { cn } from '@kubetail/ui/lib/utils';
+import { ChevronDown } from 'lucide-react';
+import { useState } from 'react';
 
 import { ResizeHandle } from '@/components/widgets/resize-handle';
 import { usePersistedWidth } from '@/lib/persisted-width';

@@ -15,11 +15,9 @@
 // A popover hung from the omnibox rather than from the control that opens it, so
 // it centres on the omnibox and starts at its width. The library's `PopoverContent`
 // anchors on the trigger alone, so the positioner is base-ui's own.
-import type { ReactElement, RefObject } from 'react';
-
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-
 import { Popover, PopoverTrigger } from '@kubetail/ui/elements/popover';
+import type { ReactElement, RefObject } from 'react';
 
 export function OmniboxPopover({
   anchorRef,

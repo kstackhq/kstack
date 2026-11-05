@@ -21,17 +21,15 @@
 // An answer's tool calls are listed under its text off the row, and the one the
 // turn waits on is the approval request. A background command's end reaches the
 // model as a notice on a user message, drawn as a muted line rather than a bubble.
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useMutation } from 'urql';
 
 import { AppLogo } from '@/components/widgets/app-logo';
 import { DiffBlock } from '@/components/widgets/diff-block';
 import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
-import { approvalAnchor } from '@/lib/approval-anchor';
 import { LogsReadCard } from '@/components/widgets/logs-read-card';
 import { LogsViewCard } from '@/components/widgets/logs-view-card';
 import { LogsWatchCard } from '@/components/widgets/logs-watch-card';
@@ -39,7 +37,9 @@ import { Markdown } from '@/components/widgets/markdown';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { graphql } from '@/gql';
+import type { ApprovalDecision, ApprovalDuration } from '@/gql/graphql';
 import type { AppMode } from '@/lib/app-mode';
+import { approvalAnchor } from '@/lib/approval-anchor';
 import { chatGrantsContext } from '@/lib/chat-grants';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import {
@@ -56,7 +56,6 @@ import {
   waitingRequestsOf,
 } from '@/lib/chats';
 import type { ChatClusterWrite, ChatMessage, ChatToolCall, Source, TaskNotice } from '@/lib/chats';
-import type { ApprovalDecision, ApprovalDuration } from '@/gql/graphql';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useHeldStill } from '@/lib/held-still';
 import { modelOf, useModels } from '@/lib/models';

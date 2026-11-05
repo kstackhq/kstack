@@ -96,7 +96,7 @@ export async function readInline(client: Client, plan: InlinePlan): Promise<Inli
   let lines = kept(page, plan.keep);
   let cursor = onward(page);
   for (let i = 0; i < READ_ON_PAGES && lines.length < INLINE_LINES && cursor !== null; i += 1) {
-    // eslint-disable-next-line no-await-in-loop -- each page starts at the last one's edge
+    // oxlint-disable-next-line no-await-in-loop -- each page starts at the last one's edge
     const next = await client.fetch({ kind: 'Continue', cursor, seen: null, limit: INLINE_LINES });
     // A page can repeat a line the last one sent; its cursor names it.
     const held = new Set(lines.map((line) => line.cursor));

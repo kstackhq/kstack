@@ -56,7 +56,7 @@ export function useActiveKubeContext(): ActiveKubeContext {
   // its cluster through this. The omnibox, whose switch closes the chat, navigates
   // itself.
   const setContext = (name: string) => {
-    navigate({ to: '.', search: (prev) => ({ ...prev, kubeContext: name }) });
+    void navigate({ to: '.', search: (prev) => ({ ...prev, kubeContext: name }) });
   };
 
   return { context, active, contexts, phase, setContext };

@@ -14,11 +14,11 @@
 
 import { Route as rootRoute } from '@/routes/__root';
 import { Route as appRoute } from '@/routes/_app';
-import { Route as indexRoute } from '@/routes/index';
+import { Route as logsRoute } from '@/routes/_logs';
 import { Route as chatRoute } from '@/routes/chat';
 import { Route as chatIdRoute } from '@/routes/chat-id';
 import { Route as dashboardRoute } from '@/routes/dashboard';
-import { Route as logsRoute } from '@/routes/_logs';
+import { Route as indexRoute } from '@/routes/index';
 import { Route as logsWindowRoute } from '@/routes/logs-window';
 
 // Chat and Dashboard are peers under the pathless `_app` layout route so they

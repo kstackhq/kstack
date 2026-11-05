@@ -19,9 +19,8 @@
 // Two states, one scroller each: the recent list over an unstarted chat, or the open
 // chat with a way back to the list. The composer is always there, since typing is
 // how a chat starts here.
-import { useNavigate, useSearch } from '@tanstack/react-router';
-
 import { Button } from '@kubetail/ui/elements/button';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 
 import { ChatNav } from '@/components/widgets/chat-nav';
 import { ChatPane, NewChatPane } from '@/components/widgets/chat-pane';

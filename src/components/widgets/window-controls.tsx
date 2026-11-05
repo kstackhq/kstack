@@ -14,8 +14,8 @@
 
 // Minimize/maximize/close for the frameless Linux/Windows window — no OS caption
 // buttons there. `AppBar` mounts them only off macOS, which draws its own.
-import { Minus, Square, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Minus, Square, X } from 'lucide-react';
 
 import { APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-button';
 

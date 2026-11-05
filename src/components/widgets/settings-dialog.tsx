@@ -17,11 +17,10 @@
 // `AppDialogs`, not inline in the account menu that opens it, so it outlives the
 // sidebar card unmounting on auto-collapse. Settings persist to the host's
 // host.json; see docs/adr/2026-08-09-host-json-settings.md
-import { Monitor, Moon, Sun } from 'lucide-react';
-import type { ComponentType } from 'react';
-
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@kubetail/ui/elements/field';
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
+import { Monitor, Moon, Sun } from 'lucide-react';
+import type { ComponentType } from 'react';
 
 import { Dialog } from '@/components/widgets/dialog';
 import { PermissionSettings } from '@/components/widgets/permission-settings';

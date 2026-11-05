@@ -32,6 +32,7 @@ import {
 
 import { copyToClipboard } from '@/lib/clipboard';
 import type { CoreRows, LogLine } from '@/lib/log-viewer';
+
 import { COLUMNS, type Column } from './columns';
 import { lineTime } from './line-time';
 

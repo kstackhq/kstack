@@ -16,24 +16,22 @@
 // and saved memories. A cluster row lists that cluster's own memories, General
 // the ones for every cluster, all read and written through the sidecar. The
 // instructions are local state; nothing stores them yet.
-import { useState } from 'react';
-import type { ReactElement, RefObject } from 'react';
-
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-import { X } from 'lucide-react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { PopoverClose } from '@kubetail/ui/elements/popover';
 import { Spinner } from '@kubetail/ui/elements/spinner';
+import { X } from 'lucide-react';
+import { useState } from 'react';
+import type { ReactElement, RefObject } from 'react';
 
 import { OmniboxPopover } from '@/components/widgets/omnibox-popover';
 import { PopupResizeHandles } from '@/components/widgets/popup-resize-handles';
-
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { clusterForContext, useClusters } from '@/lib/clusters';
 import { useMemories } from '@/lib/memories';
 import type { Memory } from '@/lib/memories';
 import { usePersistedWidth } from '@/lib/persisted-width';
+
 import { MemoryInstructions } from './instructions';
 import { MemoryList } from './list';
 import { GENERAL, MemoryRail } from './rail';

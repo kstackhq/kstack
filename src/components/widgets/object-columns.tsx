@@ -20,13 +20,12 @@
 // accessors cast to a narrow local shape and must degrade to "—" rather than
 // throw on a partial body (e.g. a Deleted row's last-known state).
 import type { ReactNode } from 'react';
-
 import ReactTimeAgo from 'react-timeago';
 
 import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
+import type { PrinterColumn } from '@/lib/dashboard-resources';
 import { gvrKey } from '@/lib/gvr';
 import type { GVR } from '@/lib/gvr';
-import type { PrinterColumn } from '@/lib/dashboard-resources';
 import { readPath } from '@/lib/jsonpath';
 
 export type ObjectColumn = {
@@ -222,7 +221,7 @@ function descriptorColumn(d: PrinterColumn, i: number): ObjectColumn {
     className: numeric || d.type === 'date' ? 'w-32 tabular-nums' : 'w-32',
     cell: (o) => {
       const value = readPath(o.rawJSON, d.jsonPath);
-      if (value === null || value === undefined || typeof value === 'object') return DASH;
+      if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') return DASH;
       if (d.type === 'date') {
         const ms = Date.parse(String(value));
         return Number.isNaN(ms) ? DASH : <ReactTimeAgo date={ms} component="span" maxPeriod={60} />;

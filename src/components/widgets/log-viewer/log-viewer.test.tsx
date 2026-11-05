@@ -18,13 +18,13 @@ import { Client as UrqlClient, Provider as UrqlProvider } from 'urql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Client, FetchQuery, FollowFrame, LogLine, Page } from '@/lib/log-viewer';
-import type { LogsViewAction } from '@/lib/logs-view';
 import {
   EMPTY_LOG_VIEWPORT,
   type LogViewport,
   type LogViewportHandle,
   createLogViewportHandle,
 } from '@/lib/log-viewport';
+import type { LogsViewAction } from '@/lib/logs-view';
 
 // The seam: the client the viewer builds is the test's.
 const { built } = vi.hoisted(() => ({ built: { current: null as Client | null, calls: [] as unknown[][] } }));
@@ -96,13 +96,13 @@ function stubLayout() {
   vi.stubGlobal(
     'ResizeObserver',
     class {
-      // eslint-disable-next-line class-methods-use-this -- the stub's sizes never change
+      // oxlint-disable-next-line class-methods-use-this -- the stub's sizes never change
       observe() {}
 
-      // eslint-disable-next-line class-methods-use-this -- the stub's sizes never change
+      // oxlint-disable-next-line class-methods-use-this -- the stub's sizes never change
       unobserve() {}
 
-      // eslint-disable-next-line class-methods-use-this -- a fake has nothing to release
+      // oxlint-disable-next-line class-methods-use-this -- a fake has nothing to release
       disconnect() {}
     },
   );
@@ -228,7 +228,7 @@ const rowTexts = () => screen.queryAllByTestId('log-row').map((row) => row.textC
 
 async function frame(count = 1) {
   for (let i = 0; i < count; i += 1) {
-    // eslint-disable-next-line no-await-in-loop -- each frame is its own act
+    // oxlint-disable-next-line no-await-in-loop -- each frame is its own act
     await act(async () => {
       await vi.advanceTimersByTimeAsync(16);
     });
@@ -724,7 +724,7 @@ describe('LogViewer', () => {
       expect(underNew.length).toBeGreaterThan(0);
       underNew.forEach((w) => {
         expect(w.selection).toEqual([]);
-        if (w.range) expect(w.range.from >= line(100).timestamp).toBe(true);
+        expect(!w.range || w.range.from >= line(100).timestamp).toBe(true);
       });
     });
 
@@ -786,10 +786,10 @@ describe('LogViewer', () => {
             requestAnimationFrame(() => this.callback([{ target } as ResizeObserverEntry], this));
           }
 
-          // eslint-disable-next-line class-methods-use-this -- the stub's sizes never change
+          // oxlint-disable-next-line class-methods-use-this -- the stub's sizes never change
           unobserve() {}
 
-          // eslint-disable-next-line class-methods-use-this -- a fake has nothing to release
+          // oxlint-disable-next-line class-methods-use-this -- a fake has nothing to release
           disconnect() {}
         },
       );
@@ -1021,7 +1021,7 @@ describe('LogViewer', () => {
       // The keys go where the browser sends them: the focused element.
       for (let i = 0; i < 13; i += 1) {
         fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
-        // eslint-disable-next-line no-await-in-loop -- each key scrolls in its own frame
+        // oxlint-disable-next-line no-await-in-loop -- each key scrolls in its own frame
         await frame();
       }
       expect(cell.isConnected).toBe(false);

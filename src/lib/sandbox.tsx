@@ -16,7 +16,6 @@
 // be given the internet. A query, not a watch: the answer is fixed for the
 // sidecar's life, so it is asked once and never polled.
 import { useCallback, useMemo } from 'react';
-
 import { useQuery } from 'urql';
 
 import { graphql } from '@/gql';

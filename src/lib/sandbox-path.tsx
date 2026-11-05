@@ -19,7 +19,6 @@
 // each window caches its own, so it is also asked again on opening and
 // whenever the window takes focus.
 import { useCallback, useEffect, useState } from 'react';
-
 import { useMutation, useQuery } from 'urql';
 import type { CombinedError } from 'urql';
 

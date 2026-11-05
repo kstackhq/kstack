@@ -15,8 +15,9 @@ import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { RightSidebarProvider, useRightSidebar } from '@/lib/right-sidebar';
 import type { ChatToolCall } from '@/lib/chats';
+import { RightSidebarProvider, useRightSidebar } from '@/lib/right-sidebar';
+
 import { LogsViewProvider, useLogsView, viewOfCall } from './logs-view';
 import type { LogsView } from './logs-view';
 

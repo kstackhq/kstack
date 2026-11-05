@@ -16,12 +16,6 @@
 // and the answer arrives on the messages watch. The draft and the send are the
 // outbox's, so this only draws them — and decides the one thing a send leaves to
 // its caller, which is whether the window should follow a chat it created.
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-
-import { useMutation } from 'urql';
-
-import { ChevronDown, X } from 'lucide-react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import {
   DropdownMenu,
@@ -32,6 +26,9 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@kubetail/ui/elements/dropdown-menu';
+import { ChevronDown, X } from 'lucide-react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useMutation } from 'urql';
 
 import { ChatGrants } from '@/components/widgets/chat-grants';
 import { NetworkSwitch } from '@/components/widgets/network-switch';
@@ -44,13 +41,13 @@ import type { Created } from '@/lib/chat-outbox';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import { inFlight } from '@/lib/chats';
 import type { ChatMessage } from '@/lib/chats';
+import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import type { LogViewportHandle, SelectedLine } from '@/lib/log-viewport';
 import { useLogWindows } from '@/lib/log-windows';
 import { MAX_SELECTED, snapshotOf } from '@/lib/logs-snapshot';
 import { useLogsView } from '@/lib/logs-view';
 import type { Model } from '@/lib/models';
 import { modelOf, seedPick, useModels } from '@/lib/models';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useRightSidebar } from '@/lib/right-sidebar';
 
 const ChatCancelMutation = graphql(`
@@ -340,7 +337,7 @@ export function ChatComposer({
       const snapshot = shownView
         ? snapshotOf(shownView, shown.selection === removed ? { ...shown, selection: [], selectedCount: 0 } : shown)
         : null;
-      follow(submit({ sandboxDisabled: shownDisabled, networkEnabled: shownNetwork }, snapshot));
+      void follow(submit({ sandboxDisabled: shownDisabled, networkEnabled: shownNetwork }, snapshot));
     }
   };
 

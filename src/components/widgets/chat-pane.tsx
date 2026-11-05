@@ -18,12 +18,12 @@
 // created" and "this chat is gone" differently, so they say so and the home decides.
 import type { ReactNode } from 'react';
 
-import { approvalAnchor } from '@/lib/approval-anchor';
 import { ChatComposer } from '@/components/widgets/chat-composer';
 import { ChatTranscript } from '@/components/widgets/chat-transcript';
 import { useActiveCluster } from '@/lib/active-cluster';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import type { AppMode } from '@/lib/app-mode';
+import { approvalAnchor } from '@/lib/approval-anchor';
 import { useAskAgainWhenLive } from '@/lib/ask-again-when-live';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import { useChatMessages, useChats, waitingRequestsOf } from '@/lib/chats';

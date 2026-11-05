@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 import type { InlineState } from '@/lib/inline-log-lines';
 import type { LogLine } from '@/lib/log-viewer';
 import type { LogsViewAction } from '@/lib/logs-view';
+
 import { LineRow, LogsViewInline } from './logs-view-inline';
 
 const action = (over: Partial<LogsViewAction> = {}): LogsViewAction => ({

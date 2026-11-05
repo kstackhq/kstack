@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, screen } from '@testing-library/react';
 import { createRoute } from '@tanstack/react-router';
+import { act, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderWithRouter } from '@/test-utils';

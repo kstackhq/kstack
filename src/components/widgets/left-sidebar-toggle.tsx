@@ -15,9 +15,9 @@
 // Collapses the sidebar from the card's header, and reopens it from the collapsed
 // pill. Drives the same `@kubetail/ui` state as the built-in `Cmd/Ctrl+B`, so all
 // three stay in sync.
-import { PanelLeft } from 'lucide-react';
 import { Button } from '@kubetail/ui/elements/button';
 import { useSidebar } from '@kubetail/ui/elements/sidebar';
+import { PanelLeft } from 'lucide-react';
 
 export function LeftSidebarToggle() {
   const { toggleSidebar } = useSidebar();

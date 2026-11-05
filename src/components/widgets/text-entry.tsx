@@ -14,9 +14,9 @@
 
 import type { ComponentProps } from 'react';
 
-// eslint-disable-next-line no-restricted-imports -- the one place the library's boxes are drawn
+// oxlint-disable-next-line no-restricted-imports -- the one place the library's boxes are drawn
 import { Input as UiInput } from '@kubetail/ui/elements/input';
-// eslint-disable-next-line no-restricted-imports -- the one place the library's boxes are drawn
+// oxlint-disable-next-line no-restricted-imports -- the one place the library's boxes are drawn
 import { Textarea as UiTextarea } from '@kubetail/ui/elements/textarea';
 
 // Left alone, the webview suggests, corrects and capitalizes as the user types

@@ -15,11 +15,10 @@
 // A log window's page: its bar over the view the host paired it with. The page asks
 // the host which chat and call it shows (`log_window_view`) and reads the rest from
 // the watches, so the URL carries nothing and a reload draws the same view.
+import { Button } from '@kubetail/ui/elements/button';
 import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-
-import { Button } from '@kubetail/ui/elements/button';
 
 import { LogViewer } from '@/components/widgets/log-viewer';
 import { LogsViewHeader } from '@/components/widgets/logs-view-panel';

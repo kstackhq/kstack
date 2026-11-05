@@ -16,7 +16,6 @@
 // and `settingsRefused` queries and the six `permission*` mutations, for the
 // Settings section.
 import { useEffect, useMemo, useState } from 'react';
-
 import { useMutation, useQuery } from 'urql';
 import type { CombinedError } from 'urql';
 

@@ -36,7 +36,8 @@ typescript:
   - sidecar/graph/schema.graphqls
   - .oxfmtrc.json
   - codegen.ts
-  - eslint.config.ts
+  - .oxlintrc.json
+  - lint/**
   - index.html
   - index.test.ts
   - package.json

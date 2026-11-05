@@ -14,9 +14,8 @@
 
 // Notifications button in the app bar's right-hand pill, beside Settings. Nothing
 // feeds it yet: the popover's copy is a placeholder.
-import { Bell } from 'lucide-react';
-
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
+import { Bell } from 'lucide-react';
 
 import { AppBarButton } from '@/components/widgets/app-bar-button';
 

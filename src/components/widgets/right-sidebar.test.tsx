@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useRef } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { AppMode } from '@/lib/app-mode';
 import { LogWindowsContext } from '@/lib/log-windows';
 import { LogsViewProvider, useLogsView } from '@/lib/logs-view';
 import type { LogsView } from '@/lib/logs-view';
 import { RightSidebarProvider } from '@/lib/right-sidebar';
-import type { AppMode } from '@/lib/app-mode';
 import { fakeLogWindows } from '@/test-utils';
 
 // The panel's contents have a suite of their own, and the real widgets want a router,

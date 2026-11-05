@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import type { ReactNode } from 'react';
-import { act, fireEvent, screen } from '@testing-library/react';
-import { createRootRoute, createRoute, Link, Outlet } from '@tanstack/react-router';
-import { describe, expect, it, vi } from 'vitest';
-
 import { SidebarProvider } from '@kubetail/ui/elements/sidebar';
+import { createRootRoute, createRoute, Link, Outlet } from '@tanstack/react-router';
+import { act, fireEvent, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { describe, expect, it, vi } from 'vitest';
 
 import { mockMatchMedia, renderWithRouter } from '@/test-utils';
 

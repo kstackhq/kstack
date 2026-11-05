@@ -16,8 +16,6 @@
 // mounts it only off macOS, which keeps its native global menu (`src-tauri/app_menu.rs`).
 // Owns the app-wide actions and their shortcuts, since with no native menu nothing
 // else registers them.
-import { useEffect } from 'react';
-
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,8 +24,9 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@kubetail/ui/elements/dropdown-menu';
-import { Menu } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { Menu } from 'lucide-react';
+import { useEffect } from 'react';
 
 /** Host commands the menu drives. Keep in sync with `commands.rs`. */
 const NEW_WINDOW_CMD = 'new_window';

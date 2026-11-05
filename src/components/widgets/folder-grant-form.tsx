@@ -15,11 +15,10 @@
 // The form a folder is granted from: Settings' Add row, and the offer under a
 // sandboxed command that failed. The path is the user's typing, never a
 // command's output.
-import { useState } from 'react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { Checkbox } from '@kubetail/ui/elements/checkbox';
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
+import { useState } from 'react';
 
 import { Input } from '@/components/widgets/text-entry';
 import type { GrantDuration } from '@/gql/graphql';
@@ -88,7 +87,7 @@ export function FolderGrantForm({ chatID, durations, submitLabel, initial, onGra
           value={path}
           onChange={(e) => setPath(e.target.value)}
         />
-        {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- Checkbox renders its control inside */}
+        {/* oxlint-disable-next-line jsx-a11y/label-has-associated-control -- Checkbox renders its control inside */}
         <label className="flex shrink-0 items-center gap-1.5 text-xs">
           <Checkbox checked={write} onCheckedChange={(checked) => setWrite(checked === true)} />
           read and write

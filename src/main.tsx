@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { RouterProvider, createRouter } from '@tanstack/react-router';
 
-import { routeTree } from '@/routeTree';
 import { installGlobalErrorHandlers, startErrorLogForwarder } from '@/lib/error-log';
 import { isLinux } from '@/lib/platform';
-
+import { routeTree } from '@/routeTree';
 import '@/index.css';
 import 'unfonts.css';
 

@@ -15,8 +15,8 @@
 // Is the window maximized? Drives the frameless chrome's collapse (`WindowFrame`,
 // `WindowResizeHandles`). Tauri's JS API has no maximize event, so re-query
 // `isMaximized()` on every `onResized`. Always false on macOS (native decorations).
-import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useEffect, useState } from 'react';
 
 import { isMacOS } from '@/lib/platform';
 

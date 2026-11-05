@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, screen, waitFor } from '@testing-library/react';
 import { createRootRoute, createRoute, Link, Outlet, retainSearchParams } from '@tanstack/react-router';
+import { act, screen, waitFor } from '@testing-library/react';
 import { Provider as UrqlProvider } from 'urql';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

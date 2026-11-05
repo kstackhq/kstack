@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { lazy, Suspense } from 'react';
 import { createRootRoute, Outlet } from '@tanstack/react-router';
+import { lazy, Suspense } from 'react';
 import { Provider as UrqlProvider } from 'urql';
 
-import { AuthProvider } from '@/lib/auth';
-import { ErrorBoundary } from '@/lib/error-boundary';
-import { createGraphqlClient } from '@/lib/graphql/client';
-import { ReadyGate } from '@/lib/ready-gate';
-import { ThemeProvider } from '@/lib/theme';
-import { ClustersProvider } from '@/lib/clusters';
-import { KubeConfigProvider } from '@/lib/kube-config';
 import { WindowFrame } from '@/components/widgets/window-frame';
 import { WindowResizeHandles } from '@/components/widgets/window-resize-handles';
+import { AuthProvider } from '@/lib/auth';
+import { ClustersProvider } from '@/lib/clusters';
+import { ErrorBoundary } from '@/lib/error-boundary';
+import { createGraphqlClient } from '@/lib/graphql/client';
+import { KubeConfigProvider } from '@/lib/kube-config';
+import { ReadyGate } from '@/lib/ready-gate';
+import { ThemeProvider } from '@/lib/theme';
 
 const TanStackRouterDevtools =
   import.meta.env.VITE_ROUTER_DEVTOOLS === 'true'

@@ -13,13 +13,13 @@
 // limitations under the License.
 
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 const { useQueryMock, useMutationMock, reexecute, mutations } = vi.hoisted(() => ({
   useQueryMock: vi.fn(),
   useMutationMock: vi.fn(),
   reexecute: vi.fn(),
-  mutations: {} as Record<string, ReturnType<typeof vi.fn>>,
+  mutations: {} as Record<string, Mock<(variables: unknown) => Promise<unknown>>>,
 }));
 vi.mock('urql', () => ({ useQuery: useQueryMock, useMutation: useMutationMock }));
 // Each document is its name, so the mock can tell the mutations apart.
@@ -63,7 +63,7 @@ describe('useSandboxPath', () => {
     const { result } = renderHook(() => useSandboxPath());
 
     act(() => {
-      result.current.include('/Users/ren/scripts', '/Users/ren/scripts');
+      void result.current.include('/Users/ren/scripts', '/Users/ren/scripts');
     });
     expect(mutations.SandboxPathInclude).toHaveBeenCalledWith({
       dir: '/Users/ren/scripts',
@@ -105,8 +105,8 @@ describe('useSandboxPath', () => {
     const { result } = renderHook(() => useSandboxPath());
 
     act(() => {
-      result.current.remove('/opt/homebrew/bin');
-      result.current.include('/Users/ren/scripts', '/Users/ren/scripts');
+      void result.current.remove('/opt/homebrew/bin');
+      void result.current.include('/Users/ren/scripts', '/Users/ren/scripts');
     });
     expect(result.current.changing).toEqual(new Set(['/opt/homebrew/bin', '/Users/ren/scripts']));
 

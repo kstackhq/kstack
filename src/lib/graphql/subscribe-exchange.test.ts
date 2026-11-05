@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { pipe, subscribe } from 'wonka';
 import { Client, createRequest, gql } from 'urql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { pipe, subscribe } from 'wonka';
 
 import { mockTauriCore } from '@/test-utils';
 

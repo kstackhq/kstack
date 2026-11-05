@@ -16,9 +16,8 @@
 // *Show chat*. It has no menu, omnibox or history. macOS keeps its traffic lights,
 // which `window_manager.rs` centres in this bar's 40px; the frameless platforms get
 // `WindowControls` and no `AppMenu`, so `Ctrl+N`/`Ctrl+Q` do nothing here.
-import { invoke } from '@tauri-apps/api/core';
-
 import { Button } from '@kubetail/ui/elements/button';
+import { invoke } from '@tauri-apps/api/core';
 
 import { TrafficLightGutter } from '@/components/widgets/app-bar-button';
 import { ClusterDot } from '@/components/widgets/cluster-dot';

@@ -15,9 +15,8 @@
 // A cluster's standing instructions: the saved text, or the editor over it. The
 // text is the parent's; this owns only the draft. The parent remounts it on a
 // cluster switch so a draft never leaks onto another cluster.
-import { useState } from 'react';
-
 import { Button } from '@kubetail/ui/elements/button';
+import { useState } from 'react';
 
 import { Textarea } from '@/components/widgets/text-entry';
 

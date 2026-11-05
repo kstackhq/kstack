@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LogLine } from '@/lib/log-viewer';
+
 import { type Column, DEFAULT_COLUMNS, dotColor } from './columns';
 import {
   CutNotice,

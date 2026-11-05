@@ -18,12 +18,11 @@
 // and a re-render of the same call moves nothing) and again for each grep the toolbar
 // submits, lands at `openAt`, starts pinned as `pinToEnd` says, draws each line as a row,
 // and writes what is on screen and what is selected into `viewport` for whoever pulls it.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useClient } from 'urql';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { cn } from '@kubetail/ui/lib/utils';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useClient } from 'urql';
 
 import { VisibleText } from '@/components/widgets/visible-text';
 import {
@@ -38,17 +37,18 @@ import {
   createCoreStore,
   useCoreFields,
 } from '@/lib/log-viewer';
+import { EMPTY_LOG_VIEWPORT, type LogViewportHandle } from '@/lib/log-viewport';
 import { createLogsClient } from '@/lib/logs-client';
 import type { LogsViewAction } from '@/lib/logs-view';
-import { EMPTY_LOG_VIEWPORT, type LogViewportHandle } from '@/lib/log-viewport';
 import { usePersistedFlag } from '@/lib/persisted-flag';
-import { useMeasureWidths } from './widths';
-import { LOG_ROW_H, LOG_ROW_PX, LogViewerRow, estimateRowHeight, gridTemplate } from './row';
-import { LogViewerToolbar } from './toolbar';
-import { useMessageWidth } from './message-width';
-import { LogViewerHeader } from './header';
+
 import { type Column, useLogViewerColumns } from './columns';
+import { LogViewerHeader } from './header';
+import { useMessageWidth } from './message-width';
+import { LOG_ROW_H, LOG_ROW_PX, LogViewerRow, estimateRowHeight, gridTemplate } from './row';
 import { hasMultipleSelectedCells, useSelection } from './selection';
+import { LogViewerToolbar } from './toolbar';
+import { useMeasureWidths } from './widths';
 
 export type LogViewerProps = {
   /** The view's cluster, which the client reads. */

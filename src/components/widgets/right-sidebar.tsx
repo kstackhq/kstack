@@ -22,16 +22,15 @@
 // gets a chat of its own, chat mode the focused log view, or a placeholder while
 // none is set. The panel does not scroll — its contents own a scroller each, and one
 // inside another gives two scrollbars that fight.
+import { Button } from '@kubetail/ui/elements/button';
+import { PanelRight } from 'lucide-react';
 import type { RefObject } from 'react';
 import { useCallback, useRef } from 'react';
-import { PanelRight } from 'lucide-react';
 
-import { Button } from '@kubetail/ui/elements/button';
-
-import type { AppMode } from '@/lib/app-mode';
 import { DashboardChat } from '@/components/widgets/dashboard-chat';
 import { LogsViewPanel } from '@/components/widgets/logs-view-panel';
 import { ResizeHandle } from '@/components/widgets/resize-handle';
+import type { AppMode } from '@/lib/app-mode';
 import { useLogWindows } from '@/lib/log-windows';
 import { useLogsView } from '@/lib/logs-view';
 import { type WidthBounds, usePersistedWidth } from '@/lib/persisted-width';

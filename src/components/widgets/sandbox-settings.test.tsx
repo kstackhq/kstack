@@ -16,9 +16,9 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-executables';
 import type { SandboxFolder, SandboxFolders } from '@/lib/sandbox-folders';
 import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
-import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-executables';
 import { expectCodeText } from '@/test-utils';
 
 const { sandbox, path, folders, executables, mac } = vi.hoisted(() => ({

@@ -20,23 +20,22 @@
 // spelled: a change approves the folder drawn, and two that differ only in
 // whitespace must not look alike. A executable's path, version and error are its
 // own text, drawn the same way.
-import { useState } from 'react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { Field, FieldContent, FieldDescription, FieldLabel } from '@kubetail/ui/elements/field';
 import { Spinner } from '@kubetail/ui/elements/spinner';
+import { useState } from 'react';
 
 import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
 import { Input } from '@/components/widgets/text-entry';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { isMacOS } from '@/lib/platform';
 import { useSandbox } from '@/lib/sandbox';
+import { useSandboxExecutables } from '@/lib/sandbox-executables';
+import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-executables';
 import { useSandboxFolders } from '@/lib/sandbox-folders';
 import type { SandboxFolder } from '@/lib/sandbox-folders';
 import { useSandboxPath } from '@/lib/sandbox-path';
 import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
-import { useSandboxExecutables } from '@/lib/sandbox-executables';
-import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-executables';
 
 const TAGS: Record<SandboxPathEntry['state'], string> = {
   Adopted: 'included',

@@ -21,12 +21,12 @@ import { visibleSegments } from '@/lib/visible-text';
 export function VisibleText({ text, trailing }: { text: string; trailing?: 'lines' | 'end' }) {
   return visibleSegments(text, trailing).map((segment, i) =>
     segment.spelled ? (
-      // eslint-disable-next-line react/no-array-index-key
+      // oxlint-disable-next-line react/no-array-index-key -- a text's segments are cut afresh and never reorder
       <mark key={i} className="rounded-sm bg-destructive/20 px-0.5 text-destructive" title="An invisible character">
         {segment.text}
       </mark>
     ) : (
-      // eslint-disable-next-line react/no-array-index-key
+      // oxlint-disable-next-line react/no-array-index-key -- a text's segments are cut afresh and never reorder
       <Fragment key={i}>{segment.text}</Fragment>
     ),
   );

@@ -16,7 +16,6 @@
 // sidecar's life while keys come from the environment the host holds. The one reader
 // of it, since the next feature's picker reads it too.
 import { useCallback, useMemo } from 'react';
-
 import { useQuery } from 'urql';
 
 import { graphql } from '@/gql';

@@ -24,12 +24,6 @@
 // listed, and where a row points. In chat mode a chat is a route; on the dashboard it
 // is the panel's search param. No row is ever marked active on the dashboard — the
 // panel shows the list or the open chat, never both.
-import { useState } from 'react';
-
-import { Link } from '@tanstack/react-router';
-import { MoreHorizontal, Plus } from 'lucide-react';
-import { useMutation } from 'urql';
-
 import { Button } from '@kubetail/ui/elements/button';
 import {
   DropdownMenu,
@@ -38,6 +32,10 @@ import {
   DropdownMenuTrigger,
 } from '@kubetail/ui/elements/dropdown-menu';
 import { Spinner } from '@kubetail/ui/elements/spinner';
+import { Link } from '@tanstack/react-router';
+import { MoreHorizontal, Plus } from 'lucide-react';
+import { useState } from 'react';
+import { useMutation } from 'urql';
 
 import { Dialog } from '@/components/widgets/dialog';
 import { PROSE_TEXT } from '@/components/widgets/text-entry';
@@ -87,13 +85,13 @@ function RenameBox({ chat, onDone }: { chat: Chat; onDone: () => void }) {
 
   const commit = () => {
     const next = title.trim();
-    if (next && next !== chat.title) chatRename({ id: chat.id, title: next });
+    if (next && next !== chat.title) void chatRename({ id: chat.id, title: next });
     onDone();
   };
 
   return (
     <input
-      // eslint-disable-next-line jsx-a11y/no-autofocus -- the row became this input on the user's click
+      // oxlint-disable-next-line jsx-a11y/no-autofocus -- the row became this input on the user's click
       autoFocus
       {...PROSE_TEXT}
       aria-label="Chat title"
@@ -125,7 +123,8 @@ export function ChatNav({ mode }: { mode: AppMode }) {
   const chats = all.filter((chat) => chat.mode === chatModeOf(mode) && chat.clusterID === clusterID);
 
   const remove = () => {
-    if (confirming) chatDelete({ id: confirming.id });
+    /* v8 ignore else -- the dialog that calls this opens only with a chat to confirm */
+    if (confirming) void chatDelete({ id: confirming.id });
     setConfirming(null);
   };
 

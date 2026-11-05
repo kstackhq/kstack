@@ -16,13 +16,12 @@
 // The toolbar's jump to a time (kubetail's `DateRangeDropdown`): a moment some minutes, hours,
 // days or weeks ago, or a timestamp typed in one of the formats logs print. The viewer draws
 // local time, so a timestamp with no offset is read as local time.
-import { Clock, History } from 'lucide-react';
-import { Fragment, useState } from 'react';
-
 import { Alert, AlertDescription, AlertTitle } from '@kubetail/ui/elements/alert';
 import { Button } from '@kubetail/ui/elements/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@kubetail/ui/elements/select';
+import { Clock, History } from 'lucide-react';
+import { Fragment, useState } from 'react';
 
 import { Input } from '@/components/widgets/text-entry';
 

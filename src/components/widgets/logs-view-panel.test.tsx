@@ -14,8 +14,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { LogsView } from '@/lib/logs-view';
 import { createLogViewportHandle } from '@/lib/log-viewport';
+import type { LogsView } from '@/lib/logs-view';
+
 import { LogsViewHeader, LogsViewPanel } from './logs-view-panel';
 
 // The viewer has a suite of its own; this file is about the panel around it.

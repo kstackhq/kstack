@@ -15,17 +15,17 @@
 
 // A cell's right-click menu, kubetail's `CellContextMenu` ported: fixed labels, and what each
 // copies is the cell's plain text.
-import type { ReactElement } from 'react';
-
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
 } from '@kubetail/ui/elements/context-menu';
+import type { ReactElement } from 'react';
 
 import { copyToClipboard } from '@/lib/clipboard';
 import type { LogLine } from '@/lib/log-viewer';
+
 import type { Column } from './columns';
 import { getPlainAttribute } from './selection';
 

@@ -14,23 +14,21 @@
 
 // The cluster picker: the omnibox's popover listing the kubeconfig's contexts.
 // A row switches the window's cluster; the footer opens the Clusters dialog.
-import { useRef, useState } from 'react';
-import type { ReactElement, ReactNode, RefObject } from 'react';
-
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-import { useLocation, useNavigate } from '@tanstack/react-router';
-import { X } from 'lucide-react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { PopoverClose } from '@kubetail/ui/elements/popover';
 import { Spinner } from '@kubetail/ui/elements/spinner';
+import { useLocation, useNavigate } from '@tanstack/react-router';
+import { X } from 'lucide-react';
+import { useRef, useState } from 'react';
+import type { ReactElement, ReactNode, RefObject } from 'react';
 
 import { OmniboxPopover } from '@/components/widgets/omnibox-popover';
-
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { useClusters } from '@/lib/clusters';
 import { useDialog } from '@/lib/dialog';
 import { useLogsView } from '@/lib/logs-view';
+
 import { ClusterList } from './list';
 
 function Notice({ children }: { children: ReactNode }) {
@@ -64,7 +62,10 @@ export function ClusterPicker({
     setOpen(false);
     if (name === context) return;
     clearView();
-    navigate({ to: openChat ? '/chat' : '.', search: (prev) => ({ ...prev, kubeContext: name, chat: undefined }) });
+    void navigate({
+      to: openChat ? '/chat' : '.',
+      search: (prev) => ({ ...prev, kubeContext: name, chat: undefined }),
+    });
   };
 
   const manage = () => {

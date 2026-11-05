@@ -16,14 +16,12 @@
 // (Namespace?/Name/Age) plus kubectl-style extras from the `object-columns`
 // registry. The states render distinctly — not-synced note, connecting spinner,
 // empty snapshot, live table — mirroring `EventsTable`.
-import ReactTimeAgo from 'react-timeago';
-
 import { Spinner } from '@kubetail/ui/elements/spinner';
+import ReactTimeAgo from 'react-timeago';
 
 import { columnsForKind } from '@/components/widgets/object-columns';
 import { VirtualTable } from '@/components/widgets/virtual-table';
 import type { VirtualColumn } from '@/components/widgets/virtual-table';
-
 import { useClusterCachedDataObjects } from '@/lib/cluster-cached-data-objects';
 import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
 import type { PrinterColumn } from '@/lib/dashboard-resources';

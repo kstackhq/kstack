@@ -57,7 +57,7 @@ echo "→ overlay root: $OVERLAY_ROOT"
 # already sandbox-local (not shared with the host), so they need no
 # redirection. Keeping them out of the repo also keeps the module cache's
 # vendored *.ts fixtures out of vitest's file discovery, which — unlike
-# eslint — does not honor .gitignore.
+# oxlint — does not honor .gitignore.
 mkdir -p "$BUILD_ROOT/dist" "$PNPM_STORE" "$NODE_MODULES" "$OVERLAY_ROOT/target"
 
 free_mb="$(df --output=avail -BM "$OVERLAY_ROOT" | tail -1 | tr -dc 0-9)"

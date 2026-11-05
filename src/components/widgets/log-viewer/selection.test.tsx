@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type AppError, onError } from '@/lib/error-bus';
 import type { LogLine } from '@/lib/log-viewer';
+
 import type { Column } from './columns';
 import { lineTime } from './line-time';
 import {

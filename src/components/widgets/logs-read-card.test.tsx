@@ -14,11 +14,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { fakeLogWindows } from '@/test-utils';
-
 import type { AppMode } from '@/lib/app-mode';
 import type { ChatToolCall } from '@/lib/chats';
 import type { LogsReadAction } from '@/lib/logs-view';
+import { fakeLogWindows } from '@/test-utils';
 
 // The card makes no client: any request it made would land here.
 const { requested } = vi.hoisted(() => ({ requested: [] as unknown[] }));

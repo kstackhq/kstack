@@ -12,8 +12,6 @@
   "[css]": { "editor.defaultFormatter": "oxc.oxc-vscode" },
   "[go]": { "editor.defaultFormatter": "golang.go" },
   "[rust]": { "editor.defaultFormatter": "rust-lang.rust-analyzer" },
-  // Linting is ESLint's; there is no .oxlintrc.json for the extension's linter half to read.
-  "oxc.enable.oxlint": false,
   // There is no .prettierrc — the options moved to .oxfmtrc.json. Anyone still running the
   // Prettier extension would format at its defaults (80 columns, double quotes) and churn
   // every file it touched.

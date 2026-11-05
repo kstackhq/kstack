@@ -63,7 +63,7 @@ const vitestConfig = (coverage: boolean) =>
         enabled: coverage,
         provider: 'v8',
         reporter: ['text', 'lcovonly'],
-        include: ['src/**/*.{ts,tsx}'],
+        include: ['src/**/*.{ts,tsx}', 'lint/**/*.js'],
         // Generated output, the router's wiring, the entry point, and the test
         // harness itself: a test would assert nothing the suite doesn't already.
         exclude: [

@@ -14,9 +14,8 @@
 
 // Chat/Dashboard switch. Router links, not local state, so each mode is a real
 // deep-linkable route; the active one is highlighted via `data-status`.
-import { LayoutDashboard, MessageCircle } from 'lucide-react';
-
 import { Link } from '@tanstack/react-router';
+import { LayoutDashboard, MessageCircle } from 'lucide-react';
 
 const TRACK = 'inline-flex w-full items-center rounded-lg bg-muted p-[3px] text-muted-foreground';
 const ITEM =

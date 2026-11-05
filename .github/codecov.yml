@@ -26,6 +26,7 @@ component_management:
       name: TypeScript
       paths:
         - src/**
+        - lint/**
     - component_id: rust
       name: Rust
       paths:

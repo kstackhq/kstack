@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, screen, waitFor } from '@testing-library/react';
+import { SidebarProvider } from '@kubetail/ui/elements/sidebar';
 import { createRootRoute, createRoute, Outlet } from '@tanstack/react-router';
+import { act, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { SidebarProvider } from '@kubetail/ui/elements/sidebar';
-
 import { renderWithRouter } from '@/test-utils';
+
 import { LeftSidebarPill } from './left-sidebar-pill';
 
 // Helpers -------------------------------------------------------------

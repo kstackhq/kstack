@@ -167,7 +167,9 @@ describe('PermissionSettings', () => {
   it("turns off the webview's suggestions in every field of a rule", () => {
     render(<PermissionSettings />);
     const form = screen.getByRole('form', { name: 'Add a rule' });
-    within(form).getAllByRole('textbox').forEach(expectCodeText);
+    within(form)
+      .getAllByRole('textbox')
+      .forEach((box) => expectCodeText(box));
   });
 
   it('adds a cluster rule with its fields', async () => {

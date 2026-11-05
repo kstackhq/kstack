@@ -43,7 +43,7 @@ beforeEach(() => {
         this.callback();
       }
 
-      // eslint-disable-next-line class-methods-use-this -- a fake has nothing to release
+      // oxlint-disable-next-line class-methods-use-this -- a fake has nothing to release
       disconnect() {}
     },
   );

@@ -17,6 +17,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LogLine } from '@/lib/log-viewer';
+
 import type { Column } from './columns';
 import { CellContextMenu } from './context-menu';
 import { lineTime } from './line-time';

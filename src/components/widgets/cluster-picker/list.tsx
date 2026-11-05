@@ -15,15 +15,13 @@
 // The picker's list: one row per kubeconfig context, the window's first, each with
 // its record's health. Names and summaries are cluster data, drawn as text. A
 // filter appears once the list is long enough to need one.
+import { Check } from 'lucide-react';
 import { useState } from 'react';
 import type { RefObject } from 'react';
-
-import { Check } from 'lucide-react';
 
 import { ClusterDot } from '@/components/widgets/cluster-dot';
 import { Input } from '@/components/widgets/text-entry';
 import { UnverifiedTLSBadge } from '@/components/widgets/unverified-tls-badge';
-
 import { contextHealth } from '@/lib/cluster-health';
 import type { Cluster } from '@/lib/clusters';
 import type { KubeContextInfo } from '@/lib/kube-config';

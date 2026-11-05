@@ -317,7 +317,7 @@ function Landing({
   );
   const beforeRow = state.before.more ? edgeRowHeight : 0;
   const afterRow = state.after.more ? edgeRowHeight : 0;
-  // eslint-disable-next-line react-hooks/incompatible-library -- the virtualizer mutates in place; this component reads it in render
+  // oxlint-disable-next-line react-hooks-js/incompatible-library -- the virtualizer mutates in place; this component reads it in render
   const virtualizer = useVirtualizer({
     count: length,
     getScrollElement: () => scrollRef.current,
@@ -391,8 +391,7 @@ function Landing({
     <div
       ref={setScroller}
       className={className}
-      // Focusable so the keys reach the scroller, and its intent with them.
-      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+      // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so the keys reach the scroller, and its intent with them
       tabIndex={0}
       style={{ overflow: 'auto', overflowAnchor: 'none' }}
     >

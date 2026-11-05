@@ -16,6 +16,7 @@ import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
+
 import { columnsForKind } from './object-columns';
 import type { ObjectColumn } from './object-columns';
 

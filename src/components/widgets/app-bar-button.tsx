@@ -14,9 +14,9 @@
 
 // The look every control in the app bar wears, in one place so the buttons, the
 // pills and the omnibox cannot drift apart.
-import type { ComponentProps, ReactNode } from 'react';
 import { Button } from '@kubetail/ui/elements/button';
 import { cn } from '@kubetail/ui/lib/utils';
+import type { ComponentProps, ReactNode } from 'react';
 
 // `ghost` is the library variant with no resting fill, so the bar's tint shows
 // through and only hover paints. That drops the border with it, hence

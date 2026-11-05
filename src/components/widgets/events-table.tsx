@@ -16,13 +16,11 @@
 // `useClusterCachedDataEvents`. Unfiltered for now. Gates on `active`/`phase` — the
 // pattern every whole-screen watch view follows.
 // See docs/adr/2026-08-09-delta-watch-protocol.md
-import ReactTimeAgo from 'react-timeago';
-
 import { Spinner } from '@kubetail/ui/elements/spinner';
+import ReactTimeAgo from 'react-timeago';
 
 import { VirtualTable } from '@/components/widgets/virtual-table';
 import type { VirtualColumn } from '@/components/widgets/virtual-table';
-
 import { useClusterCachedDataEvents } from '@/lib/cluster-cached-data-events';
 import type { ClusterCachedDataEvent } from '@/lib/cluster-cached-data-events';
 

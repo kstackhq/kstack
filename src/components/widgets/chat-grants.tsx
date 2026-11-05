@@ -17,11 +17,9 @@
 // the reason. It draws nothing while the chat holds none. A rule's line is the
 // sidecar's, drawn through VisibleText, since its context and namespace are
 // cluster text.
-import { useState } from 'react';
-
-import { ShieldCheck } from 'lucide-react';
-
 import { Button } from '@kubetail/ui/elements/button';
+import { ShieldCheck } from 'lucide-react';
+import { useState } from 'react';
 
 import { VisibleText } from '@/components/widgets/visible-text';
 import { useChatGrants } from '@/lib/chat-grants';

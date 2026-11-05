@@ -25,8 +25,7 @@ export const Route = createRoute({
   getParentRoute: () => appRoute,
   path: '/',
   beforeLoad: () => {
-    // TanStack signals a redirect by throwing the `redirect()` result.
-    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    // oxlint-disable-next-line typescript/only-throw-error -- TanStack signals a redirect by throwing the `redirect()` result
     throw redirect({ to: DEFAULT_ROUTE });
   },
 });

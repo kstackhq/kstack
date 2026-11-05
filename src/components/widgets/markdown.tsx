@@ -20,8 +20,8 @@ import { toJsxRuntime } from 'hast-util-to-jsx-runtime';
 import { Check, Copy } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import type { ComponentProps } from 'react';
-import { jsx, jsxs } from 'react/jsx-runtime';
 import ReactMarkdown, { type ExtraProps } from 'react-markdown';
+import { jsx, jsxs } from 'react/jsx-runtime';
 import remarkGfm from 'remark-gfm';
 
 import '@/components/widgets/markdown.css';
@@ -62,7 +62,7 @@ function Code({ className, children, ...p }: ComponentProps<'code'>) {
   useEffect(() => {
     if (lang === undefined || loaded(lang)) return undefined;
     let live = true;
-    load(lang).then((ok) => {
+    void load(lang).then((ok) => {
       if (live && ok) arrived((n) => n + 1);
     });
     return () => {

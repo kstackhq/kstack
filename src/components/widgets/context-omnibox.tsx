@@ -17,14 +17,12 @@
 // opens its status; the brain opens its memory; a press anywhere else opens the
 // cluster picker, which switches the window's cluster and leads to the Clusters
 // dialog.
-import type { ReactNode, RefObject } from 'react';
-import { useRef, useState } from 'react';
-
-import { Brain, Server } from 'lucide-react';
-
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { cn } from '@kubetail/ui/lib/utils';
+import { Brain, Server } from 'lucide-react';
+import type { ReactNode, RefObject } from 'react';
+import { useRef, useState } from 'react';
 
 import { APP_BAR_CONTROL_CLASS, APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-button';
 import { ClusterDot } from '@/components/widgets/cluster-dot';
@@ -32,7 +30,6 @@ import { ClusterPicker } from '@/components/widgets/cluster-picker';
 import { ClusterStatusPopover } from '@/components/widgets/cluster-status-popover';
 import { MemoryPopover } from '@/components/widgets/memory';
 import { UnverifiedTLSBadge } from '@/components/widgets/unverified-tls-badge';
-
 import { useActiveCluster } from '@/lib/active-cluster';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { contextHealth } from '@/lib/cluster-health';

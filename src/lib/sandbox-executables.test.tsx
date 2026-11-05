@@ -13,12 +13,12 @@
 // limitations under the License.
 
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 const { useWatchSubscriptionMock, useMutationMock, mutations } = vi.hoisted(() => ({
   useWatchSubscriptionMock: vi.fn(),
   useMutationMock: vi.fn(),
-  mutations: {} as Record<string, ReturnType<typeof vi.fn>>,
+  mutations: {} as Record<string, Mock<(variables: unknown) => Promise<unknown>>>,
 }));
 vi.mock('urql', () => ({ useMutation: useMutationMock }));
 vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
@@ -94,7 +94,7 @@ describe('useSandboxExecutables', () => {
     rerender();
 
     act(() => {
-      result.current.probe();
+      void result.current.probe();
     });
     expect(result.current.probing).toBe(true);
 
@@ -115,7 +115,7 @@ describe('useSandboxExecutables', () => {
     pushFrame(false, 0);
     rerender();
     act(() => {
-      result.current.probe();
+      void result.current.probe();
     });
     expect(result.current.probing).toBe(true);
 
@@ -162,7 +162,7 @@ describe('useSandboxExecutables', () => {
     const { result } = renderHook(() => useSandboxExecutables());
 
     act(() => {
-      result.current.remove('k9s');
+      void result.current.remove('k9s');
     });
     expect(mutations.SandboxExecutableRemove).toHaveBeenCalledWith({ name: 'k9s' });
     expect(result.current.changing).toBe(true);

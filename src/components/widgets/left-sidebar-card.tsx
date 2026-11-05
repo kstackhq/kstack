@@ -16,9 +16,8 @@
 // content row, beside the page. `LeftSidebar` mounts it while the sidebar is open
 // and swaps in `LeftSidebarPill` otherwise. Built here rather than with the library's
 // `Sidebar` so the swap is an instant unmount, not a slide.
-import type { ReactNode } from 'react';
-
 import { SidebarContent, SidebarHeader } from '@kubetail/ui/elements/sidebar';
+import type { ReactNode } from 'react';
 
 import { AppLogo } from '@/components/widgets/app-logo';
 import { LeftSidebarToggle } from '@/components/widgets/left-sidebar-toggle';

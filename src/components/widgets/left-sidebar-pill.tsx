@@ -16,8 +16,8 @@
 // mode switch as icons. Router links, like `ModeNav`, so a mode stays a real
 // deep-linkable route and the active one highlights off `data-status`.
 
-import { LayoutDashboard, MessageCircle } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
+import { LayoutDashboard, MessageCircle } from 'lucide-react';
 
 import { LeftSidebarToggle } from '@/components/widgets/left-sidebar-toggle';
 

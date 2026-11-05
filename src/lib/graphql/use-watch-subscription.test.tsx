@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { createElement } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement } from 'react';
+import type { ReactNode } from 'react';
 import { Client, gql, Provider } from 'urql';
+import type { Exchange, OperationContext, OperationResult } from 'urql';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { filter, pipe, tap } from 'wonka';
 import type { Source } from 'wonka';
-import type { Exchange, OperationContext, OperationResult } from 'urql';
-import type { ReactNode } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
 
@@ -55,7 +55,7 @@ const appendTick = (prev: number[] | undefined, frames: { tick: number }[]) => [
 ];
 
 // Drive the live channel, wrapped in act so React flushes the resulting renders.
-const emit = (raw: string) => act(() => liveChannel().onmessage!(raw));
+const emit = (raw: string) => act(async () => liveChannel().onmessage!(raw));
 
 // A fresh urql Client (running the real exchange) wrapped as a renderHook provider.
 function makeWrapper() {
@@ -73,7 +73,7 @@ function renderWatch(wrapper = makeWrapper(), opts?: { unshared?: boolean }) {
 const subscribeCount = () => invokeMock.mock.calls.filter(([cmd]) => cmd === 'graphql_subscribe').length;
 
 // Drive one specific connection, by the order its subscription was opened.
-const emitOn = (idx: number, raw: string) => act(() => channels[idx].onmessage!(raw));
+const emitOn = (idx: number, raw: string) => act(async () => channels[idx].onmessage!(raw));
 
 const state = (r: { result: { current: { data?: number[] | undefined; connected: boolean } } }) => r.result.current;
 

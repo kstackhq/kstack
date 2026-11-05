@@ -19,14 +19,14 @@
 // primitives, the line's own object, the column state's and its share of the selection, so a
 // frame that adds a line draws the new row alone, and a prepend that moves every row
 // re-renders them without laying them out again.
+import { cn } from '@kubetail/ui/lib/utils';
 import { stripAnsi } from 'fancy-ansi';
 import { type KeyboardEvent, type MouseEvent, memo, useMemo } from 'react';
-
-import { cn } from '@kubetail/ui/lib/utils';
 
 import { AnsiText } from '@/components/widgets/ansi-text';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { LogLine } from '@/lib/log-viewer';
+
 import { type Column, dotColor } from './columns';
 import { CellContextMenu } from './context-menu';
 import { lineTime } from './line-time';
@@ -224,6 +224,7 @@ export const LogViewerRow = memo(
           // is, and a wrapped message is not measured.
           const content = cellContent(line, col);
           const cell = (
+            // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a cell with handlers is a `gridcell`; the dot has neither
             <div
               key={col}
               ref={wrapped ? undefined : measureCell}

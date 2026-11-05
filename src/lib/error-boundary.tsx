@@ -16,9 +16,8 @@
 // state. Async errors (handlers, effects, subscriptions) aren't caught here — they
 // flow through the error bus.
 
-import { Component, type ErrorInfo, type ReactNode } from 'react';
-
 import { Button } from '@kubetail/ui/elements/button';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 import { reportError } from '@/lib/error-bus';
 

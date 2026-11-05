@@ -17,9 +17,8 @@ import userEvent from '@testing-library/user-event';
 import { Provider as UrqlProvider } from 'urql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { clusterRecord, flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
-
 import type { Cluster } from '@/lib/clusters';
+import { clusterRecord, flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
 
 // Frames pushed here are asserted on immediately.
 flushWatchesSynchronously();

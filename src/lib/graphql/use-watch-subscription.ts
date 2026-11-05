@@ -26,9 +26,9 @@
 // between side-channel notify and frame.
 // See docs/adr/2026-08-09-transport-status-generation.md
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { pipe, subscribe } from 'wonka';
 import { createRequest, useClient } from 'urql';
 import type { AnyVariables, UseSubscriptionArgs } from 'urql';
+import { pipe, subscribe } from 'wonka';
 
 import { getStatus, subscribeStatus } from './transport-status';
 

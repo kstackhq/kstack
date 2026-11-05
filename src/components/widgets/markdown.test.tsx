@@ -116,7 +116,10 @@ describe('Markdown', () => {
 
   it('shows the check for 1.5 seconds after the latest click', () => {
     vi.useFakeTimers();
-    const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+    const advance = (ms: number) =>
+      act(() => {
+        vi.advanceTimersByTime(ms);
+      });
     render(<Markdown text={'```\nkubectl get pods\n```'} />);
     fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
     advance(1000);

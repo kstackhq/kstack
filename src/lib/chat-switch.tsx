@@ -79,10 +79,11 @@ export function useChatSwitch(
     [key, setInFlight],
   );
 
-  const switchTo = async (value: boolean) => {
+  const switchTo = (value: boolean) => {
     setInFlight((current) => ({ ...current, [key]: null }));
-    const result = await commit(value);
-    setInFlight((current) => (result === undefined ? without(current, key) : { ...current, [key]: result }));
+    void commit(value).then((result) =>
+      setInFlight((current) => (result === undefined ? without(current, key) : { ...current, [key]: result })),
+    );
   };
 
   return { switching: committed !== undefined && !landed, switchTo };

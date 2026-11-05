@@ -18,11 +18,10 @@
 // behind "Show more…" (curated children present) or a parent-level chevron
 // (childless group); both start closed and auto-open when they hold the active
 // resource. See docs/adr/2026-08-09-dashboard-nav-merge.md
-import { useState } from 'react';
+import { Spinner } from '@kubetail/ui/elements/spinner';
 import { Link, useSearch } from '@tanstack/react-router';
 import { ChevronRight } from 'lucide-react';
-
-import { Spinner } from '@kubetail/ui/elements/spinner';
+import { useState } from 'react';
 
 import { useDashboardNav } from '@/lib/dashboard-nav';
 import { findNode, resolveDashboardResource } from '@/lib/dashboard-resources';

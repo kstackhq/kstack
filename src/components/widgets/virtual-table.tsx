@@ -21,10 +21,9 @@
 // moves `scrollTop` by the smallest shift any of them made, so what the user is reading
 // stays put. Native scroll anchoring is off (`overflow-anchor: none`) — Chromium's would
 // stack on top of this correction; WebKit has none.
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@kubetail/ui/elements/table';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@kubetail/ui/elements/table';
 
 // One fact, two forms. `ROW_H_PX` is the pinned row's rendered height — `TableRow` has
 // `border-b` under collapsed table borders, so it is read off a rendered row, not derived.
@@ -96,8 +95,7 @@ export function VirtualTable<T>({ rows, rowKey, columns }: VirtualTableProps<T>)
   return (
     <div
       ref={scrollerRef}
-      // Focusable so Home/End/PageUp/PageDown reach the scroll region.
-      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+      // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so Home/End/PageUp/PageDown reach the scroll region
       tabIndex={0}
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       className="flex-1 overflow-auto [overflow-anchor:none] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"

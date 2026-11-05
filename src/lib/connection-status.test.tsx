@@ -32,7 +32,10 @@ afterEach(() => {
 const banner = () => screen.queryByRole('status');
 
 // The banner clears itself on a timer; no wall-clock waiting.
-const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+const advance = (ms: number) =>
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
 
 const report = (error: Parameters<typeof reportError>[0]) => act(() => reportError(error));
 

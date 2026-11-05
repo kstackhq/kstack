@@ -20,10 +20,9 @@
 // edge (the handle's parent), one anchored at the window's right as wide as
 // what is left of the window. `offset` adds any padding between the pane's box
 // and the border being dragged.
+import { cn } from '@kubetail/ui/lib/utils';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useCallback } from 'react';
-
-import { cn } from '@kubetail/ui/lib/utils';
 
 import { dragFrom } from '@/lib/pointer-drag';
 

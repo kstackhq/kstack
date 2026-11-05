@@ -15,8 +15,8 @@
 // The app window's side of its log windows. The host keeps the pair (`log_windows.rs`):
 // this provider subscribes to it, folds its frames into one map by label, and sends
 // the app window's commands, each naming the page the subscribe answered.
-import { Channel, invoke } from '@tauri-apps/api/core';
 import { useNavigate } from '@tanstack/react-router';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -133,7 +133,7 @@ export function LogWindowsProvider({ children }: { children: ReactNode }) {
           return next;
         });
       } else if ('showChat' in frame) {
-        latest.current.navigate({ to: '/chat/$chatId', params: { chatId: frame.showChat.chatId } });
+        void latest.current.navigate({ to: '/chat/$chatId', params: { chatId: frame.showChat.chatId } });
       }
     });
     invoke<{ page: number }>('log_window_subscribe', { channel }).then(

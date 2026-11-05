@@ -13,6 +13,8 @@
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
 
     /* Linting */
     "strict": true,
@@ -20,5 +22,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "eslint.config.ts", "codegen.ts", "graphql.config.ts", "index.test.ts"]
+  "include": ["vite.config.ts", "codegen.ts", "graphql.config.ts", "index.test.ts", "lint/*.js", "lint/*.ts"]
 }

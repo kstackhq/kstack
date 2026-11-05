@@ -18,15 +18,14 @@
 // so a reload, an evicted log or a gone cluster draws the same card. View around
 // this makes the watch's view at its first line the focused view, and Open in window
 // moves it to a window, as a LogsRead card's buttons do, in chat mode alone.
+import { Button } from '@kubetail/ui/elements/button';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { Button } from '@kubetail/ui/elements/button';
-
 import { logLine } from '@/components/widgets/logs-read-card';
+import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
 import { GapRow, LineRow, readsOneStream } from '@/components/widgets/logs-view-inline';
 import { SourceLine } from '@/components/widgets/logs-view-lines';
-import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { AppMode } from '@/lib/app-mode';

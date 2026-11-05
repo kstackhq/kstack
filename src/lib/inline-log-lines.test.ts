@@ -14,9 +14,10 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { FakeClient } from '@/lib/log-viewer/fake-client';
 import type { Client, LogLine, Page } from '@/lib/log-viewer';
+import { FakeClient } from '@/lib/log-viewer/fake-client';
 import type { LogsViewAction } from '@/lib/logs-view';
+
 import { InlineLines, appendLine, inlinePlan, readInline, useInlineLogLines } from './inline-log-lines';
 
 const RESOLVED = '2026-10-08T14:04:00Z';

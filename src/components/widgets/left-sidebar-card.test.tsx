@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import type { ReactNode } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
-
 import { SidebarProvider } from '@kubetail/ui/elements/sidebar';
+import { fireEvent, render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { LeftSidebarCard } from './left-sidebar-card';
 

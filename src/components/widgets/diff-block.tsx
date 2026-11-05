@@ -16,9 +16,8 @@
 // from a dry run. Each line is its own element through VisibleText, so cluster
 // text is never HTML; an added or removed line is colored, a hunk header muted.
 // The fold is the caller's, since Approve waits on it.
-import { useMemo } from 'react';
-
 import { Button } from '@kubetail/ui/elements/button';
+import { useMemo } from 'react';
 
 import '@/components/widgets/markdown.css';
 import { VisibleText } from '@/components/widgets/visible-text';
@@ -49,8 +48,7 @@ export function DiffBlock({
     <>
       <pre className="mt-1 font-mono text-xs break-all whitespace-pre-wrap">
         {lines.map((line, i) => (
-          // A line's place is its identity: the diff never reorders.
-          // eslint-disable-next-line react/no-array-index-key
+          // oxlint-disable-next-line react/no-array-index-key -- a line's place is its identity: the diff never reorders
           <span key={i} className={lineClass(line)}>
             <VisibleText text={line} />
           </span>

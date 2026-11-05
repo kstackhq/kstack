@@ -18,7 +18,6 @@
 import { Settings } from 'lucide-react';
 
 import { AppBarButton } from '@/components/widgets/app-bar-button';
-
 import { useDialog } from '@/lib/dialog';
 
 export function SettingsButton() {

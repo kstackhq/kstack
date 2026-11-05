@@ -18,13 +18,12 @@
 // lines. A footer says what the model saw beyond them. View around this makes the
 // read's view the focused view, and Open in window moves it to a window, as a LogsView
 // card's buttons do, in chat mode alone.
+import { Button } from '@kubetail/ui/elements/button';
 import { useState } from 'react';
 
-import { Button } from '@kubetail/ui/elements/button';
-
+import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
 import { GapRow, LineRow, type LineTag, readsOneStream } from '@/components/widgets/logs-view-inline';
 import { SourceLine } from '@/components/widgets/logs-view-lines';
-import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { AppMode } from '@/lib/app-mode';

@@ -19,7 +19,6 @@
 // value on each start, each end and each change to the registered executables,
 // from every window, so nothing is asked again.
 import { useCallback, useState } from 'react';
-
 import { useMutation } from 'urql';
 
 import { graphql } from '@/gql';

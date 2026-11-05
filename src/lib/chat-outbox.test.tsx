@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import type { ReactNode } from 'react';
-
 import { act, renderHook } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LogsViewSnapshotInput } from '@/gql/graphql';
@@ -401,7 +400,7 @@ describe('a send', () => {
     const { result, rerender } = renderOutbox();
     act(() => result.current.setDraft('hello'));
     act(() => {
-      result.current.submit(OFF);
+      void result.current.submit(OFF);
     });
 
     rerender(['chat', 'c2', '1', seeded]);
@@ -612,7 +611,7 @@ describe('a send', () => {
     const pick: Pick = seeded;
 
     act(() => {
-      result.current.askAgain('what is a pod?', pick, OFF);
+      void result.current.askAgain('what is a pod?', pick, OFF);
     });
     expect(result.current.send.status).toBe('sending');
 

@@ -14,8 +14,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { clusterRecord } from '@/test-utils';
 import { cacheFailureSummary, connectionFailureSummary, contextHealth, overallTone } from '@/lib/cluster-health';
+import { clusterRecord } from '@/test-utils';
 
 describe('overallTone', () => {
   it('rolls up to the most severe of the two sub-system tones', () => {

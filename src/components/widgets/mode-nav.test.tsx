@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, screen, waitFor } from '@testing-library/react';
 import { createRootRoute, createRoute, Outlet } from '@tanstack/react-router';
+import { act, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { renderWithRouter } from '@/test-utils';
+
 import { ModeNav } from './mode-nav';
 
 // A minimal tree: the nav plus two destination pages, so navigation can be

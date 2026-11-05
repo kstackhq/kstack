@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, render, screen, waitFor } from '@testing-library/react';
 import {
   createBrowserHistory,
   createRootRoute,
@@ -22,9 +21,11 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { renderWithRouter } from '@/test-utils';
+
 import { FORWARD_CEILING_STORAGE_KEY, HistoryNav } from './history-nav';
 
 // A minimal tree: the nav plus two pages linked to each other, so history can be

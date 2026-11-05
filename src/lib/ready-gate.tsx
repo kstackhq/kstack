@@ -22,10 +22,9 @@
 // draws its own drag strip. It overlays the top of the screen rather than taking
 // space from it, keeping the mark centred in the window.
 
+import { Button } from '@kubetail/ui/elements/button';
 import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
-
-import { Button } from '@kubetail/ui/elements/button';
 
 import { AppMark } from '@/components/widgets/app-mark';
 import { VisibleText } from '@/components/widgets/visible-text';
@@ -46,7 +45,7 @@ export function ReadyGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         if (import.meta.env.DEV) await devHold(import.meta.env.VITE_READY_GATE_HOLD);
         await invoke('ready');

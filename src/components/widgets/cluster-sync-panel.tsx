@@ -16,30 +16,18 @@
 // Orphaned (leftover cache, context gone). Mutations write through; the resulting
 // clustersWatch push updates the table. Its connection and sync detail panes are
 // also the omnibox's status popover's body.
+import { Button } from '@kubetail/ui/elements/button';
+import { Spinner } from '@kubetail/ui/elements/spinner';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@kubetail/ui/elements/table';
 import { ChevronDown, Database, Pause, Play, Power, PowerOff, RotateCw, Slash, Trash2 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import ReactTimeAgo, { type Formatter } from 'react-timeago';
 import { useMutation } from 'urql';
 
-import { Button } from '@kubetail/ui/elements/button';
-import { Spinner } from '@kubetail/ui/elements/spinner';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@kubetail/ui/elements/table';
-
 import { DataRateSparkline } from '@/components/widgets/data-rate-sparkline';
 import { Dialog } from '@/components/widgets/dialog';
 import { graphql } from '@/gql';
 import type { ClusterCachedKindsSubscription } from '@/gql/graphql';
-import {
-  type Cluster,
-  type ClusterCacheHealth,
-  type Keyed,
-  applyChange,
-  displayName,
-  formatBytes,
-  formatRate,
-  useClusters,
-} from '@/lib/clusters';
-import { type AppDialogProps, useDialogHost } from '@/lib/dialog';
 import {
   type Group,
   type Status,
@@ -51,9 +39,20 @@ import {
   overallStatus,
   syncStatus,
 } from '@/lib/cluster-health';
-import { EVENTS_GVR, gvrKey } from '@/lib/gvr';
+import {
+  type Cluster,
+  type ClusterCacheHealth,
+  type Keyed,
+  applyChange,
+  displayName,
+  formatBytes,
+  formatRate,
+  useClusters,
+} from '@/lib/clusters';
+import { type AppDialogProps, useDialogHost } from '@/lib/dialog';
 import { perFrame, seriesReducer, useWatchSubscription, watchPhase } from '@/lib/graphql/use-watch-subscription';
 import type { SeriesFrame } from '@/lib/graphql/use-watch-subscription';
+import { EVENTS_GVR, gvrKey } from '@/lib/gvr';
 
 const ClusterEnabledSetMutation = graphql(`
   mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {
@@ -644,7 +643,7 @@ export function RetryButton({
       size={size}
       disabled={busy}
       onClick={() => {
-        retry({ id: clusterId });
+        void retry({ id: clusterId });
       }}
     >
       <RotateCw className={`size-3.5 ${busy ? 'animate-spin' : ''}`} aria-hidden />
@@ -854,7 +853,7 @@ export function SyncDetail({
   // control rather than a guessed id.
   const idOf = (kind: KindSyncStatus) => kindSyncs.find((s) => gvrKey(s.spec) === gvrKey(kind))?.id ?? null;
   const setSyncEnabled = (id: string, syncEnabled: boolean) => {
-    setKindSyncEnabled({ id, syncEnabled });
+    void setKindSyncEnabled({ id, syncEnabled });
   };
   // Newest write anywhere, beside the OLDEST proof — a cache is only as verified
   // as its least-recently proven watch.
@@ -1352,7 +1351,8 @@ export function ClusterSyncPanel({ open, onOpenChange }: AppDialogProps) {
                   // cluster owning more than one. The button is disabled until the
                   // active cache reports a file, so the guard never fires in practice.
                   onClearCache={() => {
-                    if (c.activeCache) clusterCacheClearMut({ id: c.activeCache.id });
+                    /* v8 ignore else -- the button is disabled until the active cache reports a file */
+                    if (c.activeCache) void clusterCacheClearMut({ id: c.activeCache.id });
                   }}
                   onRemove={() => clusterDeleteMut({ id: c.id })}
                 />

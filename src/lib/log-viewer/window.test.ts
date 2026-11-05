@@ -1192,9 +1192,9 @@ async function walk(seed: number) {
           // straddle its out-of-order lines.
           if (w.following()) {
             fake.append(PAGE + rand.int(8), 1 + rand.int(2));
-            // eslint-disable-next-line no-await-in-loop -- each action settles before the next
+            // oxlint-disable-next-line no-await-in-loop -- each action settles before the next
             await settle();
-            // eslint-disable-next-line no-await-in-loop -- each action settles before the next
+            // oxlint-disable-next-line no-await-in-loop -- each action settles before the next
             await inTurn(4, async () => {
               vi.advanceTimersByTime(1);
               fake.append(1 + rand.int(3));
@@ -1230,19 +1230,23 @@ async function walk(seed: number) {
       for (let n = 0; n < 300 && !done(); n += 1) {
         scrollTo(edge === 'before' ? 0 : maxTop());
         pageToward(edge);
-        // eslint-disable-next-line no-await-in-loop -- each page settles before the next is asked
+        // oxlint-disable-next-line no-await-in-loop -- each page settles before the next is asked
         await settle();
         check();
         heldNow().forEach((c) => swept.add(c));
       }
+      // oxlint-disable-next-line vitest/no-conditional-expect -- the seed decides whether the sweep runs
       expect(done(), `${context}: the sweep ${edge} never ended`).toBe(true);
     };
     await sweep('before', () => !w.edges().before.more);
     // An ended follow leaves the after edge open, so the newest line held ends the sweep too.
     await sweep('after', () => !w.edges().after.more || heldNow().has(fake.lineAt(fake.lineCount - 1).cursor));
-    dropped.forEach((c) => {
-      if (!inPassed(index(c))) expect(swept.has(c), `${context}: ${c} never came back`).toBe(true);
-    });
+    [...dropped]
+      .filter((c) => !inPassed(index(c)))
+      .forEach((c) => {
+        // oxlint-disable-next-line vitest/no-conditional-expect -- the seed decides whether the sweep runs
+        expect(swept.has(c), `${context}: ${c} never came back`).toBe(true);
+      });
   }
   closeFollow();
 }
@@ -1549,6 +1553,7 @@ describe('the walk', () => {
     vi.useRealTimers();
   });
 
+  // oxlint-disable-next-line vitest/expect-expect -- `walk` checks the rules after every step
   it('keeps every rule through 300 seeds of 60 steps', async () => {
     await inTurn(300, (n) => walk(n + 1));
   }, 60_000);
