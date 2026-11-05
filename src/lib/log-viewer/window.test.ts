@@ -1052,11 +1052,14 @@ async function walk(seed: number) {
 
   const inPassed = (i: number) => passed.some(({ from, to }) => from <= i && i < to);
 
+  // `check` runs after every step, so each rule over the held lines finds its first breach and
+  // asserts once: an `expect` per line is most of the walk's time under coverage.
   function check() {
     const snap = w.getSnapshot();
     const held = Array.from({ length: snap.length }, (_, i) => w.lineAt(i).cursor);
     expect(new Set(held).size, `${context}: a line held twice`).toBe(held.length);
-    held.forEach((c, i) => expect(w.lineAt(i), `${context}: a line not the fake's`).toBe(fake.lineAt(index(c))));
+    const stranger = held.findIndex((c, i) => w.lineAt(i) !== fake.lineAt(index(c)));
+    expect(stranger, `${context}: a line not the fake's`).toBe(-1);
     if (snap.length > 0) expect(snap.firstKey, `${context}: firstKey disagrees`).toBe(w.keyAt(0));
 
     // Each container's held lines are one run of its log, but for lines an empty read passed over.
@@ -1065,15 +1068,16 @@ async function walk(seed: number) {
       const key = fake.lineAt(i).stream.pod;
       byContainer.set(key, [...(byContainer.get(key) ?? []), i]);
     });
+    let broken: string | null = null;
     byContainer.forEach((indexes, name) => {
       const sorted = indexes.toSorted((a, b) => a - b);
       for (let k = 1; k < sorted.length; k += 1) {
         for (let i = sorted[k - 1] + 1; i < sorted[k]; i += 1) {
-          if (fake.lineAt(i).stream.pod === name)
-            expect(inPassed(i), `${context}: ${name}'s held lines are not one run`).toBe(true);
+          if (fake.lineAt(i).stream.pod === name && !inPassed(i)) broken ??= name;
         }
       }
     });
+    expect(broken, `${context}: ${broken}'s held lines are not one run`).toBeNull();
 
     // Held lines and passed-over spans are one stretch of the log, until the window drops.
     const covered = new Set(held.map(index));
@@ -1088,10 +1092,11 @@ async function walk(seed: number) {
     }
 
     // What pages brought is in log order; a follow's lines keep their arrival order.
-    const paged = held.filter((c) => !byFollow.has(c)).map(index);
-    paged.forEach((value, i) => {
-      if (i > 0 && !anyDrop) expect(value, `${context}: paged lines out of log order`).toBeGreaterThan(paged[i - 1]);
-    });
+    if (!anyDrop) {
+      const paged = held.filter((c) => !byFollow.has(c)).map(index);
+      const outOfOrder = paged.findIndex((value, i) => i > 0 && value <= paged[i - 1]);
+      expect(outOfOrder, `${context}: paged lines out of log order`).toBe(-1);
+    }
 
     expect(snap.following, `${context}: following disagrees`).toBe(
       landedOk && snap.pinnedToEnd && !paused && snap.ended === null,
@@ -1241,12 +1246,9 @@ async function walk(seed: number) {
     await sweep('before', () => !w.edges().before.more);
     // An ended follow leaves the after edge open, so the newest line held ends the sweep too.
     await sweep('after', () => !w.edges().after.more || heldNow().has(fake.lineAt(fake.lineCount - 1).cursor));
-    [...dropped]
-      .filter((c) => !inPassed(index(c)))
-      .forEach((c) => {
-        // oxlint-disable-next-line vitest/no-conditional-expect -- the seed decides whether the sweep runs
-        expect(swept.has(c), `${context}: ${c} never came back`).toBe(true);
-      });
+    const lost = [...dropped].find((c) => !inPassed(index(c)) && !swept.has(c));
+    // oxlint-disable-next-line vitest/no-conditional-expect -- the seed decides whether the sweep runs
+    expect(lost, `${context}: ${lost} never came back`).toBeUndefined();
   }
   closeFollow();
 }
@@ -1553,8 +1555,14 @@ describe('the walk', () => {
     vi.useRealTimers();
   });
 
+  // 300 seeds of 60 steps, in batches of 50 so no one test nears its timeout on a busy runner.
+  const batches = Array.from({ length: 6 }, (_, b) => ({ from: b * 50 + 1, to: b * 50 + 50 }));
   // oxlint-disable-next-line vitest/expect-expect -- `walk` checks the rules after every step
-  it('keeps every rule through 300 seeds of 60 steps', async () => {
-    await inTurn(300, (n) => walk(n + 1));
-  }, 60_000);
+  it.each(batches)(
+    'keeps every rule through seeds $from to $to, 60 steps each',
+    async ({ from, to }) => {
+      await inTurn(to - from + 1, (n) => walk(from + n));
+    },
+    60_000,
+  );
 });
