@@ -87,3 +87,29 @@ func TestAddedReturnsAReadError(t *testing.T) {
 		t.Errorf("Added = %v, want the read error", err)
 	}
 }
+
+func TestAddedKeysAPathGitMarksByItsPathInTheTree(t *testing.T) {
+	// Git ends a path holding a space with a tab, and C-quotes one holding a
+	// tab, quote, backslash or non-ASCII byte.
+	got, err := Added(strings.NewReader("--- /dev/null\n" +
+		"+++ b/my file.go\t\n" +
+		"@@ -0,0 +1 @@\n" +
+		"+a\n" +
+		"--- /dev/null\n" +
+		`+++ "b/tab\tq\"uote\\\303\251.go"` + "\n" +
+		"@@ -0,0 +1 @@\n" +
+		"+a\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]int{"my file.go": {1}, "tab\tq\"uote\\é.go": {1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Added = %#v, want %#v", got, want)
+	}
+}
+
+func TestAddedRefusesABadlyQuotedPath(t *testing.T) {
+	if _, err := Added(strings.NewReader(`+++ "b/a.go` + "\n")); err == nil {
+		t.Error("Added succeeded")
+	}
+}

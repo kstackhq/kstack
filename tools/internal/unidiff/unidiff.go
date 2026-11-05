@@ -41,9 +41,9 @@ func Added(r io.Reader) (map[string][]int, error) {
 		}
 		switch {
 		case strings.HasPrefix(line, "+++ "):
-			file = strings.TrimPrefix(strings.TrimPrefix(line, "+++ "), "b/")
-			if file == "/dev/null" {
-				file = ""
+			var err error
+			if file, err = newPath(strings.TrimPrefix(line, "+++ ")); err != nil {
+				return nil, err
 			}
 		case strings.HasPrefix(line, "@@ "):
 			var err error
@@ -53,6 +53,25 @@ func Added(r io.Reader) (map[string][]int, error) {
 		}
 	}
 	return added, sc.Err()
+}
+
+// newPath reads the path of a `+++` line, empty for /dev/null. Git ends a
+// path holding a space with a tab, and C-quotes one holding a tab, quote,
+// backslash, control or non-ASCII byte.
+func newPath(s string) (string, error) {
+	s = strings.TrimSuffix(s, "\t")
+	if strings.HasPrefix(s, `"`) {
+		// Git's C escapes are a subset of Go's.
+		unquoted, err := strconv.Unquote(s)
+		if err != nil {
+			return "", fmt.Errorf("%q: %w", s, err)
+		}
+		s = unquoted
+	}
+	if s == "/dev/null" {
+		return "", nil
+	}
+	return strings.TrimPrefix(s, "b/"), nil
 }
 
 // A hunk's position: the next new-side line, and the lines left on each side.
