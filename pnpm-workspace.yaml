@@ -21,9 +21,8 @@ auditConfig:
     # codegen, expanding our own globs. Remove once braces ships a fix.
     # → docs/adr/2026-10-03-ignore-the-braces-advisory-until-it-has-a-patch.md
     - GHSA-vfj7-8cjw-p6xm
-    # minimatch < 11.0.1 (3.x and 10.x here). Dev-only, under GraphQL codegen and
-    # ESLint (eslint-plugin-react-hooks' peer, never run), matching our own
-    # globs; 11.x is a breaking rewrite they don't take.
+    # minimatch < 11.0.1 (10.x here). Dev-only, under GraphQL codegen, matching
+    # our own globs; 11.x is a breaking rewrite it doesn't take.
     # → docs/adr/2026-10-31-ignore-the-minimatch-advisory-until-its-dependents-take-the-fix.md
     - GHSA-g3hv-75wg-m249
 minimumReleaseAgeExclude:

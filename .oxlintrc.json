@@ -3,12 +3,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["eslint", "typescript", "unicorn", "oxc", "react", "jsx-a11y", "import", "vitest"],
-  "jsPlugins": [
-    // The React compiler's own diagnostics, from the plugin that ships them. oxlint's native
-    // `react/*` ports of these report closures the compiler accepts.
-    { "name": "react-hooks-js", "specifier": "eslint-plugin-react-hooks" },
-    "./lint/oxlint-plugin.js"
-  ],
+  "jsPlugins": ["./lint/oxlint-plugin.js"],
   "options": {
     "typeAware": true,
     "denyWarnings": true,
@@ -153,41 +148,13 @@
     "typescript/switch-exhaustiveness-check": ["error", { "requireDefaultForNonUnion": true }],
     "typescript/use-unknown-in-catch-callback-variable": "error",
 
-    // The compiler's rules, as `recommended-latest` sets them, every one an error. They match
-    // the compiler the Vite transform runs (`vite.config.ts`). `exhaustive-deps` is an error
-    // because code here is written to be correct without the compiler.
-    "react-hooks-js/rules-of-hooks": "error",
-    "react-hooks-js/exhaustive-deps": "error",
-    "react-hooks-js/static-components": "error",
-    "react-hooks-js/use-memo": "error",
-    "react-hooks-js/void-use-memo": "error",
-    "react-hooks-js/preserve-manual-memoization": "error",
-    "react-hooks-js/incompatible-library": "error",
-    "react-hooks-js/immutability": "error",
-    "react-hooks-js/globals": "error",
-    "react-hooks-js/refs": "error",
-    "react-hooks-js/set-state-in-effect": "error",
-    "react-hooks-js/error-boundaries": "error",
-    "react-hooks-js/purity": "error",
-    "react-hooks-js/set-state-in-render": "error",
-    "react-hooks-js/unsupported-syntax": "error",
-    "react-hooks-js/config": "error",
-    "react-hooks-js/gating": "error",
-    // The native ports `correctness` turns on.
-    "react/exhaustive-deps": "off",
+    // The React compiler's rules, as oxlint ports them. `correctness` turns on the rest of
+    // `recommended-latest`'s set; `exhaustive-deps` is among them, an error because code here is
+    // written to be correct without the compiler.
+    "react/rules-of-hooks": "error",
+    "react/unsupported-syntax": "error",
+    // It reports a dependency an effect lists to rerun on, such as the location it closes a drawer on.
     "react/exhaustive-effect-dependencies": "off",
-    "react/static-components": "off",
-    "react/use-memo": "off",
-    "react/void-use-memo": "off",
-    "react/preserve-manual-memoization": "off",
-    "react/incompatible-library": "off",
-    "react/immutability": "off",
-    "react/globals": "off",
-    "react/refs": "off",
-    "react/set-state-in-effect": "off",
-    "react/error-boundaries": "off",
-    "react/purity": "off",
-    "react/set-state-in-render": "off",
 
     "kstack/disable-needs-reason": "error",
 

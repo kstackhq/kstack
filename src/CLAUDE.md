@@ -216,7 +216,8 @@ Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo
 ## Lint / build
 
 - `pnpm lint` (oxlint, then `oxfmt --check`) → `make lint-js`. Run before committing. `pnpm format`
-  writes, sorting imports too. → [ADR: lint the webview with oxlint's categories](../docs/adr/2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list.md)
+  writes, sorting imports too. → [ADR: lint the webview with oxlint's categories](../docs/adr/2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list.md),
+  [ADR: oxlint's native React compiler rules](../docs/adr/2026-11-05-lint-the-react-compilers-rules-with-oxlints-native-ports.md)
 - **Linting is oxlint** (`.oxlintrc.json`): the `correctness`, `suspicious` and `perf` categories,
   rules from the other categories named one by one, and type-aware rules through `oxlint-tsgolint`.
   A rule an enabled category already turns on is listed only to give it options or turn it off,
@@ -240,13 +241,12 @@ Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo
   argument mixed with a glob silently narrows to the glob's extensions. `.vscode/settings.json` runs
   the same binaries in the editor (`oxc.oxc-vscode`, resolved from `node_modules`).
 - The **React compiler** is on in two places that must stay in step: the babel transform
-  (`vite.config.ts`, off in `--mode coverage`) and `eslint-plugin-react-hooks`' rules, which oxlint
-  loads as the JS plugin `react-hooks-js` (`recommended-latest`'s rules, in `.oxlintrc.json`). Its
-  rules are named `react-hooks-js/…`; oxlint's native `react/*` ports of them are off. A bail-out on
-  a broken rule is a lint error; one on syntax the compiler does not support yet (a `Todo`, such as
-  destructuring a computed key) is silent.
+  (`vite.config.ts`, off in `--mode coverage`) and oxlint's native ports of the compiler's rules
+  (`react/purity`, `react/refs`, `react/exhaustive-deps`, …: `recommended-latest`'s set, in
+  `.oxlintrc.json`). A disable comment names them `react/…`. A bail-out on a broken rule is a lint
+  error; one on syntax the compiler does not support yet (`react/todo`, such as `??=`) is silent.
 - **Write as though the compiler weren't there** — it bails per-function, silently. So
-  `react-hooks-js/exhaustive-deps` is an **error**, and manual `useMemo`/`useCallback` are ordinary
+  `react/exhaustive-deps` is an **error**, and manual `useMemo`/`useCallback` are ordinary
   tools.
 - In the Linux sandbox, `node_modules` is symlinks into a store every worktree shares, and a package resolves only the dependencies it declares. Never edit a file under it. An error seen only there is most likely an undeclared dependency → [ADR: share one pnpm store across sandbox worktrees](../docs/adr/2026-10-28-share-one-pnpm-store-across-sandbox-worktrees.md).
 - **An `*.svg?react` import is a React component** drawing the SVG inline (`vite-plugin-svgr`, in `vite.config.ts`); a plain `*.svg` import is a URL.

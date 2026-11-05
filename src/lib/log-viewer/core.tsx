@@ -317,7 +317,7 @@ function Landing({
   );
   const beforeRow = state.before.more ? edgeRowHeight : 0;
   const afterRow = state.after.more ? edgeRowHeight : 0;
-  // oxlint-disable-next-line react-hooks-js/incompatible-library -- the virtualizer mutates in place; this component reads it in render
+  // oxlint-disable-next-line react/incompatible-library -- the virtualizer mutates in place; this component reads it in render
   const virtualizer = useVirtualizer({
     count: length,
     getScrollElement: () => scrollRef.current,

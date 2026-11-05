@@ -3,6 +3,8 @@ title: Lint the webview with oxlint's categories and a chosen rule list
 date: 2026-11-05
 scope: frontend
 status: Accepted
+amended_by:
+  - [Lint the React compiler's rules with oxlint's native ports](2026-11-05-lint-the-react-compilers-rules-with-oxlints-native-ports.md)
 ---
 
 # Lint the webview with oxlint's categories and a chosen rule list
