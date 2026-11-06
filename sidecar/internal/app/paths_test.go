@@ -27,6 +27,7 @@ func TestEveryPathIsUnderItsKind(t *testing.T) {
 	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime})
 
 	for want, got := range map[string]string{
+		filepath.Join(data, "sidecar.lock"):  p.LockFile,
 		filepath.Join(data, "app.db"):        p.AppDBFile,
 		filepath.Join(data, "chats"):         p.ChatsDir,
 		filepath.Join(data, "monitor"):       p.MonitorDir,

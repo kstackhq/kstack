@@ -29,6 +29,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/filelock"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
@@ -581,14 +582,50 @@ func TestAppRejectsAnUnusableDataDir(t *testing.T) {
 	require.Error(t, err)
 }
 
-// The app opens app.db once, first in parts so the reverse close order releases it
-// after every service. SQLite deletes the -wal beside a database when its last
-// connection closes, so the sibling's absence shows the file was released.
+// requireUnlocked fails the test while anything holds the data directory's lock.
+func requireUnlocked(t *testing.T, dataDir string) {
+	t.Helper()
+	f, err := filelock.TryLock(filepath.Join(dataDir, "sidecar.lock"))
+	require.NoError(t, err, "the data directory is still locked")
+	require.NoError(t, f.Close())
+}
+
+// A second app on a data directory is refused, naming the directory, until the
+// first closes. The lock is the first part, so it closes after app.db.
+func TestASecondAppOnTheDataDirectoryIsRefused(t *testing.T) {
+	cfg := withDirs(t, Config{})
+	first, err := New(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = first.Close() })
+	assert.Equal(t, 0, partIndex(t, first, "data directory lock"))
+
+	second := cfg
+	second.CacheDir, second.RuntimeDir = t.TempDir(), t.TempDir()
+	_, err = New(t.Context(), second)
+	require.EqualError(t, err, "another Kstack is using "+cfg.DataDir)
+
+	require.NoError(t, first.Close())
+	requireUnlocked(t, cfg.DataDir)
+}
+
+// A lock file that cannot be opened stops the build before app.db opens.
+func TestALockFileThatCannotBeOpenedFailsNew(t *testing.T) {
+	cfg := withDirs(t, Config{})
+	require.NoError(t, os.Mkdir(filepath.Join(cfg.DataDir, "sidecar.lock"), 0o700))
+
+	_, err := New(t.Context(), cfg)
+	require.ErrorContains(t, err, "lock the data directory")
+	assert.NoFileExists(t, filepath.Join(cfg.DataDir, "app.db"))
+}
+
+// The app opens app.db once, right after the lock in parts, so the reverse close
+// order releases it after every service. SQLite deletes the -wal beside a database
+// when its last connection closes, so the sibling's absence shows the file was released.
 func TestAppOwnsTheDatabase(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(t.Context(), withDirs(t, Config{DataDir: dir}))
 	require.NoError(t, err)
-	assert.Equal(t, 0, partIndex(t, a, "app.db"))
+	assert.Equal(t, 1, partIndex(t, a, "app.db"))
 
 	wal := filepath.Join(dir, "app.db-wal")
 	require.FileExists(t, wal)
@@ -605,6 +642,7 @@ func TestAppClosesTheDatabaseWhenADirectoryFails(t *testing.T) {
 	_, err := New(t.Context(), cfg)
 	require.ErrorContains(t, err, "open the chats' directory")
 	assert.NoFileExists(t, filepath.Join(cfg.DataDir, "app.db-wal"))
+	requireUnlocked(t, cfg.DataDir)
 }
 
 // A constructor failing after the open closes the file. A service's statements fail
@@ -645,6 +683,7 @@ func TestABadSettingsFileFailsNew(t *testing.T) {
 	_, err := New(t.Context(), withDirs(t, Config{DataDir: dir}))
 	require.ErrorContains(t, err, file)
 	assert.NoFileExists(t, filepath.Join(dir, "app.db"))
+	requireUnlocked(t, dir)
 }
 
 // The catalog is the config's: each keyed provider at the base URL a debug build

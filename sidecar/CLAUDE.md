@@ -6,7 +6,7 @@ Kubernetes logic. **No TCP**: it listens on a Unix socket (named pipe on Windows
 and `--runtime-dir` are required and absolute; tests pass `t.TempDir()`.
 
 **`<data-dir>/app.db` belongs to `internal/appdb`, and the app owns it.** `build`
-(`internal/app/runtime.go`) opens it first and hands the `*appdb.DB` to each service that uses it;
+(`internal/app/runtime.go`) opens it before any service, under the data directory's lock, and hands the `*appdb.DB` to each service that uses it;
 a service closes only the statements it prepared. `appdb.Open` gives a one-connection migrated
 writer and a `query_only` reader, plus a janitor. A service's statements are a `sqlstmt.Set` on
 `db.Write, db.Read`. Nothing has shipped, so a table change edits `0001_init.sql`. Tests open the
@@ -25,6 +25,14 @@ user would lose, `<cache>` what Kstack rebuilds, `<runtime>` what lives for a se
 log directory is fenced too (`bash.Paths.DeniedDirs`, `TestTheLogDirectoryIsKstacks`). → [ADR:
 each file in the platform's directory for its
 kind](../docs/adr/2026-09-27-kstacks-files-follow-the-platforms-directory-kinds.md).
+
+**One sidecar per data directory.** `build` locks `<data>/sidecar.lock` (`internal/lib/filelock`:
+`flock` on Unix, `LockFileEx` on Windows) before anything opens a file there. The lock is the
+runtime's first part, so it closes last. A second sidecar fails `app.New` with *another Kstack is
+using `<data>`*, which `run` prints as `FATAL`. The kernel drops the lock when the process ends, a
+crash included. `build` runs after the `--keys-fd` re-exec, which a lock would not survive, and the
+`sandbox-*` subcommands never take it. **Never delete `sidecar.lock`**: a second process would lock
+a new file under the same name while the first still holds the old one.
 
 ## Guides
 

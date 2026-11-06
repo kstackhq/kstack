@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/filelock"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
@@ -59,6 +60,32 @@ func TestRunFailsWhenTheAppCannotBeComposed(t *testing.T) {
 	}
 	if rest != "" || strings.Contains(out.String(), "READY") {
 		t.Errorf("stdout = %q, want the FATAL line alone", out.String())
+	}
+}
+
+// A second sidecar on a data directory exits 1 with a FATAL naming the
+// directory, before it opens app.db.
+func TestRunFailsWhenTheDataDirectoryIsLocked(t *testing.T) {
+	data := t.TempDir()
+	held, err := filelock.TryLock(filepath.Join(data, "sidecar.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = held.Close() })
+
+	// stdin stays open: its EOF is a quit, and a quit during startup exits 0.
+	stdin, hold := io.Pipe()
+	t.Cleanup(func() { _ = hold.Close() })
+	var out strings.Builder
+	cfg := runArgs(t, "--socket", socketPath(t), "--data-dir", data, "--cache-dir", t.TempDir(), "--runtime-dir", t.TempDir())
+	if code := run(t.Context(), cfg, stdin, &out); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if want := "FATAL another Kstack is using " + data + "\n"; out.String() != want {
+		t.Errorf("stdout = %q, want %q", out.String(), want)
+	}
+	if _, err := os.Stat(filepath.Join(data, "app.db")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("app.db: %v, want it never made", err)
 	}
 }
 

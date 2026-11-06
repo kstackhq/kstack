@@ -439,3 +439,14 @@ func TestNewTakesTheProviderKeysTheShellSets(t *testing.T) {
 	}
 	assert.Equal(t, map[string]string{"anthropic": "sk-ant-shell-0123456789", "openai": "sk-openai-launch-0123456789"}, keys)
 }
+
+// A quit during the sandbox probe fails the build and releases the lock.
+func TestAQuitDuringTheProbeReleasesTheLock(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	cfg := withDirs(t, Config{})
+
+	_, err := build(ctx, cfg)
+	require.ErrorIs(t, err, context.Canceled)
+	requireUnlocked(t, cfg.DataDir)
+}

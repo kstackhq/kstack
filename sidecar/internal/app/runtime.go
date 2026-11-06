@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/kstackhq/kstack/sidecar/graph"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/filelock"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
@@ -63,10 +65,29 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	if err := makeDirs(cfg); err != nil {
 		return nil, err
 	}
+	p := pathsOf(cfg)
+
+	// One sidecar per data directory: the lock is taken before anything opens
+	// a file there. This text reaches the user.
+	lock, err := filelock.TryLock(p.LockFile)
+	if errors.Is(err, filelock.ErrLocked) {
+		return nil, fmt.Errorf("another Kstack is using %s", cfg.DataDir)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lock the data directory: %w", err)
+	}
+	rt := &Runtime{}
+	// The first part, so it closes after every file it guards. Once: a runtime
+	// may be closed twice, and a file cannot.
+	rt.add("data directory lock", lifecycle.CloseFunc(sync.OnceValue(lock.Close)))
+	fail := func(err error) (*Runtime, error) {
+		rt.Close()
+		return nil, err
+	}
 
 	sb, probed, err := probeSandbox(ctx)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	slog.Info("sandbox probed", "available", probed.Available, "reason", probed.Reason)
 	// A nil pointer in an interface is not a nil interface.
@@ -78,40 +99,35 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	// sets it process-wide, credential plugins resolve against it, and net/http
 	// and WebFetch read the proxy variables from it. The keys it answers reach
 	// the catalog alone.
-	p := pathsOf(cfg)
 	login := launch{path: cfg.launchPath}
 	if cfg.RunLoginShell {
 		login = launchShell(ctx, boxer, p.Bash.DeniedDirs, p.Bash.TmpDir)
 		cfg.LLMKeys = withShellKeys(cfg.LLMKeys, login.keys)
 	}
 
-	// The settings hold no handle, so a failure leaves only the sandbox to close.
+	// The settings hold no handle, so a failure leaves the sandbox and the lock to close.
 	settingsStore, err := settings.Open(p.SettingsFile)
 	if err != nil {
 		_ = sb.Close()
-		return nil, err
+		return fail(err)
 	}
 
 	// The app owns app.db and hands it to every service that writes or watches it.
-	// It is the first part, so it closes after every service over it.
+	// It closes after every service over it.
 	db, err := appdb.Open(p.AppDBFile, appdb.DefaultSweepInterval)
 	if err != nil {
 		_ = sb.Close()
 		// This text reaches the user: a newer file names itself and both versions.
 		if newer, ok := errors.AsType[*sqlitemigrate.NewerSchemaError](err); ok {
-			return nil, fmt.Errorf("app.db was written by a newer Kstack (schema %d; this build reads up to %d)", newer.Recorded, newer.Supported)
+			return fail(fmt.Errorf("app.db was written by a newer Kstack (schema %d; this build reads up to %d)", newer.Recorded, newer.Supported))
 		}
-		return nil, fmt.Errorf("open app database: %w", err)
+		return fail(fmt.Errorf("open app database: %w", err))
 	}
-	rt := &Runtime{DB: db}
+	rt.DB = db
 	rt.add("app.db", lifecycle.CloseFunc(db.Close))
 	// Its close ends every sandboxed run still going, after every service
 	// over the sandbox has stopped its own.
 	rt.add("sandbox", lifecycle.CloseFunc(sb.Close))
-	fail := func(err error) (*Runtime, error) {
-		rt.Close()
-		return nil, err
-	}
 
 	// Shared cross-subsystem poke bus (wall-clock gap detector + host pokes via
 	// gRPC PokeService); see docs/adr/2026-08-09-poke-resync-fanout.md.

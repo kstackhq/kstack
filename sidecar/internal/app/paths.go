@@ -28,6 +28,7 @@ import (
 // directories.
 //
 //	<data>/                                what a user would lose
+//	  sidecar.lock                         app: held while a sidecar runs; never deleted
 //	  app.db                               app
 //	  settings.json                        app: the user's settings
 //	  beehive.db                           cluster
@@ -43,6 +44,7 @@ import (
 //	  shell/                               bash: the snapshot, and Windows' scripts
 //	  runs/<pid>-*/, runs/<pid>.lock       bash: a run's kubeconfig and socket, the lock
 type paths struct {
+	LockFile     string
 	AppDBFile    string
 	SettingsFile string
 	ChatsDir     string
@@ -60,6 +62,7 @@ func pathsOf(cfg Config) paths {
 		kstack = append(kstack, cfg.LogDir)
 	}
 	return paths{
+		LockFile:     filepath.Join(data, "sidecar.lock"),
 		AppDBFile:    filepath.Join(data, "app.db"),
 		SettingsFile: filepath.Join(data, "settings.json"),
 		ChatsDir:     filepath.Join(data, "chats"),
