@@ -241,3 +241,4 @@ usually just documentation in the wrong place.
 | 2026-11-05 | [The coverage gate diffs the commits itself, and reads only Codecov's stored reports](2026-11-05-the-coverage-gate-diffs-the-commits-itself.md) | repo | Accepted |
 | 2026-11-05 | [Lint the React compiler's rules with oxlint's native ports](2026-11-05-lint-the-react-compilers-rules-with-oxlints-native-ports.md) | frontend | Accepted |
 | 2026-11-05 | [Lint Tailwind classes in a run of their own](2026-11-05-lint-tailwind-classes-in-a-run-of-their-own.md) | frontend | Accepted |
+| 2026-11-06 | [GitHub Releases is the changelog, and the releaser writes the notes with a skill over deterministic tooling](2026-11-06-the-releaser-writes-the-notes-with-a-skill-over-deterministic-tooling.md) | repo | Accepted |

@@ -61,3 +61,14 @@ yaml:
   - tools/go.mod
   - '**/*.yml'
   - '**/*.yaml'
+# Each product's release stream: the paths tools/releasenotes reads a release's
+# commits from. paths-filter computes them too, and no job acts on them.
+release-cli:
+  - cli/**
+release-desktop:
+  - proto/**
+  - public/**
+  - sidecar/**
+  - src/**
+  - src-icons/**
+  - src-tauri/**

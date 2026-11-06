@@ -47,6 +47,7 @@ CLAUDE.local.md
 !.claude/settings.json
 !.claude/skills/
 .claude/skills/*
+!.claude/skills/release-notes/
 !.claude/skills/release-version/
 
 # Linux build outputs when developing inside the sandbox (see scripts note).

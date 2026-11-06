@@ -208,6 +208,16 @@ jobs:
           gh release create "cli/v$VERSION" assets/* \
             --verify-tag --draft --title "cli/v$VERSION" --notes "" "${prerelease[@]}"
 
+      - name: Remind the releaser to write the notes
+        if: ${{ needs.config.outputs.dry_run == 'false' }}
+        env:
+          VERSION: ${{ needs.config.outputs.version }}
+        run: |
+          {
+            echo "Draft release \`cli/v$VERSION\` has no notes yet."
+            echo "Run \`/release-notes cli cli/v$VERSION\` in Claude Code before publishing the draft."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Cleanup GPG
         if: always()
         run: |

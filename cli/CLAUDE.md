@@ -54,7 +54,8 @@ code-signed, so macOS Gatekeeper blocks one downloaded through a browser.
   tag. It tags nothing.
 - **Cut a release** by pushing a tag: `git tag cli/v0.1.0 && git push origin cli/v0.1.0`. The workflow
   creates a draft GitHub release named `cli/v<version>`, a prerelease when the version has a `-`
-  suffix. Publish the draft by hand.
+  suffix. Write its notes with `/release-notes cli cli/v<version>` (`.claude/skills/release-notes`),
+  then publish the draft by hand.
 - **Dry run** with *Run workflow* (`workflow_dispatch`), `dry_run` checked. It builds the dispatched
   commit, so it needs no tag, then prints `SHA256SUMS` and its signature and publishes nothing. A
   dispatch with `dry_run` unchecked builds the `cli/v<version>` tag, which must exist.
