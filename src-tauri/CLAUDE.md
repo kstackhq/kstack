@@ -4,7 +4,7 @@ The desktop app's native host (Tauri 2). It owns windows, the tray and menus, th
 
 ## Distribution & updates
 
-**Not distributed through the Mac App Store**, and **there are no in-app updates**. `release.yml` signs what it ships: a notarized `.dmg` with the sidecar signed inside, an `.msi` signed through SignPath, unsigned `.deb`/`.rpm`/`.AppImage`, and `SHA256SUMS` with a detached GPG signature. The app and its bundled sidecar (`externalBin`) are versioned and released together.
+**Not distributed through the Mac App Store**, and **there are no in-app updates**. `release-desktop.yml` signs what it ships: a notarized `.dmg` with the sidecar signed inside, an `.msi` signed through SignPath, unsigned `.deb`/`.rpm`/`.AppImage`, and `SHA256SUMS` with a detached GPG signature. The app and its bundled sidecar (`externalBin`) are versioned and released together.
 
 **The Linux packages carry Kstack's own bwrap** at `/usr/lib/kstack/bwrap`, the sidecar's sandbox (`sidecar/CLAUDE.md`). `make bwrap` (`scripts/build-bwrap.sh`) builds a pinned, SHA-256-checked bubblewrap into `src-tauri/linux/` (git-ignored). The release runs it on the bundle job's own runner before `tauri build`, so bwrap links the app's glibc; it links `libcap`, which the packages depend on. bwrap is never setuid. `tauri.linux.conf.json` lists it in each format's `files`; **a Linux `tauri build` without `make bwrap` first fails**. bubblewrap is LGPL-2.0-or-later: the packages carry its license under `/usr/share/doc/kstack/`, and the release attaches the tarball.
 

@@ -730,7 +730,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   `Run` and return its error; without `-W` it returns once the app is launched.
 - **`kstack app` cannot install from a real Windows release.** The CLI expects an NSIS
   `Kstack-setup.exe` and runs it with `/S` for a per-user install into `%LOCALAPPDATA%\Kstack`
-  (`cli/internal/desktop/install.go`, `download.go`). `release.yml` ships only a signed `.msi`.
+  (`cli/internal/desktop/install.go`, `download.go`). `release-desktop.yml` ships only a signed `.msi`.
   **Decide:** install the `.msi` (`msiexec /i … /passive`, a UAC prompt, `ProgramFiles`), or add a
   signed NSIS build to the release.
 
@@ -943,7 +943,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   it — a notice with a brake, and it should say so — or it evicts, which contradicts a standing ADR
   and needs a new one first.
 
-- **R-08 — a release cannot be verified, and the pipeline making it is loose (medium; release owner).** Three gaps, all in `.github/`. `release.yml` grants `contents: write` and `deployments: write` at the top, so every job runs
+- **R-08 — a release cannot be verified, and the pipeline making it is loose (medium; release owner).** Three gaps, all in `.github/`. `release-desktop.yml` grants `contents: write` and `deployments: write` at the top, so every job runs
   with the token that can publish; drop to `permissions: {}` and give only the final job what it
   needs (nothing creates a deployment, so that grant just goes). Audits run only on pull requests, so
   an advisory filed against a quiet `main` waits for whoever opens the next one — add a daily
@@ -952,7 +952,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   ref it was dispatched from. Finally, write a short page on verifying a download — the GPG key,
   `shasum -c`, `codesign`/`spctl`, `signtool`, and plainly that Linux bundles are unsigned — and run
   it ourselves once before telling anyone else to. `.github/ci-config/zizmor.yml` ignores
-  `release.yml`'s `excessive-permissions` finding until this lands; drop the ignore with the fix.
+  `release-desktop.yml`'s `excessive-permissions` finding until this lands; drop the ignore with the fix.
 
 - **H-3 — three macOS entitlements ship unjustified (medium; desktop owner).**
   `src-tauri/entitlements.plist` grants `allow-jit`, `allow-unsigned-executable-memory` and
@@ -965,7 +965,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   enforce the hardened runtime, so a local pass proves nothing, which is why this waits on R-08.
   Record what happened, including a clean pass, in a dated note under `docs/security/`, and give
   every surviving key one line saying what broke without it and on which macOS version. **Clear this
-  blocker first:** every `release.yml` job checks out `refs/tags/desktop/v<version>`, so each variant
+  blocker first:** every `release-desktop.yml` job checks out `refs/tags/desktop/v<version>`, so each variant
   means pushing a real tag until an optional `ref` input exists.
 
 - **H-4a — the app never says it is out of date (medium; release owner).** There is no updater and no
@@ -996,7 +996,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   one to a test release, confirm it updates, then publish one signed with a different key and confirm
   it is refused.
 
-- **Nothing exercises the release workflow's input validation (release owner).** `release.yml` takes
+- **Nothing exercises the release workflow's input validation (release owner).** `release-desktop.yml` takes
   a dispatched version only if it matches a plain `major.minor.patch` with an optional prerelease, and
   the input reaches the config script as an environment value instead of as shell source. That is what
   keeps a crafted version string from running as shell in a job that holds release permissions and
@@ -1008,7 +1008,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   **Enforced**.
 
 - **Nobody has read the SBOM we publish (release owner).** Every release generates a CycloneDX SBOM
-  (`anchore/sbom-action` in `release.yml`). It reads the source tree, so whether it covers the native
+  (`anchore/sbom-action` in `release-desktop.yml`). It reads the source tree, so whether it covers the native
   runtime libraries and the bundled sidecar binary is unknown. An SBOM that quietly omits half the
   bundle is worse than none, because it reads as complete. **Fix:** generate one, read it, and write
   down what it does and does not cover.

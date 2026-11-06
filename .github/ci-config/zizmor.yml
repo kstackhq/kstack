@@ -17,7 +17,7 @@ rules:
   # Both are R-08 (docs/TODO.md#security).
   excessive-permissions:
     ignore:
-      - release.yml
+      - release-desktop.yml
 
   # The prow action reads the comment only to match /assign and /unassign, runs
   # no code from the repository, and holds `issues: write` alone.
