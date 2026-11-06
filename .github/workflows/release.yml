@@ -28,6 +28,10 @@ on:
         type: boolean
         default: true
 
+# A release restores no GitHub Actions cache: ci.yml, coverage.yml and audit.yml
+# save caches on main, so code their jobs run could write one a release builds
+# from. So no step here passes setup-environment a node-cache, go-cache-key or
+# rust-cache-key.
 jobs:
   config:
     name: Configure workflow

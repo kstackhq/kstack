@@ -182,6 +182,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-node: "true"
+          node-cache: "true"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       # scripts/cover-changed.sh measures as this job does; change both together.

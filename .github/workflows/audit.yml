@@ -100,6 +100,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-node: "true"
+          node-cache: "true"
       - name: Run pnpm audit
         run: pnpm audit --audit-level moderate
 
@@ -139,6 +140,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-node: "true"
+          node-cache: "true"
       - name: Fail on advisories new to the head
         run: sh scripts/audit-npm-diff.sh base .
 
@@ -158,6 +160,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-node: "true"
+          node-cache: "true"
       - name: Build the snapshot
         env:
           SHA: ${{ github.sha }}

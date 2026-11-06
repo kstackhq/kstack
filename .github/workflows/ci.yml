@@ -330,6 +330,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-node: "true"
+          node-cache: "true"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Lint
@@ -496,6 +497,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-node: "true"
+          node-cache: "true"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Test
@@ -517,6 +519,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-node: "true"
+          node-cache: "true"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build

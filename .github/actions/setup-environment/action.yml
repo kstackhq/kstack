@@ -42,6 +42,10 @@ inputs:
     description: 'Whether to set up the sandbox and require its tests'
     required: false
     default: 'false'
+  node-cache:
+    description: 'Whether to cache the pnpm store'
+    required: false
+    default: 'false'
   go-cache-key:
     description: 'Names the Go cache; empty turns it off'
     required: false
@@ -143,7 +147,7 @@ runs:
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: ${{ inputs.node-version }}
-        cache: 'pnpm'
+        cache: ${{ inputs.node-cache == 'true' && 'pnpm' || '' }}
         cache-dependency-path: 'pnpm-lock.yaml'
 
     - name: Set up Go
