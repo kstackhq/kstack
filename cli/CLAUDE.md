@@ -41,4 +41,21 @@ placeholders.
 - Lip Gloss queries the terminal's background on start. A harness driving the binary through a
   bare pty must answer it (OSC 11 and the cursor report), or the TUI waits.
 
+## Releasing
+
+`.github/workflows/release-cli.yml` builds every darwin, linux and windows target on amd64 and arm64
+on one Linux runner (`CGO_ENABLED=0`, `-trimpath`, `-X main.version=<version>`). It packs each as
+`kstack-cli-<version>-<os>-<arch>.tar.gz` (`.zip` on Windows), with `LICENSE`, and publishes them
+with a CycloneDX SBOM, `SHA256SUMS` and its GPG signature `SHA256SUMS.asc`. The binaries are not
+code-signed, so macOS Gatekeeper blocks one downloaded through a browser.
+
+- **Cut a release** by pushing a tag: `git tag cli/v0.1.0 && git push origin cli/v0.1.0`. The workflow
+  creates a draft GitHub release named `cli/v<version>`, a prerelease when the version has a `-`
+  suffix. Publish the draft by hand.
+- **Dry run** with *Run workflow* (`workflow_dispatch`), `dry_run` checked. It builds the dispatched
+  commit, so it needs no tag, then prints `SHA256SUMS` and its signature and publishes nothing. A
+  dispatch with `dry_run` unchecked builds the `cli/v<version>` tag, which must exist.
+- The version must be `major.minor.patch` with an optional dot-separated prerelease
+  (`0.1.0-rc.1`); the workflow rejects anything else.
+
 `make test`, `make lint`, `make vet` and `make test-changed` include this module, as CI's Go jobs do. So do `make cover-go` and `make cover-changed`; the latter measures it as CI's `Go · Coverage` job does, without the sidecar's `CGO_ENABLED=0`, empty `SSH_AUTH_SOCK` or `-tags debug`.

@@ -996,19 +996,19 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   one to a test release, confirm it updates, then publish one signed with a different key and confirm
   it is refused.
 
-- **Nothing exercises the release workflow's input validation (release owner).** `release-desktop.yml` takes
-  a dispatched version only if it matches a plain `major.minor.patch` with an optional prerelease, and
+- **Nothing exercises the release workflows' input validation (release owner).** `release-desktop.yml`
+  and `release-cli.yml` each take a dispatched version only if it matches a plain `major.minor.patch` with an optional prerelease, and
   the input reaches the config script as an environment value instead of as shell source. That is what
   keeps a crafted version string from running as shell in a job that holds release permissions and
   signing secrets. zizmor in `YAML · Lint` fails a `run:` block that interpolates the version, but the
-  pattern has no test: the 4 September review ran eighteen cases by hand.
-  **Fix:** feed the workflow's own pattern a table of good and hostile strings — quotes, whitespace,
+  pattern has no test: the 4 September review ran eighteen cases by hand, and the two workflows copy
+  it. **Fix:** feed each workflow's own pattern a table of good and hostile strings — quotes, whitespace,
   `$(…)`, newlines, a build-metadata suffix — so the rule is exercised rather than remembered. **When
   it lands:** the *dispatched release version* row in [`security-model.md`](security-model.md) moves to
   **Enforced**.
 
 - **Nobody has read the SBOM we publish (release owner).** Every release generates a CycloneDX SBOM
-  (`anchore/sbom-action` in `release-desktop.yml`). It reads the source tree, so whether it covers the native
+  (`anchore/sbom-action`; `release-cli.yml` points it at the built binaries). The desktop one reads the source tree, so whether it covers the native
   runtime libraries and the bundled sidecar binary is unknown. An SBOM that quietly omits half the
   bundle is worse than none, because it reads as complete. **Fix:** generate one, read it, and write
   down what it does and does not cover.
