@@ -431,7 +431,10 @@ func TestACloseWithAnEndedContextStillClosesTheChunk(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	assert.ErrorIs(t, tail.Close(ctx, lines(at(2, 0))), context.Canceled)
+	// The write may land before Close reads ctx; either answer is correct.
+	if err := tail.Close(ctx, lines(at(2, 0))); err != nil {
+		assert.ErrorIs(t, err, context.Canceled)
+	}
 
 	testutil.Recv(t, pings, "the last batch's ping")
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(2, 0))}, chunksOfStream(t, s, id))
