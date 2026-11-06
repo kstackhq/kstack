@@ -173,7 +173,7 @@ jobs:
 
       - name: Import GPG key
         env:
-          GPG_SIGNING_KEY: ${{ secrets.KUBETAIL_BOT_GPG_SIGNING_KEY }}
+          GPG_SIGNING_KEY: ${{ secrets.KSTACK_BOT_GPG_SIGNING_KEY }}
         run: printf '%s' "$GPG_SIGNING_KEY" | gpg --batch --import
 
       # The passphrase goes in on stdin, never on the command line. The `!`
@@ -181,8 +181,8 @@ jobs:
       - name: Sign SHA256SUMS with GPG
         working-directory: ./assets
         env:
-          GPG_PASSPHRASE: ${{ secrets.KUBETAIL_BOT_GPG_PASSWORD }}
-          GPG_FINGERPRINT: ${{ vars.KUBETAIL_BOT_GPG_SIGNING_KEY_FINGERPRINT }}
+          GPG_PASSPHRASE: ${{ secrets.KSTACK_BOT_GPG_PASSWORD }}
+          GPG_FINGERPRINT: ${{ vars.KSTACK_BOT_GPG_SIGNING_KEY_FINGERPRINT }}
         run: |
           printf '%s' "$GPG_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 \
             --local-user "${GPG_FINGERPRINT}!" --armor --detach-sign SHA256SUMS
