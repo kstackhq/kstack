@@ -14,6 +14,9 @@ import (
 	"github.com/kstackhq/kstack/cli/internal/tui"
 )
 
+// version is set by the release build (-ldflags "-X main.version=...").
+var version = "dev"
+
 func main() { // coverage:ignore only wires the real dependencies, which no test runs
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -28,6 +31,7 @@ func main() { // coverage:ignore only wires the real dependencies, which no test
 			}
 			return desktop.Open(ctx, s, out)
 		},
+		Version: version,
 	}
 	status := cmd.Execute(ctx, deps, os.Args[1:], os.Stdout, os.Stderr)
 	stop()

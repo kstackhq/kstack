@@ -27,6 +27,13 @@ func TestHelpDescribesKstackAndListsApp(t *testing.T) {
 	assert.Contains(t, out, "app         Open the Kstack desktop app, installing it if it is missing")
 }
 
+func TestVersionPrintsTheBuildsVersion(t *testing.T) {
+	t.Parallel()
+	out, status := execute(t, Deps{Version: "1.2.3-rc.1"}, "--version")
+	require.Zero(t, status)
+	assert.Equal(t, "kstack version 1.2.3-rc.1\n", out)
+}
+
 func TestKstackAloneRunsTheTUI(t *testing.T) {
 	t.Parallel()
 	ran := false

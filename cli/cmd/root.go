@@ -17,6 +17,8 @@ type Deps struct {
 	// App opens the desktop app, installing it first if it is missing, and
 	// reports its progress to out.
 	App func(ctx context.Context, out io.Writer) error
+	// Version is what `kstack --version` prints.
+	Version string
 }
 
 // Execute runs `kstack args...` with d and returns the process's exit status.
@@ -48,6 +50,7 @@ func New(d Deps) *cobra.Command {
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       d.Version,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return d.TUI(cmd.Context())
 		},

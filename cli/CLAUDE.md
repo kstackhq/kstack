@@ -7,6 +7,7 @@ with Bubbles and Lip Gloss. Run it with `go run .` from `cli/`; build it with
 
 - **`kstack`** opens the placeholder TUI: the title, "TUI coming soon..." and a newsletter box.
 - **`kstack app`** opens the desktop app, downloading and installing it first when it is missing.
+- **`kstack --version`** prints the version the release build set, or `dev`.
 
 The download URL (`desktop.DefaultURL`) and the newsletter endpoint (`newsletter.DefaultURL`) are
 placeholders.
@@ -15,7 +16,7 @@ placeholders.
 
 | Package | Holds |
 | --- | --- |
-| `main.go` | `main`: wires the real dependencies into `cmd.Execute`. Nothing else, so it is not measured. |
+| `main.go` | `main`: wires the real dependencies and the build's `version` into `cmd.Execute`. Nothing else, so it is not measured. |
 | `cmd` | The Cobra commands, one file each (`root.go`, `app.go`). `New(Deps)` builds the tree, never a package variable, so tests build their own; `Execute` runs it and turns the result into an exit status. |
 | `internal/desktop` | `Open`, the locate → download → install → launch decision, over the `Steps` interface; `System`, the real `Steps`. |
 | `internal/newsletter` | `Client.Subscribe`: a JSON POST of the address. |
