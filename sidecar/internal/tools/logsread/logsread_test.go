@@ -71,11 +71,13 @@ func webappLogs(t *testing.T, msgs ...string) *logsinputtest.Logs {
 }
 
 // run calls the tool over l with raw, for cluster 7, and answers what the model
-// reads and the action.
+// reads and the action. The page's deadline is the test binary's: a wide read
+// under -race on one CPU outlasts production's (TestASlowReadTimesOut pins it).
 func run(t *testing.T, l *logsinputtest.Logs, raw string) (string, bool, *tools.Action) {
 	t.Helper()
 	tool := New(l.Service, l.Logs)
 	tool.now = func() time.Time { return clock }
+	tool.readTimeout = time.Hour
 	return tool.RunShown(t.Context(), tools.Runtime{ClusterID: "7"}, json.RawMessage(raw))
 }
 
