@@ -1,0 +1,212 @@
+name: release-cli
+
+permissions: {}
+
+on:
+  push:
+    tags:
+      - "cli/v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release"
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run (builds the dispatched commit, publishes nothing)"
+        required: false
+        type: boolean
+        default: true
+
+# A release restores no GitHub Actions cache: ci.yml, coverage.yml and audit.yml
+# save caches on main, so code their jobs run could write one a release builds
+# from. So no step here passes setup-environment a go-cache-key.
+jobs:
+  config:
+    name: Configure workflow
+    runs-on: ubuntu-slim
+    outputs:
+      version: ${{ steps.config.outputs.version }}
+      ref: ${{ steps.config.outputs.ref }}
+      dry_run: ${{ steps.config.outputs.dry_run }}
+    steps:
+      - id: config
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$RELEASE_EVENT" == "workflow_dispatch" ]; then
+            version="$RELEASE_VERSION"
+            dry_run="$RELEASE_DRY_RUN"
+          else
+            version="${GITHUB_REF#refs/tags/cli/v}"
+            dry_run="false"
+          fi
+          # Outputs enter build flags, paths and shell scripts downstream.
+          # Accept only a numeric version with an optional dot-separated prerelease.
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "Invalid release version" >&2
+            exit 1
+          fi
+          case "$dry_run" in true|false) ;; *) exit 1 ;; esac
+          # A dry run publishes nothing, so it can build a commit with no tag yet.
+          if [ "$dry_run" == "true" ]; then
+            ref="$GITHUB_SHA"
+          else
+            ref="refs/tags/cli/v${version}"
+          fi
+          {
+            echo "version=${version}"
+            echo "ref=${ref}"
+            echo "dry_run=${dry_run}"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build
+    needs: [config]
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.config.outputs.ref }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-environment
+        with:
+          setup-go: "true"
+
+      - name: Build and package
+        env:
+          VERSION: ${{ needs.config.outputs.version }}
+        run: |
+          # Outside the checkout: an untracked file there makes Go stamp the
+          # binaries built after it vcs.modified=true.
+          build="$RUNNER_TEMP/build"
+          assets="$RUNNER_TEMP/assets"
+          # Archive times come from the commit and modes are set here, so a
+          # rebuild packs the same bytes.
+          epoch=$(git log -1 --format=%ct)
+          mkdir -p "$assets"
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            exe=kstack
+            if [ "$os" = windows ]; then exe=kstack.exe; fi
+            dir="$build/$os-$arch"
+            mkdir -p "$dir"
+            (cd cli && CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w -X main.version=$VERSION" -o "$dir/$exe" .)
+            cp LICENSE "$dir/"
+            chmod 755 "$dir/$exe"
+            chmod 644 "$dir/LICENSE"
+            touch -d "@$epoch" "$dir"/*
+            name="kstack-cli-$VERSION-$os-$arch"
+            if [ "$os" = windows ]; then
+              (cd "$dir" && zip -X -q "$assets/$name.zip" "$exe" LICENSE)
+            else
+              tar -C "$dir" --owner=0 --group=0 --numeric-owner -czf "$assets/$name.tar.gz" "$exe" LICENSE
+            fi
+          done
+          ls -lah "$assets"
+
+      - name: Assert the binary prints its version
+        env:
+          VERSION: ${{ needs.config.outputs.version }}
+        run: |
+          got=$("$RUNNER_TEMP/build/linux-$(go env GOARCH)/kstack" --version)
+          if [ "$got" != "kstack version $VERSION" ]; then
+            echo "kstack --version printed: $got" >&2
+            exit 1
+          fi
+
+      - name: Assert the binaries are untagged and built from a clean tree
+        run: |
+          info=$(go version -m "$RUNNER_TEMP"/build/*/kstack*)
+          if grep -qE -- '-tags=|vcs\.modified=true' <<<"$info"; then
+            echo "CLI built with tags or from a modified tree" >&2
+            exit 1
+          fi
+
+      # Reads the binaries, so it lists the modules and Go version that ship.
+      # Here, not beside the signing key: the action downloads and runs syft.
+      - name: Generate SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: ${{ runner.temp }}/build
+          format: cyclonedx-json
+          output-file: ${{ runner.temp }}/assets/kstack-cli-${{ needs.config.outputs.version }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Upload assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: assets-cli
+          path: ${{ runner.temp }}/assets/*
+
+  # Checks out nothing and installs nothing, so the signing key and the token
+  # that publishes never share a runner with the build's dependencies.
+  release:
+    name: Create GitHub release
+    needs: [config, build]
+    environment: production
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: assets-cli
+          path: assets
+
+      - name: Generate SHA-256 checksums
+        working-directory: ./assets
+        run: |
+          sha256sum -- * > SHA256SUMS
+
+      - name: Import GPG key
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.KUBETAIL_BOT_GPG_SIGNING_KEY }}
+        run: printf '%s' "$GPG_SIGNING_KEY" | gpg --batch --import
+
+      # The passphrase goes in on stdin, never on the command line. The `!`
+      # makes gpg sign with exactly this key, not a subkey it would pick.
+      - name: Sign SHA256SUMS with GPG
+        working-directory: ./assets
+        env:
+          GPG_PASSPHRASE: ${{ secrets.KUBETAIL_BOT_GPG_PASSWORD }}
+          GPG_FINGERPRINT: ${{ vars.KUBETAIL_BOT_GPG_SIGNING_KEY_FINGERPRINT }}
+        run: |
+          printf '%s' "$GPG_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 \
+            --local-user "${GPG_FINGERPRINT}!" --armor --detach-sign SHA256SUMS
+
+      - name: Debug
+        if: ${{ needs.config.outputs.dry_run == 'true' }}
+        run: |
+          ls -lah assets/*
+          cat assets/SHA256SUMS
+          cat assets/SHA256SUMS.asc
+
+      - name: Create release
+        if: ${{ needs.config.outputs.dry_run == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.config.outputs.version }}
+        run: |
+          prerelease=()
+          if [[ "$VERSION" == *-* ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "cli/v$VERSION" assets/* \
+            --verify-tag --draft --title "cli/v$VERSION" --notes "" "${prerelease[@]}"
+
+      - name: Cleanup GPG
+        if: always()
+        run: |
+          gpgconf --kill gpg-agent || true
+          rm -rf ~/.gnupg
