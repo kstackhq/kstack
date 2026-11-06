@@ -40,10 +40,14 @@ src-tauri/linux/passt-*
 # Agents. Ignore the directory's contents rather than the directory itself, so
 # the shared team config below can be re-included — a negation cannot resurrect
 # a file whose parent directory is excluded. Personal settings
-# (settings.local.json), worktrees, and lock files stay ignored.
+# (settings.local.json), worktrees, lock files and personal skills stay ignored;
+# each shared skill is re-included by name.
 CLAUDE.local.md
 .claude/*
 !.claude/settings.json
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/release-version/
 
 # Linux build outputs when developing inside the sandbox (see scripts note).
 .sandbox-linux/

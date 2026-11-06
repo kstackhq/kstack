@@ -49,6 +49,9 @@ on one Linux runner (`CGO_ENABLED=0`, `-trimpath`, `-X main.version=<version>`).
 with a CycloneDX SBOM, `SHA256SUMS` and its GPG signature `SHA256SUMS.asc`. The binaries are not
 code-signed, so macOS Gatekeeper blocks one downloaded through a browser.
 
+- **Pick the version** with `/release-version cli` (`.claude/skills/release-version/SKILL.md`). It reads
+  the commits under `cli/` since the last `cli/v*` tag and recommends the next SemVer version and its
+  tag. It tags nothing.
 - **Cut a release** by pushing a tag: `git tag cli/v0.1.0 && git push origin cli/v0.1.0`. The workflow
   creates a draft GitHub release named `cli/v<version>`, a prerelease when the version has a `-`
   suffix. Publish the draft by hand.
