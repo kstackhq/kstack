@@ -40,7 +40,14 @@ jobs:
       version: ${{ steps.config.outputs.version }}
       signing_policy: ${{ steps.config.outputs.signing_policy }}
       dry_run: ${{ steps.config.outputs.dry_run }}
+      rpm_version: ${{ steps.config.outputs.rpm_version }}
+      rpm_release: ${{ steps.config.outputs.rpm_release }}
+      msi_version: ${{ steps.config.outputs.msi_version }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - id: config
         env:
           RELEASE_EVENT: ${{ github.event_name }}
@@ -58,17 +65,15 @@ jobs:
             dry_run="false"
           fi
           # Outputs enter build configuration, paths and shell scripts downstream.
-          # Accept only a numeric version with an optional dot-separated prerelease.
-          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
-            echo "Invalid release version" >&2
-            exit 1
-          fi
+          # The script prints the RPM and MSI versions.
+          package_versions="$(scripts/check-release-version.sh desktop "$version")"
           case "$signing_policy" in test-signing|release-signing) ;; *) exit 1 ;; esac
           case "$dry_run" in true|false) ;; *) exit 1 ;; esac
           {
             echo "version=${version}"
             echo "signing_policy=${signing_policy}"
             echo "dry_run=${dry_run}"
+            echo "$package_versions"
           } >> "$GITHUB_OUTPUT"
 
   build-sidecar:
@@ -205,7 +210,16 @@ jobs:
       - name: Build bundle
         env:
           VERSION: ${{ needs.config.outputs.version }}
-        run: pnpm tauri build -c "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"pnpm build\"}}"
+        run: pnpm tauri build --bundles deb,appimage -c "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"pnpm build\"}}"
+
+      # An RPM version cannot hold an rc's `-`, and Tauri takes only a SemVer
+      # version, so the RPM bundles the binary built above under the config
+      # job's RPM version and release.
+      - name: Bundle RPM
+        env:
+          RPM_VERSION: ${{ needs.config.outputs.rpm_version }}
+          RPM_RELEASE: ${{ needs.config.outputs.rpm_release }}
+        run: pnpm tauri bundle --bundles rpm -c "{\"version\":\"$RPM_VERSION\",\"bundle\":{\"linux\":{\"rpm\":{\"release\":\"$RPM_RELEASE\"}}}}"
 
       # bubblewrap is LGPL and passt GPL: the release carries the source bwrap
       # and pasta were built from, once.
@@ -399,7 +413,8 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.config.outputs.version }}
-        run: pnpm tauri build --target ${{ matrix.triple }} -c "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"pnpm build\"},\"bundle\":{\"targets\":[\"msi\"]}}"
+          MSI_VERSION: ${{ needs.config.outputs.msi_version }}
+        run: pnpm tauri build --target ${{ matrix.triple }} -c "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"pnpm build\"},\"bundle\":{\"targets\":[\"msi\"],\"windows\":{\"wix\":{\"version\":\"$MSI_VERSION\"}}}}"
 
       # SignPath pulls this by artifact-id to sign it. Its name is
       # deliberately NOT prefixed "assets-bundle-" so the release job's

@@ -24,12 +24,18 @@ on:
 jobs:
   config:
     name: Configure workflow
+    permissions:
+      contents: read
     runs-on: ubuntu-slim
     outputs:
       version: ${{ steps.config.outputs.version }}
       ref: ${{ steps.config.outputs.ref }}
       dry_run: ${{ steps.config.outputs.dry_run }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - id: config
         env:
           RELEASE_EVENT: ${{ github.event_name }}
@@ -44,11 +50,7 @@ jobs:
             dry_run="false"
           fi
           # Outputs enter build flags, paths and shell scripts downstream.
-          # Accept only a numeric version with an optional dot-separated prerelease.
-          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
-            echo "Invalid release version" >&2
-            exit 1
-          fi
+          scripts/check-release-version.sh cli "$version"
           case "$dry_run" in true|false) ;; *) exit 1 ;; esac
           # A dry run publishes nothing, so it can build a commit with no tag yet.
           if [ "$dry_run" == "true" ]; then

@@ -997,12 +997,12 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   it is refused.
 
 - **Nothing exercises the release workflows' input validation (release owner).** `release-desktop.yml`
-  and `release-cli.yml` each take a dispatched version only if it matches a plain `major.minor.patch` with an optional prerelease, and
+  and `release-cli.yml` each take a dispatched version only if `scripts/check-release-version.sh` accepts it, and
   the input reaches the config script as an environment value instead of as shell source. That is what
   keeps a crafted version string from running as shell in a job that holds release permissions and
   signing secrets. zizmor in `YAML · Lint` fails a `run:` block that interpolates the version, but the
-  pattern has no test: the 4 September review ran eighteen cases by hand, and the two workflows copy
-  it. **Fix:** feed each workflow's own pattern a table of good and hostile strings — quotes, whitespace,
+  script has no test: the 4 September review ran eighteen cases by hand. **Fix:** feed the script,
+  for each product, a table of good and hostile strings — quotes, whitespace,
   `$(…)`, newlines, a build-metadata suffix — so the rule is exercised rather than remembered. **When
   it lands:** the *dispatched release version* row in [`security-model.md`](security-model.md) moves to
   **Enforced**.

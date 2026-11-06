@@ -40,7 +40,7 @@ List the product's tags (`git tag -l 'cli/v*'` or `git tag -l 'desktop/v*'`) and
    With all shared identifiers equal, the shorter list sorts first.
 4. Build metadata (`+…`) is ignored.
 
-Skip a tag whose version does not match the workflows' check (step 5), and say you skipped it.
+Skip a tag whose version does not pass its product's workflow check (step 5), and say you skipped it.
 
 **No tag:** this is the product's first release. Recommend the untagged start (`0.1.0` for the CLI,
 the version in `src-tauri/tauri.conf.json` for the desktop) as the version, apply no bump, and say
@@ -118,13 +118,16 @@ old form is `rc2`, and the dotted form starts with the next version. Say this wh
 
 Never recommend build metadata (`+…`): the workflows reject it.
 
+**Desktop prereleases are `rc.<n>` only**: the RPM and MSI versions are derived from that form
+alone. Never recommend `beta.<n>` or `rc<n>` for the desktop.
+
 ## 5. Check the version
 
-The version must pass both workflows' check. Run it:
+The version must pass the check its product's workflow runs. Run it; it exits non-zero on a
+version the workflow rejects:
 
 ```sh
-v=<version>
-[[ "$v" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] && echo ok
+scripts/check-release-version.sh <cli|desktop> <version>
 ```
 
 Check too that the tag does not exist yet (`git rev-parse -q --verify refs/tags/<tag>` prints
