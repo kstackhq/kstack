@@ -31,6 +31,10 @@ jobs:
   stress:
     # The report job reads the id back out of the name.
     name: Go · Stress (${{ matrix.runner }}-${{ matrix.race && 'race' || 'norace' }}-cpu${{ matrix.cpu }})
+    if: >-
+      github.repository == 'kstackhq/kstack'
+      || github.event_name == 'pull_request'
+      || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       # Keep in step with full-matrix in ci.yml; anchors do not cross files.

@@ -31,6 +31,10 @@ jobs:
   # main and of each wip branch stays complete.
   changes:
     name: Changes
+    if: >-
+      github.repository == 'kstackhq/kstack'
+      || github.event_name == 'pull_request'
+      || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     permissions:
       pull-requests: read
@@ -211,9 +215,10 @@ jobs:
   cache-prune:
     name: Caches · Prune
     needs:
+      - changes
       - go
       - rust
-    if: always() && github.ref == 'refs/heads/main'
+    if: always() && needs.changes.result == 'success' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       actions: write

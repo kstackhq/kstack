@@ -43,8 +43,21 @@ env:
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
+  # As ci.yml's Changes: outside kstackhq/kstack it runs only for a PR or a
+  # dispatch. Every job a push or the schedule can start needs it.
+  config:
+    name: Config
+    if: >-
+      github.repository == 'kstackhq/kstack'
+      || github.event_name == 'pull_request'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-slim
+    steps:
+      - run: "true"
+
   go-audit:
     name: Go · Audit
+    needs: config
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
@@ -67,6 +80,7 @@ jobs:
 
   rust-audit:
     name: Rust · Audit
+    needs: config
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
@@ -91,6 +105,7 @@ jobs:
 
   typescript-audit:
     name: TypeScript · Audit
+    needs: config
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
@@ -149,6 +164,7 @@ jobs:
   # the graph.
   typescript-submit:
     name: TypeScript · Submit dependencies
+    needs: config
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:

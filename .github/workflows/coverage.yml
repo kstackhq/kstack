@@ -47,6 +47,10 @@ jobs:
   # changed. A push or a dispatch measures them all.
   changes:
     name: Changes
+    if: >-
+      github.repository == 'kstackhq/kstack'
+      || github.event_name == 'pull_request'
+      || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     permissions:
       pull-requests: read
@@ -306,7 +310,7 @@ jobs:
       - changes
       - go
       - rust
-    if: always() && needs.changes.outputs.cache-mode != 'use'
+    if: always() && needs.changes.result == 'success' && needs.changes.outputs.cache-mode != 'use'
     runs-on: ubuntu-24.04
     permissions:
       actions: write
