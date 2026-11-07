@@ -3,6 +3,7 @@ title: Ship Kstack's own pasta, with passt's profile for it
 date: 2026-10-04
 scope: cross-cutting
 status: Accepted
+amended_by: [Linux ships only the .deb and .rpm, and they carry bwrap's and pasta's source](2026-11-07-linux-ships-only-packages-and-they-carry-bwraps-and-pastas-source.md)
 ---
 
 # Ship Kstack's own pasta, with passt's profile for it

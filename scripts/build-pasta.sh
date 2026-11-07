@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the pasta Kstack's Linux packages carry, from one pinned passt release,
 # into src-tauri/linux/: pasta itself, its two licenses, and the tarball it was
-# built from, which the release attaches as pasta's source.
+# built from, which the packages carry as pasta's source.
 #
 # pasta is passt's binary under another name, which is how it knows to run as
 # pasta. Its AVX2 build is left out: pasta runs without it, after one warning
@@ -39,5 +39,5 @@ mkdir -p "$OUT_DIR"
 install -m 0755 "$SRC/passt" "$OUT_DIR/pasta"
 install -m 0644 "$SRC/LICENSES/GPL-2.0-or-later.txt" "$OUT_DIR/passt-GPL-2.0-or-later.txt"
 install -m 0644 "$SRC/LICENSES/BSD-3-Clause.txt" "$OUT_DIR/passt-BSD-3-Clause.txt"
-install -m 0644 "$WORK/$TARBALL" "$OUT_DIR/$TARBALL"
+install -m 0644 "$WORK/$TARBALL" "$OUT_DIR/passt-source.tar.xz"
 echo "✓ $OUT_DIR/pasta ($("$OUT_DIR/pasta" --version | head -1))"

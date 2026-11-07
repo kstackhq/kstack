@@ -243,3 +243,4 @@ usually just documentation in the wrong place.
 | 2026-11-05 | [Lint Tailwind classes in a run of their own](2026-11-05-lint-tailwind-classes-in-a-run-of-their-own.md) | frontend | Accepted |
 | 2026-11-06 | [GitHub Releases is the changelog, and the releaser writes the notes with a skill over deterministic tooling](2026-11-06-the-releaser-writes-the-notes-with-a-skill-over-deterministic-tooling.md) | repo | Accepted |
 | 2026-11-06 | [Desktop pre-releases are rc.N, mapped to a version per package format](2026-11-06-desktop-pre-releases-are-rc-n-mapped-per-package-format.md) | repo | Accepted |
+| 2026-11-07 | [Linux ships only the .deb and .rpm, and they carry bwrap's and pasta's source](2026-11-07-linux-ships-only-packages-and-they-carry-bwraps-and-pastas-source.md) | repo | Accepted |

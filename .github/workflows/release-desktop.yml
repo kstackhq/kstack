@@ -210,7 +210,7 @@ jobs:
       - name: Build bundle
         env:
           VERSION: ${{ needs.config.outputs.version }}
-        run: pnpm tauri build --bundles deb,appimage -c "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"pnpm build\"}}"
+        run: pnpm tauri build --bundles deb -c "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"pnpm build\"}}"
 
       # An RPM version cannot hold an rc's `-`, and Tauri takes only a SemVer
       # version, so the RPM bundles the binary built above under the config
@@ -221,18 +221,11 @@ jobs:
           RPM_RELEASE: ${{ needs.config.outputs.rpm_release }}
         run: pnpm tauri bundle --bundles rpm -c "{\"version\":\"$RPM_VERSION\",\"bundle\":{\"linux\":{\"rpm\":{\"release\":\"$RPM_RELEASE\"}}}}"
 
-      # bubblewrap is LGPL and passt GPL: the release carries the source bwrap
-      # and pasta were built from, once.
       - name: Collect bundle
         run: |
           mkdir -p assets
           cp src-tauri/target/release/bundle/deb/*.deb assets/
           cp src-tauri/target/release/bundle/rpm/*.rpm assets/
-          cp src-tauri/target/release/bundle/appimage/*.AppImage assets/
-          if [ "${{ matrix.arch }}" = amd64 ]; then
-            cp src-tauri/linux/bubblewrap-*.tar.xz assets/
-            cp src-tauri/linux/passt-*.tar.xz assets/
-          fi
 
       - name: Upload bundle
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -278,6 +271,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ./assets/Kstack_*.deb
+
+      - name: Assert the package carries bwrap's and pasta's source
+        run: |
+          tar -tJf /usr/share/doc/kstack/bubblewrap-source.tar.xz > /dev/null
+          tar -tJf /usr/share/doc/kstack/passt-source.tar.xz > /dev/null
 
       # As the runner's own user: root is not restricted.
       - name: Run the sandbox's chains

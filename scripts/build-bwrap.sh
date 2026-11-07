@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the bwrap Kstack's Linux packages carry, from one pinned bubblewrap
 # release, into src-tauri/linux/: bwrap itself, its license, and the tarball it
-# was built from, which the release attaches as bwrap's source.
+# was built from, which the packages carry as bwrap's source.
 #
 # Run it on the machine that builds the bundle: bwrap links the glibc and
 # libcap it finds.
@@ -37,5 +37,5 @@ ninja -C "$WORK/build" bwrap
 mkdir -p "$OUT_DIR"
 install -m 0755 "$WORK/build/bwrap" "$OUT_DIR/bwrap"
 install -m 0644 "$SRC/COPYING" "$OUT_DIR/bubblewrap-COPYING"
-install -m 0644 "$WORK/$TARBALL" "$OUT_DIR/$TARBALL"
+install -m 0644 "$WORK/$TARBALL" "$OUT_DIR/bubblewrap-source.tar.xz"
 echo "✓ $OUT_DIR/bwrap ($("$OUT_DIR/bwrap" --version))"
