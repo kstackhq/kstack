@@ -46,6 +46,20 @@ env:
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
+  # GitHub starts push and schedule runs in forks too. Outside kstackhq/kstack
+  # this job runs only for a PR or a dispatch, and every other job needs it,
+  # so a fork's automatic run skips whole. A job whose `if:` runs past
+  # a skipped need (`always()`) checks that Changes succeeded.
+  fork-gate:
+    name: Fork gate
+    if: >-
+      github.repository == 'kstackhq/kstack'
+      || github.event_name == 'pull_request'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-slim
+    steps:
+      - run: "true"
+
   # A pull request runs a language's jobs only when a path they read changed.
   # A push or a dispatch runs them all, so main stays the safety net for a path
   # a filter misses and keeps saving the caches PRs read. Each language job
@@ -53,6 +67,7 @@ jobs:
   # after them.
   changes:
     name: Changes
+    needs: fork-gate
     runs-on: ubuntu-24.04
     permissions:
       pull-requests: read
@@ -302,6 +317,7 @@ jobs:
   # Runs on every PR: one that moves a file a doc links to may touch no Markdown.
   markdown-lint:
     name: Markdown · Lint
+    needs: fork-gate
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -545,7 +561,7 @@ jobs:
       - typescript-lint
       - typescript-test
       - typescript-build
-    if: always() && needs.changes.outputs.cache-mode != 'use'
+    if: always() && needs.changes.result == 'success' && needs.changes.outputs.cache-mode != 'use'
     runs-on: ubuntu-24.04
     permissions:
       actions: write

@@ -24,6 +24,7 @@ on:
 jobs:
   config:
     name: Configure workflow
+    if: github.repository == 'kstackhq/kstack'
     permissions:
       contents: read
     runs-on: ubuntu-slim

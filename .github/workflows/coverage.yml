@@ -42,11 +42,26 @@ env:
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
+  # GitHub starts push and schedule runs in forks too. Outside kstackhq/kstack
+  # this job runs only for a PR or a dispatch, and every other job needs it,
+  # so a fork's automatic run skips whole. A job whose `if:` runs past
+  # a skipped need (`always()`) checks that Changes succeeded.
+  fork-gate:
+    name: Fork gate
+    if: >-
+      github.repository == 'kstackhq/kstack'
+      || github.event_name == 'pull_request'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-slim
+    steps:
+      - run: "true"
+
   # A pull request measures a language when one of its paths in
   # .github/ci-config/path-filters.yml, which ci.yml's Changes reads too,
   # changed. A push or a dispatch measures them all.
   changes:
     name: Changes
+    needs: fork-gate
     runs-on: ubuntu-24.04
     permissions:
       pull-requests: read
@@ -306,7 +321,7 @@ jobs:
       - changes
       - go
       - rust
-    if: always() && needs.changes.outputs.cache-mode != 'use'
+    if: always() && needs.changes.result == 'success' && needs.changes.outputs.cache-mode != 'use'
     runs-on: ubuntu-24.04
     permissions:
       actions: write

@@ -35,6 +35,7 @@ on:
 jobs:
   config:
     name: Configure workflow
+    if: github.repository == 'kstackhq/kstack'
     runs-on: ubuntu-slim
     outputs:
       version: ${{ steps.config.outputs.version }}

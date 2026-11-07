@@ -43,8 +43,22 @@ env:
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
+  # GitHub starts push and schedule runs in forks too. Outside kstackhq/kstack
+  # this job runs only for a PR or a dispatch, and every other job needs it,
+  # so a fork's automatic run skips whole.
+  fork-gate:
+    name: Fork gate
+    if: >-
+      github.repository == 'kstackhq/kstack'
+      || github.event_name == 'pull_request'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-slim
+    steps:
+      - run: "true"
+
   go-audit:
     name: Go · Audit
+    needs: fork-gate
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
@@ -67,6 +81,7 @@ jobs:
 
   rust-audit:
     name: Rust · Audit
+    needs: fork-gate
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
@@ -91,6 +106,7 @@ jobs:
 
   typescript-audit:
     name: TypeScript · Audit
+    needs: fork-gate
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
@@ -149,6 +165,7 @@ jobs:
   # the graph.
   typescript-submit:
     name: TypeScript · Submit dependencies
+    needs: fork-gate
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
