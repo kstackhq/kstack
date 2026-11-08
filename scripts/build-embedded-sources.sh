@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds src-tauri/linux/embedded-sources.tar.gz, the one release asset holding
-# the source of every third-party program the Linux packages carry: each
+# Builds src-tauri/linux/embedded-sources.tar.gz, which the release attaches as
+# kstack-desktop-<version>-embedded-sources.tar.gz: the one asset holding the source of every third-party program the Linux packages carry: each
 # program's upstream tarball unpacked unchanged, the Kstack scripts that built
 # it, and a README naming each one's version, upstream and license.
 #

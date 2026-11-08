@@ -228,11 +228,17 @@ jobs:
           RPM_RELEASE: ${{ needs.config.outputs.rpm_release }}
         run: pnpm tauri bundle --bundles rpm -c "{\"version\":\"$RPM_VERSION\",\"bundle\":{\"linux\":{\"rpm\":{\"release\":\"$RPM_RELEASE\"}}}}"
 
+      # Tauri names the files after productName; the release names them
+      # kstack-desktop-<version>-<os>-<arch>.<ext>. A target that is not a
+      # directory makes cp fail unless the glob matches exactly one file.
       - name: Collect bundle
+        env:
+          VERSION: ${{ needs.config.outputs.version }}
+          ARCH: ${{ matrix.arch }}
         run: |
           mkdir -p assets
-          cp src-tauri/target/release/bundle/deb/*.deb assets/
-          cp src-tauri/target/release/bundle/rpm/*.rpm assets/
+          cp src-tauri/target/release/bundle/deb/*.deb "assets/kstack-desktop-$VERSION-linux-$ARCH.deb"
+          cp src-tauri/target/release/bundle/rpm/*.rpm "assets/kstack-desktop-$VERSION-linux-$ARCH.rpm"
 
       - name: Upload bundle
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -283,9 +289,11 @@ jobs:
         run: test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 1
 
       - name: Install the package
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y ./assets/Kstack_*.deb
+          sudo apt-get install -y ./assets/kstack-desktop-*-linux-"$ARCH".deb
 
       # As the runner's own user: root is not restricted.
       - name: Run the sandbox's chains
@@ -365,9 +373,11 @@ jobs:
         run: rm -rf "$RUNNER_TEMP/asc"
 
       - name: Collect bundle
+        env:
+          VERSION: ${{ needs.config.outputs.version }}
         run: |
           mkdir -p assets
-          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg assets/
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg "assets/kstack-desktop-$VERSION-darwin-universal.dmg"
 
       - name: Upload signed bundle
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -488,6 +498,15 @@ jobs:
             arch: ${{ toJSON(matrix.tauri_arch) }}
             version: ${{ toJSON(needs.config.outputs.version) }}
 
+      # Renamed after signing: SignPath's artifact configuration matches
+      # Tauri's file name.
+      - name: Name signed MSI
+        env:
+          VERSION: ${{ needs.config.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mv assets/*.msi "assets/kstack-desktop-$VERSION-windows-$ARCH.msi"
+
       - name: Upload signed MSI
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -527,10 +546,13 @@ jobs:
       # bwrap and pasta were built from the same source.
       - name: Attach embedded sources
         working-directory: ${{ runner.temp }}/embedded-sources
+        env:
+          VERSION: ${{ needs.config.outputs.version }}
         run: |
           cmp embedded-sources-linux-amd64/embedded-sources.tar.gz \
             embedded-sources-linux-arm64/embedded-sources.tar.gz
-          cp embedded-sources-linux-amd64/embedded-sources.tar.gz "$GITHUB_WORKSPACE/assets/"
+          cp embedded-sources-linux-amd64/embedded-sources.tar.gz \
+            "$GITHUB_WORKSPACE/assets/kstack-desktop-$VERSION-embedded-sources.tar.gz"
 
       - name: Generate SBOM
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
@@ -540,7 +562,7 @@ jobs:
         with:
           path: .
           format: cyclonedx-json
-          output-file: assets/kstack-${{ needs.config.outputs.version }}.cdx.json
+          output-file: assets/kstack-desktop-${{ needs.config.outputs.version }}.cdx.json
           upload-artifact: false
           upload-release-assets: false
 
@@ -564,6 +586,28 @@ jobs:
         run: |
           printf '%s' "$GPG_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 \
             --local-user "${GPG_FINGERPRINT}!" --armor --detach-sign SHA256SUMS
+
+      # Every file is named kstack-desktop-<version>-<os>-<arch>.<ext>; a
+      # missing, extra or misnamed one fails the release, dry run included.
+      - name: Check the release's files
+        working-directory: ./assets
+        env:
+          VERSION: ${{ needs.config.outputs.version }}
+        run: |
+          expected=(
+            "kstack-desktop-$VERSION-linux-amd64.deb"
+            "kstack-desktop-$VERSION-linux-arm64.deb"
+            "kstack-desktop-$VERSION-linux-amd64.rpm"
+            "kstack-desktop-$VERSION-linux-arm64.rpm"
+            "kstack-desktop-$VERSION-darwin-universal.dmg"
+            "kstack-desktop-$VERSION-windows-amd64.msi"
+            "kstack-desktop-$VERSION-windows-arm64.msi"
+            "kstack-desktop-$VERSION.cdx.json"
+            "kstack-desktop-$VERSION-embedded-sources.tar.gz"
+            SHA256SUMS
+            SHA256SUMS.asc
+          )
+          diff <(printf '%s\n' "${expected[@]}" | sort) <(find . -mindepth 1 -printf '%P\n' | sort)
 
       - name: Debug
         if: ${{ needs.config.outputs.dry_run == 'true' }}

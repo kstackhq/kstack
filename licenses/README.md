@@ -24,8 +24,9 @@ from the one in the pinned tarball. After bumping `VERSION` and `SHA256` in a sc
 An AppArmor profile adapted from upstream (`src-tauri/linux/kstack-bwrap`, `kstack-pasta`) names
 the version it was taken from; update its entry when you take it from a newer one.
 
-`make embedded-sources` (`scripts/build-embedded-sources.sh`) bundles the pinned tarballs into the
-release's `embedded-sources.tar.gz`, with a README naming each program's version, upstream and
+`make embedded-sources` (`scripts/build-embedded-sources.sh`) bundles the pinned tarballs into
+`src-tauri/linux/embedded-sources.tar.gz`, which the release attaches as
+`kstack-desktop-<version>-embedded-sources.tar.gz`, with a README naming each program's version, upstream and
 license; it reads the versions from the tarballs, so a bump needs no change there.
 
 A new bundled program gets its license file here, an entry in `THIRD_PARTY_NOTICES.md`, a line for

@@ -3,6 +3,8 @@ title: The desktop app is Kstack, and its binary kstack-desktop
 date: 2026-11-07
 scope: repo
 status: Accepted
+amended_by:
+  - [Release files are named kstack-<product>-<version>-<os>-<arch>](2026-11-08-release-files-are-named-kstack-product-version-os-arch.md)
 ---
 
 # The desktop app is Kstack, and its binary kstack-desktop

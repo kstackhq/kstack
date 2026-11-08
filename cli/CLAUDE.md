@@ -50,6 +50,11 @@ on one Linux runner (`CGO_ENABLED=0`, `-trimpath`, `-X main.version=<version>`).
 with a CycloneDX SBOM, `SHA256SUMS` and its GPG signature `SHA256SUMS.asc`. The binaries are not
 code-signed, so macOS Gatekeeper blocks one downloaded through a browser.
 
+Every Kstack product's release names its files `kstack-<product>-<version>-<os>-<arch>.<ext>`, all
+lowercase; a file covering every platform drops `-<os>-<arch>` (`kstack-cli-<version>.cdx.json`).
+The desktop app's are `kstack-desktop-…`, its macOS `<arch>` `universal` (`src-tauri/CLAUDE.md`).
+→ [ADR: release files are named kstack-\<product\>-\<version\>-\<os\>-\<arch\>](../docs/adr/2026-11-08-release-files-are-named-kstack-product-version-os-arch.md).
+
 - **Pick the version** with `/release-version cli` (`.claude/skills/release-version/SKILL.md`). It reads
   the commits under `cli/` since the last `cli/v*` tag and recommends the next SemVer version and its
   tag. It tags nothing.
