@@ -167,6 +167,11 @@ describe('LineRow', () => {
   it('draws an untagged line as it is', () => {
     render(<LineRow line={line(1)} oneStream tag={null} />);
     expect(row()).not.toHaveClass('text-muted-foreground');
-    expect(row().firstElementChild).toHaveTextContent('14:00:01');
+    // The row draws local time, so the expected text follows the machine's zone.
+    const at = new Date(line(1).timestamp);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    expect(row().firstElementChild).toHaveTextContent(
+      `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`,
+    );
   });
 });
