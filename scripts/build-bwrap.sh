@@ -10,8 +10,8 @@
 # Usage: scripts/build-bwrap.sh   (needs curl, meson, ninja and libcap's headers)
 set -euo pipefail
 
-VERSION="0.13.0"
-SHA256="4734237473c0e5d695e4e9034a34e43b2dbf5164655bd13fa59ae376b2b7a765"
+VERSION="0.13.1"
+SHA256="0e85c8702248b8dd64144f594147553650cdd0e4c951690345faace79c217c4d"
 
 if [ "$(uname -s)" != Linux ]; then
   echo "bwrap is Linux's alone" >&2

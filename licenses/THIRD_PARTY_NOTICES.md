@@ -11,11 +11,11 @@ unpacked unchanged, with the scripts that built it. It is under the release's `d
 ## Bubblewrap
 
 - **Bundled as:** `bwrap` (`/usr/lib/kstack/bwrap`), in the `.deb` and the `.rpm`
-- **Version:** 0.13.0
+- **Version:** 0.13.1
 - **Upstream:** <https://github.com/containers/bubblewrap>
 - **Source:** `bubblewrap/` in the release's embedded-sources archive, unpacked from
-  <https://github.com/containers/bubblewrap/releases/download/v0.13.0/bubblewrap-0.13.0.tar.xz>
-  (SHA-256 `4734237473c0e5d695e4e9034a34e43b2dbf5164655bd13fa59ae376b2b7a765`)
+  <https://github.com/containers/bubblewrap/releases/download/v0.13.1/bubblewrap-0.13.1.tar.xz>
+  (SHA-256 `0e85c8702248b8dd64144f594147553650cdd0e4c951690345faace79c217c4d`)
 - **License:** LGPL-2.0-or-later; text in [`bubblewrap-LICENSE`](bubblewrap-LICENSE)
 
 ```text
