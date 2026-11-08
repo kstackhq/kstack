@@ -16,6 +16,7 @@
 // checking any row swaps the heading for a bulk bar. Every delete confirms. A
 // memory may have been written by the model from cluster data, so every field is
 // drawn as text, never as markdown.
+import { Checkbox as CheckboxPrimitive } from '@base-ui/react/checkbox';
 import { Button } from '@kubetail/ui/elements/button';
 import { Checkbox } from '@kubetail/ui/elements/checkbox';
 import {
@@ -26,7 +27,7 @@ import {
 } from '@kubetail/ui/elements/dropdown-menu';
 import { Separator } from '@kubetail/ui/elements/separator';
 import { cn } from '@kubetail/ui/lib/utils';
-import { MoreHorizontal } from 'lucide-react';
+import { Check, Minus, MoreHorizontal } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
 import { Dialog } from '@/components/widgets/dialog';
@@ -39,7 +40,7 @@ function Provenance({ memory }: { memory: Memory }) {
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
       <span className="font-medium break-all">{memory.name}</span>
-      <span className="shrink-0">
+      <span className="shrink-0 tracking-[0.12px]">
         {memory.writtenBy === 'User' ? 'by you' : 'by Kstack'} · {new Date(memory.updatedAt).toLocaleDateString()}
       </span>
     </div>
@@ -86,7 +87,7 @@ function MemoryEditor({
   };
 
   return (
-    <fieldset disabled={saving} className="flex flex-col gap-1.5 pt-0.5 pr-1.5 pb-1 pl-1">
+    <fieldset disabled={saving} className="flex flex-col gap-1.5 px-5 py-1">
       <Textarea
         prose
         aria-label="Body"
@@ -161,16 +162,17 @@ function Row({
   return (
     <div
       className={cn(
-        // Its left padding, the box and the gap put the text under the
-        // heading's `px-6`, 32px inside the panel's border.
-        'group/row flex items-start gap-1 rounded-xl py-3 pr-1.5 pl-1 hover:bg-secondary focus-within:bg-secondary',
+        // A row spans the list's left inset (`-ml-1`), so its fill starts at the
+        // list's edge and its text sits 24px in, under the heading; on the right
+        // its actions align with the bulk bar's buttons.
+        'group/row -ml-1 flex items-start gap-1 rounded-xl py-3 pr-1.5 pl-1 hover:bg-secondary focus-within:bg-secondary',
         selected && 'bg-card hover:bg-card focus-within:bg-card',
         menuOpen && !selected && 'bg-secondary',
       )}
     >
-      <Checkbox checked={selected} onCheckedChange={onToggle} className={cn('mt-0.5', checkbox)} />
+      <Checkbox checked={selected} onCheckedChange={onToggle} className={checkbox} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="text-sm wrap-break-word whitespace-pre-wrap text-secondary-foreground">{memory.body}</p>
+        <p className="text-sm/4 wrap-break-word whitespace-pre-wrap text-secondary-foreground">{memory.body}</p>
         <Provenance memory={memory} />
       </div>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -178,7 +180,7 @@ function Row({
           render={<Button variant="ghost" size="icon-xs" className={cn('text-muted-foreground', trigger)} />}
           aria-label={`Actions for ${memory.name}`}
         >
-          <MoreHorizontal aria-hidden />
+          <MoreHorizontal className="size-4" aria-hidden />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" sideOffset={4}>
           <DropdownMenuItem onClick={onEdit}>Edit</DropdownMenuItem>
@@ -188,6 +190,24 @@ function Row({
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
+  );
+}
+
+// The library's `Checkbox` draws a check mark in every state, so the select-all
+// control, which must show a dash while partly selected, draws its own.
+function SelectAllCheckbox({ selected, total, onToggle }: { selected: number; total: number; onToggle: () => void }) {
+  const all = selected === total;
+  return (
+    <CheckboxPrimitive.Root
+      checked={all}
+      indeterminate={!all}
+      onCheckedChange={onToggle}
+      className="flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input bg-background outline-none focus-visible:ring-3 focus-visible:ring-ring/50 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground data-indeterminate:border-primary data-indeterminate:bg-primary data-indeterminate:text-primary-foreground"
+    >
+      <CheckboxPrimitive.Indicator className="grid place-content-center [&>svg]:size-3.5">
+        {all ? <Check /> : <Minus />}
+      </CheckboxPrimitive.Indicator>
+    </CheckboxPrimitive.Root>
   );
 }
 
@@ -205,11 +225,11 @@ function BulkBar({
   onDelete: () => void;
 }) {
   return (
-    // The select-all box sits over the rows' boxes, and the buttons end where
-    // their actions icons do.
-    <div className="flex items-center justify-between pr-[18px] pl-1">
-      <div className="flex items-start gap-1">
-        <Checkbox checked={selected === total} onCheckedChange={onToggleAll} />
+    // Aligned with the rows, so the select-all box sits over theirs and the
+    // buttons end where their actions icons do.
+    <div className="flex h-8 shrink-0 items-center justify-between pr-2 pl-1">
+      <div className="flex items-start gap-2">
+        <SelectAllCheckbox selected={selected} total={total} onToggle={onToggleAll} />
         <div className="flex flex-col text-xs/4">
           <span className="font-medium">{selected} selected</span>
           <span className="text-muted-foreground">{total} memories in total</span>
@@ -292,7 +312,7 @@ export function MemoryList({
   const count = deleting?.length ?? 0;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-0.5">
+    <div className="flex min-h-0 flex-1 flex-col gap-1.5">
       {selecting ? (
         <BulkBar
           selected={selectedIds.size}
@@ -303,10 +323,11 @@ export function MemoryList({
         />
       ) : (
         // Over the rows' text, past their checkbox column.
-        <p className="px-6 text-xs font-medium text-muted-foreground">SAVED MEMORIES</p>
+        <p className="pt-5 pl-6 text-xs leading-none font-medium text-muted-foreground">SAVED MEMORIES</p>
       )}
-      {/* The right padding keeps the rows' fills clear of the scrollbar. */}
-      <div className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto pr-3', selecting && 'gap-0.5')}>
+      {/* The inset is the list's, not each row's, so an editor's focus ring is
+          not clipped by the scroller. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pl-1 pr-2">
         {adding && (
           <MemoryEditor
             taken={taken}
@@ -319,15 +340,12 @@ export function MemoryList({
           />
         )}
         {memories.length === 0 && !adding && (
-          <p className="py-2 pl-6 text-xs text-muted-foreground">No saved memories yet.</p>
+          <p className="py-2 pl-5 text-xs text-muted-foreground">No saved memories yet.</p>
         )}
         {memories.map((memory, i) => (
           <Fragment key={memory.id}>
-            {!selecting && i > 0 && (
-              // A hairline in the hover fill's colour, short of the fill's
-              // rounded ends, so a hovered row's edge never shows a line.
-              <Separator className="mx-3 bg-secondary data-horizontal:h-[0.5px] data-horizontal:w-auto" />
-            )}
+            {/* 24px in from each row edge, counting the list's own 4px. */}
+            {i > 0 && <Separator className="mx-5 bg-muted data-horizontal:h-[0.5px] data-horizontal:w-auto" />}
             {editingId === memory.id ? (
               <MemoryEditor
                 memory={memory}

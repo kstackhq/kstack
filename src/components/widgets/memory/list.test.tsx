@@ -179,6 +179,17 @@ describe('MemoryList', () => {
     expect(screen.getByText('SAVED MEMORIES')).toBeInTheDocument();
   });
 
+  it('draws the select-all as mixed until every row is checked', async () => {
+    const user = userEvent.setup();
+    render(<List />);
+
+    await user.click(checkbox(0));
+    expect(checkbox(0)).toHaveAttribute('aria-checked', 'mixed');
+
+    await user.click(checkbox(0));
+    expect(checkbox(0)).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('deletes the selection after confirming, down to the empty state', async () => {
     const user = userEvent.setup();
     render(<List />);

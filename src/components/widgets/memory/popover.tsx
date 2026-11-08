@@ -78,10 +78,10 @@ export function MemoryPopoverContent() {
             delete them.
           </p>
         </div>
-        {/* In the popup's corner, 2px inside its border. */}
-        <div className="shrink-0 p-0.5">
+        {/* In the popup's corner, 4px inside its border. */}
+        <div className="shrink-0 p-1">
           <PopoverClose
-            render={<Button variant="ghost" size="icon-sm" className="size-8 text-foreground" />}
+            render={<Button variant="ghost" size="icon-sm" className="size-8 text-muted-foreground" />}
             aria-label="Close"
           >
             <X aria-hidden />
@@ -91,7 +91,7 @@ export function MemoryPopoverContent() {
       <div className="flex min-h-0 flex-1 flex-col px-[18px]">
         <div
           data-testid="memory-detail"
-          className="flex min-h-0 flex-1 flex-col gap-6 rounded-xl border bg-background px-2 py-3"
+          className="flex min-h-0 flex-1 flex-col gap-3 rounded-xl border bg-background px-2 pt-[18px] pb-3"
         >
           {context ? (
             <>
@@ -104,15 +104,15 @@ export function MemoryPopoverContent() {
         </div>
       </div>
       {/* Nothing manages every memory yet, so the link leads nowhere. */}
-      <footer className="flex shrink-0 items-center justify-between border-t bg-muted/50 px-[18px] py-2">
-        <Button variant="ghost" size="sm" className="text-xs text-foreground">
+      <footer className="flex h-12 shrink-0 items-center justify-between border-t bg-muted/50 px-[18px] py-2">
+        <Button variant="link" size="sm" className="gap-2 text-xs text-foreground">
           Manage all memories
           <ArrowRight aria-hidden className="size-4" />
         </Button>
         <Button
           variant="outline"
           size="sm"
-          className="text-xs"
+          className="gap-2 border-input text-xs shadow-2xs"
           disabled={!clusterID || adding}
           onClick={() => setAdding(true)}
         >
