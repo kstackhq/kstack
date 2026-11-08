@@ -14,7 +14,7 @@ import (
 func TestLocateOnLinuxSkipsAFileNobodyCanRun(t *testing.T) {
 	t.Parallel()
 	s := testSystem(t, "linux", nil)
-	bin := filepath.Join(s.Root, "usr", "bin", "kstack")
+	bin := filepath.Join(s.Root, "usr", "bin", "kstack-desktop")
 	touch(t, bin, "the app")
 	require.NoError(t, os.Chmod(bin, 0o644))
 	got, err := s.Locate()

@@ -718,9 +718,9 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   reads a desktop entry's `Exec` to find one. No release ships an AppImage: Linux ships only the
   `.deb` and `.rpm`, which install system-wide and need admin rights. **Decide:** print how to install a package, or
   download the right one for the distro and install it through `sudo`/`pkexec`. Either way the
-  AppImage install, its `Locate` candidates and `desktopExec` go; `/usr/bin/kstack` stays the one
-  place to look. Until then, two known faults stand: a failed copy leaves a partial AppImage
-  that `Locate` then finds, and `desktopExec` does not unquote a quoted `Exec`.
+  AppImage install, its `Locate` candidates and `desktopExec` go; `/usr/bin/kstack-desktop` stays
+  the one place to look. Until then, two known faults stand: a failed copy leaves a partial
+  AppImage that `Locate` then finds, and `desktopExec` does not unquote a quoted `Exec`.
 - **`kstack app` on macOS cannot recover from a failed install, and reports a failed launch as
   success.** `ditto` copies straight into `~/Applications/Kstack.app`
   (`cli/internal/desktop/install.go`), so a cancelled copy or a full disk leaves a partial bundle

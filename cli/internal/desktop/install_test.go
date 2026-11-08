@@ -96,7 +96,7 @@ func TestInstallOnWindowsRunsTheSetupSilently(t *testing.T) {
 	local := t.TempDir()
 	s := testSystem(t, "windows", map[string]string{"LOCALAPPDATA": local})
 	installer := downloaded(t, s, "Kstack-setup.exe")
-	exe := filepath.Join(local, "Kstack", "kstack.exe")
+	exe := filepath.Join(local, "Kstack", "kstack-desktop.exe")
 	c := &commands{act: func(string, []string) error {
 		touch(t, exe, "")
 		return nil

@@ -28,9 +28,10 @@ placeholders.
   every platform's tests. Its folders (`Root`, `Home`, `Getenv`), commands (`Run`, `Start`) and
   network (`HTTP`, `URL`, `Stall`) are fields; tests point them at a `t.TempDir()`, a recorder and an
   `httptest.Server`.
-- **The desktop app's Linux and Windows binary is also named `kstack`**, so `Locate` never
-  searches PATH: on Linux it looks at `/usr/bin/kstack`, where the packages install the app, and
-  skips `System.Self` there, or the CLI would launch itself.
+- **The desktop app's binary is `kstack-desktop`**, never `kstack`: on Linux `Locate` looks at
+  `/usr/bin/kstack-desktop`, where the packages install it. Its display name, and so its bundle and
+  install folder, is `Kstack` (`Kstack.app`, `%LOCALAPPDATA%\Kstack\kstack-desktop.exe`). →
+  [ADR: the app is Kstack and its binary kstack-desktop](../docs/adr/2026-11-07-the-desktop-app-is-kstack-and-its-binary-kstack-desktop.md).
 - **Installs are per user and need no admin**: `~/Applications` on macOS and Linux, NSIS's silent
   current-user install (`%LOCALAPPDATA%\Kstack`) on Windows. `Install` ends by calling `Locate`, so
   where it installs and where it looks cannot drift apart.

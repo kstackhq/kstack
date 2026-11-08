@@ -18,14 +18,11 @@ func TestNewSystemDescribesThisMachine(t *testing.T) {
 	require.NoError(t, err)
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
-	self, err := os.Executable()
-	require.NoError(t, err)
 
 	assert.Equal(t, runtime.GOOS, s.OS)
 	assert.Equal(t, runtime.GOARCH, s.Arch)
 	assert.Equal(t, string(filepath.Separator), s.Root)
 	assert.Equal(t, home, s.Home)
-	assert.Equal(t, self, s.Self)
 	assert.Equal(t, "https://kstack.sh/download/{os}/{arch}", s.URL)
 	assert.Equal(t, 30*time.Second, s.Stall)
 	assert.Equal(t, os.Getenv("PATH"), s.Getenv("PATH"))
@@ -66,8 +63,8 @@ func TestLaunchStartsTheApp(t *testing.T) {
 	t.Parallel()
 	for goos, want := range map[string][]string{
 		"darwin":  {"open", "-a", "/Applications/Kstack.app"},
-		"windows": {`C:\Kstack\kstack.exe`},
-		"linux":   {"/usr/bin/kstack"},
+		"windows": {`C:\Kstack\kstack-desktop.exe`},
+		"linux":   {"/usr/bin/kstack-desktop"},
 	} {
 		var got []string
 		s := testSystem(t, goos, nil)

@@ -20,7 +20,7 @@ func (s *System) Locate() (string, error) {
 		var candidates []string
 		for _, env := range []string{"LOCALAPPDATA", "ProgramFiles"} {
 			if dir := s.Getenv(env); dir != "" {
-				candidates = append(candidates, filepath.Join(dir, "Kstack", "kstack.exe"))
+				candidates = append(candidates, filepath.Join(dir, "Kstack", "kstack-desktop.exe"))
 			}
 		}
 		return firstExisting(candidates...), nil
@@ -31,11 +31,10 @@ func (s *System) Locate() (string, error) {
 }
 
 // locateLinux tries the .deb and .rpm packages' binary, then a desktop
-// entry's Exec, then an AppImage in the usual folders. It never searches
-// PATH: another copy of this CLI there cannot be told from the app.
+// entry's Exec, then an AppImage in the usual folders.
 func (s *System) locateLinux() string {
-	bin := filepath.Join(s.Root, "usr", "bin", "kstack")
-	if isExecutable(bin) && !s.isSelf(bin) {
+	bin := filepath.Join(s.Root, "usr", "bin", "kstack-desktop")
+	if isExecutable(bin) {
 		return bin
 	}
 	for _, entry := range []string{
@@ -50,12 +49,6 @@ func (s *System) locateLinux() string {
 		filepath.Join(s.Home, "Applications", "Kstack.AppImage"),
 		filepath.Join(s.Home, ".local", "bin", "Kstack.AppImage"),
 	)
-}
-
-func (s *System) isSelf(path string) bool {
-	a, errA := os.Stat(path)
-	b, errB := os.Stat(s.Self)
-	return errA == nil && errB == nil && os.SameFile(a, b)
 }
 
 // desktopExec returns the program a desktop entry's Exec line runs, or "".

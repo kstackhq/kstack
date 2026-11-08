@@ -67,13 +67,13 @@ func TestLocateOnWindowsLooksInLocalAppDataThenProgramFiles(t *testing.T) {
 	local, programs := filepath.Join(dir, "local"), filepath.Join(dir, "programs")
 	s := testSystem(t, "windows", map[string]string{"LOCALAPPDATA": local, "ProgramFiles": programs})
 
-	exe := filepath.Join(programs, "Kstack", "kstack.exe")
+	exe := filepath.Join(programs, "Kstack", "kstack-desktop.exe")
 	touch(t, exe, "")
 	path, err := s.Locate()
 	require.NoError(t, err)
 	assert.Equal(t, exe, path)
 
-	exe = filepath.Join(local, "Kstack", "kstack.exe")
+	exe = filepath.Join(local, "Kstack", "kstack-desktop.exe")
 	touch(t, exe, "")
 	path, err = s.Locate()
 	require.NoError(t, err)
@@ -85,16 +85,16 @@ func TestLocateOnWindowsSkipsAnUnsetFolder(t *testing.T) {
 	// With LOCALAPPDATA unset, the candidate must not become a relative path.
 	s := testSystem(t, "windows", nil)
 	t.Chdir(t.TempDir())
-	touch(t, filepath.Join("Kstack", "kstack.exe"), "")
+	touch(t, filepath.Join("Kstack", "kstack-desktop.exe"), "")
 	path, err := s.Locate()
 	require.NoError(t, err)
 	assert.Empty(t, path)
 }
 
-func TestLocateOnLinuxFindsThePackagesBinaryButNeverItself(t *testing.T) {
+func TestLocateOnLinuxFindsThePackagesBinary(t *testing.T) {
 	t.Parallel()
 	s := testSystem(t, "linux", nil)
-	bin := filepath.Join(s.Root, "usr", "bin", "kstack")
+	bin := filepath.Join(s.Root, "usr", "bin", "kstack-desktop")
 	require.NoError(t, os.MkdirAll(bin, 0o755))
 	got, err := s.Locate()
 	require.NoError(t, err)
@@ -105,27 +105,12 @@ func TestLocateOnLinuxFindsThePackagesBinaryButNeverItself(t *testing.T) {
 	got, err = s.Locate()
 	require.NoError(t, err)
 	assert.Equal(t, bin, got)
-
-	s.Self = bin
-	got, err = s.Locate()
-	require.NoError(t, err)
-	assert.Empty(t, got, "the CLI installed there is not the app")
-}
-
-func TestLocateOnLinuxIgnoresPATH(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	touch(t, filepath.Join(dir, "kstack"), "another CLI")
-	s := testSystem(t, "linux", map[string]string{"PATH": dir})
-	got, err := s.Locate()
-	require.NoError(t, err)
-	assert.Empty(t, got)
 }
 
 func TestLocateOnLinuxReadsTheDesktopEntry(t *testing.T) {
 	t.Parallel()
 	s := testSystem(t, "linux", nil)
-	exe := filepath.Join(s.Root, "opt", "Kstack", "kstack")
+	exe := filepath.Join(s.Root, "opt", "Kstack", "kstack-desktop")
 	touch(t, exe, "")
 	entry := filepath.Join(s.Root, "usr", "share", "applications", "Kstack.desktop")
 	touch(t, entry, "[Desktop Entry]\nName=Kstack\nExec="+exe+" %U\n")
@@ -137,7 +122,7 @@ func TestLocateOnLinuxReadsTheDesktopEntry(t *testing.T) {
 func TestLocateOnLinuxIgnoresADesktopEntryWithoutAnAbsoluteExec(t *testing.T) {
 	t.Parallel()
 	s := testSystem(t, "linux", nil)
-	for _, body := range []string{"[Desktop Entry]\nExec=kstack\n", "[Desktop Entry]\nExec=\n", "[Desktop Entry]\n"} {
+	for _, body := range []string{"[Desktop Entry]\nExec=kstack-desktop\n", "[Desktop Entry]\nExec=\n", "[Desktop Entry]\n"} {
 		touch(t, filepath.Join(s.Home, ".local", "share", "applications", "Kstack.desktop"), body)
 		got, err := s.Locate()
 		require.NoError(t, err)

@@ -25,9 +25,6 @@ type System struct {
 	Root   string
 	Home   string
 	Getenv func(string) string
-	// Self is this executable. On Linux the app's binary is also named kstack,
-	// so Locate must not take the CLI for the app.
-	Self string
 
 	HTTP *http.Client
 	// Stall fails a download that receives nothing for this long, from the
@@ -50,17 +47,12 @@ func NewSystem() (*System, error) {
 	if err != nil { // coverage:ignore every platform CI runs on sets a home directory
 		return nil, err
 	}
-	self, err := os.Executable()
-	if err != nil { // coverage:ignore every platform CI runs on reports the executable
-		return nil, err
-	}
 	return &System{
 		OS:     runtime.GOOS,
 		Arch:   runtime.GOARCH,
 		Root:   string(filepath.Separator),
 		Home:   home,
 		Getenv: os.Getenv,
-		Self:   self,
 		// No overall timeout: a large download takes as long as it needs.
 		HTTP:  &http.Client{},
 		Stall: 30 * time.Second,

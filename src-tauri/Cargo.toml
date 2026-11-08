@@ -16,7 +16,7 @@ name = "kstack_lib"
 crate-type = ["rlib"]
 
 [[bin]]
-name = "kstack"
+name = "kstack-desktop"
 path = "src/main.rs"
 
 [build-dependencies]
