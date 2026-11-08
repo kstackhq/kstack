@@ -247,3 +247,4 @@ usually just documentation in the wrong place.
 | 2026-11-07 | [Linux ships only the .deb and the .rpm](2026-11-07-linux-ships-only-the-deb-and-the-rpm.md) | repo | Accepted |
 | 2026-11-07 | [The desktop app is Kstack, and its binary kstack-desktop](2026-11-07-the-desktop-app-is-kstack-and-its-binary-kstack-desktop.md) | repo | Accepted |
 | 2026-11-08 | [Release files are named kstack-\<product\>-\<version\>-\<os\>-\<arch\>](2026-11-08-release-files-are-named-kstack-product-version-os-arch.md) | repo | Accepted |
+| 2026-11-08 | [kstack app installs the newest desktop release with the platform's installer](2026-11-08-kstack-app-installs-the-newest-desktop-release-with-the-platforms-installer.md) | repo | Accepted |

@@ -1,11 +1,9 @@
 package desktop
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 )
 
 // Locate looks where each platform's installers put Kstack.
@@ -17,57 +15,20 @@ func (s *System) Locate() (string, error) {
 			filepath.Join(s.Home, "Applications", "Kstack.app"),
 		), nil
 	case "windows":
-		var candidates []string
-		for _, env := range []string{"LOCALAPPDATA", "ProgramFiles"} {
-			if dir := s.Getenv(env); dir != "" {
-				candidates = append(candidates, filepath.Join(dir, "Kstack", "kstack-desktop.exe"))
-			}
+		// Unset, the path would be relative to the working directory.
+		dir := s.Getenv("ProgramFiles")
+		if dir == "" {
+			return "", nil
 		}
-		return firstExisting(candidates...), nil
+		return firstExisting(filepath.Join(dir, "Kstack", "kstack-desktop.exe")), nil
 	case "linux":
-		return s.locateLinux(), nil
+		// The .deb's and the .rpm's binary.
+		if bin := filepath.Join(s.Root, "usr", "bin", "kstack-desktop"); isExecutable(bin) {
+			return bin, nil
+		}
+		return "", nil
 	}
 	return "", s.unsupported()
-}
-
-// locateLinux tries the .deb and .rpm packages' binary, then a desktop
-// entry's Exec, then an AppImage in the usual folders.
-func (s *System) locateLinux() string {
-	bin := filepath.Join(s.Root, "usr", "bin", "kstack-desktop")
-	if isExecutable(bin) {
-		return bin
-	}
-	for _, entry := range []string{
-		filepath.Join(s.Home, ".local", "share", "applications", "Kstack.desktop"),
-		filepath.Join(s.Root, "usr", "share", "applications", "Kstack.desktop"),
-	} {
-		if exe := desktopExec(entry); filepath.IsAbs(exe) && isExecutable(exe) {
-			return exe
-		}
-	}
-	return firstExisting(
-		filepath.Join(s.Home, "Applications", "Kstack.AppImage"),
-		filepath.Join(s.Home, ".local", "bin", "Kstack.AppImage"),
-	)
-}
-
-// desktopExec returns the program a desktop entry's Exec line runs, or "".
-func desktopExec(entry string) string {
-	f, err := os.Open(entry)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		if cmd, ok := strings.CutPrefix(sc.Text(), "Exec="); ok {
-			if fields := strings.Fields(cmd); len(fields) > 0 {
-				return fields[0]
-			}
-			return ""
-		}
-	}
-	return ""
 }
 
 func firstExisting(paths ...string) string {

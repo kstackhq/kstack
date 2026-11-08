@@ -15,9 +15,9 @@ type Steps interface {
 	// Download fetches the installer, reporting bytes done of total (-1 when
 	// the size is unknown), and returns its path.
 	Download(ctx context.Context, progress func(done, total int64)) (string, error)
-	// Install runs or places the installer, removes it, and returns the
-	// installed app's path.
-	Install(ctx context.Context, installer string) (string, error)
+	// Install runs or places the installer, reporting any command it hands
+	// the terminal to out, removes it, and returns the installed app's path.
+	Install(ctx context.Context, installer string, out io.Writer) (string, error)
 	// Launch starts the app at path and returns without waiting for it.
 	Launch(path string) error
 }
@@ -37,7 +37,7 @@ func Open(ctx context.Context, s Steps, out io.Writer) error {
 			return err
 		}
 		fmt.Fprintln(out, "Installing...")
-		if path, err = s.Install(ctx, installer); err != nil {
+		if path, err = s.Install(ctx, installer, out); err != nil {
 			return err
 		}
 	}

@@ -3,23 +3,23 @@
 package desktop
 
 import (
-	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestInstallOnLinuxMakesTheAppImageExecutable(t *testing.T) {
+func TestAssetSuffixSkipsAPackageManagerNobodyCanRun(t *testing.T) {
 	t.Parallel()
 	s := testSystem(t, "linux", nil)
-	installer := downloaded(t, s, "Kstack.AppImage")
-	require.NoError(t, os.Chmod(installer, 0o600))
+	aptGet := filepath.Join(s.Root, "usr", "bin", "apt-get")
+	touch(t, aptGet, "")
+	touch(t, filepath.Join(s.Root, "usr", "bin", "dnf"), "")
+	require.NoError(t, os.Chmod(aptGet, 0o644))
 
-	path, err := s.Install(context.Background(), installer)
+	suffix, err := s.assetSuffix()
 	require.NoError(t, err)
-	info, err := os.Stat(path)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+	assert.Equal(t, "-linux-arm64.rpm", suffix)
 }

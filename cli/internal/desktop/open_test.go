@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,7 +39,8 @@ func (f *fakeSteps) Download(_ context.Context, progress func(done, total int64)
 	return "/tmp/installer", f.step("download")
 }
 
-func (f *fakeSteps) Install(_ context.Context, installer string) (string, error) {
+func (f *fakeSteps) Install(_ context.Context, installer string, out io.Writer) (string, error) {
+	fmt.Fprintln(out, "Running the installer")
 	return "/installed/Kstack", f.step("install " + installer)
 }
 
@@ -63,6 +66,7 @@ func TestAMissingAppIsDownloadedInstalledAndLaunched(t *testing.T) {
 	assert.Equal(t, "Kstack is not installed. Downloading it...\n"+
 		"\r 50% of 10 B\x1b[K\r100% of 10 B\x1b[K\n"+
 		"Installing...\n"+
+		"Running the installer\n"+
 		"Opening /installed/Kstack\n", out.String())
 }
 

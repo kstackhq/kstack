@@ -61,28 +61,20 @@ func TestLocateOnMacOSPrefersApplicationsOverTheHomeFolders(t *testing.T) {
 	assert.Equal(t, system, path)
 }
 
-func TestLocateOnWindowsLooksInLocalAppDataThenProgramFiles(t *testing.T) {
+func TestLocateOnWindowsLooksInProgramFiles(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	local, programs := filepath.Join(dir, "local"), filepath.Join(dir, "programs")
-	s := testSystem(t, "windows", map[string]string{"LOCALAPPDATA": local, "ProgramFiles": programs})
-
+	programs := t.TempDir()
+	s := testSystem(t, "windows", map[string]string{"ProgramFiles": programs})
 	exe := filepath.Join(programs, "Kstack", "kstack-desktop.exe")
 	touch(t, exe, "")
 	path, err := s.Locate()
-	require.NoError(t, err)
-	assert.Equal(t, exe, path)
-
-	exe = filepath.Join(local, "Kstack", "kstack-desktop.exe")
-	touch(t, exe, "")
-	path, err = s.Locate()
 	require.NoError(t, err)
 	assert.Equal(t, exe, path)
 }
 
 // Serial: t.Chdir changes the process's directory.
 func TestLocateOnWindowsSkipsAnUnsetFolder(t *testing.T) {
-	// With LOCALAPPDATA unset, the candidate must not become a relative path.
+	// With ProgramFiles unset, the candidate must not become a relative path.
 	s := testSystem(t, "windows", nil)
 	t.Chdir(t.TempDir())
 	touch(t, filepath.Join("Kstack", "kstack-desktop.exe"), "")
@@ -105,43 +97,4 @@ func TestLocateOnLinuxFindsThePackagesBinary(t *testing.T) {
 	got, err = s.Locate()
 	require.NoError(t, err)
 	assert.Equal(t, bin, got)
-}
-
-func TestLocateOnLinuxReadsTheDesktopEntry(t *testing.T) {
-	t.Parallel()
-	s := testSystem(t, "linux", nil)
-	exe := filepath.Join(s.Root, "opt", "Kstack", "kstack-desktop")
-	touch(t, exe, "")
-	entry := filepath.Join(s.Root, "usr", "share", "applications", "Kstack.desktop")
-	touch(t, entry, "[Desktop Entry]\nName=Kstack\nExec="+exe+" %U\n")
-	got, err := s.Locate()
-	require.NoError(t, err)
-	assert.Equal(t, exe, got)
-}
-
-func TestLocateOnLinuxIgnoresADesktopEntryWithoutAnAbsoluteExec(t *testing.T) {
-	t.Parallel()
-	s := testSystem(t, "linux", nil)
-	for _, body := range []string{"[Desktop Entry]\nExec=kstack-desktop\n", "[Desktop Entry]\nExec=\n", "[Desktop Entry]\n"} {
-		touch(t, filepath.Join(s.Home, ".local", "share", "applications", "Kstack.desktop"), body)
-		got, err := s.Locate()
-		require.NoError(t, err)
-		assert.Empty(t, got, body)
-	}
-}
-
-func TestLocateOnLinuxFindsAnAppImage(t *testing.T) {
-	t.Parallel()
-	s := testSystem(t, "linux", nil)
-	image := filepath.Join(s.Home, ".local", "bin", "Kstack.AppImage")
-	touch(t, image, "")
-	got, err := s.Locate()
-	require.NoError(t, err)
-	assert.Equal(t, image, got)
-
-	image = filepath.Join(s.Home, "Applications", "Kstack.AppImage")
-	touch(t, image, "")
-	got, err = s.Locate()
-	require.NoError(t, err)
-	assert.Equal(t, image, got)
 }

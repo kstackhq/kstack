@@ -3,23 +3,28 @@ package desktop
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// Install installs the app from the installer Download returned, for this
-// user alone, then removes the installer's directory. It needs no admin rights.
-func (s *System) Install(ctx context.Context, installer string) (string, error) {
+// Install installs the app from the installer Download returned, then removes
+// the installer's directory. On macOS it installs for this user alone; the
+// MSI asks Windows for admin rights, and the Linux package installs through
+// sudo, the command printed to out first.
+func (s *System) Install(ctx context.Context, installer string, out io.Writer) (string, error) {
 	defer os.RemoveAll(filepath.Dir(installer))
 	var err error
 	switch s.OS {
 	case "darwin":
 		err = s.installDiskImage(ctx, installer)
 	case "windows":
-		// NSIS's silent mode, which installs into %LOCALAPPDATA%.
-		err = s.Run(ctx, installer, "/S")
+		// /passive shows progress and Windows' admin prompt, and asks nothing else.
+		err = s.Run(ctx, "msiexec", "/i", installer, "/passive", "/norestart")
 	case "linux":
-		err = s.installAppImage(installer)
+		err = s.installPackage(ctx, installer, out)
 	default:
 		return "", s.unsupported()
 	}
@@ -45,20 +50,22 @@ func (s *System) installDiskImage(ctx context.Context, image string) error {
 	return s.Run(ctx, "ditto", filepath.Join(mnt, "Kstack.app"), filepath.Join(s.Home, "Applications", "Kstack.app"))
 }
 
-// installAppImage copies the AppImage to ~/Applications and makes it executable.
-func (s *System) installAppImage(image string) error {
-	dir := filepath.Join(s.Home, "Applications")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+// installPackage installs a .deb with apt-get or an .rpm with dnf, through
+// sudo unless this process is root. The command runs on the terminal, so the
+// user sees sudo's prompt and the package manager's output.
+func (s *System) installPackage(ctx context.Context, pkg string, out io.Writer) error {
+	var args []string
+	switch filepath.Ext(pkg) {
+	case ".deb":
+		args = []string{"apt-get", "install", "-y", pkg}
+	case ".rpm":
+		args = []string{"dnf", "install", "-y", pkg}
+	default:
+		return fmt.Errorf("kstack app cannot install %s", filepath.Base(pkg))
 	}
-	src, err := os.Open(image)
-	if err != nil {
-		return err
+	if !s.IsRoot {
+		args = append([]string{"sudo"}, args...)
 	}
-	defer src.Close()
-	dst := filepath.Join(dir, "Kstack.AppImage")
-	if err := writeFile(dst, src); err != nil {
-		return err
-	}
-	return os.Chmod(dst, 0o755)
+	fmt.Fprintf(out, "Running %s\n", strings.Join(args, " "))
+	return s.Interact(ctx, args[0], args[1:]...)
 }

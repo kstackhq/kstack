@@ -13,7 +13,7 @@ func TestAppHelpDescribesTheInstall(t *testing.T) {
 	t.Parallel()
 	out, status := execute(t, Deps{}, "app", "--help")
 	require.Zero(t, status)
-	assert.Contains(t, out, "downloads the installer for this platform")
+	assert.Contains(t, out, "downloads this platform's file from the newest")
 	assert.Contains(t, out, "kstack app [flags]")
 }
 

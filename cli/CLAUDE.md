@@ -9,8 +9,8 @@ with Bubbles and Lip Gloss. Run it with `go run .` from `cli/`; build it with
 - **`kstack app`** opens the desktop app, downloading and installing it first when it is missing.
 - **`kstack --version`** prints the version the release build set, or `dev`.
 
-The download URL (`desktop.DefaultURL`) and the newsletter endpoint (`newsletter.DefaultURL`) are
-placeholders.
+`kstack app` downloads from the newest `desktop/v*` GitHub release (`desktop.DefaultReleases`). The
+newsletter endpoint (`newsletter.DefaultURL`) is a placeholder.
 
 ## Layout
 
@@ -25,16 +25,22 @@ placeholders.
 ## Conventions
 
 - **`System` switches on its `OS` field, never on build tags.** Every platform's choices run in
-  every platform's tests. Its folders (`Root`, `Home`, `Getenv`), commands (`Run`, `Start`) and
-  network (`HTTP`, `URL`, `Stall`) are fields; tests point them at a `t.TempDir()`, a recorder and an
-  `httptest.Server`.
+  every platform's tests. Its folders (`Root`, `Home`, `Getenv`), commands (`Run`, `Interact`,
+  `Start`) and network (`HTTP`, `Releases`, `Stall`) are fields; tests point them at a
+  `t.TempDir()`, a recorder and an `httptest.Server`.
 - **The desktop app's binary is `kstack-desktop`**, never `kstack`: on Linux `Locate` looks at
   `/usr/bin/kstack-desktop`, where the packages install it. Its display name, and so its bundle and
-  install folder, is `Kstack` (`Kstack.app`, `%LOCALAPPDATA%\Kstack\kstack-desktop.exe`). →
+  install folder, is `Kstack` (`Kstack.app`, `%ProgramFiles%\Kstack\kstack-desktop.exe`). →
   [ADR: the app is Kstack and its binary kstack-desktop](../docs/adr/2026-11-07-the-desktop-app-is-kstack-and-its-binary-kstack-desktop.md).
-- **Installs are per user and need no admin**: `~/Applications` on macOS and Linux, NSIS's silent
-  current-user install (`%LOCALAPPDATA%\Kstack`) on Windows. `Install` ends by calling `Locate`, so
-  where it installs and where it looks cannot drift apart.
+- **`Download` takes the newest non-draft `desktop/v<version>` release, pre-releases included**, and
+  its file by the release's name: `-darwin-universal.dmg`, `-windows-<arch>.msi`, and on Linux the
+  `.deb` when `/usr/bin/apt-get` exists, else the `.rpm` when `/usr/bin/dnf` does.
+- **Each platform installs with its own tool.** macOS copies `Kstack.app` into `~/Applications`,
+  for this user alone. Windows runs `msiexec /i … /passive`, which asks for admin rights and
+  installs into `%ProgramFiles%\Kstack`. Linux prints, then runs on the terminal (`Interact`),
+  `sudo apt-get install -y` or `sudo dnf install -y`; as root (`IsRoot`) it drops `sudo`. `Install`
+  ends by calling `Locate`, so where it installs and where it looks cannot drift apart. →
+  [ADR: kstack app installs the newest desktop release with the platform's installer](../docs/adr/2026-11-08-kstack-app-installs-the-newest-desktop-release-with-the-platforms-installer.md).
 - **`q` quits the TUI only once the email box is gone**; before that it may be part of an address.
   Esc and Ctrl+C always quit.
 - **A TUI test never runs the text input's command**: that is the cursor's blink, which waits on a
