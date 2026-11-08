@@ -5,7 +5,7 @@
 # over would stack against the profile Ubuntu loads for /usr/bin/bwrap.
 #
 # Copyright AppArmor's authors. Licensed under the GNU General Public License,
-# version 2 (/usr/share/doc/kstack/apparmor-COPYING).
+# version 2 (/usr/share/doc/kstack/apparmor-LICENSE).
 
 # This profile allows almost everything and only exists to allow bwrap
 # to work on a system with user namespace restrictions being enforced.

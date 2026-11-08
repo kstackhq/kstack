@@ -18,12 +18,12 @@ target
 
 # Sidecar build output (produced by `make sidecar`).
 src-tauri/binaries/
-# Kstack's own bwrap, its license and its source (produced by `make bwrap`).
+# Kstack's own bwrap and its source (produced by `make bwrap`).
 src-tauri/linux/bwrap
-src-tauri/linux/bubblewrap-*
-# Kstack's own pasta, its licenses and its source (produced by `make pasta`).
+src-tauri/linux/bubblewrap-*.tar.xz
+# Kstack's own pasta and its source (produced by `make pasta`).
 src-tauri/linux/pasta
-src-tauri/linux/passt-*
+src-tauri/linux/passt-*.tar.xz
 # Editor directories and files. The shared team config is re-included; anything
 # else under .vscode/ is personal.
 .vscode/*

@@ -7,13 +7,14 @@
         ],
         "files": {
           "/usr/lib/kstack/bwrap": "linux/bwrap",
-          "/usr/share/doc/kstack/bubblewrap-COPYING": "linux/bubblewrap-COPYING",
           "/usr/lib/kstack/pasta": "linux/pasta",
-          "/usr/share/doc/kstack/passt-GPL-2.0-or-later.txt": "linux/passt-GPL-2.0-or-later.txt",
-          "/usr/share/doc/kstack/passt-BSD-3-Clause.txt": "linux/passt-BSD-3-Clause.txt",
           "/usr/lib/kstack/apparmor/kstack-bwrap": "linux/kstack-bwrap",
           "/usr/lib/kstack/apparmor/kstack-pasta": "linux/kstack-pasta",
-          "/usr/share/doc/kstack/apparmor-COPYING": "linux/apparmor-COPYING"
+          "/usr/share/doc/kstack/THIRD_PARTY_NOTICES.md": "../licenses/THIRD_PARTY_NOTICES.md",
+          "/usr/share/doc/kstack/bubblewrap-LICENSE": "../licenses/bubblewrap-LICENSE",
+          "/usr/share/doc/kstack/passt-LICENSE-GPL-2.0-or-later": "../licenses/passt-LICENSE-GPL-2.0-or-later",
+          "/usr/share/doc/kstack/passt-LICENSE-BSD-3-Clause": "../licenses/passt-LICENSE-BSD-3-Clause",
+          "/usr/share/doc/kstack/apparmor-LICENSE": "../licenses/apparmor-LICENSE"
         },
         "postInstallScript": "linux/postinst.sh",
         "preRemoveScript": "linux/prerm.sh"
@@ -24,10 +25,11 @@
         ],
         "files": {
           "/usr/lib/kstack/bwrap": "linux/bwrap",
-          "/usr/share/doc/kstack/bubblewrap-COPYING": "linux/bubblewrap-COPYING",
           "/usr/lib/kstack/pasta": "linux/pasta",
-          "/usr/share/doc/kstack/passt-GPL-2.0-or-later.txt": "linux/passt-GPL-2.0-or-later.txt",
-          "/usr/share/doc/kstack/passt-BSD-3-Clause.txt": "linux/passt-BSD-3-Clause.txt"
+          "/usr/share/licenses/kstack/THIRD_PARTY_NOTICES.md": "../licenses/THIRD_PARTY_NOTICES.md",
+          "/usr/share/licenses/kstack/bubblewrap-LICENSE": "../licenses/bubblewrap-LICENSE",
+          "/usr/share/licenses/kstack/passt-LICENSE-GPL-2.0-or-later": "../licenses/passt-LICENSE-GPL-2.0-or-later",
+          "/usr/share/licenses/kstack/passt-LICENSE-BSD-3-Clause": "../licenses/passt-LICENSE-BSD-3-Clause"
         }
       }
     }

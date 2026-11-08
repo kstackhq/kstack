@@ -10,7 +10,7 @@
 # Copyright (c) 2022 Red Hat GmbH
 # Author: Stefano Brivio <sbrivio@redhat.com>
 # Licensed under the GNU General Public License, version 2 or later
-# (/usr/share/doc/kstack/passt-GPL-2.0-or-later.txt).
+# (/usr/share/doc/kstack/passt-LICENSE-GPL-2.0-or-later).
 
 abi <abi/4.0>,
 

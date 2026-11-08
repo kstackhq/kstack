@@ -1,0 +1,67 @@
+# Third-party notices
+
+Kstack's Linux packages carry the third-party programs below, unmodified. Kstack's own license
+does not cover them; each is under its own license, whose text sits beside this file.
+
+Each Kstack desktop release on GitHub attaches the source tarball its bundled `bwrap` and `pasta`
+were built from: <https://github.com/kstackhq/kstack/releases>, under the release's
+`desktop/v<version>` tag.
+
+## Bubblewrap
+
+- **Bundled as:** `bwrap` (`/usr/lib/kstack/bwrap`), in the `.deb` and the `.rpm`
+- **Version:** 0.13.0
+- **Upstream:** <https://github.com/containers/bubblewrap>
+- **Source:** `bubblewrap-0.13.0.tar.xz`, attached to the Kstack release; upstream at
+  <https://github.com/containers/bubblewrap/releases/download/v0.13.0/bubblewrap-0.13.0.tar.xz>
+  (SHA-256 `4734237473c0e5d695e4e9034a34e43b2dbf5164655bd13fa59ae376b2b7a765`)
+- **License:** LGPL-2.0-or-later; text in [`bubblewrap-LICENSE`](bubblewrap-LICENSE)
+
+```text
+Copyright (C) 2016 Alexander Larsson
+Copyright (C) 2017, 2018, 2019 Giuseppe Scrivano <giuseppe@scrivano.org>
+Based on realpath.c Copyright (C) 1993 Rick Sladkey <jrs@world.std.com>
+```
+
+## passt
+
+- **Bundled as:** `pasta` (`/usr/lib/kstack/pasta`), in the `.deb` and the `.rpm`; and its
+  AppArmor profile for `pasta`, adapted as `kstack-pasta`, in the `.deb`
+- **Version:** 2026_10_02.cba3570
+- **Upstream:** <https://passt.top/>
+- **Source:** `passt-2026_10_02.cba3570.tar.xz`, attached to the Kstack release; upstream at
+  <https://passt.top/passt/snapshot/passt-2026_10_02.cba3570.tar.xz>
+  (SHA-256 `aa75616cc43925f0bd6c05bcfbbaecd77397c03d7bd23591b34ef535be5dfcdc`)
+- **License:** GPL-2.0-or-later, with parts under BSD-3-Clause; texts in
+  [`passt-LICENSE-GPL-2.0-or-later`](passt-LICENSE-GPL-2.0-or-later) and
+  [`passt-LICENSE-BSD-3-Clause`](passt-LICENSE-BSD-3-Clause)
+
+```text
+Copyright (c) 2020-2026 Red Hat GmbH
+Authors: Stefano Brivio <sbrivio@redhat.com>, David Gibson <david@gibson.dropbear.id.au>,
+Laurent Vivier <lvivier@redhat.com>
+Copyright (C) 2010 Red Hat, Inc.
+
+Copyright (c) 2014-2016, The Regents of the University of California.
+Copyright (c) 2016-2017, Nefeli Networks, Inc.
+
+Copyright IBM, Corp. 2007
+Copyright (c) 2016 Red Hat, Inc.
+
+Copyright (c) 2012-2021 Jean-Philippe Aumasson <jeanphilippe.aumasson@gmail.com>
+Copyright (c) 2012-2014 Daniel J. Bernstein <djb@cr.yp.to>
+Copyright (C) 2016 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
+```
+
+## AppArmor
+
+- **Bundled as:** its `bwrap-userns-restrict` profile, adapted as `kstack-bwrap`, in the `.deb`
+- **Version:** 4.1.8 (`profiles/apparmor/profiles/extras/bwrap-userns-restrict`)
+- **Upstream:** <https://gitlab.com/apparmor/apparmor>
+- **Source:** the profile is its own source; the `.deb` carries it at
+  `/usr/lib/kstack/apparmor/kstack-bwrap`
+- **License:** GPL-2.0; text in [`apparmor-LICENSE`](apparmor-LICENSE)
+
+```text
+Copyright AppArmor's authors.
+```

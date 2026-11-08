@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the pasta Kstack's Linux packages carry, from one pinned passt release,
-# into src-tauri/linux/: pasta itself, its two licenses, and the tarball it was
-# built from, which the release attaches as pasta's source.
+# into src-tauri/linux/: pasta itself and the tarball it was built from, which
+# the release attaches as pasta's source. It fails when licenses/ is stale for
+# that release (licenses/README.md).
 #
 # pasta is passt's binary under another name, which is how it knows to run as
 # pasta. Its AVX2 build is left out: pasta runs without it, after one warning
@@ -22,6 +23,7 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="$ROOT/src-tauri/linux"
+LICENSES="$ROOT/licenses"
 TARBALL="passt-$VERSION.tar.xz"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -32,12 +34,18 @@ echo "$SHA256  $WORK/$TARBALL" | sha256sum -c --quiet -
 
 tar -xJf "$WORK/$TARBALL" -C "$WORK"
 SRC="$WORK/passt-$VERSION"
+
+grep -qF -- "**Version:** $VERSION" "$LICENSES/THIRD_PARTY_NOTICES.md" ||
+  { echo "licenses/THIRD_PARTY_NOTICES.md does not name passt $VERSION" >&2; exit 1; }
+for license in GPL-2.0-or-later BSD-3-Clause; do
+  cmp -s "$SRC/LICENSES/$license.txt" "$LICENSES/passt-LICENSE-$license" ||
+    { echo "passt $VERSION's LICENSES/$license.txt differs from licenses/passt-LICENSE-$license" >&2; exit 1; }
+done
+
 # The tarball has no git history to describe the version from.
 make -C "$SRC" VERSION="$VERSION" passt
 
 mkdir -p "$OUT_DIR"
 install -m 0755 "$SRC/passt" "$OUT_DIR/pasta"
-install -m 0644 "$SRC/LICENSES/GPL-2.0-or-later.txt" "$OUT_DIR/passt-GPL-2.0-or-later.txt"
-install -m 0644 "$SRC/LICENSES/BSD-3-Clause.txt" "$OUT_DIR/passt-BSD-3-Clause.txt"
 install -m 0644 "$WORK/$TARBALL" "$OUT_DIR/$TARBALL"
 echo "✓ $OUT_DIR/pasta ($("$OUT_DIR/pasta" --version | head -1))"

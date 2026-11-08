@@ -1,0 +1,28 @@
+# Third-party licenses
+
+The licenses and notices of the third-party programs Kstack's Linux packages carry. Kstack's own
+license is [`LICENSE`](../LICENSE) at the repository root.
+
+- [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) names each program, its version, license,
+  copyright notices and where its source is.
+- `<project>-LICENSE*` is each project's license text, copied unchanged from its source.
+
+`src-tauri/tauri.linux.conf.json` installs every file here but this one: under
+`/usr/share/doc/kstack/` in the `.deb`, `/usr/share/licenses/kstack/` in the `.rpm`.
+
+## Updating a bundled program
+
+`scripts/build-bwrap.sh` and `scripts/build-pasta.sh` pin bubblewrap's and passt's versions. They
+fail when `THIRD_PARTY_NOTICES.md` does not name the pinned version, or when a license here differs
+from the one in the pinned tarball. After bumping `VERSION` and `SHA256` in a script:
+
+1. Run `make bwrap` or `make pasta` on Linux.
+2. If it reports a changed license, copy the file it names over the one here.
+3. In `THIRD_PARTY_NOTICES.md`, update the version, the tarball's name, URL and SHA-256, and the
+   copyright lines (`grep -rhi copyright` over the tarball's `.c` and `.h` files lists them).
+
+An AppArmor profile adapted from upstream (`src-tauri/linux/kstack-bwrap`, `kstack-pasta`) names
+the version it was taken from; update its entry when you take it from a newer one.
+
+A new bundled program gets its license file here, an entry in `THIRD_PARTY_NOTICES.md`, and a line
+for each in both formats' `files`.
