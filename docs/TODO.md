@@ -715,8 +715,8 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **`kstack app` cannot install from a real Linux release.** The CLI downloads and installs
   `Kstack.AppImage` into `~/Applications` (`cli/internal/desktop/install.go`), and `Locate` also
-  reads a desktop entry's `Exec` to find one. Linux will ship only the `.deb` and `.rpm`, which
-  install system-wide and need admin rights. **Decide:** print how to install a package, or
+  reads a desktop entry's `Exec` to find one. No release ships an AppImage: Linux ships only the
+  `.deb` and `.rpm`, which install system-wide and need admin rights. **Decide:** print how to install a package, or
   download the right one for the distro and install it through `sudo`/`pkexec`. Either way the
   AppImage install, its `Locate` candidates and `desktopExec` go; `/usr/bin/kstack` stays the one
   place to look. Until then, two known faults stand: a failed copy leaves a partial AppImage

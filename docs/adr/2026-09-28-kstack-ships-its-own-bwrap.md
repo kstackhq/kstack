@@ -3,6 +3,7 @@ title: Ship Kstack's own bwrap, with Ubuntu's profile for it
 date: 2026-09-28
 scope: cross-cutting
 status: Accepted
+amended_by: [Linux ships only the .deb and the .rpm](2026-11-07-linux-ships-only-the-deb-and-the-rpm.md)
 ---
 
 # Ship Kstack's own bwrap, with Ubuntu's profile for it

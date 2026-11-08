@@ -32,7 +32,7 @@ import (
 )
 
 // probeBound is how long a probe's run may take. It starts this executable
-// twice, which from an AppImage's mount on a cold cache takes a while.
+// twice, which on a cold page cache takes a while.
 const probeBound = 5 * time.Second
 
 // forwarderPort is where a run's forwarder listens: the network namespace's

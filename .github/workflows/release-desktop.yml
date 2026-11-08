@@ -210,7 +210,7 @@ jobs:
       - name: Build bundle
         env:
           VERSION: ${{ needs.config.outputs.version }}
-        run: pnpm tauri build --bundles deb,appimage -c "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"pnpm build\"}}"
+        run: pnpm tauri build --bundles deb -c "{\"version\":\"$VERSION\",\"build\":{\"beforeBuildCommand\":\"pnpm build\"}}"
 
       # An RPM version cannot hold an rc's `-`, and Tauri takes only a SemVer
       # version, so the RPM bundles the binary built above under the config
@@ -228,7 +228,6 @@ jobs:
           mkdir -p assets
           cp src-tauri/target/release/bundle/deb/*.deb assets/
           cp src-tauri/target/release/bundle/rpm/*.rpm assets/
-          cp src-tauri/target/release/bundle/appimage/*.AppImage assets/
           if [ "${{ matrix.arch }}" = amd64 ]; then
             cp src-tauri/linux/bubblewrap-*.tar.xz assets/
             cp src-tauri/linux/passt-*.tar.xz assets/
