@@ -49,7 +49,7 @@ fetch_lychee() {
 	if [ ! -f "$tarball" ]; then
 		echo "→ downloading lychee $version ($target)" >&2
 		url=https://github.com/lycheeverse/lychee/releases/download/lychee-v$version/lychee-$target.tar.gz
-		curl -fsSL -o "$tarball.part" "$url"
+		curl -fsSL --retry 3 --retry-all-errors -o "$tarball.part" "$url"
 		mv "$tarball.part" "$tarball"
 	fi
 

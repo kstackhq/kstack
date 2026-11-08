@@ -29,7 +29,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 echo "→ fetching passt $VERSION"
-curl -fsSL -o "$WORK/$TARBALL" "https://passt.top/passt/snapshot/$TARBALL"
+curl -fsSL --retry 3 --retry-all-errors -o "$WORK/$TARBALL" "https://passt.top/passt/snapshot/$TARBALL"
 echo "$SHA256  $WORK/$TARBALL" | sha256sum -c --quiet -
 
 tar -xJf "$WORK/$TARBALL" -C "$WORK"

@@ -138,7 +138,7 @@ fetch_llvm_cov() {
 
   if [ ! -f "$tarball" ]; then
     echo "→ downloading cargo-llvm-cov $llvm_cov_version ($target)" >&2
-    curl -fsSL -o "$tarball.part" \
+    curl -fsSL --retry 3 --retry-all-errors -o "$tarball.part" \
       "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v$llvm_cov_version/cargo-llvm-cov-$target.tar.gz"
     mv "$tarball.part" "$tarball"
   fi

@@ -57,7 +57,7 @@ fetch_protoc() {
 	if [ ! -f "$zip" ]; then
 		echo "→ downloading protoc $version ($target)" >&2
 		url=https://github.com/protocolbuffers/protobuf/releases/download/v$version/protoc-$version-$target.zip
-		curl -fsSL -o "$zip.part" "$url"
+		curl -fsSL --retry 3 --retry-all-errors -o "$zip.part" "$url"
 		mv "$zip.part" "$zip"
 	fi
 

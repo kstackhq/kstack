@@ -50,7 +50,7 @@ mkdir -p "$dir"
 if [ ! -f "$tarball" ]; then
 	echo "→ downloading shellcheck $version ($target)" >&2
 	url=https://github.com/koalaman/shellcheck/releases/download/v$version/shellcheck-v$version.$target.tar.gz
-	curl -fsSL -o "$tarball.part" "$url"
+	curl -fsSL --retry 3 --retry-all-errors -o "$tarball.part" "$url"
 	mv "$tarball.part" "$tarball"
 fi
 
