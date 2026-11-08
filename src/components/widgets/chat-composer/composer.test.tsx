@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Profiler, useSyncExternalStore } from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -45,7 +45,7 @@ const { ChatOutboxProvider, useChatOutbox } = await import('@/lib/chat-outbox');
 const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
 const { RightSidebarProvider, useRightSidebar } = await import('@/lib/right-sidebar');
 const { LogWindowsContext } = await import('@/lib/log-windows');
-const { ChatComposer } = await import('./chat-composer');
+const { ChatComposer } = await import('./composer');
 
 const accepted = () => ({ data: { chatSend: { id: 'm2', chatID: 'c1', seq: 2, status: 'Streaming' } } });
 const refused = (code: string) => ({ error: { graphQLErrors: [{ extensions: { code } }] } });
@@ -172,7 +172,8 @@ function renderComposer(props: Props & { replaced?: boolean } = {}) {
   };
 }
 
-const box = () => screen.getByPlaceholderText('Message…');
+const PLACEHOLDER = 'Ask about this cluster, or paste a manifest, log or kubectl output…';
+const box = () => screen.getByPlaceholderText(PLACEHOLDER);
 const button = (name: string) => screen.getByRole('button', { name });
 
 const type = (text: string) => fireEvent.change(box(), { target: { value: text } });
@@ -226,14 +227,22 @@ beforeEach(() => {
 describe('ChatComposer', () => {
   const sandboxButton = () => screen.queryByRole('button', { name: /sandbox/i });
 
-  // The switch is the open chat's, and only where there is a sandbox to leave.
-  it('draws the sandbox switch for an open chat on a machine with a sandbox', () => {
+  it('draws attach, mention and slash commands as placeholders that do nothing', async () => {
+    renderComposer();
+    const names = ['Add attachment', 'Mention a resource', 'Slash commands'];
+    names.forEach((name) => expect(button(name)).toHaveAttribute('aria-disabled', 'true'));
+    await userEvent.click(button('Add attachment'));
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  // The button's own states are `sandbox-popover.test.tsx`'s.
+  it('draws the sandbox button where there is a sandbox', () => {
     const view = renderComposer({ sandboxAvailable: true, sandboxDisabled: true });
     expect(sandboxButton()).toHaveTextContent('Outside the sandbox');
-
-    view.rerender({ sandboxAvailable: true, sandboxDisabled: undefined });
-    expect(sandboxButton()).toHaveTextContent('Sandboxed');
-    expect(sandboxButton()).toBeDisabled();
+    // A chat that has not started runs in the sandbox.
+    view.rerender({ chatID: null, sandboxAvailable: true, sandboxDisabled: undefined });
+    expect(sandboxButton()).toHaveTextContent('Sandbox');
+    expect(sandboxButton()).toBeEnabled();
 
     view.rerender({ sandboxAvailable: false, sandboxDisabled: false });
     expect(sandboxButton()).toBeNull();
@@ -241,33 +250,17 @@ describe('ChatComposer', () => {
     expect(sandboxButton()).toBeNull();
   });
 
-  // A send reserves its turn under the switch as it is, so it waits for a switch
-  // in flight to land, and the switch holds still meanwhile.
-  it('holds Send while the sandbox switch is in flight', async () => {
+  // A send reserves its turn under the switches as they are, so it waits for a
+  // switch in flight to land.
+  it('holds Send while a switch is in flight', () => {
     renderComposer({ sandboxAvailable: true, sandboxDisabled: true, switching: true });
     type('hello');
     expect(button('Send')).toBeDisabled();
-    expect(sandboxButton()).toBeDisabled();
     fireEvent.keyDown(box(), { key: 'Enter' });
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('hands a press of the switch to the pane', async () => {
-    const onSwitchSandbox = vi.fn();
-    renderComposer({ sandboxAvailable: true, sandboxDisabled: true, onSwitchSandbox });
-    await act(async () => {
-      fireEvent.click(sandboxButton()!);
-    });
-    expect(onSwitchSandbox).toHaveBeenCalledWith(false);
-  });
-
-  // A chat that has not started has no row to switch: it starts sandboxed.
-  it('draws no sandbox switch for a chat that has not started', () => {
-    renderComposer({ chatID: null, sandboxAvailable: true });
-    expect(sandboxButton()).toBeNull();
-  });
-
-  // The chat's own rules sit beside the switch, for an open chat holding any.
+  // The chat's own rules sit in the toolbar, for an open chat holding any.
   it("draws the chat's rules for an open chat that holds any", () => {
     catalog.current = {
       ...answered,
@@ -281,7 +274,6 @@ describe('ChatComposer', () => {
   });
 
   const networkButton = () => screen.queryByRole('button', { name: /^(no network|network on)$/i });
-  const toggle = () => screen.queryByRole('button', { name: 'Network for this message' });
 
   // The network switch sits beside the sandbox switch, for the open chat in it:
   // outside the sandbox it changes nothing.
@@ -322,47 +314,9 @@ describe('ChatComposer', () => {
     expect(sendMock.mock.calls[0][0]).toMatchObject({ networkEnabled: true, networkThisTurn: false });
   });
 
-  // The toggle is the entry's: pressed, it rides the next send, which clears it.
-  it('sends the toggle for this message, and clears it once accepted', async () => {
-    renderComposer({ sandboxAvailable: true, networkAvailable: true });
-    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
-    await act(async () => {
-      fireEvent.click(toggle()!);
-    });
-    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
-
-    type('hello');
-    await click('Send');
-    expect(sendMock.mock.calls[0][0]).toMatchObject({ networkThisTurn: true });
-    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
-  });
-
-  // A chat that has not started has the toggle too, and starts with no network.
-  it('draws the toggle for a chat that has not started', async () => {
-    renderComposer({ chatID: null, sandboxAvailable: true, networkAvailable: true, networkEnabled: undefined });
-    await act(async () => {
-      fireEvent.click(toggle()!);
-    });
-    type('hello');
-    await click('Send');
-    expect(sendMock.mock.calls[0][0]).toMatchObject({ networkEnabled: false, networkThisTurn: true });
-  });
-
-  // The toggle adds nothing where the chat's switch is on, and nothing outside the
-  // sandbox or on a machine with none.
-  it('hides the toggle where it changes nothing', () => {
-    const view = renderComposer({ sandboxAvailable: true, networkAvailable: true, networkEnabled: true });
-    expect(toggle()).toBeNull();
-    view.rerender({ sandboxAvailable: true, networkAvailable: true, sandboxDisabled: true });
-    expect(toggle()).toBeNull();
-    view.rerender({ sandboxAvailable: false, networkAvailable: true });
-    expect(toggle()).toBeNull();
-  });
-
-  it('disables the switch and the toggle where network is unavailable, saying why', () => {
+  it('disables the network switch where network is unavailable, saying why', () => {
     renderComposer({ sandboxAvailable: true, networkAvailable: false, networkReason: 'pasta not found' });
     expect(networkButton()).toBeDisabled();
-    expect(toggle()).toBeDisabled();
     expect(screen.getByText('No network on this machine: pasta not found')).toBeInTheDocument();
   });
 
@@ -515,7 +469,7 @@ describe('ChatComposer', () => {
   // by the placeholder: at startup the clusters watch simply has not answered yet.
   it('cannot start a chat with no cluster, and says so once the clusters watch has answered', () => {
     const view = renderComposer({ chatID: null, clusterID: undefined, phase: 'connecting' });
-    expect(screen.getByPlaceholderText('Message…')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
 
     view.rerender({ phase: 'live' });
     const empty = screen.getByPlaceholderText('Pick a cluster to start a chat');
@@ -731,63 +685,6 @@ describe('ChatComposer', () => {
     type('hello');
     await click('Send');
     expect(sendMock.mock.calls[0][0]).toMatchObject({ providerID: 'fake', modelID: 'fake', effort: 'low' });
-  });
-
-  // The levels are the provider's own words, so the old pick may not exist on the
-  // new model.
-  it("resets the effort to the new model's default", async () => {
-    const user = userEvent.setup();
-    renderComposer();
-    await user.click(segment('Effort'));
-    await user.click(await menuItem('low'));
-
-    await user.click(segment('Model'));
-    await user.click(await menuItem('Plain model'));
-    // Picking leaves the menu open, and while one is open the rest of the page takes
-    // no pointer events.
-    await user.keyboard('{Escape}');
-    await user.click(screen.getByRole('button', { name: 'Model: Plain model' }));
-    await user.click(await menuItem('Fake model'));
-
-    expect(await screen.findByRole('button', { name: /^Effort:/ })).toHaveAccessibleName('Effort: high');
-  });
-
-  // A heading per provider, and only once there is more than one to tell apart.
-  it('groups the models by provider when there is more than one', async () => {
-    const user = userEvent.setup();
-    catalog.current = { fetching: false, data: { models: [fake, plain, opus] } };
-    renderComposer();
-
-    await user.click(segment('Model'));
-    await menuItem('Opus 5');
-    const menu = screen.getByRole('menu');
-    expect(within(menu).getByText('Fake')).toBeInTheDocument();
-    expect(within(menu).getByText('Anthropic')).toBeInTheDocument();
-    // Catalog order: the fake's two, then Anthropic's one.
-    expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
-      'Fake model',
-      'Plain model',
-      'Opus 5',
-    ]);
-  });
-
-  it('draws no provider heading for a catalog of one provider', async () => {
-    const user = userEvent.setup();
-    renderComposer();
-
-    await user.click(segment('Model'));
-    await menuItem('Fake model');
-    expect(within(screen.getByRole('menu')).queryByText('Fake')).toBeNull();
-  });
-
-  it('hides the effort select for a model with no such knob', async () => {
-    const user = userEvent.setup();
-    renderComposer();
-
-    await user.click(segment('Model'));
-    await user.click(await menuItem('Plain model'));
-
-    expect(screen.queryByRole('button', { name: /^Effort:/ })).toBeNull();
   });
 
   it('says when a request waits out of view, and Show only shows it', () => {

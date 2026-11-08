@@ -26,7 +26,7 @@ const { grants, folders } = vi.hoisted(() => ({
 vi.mock('@/lib/chat-grants', () => ({ useChatGrants: () => grants.current }));
 vi.mock('@/lib/sandbox-folders', () => ({ useSandboxFolders: () => folders.current }));
 
-const { ChatGrants } = await import('./chat-grants');
+const { ChatGrants } = await import('./grants');
 
 const remove = vi.fn();
 const held = (over: Partial<Grants> = {}): Grants => ({

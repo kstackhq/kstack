@@ -187,7 +187,6 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
         networkReason={sandbox.networkReason}
         networkEnabled={chat?.networkEnabled}
         switching={switching}
-        onSwitchSandbox={sandboxSwitch.setSandboxDisabled}
         onSwitchNetwork={networkSwitch.setNetworkEnabled}
         onShowWaiting={
           waiting

@@ -17,22 +17,11 @@
 // outbox's, so this only draws them — and decides the one thing a send leaves to
 // its caller, which is whether the window should follow a chat it created.
 import { Button } from '@kubetail/ui/elements/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@kubetail/ui/elements/dropdown-menu';
-import { ChevronDown, X } from 'lucide-react';
+import { ArrowUp, AtSign, Plus, Square, SquareSlash, X } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { ReactNode } from 'react';
 import { useMutation } from 'urql';
 
-import { ChatGrants } from '@/components/widgets/chat-grants';
-import { NetworkSwitch } from '@/components/widgets/network-switch';
-import { SandboxSwitch } from '@/components/widgets/sandbox-switch';
 import { PROSE_TEXT } from '@/components/widgets/text-entry';
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
@@ -46,9 +35,13 @@ import type { LogViewportHandle, SelectedLine } from '@/lib/log-viewport';
 import { useLogWindows } from '@/lib/log-windows';
 import { MAX_SELECTED, snapshotOf } from '@/lib/logs-snapshot';
 import { useLogsView } from '@/lib/logs-view';
-import type { Model } from '@/lib/models';
 import { modelOf, seedPick, useModels } from '@/lib/models';
 import { useRightSidebar } from '@/lib/right-sidebar';
+
+import { ChatGrants } from './grants';
+import { ModelPicker } from './model-picker';
+import { NetworkSwitch } from './network-switch';
+import { SandboxPopover } from './sandbox-popover';
 
 const ChatCancelMutation = graphql(`
   mutation ChatCancel($chatID: ChatID!) {
@@ -97,73 +90,35 @@ type ChatComposerProps = {
   networkEnabled?: boolean;
   /** A switch is in flight. Send waits for it rather than send a switch about to change. */
   switching?: boolean;
-  onSwitchSandbox?: (disabled: boolean) => void;
   onSwitchNetwork?: (enabled: boolean) => void;
 };
 
 const noop = () => {};
 
-type Option = { value: string; label: string };
-type OptionGroup = { label?: string; options: Option[] };
-
-// One of the picker's two selects: what is picked now, with the choices under it,
-// in groups. A heading is drawn only when there is more than one group: one
-// provider needs none.
-function Segment({
+// A toolbar button with no feature behind it yet. `aria-disabled` rather than
+// `disabled`, so it still takes the hover that shows its title.
+function ComingSoon({
   label,
-  value,
-  groups,
-  onSelect,
+  variant = 'ghost',
+  children,
 }: {
   label: string;
-  value: string;
-  groups: OptionGroup[];
-  onSelect: (next: string) => void;
+  variant?: 'ghost' | 'outline';
+  children: ReactNode;
 }) {
-  const current = groups.flatMap((g) => g.options).find((o) => o.value === value);
-  const headed = groups.length > 1;
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button variant="ghost" size="xs" className="min-w-0 shrink rounded-full text-xs font-normal" />}
-        aria-label={`${label}: ${current?.label ?? value}`}
-      >
-        <span className="truncate">{current?.label ?? value}</span>
-        <ChevronDown className="shrink-0 opacity-60" aria-hidden />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" sideOffset={6} className="max-h-80 min-w-40 overflow-y-auto">
-        {/* Called with the value alone: base-ui also passes event details, which the
-            setter would take as a stray second argument. */}
-        <DropdownMenuRadioGroup value={value} onValueChange={(next: string) => onSelect(next)}>
-          {groups.map((g, i) => (
-            <DropdownMenuGroup key={g.label ?? i}>
-              {headed && <DropdownMenuLabel>{g.label}</DropdownMenuLabel>}
-              {g.options.map((o) => (
-                <DropdownMenuRadioItem key={o.value} value={o.value}>
-                  {o.label}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuGroup>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      type="button"
+      variant={variant}
+      size="icon"
+      aria-label={label}
+      aria-disabled
+      title={`${label} (coming soon)`}
+      className="shrink-0"
+    >
+      {children}
+    </Button>
   );
-}
-
-// A model's key in the select: the id alone is not one, two providers being free to
-// name a model the same.
-const keyOf = (providerID: string, id: string) => `${providerID}/${id}`;
-
-// The catalog as one group per provider, in catalog order, headed by its label.
-function groupByProvider(models: Model[]): OptionGroup[] {
-  const byProvider = new Map<string, OptionGroup>();
-  models.forEach((m) => {
-    const group = byProvider.get(m.provider.id) ?? { label: m.provider.label, options: [] };
-    byProvider.set(m.provider.id, group);
-    group.options.push({ value: keyOf(m.provider.id, m.id), label: m.label });
-  });
-  return [...byProvider.values()];
 }
 
 /** Where the view that rides the send is drawn. */
@@ -198,7 +153,6 @@ export function ChatComposer({
   networkReason = '',
   networkEnabled,
   switching = false,
-  onSwitchSandbox = noop,
   onSwitchNetwork = noop,
 }: ChatComposerProps) {
   const { models, loaded, failed, retry: askAgainForModels } = useModels();
@@ -216,20 +170,12 @@ export function ChatComposer({
             : null,
         )
       : undefined;
-  const {
-    draft,
-    send,
-    refusal,
-    pick,
-    networkThisTurn,
-    setDraft,
-    setPick,
-    setNetworkThisTurn,
-    submit,
-    retry,
-    discard,
-    settle,
-  } = useChatOutbox(mode, chatID, clusterID, seed);
+  const { draft, send, refusal, pick, setDraft, setPick, submit, retry, discard, settle } = useChatOutbox(
+    mode,
+    chatID,
+    clusterID,
+    seed,
+  );
   const picked = modelOf(models, pick?.model ?? null);
   // A stored pick the catalog lacks is moved to the seed: a model can leave the
   // catalog, and the outbox outlives the composer. With nothing to seed it leaves
@@ -295,10 +241,8 @@ export function ChatComposer({
   // starts sandboxed with no network.
   const shownDisabled = chatID === null ? false : sandboxDisabled;
   const shownNetwork = chatID === null ? false : networkEnabled;
-  // The network switch and the toggle change nothing outside the sandbox, and the
-  // toggle adds nothing to a chat whose switch is on.
+  // The network switch changes nothing outside the sandbox.
   const inSandbox = sandboxAvailable === true && shownDisabled !== true;
-  const showsToggle = inSandbox && shownNetwork !== true;
   // `streaming` is checked here as well as behind the Cancel button, so Enter refuses
   // for the same reason the button is not a Send: one turn per chat.
   // `picked` is the entry's own pick checked against the list, never a fallback
@@ -315,16 +259,9 @@ export function ChatComposer({
     draft.trim() !== '';
   // All only once the watch they wait on has answered: a window at startup has not
   // failed to pick anything, and a catalog still in flight is not an empty one.
-  let placeholder = 'Message…';
+  let placeholder = 'Ask about this cluster, or paste a manifest, log or kubectl output…';
   if (loaded && models.length === 0) placeholder = 'Set an API key, then restart Kstack';
   else if (clusterID === undefined && phase !== 'connecting') placeholder = 'Pick a cluster to start a chat';
-
-  // Another model may not have the level this one is at, so the pick moves to the
-  // new model's default rather than to a name it happens to share.
-  const selectModel = (key: string) => {
-    const next = models.find((m: Model) => keyOf(m.provider.id, m.id) === key);
-    if (next) setPick({ model: { providerID: next.provider.id, id: next.id }, effort: next.defaultEffort });
-  };
 
   const follow = async (outcome: Promise<Created | null>) => {
     const created = await outcome;
@@ -346,31 +283,41 @@ export function ChatComposer({
   let action;
   if (streaming && chatID) {
     action = (
-      <Button type="button" variant="outline" onClick={() => chatCancel({ chatID })}>
-        Cancel
+      <Button
+        type="button"
+        size="icon"
+        aria-label="Cancel"
+        className="shrink-0 rounded-full"
+        onClick={() => chatCancel({ chatID })}
+      >
+        <Square className="fill-current" aria-hidden />
       </Button>
     );
   } else if (send.status === 'held') {
     action = (
       <>
-        <Button type="button" onClick={() => follow(retry())}>
+        <Button type="button" size="sm" onClick={() => follow(retry())}>
           Retry
         </Button>
-        <Button type="button" variant="ghost" onClick={discard}>
+        <Button type="button" size="sm" variant="ghost" onClick={discard}>
           Discard
         </Button>
       </>
     );
   } else {
     action = (
-      <Button type="submit" disabled={!canSend}>
-        Send
+      <Button
+        type="submit"
+        size="icon"
+        aria-label="Send"
+        className="shrink-0 rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-50"
+        disabled={!canSend}
+      >
+        <ArrowUp aria-hidden />
       </Button>
     );
   }
 
-  // A column, so the actions keep their width at the dashboard sidebar's narrowest:
-  // beside the box they would be pushed past the panel's edge and clipped.
   return (
     <form
       className="flex shrink-0 flex-col gap-2"
@@ -416,74 +363,55 @@ export function ChatComposer({
           </Button>
         </p>
       )}
-      <textarea
-        {...PROSE_TEXT}
-        value={draft}
-        // What is in flight is what the box shows, so it must not change under it.
-        readOnly={send.status === 'sending' || send.status === 'held'}
-        placeholder={placeholder}
-        rows={2}
-        className="min-h-16 w-full resize-none rounded-md border bg-sidebar px-3 py-2 text-sm"
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          // Enter while an IME is composing confirms the character, not the message.
-          if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
-          e.preventDefault();
-          onSend();
-        }}
-      />
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1">
-          {/* A chat that has not started has no row to switch: it starts sandboxed. */}
-          {chatID !== null && sandboxAvailable === true && (
-            <SandboxSwitch sandboxDisabled={sandboxDisabled} switching={switching} onSwitch={onSwitchSandbox} />
-          )}
-          {chatID !== null && inSandbox && (
-            <NetworkSwitch
-              networkEnabled={networkEnabled}
-              available={networkAvailable}
-              switching={switching}
-              onSwitch={onSwitchNetwork}
-            />
-          )}
-          {chatID !== null && <ChatGrants chatID={chatID} />}
-          {showsToggle && (
-            <Button
-              type="button"
-              variant={networkThisTurn ? 'secondary' : 'ghost'}
-              size="xs"
-              className="shrink-0 rounded-full text-xs font-normal"
-              aria-pressed={networkThisTurn}
-              disabled={networkAvailable !== true}
-              onClick={() => setNetworkThisTurn(!networkThisTurn)}
-            >
-              Network for this message
-            </Button>
-          )}
-          {pick && picked && (
-            <>
-              <Segment
-                label="Model"
-                value={keyOf(pick.model.providerID, pick.model.id)}
-                groups={groupByProvider(models)}
-                onSelect={selectModel}
+      <div className="flex flex-col rounded-[10px] border bg-card shadow-xs focus-within:border-ring">
+        <textarea
+          {...PROSE_TEXT}
+          value={draft}
+          // What is in flight is what the box shows, so it must not change under it.
+          readOnly={send.status === 'sending' || send.status === 'held'}
+          placeholder={placeholder}
+          rows={1}
+          className="max-h-60 min-h-13 w-full resize-none bg-transparent px-3.5 pt-3.5 pb-1 text-sm/5 field-sizing-content placeholder:text-muted-foreground focus:outline-none"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter while an IME is composing confirms the character, not the message.
+            if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            onSend();
+          }}
+        />
+        {/* Wraps rather than clip at the dashboard sidebar's narrowest. */}
+        <div className="flex flex-wrap items-center justify-between gap-1 px-2.5 py-2">
+          <div className="flex min-w-0 items-center gap-0.5">
+            <ComingSoon label="Add attachment" variant="outline">
+              <Plus aria-hidden />
+            </ComingSoon>
+            <ComingSoon label="Mention a resource">
+              <AtSign aria-hidden />
+            </ComingSoon>
+            <ComingSoon label="Slash commands">
+              <SquareSlash aria-hidden />
+            </ComingSoon>
+            {chatID !== null && inSandbox && (
+              <NetworkSwitch
+                networkEnabled={networkEnabled}
+                available={networkAvailable}
+                switching={switching}
+                onSwitch={onSwitchNetwork}
               />
-              {/* A model with no such knob has nothing to show here. */}
-              {picked.efforts.length > 0 && (
-                <Segment
-                  label="Effort"
-                  value={pick.effort}
-                  groups={[{ options: picked.efforts.map((e: string) => ({ value: e, label: e })) }]}
-                  onSelect={(effort) => setPick({ model: pick.model, effort })}
-                />
-              )}
-            </>
-          )}
+            )}
+            {chatID !== null && <ChatGrants chatID={chatID} />}
+          </div>
+          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
+            {pick && picked && <ModelPicker models={models} pick={pick} picked={picked} onPick={setPick} />}
+            {sandboxAvailable === true && <SandboxPopover sandboxDisabled={shownDisabled} />}
+            <div aria-hidden className="mx-1 h-4 w-px bg-border" />
+            <div className="flex shrink-0 gap-2">{action}</div>
+          </div>
         </div>
-        <div className="flex shrink-0 gap-2">{action}</div>
       </div>
       {inSandbox && networkAvailable === false && (
-        <p className="text-xs text-muted-foreground">No network on this machine: {networkReason}</p>
+        <p className="px-1 text-xs text-muted-foreground">No network on this machine: {networkReason}</p>
       )}
     </form>
   );
