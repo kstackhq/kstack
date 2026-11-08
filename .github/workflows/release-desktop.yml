@@ -61,7 +61,8 @@ jobs:
             dry_run="$RELEASE_DRY_RUN"
           else
             version="${GITHUB_REF#refs/tags/desktop/v}"
-            signing_policy="release-signing"
+            # SignPath's release-signing policy accepts no request from this repository yet.
+            signing_policy="test-signing"
             dry_run="false"
           fi
           # Outputs enter build configuration, paths and shell scripts downstream.
