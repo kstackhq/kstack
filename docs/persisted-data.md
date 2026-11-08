@@ -105,4 +105,6 @@ Kept on disk but never read back as a format, or not kept across a restart:
 ## Releasing
 
 A release owes this register nothing by itself: every format migrates when it opens. The
-updater, when it lands, waits for the old sidecar to exit before the new one migrates.
+updater's restart waits for the old sidecar to exit before the new one migrates:
+`stop_for_install` runs before the restart is requested, and on Windows before the installer
+(`src-tauri/CLAUDE.md`, *Distribution & updates*).

@@ -975,10 +975,10 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   blocker first:** every `release-desktop.yml` job checks out `refs/tags/desktop/v<version>`, so each variant
   means pushing a real tag until an optional `ref` input exists.
 
-- **H-4a — the app never says it is out of date (medium; release owner).** There is no updater and no
-  notice, so someone who installs once stays on that version until they happen to visit the releases
-  page — including past a security fix. Saying so needs no signing key and no release work, so it
-  waits for nothing. Shape: the sidecar fetches the release's static `latest.json` on launch and
+- **H-4a — the app never says it is out of date (medium; release owner).** Linux has no updater (H-4b)
+  and no platform has a notice, so someone who installs a Linux package stays on that version until
+  they happen to visit the releases page — including past a security fix. Saying so needs no signing
+  key. Shape: the sidecar fetches `updates.kstack.sh`'s `latest-<key id>.json` (H-4b's manifest) on launch and
   every 24 hours, jittered, compares versions, and publishes the answer on the GraphQL surface; the
   webview shows a quiet notice whose link opens the release page in the system browser. The check
   belongs in the sidecar because the webview has no network access. It sends the version and nothing
@@ -988,20 +988,22 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   notice. Version comparison is a pure function and earns its own table-driven test, because an
   off-by-one here is a nag loop.
 
-- **H-4b — no in-app updater (medium; release owner).** The convenience half of H-4, and the half
-  that hands an attacker the install path if it is done wrong. `tauri-plugin-updater` is the
-  mechanism and most of the wiring is already obvious: a keypair from `pnpm tauri signer generate`
-  with the private half in the `production` environment's secrets and the public half in
-  `tauri.conf.json`, `bundle.createUpdaterArtifacts` so each bundle emits a `.sig`, and the manifest
-  H-4a already fetches. The host checks and installs; the webview is granted nothing. **What is not
-  decided is the trust root, and it comes first, as an ADR:** where the private key lives and who can
-  use it; what rotation means when the public key is compiled into apps already installed; whether
-  Linux applies updates at all (the updater's signature is independent of distro signing, so this is
-  a choice about touching packages the system believes it owns, not a limitation); and what the
-  plugin actually guarantees when an install is interrupted — read, not assumed. None of it is
-  unit-testable. The check is manual and done once: install an older build, publish a signed newer
-  one to a test release, confirm it updates, then publish one signed with a different key and confirm
-  it is refused.
+- **H-4b — the in-app updater is unchecked (medium; release owner).** The updater is built on macOS
+  and Windows ([ADR](adr/2026-11-08-the-updater-trusts-a-current-and-a-standby-key.md),
+  [record](security/2026-11-08-in-app-updater.md)); Linux applies no update. Three things remain.
+  **Serve the manifests**, before the second desktop release with the updater is published, or
+  the first one's installs never hear of it: an S3 bucket behind CloudFront on `updates.kstack.sh`,
+  and a workflow on `release: published` that, for a `desktop/v*` final, copies the release's
+  `latest-<key id>.json` files to `desktop/stable/` with a short cache lifetime. It assumes an AWS
+  role through GitHub OIDC that can write to that bucket alone, so no AWS key is stored. Then
+  generate the current and the standby keys (`pnpm tauri signer generate`): the current private
+  half and its password become the `production` environment's `TAURI_SIGNING_PRIVATE_KEY` and
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, the standby's stays offline, apart from the current key's
+  offline copy, and each public half and id are committed with its manifest's `latest-<id>.json`
+  ([*Set up the keys*](updater-key.md#set-up-the-keys)). Then run the record's manual
+  check once: an older build updates to a signed newer one published to a test release, and
+  refuses one signed with a different key. Record the result there and update the security
+  model's row.
 
 - **Nothing exercises the release workflows' input validation (release owner).** `release-desktop.yml`
   and `release-cli.yml` each take a dispatched version only if `scripts/check-release-version.sh` accepts it, and

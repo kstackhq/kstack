@@ -39,6 +39,7 @@ mod quit;
 mod services;
 mod state;
 mod tray;
+mod updater;
 mod wake;
 mod webview_log;
 mod window_manager;
@@ -132,13 +133,35 @@ fn start_quit<R: Runtime>(app: &AppHandle<R>, code: i32, exit: impl FnOnce(i32) 
     app.state::<AppState>().window_manager.hide_all(app);
     let app = app.clone();
     std::thread::spawn(move || {
-        let state = app.state::<AppState>();
-        if !state.sidecar.graceful_shutdown(SIDECAR_SHUTDOWN_GRACE) {
-            tracing::warn!("sidecar did not exit within grace period");
-        }
-        state.quit.finish();
+        stop_sidecar(&app.state::<AppState>());
         exit(code);
     });
+}
+
+/// Waits for the sidecar to stop, then lets the next exit request through.
+fn stop_sidecar(state: &AppState) {
+    if !state.sidecar.graceful_shutdown(SIDECAR_SHUTDOWN_GRACE) {
+        tracing::warn!("sidecar did not exit within grace period");
+    }
+    state.quit.finish();
+}
+
+/// A quit's stop, run on the caller's thread, for the updater: before the
+/// restart it requests, whose `ExitRequested` cannot be prevented, and on
+/// Windows before the installer, which ends the process itself. Returns
+/// whether it stopped the sidecar; a quit already under way is stopping it.
+/// Linux runs no updater.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+fn stop_for_install<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let state = app.state::<AppState>();
+    if state.quit.request() != ExitDecision::Start {
+        return false;
+    }
+    tracing::info!("installing an update; stopping the sidecar");
+    state.shutdown.cancel();
+    state.window_manager.hide_all(app);
+    stop_sidecar(&state);
+    true
 }
 
 /// `RunEvent::Exit`: kills a sidecar the graceful path left running, then
@@ -325,6 +348,36 @@ mod tests {
 
         assert!(exit_requested(app.handle(), Some(0), |_| panic!("no exit")));
         // Only the first Quit starts anything.
+        assert!(!state.shutdown.is_cancelled());
+    }
+
+    /// The install's stop waits for the sidecar on the calling thread, and the
+    /// exit after it goes through.
+    #[cfg(unix)]
+    #[test]
+    fn an_install_stops_the_sidecar_before_it_returns() {
+        let scratch = Scratch::new();
+        let sidecar = crate::testutil::script_sidecar(scratch.path(), "cat >/dev/null");
+        let app = mock_app(scratch.path(), sidecar);
+        let state = app.state::<AppState>();
+
+        assert!(stop_for_install(app.handle()));
+
+        assert!(state.shutdown.is_cancelled());
+        assert!(!state.sidecar.kill(), "it had exited");
+        assert!(!exit_requested(app.handle(), Some(0), |_| panic!(
+            "no exit"
+        )));
+    }
+
+    #[test]
+    fn an_install_during_a_quit_leaves_the_stop_to_the_quit() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let state = app.state::<AppState>();
+        state.quit.request();
+
+        assert!(!stop_for_install(app.handle()));
         assert!(!state.shutdown.is_cancelled());
     }
 

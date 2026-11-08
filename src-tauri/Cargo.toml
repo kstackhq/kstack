@@ -49,6 +49,8 @@ tauri = { version = "2", features = ["test"] }
 # Builds the monitors the mock runtime lacks (`testutil::monitor`): Tauri's own
 # `Monitor` has no public constructor.
 tauri-runtime = "2"
+# Reads the updater key's id off `tauri.conf.json`'s `pubkey` (`updater` tests).
+base64 = "0.22"
 
 [features]
 # Compiles the webview inspector (devtools) into an otherwise-release build so
@@ -124,6 +126,11 @@ tonic-prost = "0.14"
 prost = "0.14"
 tower = { version = "0.5", features = ["util"] }
 file-rotate = "0.8"
+
+# The in-app updater (`updater/platform.rs`). Linux applies no update, so it
+# is not built there.
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+tauri-plugin-updater = "2.14.1"
 
 # macOS-only: a custom Dock menu has no Tauri/tao API, so it is built directly
 # against AppKit. Versions are pinned to what Tauri already pulls in transitively.

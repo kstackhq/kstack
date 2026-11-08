@@ -37,6 +37,8 @@ use account_menu::{
 #[derive(Default)]
 pub(crate) struct TraySnapshots {
     account: Option<account_menu::AccountSnapshot>,
+    /// The version of the update on offer (`updater`), if any.
+    pub update: Option<String>,
 }
 
 /// Stable tray id so the watch supervisor can swap the menu via
@@ -50,8 +52,10 @@ pub const SHOW_ACCOUNT_SECTION: bool = false;
 
 const NEW_WINDOW_ID: &str = "tray_new_window";
 const SHOW_MAIN_ID: &str = "tray_show_main";
-/// Handled in `app.rs`, with the account-settings item: both leave the app.
+/// Handled in `app.rs`, with the account-settings and update items: they
+/// leave the app.
 pub const QUIT_ID: &str = "tray_quit";
+pub const UPDATE_ID: &str = "tray_update";
 
 /// What a tray menu item does, for the items the app handles itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,11 +117,12 @@ fn log_failure(result: crate::error::Result<()>, what: &str) {
 }
 
 /// Builds the full tray menu — the account section when `account` is given,
-/// then the static items. Used for the initial build and every watch-triggered
-/// rebuild.
+/// the update item when `update` names a version, then the static items. Used
+/// for the initial build and every rebuild.
 pub fn build_tray_menu<R: Runtime>(
     app: &AppHandle<R>,
     account: Option<AccountMenuDescriptor>,
+    update: Option<&str>,
 ) -> tauri::Result<Menu<R>> {
     let item = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
     let new_window = item(NEW_WINDOW_ID, "New Window")?;
@@ -125,7 +130,27 @@ pub fn build_tray_menu<R: Runtime>(
     let quit = item(QUIT_ID, "Quit")?;
 
     let separator = PredefinedMenuItem::separator(app)?;
-    let tail: [&dyn IsMenuItem<R>; 4] = [&new_window, &show_main, &separator, &quit];
+
+    // The version is a parsed SemVer, so it carries no control characters.
+    let update = update
+        .map(|version| {
+            let text = format!("Update to Kstack {version} and Restart");
+            item(UPDATE_ID, &text)
+        })
+        .transpose()?;
+    let update_separator = PredefinedMenuItem::separator(app)?;
+
+    let mut tail: Vec<&dyn IsMenuItem<R>> = Vec::new();
+    if let Some(update) = &update {
+        tail.extend([update as &dyn IsMenuItem<R>, &update_separator]);
+    }
+    tail.extend([
+        &new_window as &dyn IsMenuItem<R>,
+        &show_main,
+        &separator,
+        &quit,
+    ]);
+
     let Some(account) = account else {
         return Menu::with_items(app, &tail);
     };
@@ -151,20 +176,21 @@ pub fn build_tray_menu<R: Runtime>(
     Menu::with_items(app, &items)
 }
 
-/// The tray menu for the snapshot in [`AppState::tray`]: signed out until
+/// The tray menu for the snapshots in [`AppState::tray`]: signed out until
 /// the watch delivers one.
 pub fn current_tray_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     // Snapshot under the lock, released before the menu is built.
-    let account_snap = {
+    let (account_snap, update) = {
         let state = app.state::<AppState>();
         let guard = state.tray.lock().unwrap_or_else(|p| p.into_inner());
-        guard
+        let account = guard
             .account
             .clone()
-            .unwrap_or_else(account_menu::AccountSnapshot::signed_out)
+            .unwrap_or_else(account_menu::AccountSnapshot::signed_out);
+        (account, guard.update.clone())
     };
     let account = SHOW_ACCOUNT_SECTION.then(|| build_account_descriptor(&account_snap));
-    build_tray_menu(app, account)
+    build_tray_menu(app, account, update.as_deref())
 }
 
 /// Supervises the gRPC auth-state watch for the app's lifetime, until
@@ -270,9 +296,10 @@ mod tests {
         ] {
             assert_eq!(TrayAction::from_id(id), Some(action), "{id}");
         }
-        // `app.rs` handles these two before asking.
+        // `app.rs` handles these before asking.
         assert_eq!(TrayAction::from_id(ACCOUNT_SETTINGS_ID), None);
         assert_eq!(TrayAction::from_id(QUIT_ID), None);
+        assert_eq!(TrayAction::from_id(UPDATE_ID), None);
     }
 
     #[test]
@@ -444,7 +471,7 @@ mod tests {
             let scratch = Scratch::new();
             let app = mock_app(scratch.path(), SidecarService::without_process(None));
 
-            let menu = build_tray_menu(app.handle(), Some(AccountMenuDescriptor::SignedOut));
+            let menu = build_tray_menu(app.handle(), Some(AccountMenuDescriptor::SignedOut), None);
 
             let items = menu.unwrap().items().unwrap();
             let expected = [ACCOUNT_LOGIN_ID, NEW_WINDOW_ID, SHOW_MAIN_ID, QUIT_ID];
@@ -459,13 +486,29 @@ mod tests {
                 title: "Ada".into(),
             };
 
-            let menu = build_tray_menu(app.handle(), Some(account)).unwrap();
+            let menu = build_tray_menu(app.handle(), Some(account), None).unwrap();
 
             let items = menu.items().unwrap();
             let submenu = items[0].as_submenu().unwrap();
             assert_eq!(submenu.text().unwrap(), "Ada");
             let inner = submenu.items().unwrap();
             assert_eq!(ids(&inner), [ACCOUNT_SETTINGS_ID, ACCOUNT_LOGOUT_ID]);
+        }
+
+        #[test]
+        fn an_update_on_offer_comes_first_and_names_its_version() {
+            let scratch = Scratch::new();
+            let app = mock_app(scratch.path(), SidecarService::without_process(None));
+            let state = app.state::<AppState>();
+            state.tray.lock().unwrap().update = Some("1.2.3".into());
+
+            let menu = current_tray_menu(app.handle()).unwrap();
+
+            let items = menu.items().unwrap();
+            let expected = [UPDATE_ID, NEW_WINDOW_ID, SHOW_MAIN_ID, QUIT_ID];
+            assert_eq!(ids(&items), expected);
+            let update = items[0].as_menuitem().unwrap();
+            assert_eq!(update.text().unwrap(), "Update to Kstack 1.2.3 and Restart");
         }
     }
 }

@@ -65,3 +65,6 @@ ignore:
   # system bus or the Win32 API.
   - src-tauri/src/wake/linux.rs
   - src-tauri/src/wake/windows.rs
+  # The updater plugin's wiring: a real release, its network and its installer.
+  # The check loop and the offer are tested in updater/mod.rs.
+  - src-tauri/src/updater/platform.rs

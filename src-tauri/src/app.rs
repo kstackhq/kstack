@@ -116,6 +116,8 @@ fn build_tray(app: &AppHandle) -> crate::error::Result<()> {
                 });
             }
             QUIT_ID => app.exit(0),
+            #[cfg(any(target_os = "macos", windows))]
+            tray::UPDATE_ID => crate::updater::platform::install(app, rebuild_tray_menu),
             id => {
                 if let Some(action) = TrayAction::from_id(id) {
                     tray::run_action(app, action);
@@ -249,7 +251,7 @@ pub fn run() {
         }));
     }
 
-    let app = builder
+    builder = builder
         // `Started` fires as a navigation commits, so it covers the reload the
         // webview never tells us about.
         .on_page_load(|webview, payload| {
@@ -258,7 +260,14 @@ pub fn run() {
             }
         })
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_shell::init());
+
+    #[cfg(any(target_os = "macos", windows))]
+    {
+        builder = builder.plugin(crate::updater::platform::plugin());
+    }
+
+    let app = builder
         .invoke_handler(invoke_handler())
         .setup(move |app| {
             // First: everything below is what a user is asked for when the app
@@ -291,6 +300,9 @@ pub fn run() {
             // AuthStateWatch stream.
             let watch = tray::watch_auth_state(app.handle().clone(), rebuild_tray_menu);
             tauri::async_runtime::spawn(watch);
+
+            #[cfg(any(target_os = "macos", windows))]
+            crate::updater::platform::spawn_watch(app.handle(), rebuild_tray_menu);
 
             // Poke the sidecar on OS wake / network-return; see
             // docs/adr/2026-08-09-poke-resync-fanout.md.
