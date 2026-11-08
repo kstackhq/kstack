@@ -23,6 +23,8 @@ _Kstack is a desktop app for monitoring and troubleshooting K8s clusters with he
 > [!IMPORTANT]
 > Kstack is currently under development and this is a developer-only preview of the app.
 
+What changed in each release: [CHANGELOG.md](CHANGELOG.md).
+
 # Development
 
 ## Requirements
