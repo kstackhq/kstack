@@ -3,16 +3,17 @@
 Kstack's Linux packages carry the third-party programs below, unmodified. Kstack's own license
 does not cover them; each is under its own license, whose text sits beside this file.
 
-Each Kstack desktop release on GitHub attaches the source tarball its bundled `bwrap` and `pasta`
-were built from: <https://github.com/kstackhq/kstack/releases>, under the release's
-`desktop/v<version>` tag.
+Each Kstack desktop release on GitHub attaches `embedded-sources.tar.gz`, the complete source its
+bundled `bwrap` and `pasta` were built from: each upstream tarball unpacked unchanged, with the
+scripts that built it. It is under the release's `desktop/v<version>` tag at
+<https://github.com/kstackhq/kstack/releases>, and `SHA256SUMS` covers it.
 
 ## Bubblewrap
 
 - **Bundled as:** `bwrap` (`/usr/lib/kstack/bwrap`), in the `.deb` and the `.rpm`
 - **Version:** 0.13.0
 - **Upstream:** <https://github.com/containers/bubblewrap>
-- **Source:** `bubblewrap-0.13.0.tar.xz`, attached to the Kstack release; upstream at
+- **Source:** `bubblewrap/` in the release's `embedded-sources.tar.gz`, unpacked from
   <https://github.com/containers/bubblewrap/releases/download/v0.13.0/bubblewrap-0.13.0.tar.xz>
   (SHA-256 `4734237473c0e5d695e4e9034a34e43b2dbf5164655bd13fa59ae376b2b7a765`)
 - **License:** LGPL-2.0-or-later; text in [`bubblewrap-LICENSE`](bubblewrap-LICENSE)
@@ -29,7 +30,7 @@ Based on realpath.c Copyright (C) 1993 Rick Sladkey <jrs@world.std.com>
   AppArmor profile for `pasta`, adapted as `kstack-pasta`, in the `.deb`
 - **Version:** 2026_10_02.cba3570
 - **Upstream:** <https://passt.top/>
-- **Source:** `passt-2026_10_02.cba3570.tar.xz`, attached to the Kstack release; upstream at
+- **Source:** `passt/` in the release's `embedded-sources.tar.gz`, unpacked from
   <https://passt.top/passt/snapshot/passt-2026_10_02.cba3570.tar.xz>
   (SHA-256 `aa75616cc43925f0bd6c05bcfbbaecd77397c03d7bd23591b34ef535be5dfcdc`)
 - **License:** GPL-2.0-or-later, with parts under BSD-3-Clause; texts in

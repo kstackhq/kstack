@@ -24,6 +24,8 @@ src-tauri/linux/bubblewrap-*.tar.xz
 # Kstack's own pasta and its source (produced by `make pasta`).
 src-tauri/linux/pasta
 src-tauri/linux/passt-*.tar.xz
+# Their source, in one archive (produced by `make embedded-sources`).
+src-tauri/linux/embedded-sources.tar.gz
 # Editor directories and files. The shared team config is re-included; anything
 # else under .vscode/ is personal.
 .vscode/*

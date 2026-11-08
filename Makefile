@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js cover-changed lint lint-go lint-rust lint-js lint-tailwind lint-yaml lint-sh lint-md lint-markers vetvet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
+.PHONY: sidecar sidecar-dev bwrap pasta embedded-sources proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js cover-changed lint lint-go lint-rust lint-js lint-tailwind lint-yaml lint-sh lint-md lint-markers vetvet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -24,6 +24,11 @@ bwrap:
 # passt release the script pins. Linux only.
 pasta:
 	bash scripts/build-pasta.sh
+
+# Bundle the source of the bwrap and pasta above into
+# src-tauri/linux/embedded-sources.tar.gz, the release's one source asset.
+embedded-sources:
+	bash scripts/build-embedded-sources.sh
 
 # Regenerate the gRPC bindings from the shared repo-root proto/ for both
 # languages. proto/ is the single source of truth (host <-> sidecar wire

@@ -18,11 +18,15 @@ from the one in the pinned tarball. After bumping `VERSION` and `SHA256` in a sc
 
 1. Run `make bwrap` or `make pasta` on Linux.
 2. If it reports a changed license, copy the file it names over the one here.
-3. In `THIRD_PARTY_NOTICES.md`, update the version, the tarball's name, URL and SHA-256, and the
+3. In `THIRD_PARTY_NOTICES.md`, update the version, the tarball's URL and SHA-256, and the
    copyright lines (`grep -rhi copyright` over the tarball's `.c` and `.h` files lists them).
 
 An AppArmor profile adapted from upstream (`src-tauri/linux/kstack-bwrap`, `kstack-pasta`) names
 the version it was taken from; update its entry when you take it from a newer one.
 
-A new bundled program gets its license file here, an entry in `THIRD_PARTY_NOTICES.md`, and a line
-for each in both formats' `files`.
+`make embedded-sources` (`scripts/build-embedded-sources.sh`) bundles the pinned tarballs into the
+release's `embedded-sources.tar.gz`, with a README naming each program's version, upstream and
+license; it reads the versions from the tarballs, so a bump needs no change there.
+
+A new bundled program gets its license file here, an entry in `THIRD_PARTY_NOTICES.md`, a line for
+each in both formats' `files`, and an `add` line in `scripts/build-embedded-sources.sh`.

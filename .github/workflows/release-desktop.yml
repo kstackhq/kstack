@@ -205,6 +205,11 @@ jobs:
       - name: Build pasta
         run: make pasta
 
+      # bubblewrap is LGPL and passt GPL: the release carries the source bwrap
+      # and pasta were built from.
+      - name: Bundle embedded sources
+        run: make embedded-sources
+
       # Sidecar is prebuilt and downloaded above; override
       # beforeBuildCommand to build the frontend but not the sidecar.
       - name: Build bundle
@@ -221,23 +226,25 @@ jobs:
           RPM_RELEASE: ${{ needs.config.outputs.rpm_release }}
         run: pnpm tauri bundle --bundles rpm -c "{\"version\":\"$RPM_VERSION\",\"bundle\":{\"linux\":{\"rpm\":{\"release\":\"$RPM_RELEASE\"}}}}"
 
-      # bubblewrap is LGPL and passt GPL: the release carries the source bwrap
-      # and pasta were built from, once.
       - name: Collect bundle
         run: |
           mkdir -p assets
           cp src-tauri/target/release/bundle/deb/*.deb assets/
           cp src-tauri/target/release/bundle/rpm/*.rpm assets/
-          if [ "${{ matrix.arch }}" = amd64 ]; then
-            cp src-tauri/linux/bubblewrap-*.tar.xz assets/
-            cp src-tauri/linux/passt-*.tar.xz assets/
-          fi
 
       - name: Upload bundle
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: assets-bundle-linux-${{ matrix.arch }}
           path: assets/*
+
+      # Not prefixed "assets-bundle-": the release job compares each
+      # architecture's archive before attaching one.
+      - name: Upload embedded sources
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: embedded-sources-linux-${{ matrix.arch }}
+          path: src-tauri/linux/embedded-sources.tar.gz
 
   # Only a stock 24.04 proves the AppArmor profiles load and let Kstack's own
   # bwrap and pasta run what the sandbox asks: the whole chain, as the probe
@@ -507,6 +514,21 @@ jobs:
           pattern: assets-bundle-*
           path: assets
           merge-multiple: true
+
+      - name: Download embedded sources
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: embedded-sources-linux-*
+          path: ${{ runner.temp }}/embedded-sources
+
+      # The archive is reproducible, so equal bytes prove every architecture's
+      # bwrap and pasta were built from the same source.
+      - name: Attach embedded sources
+        working-directory: ${{ runner.temp }}/embedded-sources
+        run: |
+          cmp embedded-sources-linux-amd64/embedded-sources.tar.gz \
+            embedded-sources-linux-arm64/embedded-sources.tar.gz
+          cp embedded-sources-linux-amd64/embedded-sources.tar.gz "$GITHUB_WORKSPACE/assets/"
 
       - name: Generate SBOM
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3

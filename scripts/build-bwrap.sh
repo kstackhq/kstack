@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds the bwrap Kstack's Linux packages carry, from one pinned bubblewrap
 # release, into src-tauri/linux/: bwrap itself and the tarball it was built
-# from, which the release attaches as bwrap's source. It fails when licenses/
-# is stale for that release (licenses/README.md).
+# from, which `make embedded-sources` bundles as bwrap's source. It fails when
+# licenses/ is stale for that release (licenses/README.md).
 #
 # Run it on the machine that builds the bundle: bwrap links the glibc and
 # libcap it finds.

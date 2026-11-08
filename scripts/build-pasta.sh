@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds the pasta Kstack's Linux packages carry, from one pinned passt release,
 # into src-tauri/linux/: pasta itself and the tarball it was built from, which
-# the release attaches as pasta's source. It fails when licenses/ is stale for
-# that release (licenses/README.md).
+# `make embedded-sources` bundles as pasta's source. It fails when licenses/ is
+# stale for that release (licenses/README.md).
 #
 # pasta is passt's binary under another name, which is how it knows to run as
 # pasta. Its AVX2 build is left out: pasta runs without it, after one warning
