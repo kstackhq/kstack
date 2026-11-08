@@ -24,5 +24,5 @@ Ref #
 - [ ] The related issue, if any, is linked above
 - [ ] Commit messages are [conventional commits](https://www.conventionalcommits.org)
 - [ ] Changes are minimal and focused
-- [ ] Every changed line is covered or marked
-- [ ] Docs affected by this change are up to date
+- [ ] Changed lines are covered or marked
+- [ ] Docs are up to date
