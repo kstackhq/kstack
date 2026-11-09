@@ -4,15 +4,19 @@
 // Deliberately minimal — no down-migrations (a shipped binary never rolls back a fleet),
 // no dependencies. Each migration runs in its own transaction, so a crash mid-upgrade
 // leaves the DB at the last committed version. A DB written by a newer binary is refused
-// rather than truncated. Used by internal/appdb and kubestore; the pools a migration runs
-// on are internal/lib/sqlitepool's.
+// rather than truncated. A caller may ask for a copy of the file before the first pending
+// migration touches it, which is what a user hands back to an older build. Used by
+// internal/appdb, kubestore and logstore; the pools a migration runs on are
+// internal/lib/sqlitepool's.
 package sqlitemigrate
 
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -81,7 +85,11 @@ func loadMigrations(fsys fs.FS, dir string) ([]migration, error) {
 // Apply brings db up to dir's latest migration, each in its own transaction, and returns
 // the resulting version. A DB recorded newer than the embedded set is refused with
 // *NewerSchemaError.
-func Apply(ctx context.Context, db *sql.DB, fsys fs.FS, dir string) (int, error) {
+//
+// backup, when not empty, is the file a copy of the database is written to before the
+// first pending migration runs, replacing the copy an earlier upgrade left. It is taken
+// only when the database already has a version: a fresh file has nothing to lose.
+func Apply(ctx context.Context, db *sql.DB, fsys fs.FS, dir, backup string) (int, error) {
 	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    INTEGER PRIMARY KEY,
 		name       TEXT NOT NULL,
@@ -108,6 +116,12 @@ func Apply(ctx context.Context, db *sql.DB, fsys fs.FS, dir string) (int, error)
 	latest := migs[len(migs)-1].version
 	if current > latest {
 		return current, &NewerSchemaError{Recorded: current, Supported: latest}
+	}
+
+	if backup != "" && current > 0 && current < latest {
+		if err := backUp(ctx, db, backup); err != nil {
+			return current, fmt.Errorf("back up before migration: %w", err)
+		}
 	}
 
 	for _, m := range migs {
@@ -138,4 +152,17 @@ func runMigration(ctx context.Context, db *sql.DB, m migration) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// backUp copies the open database to path with VACUUM INTO, which reads one consistent
+// snapshot whatever the journal mode. SQLite refuses to write into a file that exists, so
+// an earlier copy goes first.
+func backUp(ctx context.Context, db *sql.DB, path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, `VACUUM INTO ?`, path); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
 }

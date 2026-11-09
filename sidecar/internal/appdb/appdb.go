@@ -66,7 +66,9 @@ func Open(path string, sweepEvery time.Duration) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := sqlitemigrate.Apply(context.Background(), w.DB, migrationsFS, "migrations"); err != nil {
+	// app.db.bak is the file as it was before the last upgrade's migrations, the one
+	// thing a user can hand back to the build they came from: nothing rebuilds app.db.
+	if _, err := sqlitemigrate.Apply(context.Background(), w.DB, migrationsFS, "migrations", path+".bak"); err != nil {
 		w.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}

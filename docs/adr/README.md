@@ -248,3 +248,4 @@ usually just documentation in the wrong place.
 | 2026-11-07 | [The desktop app is Kstack, and its binary kstack-desktop](2026-11-07-the-desktop-app-is-kstack-and-its-binary-kstack-desktop.md) | repo | Accepted |
 | 2026-11-08 | [Release files are named kstack-\<product\>-\<version\>-\<os\>-\<arch\>](2026-11-08-release-files-are-named-kstack-product-version-os-arch.md) | repo | Accepted |
 | 2026-11-08 | [kstack app installs the newest desktop release with the platform's installer](2026-11-08-kstack-app-installs-the-newest-desktop-release-with-the-platforms-installer.md) | repo | Accepted |
+| 2026-11-09 | [app.db is copied before a migration runs, and the caches are not](2026-11-09-app-db-is-copied-before-a-migration-runs-and-the-caches-are-not.md) | sidecar | Accepted |

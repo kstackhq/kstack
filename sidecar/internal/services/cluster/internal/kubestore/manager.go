@@ -550,8 +550,10 @@ func (m *Manager) openFile(cacheID int64) (*file, error) {
 
 	// A failure closes the pools under the budget and reports what that answered.
 	// Nothing else holds them and nothing cancels, so no connection is in use.
+	// No backup: a cache can reach gigabytes, and the cluster rebuilds one at the price
+	// of the history it held.
 	ctx := context.Background()
-	if _, err := sqlitemigrate.Apply(ctx, db.DB, migrationsFS, "migrations"); err != nil {
+	if _, err := sqlitemigrate.Apply(ctx, db.DB, migrationsFS, "migrations", ""); err != nil {
 		return nil, errors.Join(fmt.Errorf("migrate: %w", err), sqlitepool.CloseAll(m.closeBudget, db))
 	}
 

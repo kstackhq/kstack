@@ -3,6 +3,7 @@ title: Each persisted format carries its own version stamp, and a downgrade is r
 date: 2026-10-29
 scope: cross-cutting
 status: Accepted
+amended_by: [app.db is copied before a migration runs, and the caches are not](2026-11-09-app-db-is-copied-before-a-migration-runs-and-the-caches-are-not.md)
 ---
 
 # Each persisted format carries its own version stamp, and a downgrade is refused only where it would break

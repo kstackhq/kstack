@@ -43,13 +43,13 @@ cluster no longer has.
 
 | Format | Where | Owner | Class | Version stamp | Forward path | Newer file | Pinned by |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| App DB | `<data>/app.db` | `internal/appdb` | durable | `sqlitemigrate` | SQL migrations | refused; the sidecar does not start and the start screen names the file | `appdb` `TestOpenRefusesANewerFile`; the message: `TestANewerAppDBFailsTheBuildNamingTheVersions`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
+| App DB | `<data>/app.db` | `internal/appdb` | durable | `sqlitemigrate` | SQL migrations; `app.db.bak` is the file before the last upgrade's | refused; the sidecar does not start and the start screen names the file | `appdb` `TestOpenRefusesANewerFile`; `sqlitemigrate` `TestApplyBacksUpBeforeAPendingMigration`; the message: `TestANewerAppDBFailsTheBuildNamingTheVersions`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
 | App DB JSON columns | `app.db`: message content blocks, server-tool counts, tool-call input and error, `ActionRequest`, watch result | `agent/chat`, `tools` | durable | rides `app.db`'s | an `app.db` migration | with `app.db` | with `app.db` |
 | Control-plane store | `<data>/beehive.db` | `github.com/amorey/beehive/sqlite` | durable | beehive's own runner | beehive's migrations, taken by a module bump | refused; the sidecar does not start and the start screen names the file | beehive's `internal/sqlitemigrate` tests; the message: `TestANewerBeehiveDBFailsTheServiceSayingSo`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
 | Chat and monitor directories | `<data>/chats/<chat id>/`, `<data>/monitor/<cluster id>/`: `results/`, `tasks/`, `workspace/`, `toolhome/` | `agent/chat`, `tools` | durable | rides `app.db`'s | an `app.db` migration; the layout only grows and the root never moves | with `app.db` | with `app.db` |
-| Cluster cache | `<cache>/kube/<cache id>.db` | `kubestore` | durable | `sqlitemigrate` | SQL migrations | refused; the cache reports `StoreFailed` with the message and the rest of the app runs | `kubestore` `TestOpenRefusesANewerFile`; `kubesync` `TestArmReportsAStoreThatWillNotOpen` (any open failure reaches `StoreFailed`) |
+| Cluster cache | `<cache>/kube/<cache id>.db` | `kubestore` | durable | `sqlitemigrate` | SQL migrations, no backup | refused; the cache reports `StoreFailed` with the message and the rest of the app runs | `kubestore` `TestOpenRefusesANewerFile`; `kubesync` `TestArmReportsAStoreThatWillNotOpen` (any open failure reaches `StoreFailed`) |
 | Cluster cache `raw_json` | `kube/*.db` `objects.raw_json` | `kubestore/rawcodec.go` | durable | first byte (zlib `0x78`, JSON `{`) | a `kube/*.db` migration | with `kube/*.db` | `rawcodec_test.go` |
-| Log cache | `<cache>/logs/<cache id>.db` | `logstore` | durable | `sqlitemigrate` | SQL migrations | refused; `OpenOrCreate` returns the error to the caller | `logstore` `TestOpenOrCreateRefusesANewerFile` |
+| Log cache | `<cache>/logs/<cache id>.db` | `logstore` | durable | `sqlitemigrate` | SQL migrations, no backup | refused; `OpenOrCreate` returns the error to the caller | `logstore` `TestOpenOrCreateRefusesANewerFile` |
 | Sidecar settings | `<data>/settings.json` | `lib/jsonsettings`, `services/settings` | preference | `schemaVersion` 1 | upgrade in `Open` (none written yet) | read; a write keeps its unknown keys and its version | `TestAWriteStampsTheVersion`, `TestAWriteKeepsTheKeysNoFieldNames` |
 | Host file | `<config>/host.json` | `src-tauri/src/host_file.rs` | preference | `schemaVersion` 1 | none | read; a write drops unknown fields and stamps 1 (accepted gap, ADR) | `update_stamps_current_version` |
 | Sign-in token | OS keyring, service `Kstack` | `services/auth` | disposable (sign in again) | none | — | unknown fields ignored | — |
@@ -78,7 +78,9 @@ Done in the PR that tags the first release, and recorded here when it lands:
   `kubestore`'s triggers.
 - A v1 fixture test per durable store: `app.db`, `kube/*.db`, `logs/*.db`; `beehive.db` by module
   version.
-- A backup of each durable store before the first migration past `0001`. Without it, a user who
-  reinstalls an older build after a migration can only upgrade again.
+- A backup before the first migration past `0001`: landed for `app.db`, which `appdb.Open` copies
+  to `app.db.bak` before a pending migration runs
+  ([ADR](adr/2026-11-09-app-db-is-copied-before-a-migration-runs-and-the-caches-are-not.md)). The
+  caches take none.
 - The updater, when it lands: its restart waits for the old sidecar to exit before the new one
   migrates.

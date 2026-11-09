@@ -99,8 +99,9 @@ func openFile(path string, closeBudget time.Duration) (*file, error) {
 		return nil, fmt.Errorf("open writer: %w", err)
 	}
 	// A failure closes the pools under the budget and reports what that answered.
-	// Nothing else holds them and nothing cancels, so no connection is in use.
-	if _, err := sqlitemigrate.Apply(context.Background(), db.DB, migrationsFS, "migrations"); err != nil {
+	// Nothing else holds them and nothing cancels, so no connection is in use. No backup:
+	// the kubelet refills a cache at the price of the lines it had rotated out.
+	if _, err := sqlitemigrate.Apply(context.Background(), db.DB, migrationsFS, "migrations", ""); err != nil {
 		return nil, errors.Join(fmt.Errorf("migrate: %w", err), sqlitepool.CloseAll(closeBudget, db))
 	}
 	// After the migrations, so a reader never races the schema onto a fresh file.

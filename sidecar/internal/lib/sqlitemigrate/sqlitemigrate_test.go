@@ -27,11 +27,11 @@ func openDB(t *testing.T) *sql.DB {
 }
 
 // fsWith writes name->sql pairs into a temp "migrations" dir and returns an
-// fs.FS rooted at the temp dir, so Apply(..., fsys, "migrations") reads them.
+// fs.FS rooted at the temp dir, so Apply(..., fsys, "migrations", "") reads them.
 func fsWith(t *testing.T, files map[string]string) fs.FS {
 	t.Helper()
 	root := t.TempDir()
-	dir := filepath.Join(root, "migrations")
+	dir := filepath.Join(root, "migrations", "")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	for name, body := range files {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600))
@@ -56,7 +56,7 @@ func TestApplyRunsInOrderAndRecords(t *testing.T) {
 		"0002_second.sql": `CREATE TABLE beta (id INTEGER PRIMARY KEY);`,
 	})
 
-	v, err := Apply(context.Background(), db, fsys, "migrations")
+	v, err := Apply(context.Background(), db, fsys, "migrations", "")
 	require.NoError(t, err)
 	require.Equal(t, 2, v)
 	require.True(t, tableExists(t, db, "alpha"))
@@ -75,13 +75,13 @@ func TestApplyIsIdempotent(t *testing.T) {
 		"0001_first.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
 	})
 
-	v, err := Apply(context.Background(), db, fsys, "migrations")
+	v, err := Apply(context.Background(), db, fsys, "migrations", "")
 	require.NoError(t, err)
 	require.Equal(t, 1, v)
 
 	// A second call must be a no-op: it would error ("table alpha already
 	// exists") if it re-ran the migration instead of skipping it.
-	v, err = Apply(context.Background(), db, fsys, "migrations")
+	v, err = Apply(context.Background(), db, fsys, "migrations", "")
 	require.NoError(t, err)
 	require.Equal(t, 1, v)
 }
@@ -91,7 +91,7 @@ func TestApplyResumesAfterPartial(t *testing.T) {
 
 	v, err := Apply(context.Background(), db, fsWith(t, map[string]string{
 		"0001_first.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
-	}), "migrations")
+	}), "migrations", "")
 	require.NoError(t, err)
 	require.Equal(t, 1, v)
 
@@ -99,7 +99,7 @@ func TestApplyResumesAfterPartial(t *testing.T) {
 	v, err = Apply(context.Background(), db, fsWith(t, map[string]string{
 		"0001_first.sql":  `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
 		"0002_second.sql": `CREATE TABLE beta (id INTEGER PRIMARY KEY);`,
-	}), "migrations")
+	}), "migrations", "")
 	require.NoError(t, err)
 	require.Equal(t, 2, v)
 	require.True(t, tableExists(t, db, "beta"))
@@ -112,13 +112,13 @@ func TestApplyRejectsNewerThanBinary(t *testing.T) {
 	_, err := Apply(context.Background(), db, fsWith(t, map[string]string{
 		"0001_first.sql":  `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
 		"0002_second.sql": `CREATE TABLE beta (id INTEGER PRIMARY KEY);`,
-	}), "migrations")
+	}), "migrations", "")
 	require.NoError(t, err)
 
 	// This (older) binary only knows v1 — refuse rather than truncate.
 	_, err = Apply(context.Background(), db, fsWith(t, map[string]string{
 		"0001_first.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
-	}), "migrations")
+	}), "migrations", "")
 	var newer *NewerSchemaError
 	require.ErrorAs(t, err, &newer)
 	require.Equal(t, 2, newer.Recorded)
@@ -131,7 +131,7 @@ func TestApplyRejectsVersionGap(t *testing.T) {
 	_, err := Apply(context.Background(), db, fsWith(t, map[string]string{
 		"0001_first.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
 		"0003_third.sql": `CREATE TABLE gamma (id INTEGER PRIMARY KEY);`,
-	}), "migrations")
+	}), "migrations", "")
 	require.Error(t, err, "a gap in version numbers must be caught at startup")
 }
 
@@ -139,13 +139,13 @@ func TestApplyRejectsBadFilename(t *testing.T) {
 	db := openDB(t)
 	_, err := Apply(context.Background(), db, fsWith(t, map[string]string{
 		"init.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
-	}), "migrations")
+	}), "migrations", "")
 	require.Error(t, err, "a file without a numeric version prefix is a packaging bug")
 }
 
 // A migrations dir that isn't there is a build mistake, not an empty upgrade.
 func TestApplyRejectsAMissingDir(t *testing.T) {
-	_, err := Apply(context.Background(), openDB(t), fsWith(t, nil), "nowhere")
+	_, err := Apply(context.Background(), openDB(t), fsWith(t, nil), "nowhere", "")
 	require.Error(t, err)
 }
 
@@ -154,13 +154,13 @@ func TestApplyRejectsAMissingDir(t *testing.T) {
 func TestApplySkipsNonSQLEntries(t *testing.T) {
 	db := openDB(t)
 	root := t.TempDir()
-	dir := filepath.Join(root, "migrations")
+	dir := filepath.Join(root, "migrations", "")
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "notes"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "0001_first.sql"),
 		[]byte(`CREATE TABLE alpha (id INTEGER PRIMARY KEY);`), 0o600))
 
-	v, err := Apply(context.Background(), db, os.DirFS(root), "migrations")
+	v, err := Apply(context.Background(), db, os.DirFS(root), "migrations", "")
 	require.NoError(t, err)
 	require.Equal(t, 1, v)
 	require.True(t, tableExists(t, db, "alpha"))
@@ -169,7 +169,7 @@ func TestApplySkipsNonSQLEntries(t *testing.T) {
 // A leading segment that isn't a number names no version.
 func TestApplyRejectsANonNumericVersion(t *testing.T) {
 	fsys := fsWith(t, map[string]string{"init_first.sql": `SELECT 1;`})
-	_, err := Apply(context.Background(), openDB(t), fsys, "migrations")
+	_, err := Apply(context.Background(), openDB(t), fsys, "migrations", "")
 	require.ErrorContains(t, err, "non-numeric version")
 }
 
@@ -177,7 +177,7 @@ func TestApplyRejectsANonNumericVersion(t *testing.T) {
 // still created, so the next release has somewhere to record.
 func TestApplyWithNoMigrationsIsANoOp(t *testing.T) {
 	db := openDB(t)
-	v, err := Apply(context.Background(), db, fsWith(t, nil), "migrations")
+	v, err := Apply(context.Background(), db, fsWith(t, nil), "migrations", "")
 	require.NoError(t, err)
 	require.Equal(t, 0, v)
 	require.True(t, tableExists(t, db, "schema_migrations"))
@@ -192,7 +192,7 @@ func TestApplyRollsBackAFailedMigration(t *testing.T) {
 		"0002_broken.sql": `CREATE TABLE beta (id INTEGER PRIMARY KEY); NOT SQL;`,
 	})
 
-	v, err := Apply(context.Background(), db, fsys, "migrations")
+	v, err := Apply(context.Background(), db, fsys, "migrations", "")
 	require.ErrorContains(t, err, "0002_broken.sql")
 	require.Equal(t, 1, v)
 	require.True(t, tableExists(t, db, "alpha"))
@@ -204,7 +204,7 @@ func TestApplyRollsBackAFailedMigration(t *testing.T) {
 func TestApplyFailsOnAClosedDB(t *testing.T) {
 	db := openDB(t)
 	require.NoError(t, db.Close())
-	_, err := Apply(context.Background(), db, fsWith(t, nil), "migrations")
+	_, err := Apply(context.Background(), db, fsWith(t, nil), "migrations", "")
 	require.ErrorContains(t, err, "create schema_migrations")
 }
 
@@ -218,7 +218,7 @@ func TestApplyRejectsAnUnreadableMigration(t *testing.T) {
 	db := openDB(t)
 	fsys := unreadableFS{fstest.MapFS{"migrations/0001_first.sql": {Data: []byte(`SELECT 1;`)}}}
 
-	v, err := Apply(context.Background(), db, fsys, "migrations")
+	v, err := Apply(context.Background(), db, fsys, "migrations", "")
 	require.ErrorIs(t, err, fs.ErrPermission)
 	require.ErrorContains(t, err, "0001_first.sql")
 	require.Equal(t, 0, v)
@@ -233,7 +233,7 @@ func TestApplyStopsWhenAMigrationCannotBegin(t *testing.T) {
 	require.NoError(t, err)
 	fsys := fsWith(t, map[string]string{"0001_first.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`})
 
-	v, err := Apply(context.Background(), db, fsys, "migrations")
+	v, err := Apply(context.Background(), db, fsys, "migrations", "")
 	require.ErrorContains(t, err, "0001_first.sql")
 	require.Equal(t, 0, v)
 	require.False(t, tableExists(t, db, "alpha"))
@@ -247,9 +247,91 @@ func TestApplyRollsBackAMigrationItCannotRecord(t *testing.T) {
 		"0001_first.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY); DROP TABLE schema_migrations;`,
 	})
 
-	v, err := Apply(context.Background(), db, fsys, "migrations")
+	v, err := Apply(context.Background(), db, fsys, "migrations", "")
 	require.ErrorContains(t, err, "no such table: schema_migrations")
 	require.Equal(t, 0, v)
 	require.False(t, tableExists(t, db, "alpha"))
 	require.True(t, tableExists(t, db, "schema_migrations"))
+}
+
+// recordedVersion is what path's schema_migrations says, read through a connection of
+// its own, since a backup is a file and not the pool it was taken from.
+func recordedVersion(t *testing.T, path string) int {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+path)
+	require.NoError(t, err)
+	defer db.Close()
+	var v int
+	require.NoError(t, db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&v))
+	return v
+}
+
+// The copy holds the database as it was before the pending migrations ran, each upgrade
+// replaces the one before, and a run with nothing pending leaves it alone.
+func TestApplyBacksUpBeforeAPendingMigration(t *testing.T) {
+	db := openDB(t)
+	backup := filepath.Join(t.TempDir(), "test.db.bak")
+	v1 := fsWith(t, map[string]string{
+		"0001_first.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
+	})
+	v2 := fsWith(t, map[string]string{
+		"0001_first.sql":  `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
+		"0002_second.sql": `CREATE TABLE beta (id INTEGER PRIMARY KEY);`,
+	})
+	v3 := fsWith(t, map[string]string{
+		"0001_first.sql":  `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
+		"0002_second.sql": `CREATE TABLE beta (id INTEGER PRIMARY KEY);`,
+		"0003_third.sql":  `CREATE TABLE gamma (id INTEGER PRIMARY KEY);`,
+	})
+
+	// A fresh file has nothing to back up.
+	_, err := Apply(context.Background(), db, v1, "migrations", backup)
+	require.NoError(t, err)
+	require.NoFileExists(t, backup)
+
+	_, err = Apply(context.Background(), db, v2, "migrations", backup)
+	require.NoError(t, err)
+	require.Equal(t, 1, recordedVersion(t, backup))
+	info, err := os.Stat(backup)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	// Nothing pending: the copy is not touched.
+	before := info.ModTime()
+	_, err = Apply(context.Background(), db, v2, "migrations", backup)
+	require.NoError(t, err)
+	info, err = os.Stat(backup)
+	require.NoError(t, err)
+	require.Equal(t, before, info.ModTime())
+
+	_, err = Apply(context.Background(), db, v3, "migrations", backup)
+	require.NoError(t, err)
+	require.Equal(t, 2, recordedVersion(t, backup))
+}
+
+// A copy that cannot be written stops the upgrade before any migration runs: whether
+// the earlier copy cannot be removed or the new one cannot be created.
+func TestApplyFailsWhenTheBackupCannotBeWritten(t *testing.T) {
+	inTheWay := filepath.Join(t.TempDir(), "test.db.bak")
+	require.NoError(t, os.MkdirAll(filepath.Join(inTheWay, "full"), 0o700))
+	for name, backup := range map[string]string{
+		"an earlier copy that cannot be removed": inTheWay,
+		"a directory that does not exist":        filepath.Join(t.TempDir(), "missing", "test.db.bak"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			db := openDB(t)
+			_, err := Apply(context.Background(), db, fsWith(t, map[string]string{
+				"0001_first.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
+			}), "migrations", "")
+			require.NoError(t, err)
+
+			v, err := Apply(context.Background(), db, fsWith(t, map[string]string{
+				"0001_first.sql":  `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
+				"0002_second.sql": `CREATE TABLE beta (id INTEGER PRIMARY KEY);`,
+			}), "migrations", backup)
+			require.ErrorContains(t, err, "back up before migration")
+			require.Equal(t, 1, v)
+			require.False(t, tableExists(t, db, "beta"))
+		})
+	}
 }

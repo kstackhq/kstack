@@ -226,6 +226,10 @@ row in the same commit.** How to change one:
 - **`settings.json`**: a field's layout change bumps `schemaVersion` and upgrades in
   `jsonsettings.Open`; a newer file is read and its keys kept.
 
+`sqlitemigrate.Apply` takes a backup path: when the file has a version and a migration is pending,
+it writes the file as it stands there with `VACUUM INTO` before the first one runs. `appdb` passes
+`app.db.bak`; the caches pass none, since the cluster rebuilds them. → [ADR: app.db is copied before a migration runs, and the caches are not](../docs/adr/2026-11-09-app-db-is-copied-before-a-migration-runs-and-the-caches-are-not.md).
+
 A refusal reaches the user. `sqlitemigrate` refuses a newer file with `*NewerSchemaError`, which `build`
 turns into *app.db was written by a newer Kstack (…)*; the error's own text is the reason, logged
 as `app init`. When `app.New` fails, `run` also prints `FATAL <reason>` on stdout for whatever
