@@ -25,7 +25,8 @@ import (
 // paths is every file and directory the sidecar keeps, each in the kind of
 // directory it belongs to, grouped by the service that owns it. Each service
 // is handed its own and names nothing else; each owner makes its own
-// directories.
+// directories. A shipped path is never renamed or moved: nothing migrates the
+// layout on upgrade, so it only grows (docs/persisted-data.md).
 //
 //	<data>/                                what a user would lose
 //	  sidecar.lock                         app: held while a sidecar runs; never deleted

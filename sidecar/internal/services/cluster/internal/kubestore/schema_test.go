@@ -22,7 +22,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/watch"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
 )
+
+// shippedMigrations is every file in migrations/ by SHA-256. A new migration adds its
+// line in the PR that writes it. Once a desktop release carries a migration, every
+// installed cache has run it, so its line never changes again.
+var shippedMigrations = map[string]string{
+	"0001_init.sql": "497cc52c6a3ca78d326bdaea2c38f79ea3b631ffc805ea4e8a1d55fb77d080e7", // desktop/v0.0.1
+}
+
+func TestAShippedMigrationIsNeverEdited(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, shippedMigrations, sqlitemigratetest.Checksums(t, migrationsFS, "migrations"))
+}
 
 // storesRowid reports whether the table keeps SQLite's implicit rowid. pragma_table_list's
 // wr column is the declared form itself, so this reads the schema rather than inferring it.

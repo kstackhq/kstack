@@ -3,6 +3,7 @@ title: Keep each file in the platform's directory for its kind
 date: 2026-09-27
 scope: cross-cutting
 status: Accepted
+amended_by: [A shipped schema changes only by a new migration](2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md)
 ---
 
 # Keep each file in the platform's directory for its kind

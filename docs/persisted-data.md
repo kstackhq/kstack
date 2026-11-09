@@ -2,13 +2,14 @@
 
 Everything Kstack keeps across a restart, how each format is versioned, and what a build does with
 a file a newer build wrote. Present tense, like a `CLAUDE.md`: this file states what is true now.
-The policy and its reasons are in the
-[ADR](adr/2026-10-29-each-persisted-format-carries-its-own-version-stamp.md).
+The policy and its reasons are in two ADRs: [each format carries its own version
+stamp](adr/2026-10-29-each-persisted-format-carries-its-own-version-stamp.md), and [a shipped
+schema changes only by a new migration](adr/2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md).
 
 **A change to a persisted format updates its row here in the same commit.**
 
-Nothing has shipped. Every SQLite schema is still one `0001_init.sql`, edited in place
-([ADR](adr/2026-08-29-schema-edit-not-migration.md)). See *First release* below.
+`desktop/v0.0.1` is the first release. Every format it wrote is shipped: a build has to read it
+from now on.
 
 ## Policy
 
@@ -23,6 +24,38 @@ migration step; every format migrates when it opens.
 - **Disposable**: a store Kstack rebuilds. A bad value reads as the default.
 
 A migration is never removed: a user may skip releases.
+
+### How a change ships
+
+Each kind of change has one shape. The tests named here are what fails when it is skipped.
+
+- **A SQLite schema** (`app.db`, `kube/*.db`, `logs/*.db`): the next numbered `*.sql` in the
+  store's `migrations/`, plus its SHA-256 line in the store's `shippedMigrations`. A shipped
+  migration is never edited or removed: `TestAShippedMigrationIsNeverEdited` fails on a changed,
+  added or missing file. The migration ships with a test that builds the previous schema from
+  the frozen files, seeds it, migrates and reads the seed back. `kubestore`'s triggers name
+  their tables, so rebuilding one drops the triggers first and recreates them after. A migration
+  runs on the file in place, with no copy; the first `app.db` migration past `0001` waits for the
+  backup in #823.
+- **A JSON column**: rides `app.db`'s version, so the change is an `app.db` migration using
+  SQLite's JSON functions. A rewrite SQL cannot express has no path yet (below).
+- **A preference** (`settings.json`): a field's layout change bumps `schemaVersion` and upgrades
+  in the reader. A file a build cannot parse reads as defaults and its next write replaces it, so
+  a new choice for a setting is a new field, never a new value of an old one.
+- **A disposable store**: no migration. A renamed `localStorage` key needs nothing; a renamed
+  keyring entry deletes the old one.
+
+### What cannot change yet
+
+There is no app-level data migration: nothing runs on upgrade except each format's own
+migrations, and a SQL migration changes tables only. So nothing can move, rename or remove a
+path under `<data>` or `<cache>`, or rewrite a JSON column in Go. Until that exists:
+
+- **The layout under `<data>` and `<cache>` only grows.** A new path needs nothing: its owner
+  creates it, and this register gains a row. An existing path keeps its name and its root.
+- **The data root never moves.** Transcripts name absolute paths no migration can rewrite.
+
+Adding the mechanism is in [`TODO.md`](TODO.md), *Sidecar (Go)*.
 
 ## Where it lives
 
@@ -43,16 +76,16 @@ cluster no longer has.
 
 | Format | Where | Owner | Class | Version stamp | Forward path | Newer file | Pinned by |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| App DB | `<data>/app.db` | `internal/appdb` | durable | `sqlitemigrate` | SQL migrations | refused; the sidecar does not start and the start screen names the file | `appdb` `TestOpenRefusesANewerFile`; the message: `TestANewerAppDBFailsTheBuildNamingTheVersions`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
+| App DB | `<data>/app.db` | `internal/appdb` | durable | `sqlitemigrate` | SQL migrations | refused; the sidecar does not start and the start screen names the file | `appdb` `TestAShippedMigrationIsNeverEdited`, `TestOpenRefusesANewerFile`; the message: `TestANewerAppDBFailsTheBuildNamingTheVersions`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
 | App DB JSON columns | `app.db`: message content blocks, server-tool counts, tool-call input and error, `ActionRequest`, watch result | `agent/chat`, `tools` | durable | rides `app.db`'s | an `app.db` migration | with `app.db` | with `app.db` |
 | Control-plane store | `<data>/beehive.db` | `github.com/amorey/beehive/sqlite` | durable | beehive's own runner | beehive's migrations, taken by a module bump | refused; the sidecar does not start and the start screen names the file | beehive's `internal/sqlitemigrate` tests; the message: `TestANewerBeehiveDBFailsTheServiceSayingSo`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
-| Chat and monitor directories | `<data>/chats/<chat id>/`, `<data>/monitor/<cluster id>/`: `results/`, `tasks/`, `workspace/`, `toolhome/` | `agent/chat`, `tools` | durable | rides `app.db`'s | an `app.db` migration; the layout only grows and the root never moves | with `app.db` | with `app.db` |
-| Cluster cache | `<cache>/kube/<cache id>.db` | `kubestore` | durable | `sqlitemigrate` | SQL migrations | refused; the cache reports `StoreFailed` with the message and the rest of the app runs | `kubestore` `TestOpenRefusesANewerFile`; `kubesync` `TestArmReportsAStoreThatWillNotOpen` (any open failure reaches `StoreFailed`) |
+| Chat and monitor directories | `<data>/chats/<chat id>/`, `<data>/monitor/<cluster id>/`: `results/`, `tasks/`, `workspace/`, `toolhome/` | `agent/chat`, `tools` | durable | none | none yet: the layout only grows and the root never moves (*What cannot change yet*) | a path this build does not know is left alone | — |
+| Cluster cache | `<cache>/kube/<cache id>.db` | `kubestore` | durable | `sqlitemigrate` | SQL migrations | refused; the cache reports `StoreFailed` with the message and the rest of the app runs | `kubestore` `TestAShippedMigrationIsNeverEdited`, `TestOpenRefusesANewerFile`; `kubesync` `TestArmReportsAStoreThatWillNotOpen` (any open failure reaches `StoreFailed`) |
 | Cluster cache `raw_json` | `kube/*.db` `objects.raw_json` | `kubestore/rawcodec.go` | durable | first byte (zlib `0x78`, JSON `{`) | a `kube/*.db` migration | with `kube/*.db` | `rawcodec_test.go` |
-| Log cache | `<cache>/logs/<cache id>.db` | `logstore` | durable | `sqlitemigrate` | SQL migrations | refused; `OpenOrCreate` returns the error to the caller | `logstore` `TestOpenOrCreateRefusesANewerFile` |
+| Log cache | `<cache>/logs/<cache id>.db` | `logstore` | durable | `sqlitemigrate` | SQL migrations | refused; `OpenOrCreate` returns the error to the caller | `logstore` `TestAShippedMigrationIsNeverEdited`, `TestOpenOrCreateRefusesANewerFile` |
 | Sidecar settings | `<data>/settings.json` | `lib/jsonsettings`, `services/settings` | preference | `schemaVersion` 1 | upgrade in `Open` (none written yet) | read; a write keeps its unknown keys and its version | `TestAWriteStampsTheVersion`, `TestAWriteKeepsTheKeysNoFieldNames` |
-| Host file | `<config>/host.json` | `src-tauri/src/host_file.rs` | preference | `schemaVersion` 1 | none | read; a write drops unknown fields and stamps 1 (accepted gap, ADR) | `update_stamps_current_version` |
-| Sign-in token | OS keyring, service `Kstack` | `services/auth` | disposable (sign in again) | none | — | unknown fields ignored | — |
+| Host file | `<config>/host.json` | `src-tauri/src/host_file.rs` | preference | `schemaVersion` 1 | none | read; a write drops unknown fields and stamps 1 (accepted gap, ADR; #824) | `update_stamps_current_version` |
+| Sign-in token | OS keyring, service `Kstack` | `services/auth` | disposable (sign in again) | none | a renamed entry deletes the old one | unknown fields ignored | — |
 | Pane state | `localStorage` `kstack:sidebar-open`, `kstack:sidebar-width`, the right sidebar's per-mode open and width, `kstack:log-viewer-wrap` | `src/lib/persisted-flag.ts`, `persisted-width.ts` | disposable | none | a bad value reads as the default | — | `persisted-*.test.ts` |
 | Log-viewer columns | `localStorage` `kstack:log-viewer-columns` | `log-viewer/columns.ts` | disposable | none | unknown names dropped, bad JSON reads as the default | — | `columns.test.ts` |
 
@@ -69,16 +102,7 @@ Kept on disk but never read back as a format, or not kept across a restart:
   replays only to the provider and dialect its run recorded; any other target is sent Kstack's
   fields alone. Kstack's own block format is what migrates.
 
-## First release
+## Releasing
 
-Done in the PR that tags the first release, and recorded here when it lands:
-
-- Freeze every `0001_init.sql`. From then on a schema change is a numbered migration; the rename
-  trap in the [edit-in-place ADR](adr/2026-08-29-schema-edit-not-migration.md) applies to
-  `kubestore`'s triggers.
-- A v1 fixture test per durable store: `app.db`, `kube/*.db`, `logs/*.db`; `beehive.db` by module
-  version.
-- A backup of each durable store before the first migration past `0001`. Without it, a user who
-  reinstalls an older build after a migration can only upgrade again.
-- The updater, when it lands: its restart waits for the old sidecar to exit before the new one
-  migrates.
+A release owes this register nothing by itself: every format migrates when it opens. The
+updater, when it lands, waits for the old sidecar to exit before the new one migrates.

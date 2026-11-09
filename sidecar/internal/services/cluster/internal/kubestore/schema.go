@@ -16,8 +16,9 @@ package kubestore
 
 import "embed"
 
-// The cache file's schema. Nothing has shipped, so 0001_init.sql is still the whole of
-// it: a change to a table's form is an edit there, not a second migration.
+// The cache file's schema. A change to a table's form is the next numbered migration; a
+// shipped one is never edited or removed
+// (docs/adr/2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md).
 //
 //go:embed migrations/*.sql
 var migrationsFS embed.FS

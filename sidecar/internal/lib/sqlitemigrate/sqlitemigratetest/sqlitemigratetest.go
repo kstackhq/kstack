@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package sqlitemigratetest makes a database look written by a newer build. Test-only,
-// imported by no production code.
+// Package sqlitemigratetest is what a store's tests use to pin its shipped formats: it
+// makes a database look written by a newer build and checksums a migration set.
+// Test-only, imported by no production code.
 package sqlitemigratetest
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"io/fs"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -39,4 +44,20 @@ func StampNewer(t testing.TB, path string) {
 		NewerVersion,
 	)
 	require.NoError(t, err)
+}
+
+// Checksums answers each *.sql file in fsys's dir by its SHA-256, in hex, keyed by file
+// name. A store's test compares it with the migrations its releases shipped.
+func Checksums(t testing.TB, fsys fs.FS, dir string) map[string]string {
+	t.Helper()
+	names, err := fs.Glob(fsys, dir+"/*.sql")
+	require.NoError(t, err)
+	sums := make(map[string]string, len(names))
+	for _, name := range names {
+		b, err := fs.ReadFile(fsys, name)
+		require.NoError(t, err)
+		sum := sha256.Sum256(b)
+		sums[path.Base(name)] = hex.EncodeToString(sum[:])
+	}
+	return sums
 }

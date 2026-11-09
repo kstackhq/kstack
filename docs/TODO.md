@@ -8,7 +8,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **The cluster controller re-derives its source edge every pass.** `clusterController.Reconcile` (`sidecar/internal/services/cluster/clusters.go`) declares the dependency onto the kubeconfig anchor by looking the anchor up by name and calling `AddDependency` on every reconcile: a `GetByName` row read plus an `Edges().Add` transaction (a `SELECT` join and an `INSERT ... ON CONFLICT DO NOTHING`), whether or not the edge already exists. **Not a performance problem** — both are indexed round-trips, the expensive half (the requeue signal) is already gated on `ReconcileOwedStamped` so it fires once per edge ever created, and passes are paced by `clusterProbeInterval` (5m) plus events. Listed for the **simplification**, and because the cost is worth knowing before anyone puts this pass on a hot path.
   - **Fix:** own the edge instead of re-deriving it. The mirror (`mirror.go`) creates the runtime object, so it would create it with `beehive.WithOwner(...)` onto the source's anchor and let the pass read `client.GetOwner(ctx)`, exactly as `cacheController` already does. That deletes the `sourceClient` read, the `ErrNotFound` startup-requeue branch, and the `kubeconfigContextOf` special case, and a future non-kubeconfig source inherits the wake instead of needing its own branch. Store round-trips stay at two (`GetOwner` is also a read), so this buys clarity, not speed.
-  - **Check before doing it:** stored Clusters predate the edge, so `GetOwner` reports no owner for them and they would never get the dependency — a non-issue under the pre-release policy (edit `0001_init.sql`, delete the dev `app.db`), but it is why the change is not purely mechanical. Also confirm `WithOwner` does not change Cluster lifecycle: owner edges cascade on delete, and nothing deletes an anchor today, so the risk is latent rather than live.
+  - **Check before doing it:** every installed `beehive.db` holds Clusters created without the owner edge, so `GetOwner` reports no owner for them and they would never get the dependency. The change has to give those objects the owner (the mirror, on its first pass after the upgrade) or keep the name lookup for an object with none; that is why it is not purely mechanical. Also confirm `WithOwner` does not change Cluster lifecycle: owner edges cascade on delete, and nothing deletes an anchor today, so the risk is latent rather than live.
   - **Fix the stale comment either way:** the block's comment claims "every later pass is free", which is only true of the *wake*. The edge upsert still costs a transaction per pass.
 
 - **`Cluster.caches` is an N+1 now that `ListByCluster` answers.** A query selecting it calls the resolver once per cluster, and each call is a join query plus a batched owner-edge read; the store is single-connection, so they serialize. Harmless at present row counts (tens), and the fix is a gqlgen dataloader rather than anything local — a per-resolver `List`-and-bucket would be worse, since the resolver still runs per cluster. **Trigger:** the first surface that selects `caches` over the whole fleet, or the first report of a slow `clusters { caches }`.
@@ -120,6 +120,24 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 - **Check RBAC permissions?** The `ClusterPermissions`/`ResourceRule`/`NonResourceRule` types and schema exist, but the `Permissions` resolver is a stub that returns `not implemented: permissions`. Implement it via a `SelfSubjectRulesReview`. Distinct from the `SelfSubjectReview` *authentication* probe behind `ClusterPrincipal.username`, which is implemented.
 
 ## Sidecar (Go)
+
+- **Kstack has no app-level data migration.** Each format migrates itself when it opens, and a
+  SQL migration changes tables only, so nothing can move, rename or remove a path under `<data>` or
+  `<cache>`, or rewrite a JSON column SQL cannot express. Until it exists the layout only grows
+  ([`persisted-data.md`](persisted-data.md), *What cannot change yet*). **Shape:** an ordered list
+  of Go steps run at start, each recorded once done. **What to settle first:** where the position
+  lives. In `app.db`'s `schema_migrations`, numbered with the SQL files: one ordered list,
+  committed with the SQL half, and every build back to `v0.0.1` already refuses a higher version.
+  But the host cannot read it, a step cannot run before `app.db` opens, and if `app.db` ever goes
+  away the version goes with it, so an older build would make a fresh, empty `app.db` instead of
+  refusing; the release that removes it would have to leave a file holding the version. In a
+  marker file of its own under `<data>`: the host can read it and it outlives `app.db`, but builds
+  before it never read it, so a downgrade to one across a step is not refused, and it can disagree
+  with `app.db` if a crash falls between a SQL migration and the marker's write. Either way a step
+  runs outside a transaction and must be safe to run again after a crash (a move checks that the
+  old path exists and the new one does not), and each step needs a test that runs it twice.
+  **Trigger:** the first change that needs a path moved, renamed or removed, or a JSON rewrite SQL
+  cannot express.
 
 - **Offer kubetail when a log stream stops at a limit.** A stream past the normal limits stops
   with `kubelet.FailLimit` and is named in a `stream-skipped` notice (→ [ADR: backward log reads assume normal
@@ -372,7 +390,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **Trigger:** a transcript long enough, or thinking blocks large enough, that a rows ping is
     visible in a profile. Unmeasured today, and small conversations will not produce it.
 
-- **Investigate scoping `chatsWatch` by mode and cluster server-side.** The watch is unscoped and the webview does both filters itself (`chatModeOf` and `clusterID` in `src/lib/chats.tsx`), so every window holds every chat of every cluster in both modes to draw one list. Scoping it to `(clusterID, mode)` would ship each window only its own. **What it costs.** `OpenChat` tells a deleted chat from another cluster's by looking in the list, so a scoped list leaves it nothing to look in — it would need a `chat(id)` read of its own, and the out-of-scope notice would then be driven by that read rather than by the fold. urql keys an operation on its variables, so each mode and each cluster switch opens its own connection and cold-lists, where today one watch serves the window. And the SQL needs an index the table does not have: `chat_by_recency` is `(updated_at DESC)`, and a scoped newest-first read wants `(cluster_id, mode, updated_at DESC)` — an edit to `0001_init.sql`, since nothing has shipped. **Trigger:** a chat count at which sending every chat to every window is visible in a profile, or a second consumer of the list that cannot filter client-side. Unmeasured today.
+- **Investigate scoping `chatsWatch` by mode and cluster server-side.** The watch is unscoped and the webview does both filters itself (`chatModeOf` and `clusterID` in `src/lib/chats.tsx`), so every window holds every chat of every cluster in both modes to draw one list. Scoping it to `(clusterID, mode)` would ship each window only its own. **What it costs.** `OpenChat` tells a deleted chat from another cluster's by looking in the list, so a scoped list leaves it nothing to look in — it would need a `chat(id)` read of its own, and the out-of-scope notice would then be driven by that read rather than by the fold. urql keys an operation on its variables, so each mode and each cluster switch opens its own connection and cold-lists, where today one watch serves the window. And the SQL needs an index the table does not have: `chat_by_recency` is `(updated_at DESC)`, and a scoped newest-first read wants `(cluster_id, mode, updated_at DESC)` — an `app.db` migration that creates it. **Trigger:** a chat count at which sending every chat to every window is visible in a profile, or a second consumer of the list that cannot filter client-side. Unmeasured today.
 
 - **Explore comparing cluster cards by hash rather than by text.** `questionContent`
   (`sidecar/internal/agent/chat/service.go`) decides whether a send carries a card by comparing the
@@ -383,7 +401,8 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   few bytes and the read an indexed seek. **What to settle first.** Whether it is worth having:
   the compare runs once per send, over one chat's rows, and is unmeasured; a hash is a second
   thing the record has to keep in step with the block. Where it lives if so: a column is the
-  boring shape and edits `0001_init.sql` (nothing has shipped); a field in the block would reach
+  boring shape, an `app.db` migration that adds it and leaves it NULL on the rows before it, so
+  the compare falls back to the text there; a field in the block would reach
   the wire and the model. And that equal text stays the definition — a hash is a shortcut for
   it, so a collision test belongs beside `TestSendCarriesTheCardOnlyWhenItChanged`. **Trigger:** a
   send whose compare is visible in a profile, or a second kind of context that makes the block

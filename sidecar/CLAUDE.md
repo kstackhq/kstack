@@ -9,12 +9,12 @@ and `--runtime-dir` are required and absolute; tests pass `t.TempDir()`.
 (`internal/app/runtime.go`) opens it before any service, under the data directory's lock, and hands the `*appdb.DB` to each service that uses it;
 a service closes only the statements it prepared. `appdb.Open` gives a one-connection migrated
 writer and a `query_only` reader, plus a janitor. A service's statements are a `sqlstmt.Set` on
-`db.Write, db.Read`. Nothing has shipped, so a table change edits `0001_init.sql`. Tests open the
+`db.Write, db.Read`. A table change is the next numbered migration (*Persisted formats*). Tests open the
 DB through `appdb/appdbtest`, never `appdb.Open`. **The change bus**: `Notify(key)` after a commit,
 never inside it; `Subscribe` before the first read; pings coalesce, so never count them. The keys
 are all named in `appdb.go`. `NewID()` mints UUIDv7; `ValidateUUID` accepts only canonical v4/v7.
-→ [ADR: the app owns app.db](../docs/adr/2026-09-16-the-app-owns-app-db.md), [ADR: schema edit,
-not migration](../docs/adr/2026-08-29-schema-edit-not-migration.md).
+→ [ADR: the app owns app.db](../docs/adr/2026-09-16-the-app-owns-app-db.md),
+[ADR: a shipped schema changes only by a new migration](../docs/adr/2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md).
 
 ## Directories
 
@@ -215,14 +215,20 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 ## Persisted formats
 
 Every file the sidecar keeps has a row in [`docs/persisted-data.md`](../docs/persisted-data.md),
-with its class, its version stamp and the test that pins it. **A change to a format updates its
-row in the same commit.** How to change one:
+with its class, its version stamp and the test that pins it, and that file's *How a change
+ships* is the procedure for each kind of change. **A change to a format updates its row in the
+same commit.** What the sidecar's side of it looks like:
 
-- **A SQLite schema** (`appdb`, `kubestore`, `logstore`): until the first release, edit
-  `0001_init.sql` in place. After it, add the next numbered `*.sql`; `sqlitemigrate` refuses a file
-  recorded newer than the binary, and a migration is never removed.
-- **A JSON column or the chat directory layout**: rides `app.db`'s version, so the change is an
-  `app.db` migration. The layout only grows and the data directory never moves.
+- **A SQLite schema** (`appdb`, `kubestore`, `logstore`): the next numbered `*.sql` plus its
+  SHA-256 line in the package's `shippedMigrations`. **A shipped migration is never edited or
+  removed**: `TestAShippedMigrationIsNeverEdited` fails on a changed, added or missing file. A
+  migration past `0001` ships with a test that builds the previous schema from the frozen files,
+  seeds it, migrates and reads the seed back. **Rebuilding a `kubestore` table a trigger names**
+  fails at `ALTER TABLE … RENAME` (*no such table* in the trigger): drop the triggers first and
+  recreate them after.
+- **A JSON column**: rides `app.db`'s version, so the change is an `app.db` migration.
+- **A path under `<data>` or `<cache>`**: never renamed, moved or removed. There is no app-level
+  data migration yet, so the layout only grows: a new path is its owner's to create.
 - **`settings.json`**: a field's layout change bumps `schemaVersion` and upgrades in
   `jsonsettings.Open`; a newer file is read and its keys kept.
 
@@ -230,9 +236,11 @@ A refusal reaches the user. `sqlitemigrate` refuses a newer file with `*NewerSch
 turns into *app.db was written by a newer Kstack (…)*; the error's own text is the reason, logged
 as `app init`. When `app.New` fails, `run` also prints `FATAL <reason>` on stdout for whatever
 spawned it; the host shows it on the start screen. Tests make a newer file with
-`sqlitemigrate/sqlitemigratetest`'s `StampNewer`, covered through its callers.
+`sqlitemigrate/sqlitemigratetest`'s `StampNewer` and checksum a migration set with its
+`Checksums`.
 
-→ [ADR: each persisted format carries its own version stamp](../docs/adr/2026-10-29-each-persisted-format-carries-its-own-version-stamp.md).
+→ [ADR: each persisted format carries its own version stamp](../docs/adr/2026-10-29-each-persisted-format-carries-its-own-version-stamp.md),
+[ADR: a shipped schema changes only by a new migration](../docs/adr/2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md).
 
 ## Tests & checks
 

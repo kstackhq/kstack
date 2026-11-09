@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/amorey/gobus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
@@ -390,6 +391,17 @@ func TestOpenRefusesANewerFile(t *testing.T) {
 	_, err = Open(path, 0)
 
 	require.ErrorAs(t, err, new(*sqlitemigrate.NewerSchemaError))
+}
+
+// shippedMigrations is every file in migrations/ by SHA-256. A new migration adds its
+// line in the PR that writes it. Once a desktop release carries a migration, every
+// installed app.db has run it, so its line never changes again.
+var shippedMigrations = map[string]string{
+	"0001_init.sql": "5bce01af11e58cea4359e82f58d5c5719c9077646fb71c0b4a3055e8a0489944", // desktop/v0.0.1
+}
+
+func TestAShippedMigrationIsNeverEdited(t *testing.T) {
+	assert.Equal(t, shippedMigrations, sqlitemigratetest.Checksums(t, migrationsFS, "migrations"))
 }
 
 // A subscriber hears the keys it asked for and nothing else, and a burst on one key

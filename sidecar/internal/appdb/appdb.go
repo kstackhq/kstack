@@ -3,10 +3,10 @@
 //
 // A SQLite file has ONE schema_migrations sequence, so its schema can't be co-owned by
 // packages each embedding their own migrations — a consumer's tables go in the numbered
-// files here. Nothing has shipped, so a change edits 0001_init.sql rather than adding a
-// file (docs/adr/2026-08-29-schema-edit-not-migration.md). app.db lives outside
-// clusters/, which is reserved for the per-cluster cache files (one each, owned by
-// internal/services/cluster), so a cache scan never mistakes it for one.
+// files here. A change is the next numbered file; a shipped one is never edited or
+// removed (docs/adr/2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md).
+// app.db lives outside clusters/, which is reserved for the per-cluster cache files (one
+// each, owned by internal/services/cluster), so a cache scan never mistakes it for one.
 package appdb
 
 import (

@@ -102,7 +102,7 @@ usually just documentation in the wrong place.
 | 2026-08-28 | [A cache's sync is armed by a record's pass, never by a reader](2026-08-28-arming-is-policy-never-interest.md) | sidecar | Accepted |
 | 2026-08-28 | [A record anchors a timeline; it does not mirror a status](2026-08-28-records-as-timeline-anchors.md) | sidecar | Accepted |
 | 2026-08-29 | [The objects watch reads identity, and fetches a body only for the rows it sends](2026-08-29-object-read-split.md) | sidecar | Accepted |
-| 2026-08-29 | [The all-key tables lose their rowid, by editing the initial schema rather than migrating](2026-08-29-schema-edit-not-migration.md) | sidecar | Accepted |
+| 2026-08-29 | [The all-key tables lose their rowid, by editing the initial schema rather than migrating](2026-08-29-schema-edit-not-migration.md) | sidecar | Superseded by [2026-11-08-a-shipped-schema-changes-only-by-a-new-migration](2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md) |
 | 2026-08-30 | [Redact credentials on the way into the cache, and never store a function of a secret](2026-08-30-secret-redaction-at-write-time.md) | sidecar | Accepted |
 | 2026-08-30 | [Resolve a connection retry when its own probe finishes](2026-08-30-retry-resolves-with-its-probe.md) | sidecar | Accepted |
 | 2026-08-30 | [Stamp every row with its write position, and log deletes](2026-08-30-write-positions-and-the-deletes-log.md) | sidecar | Accepted |
@@ -248,3 +248,4 @@ usually just documentation in the wrong place.
 | 2026-11-07 | [The desktop app is Kstack, and its binary kstack-desktop](2026-11-07-the-desktop-app-is-kstack-and-its-binary-kstack-desktop.md) | repo | Accepted |
 | 2026-11-08 | [Release files are named kstack-\<product\>-\<version\>-\<os\>-\<arch\>](2026-11-08-release-files-are-named-kstack-product-version-os-arch.md) | repo | Accepted |
 | 2026-11-08 | [kstack app installs the newest desktop release with the platform's installer](2026-11-08-kstack-app-installs-the-newest-desktop-release-with-the-platforms-installer.md) | repo | Accepted |
+| 2026-11-08 | [A shipped schema changes only by a new migration](2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md) | cross-cutting | Accepted |

@@ -2,7 +2,7 @@
 title: The all-key tables lose their rowid, by editing the initial schema rather than migrating
 date: 2026-08-29
 scope: sidecar
-status: Accepted
+status: Superseded by [2026-11-08-a-shipped-schema-changes-only-by-a-new-migration](2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md)
 ---
 
 # The all-key tables lose their rowid, by editing the initial schema rather than migrating

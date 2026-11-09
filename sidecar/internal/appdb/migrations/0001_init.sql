@@ -15,8 +15,9 @@
 -- app.db is the durable, app-level SQLite database (one schema_migrations
 -- sequence, owned by internal/appdb). Timestamps are unix millis.
 --
--- Nothing has shipped, so a form change edits this file rather than adding a
--- second migration — docs/adr/2026-08-29-schema-edit-not-migration.md.
+-- Shipped in desktop/v0.0.1 and never edited: a form change is the next
+-- numbered file here
+-- (docs/adr/2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md).
 
 -- clusters: every cluster the app knows. This table owns a cluster's identity and
 -- the user's choices; the beehive store holds one runtime object per row (probe
