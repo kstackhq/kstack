@@ -3,6 +3,7 @@ title: Each persisted format carries its own version stamp, and a downgrade is r
 date: 2026-10-29
 scope: cross-cutting
 status: Accepted
+amended_by: [host.json keeps a newer build's keys and version through a write](2026-11-09-host-json-keeps-a-newer-builds-keys-and-version-through-a-write.md)
 ---
 
 # Each persisted format carries its own version stamp, and a downgrade is refused only where it would break

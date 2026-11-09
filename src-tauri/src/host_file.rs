@@ -30,7 +30,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
-/// Schema version stamped into the file on every write, for future migrations.
+/// Schema version stamped into the file on a write, unless the file records a
+/// higher one.
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 /// Broadcast to every window after `host.json` changes, payload = merged
@@ -55,12 +56,15 @@ pub enum ColorSchemePreference {
 
 /// Parsed `host.json`. Settings must stay `Option` so absent fields (older
 /// files, first run) default at the point of use rather than failing the parse.
+/// `unknown` holds the keys a newer build wrote, so a write keeps them.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct HostFile {
     pub schema_version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_scheme_preference: Option<ColorSchemePreference>,
+    #[serde(flatten)]
+    pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Default for HostFile {
@@ -68,6 +72,7 @@ impl Default for HostFile {
         Self {
             schema_version: CURRENT_SCHEMA_VERSION,
             color_scheme_preference: None,
+            unknown: serde_json::Map::new(),
         }
     }
 }
@@ -89,8 +94,9 @@ pub fn read(path: &Path) -> HostFile {
         .unwrap_or_default()
 }
 
-/// Merge `patch` onto the current contents, stamp [`CURRENT_SCHEMA_VERSION`],
-/// persist atomically (unique temp + rename; concurrent windows can't tear the
+/// Merge `patch` onto the current contents, stamp [`CURRENT_SCHEMA_VERSION`]
+/// unless the file records a higher one, keep the keys this build does not
+/// know, persist atomically (unique temp + rename; concurrent windows can't tear the
 /// file, last writer wins), and return the merged result. Creates the parent
 /// dir on first run.
 pub fn update(path: &Path, patch: HostFilePatch) -> std::io::Result<HostFile> {
@@ -98,7 +104,7 @@ pub fn update(path: &Path, patch: HostFilePatch) -> std::io::Result<HostFile> {
     if let Some(preference) = patch.color_scheme_preference {
         file.color_scheme_preference = Some(preference);
     }
-    file.schema_version = CURRENT_SCHEMA_VERSION;
+    file.schema_version = file.schema_version.max(CURRENT_SCHEMA_VERSION);
 
     let parent = path
         .parent()
@@ -228,6 +234,34 @@ mod tests {
         assert_eq!(read(&path).schema_version, CURRENT_SCHEMA_VERSION);
     }
 
+    // A newer build's file keeps its version and the keys this build does not
+    // know through a write, so the newer build reads its settings back.
+    #[test]
+    fn update_keeps_a_newer_files_version_and_unknown_keys() {
+        let path = temp_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"schemaVersion":7,"colorSchemePreference":"light","fontSize":14}"#,
+        )
+        .unwrap();
+
+        update(
+            &path,
+            HostFilePatch {
+                color_scheme_preference: Some(ColorSchemePreference::Dark),
+            },
+        )
+        .unwrap();
+
+        let on_disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            on_disk,
+            serde_json::json!({"schemaVersion":7,"colorSchemePreference":"dark","fontSize":14})
+        );
+    }
+
     #[test]
     fn patch_deserializes_webview_camel_case_json() {
         let patch: HostFilePatch = serde_json::from_str(r#"{"colorSchemePreference":"system"}"#)
@@ -243,6 +277,7 @@ mod tests {
         let file = HostFile {
             schema_version: 1,
             color_scheme_preference: Some(ColorSchemePreference::Dark),
+            ..HostFile::default()
         };
         assert_eq!(
             init_script(&file),
