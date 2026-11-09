@@ -124,9 +124,10 @@ The subject is imperative, has no trailing period, and is at most 72 characters.
 
 1. **Check for duplicates**: Review existing [issues](https://github.com/kstackhq/kstack/issues) and [pull requests](https://github.com/kstackhq/kstack/pulls)
 2. **Run tests**: Run `make test-changed` and make sure it passes
-3. **Format code**: Run `make lint` and fix what it reports
-4. **Clean commits**: Ensure each commit is minimal, focused, and follows our [commit format](#commit-guidelines)
-5. **Update docs**: If you change architecture, conventions or commands, update the relevant `CLAUDE.md` in the same PR
+3. **Check coverage**: Run `make cover-changed` and cover or mark each line it lists
+4. **Format code**: Run `make lint` and fix what it reports
+5. **Clean commits**: Ensure each commit is minimal, focused, and follows our [commit format](#commit-guidelines)
+6. **Update docs**: If you change architecture, conventions or commands, update the relevant `CLAUDE.md` in the same PR
 
 ### PR Title Format
 
@@ -141,18 +142,9 @@ Write a natural, capitalized title and lead it with an emoji for the PR type:
 
 Follow the [PR template](./.github/pull_request_template.md). Your PR should include:
 
-- Link to related issue: `Fixes #123`
+- Link to related issues: `Fixes #123`
 - **Summary**: Explain the goal of your PR (why)
 - **Key Changes**: List the specific key changes made (what)
-
-### PR Checklist
-
-- [ ] The title leads with the change type's emoji
-- [ ] The related issue, if any, is linked above
-- [ ] Commit messages are [conventional commits](https://www.conventionalcommits.org)
-- [ ] Changes are minimal and focused
-- [ ] Changed lines are covered or marked
-- [ ] Docs are up to date
 
 ## Issues and Specs
 

@@ -20,9 +20,9 @@ Ref #
 
 ## Checklist
 
-- [ ] The title leads with the change type's emoji
-- [ ] The related issue, if any, is linked above
-- [ ] Commit messages are [conventional commits](https://www.conventionalcommits.org)
 - [ ] Changes are minimal and focused
-- [ ] Changed lines are covered or marked
+- [ ] Commit messages are [conventional commits](https://www.conventionalcommits.org)
+- [ ] Local checks pass (`make test-changed`, `make cover-changed`, `make lint`)
 - [ ] Docs are up to date
+- [ ] PR title leads with the change type's emoji
+- [ ] Related issues, if any, are linked above
