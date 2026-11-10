@@ -32,9 +32,11 @@ on:
     - cron: "41 5 * * *"
   workflow_dispatch:
 
-# A PR's new push cancels its last run. Every other run has a group of its own.
+# A PR's new push cancels its last run. Pushes to main share one group that
+# never cancels a started run: a newer push replaces the one run pending behind
+# it. A schedule or dispatch has a group of its own.
 concurrency:
-  group: audit-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  group: audit-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && 'main' || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
