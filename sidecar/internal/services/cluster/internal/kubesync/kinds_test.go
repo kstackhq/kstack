@@ -160,20 +160,29 @@ func TestAStaleStreamWhoseReopenHangsStaysStaleUntilTheReopenLands(t *testing.T)
 	cluster.hasObjects(podKind, "10")
 	stream := cluster.streamKind(podKind)
 
+	// The bookmark leads the first stream, so the quiet window cannot close it before the
+	// bookmark is read.
+	stream.startWith(watch.Event{Type: watch.Bookmark, Object: object("v1", "Pod", "", "42")})
+	// The first open is held only so the second hold is in place before the run can reopen.
+	// Deferred as well as released below: a held open holds the fake cluster's lock.
+	releaseFirst := stream.hold()
+	defer releaseFirst()
+
 	const window = 100 * time.Millisecond
 	svc := newSyncingService(t, cluster, func(p *pacing) {
 		p.staleAfter = window
 		p.bookmarkStaleAfter = 20 * time.Millisecond
 	})
 	syncKind(t, svc, 1, podKind)
-	stream.opened.Await(t, "the watch to open").Action(watch.Bookmark, object("v1", "Pod", "", "42"))
+	stream.parked.Await(t, "the first open to park")
+	release := stream.hold()
+	defer release()
+	releaseFirst()
+	stream.opened.Await(t, "the watch to open")
+
 	stale := awaitKindState(t, svc, 1, podKind, "the silence to read Stale", func(state KindState) bool {
 		return state.Reason == ReasonStale
 	})
-
-	// Deferred as well as released below: a held open holds the fake cluster's lock.
-	release := stream.hold()
-	defer release()
 	stream.parked.Await(t, "the reopen to hang")
 	news := svc.WatchKindNews()
 	t.Cleanup(news.Close)

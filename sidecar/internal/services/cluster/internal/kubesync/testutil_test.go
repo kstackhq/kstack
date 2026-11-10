@@ -625,6 +625,7 @@ type streams struct {
 	err     error
 	held    chan struct{}
 	stopped bool
+	leading []watch.Event
 }
 
 func (s *streams) answer() (chan struct{}, error) {
@@ -643,6 +644,15 @@ func (s *streams) takeStop() bool {
 	return stopped
 }
 
+// takeLeading consumes a startWith.
+func (s *streams) takeLeading() []watch.Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	leading := s.leading
+	s.leading = nil
+	return leading
+}
+
 // streamKind installs the watch for one collection. Call before the kind is tracked.
 func (c *fakeCluster) streamKind(k kubestore.Kind) *streams {
 	s := &streams{opened: testutil.NewProbe[*watch.RaceFreeFakeWatcher](8), parked: testutil.NewProbe[struct{}](8)}
@@ -658,6 +668,9 @@ func (c *fakeCluster) streamKind(k kubestore.Kind) *streams {
 		w := watch.NewRaceFreeFake()
 		if s.takeStop() {
 			w.Stop()
+		}
+		for _, e := range s.takeLeading() {
+			w.Action(e.Type, e.Object)
 		}
 		s.opened.Fire(w)
 		return true, w, nil
@@ -678,6 +691,14 @@ func (s *streams) stopNext() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopped = true
+}
+
+// startWith queues events on the next watcher before it is handed over, so the run reads them
+// ahead of anything its own timers do.
+func (s *streams) startWith(events ...watch.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.leading = events
 }
 
 // hold parks every later open until the returned func lets it go — a server slow to
