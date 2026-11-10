@@ -143,25 +143,31 @@ jobs:
           setup-go: "true"
           go-cache-key: ${{ github.job }}-ubuntu-24.04
           go-cache-mode: ${{ env.CACHE_MODE }}
-      - name: Run vetter
+      # The macOS and Windows runners run tests alone, so this job is the one
+      # place the _darwin.go and _windows.go files are vetted.
+      - name: Vet sidecar
         working-directory: ./sidecar
-        run: go vet ./...
-      # The Windows runners run tests alone, so this is the one place the
-      # _windows.go files are vetted.
-      - name: Run vetter (GOOS=windows)
-        working-directory: ./sidecar
-        run: GOOS=windows go vet ./...
-      - name: Run vetter (CLI)
+        run: |
+          GOOS=linux go vet ./...
+          GOOS=darwin go vet ./...
+          GOOS=windows go vet ./...
+      - name: Vet CLI
         working-directory: ./cli
-        run: go vet ./... && GOOS=windows go vet ./...
+        run: |
+          GOOS=linux go vet ./...
+          GOOS=darwin go vet ./...
+          GOOS=windows go vet ./...
+      - name: Vet tools
+        working-directory: ./tools
+        run: |
+          GOOS=linux go vet ./...
+          GOOS=darwin go vet ./...
+          GOOS=windows go vet ./...
       - name: Check sidecar dependencies
         run: sh scripts/check-sidecar-deps.sh
       - name: Check go fix
         run: sh scripts/check-go-fix.sh
-      - name: Test tools
-        working-directory: ./tools
-        run: go vet ./... && go test ./...
-      # After both passes, so the cache holds the Windows target's builds too,
+      # After every pass, so the cache holds the darwin and Windows builds too,
       # and a failed job leaves the last cache the newest.
       - name: Save Go cache
         if: env.CACHE_MODE != 'use'
@@ -397,6 +403,11 @@ jobs:
         if: ${{ !(matrix.os == 'windows' && matrix.arch == 'arm64') }}
         working-directory: ./cli
         run: go test -race ./...
+      # The tools run in CI and on maintainers' machines, never on Windows.
+      - name: Run tools tests
+        if: ${{ matrix.os != 'windows' }}
+        working-directory: ./tools
+        run: go test ./...
       # After every test passed, so a failed job leaves its runner's last cache
       # the newest. The test flags must match a PR's, or a PR replays nothing.
       - name: Save Go cache

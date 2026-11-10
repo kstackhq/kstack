@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta embedded-sources proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js cover-changed lint lint-go lint-rust lint-js lint-tailwind lint-yaml lint-sh lint-md lint-markers vetvet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
+.PHONY: sidecar sidecar-dev bwrap pasta embedded-sources proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js cover-changed lint lint-go lint-rust lint-js lint-tailwind lint-yaml lint-sh lint-md lint-markers vet vet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -152,11 +152,13 @@ lint-markers:
 # Static analysis (separate from formatting checks in `lint`).
 vet: vet-go staticcheck-go vet-rust
 
-# The live checks are behind tags no other target builds; vetting them here keeps
-# them compiling.
+# Every GOOS, as CI's Go · Vet does. The live checks are behind tags no other
+# target builds; vetting them here keeps them compiling.
 vet-go: check-sidecar-deps check-go-fix
-	cd sidecar && go vet ./... && go vet -tags livecache ./internal/agent/catalog && go vet -tags liveswitch ./internal/agent/catalog
-	cd cli && go vet ./...
+	cd sidecar && GOOS=linux go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
+	cd sidecar && go vet -tags livecache ./internal/agent/catalog && go vet -tags liveswitch ./internal/agent/catalog
+	cd cli && GOOS=linux go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
+	cd tools && GOOS=linux go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
 
 # One run per GOOS and live-check tag, merged (scripts/staticcheck.sh).
 staticcheck-go:
