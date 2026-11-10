@@ -66,6 +66,27 @@ func TestRenderCitesSeveralPullRequestsUnderAHighlight(t *testing.T) {
 	}
 }
 
+func TestRenderNamesNoMaintainerAsANewContributor(t *testing.T) {
+	c := testCollection()
+	c.Changes = append(c.Changes, change{Commit: "6666666666", Subject: "docs: a maintainer's first", PR: 6, Author: "amorey"})
+	c.NewContributors = append(c.NewContributors, contributor{"amorey", 6})
+	got := render(testNotes(), c)
+	_, callouts, _ := strings.Cut(got, "## New contributors")
+	if strings.Contains(callouts, "@amorey") {
+		t.Errorf("render names a maintainer as a new contributor:\n%s", got)
+	}
+	for _, want := range []string{"- @bob made their first contribution", "**3 contributors**"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("render lacks %q:\n%s", want, got)
+		}
+	}
+
+	c.NewContributors = []contributor{{"amorey", 6}}
+	if got := render(testNotes(), c); strings.Contains(got, "## New contributors") {
+		t.Errorf("render has a New contributors heading with no one under it:\n%s", got)
+	}
+}
+
 func TestThanks(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

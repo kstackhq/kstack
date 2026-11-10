@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 )
 
@@ -68,9 +69,15 @@ func render(n notes, c collection) string {
 	}
 	b.WriteString("\n</details>\n")
 
-	if len(c.NewContributors) > 0 {
+	var newcomers []contributor
+	for _, nc := range c.NewContributors {
+		if !slices.Contains(maintainers, nc.Login) {
+			newcomers = append(newcomers, nc)
+		}
+	}
+	if len(newcomers) > 0 {
 		b.WriteString("\n## New contributors\n\n")
-		for _, nc := range c.NewContributors {
+		for _, nc := range newcomers {
 			fmt.Fprintf(&b, "- @%s made their first contribution in %s\n", login(nc.Login), prLink(nc.PR))
 		}
 	}
@@ -83,6 +90,10 @@ func render(n notes, c collection) string {
 	b.WriteString("\nEach download's SHA-256 is in `SHA256SUMS`, signed in `SHA256SUMS.asc`.\n")
 	return b.String()
 }
+
+// maintainers are the GitHub logins the notes never call out by name. They
+// still count among thanks' contributors.
+var maintainers = []string{"amorey"}
 
 // thanks counts the range's pull requests and the people who wrote them, or
 // is "" when no person wrote one. A bot is no contributor.
