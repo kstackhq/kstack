@@ -74,4 +74,4 @@ The desktop app's are `kstack-desktop-…`, its macOS `<arch>` `universal` (`src
 - The version must be `major.minor.patch` with an optional dot-separated prerelease
   (`0.1.0-rc.1`); the workflow rejects anything else.
 
-`make test`, `make lint`, `make vet` and `make test-changed` include this module, as CI's Go jobs do. So do `make cover-go` and `make cover-changed`; the latter measures it as CI's `Go · Coverage` job does, without the sidecar's `CGO_ENABLED=0`, empty `SSH_AUTH_SOCK` or `-tags debug`.
+`make test`, `make lint`, `make vet` and `make test-changed` include this module, as CI's Go jobs do. So do `make cover-go` and `make cover-changed`; the latter measures it as CI's `coverage / Go` job does: with `CGO_ENABLED=0`, as the release builds it, and without the sidecar's empty `SSH_AUTH_SOCK` or `-tags debug`.

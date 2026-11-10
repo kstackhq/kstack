@@ -114,7 +114,9 @@ come after the merged rules so no policy undoes them; `/dev/tty` is never readab
 
 **`sandbox-shell` sets the limits and confines the shell** (`sandbox.ShellMain`), between the
 forwarder and the shell, so limits never hold the forwarder. On Linux it installs the seccomp
-filter (`seccomp_linux.go`, classic BPF, no cgo) on every thread with `no_new_privs`, then sets
+filter (`seccomp_linux.go`, classic BPF, no cgo; its architecture in `seccomp_linux_<arch>.go`,
+whose `TestTheFilter*` and `TestTheShell*` tests CI's `Sandbox · Check AppArmor profiles` runs
+on both architectures on every pull request, picking them by name) on every thread with `no_new_privs`, then sets
 limits, clamped to existing hard limits. **Under `--memory` or `--processes` it execs through a
 raw `execve` with allocation done first** (`execLimited`): an allocation past `RLIMIT_AS` crashes
 the runtime.

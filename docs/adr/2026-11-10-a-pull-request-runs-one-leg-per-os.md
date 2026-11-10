@@ -3,6 +3,8 @@ title: A pull request runs one leg per OS, and main runs every leg
 date: 2026-11-10
 scope: repo
 status: Accepted
+amended_by:
+  - [CI checks every platform split the code has on a pull request](2026-11-10-ci-tests-every-platform-split-the-code-has.md)
 ---
 
 # A pull request runs one leg per OS, and main runs every leg

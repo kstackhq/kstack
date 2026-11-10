@@ -152,11 +152,12 @@ lint-markers:
 # Static analysis (separate from formatting checks in `lint`).
 vet: vet-go staticcheck-go vet-rust
 
-# Every GOOS, as CI's Go · Vet does. The live checks are behind tags no other
-# target builds; vetting them here keeps them compiling.
+# Every GOOS, both Linux architectures and each build tag, as CI's Go · Vet
+# does. The live checks are behind tags no other target builds; vetting them
+# here keeps them compiling.
 vet-go: check-sidecar-deps check-go-fix
-	cd sidecar && GOOS=linux go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
-	cd sidecar && go vet -tags livecache ./internal/agent/catalog && go vet -tags liveswitch ./internal/agent/catalog
+	cd sidecar && GOOS=linux GOARCH=amd64 go vet ./... && GOOS=linux GOARCH=arm64 go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
+	cd sidecar && go vet -tags debug ./... && go vet -tags livecache ./internal/agent/catalog && go vet -tags liveswitch ./internal/agent/catalog
 	cd cli && GOOS=linux go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
 	cd tools && GOOS=linux go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
 

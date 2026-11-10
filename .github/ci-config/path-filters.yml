@@ -34,19 +34,19 @@ typescript:
   - Makefile
   - public/**
   - src/**
+  # index.test.ts checks src/assets/icons/ against the masters.
+  - src-icons/**
   - sidecar/graph/schema.graphqls
   - .oxfmtrc.json
-  - codegen.ts
-  - .oxlintrc.json
+  - .oxlintrc*.json
   - lint/**
   - index.html
-  - index.test.ts
+  # The root's TypeScript files, which pnpm lint formats and lints.
+  - '*.ts'
   - package.json
   - pnpm-lock.yaml
   - pnpm-workspace.yaml
   - tsconfig*.json
-  - vite.config.ts
-  - vitest.setup.ts
 # ci.yml's alone.
 shell:
   - .github/workflows/ci.yml

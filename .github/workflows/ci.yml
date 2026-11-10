@@ -144,13 +144,19 @@ jobs:
           go-cache-key: ${{ github.job }}-ubuntu-24.04
           go-cache-mode: ${{ env.CACHE_MODE }}
       # The macOS and Windows runners run tests alone, so this job is the one
-      # place the _darwin.go and _windows.go files are vetted.
+      # place the _darwin.go and _windows.go files are vetted. The sidecar
+      # splits by GOARCH on Linux (seccomp_linux_<arch>.go) and by the debug
+      # and live-check tags, so it is vetted under each.
       - name: Vet sidecar
         working-directory: ./sidecar
         run: |
-          GOOS=linux go vet ./...
+          GOOS=linux GOARCH=amd64 go vet ./...
+          GOOS=linux GOARCH=arm64 go vet ./...
           GOOS=darwin go vet ./...
           GOOS=windows go vet ./...
+          go vet -tags debug ./...
+          go vet -tags livecache ./internal/agent/catalog
+          go vet -tags liveswitch ./internal/agent/catalog
       - name: Vet CLI
         working-directory: ./cli
         run: |
@@ -260,9 +266,10 @@ jobs:
           rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
           cache-save: ${{ env.CACHE_MODE != 'use' }}
       - uses: ./.github/actions/stub-sidecar
+      # --all-targets lints the tests too, as make vet-rust does.
       - name: Run clippy
         working-directory: ./src-tauri
-        run: cargo clippy --all -- -D warnings
+        run: cargo clippy --all --all-targets -- -D warnings
 
   shell-lint:
     name: Shell · Lint
@@ -449,6 +456,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y meson ninja-build libcap-dev
+      # The sidecar's seccomp filter is per architecture, and a pull request's
+      # Go · Build and Test runs on amd64 alone. TestTheFilter* read the
+      # filter's verdicts; TestTheShell* install it and ask the kernel.
+      - name: Test the seccomp filter
+        working-directory: ./sidecar
+        run: go test -run '^TestThe(Filter|Shell)' ./internal/run/sandbox
       - name: Build bwrap and pasta
         run: make bwrap pasta
       - name: Build the sidecar

@@ -173,7 +173,7 @@ impl SidecarService {
 
     /// A service that [`Self::kill`] treats as still running under `pid`, a
     /// process the test started itself. Tests only.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn running_as(pid: u32) -> Self {
         Self::detached(Some(pid), None, Self::nowhere())
     }

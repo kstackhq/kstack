@@ -82,9 +82,10 @@ jobs:
     if: needs.changes.outputs.go == 'true'
     strategy:
       fail-fast: false
-      # One runner per OS: every platform split in the sidecar is by OS, none
-      # by architecture, so three profiles hold every file. macOS 27 is the
-      # release users run; nothing in the sidecar branches on the macOS version.
+      # One runner per OS: the sidecar's one split by architecture,
+      # seccomp_linux_<arch>.go, holds declarations alone, so three profiles
+      # hold every statement. macOS 27 is the release users run; nothing in
+      # the sidecar branches on the macOS version.
       # The Codecov flag is named by GOOS, so it matches the reports already
       # stored.
       matrix:
@@ -151,9 +152,12 @@ jobs:
         run: >-
           go test -tags debug -timeout 30m -covermode=atomic -coverpkg=./...
           -coverprofile="$RUNNER_TEMP/debug.out" ./...
+      # CGO_ENABLED=0 as release-cli.yml builds it; ci.yml's -race tests need cgo.
       - name: Measure CLI coverage
         working-directory: ./cli
         shell: bash
+        env:
+          CGO_ENABLED: "0"
         run: >-
           go test -covermode=atomic -coverpkg=./...
           -coverprofile="$RUNNER_TEMP/cli.out" ./...
