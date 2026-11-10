@@ -9,8 +9,14 @@ import (
 
 func TestRender(t *testing.T) {
 	got := render(testNotes(), testCollection())
-	want := "The flag has a new name.\n" +
-		"\n## New\n\n" +
+	want := "A release that renames a flag.\n\n" +
+		"This release has changes from **2 contributors** over **3 pull requests**. Thank you to everyone who helped make it.\n\n" +
+		"## Highlights\n\n" +
+		"### A new name for the flag\n\n" +
+		"PR: [#3](https://github.com/o/r/pull/3)\n\n" +
+		"The flag is now `--name`.\n\n" +
+		"Scripts that pass `--flag` fail until you rename it.\n\n" +
+		"## New\n\n" +
 		"- The flag is now `--name`. ([#3](https://github.com/o/r/pull/3))\n" +
 		"\n## Fixes\n\n" +
 		"- An empty input no longer fails. ([#5](https://github.com/o/r/pull/5))\n" +
@@ -33,8 +39,9 @@ func TestRender(t *testing.T) {
 
 func TestRenderAFirstReleaseWithNothingInIt(t *testing.T) {
 	c := collection{Repo: testRepo, Tag: "cli/v0.1.0", Range: "cli/v0.1.0"}
-	got := render(notes{Highlights: "First."}, c)
+	got := render(notes{Summary: []string{"First."}}, c)
 	for _, want := range []string{
+		"First.\n\n<details>",
 		"No change touches this product.",
 		"**Full changelog**: [cli/v0.1.0](https://github.com/o/r/commits/cli/v0.1.0)",
 	} {
@@ -42,10 +49,42 @@ func TestRenderAFirstReleaseWithNothingInIt(t *testing.T) {
 			t.Errorf("render lacks %q:\n%s", want, got)
 		}
 	}
-	for _, unwanted := range []string{"## New", "## New contributors"} {
+	for _, unwanted := range []string{"## Highlights", "## New", "## New contributors", "Thank you"} {
 		if strings.Contains(got, unwanted+"\n") {
 			t.Errorf("render has %q:\n%s", unwanted, got)
 		}
+	}
+}
+
+func TestRenderCitesSeveralPullRequestsUnderAHighlight(t *testing.T) {
+	n := testNotes()
+	n.Highlights[0].PRs = []int{3, 5}
+	got := render(n, testCollection())
+	want := "### A new name for the flag\n\nPRs: [#3](https://github.com/o/r/pull/3), [#5](https://github.com/o/r/pull/5)\n\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("render lacks %q:\n%s", want, got)
+	}
+}
+
+func TestThanks(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		changes []change
+		want    string
+	}{
+		{"one person, one pull request", []change{{PR: 1, Author: "alice"}},
+			"This release has changes from **1 contributor** over **1 pull request**."},
+		{"a bot's pull request counts, the bot does not", []change{{PR: 1, Author: "alice"}, {PR: 2, Author: "app/dependabot", Bot: true}, {PR: 3, Author: "alice"}},
+			"This release has changes from **1 contributor** over **3 pull requests**."},
+		{"only bots", []change{{PR: 1, Author: "app/dependabot", Bot: true}}, ""},
+		{"no pull request", []change{{Commit: "abc"}}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := thanks(collection{Changes: tc.changes})
+			if !strings.HasPrefix(got, tc.want) || (tc.want == "") != (got == "") {
+				t.Errorf("thanks = %q, want it to start %q", got, tc.want)
+			}
+		})
 	}
 }
 

@@ -22,16 +22,37 @@ against them, builds every link and writes to GitHub.
 
 ## Writing
 
+The notes read like a release someone wrote for its users, not a commit log. The model is
+Ghostty's release notes: a short opening, a heading per highlight with a few paragraphs, then the
+shorter lists.
+
 The reader uses Kstack and has never seen its code.
 
-- **Say what the reader can now do, or what no longer goes wrong**, not how the code changed:
-  "Logs keep streaming after your laptop wakes from sleep.", not "Fix reconnect race in the
-  sidecar's watch loop."
-- **One plain sentence per item**, in the present tense, addressed to "you".
-- **Name what the reader sees**: a menu, a button, a command, a flag. No package, file or function
-  names, and no "refactor", "sidecar" or "GraphQL".
-- **State facts.** No "improved" or "various" without saying what changed. No marketing words, no
-  exclamation marks.
+- **The opening says what the release is**, in one or two paragraphs: "Kstack 0.2.0 adds a log
+  viewer that follows a workload across restarts, and fixes the bugs that stopped the app
+  reconnecting after sleep." A patch release says so and what it fixes. `render` adds the thanks
+  and the counts of contributors and pull requests; do not write them.
+- **A highlight is a change the reader will want to try or must know about.** Most releases have
+  one to five; a small one may have none. Fold the pull requests behind one feature into one
+  highlight.
+- **A highlight's title names the feature**, in a few words, title case, no period: "Log Viewer",
+  "Reconnect After Sleep".
+- **A highlight's body runs two to five short paragraphs.** The first says what the reader can now
+  do, in one or two sentences. The next say how to use it, naming the menu, button, shortcut or
+  flag, and why it matters: the problem it solves or what went wrong before. End with its limits
+  or what is still to come, when the reader would otherwise trip on them.
+- **A bullet is one sentence, two at most**, for a change too small for a highlight. Say what the
+  reader can now do, or what no longer goes wrong, not how the code changed: "Logs keep streaming
+  after your laptop wakes from sleep.", not "Fix reconnect race in the sidecar's watch loop."
+  Lead with the platform when it matters: "macOS: The tray icon follows the menu bar's theme."
+- **Write in the present tense, to "you".** Describe a fix as the behaviour that now holds; "Fix"
+  and "Fixed" are fine for a bug the reader will recognise by its symptom. "We" may say what the
+  project chose or plans, sparingly.
+- **Name what the reader sees**: a menu, a button, a command, a flag, a setting. No package, file
+  or function names, and no "refactor", "sidecar" or "GraphQL".
+- **State facts.** No "improved" or "various" without saying what changed; give the number when
+  there is one. No marketing words, no exclamation marks.
+- **A breaking change says exactly what to do**: "Rename `--flag` to `--name` in your scripts."
 
 ## Steps
 
@@ -49,24 +70,35 @@ Run every command from `tools/`. Work in a fresh directory: `dir=$(mktemp -d)`.
    ```json
    {
      "tag": "cli/v0.2.0",
-     "highlights": "What this release means for the reader.",
-     "new": [{ "text": "One sentence.", "prs": [771] }],
+     "summary": ["Kstack CLI 0.2.0 renames a flag and fixes a crash on empty input."],
+     "highlights": [
+       {
+         "title": "A Clearer Name for the Context Flag",
+         "body": [
+           "The flag that picks a kube context is now `--name`.",
+           "Pass it as before: `kstack app --name prod`. Scripts that pass `--flag` stop with an error that names the new flag."
+         ],
+         "prs": [771]
+       }
+     ],
+     "new": [{ "text": "One sentence.", "prs": [772] }],
      "fixes": [],
      "performance": [],
      "security": [],
-     "upgrade_notes": [],
+     "upgrade_notes": [{ "text": "Rename `--flag` to `--name` in your scripts.", "prs": [771] }],
      "omitted": [{ "pr": 774, "reason": "Test-only change." }]
    }
    ```
 
-   - `highlights` is two or three sentences on what matters most, or on what kind of release it
-     is ("Bug fixes for the log viewer.").
-   - `highlights` and every `text` are one line. `code spans` and `*emphasis*` are fine.
-   - Fold related pull requests into one item that cites them all.
+   - `summary` and each highlight's `body` hold one paragraph per string. A title and every `text`
+     are one line. `code spans` and `*emphasis*` are fine anywhere.
+   - `render` writes the highlights under `## Highlights`, ahead of the sections, and cites each
+     highlight's `prs` under its title.
+   - A change a highlight cites need not be a bullet too. Cite it again only where it belongs as
+     well, such as `upgrade_notes`.
+   - Fold related pull requests into one highlight or item that cites them all.
    - Cite every `must_cite: true` change, or list it in `omitted` with a reason. Leave the others
      out unless the reader would notice them.
-   - A breaking change also gets an `upgrade_notes` item that says exactly what to do: "Rename
-     `--flag` to `--name` in your scripts."
    - When a pull request's text is too thin to describe, read its diff: `git show <commit>`.
 
 3. **Check** until it passes.

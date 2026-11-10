@@ -10,7 +10,8 @@ import (
 
 // check lists what is wrong with the notes against their range: a citation
 // outside it, a feat, fix or ! pull request neither cited nor omitted with a
-// reason, and prose that is empty, spans lines or builds its own links.
+// reason, and prose that is empty, spans lines or builds its own links. A
+// paragraph, title or bullet is one line; a body holds several paragraphs.
 func check(n notes, c collection) []string {
 	var problems []string
 	add := func(format string, a ...any) { problems = append(problems, fmt.Sprintf(format, a...)) }
@@ -22,25 +23,44 @@ func check(n notes, c collection) []string {
 		}
 	}
 
-	if p := textProblem(n.Highlights); p != "" {
-		add("highlights %s", p)
+	text := func(where, s string) {
+		if p := textProblem(s); p != "" {
+			add("%s %s", where, p)
+		}
+	}
+	paragraphs := func(where string, ps []string) {
+		if len(ps) == 0 {
+			add("%s has no paragraph", where)
+		}
+		for i, p := range ps {
+			text(fmt.Sprintf("%s[%d]", where, i), p)
+		}
 	}
 	cited := map[int]bool{}
+	cite := func(where string, prs []int) {
+		if len(prs) == 0 {
+			add("%s cites no pull request", where)
+		}
+		for _, pr := range prs {
+			if !inRange[pr] {
+				add("%s cites #%d, which is not in %s", where, pr, c.Range)
+			}
+			cited[pr] = true
+		}
+	}
+
+	paragraphs("summary", n.Summary)
+	for i, h := range n.Highlights {
+		where := fmt.Sprintf("highlights[%d]", i)
+		text(where+".title", h.Title)
+		paragraphs(where+".body", h.Body)
+		cite(where, h.PRs)
+	}
 	for _, s := range n.sections() {
 		for i, it := range s.items {
 			where := fmt.Sprintf("%s[%d]", s.key, i)
-			if p := textProblem(it.Text); p != "" {
-				add("%s %s", where, p)
-			}
-			if len(it.PRs) == 0 {
-				add("%s cites no pull request", where)
-			}
-			for _, pr := range it.PRs {
-				if !inRange[pr] {
-					add("%s cites #%d, which is not in %s", where, pr, c.Range)
-				}
-				cited[pr] = true
-			}
+			text(where, it.Text)
+			cite(where, it.PRs)
 		}
 	}
 
@@ -51,7 +71,7 @@ func check(n notes, c collection) []string {
 		case !inRange[o.PR]:
 			add("%s names #%d, which is not in %s", where, o.PR, c.Range)
 		case cited[o.PR]:
-			add("%s names #%d, which an item cites", where, o.PR)
+			add("%s names #%d, which the notes cite", where, o.PR)
 		case strings.TrimSpace(o.Reason) == "":
 			add("%s gives no reason for #%d", where, o.PR)
 		}

@@ -7,17 +7,26 @@ import (
 	"os"
 )
 
-// notes is notes.json, the prose the skill writes. Each item cites the pull
-// requests it describes; render adds their links.
+// notes is notes.json, the prose the skill writes. Each highlight and item
+// cites the pull requests it describes; render adds their links. Every string
+// is one line: a paragraph, a title or a bullet.
 type notes struct {
-	Tag          string     `json:"tag"`
-	Highlights   string     `json:"highlights"`
-	New          []item     `json:"new"`
-	Fixes        []item     `json:"fixes"`
-	Performance  []item     `json:"performance"`
-	Security     []item     `json:"security"`
-	UpgradeNotes []item     `json:"upgrade_notes"`
-	Omitted      []omission `json:"omitted"`
+	Tag          string      `json:"tag"`
+	Summary      []string    `json:"summary"` // the opening paragraphs
+	Highlights   []highlight `json:"highlights"`
+	New          []item      `json:"new"`
+	Fixes        []item      `json:"fixes"`
+	Performance  []item      `json:"performance"`
+	Security     []item      `json:"security"`
+	UpgradeNotes []item      `json:"upgrade_notes"`
+	Omitted      []omission  `json:"omitted"`
+}
+
+// A highlight is a change worth a heading and a few paragraphs of its own.
+type highlight struct {
+	Title string   `json:"title"`
+	Body  []string `json:"body"` // one paragraph per string
+	PRs   []int    `json:"prs"`
 }
 
 type item struct {

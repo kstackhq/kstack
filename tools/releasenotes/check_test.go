@@ -18,7 +18,7 @@ func testCollection() collection {
 		Previous: "cli/v0.1.0",
 		Range:    "cli/v0.1.0..cli/v0.2.0",
 		Changes: []change{
-			{Commit: "5555555555", Subject: "fix(cli): handle empty", PR: 5, MustCite: true, Author: "app/dependabot"},
+			{Commit: "5555555555", Subject: "fix(cli): handle empty", PR: 5, MustCite: true, Author: "app/dependabot", Bot: true},
 			{Commit: "0000000000", Subject: "tweak the cli by hand"},
 			{Commit: "4444444444", Subject: "docs(cli): tweak the help", PR: 4, Author: "bob"},
 			{Commit: "3333333333", Subject: "feat(cli)!: rename the flag", PR: 3, MustCite: true, Breaking: true, Author: "alice"},
@@ -30,8 +30,13 @@ func testCollection() collection {
 // testNotes passes against testCollection and fixtureRepo's cli/v0.2.0.
 func testNotes() notes {
 	return notes{
-		Tag:          "cli/v0.2.0",
-		Highlights:   "The flag has a new name.",
+		Tag:     "cli/v0.2.0",
+		Summary: []string{"A release that renames a flag."},
+		Highlights: []highlight{{
+			Title: "A new name for the flag",
+			Body:  []string{"The flag is now `--name`.", "Scripts that pass `--flag` fail until you rename it."},
+			PRs:   []int{3},
+		}},
 		New:          []item{{Text: "The flag is now `--name`.", PRs: []int{3}}},
 		Fixes:        []item{{Text: "An empty input no longer fails.", PRs: []int{5}}},
 		UpgradeNotes: []item{{Text: "Rename `--flag` to `--name` in scripts.", PRs: []int{3}}},
@@ -54,23 +59,41 @@ func TestCheckFails(t *testing.T) {
 			"fixes[0] cites #2, which is not in cli/v0.1.0..cli/v0.2.0"},
 		{"a dropped fix", func(n *notes) { n.Fixes = nil },
 			"#5 (fix(cli): handle empty) is neither cited nor omitted with a reason"},
-		{"a dropped breaking change", func(n *notes) { n.New, n.UpgradeNotes = nil, nil },
+		{"a dropped breaking change", func(n *notes) { n.Highlights, n.New, n.UpgradeNotes = nil, nil, nil },
 			"#3 (feat(cli)!: rename the flag) is neither cited nor omitted"},
 		{"an omission without a reason", func(n *notes) { n.Fixes, n.Omitted = nil, []omission{{PR: 5, Reason: " "}} },
 			"omitted[0] gives no reason for #5"},
 		{"an omission outside the range", func(n *notes) { n.Omitted = []omission{{PR: 9, Reason: "x"}} },
 			"omitted[0] names #9, which is not in"},
 		{"an omission an item cites", func(n *notes) { n.Omitted = []omission{{PR: 5, Reason: "x"}} },
-			"omitted[0] names #5, which an item cites"},
+			"omitted[0] names #5, which the notes cite"},
+		{"an omission a highlight cites", func(n *notes) { n.New, n.UpgradeNotes, n.Omitted = nil, nil, []omission{{PR: 3, Reason: "x"}} },
+			"omitted[0] names #3, which the notes cite"},
 		{"an item citing nothing", func(n *notes) { n.Security = []item{{Text: "Safer."}} },
 			"security[0] cites no pull request"},
-		{"empty highlights", func(n *notes) { n.Highlights = " " }, "highlights is empty"},
+		{"no summary", func(n *notes) { n.Summary = nil }, "summary has no paragraph"},
+		{"an empty summary paragraph", func(n *notes) { n.Summary = append(n.Summary, " ") }, "summary[1] is empty"},
+		{"an empty highlight title", func(n *notes) { n.Highlights[0].Title = "" }, "highlights[0].title is empty"},
+		{"a highlight with no body", func(n *notes) { n.Highlights[0].Body = nil }, "highlights[0].body has no paragraph"},
+		{"a highlight citing nothing", func(n *notes) { n.Highlights[0].PRs = nil }, "highlights[0] cites no pull request"},
+		{"a highlight citing outside the range", func(n *notes) { n.Highlights[0].PRs = []int{9} },
+			"highlights[0] cites #9, which is not in"},
 		{"a link", func(n *notes) { n.New[0].Text = "See [the docs](https://example.com)." }, `new[0] contains "://"`},
+		{"a link in a highlight", func(n *notes) { n.Highlights[0].Body[1] = "See https://example.com." },
+			`highlights[0].body[1] contains "://"`},
 		{"a bare www link", func(n *notes) { n.New[0].Text = "See www.example.com." }, `contains "www."`},
-		{"html", func(n *notes) { n.Highlights = "<img src=x>" }, `highlights contains "<"`},
+		{"html", func(n *notes) { n.Summary[0] = "<img src=x>" }, `summary[0] contains "<"`},
+		{"html in a highlight", func(n *notes) { n.Highlights[0].Body[0] = "<b>Bold</b>" }, `highlights[0].body[0] contains "<"`},
 		{"a mention", func(n *notes) { n.New[0].Text = "Thanks @bob." }, `contains "@"`},
+		{"a mention in a highlight title", func(n *notes) { n.Highlights[0].Title = "Thanks @bob" },
+			`highlights[0].title contains "@"`},
 		{"a #N", func(n *notes) { n.New[0].Text = "As in #3." }, "names a pull request as #N"},
-		{"two lines", func(n *notes) { n.Highlights = "One.\n\nTwo." }, "spans lines"},
+		{"a #N in a highlight", func(n *notes) { n.Highlights[0].Body[1] = "As in #3." },
+			"highlights[0].body[1] names a pull request as #N"},
+		{"two lines", func(n *notes) { n.Summary[0] = "One.\n\nTwo." }, "summary[0] spans lines"},
+		{"a bullet over two lines", func(n *notes) { n.Fixes[0].Text = "One.\nTwo." }, "fixes[0] spans lines"},
+		{"two paragraphs in one body string", func(n *notes) { n.Highlights[0].Body[0] = "One.\n\nTwo." },
+			"highlights[0].body[0] spans lines"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			n := testNotes()
@@ -80,6 +103,23 @@ func TestCheckFails(t *testing.T) {
 				t.Errorf("problems = %q, want %q", problems, tc.want)
 			}
 		})
+	}
+}
+
+// A highlight's citation is enough: the change need not be a bullet too.
+func TestCheckAcceptsAChangeOnlyAHighlightCites(t *testing.T) {
+	n := testNotes()
+	n.New, n.UpgradeNotes = nil, nil
+	if problems := check(n, testCollection()); len(problems) != 0 {
+		t.Errorf("problems = %q", problems)
+	}
+}
+
+func TestCheckAcceptsNotesWithNoHighlight(t *testing.T) {
+	n := testNotes()
+	n.Highlights = nil
+	if problems := check(n, testCollection()); len(problems) != 0 {
+		t.Errorf("problems = %q", problems)
 	}
 }
 
