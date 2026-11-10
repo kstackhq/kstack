@@ -414,7 +414,7 @@ jobs:
   # the .deb's postinst on a stock 24.04, where user namespaces are restricted,
   # and runs the sandbox's chains through them as an ordinary user.
   sandbox-apparmor:
-    name: Sandbox · AppArmor (${{ matrix.os }}, ${{ matrix.arch }})
+    name: Sandbox · Check AppArmor profiles (${{ matrix.os }}, ${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.go == 'true'
     strategy:

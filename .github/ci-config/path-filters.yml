@@ -3,8 +3,8 @@
 # here changed, so the two cannot drift: a path that ran the tests but not the
 # coverage would pass its changed lines as "0 of 0 covered".
 #
-# Go covers what ci / Sandbox · AppArmor builds and runs. Rust builds against a stub
-# sidecar, so the sidecar is not its input.
+# Go covers what ci / Sandbox · Check AppArmor profiles builds and runs. Rust
+# builds against a stub sidecar, so the sidecar is not its input.
 shared: &shared
   - .github/actions/setup-environment/**
   - .github/ci-config/path-filters.yml
