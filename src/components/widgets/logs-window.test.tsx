@@ -193,6 +193,10 @@ const viewerShown = async () => {
   await waitFor(() => expect(titles()).not.toHaveLength(0));
 };
 
+// The page mounts from the answer's `then`, outside `act`, so the watches can subscribe
+// after it appears, and a publish before then re-renders nothing.
+const subscribed = () => waitFor(() => expect(listeners.size).toBeGreaterThan(0));
+
 beforeEach(() => {
   invokeMock.mockReset();
   answering(() => Promise.resolve(answer));
@@ -364,6 +368,7 @@ describe('LogsWindow across a reconnect', () => {
     live();
     render(<LogsWindow />);
     await screen.findByTestId('log-viewer');
+    await subscribed();
     fireEvent.click(screen.getByRole('button', { name: 'apply panic' }));
     viewerMounts.count = 0;
 
@@ -383,6 +388,7 @@ describe('LogsWindow across a reconnect', () => {
     state.chats = { chats: [], phase: 'live' };
     render(<LogsWindow />);
     await screen.findByText('This chat was deleted.');
+    await subscribed();
 
     reconnect();
     expect(screen.getByText('Loading…')).toBeInTheDocument();
@@ -393,6 +399,7 @@ describe('LogsWindow across a reconnect', () => {
     live();
     render(<LogsWindow />);
     await screen.findByTestId('log-viewer');
+    await subscribed();
     reconnect();
     publish(() => {
       live();
