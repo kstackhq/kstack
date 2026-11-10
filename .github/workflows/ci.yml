@@ -96,13 +96,15 @@ jobs:
       # pull_request. A push or a dispatch runs every runner, and saves the
       # caches PRs and stress.yml read.
       # → docs/adr/2026-11-10-a-pull-request-runs-one-leg-per-os.md
+      # The PR legs hold one macOS version, so their os drops it: macos-27
+      # becomes macos. The full set keeps it to tell its macOS legs apart.
       - id: legs
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           runners=.github/ci-config/runners.json
           all_legs=$(jq -c . "$runners")
-          pull_request_legs=$(jq -c 'map(select(.pull_request))' "$runners")
+          pull_request_legs=$(jq -c 'map(select(.pull_request) | .os |= sub("-[0-9]+$"; ""))' "$runners")
           if [ "$EVENT_NAME" = pull_request ]; then
             legs=$pull_request_legs
           else
