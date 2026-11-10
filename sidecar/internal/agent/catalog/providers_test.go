@@ -165,6 +165,37 @@ func TestEachKeyedProviderIsWrittenAsItsRow(t *testing.T) {
 			[]string{"accounts/fireworks/models/deepseek-v3", "accounts/fireworks/models/llama-v3p3-70b-instruct", "accounts/fireworks/models/qwen3-235b-a22b"},
 			map[string][]string{}, nil,
 			map[string]int{}},
+		{"opencode-go", "OpenCode Go", llm.DialectChatCompletions, "https://opencode.ai/inference/go/openai/v1",
+			[]string{
+				"deepseek-v4.1-flash", "deepseek-v4-pro", "glm-5.2", "glm-5.3", "grok-4.7",
+				"glm-5.3-flash", "gpt-5.6-luna", "gpt-6-luna", "claude-haiku-5-5", "hy3",
+				"hy4-preview", "kimi-k2.7-code", "kimi-k3", "mimo-v2.6-flash", "mimo-v2.6-pro",
+				"minimax-m3", "minimax-m3.1-flash", "longcat-2.0", "step-5-preview",
+				"qwen3.8-max", "qwen3.8-flash", "qwen3.7-plus", "kimi-k3.1-pro",
+				"gemini-4-argon", "hy4",
+			},
+			map[string][]string{
+				"deepseek-v4.1-flash": {"low", "high", "max"},
+				"deepseek-v4-pro":     {"high", "max"},
+				"glm-5.2":             {"high", "max"},
+				"glm-5.3":             {"low", "high", "max"},
+				"grok-4.7":            {"low", "medium", "high", "xhigh"},
+				"glm-5.3-flash":       {"low", "high", "max"},
+				"gpt-5.6-luna":        {"none", "low", "medium", "high", "xhigh", "max"},
+				"gpt-6-luna":          {"none", "low", "medium", "high", "xhigh", "max"},
+				"claude-haiku-5-5":    {"low", "medium", "high", "xhigh", "max"},
+				"hy3":                 {"none", "low", "high"},
+				"hy4-preview":         {"none", "high"},
+				"kimi-k3":             {"max"},
+				"minimax-m3.1-flash":  {"low", "medium", "high", "xhigh", "max"},
+				"step-5-preview":      {"low", "medium", "high"},
+				"qwen3.8-max":         {"low", "medium", "xhigh"},
+				"qwen3.8-flash":       {"low", "medium", "xhigh"},
+				"kimi-k3.1-pro":       {"low", "high", "max"},
+				"gemini-4-argon":      {"low", "medium", "high"},
+				"hy4":                 {"none", "high"},
+			}, nil,
+			map[string]int{}},
 	}
 	keyed := keyedProviders()
 	require.Len(t, keyed, len(rows))
@@ -196,16 +227,17 @@ func TestOpenRouterProviderDeniesDataCollection(t *testing.T) {
 // KeyVars is the table by provider id, and the fake is not in it.
 func TestKeyVarsIsTheKeyedTable(t *testing.T) {
 	assert.Equal(t, map[string]string{
-		"anthropic":  "ANTHROPIC_API_KEY",
-		"openai":     "OPENAI_API_KEY",
-		"gemini":     "GEMINI_API_KEY",
-		"groq":       "GROQ_API_KEY",
-		"mistral":    "MISTRAL_API_KEY",
-		"deepseek":   "DEEPSEEK_API_KEY",
-		"xai":        "XAI_API_KEY",
-		"openrouter": "OPENROUTER_API_KEY",
-		"together":   "TOGETHER_API_KEY",
-		"fireworks":  "FIREWORKS_API_KEY",
+		"anthropic":   "ANTHROPIC_API_KEY",
+		"openai":      "OPENAI_API_KEY",
+		"gemini":      "GEMINI_API_KEY",
+		"groq":        "GROQ_API_KEY",
+		"mistral":     "MISTRAL_API_KEY",
+		"deepseek":    "DEEPSEEK_API_KEY",
+		"xai":         "XAI_API_KEY",
+		"openrouter":  "OPENROUTER_API_KEY",
+		"together":    "TOGETHER_API_KEY",
+		"fireworks":   "FIREWORKS_API_KEY",
+		"opencode-go": "OPENCODE_GO_API_KEY",
 	}, KeyVars())
 }
 
@@ -214,16 +246,17 @@ func TestKeyVarsIsTheKeyedTable(t *testing.T) {
 // is spelled as an underscore.
 func TestBaseURLVarsNamesEachProvidersOverride(t *testing.T) {
 	assert.Equal(t, map[string]string{
-		"anthropic":  "KSTACK_ANTHROPIC_BASE_URL",
-		"openai":     "KSTACK_OPENAI_BASE_URL",
-		"gemini":     "KSTACK_GEMINI_BASE_URL",
-		"groq":       "KSTACK_GROQ_BASE_URL",
-		"mistral":    "KSTACK_MISTRAL_BASE_URL",
-		"deepseek":   "KSTACK_DEEPSEEK_BASE_URL",
-		"xai":        "KSTACK_XAI_BASE_URL",
-		"openrouter": "KSTACK_OPENROUTER_BASE_URL",
-		"together":   "KSTACK_TOGETHER_BASE_URL",
-		"fireworks":  "KSTACK_FIREWORKS_BASE_URL",
+		"anthropic":   "KSTACK_ANTHROPIC_BASE_URL",
+		"openai":      "KSTACK_OPENAI_BASE_URL",
+		"gemini":      "KSTACK_GEMINI_BASE_URL",
+		"groq":        "KSTACK_GROQ_BASE_URL",
+		"mistral":     "KSTACK_MISTRAL_BASE_URL",
+		"deepseek":    "KSTACK_DEEPSEEK_BASE_URL",
+		"xai":         "KSTACK_XAI_BASE_URL",
+		"openrouter":  "KSTACK_OPENROUTER_BASE_URL",
+		"together":    "KSTACK_TOGETHER_BASE_URL",
+		"fireworks":   "KSTACK_FIREWORKS_BASE_URL",
+		"opencode-go": "KSTACK_OPENCODE_GO_BASE_URL",
 	}, BaseURLVars())
 	assert.Equal(t, "KSTACK_BEDROCK_GPT_BASE_URL", baseURLVar("bedrock-gpt"))
 }
@@ -320,11 +353,25 @@ func TestEachRowRoutesTheAffinityKeyWhereItsVendorSays(t *testing.T) {
 		}
 	}
 	assert.Equal(t, map[string]llm.AffinityRoute{
-		"mistral":    {Field: "prompt_cache_key"},
-		"xai":        {Header: "x-grok-conv-id"},
-		"openrouter": {Field: "session_id"},
-		"fireworks":  {Header: "x-session-affinity"},
+		"mistral":     {Field: "prompt_cache_key"},
+		"xai":         {Header: "x-grok-conv-id"},
+		"openrouter":  {Field: "session_id"},
+		"fireworks":   {Header: "x-session-affinity"},
+		"opencode-go": {Header: "x-opencode-session"},
 	}, routes)
+}
+
+// OpenCode Go refuses its free-tier models to clients other than OpenCode, and its
+// two Muse Spark Contributor models train on the prompts they receive; the row
+// lists none of them.
+func TestOpenCodeGoListsNoFreeOrTrainingModel(t *testing.T) {
+	ids := modelIDs(newOpenCodeGoProvider())
+	for _, id := range []string{
+		"beam-free", "iceman-contributor-free", "longcat-2.5-free",
+		"muse-spark-1.2-contributor", "muse-spark-1.3-contributor",
+	} {
+		assert.NotContains(t, ids, id)
+	}
 }
 
 // A stated window holds the cap every request asks for, so no request is refused

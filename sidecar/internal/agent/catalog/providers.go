@@ -43,6 +43,7 @@ func keyedProviders() []keyedProvider {
 		{newOpenRouterProvider(), "OPENROUTER_API_KEY"},
 		{newTogetherProvider(), "TOGETHER_API_KEY"},
 		{newFireworksProvider(), "FIREWORKS_API_KEY"},
+		{newOpenCodeGoProvider(), "OPENCODE_GO_API_KEY"},
 	}
 }
 
@@ -258,5 +259,43 @@ func newFireworksProvider() llm.Provider {
 		},
 		// Fireworks caches per replica, and this header keeps a session on one.
 		AffinityRoute: llm.AffinityRoute{Header: "x-session-affinity"},
+	}
+}
+
+// newOpenCodeGoProvider is OpenCode Go, a gateway in front of other vendors'
+// models. Ids and efforts verified against GET /inference/go/v1/models.
+func newOpenCodeGoProvider() llm.Provider {
+	return llm.Provider{
+		ID: "opencode-go", Label: "OpenCode Go", Dialect: llm.DialectChatCompletions,
+		BaseURL: "https://opencode.ai/inference/go/openai/v1",
+		Catalog: []llm.Model{
+			{ID: "deepseek-v4.1-flash", Label: "DeepSeek V4.1 Flash", Efforts: []string{"low", "high", "max"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+			{ID: "deepseek-v4-pro", Label: "DeepSeek V4 Pro", Efforts: []string{"high", "max"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+			{ID: "glm-5.2", Label: "GLM-5.2", Efforts: []string{"high", "max"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+			{ID: "glm-5.3", Label: "GLM-5.3", Efforts: []string{"low", "high", "max"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+			{ID: "grok-4.7", Label: "Grok 4.7", Efforts: []string{"low", "medium", "high", "xhigh"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+			{ID: "glm-5.3-flash", Label: "GLM-5.3-Flash", Efforts: []string{"low", "high", "max"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+			{ID: "gpt-5.6-luna", Label: "GPT-5.6 Luna", Efforts: gptEfforts, DefaultEffort: "medium", Tools: true, Cache: llm.CacheAuto},
+			{ID: "gpt-6-luna", Label: "GPT-6 Luna", Efforts: gptEfforts, DefaultEffort: "medium", Tools: true, Cache: llm.CacheAuto},
+			{ID: "claude-haiku-5-5", Label: "Claude Haiku 5.5", Efforts: []string{"low", "medium", "high", "xhigh", "max"}, DefaultEffort: "medium", Tools: true, Cache: llm.CacheAuto},
+			{ID: "hy3", Label: "Hy3", Efforts: []string{"none", "low", "high"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+			{ID: "hy4-preview", Label: "Hy4 preview", Efforts: []string{"none", "high"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+			{ID: "kimi-k2.7-code", Label: "Kimi K2.7 Code", Tools: true, Cache: llm.CacheAuto},
+			{ID: "kimi-k3", Label: "Kimi K3", Efforts: []string{"max"}, DefaultEffort: "max", Tools: true, Cache: llm.CacheAuto},
+			{ID: "mimo-v2.6-flash", Label: "MiMo-V2.6-Flash", Tools: true, Cache: llm.CacheAuto},
+			{ID: "mimo-v2.6-pro", Label: "MiMo-V2.6-Pro", Tools: true, Cache: llm.CacheAuto},
+			{ID: "minimax-m3", Label: "MiniMax M3", Tools: true, Cache: llm.CacheAuto},
+			{ID: "minimax-m3.1-flash", Label: "MiniMax M3.1 Flash", Efforts: []string{"low", "medium", "high", "xhigh", "max"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+			{ID: "longcat-2.0", Label: "LongCat-2.0", Tools: true, Cache: llm.CacheAuto},
+			{ID: "step-5-preview", Label: "Step 5 Preview", Efforts: []string{"low", "medium", "high"}, DefaultEffort: "medium", Tools: true, Cache: llm.CacheAuto},
+			{ID: "qwen3.8-max", Label: "Qwen3.8 Max", Efforts: []string{"low", "medium", "xhigh"}, DefaultEffort: "medium", Tools: true, Cache: llm.CacheAuto},
+			{ID: "qwen3.8-flash", Label: "Qwen3.8 Flash", Efforts: []string{"low", "medium", "xhigh"}, DefaultEffort: "medium", Tools: true, Cache: llm.CacheAuto},
+			{ID: "qwen3.7-plus", Label: "Qwen3.7 Plus", Tools: true, Cache: llm.CacheAuto},
+			{ID: "kimi-k3.1-pro", Label: "Kimi K3.1 Pro", Efforts: []string{"low", "high", "max"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+			{ID: "gemini-4-argon", Label: "Gemini 4 Argon", Efforts: []string{"low", "medium", "high"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+			{ID: "hy4", Label: "Hy4", Efforts: []string{"none", "high"}, DefaultEffort: "high", Tools: true, Cache: llm.CacheAuto},
+		},
+		// Console routes a conversation by this id and reuses its prompt cache.
+		AffinityRoute: llm.AffinityRoute{Header: "x-opencode-session"},
 	}
 }

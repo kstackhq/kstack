@@ -96,15 +96,16 @@ var withSearch = append(slices.Clone(ours), anthropicwebsearch.Name)
 // provider, and what leaves the machine for it, so adding a vendor's tool to a
 // list, or leaving one of ours off, is a security change.
 var lists = map[string][]string{
-	"anthropic":  withSearch,
-	"openai":     ours,
-	"gemini":     ours,
-	"groq":       ours,
-	"mistral":    ours,
-	"deepseek":   ours,
-	"xai":        ours,
-	"openrouter": ours,
-	"together":   ours,
-	"fireworks":  ours,
-	"fake":       withSearch,
+	"anthropic":   withSearch,
+	"openai":      ours,
+	"gemini":      ours,
+	"groq":        ours,
+	"mistral":     ours,
+	"deepseek":    ours,
+	"xai":         ours,
+	"openrouter":  ours,
+	"together":    ours,
+	"fireworks":   ours,
+	"opencode-go": ours,
+	"fake":        withSearch,
 }
