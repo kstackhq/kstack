@@ -37,7 +37,7 @@ jobs:
       || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
-      # Keep in step with full-matrix in ci.yml; anchors do not cross files.
+      # Keep in step with .github/ci-config/runners.json, which ci.yml reads.
       matrix:
         os:
           - linux

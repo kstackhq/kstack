@@ -78,9 +78,11 @@ jobs:
       typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.typescript == 'true' }}
       shell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.shell == 'true' }}
       yaml: ${{ github.event_name != 'pull_request' || steps.filter.outputs.yaml == 'true' }}
+      # Matrix legs, as JSON: the ones this event runs, and the pull request's.
+      legs: ${{ steps.legs.outputs.legs }}
+      pull-request-legs: ${{ steps.legs.outputs.pull-request-legs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: github.event_name == 'pull_request'
         with:
           persist-credentials: false
           sparse-checkout: .github
@@ -90,6 +92,24 @@ jobs:
         with:
           # Shared with coverage.yml.
           filters: .github/ci-config/path-filters.yml
+      # A pull request runs one runner per OS, the entries runners.json marks
+      # pull_request. A push or a dispatch runs every runner, and saves the
+      # caches PRs and stress.yml read.
+      # → docs/adr/2026-11-10-a-pull-request-runs-one-leg-per-os.md
+      - id: legs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          runners=.github/ci-config/runners.json
+          all_legs=$(jq -c . "$runners")
+          pull_request_legs=$(jq -c 'map(select(.pull_request))' "$runners")
+          if [ "$EVENT_NAME" = pull_request ]; then
+            legs=$pull_request_legs
+          else
+            legs=$all_legs
+          fi
+          echo "legs=$legs" >> "$GITHUB_OUTPUT"
+          echo "pull-request-legs=$pull_request_legs" >> "$GITHUB_OUTPUT"
 
   ##############################
   # Lint and vet jobs
@@ -216,55 +236,17 @@ jobs:
       - name: Check coverage markers
         run: sh scripts/check-coverage-markers.sh
 
+  # Runs the pull request's legs on every event: nothing in src-tauri branches
+  # on the architecture or the macOS release, so one runner per OS sees every
+  # lint.
   rust-vet:
-    name: Rust · Vet
+    name: Rust · Vet (${{ matrix.os }}, ${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     strategy:
       fail-fast: false
-      # Keep in step with the stress job's matrix in stress.yml.
-      matrix: &full-matrix
-        os:
-          - linux
-          - macos-15
-          - macos-26
-          - macos-27
-          - windows
-        arch:
-          - amd64
-          - arm64
-        exclude:
-          # The macOS 27 image is Apple silicon alone.
-          - os: macos-27
-            arch: amd64
-        include:
-          - os: linux
-            arch: amd64
-            runner: ubuntu-24.04
-          - os: linux
-            arch: arm64
-            runner: ubuntu-24.04-arm
-          - os: macos-15
-            arch: amd64
-            runner: macos-15-intel
-          - os: macos-15
-            arch: arm64
-            runner: macos-15
-          - os: macos-26
-            arch: arm64
-            runner: macos-26
-          - os: macos-26
-            arch: amd64
-            runner: macos-26-intel
-          - os: macos-27
-            arch: arm64
-            runner: xcode-27
-          - os: windows
-            arch: amd64
-            runner: windows-2025-vs2026
-          - os: windows
-            arch: arm64
-            runner: windows-11-arm
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.pull-request-legs) }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -363,12 +345,13 @@ jobs:
   # Go · Vet type-checks the build; this links the real binary, then runs the
   # tests.
   go-test:
-    name: Go · Build and Test
+    name: Go · Build and Test (${{ matrix.os }}, ${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.go == 'true'
     strategy:
       fail-fast: false
-      matrix: *full-matrix
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.legs) }}
     runs-on: ${{ matrix.runner }}
     steps:
       # The whole history, so every file has the commit that last changed it.
@@ -476,12 +459,13 @@ jobs:
   # Rust · Vet's clippy type-checks the build; this links the real binary,
   # then runs the tests.
   rust-test:
-    name: Rust · Build and Test
+    name: Rust · Build and Test (${{ matrix.os }}, ${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     strategy:
       fail-fast: false
-      matrix: *full-matrix
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.legs) }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

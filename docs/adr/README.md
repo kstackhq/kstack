@@ -249,3 +249,4 @@ usually just documentation in the wrong place.
 | 2026-11-08 | [Release files are named kstack-\<product\>-\<version\>-\<os\>-\<arch\>](2026-11-08-release-files-are-named-kstack-product-version-os-arch.md) | repo | Accepted |
 | 2026-11-08 | [kstack app installs the newest desktop release with the platform's installer](2026-11-08-kstack-app-installs-the-newest-desktop-release-with-the-platforms-installer.md) | repo | Accepted |
 | 2026-11-08 | [A shipped schema changes only by a new migration](2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md) | cross-cutting | Accepted |
+| 2026-11-10 | [A pull request runs one leg per OS, and main runs every leg](2026-11-10-a-pull-request-runs-one-leg-per-os.md) | repo | Accepted |
