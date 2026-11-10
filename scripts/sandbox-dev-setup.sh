@@ -20,6 +20,10 @@
 # tables only, as in CI: backtraces still show file and line, and target/ stays
 # a fraction of the size full debug info takes.
 #
+# The image's uv is built for 4 KiB pages and aborts on a 16 KiB-page host
+# (Apple silicon). When it does not run, the script pip-installs the pinned uv
+# into ~/.local/bin, which comes before /usr/bin on PATH.
+#
 # Every worktree also shares the one pnpm store, in its global virtual store
 # layout: package files live once inside the store, and each worktree's
 # node_modules under $OVERLAY_ROOT/worktrees holds only symlinks into it. The
@@ -50,6 +54,8 @@ NODE_MODULES="$OVERLAY_ROOT/worktrees$REPO/node_modules"
 PNPM_STORE="$OVERLAY_ROOT/pnpm-store"
 PERSIST="/etc/sandbox-persistent.sh"
 MIN_FREE_MB=2048
+# CI's setup-uv takes the latest uv, so the sandbox's pin lives here.
+UV_VERSION=0.13.7
 
 echo "→ build root: $BUILD_ROOT"
 echo "→ overlay root: $OVERLAY_ROOT"
@@ -131,6 +137,25 @@ export GOTOOLCHAIN=go$GO_VERSION+auto
 export PATH="\$HOME/.cargo/bin:\$HOME/.local/share/pnpm:\$PATH"
 EOF
 echo "✓ env vars written to $PERSIST (Go pinned to $GO_VERSION)"
+
+# --- 3. a uv that runs -------------------------------------------------------
+# Checks that uv runs, not the page size, so this no-ops once the image's uv
+# works. The check is a function so its stderr redirect also swallows bash's
+# "Aborted" report for the crashed child.
+uv_runs() {
+  uv --version >/dev/null 2>&1
+}
+if uv_runs 2>/dev/null; then
+  echo "✓ uv runs"
+else
+  python3 -m pip install --user --quiet "uv==$UV_VERSION"
+  hash -r
+  if ! uv_runs 2>/dev/null; then
+    echo "✗ uv $UV_VERSION installed to ~/.local/bin but does not run; is ~/.local/bin ahead of /usr/bin on PATH?" >&2
+    exit 1
+  fi
+  echo "✓ uv $UV_VERSION installed to ~/.local/bin"
+fi
 
 echo
 echo "Done. Open a new shell (or 'source $PERSIST') to pick up the env vars."
