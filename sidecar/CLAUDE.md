@@ -82,7 +82,7 @@ files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 - `graph/` — schema, generated code, resolvers. Resolver deps are non-nil; tests wire fakes. A
   domain refusal reaches the wire as `KSTACK_VALIDATION_ERROR` through a mapper in `graph/util.go`.
   A `Chat` folder grant with no `chatID` is refused, never widened to every chat.
-- `grpc/` — committed protoc output; regenerate with `make proto`, **never hand-edit `*.pb.go`**. It runs `scripts/protoc.sh`, which fetches the pinned `protoc` and builds the plugins from `go.mod`'s `tool` block.
+- `grpc/` — committed protoc output; regenerate with `make generate-proto`, **never hand-edit `*.pb.go`**. It runs `scripts/protoc.sh`, which fetches the pinned `protoc` and builds the plugins from `go.mod`'s `tool` block.
 - `internal/` → [ADR: services, lib and the
   rest](../docs/adr/2026-10-06-sidecar-packages-group-into-services-lib-and-the-rest.md):
   `services/` (state outliving a request, reached from `graph/`/`grpc/`), `lib/` (no Kstack
@@ -131,7 +131,7 @@ budget.
 Full picture: [`docs/security-model.md`](../docs/security-model.md).
 
 - **Every endpoint is an argument** (`configFromArgs`). The environment reaches the config only
-  through `applyEnvOverrides`, a no-op without `-tags debug` (`make sidecar-dev` builds one, for a
+  through `applyEnvOverrides`, a no-op without `-tags debug` (`make build-sidecar-dev` builds one, for a
   run with no host), via the `getenv` it is handed; `KSTACK_FAULTS`, which fails cluster requests,
   is among what it reads. `KSTACK_LOG_LEVEL` is the one variable a release build reads directly:
   a log level redirects nothing.
@@ -249,7 +249,7 @@ spawned it; the host shows it on the start screen. Tests make a newer file with
 - White-box tests by default (`package foo`). External `package foo_test` only to pin a public contract, and say so.
 - No magic sleeps (root `CLAUDE.md`). Wait on channels through `internal/lib/testutil` (`Wait`, `Recv`, `RecvClosed`, `WaitClosed`); the one failsafe is `testutil.Timeout`.
 - A fake that notifies the test uses `testutil.Signal` (single-shot) or `testutil.Probe[T]` (repeating, drops oldest). A consumer doing edge detection needs a lossless fan-out instead.
-- `make test-changed` while working, `make test-go` for the whole suite, `make lint-go` (gofmt), `make vet-go`, `make staticcheck-go` (every GOOS, linux/arm64 and each build tag, merged; silence a finding with `//lint:ignore <check> <reason>`). Run `gofmt -w` before committing.
+- `make test-changed` while working, `make test-go` for the whole suite, `make lint-go` (gofmt), `make vet-go` (go vet and staticcheck on every GOOS, linux/arm64 and each build tag; silence a staticcheck finding with `//lint:ignore <check> <reason>`). Run `gofmt -w` before committing.
 - **`make vet-go` and CI fail on code `go fix` would rewrite** (`scripts/check-go-fix.sh`), on every GOOS, on linux/arm64, and on the `debug`, `livecache` and `liveswitch` tags. Run `go fix -stringsbuilder=false ./...` and review the result; `stringsbuilder` stays off.
 - **CI's race step runs `go test -race -short ./...`.** A sweep too slow for the race detector shrinks under `testing.Short()`; a test never skips under it. The nightly stress run passes no `-short`, so the full sweep still runs.
 - A test outside `services/cluster` that needs a real cache store uses `cluster/clustertest` (`NewStore`, `Apply`, `Delete`, `Mirror`, `Read`); it carries the query views. Its `Connection` is one a test can `Retire`.

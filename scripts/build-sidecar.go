@@ -5,7 +5,7 @@
 // it up. Run from the repo root:
 //
 //	go run scripts/build-sidecar.go              # release build, untagged
-//	go run scripts/build-sidecar.go -tags debug  # `make sidecar-dev`
+//	go run scripts/build-sidecar.go -tags debug  # `make build-sidecar-dev`
 //
 // It is Go rather than shell because `tauri dev` runs it through cmd.exe on
 // Windows, where there is no POSIX shell and `bash` is WSL's.

@@ -13,32 +13,15 @@
 #         into the user cache, checked against its SHA-256.
 #
 # Each suite is measured as .github/workflows/coverage.yml's jobs measure
-# it; a change to one belongs in the other. BASE is as in scripts/test-changed.sh.
+# it; a change to one belongs in the other. BASE is as in scripts/changed.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-base="${BASE:-}"
-if [ -z "$base" ]; then
-  if git rev-parse -q --verify upstream/main >/dev/null; then
-    base=upstream/main
-  else
-    base=origin/main
-  fi
-fi
-merge_base=$(git merge-base "$base" HEAD)
+# shellcheck source=scripts/changed.sh
+. scripts/changed.sh
 
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-
-untracked=$(git ls-files --others --exclude-standard)
-changed=$({
-  git diff --name-only "$merge_base"
-  echo "$untracked"
-} | sort -u)
-
-has() { grep -qE "$1" <<<"$changed"; }
-
-existing() { while read -r f; do [ -e "$f" ] && echo "$f"; done; }
 
 # The changed lines: tracked changes against the merge base, then each
 # untracked file whole. --no-index exits 1 when the files differ.
@@ -167,7 +150,7 @@ if [ "${RUST:-}" = 1 ] && has '^(src-tauri|proto)/'; then
     fetch_llvm_cov
   fi
   # tauri-build fails without the bundled sidecar binary.
-  make sidecar
+  make build-sidecar
   (cd src-tauri && cargo llvm-cov --lcov --output-path "$out/rust.lcov")
   (cd tools && go run ./coverignore -lcov -o "$out/rust-filtered.lcov" "$out/rust.lcov")
   reports+=(-lcov "$out/rust-filtered.lcov")

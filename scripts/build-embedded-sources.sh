@@ -4,7 +4,7 @@
 # program's upstream tarball unpacked unchanged, the Kstack scripts that built
 # it, and a README naming each one's version, upstream and license.
 #
-# It reads the tarballs `make bwrap` and `make pasta` leave in src-tauri/linux/,
+# It reads the tarballs `make build-bwrap` and `make build-pasta` leave in src-tauri/linux/,
 # so it follows their pins. The archive is reproducible: the same tarballs give
 # the same bytes on any runner, which lets the release check that every
 # architecture built from the same source.

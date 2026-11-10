@@ -16,15 +16,15 @@ dist-ssr
 target
 .env.local
 
-# Sidecar build output (produced by `make sidecar`).
+# Sidecar build output (produced by `make build-sidecar`).
 src-tauri/binaries/
-# Kstack's own bwrap and its source (produced by `make bwrap`).
+# Kstack's own bwrap and its source (produced by `make build-bwrap`).
 src-tauri/linux/bwrap
 src-tauri/linux/bubblewrap-*.tar.xz
-# Kstack's own pasta and its source (produced by `make pasta`).
+# Kstack's own pasta and its source (produced by `make build-pasta`).
 src-tauri/linux/pasta
 src-tauri/linux/passt-*.tar.xz
-# Their source, in one archive (produced by `make embedded-sources`).
+# Their source, in one archive (produced by `make build-embedded-sources`).
 src-tauri/linux/embedded-sources.tar.gz
 # Editor directories and files. The shared team config is re-included; anything
 # else under .vscode/ is personal.
@@ -58,7 +58,7 @@ CLAUDE.local.md
 # custom
 .worktrees
 
-# Coverage output (make cover-js, make cover-go)
+# Coverage output (make cover-ts, make cover-go)
 coverage/
 sidecar/coverage.out
 cli/coverage.out

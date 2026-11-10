@@ -50,7 +50,7 @@ Each area has its own `CLAUDE.md` with its conventions. The root [`CLAUDE.md`](.
 | AI providers and models | `sidecar/internal/llm/` |
 | Agent tools | `sidecar/internal/tools/` |
 | Command sandbox and permissions | `sidecar/internal/run/` |
-| Host↔sidecar messages | `proto/` (run `make proto` after editing) |
+| Host↔sidecar messages | `proto/` (run `make generate-proto` after editing) |
 
 `sidecar/graph/schema.graphqls` defines the GraphQL API for both the sidecar and the UI. After editing it, regenerate both sides:
 
@@ -69,6 +69,10 @@ The `Makefile` is the entry point for every language:
 # Tests touched by your branch (run this while working)
 make test-changed
 
+# Before a pull request: the linters, static analysis and tests for what your
+# branch changed, then the changed lines no test covers
+make check-changed
+
 # All tests
 make test
 
@@ -79,8 +83,10 @@ make lint
 make vet
 
 # Regenerate gRPC bindings after editing proto/
-make proto
+make generate-proto
 ```
+
+`make check` runs every lint, vet and test; `make help` lists every target.
 
 CI runs every suite and uploads coverage to Codecov. `codecov/patch` lists, in the PR's diff, every changed line no test reached: cover each, or mark it with its reason (`// coverage:ignore <reason>` in Go, `/* v8 ignore next -- <reason> */` in TypeScript).
 
@@ -123,11 +129,9 @@ The subject is imperative, has no trailing period, and is at most 72 characters.
 ### Before Submitting
 
 1. **Check for duplicates**: Review existing [issues](https://github.com/kstackhq/kstack/issues) and [pull requests](https://github.com/kstackhq/kstack/pulls)
-2. **Run tests**: Run `make test-changed` and make sure it passes
-3. **Check coverage**: Run `make cover-changed` and cover or mark each line it lists
-4. **Format code**: Run `make lint` and fix what it reports
-5. **Clean commits**: Ensure each commit is minimal, focused, and follows our [commit format](#commit-guidelines)
-6. **Update docs**: If you change architecture, conventions or commands, update the relevant `CLAUDE.md` in the same PR
+2. **Run the checks**: Run `make check-changed` and fix what it reports. It runs the linters, the static analysis and the tests for the areas you changed, then lists the changed lines no test covers: cover or mark each one
+3. **Clean commits**: Ensure each commit is minimal, focused, and follows our [commit format](#commit-guidelines)
+4. **Update docs**: If you change architecture, conventions or commands, update the relevant `CLAUDE.md` in the same PR
 
 ### PR Title Format
 

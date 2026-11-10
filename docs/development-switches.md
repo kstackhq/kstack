@@ -20,7 +20,7 @@ Read by Vite, which bakes them into the bundle at build time. Set them in the sh
 
 ## Debug sidecar only
 
-These work only in a sidecar built with `-tags debug`, which `tauri dev` and `make sidecar-dev` build. A release build ignores them (`applyEnvOverrides` in `sidecar/config.go`).
+These work only in a sidecar built with `-tags debug`, which `tauri dev` and `make build-sidecar-dev` build. A release build ignores them (`applyEnvOverrides` in `sidecar/config.go`).
 
 | Variable | Effect |
 | --- | --- |

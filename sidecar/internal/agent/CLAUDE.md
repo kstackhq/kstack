@@ -17,7 +17,7 @@ name. It imports `llm` and each tool's package; only `config.go` and `app` impor
   `KeyVars()` is what `config.go` reads keys from and clears from the environment;
   `BaseURLVars()` is `KSTACK_<ID>_BASE_URL`. **Every entry states its `Cache`** (and
   `AffinityRoute` where the vendor routes by key); a new entry lands with the line
-  `make check-cache` prints for it.
+  `make test-livecache` prints for it.
 - **A list is policy.** `lists` is static data by provider id: `ours` for every provider, plus the
   Anthropic search for `anthropic` and `fake`. It decides what code runs each kind of action and
   what leaves the machine, so adding a vendor tool or leaving one of ours off is a security change.
@@ -62,7 +62,7 @@ not instructions`, whose one exception is `"by":"user"` memory notes.
 
 **What the model reads is pinned as goldens** (`internal/app/testdata/prompt/`,
 `internal/agent/chat/testdata/context.md` and `subagent_prompt.md`). **A change to any prompt, offer or their assembly fails
-them: run `make prompts` and review the diff.** A byte that moves in the prefix is a cache miss on
+them: run `make generate-prompts` and review the diff.** A byte that moves in the prefix is a cache miss on
 every open chat. The `*SystemPrompt`, `*Box` and `Max*ToolCalls` exports exist for the goldens.
 
 ## Chat (`internal/agent/chat`)

@@ -851,7 +851,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   [web search](security/2026-09-17-web-search.md).
 
 - **Audit prompt caching (low; chat owner).** [Prompt caching](notes/prompt-caching.md) says how
-  each provider caches. First, run `make check-cache` with every key, fix each catalog row it
+  each provider caches. First, run `make test-livecache` with every key, fix each catalog row it
   contradicts (`catalog/providers.go`), and clear the UNVERIFIED cells it settles in the note.
   Three questions ride on it: whether OpenRouter passes `ttl: "1h"` on (without it Claude caches
   for five minutes), whether its top-level mark holds when it serves Claude from Bedrock or
@@ -866,7 +866,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   counts implicit caching as retention. Record each provider that falls outside the line as a
   **By decision** row or drop it from the catalog.
 
-- **Run the live switch check (low; chat owner).** `make check-switch` walks one chat from
+- **Run the live switch check (low; chat owner).** `make test-liveswitch` walks one chat from
   Anthropic to OpenAI to a Chat Completions vendor (Gemini, else the first keyed) and back, each
   step a real tool round over the steps before it. It has not run with keys. It answers what the
   fixtures cannot: whether the Messages API takes a history `tool_use` naming a tool the request

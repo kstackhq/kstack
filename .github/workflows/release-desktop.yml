@@ -202,15 +202,15 @@ jobs:
 
       # On this runner, so bwrap and pasta link the same glibc as the app.
       - name: Build bwrap
-        run: make bwrap
+        run: make build-bwrap
 
       - name: Build pasta
-        run: make pasta
+        run: make build-pasta
 
       # bubblewrap is LGPL and passt GPL: the release carries the source bwrap
       # and pasta were built from.
       - name: Bundle embedded sources
-        run: make embedded-sources
+        run: make build-embedded-sources
 
       # Sidecar is prebuilt and downloaded above; override
       # beforeBuildCommand to build the frontend but not the sidecar.

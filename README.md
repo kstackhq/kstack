@@ -35,7 +35,7 @@ What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 - [pnpm](https://pnpm.io/installation) 12.4.1 (`npm install -g pnpm@12.4.1`)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/), for `make lint`'s YAML linters
 - curl, for `make lint-md`, which downloads a pinned [lychee](https://github.com/lycheeverse/lychee) when the one on PATH is not 0.24.2
-- curl and unzip, for `make proto`, which downloads a pinned [protoc](https://github.com/protocolbuffers/protobuf/releases) when the one on PATH is not 36.0
+- curl and unzip, for `make generate-proto`, which downloads a pinned [protoc](https://github.com/protocolbuffers/protobuf/releases) when the one on PATH is not 36.0
 - curl, for `RUST=1 make cover-changed`, which downloads a pinned [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) when the one on PATH is not 0.9.1; never `cargo install` it
 
 On Linux:
@@ -64,13 +64,12 @@ pnpm tauri dev
 ## Commands
 
 ```console
-make test-changed  # tests touched by your branch
-make cover-changed # changed lines no local test covers
-make test          # all tests
-make lint
-make vet
-make proto         # after editing proto/
-make clean-data    # wipe the dev app's data
+make help           # every target
+make test-changed   # tests touched by your branch
+make check-changed  # before a pull request: the checks for what your branch changed
+make check          # every lint, vet and test
+make generate-proto # after editing proto/
+make clean-data     # wipe the dev app's data
 ```
 
 ## Read next

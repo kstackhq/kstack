@@ -1,186 +1,60 @@
 # Polyglot task entry point. The Go sidecar lives outside the JS world,
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
+#
+# Each target is `<verb>` for every area or `<verb>-<area>` for one. `make help`
+# lists them.
 
-.PHONY: sidecar sidecar-dev bwrap pasta embedded-sources proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js cover-changed lint lint-go lint-rust lint-js lint-tailwind lint-yaml lint-sh lint-md lint-markers vet vet-go staticcheck-go vet-rust check-sidecar-deps check-go-fix check-cache check-switch prompts icons clean clean-data
+.DEFAULT_GOAL := help
 
-# Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
-# `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
-sidecar:
+# No target names a file it makes.
+.PHONY: build-sidecar build-sidecar-dev build-bwrap build-pasta build-embedded-sources \
+	generate-proto generate-prompts generate-icons \
+	lint lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-markers \
+	vet vet-go vet-rust \
+	test test-go test-rust test-ts test-changed test-livecache test-liveswitch \
+	cover-go cover-ts cover-changed \
+	check check-changed clean clean-data help
+
+# Tauri's externalBin picks up src-tauri/binaries/kstack-sidecar-<rust-host-triple>.
+build-sidecar: ## Build the Go sidecar into src-tauri/binaries/, untagged, as every release does
 	go run scripts/build-sidecar.go
 
-# The dev build, and the only one that lets KSTACK_OAUTH_ISSUER and friends
-# redirect the sidecar. `tauri dev` calls this; every release path calls
-# `sidecar` and so builds untagged.
-sidecar-dev:
+# `tauri dev` runs the same build.
+build-sidecar-dev: ## Build the sidecar under -tags debug, which lets KSTACK_OAUTH_ISSUER and friends redirect it
 	go run scripts/build-sidecar.go -tags debug
 
-# Build the bwrap Kstack's Linux packages carry into src-tauri/linux/, from
-# the bubblewrap release the script pins. Linux only.
-bwrap:
+build-bwrap: ## Build the pinned bwrap the Linux packages carry into src-tauri/linux/ (Linux only)
 	bash scripts/build-bwrap.sh
 
-# Build the pasta Kstack's Linux packages carry into src-tauri/linux/, from the
-# passt release the script pins. Linux only.
-pasta:
+build-pasta: ## Build the pinned pasta the Linux packages carry into src-tauri/linux/ (Linux only)
 	bash scripts/build-pasta.sh
 
-# Bundle the source of the bwrap and pasta above into
-# src-tauri/linux/embedded-sources.tar.gz, the release's one source asset.
-embedded-sources:
+build-embedded-sources: ## Bundle bwrap's and pasta's source into src-tauri/linux/embedded-sources.tar.gz
 	bash scripts/build-embedded-sources.sh
 
-# Regenerate the gRPC bindings from the shared repo-root proto/ for both
-# languages. proto/ is the single source of truth (host <-> sidecar wire
-# format); the Go bindings are committed, the Rust ones are produced by
-# src-tauri/build.rs at compile time (using a vendored protoc, so plain Rust
-# builds need no system install).
-proto: proto-go proto-rust
-
-# Go: the //go:generate directives in sidecar/grpc/authpb and sidecar/grpc/pokepb
-# run scripts/protoc.sh, which fetches the pinned protoc and builds the plugins.
-proto-go:
+# The //go:generate directives in sidecar/grpc/ run scripts/protoc.sh, which
+# fetches the pinned protoc; the Go bindings are committed. src-tauri/build.rs
+# emits the Rust ones on every build, so the cargo build surfaces their errors.
+# tauri-build fails without the bundled sidecar binary, built after the Go
+# bindings it compiles.
+generate-proto: ## Regenerate the gRPC bindings from proto/, for Go and Rust
 	cd sidecar && go generate ./grpc/...
-
-# Rust: bindings are emitted by src-tauri/build.rs on build; this forces a
-# rebuild so any proto/codegen error surfaces from `make proto`.
-proto-rust:
+	go run scripts/build-sidecar.go
 	cd src-tauri && cargo build
 
-# Run every test suite in the repo.
-test: test-go test-rust test-js
-
-test-go:
-	cd sidecar && go test ./...
-	cd cli && go test ./...
-	cd tools && go test ./...
-
-# tauri-build fails without the bundled sidecar binary, so build it first.
-test-rust: sidecar
-	cd src-tauri && cargo test
-
-test-js:
-	pnpm test --run
-
-# Only the tests this branch's changes touch (scripts/test-changed.sh). The
-# check to run while working; CI runs every suite and measures coverage.
-test-changed:
-	bash scripts/test-changed.sh
-
-# Rewrites the goldens that pin what the model reads: the system prompt and every
-# tool's offer, per kind of run and machine (sidecar/internal/app/testdata/prompt/),
-# a question's context block (sidecar/internal/agent/chat/testdata/context.md) and
-# the subagent's assembled prompt (sidecar/internal/agent/chat/testdata/subagent_prompt.md).
-# Run it after changing a prompt, an offer or their assembly, and review the diff:
-# it is the model's view of the change, byte for byte where the cache depends on it.
-prompts:
+# The goldens are the system prompt and every tool's offer, per kind of run and
+# machine (sidecar/internal/app/testdata/prompt/), a question's context block and
+# the subagent's assembled prompt (sidecar/internal/agent/chat/testdata/). Review
+# the diff: it is the model's view of the change, byte for byte where the cache
+# depends on it.
+generate-prompts: ## Rewrite the goldens that pin what the model reads, after changing a prompt or an offer
 	cd sidecar && go test ./internal/app ./internal/agent/chat -run 'MatchesItsGolden|TestTheSubagentsPromptIsAssembledInOrder' -update
 
-# Go coverage of this OS, per function. Not a gate: CI's coverage gate is.
-# `go tool cover -html=sidecar/coverage.out` opens it line by line (cli/ likewise).
-cover-go:
-	cd sidecar && go test -coverpkg=./... -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
-	cd cli && go test -coverpkg=./... -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
-
-# Sends two turns to every model of every provider whose key is in the environment
-# and prints whether the second read its prefix from the cache. It reaches the
-# vendors and spends real tokens, so nothing runs it automatically: run it before
-# a catalog change lands and paste its lines into the PR.
-check-cache:
-	cd sidecar && go test -tags livecache -count=1 -v -run TestEveryModelReadsItsSecondTurnFromTheCache ./internal/agent/catalog
-
-# Walks one chat across every dialect — Anthropic, OpenAI, a Chat Completions
-# vendor, Anthropic again — each step a real tool round over the steps before it,
-# with the keys in the environment. It spends real tokens, so nothing runs it
-# automatically: run it before a change to how a wire replays another's rows lands.
-check-switch:
-	cd sidecar && go test -tags liveswitch -count=1 -v -run TestAChatSwitchesAcrossEveryDialect ./internal/agent/catalog
-
-# Frontend coverage, per file. Not a gate: CI's coverage gate is.
-cover-js:
-	pnpm vitest run --mode coverage
-
-# The changed lines this OS's tests leave uncovered (scripts/cover-changed.sh).
-# Run it before pushing; CI's coverage gate has the last word. FULL=1 runs
-# every Go test, RUST=1 measures Rust too.
-cover-changed:
-	bash scripts/cover-changed.sh
-
-# Run every linter in the repo.
-lint: lint-go lint-rust lint-js lint-tailwind lint-yaml lint-sh lint-md lint-markers
-
-# `gofmt -l` lists unformatted files; non-empty = lint failure.
-lint-go:
-	@unformatted=$$(gofmt -l sidecar cli); \
-		if [ -n "$$unformatted" ]; then \
-			echo "gofmt: files need formatting:"; echo "$$unformatted"; exit 1; \
-		fi
-
-lint-rust:
-	cd src-tauri && cargo fmt --check
-
-lint-js:
-	pnpm lint
-
-# The webview's Tailwind classes, apart from lint-js for its time (`.oxlintrc.tailwind.json`).
-lint-tailwind:
-	pnpm lint:tailwind
-
-# Every YAML file, then the workflows and composite actions: actionlint
-# type-checks them and shellchecks their `run:` blocks, zizmor audits them
-# against .github/ci-config/zizmor.yml. zizmor's online audits run only when
-# GH_TOKEN is set, as in CI. tools/go.mod pins actionlint, where Dependabot
-# moves it.
-lint-yaml:
-	uv tool run yamllint@1.38.0 --strict .
-	sc=$$(sh scripts/shellcheck-path.sh) && cd tools && \
-		go tool actionlint -shellcheck "$$sc" -config-file ../.github/ci-config/actionlint.yaml
-	uv tool run zizmor@1.31.1 --config .github/ci-config/zizmor.yml .
-
-# The shell scripts, with the pinned shellcheck (scripts/shellcheck-path.sh).
-lint-sh:
-	sc=$$(sh scripts/shellcheck-path.sh) && "$$sc" scripts/*.sh src-tauri/linux/*.sh
-
-# Check local paths and anchors without making CI depend on the network.
-lint-md:
-	sh scripts/check-markdown-links.sh
-
-# Every coverage marker gives its reason.
-lint-markers:
-	sh scripts/check-coverage-markers.sh
-
-# Static analysis (separate from formatting checks in `lint`).
-vet: vet-go staticcheck-go vet-rust
-
-# Every GOOS, both Linux architectures and each build tag, as CI's Go · Vet
-# does. The live checks are behind tags no other target builds; vetting them
-# here keeps them compiling.
-vet-go: check-sidecar-deps check-go-fix
-	cd sidecar && GOOS=linux GOARCH=amd64 go vet ./... && GOOS=linux GOARCH=arm64 go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
-	cd sidecar && go vet -tags debug ./... && go vet -tags livecache ./internal/agent/catalog && go vet -tags liveswitch ./internal/agent/catalog
-	cd cli && GOOS=linux go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
-	cd tools && GOOS=linux go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
-
-# One run per GOOS and live-check tag, merged (scripts/staticcheck.sh).
-staticcheck-go:
-	sh scripts/staticcheck.sh
-
-check-sidecar-deps:
-	sh scripts/check-sidecar-deps.sh
-
-# Fails if go fix's modernizers would rewrite the sidecar or the CLI (scripts/check-go-fix.sh).
-check-go-fix:
-	sh scripts/check-go-fix.sh
-
-vet-rust:
-	cd src-tauri && cargo clippy --all-targets -- -D warnings
-
-# Regenerate every icon from the SVG masters in src-icons/: src-tauri/icons/,
-# public/favicon.ico and the webview's copies in src/assets/icons/. Kstack ships
-# no mobile app, so the Android and iOS sets are dropped. icon.icns comes from
-# app-macos.svg, which follows Apple's icon grid. tray.png comes from
+# Kstack ships no mobile app, so the Android and iOS sets are dropped. icon.icns
+# comes from app-macos.svg, which follows Apple's icon grid. tray.png comes from
 # tray-macos.svg at 18pt @2x, the height tray-icon draws a macOS tray image at.
-icons:
+generate-icons: ## Regenerate src-tauri/icons/, public/favicon.ico and src/assets/icons/ from src-icons/
 	rm -rf src-tauri/icons
 	pnpm tauri icon src-icons/app-light.svg
 	rm -rf src-tauri/icons/android src-tauri/icons/ios
@@ -194,13 +68,123 @@ icons:
 	mkdir -p src/assets/icons
 	cp src-icons/app-light.svg src-icons/app-dark.svg src/assets/icons/
 
-clean:
+lint: lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-markers ## Run every linter CI runs
+
+lint-go: ## Check the sidecar's and the CLI's Go formatting
+	@unformatted=$$(gofmt -l sidecar cli); \
+		if [ -n "$$unformatted" ]; then \
+			echo "gofmt: files need formatting:"; echo "$$unformatted"; exit 1; \
+		fi
+
+lint-rust: ## Check the desktop host's Rust formatting
+	cd src-tauri && cargo fmt --check
+
+lint-ts: ## Lint and format-check the webview (pnpm lint)
+	pnpm lint
+
+# Apart from lint-ts for its time (.oxlintrc.tailwind.json).
+lint-tailwind: ## Lint the webview's Tailwind classes
+	pnpm lint:tailwind
+
+# actionlint type-checks the workflows and composite actions and shellchecks
+# their `run:` blocks; zizmor audits them against .github/ci-config/zizmor.yml.
+# zizmor's online audits run only when GH_TOKEN is set, as in CI. tools/go.mod
+# pins actionlint, where Dependabot moves it.
+lint-yaml: ## Lint every YAML file, then the workflows with actionlint and zizmor
+	uv tool run yamllint@1.38.0 --strict .
+	sc=$$(sh scripts/shellcheck-path.sh) && cd tools && \
+		go tool actionlint -shellcheck "$$sc" -config-file ../.github/ci-config/actionlint.yaml
+	uv tool run zizmor@1.31.1 --config .github/ci-config/zizmor.yml .
+
+# scripts/shellcheck-path.sh pins shellcheck; -x follows scripts/changed.sh
+# into the scripts that source it.
+lint-sh: ## Lint the shell scripts with shellcheck
+	sc=$$(sh scripts/shellcheck-path.sh) && "$$sc" -x scripts/*.sh src-tauri/linux/*.sh
+
+# Offline, so CI never depends on the network.
+lint-md: ## Check local paths and anchors in tracked Markdown
+	sh scripts/check-markdown-links.sh
+
+lint-markers: ## Check every coverage marker gives its reason
+	sh scripts/check-coverage-markers.sh
+
+vet: vet-go vet-rust ## Run go vet, staticcheck and clippy
+
+# Every GOOS, both Linux architectures and each build tag, as CI's Go · Vet
+# does. The live checks are behind tags no other target builds; vetting them
+# here keeps them compiling. scripts/staticcheck.sh runs once per GOOS and tag,
+# merged.
+vet-go: ## Vet every Go module per GOOS and tag, then the sidecar's deps, go fix and staticcheck
+	cd sidecar && GOOS=linux GOARCH=amd64 go vet ./... && GOOS=linux GOARCH=arm64 go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
+	cd sidecar && go vet -tags debug ./... && go vet -tags livecache ./internal/agent/catalog && go vet -tags liveswitch ./internal/agent/catalog
+	cd cli && GOOS=linux go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
+	cd tools && GOOS=linux go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
+	sh scripts/check-sidecar-deps.sh
+	sh scripts/check-go-fix.sh
+	sh scripts/staticcheck.sh
+
+# tauri-build fails without the bundled sidecar binary, so build it first.
+vet-rust: build-sidecar ## Run clippy on the desktop host, tests included
+	cd src-tauri && cargo clippy --all-targets -- -D warnings
+
+test: test-go test-rust test-ts ## Run every Go, Rust and TypeScript test
+
+test-go: ## Test the sidecar, the CLI and tools/
+	cd sidecar && go test ./...
+	cd cli && go test ./...
+	cd tools && go test ./...
+
+# tauri-build fails without the bundled sidecar binary, so build it first.
+test-rust: build-sidecar ## Test the desktop host
+	cd src-tauri && cargo test
+
+test-ts: ## Test the webview
+	pnpm test --run
+
+# scripts/test-changed.sh. CI runs every suite.
+test-changed: ## Run the tests for what this branch changed
+	bash scripts/test-changed.sh
+
+# Reaches the vendors and spends real tokens, so nothing runs it automatically:
+# run it before a catalog change lands and paste its lines into the PR.
+test-livecache: ## Check every model whose key is set reads its second turn from the cache
+	cd sidecar && go test -tags livecache -count=1 -v -run TestEveryModelReadsItsSecondTurnFromTheCache ./internal/agent/catalog
+
+# Anthropic, OpenAI, a Chat Completions vendor, Anthropic again, each step a
+# real tool round. It spends real tokens, so nothing runs it automatically: run
+# it before a change to how a wire replays another's rows lands.
+test-liveswitch: ## Walk one chat across every dialect with the keys in the environment
+	cd sidecar && go test -tags liveswitch -count=1 -v -run TestAChatSwitchesAcrossEveryDialect ./internal/agent/catalog
+
+# Not a gate: CI's coverage gate is. `go tool cover -html=sidecar/coverage.out`
+# opens it line by line (cli/ likewise).
+cover-go: ## Print this OS's Go coverage per function
+	cd sidecar && go test -coverpkg=./... -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
+	cd cli && go test -coverpkg=./... -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
+
+# Not a gate: CI's coverage gate is.
+cover-ts: ## Print the webview's coverage per file
+	pnpm vitest run --mode coverage
+
+# scripts/cover-changed.sh. CI's coverage gate has the last word.
+cover-changed: ## List the changed lines this OS's tests leave uncovered (FULL=1 runs every Go test, RUST=1 measures Rust)
+	bash scripts/cover-changed.sh
+
+check: lint vet test ## Run every lint, vet and test
+
+# scripts/check-changed.sh
+check-changed: ## Run the checks for what this branch changed, before opening a pull request
+	bash scripts/check-changed.sh
+
+clean: ## Remove the sidecar binaries, Cargo's target/ and Go's test cache
 	rm -rf src-tauri/binaries
 	rm -rf src-tauri/target
 	cd sidecar && go clean -testcache
 
-# Delete the dev app's data and cache directories (the database, chats,
-# settings and mirror). Separate from `clean` so clearing build outputs never
-# deletes a developer's chats.
-clean-data:
+# Separate from `clean`, so clearing build outputs never deletes a developer's chats.
+clean-data: ## Delete the dev app's data and cache directories (database, chats, settings, mirror)
 	go run scripts/clean-dev-data.go
+
+# Prints each target's `##` description.
+help: ## Show this help message
+	@awk 'BEGIN {FS = ":.*## "} /^[a-z0-9-]+:.*## / {printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST)

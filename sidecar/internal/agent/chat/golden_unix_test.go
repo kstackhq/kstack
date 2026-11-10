@@ -39,7 +39,7 @@ import (
 // A question's context block, pinned as the model reads it in testdata/context.md:
 // the card, the notes, the workspace, the view and the sandbox, in that order, in
 // its tags, then the question. The sample is one cluster with a cache, two notes,
-// a tail with one selected line and two granted folders. `make prompts` rewrites it, beside the system prompt's goldens
+// a tail with one selected line and two granted folders. `make generate-prompts` rewrites it, beside the system prompt's goldens
 // in internal/app. Unix alone, since the paths it names are Unix paths.
 func TestTheContextBlockMatchesItsGolden(t *testing.T) {
 	t.Parallel()
@@ -79,7 +79,7 @@ func TestTheContextBlockMatchesItsGolden(t *testing.T) {
 		return
 	}
 	want, err := os.ReadFile(path)
-	require.NoError(t, err, "run `make prompts` to write it")
+	require.NoError(t, err, "run `make generate-prompts` to write it")
 	assert.Equal(t, string(want), got)
 }
 

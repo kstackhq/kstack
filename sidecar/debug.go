@@ -2,5 +2,5 @@
 
 package main
 
-// Set by `make sidecar-dev`; a release build is untagged.
+// Set by `make build-sidecar-dev`; a release build is untagged.
 const debugBuild = true

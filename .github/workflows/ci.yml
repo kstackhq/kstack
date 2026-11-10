@@ -463,7 +463,7 @@ jobs:
         working-directory: ./sidecar
         run: go test -run '^TestThe(Filter|Shell)' ./internal/run/sandbox
       - name: Build bwrap and pasta
-        run: make bwrap pasta
+        run: make build-bwrap build-pasta
       - name: Build the sidecar
         working-directory: ./sidecar
         run: go build -o kstack-sidecar .

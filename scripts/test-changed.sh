@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Run the tests the working tree's changes touch: committed, staged, unstaged and
-# untracked, since the branch left main. The full suites and coverage run in CI.
+# Run the tests the working tree's changes touch (scripts/changed.sh). The full
+# suites and coverage run in CI.
 #
 #   JS    vitest's `related`, which follows imports, so a hook's change runs the
 #         tests of the components using it. A change to the toolchain runs it all.
@@ -8,30 +8,11 @@
 #         go.mod or go.sum runs that module's whole suite.
 #   Rust  the whole suite, and only when src-tauri/ or proto/ changed: it builds
 #         the sidecar first, and is the slowest of the three.
-#
-# BASE names the branch to diff against. It defaults to upstream/main when there
-# is an upstream remote, since a fork's origin/main can lag, else origin/main.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-base="${BASE:-}"
-if [ -z "$base" ]; then
-  if git rev-parse -q --verify upstream/main >/dev/null; then
-    base=upstream/main
-  else
-    base=origin/main
-  fi
-fi
-
-changed=$({
-  git diff --name-only "$(git merge-base "$base" HEAD)"
-  git ls-files --others --exclude-standard
-} | sort -u)
-
-has() { grep -qE "$1" <<<"$changed"; }
-
-# A deleted file has nothing to test, and vitest refuses a path that isn't there.
-existing() { while read -r f; do [ -e "$f" ] && echo "$f"; done; }
+# shellcheck source=scripts/changed.sh
+. scripts/changed.sh
 
 if has '^(package\.json|pnpm-lock\.yaml|vite\.config\.ts|vitest\.setup\.ts|tsconfig[^/]*\.json)$'; then
   pnpm test --run
