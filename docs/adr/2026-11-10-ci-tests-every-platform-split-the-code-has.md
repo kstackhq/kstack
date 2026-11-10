@@ -3,6 +3,8 @@ title: CI checks every platform split the code has on a pull request
 date: 2026-11-10
 scope: repo
 status: Accepted
+amended_by:
+  - [Main builds and tests the desktop host's release profile on the release runners](2026-11-10-main-builds-and-tests-the-release-profile.md)
 ---
 
 # CI checks every platform split the code has on a pull request

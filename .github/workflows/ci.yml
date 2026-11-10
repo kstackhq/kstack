@@ -509,6 +509,49 @@ jobs:
         working-directory: ./src-tauri
         run: cargo test
 
+  # The shipped app is the release profile, which turns cfg!(debug_assertions)
+  # off: is_app_origin refuses the dev server, the data directories and the
+  # keychain service lose "-dev", and Windows builds a GUI binary. On the
+  # runners release-desktop.yml builds the app on, so the Linux leg links
+  # Ubuntu 22.04's glibc and webkit2gtk, the oldest a user installs on. Push and
+  # dispatch only, since a release build is slow.
+  # → docs/adr/2026-11-10-main-builds-and-tests-the-release-profile.md
+  rust-test-release:
+    name: Rust · Release Build and Test (${{ matrix.os }}, ${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' && github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-22.04
+          - os: macos
+            arch: arm64
+            runner: macos-26
+          - os: windows
+            arch: amd64
+            runner: windows-2025-vs2026
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-environment
+        with:
+          setup-rust: "true"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
+          cache-save: ${{ env.CACHE_MODE != 'use' }}
+      - uses: ./.github/actions/stub-sidecar
+      - name: Build
+        working-directory: ./src-tauri
+        run: cargo build --release
+      - name: Run tests
+        working-directory: ./src-tauri
+        run: cargo test --release
+
   typescript-test:
     name: TypeScript · Test
     needs: changes
@@ -566,6 +609,7 @@ jobs:
       - go-test
       - rust-vet
       - rust-test
+      - rust-test-release
       - typescript-lint
       - typescript-test
       - typescript-build
