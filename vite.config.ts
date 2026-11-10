@@ -58,6 +58,9 @@ const vitestConfig = (coverage: boolean) =>
       environment: 'jsdom',
       globals: true,
       setupFiles: ['./vitest.setup.ts'],
+      // Node's own localStorage, on by default since Node 25, shadows jsdom's
+      // and is undefined without --localstorage-file.
+      execArgv: ['--no-experimental-webstorage'],
       // CI uploads lcov.info to Codecov, which also ignores what this excludes.
       coverage: {
         enabled: coverage,
