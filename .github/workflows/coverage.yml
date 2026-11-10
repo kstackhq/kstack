@@ -83,7 +83,7 @@ jobs:
           filters: .github/ci-config/path-filters.yml
 
   go:
-    name: Coverage · Go (${{ matrix.os }})
+    name: Go (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.go == 'true'
     strategy:
@@ -91,13 +91,18 @@ jobs:
       # One runner per OS: every platform split in the sidecar is by OS, none
       # by architecture, so three profiles hold every file. macOS 27 is the
       # release users run; nothing in the sidecar branches on the macOS version.
+      # The Codecov flag is named by GOOS, so it matches the reports already
+      # stored.
       matrix:
         include:
           - os: linux
+            goos: linux
             runner: ubuntu-24.04
-          - os: darwin
+          - os: macos
+            goos: darwin
             runner: xcode-27
           - os: windows
+            goos: windows
             runner: windows-2025-vs2026
     runs-on: ${{ matrix.runner }}
     # Twice each suite run's -timeout, so a hang fails the test binary with a
@@ -172,7 +177,7 @@ jobs:
           files: ${{ runner.temp }}/coverage-${{ matrix.os }}.out,${{ runner.temp }}/coverage-cli-${{ matrix.os }}.out
           disable_search: true
           plugins: noop
-          flags: go-${{ matrix.os }}
+          flags: go-${{ matrix.goos }}
           fail_ci_if_error: true
       # After the upload, so a failed job leaves the last cache the newest.
       - name: Save Go cache
@@ -183,7 +188,7 @@ jobs:
           key: ${{ steps.setup.outputs.go-cache-key }}
 
   typescript:
-    name: Coverage · TypeScript (linux)
+    name: TypeScript (linux)
     needs: changes
     if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
@@ -216,7 +221,7 @@ jobs:
   # One runner per OS, as Go's: Rust's platform splits are by OS.
   # The instrumented build is its own profile, so it keeps its own cache.
   rust:
-    name: Coverage · Rust (${{ matrix.os }})
+    name: Rust (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     strategy:
@@ -276,7 +281,7 @@ jobs:
   # their history. Codecov's public API needs no token, so a fork's PR runs it
   # too. A language whose job failed is not waited for.
   gate:
-    name: Coverage · Gate
+    name: Gate
     needs:
       - changes
       - go

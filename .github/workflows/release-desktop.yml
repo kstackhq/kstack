@@ -79,7 +79,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   build-sidecar:
-    name: Build sidecar
+    name: Build sidecar (${{ matrix.os }}, ${{ matrix.arch }})
     needs: [config]
     strategy:
       fail-fast: false
@@ -151,7 +151,7 @@ jobs:
           name: assets-sidecar-${{ matrix.os }}-${{ matrix.arch }}
 
   build-bundle-linux:
-    name: Build bundle · Linux
+    name: Build bundle · Linux (${{ matrix.arch }})
     needs: [config, build-sidecar]
     strategy:
       fail-fast: false
@@ -258,7 +258,7 @@ jobs:
   # bwrap and pasta run what the sandbox asks: the whole chain, as the probe
   # runs it.
   check-bundle-linux:
-    name: Check bundle · Linux · Ubuntu 24.04
+    name: Check bundle · Linux (${{ matrix.arch }})
     needs: [config, build-bundle-linux]
     strategy:
       fail-fast: false
@@ -386,7 +386,7 @@ jobs:
           path: assets/*
 
   build-bundle-windows:
-    name: Build bundle · Windows
+    name: Build bundle · Windows (${{ matrix.arch }})
     needs: [config, build-sidecar]
     strategy:
       fail-fast: false
@@ -449,7 +449,7 @@ jobs:
   # node_modules or anything a dependency's install or build script left.
   # This job checks out nothing and installs nothing.
   sign-bundle-windows:
-    name: Sign bundle · Windows
+    name: Sign bundle · Windows (${{ matrix.arch }})
     needs: [config, build-bundle-windows]
     environment: production
     permissions:

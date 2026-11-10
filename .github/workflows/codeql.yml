@@ -100,7 +100,7 @@ jobs:
   # CodeQL analyzes only the files the runner's OS compiles, so Go and Rust
   # run once per OS, each under its own category.
   go:
-    name: CodeQL · Go (${{ matrix.os }})
+    name: Go (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ${{ matrix.runner }}
@@ -153,7 +153,7 @@ jobs:
           key: ${{ steps.setup.outputs.go-cache-key }}
 
   typescript:
-    name: CodeQL · TypeScript
+    name: TypeScript
     needs: changes
     if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
@@ -178,7 +178,7 @@ jobs:
   # toolchain, Tauri's Linux packages and a sidecar binary for tauri-build to
   # find. Without them OUT_DIR and cfg(desktop) are unset.
   rust:
-    name: CodeQL · Rust (${{ matrix.os }})
+    name: Rust (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ${{ matrix.runner }}
@@ -252,7 +252,7 @@ jobs:
   # The name leaves out the matrix so a skipped job, whose matrix GitHub never
   # expands, shows plain text; GitHub appends each entry's values to it.
   reuse-base:
-    name: CodeQL · Reuse base
+    name: Reuse base
     needs:
       - changes
       - go

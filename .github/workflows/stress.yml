@@ -29,8 +29,9 @@ env:
 
 jobs:
   stress:
-    # The report job reads the id back out of the name.
-    name: Go · Stress (${{ matrix.runner }}-${{ matrix.race && 'race' || 'norace' }}-cpu${{ matrix.cpu }})
+    # The report job reads the id back out of the name: STRESS_ID with ", "
+    # for "-".
+    name: Go · Stress (${{ matrix.os }}, ${{ matrix.arch }}, ${{ matrix.race && 'race' || 'norace' }}, cpu${{ matrix.cpu }})
     if: >-
       github.repository == 'kstackhq/kstack'
       || github.event_name == 'pull_request'
@@ -94,7 +95,7 @@ jobs:
     env:
       CPU: ${{ matrix.cpu }}
       RACE: ${{ matrix.race }}
-      STRESS_ID: ${{ matrix.runner }}-${{ matrix.race && 'race' || 'norace' }}-cpu${{ matrix.cpu }}
+      STRESS_ID: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.race && 'race' || 'norace' }}-cpu${{ matrix.cpu }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -188,7 +189,7 @@ jobs:
           gh api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs" \
             --jq '.jobs[] | select(.name | startswith("Go · Stress"))
                   | select(.conclusion != "success" and .conclusion != "skipped")
-                  | [(.name | capture("\\((?<id>[^)]+)\\)$").id),
+                  | [(.name | capture("\\((?<id>[^)]+)\\)$").id | gsub(", "; "-")),
                      (if .conclusion == "cancelled" then "cancelled"
                       elif any(.steps[]; .name == "Run tests under stress" and .conclusion == null) then "lost"
                       else "failed" end)]

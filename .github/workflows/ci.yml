@@ -414,15 +414,19 @@ jobs:
   # the .deb's postinst on a stock 24.04, where user namespaces are restricted,
   # and runs the sandbox's chains through them as an ordinary user.
   sandbox-apparmor:
-    name: Sandbox · AppArmor · Ubuntu 24.04
+    name: Sandbox · AppArmor (${{ matrix.os }}, ${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.go == 'true'
     strategy:
       fail-fast: false
       matrix:
-        runner:
-          - ubuntu-24.04
-          - ubuntu-24.04-arm
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-24.04
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

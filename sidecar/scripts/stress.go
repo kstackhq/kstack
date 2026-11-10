@@ -3,7 +3,7 @@
 // Reads the nightly stress run's `go test -json` output and writes the failures
 // to failures.json beside it, for the workflow's report job to file as issues.
 //
-//	go run scripts/stress.go -cpu 4 -count 3 -race=true -runner ubuntu-24.04-race-cpu4 stress/stress.json
+//	go run scripts/stress.go -cpu 4 -count 3 -race=true -runner linux-amd64-race-cpu4 stress/stress.json
 //
 // It also prints them to the log and to $GITHUB_STEP_SUMMARY. It exits 0
 // whatever it finds: the workflow fails on go test's own status.

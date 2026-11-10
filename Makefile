@@ -76,7 +76,7 @@ test-changed:
 prompts:
 	cd sidecar && go test ./internal/app ./internal/agent/chat -run 'MatchesItsGolden|TestTheSubagentsPromptIsAssembledInOrder' -update
 
-# Go coverage of this OS, per function. Not a gate: CI's Coverage · Gate is.
+# Go coverage of this OS, per function. Not a gate: CI's coverage gate is.
 # `go tool cover -html=sidecar/coverage.out` opens it line by line (cli/ likewise).
 cover-go:
 	cd sidecar && go test -coverpkg=./... -coverprofile=coverage.out ./... && go tool cover -func=coverage.out
@@ -96,12 +96,12 @@ check-cache:
 check-switch:
 	cd sidecar && go test -tags liveswitch -count=1 -v -run TestAChatSwitchesAcrossEveryDialect ./internal/agent/catalog
 
-# Frontend coverage, per file. Not a gate: CI's Coverage · Gate is.
+# Frontend coverage, per file. Not a gate: CI's coverage gate is.
 cover-js:
 	pnpm vitest run --mode coverage
 
 # The changed lines this OS's tests leave uncovered (scripts/cover-changed.sh).
-# Run it before pushing; CI's Coverage · Gate has the last word. FULL=1 runs
+# Run it before pushing; CI's coverage gate has the last word. FULL=1 runs
 # every Go test, RUST=1 measures Rust too.
 cover-changed:
 	bash scripts/cover-changed.sh

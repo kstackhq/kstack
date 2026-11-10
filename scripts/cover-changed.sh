@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # List the lines the working tree changes since the branch left main that a
 # local coverage run measured and no test reached (tools/coverdiff). A pre-push
-# aid, not the gate: CI's Coverage · Gate merges every OS's runs, so a line only
+# aid, not the gate: CI's coverage gate merges every OS's runs, so a line only
 # another OS's tests reach is listed here.
 #
 #   Go    per module, sidecar/ and cli/, when it changed: the changed packages'
