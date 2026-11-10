@@ -42,26 +42,20 @@ env:
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
+  # A pull request measures a language when one of its paths in
+  # .github/ci-config/path-filters.yml, which ci.yml's Plan reads too,
+  # changed. A push or a dispatch measures them all.
+  #
   # GitHub starts push and schedule runs in forks too. Outside kstackhq/kstack
-  # this job runs only for a PR or a dispatch, and every other job needs it,
-  # so a fork's automatic run skips whole. A job whose `if:` runs past
-  # a skipped need (`always()`) checks that Plan succeeded.
-  fork-gate:
-    name: Fork gate
+  # Plan runs only for a PR or a dispatch, and every other job needs it, so a
+  # fork's automatic run skips whole. A job whose `if:` runs past a skipped
+  # need (`always()`) checks that Plan succeeded.
+  changes:
+    name: Plan
     if: >-
       github.repository == 'kstackhq/kstack'
       || github.event_name == 'pull_request'
       || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-slim
-    steps:
-      - run: "true"
-
-  # A pull request measures a language when one of its paths in
-  # .github/ci-config/path-filters.yml, which ci.yml's Plan reads too,
-  # changed. A push or a dispatch measures them all.
-  changes:
-    name: Plan
-    needs: fork-gate
     runs-on: ubuntu-24.04
     permissions:
       pull-requests: read
