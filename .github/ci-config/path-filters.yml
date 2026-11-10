@@ -1,4 +1,4 @@
-# dorny/paths-filter's filters, read by ci.yml's and coverage.yml's Changes
+# dorny/paths-filter's filters, read by ci.yml's and coverage.yml's Plan
 # jobs. A pull request runs a language's checks and its coverage when a path
 # here changed, so the two cannot drift: a path that ran the tests but not the
 # coverage would pass its changed lines as "0 of 0 covered".
