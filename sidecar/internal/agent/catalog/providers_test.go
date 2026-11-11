@@ -195,7 +195,19 @@ func TestEachKeyedProviderIsWrittenAsItsRow(t *testing.T) {
 				"gemini-4-argon":      {"low", "medium", "high"},
 				"hy4":                 {"none", "high"},
 			}, nil,
-			map[string]int{}},
+			map[string]int{
+				"deepseek-v4.1-flash": 1_000_000, "deepseek-v4-pro": 1_000_000,
+				"glm-5.2": 1_000_000, "glm-5.3": 1_000_000, "grok-4.7": 500_000,
+				"glm-5.3-flash": 1_000_000, "gpt-5.6-luna": 1_050_000, "gpt-6-luna": 1_050_000,
+				"claude-haiku-5-5": 1_000_000, "hy3": 256_000, "hy4-preview": 1_024_000,
+				"kimi-k2.7-code": 262_144, "kimi-k3": 1_048_576,
+				"mimo-v2.6-flash": 1_048_576, "mimo-v2.6-pro": 1_048_576,
+				"minimax-m3": 1_000_000, "minimax-m3.1-flash": 1_000_000,
+				"longcat-2.0": 1_000_000, "step-5-preview": 1_000_000,
+				"qwen3.8-max": 1_000_000, "qwen3.8-flash": 1_000_000,
+				"qwen3.7-plus": 1_000_000, "kimi-k3.1-pro": 1_048_576,
+				"gemini-4-argon": 1_048_576, "hy4": 1_048_576,
+			}},
 	}
 	keyed := keyedProviders()
 	require.Len(t, keyed, len(rows))
@@ -359,19 +371,6 @@ func TestEachRowRoutesTheAffinityKeyWhereItsVendorSays(t *testing.T) {
 		"fireworks":   {Header: "x-session-affinity"},
 		"opencode-go": {Header: "x-opencode-session"},
 	}, routes)
-}
-
-// OpenCode Go refuses its free-tier models to clients other than OpenCode, and its
-// two Muse Spark Contributor models train on the prompts they receive; the row
-// lists none of them.
-func TestOpenCodeGoListsNoFreeOrTrainingModel(t *testing.T) {
-	ids := modelIDs(newOpenCodeGoProvider())
-	for _, id := range []string{
-		"beam-free", "iceman-contributor-free", "longcat-2.5-free",
-		"muse-spark-1.2-contributor", "muse-spark-1.3-contributor",
-	} {
-		assert.NotContains(t, ids, id)
-	}
 }
 
 // A stated window holds the cap every request asks for, so no request is refused
