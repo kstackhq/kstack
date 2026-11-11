@@ -41,6 +41,10 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    ignore:
+      # actionlint v1.7.12 builds only against rc.3; a later rc breaks lint-yaml
+      # (rhysd/actionlint#765). Drop this once an actionlint release moves past it.
+      - dependency-name: go.yaml.in/yaml/v4
     groups:
       # client-go and apimachinery release in lockstep.
       kubernetes:
