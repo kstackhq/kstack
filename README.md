@@ -36,6 +36,12 @@ _Kstack is a desktop app for monitoring and troubleshooting K8s clusters with he
 - curl and unzip, for `make proto`, which downloads a pinned [protoc](https://github.com/protocolbuffers/protobuf/releases) when the one on PATH is not 36.0
 - curl, for `RUST=1 make cover-changed`, which downloads a pinned [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) when the one on PATH is not 0.9.1; never `cargo install` it
 
+On macOS, install the prerequisites and workspace dependencies with the interactive script:
+
+```console
+./scripts/prerequisites.sh
+```
+
 On Linux:
 
 ```console
