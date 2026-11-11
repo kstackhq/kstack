@@ -6,11 +6,17 @@
 #
 #   Go    per module, sidecar/ and cli/, when it changed: the changed packages'
 #         tests, or every test with FULL=1 or a change to its go.mod or go.sum.
-#   JS    when src/ changed: the whole suite.
+#         The sidecar's -tags debug run takes only the packages with a changed
+#         file only the tag builds, or every changed package with
+#         ALL_PLATFORMS=1.
+#   JS    the tests vitest relates to the changed files in src/ and lint/, or
+#         the whole suite when the toolchain changed.
 #   Rust  when src-tauri/ or proto/ changed, and only with RUST=1: it is the
 #         slowest of the three. Uses the cargo-llvm-cov on PATH when it is the
 #         pinned version; otherwise downloads the release's prebuilt binary
 #         into the user cache, checked against its SHA-256.
+#
+# The Go and JS runs go side by side; Rust follows them.
 #
 # Each suite is measured as .github/workflows/coverage.yml's jobs measure
 # it; a change to one belongs in the other. BASE is as in scripts/changed.sh.
@@ -21,7 +27,12 @@ cd "$(dirname "$0")/.."
 . scripts/changed.sh
 
 out=$(mktemp -d)
-trap 'rm -rf "$out"' EXIT
+pids=()
+cleanup() {
+  [ ${#pids[@]} -eq 0 ] || kill "${pids[@]}" 2>/dev/null || true
+  rm -rf "$out"
+}
+trap cleanup EXIT
 
 # The changed lines: tracked changes against the merge base, then each
 # untracked file whole. --no-index exits 1 when the files differ.
@@ -34,39 +45,67 @@ diff_opts=(-U0 --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/)
 } >"$out/changes.diff"
 
 reports=()
+names=()
 
-# Each Go module as CI measures it, with CGO_ENABLED=0 as it ships: the
-# sidecar with an empty SSH_AUTH_SOCK, once untagged and once under -tags
+# run <name> <command...>: starts a suite beside the others. The wait below
+# prints its output.
+run() {
+  local name=$1
+  shift
+  "$@" >"$out/$name.log" 2>&1 &
+  pids+=($!)
+  names+=("$name")
+}
+
+# Each Go module as CI measures it, with scripts/changed.sh's CGO_ENABLED=0:
+# the sidecar with an empty SSH_AUTH_SOCK, once untagged and once under -tags
 # debug; the CLI once.
+cover=(-covermode=atomic -coverpkg=./...)
+# shellcheck disable=SC2086 # one argument per package
 for mod in sidecar cli; do
   has "^$mod/" || continue
-  if [ "${FULL:-}" = 1 ] || has "^$mod/go\.(mod|sum)$"; then
-    go_pkgs=./...
-  else
-    go_pkgs=$(grep -E "^$mod/.*\.go$" <<<"$changed" | xargs -r -n1 dirname | sort -u | existing | sed "s|^$mod|.|" || true)
-  fi
+  if [ "${FULL:-}" = 1 ]; then go_pkgs=./...; else go_pkgs=$(go_dirs "$mod"); fi
   [ -n "$go_pkgs" ] || continue
-  profiles=("$out/$mod-untagged.out")
-  [ "$mod" != sidecar ] || profiles+=("$out/$mod-debug.out")
-  # shellcheck disable=SC2086 # one argument per package
-  (
-    cd "$mod"
-    export CGO_ENABLED=0
-    if [ "$mod" = sidecar ]; then
-      export SSH_AUTH_SOCK=""
-      go test -timeout 30m -covermode=atomic -coverpkg=./... -coverprofile="$out/$mod-untagged.out" $go_pkgs
-      go test -tags debug -timeout 30m -covermode=atomic -coverpkg=./... -coverprofile="$out/$mod-debug.out" $go_pkgs
-    else
-      go test -covermode=atomic -coverpkg=./... -coverprofile="$out/$mod-untagged.out" $go_pkgs
-    fi
-  )
+  if [ "$mod" = cli ]; then
+    run cli-untagged go -C cli test "${cover[@]}" -coverprofile="$out/cli-untagged.out" $go_pkgs
+    continue
+  fi
+  run sidecar-untagged env SSH_AUTH_SOCK="" \
+    go -C sidecar test -timeout 30m "${cover[@]}" -coverprofile="$out/sidecar-untagged.out" $go_pkgs
+  if [ "$go_pkgs" != ./... ] && [ "${ALL_PLATFORMS:-}" != 1 ]; then
+    # The packages with a changed file only the tag builds.
+    go_pkgs=$(go_changed_only "$(go_files sidecar "" $go_pkgs)" "$(go_files sidecar GOFLAGS=-tags=debug $go_pkgs)")
+  fi
+  if [ -n "$go_pkgs" ]; then
+    run sidecar-debug env SSH_AUTH_SOCK="" \
+      go -C sidecar test -tags debug -timeout 30m "${cover[@]}" -coverprofile="$out/sidecar-debug.out" $go_pkgs
+  fi
+done
+
+vitest=$(vitest_scope)
+if [ -n "$vitest" ]; then
+  # lcov alone: the per-file table would bury the lines listed below.
+  # shellcheck disable=SC2086 # one argument per word
+  run vitest pnpm vitest $vitest --mode coverage --coverage.reporter=lcovonly
+fi
+
+failed=()
+for i in "${!pids[@]}"; do
+  wait "${pids[$i]}" || failed+=("${names[$i]}")
+  cat "$out/${names[$i]}.log"
+done
+if [ ${#failed[@]} -gt 0 ]; then
+  echo "Failed: ${failed[*]}"
+  exit 1
+fi
+
+for mod in sidecar cli; do
+  profiles=("$out/$mod"-*.out)
+  [ -e "${profiles[0]}" ] || continue
   (cd tools && go run ./coverignore -dir "../$mod" -o "$out/$mod.out" "${profiles[@]}")
   reports+=(-go "$mod=$out/$mod.out")
 done
-
-if has '^src/'; then
-  # lcov alone: the per-file table would bury the lines listed below.
-  pnpm vitest run --mode coverage --coverage.reporter=lcovonly
+if [ -n "$vitest" ]; then
   reports+=(-lcov "$PWD/coverage/lcov.info")
 fi
 

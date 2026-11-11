@@ -129,7 +129,7 @@ The subject is imperative, has no trailing period, and is at most 72 characters.
 ### Before Submitting
 
 1. **Check for duplicates**: Review existing [issues](https://github.com/kstackhq/kstack/issues) and [pull requests](https://github.com/kstackhq/kstack/pulls)
-2. **Run the checks**: Run `make check-changed` and fix what it reports. It runs the linters, the static analysis and the tests for the areas you changed, then lists the changed lines no test covers: cover or mark each one
+2. **Run the checks**: Run `make check-changed` and fix what it reports. It runs the linters, the static analysis and the tests for the areas you changed, then lists the changed lines no test covers: cover or mark each one. It checks your machine's platform; CI checks the others on the PR (`ALL_PLATFORMS=1 make check-changed` checks them locally)
 3. **Clean commits**: Ensure each commit is minimal, focused, and follows our [commit format](#commit-guidelines)
 4. **Update docs**: If you change architecture, conventions or commands, update the relevant `CLAUDE.md` in the same PR
 

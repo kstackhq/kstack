@@ -11,7 +11,7 @@
 .PHONY: build-sidecar build-sidecar-dev build-bwrap build-pasta build-embedded-sources \
 	generate-proto generate-prompts generate-icons \
 	lint lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-markers \
-	vet vet-go vet-rust \
+	vet vet-go vet-go-changed vet-rust \
 	test test-go test-rust test-ts test-changed test-livecache test-liveswitch \
 	cover-go cover-ts cover-changed \
 	check check-changed clean clean-data help
@@ -123,6 +123,10 @@ vet-go: ## Vet every Go module per GOOS and tag, then the sidecar's deps, go fix
 	sh scripts/check-go-fix.sh
 	sh scripts/staticcheck.sh
 
+# scripts/vet-go-changed.sh. CI vets every package.
+vet-go-changed: ## Run go vet and go fix on the Go packages this branch changed, on this platform (ALL_PLATFORMS=1 adds staticcheck and every GOOS and tag)
+	bash scripts/vet-go-changed.sh
+
 # tauri-build fails without the bundled sidecar binary, so build it first.
 vet-rust: build-sidecar ## Run clippy on the desktop host, tests included
 	cd src-tauri && cargo clippy --all-targets -- -D warnings
@@ -173,7 +177,7 @@ cover-changed: ## List the changed lines this OS's tests leave uncovered (FULL=1
 check: lint vet test ## Run every lint, vet and test
 
 # scripts/check-changed.sh
-check-changed: ## Run the checks for what this branch changed, before opening a pull request
+check-changed: ## Run the checks for what this branch changed, on this platform, before opening a pull request (ALL_PLATFORMS=1 adds staticcheck and every GOOS and tag)
 	bash scripts/check-changed.sh
 
 clean: ## Remove the sidecar binaries, Cargo's target/ and Go's test cache
