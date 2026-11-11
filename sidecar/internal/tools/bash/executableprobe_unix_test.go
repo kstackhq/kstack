@@ -191,18 +191,28 @@ func TestAShimResolvesToItsTarget(t *testing.T) {
 }
 
 // A tool that runs past the probe's bound is stopped and reported as Bash
-// reports a timeout. The bound is shrunk; the sleep is the tool's own, the
-// latency the bound is there to cut, and the assertion waits on nothing.
+// reports a timeout. The test fires the deadline once the tool has started,
+// so how long the run takes to start never decides it.
 func TestAProbeIsBounded(t *testing.T) {
-	assert.Equal(t, 15*time.Second, newExecutableProbe().timeout)
 	tl, _, bin := probingTool(t)
-	tl.probe.timeout = 50 * time.Millisecond
-	writeExecutable(t, bin, "kubectl", "exec /bin/sleep 60")
+	h := newHolder(t)
+	c := newClock()
+	tl.probe.after = func(d time.Duration) <-chan time.Time {
+		assert.Equal(t, 15*time.Second, d)
+		return c
+	}
+	// The tool execs the sleep, so the pid it greets with is the sleep's.
+	writeExecutable(t, bin, "kubectl", "exec 3>"+h.path+"; echo started $$ >&3; exec /bin/sleep 60")
 
-	got := tl.ProbeExecutables(t.Context(), nil)
+	res := make(chan []ExecutableReport, 1)
+	go func() { res <- tl.ProbeExecutables(t.Context(), nil) }()
+	h.awaitStarted(t)
+	c.fire()
+	got := testutil.Recv(t, res, "the probe to end")
 
 	assert.False(t, got[0].OK)
-	assert.True(t, strings.HasPrefix(got[0].Error, "Command timed out after 50ms"), got[0].Error)
+	assert.True(t, strings.HasPrefix(got[0].Error, "Command timed out after 15s"), got[0].Error)
+	h.awaitGone(t)
 }
 
 // Each run's throwaway home and tool home are gone once it ends.

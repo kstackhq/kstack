@@ -129,11 +129,12 @@ type ProbeState struct {
 type executableProbe struct {
 	// folders is the folders granted always, which a probe's run reads.
 	folders     func(context.Context) []session.Folder
-	timeout     time.Duration // probeTimeout, or a test's shorter one
 	diskTimeout time.Duration // diskTimeout, or a test's shorter one
 	// buildTimeout is the run's build's bound, diskTimeout in production;
 	// its own field so a test can cut the build alone.
 	buildTimeout time.Duration
+	// after starts a run's deadline: time.After when nil, or a test's stand-in.
+	after func(d time.Duration) <-chan time.Time
 
 	// ctx is what every probe runs on, ended by Close; wg counts the probes
 	// running.
@@ -164,7 +165,7 @@ func newExecutableProbe() *executableProbe {
 	ctx, stop := context.WithCancel(context.Background())
 	hub := watch.New(ProbeState{})
 	return &executableProbe{
-		ctx: ctx, stop: stop, timeout: probeTimeout, diskTimeout: diskTimeout, buildTimeout: diskTimeout,
+		ctx: ctx, stop: stop, diskTimeout: diskTimeout, buildTimeout: diskTimeout,
 		hub: hub, tx: hub.Sender(),
 	}
 }
@@ -435,14 +436,15 @@ func (t *Tool) probeRun(ctx context.Context, argv []string) probeResult {
 	defer sandboxed.end()
 	res := run(ctx, spec{
 		sandboxedRun: sandboxed, shell: argv[0], args: argv[1:], dir: workspace,
-		capture: probeCapture, timeout: t.probe.timeout, killGrace: killGrace, pipeGrace: pipeGrace,
+		capture: probeCapture, timeout: probeTimeout, killGrace: killGrace, pipeGrace: pipeGrace,
+		hooks: hooks{after: t.probe.after},
 	})
 	out := probeResult{output: safe.Redact(res.Output), ok: !res.failed()}
 	switch {
 	case res.Error != "":
 		out.err = "could not start: " + res.Error
 	case !out.ok:
-		out.err = strings.TrimSuffix(headerOf(res, t.probe.timeout, false), "\n")
+		out.err = strings.TrimSuffix(headerOf(res, probeTimeout, false), "\n")
 	}
 	return out
 }
