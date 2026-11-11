@@ -14,8 +14,8 @@
 
 import { readFileSync } from 'node:fs';
 
+import JSON5 from 'json5';
 import { RuleTester } from 'oxlint/plugins-dev';
-import ts from 'typescript';
 import { describe, it } from 'vitest';
 
 import plugin from './oxlint-plugin.js';
@@ -26,7 +26,7 @@ RuleTester.it = it;
 const tester = new RuleTester();
 
 // The options `.oxlintrc.json` gives the rule, so a ban dropped from the config fails here.
-const { config } = ts.parseConfigFileTextToJson('.oxlintrc.json', readFileSync('.oxlintrc.json', 'utf8'));
+const config = JSON5.parse(readFileSync('.oxlintrc.json', 'utf8'));
 const [, ...restrictions] = config.rules['kstack/no-restricted-syntax'];
 
 const SINK = 'Cluster data is attacker-controlled text; render it as text, never as HTML.';
