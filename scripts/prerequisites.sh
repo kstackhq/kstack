@@ -115,6 +115,17 @@ path_hint() {
   echo "Or open a new terminal."
 }
 
+add_path_to_profile() {
+  local profile=$1
+  cat >>"$profile" <<'EOF'
+
+# kstack prerequisites
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+EOF
+  echo "Added to $profile."
+  path_hint "$profile"
+}
+
 setup_path() {
   if path_has "$ORIG_PATH" "$BIN" && path_has "$ORIG_PATH" "$HOME/.cargo/bin"; then
     return 0
@@ -125,24 +136,7 @@ setup_path() {
     */bash) profile=$HOME/.bash_profile ;;
     *) echo "Add $BIN and $HOME/.cargo/bin to PATH in your shell profile."; return 0 ;;
   esac
-  if grep -q 'kstack prerequisites' "$profile" 2>/dev/null; then
-    echo "PATH is already set in $profile."
-    path_hint "$profile"
-    return 0
-  fi
-  echo
-  if confirm "Add $BIN and $HOME/.cargo/bin to PATH in $profile?"; then
-    cat >>"$profile" <<'EOF'
-
-# kstack prerequisites
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-EOF
-    echo "Added to $profile."
-    path_hint "$profile"
-  else
-    echo "Add this line to $profile:"
-    echo "  export PATH=\"\$HOME/.local/bin:\$HOME/.cargo/bin:\$PATH\""
-  fi
+  add_path_to_profile "$profile"
 }
 
 summary() {
