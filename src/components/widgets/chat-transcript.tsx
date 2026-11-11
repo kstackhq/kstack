@@ -1441,14 +1441,15 @@ export function ChatTranscript({
   const ends = viewEnds(messages);
   // Labelled where the model changed, so a switch is visible where it happened and a
   // chat that stayed on one model — the first answer included — stays unlabelled.
+  const rows: { message: (typeof drawn)[number]; label: string | undefined }[] = [];
   let ran: string | undefined;
-  const rows = drawn.map((message) => {
+  for (const message of drawn) {
     const answered = message.role === 'Assistant' && message.model !== '';
     const label =
       answered && ran !== undefined && message.model !== ran ? labelOf(message.provider?.id, message.model) : undefined;
     if (answered) ran = message.model;
-    return { message, label };
-  });
+    rows.push({ message, label });
+  }
 
   // Only the last row: a fresh send lands at the end, and an answer to a question
   // mid-transcript would sit far from it. Nothing is asked twice while the entry's
