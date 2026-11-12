@@ -20,7 +20,6 @@ import { EventsTable } from '@/components/widgets/events-table';
 import { ObjectsTable } from '@/components/widgets/objects-table';
 import { useClusterCachedDataKinds } from '@/lib/cluster-cached-data-kinds';
 import {
-  buildDashboardNav,
   dashboardResourceLabel,
   mayNameDiscoveredKind,
   resolveDashboardResource,
@@ -44,15 +43,15 @@ type HeldKind = { cacheID: string | undefined; resource: string; kind: ServerKin
 // Panel pick: `events` → bespoke `EventsTable`; a resolved discovered kind → generic
 // `ObjectsTable`. A resource the catalog could name (`mayNameDiscoveredKind`) and does
 // not reads "not synced" with no active cache, waits behind a spinner for the Bookmark,
-// and after it is not served by this cluster. A group row or Overview reads "coming
-// soon" at once. Label and kind resolve against the same live catalog the sidebar uses.
+// and after it is not served by this cluster. Overview reads "coming soon" at once.
+// Label and kind resolve against the same live catalog the sidebar uses.
 function Dashboard() {
   const { resource } = Route.useSearch();
   const { kinds, active, cacheID, phase } = useClusterCachedDataKinds();
   const resolved = resolveDashboardResource(resource);
-  // The catalog re-emits on count churn — memoize so a Modified frame doesn't
-  // rebuild the tree / rescan the catalog every render.
-  const label = useMemo(() => dashboardResourceLabel(buildDashboardNav(kinds), resolved), [kinds, resolved]);
+  // The catalog re-emits on count churn — memoize so a Modified frame doesn't rescan it
+  // every render.
+  const label = useMemo(() => dashboardResourceLabel(kinds, resolved), [kinds, resolved]);
   const serverKind = useMemo(() => serverKindForResource(kinds, resolved), [kinds, resolved]);
 
   // A new connection replays the catalog onto a clean slate, so it is empty until the

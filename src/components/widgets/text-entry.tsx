@@ -17,6 +17,8 @@ import type { ComponentProps } from 'react';
 // oxlint-disable-next-line no-restricted-imports -- the one place the library's boxes are drawn
 import { Input as UiInput } from '@kubetail/ui/elements/input';
 // oxlint-disable-next-line no-restricted-imports -- the one place the library's boxes are drawn
+import { SearchBox as UiSearchBox } from '@kubetail/ui/elements/search-box';
+// oxlint-disable-next-line no-restricted-imports -- the one place the library's boxes are drawn
 import { Textarea as UiTextarea } from '@kubetail/ui/elements/textarea';
 
 // Left alone, the webview suggests, corrects and capitalizes as the user types
@@ -38,6 +40,12 @@ type TextProps = { prose?: boolean };
 
 export function Input({ prose = false, ...props }: ComponentProps<'input'> & TextProps) {
   return <UiInput {...(prose ? PROSE_TEXT : CODE_TEXT)} {...props} />;
+}
+
+// The library's search box, typed here: its own declaration file resolves its props to
+// `any`. A search is code-like text.
+export function SearchBox(props: ComponentProps<'input'> & { containerClassName?: string }) {
+  return <UiSearchBox {...CODE_TEXT} {...props} />;
 }
 
 export function Textarea({ prose = false, ...props }: ComponentProps<'textarea'> & TextProps) {

@@ -3,6 +3,7 @@ title: Merge a curated nav tree with discovered kinds; DashboardResource is an o
 date: 2026-08-09
 scope: frontend
 status: Accepted
+amended_by: [The dashboard nav groups kinds by scope and API group, and lists every kind flat](2026-11-12-the-dashboard-nav-groups-kinds-by-scope-and-api-group.md)
 ---
 
 # Merge a curated nav tree with discovered kinds; DashboardResource is an open string
