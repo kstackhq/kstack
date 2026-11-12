@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, screen } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_DASHBOARD_RESOURCE } from '@/lib/dashboard-resources';
@@ -33,7 +33,7 @@ vi.mock('@/routes/_app', async () => {
     Route: createRoute({
       getParentRoute: () => testRoot,
       id: 'app',
-      validateSearch: (search: Record<string, unknown>): { resource?: string; namespace?: string } => ({
+      validateSearch: (search: Record<string, unknown>) => ({
         ...(typeof search.resource === 'string' && search.resource.length > 0 ? { resource: search.resource } : {}),
         ...(typeof search.namespace === 'string' ? { namespace: search.namespace } : {}),
       }),
@@ -47,9 +47,26 @@ vi.mock('@/routes/_app', async () => {
 vi.mock('@/components/widgets/events-table', () => ({
   EventsTable: (props: Record<string, unknown>) => <div data-testid="events-table">{JSON.stringify(props)}</div>,
 }));
+// The table's rows press their actions through `onAction`; one button per action stands in.
 vi.mock('@/components/widgets/objects-table', () => ({
-  ObjectsTable: (props: Record<string, unknown>) => <div data-testid="objects-table">{JSON.stringify(props)}</div>,
+  ObjectsTable: ({ onAction, ...props }: { onAction: (action: string, o: unknown) => void }) => (
+    <>
+      <div data-testid="objects-table">{JSON.stringify(props)}</div>
+      {['yaml', 'events', 'logs'].map((action) => (
+        <button
+          key={action}
+          type="button"
+          onClick={() => onAction(action, { uid: 'u1', namespace: 'shop', name: 'web', rawJSON: {} })}
+        >
+          {action}
+        </button>
+      ))}
+    </>
+  ),
 }));
+
+const { focusObject } = vi.hoisted(() => ({ focusObject: vi.fn() }));
+vi.mock('@/lib/object-view', () => ({ useObjectView: () => ({ set: focusObject }) }));
 
 const { useClusterCachedDataObjectsMock, useClusterCachedDataEventsMock } = vi.hoisted(() => ({
   useClusterCachedDataObjectsMock: vi.fn(),
@@ -109,6 +126,7 @@ const pod = (uid: string, namespace: string) => ({ uid, namespace, name: uid });
 const event = (uid: string, involvedNamespace: string) => ({ uid, involvedNamespace });
 
 beforeEach(() => {
+  focusObject.mockClear();
   useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: true, phase: 'live' });
   useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'live' });
 });
@@ -134,6 +152,15 @@ describe('dashboard route', () => {
     await render('/dashboard?resource=events');
     expect(screen.getByTestId('events-table')).toBeInTheDocument();
     expect(screen.queryByTestId('objects-table')).not.toBeInTheDocument();
+  });
+
+  it.each(['yaml', 'events', 'logs'])('focuses a row’s object on its %s tab', async (action) => {
+    await render('/dashboard?resource=deployments', [KIND]);
+    fireEvent.click(screen.getByRole('button', { name: action }));
+    expect(focusObject).toHaveBeenCalledWith(
+      { apiVersion: 'apps/v1', resource: 'deployments', kind: 'Deployment', uid: 'u1', namespace: 'shop', name: 'web' },
+      action,
+    );
   });
 
   it('shows the generic table for a discovered kind, told what it is listing', async () => {
@@ -175,7 +202,7 @@ describe('dashboard route', () => {
       resource: 'horizontalpodautoscalers',
     };
     await render('/dashboard?resource=autoscaling/horizontalpodautoscalers', [hpa]);
-    expect(screen.getByRole('heading', { name: 'HorizontalPodAutoscaler' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^HorizontalPodAutoscaler\b/ })).toBeInTheDocument();
   });
 
   it('says a kind the synced catalog lacks is not served by this cluster', async () => {
@@ -269,31 +296,24 @@ describe('dashboard route', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(expected);
   });
 
-  it('heads a kind’s page with its count and its apiVersion and short names', async () => {
+  it('heads a kind’s page with its label alone, and no count', async () => {
     useClusterCachedDataObjectsMock.mockReturnValue({
       objects: [pod('a', 'x'), pod('b', 'y')],
       active: true,
       phase: 'live',
     });
     await render('/dashboard?resource=deployments', [KIND]);
-    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
-    expect(screen.getByText('apps/v1 · deploy')).toBeInTheDocument();
-  });
-
-  it('draws no count before the kind’s objects land', async () => {
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: true, phase: 'connecting' });
-    await render('/dashboard?resource=deployments', [KIND]);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Deployments$/);
     expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
   });
 
-  it('shows and counts a namespaced kind’s objects in the namespace alone', async () => {
+  it('shows a namespaced kind’s objects in the namespace alone', async () => {
     useClusterCachedDataObjectsMock.mockReturnValue({
       objects: [pod('a', 'checkout'), pod('b', 'default'), pod('c', 'checkout')],
       active: true,
       phase: 'live',
     });
     await render('/dashboard?resource=deployments&namespace=checkout', [KIND]);
-    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
     const table = propsOf('objects-table');
     expect(table.objects.map((o: { uid: string }) => o.uid)).toEqual(['a', 'c']);
     expect(table.namespace).toBe('checkout');
@@ -307,7 +327,7 @@ describe('dashboard route', () => {
       phase: 'live',
     });
     await render('/dashboard?resource=persistentvolumes&namespace=checkout', [pv]);
-    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
+    expect(propsOf('objects-table').objects).toHaveLength(2);
     expect(propsOf('objects-table').namespace).toBeUndefined();
     expect(screen.getByText(/Cluster-scoped, so the/)).toHaveTextContent(
       "Cluster-scoped, so the checkout filter isn't applied.",

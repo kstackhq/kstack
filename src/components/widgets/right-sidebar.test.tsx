@@ -20,13 +20,38 @@ import type { AppMode } from '@/lib/app-mode';
 import { LogWindowsContext } from '@/lib/log-windows';
 import { LogsViewProvider, useLogsView } from '@/lib/logs-view';
 import type { LogsView } from '@/lib/logs-view';
+import { ObjectViewProvider, useObjectView } from '@/lib/object-view';
 import { RightSidebarProvider } from '@/lib/right-sidebar';
 import { fakeLogWindows } from '@/test-utils';
 
 // The panel's contents have a suite of their own, and the real widgets want a router,
 // a urql client, the Tauri bridge and a layout. This file is about which one is mounted.
+// The focused object is bound to the active cluster.
+vi.mock('@/lib/active-cluster', () => ({ useActiveCluster: () => ({ clusterID: 'c1' }) }));
 vi.mock('@/components/widgets/dashboard-chat', () => ({
   DashboardChat: () => <div data-testid="dashboard-chat" />,
+}));
+vi.mock('@/components/widgets/object-panel', () => ({
+  ObjectPanel: ({
+    object,
+    tab,
+    onTab,
+    onClose,
+  }: {
+    object: { name: string };
+    tab: string;
+    onTab: (tab: string) => void;
+    onClose: () => void;
+  }) => (
+    <div data-testid="object-panel" data-tab={tab}>
+      <button type="button" onClick={() => onTab('yaml')}>
+        to yaml
+      </button>
+      <button type="button" onClick={onClose}>
+        close {object.name}
+      </button>
+    </div>
+  ),
 }));
 vi.mock('@/components/widgets/log-viewer', () => ({
   LogViewer: ({ query, onGrepApplied }: { query: { grep: string }; onGrepApplied: (grep: string) => void }) => (
@@ -60,13 +85,16 @@ function Row() {
 const renderPanel = ({ mode = 'chat' }: { mode?: AppMode } = {}) =>
   render(
     <RightSidebarProvider mode={mode}>
-      <LogsViewProvider>
-        <LogWindowsContext.Provider value={logWindows}>
-          <RightSidebarToggle />
-          <Row />
-          <FocusView />
-        </LogWindowsContext.Provider>
-      </LogsViewProvider>
+      <ObjectViewProvider>
+        <LogsViewProvider>
+          <LogWindowsContext.Provider value={logWindows}>
+            <RightSidebarToggle />
+            <Row />
+            <FocusView />
+            <FocusObject />
+          </LogWindowsContext.Provider>
+        </LogsViewProvider>
+      </ObjectViewProvider>
     </RightSidebarProvider>,
   );
 
@@ -102,6 +130,20 @@ function FocusView() {
   return (
     <button type="button" onClick={() => set(logsView)}>
       focus view
+    </button>
+  );
+}
+
+function FocusObject() {
+  const { set } = useObjectView();
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        set({ apiVersion: 'v1', resource: 'pods', kind: 'Pod', uid: 'u1', namespace: 'shop', name: 'web-1' }, 'events')
+      }
+    >
+      focus object
     </button>
   );
 }
@@ -306,7 +348,20 @@ describe('RightSidebar', () => {
   it('holds a chat in dashboard mode', () => {
     renderPanel({ mode: 'dashboard' });
     clickToggle();
-    expect(screen.getByRole('complementary', { name: 'Dashboard chat' })).toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: 'Dashboard details' })).toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-chat')).toBeInTheDocument();
+  });
+
+  it('opens on a focused object’s tab in dashboard mode, and its close brings the chat back', () => {
+    renderPanel({ mode: 'dashboard' });
+    fireEvent.click(screen.getByRole('button', { name: 'focus object' }));
+    expect(screen.getByTestId('object-panel')).toHaveAttribute('data-tab', 'events');
+    expect(screen.queryByTestId('dashboard-chat')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'to yaml' }));
+    expect(screen.getByTestId('object-panel')).toHaveAttribute('data-tab', 'yaml');
+
+    fireEvent.click(screen.getByRole('button', { name: 'close web-1' }));
+    expect(panel()).toBeInTheDocument();
     expect(screen.getByTestId('dashboard-chat')).toBeInTheDocument();
   });
 

@@ -14,25 +14,27 @@
 
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { createRoute } from '@tanstack/react-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { EventsTable } from '@/components/widgets/events-table';
+import type { ObjectAction } from '@/components/widgets/object-actions';
 import { ObjectsTable } from '@/components/widgets/objects-table';
 import { PageHeader } from '@/components/widgets/page-frame/page-header';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { useClusterCachedDataEvents } from '@/lib/cluster-cached-data-events';
 import { useClusterCachedDataKinds } from '@/lib/cluster-cached-data-kinds';
 import { useClusterCachedDataObjects } from '@/lib/cluster-cached-data-objects';
+import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
 import {
   dashboardResourceLabel,
   mayNameDiscoveredKind,
   resolveDashboardResource,
   serverKindForResource,
-  shortNamesOf,
 } from '@/lib/dashboard-resources';
 import type { DashboardResource, ServerKind } from '@/lib/dashboard-resources';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useNamespaceScope } from '@/lib/namespace-scope';
+import { useObjectView } from '@/lib/object-view';
 import { Route as appRoute } from '@/routes/_app';
 
 // The focused kind lives in the `resource` search param, declared on `_app` so it
@@ -90,8 +92,8 @@ function countOf(rows: unknown[], active: boolean, phase: WatchPhase): number | 
   return active && phase !== 'connecting' ? rows.length : undefined;
 }
 
-// A kind's page. It owns the objects watch, so the header counts the rows the table
-// shows. The watch is cluster-wide; the scope filters it here, a namespaced kind's alone.
+// A kind's page, over its objects watch. The watch is cluster-wide; the scope filters it
+// here, a namespaced kind's alone.
 function KindPage({ kind, label }: { kind: ServerKind; label: string }) {
   const { namespace } = useNamespaceScope();
   const { objects, active, phase } = useClusterCachedDataObjects({
@@ -101,27 +103,42 @@ function KindPage({ kind, label }: { kind: ServerKind; label: string }) {
   const namespaced = kind.scope === 'Namespaced';
   const scope = namespaced ? namespace : undefined;
   const shown = useMemo(() => inScope(objects, scope, (o) => o.namespace), [objects, scope]);
-  const meta = [kind.apiVersion, shortNamesOf(kind).join(', ')].filter(Boolean).join(' · ');
+
+  const { set: focusObject } = useObjectView();
+  const onAction = useCallback(
+    (action: ObjectAction, o: ClusterCachedDataObject) => {
+      const { uid, namespace: ns, name } = o;
+      focusObject(
+        { apiVersion: kind.apiVersion, resource: kind.resource, kind: kind.kind, uid, namespace: ns, name },
+        action,
+      );
+    },
+    [focusObject, kind],
+  );
 
   return (
     <>
-      <PageHeader title={label} count={countOf(shown, active, phase)} meta={meta}>
+      <PageHeader title={label}>
         {!namespaced && namespace !== undefined && (
           <>
             Cluster-scoped, so the <VisibleText text={namespace} /> filter isn&apos;t applied.
           </>
         )}
       </PageHeader>
+      {/* Keyed by kind, so a new kind starts unsorted. */}
       <ObjectsTable
+        key={`${kind.apiVersion}/${kind.resource}`}
         apiVersion={kind.apiVersion}
         resource={kind.resource}
         kind={kind.kind}
+        label={label}
         namespaced={namespaced}
         printerColumns={kind.printerColumns}
         objects={shown}
         active={active}
         phase={phase}
         namespace={scope}
+        onAction={onAction}
       />
     </>
   );

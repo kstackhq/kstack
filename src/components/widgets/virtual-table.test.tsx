@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 
 import { stubLayout } from '@/test-utils';
 
-import { ROW_H, ROW_H_PX, VirtualTable } from './virtual-table';
+import { ROW_H, ROW_H_PX, TALL_ROW, VirtualTable } from './virtual-table';
 import type { VirtualColumn } from './virtual-table';
 
 // A viewport ten rows tall.
@@ -31,7 +31,7 @@ const rowsOf = (n: number, from = 0): Row[] => Array.from({ length: n }, (_, i) 
 
 function renderTable(rows: Row[]) {
   const view = render(<VirtualTable rows={rows} rowKey={rowKey} columns={columns} />);
-  const scroller = view.container.firstElementChild as HTMLDivElement;
+  const scroller = view.container.querySelector<HTMLDivElement>('[tabindex="0"]')!;
   const rerender = (next: Row[]) => view.rerender(<VirtualTable rows={next} rowKey={rowKey} columns={columns} />);
   const scrollTo = (top: number) => {
     scroller.scrollTop = top;
@@ -59,9 +59,24 @@ describe('VirtualTable', () => {
 
   it('lays the table out fixed, with each column carrying its class on header and cells', () => {
     renderTable(rowsOf(3));
-    expect(screen.getByRole('table')).toHaveClass('table-fixed');
+    document.querySelectorAll('table').forEach((t) => expect(t).toHaveClass('table-fixed'));
     expect(screen.getByRole('columnheader', { name: 'ID' })).toHaveClass('w-32');
     expect(screen.getByText('r1')).toHaveClass('w-32');
+  });
+
+  it('sizes each column of both tables from its width, and holds the table to the widths and the slack column’s minimum', () => {
+    const sized: VirtualColumn<Row>[] = [
+      { key: 'a', header: 'A', width: 100, cell: (r) => r.id },
+      { key: 'b', header: 'B', minWidth: 240, cell: (r) => r.id },
+      { key: 'c', header: 'C', width: 60, cell: (r) => r.id },
+      { key: 'd', header: 'D', cell: (r) => r.id },
+    ];
+    render(<VirtualTable rows={rowsOf(1)} rowKey={rowKey} columns={sized} />);
+    // Header and body share the widths: the body's first row is a spacer with no cells.
+    document.querySelectorAll('table').forEach((t) => {
+      expect(Array.from(t.querySelectorAll('col')).map((c) => c.style.width)).toEqual(['100px', '', '60px', '']);
+      expect(t.style.minWidth).toBe('400px');
+    });
   });
 
   // Home/End/PageUp/PageDown are the browser's on a focused overflow container.
@@ -79,6 +94,15 @@ describe('VirtualTable', () => {
     const [top, bottom] = spacers();
     expect(top.style.height).toBe(`${4_990 * ROW_H_PX}px`);
     expect(bottom.style.height).toBe(`${(10_000 - 5_020) * ROW_H_PX}px`);
+  });
+
+  // A filter or a tab, with the scroller far down the longer list.
+  it('draws the rows a list cut short still has', () => {
+    const { scrollTo, rerender } = renderTable(rowsOf(10_000));
+    scrollTo(5_000 * ROW_H_PX);
+    rerender(rowsOf(3));
+    expect(bodyRows().map((r) => r.textContent)).toEqual(['r0', 'r1', 'r2']);
+    expect(spacers().map((s) => s.style.height)).toEqual(['0px', '0px']);
   });
 
   describe('when the rows change under the viewport', () => {
@@ -127,6 +151,106 @@ describe('VirtualTable', () => {
     it('turns native scroll anchoring off', () => {
       const { scroller } = renderTable(rowsOf(3));
       expect(scroller).toHaveClass('[overflow-anchor:none]');
+    });
+  });
+
+  it('draws each row at the height it is given, and its spacers to match', () => {
+    render(<VirtualTable rows={rowsOf(1_000)} rowKey={rowKey} columns={columns} rowSize={TALL_ROW} />);
+    const rows = bodyRows();
+    rows.forEach((r) => expect(r).toHaveClass(TALL_ROW.className));
+    expect(spacers()[1].style.height).toBe(`${(1_000 - rows.length) * TALL_ROW.px}px`);
+  });
+
+  it('makes a sortable header a button, and marks the sorted one', () => {
+    const onSort = vi.fn();
+    const sortable: VirtualColumn<Row>[] = [
+      { key: 'id', header: 'ID', cell: (r) => r.id, sortValue: (r) => r.id },
+      { key: 'plain', header: 'Plain', cell: () => '' },
+    ];
+    render(
+      <VirtualTable
+        rows={rowsOf(2)}
+        rowKey={rowKey}
+        columns={sortable}
+        sort={{ key: 'id', desc: true }}
+        onSort={onSort}
+      />,
+    );
+    const [id, plain] = screen.getAllByRole('columnheader');
+    expect(id).toHaveAttribute('aria-sort', 'descending');
+    expect(plain).not.toHaveAttribute('aria-sort');
+    expect(within(plain).queryByRole('button')).not.toBeInTheDocument();
+
+    // Down lit, up muted.
+    const lit = (header: HTMLElement) =>
+      Array.from(header.querySelectorAll('path')).map((p) => p.classList.contains('fill-current'));
+    expect(lit(id)).toEqual([false, true]);
+
+    fireEvent.click(within(id).getByRole('button', { name: 'ID' }));
+    expect(onSort).toHaveBeenCalledWith('id');
+  });
+
+  it('marks an ascending sort', () => {
+    const sortable: VirtualColumn<Row>[] = [{ key: 'id', header: 'ID', cell: (r) => r.id, sortValue: (r) => r.id }];
+    render(
+      <VirtualTable
+        rows={rowsOf(2)}
+        rowKey={rowKey}
+        columns={sortable}
+        sort={{ key: 'id', desc: false }}
+        onSort={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('columnheader')).toHaveAttribute('aria-sort', 'ascending');
+    const paths = screen.getByRole('columnheader').querySelectorAll('path');
+    expect(Array.from(paths).map((p) => p.classList.contains('fill-current'))).toEqual([true, false]);
+  });
+
+  it('draws both triangles muted on a sortable header not sorted', () => {
+    const sortable: VirtualColumn<Row>[] = [{ key: 'id', header: 'ID', cell: (r) => r.id, sortValue: (r) => r.id }];
+    render(<VirtualTable rows={rowsOf(2)} rowKey={rowKey} columns={sortable} onSort={vi.fn()} />);
+    const paths = screen.getByRole('columnheader').querySelectorAll('path');
+    expect(Array.from(paths).map((p) => p.classList.contains('fill-current'))).toEqual([false, false]);
+  });
+
+  describe('header', () => {
+    // A screen reader ties a cell to its column's header only within one table.
+    it('shares one table with the rows', () => {
+      renderTable(rowsOf(3));
+      const table = screen.getByRole('table');
+      expect(within(table).getByRole('columnheader', { name: 'ID' })).toBeInTheDocument();
+      expect(
+        within(table)
+          .getAllByRole('cell')
+          .map((c) => c.textContent),
+      ).toEqual(['r0', 'r1', 'r2']);
+      document.querySelectorAll('table').forEach((t) => expect(t).toHaveAttribute('role', 'none'));
+    });
+
+    it('sits above the scroller, with the scrollbar styled', () => {
+      const { scroller } = renderTable(rowsOf(3));
+      expect(scroller).toHaveClass('table-scrollbar');
+      expect(within(scroller).queryByRole('columnheader')).not.toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: 'ID' })).toBeInTheDocument();
+    });
+
+    it('leaves room for the scroller’s bar', () => {
+      // The scroller is 10px wider than its content: a classic bar's width.
+      const offset = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(410);
+      const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400);
+      renderTable(rowsOf(3));
+      const header = screen.getByRole('columnheader').closest('table')!.parentElement!.parentElement!.parentElement!;
+      expect(header.style.paddingRight).toBe('10px');
+      offset.mockRestore();
+      client.mockRestore();
+    });
+
+    it('follows the scroller sideways', () => {
+      const { scroller } = renderTable(rowsOf(3));
+      const moved = screen.getByRole('columnheader').closest('table')!.parentElement!.parentElement!;
+      scroller.scrollLeft = 120;
+      fireEvent.scroll(scroller);
+      expect(moved.style.transform).toBe('translateX(-120px)');
     });
   });
 });

@@ -17,26 +17,11 @@ import { describe, expect, it } from 'vitest';
 
 import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
 
-import { columnsForKind } from './object-columns';
-import type { ObjectColumn } from './object-columns';
+import type { ObjectColumn } from './common';
+import { columnsForKind, toneForKind } from './registry';
+import { cellText, objectWith } from './testutil';
 
 const widgetGVR = { apiVersion: 'example.com/v1', resource: 'widgets' };
-
-function objectWith(rawJSON: unknown): ClusterCachedDataObject {
-  return {
-    uid: 'u-1',
-    namespace: 'default',
-    name: 'widget-1',
-    creationTimestamp: '',
-    rawJSON,
-  } as ClusterCachedDataObject;
-}
-
-// Render a cell to text, since a column's cell may be an element (a date renders a time-ago).
-function cellText(column: ObjectColumn, o: ClusterCachedDataObject): string {
-  const { container } = render(<>{column.cell(o)}</>);
-  return container.textContent ?? '';
-}
 
 describe('columnsForKind', () => {
   it('gives an unregistered kind with no descriptors nothing', () => {
@@ -50,7 +35,12 @@ describe('columnsForKind', () => {
       { name: 'Phase', type: 'string', jsonPath: '.status.phase', priority: 0 },
     ]);
 
-    expect(columns.map((c) => c.header)).toEqual(['Ready', 'Status', 'Restarts']);
+    expect(columns.filter((c) => !c.hiddenByDefault).map((c) => c.header)).toEqual([
+      'Status',
+      'Ready',
+      'Restarts',
+      'Node',
+    ]);
   });
 
   it('builds columns from descriptors in declared order', () => {
@@ -61,20 +51,44 @@ describe('columnsForKind', () => {
 
     expect(columns.map((c) => c.header)).toEqual(['Replicas', 'Phase']);
     // Under the table's fixed layout an unsized column would split the slack with Name.
-    columns.forEach((c) => expect(c.className).toMatch(/\bw-\d+\b/));
+    columns.forEach((c) => expect(c.width).toBeGreaterThan(0));
     const o = objectWith({ spec: { replicas: 3 }, status: { phase: 'Running' } });
     expect(cellText(columns[0], o)).toBe('3');
     expect(cellText(columns[1], o)).toBe('Running');
   });
 
-  // kubectl hides these behind -o wide; a table with no wide toggle should not show them.
-  it('drops columns above priority 0', () => {
+  // The layout is fixed and a cell does not wrap, so a long value would run over the next column.
+  it('cuts a value to its column, with the whole of it on hover', () => {
+    const [column] = columnsForKind(widgetGVR, [
+      { name: 'Image', type: 'string', jsonPath: '.spec.image', priority: 0 },
+    ]);
+    const image = 'registry.example.com/team/widget-controller:v1.2.3';
+    const { container } = render(<>{column.cell(objectWith({ spec: { image } }))}</>);
+    expect(column.className).toContain('truncate');
+    expect(container.querySelector('span')).toHaveAttribute('title', image);
+  });
+
+  // A user's choices are kept against the key.
+  it('keys a column by its name, wherever the CRD lists it, and a repeated name by its count', () => {
+    const phase = { name: 'Phase', type: 'string', jsonPath: '.status.phase', priority: 0 };
+    const replicas = { name: 'Replicas', type: 'integer', jsonPath: '.spec.replicas', priority: 0 };
+    const keys = (...ds: (typeof phase)[]) => columnsForKind(widgetGVR, ds).map((c) => c.key);
+    expect(keys(phase)).toEqual(['printer:Phase']);
+    expect(keys(replicas, phase)).toEqual(['printer:Replicas', 'printer:Phase']);
+    expect(keys(phase, phase)).toEqual(['printer:Phase', 'printer:Phase#2']);
+  });
+
+  // kubectl prints these under -o wide alone.
+  it('hides columns above priority 0 until picked', () => {
     const columns = columnsForKind(widgetGVR, [
       { name: 'Phase', type: 'string', jsonPath: '.status.phase', priority: 0 },
       { name: 'Node', type: 'string', jsonPath: '.spec.nodeName', priority: 1 },
     ]);
 
-    expect(columns.map((c) => c.header)).toEqual(['Phase']);
+    expect(columns.map((c) => [c.header, Boolean(c.hiddenByDefault)])).toEqual([
+      ['Phase', false],
+      ['Node', true],
+    ]);
   });
 
   it('renders a boolean and a missing value', () => {
@@ -114,35 +128,25 @@ describe('columnsForKind', () => {
   });
 });
 
-describe('pod status', () => {
-  const status = columnsForKind({ apiVersion: 'v1', resource: 'pods' })[1];
-  const failedInit = (terminated: Record<string, unknown>) =>
-    objectWith({
-      spec: { initContainers: [{ name: 'setup' }] },
-      status: { phase: 'Pending', initContainerStatuses: [{ name: 'setup', state: { terminated } }] },
-    });
+describe('sort values', () => {
+  const sortOf = (c: ObjectColumn, o: ClusterCachedDataObject) => c.sortValue?.(o);
 
-  // kubectl's printPod: the reason, else the signal, else the exit code.
-  it('names a failed init container by its reason, signal or exit code', () => {
-    expect(cellText(status, failedInit({ reason: 'Error', exitCode: 1 }))).toBe('Init:Error');
-    expect(cellText(status, failedInit({ signal: 9, exitCode: 137 }))).toBe('Init:Signal:9');
-    expect(cellText(status, failedInit({ exitCode: 2 }))).toBe('Init:ExitCode:2');
+  it('sorts a declared column by its type, a missing value as none', () => {
+    const [count, when, phase] = columnsForKind(widgetGVR, [
+      { name: 'Count', type: 'integer', jsonPath: '.spec.count', priority: 0 },
+      { name: 'When', type: 'date', jsonPath: '.status.when', priority: 0 },
+      { name: 'Phase', type: 'string', jsonPath: '.status.ok', priority: 0 },
+    ]);
+    const o = objectWith({ spec: { count: '7' }, status: { when: '1970-01-01T00:00:01Z', ok: true } });
+    expect([count, when, phase].map((c) => sortOf(c, o))).toEqual([7, -1000, 'true']);
+    expect([count.descFirst, when.descFirst]).toEqual([true, false]);
+    expect([count, when, phase].map((c) => sortOf(c, objectWith({})))).toEqual([undefined, undefined, undefined]);
+    expect(sortOf(when, objectWith({ status: { when: 'soon' } }))).toBeUndefined();
   });
 });
 
-describe('deployment columns', () => {
-  const columns = columnsForKind({ apiVersion: 'apps/v1', resource: 'deployments' });
-
-  it('counts ready of desired, up-to-date and available replicas', () => {
-    const o = objectWith({
-      spec: { replicas: 3 },
-      status: { readyReplicas: 2, updatedReplicas: 3, availableReplicas: 1 },
-    });
-    expect(columns.map((c) => c.header)).toEqual(['Ready', 'Up-to-date', 'Available']);
-    expect(columns.map((c) => cellText(c, o))).toEqual(['2/3', '3', '1']);
-  });
-
-  it('reads a body with no status as none ready', () => {
-    expect(columns.map((c) => cellText(c, objectWith({})))).toEqual(['0/0', '0', '0']);
+describe('toneForKind', () => {
+  it('gives a kind without a status no tone', () => {
+    expect(toneForKind(widgetGVR)).toBeUndefined();
   });
 });
