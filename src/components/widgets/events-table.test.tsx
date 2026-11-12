@@ -13,18 +13,14 @@
 // limitations under the License.
 
 import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { stubLayout } from '@/test-utils';
 
-// EventsTable is pure presentation over useClusterCachedDataEvents — mock the hook to drive each
-// of the four states (no active cache, connecting, empty, live rows) directly.
-const { useClusterCachedDataEventsMock } = vi.hoisted(() => ({
-  useClusterCachedDataEventsMock: vi.fn<typeof import('@/lib/cluster-cached-data-events').useClusterCachedDataEvents>(),
-}));
-vi.mock('@/lib/cluster-cached-data-events', () => ({ useClusterCachedDataEvents: useClusterCachedDataEventsMock }));
+import { EventsTable } from './events-table';
 
-const { EventsTable } = await import('./events-table');
+// EventsTable is pure presentation over the rows its page hands it: each test draws one
+// of the four states (no active cache, connecting, empty, live rows) directly.
 
 function evt(over: Record<string, unknown> = {}) {
   return {
@@ -45,30 +41,24 @@ function evt(over: Record<string, unknown> = {}) {
 // Rows render only inside a laid-out viewport (see VirtualTable).
 stubLayout(400);
 
-beforeEach(() => vi.clearAllMocks());
-
 describe('EventsTable', () => {
   it('explains the unsynced state when there is no active cache', () => {
-    useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: false, phase: 'connecting' });
-    render(<EventsTable />);
+    render(<EventsTable events={[]} active={false} phase="connecting" />);
     expect(screen.getByText(/No synced cache/i)).toBeInTheDocument();
   });
 
   it('shows a spinner while connecting', () => {
-    useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'connecting' });
-    render(<EventsTable />);
+    render(<EventsTable events={[]} active phase="connecting" />);
     expect(screen.getByText(/Loading events/i)).toBeInTheDocument();
   });
 
   it('shows an empty state on a connected empty snapshot', () => {
-    useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'live' });
-    render(<EventsTable />);
+    render(<EventsTable events={[]} active phase="live" />);
     expect(screen.getByText('No events.')).toBeInTheDocument();
   });
 
   it('renders a row with the event fields and a kubectl-style involved reference', () => {
-    useClusterCachedDataEventsMock.mockReturnValue({ events: [evt()], active: true, phase: 'live' });
-    render(<EventsTable />);
+    render(<EventsTable events={[evt()]} active phase="live" />);
     expect(screen.getByText('Warning')).toBeInTheDocument();
     expect(screen.getByText('BackOff')).toBeInTheDocument();
     expect(screen.getByText('Pod default/my-pod')).toBeInTheDocument();
@@ -77,32 +67,30 @@ describe('EventsTable', () => {
   });
 
   it('omits the namespace from the involved reference for a name-only object', () => {
-    useClusterCachedDataEventsMock.mockReturnValue({
-      events: [evt({ involvedKind: 'Node', involvedNamespace: '', involvedName: 'node-1' })],
-      active: true,
-      phase: 'live',
-    });
-    render(<EventsTable />);
+    render(
+      <EventsTable
+        events={[evt({ involvedKind: 'Node', involvedNamespace: '', involvedName: 'node-1' })]}
+        active
+        phase="live"
+      />,
+    );
     expect(screen.getByText('Node node-1')).toBeInTheDocument();
   });
 
   it('labels an event with an empty type (open Kubernetes field) as Unknown', () => {
-    useClusterCachedDataEventsMock.mockReturnValue({ events: [evt({ type: '' })], active: true, phase: 'live' });
-    render(<EventsTable />);
+    render(<EventsTable events={[evt({ type: '' })]} active phase="live" />);
     expect(screen.getByText('Unknown')).toBeInTheDocument();
   });
 
   it('renders "—" for a null lastSeen instead of an ancient date', () => {
-    useClusterCachedDataEventsMock.mockReturnValue({ events: [evt({ lastSeen: null })], active: true, phase: 'live' });
-    render(<EventsTable />);
+    render(<EventsTable events={[evt({ lastSeen: null })]} active phase="live" />);
     // The Last Seen cell falls back to the em dash; no year-0001 date leaks through.
     expect(screen.getByText('—')).toBeInTheDocument();
     expect(screen.queryByText(/0001/)).not.toBeInTheDocument();
   });
 
   it('renders the live rows through the virtualized, fixed-layout table', () => {
-    useClusterCachedDataEventsMock.mockReturnValue({ events: [evt()], active: true, phase: 'live' });
-    render(<EventsTable />);
+    render(<EventsTable events={[evt()]} active phase="live" />);
     expect(screen.getByRole('table')).toHaveClass('table-fixed');
   });
 });

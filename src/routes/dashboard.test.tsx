@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { act, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_DASHBOARD_RESOURCE } from '@/lib/dashboard-resources';
 import type { ServerKind } from '@/lib/dashboard-resources';
@@ -40,11 +40,21 @@ vi.mock('@/routes/_app', async () => {
   };
 });
 
-// Both panels are covered by their own suites; this one is about which is picked.
-vi.mock('@/components/widgets/events-table', () => ({ EventsTable: () => <div data-testid="events-table" /> }));
+// Both panels are covered by their own suites; this one is about which is picked and
+// what each is handed.
+vi.mock('@/components/widgets/events-table', () => ({
+  EventsTable: (props: Record<string, unknown>) => <div data-testid="events-table">{JSON.stringify(props)}</div>,
+}));
 vi.mock('@/components/widgets/objects-table', () => ({
   ObjectsTable: (props: Record<string, unknown>) => <div data-testid="objects-table">{JSON.stringify(props)}</div>,
 }));
+
+const { useClusterCachedDataObjectsMock, useClusterCachedDataEventsMock } = vi.hoisted(() => ({
+  useClusterCachedDataObjectsMock: vi.fn(),
+  useClusterCachedDataEventsMock: vi.fn(),
+}));
+vi.mock('@/lib/cluster-cached-data-objects', () => ({ useClusterCachedDataObjects: useClusterCachedDataObjectsMock }));
+vi.mock('@/lib/cluster-cached-data-events', () => ({ useClusterCachedDataEvents: useClusterCachedDataEventsMock }));
 
 // The catalog draws the page again on `catalog.emit()`, as its watch does on each frame.
 const { useClusterCachedDataKindsMock, catalog } = vi.hoisted(() => {
@@ -92,6 +102,17 @@ const KIND: ServerKind = {
   count: 3,
   printerColumns: [],
 };
+
+const pod = (uid: string, namespace: string) => ({ uid, namespace, name: uid });
+const event = (uid: string, involvedNamespace: string) => ({ uid, involvedNamespace });
+
+beforeEach(() => {
+  useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: true, phase: 'live' });
+  useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'live' });
+});
+
+// What the mocked component was last handed.
+const propsOf = (testId: string) => JSON.parse(screen.getByTestId(testId).textContent ?? '{}');
 
 function render(path: string, kinds: ServerKind[] = []) {
   useClusterCachedDataKindsMock.mockReturnValue({ kinds, active: true, cacheID: 'cache-1', phase: 'live' });
@@ -244,5 +265,40 @@ describe('dashboard route', () => {
 
     await render('/dashboard?resource=');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(expected);
+  });
+
+  it('heads a kind’s page with its count and its apiVersion and short names', async () => {
+    useClusterCachedDataObjectsMock.mockReturnValue({
+      objects: [pod('a', 'x'), pod('b', 'y')],
+      active: true,
+      phase: 'live',
+    });
+    await render('/dashboard?resource=deployments', [KIND]);
+    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
+    expect(screen.getByText('apps/v1 · deploy')).toBeInTheDocument();
+  });
+
+  it('draws no count before the kind’s objects land', async () => {
+    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: true, phase: 'connecting' });
+    await render('/dashboard?resource=deployments', [KIND]);
+    expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
+  });
+
+  it('heads Events with its count, and hands the table every event', async () => {
+    useClusterCachedDataEventsMock.mockReturnValue({
+      events: [event('a', 'x'), event('b', 'y')],
+      active: true,
+      phase: 'live',
+    });
+    await render('/dashboard?resource=events');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Events');
+    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
+    expect(propsOf('events-table').events.map((e: { uid: string }) => e.uid)).toEqual(['a', 'b']);
+  });
+
+  it('draws no Events count before the events land', async () => {
+    useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'connecting' });
+    await render('/dashboard?resource=events');
+    expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
   });
 });

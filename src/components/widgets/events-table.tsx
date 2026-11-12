@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The dashboard's cached Kubernetes Events table (newest first), fed by
-// `useClusterCachedDataEvents`. Unfiltered for now. Gates on `active`/`phase` — the
-// pattern every whole-screen watch view follows.
+// The dashboard's cached Kubernetes Events table (newest first), over the rows its page
+// reads from `useClusterCachedDataEvents`. Gates on `active`/`phase` — the pattern every
+// whole-screen watch view follows.
 // See docs/adr/2026-08-09-delta-watch-protocol.md
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import ReactTimeAgo from 'react-timeago';
 
 import { VirtualTable } from '@/components/widgets/virtual-table';
 import type { VirtualColumn } from '@/components/widgets/virtual-table';
-import { useClusterCachedDataEvents } from '@/lib/cluster-cached-data-events';
 import type { ClusterCachedDataEvent } from '@/lib/cluster-cached-data-events';
+import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 
 // kubectl-style "Kind namespace/name"; any part may be absent (cluster-scoped or
 // name-only reference).
@@ -90,9 +90,13 @@ const COLUMNS: VirtualColumn<ClusterCachedDataEvent>[] = [
   },
 ];
 
-export function EventsTable() {
-  const { events, active, phase } = useClusterCachedDataEvents();
+type EventsTableProps = {
+  events: ClusterCachedDataEvent[];
+  active: boolean;
+  phase: WatchPhase;
+};
 
+export function EventsTable({ events, active, phase }: EventsTableProps) {
   // No active cache: an unsynced/paused cluster streams nothing — say so rather
   // than spin forever.
   if (!active) {
