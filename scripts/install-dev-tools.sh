@@ -196,7 +196,7 @@ main() {
     exit 1
   fi
 
-  echo "Kstack prerequisites(macOS)"
+  echo "Kstack prerequisites (macOS)"
   echo
   printf '  %-6s %-10s %s\n' Tool Version Status
   printf '  %-6s %-10s %s\n' rust "$RUST_VERSION" "$(state rust_ok)"
