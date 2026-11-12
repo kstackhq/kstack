@@ -160,6 +160,20 @@ setup_path() {
   add_path_to_profile "$profile"
 }
 
+# The installs above put the pinned tools in ~/.local/bin, but the shell this
+# script runs in may resolve `go` or `node` to a Homebrew one earlier on PATH.
+# Say so rather than let a different version win quietly.
+check_versions() {
+  local tool
+  for tool in go node pnpm; do
+    if ! "${tool}_ok"; then
+      echo "Note: the $tool on PATH is not the pinned version. Open a new terminal"
+      echo "or source your profile, and check what $tool resolves to."
+      return 1
+    fi
+  done
+}
+
 summary() {
   echo
   echo "Versions:"
@@ -206,6 +220,7 @@ main() {
   hash -r
   setup_path
   summary
+  check_versions || true
 }
 
 main
