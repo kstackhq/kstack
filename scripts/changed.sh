@@ -53,17 +53,15 @@ vitest_scope() {
   fi
   local js
   js=$(grep -E '^src/.*\.tsx?$|^lint/.*\.[jt]s$' <<<"$changed" | existing | tr '\n' ' ' || true)
-  [ -z "$js" ] || echo "related --run $js"
+  # With no related test, vitest fails unless told otherwise; coverage still
+  # lists the files' lines.
+  [ -z "$js" ] || echo "related --run --passWithNoTests $js"
 }
 
-# go_dirs <mod>: the module's packages with a changed Go file, as ./<dir>, or
-# ./... when its go.mod or go.sum changed.
+# go_dirs <mod>: the module's packages with a changed Go file, as ./<dir>. A
+# go.mod or go.sum change adds none: CI checks every package.
 go_dirs() {
-  if has "^$1/go\.(mod|sum)$"; then
-    echo ./...
-  else
-    grep -E "^$1/.*\.go$" <<<"$changed" | xargs -r -n1 dirname | sort -u | existing | sed "s|^$1|.|" || true
-  fi
+  grep -E "^$1/.*\.go$" <<<"$changed" | xargs -r -n1 dirname | sort -u | existing | sed "s|^$1|.|" || true
 }
 
 # go_files <mod> <env> <pkg...>: each Go file the packages build under the
@@ -84,7 +82,8 @@ go_files() {
 # go_changed_only <here> <there>: the packages with a changed file that <there>
 # lists and <here> does not. Each is go_files' output.
 go_changed_only() {
-  comm -13 <(echo "$1") <(echo "$2") | awk -v changed="$changed" '
-    BEGIN { n = split(changed, c, "\n"); for (i = 1; i <= n; i++) want[c[i]] = 1 }
-    $2 in want { print $1 }' | sort -u
+  # The changed list is awk's first file: BWK awk, macOS's, rejects a newline
+  # in a -v value.
+  comm -13 <(echo "$1") <(echo "$2") |
+    awk 'NR == FNR { want[$0]; next } $2 in want { print $1 }' <(echo "$changed") - | sort -u
 }

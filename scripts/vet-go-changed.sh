@@ -11,7 +11,7 @@
 # ALL_PLATFORMS=1 adds staticcheck, and checks a changed package again on each
 # other GOOS, linux/arm64 and tag that builds it from different files, as
 # make vet-go does for every package. Importers run here alone. A change to a
-# module's go.mod or go.sum checks the module whole.
+# module's go.mod or go.sum alone checks no package; CI checks them all.
 # scripts/check-sidecar-deps.sh runs when the sidecar's code or go.mod changed.
 set -euo pipefail
 cd "$(dirname "$0")/.."

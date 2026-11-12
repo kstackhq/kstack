@@ -4,13 +4,14 @@
 # aid, not the gate: CI's coverage gate merges every OS's runs, so a line only
 # another OS's tests reach is listed here.
 #
-#   Go    per module, sidecar/ and cli/, when it changed: the changed packages'
-#         tests, or every test with FULL=1 or a change to its go.mod or go.sum.
+#   Go    per module, sidecar/ and cli/, when it changed: the tests of the
+#         packages with a changed Go file, or every test with FULL=1.
 #         The sidecar's -tags debug run takes only the packages with a changed
 #         file only the tag builds, or every changed package with
 #         ALL_PLATFORMS=1.
 #   JS    the tests vitest relates to the changed files in src/ and lint/, or
-#         the whole suite when the toolchain changed.
+#         the whole suite when the toolchain changed. A changed file no test
+#         imports is listed whole.
 #   Rust  when src-tauri/ or proto/ changed, and only with RUST=1: it is the
 #         slowest of the three. Uses the cargo-llvm-cov on PATH when it is the
 #         pinned version; otherwise downloads the release's prebuilt binary

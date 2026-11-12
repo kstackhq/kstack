@@ -5,8 +5,8 @@
 #   JS    vitest's `related` on the changed files in src/ and lint/, which
 #         follows imports, so a hook's change runs the tests of the components
 #         using it. A change to the toolchain runs it all.
-#   Go    the changed packages, in sidecar/ and cli/. A change to a module's
-#         go.mod or go.sum runs that module's whole suite. tools/ runs whole.
+#   Go    the packages with a changed Go file, in sidecar/ and cli/. A go.mod
+#         or go.sum change alone runs none. tools/ runs whole.
 #   Rust  the whole suite, and only when src-tauri/ or proto/ changed: it builds
 #         the sidecar first, and is the slowest of the three.
 #
