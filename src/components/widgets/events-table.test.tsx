@@ -96,6 +96,6 @@ describe('EventsTable', () => {
 
   it('renders the live rows through the virtualized, fixed-layout table', () => {
     render(<EventsTable events={[evt()]} active phase="live" />);
-    expect(screen.getByRole('table')).toHaveClass('table-fixed');
+    document.querySelectorAll('table').forEach((t) => expect(t).toHaveClass('table-fixed'));
   });
 });

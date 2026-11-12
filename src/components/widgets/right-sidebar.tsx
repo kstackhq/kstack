@@ -19,9 +19,9 @@
 // opens under it.
 //
 // What it holds follows the mode, since the two have nothing in common: the dashboard
-// gets a chat of its own, chat mode the focused log view, or a placeholder while
-// none is set. The panel does not scroll — its contents own a scroller each, and one
-// inside another gives two scrollbars that fight.
+// gets the focused object, else a chat of its own; chat mode the focused log view, or a
+// placeholder while none is set. The panel does not scroll — its contents own a scroller
+// each, and one inside another gives two scrollbars that fight.
 import { Button } from '@kubetail/ui/elements/button';
 import { PanelRight } from 'lucide-react';
 import type { RefObject } from 'react';
@@ -29,10 +29,12 @@ import { useCallback, useRef } from 'react';
 
 import { DashboardChat } from '@/components/widgets/dashboard-chat';
 import { LogsViewPanel } from '@/components/widgets/logs-view-panel';
+import { ObjectPanel } from '@/components/widgets/object-panel';
 import { ResizeHandle } from '@/components/widgets/resize-handle';
 import type { AppMode } from '@/lib/app-mode';
 import { useLogWindows } from '@/lib/log-windows';
 import { useLogsView } from '@/lib/logs-view';
+import { useObjectView } from '@/lib/object-view';
 import { type WidthBounds, usePersistedWidth } from '@/lib/persisted-width';
 import { useRightSidebar } from '@/lib/right-sidebar';
 
@@ -88,6 +90,13 @@ function ChatPanel() {
   return <Placeholder title="Conversation" detail="What the chat is working from will appear here." />;
 }
 
+// Closing the object brings the chat back; the toggle collapses either.
+function DashboardPanel() {
+  const { object, tab, setTab, clear } = useObjectView();
+  if (object) return <ObjectPanel key={object.uid} object={object} tab={tab} onTab={setTab} onClose={clear} />;
+  return <DashboardChat />;
+}
+
 export function RightSidebarToggle() {
   const { open, toggle } = useRightSidebar();
 
@@ -131,11 +140,11 @@ export function RightSidebar({ page }: { page: RefObject<HTMLElement | null> }) 
     <aside
       ref={asideRef}
       data-testid="right-sidebar"
-      aria-label={onDashboard ? 'Dashboard chat' : 'Chat details'}
+      aria-label={onDashboard ? 'Dashboard details' : 'Chat details'}
       className="relative flex flex-col overflow-hidden bg-card"
       style={{ width, minWidth: WIDTH[mode].min }}
     >
-      {onDashboard ? <DashboardChat /> : <ChatPanel />}
+      {onDashboard ? <DashboardPanel /> : <ChatPanel />}
       {/* The panel ends at the window's right edge, so what is left of the window
           from the pointer is its width. */}
       <ResizeHandle edge="left" onResize={resize} label="Resize right sidebar" />

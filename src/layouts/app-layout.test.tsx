@@ -71,6 +71,8 @@ vi.mock('@/components/widgets/chat-nav', () => ({
   ChatNav: () => <nav aria-label="Chats" />,
 }));
 // The layout mounts the chat outbox, whose send wants a client. Nothing here sends.
+// The focused object is bound to the active cluster.
+vi.mock('@/lib/active-cluster', () => ({ useActiveCluster: () => ({ clusterID: 'c1' }) }));
 vi.mock('urql', () => ({ useMutation: () => [{}, vi.fn()] }));
 vi.mock('@/gql', () => ({ graphql: () => ({}) }));
 // The kind catalog's provider subscribes; record what it was told instead, and mark

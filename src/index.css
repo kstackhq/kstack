@@ -271,6 +271,26 @@ html.frameless.frame-maximized [data-slot='dialog-overlay'] {
   border-radius: 0;
 }
 
+/* A thin bar that always shows. Styling WebKit's bar makes it a classic one, drawn beside the
+   content rather than over it, so a table's row borders never show through it. Only the
+   -webkit- pseudo-elements: Chromium ignores them once scrollbar-width or scrollbar-color is set. */
+@utility table-scrollbar {
+  &::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  &::-webkit-scrollbar-track,
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-clip: content-box;
+    background-color: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+  }
+}
+
 /* A scroll container the user still scrolls, with no bar drawn: the log viewer's header. */
 @utility no-scrollbar {
   &::-webkit-scrollbar {

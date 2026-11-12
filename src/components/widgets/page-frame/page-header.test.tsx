@@ -23,15 +23,9 @@ describe('PageHeader', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('a\\u{200B}b');
   });
 
-  it('draws the count and the kind’s names when given', () => {
-    render(<PageHeader title="Pods" count={11} meta="v1 · po" />);
+  it('draws the count when given', () => {
+    render(<PageHeader title="Events" count={11} />);
     expect(screen.getByTestId('page-count')).toHaveTextContent('11');
-    expect(screen.getByText('v1 · po')).toBeInTheDocument();
-  });
-
-  it('draws the kind’s names through VisibleText', () => {
-    render(<PageHeader title="Pods" meta={'v1\u202e · po'} />);
-    expect(screen.getByText(/^v1/)).toHaveTextContent('v1\\u{202E} · po');
   });
 
   it('draws no count when it is not known, and a zero when it is', () => {

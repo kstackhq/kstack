@@ -34,7 +34,7 @@ function involvedRef(e: ClusterCachedDataEvent): string {
 
 // `type` is an open Kubernetes string — a cluster may omit it or supply a custom
 // value, so everything but Warning stays muted (empty renders "Unknown").
-function TypeBadge({ type }: { type: ClusterCachedDataEvent['type'] }) {
+export function TypeBadge({ type }: { type: ClusterCachedDataEvent['type'] }) {
   const warning = type === 'Warning';
   return (
     <span
@@ -52,17 +52,18 @@ const rowKey = (e: ClusterCachedDataEvent) => e.uid;
 // Object and Message truncate under the fixed layout, with the full text on hover; Message
 // takes the width the sized columns leave.
 const COLUMNS: VirtualColumn<ClusterCachedDataEvent>[] = [
-  { key: 'type', header: 'Type', className: 'w-24', cell: (e) => <TypeBadge type={e.type} /> },
+  { key: 'type', header: 'Type', width: 96, cell: (e) => <TypeBadge type={e.type} /> },
   {
     key: 'reason',
     header: 'Reason',
-    className: 'w-48',
+    width: 192,
     cell: (e) => <span className="font-medium">{e.reason || '—'}</span>,
   },
   {
     key: 'object',
     header: 'Object',
-    className: 'w-64 truncate',
+    className: 'truncate',
+    width: 256,
     cell: (e) => {
       const ref = involvedRef(e);
       return <span title={ref}>{ref || '—'}</span>;
@@ -72,17 +73,19 @@ const COLUMNS: VirtualColumn<ClusterCachedDataEvent>[] = [
     key: 'message',
     header: 'Message',
     className: 'truncate',
+    minWidth: 240,
     cell: (e) => (
       <span className="text-muted-foreground" title={e.message}>
         {e.message || '—'}
       </span>
     ),
   },
-  { key: 'count', header: 'Count', className: 'w-16 text-right tabular-nums', cell: (e) => e.count },
+  { key: 'count', header: 'Count', className: 'text-right tabular-nums', width: 64, cell: (e) => e.count },
   {
     key: 'lastSeen',
     header: 'Last Seen',
-    className: 'w-32 tabular-nums',
+    className: 'tabular-nums',
+    width: 128,
     cell: (e) => {
       // lastSeen is null when the source Event carried no timestamp.
       const lastSeenMs = e.lastSeen ? Date.parse(e.lastSeen) : Number.NaN;
