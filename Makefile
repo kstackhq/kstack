@@ -171,7 +171,7 @@ cover-ts: ## Print the webview's coverage per file
 	pnpm vitest run --mode coverage
 
 # scripts/cover-changed.sh. CI's coverage gate has the last word.
-cover-changed: ## List the changed lines this OS's tests leave uncovered (FULL=1 runs every Go test, RUST=1 measures Rust)
+cover-changed: ## List the changed lines this OS's tests leave uncovered (FULL=1 runs every Go test)
 	bash scripts/cover-changed.sh
 
 check: lint vet test ## Run every lint, vet and test

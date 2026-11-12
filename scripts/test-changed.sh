@@ -11,7 +11,7 @@
 #         the sidecar first, and is the slowest of the three.
 #
 # MEASURED=1 skips the suites scripts/cover-changed.sh runs, since its coverage
-# runs test them: JS, the sidecar's and the CLI's Go, and Rust under RUST=1.
+# runs test them: JS, the sidecar's and the CLI's Go, and Rust.
 # scripts/check-changed.sh runs both.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -39,6 +39,6 @@ if has '^tools/'; then
   (cd tools && go test ./...)
 fi
 
-if has '^(src-tauri|proto)/' && ! { [ "${MEASURED:-}" = 1 ] && [ "${RUST:-}" = 1 ]; }; then
+if has '^(src-tauri|proto)/' && [ "${MEASURED:-}" != 1 ]; then
   make test-rust
 fi

@@ -12,10 +12,10 @@
 #   JS    the tests vitest relates to the changed files in src/ and lint/, or
 #         the whole suite when the toolchain changed. A changed file no test
 #         imports is listed whole.
-#   Rust  when src-tauri/ or proto/ changed, and only with RUST=1: it is the
-#         slowest of the three. Uses the cargo-llvm-cov on PATH when it is the
-#         pinned version; otherwise downloads the release's prebuilt binary
-#         into the user cache, checked against its SHA-256.
+#   Rust  the whole suite, when src-tauri/ or proto/ changed. Uses the
+#         cargo-llvm-cov on PATH when it is the pinned version; otherwise
+#         downloads the release's prebuilt binary into the user cache, checked
+#         against its SHA-256.
 #
 # The Go and JS runs go side by side; Rust follows them.
 #
@@ -185,7 +185,7 @@ fetch_llvm_cov() {
   PATH=$bin:$PATH
 }
 
-if [ "${RUST:-}" = 1 ] && has '^(src-tauri|proto)/'; then
+if has '^(src-tauri|proto)/'; then
   if [ "$(cd src-tauri && cargo llvm-cov --version 2>/dev/null || true)" != "cargo-llvm-cov $llvm_cov_version" ]; then
     fetch_llvm_cov
   fi
