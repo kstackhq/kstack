@@ -22,9 +22,11 @@ import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
 import { cn } from '@kubetail/ui/lib/utils';
 import { useEffect, useMemo, useState } from 'react';
 
+import { ColumnPicker } from '@/components/widgets/column-picker';
 import { Age, ageSortValue, columnsForKind, toneForKind } from '@/components/widgets/object-columns';
 import { HEALTH_TONE } from '@/components/widgets/status-pill';
 import type { StatusTone } from '@/components/widgets/status-pill';
+import { SearchBox } from '@/components/widgets/text-entry';
 import { TALL_ROW, VirtualTable } from '@/components/widgets/virtual-table';
 import type { TableSort, VirtualColumn } from '@/components/widgets/virtual-table';
 import { VisibleText } from '@/components/widgets/visible-text';
@@ -32,8 +34,10 @@ import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects'
 import { TONE } from '@/lib/cluster-health';
 import type { PrinterColumn } from '@/lib/dashboard-resources';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import { matchesFilter } from '@/lib/object-filter';
 import { ownerOf } from '@/lib/object-owner';
 import { sortRows } from '@/lib/sort-rows';
+import { arrange, useTableColumns } from '@/lib/table-columns';
 
 type ObjectsTableProps = {
   apiVersion: string;
@@ -113,6 +117,11 @@ const HEADER = 'bg-muted [&_th]:h-9 [&_th]:text-xs [&_th]:text-muted-foreground'
 const CELLS =
   '[&_td]:px-1.5 [&_th]:px-1.5 [&_td:first-child]:pl-3 [&_th:first-child]:pl-3 [&_td:last-child]:pr-3 [&_th:last-child]:pr-3';
 
+// Name is never hidden: it is the row.
+function isShown(c: VirtualColumn<ClusterCachedDataObject>, choices: Readonly<Record<string, boolean>>): boolean {
+  return c === NAME_COLUMN || (choices[c.key] ?? !c.hiddenByDefault);
+}
+
 // The status tabs, in order, for a kind whose objects have a tone.
 type Bucket = 'all' | StatusTone;
 const BUCKETS: readonly Bucket[] = ['all', 'ok', 'failing', 'pending'];
@@ -134,28 +143,42 @@ export function ObjectsTable({
   const showNamespace = namespaced && namespace === undefined;
   // Kind-specific columns between Name and Age; [] when neither the registry nor the kind
   // itself declares any. Memoized so the sort below reruns only on new rows or a new sort.
-  const columns = useMemo(
-    () =>
-      [
-        ...(showNamespace ? [NAMESPACE_COLUMN] : []),
-        NAME_COLUMN,
-        ...columnsForKind({ apiVersion, resource }, printerColumns),
-        AGE_COLUMN,
-      ].filter((c) => !c.hiddenByDefault),
+  const defaultColumns = useMemo(
+    () => [
+      ...(showNamespace ? [NAMESPACE_COLUMN] : []),
+      NAME_COLUMN,
+      ...columnsForKind({ apiVersion, resource }, printerColumns),
+      AGE_COLUMN,
+    ],
     [showNamespace, apiVersion, resource, printerColumns],
   );
+  // The user's order and choices, else each column's default.
+  const { choices, changed, setShown, setOrder, reset } = useTableColumns({ apiVersion, resource });
+  const allColumns = useMemo(() => arrange(defaultColumns, choices.order), [defaultColumns, choices.order]);
+  const columns = useMemo(() => allColumns.filter((c) => isShown(c, choices.shown)), [allColumns, choices.shown]);
+  const namespaceShown = showNamespace && isShown(NAMESPACE_COLUMN, choices.shown);
+
+  // The text filter narrows the rows first; the tabs count and bucket what it leaves.
+  const [query, setQuery] = useState('');
+  // It matches the namespace only while the column shows it: under a scope every row
+  // shares one, and matching it would keep them all.
+  const matched = useMemo(
+    () => objects.filter((o) => matchesFilter(o, query, { namespace: namespaceShown })),
+    [objects, query, namespaceShown],
+  );
+
   const toneOf = toneForKind({ apiVersion, resource });
   const [bucket, setBucket] = useState<Bucket>('all');
   // Each row's tone is read once, for both the counts and the tab's rows.
-  const tones = useMemo(() => (toneOf ? objects.map(toneOf) : undefined), [objects, toneOf]);
+  const tones = useMemo(() => (toneOf ? matched.map(toneOf) : undefined), [matched, toneOf]);
   const counts = useMemo(() => {
-    const n: Record<Bucket, number> = { all: objects.length, ok: 0, failing: 0, pending: 0 };
+    const n: Record<Bucket, number> = { all: matched.length, ok: 0, failing: 0, pending: 0 };
     if (tones) for (const t of tones) n[t] += 1;
     return n;
-  }, [objects, tones]);
+  }, [matched, tones]);
   const inBucket = useMemo(
-    () => (tones && bucket !== 'all' ? objects.filter((_, i) => tones[i] === bucket) : objects),
-    [objects, tones, bucket],
+    () => (tones && bucket !== 'all' ? matched.filter((_, i) => tones[i] === bucket) : matched),
+    [matched, tones, bucket],
   );
 
   // Unsorted is the watch's order: namespace, then name.
@@ -218,7 +241,7 @@ export function ObjectsTable({
     );
   }
 
-  const sortedBy = sortColumn?.header ?? (showNamespace ? 'Namespace' : 'Name');
+  const sortedBy = sortColumn?.header ?? (namespaceShown ? 'Namespace' : 'Name');
   const plural = label.toLowerCase();
   return (
     <>
@@ -242,7 +265,33 @@ export function ObjectsTable({
           </TabsList>
         </Tabs>
       )}
-      {/* A tab that leaves no row draws the table empty, its footer counting zero. */}
+      {/* The table's own controls, on the row over it: the filter left, the picker right. */}
+      <div className="mb-3 flex items-center gap-2">
+        <SearchBox
+          aria-label={`Filter ${plural}`}
+          placeholder="Search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setQuery('');
+          }}
+        />
+        <div className="ml-auto">
+          <ColumnPicker
+            columns={allColumns.map((c) => ({
+              key: c.key,
+              header: c.header,
+              shown: isShown(c, choices.shown),
+              hideable: c !== NAME_COLUMN,
+            }))}
+            onToggle={setShown}
+            onReorder={setOrder}
+            onReset={reset}
+            changed={changed}
+          />
+        </div>
+      </div>
+      {/* A tab or a query that leaves no row draws the table empty, its footer counting zero. */}
       <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm', CELLS)}>
         <VirtualTable
           rows={rows}

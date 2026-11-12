@@ -13,10 +13,11 @@
 // limitations under the License.
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
-import { stubLayout } from '@/test-utils';
+import { expectCodeText, stubLayout } from '@/test-utils';
 
 import { ObjectsTable } from './objects-table';
 
@@ -417,6 +418,170 @@ describe('ObjectsTable', () => {
     it('draws no tabs for a kind without a status', () => {
       render(<ObjectsTable {...WIDGETS} {...live(obj({ kind: 'Widget' }))} />);
       expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('text filter', () => {
+    const labelled = (uid: string, labels: Record<string, string>, nodeName: string) =>
+      obj({ uid, name: uid, rawJSON: { metadata: { labels }, spec: { nodeName }, status: { phase: 'Pending' } } });
+    const pods = [
+      labelled('web-1', { app: 'web' }, 'pool-a'),
+      labelled('web-2', { app: 'web' }, 'pool-b'),
+      labelled('db-0', { app: 'db' }, 'pool-a'),
+    ];
+    const filter = (text: string) =>
+      fireEvent.change(screen.getByRole('searchbox', { name: /^Filter/ }), { target: { value: text } });
+
+    it('is a code-text box', () => {
+      render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      expectCodeText(screen.getByRole('searchbox', { name: 'Filter pods' }));
+    });
+
+    it('narrows the rows by name, label or node, and the footer counts them', () => {
+      render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      filter('WEB-');
+      expect(screen.getByText('Showing 2 of 3 pods')).toBeInTheDocument();
+      filter('app=db');
+      expect(screen.getByText('Showing 1 of 3 pods')).toBeInTheDocument();
+      filter('pool-a');
+      expect(screen.getByText('Showing 2 of 3 pods')).toBeInTheDocument();
+    });
+
+    it('counts the tabs over what it leaves', () => {
+      render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      filter('db');
+      expect(screen.getByRole('tab', { name: /^All/ })).toHaveTextContent('All1');
+      expect(screen.getByRole('tab', { name: /^Pending/ })).toHaveTextContent('Pending1');
+    });
+
+    it('draws an empty table when nothing matches', () => {
+      render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      filter('nothing');
+      expect(screen.getByText('Showing 0 of 3 pods')).toBeInTheDocument();
+      expect(screen.queryByText(/^No /)).not.toBeInTheDocument();
+    });
+
+    it('clears on Escape', () => {
+      render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      filter('db');
+      fireEvent.keyDown(screen.getByRole('searchbox'), { key: 'Escape' });
+      expect(screen.getByRole('searchbox')).toHaveValue('');
+      expect(screen.getByText('Showing 3 of 3 pods')).toBeInTheDocument();
+      fireEvent.keyDown(screen.getByRole('searchbox'), { key: 'a' });
+      expect(screen.getByText('Showing 3 of 3 pods')).toBeInTheDocument();
+    });
+
+    it('sits under the tabs', () => {
+      render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      const box = screen.getByRole('searchbox');
+      expect(box.compareDocumentPosition(screen.getByRole('tablist')) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    });
+
+    it('matches the namespace under all namespaces, and not under a scope', () => {
+      const shop = [obj({ uid: 'a', name: 'a', namespace: 'shop' }), obj({ uid: 'b', name: 'b', namespace: 'blog' })];
+      const { rerender } = render(<ObjectsTable {...PODS} {...live(...shop)} />);
+      filter('shop');
+      expect(screen.getByText('Showing 1 of 2 pods')).toBeInTheDocument();
+      rerender(<ObjectsTable {...PODS} {...live(shop[0])} namespace="shop" />);
+      expect(screen.getByText('Showing 0 of 1 pods')).toBeInTheDocument();
+    });
+
+    it('filters a kind without tabs', () => {
+      render(<ObjectsTable {...WIDGETS} {...live(obj({ uid: 'a', name: 'a' }), obj({ uid: 'b', name: 'b' }))} />);
+      filter('b');
+      expect(screen.getByText('Showing 1 of 2 widgets')).toBeInTheDocument();
+    });
+  });
+
+  describe('column picker', () => {
+    afterEach(() => localStorage.clear());
+    const headers = () => screen.getAllByRole('columnheader').map((h) => h.textContent);
+    const toggle = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+      await user.click(screen.getByRole('button', { name: 'Columns' }));
+      await user.click(await screen.findByRole('checkbox', { name }));
+      await user.keyboard('{Escape}');
+    };
+
+    it('offers every column in the table’s order, and hides a picked one for the kind', async () => {
+      const user = userEvent.setup();
+      const { unmount } = render(<ObjectsTable {...PODS} {...live(obj())} />);
+      await user.click(screen.getByRole('button', { name: 'Columns' }));
+      const boxes = await screen.findAllByRole('checkbox');
+      expect(boxes.map((c) => c.closest('label')?.textContent)).toEqual([
+        'Namespace',
+        'Name',
+        'Status',
+        'Ready',
+        'Restarts',
+        'Node',
+        'IP',
+        'Host IP',
+        'Containers',
+        'Images',
+        'QoS class',
+        'Service account',
+        'Priority class',
+        'Controlled by',
+        'Started',
+        'Age',
+      ]);
+      // The extra columns start unticked.
+      expect(boxes.filter((b) => b.getAttribute('aria-checked') === 'true')).toHaveLength(7);
+      await user.keyboard('{Escape}');
+      await toggle(user, 'Node');
+      expect(headers()).not.toContain('Node');
+      unmount();
+
+      // Kept for the kind, and for that kind alone.
+      render(<ObjectsTable {...PODS} {...live(obj())} />);
+      expect(headers()).not.toContain('Node');
+    });
+
+    it('draws the columns in the kept order, and Reset brings back the defaults', async () => {
+      localStorage.setItem(
+        'kstack:table-columns:v1/pods',
+        JSON.stringify({ shown: { IP: true }, order: ['age', 'name', 'namespace'] }),
+      );
+      const user = userEvent.setup();
+      render(<ObjectsTable {...PODS} {...live(obj())} />);
+      expect(headers()).toEqual(['Age', 'Name', 'Status', 'Ready', 'Restarts', 'Node', 'IP', 'Namespace']);
+
+      await user.click(screen.getByRole('button', { name: 'Columns' }));
+      await user.click(await screen.findByRole('button', { name: 'Reset' }));
+      expect(headers()).toEqual(['Namespace', 'Name', 'Status', 'Ready', 'Restarts', 'Node', 'Age']);
+      expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled();
+    });
+
+    it('shows a column hidden by default once picked', async () => {
+      const user = userEvent.setup();
+      render(<ObjectsTable {...PODS} {...live(obj({ rawJSON: { status: { podIP: '10.0.0.5' } } }))} />);
+      expect(headers()).not.toContain('IP');
+      await toggle(user, 'IP');
+      expect(headers()).toContain('IP');
+      expect(screen.getByText('10.0.0.5')).toBeInTheDocument();
+    });
+
+    it('sits on the search box’s row, under the status tabs', () => {
+      render(<ObjectsTable {...PODS} {...live(obj())} />);
+      const row = screen.getByRole('searchbox').closest('div.mb-3')!;
+      expect(within(row as HTMLElement).getByRole('button', { name: 'Columns' })).toBeInTheDocument();
+      expect(within(row as HTMLElement).queryByRole('tablist')).not.toBeInTheDocument();
+    });
+
+    it('matches the namespace only while its column shows', async () => {
+      const user = userEvent.setup();
+      render(<ObjectsTable {...PODS} {...live(obj({ namespace: 'shop' }))} />);
+      await toggle(user, 'Namespace');
+      fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'shop' } });
+      expect(screen.getByText('Showing 0 of 1 pods')).toBeInTheDocument();
+    });
+
+    it('reads a sort by a hidden column as unsorted', async () => {
+      const user = userEvent.setup();
+      render(<ObjectsTable {...PODS} {...live(obj())} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Age' }));
+      await toggle(user, 'Age');
+      expect(screen.getByText(/^Sorted by/)).toHaveTextContent('Sorted by namespace');
     });
   });
 });

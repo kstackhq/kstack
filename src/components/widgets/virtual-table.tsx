@@ -55,7 +55,7 @@ export type VirtualColumn<T> = {
   // go under it.
   width?: number;
   minWidth?: number;
-  // Left out of the table by default.
+  // Left out until the user picks it in the column picker.
   hiddenByDefault?: boolean;
   // Present when the column sorts: its header becomes a button.
   sortValue?: (row: T) => SortValue;

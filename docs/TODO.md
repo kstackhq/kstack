@@ -721,6 +721,20 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   filter by the set, and the sidebar's *Namespace* heading names the count when there are more
   than one.
 
+- **One localStorage hook for JSON chrome.** `useTableColumns` (`src/lib/table-columns.ts`) and
+  `useLogViewerColumns` (`components/widgets/log-viewer/columns.ts`) each carry the same
+  read-with-fallback and save-in-try/catch code; `usePersistedFlag` and `usePersistedWidth` are two
+  more copies. They already differ: `usePersistedFlag` re-reads when its key changes,
+  `useTableColumns` reads once per mount, so it shows the right kind's columns only because
+  `dashboard.tsx` keys `ObjectsTable` on the kind. **Fix:** a `usePersistedJson(key, parse,
+  fallback)` beside `persisted-flag.ts` that re-reads on a key change, under both column hooks.
+
+- **Two column pickers.** The log viewer's toolbar (`log-viewer/toolbar.tsx`) has its own Columns
+  popover of checkbox rows; `ColumnPicker` (`components/widgets/column-picker.tsx`) does the same
+  and adds reordering and *Reset*. Their triggers already differ (a ghost icon button against an
+  outlined one). **Fix:** the log viewer takes `ColumnPicker`, with reordering optional or on, or
+  the two share one checkbox row. Whether the log viewer gains reordering is a product call.
+
 - **A pod's tone has names of its own.** `status-pill.tsx`'s `StatusTone` (`ok`, `pending`,
   `failing`) maps one-to-one onto cluster health's `Tone` (`ok`, `attention`, `error`) through
   `HEALTH_TONE`, so callers translate (`TONE[HEALTH_TONE[b]].text` in `objects-table.tsx`), and the

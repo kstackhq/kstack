@@ -88,6 +88,7 @@ cluster no longer has.
 | Sign-in token | OS keyring, service `Kstack` | `services/auth` | disposable (sign in again) | none | a renamed entry deletes the old one | unknown fields ignored | — |
 | Pane state | `localStorage` `kstack:sidebar-open`, `kstack:sidebar-width`, the right sidebar's per-mode open and width, `kstack:log-viewer-wrap`, the dashboard nav's `kstack:dashboard-nav-open:<section>/<group>` | `src/lib/persisted-flag.ts`, `persisted-width.ts` | disposable | none | a bad value reads as the default | — | `persisted-*.test.ts` |
 | Log-viewer columns | `localStorage` `kstack:log-viewer-columns` | `log-viewer/columns.ts` | disposable | none | unknown names dropped, bad JSON reads as the default | — | `columns.test.ts` |
+| Table columns | `localStorage` `kstack:table-columns:<apiVersion>/<resource>`, one per kind: `shown` (column key → shown) and `order` (column keys) | `src/lib/table-columns.ts` | disposable | none | a part of the wrong shape reads as no choices; an unknown key is ignored | — | `table-columns.test.tsx` |
 
 ## Not persisted formats
 

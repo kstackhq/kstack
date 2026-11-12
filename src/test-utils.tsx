@@ -335,10 +335,11 @@ export function stubLayout(clientHeight: number) {
   vi.stubGlobal(
     'ResizeObserver',
     class {
-      constructor(private readonly cb: () => void) {}
+      constructor(private readonly cb: (entries: unknown[], observer: unknown) => void) {}
 
       observe() {
-        this.cb();
+        // With a real callback's arguments: a popover's positioning reads the entries.
+        this.cb([], this);
       }
 
       disconnect() {}
