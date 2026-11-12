@@ -27,6 +27,7 @@ export PATH="$BIN:$HOME/.cargo/bin:$PATH"
 
 has() { command -v "$1" >/dev/null; }
 path_has() { case ":$1:" in *":$2:"*) return 0 ;; esac; return 1; }
+state() { if "$1" >/dev/null 2>&1; then echo installed; else echo "not installed"; fi; }
 
 rust_ok() {
   has rustup || return 1
@@ -194,7 +195,6 @@ main() {
     echo "Install the Xcode Command Line Tools first: xcode-select --install" >&2
     exit 1
   fi
-  state() { if "$1" >/dev/null 2>&1; then echo installed; else echo "not installed"; fi; }
 
   echo "Kstack prerequisites(macOS)"
   echo
