@@ -2,12 +2,25 @@
 
 set -euo pipefail
 
-RUST_VERSION=1.98.1
-GO_VERSION=1.26.10
-NODE_MAJOR=24
-PNPM_VERSION=12.4.1
-
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+# Read the pins from the files that already enforce them, so a bump there
+# lands here too. The Go parse matches scripts/sandbox-dev-setup.sh.
+rust_pin() { sed -n 's/^channel = "\(.*\)"/\1/p' "$REPO/src-tauri/rust-toolchain.toml"; }
+go_pin() {
+  awk '
+    /^  go-version:/ { in_go = 1; next }
+    /^  [^ ]/        { in_go = 0 }
+    in_go && /^    default:/ { gsub(/[^0-9.]/, "", $2); print $2; exit }
+  ' "$REPO/.github/actions/setup-environment/action.yml"
+}
+pnpm_pin() { sed -n 's/.*"packageManager": "pnpm@\([^"]*\)".*/\1/p' "$REPO/package.json"; }
+
+RUST_VERSION=$(rust_pin)
+GO_VERSION=$(go_pin)
+NODE_MAJOR=24
+PNPM_VERSION=$(pnpm_pin)
+
 BIN=$HOME/.local/bin
 ORIG_PATH=$PATH
 export PATH="$BIN:$HOME/.cargo/bin:$PATH"
