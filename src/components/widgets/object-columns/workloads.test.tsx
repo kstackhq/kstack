@@ -126,6 +126,10 @@ describe('deployment columns', () => {
       // Every new pod is up, and an old one has yet to go.
       [at({ replicas: 2 }, { ...rolled, replicas: 3, availableReplicas: 3 }), 'Progressing', 'pending'],
       [at({ replicas: 2 }), 'Progressing', 'pending'],
+      [at({}), 'Scaled to zero', 'ok'],
+      [at({ replicas: 2 }, { updatedReplicas: 2, availableReplicas: 2 }), 'Available', 'ok'],
+      [at({ replicas: 2 }, { updatedReplicas: 2 }), 'Progressing', 'pending'],
+      [{ spec: { replicas: 2 } }, 'Progressing', 'pending'],
     ];
     for (const [raw, label, tone] of cases) {
       expect(d.cell('Status', raw)).toBe(label);
@@ -198,6 +202,10 @@ describe('replicaset and replicationcontroller columns', () => {
     const raw = { spec: { replicas: 2 }, status: { conditions: [{ type: 'ReplicaFailure', status: 'True' }] } };
     expect(rs.cell('Status', raw)).toBe('Failed');
     expect(rc.tone(raw)).toBe('failing');
+  });
+
+  it('reads one with no desired count as scaled to zero', () => {
+    expect(rs.tone({})).toBe('ok');
   });
 
   it('reads a replicaset’s selector, and a controller’s plain map', () => {
@@ -277,6 +285,7 @@ describe('job columns', () => {
   it('counts active and failed pods', () => {
     expect(j.cell('Active', { status: { active: 2 } })).toBe('2');
     expect(j.cell('Failed', {})).toBe('0');
+    expect(j.cell('Active', {})).toBe('0');
   });
 });
 

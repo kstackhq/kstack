@@ -58,6 +58,8 @@ describe('resource claim templates', () => {
   it('draws the classes and count of its requests', () => {
     const columns = columnsForKind(resource('resourceclaimtemplates'));
     expect(texts(columns, { spec: { spec: { devices: { requests } } } })).toEqual(['gpu, big-gpu, small-gpu', '3']);
+    const unnamed = [{ exactly: {} }, { firstAvailable: [{}] }];
+    expect(texts(columns, { spec: { spec: { devices: { requests: unnamed } } } })[1]).toBe('2');
     expect(texts(columns, {})).toEqual(['—', '0']);
   });
 });

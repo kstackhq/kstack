@@ -41,17 +41,16 @@ function hastToReact(nodes: HastNode[]): ReactNode[] {
       // oxlint-disable-next-line react/no-array-index-key -- a tree's children are cut afresh and never reorder
       return <VisibleText key={i} text={node.value} />;
     }
-    if (node.type === 'element') {
-      const className = node.properties.className;
-      return (
-        // oxlint-disable-next-line react/no-array-index-key -- a tree's children are cut afresh and never reorder
-        <span key={i} className={Array.isArray(className) ? className.join(' ') : undefined}>
-          {hastToReact(node.children)}
-        </span>
-      );
-    }
     /* v8 ignore next -- highlight.js emits text and spans alone */
-    return null;
+    if (node.type !== 'element') return null;
+    // highlight.js gives every span its classes as a list.
+    const className = node.properties.className as string[];
+    return (
+      // oxlint-disable-next-line react/no-array-index-key -- a tree's children are cut afresh and never reorder
+      <span key={i} className={className.join(' ')}>
+        {hastToReact(node.children)}
+      </span>
+    );
   });
 }
 

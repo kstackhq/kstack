@@ -35,6 +35,58 @@ describe('pod status', () => {
     expect(cellText(status, failedInit({ reason: 'Error', exitCode: 1 }))).toBe('Init:Error');
     expect(cellText(status, failedInit({ signal: 9, exitCode: 137 }))).toBe('Init:Signal:9');
     expect(cellText(status, failedInit({ exitCode: 2 }))).toBe('Init:ExitCode:2');
+    expect(cellText(status, failedInit({}))).toBe('Init:ExitCode:0');
+  });
+
+  it('counts init containers off their statuses when the spec lists none', () => {
+    const pod = objectWith({ status: { phase: 'Pending', initContainerStatuses: [{ name: 'setup', state: {} }] } });
+    expect(cellText(status, pod)).toBe('Init:0/1');
+  });
+
+  it('reads past a native sidecar once it has started', () => {
+    const pod = objectWith({
+      spec: { initContainers: [{ name: 'proxy', restartPolicy: 'Always' }] },
+      status: {
+        phase: 'Running',
+        initContainerStatuses: [{ name: 'proxy', started: true, state: { running: {} } }],
+        containerStatuses: [{ name: 'web', ready: true, state: { running: {} } }],
+      },
+    });
+    expect(cellText(status, pod)).toBe('Running');
+  });
+
+  const ended = (terminated: Record<string, unknown>) =>
+    objectWith({ status: { phase: 'Running', containerStatuses: [{ name: 'web', state: { terminated } }] } });
+
+  it('names a terminated container by its reason, signal or exit code', () => {
+    expect(cellText(status, ended({ reason: 'OOMKilled', exitCode: 137 }))).toBe('OOMKilled');
+    expect(cellText(status, ended({ signal: 9 }))).toBe('Signal:9');
+    expect(cellText(status, ended({ exitCode: 2 }))).toBe('ExitCode:2');
+    expect(cellText(status, ended({}))).toBe('ExitCode:0');
+  });
+
+  // A container that restarted and recovered still carries its last termination.
+  it('reads a stale Completed beside a running container by the pod’s readiness', () => {
+    const recovered = (ready: boolean) =>
+      objectWith({
+        status: {
+          phase: 'Running',
+          conditions: [{ type: 'Ready', status: ready ? 'True' : 'False' }],
+          containerStatuses: [
+            { name: 'job', state: { terminated: { reason: 'Completed', exitCode: 0 } } },
+            { name: 'web', ready: true, state: { running: {} } },
+          ],
+        },
+      });
+    expect(cellText(status, recovered(true))).toBe('Running');
+    expect(cellText(status, recovered(false))).toBe('NotReady');
+  });
+
+  it('reads a deleted pod as terminating, unless its node is lost or it has finished', () => {
+    const deleted = (st: Record<string, unknown>) => objectWith({ metadata: { deletionTimestamp: 'now' }, status: st });
+    expect(cellText(status, deleted({ phase: 'Running' }))).toBe('Terminating');
+    expect(cellText(status, deleted({ phase: 'Running', reason: 'NodeLost' }))).toBe('Unknown');
+    expect(cellText(status, deleted({ phase: 'Succeeded' }))).toBe('Succeeded');
   });
 });
 

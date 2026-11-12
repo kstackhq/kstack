@@ -32,7 +32,7 @@ export function objectWith(rawJSON: unknown): ClusterCachedDataObject {
 // Render a cell to text, since a column's cell may be an element (a date renders a time-ago).
 export function cellText(column: ObjectColumn, o: ClusterCachedDataObject): string {
   const { container } = render(<>{column.cell(o)}</>);
-  return container.textContent ?? '';
+  return container.textContent;
 }
 
 // The tone a column's status pill draws, if it draws one.
