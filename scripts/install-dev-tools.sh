@@ -63,15 +63,23 @@ install_rust() {
 install_go() {
   if go_ok; then return 0; fi
   echo "→ Installing Go $GO_VERSION"
-  local arch file dest
+  local arch file dest sha
   case "$(uname -m)" in
     arm64) arch=arm64 ;;
     x86_64) arch=amd64 ;;
     *) echo "Go: unsupported architecture $(uname -m)" >&2; exit 1 ;;
   esac
   file="go$GO_VERSION.darwin-$arch.tar.gz"
+  # Each file entry in go.dev's JSON carries its sha256; check the download
+  # against it, as Node's SHASUMS256.txt is checked below.
+  sha=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' |
+    perl -ne 'if (/"filename": "'"$file"'"/ .. /\}/) { /"sha256": "([0-9a-f]+)"/ && print "$1\n"; }')
+  [ -n "$sha" ] || { echo "Go: no checksum listed for $file" >&2; exit 1; }
   dest="$HOME/.local/share/kstack/go/$GO_VERSION"
   curl -fsSL "https://go.dev/dl/$file" -o "$TMP/$file"
+  [ "$(shasum -a 256 "$TMP/$file" | cut -d' ' -f1)" = "$sha" ] || {
+    echo "Go: checksum mismatch for $file" >&2; exit 1;
+  }
   rm -rf "$dest"
   mkdir -p "$dest"
   tar -xzf "$TMP/$file" -C "$dest" --strip-components=1
