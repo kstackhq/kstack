@@ -750,6 +750,22 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **Swap the code-block highlighter to Shiki.** `src/lib/highlight.ts` runs highlight.js through `lowlight`: regex grammars that visibly misfire on nested YAML, template strings and JSX, and a hand palette in `markdown.css` rather than an editor's theme. Shiki is VS Code's own TextMate grammars and themes, so a manifest highlights the way it does in the editor. The render path stays as it is — `codeToHast` yields the same hast `hast-util-to-jsx-runtime` already renders, so no HTML string enters, and the change is contained to `highlight.ts` plus the `Code` component in `markdown.tsx`. **Weigh:** the engine is Oniguruma compiled to WASM (~600 KB) or the pure-JS `@shikijs/engine-javascript` (lighter, weaker grammar compatibility), and grammars run 2–5× highlight.js's — a heavier baseline than today's 22 KB even lazily loaded; tokenizing is async-only, so a growing block re-highlights through a promise rather than the synchronous `highlight` call; and dual-scheme colours become `themes: { light, dark }` emitting both as CSS variables per token, which replaces the `--hl-*` palette rather than reusing it. **Trigger:** the first highlighting misfire someone notices on a manifest, or an editor-matching theme being wanted.
 
+- **The new dashboard is unfinished** ([#881](https://github.com/kstackhq/kstack/issues/881), from
+  the *K8s Dashboard (imported)* page of the
+  [Kstack Figma file](https://www.figma.com/design/TeS8ZaScKc01RDfYJ06A8N/Kstack)). The sidebar,
+  the namespace scope, the page header and the kind tables are built. Still to build:
+  - **A pod detail page** (`Pod detail / Overview`, `Pod detail / Logs`): a route for one object,
+    with a header (status, owner, node, IP, age, restarts) and Overview, Logs, Events and YAML
+    tabs. The route never builds or parses an `ObjectID`.
+  - **The Overview page** (`Overview (all namespaces)`): today it reads "coming soon". Build the
+    tiles existing data fills: *Needs attention*, *Nodes ready*, *Pods running*, and *Namespaces*
+    with workload counts.
+  - **The data gaps** not filed above (*Namespaced watches* and *A health verdict* are, under
+    *Sidecar — cluster service*): object search across kinds, for the sidebar's search; usage
+    metrics, for CPU and Memory columns; resource requests across the cluster; cluster facts
+    (Kubernetes version, provider, region, upgrades); external sources (Prometheus alerts, Argo CD
+    syncs). A view that meets a gap draws without it, never with placeholder numbers.
+
 - **No keyboard jump to a dashboard page.** The mockups' kind switcher (`Kind switcher menu
   (open)`) jumped to any kind from the keyboard; the dashboard leaves it out, since its rows are
   the sidebar's. A window-wide jump (⌘K) over the sidebar's pages and kinds would bring the
@@ -757,7 +773,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   search and keys.
 
 - **The dashboard's namespace scope holds one namespace.** The sidebar's namespace picker picks one
-  namespace or all of them (`docs/specs/dashboard/2-scope-and-page-frame.md`). Let it pick
+  namespace or all of them ([ADR](adr/2026-11-12-the-namespace-scope-is-a-search-param.md)). Let it pick
   several: the `namespace` param becomes a list, the picker's menu gains checkboxes, the tables
   filter by the set, and the sidebar's *Namespace* heading names the count when there are more
   than one.
