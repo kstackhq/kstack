@@ -22,9 +22,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Same seams as cluster-cached-data-events.test.tsx: an accumulator stand-in for
 // `useWatchSubscription` that captures the reducer, the real `applyChange`, and the
 // active-cluster join stubbed to name a cache.
-const { useWatchSubscriptionMock, useActiveClusterMock } = vi.hoisted(() => ({
+const { useWatchSubscriptionMock, useActiveClusterMock, useNamespaceScopeMock } = vi.hoisted(() => ({
   useWatchSubscriptionMock: vi.fn(),
   useActiveClusterMock: vi.fn(),
+  useNamespaceScopeMock: vi.fn(),
 }));
 
 vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
@@ -38,6 +39,7 @@ vi.mock('@/lib/clusters', () => ({
   },
 }));
 vi.mock('@/lib/active-cluster', () => ({ useActiveCluster: useActiveClusterMock }));
+vi.mock('@/lib/namespace-scope', () => ({ useNamespaceScope: useNamespaceScopeMock }));
 
 const { ClusterCachedDataKindsProvider, useClusterCachedDataKinds } = await import('./cluster-cached-data-kinds');
 
@@ -71,17 +73,23 @@ const resources = (kinds: { resource: string }[]) => kinds.map((k) => k.resource
 // urql accumulator stand-in — folds a delta through the reducer captured on the last
 // render, exactly as urql's live handler would.
 let acc: unknown;
-let lastArgs: { variables?: { cacheID?: string }; pause?: boolean } | undefined;
+let lastArgs: { variables?: { cacheID?: string; namespace?: string }; pause?: boolean } | undefined;
 let lastReducer: ((prev: unknown, frames: unknown[]) => unknown) | undefined;
 let connected: boolean;
 
-function pushFrame(type: string, entity: unknown, cacheID = lastArgs?.variables?.cacheID) {
-  acc = lastReducer!(acc, [{ clusterCachedDataKindsWatch: { type, cacheID, kind: entity } }]);
+// A frame echoes the namespace it was subscribed with, "" for the whole cache.
+function pushFrame(
+  type: string,
+  entity: unknown,
+  cacheID = lastArgs?.variables?.cacheID,
+  namespace = lastArgs?.variables?.namespace ?? '',
+) {
+  acc = lastReducer!(acc, [{ clusterCachedDataKindsWatch: { type, cacheID, namespace, kind: entity } }]);
 }
 
 // The Bookmark closing the snapshot: what flips the watch from connecting to live.
-function pushBookmark(cacheID = lastArgs?.variables?.cacheID) {
-  acc = lastReducer!(acc, [{ clusterCachedDataKindsWatch: { type: 'Bookmark', cacheID, kind: null } }]);
+function pushBookmark(cacheID = lastArgs?.variables?.cacheID, namespace = lastArgs?.variables?.namespace ?? '') {
+  acc = lastReducer!(acc, [{ clusterCachedDataKindsWatch: { type: 'Bookmark', cacheID, namespace, kind: null } }]);
 }
 
 beforeEach(() => {
@@ -91,6 +99,7 @@ beforeEach(() => {
   lastReducer = undefined;
   connected = true;
   useActiveClusterMock.mockReturnValue({ clusterID: '1', cacheID: 'cache-1', active: true });
+  useNamespaceScopeMock.mockReturnValue({ namespace: undefined, setNamespace: vi.fn() });
   useWatchSubscriptionMock.mockImplementation((args: typeof lastArgs, reducer: typeof lastReducer) => {
     lastArgs = args;
     lastReducer = reducer;
@@ -161,6 +170,37 @@ describe('useClusterCachedDataKinds', () => {
     pushFrame('Added', kind('deployments'));
     pushBookmark();
     pushFrame('Added', kind('secrets', { apiVersion: 'v1' }), 'cache-0');
+    rerender();
+
+    expect(resources(result.current.kinds)).toEqual(['deployments']);
+  });
+
+  it('counts the whole cache with no namespace chosen', () => {
+    renderKinds();
+    expect(lastArgs?.variables?.namespace).toBe('');
+  });
+
+  // The counts are the namespace's, so a new namespace is a new catalog.
+  it('re-subscribes counting in the namespace scope when it changes', () => {
+    const { result, rerender } = renderKinds();
+    pushFrame('Added', kind('deployments'));
+    pushBookmark();
+    rerender();
+    expect(result.current.kinds).toHaveLength(1);
+
+    useNamespaceScopeMock.mockReturnValue({ namespace: 'checkout', setNamespace: vi.fn() });
+    rerender();
+    expect(lastArgs?.variables?.namespace).toBe('checkout');
+    expect(result.current.kinds).toEqual([]);
+    expect(result.current.phase).toBe('connecting');
+  });
+
+  it('ignores a straggler counted in another namespace', () => {
+    useNamespaceScopeMock.mockReturnValue({ namespace: 'checkout', setNamespace: vi.fn() });
+    const { result, rerender } = renderKinds();
+    pushFrame('Added', kind('deployments'));
+    pushBookmark();
+    pushFrame('Added', kind('secrets', { apiVersion: 'v1' }), 'cache-1', '');
     rerender();
 
     expect(resources(result.current.kinds)).toEqual(['deployments']);

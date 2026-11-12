@@ -13,7 +13,7 @@ time, and each step settles what its frames leave open before it is built.
 
 - the left sidebar is the mockup's resource nav: the Dashboard/Chat switch, search, Overview and
   Events, then a *Cluster* section and a *Namespace* section of grouped kinds with live counts;
-- the window has a namespace scope, chosen in a page toolbar beside a kind switcher;
+- the window has a namespace scope, picked at the top of the sidebar;
 - the kind pages, Pods, Events and PersistentVolumes first, draw the mockup's table pages;
 - a pod has a detail page, with Overview and Logs tabs;
 - the Overview page draws the tiles the existing data can fill;
@@ -29,9 +29,10 @@ time, and each step settles what its frames leave open before it is built.
   not built.
 - **The Home / cross-cluster start page** (`Home / Cross-cluster start page`). It assumes tabs and
   data sources Kstack does not have.
-- **Sidecar changes.** The series reads the streams the sidecar serves today, per #881. A frame
-  that needs more data draws what exists and leaves the rest out; it never shows invented or
-  placeholder numbers. Each gap gets an issue of its own (*Data gaps*, below).
+- **Sidecar changes**, but for one: step 2 counts the kinds catalog in the namespace scope. The
+  series otherwise reads the streams the sidecar serves today, per #881. A frame that needs more
+  data draws what exists and leaves the rest out; it never shows invented or placeholder numbers.
+  Each gap gets an issue of its own (*Data gaps*, below).
 - **Cluster writes** drawn in the mockups: *Delete* on selected pods, *Roll back*.
 - **The debug terminal** (`Pod detail / Debug terminal`). It is a feature, not a view.
 - **Assistant-written text in a page**: the *Summary* card, *Why it is failing*, and the
@@ -58,7 +59,7 @@ dead link. A step that replaces a view replaces it whole.
 
 **Shared pieces are built by the first step that needs them**, and later steps reuse them. The
 mockups' local components are the list: `NavItem`, `NavGroup`, `SectionDivider` and
-`ProblemBadge` (step 1), `ScopeSwitcher` (step 2), `StatusPill` (step 3), `PodHeader`,
+`ProblemBadge` (step 1), `ScopeSwitcher` (step 2, as the sidebar's namespace picker), `StatusPill` (step 3), `PodHeader`,
 `PodMenuItem` (step 4), `AttentionRow`, `StatTile` (step 5). `AssistantCard` is not built: it
 holds assistant-written text.
 
@@ -67,7 +68,7 @@ holds assistant-written text.
 | Step | Builds | Frames | Needs |
 | --- | --- | --- | --- |
 | 1 | The sidebar | `K8s/Sidebar`, `Sidebar / Filter applied`, `Sidebar / Groups collapsed (idle)` | — |
-| 2 | The namespace scope and the page frame | `K8s/ScopeSwitcher`, `Kind switcher menu (open)`, each page's toolbar and header | 1 |
+| 2 | The namespace scope and the page frame | `K8s/ScopeSwitcher`, `Kind switcher menu (open)`, each page's header | 1 |
 | 3 | The kind pages | `Pods`, `Events` and `PersistentVolumes` frames | 2 |
 | 4 | The pod detail page | `Pod detail / Overview`, `Pod detail / Logs`, `Pod switcher menu (open)` | 3 |
 | 5 | The Overview page | `Overview (all namespaces)`, `Overview (filtered to checkout)` | 2 |
@@ -92,21 +93,19 @@ Open questions:
 
 ### 2. The namespace scope and the page frame
 
-Add a namespace scope to the window. Then build the page frame every dashboard page shares: the
-toolbar (`ScopeSwitcher`, then a kind switcher in the breadcrumb, then the page's actions on the
-right, *Ask* among them) and the header (title, count, kind's short names).
-
-The kind switcher is a menu of the sidebar's tree with *Jump to a resource…* and keyboard
-navigation. It opens scrolled to the current kind.
+Add a namespace scope to the window, picked at the top of the sidebar, and the header every
+dashboard page shares (title, count, kind's short names). The mockups' page toolbar, with its
+namespace switcher and kind switcher, is not built: the picker sits beside the sidebar it scopes,
+and every kind the switcher would list is a sidebar row.
 
 Open questions:
 
 - Whether the namespace is a search param on `_app`, kept across modes like `kubeContext` and
   `resource`. This is a decision for an ADR, written in this step.
 - Whether the scope holds one namespace or several.
-- How the sidebar's *Namespace · all* section header and the scope switcher share the scope.
+- How the sidebar's *Namespace* section header and the picker share the scope.
 - What *Ask* does, with no assistant panel.
-- Whether the scope filters today's tables, so the switcher is not a dead control.
+- Whether the scope filters today's tables, so the picker is not a dead control.
 
 ### 3. The kind pages
 
@@ -153,8 +152,8 @@ Open questions:
 
 Each needs its own issue, outside this series. A step that meets one draws the view without it.
 
-- **Per-namespace counts.** Per-kind counts are cluster-wide. The sidebar's *N / M* counts and a
-  scoped Overview need them per namespace.
+- **Namespaced watches.** Every objects and events watch streams the whole cluster; a page under
+  a namespace filters it client-side.
 - **Short names.** The catalog carries none, so a kind's header names only the built-ins'.
 - **Object search across kinds.** Object names, for the sidebar's search.
 - **A health verdict per object and per kind.** Problem badges, *Problems only*, the status tabs'

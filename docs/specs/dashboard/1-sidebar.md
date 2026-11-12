@@ -30,7 +30,7 @@ above the search box is the card's only one and the sections read as within its 
 neither. Events shows the count of core `v1` Events.
 
 **A kind's section is its scope.** A `Cluster`-scoped kind goes under _Cluster_, a `Namespaced`
-kind under _Namespace_. The divider reads _Namespace · all_ until step 2 adds a namespace scope.
+kind under _Namespace_.
 
 **A kind's group comes from its API group.** One list orders the groups, and each section draws
 only the groups that hold one of its kinds:

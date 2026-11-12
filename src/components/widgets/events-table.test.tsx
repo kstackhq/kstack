@@ -57,6 +57,11 @@ describe('EventsTable', () => {
     expect(screen.getByText('No events.')).toBeInTheDocument();
   });
 
+  it('names the namespace in a scoped empty state', () => {
+    render(<EventsTable events={[]} active phase="live" namespace={'a\u200bb'} />);
+    expect(screen.getByText(/No events in/)).toHaveTextContent('No events in a\\u{200B}b.');
+  });
+
   it('renders a row with the event fields and a kubectl-style involved reference', () => {
     render(<EventsTable events={[evt()]} active phase="live" />);
     expect(screen.getByText('Warning')).toBeInTheDocument();

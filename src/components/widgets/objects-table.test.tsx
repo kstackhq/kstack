@@ -90,6 +90,17 @@ describe('ObjectsTable', () => {
     expect(screen.getByText('3')).toBeInTheDocument();
   });
 
+  // The page filters the rows; the table drops the column every row would repeat.
+  it('omits the Namespace column under a namespace scope', () => {
+    render(<ObjectsTable {...PODS} {...live(obj())} namespace="default" />);
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).not.toContain('Namespace');
+  });
+
+  it('names the namespace in a scoped empty state', () => {
+    render(<ObjectsTable {...PODS} {...live()} namespace={'a\u200bb'} />);
+    expect(screen.getByText(/No pod objects in/)).toHaveTextContent('No pod objects in a\\u{200B}b.');
+  });
+
   it('omits the Namespace column for a cluster-scoped kind', () => {
     render(
       <ObjectsTable

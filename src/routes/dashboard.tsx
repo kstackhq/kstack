@@ -19,6 +19,7 @@ import { useMemo, useState } from 'react';
 import { EventsTable } from '@/components/widgets/events-table';
 import { ObjectsTable } from '@/components/widgets/objects-table';
 import { PageHeader } from '@/components/widgets/page-frame/page-header';
+import { VisibleText } from '@/components/widgets/visible-text';
 import { useClusterCachedDataEvents } from '@/lib/cluster-cached-data-events';
 import { useClusterCachedDataKinds } from '@/lib/cluster-cached-data-kinds';
 import { useClusterCachedDataObjects } from '@/lib/cluster-cached-data-objects';
@@ -31,6 +32,7 @@ import {
 } from '@/lib/dashboard-resources';
 import type { DashboardResource, ServerKind } from '@/lib/dashboard-resources';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import { useNamespaceScope } from '@/lib/namespace-scope';
 import { Route as appRoute } from '@/routes/_app';
 
 // The focused kind lives in the `resource` search param, declared on `_app` so it
@@ -78,45 +80,70 @@ function Dashboard() {
   return <section className="flex min-h-0 min-w-0 flex-1 flex-col p-6">{page}</section>;
 }
 
+// The rows the namespace scope shows: all of them without one.
+function inScope<T>(rows: T[], namespace: string | undefined, namespaceOf: (row: T) => string): T[] {
+  return namespace === undefined ? rows : rows.filter((r) => namespaceOf(r) === namespace);
+}
+
 // A page counts its rows once its watch's snapshot has landed.
 function countOf(rows: unknown[], active: boolean, phase: WatchPhase): number | undefined {
   return active && phase !== 'connecting' ? rows.length : undefined;
 }
 
 // A kind's page. It owns the objects watch, so the header counts the rows the table
-// shows.
+// shows. The watch is cluster-wide; the scope filters it here, a namespaced kind's alone.
 function KindPage({ kind, label }: { kind: ServerKind; label: string }) {
+  const { namespace } = useNamespaceScope();
   const { objects, active, phase } = useClusterCachedDataObjects({
     apiVersion: kind.apiVersion,
     resource: kind.resource,
   });
+  const namespaced = kind.scope === 'Namespaced';
+  const scope = namespaced ? namespace : undefined;
+  const shown = useMemo(() => inScope(objects, scope, (o) => o.namespace), [objects, scope]);
   const meta = [kind.apiVersion, shortNamesOf(kind).join(', ')].filter(Boolean).join(' · ');
 
   return (
     <>
-      <PageHeader title={label} count={countOf(objects, active, phase)} meta={meta} />
+      <PageHeader title={label} count={countOf(shown, active, phase)} meta={meta}>
+        {!namespaced && namespace !== undefined && (
+          <>
+            Cluster-scoped, so the <VisibleText text={namespace} /> filter isn&apos;t applied.
+          </>
+        )}
+      </PageHeader>
       <ObjectsTable
         apiVersion={kind.apiVersion}
         resource={kind.resource}
         kind={kind.kind}
-        namespaced={kind.scope === 'Namespaced'}
+        namespaced={namespaced}
         printerColumns={kind.printerColumns}
-        objects={objects}
+        objects={shown}
         active={active}
         phase={phase}
+        namespace={scope}
       />
     </>
   );
 }
 
-// The Events page, over the events watch as `KindPage` is over its objects.
+// The Events page, over the events watch as `KindPage` is over its objects. An event is
+// in the namespace of the object it is about.
 function EventsPage() {
+  const { namespace } = useNamespaceScope();
   const { events, active, phase } = useClusterCachedDataEvents();
+  const shown = useMemo(() => inScope(events, namespace, (e) => e.involvedNamespace), [events, namespace]);
 
   return (
     <>
-      <PageHeader title="Events" count={countOf(events, active, phase)} />
-      <EventsTable events={events} active={active} phase={phase} />
+      <PageHeader title="Events" count={countOf(shown, active, phase)}>
+        {namespace !== undefined && (
+          <>
+            Events in <VisibleText text={namespace} />.
+          </>
+        )}
+      </PageHeader>
+      <EventsTable events={shown} active={active} phase={phase} namespace={namespace} />
     </>
   );
 }

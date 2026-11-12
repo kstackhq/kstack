@@ -110,6 +110,21 @@ beforeEach(() => {
 });
 
 describe('useClusterCachedDataObjects', () => {
+  // A watch that may mount into a running one asks for a connection of its own.
+  it('subscribes unshared when asked', () => {
+    useClustersMock.mockReturnValue({ clusters: [clusterFixture(true)] });
+    renderHook(() => useClusterCachedDataObjects(PODS, { unshared: true }));
+    expect(useWatchSubscriptionMock.mock.lastCall?.[2]).toMatchObject({ unshared: true });
+  });
+
+  // Disabled, it reads as a paused watch: nothing streams and nothing is active.
+  it('pauses while not enabled', () => {
+    useClustersMock.mockReturnValue({ clusters: [clusterFixture(true)] });
+    const { result } = renderHook(() => useClusterCachedDataObjects(PODS, { enabled: false }));
+    expect(lastArgs?.pause).toBe(true);
+    expect(result.current.active).toBe(false);
+  });
+
   it('accumulates the snapshot burst and returns objects sorted by (namespace, name)', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture(true)] });
     const { result, rerender } = renderHook(() => useClusterCachedDataObjects(PODS));

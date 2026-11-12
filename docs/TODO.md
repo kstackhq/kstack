@@ -111,6 +111,11 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **The protocol wrinkle:** subscription variables are fixed for the life of a subscription, so moving the window means resubscribing — a debounced resubscribe per scroll settle, re-snapshotting a window's worth of rows. Cheap, but it makes the window a subscription variable (or a search param) rather than client state, and every move is a round trip.
   - **Not what the change log is for.** A log tail names the uid that changed, which is not a position in a sort order: inserting one object above the window shifts a row out of the bottom, and the entry mentions neither of the two objects whose page membership moved. Kubernetes offers `limit`/`continue` on list and nothing on watch for the same reason.
 
+- **Namespaced watches.** Every objects and events watch streams a kind's whole set, so a
+  dashboard page under a namespace scope filters client-side (a data gap of the new dashboard,
+  [#881](https://github.com/kstackhq/kstack/issues/881)). The objects and events watches could
+  take a `namespace` argument, as `clusterCachedDataKindsWatch` does.
+
 - **Short names in the kinds catalog.** A dashboard page's header names a kind's kubectl short
   names (`v1 · po`) from a static table of the curated kinds (`shortNamesOf`), since discovery's
   `shortNames` do not reach the catalog. A CRD's header draws its `apiVersion` alone.
@@ -694,9 +699,15 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **Swap the code-block highlighter to Shiki.** `src/lib/highlight.ts` runs highlight.js through `lowlight`: regex grammars that visibly misfire on nested YAML, template strings and JSX, and a hand palette in `markdown.css` rather than an editor's theme. Shiki is VS Code's own TextMate grammars and themes, so a manifest highlights the way it does in the editor. The render path stays as it is — `codeToHast` yields the same hast `hast-util-to-jsx-runtime` already renders, so no HTML string enters, and the change is contained to `highlight.ts` plus the `Code` component in `markdown.tsx`. **Weigh:** the engine is Oniguruma compiled to WASM (~600 KB) or the pure-JS `@shikijs/engine-javascript` (lighter, weaker grammar compatibility), and grammars run 2–5× highlight.js's — a heavier baseline than today's 22 KB even lazily loaded; tokenizing is async-only, so a growing block re-highlights through a promise rather than the synchronous `highlight` call; and dual-scheme colours become `themes: { light, dark }` emitting both as CSS variables per token, which replaces the `--hl-*` palette rather than reusing it. **Trigger:** the first highlighting misfire someone notices on a manifest, or an editor-matching theme being wanted.
 
-- **The dashboard's namespace scope holds one namespace.** The scope switcher picks one
+- **No keyboard jump to a dashboard page.** The mockups' kind switcher (`Kind switcher menu
+  (open)`) jumped to any kind from the keyboard; the dashboard leaves it out, since its rows are
+  the sidebar's. A window-wide jump (⌘K) over the sidebar's pages and kinds would bring the
+  keyboard path back. `ScopeMenu` (`dashboard-resource-nav/scope-menu.tsx`) already has the list,
+  search and keys.
+
+- **The dashboard's namespace scope holds one namespace.** The sidebar's namespace picker picks one
   namespace or all of them (`docs/specs/dashboard/2-scope-and-page-frame.md`). Let it pick
-  several: the `namespace` param becomes a list, the switcher's menu gains checkboxes, the tables
+  several: the `namespace` param becomes a list, the picker's menu gains checkboxes, the tables
   filter by the set, and the sidebar's *Namespace* heading names the count when there are more
   than one.
 

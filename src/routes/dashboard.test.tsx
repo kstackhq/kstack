@@ -29,12 +29,14 @@ vi.mock('@/routes/_app', async () => {
   const testRoot = createRootRoute();
   return {
     testRoot,
-    // Stands in for the real layout route, which owns the `resource` param.
+    // Stands in for the real layout route, which owns the `resource` and `namespace` params.
     Route: createRoute({
       getParentRoute: () => testRoot,
       id: 'app',
-      validateSearch: (search: Record<string, unknown>): { resource?: string } =>
-        typeof search.resource === 'string' && search.resource.length > 0 ? { resource: search.resource } : {},
+      validateSearch: (search: Record<string, unknown>): { resource?: string; namespace?: string } => ({
+        ...(typeof search.resource === 'string' && search.resource.length > 0 ? { resource: search.resource } : {}),
+        ...(typeof search.namespace === 'string' ? { namespace: search.namespace } : {}),
+      }),
       component: () => <Outlet />,
     }),
   };
@@ -284,16 +286,58 @@ describe('dashboard route', () => {
     expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
   });
 
-  it('heads Events with its count, and hands the table every event', async () => {
+  it('shows and counts a namespaced kind’s objects in the namespace alone', async () => {
+    useClusterCachedDataObjectsMock.mockReturnValue({
+      objects: [pod('a', 'checkout'), pod('b', 'default'), pod('c', 'checkout')],
+      active: true,
+      phase: 'live',
+    });
+    await render('/dashboard?resource=deployments&namespace=checkout', [KIND]);
+    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
+    const table = propsOf('objects-table');
+    expect(table.objects.map((o: { uid: string }) => o.uid)).toEqual(['a', 'c']);
+    expect(table.namespace).toBe('checkout');
+  });
+
+  it('shows every object of a cluster-scoped kind under a namespace, and says so', async () => {
+    const pv = { ...KIND, apiVersion: 'v1', kind: 'PersistentVolume', resource: 'persistentvolumes', scope: 'Cluster' };
+    useClusterCachedDataObjectsMock.mockReturnValue({
+      objects: [pod('a', ''), pod('b', '')],
+      active: true,
+      phase: 'live',
+    });
+    await render('/dashboard?resource=persistentvolumes&namespace=checkout', [pv]);
+    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
+    expect(propsOf('objects-table').namespace).toBeUndefined();
+    expect(screen.getByText(/Cluster-scoped, so the/)).toHaveTextContent(
+      "Cluster-scoped, so the checkout filter isn't applied.",
+    );
+  });
+
+  it('heads Events with its count, scoped to the namespace', async () => {
+    useClusterCachedDataEventsMock.mockReturnValue({
+      events: [event('a', 'checkout'), event('b', 'default')],
+      active: true,
+      phase: 'live',
+    });
+    await render('/dashboard?resource=events&namespace=checkout');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Events');
+    expect(screen.getByTestId('page-count')).toHaveTextContent('1');
+    expect(screen.getByText(/Events in/)).toHaveTextContent('Events in checkout.');
+    const table = propsOf('events-table');
+    expect(table.events.map((e: { uid: string }) => e.uid)).toEqual(['a']);
+    expect(table.namespace).toBe('checkout');
+  });
+
+  it('heads Events with every event and no subtitle without a namespace', async () => {
     useClusterCachedDataEventsMock.mockReturnValue({
       events: [event('a', 'x'), event('b', 'y')],
       active: true,
       phase: 'live',
     });
     await render('/dashboard?resource=events');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Events');
     expect(screen.getByTestId('page-count')).toHaveTextContent('2');
-    expect(propsOf('events-table').events.map((e: { uid: string }) => e.uid)).toEqual(['a', 'b']);
+    expect(screen.queryByText(/Events in/)).not.toBeInTheDocument();
   });
 
   it('draws no Events count before the events land', async () => {

@@ -82,6 +82,14 @@ vi.mock('@/lib/cluster-cached-data-kinds', () => ({
     return <div data-testid="kind-catalog">{children}</div>;
   },
 }));
+// Likewise the namespace list's provider.
+const { namespacesEnabled } = vi.hoisted(() => ({ namespacesEnabled: vi.fn() }));
+vi.mock('@/lib/cluster-namespaces', () => ({
+  ClusterNamespacesProvider: ({ enabled, children }: { enabled: boolean; children: React.ReactNode }) => {
+    namespacesEnabled(enabled);
+    return <div data-testid="namespace-list">{children}</div>;
+  },
+}));
 vi.mock('@/components/widgets/dashboard-resource-nav', () => ({
   DashboardResourceNav: () => <nav aria-label="Resources" />,
 }));
@@ -208,6 +216,17 @@ describe('AppLayout', () => {
   it('pauses the kind catalog in chat mode', async () => {
     await renderWithRouter(buildTree(), '/chat');
     expect(catalogEnabled).toHaveBeenLastCalledWith(false);
+  });
+
+  it('holds the namespace list above the page, and runs it on the dashboard alone', async () => {
+    await renderWithRouter(buildTree(), '/dashboard');
+    expect(screen.getByTestId('namespace-list').contains(screen.getByTestId('page-content'))).toBe(true);
+    expect(namespacesEnabled).toHaveBeenLastCalledWith(true);
+  });
+
+  it('pauses the namespace list in chat mode', async () => {
+    await renderWithRouter(buildTree(), '/chat');
+    expect(namespacesEnabled).toHaveBeenLastCalledWith(false);
   });
 
   it('omits the resource nav outside dashboard mode', async () => {

@@ -21,6 +21,7 @@ import ReactTimeAgo from 'react-timeago';
 
 import { VirtualTable } from '@/components/widgets/virtual-table';
 import type { VirtualColumn } from '@/components/widgets/virtual-table';
+import { VisibleText } from '@/components/widgets/visible-text';
 import type { ClusterCachedDataEvent } from '@/lib/cluster-cached-data-events';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 
@@ -91,12 +92,15 @@ const COLUMNS: VirtualColumn<ClusterCachedDataEvent>[] = [
 ];
 
 type EventsTableProps = {
+  // The watch's rows, already filtered to `namespace`.
   events: ClusterCachedDataEvent[];
   active: boolean;
   phase: WatchPhase;
+  // The namespace the rows are filtered to, if any.
+  namespace?: string;
 };
 
-export function EventsTable({ events, active, phase }: EventsTableProps) {
+export function EventsTable({ events, active, phase, namespace }: EventsTableProps) {
   // No active cache: an unsynced/paused cluster streams nothing — say so rather
   // than spin forever.
   if (!active) {
@@ -118,7 +122,18 @@ export function EventsTable({ events, active, phase }: EventsTableProps) {
   }
 
   if (events.length === 0) {
-    return <p className="text-sm text-muted-foreground">No events.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        No events
+        {namespace !== undefined && (
+          <>
+            {' in '}
+            <VisibleText text={namespace} />
+          </>
+        )}
+        .
+      </p>
+    );
   }
 
   return <VirtualTable rows={events} rowKey={rowKey} columns={COLUMNS} />;

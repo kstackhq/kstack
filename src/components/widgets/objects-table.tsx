@@ -22,6 +22,7 @@ import ReactTimeAgo from 'react-timeago';
 import { columnsForKind } from '@/components/widgets/object-columns';
 import { VirtualTable } from '@/components/widgets/virtual-table';
 import type { VirtualColumn } from '@/components/widgets/virtual-table';
+import { VisibleText } from '@/components/widgets/visible-text';
 import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
 import type { PrinterColumn } from '@/lib/dashboard-resources';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
@@ -34,9 +35,12 @@ type ObjectsTableProps = {
   // A CRD's declared columns, off the kinds watch. Empty for a built-in, and for a kind whose
   // hand-written registry entry wins anyway.
   printerColumns?: readonly PrinterColumn[];
+  // The watch's rows, already filtered to `namespace`.
   objects: ClusterCachedDataObject[];
   active: boolean;
   phase: WatchPhase;
+  // The namespace the rows are filtered to, if any.
+  namespace?: string;
 };
 
 const NO_COLUMNS: readonly PrinterColumn[] = [];
@@ -81,6 +85,7 @@ export function ObjectsTable({
   objects,
   active,
   phase,
+  namespace,
 }: ObjectsTableProps) {
   const gvr = { apiVersion, resource };
   // Kind-specific columns between Name and Age; [] when neither the registry nor the kind
@@ -108,9 +113,22 @@ export function ObjectsTable({
   }
 
   if (objects.length === 0) {
-    return <p className="text-sm text-muted-foreground">No {kind.toLowerCase()} objects.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        No {kind.toLowerCase()} objects
+        {namespace !== undefined && (
+          <>
+            {' in '}
+            <VisibleText text={namespace} />
+          </>
+        )}
+        .
+      </p>
+    );
   }
 
-  const columns = [...(namespaced ? [NAMESPACE_COLUMN] : []), NAME_COLUMN, ...extraColumns, AGE_COLUMN];
+  // Under a namespace every row would repeat it.
+  const showNamespace = namespaced && namespace === undefined;
+  const columns = [...(showNamespace ? [NAMESPACE_COLUMN] : []), NAME_COLUMN, ...extraColumns, AGE_COLUMN];
   return <VirtualTable rows={objects} rowKey={rowKey} columns={columns} />;
 }
