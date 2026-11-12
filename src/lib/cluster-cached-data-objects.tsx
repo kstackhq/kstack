@@ -70,14 +70,19 @@ function byNamespaceThenName(a: ClusterCachedDataObject, b: ClusterCachedDataObj
 }
 
 // The active context's cached objects of `kind`, live. Paused (empty) without an
-// active cache. Provenance must carry the full cacheID + apiVersion + resource key
-// (see file header).
-export function useClusterCachedDataObjects(kind: GVR): {
+// active cache, or while not `enabled`. Provenance must carry the full cacheID +
+// apiVersion + resource key (see file header). `unshared` is for a watch that can mount
+// into a running one of the same kind, which would never see its snapshot.
+export function useClusterCachedDataObjects(
+  kind: GVR,
+  { enabled = true, unshared = false }: { enabled?: boolean; unshared?: boolean } = {},
+): {
   objects: ClusterCachedDataObject[];
   active: boolean;
   phase: WatchPhase;
 } {
-  const { clusterID, cacheID, active } = useActiveCluster();
+  const { clusterID, cacheID, active: cacheActive } = useActiveCluster();
+  const active = enabled && cacheActive;
 
   const { items, phase } = useCacheDeltaWatch<ClusterCachedDataObjectsWatchSubscriptionType, ClusterCachedDataObject>(
     {
@@ -92,6 +97,7 @@ export function useClusterCachedDataObjects(kind: GVR): {
       },
       keyOf: (o) => o.uid,
       currentProvenance: joinProvenance(cacheID ?? '', gvrKey(kind)),
+      unshared,
     },
   );
 

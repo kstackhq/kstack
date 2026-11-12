@@ -24,6 +24,7 @@ import {
   mayNameDiscoveredKind,
   resolveDashboardResource,
   serverKindForResource,
+  shortNamesOf,
 } from './dashboard-resources';
 import type { DashboardNav, ServerKind } from './dashboard-resources';
 
@@ -298,5 +299,30 @@ describe('groupCount', () => {
       }),
     ).toBe(7);
     expect(groupCount({ id: 'g', label: 'G', kinds: [{ id: 'a', label: 'A' }] })).toBeUndefined();
+  });
+});
+
+describe('shortNamesOf', () => {
+  const k = (apiVersion: string, resource: string): ServerKind => ({
+    apiVersion,
+    kind: 'K',
+    resource,
+    scope: 'Namespaced',
+    isCRD: false,
+    count: 0,
+    printerColumns: [],
+  });
+
+  it('names a curated kind’s short names', () => {
+    expect(shortNamesOf(k('v1', 'pods'))).toEqual(['po']);
+    expect(shortNamesOf(k('apps/v1', 'deployments'))).toEqual(['deploy']);
+    expect(shortNamesOf(k('apiextensions.k8s.io/v1', 'customresourcedefinitions'))).toEqual(['crd', 'crds']);
+  });
+
+  it('names none for a curated kind without them, or a kind not curated', () => {
+    expect(shortNamesOf(k('v1', 'secrets'))).toEqual([]);
+    expect(shortNamesOf(k('example.com/v1', 'widgets'))).toEqual([]);
+    // A CRD reusing a built-in's plural in another group is not that built-in.
+    expect(shortNamesOf(k('example.com/v1', 'pods'))).toEqual([]);
   });
 });

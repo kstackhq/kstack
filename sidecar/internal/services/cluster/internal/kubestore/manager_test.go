@@ -18,8 +18,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -862,7 +864,7 @@ func TestOpenReportsAStatementItCannotPrepare(t *testing.T) {
 	dir := t.TempDir()
 	seedRawDB(t, filepath.Join(dir, "1.db"),
 		`CREATE TABLE schema_migrations(version INTEGER NOT NULL);
-		 INSERT INTO schema_migrations(version) VALUES (1)`)
+		 INSERT INTO schema_migrations(version) VALUES (`+currentSchemaVersion(t)+`)`)
 	m := NewManager(dir, Retention{})
 
 	_, err := m.OpenOrCreate(1)
@@ -1036,6 +1038,15 @@ func seedRawDB(t *testing.T, path, schema string) {
 	require.NoError(t, err)
 }
 
+// currentSchemaVersion is the version the shipped migrations end at. A seeded file claims
+// it, so Apply skips the file and the open reaches what comes after.
+func currentSchemaVersion(t *testing.T) string {
+	t.Helper()
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	require.NoError(t, err)
+	return strconv.Itoa(len(entries))
+}
+
 // The reader pool prepares its own half of the statements, so a schema that satisfies the
 // writers and not the readers fails at open rather than on the first watch — where an
 // empty table would be all the user saw.
@@ -1047,7 +1058,7 @@ func TestOpenReportsAReadStatementItCannotPrepare(t *testing.T) {
 	// the readers cannot: kind_counts without the column the nav's counts come from.
 	seedRawDB(t, filepath.Join(dir, "1.db"), `
 		CREATE TABLE schema_migrations(version INTEGER NOT NULL);
-		INSERT INTO schema_migrations(version) VALUES (1);
+		INSERT INTO schema_migrations(version) VALUES (`+currentSchemaVersion(t)+`);
 		CREATE TABLE cluster_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 		CREATE TABLE objects(uid TEXT PRIMARY KEY, api_version TEXT, kind TEXT, namespace TEXT,
 			name TEXT, resource_version TEXT, generation INT, created_at INT, updated_at INT,

@@ -19,8 +19,8 @@ import { SectionHeading } from './section-heading';
 
 describe('SectionHeading', () => {
   it('is a heading named by its label, and nothing to press', () => {
-    render(<SectionHeading label="Namespace · all" />);
-    expect(screen.getByRole('heading', { name: 'Namespace · all' })).toBeInTheDocument();
+    render(<SectionHeading label="Namespace" />);
+    expect(screen.getByRole('heading', { name: 'Namespace' })).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });

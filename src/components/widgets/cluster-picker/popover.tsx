@@ -57,6 +57,7 @@ export function ClusterPicker({
   // the window is on (the dashboard panel's `chat` param, and chat mode's open chat,
   // which is the route itself) and the log view that chat focused. The out-of-scope
   // notice is for arriving at such a chat (a deep link, Back), never for stepping off one.
+  // A namespace belongs to a cluster too, so the scope goes back to every namespace.
   const openChat = pathname.startsWith('/chat/');
   const select = (name: string) => {
     setOpen(false);
@@ -64,7 +65,7 @@ export function ClusterPicker({
     clearView();
     void navigate({
       to: openChat ? '/chat' : '.',
-      search: (prev) => ({ ...prev, kubeContext: name, chat: undefined }),
+      search: (prev) => ({ ...prev, kubeContext: name, namespace: undefined, chat: undefined }),
     });
   };
 

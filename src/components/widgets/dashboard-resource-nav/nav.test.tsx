@@ -34,6 +34,9 @@ vi.mock('@/lib/dashboard-nav', () => ({
   }),
 }));
 
+// The picker has its own suite, and reads the namespaces through a provider.
+vi.mock('./namespace-picker', () => ({ NamespacePicker: () => <div data-testid="namespace-picker" /> }));
+
 const { DashboardResourceNav } = await import('./nav');
 
 const served = (apiVersion: string, kind: string, resource: string, count: number, scope = 'Namespaced') => ({
@@ -55,14 +58,16 @@ const CATALOG = [
   served('v1', 'ConfigMap', 'configmaps', 7),
 ];
 
-// A `/dashboard` route owning the `resource` search param, as the real one does.
+// A `/dashboard` route owning the `resource` and `namespace` search params, as `_app` does.
 function buildTree() {
   const root = createRootRoute({ component: () => <Outlet /> });
   const dashboard = createRoute({
     getParentRoute: () => root,
     path: '/dashboard',
-    validateSearch: (search: Record<string, unknown>) =>
-      typeof search.resource === 'string' && search.resource ? { resource: search.resource } : {},
+    validateSearch: (search: Record<string, unknown>) => ({
+      ...(typeof search.resource === 'string' && search.resource ? { resource: search.resource } : {}),
+      ...(typeof search.namespace === 'string' ? { namespace: search.namespace } : {}),
+    }),
     component: DashboardResourceNav,
   });
   return root.addChildren([dashboard]);
@@ -78,12 +83,30 @@ beforeEach(() => {
 });
 
 describe('DashboardResourceNav', () => {
+  // The scope decides what the rest of the nav counts and shows, so it comes first.
+  it('leads with the namespace picker, above Overview', async () => {
+    await render();
+    const picker = screen.getByTestId('namespace-picker');
+    const overview = screen.getByRole('link', { name: 'Overview' });
+    expect(picker.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('draws Overview and Events above the sections, Events with its count', async () => {
     await render();
     expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: /Events/ })).toHaveTextContent('Events128');
     expect(screen.getByRole('heading', { name: 'Cluster' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Namespace · all' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Namespace' })).toBeInTheDocument();
+  });
+
+  // The catalog counts in the namespace scope, so the counts stay.
+  // The picker above names the namespace; the heading does not repeat it.
+  it('draws the counts the catalog took in the namespace scope, under a plain heading', async () => {
+    await render('/dashboard?namespace=checkout&resource=pods');
+    expect(screen.getByRole('heading', { name: 'Namespace' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Events/ })).toHaveTextContent('Events128');
+    expect(screen.getByRole('button', { name: /Workloads/ })).toHaveTextContent('Workloads47');
+    expect(screen.getByRole('link', { name: /Pods/ })).toHaveTextContent('Pods42');
   });
 
   it('draws each group with the sum of its kinds, and opens it on a click without navigating', async () => {

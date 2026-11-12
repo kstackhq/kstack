@@ -512,7 +512,10 @@ type ClusterCache {
   what the store holds. Empty for a cache that has not synced yet. Resolved on
   selection; the live counterpart is `clusterCachedDataKindsWatch`.
   """
-  kinds: [ClusterCachedDataKind!]!
+  kinds(
+    "Counts each namespaced kind in this namespace alone, and Events by the namespace of the object each is about. A cluster-scoped kind keeps its whole count. Empty counts the whole cache."
+    namespace: String! = ""
+  ): [ClusterCachedDataKind!]!
 
   """
   This cache's per-kind sync records, one per kind it mirrors — so hundreds on a
@@ -883,6 +886,8 @@ type ClusterCachedDataKindWatchFrame {
   after a cache/context switch) by comparing this against the cache it subscribed for.
   """
   cacheID: ObjectID!
+  "The namespace the counts were taken in, as subscribed; empty for the whole cache. Provenance like `cacheID`."
+  namespace: String!
 }
 
 "One frame on the `clusterCachedDataEventsWatch` stream: a change and the event it affected, or the `Bookmark` closing the snapshot. Either way it carries its cache provenance."
@@ -2270,6 +2275,8 @@ type Subscription {
   clusterCachedDataKindsWatch(
     id: ClusterID!
     cacheID: ObjectID!
+    "Counts each namespaced kind in this namespace alone, and Events by the namespace of the object each is about. A cluster-scoped kind keeps its whole count. Empty counts the whole cache."
+    namespace: String! = ""
   ): ClusterCachedDataKindWatchFrame!
 
   "One cache's cached Kubernetes Events as a delta watch, newest first, keyed by `uid`; an event the server dropped surfaces as `Deleted`. Distinct from `eventsWatch`, which streams kstack's own timeline."

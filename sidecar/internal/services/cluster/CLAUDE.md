@@ -227,6 +227,10 @@ cache](../../../../docs/adr/2026-08-26-cache-store-per-cache.md).
   written into the wrap, never bound. → [ADR: the sidecar's own mirror
   statements compile once per
   file](../../../../docs/adr/2026-10-25-the-sidecars-own-mirror-statements-compile-once-per-file.md).
+- **A kind's count is `kind_counts`, trigger-maintained**; `Kinds` reads it in `O(kinds)`.
+  `KindsIn(namespace)` counts each namespaced kind in one namespace on every read, an index
+  range per kind (`objects_ns_kind`; Events by `involved_ns`, through `events_involved_ns`), and
+  keeps a cluster-scoped kind's total (`TestTheNamespacedKindCountsAreServedByIndexes`).
 - The change signal is a coalesced ping, never a row delta. → [ADR: ping
   bus](../../../../docs/adr/2026-08-26-store-change-ping-bus.md).
 

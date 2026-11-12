@@ -71,13 +71,15 @@ type PrinterColumn struct {
 
 // ClusterCachedDataKindWatchFrame is one frame on a cache's kind-catalog watch. Consumers
 // key on APIVersion + Resource; a kind whose Count changes arrives as Modified.
-// CacheID is provenance: a client watching the active cache uses it to reject a late
-// frame from a superseded one still draining after a switch.
+// CacheID and Namespace are provenance: a client watching the active cache uses them to
+// reject a late frame from a superseded watch still draining after a switch.
 type ClusterCachedDataKindWatchFrame struct {
 	Type DeltaFrameType
 	// Kind is nil on a Bookmark.
 	Kind    *ClusterCachedDataKind
 	CacheID ClusterCacheID
+	// Namespace is the one the counts were taken in, "" for the whole cache.
+	Namespace string
 }
 
 // ClusterCachedDataEvent is one cached Kubernetes Event from a cluster's synced data,
@@ -205,7 +207,7 @@ func cacheGone(err error) bool {
 	return errors.Is(err, kubestore.ErrRemoved) || errors.Is(err, kubestore.ErrClosed)
 }
 
-func (a cachedDataAPI) ListKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) ([]ClusterCachedDataKind, error) {
+func (a cachedDataAPI) ListKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, namespace string) ([]ClusterCachedDataKind, error) {
 	live, err := a.gate(ctx, clusterID, cacheID)
 	if err != nil || !live {
 		return nil, err
@@ -223,7 +225,7 @@ func (a cachedDataAPI) ListKinds(ctx context.Context, clusterID ClusterID, cache
 	}
 	defer store.Release()
 
-	rows, err := store.Kinds(ctx)
+	rows, err := store.KindsIn(ctx, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("read cache %d kinds: %w", cacheID, err)
 	}
@@ -234,8 +236,8 @@ func (a cachedDataAPI) ListKinds(ctx context.Context, clusterID ClusterID, cache
 	return kinds, nil
 }
 
-func (a cachedDataAPI) WatchKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCachedDataKindWatchFrame], error) {
-	bookmark := ClusterCachedDataKindWatchFrame{Type: DeltaFrameBookmark, CacheID: cacheID}
+func (a cachedDataAPI) WatchKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, namespace string) (*Stream[ClusterCachedDataKindWatchFrame], error) {
+	bookmark := ClusterCachedDataKindWatchFrame{Type: DeltaFrameBookmark, CacheID: cacheID, Namespace: namespace}
 	live, err := a.gate(ctx, clusterID, cacheID)
 	if err != nil {
 		return nil, err
@@ -252,12 +254,12 @@ func (a cachedDataAPI) WatchKinds(ctx context.Context, clusterID ClusterID, cach
 		retry:    dataRetryInterval,
 		key:      func(r kubestore.KindRow) string { return r.APIVersion + "/" + r.Resource },
 		read: func(ctx context.Context, s *kubestore.Store) ([]kubestore.KindRow, kubestore.Cursor, error) {
-			rows, err := s.Kinds(ctx)
+			rows, err := s.KindsIn(ctx, namespace)
 			return rows, kubestore.Cursor{}, err
 		},
 		frame: func(_ context.Context, _ *kubestore.Store, t DeltaFrameType, r kubestore.KindRow) ClusterCachedDataKindWatchFrame {
 			kind := toCachedDataKind(r)
-			return ClusterCachedDataKindWatchFrame{Type: t, Kind: &kind, CacheID: cacheID}
+			return ClusterCachedDataKindWatchFrame{Type: t, Kind: &kind, CacheID: cacheID, Namespace: namespace}
 		},
 		bookmark: bookmark,
 	}), nil

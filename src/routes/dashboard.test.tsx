@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { act, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_DASHBOARD_RESOURCE } from '@/lib/dashboard-resources';
 import type { ServerKind } from '@/lib/dashboard-resources';
@@ -29,22 +29,34 @@ vi.mock('@/routes/_app', async () => {
   const testRoot = createRootRoute();
   return {
     testRoot,
-    // Stands in for the real layout route, which owns the `resource` param.
+    // Stands in for the real layout route, which owns the `resource` and `namespace` params.
     Route: createRoute({
       getParentRoute: () => testRoot,
       id: 'app',
-      validateSearch: (search: Record<string, unknown>): { resource?: string } =>
-        typeof search.resource === 'string' && search.resource.length > 0 ? { resource: search.resource } : {},
+      validateSearch: (search: Record<string, unknown>): { resource?: string; namespace?: string } => ({
+        ...(typeof search.resource === 'string' && search.resource.length > 0 ? { resource: search.resource } : {}),
+        ...(typeof search.namespace === 'string' ? { namespace: search.namespace } : {}),
+      }),
       component: () => <Outlet />,
     }),
   };
 });
 
-// Both panels are covered by their own suites; this one is about which is picked.
-vi.mock('@/components/widgets/events-table', () => ({ EventsTable: () => <div data-testid="events-table" /> }));
+// Both panels are covered by their own suites; this one is about which is picked and
+// what each is handed.
+vi.mock('@/components/widgets/events-table', () => ({
+  EventsTable: (props: Record<string, unknown>) => <div data-testid="events-table">{JSON.stringify(props)}</div>,
+}));
 vi.mock('@/components/widgets/objects-table', () => ({
   ObjectsTable: (props: Record<string, unknown>) => <div data-testid="objects-table">{JSON.stringify(props)}</div>,
 }));
+
+const { useClusterCachedDataObjectsMock, useClusterCachedDataEventsMock } = vi.hoisted(() => ({
+  useClusterCachedDataObjectsMock: vi.fn(),
+  useClusterCachedDataEventsMock: vi.fn(),
+}));
+vi.mock('@/lib/cluster-cached-data-objects', () => ({ useClusterCachedDataObjects: useClusterCachedDataObjectsMock }));
+vi.mock('@/lib/cluster-cached-data-events', () => ({ useClusterCachedDataEvents: useClusterCachedDataEventsMock }));
 
 // The catalog draws the page again on `catalog.emit()`, as its watch does on each frame.
 const { useClusterCachedDataKindsMock, catalog } = vi.hoisted(() => {
@@ -92,6 +104,17 @@ const KIND: ServerKind = {
   count: 3,
   printerColumns: [],
 };
+
+const pod = (uid: string, namespace: string) => ({ uid, namespace, name: uid });
+const event = (uid: string, involvedNamespace: string) => ({ uid, involvedNamespace });
+
+beforeEach(() => {
+  useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: true, phase: 'live' });
+  useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'live' });
+});
+
+// What the mocked component was last handed.
+const propsOf = (testId: string) => JSON.parse(screen.getByTestId(testId).textContent ?? '{}');
 
 function render(path: string, kinds: ServerKind[] = []) {
   useClusterCachedDataKindsMock.mockReturnValue({ kinds, active: true, cacheID: 'cache-1', phase: 'live' });
@@ -244,5 +267,82 @@ describe('dashboard route', () => {
 
     await render('/dashboard?resource=');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(expected);
+  });
+
+  it('heads a kind’s page with its count and its apiVersion and short names', async () => {
+    useClusterCachedDataObjectsMock.mockReturnValue({
+      objects: [pod('a', 'x'), pod('b', 'y')],
+      active: true,
+      phase: 'live',
+    });
+    await render('/dashboard?resource=deployments', [KIND]);
+    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
+    expect(screen.getByText('apps/v1 · deploy')).toBeInTheDocument();
+  });
+
+  it('draws no count before the kind’s objects land', async () => {
+    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: true, phase: 'connecting' });
+    await render('/dashboard?resource=deployments', [KIND]);
+    expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
+  });
+
+  it('shows and counts a namespaced kind’s objects in the namespace alone', async () => {
+    useClusterCachedDataObjectsMock.mockReturnValue({
+      objects: [pod('a', 'checkout'), pod('b', 'default'), pod('c', 'checkout')],
+      active: true,
+      phase: 'live',
+    });
+    await render('/dashboard?resource=deployments&namespace=checkout', [KIND]);
+    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
+    const table = propsOf('objects-table');
+    expect(table.objects.map((o: { uid: string }) => o.uid)).toEqual(['a', 'c']);
+    expect(table.namespace).toBe('checkout');
+  });
+
+  it('shows every object of a cluster-scoped kind under a namespace, and says so', async () => {
+    const pv = { ...KIND, apiVersion: 'v1', kind: 'PersistentVolume', resource: 'persistentvolumes', scope: 'Cluster' };
+    useClusterCachedDataObjectsMock.mockReturnValue({
+      objects: [pod('a', ''), pod('b', '')],
+      active: true,
+      phase: 'live',
+    });
+    await render('/dashboard?resource=persistentvolumes&namespace=checkout', [pv]);
+    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
+    expect(propsOf('objects-table').namespace).toBeUndefined();
+    expect(screen.getByText(/Cluster-scoped, so the/)).toHaveTextContent(
+      "Cluster-scoped, so the checkout filter isn't applied.",
+    );
+  });
+
+  it('heads Events with its count, scoped to the namespace', async () => {
+    useClusterCachedDataEventsMock.mockReturnValue({
+      events: [event('a', 'checkout'), event('b', 'default')],
+      active: true,
+      phase: 'live',
+    });
+    await render('/dashboard?resource=events&namespace=checkout');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Events');
+    expect(screen.getByTestId('page-count')).toHaveTextContent('1');
+    expect(screen.getByText(/Events in/)).toHaveTextContent('Events in checkout.');
+    const table = propsOf('events-table');
+    expect(table.events.map((e: { uid: string }) => e.uid)).toEqual(['a']);
+    expect(table.namespace).toBe('checkout');
+  });
+
+  it('heads Events with every event and no subtitle without a namespace', async () => {
+    useClusterCachedDataEventsMock.mockReturnValue({
+      events: [event('a', 'x'), event('b', 'y')],
+      active: true,
+      phase: 'live',
+    });
+    await render('/dashboard?resource=events');
+    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
+    expect(screen.queryByText(/Events in/)).not.toBeInTheDocument();
+  });
+
+  it('draws no Events count before the events land', async () => {
+    useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'connecting' });
+    await render('/dashboard?resource=events');
+    expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
   });
 });

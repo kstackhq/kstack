@@ -81,8 +81,8 @@ func (r *clusterResolver) Events(ctx context.Context, obj *cluster.Cluster, cate
 
 // Kinds is the resolver for the kinds field — this cache's discovered kind catalog.
 // Both ids come off the record, so they cannot name different caches.
-func (r *clusterCacheResolver) Kinds(ctx context.Context, obj *cluster.ClusterCache) ([]*cluster.ClusterCachedDataKind, error) {
-	kinds, err := r.ClusterSvc.CachedData().ListKinds(ctx, obj.ClusterID, obj.ID)
+func (r *clusterCacheResolver) Kinds(ctx context.Context, obj *cluster.ClusterCache, namespace string) ([]*cluster.ClusterCachedDataKind, error) {
+	kinds, err := r.ClusterSvc.CachedData().ListKinds(ctx, obj.ClusterID, obj.ID, namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -674,10 +674,10 @@ func (r *subscriptionResolver) ClusterCacheSyncStatusWatch(ctx context.Context, 
 
 // ClusterCachedDataKindsWatch is the resolver for the clusterCachedDataKindsWatch field — one
 // ClusterCache's kind catalog as a delta watch (the live counterpart of
-// clusterCachedDataKinds), so the dashboard nav's kinds + counts track the cluster in
+// ClusterCache.kinds), so the dashboard nav's kinds + counts track the cluster in
 // real time.
-func (r *subscriptionResolver) ClusterCachedDataKindsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedDataKindWatchFrame, error) {
-	stream, err := r.ClusterSvc.CachedData().WatchKinds(ctx, id, cacheID)
+func (r *subscriptionResolver) ClusterCachedDataKindsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID, namespace string) (<-chan *cluster.ClusterCachedDataKindWatchFrame, error) {
+	stream, err := r.ClusterSvc.CachedData().WatchKinds(ctx, id, cacheID, namespace)
 	if err != nil {
 		return nil, err
 	}

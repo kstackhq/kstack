@@ -28,14 +28,16 @@ type GroupId =
   | 'extensions'
   | 'custom-resources';
 
-type CuratedKind = { resource: string; label: string; apiGroup: string; scope: Scope };
+// `shortNames` are kubectl's, which the catalog does not carry.
+type CuratedKind = { resource: string; label: string; apiGroup: string; scope: Scope; shortNames: readonly string[] };
 
-const kind = (resource: string, label: string, apiGroup: string, scope: Scope): CuratedKind => ({
-  resource,
-  label,
-  apiGroup,
-  scope,
-});
+const kind = (
+  resource: string,
+  label: string,
+  apiGroup: string,
+  scope: Scope,
+  shortNames: readonly string[] = [],
+): CuratedKind => ({ resource, label, apiGroup, scope, shortNames });
 
 // Each section draws its groups, and each group its curated kinds, in this order.
 const GROUPS: readonly { id: GroupId; label: string; kinds: readonly CuratedKind[] }[] = [
@@ -43,48 +45,48 @@ const GROUPS: readonly { id: GroupId; label: string; kinds: readonly CuratedKind
     id: 'workloads',
     label: 'Workloads',
     kinds: [
-      kind('pods', 'Pods', '', 'Namespaced'),
-      kind('deployments', 'Deployments', 'apps', 'Namespaced'),
-      kind('statefulsets', 'StatefulSets', 'apps', 'Namespaced'),
-      kind('daemonsets', 'DaemonSets', 'apps', 'Namespaced'),
-      kind('replicasets', 'ReplicaSets', 'apps', 'Namespaced'),
+      kind('pods', 'Pods', '', 'Namespaced', ['po']),
+      kind('deployments', 'Deployments', 'apps', 'Namespaced', ['deploy']),
+      kind('statefulsets', 'StatefulSets', 'apps', 'Namespaced', ['sts']),
+      kind('daemonsets', 'DaemonSets', 'apps', 'Namespaced', ['ds']),
+      kind('replicasets', 'ReplicaSets', 'apps', 'Namespaced', ['rs']),
       kind('jobs', 'Jobs', 'batch', 'Namespaced'),
-      kind('cronjobs', 'CronJobs', 'batch', 'Namespaced'),
+      kind('cronjobs', 'CronJobs', 'batch', 'Namespaced', ['cj']),
     ],
   },
   {
     id: 'infrastructure',
     label: 'Infrastructure',
-    kinds: [kind('nodes', 'Nodes', '', 'Cluster'), kind('namespaces', 'Namespaces', '', 'Cluster')],
+    kinds: [kind('nodes', 'Nodes', '', 'Cluster', ['no']), kind('namespaces', 'Namespaces', '', 'Cluster', ['ns'])],
   },
   {
     id: 'network',
     label: 'Network',
     kinds: [
-      kind('services', 'Services', '', 'Namespaced'),
-      kind('ingresses', 'Ingresses', 'networking.k8s.io', 'Namespaced'),
-      kind('networkpolicies', 'NetworkPolicies', 'networking.k8s.io', 'Namespaced'),
+      kind('services', 'Services', '', 'Namespaced', ['svc']),
+      kind('ingresses', 'Ingresses', 'networking.k8s.io', 'Namespaced', ['ing']),
+      kind('networkpolicies', 'NetworkPolicies', 'networking.k8s.io', 'Namespaced', ['netpol']),
     ],
   },
   {
     id: 'config',
     label: 'Config',
-    kinds: [kind('configmaps', 'ConfigMaps', '', 'Namespaced'), kind('secrets', 'Secrets', '', 'Namespaced')],
+    kinds: [kind('configmaps', 'ConfigMaps', '', 'Namespaced', ['cm']), kind('secrets', 'Secrets', '', 'Namespaced')],
   },
   {
     id: 'storage',
     label: 'Storage',
     kinds: [
-      kind('persistentvolumes', 'PersistentVolumes', '', 'Cluster'),
-      kind('storageclasses', 'StorageClasses', 'storage.k8s.io', 'Cluster'),
-      kind('persistentvolumeclaims', 'PersistentVolumeClaims', '', 'Namespaced'),
+      kind('persistentvolumes', 'PersistentVolumes', '', 'Cluster', ['pv']),
+      kind('storageclasses', 'StorageClasses', 'storage.k8s.io', 'Cluster', ['sc']),
+      kind('persistentvolumeclaims', 'PersistentVolumeClaims', '', 'Namespaced', ['pvc']),
     ],
   },
   {
     id: 'access-control',
     label: 'Access control',
     kinds: [
-      kind('serviceaccounts', 'ServiceAccounts', '', 'Namespaced'),
+      kind('serviceaccounts', 'ServiceAccounts', '', 'Namespaced', ['sa']),
       kind('roles', 'Roles', 'rbac.authorization.k8s.io', 'Namespaced'),
       kind('rolebindings', 'RoleBindings', 'rbac.authorization.k8s.io', 'Namespaced'),
       kind('clusterroles', 'ClusterRoles', 'rbac.authorization.k8s.io', 'Cluster'),
@@ -95,7 +97,10 @@ const GROUPS: readonly { id: GroupId; label: string; kinds: readonly CuratedKind
     id: 'extensions',
     label: 'Extensions',
     kinds: [
-      kind('customresourcedefinitions', 'CustomResourceDefinitions', 'apiextensions.k8s.io', 'Cluster'),
+      kind('customresourcedefinitions', 'CustomResourceDefinitions', 'apiextensions.k8s.io', 'Cluster', [
+        'crd',
+        'crds',
+      ]),
       kind('apiservices', 'APIServices', 'apiregistration.k8s.io', 'Cluster'),
     ],
   },
@@ -268,6 +273,12 @@ export function resolveDashboardResource(resource: DashboardResource | undefined
 // Whether an id could name a kind once the catalog lands. Only Overview never will.
 export function mayNameDiscoveredKind(id: DashboardResource): boolean {
   return id !== DEFAULT_DASHBOARD_RESOURCE;
+}
+
+// A kind's kubectl short names: a curated kind's, else none.
+export function shortNamesOf(k: ServerKind): readonly string[] {
+  const i = curatedIndex(k);
+  return i === undefined ? [] : CURATED[i].shortNames;
 }
 
 // The catalog row behind a tree id.

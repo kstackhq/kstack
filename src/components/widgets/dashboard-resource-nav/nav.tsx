@@ -27,6 +27,7 @@ import { filterNav, groupCount, PINNED, resolveDashboardResource } from '@/lib/d
 import type { DashboardResource, NavGroup as Group, NavSection } from '@/lib/dashboard-resources';
 import { usePersistedFlag } from '@/lib/persisted-flag';
 
+import { NamespacePicker } from './namespace-picker';
 import { NavGroup } from './nav-group';
 import { NavItem } from './nav-item';
 import { SectionHeading } from './section-heading';
@@ -72,9 +73,9 @@ function GroupBlock({ group, sectionId, first, active, searching }: GroupBlockPr
   );
 }
 
+// A section with no match says so while searching.
 function sectionLabel(section: NavSection, searching: boolean): string {
-  if (searching && section.groups.length === 0) return `${section.label} · no matches`;
-  return section.id === 'namespace' ? `${section.label} · all` : section.label;
+  return searching && section.groups.length === 0 ? `${section.label} · no matches` : section.label;
 }
 
 const PINNED_ICON = { overview: Compass, events: List };
@@ -95,6 +96,10 @@ export function DashboardResourceNav() {
 
   return (
     <nav aria-label="Resources" className="flex flex-col gap-0.5">
+      {/* The scope first: it decides what the rows below count and show. */}
+      <div className="pb-2">
+        <NamespacePicker />
+      </div>
       {PINNED.map((p) => (
         <NavItem
           key={p.id}
