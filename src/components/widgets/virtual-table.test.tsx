@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 
 import { stubLayout } from '@/test-utils';
 
@@ -31,7 +31,7 @@ const rowsOf = (n: number, from = 0): Row[] => Array.from({ length: n }, (_, i) 
 
 function renderTable(rows: Row[]) {
   const view = render(<VirtualTable rows={rows} rowKey={rowKey} columns={columns} />);
-  const scroller = view.container.firstElementChild as HTMLDivElement;
+  const scroller = view.container.querySelector<HTMLDivElement>('[tabindex="0"]')!;
   const rerender = (next: Row[]) => view.rerender(<VirtualTable rows={next} rowKey={rowKey} columns={columns} />);
   const scrollTo = (top: number) => {
     scroller.scrollTop = top;
@@ -59,9 +59,24 @@ describe('VirtualTable', () => {
 
   it('lays the table out fixed, with each column carrying its class on header and cells', () => {
     renderTable(rowsOf(3));
-    expect(screen.getByRole('table')).toHaveClass('table-fixed');
+    document.querySelectorAll('table').forEach((t) => expect(t).toHaveClass('table-fixed'));
     expect(screen.getByRole('columnheader', { name: 'ID' })).toHaveClass('w-32');
     expect(screen.getByText('r1')).toHaveClass('w-32');
+  });
+
+  it('sizes each column of both tables from its width, and holds the table to the widths and the slack column’s minimum', () => {
+    const sized: VirtualColumn<Row>[] = [
+      { key: 'a', header: 'A', width: 100, cell: (r) => r.id },
+      { key: 'b', header: 'B', minWidth: 240, cell: (r) => r.id },
+      { key: 'c', header: 'C', width: 60, cell: (r) => r.id },
+      { key: 'd', header: 'D', cell: (r) => r.id },
+    ];
+    render(<VirtualTable rows={rowsOf(1)} rowKey={rowKey} columns={sized} />);
+    // Header and body share the widths: the body's first row is a spacer with no cells.
+    document.querySelectorAll('table').forEach((t) => {
+      expect(Array.from(t.querySelectorAll('col')).map((c) => c.style.width)).toEqual(['100px', '', '60px', '']);
+      expect(t.style.minWidth).toBe('400px');
+    });
   });
 
   // Home/End/PageUp/PageDown are the browser's on a focused overflow container.
@@ -127,6 +142,47 @@ describe('VirtualTable', () => {
     it('turns native scroll anchoring off', () => {
       const { scroller } = renderTable(rowsOf(3));
       expect(scroller).toHaveClass('[overflow-anchor:none]');
+    });
+  });
+
+  describe('header', () => {
+    // A screen reader ties a cell to its column's header only within one table.
+    it('shares one table with the rows', () => {
+      renderTable(rowsOf(3));
+      const table = screen.getByRole('table');
+      expect(within(table).getByRole('columnheader', { name: 'ID' })).toBeInTheDocument();
+      expect(
+        within(table)
+          .getAllByRole('cell')
+          .map((c) => c.textContent),
+      ).toEqual(['r0', 'r1', 'r2']);
+      document.querySelectorAll('table').forEach((t) => expect(t).toHaveAttribute('role', 'none'));
+    });
+
+    it('sits above the scroller, with the scrollbar styled', () => {
+      const { scroller } = renderTable(rowsOf(3));
+      expect(scroller).toHaveClass('table-scrollbar');
+      expect(within(scroller).queryByRole('columnheader')).not.toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: 'ID' })).toBeInTheDocument();
+    });
+
+    it('leaves room for the scroller’s bar', () => {
+      // The scroller is 10px wider than its content: a classic bar's width.
+      const offset = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(410);
+      const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400);
+      renderTable(rowsOf(3));
+      const header = screen.getByRole('columnheader').closest('table')!.parentElement!.parentElement!.parentElement!;
+      expect(header.style.paddingRight).toBe('10px');
+      offset.mockRestore();
+      client.mockRestore();
+    });
+
+    it('follows the scroller sideways', () => {
+      const { scroller } = renderTable(rowsOf(3));
+      const moved = screen.getByRole('columnheader').closest('table')!.parentElement!.parentElement!;
+      scroller.scrollLeft = 120;
+      fireEvent.scroll(scroller);
+      expect(moved.style.transform).toBe('translateX(-120px)');
     });
   });
 });

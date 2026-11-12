@@ -655,6 +655,12 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 ## Frontend (webview)
 
+- **The dashboard tables' scrollbar ignores macOS's setting.** The tables draw a custom bar
+  that always shows (`table-scrollbar`, `index.css`), since WebKit draws the rows' separators
+  over its overlay bar. Moving the separators onto the cells (`border-separate`) did not stop
+  it. The log viewer, with no row separators, keeps the system's bar. Find what draws over it,
+  and let the tables take the system's bar again.
+
 - **The log viewer shows only the filters the model set.** Kubetail's sidebar lists each region, zone, OS, architecture and node the open sources span, with a count per value. That needs one query answering what a view's sources resolved to, which the sidecar's resolve already computes (`services/logs/resolve.go`) and the wire does not carry.
 - **A workload's log view has no switch to hide its gone pods or its earlier instances.** A
   Deployment's view shows every pod the Deployment runs or ran within the log file's retention, a

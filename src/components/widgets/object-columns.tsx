@@ -34,9 +34,11 @@ export type ObjectColumn = {
   key: string;
   header: string;
   cell: (o: ClusterCachedDataObject) => ReactNode;
-  // Applied to both the header and its cells. Carries a width: the table's layout is fixed,
-  // and an unsized column would split the slack with Name.
+  // Applied to both the header and its cells: alignment, tabular-nums.
   className?: string;
+  // In pixels: the table's layout is fixed, and an unsized column would split the slack with
+  // Name.
+  width: number;
 };
 
 // Defaults to {} so a missing body flows through the optional chains to "—".
@@ -147,7 +149,8 @@ const podColumns: ObjectColumn[] = [
   {
     key: 'Ready',
     header: 'Ready',
-    className: 'w-24 tabular-nums',
+    className: 'tabular-nums',
+    width: 96,
     cell: (o) => {
       const b = body<PodBody>(o);
       const cs = b.status?.containerStatuses ?? [];
@@ -161,13 +164,14 @@ const podColumns: ObjectColumn[] = [
   {
     key: 'Status',
     header: 'Status',
-    className: 'w-40',
+    width: 160,
     cell: (o) => podStatus(body<PodBody>(o)),
   },
   {
     key: 'Restarts',
     header: 'Restarts',
-    className: 'w-24 tabular-nums',
+    className: 'tabular-nums',
+    width: 96,
     cell: (o) => {
       const st = body<PodBody>(o).status;
       // Init-container retries count too: during init they're the only restarts
@@ -183,7 +187,8 @@ const workloadColumns: ObjectColumn[] = [
   {
     key: 'Ready',
     header: 'Ready',
-    className: 'w-24 tabular-nums',
+    className: 'tabular-nums',
+    width: 96,
     cell: (o) => {
       const b = body<WorkloadBody>(o);
       return `${b.status?.readyReplicas ?? 0}/${b.spec?.replicas ?? 0}`;
@@ -192,13 +197,15 @@ const workloadColumns: ObjectColumn[] = [
   {
     key: 'Up-to-date',
     header: 'Up-to-date',
-    className: 'w-28 tabular-nums',
+    className: 'tabular-nums',
+    width: 112,
     cell: (o) => body<WorkloadBody>(o).status?.updatedReplicas ?? 0,
   },
   {
     key: 'Available',
     header: 'Available',
-    className: 'w-28 tabular-nums',
+    className: 'tabular-nums',
+    width: 112,
     cell: (o) => body<WorkloadBody>(o).status?.availableReplicas ?? 0,
   },
 ];
@@ -219,7 +226,8 @@ function descriptorColumn(d: PrinterColumn, i: number): ObjectColumn {
   return {
     key: `${i}-${d.name}`,
     header: d.name,
-    className: numeric || d.type === 'date' ? 'w-32 tabular-nums' : 'w-32',
+    className: numeric || d.type === 'date' ? 'tabular-nums' : undefined,
+    width: 128,
     cell: (o) => {
       const value = readPath(o.rawJSON, d.jsonPath);
       if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') return DASH;

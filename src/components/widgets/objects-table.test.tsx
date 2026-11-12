@@ -235,6 +235,6 @@ describe('ObjectsTable', () => {
 
   it('renders the live rows through the virtualized, fixed-layout table', () => {
     render(<ObjectsTable {...PODS} {...live(obj())} />);
-    expect(screen.getByRole('table')).toHaveClass('table-fixed');
+    document.querySelectorAll('table').forEach((t) => expect(t).toHaveClass('table-fixed'));
   });
 });

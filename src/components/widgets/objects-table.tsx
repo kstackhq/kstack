@@ -50,7 +50,7 @@ const rowKey = (o: ClusterCachedDataObject) => o.uid;
 const NAMESPACE_COLUMN: VirtualColumn<ClusterCachedDataObject> = {
   key: 'namespace',
   header: 'Namespace',
-  className: 'w-48',
+  width: 192,
   cell: (o) => <span className="text-muted-foreground">{o.namespace || '—'}</span>,
 };
 
@@ -59,6 +59,7 @@ const NAME_COLUMN: VirtualColumn<ClusterCachedDataObject> = {
   key: 'name',
   header: 'Name',
   className: 'truncate',
+  minWidth: 240,
   cell: (o) => (
     <span className="font-medium" title={o.name}>
       {o.name}
@@ -69,7 +70,8 @@ const NAME_COLUMN: VirtualColumn<ClusterCachedDataObject> = {
 const AGE_COLUMN: VirtualColumn<ClusterCachedDataObject> = {
   key: 'age',
   header: 'Age',
-  className: 'w-32 tabular-nums',
+  className: 'tabular-nums',
+  width: 128,
   cell: (o) => {
     const createdMs = o.creationTimestamp ? Date.parse(o.creationTimestamp) : Number.NaN;
     return Number.isNaN(createdMs) ? '—' : <ReactTimeAgo date={createdMs} component="span" maxPeriod={60} />;

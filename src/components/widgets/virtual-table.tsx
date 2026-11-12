@@ -38,8 +38,13 @@ export type VirtualColumn<T> = {
   key: string;
   header: string;
   cell: (row: T) => ReactNode;
-  // Applied to the header and every cell: width, alignment, tabular-nums.
+  // Applied to the header and every cell: alignment, truncation, tabular-nums.
   className?: string;
+  // The column's width in pixels. The layout is fixed, so the one column without a width
+  // takes the slack; it keeps `minWidth`, and the table scrolls sideways before it would
+  // go under it.
+  width?: number;
+  minWidth?: number;
 };
 
 type VirtualTableProps<T> = {
@@ -54,12 +59,18 @@ type Seen = { key: string; index: number };
 
 export function VirtualTable<T>({ rows, rowKey, columns }: VirtualTableProps<T>) {
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  // The scroller's vertical bar, which the header leaves room for.
+  const [gutter, setGutter] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewHeight, setViewHeight] = useState(0);
 
   useEffect(() => {
     const el = scrollerRef.current!;
-    const observer = new ResizeObserver(() => setViewHeight(el.clientHeight));
+    const observer = new ResizeObserver(() => {
+      setViewHeight(el.clientHeight);
+      setGutter(el.offsetWidth - el.clientWidth);
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
@@ -92,39 +103,68 @@ export function VirtualTable<T>({ rows, rowKey, columns }: VirtualTableProps<T>)
     for (let i = firstVisible; i < last; i += 1) seenRef.current.push({ key: rowKey(rows[i]), index: i });
   });
 
+  const minWidth = columns.reduce((sum, c) => sum + (c.width ?? c.minWidth ?? 0), 0);
+  // Both tables lay out from these: a fixed table takes its widths from its first row, which
+  // in the body is a spacer.
+  const cols = (
+    <colgroup>
+      {columns.map((c) => (
+        <col key={c.key} style={{ width: c.width }} />
+      ))}
+    </colgroup>
+  );
+  // Two native tables would read as a table of headers with no rows and a table of rows with
+  // no headers, so both give up their roles to this one, and their parts name their own.
   return (
-    <div
-      ref={scrollerRef}
-      // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so Home/End/PageUp/PageDown reach the scroll region
-      tabIndex={0}
-      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
-      className="flex-1 overflow-auto [overflow-anchor:none] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-    >
-      {/* The library's wrapper is a scroll container of its own; this one is the scroller. */}
-      <Table className="table-fixed" containerClassName="overflow-x-visible">
-        <TableHeader className="sticky top-0 bg-background">
-          <TableRow>
-            {columns.map((c) => (
-              <TableHead key={c.key} className={c.className}>
-                {c.header}
-              </TableHead>
+    <div role="table" className="flex min-h-0 flex-1 flex-col">
+      {/* The header is a table of its own above the scroller, so the scrollbar starts under it.
+      It leaves room for the scroller's bar, so its box is as wide as the rows' view, and
+      follows the scroller sideways by a transform: WebKit leaves the padding out of a box's
+      scroll range, so a header scrolled to match would stop short at the far right. */}
+      <div className="shrink-0 overflow-hidden" style={{ paddingRight: gutter }}>
+        <div ref={headerRef}>
+          <Table role="none" className="table-fixed" containerClassName="overflow-x-visible" style={{ minWidth }}>
+            {cols}
+            <TableHeader role="rowgroup">
+              <TableRow role="row">
+                {columns.map((c) => (
+                  <TableHead key={c.key} role="columnheader" className={c.className}>
+                    {c.header}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+          </Table>
+        </div>
+      </div>
+      <div
+        ref={scrollerRef}
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so Home/End/PageUp/PageDown reach the scroll region
+        tabIndex={0}
+        onScroll={(e) => {
+          setScrollTop(e.currentTarget.scrollTop);
+          headerRef.current!.style.transform = `translateX(${-e.currentTarget.scrollLeft}px)`;
+        }}
+        className="table-scrollbar flex-1 overflow-auto [overflow-anchor:none] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        {/* The library's wrapper is a scroll container of its own; this one is the scroller. */}
+        <Table role="none" className="table-fixed" containerClassName="overflow-x-visible" style={{ minWidth }}>
+          {cols}
+          <TableBody role="rowgroup">
+            <tr aria-hidden style={{ height: first * ROW_H_PX }} />
+            {rows.slice(first, last).map((row) => (
+              <TableRow key={rowKey(row)} role="row" className={ROW_H}>
+                {columns.map((c) => (
+                  <TableCell key={c.key} role="cell" className={c.className}>
+                    {c.cell(row)}
+                  </TableCell>
+                ))}
+              </TableRow>
             ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <tr aria-hidden style={{ height: first * ROW_H_PX }} />
-          {rows.slice(first, last).map((row) => (
-            <TableRow key={rowKey(row)} className={ROW_H}>
-              {columns.map((c) => (
-                <TableCell key={c.key} className={c.className}>
-                  {c.cell(row)}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-          <tr aria-hidden style={{ height: (rows.length - last) * ROW_H_PX }} />
-        </TableBody>
-      </Table>
+            <tr aria-hidden style={{ height: (rows.length - last) * ROW_H_PX }} />
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }
