@@ -45,6 +45,7 @@ vi.mock('@/lib/clusters', async (importOriginal) => ({
 vi.mock('@/lib/active-kube-context', () => ({ useActiveKubeContext: useActiveKubeContextMock }));
 
 const { useDashboardNav } = await import('./dashboard-nav');
+const { buildDashboardNav } = await import('./dashboard-resources');
 const { ClusterCachedDataKindsProvider } = await import('./cluster-cached-data-kinds');
 
 // The catalog's subscription lives in its provider, as the layout mounts it.
@@ -56,17 +57,16 @@ function renderNav() {
   });
 }
 
-const REPLICASET = {
-  apiVersion: 'apps/v1',
-  kind: 'ReplicaSet',
-  resource: 'replicasets',
+// Two kinds not curated, so each lands under a `<group>/<resource>` id.
+const HPA = {
+  apiVersion: 'autoscaling/v2',
+  kind: 'HorizontalPodAutoscaler',
+  resource: 'horizontalpodautoscalers',
   scope: 'Namespaced',
   isCRD: false,
   count: 7,
 };
 
-// A non-curated workloads kind (so it lands in `moreChildren`, unlike the curated
-// `jobs`/`deployments`), used to exercise Added/Deleted of a second discovered kind.
 const CONTROLLER_REVISION = {
   apiVersion: 'apps/v1',
   kind: 'ControllerRevision',
@@ -88,9 +88,12 @@ function clusterFixture(synced: { status: string; reason: string } | null, cache
   };
 }
 
-const hasDiscovered = (nav: { moreChildren?: unknown }[]) => nav.some((n) => n.moreChildren);
-const workloadsExtra = (nav: { id: string; moreChildren?: readonly { id: string; count?: number }[] }[]) =>
-  nav.find((n) => n.id === 'workloads')?.moreChildren ?? [];
+type Nav = ReturnType<typeof buildDashboardNav>;
+const CURATED_ONLY = buildDashboardNav(undefined);
+// The discovered kinds in the tree: every kind a `<group>/<resource>` id names.
+const workloadsExtra = (nav: Nav) =>
+  nav.sections.flatMap((s) => s.groups.flatMap((g) => g.kinds)).filter((k) => k.id.includes('/'));
+const hasDiscovered = (nav: Nav) => workloadsExtra(nav).length > 0;
 
 // urql accumulator stand-in. `acc` is the reduced data the mock returns; `pushFrame`
 // folds a delta through the reducer captured on the last render, exactly as urql's live
@@ -138,13 +141,18 @@ describe('useDashboardNav', () => {
     const { result, rerender } = renderNav();
 
     // Before any frame: curated-only.
-    expect(hasDiscovered(result.current.nav)).toBe(false);
+    expect(result.current.nav).toEqual(CURATED_ONLY);
 
-    // The on-subscribe snapshot arrives as an Added change; the kind + its count appear.
-    pushFrame('Added', REPLICASET);
+    // The snapshot's kinds wait for its Bookmark: until then the tree stays curated, with
+    // no counts, so no kind reads as empty or missing.
+    pushFrame('Added', HPA);
+    rerender();
+    expect(result.current.nav).toEqual(CURATED_ONLY);
+
+    pushBookmark();
     rerender();
     const extra = workloadsExtra(result.current.nav);
-    expect(extra.map((c) => c.id)).toEqual(['apps/replicasets']);
+    expect(extra.map((c) => c.id)).toEqual(['autoscaling/horizontalpodautoscalers']);
     expect(extra[0].count).toBe(7);
   });
 
@@ -152,12 +160,13 @@ describe('useDashboardNav', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
     const { result, rerender } = renderNav();
 
-    pushFrame('Added', REPLICASET);
+    pushFrame('Added', HPA);
+    pushBookmark();
     rerender();
     expect(workloadsExtra(result.current.nav)[0].count).toBe(7);
 
     // A later object write bumps the count → Modified re-emits the same kind.
-    pushFrame('Modified', { ...REPLICASET, count: 12 });
+    pushFrame('Modified', { ...HPA, count: 12 });
     rerender();
     expect(workloadsExtra(result.current.nav)[0].count).toBe(12);
   });
@@ -166,17 +175,18 @@ describe('useDashboardNav', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
     const { result, rerender } = renderNav();
 
-    pushFrame('Added', REPLICASET);
+    pushFrame('Added', HPA);
     pushFrame('Added', CONTROLLER_REVISION);
+    pushBookmark();
     rerender();
     expect(
       workloadsExtra(result.current.nav)
         .map((c) => c.id)
         .toSorted(),
-    ).toEqual(['apps/controllerrevisions', 'apps/replicasets']);
+    ).toEqual(['apps/controllerrevisions', 'autoscaling/horizontalpodautoscalers']);
 
     // A kind leaving the catalog is dropped.
-    pushFrame('Deleted', REPLICASET);
+    pushFrame('Deleted', HPA);
     rerender();
     expect(workloadsExtra(result.current.nav).map((c) => c.id)).toEqual(['apps/controllerrevisions']);
   });
@@ -188,7 +198,8 @@ describe('useDashboardNav', () => {
     const { result, rerender } = renderNav();
     expect(lastArgs?.variables?.cacheID).toBe('c1');
 
-    pushFrame('Added', REPLICASET);
+    pushFrame('Added', HPA);
+    pushBookmark();
     rerender();
     expect(hasDiscovered(result.current.nav)).toBe(true);
 
@@ -204,6 +215,7 @@ describe('useDashboardNav', () => {
 
     // Once the new cache streams, its kinds appear (and the old cache's are gone).
     pushFrame('Added', CONTROLLER_REVISION);
+    pushBookmark();
     rerender();
     expect(workloadsExtra(result.current.nav).map((c) => c.id)).toEqual(['apps/controllerrevisions']);
   });
@@ -215,7 +227,8 @@ describe('useDashboardNav', () => {
     const { result, rerender } = renderNav();
     expect(lastArgs?.variables?.cacheID).toBe('c1');
 
-    pushFrame('Added', REPLICASET);
+    pushFrame('Added', HPA);
+    pushBookmark();
     rerender();
     expect(hasDiscovered(result.current.nav)).toBe(true);
 
@@ -239,7 +252,8 @@ describe('useDashboardNav', () => {
       clusters: [clusterFixture({ status: 'True', reason: 'Watching' }, 'c1', 'uid-1')],
     });
     const { result, rerender } = renderNav();
-    pushFrame('Added', REPLICASET); // c1's snapshot
+    pushFrame('Added', HPA); // c1's snapshot
+    pushBookmark();
     rerender();
 
     // Swap to c2 and let its snapshot stream two kinds.
@@ -247,50 +261,55 @@ describe('useDashboardNav', () => {
       clusters: [clusterFixture({ status: 'True', reason: 'Watching' }, 'c2', 'uid-2')],
     });
     rerender();
-    pushFrame('Added', REPLICASET, 'c2');
+    pushFrame('Added', HPA, 'c2');
     pushFrame('Added', CONTROLLER_REVISION, 'c2');
+    pushBookmark();
     rerender();
     expect(
       workloadsExtra(result.current.nav)
         .map((c) => c.id)
         .toSorted(),
-    ).toEqual(['apps/controllerrevisions', 'apps/replicasets']);
+    ).toEqual(['apps/controllerrevisions', 'autoscaling/horizontalpodautoscalers']);
 
     // A late straggler from the superseded c1 subscription must NOT wipe c2's catalog:
     // it's dropped, and c2's fully-accumulated kinds stay put.
-    pushFrame('Added', { ...REPLICASET, resource: 'stragglers', apiVersion: 'apps/v1' }, 'c1');
+    pushFrame('Added', { ...HPA, resource: 'stragglers' }, 'c1');
     rerender();
     expect(
       workloadsExtra(result.current.nav)
         .map((c) => c.id)
         .toSorted(),
-    ).toEqual(['apps/controllerrevisions', 'apps/replicasets']);
+    ).toEqual(['apps/controllerrevisions', 'autoscaling/horizontalpodautoscalers']);
 
     // A subsequent legitimate c2 delta still patches the intact catalog (it isn't reset
     // to a singleton by the straggler), so the count updates live.
-    pushFrame('Modified', { ...REPLICASET, count: 99 }, 'c2');
+    pushFrame('Modified', { ...HPA, count: 99 }, 'c2');
     rerender();
-    expect(workloadsExtra(result.current.nav).find((c) => c.id === 'apps/replicasets')?.count).toBe(99);
+    expect(workloadsExtra(result.current.nav).find((c) => c.id === 'autoscaling/horizontalpodautoscalers')?.count).toBe(
+      99,
+    );
   });
 
   it('resets the catalog on a transport reset so kinds deleted during an outage are gone after the replay', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
     const { result, rerender } = renderNav();
 
-    pushFrame('Added', REPLICASET);
+    pushFrame('Added', HPA);
     pushFrame('Added', CONTROLLER_REVISION);
+    pushBookmark();
     rerender();
     expect(
       workloadsExtra(result.current.nav)
         .map((c) => c.id)
         .toSorted(),
-    ).toEqual(['apps/controllerrevisions', 'apps/replicasets']);
+    ).toEqual(['apps/controllerrevisions', 'autoscaling/horizontalpodautoscalers']);
 
     // The transport reconnects: replicasets was deleted during the outage, so
     // the replayed snapshot carries only controllerrevisions — no Deleted
     // frame ever arrives for the kind that vanished.
     pushReset();
     pushFrame('Added', CONTROLLER_REVISION);
+    pushBookmark();
     rerender();
     expect(workloadsExtra(result.current.nav).map((c) => c.id)).toEqual(['apps/controllerrevisions']);
   });
@@ -299,7 +318,8 @@ describe('useDashboardNav', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
     const { result, rerender } = renderNav();
 
-    pushFrame('Added', REPLICASET);
+    pushFrame('Added', HPA);
+    pushBookmark();
     rerender();
     expect(hasDiscovered(result.current.nav)).toBe(true);
 
@@ -336,7 +356,7 @@ describe('useDashboardNav', () => {
     const { result, rerender } = renderNav();
     expect(result.current.active).toBe(true);
 
-    pushFrame('Added', REPLICASET);
+    pushFrame('Added', HPA);
     pushBookmark();
     rerender();
     expect(result.current.phase).toBe('live');
@@ -345,7 +365,7 @@ describe('useDashboardNav', () => {
   it('reports reconnecting when a live watch drops but keeps its last-known catalog', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
     const { result, rerender } = renderNav();
-    pushFrame('Added', REPLICASET);
+    pushFrame('Added', HPA);
     pushBookmark();
     rerender();
     expect(result.current.phase).toBe('live');

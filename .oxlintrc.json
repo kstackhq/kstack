@@ -214,7 +214,11 @@
             "message": "Cluster data is attacker-controlled text; read it with `src/lib/jsonpath.ts`, never a template engine."
           },
           {
-            "group": ["@kubetail/ui/elements/input", "@kubetail/ui/elements/textarea"],
+            "group": [
+              "@kubetail/ui/elements/input",
+              "@kubetail/ui/elements/search-box",
+              "@kubetail/ui/elements/textarea"
+            ],
             "message": "Use '@/components/widgets/text-entry', which turns off the webview's suggestions."
           }
         ]

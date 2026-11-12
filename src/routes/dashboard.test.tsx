@@ -128,20 +128,31 @@ describe('dashboard route', () => {
     expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
   });
 
-  it('shows a group row its placeholder at once, with no catalog to wait for', async () => {
+  it('shows Overview its placeholder at once, with no catalog to wait for', async () => {
     useClusterCachedDataKindsMock.mockReturnValue({ kinds: [], active: true, cacheID: 'cache-1', phase: 'connecting' });
     await renderWithRouter(
       testRoot.addChildren([appRoute.addChildren([dashboardRoute])]),
-      '/dashboard?resource=workloads',
+      '/dashboard?resource=overview',
     );
     expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
     expect(screen.queryByText(/loading resources/i)).not.toBeInTheDocument();
   });
 
-  it('falls back to a placeholder for a group row', async () => {
+  it('reads a group id as a kind this cluster does not serve', async () => {
     await render('/dashboard?resource=workloads');
     expect(screen.queryByTestId('objects-table')).not.toBeInTheDocument();
-    expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
+    expect(screen.getByText(/this cluster does not serve workloads/i)).toBeInTheDocument();
+  });
+
+  it('names a discovered kind by the kind the catalog gives it', async () => {
+    const hpa = {
+      ...KIND,
+      apiVersion: 'autoscaling/v2',
+      kind: 'HorizontalPodAutoscaler',
+      resource: 'horizontalpodautoscalers',
+    };
+    await render('/dashboard?resource=autoscaling/horizontalpodautoscalers', [hpa]);
+    expect(screen.getByRole('heading', { name: 'HorizontalPodAutoscaler' })).toBeInTheDocument();
   });
 
   it('says a kind the synced catalog lacks is not served by this cluster', async () => {
@@ -163,7 +174,7 @@ describe('dashboard route', () => {
     expect(screen.queryByText(/loading resources/i)).not.toBeInTheDocument();
   });
 
-  it('keeps a group row’s placeholder while the cluster has no active cache', async () => {
+  it('keeps Overview’s placeholder while the cluster has no active cache', async () => {
     useClusterCachedDataKindsMock.mockReturnValue({
       kinds: [],
       active: false,
@@ -172,7 +183,7 @@ describe('dashboard route', () => {
     });
     await renderWithRouter(
       testRoot.addChildren([appRoute.addChildren([dashboardRoute])]),
-      '/dashboard?resource=workloads',
+      '/dashboard?resource=overview',
     );
     expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
   });

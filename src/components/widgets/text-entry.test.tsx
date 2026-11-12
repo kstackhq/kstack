@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
 
 import { expectCodeText, expectProseText } from '@/test-utils';
 
-import { Input, Textarea } from './text-entry';
+import { Input, SearchBox, Textarea } from './text-entry';
 
 describe('text entry', () => {
   it('turns off suggestions, correction and spellcheck by default', () => {
@@ -40,6 +40,11 @@ describe('text entry', () => {
     );
     expectProseText(screen.getByLabelText('input'));
     expectProseText(screen.getByLabelText('textarea'));
+  });
+
+  it('turns them off in a search box too', () => {
+    render(<SearchBox aria-label="search" />);
+    expectCodeText(screen.getByRole('searchbox', { name: 'search' }));
   });
 
   it('lets a caller override a setting', () => {
