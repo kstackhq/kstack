@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Installs the development toolchain on a macOS host: Rust (rustup), Go, Node.js,
+# pnpm and uv, then the workspace's dependencies (pnpm install). Everything goes
+# into ~/.local and ~/.cargo — no sudo. The tools this script installs are the
+# ones the repo pins (see the *_pin functions below), not whatever Homebrew
+# has on PATH.
 
 set -euo pipefail
 
