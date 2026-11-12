@@ -144,6 +144,10 @@ path_hint() {
 
 add_path_to_profile() {
   local profile=$1
+  if grep -q '^# kstack prerequisites$' "$profile" 2>/dev/null; then
+    path_hint "$profile"
+    return 0
+  fi
   cat >>"$profile" <<'EOF'
 
 # kstack prerequisites
