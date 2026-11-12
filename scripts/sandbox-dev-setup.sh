@@ -157,5 +157,39 @@ else
   echo "✓ uv $UV_VERSION installed to ~/.local/bin"
 fi
 
+# --- 4. llvm-tools for cargo-llvm-cov ----------------------------------------
+# Two rustup processes installing llvm-tools at once (parallel cargo calls, or
+# sessions sharing ~/.rustup) can leave it half-installed: listed in the
+# toolchain's multirust-config.toml, so `component add` answers "up to date",
+# or its files left on disk unregistered, so `component add` fails on a
+# conflict. Healthy means llvm-profdata on disk and the component in the
+# toolchain's components list. Otherwise the repair deletes what the component
+# ships (rustc's own libLLVM is in the sysroot's lib/, not here), drops its
+# registration and installs it again. The calls run from src-tauri/ so its
+# rust-toolchain.toml picks the toolchain cargo uses.
+if command -v rustup >/dev/null 2>&1; then
+  (
+    cd "$REPO/src-tauri"
+    host="$(rustc -vV | sed -n 's/^host: //p')"
+    rustlib="$(rustc --print sysroot)/lib/rustlib"
+    profdata="$rustlib/$host/bin/llvm-profdata"
+    if [ -x "$profdata" ] && grep -qx "llvm-tools-preview-$host" "$rustlib/components"; then
+      echo "✓ llvm-tools installed"
+    else
+      rm -f "${rustlib:?}/$host"/bin/{llc,opt,llvm-*} \
+        "${rustlib:?}/$host"/lib/libLLVM* \
+        "${rustlib:?}/manifest-llvm-tools-preview-$host"
+      sed -i "/^llvm-tools-preview-$host\$/d" "$rustlib/components"
+      rustup component remove llvm-tools-preview >/dev/null 2>&1 || true
+      rustup component add llvm-tools-preview
+      if [ ! -x "$profdata" ]; then
+        echo "✗ rustup installed llvm-tools but $profdata is missing" >&2
+        exit 1
+      fi
+      echo "✓ llvm-tools installed to $(rustc --print sysroot)"
+    fi
+  )
+fi
+
 echo
 echo "Done. Open a new shell (or 'source $PERSIST') to pick up the env vars."
