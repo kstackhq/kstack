@@ -19,9 +19,11 @@ type Provider struct {
 	// ID is what a send and a stored message name: "anthropic", "fake".
 	ID string
 	// Label is the picker's group heading: "Anthropic".
-	Label   string
+	Label string
+	// Dialect and BaseURL are the defaults for every model of Catalog, which a
+	// model may override (ForModel). BaseURL is stated here: an SDK's own
+	// default is off.
 	Dialect Dialect
-	// BaseURL is where requests go. Stated here: an SDK's own default is off.
 	BaseURL string
 	// Key is the credential. Empty for a provider that needs none.
 	Key string
@@ -47,6 +49,19 @@ type Provider struct {
 	// fake is the Fake a provider on DialectFake answers from: the one provider
 	// whose code is a value, since a test steers it. Nil on every other dialect.
 	fake *Fake
+}
+
+// ForModel is p with m's overrides applied: m's dialect and base URL where m
+// states them, p's defaults where it does not. Every Target holds the provider
+// this returns, so a wire reads one dialect and one URL off Target.Provider.
+func (p Provider) ForModel(m Model) Provider {
+	if m.Dialect != "" {
+		p.Dialect = m.Dialect
+	}
+	if m.BaseURL != "" {
+		p.BaseURL = m.BaseURL
+	}
+	return p
 }
 
 // AffinityRoute is where Request.AffinityKey goes on a provider's endpoint: one

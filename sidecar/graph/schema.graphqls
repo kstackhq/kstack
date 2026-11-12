@@ -948,7 +948,7 @@ type Provider {
   id: String!
   "What a picker shows as the group heading."
   label: String!
-  "The dialect this provider speaks. Null on a provider the sidecar no longer holds — a stored message's, labelled by its id — since nothing but the id is known of it."
+  "The provider's default dialect, which a model of its catalog may override. Null on a provider the sidecar no longer holds — a stored message's, labelled by its id — since nothing but the id is known of it."
   llmDialect: LLMDialect
 }
 

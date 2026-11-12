@@ -12,7 +12,8 @@ The providers the app holds and, for each provider, every tool its turns are off
 name. It imports `llm` and each tool's package; only `config.go` and `app` import it.
 
 - `catalog.go`: `New(Config)` is every provider whose key `Config.APIKeys` holds, in picker order,
-  then `Config.Fake`. `ToolsFor(target)` feeds `Box.For`. Only a debug build moves a base URL.
+  then `Config.Fake`. `ToolsFor(target)` feeds `Box.For`. Only a debug build moves a base URL, and
+  it clears each model's base URL override, so one stub answers the row.
 - `providers.go`: one constructor per vendor row; a new vendor goes here, never in `llm`.
   `KeyVars()` is what `config.go` reads keys from and clears from the environment;
   `BaseURLVars()` is `KSTACK_<ID>_BASE_URL`. **Every entry states its `Cache`** (and

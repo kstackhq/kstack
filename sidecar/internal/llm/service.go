@@ -234,21 +234,26 @@ func spoken(p Provider) bool {
 }
 
 // Resolve is what a send runs on, once the model is in the provider's catalog and
-// the effort is one the model lists. A provider on a dialect nothing speaks holds
-// no model: nothing could run on it.
+// the effort is one the model lists. The target's provider carries the model's
+// overrides (Provider.ForModel). A model on a dialect nothing speaks cannot run.
 func (s *Service) Resolve(providerID, modelID, effort string) (Target, error) {
 	p, ok := s.byID[providerID]
-	if !ok || !spoken(p) {
+	if !ok {
 		return Target{}, ErrUnknownModel
 	}
 	i := slices.IndexFunc(p.Catalog, func(m Model) bool { return m.ID == modelID })
 	if i < 0 {
 		return Target{}, ErrUnknownModel
 	}
-	if !effortIsListed(p.Catalog[i], effort) {
+	m := p.Catalog[i]
+	p = p.ForModel(m)
+	if !spoken(p) {
+		return Target{}, ErrUnknownModel
+	}
+	if !effortIsListed(m, effort) {
 		return Target{}, ErrBadEffort
 	}
-	return Target{Provider: p, Model: p.Catalog[i], Effort: effort}, nil
+	return Target{Provider: p, Model: m, Effort: effort}, nil
 }
 
 // effortIsListed holds for a level the model lists, and, for a model with no such

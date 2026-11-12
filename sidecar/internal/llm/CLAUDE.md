@@ -44,10 +44,18 @@ internal/llm/
 
 ## Providers and the catalog
 
-- **Ten keyed providers**, picker order: `anthropic` (Messages), `openai` (Responses), then
-  `gemini`, `groq`, `mistral`, `deepseek`, `xai`, `openrouter`, `together`, `fireworks` (Chat
-  Completions), each keyed by the vendor's own variable (`catalog.KeyVars()`). **Every catalog is
-  written.** Each provider file says whether its ids were checked; no test reaches a vendor.
+- **Eleven keyed providers**, picker order: `anthropic` (Messages), `openai` (Responses), then
+  `gemini`, `groq`, `mistral`, `deepseek`, `xai`, `openrouter`, `together`, `fireworks`,
+  `opencode-go` (Chat Completions), each keyed by the vendor's own variable (`catalog.KeyVars()`).
+  **Every catalog is written.** Each provider file says whether its ids were checked; no test
+  reaches a vendor.
+- **A provider's `Dialect` and `BaseURL` are defaults; a model may override them**
+  (`Model.Dialect`, `Model.BaseURL`, empty to keep the default). `Provider.ForModel(m)` applies
+  the overrides, and **every `Target` holds the provider it returns**: `Resolve` alone builds
+  one, and `agent/chat` resolves a subagent's model afresh, never onto the parent's provider. So
+  everything downstream reads one dialect off `Target.Provider`. `opencode-go` overrides per model to send
+  each on its native API. The GraphQL `llmDialect` is the provider's default. → [ADR: a model may
+  override its provider's default dialect](../../../docs/adr/2026-11-12-a-model-may-override-its-providers-default-dialect.md).
 - **Effort is the vendor's own vocabulary**, never translated. A model with an output cap of
   zero on Chat Completions sends no `max_tokens`; Messages and Responses always state one.
 - **Four option lines on a provider, applied by every wire** through `providerOptions`: `Extra`
@@ -62,8 +70,8 @@ internal/llm/
   never set on the process.
   → [cloud providers from the environment](../../../docs/security/2026-09-12-cloud-providers-from-the-environment.md),
   [provider keys from the login shell](../../../docs/security/2026-10-07-provider-keys-from-the-login-shell.md).
-- **Which models take tools is `Model.Tools`**: every Messages and Responses entry, per entry on
-  Chat Completions. The fake's catalog is `fake` (tools, efforts) and `fake-no-tools` (neither).
+- **Which models take tools is `Model.Tools`**: every entry sent on Messages or Responses, per
+  entry on Chat Completions. The fake's catalog is `fake` (tools, efforts) and `fake-no-tools` (neither).
 
 ## Blocks and the record
 

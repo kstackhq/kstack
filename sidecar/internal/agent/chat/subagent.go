@@ -139,7 +139,8 @@ func (t *turn) subagentTarget(model string) (llm.Target, error) {
 	}
 	for _, m := range t.target.Provider.Catalog {
 		if m.ID == model && m.Tools {
-			return llm.Target{Provider: t.target.Provider, Model: m, Effort: m.DefaultEffort}, nil
+			// Resolved afresh: the parent's provider carries the parent model's overrides.
+			return t.s.llmSvc.Resolve(t.target.Provider.ID, m.ID, m.DefaultEffort)
 		}
 	}
 	return llm.Target{}, tools.ErrUnknownModel

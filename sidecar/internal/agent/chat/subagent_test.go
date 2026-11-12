@@ -1735,3 +1735,37 @@ func TestASubagentStartsNoWatch(t *testing.T) {
 	_, watches := box.Runner("LogsWatch")
 	assert.False(t, watches)
 }
+
+// A subagent named onto a model runs with that model's overrides, or the
+// provider's defaults where it states none, whatever the parent's model
+// overrides.
+func TestASubagentRunsOnItsModelsOverrides(t *testing.T) {
+	t.Parallel()
+
+	p := llm.Provider{ID: "x", Dialect: llm.DialectChatCompletions, BaseURL: "https://x/v1", Catalog: []llm.Model{
+		{ID: "home", Tools: true},
+		{ID: "away", Tools: true, DefaultEffort: "high", Efforts: []string{"high"}, Dialect: llm.DialectMessages, BaseURL: "https://x/anthropic"},
+	}}
+	svc := llm.New(p)
+	for _, c := range []struct {
+		parent, parentEffort, model string
+		dialect                     llm.Dialect
+		baseURL                     string
+		effort                      string
+	}{
+		{"away", "high", "home", llm.DialectChatCompletions, "https://x/v1", ""},
+		{"home", "", "away", llm.DialectMessages, "https://x/anthropic", "high"},
+	} {
+		parent, err := svc.Resolve("x", c.parent, c.parentEffort)
+		require.NoError(t, err)
+		tr := &turn{runJournal: &runJournal{s: &service{llmSvc: svc}, target: parent}}
+
+		target, err := tr.subagentTarget(c.model)
+
+		require.NoError(t, err, c.model)
+		assert.Equal(t, c.model, target.Model.ID)
+		assert.Equal(t, c.dialect, target.Provider.Dialect, c.model)
+		assert.Equal(t, c.baseURL, target.Provider.BaseURL, c.model)
+		assert.Equal(t, c.effort, target.Effort, c.model)
+	}
+}

@@ -252,3 +252,4 @@ usually just documentation in the wrong place.
 | 2026-11-10 | [A pull request runs one leg per OS, and main runs every leg](2026-11-10-a-pull-request-runs-one-leg-per-os.md) | repo | Accepted |
 | 2026-11-10 | [CI checks every platform split the code has on a pull request](2026-11-10-ci-tests-every-platform-split-the-code-has.md) | repo | Accepted |
 | 2026-11-10 | [Main builds and tests the desktop host's release profile on the release runners](2026-11-10-main-builds-and-tests-the-release-profile.md) | repo | Accepted |
+| 2026-11-12 | [A model may override its provider's default dialect](2026-11-12-a-model-may-override-its-providers-default-dialect.md) | sidecar | Accepted |

@@ -38,6 +38,10 @@ type Model struct {
 	// is no statement, and no entry keeps it. It lives on the model because one
 	// provider can serve both kinds.
 	Cache CacheKind
+	// Dialect and BaseURL override the provider's defaults, for a provider that
+	// serves each model on its native API. Empty keeps the provider's.
+	Dialect Dialect
+	BaseURL string
 }
 
 // CacheKind is how a provider caches a model's prompt prefix.

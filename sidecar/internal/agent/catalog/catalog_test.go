@@ -80,14 +80,32 @@ func TestNewAppliesADebugBaseURLToAListedProviderAlone(t *testing.T) {
 	assert.Equal(t, newOpenAIProvider().BaseURL, providers[1].BaseURL)
 }
 
-// Every keyed provider is on a dialect Stream speaks, so a key is all that
-// stands between it and a send.
+// A debug base URL clears each model's base URL override too, so one stub
+// answers the whole row, and each model keeps its dialect override.
+func TestADebugBaseURLMovesEveryModelOfTheRow(t *testing.T) {
+	providers := New(Config{
+		APIKeys:  map[string]string{"opencode-go": "oc-test"},
+		BaseURLs: map[string]string{"opencode-go": "http://127.0.0.1:1"},
+	}).Providers()
+
+	require.Len(t, providers, 1)
+	p, row := providers[0], newOpenCodeGoProvider()
+	for i, m := range p.Catalog {
+		assert.Equal(t, "http://127.0.0.1:1", p.ForModel(m).BaseURL, m.ID)
+		assert.Equal(t, row.Catalog[i].Dialect, m.Dialect, m.ID)
+	}
+}
+
+// Every model of every keyed provider is on a dialect Stream speaks, so a key
+// is all that stands between it and a send.
 func TestEveryKeyedProviderResolves(t *testing.T) {
 	svc := llm.New(everyProvider()...)
 
 	for _, p := range svc.Providers() {
-		_, err := svc.Resolve(p.ID, p.Catalog[0].ID, p.Catalog[0].DefaultEffort)
-		assert.NoError(t, err, p.ID)
+		for _, m := range p.Catalog {
+			_, err := svc.Resolve(p.ID, m.ID, m.DefaultEffort)
+			assert.NoError(t, err, "%s/%s", p.ID, m.ID)
+		}
 	}
 }
 

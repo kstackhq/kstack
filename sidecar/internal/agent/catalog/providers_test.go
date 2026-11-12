@@ -33,7 +33,8 @@ func TestEveryKeyedProviderIsWhole(t *testing.T) {
 		p := kp.provider
 		assert.NotEmpty(t, p.ID)
 		assert.NotEmpty(t, p.Label, p.ID)
-		assert.Contains(t, []llm.Dialect{llm.DialectMessages, llm.DialectResponses, llm.DialectChatCompletions}, p.Dialect, p.ID)
+		wires := []llm.Dialect{llm.DialectMessages, llm.DialectResponses, llm.DialectChatCompletions}
+		assert.Contains(t, wires, p.Dialect, p.ID)
 		assert.NotEmpty(t, p.BaseURL, p.ID)
 		assert.NotEmpty(t, kp.keyVar, p.ID)
 		assert.NotEmpty(t, p.Catalog, p.ID)
@@ -48,7 +49,9 @@ func TestEveryKeyedProviderIsWhole(t *testing.T) {
 			} else {
 				assert.Contains(t, m.Efforts, m.DefaultEffort, m.ID)
 			}
-			if p.Dialect == llm.DialectMessages || p.Dialect == llm.DialectResponses {
+			d := p.ForModel(m).Dialect
+			assert.Contains(t, wires, d, m.ID)
+			if d == llm.DialectMessages || d == llm.DialectResponses {
 				assert.Positive(t, m.MaxOutputTokens, m.ID)
 			}
 		}
@@ -90,9 +93,28 @@ func windowsOf(p llm.Provider) map[string]int {
 
 // Each row is written out whole and as its comment says: the dialect, where it
 // goes, the catalog in picker order, the efforts each model takes in the
-// vendor's own words, and the request parameters of the vendor's own. The two
-// dialects that require a cap get the written one on every model.
+// vendor's own words, the request parameters of the vendor's own, and each
+// model's overrides of the row's dialect and base URL. The two dialects that
+// require a cap get the written one on every model sent on them.
 func TestEachKeyedProviderIsWrittenAsItsRow(t *testing.T) {
+	// OpenCode Go overrides its Chat Completions default with each model's native
+	// API: Responses at the row's URL, Messages at its own.
+	type override struct {
+		dialect llm.Dialect
+		baseURL string
+	}
+	responses := override{dialect: llm.DialectResponses}
+	messages := override{llm.DialectMessages, "https://opencode.ai/inference/go/anthropic"}
+	overrides := map[string]override{
+		"opencode-go/grok-4.7":         responses,
+		"opencode-go/gpt-5.6-luna":     responses,
+		"opencode-go/gpt-6-luna":       responses,
+		"opencode-go/claude-haiku-5-5": messages,
+		"opencode-go/minimax-m3":       messages,
+		"opencode-go/qwen3.8-max":      messages,
+		"opencode-go/qwen3.8-flash":    messages,
+		"opencode-go/qwen3.7-plus":     messages,
+	}
 	rows := []struct {
 		id, label string
 		dialect   llm.Dialect
@@ -211,6 +233,7 @@ func TestEachKeyedProviderIsWrittenAsItsRow(t *testing.T) {
 	}
 	keyed := keyedProviders()
 	require.Len(t, keyed, len(rows))
+	overridden := map[string]override{}
 	for i, want := range rows {
 		p := keyed[i].provider
 		assert.Equal(t, want.id, p.ID)
@@ -221,12 +244,16 @@ func TestEachKeyedProviderIsWrittenAsItsRow(t *testing.T) {
 		assert.Equal(t, want.efforts, effortsOf(p), p.ID)
 		assert.Equal(t, want.extra, p.Extra, p.ID)
 		assert.Equal(t, want.windows, windowsOf(p), p.ID)
-		if p.Dialect == llm.DialectMessages || p.Dialect == llm.DialectResponses {
-			for _, m := range p.Catalog {
+		for _, m := range p.Catalog {
+			if o := (override{m.Dialect, m.BaseURL}); o != (override{}) {
+				overridden[p.ID+"/"+m.ID] = o
+			}
+			if d := p.ForModel(m).Dialect; d == llm.DialectMessages || d == llm.DialectResponses {
 				assert.Equal(t, writtenCap, m.MaxOutputTokens, m.ID)
 			}
 		}
 	}
+	assert.Equal(t, overrides, overridden)
 }
 
 // The provider denies data collection on every request, which is what the egress
@@ -276,11 +303,10 @@ func TestBaseURLVarsNamesEachProvidersOverride(t *testing.T) {
 // Every model of a wire whose whole catalog takes tools says so.
 func TestEveryModelOnAWireThatCarriesToolsTakesThem(t *testing.T) {
 	for _, kp := range keyedProviders() {
-		if kp.provider.Dialect != llm.DialectMessages && kp.provider.Dialect != llm.DialectResponses {
-			continue
-		}
 		for _, m := range kp.provider.Catalog {
-			assert.True(t, m.Tools, m.ID)
+			if d := kp.provider.ForModel(m).Dialect; d == llm.DialectMessages || d == llm.DialectResponses {
+				assert.True(t, m.Tools, m.ID)
+			}
 		}
 	}
 }
@@ -319,7 +345,7 @@ func TestAnthropicCatalogDefaultsToTheAPIsEffort(t *testing.T) {
 }
 
 // Every entry states how its provider caches it, since the wire marks a prompt by
-// that word alone. Every Messages entry caches on marks, and so does Claude
+// that word alone. Every entry sent on Messages caches on marks, and so does Claude
 // through OpenRouter; Groq documents no cache on its Qwen models; every other
 // entry caches on its own.
 func TestEveryModelStatesItsCaching(t *testing.T) {
@@ -336,7 +362,7 @@ func TestEveryModelStatesItsCaching(t *testing.T) {
 		for _, m := range p.Catalog {
 			want, ok := notAuto[p.ID+"/"+m.ID]
 			switch {
-			case p.Dialect == llm.DialectMessages:
+			case p.ForModel(m).Dialect == llm.DialectMessages:
 				want = llm.CacheMarks
 			case !ok:
 				want = llm.CacheAuto

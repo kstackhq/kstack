@@ -222,7 +222,7 @@ type Provider struct {
 	ID string `json:"id"`
 	// What a picker shows as the group heading.
 	Label string `json:"label"`
-	// The dialect this provider speaks. Null on a provider the sidecar no longer holds — a stored message's, labelled by its id — since nothing but the id is known of it.
+	// The provider's default dialect, which a model of its catalog may override. Null on a provider the sidecar no longer holds — a stored message's, labelled by its id — since nothing but the id is known of it.
 	LlmDialect *llm.Dialect `json:"llmDialect,omitempty"`
 }
 

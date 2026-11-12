@@ -262,8 +262,15 @@ func newFireworksProvider() llm.Provider {
 	}
 }
 
+// openCodeGoMessages is OpenCode Go's Messages endpoint, a model's base URL
+// override. Its Responses endpoint is the row's default.
+const openCodeGoMessages = "https://opencode.ai/inference/go/anthropic"
+
 // newOpenCodeGoProvider is OpenCode Go, a gateway in front of other vendors'
 // models. Ids, efforts and context windows verified against GET /inference/go/v1/models.
+// Chat Completions is the row's default, and each model whose native API is
+// another overrides it, as OpenCode's endpoint table lists, so Console
+// translates none. Gemini's native API is not a dialect, so it keeps the default.
 func newOpenCodeGoProvider() llm.Provider {
 	return llm.Provider{
 		ID: "opencode-go", Label: "OpenCode Go", Dialect: llm.DialectChatCompletions,
@@ -273,24 +280,24 @@ func newOpenCodeGoProvider() llm.Provider {
 			{ID: "deepseek-v4-pro", Label: "DeepSeek V4 Pro", Efforts: []string{"high", "max"}, DefaultEffort: "high", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
 			{ID: "glm-5.2", Label: "GLM-5.2", Efforts: []string{"high", "max"}, DefaultEffort: "high", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
 			{ID: "glm-5.3", Label: "GLM-5.3", Efforts: []string{"low", "high", "max"}, DefaultEffort: "high", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
-			{ID: "grok-4.7", Label: "Grok 4.7", Efforts: []string{"low", "medium", "high", "xhigh"}, DefaultEffort: "high", ContextWindow: 500_000, Tools: true, Cache: llm.CacheAuto},
+			{ID: "grok-4.7", Label: "Grok 4.7", Efforts: []string{"low", "medium", "high", "xhigh"}, DefaultEffort: "high", MaxOutputTokens: writtenCap, ContextWindow: 500_000, Tools: true, Cache: llm.CacheAuto, Dialect: llm.DialectResponses},
 			{ID: "glm-5.3-flash", Label: "GLM-5.3-Flash", Efforts: []string{"low", "high", "max"}, DefaultEffort: "high", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
-			{ID: "gpt-5.6-luna", Label: "GPT-5.6 Luna", Efforts: []string{"none", "low", "medium", "high", "xhigh", "max"}, DefaultEffort: "medium", ContextWindow: 1_050_000, Tools: true, Cache: llm.CacheAuto},
-			{ID: "gpt-6-luna", Label: "GPT-6 Luna", Efforts: []string{"none", "low", "medium", "high", "xhigh", "max"}, DefaultEffort: "medium", ContextWindow: 1_050_000, Tools: true, Cache: llm.CacheAuto},
-			{ID: "claude-haiku-5-5", Label: "Claude Haiku 5.5", Efforts: []string{"low", "medium", "high", "xhigh", "max"}, DefaultEffort: "medium", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
+			{ID: "gpt-5.6-luna", Label: "GPT-5.6 Luna", Efforts: []string{"none", "low", "medium", "high", "xhigh", "max"}, DefaultEffort: "medium", MaxOutputTokens: writtenCap, ContextWindow: 1_050_000, Tools: true, Cache: llm.CacheAuto, Dialect: llm.DialectResponses},
+			{ID: "gpt-6-luna", Label: "GPT-6 Luna", Efforts: []string{"none", "low", "medium", "high", "xhigh", "max"}, DefaultEffort: "medium", MaxOutputTokens: writtenCap, ContextWindow: 1_050_000, Tools: true, Cache: llm.CacheAuto, Dialect: llm.DialectResponses},
+			{ID: "claude-haiku-5-5", Label: "Claude Haiku 5.5", Efforts: []string{"low", "medium", "high", "xhigh", "max"}, DefaultEffort: "medium", MaxOutputTokens: writtenCap, ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheMarks, Dialect: llm.DialectMessages, BaseURL: openCodeGoMessages},
 			{ID: "hy3", Label: "Hy3", Efforts: []string{"none", "low", "high"}, DefaultEffort: "high", ContextWindow: 256_000, Tools: true, Cache: llm.CacheAuto},
 			{ID: "hy4-preview", Label: "Hy4 preview", Efforts: []string{"none", "high"}, DefaultEffort: "high", ContextWindow: 1_024_000, Tools: true, Cache: llm.CacheAuto},
 			{ID: "kimi-k2.7-code", Label: "Kimi K2.7 Code", ContextWindow: 262_144, Tools: true, Cache: llm.CacheAuto},
 			{ID: "kimi-k3", Label: "Kimi K3", Efforts: []string{"max"}, DefaultEffort: "max", ContextWindow: 1_048_576, Tools: true, Cache: llm.CacheAuto},
 			{ID: "mimo-v2.6-flash", Label: "MiMo-V2.6-Flash", ContextWindow: 1_048_576, Tools: true, Cache: llm.CacheAuto},
 			{ID: "mimo-v2.6-pro", Label: "MiMo-V2.6-Pro", ContextWindow: 1_048_576, Tools: true, Cache: llm.CacheAuto},
-			{ID: "minimax-m3", Label: "MiniMax M3", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
+			{ID: "minimax-m3", Label: "MiniMax M3", MaxOutputTokens: writtenCap, ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheMarks, Dialect: llm.DialectMessages, BaseURL: openCodeGoMessages},
 			{ID: "minimax-m3.1-flash", Label: "MiniMax M3.1 Flash", Efforts: []string{"low", "medium", "high", "xhigh", "max"}, DefaultEffort: "high", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
 			{ID: "longcat-2.0", Label: "LongCat-2.0", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
 			{ID: "step-5-preview", Label: "Step 5 Preview", Efforts: []string{"low", "medium", "high"}, DefaultEffort: "medium", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
-			{ID: "qwen3.8-max", Label: "Qwen3.8 Max", Efforts: []string{"low", "medium", "xhigh"}, DefaultEffort: "medium", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
-			{ID: "qwen3.8-flash", Label: "Qwen3.8 Flash", Efforts: []string{"low", "medium", "xhigh"}, DefaultEffort: "medium", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
-			{ID: "qwen3.7-plus", Label: "Qwen3.7 Plus", ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheAuto},
+			{ID: "qwen3.8-max", Label: "Qwen3.8 Max", Efforts: []string{"low", "medium", "xhigh"}, DefaultEffort: "medium", MaxOutputTokens: writtenCap, ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheMarks, Dialect: llm.DialectMessages, BaseURL: openCodeGoMessages},
+			{ID: "qwen3.8-flash", Label: "Qwen3.8 Flash", Efforts: []string{"low", "medium", "xhigh"}, DefaultEffort: "medium", MaxOutputTokens: writtenCap, ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheMarks, Dialect: llm.DialectMessages, BaseURL: openCodeGoMessages},
+			{ID: "qwen3.7-plus", Label: "Qwen3.7 Plus", MaxOutputTokens: writtenCap, ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheMarks, Dialect: llm.DialectMessages, BaseURL: openCodeGoMessages},
 			{ID: "kimi-k3.1-pro", Label: "Kimi K3.1 Pro", Efforts: []string{"low", "high", "max"}, DefaultEffort: "high", ContextWindow: 1_048_576, Tools: true, Cache: llm.CacheAuto},
 			{ID: "gemini-4-argon", Label: "Gemini 4 Argon", Efforts: []string{"low", "medium", "high"}, DefaultEffort: "high", ContextWindow: 1_048_576, Tools: true, Cache: llm.CacheAuto},
 			{ID: "hy4", Label: "Hy4", Efforts: []string{"none", "high"}, DefaultEffort: "high", ContextWindow: 1_048_576, Tools: true, Cache: llm.CacheAuto},

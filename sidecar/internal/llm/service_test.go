@@ -179,6 +179,68 @@ func TestStreamSendsEachDialectOnItsOwnWire(t *testing.T) {
 	}
 }
 
+// A model overriding its provider's dialect and base URL is sent on its
+// override; a model of the same provider overriding nothing is sent on the
+// provider's defaults. Each target carries the dialect it was sent on, which is
+// what its run records.
+func TestResolveAppliesAModelsOverrides(t *testing.T) {
+	ws := wires()
+	home, away := ws[0], ws[1]
+	p, homeRec := home.replay(t, home.text)
+	q, awayRec := away.replay(t, away.text)
+	plain := home.req(p).Model
+	plain.ID, plain.Efforts, plain.DefaultEffort = "plain", nil, ""
+	own := away.req(q).Model
+	own.ID, own.Efforts, own.DefaultEffort = "own", nil, ""
+	own.Dialect, own.BaseURL = q.Dialect, q.BaseURL
+	p.Catalog = []Model{plain, own}
+	s := New(p)
+
+	for _, c := range []struct {
+		model   string
+		dialect Dialect
+		baseURL string
+		rec     *recorded
+	}{
+		{"plain", p.Dialect, p.BaseURL, homeRec},
+		{"own", q.Dialect, q.BaseURL, awayRec},
+	} {
+		target, err := s.Resolve(p.ID, c.model, "")
+		require.NoError(t, err, c.model)
+		assert.Equal(t, p.ID, target.Provider.ID, c.model)
+		assert.Equal(t, c.dialect, target.Provider.Dialect, c.model)
+		assert.Equal(t, c.baseURL, target.Provider.BaseURL, c.model)
+
+		_, err = target.Stream(t.Context(), "", []Message{{Role: "user", Blocks: []Block{TextBlock("hi")}}}, "", nil, nil, func(Chunk) {})
+
+		require.NoError(t, err, c.model)
+		assert.Equal(t, int64(1), c.rec.calls.Load(), c.model)
+		assert.Equal(t, c.model, c.rec.body["model"], c.model)
+	}
+}
+
+// A model's override is held to what Stream speaks, as a provider's default is.
+func TestResolveRefusesAModelOnAnUnspokenWire(t *testing.T) {
+	s := New(Provider{ID: "x", Dialect: DialectFake, fake: NewFake(0), Catalog: []Model{{ID: "m", Dialect: Dialect("smoke-signals")}}})
+
+	_, err := s.Resolve("x", "m", "")
+
+	assert.ErrorIs(t, err, ErrUnknownModel)
+}
+
+// ForModel overrides only what the model states.
+func TestForModelAppliesOnlyTheModelsOverrides(t *testing.T) {
+	p := Provider{ID: "x", Dialect: DialectChatCompletions, BaseURL: "https://x/v1"}
+
+	assert.Equal(t, p, p.ForModel(Model{ID: "m"}))
+	responses := p.ForModel(Model{Dialect: DialectResponses})
+	assert.Equal(t, DialectResponses, responses.Dialect)
+	assert.Equal(t, "https://x/v1", responses.BaseURL)
+	messages := p.ForModel(Model{Dialect: DialectMessages, BaseURL: "https://x/anthropic"})
+	assert.Equal(t, DialectMessages, messages.Dialect)
+	assert.Equal(t, "https://x/anthropic", messages.BaseURL)
+}
+
 // An offer the target cannot carry is refused before anything is sent: a model
 // whose catalog entry takes none, and a vendor tool no wire spells.
 func TestStreamRefusesToolsOnAModelThatTakesNone(t *testing.T) {

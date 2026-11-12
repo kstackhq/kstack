@@ -65,7 +65,11 @@ func New(cfg Config) Catalog {
 		}
 		kp.provider.Key = key
 		if url, ok := cfg.BaseURLs[kp.provider.ID]; ok {
+			// Each model's override goes too, so one stub answers the whole row.
 			kp.provider.BaseURL = url
+			for i := range kp.provider.Catalog {
+				kp.provider.Catalog[i].BaseURL = ""
+			}
 		}
 		c.providers = append(c.providers, kp.provider)
 	}
