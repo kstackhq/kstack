@@ -174,10 +174,15 @@ setup_path() {
 # script runs in may resolve `go` or `node` to a Homebrew one earlier on PATH.
 # Say so rather than let a different version win quietly.
 check_versions() {
-  local tool
+  local pinned
   for tool in go node pnpm; do
+    case $tool in
+      go) pinned=$GO_VERSION ;;
+      node) pinned=$NODE_MAJOR.x ;;
+      pnpm) pinned=$PNPM_VERSION ;;
+    esac
     if ! "${tool}_ok"; then
-      echo "Note: the $tool on PATH is not the pinned version. Open a new terminal"
+      echo "Note: the $tool on PATH is not the pinned $pinned. Open a new terminal"
       echo "or source your profile, and check what $tool resolves to."
       return 1
     fi
