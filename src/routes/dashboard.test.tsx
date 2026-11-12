@@ -33,7 +33,7 @@ vi.mock('@/routes/_app', async () => {
     Route: createRoute({
       getParentRoute: () => testRoot,
       id: 'app',
-      validateSearch: (search: Record<string, unknown>): { resource?: string; namespace?: string } => ({
+      validateSearch: (search: Record<string, unknown>) => ({
         ...(typeof search.resource === 'string' && search.resource.length > 0 ? { resource: search.resource } : {}),
         ...(typeof search.namespace === 'string' ? { namespace: search.namespace } : {}),
       }),
@@ -175,7 +175,7 @@ describe('dashboard route', () => {
       resource: 'horizontalpodautoscalers',
     };
     await render('/dashboard?resource=autoscaling/horizontalpodautoscalers', [hpa]);
-    expect(screen.getByRole('heading', { name: 'HorizontalPodAutoscaler' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^HorizontalPodAutoscaler\b/ })).toBeInTheDocument();
   });
 
   it('says a kind the synced catalog lacks is not served by this cluster', async () => {
@@ -269,30 +269,24 @@ describe('dashboard route', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(expected);
   });
 
-  it('heads a kind’s page with its count', async () => {
+  it('heads a kind’s page with its label alone, and no count', async () => {
     useClusterCachedDataObjectsMock.mockReturnValue({
       objects: [pod('a', 'x'), pod('b', 'y')],
       active: true,
       phase: 'live',
     });
     await render('/dashboard?resource=deployments', [KIND]);
-    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
-  });
-
-  it('draws no count before the kind’s objects land', async () => {
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: true, phase: 'connecting' });
-    await render('/dashboard?resource=deployments', [KIND]);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Deployments$/);
     expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
   });
 
-  it('shows and counts a namespaced kind’s objects in the namespace alone', async () => {
+  it('shows a namespaced kind’s objects in the namespace alone', async () => {
     useClusterCachedDataObjectsMock.mockReturnValue({
       objects: [pod('a', 'checkout'), pod('b', 'default'), pod('c', 'checkout')],
       active: true,
       phase: 'live',
     });
     await render('/dashboard?resource=deployments&namespace=checkout', [KIND]);
-    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
     const table = propsOf('objects-table');
     expect(table.objects.map((o: { uid: string }) => o.uid)).toEqual(['a', 'c']);
     expect(table.namespace).toBe('checkout');
@@ -306,7 +300,7 @@ describe('dashboard route', () => {
       phase: 'live',
     });
     await render('/dashboard?resource=persistentvolumes&namespace=checkout', [pv]);
-    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
+    expect(propsOf('objects-table').objects).toHaveLength(2);
     expect(propsOf('objects-table').namespace).toBeUndefined();
     expect(screen.getByText(/Cluster-scoped, so the/)).toHaveTextContent(
       "Cluster-scoped, so the checkout filter isn't applied.",

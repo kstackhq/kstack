@@ -107,7 +107,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **Paged object watches.** Nothing pages anywhere: `clusterCachedDataObjectsWatch` snapshots a kind's whole set and ships every `rawJSON` body over the IPC bridge. On a large kind that is the dominant cost of the dashboard — bigger than anything [the read split](adr/2026-08-29-object-read-split.md) addresses, which only shrinks the sidecar's half.
   - **The snapshot read bounds easily; the cursor reads do not.** Bound `ObjectsWithCursor` by a keyset range — `AND (namespace, name) > (?, ?) ORDER BY namespace, name LIMIT ?` — and the snapshot is a window. The changes read past the cursor name objects, not positions, so a window's watch has to re-derive the range when one lands in or next to it: an insert above the window, a rename that moves a row out of it, a delete that pulls the next row in are then just "what is in the range now vs. what was", never a shift to reason about. Two things are already in place: `objects_kind_ns_name(api_version, kind, namespace, name)` is exactly the keyset index for that order, and `kind_counts` gives the total for a scrollbar in O(1) with no scan.
-  - **Settle the sort/filter contract first — it is the whole decision.** Paging trades *sort and filter by anything, client-side* for *sort and filter by what the store indexes*. `objects` carries `namespace`, `name`, `created_at`, `status_summary`, `ready_count`/`total_count`, `restart_count` and `host` as real columns, and `labels` is joinable for selector filters, so the common orders are servable. What is not: the kind-specific columns `src/components/widgets/object-columns.tsx` derives from `rawJSON` client-side — sorting a paged Pods table by Restarts asks for an order the store cannot produce. Either accept that those columns do not sort, promote more of them into columns at write time (`projectObject` already extracts several), or do not page. A product call, not a storage one.
+  - **Settle the sort/filter contract first — it is the whole decision.** Paging trades *sort and filter by anything, client-side* for *sort and filter by what the store indexes*. `objects` carries `namespace`, `name`, `created_at`, `status_summary`, `ready_count`/`total_count`, `restart_count` and `host` as real columns, and `labels` is joinable for selector filters, so the common orders are servable. What is not: the kind-specific columns `src/components/widgets/object-columns/` derives from `rawJSON` client-side — sorting a paged Pods table by Restarts asks for an order the store cannot produce. Either accept that those columns do not sort, promote more of them into columns at write time (`projectObject` already extracts several), or do not page. A product call, not a storage one.
   - **The protocol wrinkle:** subscription variables are fixed for the life of a subscription, so moving the window means resubscribing — a debounced resubscribe per scroll settle, re-snapshotting a window's worth of rows. Cheap, but it makes the window a subscription variable (or a search param) rather than client state, and every move is a round trip.
   - **Not what the change log is for.** A log tail names the uid that changed, which is not a position in a sort order: inserting one object above the window shifts a row out of the bottom, and the entry mentions neither of the two objects whose page membership moved. Kubernetes offers `limit`/`continue` on list and nothing on watch for the same reason.
 
@@ -661,6 +661,14 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   it. The log viewer, with no row separators, keeps the system's bar. Find what draws over it,
   and let the tables take the system's bar again.
 
+- **A pod's node facts in the Pods table.** OS, Arch, Region, Zone and instance type are the
+  node's, not the pod's: its `kubernetes.io/os`, `kubernetes.io/arch`,
+  `topology.kubernetes.io/region`, `topology.kubernetes.io/zone` and
+  `node.kubernetes.io/instance-type` labels. The Pods page would watch `v1/nodes` beside its pods
+  and look each pod's `spec.nodeName` up, offering those as hidden-by-default columns in the
+  column picker (`object-columns/pods.tsx`). The same lookup draws a pod's node name in red while that
+  node is not Ready, as the mockup's Pods frame does. The cache already holds the nodes.
+
 - **The log viewer shows only the filters the model set.** Kubetail's sidebar lists each region, zone, OS, architecture and node the open sources span, with a count per value. That needs one query answering what a view's sources resolved to, which the sidecar's resolve already computes (`services/logs/resolve.go`) and the wire does not carry.
 - **A workload's log view has no switch to hide its gone pods or its earlier instances.** A
   Deployment's view shows every pod the Deployment runs or ran within the log file's retention, a
@@ -713,12 +721,26 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   filter by the set, and the sidebar's *Namespace* heading names the count when there are more
   than one.
 
-- **Built-in kinds with no columns.** The per-kind registry (`src/components/widgets/object-columns.tsx`)
-  carries hand-written accessors for **Pod and Deployment only**; every other built-in falls back to
-  the universal Namespace/Name/Age. CRDs are handled — they carry their own `printerColumns` — so
-  what remains is the obvious built-ins: StatefulSet, ReplicaSet, Node, Service, Job, CronJob, PVC.
-  Note **DaemonSet cannot reuse the Deployment/workload accessors** — it has no `spec.replicas`; its
-  Ready is `status.numberReady`/`status.desiredNumberScheduled`.
+- **A pod's tone has names of its own.** `status-pill.tsx`'s `StatusTone` (`ok`, `pending`,
+  `failing`) maps one-to-one onto cluster health's `Tone` (`ok`, `attention`, `error`) through
+  `HEALTH_TONE`, so callers translate (`TONE[HEALTH_TONE[b]].text` in `objects-table.tsx`), and the
+  pill draws its own dot beside `ClusterDot` at another size. **Fix:** type pod tones as `Tone`,
+  drop `StatusTone` and `HEALTH_TONE`, and draw the dot with `ClusterDot`.
+
+- **One gate for a watch's not-synced and loading states.** `ObjectsTable`, `EventsTable`, and
+  `PlaceholderPage` in `routes/dashboard.tsx` each draw "not synced" without an
+  active cache, a spinner until the `Bookmark`, then their content, and their wording has drifted
+  (*Loading…* against *Loading pods…*). **Fix:** one component (`<WatchGate active phase noun>`)
+  that draws the note or the spinner, else its children, so the never-empty-before-the-`Bookmark`
+  rule lives in one place.
+
+- **A table's density is split between two files.** `VirtualTable`'s `TALL_ROW` sets its cells'
+  vertical padding, since the row's height depends on it, while `ObjectsTable` sets their
+  horizontal padding and the header's height with descendant selectors on its card (`HEADER`,
+  `CELLS`). `EventsTable` keeps the library's spacing, and a third table would copy the selectors.
+  **Fix:** `VirtualTable` takes the density, on `RowSize` beside `className` and `px`, and sets all
+  of the cell padding and the header height itself. Whether `EventsTable` takes the tight one is a
+  design call.
 
 - **Evaluate moving provenance down into `useWatchSubscription` (keyed on urql's operation key).** `useCacheDeltaWatch`'s provenance is a caller-derived string compared against server-echoed fields (`cacheID` + `apiVersion`/`resource` on `ClusterCachedDataObjectWatchFrame`). But one layer down, `useWatchSubscription` already computes `createRequest(query, variables).key` — which changes *exactly* when the watch's variables change, i.e. it is precisely `(cacheID)` for kinds/events and `(cacheID, apiVersion, resource)` for objects, derived automatically for any subscription. And that file already implements this same tag-fold-mask pattern for the sibling dimension (`generation`, for reconnects). **Fix:** make `Generational<Result>` carry `{ generation, key, result }` and gate both the reducer's fold and the exposed-`data` mask on `key` as well — then `currentProvenance`, `DeltaFrame.provenance`, `joinProvenance`, *and* the `apiVersion`/`resource` schema echo fields all disappear, and every future keyed watch gets staleness protection for free instead of re-spelling it. **Weigh first:** server-echoed provenance additionally defends against a genuinely *mis-routed* frame (a sidecar/host-bridge multiplexing bug), which a client-side key cannot — nothing currently claims that as a motivation, so if it *is* wanted, say so where the fields are defined, since it's the only thing justifying the schema surface. Also note the current design's failure mode is silent: a mismatch between the two hand-spelled provenance strings drops every frame with no type-level protection.
 

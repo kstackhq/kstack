@@ -14,23 +14,33 @@
 
 // Generic per-kind object table, over the rows its page reads from
 // `useClusterCachedDataObjects`. Universal columns (Namespace?/Name/Age) plus kubectl-style
-// extras from the `object-columns` registry. The states render distinctly — not-synced
-// note, connecting spinner, empty snapshot, live table — mirroring `EventsTable`.
+// extras from the `object-columns` registry, in a card with a footer. The states render
+// distinctly — not-synced note, connecting spinner, empty snapshot, live table — mirroring
+// `EventsTable`.
 import { Spinner } from '@kubetail/ui/elements/spinner';
-import ReactTimeAgo from 'react-timeago';
+import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
+import { cn } from '@kubetail/ui/lib/utils';
+import { useEffect, useMemo, useState } from 'react';
 
-import { columnsForKind } from '@/components/widgets/object-columns';
-import { VirtualTable } from '@/components/widgets/virtual-table';
-import type { VirtualColumn } from '@/components/widgets/virtual-table';
+import { Age, ageSortValue, columnsForKind, toneForKind } from '@/components/widgets/object-columns';
+import { HEALTH_TONE } from '@/components/widgets/status-pill';
+import type { StatusTone } from '@/components/widgets/status-pill';
+import { TALL_ROW, VirtualTable } from '@/components/widgets/virtual-table';
+import type { TableSort, VirtualColumn } from '@/components/widgets/virtual-table';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
+import { TONE } from '@/lib/cluster-health';
 import type { PrinterColumn } from '@/lib/dashboard-resources';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import { ownerOf } from '@/lib/object-owner';
+import { sortRows } from '@/lib/sort-rows';
 
 type ObjectsTableProps = {
   apiVersion: string;
   resource: string;
   kind: string;
+  // The kind's plural, for the footer.
+  label: string;
   namespaced: boolean;
   // A CRD's declared columns, off the kinds watch. Empty for a built-in, and for a kind whose
   // hand-written registry entry wins anyway.
@@ -50,38 +60,69 @@ const rowKey = (o: ClusterCachedDataObject) => o.uid;
 const NAMESPACE_COLUMN: VirtualColumn<ClusterCachedDataObject> = {
   key: 'namespace',
   header: 'Namespace',
-  width: 192,
-  cell: (o) => <span className="text-muted-foreground">{o.namespace || '—'}</span>,
+  className: 'truncate',
+  width: 160,
+  sortValue: (o) => o.namespace,
+  cell: (o) => (
+    <span className="text-xs text-muted-foreground" title={o.namespace}>
+      <VisibleText text={o.namespace} />
+    </span>
+  ),
 };
 
-// Takes the width the sized columns leave; a long name truncates, with the full one on hover.
+// Takes the width the sized columns leave: the name over the workload that owns it. Each
+// line truncates, with the full one on hover.
 const NAME_COLUMN: VirtualColumn<ClusterCachedDataObject> = {
   key: 'name',
   header: 'Name',
   className: 'truncate',
   minWidth: 240,
-  cell: (o) => (
-    <span className="font-medium" title={o.name}>
-      {o.name}
-    </span>
-  ),
+  sortValue: (o) => o.name,
+  cell: (o) => {
+    const owner = ownerOf(o.rawJSON);
+    return (
+      <>
+        <div className="truncate font-mono text-xs text-primary" title={o.name}>
+          <VisibleText text={o.name} />
+        </div>
+        {owner && (
+          <div className="truncate text-xs text-muted-foreground" title={owner}>
+            <VisibleText text={owner} />
+          </div>
+        )}
+      </>
+    );
+  },
 };
+
+function createdMs(o: ClusterCachedDataObject): number {
+  return o.creationTimestamp ? Date.parse(o.creationTimestamp) : Number.NaN;
+}
 
 const AGE_COLUMN: VirtualColumn<ClusterCachedDataObject> = {
   key: 'age',
   header: 'Age',
   className: 'tabular-nums',
-  width: 128,
-  cell: (o) => {
-    const createdMs = o.creationTimestamp ? Date.parse(o.creationTimestamp) : Number.NaN;
-    return Number.isNaN(createdMs) ? '—' : <ReactTimeAgo date={createdMs} component="span" maxPeriod={60} />;
-  },
+  width: 64,
+  sortValue: (o) => ageSortValue(createdMs(o)),
+  cell: (o) => <Age ms={createdMs(o)} />,
 };
+
+const HEADER = 'bg-muted [&_th]:h-9 [&_th]:text-xs [&_th]:text-muted-foreground';
+// Tighter than the library's cells: 12px between columns, 12px at the card's edges.
+const CELLS =
+  '[&_td]:px-1.5 [&_th]:px-1.5 [&_td:first-child]:pl-3 [&_th:first-child]:pl-3 [&_td:last-child]:pr-3 [&_th:last-child]:pr-3';
+
+// The status tabs, in order, for a kind whose objects have a tone.
+type Bucket = 'all' | StatusTone;
+const BUCKETS: readonly Bucket[] = ['all', 'ok', 'failing', 'pending'];
+const BUCKET_LABEL: Record<Bucket, string> = { all: 'All', ok: 'Healthy', failing: 'Failing', pending: 'Pending' };
 
 export function ObjectsTable({
   apiVersion,
   resource,
   kind,
+  label,
   namespaced,
   printerColumns = NO_COLUMNS,
   objects,
@@ -89,10 +130,58 @@ export function ObjectsTable({
   phase,
   namespace,
 }: ObjectsTableProps) {
-  const gvr = { apiVersion, resource };
+  // Under a namespace every row would repeat it.
+  const showNamespace = namespaced && namespace === undefined;
   // Kind-specific columns between Name and Age; [] when neither the registry nor the kind
-  // itself declares any.
-  const extraColumns = columnsForKind(gvr, printerColumns);
+  // itself declares any. Memoized so the sort below reruns only on new rows or a new sort.
+  const columns = useMemo(
+    () =>
+      [
+        ...(showNamespace ? [NAMESPACE_COLUMN] : []),
+        NAME_COLUMN,
+        ...columnsForKind({ apiVersion, resource }, printerColumns),
+        AGE_COLUMN,
+      ].filter((c) => !c.hiddenByDefault),
+    [showNamespace, apiVersion, resource, printerColumns],
+  );
+  const toneOf = toneForKind({ apiVersion, resource });
+  const [bucket, setBucket] = useState<Bucket>('all');
+  // Each row's tone is read once, for both the counts and the tab's rows.
+  const tones = useMemo(() => (toneOf ? objects.map(toneOf) : undefined), [objects, toneOf]);
+  const counts = useMemo(() => {
+    const n: Record<Bucket, number> = { all: objects.length, ok: 0, failing: 0, pending: 0 };
+    if (tones) for (const t of tones) n[t] += 1;
+    return n;
+  }, [objects, tones]);
+  const inBucket = useMemo(
+    () => (tones && bucket !== 'all' ? objects.filter((_, i) => tones[i] === bucket) : objects),
+    [objects, tones, bucket],
+  );
+
+  // Unsorted is the watch's order: namespace, then name.
+  const [sort, setSort] = useState<TableSort>();
+  // A sort by a column the table no longer draws, such as Namespace once a namespace is
+  // picked, reads as unsorted.
+  const sortColumn = columns.find((c) => c.key === sort?.key);
+  // A column sorted by the clock is sorted again each second, by a fresh copy of the same
+  // sort: a running job overtakes a finished one with no new frame.
+  const sortsByClock = Boolean(sortColumn?.sortsByClock);
+  useEffect(() => {
+    if (!sortsByClock) return undefined;
+    const id = setInterval(() => setSort((s) => s && { ...s }), 1000);
+    return () => clearInterval(id);
+  }, [sortsByClock]);
+  const rows = useMemo(
+    () => (sort && sortColumn?.sortValue ? sortRows(inBucket, sortColumn.sortValue, sort.desc) : inBucket),
+    [inBucket, sort, sortColumn],
+  );
+  // A press sorts by the column, the next reverses it, the next unsorts.
+  const onSort = (key: string) => {
+    const first = Boolean(columns.find((c) => c.key === key)?.descFirst);
+    if (sort?.key !== key) setSort({ key, desc: first });
+    else if (sort.desc === first) setSort({ key, desc: !first });
+    else setSort(undefined);
+  };
 
   // No active cache streams nothing — say so rather than spin forever.
   if (!active) {
@@ -129,8 +218,50 @@ export function ObjectsTable({
     );
   }
 
-  // Under a namespace every row would repeat it.
-  const showNamespace = namespaced && namespace === undefined;
-  const columns = [...(showNamespace ? [NAMESPACE_COLUMN] : []), NAME_COLUMN, ...extraColumns, AGE_COLUMN];
-  return <VirtualTable rows={objects} rowKey={rowKey} columns={columns} />;
+  const sortedBy = sortColumn?.header ?? (showNamespace ? 'Namespace' : 'Name');
+  const plural = label.toLowerCase();
+  return (
+    <>
+      {toneOf && (
+        <Tabs value={bucket} onValueChange={(value) => setBucket(value as Bucket)} className="mb-3">
+          <TabsList aria-label={`${label} by status`}>
+            {BUCKETS.map((b) => (
+              <TabsTrigger key={b} value={b} className="gap-1.5 px-2.5">
+                {BUCKET_LABEL[b]}
+                <span
+                  className={cn(
+                    'text-xs font-normal tabular-nums',
+                    // A count above zero takes its tone's colour; All and a zero stay muted.
+                    b !== 'all' && counts[b] > 0 ? TONE[HEALTH_TONE[b]].text : 'text-muted-foreground',
+                  )}
+                >
+                  {counts[b]}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
+      {/* A tab that leaves no row draws the table empty, its footer counting zero. */}
+      <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm', CELLS)}>
+        <VirtualTable
+          rows={rows}
+          rowKey={rowKey}
+          columns={columns}
+          rowSize={TALL_ROW}
+          headerClassName={HEADER}
+          sort={sortColumn && sort}
+          onSort={onSort}
+        />
+        <div className="flex justify-between gap-4 border-t bg-muted px-4 py-2.5 text-xs text-muted-foreground">
+          <span>
+            Showing {rows.length} of {objects.length} {plural}
+          </span>
+          <span>
+            Sorted by <VisibleText text={sortedBy.toLowerCase()} />
+          </span>
+        </div>
+      </div>
+    </>
+  );
 }

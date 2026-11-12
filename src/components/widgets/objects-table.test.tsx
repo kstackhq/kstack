@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
 import { stubLayout } from '@/test-utils';
@@ -28,9 +28,15 @@ const live = (...objects: unknown[]) => ({
   phase: 'live' as const,
 });
 
-const PODS = { apiVersion: 'v1', resource: 'pods', kind: 'Pod', namespaced: true };
+const PODS = { apiVersion: 'v1', resource: 'pods', kind: 'Pod', label: 'Pods', namespaced: true };
 // A CRD kind with no registered columns — exercises the universal-columns fallback.
-const WIDGETS = { apiVersion: 'example.com/v1', resource: 'widgets', kind: 'Widget', namespaced: true };
+const WIDGETS = {
+  apiVersion: 'example.com/v1',
+  resource: 'widgets',
+  kind: 'Widget',
+  label: 'Widgets',
+  namespaced: true,
+};
 
 function obj(over: Record<string, unknown> = {}) {
   return {
@@ -44,6 +50,8 @@ function obj(over: Record<string, unknown> = {}) {
     ...over,
   };
 }
+
+const restarts = (n: number) => ({ spec: { containers: [{}] }, status: { containerStatuses: [{ restartCount: n }] } });
 
 // Rows render only inside a laid-out viewport (see VirtualTable).
 stubLayout(400);
@@ -107,18 +115,19 @@ describe('ObjectsTable', () => {
         apiVersion="v1"
         resource="nodes"
         kind="Node"
+        label="Nodes"
         namespaced={false}
         {...live(obj({ namespace: '', name: 'node-1' }))}
       />,
     );
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(['Name', 'Age']);
+    expect(headers).toEqual(['Name', 'Status', 'Roles', 'Version', 'Age']);
   });
 
-  it('renders Pod-specific columns (Ready/Status/Restarts) computed from the body', () => {
+  it('renders Pod-specific columns (Status/Ready/Restarts/Node) computed from the body', () => {
     const pod = obj({
       rawJSON: {
-        spec: { containers: [{}, {}] },
+        spec: { nodeName: 'pool-a-2', containers: [{}, {}] },
         status: {
           phase: 'Running',
           containerStatuses: [
@@ -130,11 +139,59 @@ describe('ObjectsTable', () => {
     });
     render(<ObjectsTable {...PODS} {...live(pod)} />);
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(['Namespace', 'Name', 'Ready', 'Status', 'Restarts', 'Age']);
+    expect(headers).toEqual(['Namespace', 'Name', 'Status', 'Ready', 'Restarts', 'Node', 'Age']);
     const row = screen.getByText('my-pod').closest('tr')!;
     expect(within(row).getByText('1/2')).toBeInTheDocument(); // ready / total containers
-    expect(within(row).getByText('Running')).toBeInTheDocument();
-    expect(within(row).getByText('3')).toBeInTheDocument(); // summed restarts
+    // Running, but not ready: pending until it is.
+    expect(within(row).getByText('Running').closest('[data-tone]')).toHaveAttribute('data-tone', 'pending');
+    expect(within(row).getByText('3')).toHaveClass('text-destructive'); // summed restarts
+    expect(within(row).getByText('pool-a-2')).toBeInTheDocument();
+  });
+
+  it('mutes a pod with no restarts, and dashes one with no node or status yet', () => {
+    const pod = obj({ rawJSON: { spec: { containers: [{}] }, status: { containerStatuses: [{ restartCount: 0 }] } } });
+    render(<ObjectsTable {...PODS} {...live(pod)} />);
+    const row = screen.getByText('my-pod').closest('tr')!;
+    expect(within(row).getByText('0')).toHaveClass('text-muted-foreground');
+    // Status and Node.
+    expect(within(row).getAllByText('—')).toHaveLength(2);
+  });
+
+  it('draws the name over the workload that owns it, through VisibleText', () => {
+    const pod = obj({
+      name: 'web\u200b-1',
+      rawJSON: {
+        metadata: {
+          labels: { 'pod-template-hash': '7d9f' },
+          ownerReferences: [{ kind: 'ReplicaSet', name: 'web-7d9f', controller: true }],
+        },
+      },
+    });
+    render(<ObjectsTable {...PODS} {...live(pod)} />);
+    expect(screen.getByText(/^web/, { selector: '.font-mono' })).toHaveTextContent('web\\u{200B}-1');
+    expect(screen.getByText('deploy/web')).toBeInTheDocument();
+  });
+
+  it('prints an age as kubectl does, largest unit only', () => {
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+    render(
+      <ObjectsTable
+        {...PODS}
+        {...live(
+          obj({ uid: 'a', name: 'a', creationTimestamp: ago(22 * 60_000 + 5_000) }),
+          obj({ uid: 'b', name: 'b', creationTimestamp: ago(3 * 86_400_000) }),
+        )}
+      />,
+    );
+    // Age is the last column.
+    const age = (name: string) => screen.getByText(name).closest('tr')!.lastElementChild;
+    expect(age('a')).toHaveTextContent(/^22m$/);
+    expect(age('b')).toHaveTextContent(/^3d$/);
+  });
+
+  it('counts the rows it shows in its footer', () => {
+    render(<ObjectsTable {...PODS} {...live(obj(), obj({ uid: 'u2', name: 'other' }))} />);
+    expect(screen.getByText('Showing 2 of 2 pods')).toBeInTheDocument();
   });
 
   // kubectl derives a pod's Status from container state, not `status.phase` — a crash-looping
@@ -151,7 +208,7 @@ describe('ObjectsTable', () => {
     });
     render(<ObjectsTable {...PODS} {...live(pod)} />);
     const row = screen.getByText('my-pod').closest('tr')!;
-    expect(within(row).getByText('CrashLoopBackOff')).toBeInTheDocument();
+    expect(within(row).getByText('CrashLoopBackOff').closest('[data-tone]')).toHaveAttribute('data-tone', 'failing');
     expect(within(row).queryByText('Running')).not.toBeInTheDocument();
   });
 
@@ -222,8 +279,8 @@ describe('ObjectsTable', () => {
     // A registered kind (Pod) still shows its columns, but with no body every cell is "—".
     render(<ObjectsTable {...PODS} {...live(obj())} />);
     const row = screen.getByText('my-pod').closest('tr')!;
-    // Ready, Status, Restarts all fall back to "—" (Age has a real timestamp here).
-    expect(within(row).getAllByText('—')).toHaveLength(3);
+    // Status, Ready, Restarts and Node all fall back to "—" (Age has a real timestamp here).
+    expect(within(row).getAllByText('—')).toHaveLength(4);
   });
 
   it('renders "—" for a null creationTimestamp instead of an ancient date', () => {
@@ -236,5 +293,130 @@ describe('ObjectsTable', () => {
   it('renders the live rows through the virtualized, fixed-layout table', () => {
     render(<ObjectsTable {...PODS} {...live(obj())} />);
     document.querySelectorAll('table').forEach((t) => expect(t).toHaveClass('table-fixed'));
+  });
+
+  describe('sorting', () => {
+    const pods = [
+      obj({ uid: 'a', name: 'a', creationTimestamp: '2026-07-20T10:00:00Z', rawJSON: restarts(0) }),
+      obj({ uid: 'b', name: 'b', creationTimestamp: '2026-07-22T10:00:00Z', rawJSON: restarts(7) }),
+      obj({ uid: 'c', name: 'c', creationTimestamp: '2026-07-21T10:00:00Z', rawJSON: restarts(2) }),
+    ];
+    const names = () =>
+      screen
+        .getAllByRole('row')
+        .filter((r) => r.querySelector('td'))
+        .map((r) => r.querySelector('.font-mono')?.textContent);
+    const press = (header: string) => fireEvent.click(screen.getByRole('button', { name: header }));
+
+    it('keeps the watch’s order until a header is pressed, and says so', () => {
+      render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      expect(names()).toEqual(['a', 'b', 'c']);
+      expect(screen.getByText(/^Sorted by/)).toHaveTextContent('Sorted by namespace');
+    });
+
+    it('sorts a count largest first, then reverses, then unsorts', () => {
+      render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      press('Restarts');
+      expect(names()).toEqual(['b', 'c', 'a']);
+      expect(screen.getByText(/^Sorted by/)).toHaveTextContent('Sorted by restarts');
+      press('Restarts');
+      expect(names()).toEqual(['a', 'c', 'b']);
+      press('Restarts');
+      expect(names()).toEqual(['a', 'b', 'c']);
+    });
+
+    it('sorts by a running job’s duration again as it grows, with no new rows', () => {
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-01-01T01:00:00Z'));
+      const JOBS = { apiVersion: 'batch/v1', resource: 'jobs', kind: 'Job', label: 'Jobs', namespaced: true };
+      const jobs = [
+        obj({ uid: 'r', name: 'running', rawJSON: { status: { startTime: '2026-01-01T00:59:30Z' } } }),
+        obj({
+          uid: 'd',
+          name: 'done',
+          rawJSON: { status: { startTime: '2026-01-01T00:00:00Z', completionTime: '2026-01-01T00:01:00Z' } },
+        }),
+      ];
+      render(<ObjectsTable {...JOBS} {...live(...jobs)} />);
+      press('Duration');
+      expect(names()).toEqual(['done', 'running']);
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(names()).toEqual(['running', 'done']);
+    });
+
+    it('sorts text and age smallest first', () => {
+      render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      press('Name');
+      press('Name');
+      expect(names()).toEqual(['c', 'b', 'a']);
+      press('Age');
+      expect(names()).toEqual(['b', 'c', 'a']);
+    });
+
+    it('reads a sort by a column it no longer draws as unsorted', () => {
+      const { rerender } = render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      press('Namespace');
+      rerender(<ObjectsTable {...PODS} {...live(...pods)} namespace="default" />);
+      expect(screen.getByText(/^Sorted by/)).toHaveTextContent('Sorted by name');
+      expect(screen.getAllByRole('columnheader').every((h) => !h.hasAttribute('aria-sort'))).toBe(true);
+    });
+
+    it('keeps an object without the value last', () => {
+      const ageless = obj({ uid: 'z', name: 'z', creationTimestamp: null });
+      render(<ObjectsTable {...PODS} {...live(ageless, ...pods)} />);
+      press('Age');
+      expect(names()).toEqual(['b', 'c', 'a', 'z']);
+    });
+  });
+
+  describe('status tabs', () => {
+    const pod = (uid: string, rawJSON: unknown) => obj({ uid, name: uid, rawJSON });
+    const ready = { status: { phase: 'Running', conditions: [{ type: 'Ready', status: 'True' }] } };
+    const crashing = {
+      status: { phase: 'Running', containerStatuses: [{ state: { waiting: { reason: 'CrashLoopBackOff' } } }] },
+    };
+    const starting = { status: { phase: 'Pending' } };
+    const pods = [pod('a', ready), pod('b', crashing), pod('c', ready), pod('d', starting)];
+    const tab = (name: RegExp) => screen.getByRole('tab', { name });
+
+    it('counts each status in its colour', () => {
+      render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
+        'All4',
+        'Healthy2',
+        'Failing1',
+        'Pending1',
+      ]);
+      expect(within(tab(/^All/)).getByText('4')).toHaveClass('text-muted-foreground');
+      expect(within(tab(/^Healthy/)).getByText('2')).toHaveClass('text-emerald-600');
+      expect(within(tab(/^Failing/)).getByText('1')).toHaveClass('text-red-600');
+      expect(within(tab(/^Pending/)).getByText('1')).toHaveClass('text-amber-600');
+    });
+
+    it('shows a tab’s pods alone, and counts them in the footer', async () => {
+      render(<ObjectsTable {...PODS} {...live(...pods)} />);
+      fireEvent.click(tab(/^Healthy/));
+      await waitFor(() => expect(screen.getByText('Showing 2 of 4 pods')).toBeInTheDocument());
+      expect(screen.queryByText('b')).not.toBeInTheDocument();
+    });
+
+    it('draws an empty table for a tab with nothing in it, and keeps the tabs', async () => {
+      render(<ObjectsTable {...PODS} {...live(pod('a', ready))} />);
+      fireEvent.click(tab(/^Failing/));
+      await waitFor(() => expect(screen.getByText('Showing 0 of 1 pods')).toBeInTheDocument());
+      expect(screen.getAllByRole('columnheader').length).toBeGreaterThan(0);
+      expect(screen.queryByText(/^No /)).not.toBeInTheDocument();
+      expect(within(tab(/^Failing/)).getByText('0')).toHaveClass('text-muted-foreground');
+    });
+
+    it('draws no tabs for a kind without a status', () => {
+      render(<ObjectsTable {...WIDGETS} {...live(obj({ kind: 'Widget' }))} />);
+      expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    });
   });
 });

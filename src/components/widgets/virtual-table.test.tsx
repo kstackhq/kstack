@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { stubLayout } from '@/test-utils';
 
-import { ROW_H, ROW_H_PX, VirtualTable } from './virtual-table';
+import { ROW_H, ROW_H_PX, TALL_ROW, VirtualTable } from './virtual-table';
 import type { VirtualColumn } from './virtual-table';
 
 // A viewport ten rows tall.
@@ -96,6 +96,15 @@ describe('VirtualTable', () => {
     expect(bottom.style.height).toBe(`${(10_000 - 5_020) * ROW_H_PX}px`);
   });
 
+  // A filter or a tab, with the scroller far down the longer list.
+  it('draws the rows a list cut short still has', () => {
+    const { scrollTo, rerender } = renderTable(rowsOf(10_000));
+    scrollTo(5_000 * ROW_H_PX);
+    rerender(rowsOf(3));
+    expect(bodyRows().map((r) => r.textContent)).toEqual(['r0', 'r1', 'r2']);
+    expect(spacers().map((s) => s.style.height)).toEqual(['0px', '0px']);
+  });
+
   describe('when the rows change under the viewport', () => {
     // The user is reading r500 at the top of a 1,000-row list.
     const parked = () => {
@@ -143,6 +152,65 @@ describe('VirtualTable', () => {
       const { scroller } = renderTable(rowsOf(3));
       expect(scroller).toHaveClass('[overflow-anchor:none]');
     });
+  });
+
+  it('draws each row at the height it is given, and its spacers to match', () => {
+    render(<VirtualTable rows={rowsOf(1_000)} rowKey={rowKey} columns={columns} rowSize={TALL_ROW} />);
+    const rows = bodyRows();
+    rows.forEach((r) => expect(r).toHaveClass(TALL_ROW.className));
+    expect(spacers()[1].style.height).toBe(`${(1_000 - rows.length) * TALL_ROW.px}px`);
+  });
+
+  it('makes a sortable header a button, and marks the sorted one', () => {
+    const onSort = vi.fn();
+    const sortable: VirtualColumn<Row>[] = [
+      { key: 'id', header: 'ID', cell: (r) => r.id, sortValue: (r) => r.id },
+      { key: 'plain', header: 'Plain', cell: () => '' },
+    ];
+    render(
+      <VirtualTable
+        rows={rowsOf(2)}
+        rowKey={rowKey}
+        columns={sortable}
+        sort={{ key: 'id', desc: true }}
+        onSort={onSort}
+      />,
+    );
+    const [id, plain] = screen.getAllByRole('columnheader');
+    expect(id).toHaveAttribute('aria-sort', 'descending');
+    expect(plain).not.toHaveAttribute('aria-sort');
+    expect(within(plain).queryByRole('button')).not.toBeInTheDocument();
+
+    // Down lit, up muted.
+    const lit = (header: HTMLElement) =>
+      Array.from(header.querySelectorAll('path')).map((p) => p.classList.contains('fill-current'));
+    expect(lit(id)).toEqual([false, true]);
+
+    fireEvent.click(within(id).getByRole('button', { name: 'ID' }));
+    expect(onSort).toHaveBeenCalledWith('id');
+  });
+
+  it('marks an ascending sort', () => {
+    const sortable: VirtualColumn<Row>[] = [{ key: 'id', header: 'ID', cell: (r) => r.id, sortValue: (r) => r.id }];
+    render(
+      <VirtualTable
+        rows={rowsOf(2)}
+        rowKey={rowKey}
+        columns={sortable}
+        sort={{ key: 'id', desc: false }}
+        onSort={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('columnheader')).toHaveAttribute('aria-sort', 'ascending');
+    const paths = screen.getByRole('columnheader').querySelectorAll('path');
+    expect(Array.from(paths).map((p) => p.classList.contains('fill-current'))).toEqual([true, false]);
+  });
+
+  it('draws both triangles muted on a sortable header not sorted', () => {
+    const sortable: VirtualColumn<Row>[] = [{ key: 'id', header: 'ID', cell: (r) => r.id, sortValue: (r) => r.id }];
+    render(<VirtualTable rows={rowsOf(2)} rowKey={rowKey} columns={sortable} onSort={vi.fn()} />);
+    const paths = screen.getByRole('columnheader').querySelectorAll('path');
+    expect(Array.from(paths).map((p) => p.classList.contains('fill-current'))).toEqual([false, false]);
   });
 
   describe('header', () => {

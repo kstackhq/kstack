@@ -89,8 +89,8 @@ function countOf(rows: unknown[], active: boolean, phase: WatchPhase): number | 
   return active && phase !== 'connecting' ? rows.length : undefined;
 }
 
-// A kind's page. It owns the objects watch, so the header counts the rows the table
-// shows. The watch is cluster-wide; the scope filters it here, a namespaced kind's alone.
+// A kind's page, over its objects watch. The watch is cluster-wide; the scope filters it
+// here, a namespaced kind's alone.
 function KindPage({ kind, label }: { kind: ServerKind; label: string }) {
   const { namespace } = useNamespaceScope();
   const { objects, active, phase } = useClusterCachedDataObjects({
@@ -103,17 +103,20 @@ function KindPage({ kind, label }: { kind: ServerKind; label: string }) {
 
   return (
     <>
-      <PageHeader title={label} count={countOf(shown, active, phase)}>
+      <PageHeader title={label}>
         {!namespaced && namespace !== undefined && (
           <>
             Cluster-scoped, so the <VisibleText text={namespace} /> filter isn&apos;t applied.
           </>
         )}
       </PageHeader>
+      {/* Keyed by kind, so a new kind starts unsorted. */}
       <ObjectsTable
+        key={`${kind.apiVersion}/${kind.resource}`}
         apiVersion={kind.apiVersion}
         resource={kind.resource}
         kind={kind.kind}
+        label={label}
         namespaced={namespaced}
         printerColumns={kind.printerColumns}
         objects={shown}
