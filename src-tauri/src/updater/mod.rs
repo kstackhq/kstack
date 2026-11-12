@@ -35,12 +35,10 @@ pub mod platform;
 
 use std::fmt::Display;
 use std::future::Future;
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
 use tauri::{AppHandle, Manager, Runtime};
-use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use crate::state::AppState;
@@ -52,7 +50,7 @@ pub const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 /// other, so the next key and the next day's check still run.
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// How long a download may go without receiving a byte before it is dropped.
+/// How long a download may go without receiving a byte before it fails.
 pub const DOWNLOAD_STALL: Duration = Duration::from_secs(60);
 
 /// A key the app trusts, and the manifest signed with it.
@@ -102,46 +100,17 @@ where
     E: Display,
     Fut: Future<Output = Result<Option<U>, E>>,
 {
-    loop {
-        let checked = tokio::select! {
-            biased;
-            _ = shutdown.cancelled() => return None,
-            checked = check() => checked,
-        };
-        match checked {
-            Ok(Some(update)) => return Some(update),
-            Ok(None) => tracing::debug!("no update"),
-            Err(err) => tracing::warn!(%err, "update check failed"),
+    let found = async {
+        loop {
+            match check().await {
+                Ok(Some(update)) => return update,
+                Ok(None) => tracing::debug!("no update"),
+                Err(err) => tracing::warn!(%err, "update check failed"),
+            }
+            tokio::time::sleep(interval).await;
         }
-        tokio::select! {
-            biased;
-            _ = shutdown.cancelled() => return None,
-            _ = tokio::time::sleep(interval) => {}
-        }
-    }
-}
-
-/// Runs `download`, which calls `progress.notify_one()` on each chunk, and
-/// drops it once `stall` passes with no chunk: `None`. The plugin sets no
-/// timeout, and a slow download may rightly take long.
-pub async fn unless_stalled<T, Fut>(
-    stall: Duration,
-    download: impl FnOnce(Arc<Notify>) -> Fut,
-) -> Option<T>
-where
-    Fut: Future<Output = T>,
-{
-    let progress = Arc::new(Notify::new());
-    let download = download(progress.clone());
-    tokio::pin!(download);
-    loop {
-        tokio::select! {
-            done = &mut download => return Some(done),
-            // `notify_one` keeps a permit, so a chunk between polls still counts.
-            _ = progress.notified() => {}
-            _ = tokio::time::sleep(stall) => return None,
-        }
-    }
+    };
+    shutdown.run_until_cancelled(found).await
 }
 
 /// Sets the version the tray offers to update to, or withdraws the offer. The
@@ -322,36 +291,6 @@ mod tests {
         assert!(updater.get("dangerousInsecureTransportProtocol").is_none());
         assert!(updater.get("dangerousAcceptInvalidCerts").is_none());
         assert!(updater.get("dangerousAcceptInvalidHostnames").is_none());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_download_that_keeps_receiving_is_never_dropped() {
-        let download = |progress: Arc<Notify>| async move {
-            for _ in 0..5 {
-                tokio::time::sleep(DOWNLOAD_STALL / 2).await;
-                progress.notify_one();
-            }
-            "bytes"
-        };
-
-        let started = tokio::time::Instant::now();
-        assert_eq!(
-            unless_stalled(DOWNLOAD_STALL, download).await,
-            Some("bytes")
-        );
-        assert_eq!(started.elapsed(), DOWNLOAD_STALL * 5 / 2);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_download_that_stops_receiving_is_dropped() {
-        let download = |progress: Arc<Notify>| async move {
-            progress.notify_one();
-            std::future::pending::<()>().await
-        };
-
-        let started = tokio::time::Instant::now();
-        assert_eq!(unless_stalled(DOWNLOAD_STALL, download).await, None);
-        assert_eq!(started.elapsed(), DOWNLOAD_STALL);
     }
 
     #[test]

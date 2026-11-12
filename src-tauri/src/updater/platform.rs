@@ -84,19 +84,10 @@ pub fn install(app: &AppHandle, rebuild: fn(&AppHandle)) {
         tracing::info!(version = %update.version, "downloading update");
         // `download` refuses bytes whose signature or signed version is not
         // the pinned key's.
-        let downloaded = super::unless_stalled(super::DOWNLOAD_STALL, |progress| {
-            update.download(move |_, _| progress.notify_one(), || {})
-        })
-        .await;
-        let bytes = match downloaded {
-            Some(Ok(bytes)) => bytes,
-            Some(Err(err)) => {
+        let bytes = match update.download(|_, _| {}, || {}).await {
+            Ok(bytes) => bytes,
+            Err(err) => {
                 tracing::error!(%err, "update download failed");
-                offer_update(&app, update, rebuild);
-                return;
-            }
-            None => {
-                tracing::error!("update download stalled");
                 offer_update(&app, update, rebuild);
                 return;
             }
@@ -174,10 +165,11 @@ fn updaters(app: &AppHandle) -> tauri_plugin_updater::Result<[Updater; 2]> {
 /// the installer finds its executable locked.
 fn builder(app: &AppHandle) -> tauri_plugin_updater::UpdaterBuilder {
     let hook = app.clone();
-    // Bounds the check alone: the plugin gives the `Update` it returns no
-    // timeout.
+    // `timeout` bounds the check alone: the plugin gives the `Update` it
+    // returns none, so the read timeout is what ends a stalled download.
     app.updater_builder()
         .timeout(super::CHECK_TIMEOUT)
+        .configure_client(|client| client.read_timeout(super::DOWNLOAD_STALL))
         .on_before_exit(move || {
             crate::stop_for_install(&hook);
             hook.cleanup_before_exit();

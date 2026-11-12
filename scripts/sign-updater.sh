@@ -62,11 +62,11 @@ echo "$digest  $tools/cargo-tauri.tgz" | sha256sum -c --quiet -
 tar -xzf "$tools/cargo-tauri.tgz" -C "$tools" cargo-tauri
 
 # A minisign key id, as minisign prints it in a public key's comment: bytes
-# 2..10 of a key's or signature's second line, little-endian, which tauri wraps
-# in one more base64.
+# 2..10 of a key's or signature's second line, which tauri wraps in one more
+# base64, read as a little-endian integer. Both pinned targets are
+# little-endian, so od's own byte order is the key's.
 key_id() {
-	base64 -d <<<"$1" | sed -n 2p | base64 -d | od -An -tx1 -j2 -N8 |
-		tr -s ' ' '\n' | grep . | tac | tr -d '\n' | tr a-f A-F
+	base64 -d <<<"$1" | sed -n 2p | base64 -d | od -An -tx8 -j2 -N8 | tr -d ' \n' | tr a-f A-F
 }
 
 # Prints the id of a key the app is built with: <file>'s public key, read by

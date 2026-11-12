@@ -128,9 +128,10 @@ tower = { version = "0.5", features = ["util"] }
 file-rotate = "0.8"
 
 # The in-app updater (`updater/platform.rs`). Linux applies no update, so it
-# is not built there.
+# is not built there. Held to a minor: `configure_client` hands over the
+# plugin's own reqwest builder, which a minor release may change.
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
-tauri-plugin-updater = "2.14.1"
+tauri-plugin-updater = "~2.14.1"
 
 # macOS-only: a custom Dock menu has no Tauri/tao API, so it is built directly
 # against AppKit. Versions are pinned to what Tauri already pulls in transitively.

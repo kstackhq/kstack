@@ -142,14 +142,10 @@ pub fn build_tray_menu<R: Runtime>(
 
     let mut tail: Vec<&dyn IsMenuItem<R>> = Vec::new();
     if let Some(update) = &update {
-        tail.extend([update as &dyn IsMenuItem<R>, &update_separator]);
+        tail.push(update);
+        tail.push(&update_separator);
     }
-    tail.extend([
-        &new_window as &dyn IsMenuItem<R>,
-        &show_main,
-        &separator,
-        &quit,
-    ]);
+    tail.extend_from_slice(&[&new_window, &show_main, &separator, &quit]);
 
     let Some(account) = account else {
         return Menu::with_items(app, &tail);
