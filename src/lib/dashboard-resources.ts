@@ -12,88 +12,150 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The dashboard's resource catalog: curated base (`DASHBOARD_NAV`) plus the runtime
-// merge of discovered kinds (`buildDashboardNav`). Unmapped api groups (including
-// core) are left for Custom Resources. See docs/adr/2026-08-09-dashboard-nav-merge.md
-export const DASHBOARD_NAV = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'nodes', label: 'Nodes' },
-  { id: 'namespaces', label: 'Namespaces' },
-  { id: 'events', label: 'Events' },
+// The dashboard's resource tree: two sections by scope, each holding groups of kinds.
+// A curated kind keeps its place; a discovered kind joins a group by its API group.
+// See docs/adr/2026-11-12-the-dashboard-nav-groups-kinds-by-scope-and-api-group.md
+
+type Scope = 'Cluster' | 'Namespaced';
+
+type GroupId =
+  | 'workloads'
+  | 'infrastructure'
+  | 'network'
+  | 'config'
+  | 'storage'
+  | 'access-control'
+  | 'extensions'
+  | 'custom-resources';
+
+type CuratedKind = { resource: string; label: string; apiGroup: string; scope: Scope };
+
+const kind = (resource: string, label: string, apiGroup: string, scope: Scope): CuratedKind => ({
+  resource,
+  label,
+  apiGroup,
+  scope,
+});
+
+// Each section draws its groups, and each group its curated kinds, in this order.
+const GROUPS: readonly { id: GroupId; label: string; kinds: readonly CuratedKind[] }[] = [
   {
     id: 'workloads',
     label: 'Workloads',
-    children: [
-      { id: 'pods', label: 'Pods' },
-      { id: 'deployments', label: 'Deployments' },
-      { id: 'daemonsets', label: 'DaemonSets' },
-      { id: 'statefulsets', label: 'StatefulSets' },
-      { id: 'jobs', label: 'Jobs' },
-      { id: 'cronjobs', label: 'CronJobs' },
+    kinds: [
+      kind('pods', 'Pods', '', 'Namespaced'),
+      kind('deployments', 'Deployments', 'apps', 'Namespaced'),
+      kind('statefulsets', 'StatefulSets', 'apps', 'Namespaced'),
+      kind('daemonsets', 'DaemonSets', 'apps', 'Namespaced'),
+      kind('replicasets', 'ReplicaSets', 'apps', 'Namespaced'),
+      kind('jobs', 'Jobs', 'batch', 'Namespaced'),
+      kind('cronjobs', 'CronJobs', 'batch', 'Namespaced'),
     ],
   },
   {
-    id: 'config-and-storage',
-    label: 'Config & Storage',
-    children: [
-      { id: 'configmaps', label: 'ConfigMaps' },
-      { id: 'secrets', label: 'Secrets' },
-      { id: 'persistentvolumeclaims', label: 'PersistentVolumeClaims' },
-    ],
+    id: 'infrastructure',
+    label: 'Infrastructure',
+    kinds: [kind('nodes', 'Nodes', '', 'Cluster'), kind('namespaces', 'Namespaces', '', 'Cluster')],
   },
   {
     id: 'network',
     label: 'Network',
-    children: [
-      { id: 'services', label: 'Services' },
-      { id: 'ingresses', label: 'Ingresses' },
-      { id: 'networkpolicies', label: 'NetworkPolicies' },
+    kinds: [
+      kind('services', 'Services', '', 'Namespaced'),
+      kind('ingresses', 'Ingresses', 'networking.k8s.io', 'Namespaced'),
+      kind('networkpolicies', 'NetworkPolicies', 'networking.k8s.io', 'Namespaced'),
     ],
   },
   {
-    id: 'security-and-access',
-    label: 'Security & Access',
-    children: [
-      { id: 'serviceaccounts', label: 'ServiceAccounts' },
-      { id: 'roles', label: 'Roles' },
-      { id: 'rolebindings', label: 'RoleBindings' },
-      { id: 'clusterroles', label: 'ClusterRoles' },
-      { id: 'clusterrolebindings', label: 'ClusterRoleBindings' },
+    id: 'config',
+    label: 'Config',
+    kinds: [kind('configmaps', 'ConfigMaps', '', 'Namespaced'), kind('secrets', 'Secrets', '', 'Namespaced')],
+  },
+  {
+    id: 'storage',
+    label: 'Storage',
+    kinds: [
+      kind('persistentvolumes', 'PersistentVolumes', '', 'Cluster'),
+      kind('storageclasses', 'StorageClasses', 'storage.k8s.io', 'Cluster'),
+      kind('persistentvolumeclaims', 'PersistentVolumeClaims', '', 'Namespaced'),
     ],
   },
   {
-    id: 'custom-resources',
-    label: 'Custom Resources',
-    children: [],
+    id: 'access-control',
+    label: 'Access control',
+    kinds: [
+      kind('serviceaccounts', 'ServiceAccounts', '', 'Namespaced'),
+      kind('roles', 'Roles', 'rbac.authorization.k8s.io', 'Namespaced'),
+      kind('rolebindings', 'RoleBindings', 'rbac.authorization.k8s.io', 'Namespaced'),
+      kind('clusterroles', 'ClusterRoles', 'rbac.authorization.k8s.io', 'Cluster'),
+      kind('clusterrolebindings', 'ClusterRoleBindings', 'rbac.authorization.k8s.io', 'Cluster'),
+    ],
   },
   {
-    id: 'system',
-    label: 'System',
-    children: [],
+    id: 'extensions',
+    label: 'Extensions',
+    kinds: [
+      kind('customresourcedefinitions', 'CustomResourceDefinitions', 'apiextensions.k8s.io', 'Cluster'),
+      kind('apiservices', 'APIServices', 'apiregistration.k8s.io', 'Cluster'),
+    ],
   },
-] as const;
+  { id: 'custom-resources', label: 'Custom resources', kinds: [] },
+];
 
-// A curated node id or a dynamic kind's id (`<group>/<resource>`). Open string —
-// dynamic kinds are data-driven.
-export type DashboardResource = string;
-
-// Discovered kinds always live in `moreChildren` (same depth as `children`); the
-// disclosure style is derived from the shape, not stored — curated `children`
-// present ⇒ "Show more…" toggle, none ⇒ parent-level chevron. `count` is set only
-// on leaf kind nodes, so the renderer badges only where a real count exists.
-export type DashboardNavNode = {
-  readonly id: DashboardResource;
-  readonly label: string;
-  readonly count?: number;
-  readonly children?: readonly DashboardNavNode[];
-  readonly moreChildren?: readonly DashboardNavNode[];
+// The group of a kind not curated, by its API group. A kind in an unlisted API group is a
+// custom resource when a CRD backs it, else an extension.
+const API_GROUP_TO_GROUP: Partial<Record<string, GroupId>> = {
+  apps: 'workloads',
+  batch: 'workloads',
+  autoscaling: 'workloads',
+  policy: 'workloads',
+  'node.k8s.io': 'infrastructure',
+  'scheduling.k8s.io': 'infrastructure',
+  'coordination.k8s.io': 'infrastructure',
+  'flowcontrol.apiserver.k8s.io': 'infrastructure',
+  'resource.k8s.io': 'infrastructure',
+  'networking.k8s.io': 'network',
+  'discovery.k8s.io': 'network',
+  'gateway.networking.k8s.io': 'network',
+  'storage.k8s.io': 'storage',
+  'rbac.authorization.k8s.io': 'access-control',
+  'certificates.k8s.io': 'access-control',
+  'apiextensions.k8s.io': 'extensions',
+  'apiregistration.k8s.io': 'extensions',
+  'admissionregistration.k8s.io': 'extensions',
 };
 
-// A `ClusterCachedDataKind` row. Declared here, not imported from `@/gql`, so this
-// module stays pure and testable.
-// PrinterColumn is one of a CRD's declared columns, as the kinds watch carries it: a header and
-// where to read its value from. Structural rather than the generated type, so the modules that
-// render from it need no dependency on codegen output.
+// The core group spans every group, so its kinds not curated map by plural.
+const CORE_KIND_TO_GROUP: Partial<Record<string, GroupId>> = {
+  replicationcontrollers: 'workloads',
+  podtemplates: 'workloads',
+  componentstatuses: 'infrastructure',
+  endpoints: 'network',
+  resourcequotas: 'config',
+  limitranges: 'config',
+};
+
+const SECTIONS = [
+  { id: 'cluster', label: 'Cluster', scope: 'Cluster' },
+  { id: 'namespace', label: 'Namespace', scope: 'Namespaced' },
+] as const;
+
+// A curated or core kind's id is its plural; any other's is `<group>/<resource>`.
+export type DashboardResource = string;
+
+export type NavKind = { readonly id: DashboardResource; readonly label: string; readonly count?: number };
+export type NavGroup = { readonly id: string; readonly label: string; readonly kinds: readonly NavKind[] };
+export type NavSection = {
+  readonly id: (typeof SECTIONS)[number]['id'];
+  readonly label: string;
+  readonly groups: readonly NavGroup[];
+};
+export type DashboardNav = { readonly eventsCount?: number; readonly sections: readonly NavSection[] };
+
+// Kinds and printer columns are declared here rather than imported from `@/gql`, so this
+// module and the ones rendering from it stay free of codegen output.
+
+// One of a CRD's declared columns: a header and where to read its value from.
 export type PrinterColumn = {
   name: string;
   type: string;
@@ -101,6 +163,7 @@ export type PrinterColumn = {
   priority: number;
 };
 
+// A row of the kinds catalog.
 export type ServerKind = {
   apiVersion: string;
   kind: string;
@@ -108,171 +171,150 @@ export type ServerKind = {
   scope: string;
   isCRD: boolean;
   count: number;
-  // What a CRD asks the table to render; empty for a built-in. Off the kinds watch, since it is
-  // static per kind — the objects watch carries no descriptors.
+  // Empty for a built-in. Carried here because it is static per kind; the objects watch
+  // carries none.
   printerColumns: readonly PrinterColumn[];
 };
 
-// Groups that can receive discovered kinds. `Extract<…>` ties them to
-// `DASHBOARD_NAV`: renaming a group there fails the `API_GROUP_TO_GROUP` value
-// check at build time instead of silently dropping kinds.
-type TopLevelId = (typeof DASHBOARD_NAV)[number]['id'];
-export type DashboardGroupId = Extract<
-  TopLevelId,
-  'workloads' | 'network' | 'config-and-storage' | 'security-and-access' | 'system'
->;
-
-// api group → curated group for its non-curated kinds. Unlisted groups (including
-// core "") are deferred to Custom Resources.
-const API_GROUP_TO_GROUP: Record<string, DashboardGroupId> = {
-  apps: 'workloads',
-  batch: 'workloads',
-  autoscaling: 'workloads',
-  policy: 'workloads',
-  'networking.k8s.io': 'network',
-  'discovery.k8s.io': 'network',
-  'gateway.networking.k8s.io': 'network',
-  'storage.k8s.io': 'config-and-storage',
-  'rbac.authorization.k8s.io': 'security-and-access',
-  'certificates.k8s.io': 'security-and-access',
-  'admissionregistration.k8s.io': 'security-and-access',
-  'coordination.k8s.io': 'system',
-  'scheduling.k8s.io': 'system',
-  'node.k8s.io': 'system',
-  'flowcontrol.apiserver.k8s.io': 'system',
-  'resource.k8s.io': 'system',
-};
-
-// The api group of a "group/version" (or "" for the core group's bare "v1").
+// The API group of a "group/version"; "" for the core group's bare "v1".
 export function apiGroupOf(apiVersion: string): string {
   const slash = apiVersion.indexOf('/');
   return slash === -1 ? '' : apiVersion.slice(0, slash);
 }
 
-// Depth-first, parent-before-children. Walks `moreChildren` too, so a kind behind
-// "Show more…" still resolves.
-export function flattenNav(nodes: readonly DashboardNavNode[]): DashboardNavNode[] {
-  return nodes.flatMap((node) => [
-    node,
-    ...(node.children ? flattenNav(node.children) : []),
-    ...(node.moreChildren ? flattenNav(node.moreChildren) : []),
-  ]);
+const CURATED = GROUPS.flatMap((g) => g.kinds.map((k) => ({ ...k, group: g.id })));
+
+// Keyed by API group and plural, so a CRD reusing a built-in's plural in another group
+// never takes its row.
+const CURATED_INDEX = new Map(CURATED.map((c, i) => [`${c.apiGroup}/${c.resource}`, i]));
+
+function curatedIndex(k: ServerKind): number | undefined {
+  return CURATED_INDEX.get(`${apiGroupOf(k.apiVersion)}/${k.resource}`);
 }
 
-// Depth-first search by id (walks `moreChildren` too), short-circuiting at the first match.
-export function findNode(nodes: readonly DashboardNavNode[], id: DashboardResource): DashboardNavNode | undefined {
-  let match: DashboardNavNode | undefined;
-  nodes.some((node) => {
-    match = node.id === id ? node : (findNode(node.children ?? [], id) ?? findNode(node.moreChildren ?? [], id));
-    return match !== undefined;
-  });
-  return match;
+// Events get the pinned row, not a place in a section.
+function isEvents(k: ServerKind): boolean {
+  const group = apiGroupOf(k.apiVersion);
+  return k.resource === 'events' && (group === '' || group === 'events.k8s.io');
 }
 
-// Each curated leaf's api group, keyed by resource plural (node id). A discovered
-// kind joins only when BOTH api group and plural match, so a CRD reusing a
-// built-in's plural in another group can't hijack its row or count. Core group is "".
-const CURATED_LEAF_API_GROUP: Record<string, string> = {
-  nodes: '',
-  namespaces: '',
-  events: '',
-  pods: '',
-  deployments: 'apps',
-  daemonsets: 'apps',
-  statefulsets: 'apps',
-  jobs: 'batch',
-  cronjobs: 'batch',
-  configmaps: '',
-  secrets: '',
-  persistentvolumeclaims: '',
-  services: '',
-  ingresses: 'networking.k8s.io',
-  networkpolicies: 'networking.k8s.io',
-  serviceaccounts: '',
-  roles: 'rbac.authorization.k8s.io',
-  rolebindings: 'rbac.authorization.k8s.io',
-  clusterroles: 'rbac.authorization.k8s.io',
-  clusterrolebindings: 'rbac.authorization.k8s.io',
-};
+function navIdOf(k: ServerKind): DashboardResource {
+  const group = apiGroupOf(k.apiVersion);
+  return group === '' || curatedIndex(k) !== undefined ? k.resource : `${group}/${k.resource}`;
+}
+
+// A kind with where it goes. `order` is a curated kind's place; discovered kinds share
+// one past the last, then sort by label.
+type Placed = NavKind & { group: GroupId; scope: Scope; order: number };
+
+function placeCurated(i: number, count?: number): Placed {
+  const c = CURATED[i];
+  return { id: c.resource, label: c.label, count, group: c.group, scope: c.scope, order: i };
+}
+
+function place(k: ServerKind): Placed {
+  const i = curatedIndex(k);
+  if (i !== undefined) return placeCurated(i, k.count);
+
+  const apiGroup = apiGroupOf(k.apiVersion);
+  const group = apiGroup === '' ? CORE_KIND_TO_GROUP[k.resource] : API_GROUP_TO_GROUP[apiGroup];
+  return {
+    id: navIdOf(k),
+    label: k.kind,
+    count: k.count,
+    group: group ?? (k.isCRD ? 'custom-resources' : 'extensions'),
+    scope: k.scope === 'Cluster' ? 'Cluster' : 'Namespaced',
+    order: CURATED.length,
+  };
+}
+
+// `kinds` undefined means the catalog has not landed: the curated kinds, without counts.
+export function buildDashboardNav(kinds: readonly ServerKind[] | undefined): DashboardNav {
+  const placed =
+    kinds === undefined ? CURATED.map((_, i) => placeCurated(i)) : kinds.filter((k) => !isEvents(k)).map(place);
+  placed.sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
+
+  return {
+    // `events.k8s.io` serves the same objects as the core group; count them once.
+    eventsCount: kinds?.find((k) => isEvents(k) && apiGroupOf(k.apiVersion) === '')?.count,
+    sections: SECTIONS.map((s) => ({
+      id: s.id,
+      label: s.label,
+      groups: GROUPS.map((g) => ({
+        id: g.id,
+        label: g.label,
+        kinds: placed
+          .filter((k) => k.scope === s.scope && k.group === g.id)
+          .map(({ id, label, count }) => ({ id, label, count })),
+      })).filter((g) => g.kinds.length > 0),
+    })),
+  };
+}
+
+// The rows above the sections.
+export const PINNED = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'events', label: 'Events' },
+] as const;
 
 // Shown when the URL names no resource.
-export const DEFAULT_DASHBOARD_RESOURCE: DashboardResource = DASHBOARD_NAV[0].id;
+export const DEFAULT_DASHBOARD_RESOURCE: DashboardResource = 'overview';
 
-// Absent ⇒ default; present passes through untouched (may be a dynamic kind not
-// yet in the tree).
+// Any id passes through, even one naming a kind the catalog has not delivered yet.
 export function resolveDashboardResource(resource: DashboardResource | undefined): DashboardResource {
-  return resource && resource.length > 0 ? resource : DEFAULT_DASHBOARD_RESOURCE;
+  return resource || DEFAULT_DASHBOARD_RESOURCE;
 }
 
-// The curated leaf id a discovered kind is, or undefined. Matches on api group AND
-// plural (see CURATED_LEAF_API_GROUP).
-function curatedLeafIdForKind(k: ServerKind): string | undefined {
-  const group = CURATED_LEAF_API_GROUP[k.resource];
-  return group !== undefined && group === apiGroupOf(k.apiVersion) ? k.resource : undefined;
-}
-
-// Whether an id can resolve to a discovered kind once the catalog lands: a curated leaf a
-// kind backs, or an id outside the curated tree (`group/resource`). A group row, and
-// Overview, never will.
+// Whether an id could name a kind once the catalog lands. Only Overview never will.
 export function mayNameDiscoveredKind(id: DashboardResource): boolean {
-  return Object.hasOwn(CURATED_LEAF_API_GROUP, id) || findNode(DASHBOARD_NAV, id) === undefined;
+  return id !== DEFAULT_DASHBOARD_RESOURCE;
 }
 
-// A kind's nav node id: curated built-ins by bare plural ("pods"), others by
-// `group/resource`. The single home for this rule — bucketing and the count join
-// both key by it.
-function navIdForKind(k: ServerKind): string {
-  return curatedLeafIdForKind(k) ?? `${apiGroupOf(k.apiVersion)}/${k.resource}`;
-}
-
-// Merge discovered kinds into the curated base: non-curated mapped kinds hang off
-// their group's `moreChildren` (label-sorted); every kind's `count` joins onto its
-// leaf node via `withCount`, keyed by `navIdForKind` — curated leaves included.
-export function buildDashboardNav(serverKinds: readonly ServerKind[]): DashboardNavNode[] {
-  const buckets = new Map<string, DashboardNavNode[]>();
-  const countById = new Map<string, number>();
-  const seen = new Set<string>();
-  serverKinds.forEach((k) => {
-    const id = navIdForKind(k);
-    countById.set(id, k.count);
-    const group = API_GROUP_TO_GROUP[apiGroupOf(k.apiVersion)];
-    if (!group) return; // unmapped api group (incl. core): deferred to Custom Resources
-    if (curatedLeafIdForKind(k) !== undefined) return; // already curated — don't duplicate
-    if (seen.has(id)) return; // guard against duplicate discovery rows
-    seen.add(id);
-    const list = buckets.get(group) ?? [];
-    list.push({ id, label: k.kind });
-    buckets.set(group, list);
-  });
-  buckets.forEach((list) => {
-    list.sort((a, b) => a.label.localeCompare(b.label));
-  });
-
-  const withCount = (node: DashboardNavNode): DashboardNavNode => {
-    const count = countById.get(node.id);
-    return {
-      ...node,
-      ...(count !== undefined ? { count } : {}),
-      ...(node.children ? { children: node.children.map(withCount) } : {}),
-      ...(node.moreChildren ? { moreChildren: node.moreChildren.map(withCount) } : {}),
-    };
-  };
-
-  return DASHBOARD_NAV.map((node): DashboardNavNode => {
-    const bucket = buckets.get(node.id); // never empty: a bucket exists only once a kind is pushed
-    return bucket ? { ...node, moreChildren: bucket } : node;
-  }).map(withCount);
-}
-
-// Resolves a selected nav id back to its full kind row via the same `navIdForKind`
-// rule the tree is built with (a curated id omits its apiVersion). Undefined for
-// group/overview rows or an unloaded catalog.
+// The catalog row behind a tree id.
 export function serverKindForResource(kinds: readonly ServerKind[], id: DashboardResource): ServerKind | undefined {
-  return kinds.find((k) => navIdForKind(k) === id);
+  return kinds.find((k) => navIdOf(k) === id);
 }
 
-// Label for an id, resolved against a built tree (so dynamic kinds resolve too);
-// falls back to the raw id (unloaded catalog, stale deep link).
-export function dashboardResourceLabel(nav: readonly DashboardNavNode[], resource: DashboardResource): string {
-  return findNode(nav, resource)?.label ?? resource;
+const KNOWN_LABELS = new Map<DashboardResource, string>([
+  ...PINNED.map((p) => [p.id, p.label] as const),
+  ...CURATED.map((c) => [c.resource, c.label] as const),
+]);
+
+// A pinned or curated row's label even before the catalog lands, else the catalog's kind,
+// else the id itself.
+export function dashboardResourceLabel(kinds: readonly ServerKind[], id: DashboardResource): string {
+  return KNOWN_LABELS.get(id) ?? serverKindForResource(kinds, id)?.kind ?? id;
+}
+
+function kindsOf(sections: readonly NavSection[]): NavKind[] {
+  return sections.flatMap((s) => s.groups.flatMap((g) => g.kinds));
+}
+
+type NavView = {
+  readonly sections: readonly NavSection[];
+  // How many kinds are shown, out of every kind in the tree.
+  readonly matches: number;
+  readonly total: number;
+};
+
+// A query keeps the kinds whose label starts with it, empty ones included. Without one, a
+// kind with no objects hides unless it is active; an unknown count is never empty.
+export function filterNav(nav: DashboardNav, { active, query }: { active: DashboardResource; query: string }): NavView {
+  const q = query.trim().toLowerCase();
+  const keep = (k: NavKind) => (q ? k.label.toLowerCase().startsWith(q) : k.count !== 0 || k.id === active);
+
+  const sections = nav.sections.map((s) => ({
+    ...s,
+    groups: s.groups.map((g) => ({ ...g, kinds: g.kinds.filter(keep) })).filter((g) => g.kinds.length > 0),
+  }));
+  return { sections, matches: kindsOf(sections).length, total: kindsOf(nav.sections).length };
+}
+
+// The sum of a group's known counts; undefined when none is known.
+export function groupCount(group: NavGroup): number | undefined {
+  let total: number | undefined;
+  for (const k of group.kinds) {
+    if (k.count !== undefined) total = (total ?? 0) + k.count;
+  }
+  return total;
 }

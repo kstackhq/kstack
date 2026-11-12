@@ -212,10 +212,12 @@
     isolation: isolate;
   }
 
-  /* Desktop controls show the arrow; only links show the hand. The selectors match
-     `@kubetail/ui`'s `cursor: pointer` rule so this one, coming later, wins. */
+  /* Desktop controls and in-app links show the arrow, as a native app's sidebar does. The
+     button selectors match `@kubetail/ui`'s `cursor: pointer` rule so this one, coming
+     later, wins. A link that leaves the app opts back in with `cursor-pointer`. */
   button:not(:disabled),
-  [role='button']:not(:disabled) {
+  [role='button']:not(:disabled),
+  a[href] {
     cursor: default;
   }
 
