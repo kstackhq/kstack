@@ -35,7 +35,7 @@ rust_ok() {
     grep -cE '^(rustfmt|clippy|llvm-tools)' || true)
   [ "${n:-0}" -eq 3 ]
 }
-go_ok() { has go && go version | grep -q "go$GO_VERSION"; }
+go_ok() { has go && [ "$(go env GOVERSION 2>/dev/null)" = "go$GO_VERSION" ]; }
 node_ok() { has node && [ "$(node -p 'process.versions.node.split(".")[0]')" = "$NODE_MAJOR" ]; }
 pnpm_ok() { has pnpm && [ "$(pnpm --version)" = "$PNPM_VERSION" ]; }
 uv_ok() { has uv; }
