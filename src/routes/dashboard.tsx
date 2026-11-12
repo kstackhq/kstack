@@ -18,14 +18,21 @@ import { useMemo, useState } from 'react';
 
 import { EventsTable } from '@/components/widgets/events-table';
 import { ObjectsTable } from '@/components/widgets/objects-table';
+import { PageHeader } from '@/components/widgets/page-frame/page-header';
+import { VisibleText } from '@/components/widgets/visible-text';
+import { useClusterCachedDataEvents } from '@/lib/cluster-cached-data-events';
 import { useClusterCachedDataKinds } from '@/lib/cluster-cached-data-kinds';
+import { useClusterCachedDataObjects } from '@/lib/cluster-cached-data-objects';
 import {
   dashboardResourceLabel,
   mayNameDiscoveredKind,
   resolveDashboardResource,
   serverKindForResource,
+  shortNamesOf,
 } from '@/lib/dashboard-resources';
-import type { ServerKind } from '@/lib/dashboard-resources';
+import type { DashboardResource, ServerKind } from '@/lib/dashboard-resources';
+import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import { useNamespaceScope } from '@/lib/namespace-scope';
 import { Route as appRoute } from '@/routes/_app';
 
 // The focused kind lives in the `resource` search param, declared on `_app` so it
@@ -40,11 +47,9 @@ export const Route = createRoute({
 // The kind a resource last resolved to, under the cache it came from.
 type HeldKind = { cacheID: string | undefined; resource: string; kind: ServerKind };
 
-// Panel pick: `events` → bespoke `EventsTable`; a resolved discovered kind → generic
-// `ObjectsTable`. A resource the catalog could name (`mayNameDiscoveredKind`) and does
-// not reads "not synced" with no active cache, waits behind a spinner for the Bookmark,
-// and after it is not served by this cluster. Overview reads "coming soon" at once.
-// Label and kind resolve against the same live catalog the sidebar uses.
+// Each resource is a page, a header over a panel: `events` → `EventsPage`; a resolved
+// discovered kind → `KindPage`; anything else → `PlaceholderPage`. Label and kind resolve
+// against the same live catalog the sidebar uses.
 function Dashboard() {
   const { resource } = Route.useSearch();
   const { kinds, active, cacheID, phase } = useClusterCachedDataKinds();
@@ -64,39 +69,113 @@ function Dashboard() {
   const holding = held && active && phase === 'connecting' && held.cacheID === cacheID && held.resource === resolved;
   const kind = serverKind ?? (holding ? held.kind : undefined);
 
-  let panel;
+  let page;
   if (resolved === 'events') {
-    panel = <EventsTable />;
+    page = <EventsPage />;
   } else if (kind) {
-    panel = (
+    page = <KindPage kind={kind} label={label} />;
+  } else {
+    page = <PlaceholderPage label={label} resource={resolved} active={active} phase={phase} />;
+  }
+  return <section className="flex min-h-0 min-w-0 flex-1 flex-col p-6">{page}</section>;
+}
+
+// The rows the namespace scope shows: all of them without one.
+function inScope<T>(rows: T[], namespace: string | undefined, namespaceOf: (row: T) => string): T[] {
+  return namespace === undefined ? rows : rows.filter((r) => namespaceOf(r) === namespace);
+}
+
+// A page counts its rows once its watch's snapshot has landed.
+function countOf(rows: unknown[], active: boolean, phase: WatchPhase): number | undefined {
+  return active && phase !== 'connecting' ? rows.length : undefined;
+}
+
+// A kind's page. It owns the objects watch, so the header counts the rows the table
+// shows. The watch is cluster-wide; the scope filters it here, a namespaced kind's alone.
+function KindPage({ kind, label }: { kind: ServerKind; label: string }) {
+  const { namespace } = useNamespaceScope();
+  const { objects, active, phase } = useClusterCachedDataObjects({
+    apiVersion: kind.apiVersion,
+    resource: kind.resource,
+  });
+  const namespaced = kind.scope === 'Namespaced';
+  const scope = namespaced ? namespace : undefined;
+  const shown = useMemo(() => inScope(objects, scope, (o) => o.namespace), [objects, scope]);
+  const meta = [kind.apiVersion, shortNamesOf(kind).join(', ')].filter(Boolean).join(' · ');
+
+  return (
+    <>
+      <PageHeader title={label} count={countOf(shown, active, phase)} meta={meta}>
+        {!namespaced && namespace !== undefined && (
+          <>
+            Cluster-scoped, so the <VisibleText text={namespace} /> filter isn&apos;t applied.
+          </>
+        )}
+      </PageHeader>
       <ObjectsTable
         apiVersion={kind.apiVersion}
         resource={kind.resource}
         kind={kind.kind}
-        namespaced={kind.scope === 'Namespaced'}
+        namespaced={namespaced}
         printerColumns={kind.printerColumns}
+        objects={shown}
+        active={active}
+        phase={phase}
+        namespace={scope}
       />
-    );
-  } else if (!mayNameDiscoveredKind(resolved)) {
-    panel = <Note>The {label.toLowerCase()} view is coming soon.</Note>;
+    </>
+  );
+}
+
+// The Events page, over the events watch as `KindPage` is over its objects. An event is
+// in the namespace of the object it is about.
+function EventsPage() {
+  const { namespace } = useNamespaceScope();
+  const { events, active, phase } = useClusterCachedDataEvents();
+  const shown = useMemo(() => inScope(events, namespace, (e) => e.involvedNamespace), [events, namespace]);
+
+  return (
+    <>
+      <PageHeader title="Events" count={countOf(shown, active, phase)}>
+        {namespace !== undefined && (
+          <>
+            Events in <VisibleText text={namespace} />.
+          </>
+        )}
+      </PageHeader>
+      <EventsTable events={shown} active={active} phase={phase} namespace={namespace} />
+    </>
+  );
+}
+
+type PlaceholderPageProps = { label: string; resource: DashboardResource; active: boolean; phase: WatchPhase };
+
+// A page with nothing to list. Overview reads "coming soon" at once. A resource the
+// catalog could name (`mayNameDiscoveredKind`) and does not reads "not synced" with no
+// active cache, waits behind a spinner for the Bookmark, and after it is not served by
+// this cluster.
+function PlaceholderPage({ label, resource, active, phase }: PlaceholderPageProps) {
+  const name = label.toLowerCase();
+  let note;
+  if (!mayNameDiscoveredKind(resource)) {
+    note = <Note>The {name} view is coming soon.</Note>;
   } else if (!active) {
-    panel = <Note>No synced cache for this cluster yet — {label.toLowerCase()} appear once syncing has started.</Note>;
+    note = <Note>No synced cache for this cluster yet — {name} appear once syncing has started.</Note>;
   } else if (phase === 'connecting') {
-    panel = (
+    note = (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Spinner size="sm" />
         Loading resources…
       </div>
     );
   } else {
-    panel = <Note>This cluster does not serve {label.toLowerCase()}, or your credentials cannot list them.</Note>;
+    note = <Note>This cluster does not serve {name}, or your credentials cannot list them.</Note>;
   }
-
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col p-6">
-      <h1 className="mb-4 text-lg font-semibold">{label}</h1>
-      {panel}
-    </section>
+    <>
+      <PageHeader title={label} />
+      {note}
+    </>
   );
 }
 

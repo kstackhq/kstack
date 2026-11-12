@@ -27,12 +27,14 @@ import type { ServerKind } from '@/lib/dashboard-resources';
 import { useCacheDeltaWatch, joinProvenance } from '@/lib/graphql/use-cache-delta-watch';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { gvrKey } from '@/lib/gvr';
+import { useNamespaceScope } from '@/lib/namespace-scope';
 
 const ClusterCachedDataKindsWatchSubscription = graphql(`
-  subscription ClusterCachedDataKindsWatch($id: ClusterID!, $cacheID: ObjectID!) {
-    clusterCachedDataKindsWatch(id: $id, cacheID: $cacheID) {
+  subscription ClusterCachedDataKindsWatch($id: ClusterID!, $cacheID: ObjectID!, $namespace: String!) {
+    clusterCachedDataKindsWatch(id: $id, cacheID: $cacheID, namespace: $namespace) {
       type
       cacheID
+      namespace
       kind {
         apiVersion
         kind
@@ -69,22 +71,24 @@ const ClusterCachedDataKindsContext = createContext<ClusterCachedDataKindsContex
 // the value reports it: a paused watch with no kinds, never one still connecting.
 export function ClusterCachedDataKindsProvider({ enabled, children }: { enabled: boolean; children: React.ReactNode }) {
   const { clusterID, cacheID, active } = useActiveCluster();
+  const { namespace } = useNamespaceScope();
 
-  // Provenance is just the cacheID — the variables carry no kind — so a cache swap
-  // moves the key and re-subscribes.
+  // The sidecar counts each namespaced kind in the namespace scope ('' for the whole
+  // cache), so the scope is a variable and, with the cacheID, the provenance: a cache
+  // swap or a namespace switch re-subscribes.
   const { items, phase } = useCacheDeltaWatch<ClusterCachedDataKindsWatchSubscriptionType, KindRow>(
     {
       query: ClusterCachedDataKindsWatchSubscription,
-      variables: { id: clusterID ?? '', cacheID: cacheID ?? '' },
+      variables: { id: clusterID ?? '', cacheID: cacheID ?? '', namespace: namespace ?? '' },
       pause: !enabled || !active,
     },
     {
       select: (d) => {
         const f = d.clusterCachedDataKindsWatch;
-        return { type: f.type, entity: f.kind, provenance: joinProvenance(f.cacheID) };
+        return { type: f.type, entity: f.kind, provenance: joinProvenance(f.cacheID, f.namespace) };
       },
       keyOf: gvrKey,
-      currentProvenance: joinProvenance(cacheID ?? ''),
+      currentProvenance: joinProvenance(cacheID ?? '', namespace ?? ''),
     },
   );
 

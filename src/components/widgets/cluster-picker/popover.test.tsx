@@ -82,18 +82,19 @@ beforeEach(() => {
 // Tests ---------------------------------------------------------------
 
 describe('ClusterPicker', () => {
-  // A chat belongs to a cluster, so the dashboard panel's open chat does not follow a
-  // cluster switch — and the rest of the window's scope does.
-  it('switches cluster from a row, closing the panel’s chat', async () => {
+  // A chat and a namespace belong to a cluster, so neither follows a cluster switch —
+  // and the rest of the window's state does.
+  it('switches cluster from a row, closing the panel’s chat and the namespace scope', async () => {
     const user = await openPicker();
     await user.click(row('staging'));
 
     expect(navigate).toHaveBeenCalledTimes(1);
     const { to, search } = navigate.mock.calls[0][0];
     expect(to).toBe('.');
-    expect(search({ kubeContext: 'prod', resource: 'pods', chat: 'c1' })).toEqual({
+    expect(search({ kubeContext: 'prod', resource: 'pods', namespace: 'checkout', chat: 'c1' })).toEqual({
       kubeContext: 'staging',
       resource: 'pods',
+      namespace: undefined,
       chat: undefined,
     });
     expect(setContext).not.toHaveBeenCalled();
@@ -117,7 +118,7 @@ describe('ClusterPicker', () => {
 
     const { to, search } = navigate.mock.calls[0][0];
     expect(to).toBe('/chat');
-    expect(search({ kubeContext: 'prod' })).toEqual({ kubeContext: 'staging', chat: undefined });
+    expect(search({ kubeContext: 'prod' })).toEqual({ kubeContext: 'staging', namespace: undefined, chat: undefined });
   });
 
   it('closes without navigating when the window’s own cluster is picked', async () => {

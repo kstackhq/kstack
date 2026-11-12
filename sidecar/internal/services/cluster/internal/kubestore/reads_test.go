@@ -18,6 +18,7 @@ import (
 	"context"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/watch"
 
 	"github.com/stretchr/testify/assert"
@@ -64,6 +65,69 @@ func TestKindsJoinsCountsAndKeepsAnEmptyKind(t *testing.T) {
 		{APIVersion: "apps/v1", Kind: "Deployment", Resource: "deployments", Scope: ScopeNamespaced},
 		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: ScopeNamespaced, Count: 1},
 	}, got, "ordered by (api_version, kind) for stable display")
+}
+
+// Under a namespace a namespaced kind counts its objects there alone, and the Events kind
+// the events about objects there, so an event about a Node counts in none. A
+// cluster-scoped kind is in no namespace, so it keeps its whole count.
+func TestKindsInCountsTheNamespacedKindsInOneNamespace(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newTestStore(t)
+	nodeRow := KindRow{APIVersion: "v1", Kind: "Node", Resource: "nodes", Scope: ScopeCluster}
+	eventRow := KindRow{APIVersion: "v1", Kind: "Event", Resource: "events", Scope: ScopeNamespaced}
+	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow, deploymentRow, nodeRow, eventRow}, true, 7))
+
+	staging := pod("uid-3", "api-2", "44")
+	staging.SetNamespace("staging")
+	for _, p := range []*unstructured.Unstructured{pod("uid-1", "api-0", "42"), pod("uid-2", "api-1", "43"), staging} {
+		require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, p))
+	}
+	node := obj(map[string]any{
+		"apiVersion": "v1", "kind": "Node",
+		"metadata": map[string]any{"uid": "node-1", "name": "node-1", "resourceVersion": "45"},
+	})
+	require.NoError(t, s.ApplyChange(ctx, Kind{APIVersion: "v1", Kind: "Node", Resource: "nodes"}, watch.Added, node))
+	for uid, ns := range map[string]string{"ev-1": "prod", "ev-2": "staging"} {
+		e := event(uid, "2026-08-26T10:00:00Z")
+		require.NoError(t, unstructured.SetNestedField(e.Object, ns, "involvedObject", "namespace"))
+		require.NoError(t, s.ApplyChange(ctx, eventsKind, watch.Added, e))
+	}
+	nodeEvent := event("ev-3", "2026-08-26T10:00:00Z")
+	nodeEvent.SetNamespace("prod")
+	nodeEvent.Object["involvedObject"] = map[string]any{"uid": "node-1", "kind": "Node", "name": "node-1"}
+	require.NoError(t, s.ApplyChange(ctx, eventsKind, watch.Added, nodeEvent))
+
+	got, err := s.KindsIn(ctx, "prod")
+	require.NoError(t, err)
+
+	assert.Equal(t, []KindRow{
+		{APIVersion: "apps/v1", Kind: "Deployment", Resource: "deployments", Scope: ScopeNamespaced},
+		{APIVersion: "v1", Kind: "Event", Resource: "events", Scope: ScopeNamespaced, Count: 1},
+		{APIVersion: "v1", Kind: "Node", Resource: "nodes", Scope: ScopeCluster, Count: 1},
+		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: ScopeNamespaced, Count: 2},
+	}, got)
+}
+
+// A cache gone under the read answers ErrClosed, never an empty catalog.
+func TestKindsInReportsAClosedStore(t *testing.T) {
+	t.Parallel()
+
+	_, err := closedStore(t).KindsIn(context.Background(), "prod")
+
+	assert.ErrorIs(t, err, ErrClosed)
+}
+
+func TestKindsInReportsATableItCannotRead(t *testing.T) {
+	t.Parallel()
+
+	s := newTestStore(t)
+	dropTable(t, s, "kind_catalog")
+
+	_, err := s.KindsIn(context.Background(), "prod")
+
+	assert.ErrorContains(t, err, "read kinds")
 }
 
 // The pair the fold forks on: the rows and the fingerprint of the sweep that wrote them,

@@ -428,8 +428,8 @@ func TestEveryEntryPointReportsAStorageFault(t *testing.T) {
 		},
 		"CachedKinds.Clear":          func() error { _, err := s.CachedKinds().Clear(ctx, 1); return err },
 		"CachedKinds.SetSyncEnabled": func() error { _, err := s.CachedKinds().SetSyncEnabled(ctx, 1, true); return err },
-		"CachedData.ListKinds":       func() error { _, err := s.CachedData().ListKinds(ctx, ClusterID("1"), 2); return err },
-		"CachedData.WatchKinds":      func() error { _, err := s.CachedData().WatchKinds(ctx, ClusterID("1"), 2); return err },
+		"CachedData.ListKinds":       func() error { _, err := s.CachedData().ListKinds(ctx, ClusterID("1"), 2, ""); return err },
+		"CachedData.WatchKinds":      func() error { _, err := s.CachedData().WatchKinds(ctx, ClusterID("1"), 2, ""); return err },
 		"CachedData.WatchObjects": func() error {
 			_, err := s.CachedData().WatchObjects(ctx, ClusterID("1"), 2, "v1", "pods")
 			return err

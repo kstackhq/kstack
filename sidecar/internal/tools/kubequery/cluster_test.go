@@ -104,7 +104,7 @@ func (f fakeCaches) SyncStatus(context.Context, cluster.ClusterID, cluster.Clust
 	return cluster.ClusterCacheSyncStatus{}, false, errRead
 }
 
-func (f fakeCachedData) ListKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID) ([]cluster.ClusterCachedDataKind, error) {
+func (f fakeCachedData) ListKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string) ([]cluster.ClusterCachedDataKind, error) {
 	return nil, errRead
 }
 

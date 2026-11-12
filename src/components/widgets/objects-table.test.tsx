@@ -13,19 +13,20 @@
 // limitations under the License.
 
 import { render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
+import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
 import { stubLayout } from '@/test-utils';
 
-// ObjectsTable is pure presentation over useClusterCachedDataObjects — mock the hook to drive
-// each of the four states and the column/cell alignment directly.
-const { useClusterCachedDataObjectsMock } = vi.hoisted(() => ({
-  useClusterCachedDataObjectsMock:
-    vi.fn<typeof import('@/lib/cluster-cached-data-objects').useClusterCachedDataObjects>(),
-}));
-vi.mock('@/lib/cluster-cached-data-objects', () => ({ useClusterCachedDataObjects: useClusterCachedDataObjectsMock }));
+import { ObjectsTable } from './objects-table';
 
-const { ObjectsTable } = await import('./objects-table');
+// ObjectsTable is pure presentation over the rows its page hands it. `live` is a watch
+// whose snapshot has landed with these objects.
+const live = (...objects: unknown[]) => ({
+  objects: objects as ClusterCachedDataObject[],
+  active: true,
+  phase: 'live' as const,
+});
 
 const PODS = { apiVersion: 'v1', resource: 'pods', kind: 'Pod', namespaced: true };
 // A CRD kind with no registered columns — exercises the universal-columns fallback.
@@ -47,34 +48,24 @@ function obj(over: Record<string, unknown> = {}) {
 // Rows render only inside a laid-out viewport (see VirtualTable).
 stubLayout(400);
 
-beforeEach(() => vi.clearAllMocks());
-
 describe('ObjectsTable', () => {
   it('explains the unsynced state when there is no active cache', () => {
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: false, phase: 'connecting' });
-    render(<ObjectsTable {...PODS} />);
+    render(<ObjectsTable {...PODS} objects={[]} active={false} phase="connecting" />);
     expect(screen.getByText(/No synced cache/i)).toBeInTheDocument();
   });
 
   it('shows a spinner while connecting', () => {
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: true, phase: 'connecting' });
-    render(<ObjectsTable {...PODS} />);
+    render(<ObjectsTable {...PODS} objects={[]} active phase="connecting" />);
     expect(screen.getByText(/Loading pod/i)).toBeInTheDocument();
   });
 
   it('shows an empty state on a connected empty snapshot', () => {
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: true, phase: 'live' });
-    render(<ObjectsTable {...PODS} />);
+    render(<ObjectsTable {...PODS} {...live()} />);
     expect(screen.getByText('No pod objects.')).toBeInTheDocument();
   });
 
   it('falls back to the universal Name/Namespace/Age columns for a kind with no registry entry', () => {
-    useClusterCachedDataObjectsMock.mockReturnValue({
-      objects: [obj({ kind: 'Widget' })],
-      active: true,
-      phase: 'live',
-    });
-    render(<ObjectsTable {...WIDGETS} />);
+    render(<ObjectsTable {...WIDGETS} {...live(obj({ kind: 'Widget' }))} />);
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
     expect(headers).toEqual(['Namespace', 'Name', 'Age']);
     expect(screen.getByText('my-pod')).toBeInTheDocument();
@@ -82,15 +73,11 @@ describe('ObjectsTable', () => {
   });
 
   it("renders a CRD's declared columns between Name and Age", () => {
-    useClusterCachedDataObjectsMock.mockReturnValue({
-      objects: [obj({ kind: 'Widget', rawJSON: { spec: { replicas: 3 } } })],
-      active: true,
-      phase: 'live',
-    });
     render(
       <ObjectsTable
         {...WIDGETS}
         printerColumns={[{ name: 'Replicas', type: 'integer', jsonPath: '.spec.replicas', priority: 0 }]}
+        {...live(obj({ kind: 'Widget', rawJSON: { spec: { replicas: 3 } } }))}
       />,
     );
 
@@ -103,13 +90,27 @@ describe('ObjectsTable', () => {
     expect(screen.getByText('3')).toBeInTheDocument();
   });
 
+  // The page filters the rows; the table drops the column every row would repeat.
+  it('omits the Namespace column under a namespace scope', () => {
+    render(<ObjectsTable {...PODS} {...live(obj())} namespace="default" />);
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).not.toContain('Namespace');
+  });
+
+  it('names the namespace in a scoped empty state', () => {
+    render(<ObjectsTable {...PODS} {...live()} namespace={'a\u200bb'} />);
+    expect(screen.getByText(/No pod objects in/)).toHaveTextContent('No pod objects in a\\u{200B}b.');
+  });
+
   it('omits the Namespace column for a cluster-scoped kind', () => {
-    useClusterCachedDataObjectsMock.mockReturnValue({
-      objects: [obj({ namespace: '', name: 'node-1' })],
-      active: true,
-      phase: 'live',
-    });
-    render(<ObjectsTable apiVersion="v1" resource="nodes" kind="Node" namespaced={false} />);
+    render(
+      <ObjectsTable
+        apiVersion="v1"
+        resource="nodes"
+        kind="Node"
+        namespaced={false}
+        {...live(obj({ namespace: '', name: 'node-1' }))}
+      />,
+    );
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
     expect(headers).toEqual(['Name', 'Age']);
   });
@@ -127,8 +128,7 @@ describe('ObjectsTable', () => {
         },
       },
     });
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [pod], active: true, phase: 'live' });
-    render(<ObjectsTable {...PODS} />);
+    render(<ObjectsTable {...PODS} {...live(pod)} />);
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
     expect(headers).toEqual(['Namespace', 'Name', 'Ready', 'Status', 'Restarts', 'Age']);
     const row = screen.getByText('my-pod').closest('tr')!;
@@ -149,8 +149,7 @@ describe('ObjectsTable', () => {
         },
       },
     });
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [pod], active: true, phase: 'live' });
-    render(<ObjectsTable {...PODS} />);
+    render(<ObjectsTable {...PODS} {...live(pod)} />);
     const row = screen.getByText('my-pod').closest('tr')!;
     expect(within(row).getByText('CrashLoopBackOff')).toBeInTheDocument();
     expect(within(row).queryByText('Running')).not.toBeInTheDocument();
@@ -166,8 +165,7 @@ describe('ObjectsTable', () => {
         },
       },
     });
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [pod], active: true, phase: 'live' });
-    render(<ObjectsTable {...PODS} />);
+    render(<ObjectsTable {...PODS} {...live(pod)} />);
     const row = screen.getByText('my-pod').closest('tr')!;
     expect(within(row).getByText('Init:0/2')).toBeInTheDocument();
   });
@@ -180,8 +178,7 @@ describe('ObjectsTable', () => {
         status: { phase: 'Running', containerStatuses: [{ ready: true, state: { running: {} } }] },
       },
     });
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [pod], active: true, phase: 'live' });
-    render(<ObjectsTable {...PODS} />);
+    render(<ObjectsTable {...PODS} {...live(pod)} />);
     const row = screen.getByText('my-pod').closest('tr')!;
     expect(within(row).getByText('Terminating')).toBeInTheDocument();
   });
@@ -200,8 +197,7 @@ describe('ObjectsTable', () => {
         },
       },
     });
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [pod], active: true, phase: 'live' });
-    render(<ObjectsTable {...PODS} />);
+    render(<ObjectsTable {...PODS} {...live(pod)} />);
     const row = screen.getByText('my-pod').closest('tr')!;
     expect(within(row).getByText('3')).toBeInTheDocument();
   });
@@ -217,36 +213,28 @@ describe('ObjectsTable', () => {
         },
       },
     });
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [pod], active: true, phase: 'live' });
-    render(<ObjectsTable {...PODS} />);
+    render(<ObjectsTable {...PODS} {...live(pod)} />);
     const row = screen.getByText('my-pod').closest('tr')!;
     expect(within(row).getByText('6')).toBeInTheDocument();
   });
 
   it('degrades kind-specific cells to "—" when the body is missing', () => {
     // A registered kind (Pod) still shows its columns, but with no body every cell is "—".
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [obj()], active: true, phase: 'live' });
-    render(<ObjectsTable {...PODS} />);
+    render(<ObjectsTable {...PODS} {...live(obj())} />);
     const row = screen.getByText('my-pod').closest('tr')!;
     // Ready, Status, Restarts all fall back to "—" (Age has a real timestamp here).
     expect(within(row).getAllByText('—')).toHaveLength(3);
   });
 
   it('renders "—" for a null creationTimestamp instead of an ancient date', () => {
-    useClusterCachedDataObjectsMock.mockReturnValue({
-      objects: [obj({ kind: 'Widget', creationTimestamp: null })],
-      active: true,
-      phase: 'live',
-    });
-    render(<ObjectsTable {...WIDGETS} />);
+    render(<ObjectsTable {...WIDGETS} {...live(obj({ kind: 'Widget', creationTimestamp: null }))} />);
     const row = screen.getByText('my-pod').closest('tr')!;
     expect(within(row).getByText('—')).toBeInTheDocument();
     expect(screen.queryByText(/0001/)).not.toBeInTheDocument();
   });
 
   it('renders the live rows through the virtualized, fixed-layout table', () => {
-    useClusterCachedDataObjectsMock.mockReturnValue({ objects: [obj()], active: true, phase: 'live' });
-    render(<ObjectsTable {...PODS} />);
+    render(<ObjectsTable {...PODS} {...live(obj())} />);
     expect(screen.getByRole('table')).toHaveClass('table-fixed');
   });
 });

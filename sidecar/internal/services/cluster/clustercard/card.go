@@ -120,7 +120,7 @@ func cacheFacts(ctx context.Context, svc cluster.Service, id cluster.ClusterID, 
 	if !ok {
 		return nil, fmt.Errorf("read cache %d sync status: the cache is gone", cacheID)
 	}
-	kinds, err := svc.CachedData().ListKinds(ctx, id, cacheID)
+	kinds, err := svc.CachedData().ListKinds(ctx, id, cacheID, "")
 	if err != nil {
 		return nil, err
 	}

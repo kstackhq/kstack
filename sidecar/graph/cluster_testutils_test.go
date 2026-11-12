@@ -57,6 +57,7 @@ type fakeClusterService struct {
 	events      map[cluster.ClusterID][]cluster.Event                   // connection-event history, keyed by ClusterID
 	cacheEvents map[cluster.ClusterCacheID][]cluster.Event              // sync-event history, keyed by ClusterCacheID
 	kinds       map[cluster.ClusterID][]cluster.ClusterCachedDataKind   // discovered kind catalog, keyed by ClusterID
+	kindsIn     string                                                  // the namespace the last ListKinds counted in
 	dataEvents  map[cluster.ClusterID][]cluster.ClusterCachedDataEvent  // cached Kubernetes Events, keyed by ClusterID
 	dataObjects map[cluster.ClusterID][]cluster.ClusterCachedDataObject // cached objects for one kind, keyed by ClusterID
 	watchFail   error                                                   // when set, every watch ends with it after its snapshot
@@ -480,20 +481,22 @@ func (f fakeCachedData) ReadActive(ctx context.Context, id cluster.ClusterID, ma
 	return cluster.ReadActiveCache(ctx, f.s, id, maxRows, maxBytes, read)
 }
 
-func (f fakeCachedData) ListKinds(_ context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID) ([]cluster.ClusterCachedDataKind, error) {
+func (f fakeCachedData) ListKinds(_ context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID, namespace string) ([]cluster.ClusterCachedDataKind, error) {
 	f.s.mu.Lock()
 	defer f.s.mu.Unlock()
+	f.s.kindsIn = namespace
 	return f.s.kinds[clusterID], nil
 }
 
-func (f fakeCachedData) WatchKinds(ctx context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCachedDataKindWatchFrame], error) {
+// WatchKinds echoes the namespace on each frame, as the service does.
+func (f fakeCachedData) WatchKinds(ctx context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID, namespace string) (*cluster.Stream[cluster.ClusterCachedDataKindWatchFrame], error) {
 	f.s.mu.Lock()
 	snap := append([]cluster.ClusterCachedDataKind(nil), f.s.kinds[clusterID]...)
 	f.s.mu.Unlock()
 	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCachedDataKindWatchFrame) error {
 		for _, k := range snap {
 			select {
-			case out <- cluster.ClusterCachedDataKindWatchFrame{Type: cluster.DeltaFrameAdded, Kind: &k}:
+			case out <- cluster.ClusterCachedDataKindWatchFrame{Type: cluster.DeltaFrameAdded, Kind: &k, Namespace: namespace}:
 			case <-ctx.Done():
 				return nil
 			}
@@ -1039,11 +1042,11 @@ func (e errCachedKinds) WatchByCache(context.Context, cluster.ClusterCacheID) (*
 	return nil, e.err
 }
 
-func (e errCachedData) ListKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID) ([]cluster.ClusterCachedDataKind, error) {
+func (e errCachedData) ListKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string) ([]cluster.ClusterCachedDataKind, error) {
 	return nil, e.err
 }
 
-func (e errCachedData) WatchKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCachedDataKindWatchFrame], error) {
+func (e errCachedData) WatchKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string) (*cluster.Stream[cluster.ClusterCachedDataKindWatchFrame], error) {
 	return nil, e.err
 }
 

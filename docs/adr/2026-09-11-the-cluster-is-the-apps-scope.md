@@ -3,7 +3,9 @@ title: The cluster is the app's scope
 date: 2026-09-11
 scope: frontend, sidecar
 status: Accepted
-amended_by: [A cluster is a row in app.db, mirrored into a runtime object it is deleted through](2026-09-16-clusters-are-rows-mirrored-into-beehive.md)
+amended_by:
+  - [A cluster is a row in app.db, mirrored into a runtime object it is deleted through](2026-09-16-clusters-are-rows-mirrored-into-beehive.md)
+  - [The dashboard's namespace scope is a search param](2026-11-12-the-namespace-scope-is-a-search-param.md)
 ---
 
 # The cluster is the app's scope

@@ -43,6 +43,10 @@ vi.mock('@/lib/clusters', async (importOriginal) => ({
   useClusters: useClustersMock,
 }));
 vi.mock('@/lib/active-kube-context', () => ({ useActiveKubeContext: useActiveKubeContextMock }));
+// Every namespace: the catalog counts the whole cache, and each frame says so with ''.
+vi.mock('@/lib/namespace-scope', () => ({
+  useNamespaceScope: () => ({ namespace: undefined, setNamespace: () => {} }),
+}));
 
 const { useDashboardNav } = await import('./dashboard-nav');
 const { buildDashboardNav } = await import('./dashboard-resources');
@@ -105,12 +109,12 @@ let lastArgs: { variables?: { cacheID?: string }; pause?: boolean } | undefined;
 let lastReducer: ((prev: unknown, frames: unknown[]) => unknown) | undefined;
 
 function pushFrame(type: string, kind: unknown, cacheID = lastArgs?.variables?.cacheID) {
-  acc = lastReducer!(acc, [{ clusterCachedDataKindsWatch: { type, cacheID, kind } }]);
+  acc = lastReducer!(acc, [{ clusterCachedDataKindsWatch: { type, cacheID, namespace: '', kind } }]);
 }
 
 // The Bookmark closing the snapshot: what flips the watch from connecting to live.
 function pushBookmark(cacheID = lastArgs?.variables?.cacheID) {
-  acc = lastReducer!(acc, [{ clusterCachedDataKindsWatch: { type: 'Bookmark', cacheID, kind: null } }]);
+  acc = lastReducer!(acc, [{ clusterCachedDataKindsWatch: { type: 'Bookmark', cacheID, namespace: '', kind: null } }]);
 }
 
 // A transport reconnect: the exchange bumps the op's generation on the new

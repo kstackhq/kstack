@@ -99,12 +99,28 @@ describe('the app layout route', () => {
     expect(validate({ chat: 7 })).toEqual({});
   });
 
-  // The cluster is the window's scope; a namespace is nothing the app reads. An old
-  // URL still carrying one loses it here rather than riding on unread.
-  it('drops a namespace an old URL still carries', () => {
+  // The namespace scope is window state like the cluster, so it survives a mode switch.
+  it('carries the namespace scope across a mode switch', async () => {
+    const { router } = await renderWithRouter(buildTree(), '/dashboard?kubeContext=prod&namespace=checkout');
+
+    await act(async () => {
+      await router.navigate({ to: '/chat' });
+    });
+    expect(router.state.location.search).toEqual({ kubeContext: 'prod', namespace: 'checkout' });
+
+    await act(async () => {
+      await router.navigate({ to: '/dashboard' });
+    });
+    expect(router.state.location.search).toMatchObject({ namespace: 'checkout' });
+  });
+
+  // Absent is every namespace, so an empty one carries nothing.
+  it('drops an empty namespace rather than carrying a scope of nothing', () => {
     const validate = appRoute.options.validateSearch as (s: Record<string, unknown>) => Record<string, unknown>;
 
-    expect(validate({ kubeContext: 'prod', namespace: 'kube-system' })).toEqual({ kubeContext: 'prod' });
+    expect(validate({ namespace: 'kube-system' })).toEqual({ namespace: 'kube-system' });
+    expect(validate({ namespace: '' })).toEqual({});
+    expect(validate({ namespace: 7 })).toEqual({});
   });
 
   it('carries nothing it was not given', async () => {
