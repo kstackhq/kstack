@@ -13,8 +13,6 @@ time, and each step settles what its frames leave open before it is built.
 
 - the left sidebar is the mockup's resource nav: the Dashboard/Chat switch, search, Overview and
   Events, then a *Cluster* section and a *Namespace* section of grouped kinds with live counts;
-- the app bar's omnibox names the cluster and the page, and shows the cluster's verdict as a pill;
-- the right sidebar is the mockup's assistant panel;
 - the window has a namespace scope, chosen in a page toolbar beside a kind switcher;
 - the kind pages, Pods, Events and PersistentVolumes first, draw the mockup's table pages;
 - a pod has a detail page, with Overview and Logs tabs;
@@ -23,6 +21,10 @@ time, and each step settles what its frames leave open before it is built.
 
 ## What is not in this series
 
+- **The assistant panel** (`K8s/AssistantPanel`). The dashboard's right sidebar stays
+  `DashboardChat` as it is.
+- **The app bar** (`K8s/AppBar`). It stays as it is: the series does not restyle it or change
+  its omnibox. The mockups' breadcrumb, verdict pill, refresh and **+** are not built.
 - **Multi-cluster tabs.** The window keeps one cluster. The tab strip in the mockups' app bar is
   not built.
 - **The Home / cross-cluster start page** (`Home / Cross-cluster start page`). It assumes tabs and
@@ -56,20 +58,19 @@ dead link. A step that replaces a view replaces it whole.
 
 **Shared pieces are built by the first step that needs them**, and later steps reuse them. The
 mockups' local components are the list: `NavItem`, `NavGroup`, `SectionDivider` and
-`ProblemBadge` (step 1), `StatusPill` (step 2), `AssistantCard` (step 3), `ScopeSwitcher`
-(step 4), `AttentionRow`, `StatTile` (step 7), `PodHeader`, `PodMenuItem` (step 6).
+`ProblemBadge` (step 1), `ScopeSwitcher` (step 2), `StatusPill` (step 3), `PodHeader`,
+`PodMenuItem` (step 4), `AttentionRow`, `StatTile` (step 5). `AssistantCard` is not built: it
+holds assistant-written text.
 
 ## Steps
 
 | Step | Builds | Frames | Needs |
 | --- | --- | --- | --- |
 | 1 | The sidebar | `K8s/Sidebar`, `Sidebar / Filter applied`, `Sidebar / Groups collapsed (idle)` | — |
-| 2 | The app bar and omnibox | `K8s/AppBar` | — |
-| 3 | The assistant panel | `K8s/AssistantPanel` | — |
-| 4 | The namespace scope and the page frame | `K8s/ScopeSwitcher`, `Kind switcher menu (open)`, each page's toolbar and header | 1 |
-| 5 | The kind pages | `Pods`, `Events` and `PersistentVolumes` frames | 4 |
-| 6 | The pod detail page | `Pod detail / Overview`, `Pod detail / Logs`, `Pod switcher menu (open)` | 5 |
-| 7 | The Overview page | `Overview (all namespaces)`, `Overview (filtered to checkout)` | 4 |
+| 2 | The namespace scope and the page frame | `K8s/ScopeSwitcher`, `Kind switcher menu (open)`, each page's toolbar and header | 1 |
+| 3 | The kind pages | `Pods`, `Events` and `PersistentVolumes` frames | 2 |
+| 4 | The pod detail page | `Pod detail / Overview`, `Pod detail / Logs`, `Pod switcher menu (open)` | 3 |
+| 5 | The Overview page | `Overview (all namespaces)`, `Overview (filtered to checkout)` | 2 |
 
 ### 1. The sidebar
 
@@ -89,32 +90,7 @@ Open questions:
   state is saved.
 - Whether problem badges and *Problems only* wait for a data gap to close (*Data gaps*).
 
-### 2. The app bar and omnibox
-
-Restyle the app bar to the mockup, without the tab strip. The omnibox shows the cluster's name,
-a breadcrumb of the current page, the cluster's verdict as a `StatusPill` (*Degraded*) and a
-refresh button. The cluster picker and the status popover keep their behaviour.
-
-Open questions:
-
-- Where the memory button goes.
-- What refresh does: *Reconnect*, or something else.
-- What the app bar's **+** does without tabs, or whether it goes.
-- How the breadcrumb reads in chat mode.
-
-### 3. The assistant panel
-
-Restyle the dashboard's right sidebar (`DashboardChat`) to the mockup: an *Assistant* header with
-its collapse button, then a *Current context* row of chips, the transcript, and the composer
-(*Ask about this view…*).
-
-Open questions:
-
-- What *Current context* holds, and whether a send carries it. The cluster rides a send today; the
-  page and the namespace do not.
-- Where the chat list (`ChatNav`) goes.
-
-### 4. The namespace scope and the page frame
+### 2. The namespace scope and the page frame
 
 Add a namespace scope to the window. Then build the page frame every dashboard page shares: the
 toolbar (`ScopeSwitcher`, then a kind switcher in the breadcrumb, then the page's actions on the
@@ -129,9 +105,10 @@ Open questions:
   `resource`. This is a decision for an ADR, written in this step.
 - Whether the scope holds one namespace or several.
 - How the sidebar's *Namespace · all* section header and the scope switcher share the scope.
-- What *Ask* does. It probably opens the assistant panel with the page in its context.
+- What *Ask* does, with no assistant panel.
+- Whether the scope filters today's tables, so the switcher is not a dead control.
 
-### 5. The kind pages
+### 3. The kind pages
 
 Rebuild `ObjectsTable` and `EventsTable` into the mockup's table pages: status filter tabs with
 counts (*All · Running · Failing · Unknown*), a text filter, a label chip, a column picker, row
@@ -144,10 +121,8 @@ Open questions:
   *Delete* writes and is out of the series.
 - What the text filter matches (*name, label or node*), and whether it is saved.
 - Which per-row actions are built, since the debug terminal is out.
-- How the table filters by namespace: client-side over the kind's whole watch, until the sidecar
-  can scope one.
 
-### 6. The pod detail page
+### 4. The pod detail page
 
 Add a route for one object, with a pod's page first. A pod's header shows its name, status,
 owner, node, IP, age and restarts. Its tabs are Overview (containers, conditions, related
@@ -162,7 +137,7 @@ Open questions:
 - Whether the Logs tab is the dashboard's own viewer or the log window's.
 - What other kinds get before they have a detail page of their own.
 
-### 7. The Overview page
+### 5. The Overview page
 
 Build the Overview page from the tiles the existing data can fill: the title block, *Needs
 attention* drawn from the cluster's objects and events, the stat tiles that need only counts
@@ -180,6 +155,7 @@ Each needs its own issue, outside this series. A step that meets one draws the v
 
 - **Per-namespace counts.** Per-kind counts are cluster-wide. The sidebar's *N / M* counts and a
   scoped Overview need them per namespace.
+- **Short names.** The catalog carries none, so a kind's header names only the built-ins'.
 - **Object search across kinds.** Object names, for the sidebar's search.
 - **A health verdict per object and per kind.** Problem badges, *Problems only*, the status tabs'
   counts and *Needs attention* need one shared definition of a problem.
@@ -194,7 +170,7 @@ Each needs its own issue, outside this series. A step that meets one draws the v
 
 - `src/CLAUDE.md`: *Routing & layout* (the namespace scope, the detail route), the window
   layout's sidebars, the context omnibox, and *Dashboard resource nav*.
-- The namespace scope's ADR, from step 4. If the nav's grouping changes, a new ADR supersedes
+- The namespace scope's ADR, from step 2. If the nav's grouping changes, a new ADR supersedes
   [the dashboard nav merge](../../adr/2026-08-09-dashboard-nav-merge.md), and its links are
   repointed.
 - `docs/TODO.md`: the data gaps not yet filed as issues.

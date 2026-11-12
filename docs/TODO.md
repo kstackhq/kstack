@@ -690,6 +690,12 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **Swap the code-block highlighter to Shiki.** `src/lib/highlight.ts` runs highlight.js through `lowlight`: regex grammars that visibly misfire on nested YAML, template strings and JSX, and a hand palette in `markdown.css` rather than an editor's theme. Shiki is VS Code's own TextMate grammars and themes, so a manifest highlights the way it does in the editor. The render path stays as it is — `codeToHast` yields the same hast `hast-util-to-jsx-runtime` already renders, so no HTML string enters, and the change is contained to `highlight.ts` plus the `Code` component in `markdown.tsx`. **Weigh:** the engine is Oniguruma compiled to WASM (~600 KB) or the pure-JS `@shikijs/engine-javascript` (lighter, weaker grammar compatibility), and grammars run 2–5× highlight.js's — a heavier baseline than today's 22 KB even lazily loaded; tokenizing is async-only, so a growing block re-highlights through a promise rather than the synchronous `highlight` call; and dual-scheme colours become `themes: { light, dark }` emitting both as CSS variables per token, which replaces the `--hl-*` palette rather than reusing it. **Trigger:** the first highlighting misfire someone notices on a manifest, or an editor-matching theme being wanted.
 
+- **The dashboard's namespace scope holds one namespace.** The scope switcher picks one
+  namespace or all of them (`docs/specs/dashboard/2-scope-and-page-frame.md`). Let it pick
+  several: the `namespace` param becomes a list, the switcher's menu gains checkboxes, the tables
+  filter by the set, and the sidebar's *Namespace* heading names the count when there are more
+  than one.
+
 - **Built-in kinds with no columns.** The per-kind registry (`src/components/widgets/object-columns.tsx`)
   carries hand-written accessors for **Pod and Deployment only**; every other built-in falls back to
   the universal Namespace/Name/Age. CRDs are handled — they carry their own `printerColumns` — so
