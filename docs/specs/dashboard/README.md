@@ -94,7 +94,7 @@ Open questions:
 ### 2. The namespace scope and the page frame
 
 Add a namespace scope to the window, picked at the top of the sidebar, and the header every
-dashboard page shares (title, count, kind's short names). The mockups' page toolbar, with its
+dashboard page shares (title and count). The mockups' page toolbar, with its
 namespace switcher and kind switcher, is not built: the picker sits beside the sidebar it scopes,
 and every kind the switcher would list is a sidebar row.
 
@@ -154,7 +154,6 @@ Each needs its own issue, outside this series. A step that meets one draws the v
 
 - **Namespaced watches.** Every objects and events watch streams the whole cluster; a page under
   a namespace filters it client-side.
-- **Short names.** The catalog carries none, so a kind's header names only the built-ins'.
 - **Object search across kinds.** Object names, for the sidebar's search.
 - **A health verdict per object and per kind.** Problem badges, *Problems only*, the status tabs'
   counts and *Needs attention* need one shared definition of a problem.

@@ -28,7 +28,6 @@ import {
   mayNameDiscoveredKind,
   resolveDashboardResource,
   serverKindForResource,
-  shortNamesOf,
 } from '@/lib/dashboard-resources';
 import type { DashboardResource, ServerKind } from '@/lib/dashboard-resources';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
@@ -101,11 +100,10 @@ function KindPage({ kind, label }: { kind: ServerKind; label: string }) {
   const namespaced = kind.scope === 'Namespaced';
   const scope = namespaced ? namespace : undefined;
   const shown = useMemo(() => inScope(objects, scope, (o) => o.namespace), [objects, scope]);
-  const meta = [kind.apiVersion, shortNamesOf(kind).join(', ')].filter(Boolean).join(' · ');
 
   return (
     <>
-      <PageHeader title={label} count={countOf(shown, active, phase)} meta={meta}>
+      <PageHeader title={label} count={countOf(shown, active, phase)}>
         {!namespaced && namespace !== undefined && (
           <>
             Cluster-scoped, so the <VisibleText text={namespace} /> filter isn&apos;t applied.

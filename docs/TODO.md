@@ -116,10 +116,6 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   [#881](https://github.com/kstackhq/kstack/issues/881)). The objects and events watches could
   take a `namespace` argument, as `clusterCachedDataKindsWatch` does.
 
-- **Short names in the kinds catalog.** A dashboard page's header names a kind's kubectl short
-  names (`v1 · po`) from a static table of the curated kinds (`shortNamesOf`), since discovery's
-  `shortNames` do not reach the catalog. A CRD's header draws its `apiVersion` alone.
-
 - **A health verdict per object and per kind.** The dashboard has no shared definition of a problem, so the sidebar draws no problem badges and no *Show only kinds with problems*, and the kind pages' status tabs and the Overview's *Needs attention* have nothing to count (a data gap of the new dashboard, [#881](https://github.com/kstackhq/kstack/issues/881)). The client cannot fill the gap: the kinds watch carries counts alone, and judging objects in the webview would mean streaming every kind's objects to badge the sidebar.
   - **Decide the definition first — it is a product call.** Per kind, which state is a problem: a Pod failed or unknown, a container waiting on CrashLoopBackOff or ImagePullBackOff, or not ready; a Deployment, StatefulSet or DaemonSet below its desired ready replicas; a failed Job; a Node not Ready or under pressure; a PVC Pending or Lost. Whether restarts count, and which kinds have no verdict at all. Record it in an ADR.
   - **Shape:** the sidecar judges each object as it writes it, next to what `projectObject` already extracts (`status_summary`, `ready_count`/`total_count`, `restart_count`), and serves a verdict on `ClusterCachedDataObject` and a problem count on `ClusterCachedDataKind`, streamed like `count`.

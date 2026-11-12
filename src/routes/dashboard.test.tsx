@@ -269,7 +269,7 @@ describe('dashboard route', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(expected);
   });
 
-  it('heads a kind’s page with its count and its apiVersion and short names', async () => {
+  it('heads a kind’s page with its count', async () => {
     useClusterCachedDataObjectsMock.mockReturnValue({
       objects: [pod('a', 'x'), pod('b', 'y')],
       active: true,
@@ -277,7 +277,6 @@ describe('dashboard route', () => {
     });
     await render('/dashboard?resource=deployments', [KIND]);
     expect(screen.getByTestId('page-count')).toHaveTextContent('2');
-    expect(screen.getByText('apps/v1 · deploy')).toBeInTheDocument();
   });
 
   it('draws no count before the kind’s objects land', async () => {

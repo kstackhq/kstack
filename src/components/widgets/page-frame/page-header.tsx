@@ -12,29 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A dashboard page's header: its title, its object count and the kind's names, and a
-// note under them.
+// A dashboard page's header: its title and count, and a note under them.
 import type { ReactNode } from 'react';
 
 import { VisibleText } from '@/components/widgets/visible-text';
 
-type PageHeaderProps = { title: string; count?: number; meta?: string; children?: ReactNode };
+type PageHeaderProps = { title: string; count?: number; children?: ReactNode };
 
-export function PageHeader({ title, count, meta, children }: PageHeaderProps) {
+export function PageHeader({ title, count, children }: PageHeaderProps) {
   return (
     <header className="mb-5 space-y-1.5">
       <div className="flex min-w-0 items-baseline gap-2.5">
-        <h1 className="truncate text-2xl font-semibold">
+        <h1 className="min-w-0 truncate text-2xl font-semibold">
           <VisibleText text={title} />
         </h1>
         {count !== undefined && (
           <span data-testid="page-count" className="text-base text-muted-foreground tabular-nums">
             {count}
-          </span>
-        )}
-        {meta && (
-          <span className="font-mono text-xs text-muted-foreground">
-            <VisibleText text={meta} />
           </span>
         )}
       </div>
