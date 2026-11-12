@@ -91,7 +91,7 @@ func TestCachedDataReadsACacheWhoseWorkersStopped(t *testing.T) {
 
 	f.stopWorkers()
 
-	kinds, err := f.data().ListKinds(ctx, f.clusterID, f.cacheID)
+	kinds, err := f.data().ListKinds(ctx, f.clusterID, f.cacheID, "")
 	require.NoError(t, err)
 	require.Len(t, kinds, 1, "ListKinds lost a paused cache's catalog")
 	assert.Equal(t, 1, kinds[0].Count)
@@ -129,11 +129,11 @@ func TestCachedDataGatesAnUnknownPair(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 
-	kinds, err := f.data().ListKinds(ctx, f.clusterID, 9999)
+	kinds, err := f.data().ListKinds(ctx, f.clusterID, 9999, "")
 	require.NoError(t, err)
 	assert.Empty(t, kinds)
 
-	stream, err := f.data().WatchKinds(ctx, f.clusterID, 9999)
+	stream, err := f.data().WatchKinds(ctx, f.clusterID, 9999, "")
 	require.NoError(t, err)
 	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 	_, open := <-stream.Frames
@@ -145,7 +145,7 @@ func TestCachedDataGatesACacheOfAnotherCluster(t *testing.T) {
 	ctx := context.Background()
 	f := newDataFixture(t)
 
-	kinds, err := f.data().ListKinds(ctx, ClusterID("9999"), f.cacheID)
+	kinds, err := f.data().ListKinds(ctx, ClusterID("9999"), f.cacheID, "")
 	require.NoError(t, err)
 	assert.Empty(t, kinds)
 }
@@ -159,7 +159,7 @@ func TestListKindsReportsAStoreThatWillNotOpen(t *testing.T) {
 	boom := errors.New("permission denied")
 	kubestoreFake(f.d).err = boom
 
-	_, err := f.data().ListKinds(ctx, f.clusterID, f.cacheID)
+	_, err := f.data().ListKinds(ctx, f.clusterID, f.cacheID, "")
 
 	assert.ErrorIs(t, err, boom)
 }
@@ -172,7 +172,7 @@ func TestListKindsReadsTheCatalog(t *testing.T) {
 		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: kubestore.ScopeNamespaced},
 	}, true, 7))
 
-	got, err := f.data().ListKinds(ctx, f.clusterID, f.cacheID)
+	got, err := f.data().ListKinds(ctx, f.clusterID, f.cacheID, "")
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -190,7 +190,7 @@ func TestWatchKindsStreamsTheCatalogWithCounts(t *testing.T) {
 		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: kubestore.ScopeNamespaced},
 	}, true, 7))
 
-	stream, err := f.data().WatchKinds(ctx, f.clusterID, f.cacheID)
+	stream, err := f.data().WatchKinds(ctx, f.clusterID, f.cacheID, "")
 	require.NoError(t, err)
 
 	first := testutil.Recv(t, stream.Frames, "the kind")
@@ -208,6 +208,70 @@ func TestWatchKindsStreamsTheCatalogWithCounts(t *testing.T) {
 	assert.Equal(t, 1, moved.Kind.Count)
 }
 
+// Under a namespace a namespaced kind counts its objects there alone, and every frame
+// names the namespace, so a client can drop one from a watch of another.
+func TestWatchKindsCountsInANamespace(t *testing.T) {
+	ctx := t.Context()
+	f := newDataFixture(t)
+	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
+		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: kubestore.ScopeNamespaced},
+	}, true, 7))
+	podKind := kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"}
+	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, dataPod("uid-1", "api-0", "42")))
+
+	stream, err := f.data().WatchKinds(ctx, f.clusterID, f.cacheID, "staging")
+	require.NoError(t, err)
+
+	first := testutil.Recv(t, stream.Frames, "the kind")
+	require.NotNil(t, first.Kind)
+	assert.Equal(t, 0, first.Kind.Count, "the pod is in prod")
+	assert.Equal(t, "staging", first.Namespace)
+	bookmark := testutil.Recv(t, stream.Frames, "the bookmark")
+	assert.Equal(t, DeltaFrameBookmark, bookmark.Type)
+	assert.Equal(t, "staging", bookmark.Namespace)
+
+	staging := dataPod("uid-2", "api-1", "43")
+	staging.SetNamespace("staging")
+	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, staging))
+
+	moved := testutil.Recv(t, stream.Frames, "the count moving")
+	assert.Equal(t, DeltaFrameModified, moved.Type)
+	assert.Equal(t, 1, moved.Kind.Count)
+	assert.Equal(t, "staging", moved.Namespace)
+}
+
+// ListKinds counts in a namespace as the watch does.
+func TestListKindsCountsInANamespace(t *testing.T) {
+	ctx := t.Context()
+	f := newDataFixture(t)
+	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
+		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: kubestore.ScopeNamespaced},
+	}, true, 7))
+	require.NoError(t, f.store.ApplyChange(ctx, kubestore.Kind{
+		APIVersion: "v1", Kind: "Pod", Resource: "pods",
+	}, watch.Added, dataPod("uid-1", "api-0", "42")))
+
+	prod, err := f.data().ListKinds(ctx, f.clusterID, f.cacheID, "prod")
+	require.NoError(t, err)
+	staging, err := f.data().ListKinds(ctx, f.clusterID, f.cacheID, "staging")
+	require.NoError(t, err)
+
+	require.Len(t, prod, 1)
+	assert.Equal(t, 1, prod[0].Count)
+	require.Len(t, staging, 1)
+	assert.Equal(t, 0, staging[0].Count, "the pod is in prod")
+}
+
+// An unknown pair's empty answer names the namespace too.
+func TestWatchKindsNamesTheNamespaceOnAnEmptyAnswer(t *testing.T) {
+	f := newDataFixture(t)
+
+	stream, err := f.data().WatchKinds(t.Context(), f.clusterID, 9999, "staging")
+	require.NoError(t, err)
+
+	assert.Equal(t, "staging", testutil.Recv(t, stream.Frames, "the bookmark").Namespace)
+}
+
 // The store carries a CRD's printer columns as JSON, and this projection is where they become
 // the typed value the wire serves.
 func TestWatchKindsDecodesPrinterColumns(t *testing.T) {
@@ -219,7 +283,7 @@ func TestWatchKindsDecodesPrinterColumns(t *testing.T) {
 		PrinterColumns: `[{"name":"Replicas","type":"integer","jsonPath":".spec.replicas","priority":1}]`,
 	}}, true, 7))
 
-	stream, err := f.data().WatchKinds(ctx, f.clusterID, f.cacheID)
+	stream, err := f.data().WatchKinds(ctx, f.clusterID, f.cacheID, "")
 	require.NoError(t, err)
 
 	first := testutil.Recv(t, stream.Frames, "the kind")
@@ -253,7 +317,7 @@ func TestWatchKindsReportsAColumnsOnlyChange(t *testing.T) {
 	}
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{row}, true, 7))
 
-	stream, err := f.data().WatchKinds(ctx, f.clusterID, f.cacheID)
+	stream, err := f.data().WatchKinds(ctx, f.clusterID, f.cacheID, "")
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the kind")
 	require.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
@@ -423,7 +487,7 @@ func TestListKindsAnswersACacheWithNoFileAsEmpty(t *testing.T) {
 	f := newDataFixture(t)
 	kubestoreFake(f.d).noFile = true
 
-	kinds, err := f.data().ListKinds(context.Background(), f.clusterID, f.cacheID)
+	kinds, err := f.data().ListKinds(context.Background(), f.clusterID, f.cacheID, "")
 
 	require.NoError(t, err)
 	assert.Empty(t, kinds)
@@ -436,7 +500,7 @@ func TestListKindsReportsACatalogItCannotRead(t *testing.T) {
 	store := kubestoreFake(f.d)
 	store.afterOpen = func(cacheID int64) { require.NoError(t, store.mgr.Remove(cacheID)) }
 
-	_, err := f.data().ListKinds(context.Background(), f.clusterID, f.cacheID)
+	_, err := f.data().ListKinds(context.Background(), f.clusterID, f.cacheID, "")
 
 	assert.ErrorContains(t, err, "kinds")
 }

@@ -35,8 +35,7 @@ const readerPoolSize = 4
 // synced yet reads Count 0 rather than dropping out of the nav. Count comes off the
 // trigger-maintained counts, so this is O(kinds) and never a scan of objects.
 func (s *Store) Kinds(ctx context.Context) ([]KindRow, error) {
-	rows, _, _, err := s.KindsWithFingerprint(ctx)
-	return rows, err
+	return s.KindsIn(ctx, "")
 }
 
 // KindsWithFingerprint is Kinds beside the fingerprint of the sweep that wrote the rows,
@@ -60,7 +59,7 @@ func (s *Store) KindsWithFingerprint(ctx context.Context) ([]KindRow, uint64, bo
 	)
 	err = inReadTx(ctx, f, "read kinds", func(st stmts) error {
 		var err error
-		if out, err = scanKinds(ctx, st); err != nil {
+		if out, err = scanKinds(ctx, st, ""); err != nil {
 			return err
 		}
 		v, recorded, err := getMeta(ctx, st, kindsFingerprintKey)
@@ -80,9 +79,28 @@ func (s *Store) KindsWithFingerprint(ctx context.Context) ([]KindRow, uint64, bo
 	return out, fingerprint, ok, nil
 }
 
-// scanKinds runs the catalog read and collects its rows.
-func scanKinds(ctx context.Context, st stmts) ([]KindRow, error) {
-	rows, err := st.Query(ctx, stmtSelectKinds)
+// KindsIn is Kinds with each namespaced kind's Count taken in namespace alone, and ""
+// for the whole cache. A cluster-scoped kind keeps its whole count. Each namespaced
+// count is an index range read per kind, so the read grows with the namespace's
+// objects and events, where Kinds is O(kinds).
+func (s *Store) KindsIn(ctx context.Context, namespace string) ([]KindRow, error) {
+	f, done, err := s.use()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	var out []KindRow
+	err = inReadTx(ctx, f, "read kinds", func(st stmts) error {
+		var err error
+		out, err = scanKinds(ctx, st, namespace)
+		return err
+	})
+	return out, err
+}
+
+// scanKinds runs the catalog read, counted in namespace, and collects its rows.
+func scanKinds(ctx context.Context, st stmts, namespace string) ([]KindRow, error) {
+	rows, err := st.Query(ctx, stmtSelectKinds, namespace)
 	if err != nil {
 		return nil, err
 	}

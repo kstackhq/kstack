@@ -322,9 +322,21 @@ var statements = []sqlstmt.Statement{
 
 	stmtSelectMeta: sqlstmt.OnReader(`SELECT value FROM cluster_meta WHERE key = ?`),
 	stmtCountKind:  sqlstmt.OnReader(`SELECT count FROM kind_counts WHERE api_version=? AND kind=?`),
+	// The kind catalog with each kind's count. ?1 is a namespace: empty reads every
+	// count off kind_counts; otherwise a namespaced kind is counted in ?1 alone, its
+	// objects through objects_ns_kind and Events by the namespace of the object each is
+	// about, through events_involved_ns. A cluster-scoped kind keeps its whole count.
+	// CASE stops at the first match, so an empty ?1 runs neither subquery.
 	stmtSelectKinds: sqlstmt.OnReader(`
 		SELECT kc.api_version, kc.kind, kc.resource, kc.scope, kc.is_crd,
-		       COALESCE(kc.printer_columns, ''), COALESCE(knt.count, 0)
+		       COALESCE(kc.printer_columns, ''),
+		       CASE
+		           WHEN ?1 = '' OR kc.scope <> 'Namespaced' THEN COALESCE(knt.count, 0)
+		           WHEN kc.api_version = 'v1' AND kc.kind = 'Event'
+		               THEN (SELECT COUNT(*) FROM events e WHERE e.involved_ns = ?1)
+		           ELSE (SELECT COUNT(*) FROM objects o
+		                 WHERE o.namespace = ?1 AND o.api_version = kc.api_version AND o.kind = kc.kind)
+		       END
 		FROM kind_catalog kc
 		LEFT JOIN kind_counts knt ON knt.api_version = kc.api_version AND knt.kind = kc.kind
 		ORDER BY kc.api_version, kc.kind`),

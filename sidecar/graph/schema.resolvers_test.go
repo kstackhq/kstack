@@ -898,6 +898,28 @@ func TestClusterCacheStatsWatchServesGauge(t *testing.T) {
 // --- Cluster data ---
 // The discovered kind catalog and the cached objects read out of a ClusterCache.
 
+// ClusterCache.kinds hands its namespace to the service, which counts in it.
+func TestClusterCachedDataKindsResolverPassesTheNamespace(t *testing.T) {
+	fix := clusterFixtures()
+	svc := newFakeClusterService(fix)
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
+		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
+	}))
+	t.Cleanup(srv.Close)
+
+	query := `{ clusterCache(id: "` + strconv.FormatInt(int64(fixtureCacheID(fix[0].id)), 10) + `") {
+		kinds(namespace: "prod") { kind }
+	} }`
+	body, _ := json.Marshal(map[string]string{"query": query})
+	postGQL(t, srv.URL, string(body))
+
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.kindsIn != "prod" {
+		t.Errorf("ListKinds counted in %q, want prod", svc.kindsIn)
+	}
+}
+
 // ClusterCache.kinds maps the service's ClusterCachedDataKinds onto the wire 1:1
 // (bound via gqlgen.yml), so the resolver just adapts the value slice to a pointer
 // slice. Both ids it reads with come off the record, so the pair cannot disagree.
@@ -1067,6 +1089,31 @@ func TestClusterCachedDataObjectsWatchServesNativeBody(t *testing.T) {
 		case <-deadline:
 			t.Fatal("timed out waiting for the object snapshot frame")
 		}
+	}
+}
+
+// Each frame names the namespace its counts were taken in: the one subscribed with, and
+// "" for the whole cache when none is.
+func TestClusterCachedDataKindsWatchNamesItsNamespace(t *testing.T) {
+	svc := newFakeClusterService(clusterFixtures())
+	svc.kinds = map[cluster.ClusterID][]cluster.ClusterCachedDataKind{
+		"1": {{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: "Namespaced"}},
+	}
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{})}))
+	t.Cleanup(srv.Close)
+
+	for name, tc := range map[string]struct{ arg, want string }{
+		"a namespace":     {`, namespace: "checkout"`, `"namespace":"checkout"`},
+		"the whole cache": {``, `"namespace":""`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := openSSESubscription(t, srv.URL, "",
+				`subscription { clusterCachedDataKindsWatch(id: "1", cacheID: "1"`+tc.arg+`) { namespace kind { kind } } }`)
+			defer resp.Body.Close()
+
+			frame := testutil.Recv(t, sseEvents(t, resp), "the first frame")
+			assert.Contains(t, frame.data, tc.want)
+		})
 	}
 }
 
@@ -1462,7 +1509,7 @@ func TestResolverErrorsReachTheCaller(t *testing.T) {
 	calls := map[string]func() error{
 		"Cluster.caches":                     func() error { _, err := r.Cluster().Caches(ctx, cl); return err },
 		"Cluster.events":                     func() error { _, err := r.Cluster().Events(ctx, cl, nil, nil); return err },
-		"ClusterCache.kinds":                 func() error { _, err := r.ClusterCache().Kinds(ctx, cache); return err },
+		"ClusterCache.kinds":                 func() error { _, err := r.ClusterCache().Kinds(ctx, cache, ""); return err },
 		"ClusterCache.cachedKinds":           func() error { _, err := r.ClusterCache().CachedKinds(ctx, cache); return err },
 		"ClusterCache.events":                func() error { _, err := r.ClusterCache().Events(ctx, cache, nil, nil); return err },
 		"ClusterCachedKind.events":           func() error { _, err := r.ClusterCachedKind().Events(ctx, kind, nil, nil); return err },
@@ -1493,7 +1540,7 @@ func TestResolverErrorsReachTheCaller(t *testing.T) {
 		"Subscription.cachedKindsWatch":      func() error { _, err := r.Subscription().ClusterCachedKindsWatch(ctx, objID); return err },
 		"Subscription.cacheStatsWatch":       func() error { _, err := r.Subscription().ClusterCacheStatsWatch(ctx, id, objID); return err },
 		"Subscription.cacheSyncStatusWatch":  func() error { _, err := r.Subscription().ClusterCacheSyncStatusWatch(ctx, id, objID); return err },
-		"Subscription.cachedDataKindsWatch":  func() error { _, err := r.Subscription().ClusterCachedDataKindsWatch(ctx, id, objID); return err },
+		"Subscription.cachedDataKindsWatch":  func() error { _, err := r.Subscription().ClusterCachedDataKindsWatch(ctx, id, objID, ""); return err },
 		"Subscription.cachedDataEventsWatch": func() error { _, err := r.Subscription().ClusterCachedDataEventsWatch(ctx, id, objID); return err },
 
 		"Subscription.cachedDataObjectsWatch": func() error {

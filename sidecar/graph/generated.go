@@ -146,7 +146,7 @@ type ComplexityRoot struct {
 		Events              func(childComplexity int, category *string, limit *int) int
 		Generation          func(childComplexity int) int
 		ID                  func(childComplexity int) int
-		Kinds               func(childComplexity int) int
+		Kinds               func(childComplexity int, namespace string) int
 		Spec                func(childComplexity int) int
 	}
 
@@ -239,9 +239,10 @@ type ComplexityRoot struct {
 	}
 
 	ClusterCachedDataKindWatchFrame struct {
-		CacheID func(childComplexity int) int
-		Kind    func(childComplexity int) int
-		Type    func(childComplexity int) int
+		CacheID   func(childComplexity int) int
+		Kind      func(childComplexity int) int
+		Namespace func(childComplexity int) int
+		Type      func(childComplexity int) int
 	}
 
 	ClusterCachedDataObject struct {
@@ -827,7 +828,7 @@ type ComplexityRoot struct {
 		ClusterCacheStatsWatch        func(childComplexity int, id apimeta.ClusterID, cacheID apimeta.ObjectID) int
 		ClusterCacheSyncStatusWatch   func(childComplexity int, id apimeta.ClusterID, cacheID apimeta.ObjectID) int
 		ClusterCachedDataEventsWatch  func(childComplexity int, id apimeta.ClusterID, cacheID apimeta.ObjectID) int
-		ClusterCachedDataKindsWatch   func(childComplexity int, id apimeta.ClusterID, cacheID apimeta.ObjectID) int
+		ClusterCachedDataKindsWatch   func(childComplexity int, id apimeta.ClusterID, cacheID apimeta.ObjectID, namespace string) int
 		ClusterCachedDataObjectsWatch func(childComplexity int, id apimeta.ClusterID, cacheID apimeta.ObjectID, apiVersion string, resource string) int
 		ClusterCachedKindsWatch       func(childComplexity int, cacheID apimeta.ObjectID) int
 		ClusterCachesWatch            func(childComplexity int) int
@@ -912,7 +913,7 @@ type ClusterResolver interface {
 	Events(ctx context.Context, obj *cluster.Cluster, category *string, limit *int) ([]*cluster.Event, error)
 }
 type ClusterCacheResolver interface {
-	Kinds(ctx context.Context, obj *cluster.ClusterCache) ([]*cluster.ClusterCachedDataKind, error)
+	Kinds(ctx context.Context, obj *cluster.ClusterCache, namespace string) ([]*cluster.ClusterCachedDataKind, error)
 	CachedKinds(ctx context.Context, obj *cluster.ClusterCache) ([]*cluster.ClusterCachedKind, error)
 	Events(ctx context.Context, obj *cluster.ClusterCache, category *string, limit *int) ([]*cluster.Event, error)
 }
@@ -992,7 +993,7 @@ type SubscriptionResolver interface {
 	ClusterCachedKindsWatch(ctx context.Context, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedKindWatchFrame, error)
 	ClusterCacheStatsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCacheStats, error)
 	ClusterCacheSyncStatusWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCacheSyncStatus, error)
-	ClusterCachedDataKindsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedDataKindWatchFrame, error)
+	ClusterCachedDataKindsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID, namespace string) (<-chan *cluster.ClusterCachedDataKindWatchFrame, error)
 	ClusterCachedDataEventsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedDataEventWatchFrame, error)
 	ClusterCachedDataObjectsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID, apiVersion string, resource string) (<-chan *cluster.ClusterCachedDataObjectWatchFrame, error)
 	ChatsWatch(ctx context.Context) (<-chan *chat.ChatWatchFrame, error)
@@ -1401,7 +1402,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			break
 		}
 
-		return e.ComplexityRoot.ClusterCache.Kinds(childComplexity), true
+		args, err := ec.field_ClusterCache_kinds_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.ClusterCache.Kinds(childComplexity, args["namespace"].(string)), true
 	case "ClusterCache.spec":
 		if e.ComplexityRoot.ClusterCache.Spec == nil {
 			break
@@ -1779,6 +1785,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ClusterCachedDataKindWatchFrame.Kind(childComplexity), true
+	case "ClusterCachedDataKindWatchFrame.namespace":
+		if e.ComplexityRoot.ClusterCachedDataKindWatchFrame.Namespace == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ClusterCachedDataKindWatchFrame.Namespace(childComplexity), true
 	case "ClusterCachedDataKindWatchFrame.type":
 		if e.ComplexityRoot.ClusterCachedDataKindWatchFrame.Type == nil {
 			break
@@ -4285,7 +4297,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Subscription.ClusterCachedDataKindsWatch(childComplexity, args["id"].(apimeta.ClusterID), args["cacheID"].(apimeta.ObjectID)), true
+		return e.ComplexityRoot.Subscription.ClusterCachedDataKindsWatch(childComplexity, args["id"].(apimeta.ClusterID), args["cacheID"].(apimeta.ObjectID), args["namespace"].(string)), true
 	case "Subscription.clusterCachedDataObjectsWatch":
 		if e.ComplexityRoot.Subscription.ClusterCachedDataObjectsWatch == nil {
 			break
@@ -5111,6 +5123,8 @@ func (ec *executionContext) childFields_ClusterCachedDataKindWatchFrame(ctx cont
 		return ec.fieldContext_ClusterCachedDataKindWatchFrame_kind(ctx, field)
 	case "cacheID":
 		return ec.fieldContext_ClusterCachedDataKindWatchFrame_cacheID(ctx, field)
+	case "namespace":
+		return ec.fieldContext_ClusterCachedDataKindWatchFrame_namespace(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ClusterCachedDataKindWatchFrame", field.Name)
 }
@@ -6391,6 +6405,20 @@ func (ec *executionContext) field_ClusterCache_events_args(ctx context.Context, 
 	return args, nil
 }
 
+func (ec *executionContext) field_ClusterCache_kinds_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "namespace",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["namespace"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_ClusterCachedKind_events_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -7310,6 +7338,14 @@ func (ec *executionContext) field_Subscription_clusterCachedDataKindsWatch_args(
 		return nil, err
 	}
 	args["cacheID"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "namespace",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["namespace"] = arg2
 	return args, nil
 }
 
@@ -9037,7 +9073,8 @@ func (ec *executionContext) _ClusterCache_kinds(ctx context.Context, field graph
 			return ec.fieldContext_ClusterCache_kinds(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ClusterCache().Kinds(ctx, obj)
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.ClusterCache().Kinds(ctx, obj, fc.Args["namespace"].(string))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.ClusterCachedDataKind) graphql.Marshaler {
@@ -9047,7 +9084,7 @@ func (ec *executionContext) _ClusterCache_kinds(ctx context.Context, field graph
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_ClusterCache_kinds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ClusterCache_kinds(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ClusterCache",
 		Field:      field,
@@ -9056,6 +9093,17 @@ func (ec *executionContext) fieldContext_ClusterCache_kinds(_ context.Context, f
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_ClusterCachedDataKind(ctx, field)
 		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_ClusterCache_kinds_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -10600,6 +10648,29 @@ func (ec *executionContext) _ClusterCachedDataKindWatchFrame_cacheID(ctx context
 }
 func (ec *executionContext) fieldContext_ClusterCachedDataKindWatchFrame_cacheID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ClusterCachedDataKindWatchFrame", field, false, false, "ObjectID")
+}
+
+func (ec *executionContext) _ClusterCachedDataKindWatchFrame_namespace(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataKindWatchFrame) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ClusterCachedDataKindWatchFrame_namespace(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Namespace, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ClusterCachedDataKindWatchFrame_namespace(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterCachedDataKindWatchFrame", field, false, false, "String")
 }
 
 func (ec *executionContext) _ClusterCachedDataObject_uid(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObject) (ret graphql.Marshaler) {
@@ -20774,7 +20845,7 @@ func (ec *executionContext) _Subscription_clusterCachedDataKindsWatch(ctx contex
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Subscription().ClusterCachedDataKindsWatch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["cacheID"].(apimeta.ObjectID))
+			return ec.Resolvers.Subscription().ClusterCachedDataKindsWatch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["cacheID"].(apimeta.ObjectID), fc.Args["namespace"].(string))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedDataKindWatchFrame) graphql.Marshaler {
@@ -25118,6 +25189,11 @@ func (ec *executionContext) _ClusterCachedDataKindWatchFrame(ctx context.Context
 			}
 		case "cacheID":
 			out.Values[i] = ec._ClusterCachedDataKindWatchFrame_cacheID(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "namespace":
+			out.Values[i] = ec._ClusterCachedDataKindWatchFrame_namespace(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

@@ -305,11 +305,12 @@ type CachedKinds interface {
 // reconnects into the fresh snapshot — because a clear is a user pressing a button, not a
 // watch breaking.
 type CachedData interface {
-	// ListKinds returns one cache's discovered kind catalog.
-	ListKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) ([]ClusterCachedDataKind, error)
+	// ListKinds returns one cache's discovered kind catalog, counted as WatchKinds counts it.
+	ListKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, namespace string) ([]ClusterCachedDataKind, error)
 	// WatchKinds streams one cache's kind catalog as a delta watch (per-kind counts
-	// update live).
-	WatchKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCachedDataKindWatchFrame], error)
+	// update live). A namespace counts each namespaced kind in it alone; "" counts the
+	// whole cache.
+	WatchKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, namespace string) (*Stream[ClusterCachedDataKindWatchFrame], error)
 	// ListObjects returns one kind's cached objects as WatchObjects would snapshot
 	// them, with no body loaded: identity alone, for a reader that wants names.
 	// ok is false for a cache the pair does not resolve to, or one with no file —

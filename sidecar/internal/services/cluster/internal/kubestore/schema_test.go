@@ -16,26 +16,65 @@ package kubestore
 
 import (
 	"context"
+	"io/fs"
+	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/watch"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitepool"
 )
 
 // shippedMigrations is every file in migrations/ by SHA-256. A new migration adds its
 // line in the PR that writes it. Once a desktop release carries a migration, every
 // installed cache has run it, so its line never changes again.
 var shippedMigrations = map[string]string{
-	"0001_init.sql": "497cc52c6a3ca78d326bdaea2c38f79ea3b631ffc805ea4e8a1d55fb77d080e7", // desktop/v0.0.1
+	"0001_init.sql":               "497cc52c6a3ca78d326bdaea2c38f79ea3b631ffc805ea4e8a1d55fb77d080e7", // desktop/v0.0.1
+	"0002_events_involved_ns.sql": "d4533ac3f175e139e3d5ef0bf6879f04cad6989ffa7852ca7c9c6e429984ce4a",
 }
 
 func TestAShippedMigrationIsNeverEdited(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, shippedMigrations, sqlitemigratetest.Checksums(t, migrationsFS, "migrations"))
+}
+
+// A file 0001 built keeps its events across 0002, and a namespace's are found through
+// the new index.
+func TestMigration0002IndexesTheEventsByInvolvedNamespace(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	frozen, err := fs.ReadFile(migrationsFS, "migrations/0001_init.sql")
+	require.NoError(t, err)
+	pool, err := sqlitepool.OpenWriter(filepath.Join(dir, "1.db"))
+	require.NoError(t, err)
+	_, err = sqlitemigrate.Apply(ctx, pool.DB, fstest.MapFS{"migrations/0001_init.sql": {Data: frozen}}, "migrations")
+	require.NoError(t, err)
+	_, err = pool.ExecContext(ctx, `
+		INSERT INTO events (uid, resource_version, write_seq, involved_kind, involved_ns, raw_json, updated_at)
+		VALUES ('ev-pod', '1', 1, 'Pod', 'prod', x'', 0), ('ev-node', '2', 2, 'Node', NULL, x'', 0)`)
+	require.NoError(t, err)
+	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
+
+	m := NewManager(dir, Retention{})
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
+	s, err := m.OpenOrCreate(1)
+	require.NoError(t, err)
+	t.Cleanup(s.Release)
+
+	const inProd = `SELECT uid FROM events WHERE involved_ns = 'prod'`
+	var uid string
+	require.NoError(t, db(t, s).QueryRowContext(ctx, inProd).Scan(&uid))
+	assert.Equal(t, "ev-pod", uid)
+	assert.Equal(t, 2, countRows(t, s, `SELECT count(*) FROM events`))
+	assert.Contains(t, queryPlan(t, s, inProd), "events_involved_ns")
 }
 
 // storesRowid reports whether the table keeps SQLite's implicit rowid. pragma_table_list's
@@ -95,10 +134,10 @@ func TestTheKindCounterMovesInBothDirections(t *testing.T) {
 	assert.Equal(t, 0, counted())
 }
 
-// queryPlan is what SQLite would do to answer a statement.
-func queryPlan(t *testing.T, s *Store, query string) string {
+// queryPlan is what SQLite would do to answer a statement with args bound.
+func queryPlan(t *testing.T, s *Store, query string, args ...any) string {
 	t.Helper()
-	rows, err := db(t, s).QueryContext(context.Background(), `EXPLAIN QUERY PLAN `+query)
+	rows, err := db(t, s).QueryContext(context.Background(), `EXPLAIN QUERY PLAN `+query, args...)
 	require.NoError(t, err)
 	defer rows.Close()
 
@@ -126,4 +165,19 @@ func TestTheEventsOrderIsServedByItsIndex(t *testing.T) {
 
 	assert.Contains(t, plan, "events_last_seen")
 	assert.NotContains(t, plan, "TEMP B-TREE")
+}
+
+// The namespace scope recounts on every write ping, so each count is an index range,
+// never a scan of objects or events.
+func TestTheNamespacedKindCountsAreServedByIndexes(t *testing.T) {
+	t.Parallel()
+
+	s := newTestStore(t)
+
+	plan := queryPlan(t, s, statements[stmtSelectKinds].Text, "prod")
+
+	assert.Contains(t, plan, "events_involved_ns")
+	assert.Contains(t, plan, "objects_ns_kind")
+	assert.NotContains(t, plan, "SCAN e")
+	assert.NotContains(t, plan, "SCAN o")
 }
