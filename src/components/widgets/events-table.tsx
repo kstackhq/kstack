@@ -34,7 +34,7 @@ function involvedRef(e: ClusterCachedDataEvent): string {
 
 // `type` is an open Kubernetes string — a cluster may omit it or supply a custom
 // value, so everything but Warning stays muted (empty renders "Unknown").
-function TypeBadge({ type }: { type: ClusterCachedDataEvent['type'] }) {
+export function TypeBadge({ type }: { type: ClusterCachedDataEvent['type'] }) {
   const warning = type === 'Warning';
   return (
     <span

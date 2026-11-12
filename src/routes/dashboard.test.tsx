@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, screen } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_DASHBOARD_RESOURCE } from '@/lib/dashboard-resources';
@@ -47,9 +47,26 @@ vi.mock('@/routes/_app', async () => {
 vi.mock('@/components/widgets/events-table', () => ({
   EventsTable: (props: Record<string, unknown>) => <div data-testid="events-table">{JSON.stringify(props)}</div>,
 }));
+// The table's rows press their actions through `onAction`; one button per action stands in.
 vi.mock('@/components/widgets/objects-table', () => ({
-  ObjectsTable: (props: Record<string, unknown>) => <div data-testid="objects-table">{JSON.stringify(props)}</div>,
+  ObjectsTable: ({ onAction, ...props }: { onAction: (action: string, o: unknown) => void }) => (
+    <>
+      <div data-testid="objects-table">{JSON.stringify(props)}</div>
+      {['yaml', 'events', 'logs'].map((action) => (
+        <button
+          key={action}
+          type="button"
+          onClick={() => onAction(action, { uid: 'u1', namespace: 'shop', name: 'web', rawJSON: {} })}
+        >
+          {action}
+        </button>
+      ))}
+    </>
+  ),
 }));
+
+const { focusObject } = vi.hoisted(() => ({ focusObject: vi.fn() }));
+vi.mock('@/lib/object-view', () => ({ useObjectView: () => ({ set: focusObject }) }));
 
 const { useClusterCachedDataObjectsMock, useClusterCachedDataEventsMock } = vi.hoisted(() => ({
   useClusterCachedDataObjectsMock: vi.fn(),
@@ -109,6 +126,7 @@ const pod = (uid: string, namespace: string) => ({ uid, namespace, name: uid });
 const event = (uid: string, involvedNamespace: string) => ({ uid, involvedNamespace });
 
 beforeEach(() => {
+  focusObject.mockClear();
   useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: true, phase: 'live' });
   useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'live' });
 });
@@ -134,6 +152,15 @@ describe('dashboard route', () => {
     await render('/dashboard?resource=events');
     expect(screen.getByTestId('events-table')).toBeInTheDocument();
     expect(screen.queryByTestId('objects-table')).not.toBeInTheDocument();
+  });
+
+  it.each(['yaml', 'events', 'logs'])('focuses a row’s object on its %s tab', async (action) => {
+    await render('/dashboard?resource=deployments', [KIND]);
+    fireEvent.click(screen.getByRole('button', { name: action }));
+    expect(focusObject).toHaveBeenCalledWith(
+      { apiVersion: 'apps/v1', resource: 'deployments', kind: 'Deployment', uid: 'u1', namespace: 'shop', name: 'web' },
+      action,
+    );
   });
 
   it('shows the generic table for a discovered kind, told what it is listing', async () => {

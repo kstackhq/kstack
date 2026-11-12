@@ -669,6 +669,47 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   column picker (`object-columns/pods.tsx`). The same lookup draws a pod's node name in red while that
   node is not Ready, as the mockup's Pods frame does. The cache already holds the nodes.
 
+- **The object panel watches whole streams for one object.** Its YAML tab holds an `unshared`
+  `clusterCachedDataObjectsWatch` of the object's kind, and its Events tab an `unshared`
+  `clusterCachedDataEventsWatch` of the whole cache, each beside the page's own. **Shape:** watches
+  scoped to one object (by `uid`, or namespace and name), which the pod detail page (dashboard
+  spec, step 4) wants too.
+- **An object's Events tab also shows an earlier object's events.** The events watch names an
+  event's object by kind, namespace and name, so a pod deleted and recreated under the same name
+  shows both pods' events (`object-events-view.tsx`). **Fix:** add `involvedUID` to the
+  sidecar's cached event and match on it.
+- **No way from an object's events to the Events page.** The object panel's Events tab lists the
+  object's events alone; the Events page has no filter to open it on. **Shape:** a filter on the
+  Events page (by object, and text like the kind tables'), and *Open in Events* at the foot of the
+  tab.
+- **A dashboard log view cannot move to a window.** The object panel's Logs tab
+  (`object-logs-view.tsx`) has no *Open in window*: a log window is keyed by a chat and its call
+  (`LogWindowsProvider`, the host's `log_windows.rs`), and this view has neither. **Shape:** a
+  window keyed by its view, so any view can open one. The pod detail page's Logs tab (dashboard
+  spec, step 4) will want the same.
+- **An object's Logs tab reads every container.** A pod with a sidecar (`istio-proxy`) mixes its
+  lines in. **Shape:** a container picker in the tab, from the pod's spec, feeding the source's
+  `containers`.
+- **A table cell cannot be copied.** The kind tables draw names, IPs, images and labels the user
+  wants on the clipboard, and a row selects no text usefully. **Shape:** a copy affordance on a
+  cell's hover, writing the full value (not the truncated one) through `copyToClipboard`
+  (`src/lib/clipboard.ts`); which columns offer it is a design call.
+- **No cluster writes from the dashboard.** Restart (rollout), scale, delete, cordon, uncordon and
+  drain a node, suspend or trigger a CronJob, roll back: the mockups draw several, and the sidecar
+  has no mutation that writes a Kubernetes object. Each is a new mutation and a security change,
+  since today a cluster write reaches the cluster only through an approved command
+  (`docs/security-model.md`). **Shape first:** whether a write from a click asks as the model's
+  does, and how a destructive one confirms.
+- **No debug terminal for a pod.** The mockups' `Pod detail / Debug terminal`: an exec (or
+  ephemeral debug container) session from the pod's row or detail page. It needs an exec stream
+  in the sidecar and the exec window the security model anticipates (`src/CLAUDE.md`, *Security
+  invariants*: no HTML interpretation, control sequences stripped).
+- **A Secret's values cannot be revealed.** The sidecar redacts Secret data when it writes the
+  cache, so the table and YAML hold `[redacted]` and the webview has nothing to show. A reveal is
+  a live read of the one Secret, and Secret data is a permissioned read
+  (`docs/security/2026-10-05-secret-data-is-a-permissioned-read.md`): a click reading it is a
+  security change, recorded under `docs/security/`.
+
 - **The log viewer shows only the filters the model set.** Kubetail's sidebar lists each region, zone, OS, architecture and node the open sources span, with a count per value. That needs one query answering what a view's sources resolved to, which the sidecar's resolve already computes (`services/logs/resolve.go`) and the wire does not carry.
 - **A workload's log view has no switch to hide its gone pods or its earlier instances.** A
   Deployment's view shows every pod the Deployment runs or ran within the log file's retention, a

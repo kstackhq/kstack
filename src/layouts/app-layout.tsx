@@ -40,6 +40,7 @@ import { ConnectionStatus } from '@/lib/connection-status';
 import { DialogProvider } from '@/lib/dialog';
 import { LogWindowsProvider } from '@/lib/log-windows';
 import { LogsViewProvider } from '@/lib/logs-view';
+import { ObjectViewProvider } from '@/lib/object-view';
 import { usePersistedFlag } from '@/lib/persisted-flag';
 import { RightSidebarProvider } from '@/lib/right-sidebar';
 
@@ -72,56 +73,58 @@ export function AppLayout() {
           taller than the `WindowFrame` inset on Linux, and only `min-h-0` displaces
           it (same tailwind-merge group) — `h-` alone would not. */}
           <RightSidebarProvider mode={mode}>
-            {/* The focused view opens the right sidebar when it is set, so it sits
-            inside the sidebar's state and above the row that draws it. */}
-            <LogsViewProvider>
-              {/* The log windows move the focused view out of the sidebar, so they sit
+            {/* The focused view and the focused object open the right sidebar when
+            set, so they sit inside the sidebar's state and above the row that draws it. */}
+            <ObjectViewProvider>
+              <LogsViewProvider>
+                {/* The log windows move the focused view out of the sidebar, so they sit
               inside both. */}
-              <LogWindowsProvider>
-                {/* Above the sidebar and the routes: both read the catalog, and the
+                <LogWindowsProvider>
+                  {/* Above the sidebar and the routes: both read the catalog, and the
                 sidebar's namespace picker reads the namespaces on every page. */}
-                <ClusterCachedDataKindsProvider enabled={onDashboard}>
-                  <ClusterNamespacesProvider enabled={onDashboard}>
-                    <SidebarProvider
-                      open={sidebarOpen}
-                      onOpenChange={setSidebarOpen}
-                      className="h-(--app-min-h) min-h-0 flex-col"
-                    >
-                      <AppBar />
-                      {/* `relative`: too narrow for the card beside the page, `LeftSidebar`
+                  <ClusterCachedDataKindsProvider enabled={onDashboard}>
+                    <ClusterNamespacesProvider enabled={onDashboard}>
+                      <SidebarProvider
+                        open={sidebarOpen}
+                        onOpenChange={setSidebarOpen}
+                        className="h-(--app-min-h) min-h-0 flex-col"
+                      >
+                        <AppBar />
+                        {/* `relative`: too narrow for the card beside the page, `LeftSidebar`
                       floats it over this row. `overflow-clip`: the three items' minimum
                       widths can sum past a narrow window, and an absolute element with no
                       nearer positioned ancestor anchors here, past `main`'s clip. */}
-                      <div className="relative flex min-h-0 flex-1 overflow-clip">
-                        {/* The mode switch is pinned: it is how you leave whatever the nav below
+                        <div className="relative flex min-h-0 flex-1 overflow-clip">
+                          {/* The mode switch is pinned: it is how you leave whatever the nav below
                         is showing, so it must not scroll away with it. */}
-                        <LeftSidebar
-                          header={<ModeNav />}
-                          nav={onDashboard ? <DashboardResourceNav /> : <ChatNav mode="chat" />}
-                        />
-                        <main
-                          ref={pageRef}
-                          className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
-                          style={{ minWidth: pageMinWidth }}
-                        >
-                          <Outlet />
-                        </main>
-                        <RightSidebar page={pageRef} />
-                        {/* Pinned to the row's top-right corner rather than to the page, so it
+                          <LeftSidebar
+                            header={<ModeNav />}
+                            nav={onDashboard ? <DashboardResourceNav /> : <ChatNav mode="chat" />}
+                          />
+                          <main
+                            ref={pageRef}
+                            className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+                            style={{ minWidth: pageMinWidth }}
+                          >
+                            <Outlet />
+                          </main>
+                          <RightSidebar page={pageRef} />
+                          {/* Pinned to the row's top-right corner rather than to the page, so it
                         holds its place as the panel opens under it — over the page while
                         closed, over the panel once open. Below the sidebar drawer's z-30
                         scrim: a covered control must not be clickable.
                         The 16px inset mirrors where the card's own toggle lands (`p-2` on
                         the card plus `p-2` on its header), so the two sit level. */}
-                        <div className="absolute top-4 right-4 z-20">
-                          <RightSidebarToggle />
+                          <div className="absolute top-4 right-4 z-20">
+                            <RightSidebarToggle />
+                          </div>
                         </div>
-                      </div>
-                    </SidebarProvider>
-                  </ClusterNamespacesProvider>
-                </ClusterCachedDataKindsProvider>
-              </LogWindowsProvider>
-            </LogsViewProvider>
+                      </SidebarProvider>
+                    </ClusterNamespacesProvider>
+                  </ClusterCachedDataKindsProvider>
+                </LogWindowsProvider>
+              </LogsViewProvider>
+            </ObjectViewProvider>
           </RightSidebarProvider>
           <AppDialogs />
         </DialogProvider>

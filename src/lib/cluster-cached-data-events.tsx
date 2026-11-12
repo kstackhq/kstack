@@ -54,8 +54,13 @@ export type ClusterCachedDataEvent = NonNullable<
 
 // The active context's cached events, newest first (by lastSeen), live. Paused
 // (empty) without an active cache. Provenance is just the cacheID — the variables
-// carry no kind.
-export function useClusterCachedDataEvents(): { events: ClusterCachedDataEvent[]; active: boolean; phase: WatchPhase } {
+// carry no kind. `unshared` is for a watch that can mount into a running one, which would
+// never see its snapshot.
+export function useClusterCachedDataEvents({ unshared = false }: { unshared?: boolean } = {}): {
+  events: ClusterCachedDataEvent[];
+  active: boolean;
+  phase: WatchPhase;
+} {
   const { clusterID, cacheID, active } = useActiveCluster();
 
   const { items, phase } = useCacheDeltaWatch<ClusterCachedDataEventsWatchSubscriptionType, ClusterCachedDataEvent>(
@@ -71,6 +76,7 @@ export function useClusterCachedDataEvents(): { events: ClusterCachedDataEvent[]
       },
       keyOf: (e) => e.uid,
       currentProvenance: joinProvenance(cacheID ?? ''),
+      unshared,
     },
   );
 

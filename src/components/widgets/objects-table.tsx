@@ -14,15 +14,17 @@
 
 // Generic per-kind object table, over the rows its page reads from
 // `useClusterCachedDataObjects`. Universal columns (Namespace?/Name/Age) plus kubectl-style
-// extras from the `object-columns` registry, in a card with a footer. The states render
-// distinctly — not-synced note, connecting spinner, empty snapshot, live table — mirroring
-// `EventsTable`.
+// extras from the `object-columns` registry, then the row's actions, in a card with a footer.
+// The states render distinctly — not-synced note, connecting spinner, empty snapshot, live
+// table — mirroring `EventsTable`.
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
 import { cn } from '@kubetail/ui/lib/utils';
 import { useEffect, useMemo, useState } from 'react';
 
 import { ColumnPicker } from '@/components/widgets/column-picker';
+import { actionsColumn } from '@/components/widgets/object-actions';
+import type { ObjectAction } from '@/components/widgets/object-actions';
 import { Age, ageSortValue, columnsForKind, toneForKind } from '@/components/widgets/object-columns';
 import { HEALTH_TONE } from '@/components/widgets/status-pill';
 import type { StatusTone } from '@/components/widgets/status-pill';
@@ -55,6 +57,7 @@ type ObjectsTableProps = {
   phase: WatchPhase;
   // The namespace the rows are filtered to, if any.
   namespace?: string;
+  onAction: (action: ObjectAction, object: ClusterCachedDataObject) => void;
 };
 
 const NO_COLUMNS: readonly PrinterColumn[] = [];
@@ -138,6 +141,7 @@ export function ObjectsTable({
   active,
   phase,
   namespace,
+  onAction,
 }: ObjectsTableProps) {
   // Under a namespace every row would repeat it.
   const showNamespace = namespaced && namespace === undefined;
@@ -155,7 +159,11 @@ export function ObjectsTable({
   // The user's order and choices, else each column's default.
   const { choices, changed, setShown, setOrder, reset } = useTableColumns({ apiVersion, resource });
   const allColumns = useMemo(() => arrange(defaultColumns, choices.order), [defaultColumns, choices.order]);
-  const columns = useMemo(() => allColumns.filter((c) => isShown(c, choices.shown)), [allColumns, choices.shown]);
+  // The actions stay out of the picker: always drawn, always last.
+  const columns = useMemo(
+    () => [...allColumns.filter((c) => isShown(c, choices.shown)), actionsColumn({ apiVersion, resource }, onAction)],
+    [allColumns, choices.shown, apiVersion, resource, onAction],
+  );
   const namespaceShown = showNamespace && isShown(NAMESPACE_COLUMN, choices.shown);
 
   // The text filter narrows the rows first; the tabs count and bucket what it leaves.

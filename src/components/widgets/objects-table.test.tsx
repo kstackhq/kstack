@@ -29,7 +29,8 @@ const live = (...objects: unknown[]) => ({
   phase: 'live' as const,
 });
 
-const PODS = { apiVersion: 'v1', resource: 'pods', kind: 'Pod', label: 'Pods', namespaced: true };
+const noAction = () => {};
+const PODS = { apiVersion: 'v1', resource: 'pods', kind: 'Pod', label: 'Pods', namespaced: true, onAction: noAction };
 // A CRD kind with no registered columns — exercises the universal-columns fallback.
 const WIDGETS = {
   apiVersion: 'example.com/v1',
@@ -37,6 +38,7 @@ const WIDGETS = {
   kind: 'Widget',
   label: 'Widgets',
   namespaced: true,
+  onAction: noAction,
 };
 
 function obj(over: Record<string, unknown> = {}) {
@@ -76,7 +78,7 @@ describe('ObjectsTable', () => {
   it('falls back to the universal Name/Namespace/Age columns for a kind with no registry entry', () => {
     render(<ObjectsTable {...WIDGETS} {...live(obj({ kind: 'Widget' }))} />);
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(['Namespace', 'Name', 'Age']);
+    expect(headers).toEqual(['Namespace', 'Name', 'Age', '']);
     expect(screen.getByText('my-pod')).toBeInTheDocument();
     expect(screen.getByText('default')).toBeInTheDocument();
   });
@@ -95,6 +97,7 @@ describe('ObjectsTable', () => {
       'Name',
       'Replicas',
       'Age',
+      '',
     ]);
     expect(screen.getByText('3')).toBeInTheDocument();
   });
@@ -118,11 +121,12 @@ describe('ObjectsTable', () => {
         kind="Node"
         label="Nodes"
         namespaced={false}
+        onAction={noAction}
         {...live(obj({ namespace: '', name: 'node-1' }))}
       />,
     );
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(['Name', 'Status', 'Roles', 'Version', 'Age']);
+    expect(headers).toEqual(['Name', 'Status', 'Roles', 'Version', 'Age', '']);
   });
 
   it('renders Pod-specific columns (Status/Ready/Restarts/Node) computed from the body', () => {
@@ -140,7 +144,7 @@ describe('ObjectsTable', () => {
     });
     render(<ObjectsTable {...PODS} {...live(pod)} />);
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(['Namespace', 'Name', 'Status', 'Ready', 'Restarts', 'Node', 'Age']);
+    expect(headers).toEqual(['Namespace', 'Name', 'Status', 'Ready', 'Restarts', 'Node', 'Age', '']);
     const row = screen.getByText('my-pod').closest('tr')!;
     expect(within(row).getByText('1/2')).toBeInTheDocument(); // ready / total containers
     // Running, but not ready: pending until it is.
@@ -184,8 +188,8 @@ describe('ObjectsTable', () => {
         )}
       />,
     );
-    // Age is the last column.
-    const age = (name: string) => screen.getByText(name).closest('tr')!.lastElementChild;
+    // Age is the last column before the actions.
+    const age = (name: string) => screen.getByText(name).closest('tr')!.lastElementChild!.previousElementSibling;
     expect(age('a')).toHaveTextContent(/^22m$/);
     expect(age('b')).toHaveTextContent(/^3d$/);
   });
@@ -341,7 +345,7 @@ describe('ObjectsTable', () => {
           rawJSON: { status: { startTime: '2026-01-01T00:00:00Z', completionTime: '2026-01-01T00:01:00Z' } },
         }),
       ];
-      render(<ObjectsTable {...JOBS} {...live(...jobs)} />);
+      render(<ObjectsTable {...JOBS} {...live(...jobs)} onAction={noAction} />);
       press('Duration');
       expect(names()).toEqual(['done', 'running']);
       act(() => {
@@ -493,6 +497,32 @@ describe('ObjectsTable', () => {
     });
   });
 
+  describe('actions', () => {
+    afterEach(() => localStorage.clear());
+
+    it('hands a row’s action and object to the page', async () => {
+      const onAction = vi.fn();
+      const pod = obj();
+      render(<ObjectsTable {...PODS} {...live(pod)} onAction={onAction} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Actions for my-pod' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'View logs' }));
+      expect(onAction).toHaveBeenCalledWith('logs', pod);
+    });
+
+    it('stays last, out of the column picker', async () => {
+      localStorage.setItem('kstack:table-columns:v1/pods', JSON.stringify({ order: ['age', 'name'] }));
+      const user = userEvent.setup();
+      render(<ObjectsTable {...PODS} {...live(obj())} />);
+      const row = screen.getByText('my-pod').closest('tr')!;
+      expect(
+        within(row.lastElementChild as HTMLElement).getByRole('button', { name: 'Actions for my-pod' }),
+      ).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Columns' }));
+      // The pod's 16 columns, and no box for the actions.
+      expect(await screen.findAllByRole('checkbox')).toHaveLength(16);
+    });
+  });
+
   describe('column picker', () => {
     afterEach(() => localStorage.clear());
     const headers = () => screen.getAllByRole('columnheader').map((h) => h.textContent);
@@ -544,11 +574,11 @@ describe('ObjectsTable', () => {
       );
       const user = userEvent.setup();
       render(<ObjectsTable {...PODS} {...live(obj())} />);
-      expect(headers()).toEqual(['Age', 'Name', 'Status', 'Ready', 'Restarts', 'Node', 'IP', 'Namespace']);
+      expect(headers()).toEqual(['Age', 'Name', 'Status', 'Ready', 'Restarts', 'Node', 'IP', 'Namespace', '']);
 
       await user.click(screen.getByRole('button', { name: 'Columns' }));
       await user.click(await screen.findByRole('button', { name: 'Reset' }));
-      expect(headers()).toEqual(['Namespace', 'Name', 'Status', 'Ready', 'Restarts', 'Node', 'Age']);
+      expect(headers()).toEqual(['Namespace', 'Name', 'Status', 'Ready', 'Restarts', 'Node', 'Age', '']);
       expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled();
     });
 
