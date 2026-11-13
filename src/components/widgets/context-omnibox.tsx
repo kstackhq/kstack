@@ -27,7 +27,7 @@ import { useRef, useState } from 'react';
 import { APP_BAR_CONTROL_CLASS, APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-button';
 import { ClusterDot } from '@/components/widgets/cluster-dot';
 import { ClusterPicker } from '@/components/widgets/cluster-picker';
-import { ClusterStatusPopover } from '@/components/widgets/cluster-status-popover';
+import { ClusterStatusPopover } from '@/components/widgets/cluster-status';
 import { MemoryPopover } from '@/components/widgets/memory';
 import { UnverifiedTLSBadge } from '@/components/widgets/unverified-tls-badge';
 import { useActiveCluster } from '@/lib/active-cluster';

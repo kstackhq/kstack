@@ -24,7 +24,6 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import ReactTimeAgo, { type Formatter } from 'react-timeago';
 import { useMutation } from 'urql';
 
-import { DataRateSparkline } from '@/components/widgets/data-rate-sparkline';
 import { Dialog } from '@/components/widgets/dialog';
 import { graphql } from '@/gql';
 import type { ClusterCachedKindsSubscription } from '@/gql/graphql';
@@ -53,6 +52,8 @@ import { type AppDialogProps, useDialogHost } from '@/lib/dialog';
 import { perFrame, seriesReducer, useWatchSubscription, watchPhase } from '@/lib/graphql/use-watch-subscription';
 import type { SeriesFrame } from '@/lib/graphql/use-watch-subscription';
 import { EVENTS_GVR, gvrKey } from '@/lib/gvr';
+
+import { DataRateSparkline } from './data-rate-sparkline';
 
 const ClusterEnabledSetMutation = graphql(`
   mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {
