@@ -231,6 +231,10 @@ Off macOS there is no native menu bar: `AppMenu` (`app-bar/menu.tsx`) owns `Ctrl
 
 **Controls and in-app links use the default arrow cursor, as native desktop apps do.** `index.css`'s base layer sets it on `button`, `[role="button"]` and `a[href]`, overriding `@kubetail/ui`'s `cursor: pointer` and the browser's hand on links. Every link today is in-app navigation (the sidebar, the mode switch, the chat list). Never add `cursor-pointer` to a button, menu item, tab, link, `<summary>` or popover trigger; only a link that leaves the app may take it.
 
+## Figma
+
+The webview's design lives in two Figma files: the kubetail-ui library and the Desktop file. [`docs/figma.md`](../docs/figma.md) says how they map to this code (tokens and modes, the sync line each component carries, how Tailwind's `/NN` colors translate both ways) and how an agent syncs them in either direction. **An agent asks the user which side wins before syncing**, and a design change to the approval request or the model's description is a security change. A change to `index.css`'s colors or to a drawn component leaves its Figma counterpart behind until someone re-syncs it.
+
 ## GraphQL — never talks HTTP directly
 
 The webview has **no network access**. urql routes everything through Tauri IPC (`src/lib/graphql/`): queries and mutations via `invoke('graphql_query')` (`invoke-fetch.ts`), subscriptions via `graphql_subscribe`/`graphql_unsubscribe` over a Tauri `Channel` (`subscribe-exchange.ts`, with its own capped-backoff reconnect). Read `src/lib/graphql/client.ts` and its tests before touching transport or retry logic. → [ADR: GraphQL over Tauri IPC](../docs/adr/2026-08-09-graphql-over-tauri-ipc.md).
