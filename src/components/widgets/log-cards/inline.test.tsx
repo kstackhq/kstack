@@ -18,7 +18,7 @@ import type { InlineState } from '@/lib/inline-log-lines';
 import type { LogLine } from '@/lib/log-viewer';
 import type { LogsViewAction } from '@/lib/logs-view';
 
-import { LineRow, LogsViewInline } from './logs-view-inline';
+import { LineRow, LogsViewInline } from './inline';
 
 const action = (over: Partial<LogsViewAction> = {}): LogsViewAction => ({
   sources: [{ namespace: 'prod', kind: 'Pod', name: 'web-0', containers: [], allContainers: false, previous: false }],

@@ -15,12 +15,13 @@
 // where it opened, the model's description, the receipt it read, Expand, which
 // makes this call the focused view, Open in window, and the view's lines in a fixed
 // window. While the sidebar or a log window shows the call, the card says where in
-// the buttons' place and draws no window (`logs-view-buttons.tsx`). On the dashboard,
+// the buttons' place and draws no window (`buttons.tsx`). On the dashboard,
 // which has no panel for a view yet, there are no buttons at all. The buttons and
 // the window wait for the chat's cluster.
 import { useState } from 'react';
 import { useClient } from 'urql';
 
+import { anchorLine, SourceLine } from '@/components/widgets/log-panel';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { AppMode } from '@/lib/app-mode';
@@ -30,9 +31,8 @@ import { createLogsClient } from '@/lib/logs-client';
 import type { LogsViewAction } from '@/lib/logs-view';
 import { descriptionLine } from '@/lib/visible-text';
 
-import { LogsViewButtons, useViewPlace } from './logs-view-buttons';
-import { LogsViewInline } from './logs-view-inline';
-import { anchorLine, SourceLine } from './logs-view-lines';
+import { LogsViewButtons, useViewPlace } from './buttons';
+import { LogsViewInline } from './inline';
 
 // The window over the chat's cluster, its client built once per mount.
 function InlineWindow({

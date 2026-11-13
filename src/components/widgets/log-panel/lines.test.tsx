@@ -14,7 +14,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { anchorLine, SourceLine } from './logs-view-lines';
+import { anchorLine, SourceLine } from './lines';
 
 describe('anchorLine', () => {
   it('names each edge and the moment as stamped', () => {

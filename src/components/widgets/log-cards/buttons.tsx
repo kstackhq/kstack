@@ -14,8 +14,8 @@
 
 // Where a transcript card's view is drawn, and the buttons that move it. A view is in
 // one place at a time: its card, the right sidebar, or a log window. The three cards
-// that can show a view (`logs-view-card.tsx`, `logs-read-card.tsx`,
-// `logs-watch-card.tsx`) share these.
+// that can show a view (`view-card.tsx`, `read-card.tsx`,
+// `watch-card.tsx`) share these.
 import { Button } from '@kubetail/ui/elements/button';
 
 import type { AppMode } from '@/lib/app-mode';

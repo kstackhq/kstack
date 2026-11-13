@@ -21,7 +21,7 @@ import type { LogsView } from '@/lib/logs-view';
 const { LogWindowsContext } = await import('@/lib/log-windows');
 const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
 const { RightSidebarProvider, useRightSidebar } = await import('@/lib/right-sidebar');
-const { LogsViewButtons, useViewPlace } = await import('./logs-view-buttons');
+const { LogsViewButtons, useViewPlace } = await import('./buttons');
 
 const view: LogsView = {
   clusterId: 'cluster-1',

@@ -15,7 +15,7 @@
 // A log window's page, the path the host loads into every `logs-N` window.
 import { createRoute } from '@tanstack/react-router';
 
-import { LogsWindow } from '@/components/widgets/logs-view';
+import { LogsWindow } from '@/components/widgets/log-panel';
 import { Route as logsRoute } from '@/routes/_logs';
 
 export const Route = createRoute({

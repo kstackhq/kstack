@@ -28,7 +28,7 @@ import type { ReactNode } from 'react';
 import { useMutation } from 'urql';
 
 import { AppLogo } from '@/components/widgets/app-logo';
-import { LogsReadCard, LogsViewCard, LogsWatchCard } from '@/components/widgets/logs-view';
+import { LogsReadCard, LogsViewCard, LogsWatchCard } from '@/components/widgets/log-cards';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { FolderGrantForm } from '@/components/widgets/settings';
 import { VisibleText } from '@/components/widgets/visible-text';

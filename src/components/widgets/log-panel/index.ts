@@ -11,11 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-// The log views around the viewer: the transcript's three cards, the right sidebar's panel and
-// the log window's page. Their buttons, inline lines and bar are their own.
-export { LogsReadCard } from './logs-read-card';
-export { LogsViewCard } from './logs-view-card';
-export { LogsViewPanel } from './logs-view-panel';
-export { LogsWatchCard } from './logs-watch-card';
-export { LogsWindow } from './logs-window';
+// The full-size log view: the right sidebar's panel and the log window's page.
+// `SourceLine` and `anchorLine` are exported for the transcript's cards.
+export { anchorLine, SourceLine } from './lines';
+export { LogsViewPanel } from './panel';
+export { LogsWindow } from './window';

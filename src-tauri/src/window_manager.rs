@@ -92,7 +92,7 @@ const LOG_WINDOW: WindowSpec = WindowSpec {
 const APP_BAR_HEIGHT: f64 = 48.0;
 
 /// A log window's bar height, the strip its traffic lights sit in. Kept in sync
-/// with `src/components/widgets/logs-view/logs-window-bar.tsx`'s `h-10`.
+/// with `src/components/widgets/log-panel/window-bar.tsx`'s `h-10`.
 const LOG_BAR_HEIGHT: f64 = 40.0;
 
 /// Inset from the window's left edge to the first traffic light. The webview's

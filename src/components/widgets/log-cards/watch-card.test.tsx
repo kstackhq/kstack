@@ -28,7 +28,7 @@ const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
 const { LogWindowsContext } = await import('@/lib/log-windows');
 const { windows, value: logWindows } = fakeLogWindows();
 const { RightSidebarProvider } = await import('@/lib/right-sidebar');
-const { LogsWatchCard } = await import('./logs-watch-card');
+const { LogsWatchCard } = await import('./watch-card');
 
 beforeEach(() => {
   windows.length = 0;

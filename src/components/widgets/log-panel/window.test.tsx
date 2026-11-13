@@ -138,7 +138,7 @@ vi.mock('@/components/widgets/log-viewer', async () => {
 });
 
 const { onError } = await import('@/lib/error-bus');
-const { LogsWindow } = await import('./logs-window');
+const { LogsWindow } = await import('./window');
 
 const action: LogsViewAction = {
   sources: [

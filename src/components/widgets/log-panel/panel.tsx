@@ -24,7 +24,7 @@ import { VisibleText } from '@/components/widgets/visible-text';
 import type { LogViewportHandle } from '@/lib/log-viewport';
 import type { LogsView } from '@/lib/logs-view';
 
-import { anchorLine, Names, SourceLine } from './logs-view-lines';
+import { anchorLine, Names, SourceLine } from './lines';
 
 // `grep` is the viewer's, which its toolbar can change from the action's. Each button
 // draws only with its handler.

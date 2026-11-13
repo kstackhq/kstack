@@ -31,8 +31,8 @@ import { createViewportPublisher } from '@/lib/log-window-push';
 import { viewOfCall } from '@/lib/logs-view';
 import type { LogsView } from '@/lib/logs-view';
 
-import { LogsViewHeader } from './logs-view-panel';
-import { LogsWindowBar } from './logs-window-bar';
+import { LogsViewHeader } from './panel';
+import { LogsWindowBar } from './window-bar';
 
 /**
  * What the page reads of `log_window_view`'s answer. `grep` is null when the open carried

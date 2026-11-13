@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createLogViewportHandle } from '@/lib/log-viewport';
 import type { LogsView } from '@/lib/logs-view';
 
-import { LogsViewHeader, LogsViewPanel } from './logs-view-panel';
+import { LogsViewHeader, LogsViewPanel } from './panel';
 
 // The viewer has a suite of its own; this file is about the panel around it.
 // The viewport the viewer was handed, by identity.

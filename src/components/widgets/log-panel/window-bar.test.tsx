@@ -31,7 +31,7 @@ const { invokeMock, factory: coreFactory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => coreFactory());
 
 const { onError } = await import('@/lib/error-bus');
-const { LogsWindowBar } = await import('./logs-window-bar');
+const { LogsWindowBar } = await import('./window-bar');
 
 beforeEach(() => {
   invokeMock.mockReset();

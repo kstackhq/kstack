@@ -28,7 +28,7 @@ import type { RefObject } from 'react';
 import { useCallback, useRef } from 'react';
 
 import { DashboardChat } from '@/components/widgets/chat';
-import { LogsViewPanel } from '@/components/widgets/logs-view';
+import { LogsViewPanel } from '@/components/widgets/log-panel';
 import { ObjectPanel } from '@/components/widgets/object-panel';
 import { ResizeHandle } from '@/components/widgets/resize-handle';
 import type { AppMode } from '@/lib/app-mode';
