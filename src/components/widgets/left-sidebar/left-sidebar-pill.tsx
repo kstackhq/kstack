@@ -19,7 +19,7 @@
 import { Link } from '@tanstack/react-router';
 import { LayoutDashboard, MessageCircle } from 'lucide-react';
 
-import { LeftSidebarToggle } from '@/components/widgets/left-sidebar-toggle';
+import { LeftSidebarToggle } from './left-sidebar-toggle';
 
 // `size-7` matches the toggle's `icon-sm`, so the pill is one column wide.
 const ITEM =

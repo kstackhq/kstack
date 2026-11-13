@@ -27,8 +27,8 @@ import { LeftSidebar } from './left-sidebar';
 // This suite is about which of the two the switch shows; each stub keeps the toggle
 // so collapsing and reopening can be driven the way the user does it. The real
 // ones are covered beside them (`left-sidebar-card.test.tsx`, `left-sidebar-pill.test.tsx`).
-vi.mock('@/components/widgets/left-sidebar-card', async () => {
-  const { LeftSidebarToggle } = await import('@/components/widgets/left-sidebar-toggle');
+vi.mock('./left-sidebar-card', async () => {
+  const { LeftSidebarToggle } = await import('./left-sidebar-toggle');
   return {
     LeftSidebarCard: ({ header, nav }: { header?: ReactNode; nav?: ReactNode }) => (
       <div data-testid="left-sidebar-card">
@@ -39,8 +39,8 @@ vi.mock('@/components/widgets/left-sidebar-card', async () => {
     ),
   };
 });
-vi.mock('@/components/widgets/left-sidebar-pill', async () => {
-  const { LeftSidebarToggle } = await import('@/components/widgets/left-sidebar-toggle');
+vi.mock('./left-sidebar-pill', async () => {
+  const { LeftSidebarToggle } = await import('./left-sidebar-toggle');
   return {
     LeftSidebarPill: () => (
       <div data-testid="left-sidebar-pill">

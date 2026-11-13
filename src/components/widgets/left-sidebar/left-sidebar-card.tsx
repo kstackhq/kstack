@@ -20,9 +20,10 @@ import { SidebarContent, SidebarHeader } from '@kubetail/ui/elements/sidebar';
 import type { ReactNode } from 'react';
 
 import { AppLogo } from '@/components/widgets/app-logo';
-import { LeftSidebarToggle } from '@/components/widgets/left-sidebar-toggle';
 import { ResizeHandle } from '@/components/widgets/resize-handle';
 import { usePersistedWidth } from '@/lib/persisted-width';
+
+import { LeftSidebarToggle } from './left-sidebar-toggle';
 
 // Drag-resize bounds (px); `initial` matches the library's 16rem.
 const WIDTH = { min: 200, max: 480, initial: 256 };

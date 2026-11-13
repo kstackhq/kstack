@@ -28,9 +28,10 @@ import { useLocation } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 
-import { LeftSidebarCard } from '@/components/widgets/left-sidebar-card';
-import { LeftSidebarPill } from '@/components/widgets/left-sidebar-pill';
 import { useFocusTrap } from '@/lib/focus-trap';
+
+import { LeftSidebarCard } from './left-sidebar-card';
+import { LeftSidebarPill } from './left-sidebar-pill';
 
 type LeftSidebarProps = {
   /** Pinned above the scroll area, beside the toggle. */
