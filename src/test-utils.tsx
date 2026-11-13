@@ -347,7 +347,7 @@ export function stubLayout(clientHeight: number) {
   );
 }
 
-// A text box with the webview's suggestions off (`components/widgets/text-entry.tsx`).
+// A text box with the webview's suggestions off (`components/primitives/text-entry.tsx`).
 function expectNoSuggestions(el: HTMLElement) {
   expect(el).toHaveAttribute('autocomplete', 'off');
   expect(el).toHaveAttribute('autocorrect', 'off');

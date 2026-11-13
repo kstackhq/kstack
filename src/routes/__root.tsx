@@ -16,14 +16,14 @@ import { createRootRoute, Outlet } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { Provider as UrqlProvider } from 'urql';
 
-import { WindowFrame } from '@/components/widgets/window-frame';
-import { WindowResizeHandles } from '@/components/widgets/window-resize-handles';
+import { WindowFrame } from '@/components/primitives/window-frame';
+import { WindowResizeHandles } from '@/components/primitives/window-resize-handles';
+import { ErrorBoundary } from '@/components/shell/error-boundary';
+import { ReadyGate } from '@/components/shell/ready-gate';
 import { AuthProvider } from '@/lib/auth';
 import { ClustersProvider } from '@/lib/clusters';
-import { ErrorBoundary } from '@/lib/error-boundary';
 import { createGraphqlClient } from '@/lib/graphql/client';
 import { KubeConfigProvider } from '@/lib/kube-config';
-import { ReadyGate } from '@/lib/ready-gate';
 import { ThemeProvider } from '@/lib/theme';
 
 const TanStackRouterDevtools =

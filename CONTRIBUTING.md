@@ -40,7 +40,7 @@ Each area has its own `CLAUDE.md` with its conventions. The root [`CLAUDE.md`](.
 | Working on... | Go to |
 |---------------|-------|
 | Pages and routing | `src/routes/` |
-| UI components | `src/components/widgets/` |
+| UI components | `src/components/` |
 | UI state and data hooks | `src/lib/` |
 | Windows, tray, menus | `src-tauri/src/` |
 | Starting and talking to the sidecar | `src-tauri/src/services/sidecar/` |

@@ -24,7 +24,7 @@ vi.mock('@/routes/_logs', async () => {
     Route: createRoute({ getParentRoute: () => testRoot, id: 'logs-window', component: () => <Outlet /> }),
   };
 });
-vi.mock('@/components/widgets/logs-window', () => ({
+vi.mock('@/components/logs/log-window/window', () => ({
   LogsWindow: () => <div data-testid="logs-window" />,
 }));
 

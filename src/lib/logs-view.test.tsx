@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { ChatToolCall } from '@/lib/chats';
 import { RightSidebarProvider, useRightSidebar } from '@/lib/right-sidebar';
 
-import { LogsViewProvider, useLogsView, viewOfCall } from './logs-view';
+import { anchorLine, LogsViewProvider, useLogsView, viewOfCall } from './logs-view';
 import type { LogsView } from './logs-view';
 
 const view: LogsView = {
@@ -124,5 +124,14 @@ describe('viewOfCall', () => {
   it('is null for a call with no action, or one of another tool', () => {
     expect(viewOfCall(callWith(null))).toBeNull();
     expect(viewOfCall(callWith({ logsView: null, logsRead: null, logsWatch: null }))).toBeNull();
+  });
+});
+
+describe('anchorLine', () => {
+  it('names each edge and the moment as stamped', () => {
+    expect(anchorLine({ kind: 'Head', at: null })).toBe('from the start');
+    expect(anchorLine({ kind: 'Tail', at: null })).toBe('at the newest line');
+    expect(anchorLine({ kind: 'At', at: '2026-10-08T14:02:00Z' })).toBe('from 2026-10-08T14:02:00Z');
+    expect(anchorLine({ kind: 'At', at: null })).toBe('from ');
   });
 });

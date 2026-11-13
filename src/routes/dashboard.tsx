@@ -16,11 +16,10 @@ import { Spinner } from '@kubetail/ui/elements/spinner';
 import { createRoute } from '@tanstack/react-router';
 import { useCallback, useMemo, useState } from 'react';
 
-import { EventsTable } from '@/components/widgets/events-table';
-import type { ObjectAction } from '@/components/widgets/object-actions';
-import { ObjectsTable } from '@/components/widgets/objects-table';
-import { PageHeader } from '@/components/widgets/page-frame/page-header';
-import { VisibleText } from '@/components/widgets/visible-text';
+import { EventsTable } from '@/components/dashboard/events-table';
+import { ObjectsTable } from '@/components/dashboard/objects-table';
+import { PageHeader } from '@/components/dashboard/page-header';
+import { VisibleText } from '@/components/primitives/visible-text';
 import { useClusterCachedDataEvents } from '@/lib/cluster-cached-data-events';
 import { useClusterCachedDataKinds } from '@/lib/cluster-cached-data-kinds';
 import { useClusterCachedDataObjects } from '@/lib/cluster-cached-data-objects';
@@ -34,6 +33,7 @@ import {
 import type { DashboardResource, ServerKind } from '@/lib/dashboard-resources';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useNamespaceScope } from '@/lib/namespace-scope';
+import type { ObjectAction } from '@/lib/object-actions';
 import { useObjectView } from '@/lib/object-view';
 import { Route as appRoute } from '@/routes/_app';
 

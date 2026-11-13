@@ -88,17 +88,17 @@ const LOG_WINDOW: WindowSpec = WindowSpec {
 // every platform so CI covers the arithmetic (hence `allow(dead_code)`).
 
 /// App-bar height, the strip the macOS traffic lights sit in. Kept in sync with
-/// `src/components/widgets/app-bar.tsx`'s `h-12`.
+/// `src/components/shell/app-bar/bar.tsx`'s `h-12`.
 const APP_BAR_HEIGHT: f64 = 48.0;
 
 /// A log window's bar height, the strip its traffic lights sit in. Kept in sync
-/// with `src/components/widgets/logs-window-bar.tsx`'s `h-10`.
+/// with `src/components/logs/log-window/bar.tsx`'s `h-10`.
 const LOG_BAR_HEIGHT: f64 = 40.0;
 
 /// Inset from the window's left edge to the first traffic light. The webview's
-/// `TRAFFIC_LIGHT_GUTTER` (`app-bar-button.tsx`, shared by both bars) reserves this
-/// plus the buttons — bump this and check each bar's first control still clears
-/// them.
+/// `TRAFFIC_LIGHT_GUTTER` (`traffic-light-gutter.tsx`, shared by both bars)
+/// reserves this plus the buttons — bump this and check each bar's first control
+/// still clears them.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const TRAFFIC_LIGHT_LEFT_INSET: f64 = 20.0;
 

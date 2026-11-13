@@ -60,6 +60,13 @@ export function viewOfCall(call: Pick<ChatToolCall, 'action' | 'background'>): L
   return null;
 }
 
+// Where a view starts, in words. The moment is drawn as the backend stamped it.
+export function anchorLine(anchor: LogsViewAction['anchor']): string {
+  if (anchor.kind === 'Head') return 'from the start';
+  if (anchor.kind === 'Tail') return 'at the newest line';
+  return `from ${anchor.at ?? ''}`;
+}
+
 type LogsViewContextValue = {
   view: LogsView | null;
   /** Focuses a view, keeping the user's grep when it is the call already focused. */

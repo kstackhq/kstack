@@ -44,11 +44,11 @@ vi.mock('@/routes/_app', async () => {
 
 // Both panels are covered by their own suites; this one is about which is picked and
 // what each is handed.
-vi.mock('@/components/widgets/events-table', () => ({
+vi.mock('@/components/dashboard/events-table', () => ({
   EventsTable: (props: Record<string, unknown>) => <div data-testid="events-table">{JSON.stringify(props)}</div>,
 }));
 // The table's rows press their actions through `onAction`; one button per action stands in.
-vi.mock('@/components/widgets/objects-table', () => ({
+vi.mock('@/components/dashboard/objects-table/table', () => ({
   ObjectsTable: ({ onAction, ...props }: { onAction: (action: string, o: unknown) => void }) => (
     <>
       <div data-testid="objects-table">{JSON.stringify(props)}</div>

@@ -9,7 +9,7 @@ Read by Vite, which bakes them into the bundle at build time. Set them in the sh
 | Variable | Values | Effect |
 | --- | --- | --- |
 | `VITE_ROUTER_DEVTOOLS` | `true` | Mounts TanStack Router's devtools (`src/routes/__root.tsx`). `.env.development` sets it to `false`. |
-| `VITE_READY_GATE_HOLD` | `pending`, `error` | Keeps `ReadyGate` on screen: `pending` never settles, `error` shows *Failed to start*, and Retry fails again (`src/lib/ready-gate.tsx`). A production build ignores it. |
+| `VITE_READY_GATE_HOLD` | `pending`, `error` | Keeps `ReadyGate` on screen: `pending` never settles, `error` shows *Failed to start*, and Retry fails again (`src/components/shell/ready-gate.tsx`). A production build ignores it. |
 
 ## Host and sidecar
 

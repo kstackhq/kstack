@@ -144,6 +144,12 @@ did and performs what the window answers.
   one, for a caller that reads its size or its sideways scroll. It is the DOM node and nothing
   else: the core still knows no columns.
 
+## The time
+
+`lineTime` (`line-time.ts`) is how a line's stamp reads: local time to the millisecond, with the
+date before it for a line not from today. The viewer's rows and copy and the transcript's inline
+lines all read it.
+
 ## The fake
 
 `FakeClient` (`fake-client.ts`) is a `Client` over a log it invents, for the tests. It writes its history `spacingMs` apart (a

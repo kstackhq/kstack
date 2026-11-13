@@ -14,7 +14,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { cacheFailureSummary, connectionFailureSummary, contextHealth, overallTone } from '@/lib/cluster-health';
+import {
+  cacheFailureSummary,
+  connectionFailureSummary,
+  contextHealth,
+  overallTone,
+  syncReason,
+} from '@/lib/cluster-health';
 import { clusterRecord } from '@/test-utils';
 
 describe('overallTone', () => {
@@ -86,5 +92,84 @@ describe('contextHealth', () => {
       tone: 'error',
       summary: 'Disconnected · Stalled',
     });
+  });
+});
+
+describe('syncReason', () => {
+  const health = (over: Record<string, unknown>) => ({
+    cacheID: 'cache-u',
+    status: 'False' as const,
+    reason: 'Watching',
+    unhealthyKindRefs: [] as { apiVersion: string; resource: string; reason: string }[],
+    failure: '',
+    totalKinds: 10,
+    unhealthyKinds: 0,
+    pausedKinds: 0,
+    lastUpdateAt: null,
+    lastLiveAt: null,
+    ...over,
+  });
+  const pods = (reason: string) => ({ apiVersion: 'v1', resource: 'pods', reason });
+  const deployments = (reason: string) => ({ apiVersion: 'apps/v1', resource: 'deployments', reason });
+
+  it('names the kinds a stale cache is not hearing from', () => {
+    const h = health({ reason: 'Stale', unhealthyKindRefs: [pods('Stale'), deployments('Stale')], unhealthyKinds: 2 });
+    expect(syncReason({ label: 'Stale', tone: 'attention' }, h)).toBe('pods, deployments not receiving updates.');
+  });
+
+  it('calls no kind stale that is only syncing', () => {
+    const h = health({
+      reason: 'Stale',
+      unhealthyKindRefs: [deployments('Stale'), pods('Syncing')],
+      unhealthyKinds: 2,
+    });
+    expect(syncReason({ label: 'Stale', tone: 'attention' }, h)).toBe('deployments not receiving updates.');
+  });
+
+  it('blames the watch when no kind behind a stale verdict is named', () => {
+    const h = health({ reason: 'Stale', unhealthyKindRefs: [pods('Syncing')], unhealthyKinds: 1 });
+    expect(syncReason({ label: 'Stale', tone: 'attention' }, h)).toBe('The watch may have stopped delivering updates.');
+  });
+
+  it('blames the watch when a stale cache names no kind', () => {
+    const h = health({ reason: 'Stale' });
+    expect(syncReason({ label: 'Stale', tone: 'attention' }, h)).toBe('The watch may have stopped delivering updates.');
+  });
+
+  it('says a cache whose file will not open', () => {
+    const h = health({ reason: 'StoreFailed' });
+    expect(syncReason({ label: 'Storage error', tone: 'error' }, h)).toBe('The cache file will not open.');
+  });
+
+  it('summarises the failing kinds', () => {
+    const h = health({ reason: 'SyncFailed', unhealthyKindRefs: [pods('SyncFailed')], unhealthyKinds: 1 });
+    expect(syncReason({ label: 'Error', tone: 'error' }, h)).toBe('9 of 10 kinds — pods not syncing');
+  });
+
+  it('counts the paused kinds beside the failing ones', () => {
+    const h = health({
+      reason: 'SyncFailed',
+      unhealthyKindRefs: [pods('SyncFailed')],
+      unhealthyKinds: 1,
+      pausedKinds: 2,
+    });
+    expect(syncReason({ label: 'Error', tone: 'error' }, h)).toBe('7 of 10 kinds — pods not syncing, 2 paused');
+  });
+
+  it('calls no kind failing that is only syncing', () => {
+    const h = health({
+      reason: 'SyncFailed',
+      unhealthyKindRefs: [deployments('SyncFailed'), pods('Syncing')],
+      unhealthyKinds: 2,
+    });
+    expect(syncReason({ label: 'Error', tone: 'error' }, h)).toBe('8 of 10 kinds — deployments not syncing');
+  });
+
+  it('gives no reason for a healthy or muted verdict, or without a rollup', () => {
+    const failing = health({ reason: 'SyncFailed', unhealthyKindRefs: [pods('SyncFailed')], unhealthyKinds: 1 });
+    expect(syncReason({ label: 'Current', tone: 'ok' }, health({}))).toBeNull();
+    expect(syncReason({ label: 'Stalled', tone: 'muted' }, failing)).toBeNull();
+    expect(syncReason({ label: 'Degraded', tone: 'attention' }, health({ reason: 'QuotaExceeded' }))).toBeNull();
+    expect(syncReason({ label: 'Syncing', tone: 'ok' }, null)).toBeNull();
   });
 });

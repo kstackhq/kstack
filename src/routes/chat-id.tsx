@@ -15,8 +15,8 @@
 // One chat on a page of its own.
 import { createRoute, useNavigate } from '@tanstack/react-router';
 
-import { CenteredColumn } from '@/components/widgets/centered-column';
-import { ChatPane } from '@/components/widgets/chat-pane';
+import { CenteredColumn } from '@/components/chat/centered-column';
+import { ChatPane } from '@/components/chat/chat-pane';
 import { Route as appRoute } from '@/routes/_app';
 
 export const Route = createRoute({

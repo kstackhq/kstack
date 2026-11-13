@@ -28,26 +28,26 @@ vi.mock('@tauri-apps/api/window', () => factory());
 // Replace each chrome widget with an identifiable stub so the test asserts
 // *placement* (title bar vs sidebar vs inset) without dragging in their
 // providers.
-vi.mock('@/components/widgets/app-menu', () => ({
+vi.mock('@/components/shell/app-bar/menu', () => ({
   AppMenu: () => <div data-testid="app-menu" />,
 }));
-vi.mock('@/components/widgets/mode-nav', () => ({
+vi.mock('@/components/shell/mode-nav', () => ({
   ModeNav: () => <div data-testid="mode-nav" />,
 }));
 // The omnibox in the app bar needs the router search + kubeconfig providers; this
 // test is about placement, so stub it.
-vi.mock('@/components/widgets/context-omnibox', () => ({
+vi.mock('@/components/shell/context-omnibox/omnibox', () => ({
   ContextOmnibox: () => <div data-testid="context-omnibox" />,
 }));
 // The dialogs host mounts the real overlay panels (which need the GraphQL/clusters
 // provider stack); stub it — this test is about chrome placement, not dialogs.
-vi.mock('@/components/widgets/app-dialogs', () => ({
+vi.mock('@/components/shell/app-dialogs', () => ({
   AppDialogs: () => <div data-testid="app-dialogs" />,
 }));
-vi.mock('@/components/widgets/settings-button', () => ({
+vi.mock('@/components/shell/app-bar/settings-button', () => ({
   SettingsButton: () => <div data-testid="settings-button" />,
 }));
-vi.mock('@/lib/connection-status', () => ({
+vi.mock('@/components/shell/connection-status', () => ({
   ConnectionStatus: () => <div data-testid="connection-status" />,
 }));
 // The log windows' provider talks to the host and reads the window's cluster; its own
@@ -67,7 +67,7 @@ vi.mock('@/lib/log-windows', async (importOriginal) => {
 // The real resource nav builds its tree from the active cluster's kinds (urql +
 // clusters providers); this test only checks that it mounts on dashboard, so stub
 // it with a nav that keeps the accessible "Resources" name the assertions match.
-vi.mock('@/components/widgets/chat-nav', () => ({
+vi.mock('@/components/chat/chat-nav', () => ({
   ChatNav: () => <nav aria-label="Chats" />,
 }));
 // The layout mounts the chat outbox, whose send wants a client. Nothing here sends.
@@ -92,7 +92,7 @@ vi.mock('@/lib/cluster-namespaces', () => ({
     return <div data-testid="namespace-list">{children}</div>;
   },
 }));
-vi.mock('@/components/widgets/dashboard-resource-nav', () => ({
+vi.mock('@/components/dashboard/dashboard-resource-nav', () => ({
   DashboardResourceNav: () => <nav aria-label="Resources" />,
 }));
 

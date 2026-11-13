@@ -219,7 +219,7 @@
               "@kubetail/ui/elements/search-box",
               "@kubetail/ui/elements/textarea"
             ],
-            "message": "Use '@/components/widgets/text-entry', which turns off the webview's suggestions."
+            "message": "Use '@/components/primitives/text-entry', which turns off the webview's suggestions."
           }
         ]
       }

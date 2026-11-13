@@ -17,7 +17,7 @@
 // axes as columns and the overall tone as its leading circle; the cluster picker
 // and the omnibox's dot show the overall tone per kubeconfig context.
 import { clusterForContext } from '@/lib/clusters';
-import type { Cluster } from '@/lib/clusters';
+import type { Cluster, ClusterCacheHealth } from '@/lib/clusters';
 
 export type Tone = 'ok' | 'attention' | 'error' | 'muted';
 // A record still named by the kubeconfig, or one whose cache outlived its context.
@@ -149,4 +149,57 @@ export function contextHealth(clusters: Cluster[] | null, context: string): Heal
   const record = clusterForContext(clusters, context);
   if (!record) return { tone: 'muted', summary: 'Not reached' };
   return clusterHealth(record);
+}
+
+// "120 kinds" / "1 kind" — suffix-"s" pluralisation covers every noun counted here.
+export function countLabel(n: number, noun: string): string {
+  return `${n.toLocaleString()} ${n === 1 ? noun : `${noun}s`}`;
+}
+
+// "118 of 120 kinds — widgets, gateways not syncing", "3 of 5 kinds syncing, 2 paused", or
+// plain "120 kinds". Read straight off the rollup — re-folding the per-kind stream here
+// would be a second definition of health that can disagree with the badge above it
+// mid-frame.
+//
+// Paused kinds are counted apart because they are neither: they stay in totalKinds and are
+// never offenders, so a label spending unhealthyKinds alone would render a plain "5 kinds"
+// over a cache where two of them are switched off.
+export function kindsSyncingLabel(health: ClusterCacheHealth): string {
+  const idle = health.unhealthyKinds + health.pausedKinds;
+  if (idle === 0) return countLabel(health.totalKinds, 'kind');
+  const syncing = `${health.totalKinds - idle} of ${countLabel(health.totalKinds, 'kind')}`;
+  if (health.unhealthyKinds === 0) return `${syncing} syncing, ${health.pausedKinds} paused`;
+  // unhealthyKinds counts every non-Watching kind; offenderList names only those behind
+  // the verdict. Mid-pause there's a count with no names — say how many are syncing and
+  // stop.
+  const offenders = offenderList(health);
+  const paused = health.pausedKinds > 0 ? `, ${health.pausedKinds} paused` : '';
+  if (!offenders) return `${syncing} syncing${paused}`;
+  return `${syncing} — ${offenders} not syncing${paused}`;
+}
+
+// Cap lives here, not in the sidecar: how many names fit is a layout question; the
+// wire carries the full sorted list.
+const OFFENDER_CAP = 3;
+
+// Names only the kinds whose own reason is the cache's: under a Stale or SyncFailed
+// verdict, a kind still on its cold list is neither.
+export function offenderList(health: ClusterCacheHealth): string {
+  // Plural alone; the ref's api group is for keying, not display.
+  const names = health.unhealthyKindRefs.filter((k) => k.reason === health.reason).map((k) => k.resource);
+  if (names.length <= OFFENDER_CAP) return names.join(', ');
+  return `${names.slice(0, OFFENDER_CAP).join(', ')} +${names.length - OFFENDER_CAP} more`;
+}
+
+// One line saying why a bad sync verdict is bad, off the rollup alone. A muted verdict
+// names its own cause; a reason the rollup cannot explain gets no line rather than a guess.
+export function syncReason(status: Status, health: ClusterCacheHealth | null | undefined): string | null {
+  if (!health || (status.tone !== 'error' && status.tone !== 'attention')) return null;
+  if (health.reason === 'Stale') {
+    const offenders = offenderList(health);
+    return offenders ? `${offenders} not receiving updates.` : 'The watch may have stopped delivering updates.';
+  }
+  if (health.reason === 'StoreFailed') return 'The cache file will not open.';
+  if (health.unhealthyKinds > 0) return kindsSyncingLabel(health);
+  return null;
 }

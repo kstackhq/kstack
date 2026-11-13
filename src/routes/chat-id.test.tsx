@@ -30,7 +30,7 @@ vi.mock('@/routes/_app', async () => {
 // The pane has a suite of its own; here it only reports what it was handed, and its
 // callback is what the route exists to answer.
 const { paneProps } = vi.hoisted(() => ({ paneProps: { current: null as Record<string, unknown> | null } }));
-vi.mock('@/components/widgets/chat-pane', () => ({
+vi.mock('@/components/chat/chat-pane', () => ({
   ChatPane: (props: Record<string, unknown>) => {
     paneProps.current = props;
     return <div data-testid="pane" />;
