@@ -37,12 +37,14 @@ type NewChatPaneProps = {
   mode: AppMode;
   /** What fills the space above the composer. */
   empty: ReactNode;
+  /** Draw `empty` and the composer as one group in the middle of the pane. */
+  centered?: boolean;
   /** The first send created this chat. */
   onCreated: (chatID: string) => void;
 };
 
 /** A chat that has not started. Nothing is written until the first send creates it. */
-export function NewChatPane({ mode, empty, onCreated }: NewChatPaneProps) {
+export function NewChatPane({ mode, empty, centered = false, onCreated }: NewChatPaneProps) {
   // The chat is filed under the window's cluster, so the composer waits on the
   // clusters watch: no snapshot yet means no answer to whether there is one.
   const { clusterID, phase } = useActiveCluster();
@@ -50,21 +52,34 @@ export function NewChatPane({ mode, empty, onCreated }: NewChatPaneProps) {
   const sandbox = useSandbox();
   useAskAgainWhenLive(sandbox.failed, phase === 'live', sandbox.retry);
 
+  const composer = (
+    <ChatComposer
+      chatID={null}
+      mode={mode}
+      clusterID={clusterID}
+      phase={phase}
+      last={null}
+      onCreated={onCreated}
+      sandboxAvailable={sandbox.available}
+      networkAvailable={sandbox.networkAvailable}
+      networkReason={sandbox.networkReason}
+    />
+  );
+
+  if (centered) {
+    // Sits a little above the middle, where the eye starts.
+    return (
+      <div className="flex min-h-0 flex-1 flex-col justify-center gap-6 pb-30">
+        {empty}
+        {composer}
+      </div>
+    );
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* A flex container, so an `empty` that scrolls can shrink into it. */}
       <div className="flex min-h-0 flex-1 flex-col">{empty}</div>
-      <ChatComposer
-        chatID={null}
-        mode={mode}
-        clusterID={clusterID}
-        phase={phase}
-        last={null}
-        onCreated={onCreated}
-        sandboxAvailable={sandbox.available}
-        networkAvailable={sandbox.networkAvailable}
-        networkReason={sandbox.networkReason}
-      />
+      {composer}
     </div>
   );
 }
@@ -162,17 +177,20 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ChatTranscript
-        messages={messages}
-        phase={phase}
-        chatID={chatID}
-        mode={mode}
-        clusterID={chat?.clusterID}
-        sandboxAvailable={sandbox.available}
-        sandboxDisabled={chat?.sandboxDisabled}
-        networkEnabled={chat?.networkEnabled}
-        switching={switching}
-      />
+      {/* Narrower than the composer, so the answer keeps a readable line length. */}
+      <div className="mx-auto flex min-h-0 w-full max-w-156 flex-1 flex-col">
+        <ChatTranscript
+          messages={messages}
+          phase={phase}
+          chatID={chatID}
+          mode={mode}
+          clusterID={chat?.clusterID}
+          sandboxAvailable={sandbox.available}
+          sandboxDisabled={chat?.sandboxDisabled}
+          networkEnabled={chat?.networkEnabled}
+          switching={switching}
+        />
+      </div>
       {/* The chat's own cluster, so a send into it needs no active one. */}
       <ChatComposer
         chatID={chatID}

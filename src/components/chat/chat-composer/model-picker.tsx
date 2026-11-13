@@ -41,7 +41,6 @@ function Segment({
   groups,
   onSelect,
   leading,
-  muted = false,
   chevron = false,
 }: {
   label: string;
@@ -50,7 +49,6 @@ function Segment({
   onSelect: (next: string) => void;
   /** Drawn before the picked label. */
   leading?: ReactNode;
-  muted?: boolean;
   chevron?: boolean;
 }) {
   const current = groups.flatMap((g) => g.options).find((o) => o.value === value);
@@ -62,14 +60,14 @@ function Segment({
           <Button
             variant="ghost"
             size="sm"
-            className={`min-w-0 shrink gap-1.5 px-1.5 text-sm ${muted ? 'font-normal text-muted-foreground' : 'font-medium'}`}
+            className="min-w-0 shrink gap-1.5 px-1.5 text-sm font-normal text-muted-foreground"
           />
         }
         aria-label={`${label}: ${current?.label ?? value}`}
       >
         {leading}
         <span className="truncate">{current?.label ?? value}</span>
-        {chevron && <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
+        {chevron && <ChevronDown className="size-3.5 shrink-0" aria-hidden />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" sideOffset={6} className="max-h-80 min-w-40 overflow-y-auto">
         {/* Called with the value alone: base-ui also passes event details, which the
@@ -159,7 +157,6 @@ export function ModelPicker({ models, pick, picked, onPick }: ModelPickerProps) 
           value={pick.effort}
           groups={[{ options: picked.efforts.map((e) => ({ value: e, label: e })) }]}
           onSelect={(effort) => onPick({ model: pick.model, effort })}
-          muted
           chevron
         />
       )}

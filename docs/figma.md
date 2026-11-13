@@ -16,7 +16,7 @@ Every group on a page is a Figma section, laid out so that no two overlap. A new
 ## Tokens
 
 - **The library's `Theme` collection holds Kstack's colors** in its *Kstack Light* and *Kstack Dark* modes, beside kubetail's own *Light* and *Dark*. They mirror `src/index.css`. Its `font/sans` variable is Inter in kubetail's modes and Roboto Flex in Kstack's; the library's sans text styles are bound to it.
-- **Desktop's `Kstack` collection holds the tokens the library lacks**: `--app-bar*`, `--series-*`, `--selection-band`, the `--ansi-*` whites, the status tones (`cluster-health.ts`'s `TONE`, and the cluster status pill's tints) and the Linux window frame's border. Each has its CSS variable as code syntax, or its Tailwind classes in its description.
+- **Desktop's `Kstack` collection holds the tokens the library lacks**: `--app-bar*`, `--series-*`, `--selection-band`, the `--ansi-*` whites, the status tones (`cluster-health.ts`'s `TONE`, and the cluster status pill's tints), the chat composer's surface (`color/composer`, `bg-background dark:bg-card`), the Linux window frame's border, and the macOS window's hairline (`color/macos-window-border`). Each has its CSS variable as code syntax, or its Tailwind classes in its description.
 - **Every screen sets both collections' modes**: *Kstack Light* with *Light*, or *Kstack Dark* with *Dark*.
 - A color changed in `src/index.css` is changed by hand in the matching mode.
 
@@ -37,7 +37,7 @@ Every group on a page is a Figma section, laid out so that no two overlap. A new
 
 ## Platforms
 
-Screens are drawn for macOS. `AppBar` and `LogsWindowBar` have a `Platform` variant, *macOS* or *Windows/Linux*. `WindowFrame` draws the windowed Linux frame around whatever screen is in its `Window` slot. A maximized Linux window has no frame, so it looks the same as Windows. The Screens page's first section, *Platforms*, draws `Shell` side by side on each, with no popup open: macOS, Windows, Linux windowed and Linux maximized, light over dark.
+Screens are drawn for macOS. Each macOS screen frame draws the window's edge that macOS adds: 16px corners, a `color/macos-window-border` hairline and the `macos/window` shadow. They exist only on the canvas; the app draws none of them. `AppBar` and `LogsWindowBar` have a `Platform` variant, *macOS* or *Windows/Linux*. `WindowFrame` draws the windowed Linux frame around whatever screen is in its `Window` slot. A maximized Linux window has no frame, so it looks the same as Windows. The Screens page's first section, *Platforms*, draws `Shell` side by side on each, with no popup open: macOS, Windows, Linux windowed and Linux maximized, light over dark.
 
 ## Popups
 

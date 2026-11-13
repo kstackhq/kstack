@@ -34,11 +34,8 @@ function Chat() {
     <CenteredColumn>
       <NewChatPane
         mode="chat"
-        empty={
-          <div className="flex flex-1 items-center justify-center">
-            <p className="text-sm text-muted-foreground">Ask about your cluster.</p>
-          </div>
-        }
+        centered
+        empty={<h1 className="text-center text-2xl">Ask about your cluster.</h1>}
         // Replace, so Back returns to whatever came before the empty page.
         onCreated={(chatId) => navigate({ to: '/chat/$chatId', params: { chatId }, replace: true })}
       />

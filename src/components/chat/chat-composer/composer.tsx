@@ -17,9 +17,8 @@
 // outbox's, so this only draws them — and decides the one thing a send leaves to
 // its caller, which is whether the window should follow a chat it created.
 import { Button } from '@kubetail/ui/elements/button';
-import { ArrowUp, AtSign, Plus, Square, SquareSlash, X } from 'lucide-react';
+import { ArrowUp, Square, X } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { ReactNode } from 'react';
 import { useMutation } from 'urql';
 
 import { PROSE_TEXT } from '@/components/primitives/text-entry';
@@ -95,31 +94,8 @@ type ChatComposerProps = {
 
 const noop = () => {};
 
-// A toolbar button with no feature behind it yet. `aria-disabled` rather than
-// `disabled`, so it still takes the hover that shows its title.
-function ComingSoon({
-  label,
-  variant = 'ghost',
-  children,
-}: {
-  label: string;
-  variant?: 'ghost' | 'outline';
-  children: ReactNode;
-}) {
-  return (
-    <Button
-      type="button"
-      variant={variant}
-      size="icon"
-      aria-label={label}
-      aria-disabled
-      title={`${label} (coming soon)`}
-      className="shrink-0"
-    >
-      {children}
-    </Button>
-  );
-}
+// Send and Cancel share one look, so only the icon changes as a turn starts and ends.
+const ROUND_ACTION = 'shrink-0 rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-50';
 
 /** Where the view that rides the send is drawn. */
 type Place = 'sidebar' | 'window';
@@ -243,6 +219,9 @@ export function ChatComposer({
   const shownNetwork = chatID === null ? false : networkEnabled;
   // The network switch changes nothing outside the sandbox.
   const inSandbox = sandboxAvailable === true && shownDisabled !== true;
+  // Drawn only while network is on, so a chat that has it can still turn it off.
+  const showNetwork = inSandbox && shownNetwork === true;
+  const openChat = chatID !== null;
   // `streaming` is checked here as well as behind the Cancel button, so Enter refuses
   // for the same reason the button is not a Send: one turn per chat.
   // `picked` is the entry's own pick checked against the list, never a fallback
@@ -259,7 +238,7 @@ export function ChatComposer({
     draft.trim() !== '';
   // All only once the watch they wait on has answered: a window at startup has not
   // failed to pick anything, and a catalog still in flight is not an empty one.
-  let placeholder = 'Ask about this cluster, or paste a manifest, log or kubectl output…';
+  let placeholder = 'Ask about your cluster…';
   if (loaded && models.length === 0) placeholder = 'Set an API key, then restart Kstack';
   else if (clusterID === undefined && phase !== 'connecting') placeholder = 'Pick a cluster to start a chat';
 
@@ -287,7 +266,7 @@ export function ChatComposer({
         type="button"
         size="icon"
         aria-label="Cancel"
-        className="shrink-0 rounded-full"
+        className={ROUND_ACTION}
         onClick={() => chatCancel({ chatID })}
       >
         <Square className="fill-current" aria-hidden />
@@ -306,13 +285,7 @@ export function ChatComposer({
     );
   } else {
     action = (
-      <Button
-        type="submit"
-        size="icon"
-        aria-label="Send"
-        className="shrink-0 rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-50"
-        disabled={!canSend}
-      >
+      <Button type="submit" size="icon" aria-label="Send" className={ROUND_ACTION} disabled={!canSend}>
         <ArrowUp aria-hidden />
       </Button>
     );
@@ -363,36 +336,34 @@ export function ChatComposer({
           </Button>
         </p>
       )}
-      <div className="flex flex-col rounded-[10px] border bg-card shadow-xs focus-within:border-ring">
-        <textarea
-          {...PROSE_TEXT}
-          value={draft}
-          // What is in flight is what the box shows, so it must not change under it.
-          readOnly={send.status === 'sending' || send.status === 'held'}
-          placeholder={placeholder}
-          rows={1}
-          className="max-h-60 min-h-13 w-full resize-none bg-transparent px-3.5 pt-3.5 pb-1 text-sm/5 field-sizing-content placeholder:text-muted-foreground focus:outline-none"
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            // Enter while an IME is composing confirms the character, not the message.
-            if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
-            e.preventDefault();
-            onSend();
-          }}
-        />
-        {/* Wraps rather than clip at the dashboard sidebar's narrowest. */}
-        <div className="flex flex-wrap items-center justify-between gap-1 px-2.5 py-2">
+      <div className="flex flex-col gap-1">
+        {/* A new chat's box is tall with Send under the text; an open chat's is one line with Send beside it. */}
+        <div
+          className={`flex rounded-[10px] border bg-background shadow-sm focus-within:border-ring dark:bg-card ${openChat ? 'items-end' : 'flex-col'}`}
+        >
+          <textarea
+            {...PROSE_TEXT}
+            value={draft}
+            // What is in flight is what the box shows, so it must not change under it.
+            readOnly={send.status === 'sending' || send.status === 'held'}
+            placeholder={placeholder}
+            rows={1}
+            className={`max-h-60 w-full resize-none bg-transparent px-3.5 text-sm/5 field-sizing-content placeholder:text-muted-foreground focus:outline-none ${openChat ? 'min-h-12 py-3.5' : 'min-h-15 pt-3.5 pb-1'}`}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter while an IME is composing confirms the character, not the message.
+              if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              onSend();
+            }}
+          />
+          <div className={`flex shrink-0 justify-end gap-2 ${openChat ? 'p-1.5' : 'px-2.5 pb-2.5'}`}>{action}</div>
+        </div>
+        {/* The chat's settings. Wraps rather than clip at the dashboard sidebar's narrowest. */}
+        <div className="flex flex-wrap items-center justify-between gap-1 px-1">
           <div className="flex min-w-0 items-center gap-0.5">
-            <ComingSoon label="Add attachment" variant="outline">
-              <Plus aria-hidden />
-            </ComingSoon>
-            <ComingSoon label="Mention a resource">
-              <AtSign aria-hidden />
-            </ComingSoon>
-            <ComingSoon label="Slash commands">
-              <SquareSlash aria-hidden />
-            </ComingSoon>
-            {chatID !== null && inSandbox && (
+            {sandboxAvailable === true && <SandboxPopover sandboxDisabled={shownDisabled} />}
+            {showNetwork && (
               <NetworkSwitch
                 networkEnabled={networkEnabled}
                 available={networkAvailable}
@@ -402,15 +373,12 @@ export function ChatComposer({
             )}
             {chatID !== null && <ChatGrants chatID={chatID} />}
           </div>
-          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
+          <div className="ml-auto min-w-0">
             {pick && picked && <ModelPicker models={models} pick={pick} picked={picked} onPick={setPick} />}
-            {sandboxAvailable === true && <SandboxPopover sandboxDisabled={shownDisabled} />}
-            <div aria-hidden className="mx-1 h-4 w-px bg-border" />
-            <div className="flex shrink-0 gap-2">{action}</div>
           </div>
         </div>
       </div>
-      {inSandbox && networkAvailable === false && (
+      {showNetwork && networkAvailable === false && (
         <p className="px-1 text-xs text-muted-foreground">No network on this machine: {networkReason}</p>
       )}
     </form>

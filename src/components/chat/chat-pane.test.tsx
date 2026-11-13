@@ -195,6 +195,22 @@ describe('NewChatPane', () => {
     expect(props('composer')).toMatchObject({ chatID: null, mode: 'chat', clusterID: '1', last: null });
   });
 
+  it('draws the empty slot and the composer as one group when centred', () => {
+    const pane = (centered: boolean) => (
+      <ChatOutboxProvider>
+        <NewChatPane mode="chat" centered={centered} empty={<p>Ask about your cluster.</p>} onCreated={onCreated} />
+      </ChatOutboxProvider>
+    );
+    const slotParent = () => screen.getByText('Ask about your cluster.').parentElement;
+    const composerParent = () => screen.getByTestId('composer').parentElement;
+
+    // At the bottom, the slot fills the space above the composer.
+    const view = render(pane(false));
+    expect(slotParent()).not.toBe(composerParent());
+    view.rerender(pane(true));
+    expect(slotParent()).toBe(composerParent());
+  });
+
   // The clusters watch is what it waits on: with no snapshot yet there is no answer
   // to "is there a cluster to file this under?", so the composer stays closed.
   it('hands the composer the clusters watch’s phase, not a hardcoded one', () => {

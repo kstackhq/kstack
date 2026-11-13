@@ -172,7 +172,7 @@ function renderComposer(props: Props & { replaced?: boolean } = {}) {
   };
 }
 
-const PLACEHOLDER = 'Ask about this cluster, or paste a manifest, log or kubectl output…';
+const PLACEHOLDER = 'Ask about your cluster…';
 const box = () => screen.getByPlaceholderText(PLACEHOLDER);
 const button = (name: string) => screen.getByRole('button', { name });
 
@@ -227,18 +227,11 @@ beforeEach(() => {
 describe('ChatComposer', () => {
   const sandboxButton = () => screen.queryByRole('button', { name: /sandbox/i });
 
-  it('draws attach, mention and slash commands as placeholders that do nothing', async () => {
-    renderComposer();
-    const names = ['Add attachment', 'Mention a resource', 'Slash commands'];
-    names.forEach((name) => expect(button(name)).toHaveAttribute('aria-disabled', 'true'));
-    await userEvent.click(button('Add attachment'));
-    expect(sendMock).not.toHaveBeenCalled();
-  });
-
-  // The button's own states are `sandbox-popover.test.tsx`'s.
   it('draws the sandbox button where there is a sandbox', () => {
     const view = renderComposer({ sandboxAvailable: true, sandboxDisabled: true });
     expect(sandboxButton()).toHaveTextContent('Outside the sandbox');
+    view.rerender({ sandboxAvailable: true, sandboxDisabled: false });
+    expect(sandboxButton()).toHaveTextContent('Sandbox');
     // A chat that has not started runs in the sandbox.
     view.rerender({ chatID: null, sandboxAvailable: true, sandboxDisabled: undefined });
     expect(sandboxButton()).toHaveTextContent('Sandbox');
@@ -275,22 +268,22 @@ describe('ChatComposer', () => {
 
   const networkButton = () => screen.queryByRole('button', { name: /^(no network|network on)$/i });
 
-  // The network switch sits beside the sandbox switch, for the open chat in it:
-  // outside the sandbox it changes nothing.
-  it('draws the network switch for an open chat in the sandbox', () => {
+  // Outside the sandbox the switch changes nothing. Nothing turns network on from
+  // here, but a chat that has it can still turn it off.
+  it('draws the network switch only while an open chat in the sandbox has network on', () => {
     const view = renderComposer({ sandboxAvailable: true, networkAvailable: true });
-    expect(networkButton()).toHaveTextContent('No network');
+    expect(networkButton()).toBeNull();
+    view.rerender({ sandboxAvailable: true, networkAvailable: true, networkEnabled: undefined });
+    expect(networkButton()).toBeNull();
 
     view.rerender({ sandboxAvailable: true, networkAvailable: true, networkEnabled: true });
     expect(networkButton()).toHaveTextContent('Network on');
-    view.rerender({ sandboxAvailable: true, networkAvailable: true, networkEnabled: undefined });
-    expect(networkButton()).toBeDisabled();
 
-    view.rerender({ sandboxAvailable: true, networkAvailable: true, sandboxDisabled: true });
+    view.rerender({ sandboxAvailable: true, networkAvailable: true, networkEnabled: true, sandboxDisabled: true });
     expect(networkButton()).toBeNull();
-    view.rerender({ sandboxAvailable: false, networkAvailable: true });
+    view.rerender({ sandboxAvailable: false, networkAvailable: true, networkEnabled: true });
     expect(networkButton()).toBeNull();
-    view.rerender({ chatID: null, sandboxAvailable: true, networkAvailable: true });
+    view.rerender({ chatID: null, sandboxAvailable: true, networkAvailable: true, networkEnabled: true });
     expect(networkButton()).toBeNull();
   });
 
@@ -314,9 +307,18 @@ describe('ChatComposer', () => {
     expect(sendMock.mock.calls[0][0]).toMatchObject({ networkEnabled: true, networkThisTurn: false });
   });
 
-  it('disables the network switch where network is unavailable, saying why', () => {
-    renderComposer({ sandboxAvailable: true, networkAvailable: false, networkReason: 'pasta not found' });
-    expect(networkButton()).toBeDisabled();
+  it('says why network is unavailable only beside a switch that is on', () => {
+    const view = renderComposer({ sandboxAvailable: true, networkAvailable: false, networkReason: 'pasta not found' });
+    expect(screen.queryByText(/No network on this machine/)).toBeNull();
+
+    view.rerender({
+      sandboxAvailable: true,
+      networkAvailable: false,
+      networkReason: 'pasta not found',
+      networkEnabled: true,
+    });
+    // Off is always allowed, so a switch left on where network is gone can still go.
+    expect(networkButton()).toBeEnabled();
     expect(screen.getByText('No network on this machine: pasta not found')).toBeInTheDocument();
   });
 

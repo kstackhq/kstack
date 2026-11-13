@@ -20,5 +20,5 @@ import type { ReactNode } from 'react';
 // `min-h-0`: a plain flex item's minimum is its content, and the message list below
 // must be able to shrink to the frame and scroll.
 export function CenteredColumn({ children }: { children?: ReactNode }) {
-  return <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col gap-3 p-6">{children}</div>;
+  return <div className="mx-auto flex min-h-0 w-full max-w-174 flex-1 flex-col gap-3 px-6 pt-6 pb-2">{children}</div>;
 }

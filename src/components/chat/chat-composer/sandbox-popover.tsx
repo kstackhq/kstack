@@ -29,18 +29,23 @@ export function SandboxPopover({ sandboxDisabled }: SandboxPopoverProps) {
     <Popover>
       <PopoverTrigger
         render={
-          <Button type="button" variant="ghost" size="sm" className="shrink-0 gap-1.5 px-2.5 text-sm font-medium" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1.5 px-2.5 text-sm font-normal text-muted-foreground"
+          />
         }
         disabled={sandboxDisabled === undefined}
       >
         {outside ? (
-          <ShieldOff className="size-4 text-muted-foreground" aria-hidden />
+          <ShieldOff className="size-4" aria-hidden />
         ) : (
           <ShieldCheck className="size-4 text-emerald-500" aria-hidden />
         )}
         {outside ? 'Outside the sandbox' : 'Sandbox'}
       </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={8} className="w-72">
+      <PopoverContent align="start" sideOffset={8} className="w-72">
         <p className="text-sm font-medium">Sandbox</p>
         <p className="text-sm text-muted-foreground">Network options are coming soon.</p>
       </PopoverContent>
