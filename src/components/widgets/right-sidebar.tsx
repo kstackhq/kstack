@@ -27,7 +27,7 @@ import { PanelRight } from 'lucide-react';
 import type { RefObject } from 'react';
 import { useCallback, useRef } from 'react';
 
-import { DashboardChat } from '@/components/widgets/dashboard-chat';
+import { DashboardChat } from '@/components/widgets/chat';
 import { LogsViewPanel } from '@/components/widgets/logs-view';
 import { ObjectPanel } from '@/components/widgets/object-panel';
 import { ResizeHandle } from '@/components/widgets/resize-handle';

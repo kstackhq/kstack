@@ -28,7 +28,7 @@ import { fakeLogWindows } from '@/test-utils';
 // a urql client, the Tauri bridge and a layout. This file is about which one is mounted.
 // The focused object is bound to the active cluster.
 vi.mock('@/lib/active-cluster', () => ({ useActiveCluster: () => ({ clusterID: 'c1' }) }));
-vi.mock('@/components/widgets/dashboard-chat', () => ({
+vi.mock('@/components/widgets/chat/dashboard-chat', () => ({
   DashboardChat: () => <div data-testid="dashboard-chat" />,
 }));
 vi.mock('@/components/widgets/object-panel/object-panel', () => ({

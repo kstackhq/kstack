@@ -21,7 +21,7 @@ import { Copy } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import '@/components/widgets/markdown.css';
+import '@/components/widgets/chat/markdown.css';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { copyToClipboard } from '@/lib/clipboard';
 import { useClusterCachedDataObjects } from '@/lib/cluster-cached-data-objects';

@@ -87,7 +87,7 @@ vi.mock('@/components/widgets/chat-composer', async () => {
     },
   };
 });
-vi.mock('@/components/widgets/chat-transcript', () => ({
+vi.mock('./chat-transcript', () => ({
   ChatTranscript: (props: Record<string, unknown>) => <div data-testid="transcript">{JSON.stringify(props)}</div>,
 }));
 

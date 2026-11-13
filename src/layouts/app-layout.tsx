@@ -26,7 +26,7 @@ import { useRef } from 'react';
 
 import { AppBar } from '@/components/widgets/app-bar';
 import { AppDialogs } from '@/components/widgets/app-dialogs';
-import { ChatNav } from '@/components/widgets/chat-nav';
+import { ChatNav } from '@/components/widgets/chat';
 import { DashboardResourceNav } from '@/components/widgets/dashboard-resource-nav';
 import { LeftSidebar } from '@/components/widgets/left-sidebar';
 import { ModeNav } from '@/components/widgets/mode-nav';

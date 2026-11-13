@@ -15,7 +15,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Markdown } from '@/components/widgets/markdown';
+import { Markdown } from './markdown';
 
 describe('Markdown', () => {
   beforeEach(() => {

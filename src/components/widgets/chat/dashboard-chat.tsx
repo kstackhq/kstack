@@ -22,8 +22,8 @@
 import { Button } from '@kubetail/ui/elements/button';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 
-import { ChatNav } from '@/components/widgets/chat-nav';
-import { ChatPane, NewChatPane } from '@/components/widgets/chat-pane';
+import { ChatNav } from './chat-nav';
+import { ChatPane, NewChatPane } from './chat-pane';
 
 export function DashboardChat() {
   const { chat } = useSearch({ strict: false });

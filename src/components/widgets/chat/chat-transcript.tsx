@@ -28,9 +28,7 @@ import type { ReactNode } from 'react';
 import { useMutation } from 'urql';
 
 import { AppLogo } from '@/components/widgets/app-logo';
-import { DiffBlock } from '@/components/widgets/diff-block';
 import { LogsReadCard, LogsViewCard, LogsWatchCard } from '@/components/widgets/logs-view';
-import { Markdown } from '@/components/widgets/markdown';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { FolderGrantForm } from '@/components/widgets/settings';
 import { VisibleText } from '@/components/widgets/visible-text';
@@ -58,6 +56,9 @@ import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useHeldStill } from '@/lib/held-still';
 import { modelOf, useModels } from '@/lib/models';
 import { cutText, descriptionLine } from '@/lib/visible-text';
+
+import { DiffBlock } from './diff-block';
+import { Markdown } from './markdown';
 
 // How close to the end still counts as reading the end. Fixed, not a fraction of the
 // viewport: a threshold that grows with the window yanks a reader back mid-paragraph.

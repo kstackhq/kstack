@@ -19,7 +19,7 @@
 import { Button } from '@kubetail/ui/elements/button';
 import { useMemo } from 'react';
 
-import '@/components/widgets/markdown.css';
+import './markdown.css';
 import { VisibleText } from '@/components/widgets/visible-text';
 
 /** The class of one diff line, by its first characters. */

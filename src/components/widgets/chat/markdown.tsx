@@ -24,7 +24,7 @@ import ReactMarkdown, { type ExtraProps } from 'react-markdown';
 import { jsx, jsxs } from 'react/jsx-runtime';
 import remarkGfm from 'remark-gfm';
 
-import '@/components/widgets/markdown.css';
+import './markdown.css';
 import { copyToClipboard } from '@/lib/clipboard';
 import { highlight, load, loaded } from '@/lib/highlight';
 

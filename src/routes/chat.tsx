@@ -17,8 +17,7 @@
 // empty row in the sidebar.
 import { createRoute, useNavigate } from '@tanstack/react-router';
 
-import { CenteredColumn } from '@/components/widgets/centered-column';
-import { NewChatPane } from '@/components/widgets/chat-pane';
+import { CenteredColumn, NewChatPane } from '@/components/widgets/chat';
 import { Route as appRoute } from '@/routes/_app';
 
 export const Route = createRoute({
