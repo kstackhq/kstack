@@ -20,10 +20,11 @@ import { useMemo } from 'react';
 import ReactTimeAgo from 'react-timeago';
 
 import { TypeBadge } from '@/components/widgets/events-table';
-import { ObjectPanelNote } from '@/components/widgets/object-panel-note';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { useClusterCachedDataEvents } from '@/lib/cluster-cached-data-events';
 import type { FocusedObject } from '@/lib/object-view';
+
+import { ObjectPanelNote } from './object-panel-note';
 
 export function ObjectEventsView({ object }: { object: FocusedObject }) {
   // Its own connection, as the YAML tab's: the Events page may hold the same watch.

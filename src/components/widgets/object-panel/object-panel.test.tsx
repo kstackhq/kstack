@@ -17,11 +17,11 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 // Each tab has a suite of its own; this one is about the frame and which tab is mounted.
-vi.mock('@/components/widgets/object-yaml-view', () => ({ ObjectYamlView: () => <div data-testid="yaml-view" /> }));
-vi.mock('@/components/widgets/object-events-view', () => ({
+vi.mock('./object-yaml-view', () => ({ ObjectYamlView: () => <div data-testid="yaml-view" /> }));
+vi.mock('./object-events-view', () => ({
   ObjectEventsView: () => <div data-testid="events-view" />,
 }));
-vi.mock('@/components/widgets/object-logs-view', () => ({ ObjectLogsView: () => <div data-testid="logs-view" /> }));
+vi.mock('./object-logs-view', () => ({ ObjectLogsView: () => <div data-testid="logs-view" /> }));
 
 const { ObjectPanel } = await import('./object-panel');
 

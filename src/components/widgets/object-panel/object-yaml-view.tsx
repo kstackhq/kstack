@@ -22,7 +22,6 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import '@/components/widgets/markdown.css';
-import { ObjectPanelNote } from '@/components/widgets/object-panel-note';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { copyToClipboard } from '@/lib/clipboard';
 import { useClusterCachedDataObjects } from '@/lib/cluster-cached-data-objects';
@@ -30,6 +29,8 @@ import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects'
 import { highlight, load, loaded } from '@/lib/highlight';
 import type { FocusedObject } from '@/lib/object-view';
 import { objectYaml } from '@/lib/object-yaml';
+
+import { ObjectPanelNote } from './object-panel-note';
 
 type HastNode = ReturnType<typeof highlight>['children'][number];
 
