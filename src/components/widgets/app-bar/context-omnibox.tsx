@@ -24,7 +24,7 @@ import { Brain, Server } from 'lucide-react';
 import type { ReactNode, RefObject } from 'react';
 import { useRef, useState } from 'react';
 
-import { APP_BAR_CONTROL_CLASS, APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-button';
+import { APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-hover';
 import { ClusterDot } from '@/components/widgets/cluster-dot';
 import { ClusterPicker } from '@/components/widgets/cluster-picker';
 import { ClusterStatusPopover } from '@/components/widgets/cluster-status';
@@ -37,6 +37,8 @@ import type { Health } from '@/lib/cluster-health';
 import { clusterForContext, useClusters } from '@/lib/clusters';
 import { useMemories } from '@/lib/memories';
 import type { Memory } from '@/lib/memories';
+
+import { APP_BAR_CONTROL_CLASS } from './app-bar-button';
 
 // Clears the icon around the dot's corner. A ring in the pill's colour would do
 // the same, but that colour is translucent in dark mode.

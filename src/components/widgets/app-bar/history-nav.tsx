@@ -28,8 +28,9 @@ import type { RouterHistory } from '@tanstack/react-router';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 
-import { AppBarButton, AppBarDivider, AppBarGroup } from '@/components/widgets/app-bar-button';
 import { storageKey } from '@/lib/storage-key';
+
+import { AppBarButton, AppBarDivider, AppBarGroup } from './app-bar-button';
 
 // Exported so tests can seed a pre-reload value.
 export const FORWARD_CEILING_STORAGE_KEY = storageKey('history-forward-ceiling');

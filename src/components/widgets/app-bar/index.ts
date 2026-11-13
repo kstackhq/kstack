@@ -12,20 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Settings button at the right of the app bar, beside the account control. The
-// dialog it asks for renders in `AppDialogs`, above the sidebar — only the request
-// is made here.
-import { Settings } from 'lucide-react';
-
-import { AppBarButton } from '@/components/widgets/app-bar-button';
-import { useDialog } from '@/lib/dialog';
-
-export function SettingsButton() {
-  const { openDialog } = useDialog();
-
-  return (
-    <AppBarButton aria-label="Settings" className="border-transparent" onClick={() => openDialog('settings')}>
-      <Settings aria-hidden />
-    </AppBarButton>
-  );
-}
+// The app bar and its controls. `TrafficLightGutter` is exported for the log
+// window's bar, which reserves the same space.
+export { AppBar } from './app-bar';
+export { TrafficLightGutter } from './app-bar-button';

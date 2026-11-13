@@ -33,19 +33,19 @@ vi.mock('@tauri-apps/api/window', () => factory());
 
 // The history nav needs a router; this suite renders the bar outside one, so stub
 // it — its own suite covers the real one.
-vi.mock('@/components/widgets/history-nav', () => ({
+vi.mock('./history-nav', () => ({
   HistoryNav: () => <div data-testid="history-nav" />,
 }));
 // The notification button opens a popover and the settings button opens the
 // dialog host; their own suites cover the real ones.
-vi.mock('@/components/widgets/notification-button', () => ({
+vi.mock('./notification-button', () => ({
   NotificationButton: () => <div data-testid="notification-button" />,
 }));
-vi.mock('@/components/widgets/settings-button', () => ({
+vi.mock('./settings-button', () => ({
   SettingsButton: () => <div data-testid="settings-button" />,
 }));
 // The omnibox reads the kubeconfig; its own suite covers it.
-vi.mock('@/components/widgets/context-omnibox', () => ({
+vi.mock('./context-omnibox', () => ({
   ContextOmnibox: () => <div data-testid="context-omnibox" />,
 }));
 

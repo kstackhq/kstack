@@ -25,8 +25,9 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import { LogOut, User, UserRound } from 'lucide-react';
 
-import { AppBarButton } from '@/components/widgets/app-bar-button';
 import { useAuthState } from '@/lib/auth';
+
+import { AppBarButton } from './app-bar-button';
 
 /** Host command the menu drives. Keep in sync with `commands.rs`. */
 const OPEN_ACCOUNT_URL_CMD = 'open_account_url';

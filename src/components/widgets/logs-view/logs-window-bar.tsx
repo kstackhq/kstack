@@ -19,7 +19,7 @@
 import { Button } from '@kubetail/ui/elements/button';
 import { invoke } from '@tauri-apps/api/core';
 
-import { TrafficLightGutter } from '@/components/widgets/app-bar-button';
+import { TrafficLightGutter } from '@/components/widgets/app-bar';
 import { ClusterDot } from '@/components/widgets/cluster-dot';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { WindowControls } from '@/components/widgets/window';

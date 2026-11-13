@@ -18,6 +18,8 @@ import { Button } from '@kubetail/ui/elements/button';
 import { cn } from '@kubetail/ui/lib/utils';
 import type { ComponentProps, ReactNode } from 'react';
 
+import { APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-hover';
+
 // `ghost` is the library variant with no resting fill, so the bar's tint shows
 // through and only hover paints. That drops the border with it, hence
 // `border-sidebar-border`: the button's base already carries `border` at
@@ -27,12 +29,6 @@ const SHAPE = 'rounded-full border-sidebar-border';
 
 // Every bar control is 32px tall: the omnibox, the groups and the buttons in them.
 const HEIGHT = 'h-8';
-
-// Hover is a wash over the bar's own tint rather than the library's fixed
-// `bg-muted`. The `dark:` form is needed too: `ghost` carries its own
-// `dark:hover:bg-muted/50`, which tailwind-merge only replaces with a class
-// in the same variant chain.
-export const APP_BAR_HOVER_CLASS = 'hover:bg-app-bar-hover dark:hover:bg-app-bar-hover';
 
 const VARIANTS = { variant: 'ghost', size: 'icon' } as const;
 

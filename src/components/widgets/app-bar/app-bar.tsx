@@ -18,15 +18,16 @@
 // and caption buttons; the frameless platforms get `AppMenu` on the left and
 // `WindowControls` on the right.
 // See docs/adr/2026-08-09-per-platform-window-chrome.md
-import { AppBarDivider, AppBarGroup, TrafficLightGutter } from '@/components/widgets/app-bar-button';
-import { AppMenu } from '@/components/widgets/app-menu';
-import { ContextOmnibox } from '@/components/widgets/context-omnibox';
-import { HistoryNav } from '@/components/widgets/history-nav';
-import { NotificationButton } from '@/components/widgets/notification-button';
-import { SettingsButton } from '@/components/widgets/settings-button';
 import { WindowControls } from '@/components/widgets/window';
 import { isMacOS } from '@/lib/platform';
 import { dismissPopupsOnWindowDrag } from '@/lib/window-drag';
+
+import { AppBarDivider, AppBarGroup, TrafficLightGutter } from './app-bar-button';
+import { AppMenu } from './app-menu';
+import { ContextOmnibox } from './context-omnibox';
+import { HistoryNav } from './history-nav';
+import { NotificationButton } from './notification-button';
+import { SettingsButton } from './settings-button';
 
 export function AppBar() {
   // `AppMenu` registers the `Ctrl/Cmd+N`/`Q` accelerators while it is mounted, so
