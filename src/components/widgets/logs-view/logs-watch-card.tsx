@@ -22,10 +22,6 @@ import { Button } from '@kubetail/ui/elements/button';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { logLine } from '@/components/widgets/logs-read-card';
-import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
-import { GapRow, LineRow, readsOneStream } from '@/components/widgets/logs-view-inline';
-import { SourceLine } from '@/components/widgets/logs-view-lines';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { AppMode } from '@/lib/app-mode';
@@ -33,6 +29,11 @@ import type { ChatToolCall } from '@/lib/chats';
 import { INLINE_LINES } from '@/lib/inline-log-lines';
 import type { LogsWatchAction, LogsWatchTask } from '@/lib/logs-view';
 import { descriptionLine } from '@/lib/visible-text';
+
+import { logLine } from './logs-read-card';
+import { LogsViewButtons, useViewPlace } from './logs-view-buttons';
+import { GapRow, LineRow, readsOneStream } from './logs-view-inline';
+import { SourceLine } from './logs-view-lines';
 
 // A watch's byte limit when the call names none.
 const DEFAULT_MAX_BYTES = 16384;

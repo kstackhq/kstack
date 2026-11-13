@@ -20,10 +20,11 @@ import { cn } from '@kubetail/ui/lib/utils';
 import { ExternalLink, X } from 'lucide-react';
 
 import { LogViewer } from '@/components/widgets/log-viewer';
-import { anchorLine, Names, SourceLine } from '@/components/widgets/logs-view-lines';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { LogViewportHandle } from '@/lib/log-viewport';
 import type { LogsView } from '@/lib/logs-view';
+
+import { anchorLine, Names, SourceLine } from './logs-view-lines';
 
 // `grep` is the viewer's, which its toolbar can change from the action's. Each button
 // draws only with its handler.

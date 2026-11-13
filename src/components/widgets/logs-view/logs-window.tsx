@@ -21,8 +21,6 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { LogViewer } from '@/components/widgets/log-viewer';
-import { LogsViewHeader } from '@/components/widgets/logs-view-panel';
-import { LogsWindowBar } from '@/components/widgets/logs-window-bar';
 import { useChatMessages, useChats } from '@/lib/chats';
 import { displayName, useClusters } from '@/lib/clusters';
 import type { Cluster } from '@/lib/clusters';
@@ -32,6 +30,9 @@ import type { LogViewportHandle } from '@/lib/log-viewport';
 import { createViewportPublisher } from '@/lib/log-window-push';
 import { viewOfCall } from '@/lib/logs-view';
 import type { LogsView } from '@/lib/logs-view';
+
+import { LogsViewHeader } from './logs-view-panel';
+import { LogsWindowBar } from './logs-window-bar';
 
 /**
  * What the page reads of `log_window_view`'s answer. `grep` is null when the open carried

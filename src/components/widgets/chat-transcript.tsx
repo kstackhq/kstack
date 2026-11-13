@@ -29,9 +29,7 @@ import { useMutation } from 'urql';
 
 import { AppLogo } from '@/components/widgets/app-logo';
 import { DiffBlock } from '@/components/widgets/diff-block';
-import { LogsReadCard } from '@/components/widgets/logs-read-card';
-import { LogsViewCard } from '@/components/widgets/logs-view-card';
-import { LogsWatchCard } from '@/components/widgets/logs-watch-card';
+import { LogsReadCard, LogsViewCard, LogsWatchCard } from '@/components/widgets/logs-view';
 import { Markdown } from '@/components/widgets/markdown';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { FolderGrantForm } from '@/components/widgets/settings';

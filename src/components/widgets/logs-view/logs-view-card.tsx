@@ -21,9 +21,6 @@
 import { useState } from 'react';
 import { useClient } from 'urql';
 
-import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
-import { LogsViewInline } from '@/components/widgets/logs-view-inline';
-import { anchorLine, SourceLine } from '@/components/widgets/logs-view-lines';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { AppMode } from '@/lib/app-mode';
@@ -32,6 +29,10 @@ import { INLINE_LOADING, useInlineLogLines } from '@/lib/inline-log-lines';
 import { createLogsClient } from '@/lib/logs-client';
 import type { LogsViewAction } from '@/lib/logs-view';
 import { descriptionLine } from '@/lib/visible-text';
+
+import { LogsViewButtons, useViewPlace } from './logs-view-buttons';
+import { LogsViewInline } from './logs-view-inline';
+import { anchorLine, SourceLine } from './logs-view-lines';
 
 // The window over the chat's cluster, its client built once per mount.
 function InlineWindow({

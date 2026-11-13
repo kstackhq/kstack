@@ -21,9 +21,6 @@
 import { Button } from '@kubetail/ui/elements/button';
 import { useState } from 'react';
 
-import { LogsViewButtons, useViewPlace } from '@/components/widgets/logs-view-buttons';
-import { GapRow, LineRow, type LineTag, readsOneStream } from '@/components/widgets/logs-view-inline';
-import { SourceLine } from '@/components/widgets/logs-view-lines';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { AppMode } from '@/lib/app-mode';
@@ -33,6 +30,10 @@ import { compareTimestamps, previousNanosecond } from '@/lib/log-viewer';
 import type { LogLine } from '@/lib/log-viewer';
 import type { LogsReadAction } from '@/lib/logs-view';
 import { descriptionLine } from '@/lib/visible-text';
+
+import { LogsViewButtons, useViewPlace } from './logs-view-buttons';
+import { GapRow, LineRow, type LineTag, readsOneStream } from './logs-view-inline';
+import { SourceLine } from './logs-view-lines';
 
 type Line = LogsReadAction['lines'][number];
 
