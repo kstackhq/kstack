@@ -17,7 +17,7 @@ import { createRoute } from '@tanstack/react-router';
 import { useCallback, useMemo, useState } from 'react';
 
 import { EventsTable } from '@/components/widgets/events-table';
-import type { ObjectAction } from '@/components/widgets/object-actions';
+import type { ObjectAction } from '@/components/widgets/objects-table';
 import { ObjectsTable } from '@/components/widgets/objects-table';
 import { PageHeader } from '@/components/widgets/page-frame/page-header';
 import { VisibleText } from '@/components/widgets/visible-text';

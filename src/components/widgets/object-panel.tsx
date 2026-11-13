@@ -20,10 +20,10 @@ import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
 import { X } from 'lucide-react';
 import type { ComponentType } from 'react';
 
-import { logsSourceKind } from '@/components/widgets/object-actions';
 import { ObjectEventsView } from '@/components/widgets/object-events-view';
 import { ObjectLogsView } from '@/components/widgets/object-logs-view';
 import { ObjectYamlView } from '@/components/widgets/object-yaml-view';
+import { logsSourceKind } from '@/components/widgets/objects-table';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { FocusedObject, ObjectTab } from '@/lib/object-view';
 

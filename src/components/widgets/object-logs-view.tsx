@@ -18,7 +18,7 @@
 import { useState } from 'react';
 
 import { LogViewer } from '@/components/widgets/log-viewer';
-import { logsSourceKind } from '@/components/widgets/object-actions';
+import { logsSourceKind } from '@/components/widgets/objects-table';
 import { useActiveCluster } from '@/lib/active-cluster';
 import { createLogViewportHandle } from '@/lib/log-viewport';
 import type { LogsViewAction } from '@/lib/logs-view';

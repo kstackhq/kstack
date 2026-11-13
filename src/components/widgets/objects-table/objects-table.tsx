@@ -22,9 +22,6 @@ import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
 import { cn } from '@kubetail/ui/lib/utils';
 import { useEffect, useMemo, useState } from 'react';
 
-import { ColumnPicker } from '@/components/widgets/column-picker';
-import { actionsColumn } from '@/components/widgets/object-actions';
-import type { ObjectAction } from '@/components/widgets/object-actions';
 import { Age, ageSortValue, columnsForKind, toneForKind } from '@/components/widgets/object-columns';
 import { HEALTH_TONE } from '@/components/widgets/status-pill';
 import type { StatusTone } from '@/components/widgets/status-pill';
@@ -40,6 +37,10 @@ import { matchesFilter } from '@/lib/object-filter';
 import { ownerOf } from '@/lib/object-owner';
 import { sortRows } from '@/lib/sort-rows';
 import { arrange, useTableColumns } from '@/lib/table-columns';
+
+import { ColumnPicker } from './column-picker';
+import { actionsColumn } from './object-actions';
+import type { ObjectAction } from './object-actions';
 
 type ObjectsTableProps = {
   apiVersion: string;
