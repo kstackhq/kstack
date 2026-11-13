@@ -15,6 +15,6 @@
 // The chat: its panes, the chat list, the dashboard's chat and the column chat mode centres them
 // in. The transcript, its markdown and its diffs are its own.
 export { CenteredColumn } from './centered-column';
-export { ChatNav } from './chat-nav';
-export { ChatPane, NewChatPane } from './chat-pane';
+export { ChatNav } from './nav';
+export { ChatPane, NewChatPane } from './pane';
 export { DashboardChat } from './dashboard-chat';

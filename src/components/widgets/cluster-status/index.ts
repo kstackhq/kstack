@@ -14,5 +14,5 @@
 
 // The cluster's status: the popover the omnibox opens and the Clusters dialog's sync panel.
 // The sparkline is their own.
-export { ClusterStatusPopover } from './cluster-status-popover';
-export { ClusterSyncPanel } from './cluster-sync-panel';
+export { ClusterStatusPopover } from './popover';
+export { ClusterSyncPanel } from './sync-panel';

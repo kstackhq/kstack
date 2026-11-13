@@ -28,7 +28,7 @@ vi.mock('@tauri-apps/api/window', () => factory());
 // Replace each chrome widget with an identifiable stub so the test asserts
 // *placement* (title bar vs sidebar vs inset) without dragging in their
 // providers.
-vi.mock('@/components/widgets/app-bar/app-menu', () => ({
+vi.mock('@/components/widgets/app-bar/menu', () => ({
   AppMenu: () => <div data-testid="app-menu" />,
 }));
 vi.mock('@/components/widgets/mode-nav', () => ({
@@ -67,7 +67,7 @@ vi.mock('@/lib/log-windows', async (importOriginal) => {
 // The real resource nav builds its tree from the active cluster's kinds (urql +
 // clusters providers); this test only checks that it mounts on dashboard, so stub
 // it with a nav that keeps the accessible "Resources" name the assertions match.
-vi.mock('@/components/widgets/chat/chat-nav', () => ({
+vi.mock('@/components/widgets/chat/nav', () => ({
   ChatNav: () => <nav aria-label="Chats" />,
 }));
 // The layout mounts the chat outbox, whose send wants a client. Nothing here sends.

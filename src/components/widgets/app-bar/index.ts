@@ -14,5 +14,5 @@
 
 // The app bar and its controls. `TrafficLightGutter` is exported for the log
 // window's bar, which reserves the same space.
-export { AppBar } from './app-bar';
-export { TrafficLightGutter } from './app-bar-button';
+export { AppBar } from './bar';
+export { TrafficLightGutter } from './button';

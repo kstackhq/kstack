@@ -31,7 +31,7 @@ vi.mock('@/routes/_app', async () => {
 
 // The pane has its own suite; here it only has to say what it was given.
 const { paneProps } = vi.hoisted(() => ({ paneProps: { current: null as Record<string, unknown> | null } }));
-vi.mock('@/components/widgets/chat/chat-pane', () => ({
+vi.mock('@/components/widgets/chat/pane', () => ({
   NewChatPane: (props: Record<string, unknown>) => {
     paneProps.current = props;
     return <div data-testid="pane" />;

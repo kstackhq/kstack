@@ -13,6 +13,6 @@
 // limitations under the License.
 
 // The window's own chrome: the frame, its resize handles and the caption buttons.
-export { WindowControls } from './window-controls';
-export { WindowFrame } from './window-frame';
-export { WindowResizeHandles } from './window-resize-handles';
+export { WindowControls } from './controls';
+export { WindowFrame } from './frame';
+export { WindowResizeHandles } from './resize-handles';

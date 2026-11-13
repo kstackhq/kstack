@@ -32,7 +32,7 @@ vi.mock('@/layouts/app-layout', async () => {
 
 // Both panes have suites of their own; here they report what they were handed.
 const { paneProps } = vi.hoisted(() => ({ paneProps: { current: null as Record<string, unknown> | null } }));
-vi.mock('./chat-pane', () => ({
+vi.mock('./pane', () => ({
   ChatPane: (props: Record<string, unknown>) => {
     paneProps.current = props;
     return <div data-testid="pane" />;
@@ -43,7 +43,7 @@ vi.mock('./chat-pane', () => ({
     return <div data-testid="pane">{empty as React.ReactNode}</div>;
   },
 }));
-vi.mock('./chat-nav', () => ({
+vi.mock('./nav', () => ({
   ChatNav: ({ mode }: { mode: string }) => <div data-testid="chat-nav">{mode}</div>,
 }));
 

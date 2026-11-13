@@ -17,7 +17,7 @@
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import { Bell } from 'lucide-react';
 
-import { AppBarButton } from './app-bar-button';
+import { AppBarButton } from './button';
 
 export function NotificationButton() {
   return (

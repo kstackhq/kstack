@@ -676,14 +676,14 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   spec, step 4) wants too.
 - **An object's Events tab also shows an earlier object's events.** The events watch names an
   event's object by kind, namespace and name, so a pod deleted and recreated under the same name
-  shows both pods' events (`object-events-view.tsx`). **Fix:** add `involvedUID` to the
+  shows both pods' events (`object-panel/events-view.tsx`). **Fix:** add `involvedUID` to the
   sidecar's cached event and match on it.
 - **No way from an object's events to the Events page.** The object panel's Events tab lists the
   object's events alone; the Events page has no filter to open it on. **Shape:** a filter on the
   Events page (by object, and text like the kind tables'), and *Open in Events* at the foot of the
   tab.
 - **A dashboard log view cannot move to a window.** The object panel's Logs tab
-  (`object-logs-view.tsx`) has no *Open in window*: a log window is keyed by a chat and its call
+  (`object-panel/logs-view.tsx`) has no *Open in window*: a log window is keyed by a chat and its call
   (`LogWindowsProvider`, the host's `log_windows.rs`), and this view has neither. **Shape:** a
   window keyed by its view, so any view can open one. The pod detail page's Logs tab (dashboard
   spec, step 4) will want the same.
@@ -794,7 +794,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **A pod's tone has names of its own.** `status-pill.tsx`'s `StatusTone` (`ok`, `pending`,
   `failing`) maps one-to-one onto cluster health's `Tone` (`ok`, `attention`, `error`) through
-  `HEALTH_TONE`, so callers translate (`TONE[HEALTH_TONE[b]].text` in `objects-table.tsx`), and the
+  `HEALTH_TONE`, so callers translate (`TONE[HEALTH_TONE[b]].text` in `objects-table/table.tsx`), and the
   pill draws its own dot beside `ClusterDot` at another size. **Fix:** type pod tones as `Tone`,
   drop `StatusTone` and `HEALTH_TONE`, and draw the dot with `ClusterDot`.
 
@@ -823,7 +823,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **`useCachedKinds` folds ~150 records into a map and array to yield two lookups.** `SyncDetail` uses the list twice and never as a list: `timelineSyncFor` picks one record's `{ id, resource }`, and `idOf` does a linear `find` per failing kind to map a GVR back to its record id. **Fix:** return a `Map` keyed by `gvrKey` alongside the timeline record, so both lookups are O(1) and neither needs the array. Collapsing the hook to just the timeline record does not work — it would leave `idOf` with nothing to search.
 
-- **`cluster-sync-panel.tsx` is ~1300 lines holding five separable units.** Thirteen `graphql()` documents and seven subscription hooks, a status/tone/formatting vocabulary, and three independent panels (`ConnectionDetail`, `SyncDetail`, `ClusterRow`) plus the dialog shell. `overallTone` is exported only because the test file has nothing narrower to import. **Fix:** a `cluster-sync-panel/` directory — `subscriptions.ts`, `status.ts`, `connection-detail.tsx`, `sync-detail.tsx`, `cluster-row.tsx`, `index.tsx` — leaving the panel file as a ~110-line shell. Pure churn, so worth doing when the file is next touched substantively rather than on its own.
+- **`cluster-status/sync-panel.tsx` is ~1300 lines holding five separable units.** Thirteen `graphql()` documents and seven subscription hooks, a status/tone/formatting vocabulary, and three independent panels (`ConnectionDetail`, `SyncDetail`, `ClusterRow`) plus the dialog shell. `overallTone` is exported only because the test file has nothing narrower to import. **Fix:** a `cluster-sync-panel/` directory — `subscriptions.ts`, `status.ts`, `connection-detail.tsx`, `sync-detail.tsx`, `cluster-row.tsx`, `index.tsx` — leaving the panel file as a ~110-line shell. Pure churn, so worth doing when the file is next touched substantively rather than on its own.
 
 - **Investigate consolidating the small `src/lib` modules into a shared `util.ts`.** `src/lib` has grown a tail of very small files — `gvr.ts` (27 lines), `platform.ts` (31), `dashboard-nav.tsx` (32), `active-cluster.tsx` (42), `error-bus.ts` (50), `connection-status.tsx` (54), `window-maximized.ts` (58), `active-kube-context.tsx` (60) — and the per-file navigation/import overhead is starting to outweigh the separation. **The distinction to make first, before moving anything:** most of these are *not* generic utilities, they're cohesive domain modules that happen to be short — `active-cluster.tsx`, `dashboard-nav.tsx`, `active-kube-context.tsx`, `connection-status.tsx` are React hooks/providers with a clear single responsibility and their own consumers, and folding those into a grab-bag would trade a real boundary for a line count. The genuine candidates are the **pure, dependency-free helpers**: `gvr.ts` (a type + one key function) and `platform.ts` (sync `isMacOS()`/`isLinux()` UA checks); `window-maximized.ts` and `error-bus.ts` are borderline. **Tradeoffs to weigh:** a shared `util.ts` is a magnet — it accretes unrelated helpers, blurs ownership, and (if it ends up importing React/urql/domain modules) can create import cycles that the current leaf files structurally can't; against that, a dozen 30-line files means more files to open to follow one flow. **Output:** either a small `util.ts` holding only the pure leaf helpers (with a rule for what may go in), or a decision to leave the split as-is and treat file count as acceptable — recorded either way so this doesn't get re-litigated.
 

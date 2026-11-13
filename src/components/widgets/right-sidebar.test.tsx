@@ -31,7 +31,7 @@ vi.mock('@/lib/active-cluster', () => ({ useActiveCluster: () => ({ clusterID: '
 vi.mock('@/components/widgets/chat/dashboard-chat', () => ({
   DashboardChat: () => <div data-testid="dashboard-chat" />,
 }));
-vi.mock('@/components/widgets/object-panel/object-panel', () => ({
+vi.mock('@/components/widgets/object-panel/panel', () => ({
   ObjectPanel: ({
     object,
     tab,

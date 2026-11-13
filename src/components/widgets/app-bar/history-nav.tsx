@@ -30,7 +30,7 @@ import { useCallback, useRef, useSyncExternalStore } from 'react';
 
 import { storageKey } from '@/lib/storage-key';
 
-import { AppBarButton, AppBarDivider, AppBarGroup } from './app-bar-button';
+import { AppBarButton, AppBarDivider, AppBarGroup } from './button';
 
 // Exported so tests can seed a pre-reload value.
 export const FORWARD_CEILING_STORAGE_KEY = storageKey('history-forward-ceiling');

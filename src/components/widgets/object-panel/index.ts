@@ -13,4 +13,4 @@
 // limitations under the License.
 
 // The focused object's panel. Its YAML, events and logs tabs are its own.
-export { ObjectPanel } from './object-panel';
+export { ObjectPanel } from './panel';

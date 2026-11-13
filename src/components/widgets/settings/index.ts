@@ -15,4 +15,4 @@
 // The Settings dialog, and the folder grant form the transcript shares with it. Its sandbox and
 // permissions sections are its own.
 export { FolderGrantForm } from './folder-grant-form';
-export { SettingsDialog } from './settings-dialog';
+export { SettingsDialog } from './dialog';

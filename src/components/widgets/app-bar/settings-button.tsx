@@ -19,7 +19,7 @@ import { Settings } from 'lucide-react';
 
 import { useDialog } from '@/lib/dialog';
 
-import { AppBarButton } from './app-bar-button';
+import { AppBarButton } from './button';
 
 export function SettingsButton() {
   const { openDialog } = useDialog();

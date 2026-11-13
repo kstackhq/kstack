@@ -14,6 +14,6 @@
 
 // A kind's objects table. The object panel shares its logs-kind mapping; the column picker and
 // the rows' actions menu are its own.
-export { logsSourceKind } from './object-actions';
-export type { ObjectAction } from './object-actions';
-export { ObjectsTable } from './objects-table';
+export { logsSourceKind } from './actions';
+export type { ObjectAction } from './actions';
+export { ObjectsTable } from './table';

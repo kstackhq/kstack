@@ -13,4 +13,4 @@
 // limitations under the License.
 
 // The left sidebar. Its card, pill and toggle are its own.
-export { LeftSidebar } from './left-sidebar';
+export { LeftSidebar } from './sidebar';

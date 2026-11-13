@@ -38,7 +38,7 @@ import { clusterForContext, useClusters } from '@/lib/clusters';
 import { useMemories } from '@/lib/memories';
 import type { Memory } from '@/lib/memories';
 
-import { APP_BAR_CONTROL_CLASS } from './app-bar-button';
+import { APP_BAR_CONTROL_CLASS } from './button';
 
 // Clears the icon around the dot's corner. A ring in the pill's colour would do
 // the same, but that colour is translucent in dark mode.

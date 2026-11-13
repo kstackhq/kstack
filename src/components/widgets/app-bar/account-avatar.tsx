@@ -27,7 +27,7 @@ import { LogOut, User, UserRound } from 'lucide-react';
 
 import { useAuthState } from '@/lib/auth';
 
-import { AppBarButton } from './app-bar-button';
+import { AppBarButton } from './button';
 
 /** Host command the menu drives. Keep in sync with `commands.rs`. */
 const OPEN_ACCOUNT_URL_CMD = 'open_account_url';

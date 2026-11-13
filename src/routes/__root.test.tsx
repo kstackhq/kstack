@@ -21,10 +21,10 @@ import { mockTauriCore, renderWithRouter } from '@/test-utils';
 const { invokeMock, factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
 // The window chrome reads the native window, which jsdom has none of.
-vi.mock('@/components/widgets/window/window-frame', () => ({
+vi.mock('@/components/widgets/window/frame', () => ({
   WindowFrame: ({ children }: { children: ReactNode }) => <div data-testid="window-frame">{children}</div>,
 }));
-vi.mock('@/components/widgets/window/window-resize-handles', () => ({
+vi.mock('@/components/widgets/window/resize-handles', () => ({
   WindowResizeHandles: () => <div data-testid="resize-handles" />,
 }));
 
