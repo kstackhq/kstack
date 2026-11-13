@@ -92,7 +92,7 @@ vi.mock('@tanstack/react-router', () => ({
   useLocation: ({ select }: { select: (loc: { pathname: string }) => unknown }) => select(location),
 }));
 
-const { ContextOmnibox } = await import('./context-omnibox');
+const { ContextOmnibox } = await import('./omnibox');
 const { clusterRecord } = await import('@/test-utils');
 
 // Helpers -------------------------------------------------------------

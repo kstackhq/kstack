@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // The chat: its panes, the chat list, the dashboard's chat and the column chat mode centres them
-// in. The transcript, its markdown and its diffs are its own.
+// in.
 export { CenteredColumn } from './centered-column';
 export { ChatNav } from './nav';
 export { ChatPane, NewChatPane } from './pane';

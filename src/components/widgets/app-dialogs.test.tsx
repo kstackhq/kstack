@@ -24,7 +24,7 @@ import { DialogProvider, useDialog, type AppDialogProps } from '@/lib/dialog';
 // panel's `Dialog` reports close-completion once the exit animation settles; stand
 // in for that by calling `notifyClosed` when closed, exercising the host's
 // exit-then-unmount lifecycle.
-vi.mock('@/components/widgets/cluster-status/sync-panel', () => ({
+vi.mock('@/components/widgets/cluster-sync-panel/panel', () => ({
   ClusterSyncPanel: ({ open, onOpenChange }: AppDialogProps) => {
     const { notifyClosed } = useDialog();
     useEffect(() => {

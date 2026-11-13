@@ -18,25 +18,14 @@ import { Button } from '@kubetail/ui/elements/button';
 import { cn } from '@kubetail/ui/lib/utils';
 import type { ComponentProps, ReactNode } from 'react';
 
-import { APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-hover';
-
-// `ghost` is the library variant with no resting fill, so the bar's tint shows
-// through and only hover paints. That drops the border with it, hence
-// `border-sidebar-border`: the button's base already carries `border` at
-// transparent, so a control that is not a `Button` needs the width as well as
-// the color.
-const SHAPE = 'rounded-full border-sidebar-border';
-
-// Every bar control is 32px tall: the omnibox, the groups and the buttons in them.
-const HEIGHT = 'h-8';
+import { APP_BAR_HEIGHT_CLASS, APP_BAR_HOVER_CLASS, APP_BAR_SHAPE_CLASS } from '@/components/widgets/app-bar-style';
 
 const VARIANTS = { variant: 'ghost', size: 'icon' } as const;
 
-/** For a control that cannot be a `Button` — the omnibox's wrapper. */
-export const APP_BAR_CONTROL_CLASS = cn(SHAPE, HEIGHT);
-
 export function AppBarButton({ className, ...props }: ComponentProps<typeof Button>) {
-  return <Button {...VARIANTS} className={cn(SHAPE, 'size-8', APP_BAR_HOVER_CLASS, className)} {...props} />;
+  return (
+    <Button {...VARIANTS} className={cn(APP_BAR_SHAPE_CLASS, 'size-8', APP_BAR_HOVER_CLASS, className)} {...props} />
+  );
 }
 
 /**
@@ -44,7 +33,9 @@ export function AppBarButton({ className, ...props }: ComponentProps<typeof Butt
  * buttons inside stay ghosts, with an `AppBarDivider` between them.
  */
 export function AppBarGroup({ children }: { children: ReactNode }) {
-  return <div className={cn('flex shrink-0 items-center border', HEIGHT, SHAPE)}>{children}</div>;
+  return (
+    <div className={cn('flex shrink-0 items-center border', APP_BAR_HEIGHT_CLASS, APP_BAR_SHAPE_CLASS)}>{children}</div>
+  );
 }
 
 export function AppBarDivider() {

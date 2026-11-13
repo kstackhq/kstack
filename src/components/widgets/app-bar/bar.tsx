@@ -18,12 +18,12 @@
 // and caption buttons; the frameless platforms get `AppMenu` on the left and
 // `WindowControls` on the right.
 // See docs/adr/2026-08-09-per-platform-window-chrome.md
+import { ContextOmnibox } from '@/components/widgets/context-omnibox';
 import { WindowControls } from '@/components/widgets/window';
 import { isMacOS } from '@/lib/platform';
 import { dismissPopupsOnWindowDrag } from '@/lib/window-drag';
 
 import { AppBarDivider, AppBarGroup, TrafficLightGutter } from './button';
-import { ContextOmnibox } from './context-omnibox';
 import { HistoryNav } from './history-nav';
 import { AppMenu } from './menu';
 import { NotificationButton } from './notification-button';

@@ -26,6 +26,18 @@ import { type ReactElement, type ReactNode, useState } from 'react';
 import { type Formatter } from 'react-timeago';
 
 import { ClusterDot } from '@/components/widgets/cluster-dot';
+import {
+  Countdown,
+  DataRateSparkline,
+  type NextCheckState,
+  RelativeTime,
+  RetryButton,
+  countLabel,
+  syncReason,
+  useCacheContents,
+  useDataRate,
+  useNextCheck,
+} from '@/components/widgets/cluster-sync-panel';
 import { VisibleText } from '@/components/widgets/visible-text';
 import {
   type Status,
@@ -40,19 +52,6 @@ import {
 } from '@/lib/cluster-health';
 import { type Cluster, type ClusterCacheHealth, formatRate } from '@/lib/clusters';
 import { useDialog } from '@/lib/dialog';
-
-import { DataRateSparkline } from './data-rate-sparkline';
-import {
-  Countdown,
-  type NextCheckState,
-  RelativeTime,
-  RetryButton,
-  countLabel,
-  syncReason,
-  useCacheContents,
-  useDataRate,
-  useNextCheck,
-} from './sync-panel';
 
 // The header's pill: the overall tone in one word.
 const PILL: Record<Tone, { label: string; className: string }> = {

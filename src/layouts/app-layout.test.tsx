@@ -36,7 +36,7 @@ vi.mock('@/components/widgets/mode-nav', () => ({
 }));
 // The omnibox in the app bar needs the router search + kubeconfig providers; this
 // test is about placement, so stub it.
-vi.mock('@/components/widgets/app-bar/context-omnibox', () => ({
+vi.mock('@/components/widgets/context-omnibox/omnibox', () => ({
   ContextOmnibox: () => <div data-testid="context-omnibox" />,
 }));
 // The dialogs host mounts the real overlay panels (which need the GraphQL/clusters

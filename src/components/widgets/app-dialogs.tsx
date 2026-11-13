@@ -19,7 +19,7 @@
 // Register a dialog by adding a `DIALOGS` line (and a `DialogId` variant).
 import type { ComponentType } from 'react';
 
-import { ClusterSyncPanel } from '@/components/widgets/cluster-status';
+import { ClusterSyncPanel } from '@/components/widgets/cluster-sync-panel';
 import { SettingsDialog } from '@/components/widgets/settings';
 import { useDialog, type AppDialogProps, type DialogId } from '@/lib/dialog';
 

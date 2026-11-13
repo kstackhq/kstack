@@ -45,7 +45,7 @@ vi.mock('./settings-button', () => ({
   SettingsButton: () => <div data-testid="settings-button" />,
 }));
 // The omnibox reads the kubeconfig; its own suite covers it.
-vi.mock('./context-omnibox', () => ({
+vi.mock('@/components/widgets/context-omnibox/omnibox', () => ({
   ContextOmnibox: () => <div data-testid="context-omnibox" />,
 }));
 

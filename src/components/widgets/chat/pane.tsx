@@ -19,6 +19,7 @@
 import type { ReactNode } from 'react';
 
 import { ChatComposer } from '@/components/widgets/chat-composer';
+import { ChatTranscript } from '@/components/widgets/chat-transcript';
 import { useActiveCluster } from '@/lib/active-cluster';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import type { AppMode } from '@/lib/app-mode';
@@ -31,8 +32,6 @@ import { useClusters } from '@/lib/clusters';
 import { useNetworkSwitch } from '@/lib/network-switch';
 import { useSandbox } from '@/lib/sandbox';
 import { useSandboxSwitch } from '@/lib/sandbox-switch';
-
-import { ChatTranscript } from './transcript';
 
 type NewChatPaneProps = {
   mode: AppMode;

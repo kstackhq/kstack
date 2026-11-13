@@ -17,7 +17,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, Square, X } from 'lucide-react';
 
-import { APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-hover';
+import { APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-style';
 
 function minimize() {
   getCurrentWindow()

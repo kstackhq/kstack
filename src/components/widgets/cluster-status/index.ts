@@ -12,7 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The cluster's status: the popover the omnibox opens and the Clusters dialog's sync panel.
-// The sparkline is their own.
+// The cluster's status: the popover the omnibox opens.
 export { ClusterStatusPopover } from './popover';
-export { ClusterSyncPanel } from './sync-panel';

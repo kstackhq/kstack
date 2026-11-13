@@ -31,7 +31,7 @@ vi.mock('@tauri-apps/api/core', () => factory());
 
 const { createGraphqlClient } = await import('@/lib/graphql/client');
 const { ClustersProvider } = await import('@/lib/clusters');
-const { ClusterSyncPanel, ConnectionDetail, syncReason } = await import('./sync-panel');
+const { ClusterSyncPanel, ConnectionDetail, syncReason } = await import('./panel');
 const { onError } = await import('@/lib/error-bus');
 const { DialogProvider, useDialog } = await import('@/lib/dialog');
 

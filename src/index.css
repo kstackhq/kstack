@@ -105,7 +105,7 @@
   --color-app-bar-input-border: var(--app-bar-input-border);
 
   /*
-   * The memory brain's save pulse (`MemoryButton` in context-omnibox.tsx): a primary
+   * The memory brain's save pulse (`MemoryButton` in context-omnibox/omnibox.tsx): a primary
    * copy of the icon over the muted base, revealed from the bottom while it grows,
    * flashed twice at its largest, then shrunk and faded out. The icon is 16px
    * (Button's default `size-4`), so 1.5 is the 24px peak the design calls for.

@@ -11,12 +11,17 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-// Hover is a wash over the bar's own tint rather than the library's fixed
-// `bg-muted`. The `dark:` form is needed too: `ghost` carries its own
-// `dark:hover:bg-muted/50`, which tailwind-merge only replaces with a class
-// in the same variant chain.
-//
-// It sits outside `app-bar/` because the window's caption buttons wear it too,
-// and the app bar imports those.
-export const APP_BAR_HOVER_CLASS = 'hover:bg-app-bar-hover dark:hover:bg-app-bar-hover';
+// The cluster sync panel, and the pieces of it the status popover draws too.
+export { DataRateSparkline } from './data-rate-sparkline';
+export {
+  ClusterSyncPanel,
+  Countdown,
+  type NextCheckState,
+  RelativeTime,
+  RetryButton,
+  countLabel,
+  syncReason,
+  useCacheContents,
+  useDataRate,
+  useNextCheck,
+} from './panel';
