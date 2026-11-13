@@ -23,13 +23,13 @@ import { X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { ReactElement, ReactNode, RefObject } from 'react';
 
-import { OmniboxPopover } from '@/components/widgets/omnibox-popover';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { useClusters } from '@/lib/clusters';
 import { useDialog } from '@/lib/dialog';
 import { useLogsView } from '@/lib/logs-view';
 
 import { ClusterList } from './list';
+import { OmniboxPopover } from './omnibox-popover';
 
 function Notice({ children }: { children: ReactNode }) {
   return <div className="flex items-center gap-1.5 px-3 py-2 text-sm text-muted-foreground">{children}</div>;
