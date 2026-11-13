@@ -29,12 +29,12 @@ import { useMutation } from 'urql';
 
 import { AppLogo } from '@/components/widgets/app-logo';
 import { DiffBlock } from '@/components/widgets/diff-block';
-import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
 import { LogsReadCard } from '@/components/widgets/logs-read-card';
 import { LogsViewCard } from '@/components/widgets/logs-view-card';
 import { LogsWatchCard } from '@/components/widgets/logs-watch-card';
 import { Markdown } from '@/components/widgets/markdown';
 import { ModelDescription } from '@/components/widgets/model-description';
+import { FolderGrantForm } from '@/components/widgets/settings';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { graphql } from '@/gql';
 import type { ApprovalDecision, ApprovalDuration } from '@/gql/graphql';

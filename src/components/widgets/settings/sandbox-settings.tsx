@@ -25,7 +25,6 @@ import { Field, FieldContent, FieldDescription, FieldLabel } from '@kubetail/ui/
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { useState } from 'react';
 
-import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
 import { Input } from '@/components/widgets/text-entry';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { isMacOS } from '@/lib/platform';
@@ -36,6 +35,8 @@ import { useSandboxFolders } from '@/lib/sandbox-folders';
 import type { SandboxFolder } from '@/lib/sandbox-folders';
 import { useSandboxPath } from '@/lib/sandbox-path';
 import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
+
+import { FolderGrantForm } from './folder-grant-form';
 
 const TAGS: Record<SandboxPathEntry['state'], string> = {
   Adopted: 'included',

@@ -20,7 +20,7 @@
 import type { ComponentType } from 'react';
 
 import { ClusterSyncPanel } from '@/components/widgets/cluster-status';
-import { SettingsDialog } from '@/components/widgets/settings-dialog';
+import { SettingsDialog } from '@/components/widgets/settings';
 import { useDialog, type AppDialogProps, type DialogId } from '@/lib/dialog';
 
 // Partial: a `DialogId` may be reserved before its dialog is built.

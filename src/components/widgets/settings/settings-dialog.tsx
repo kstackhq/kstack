@@ -23,10 +23,11 @@ import { Monitor, Moon, Sun } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 import { Dialog } from '@/components/widgets/dialog';
-import { PermissionSettings } from '@/components/widgets/permission-settings';
-import { SandboxSettings } from '@/components/widgets/sandbox-settings';
 import { type AppDialogProps } from '@/lib/dialog';
 import { type ColorSchemePreference, useColorScheme } from '@/lib/theme';
+
+import { PermissionSettings } from './permission-settings';
+import { SandboxSettings } from './sandbox-settings';
 
 // "System" leads because it's the default.
 const COLOR_SCHEME_OPTIONS: { value: ColorSchemePreference; label: string; icon: ComponentType }[] = [
