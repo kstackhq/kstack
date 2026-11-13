@@ -153,7 +153,7 @@ function renderPanes() {
     fresh: () =>
       view.rerender(
         <ChatOutboxProvider>
-          <NewChatPane mode="chat" empty={<p>Ask about your clusters.</p>} onCreated={onCreated} />
+          <NewChatPane mode="chat" empty={<p>Ask about your cluster.</p>} onCreated={onCreated} />
         </ChatOutboxProvider>,
       ),
   };
@@ -191,7 +191,7 @@ describe('NewChatPane', () => {
 
     expect(useChatsMock).not.toHaveBeenCalled();
     expect(useChatMessagesMock).not.toHaveBeenCalled();
-    expect(screen.getByText('Ask about your clusters.')).toBeInTheDocument();
+    expect(screen.getByText('Ask about your cluster.')).toBeInTheDocument();
     expect(props('composer')).toMatchObject({ chatID: null, mode: 'chat', clusterID: '1', last: null });
   });
 

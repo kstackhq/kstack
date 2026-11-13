@@ -21,6 +21,7 @@ import { useSearch } from '@tanstack/react-router';
 import { Compass, List } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 
+import { SectionHeading } from '@/components/primitives/section-heading';
 import { SearchBox } from '@/components/primitives/text-entry';
 import { useDashboardNav } from '@/lib/dashboard-nav';
 import { filterNav, groupCount, PINNED, resolveDashboardResource } from '@/lib/dashboard-resources';
@@ -30,7 +31,6 @@ import { usePersistedFlag } from '@/lib/persisted-flag';
 import { NamespacePicker } from './namespace-picker';
 import { NavGroup } from './nav-group';
 import { NavItem } from './nav-item';
-import { SectionHeading } from './section-heading';
 
 // A group's open state, kept across mounts; `initial` until the user toggles it. Moving to
 // a kind inside the group opens it; closing it again sticks until the next move.
@@ -144,6 +144,8 @@ export function DashboardResourceNav() {
       </div>
       {view.sections.map((s) => (
         <Fragment key={s.id}>
+          {/* Lighter than the rule above the search box, so the sections read as part of
+              what the search filters. */}
           <SectionHeading label={sectionLabel(s, searching)} />
           {s.groups.map((g, i) => (
             <GroupBlock key={g.id} group={g} sectionId={s.id} first={i === 0} active={active} searching={searching} />

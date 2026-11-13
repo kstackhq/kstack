@@ -36,7 +36,7 @@ function Chat() {
         mode="chat"
         empty={
           <div className="flex flex-1 items-center justify-center">
-            <p className="text-sm text-muted-foreground">Ask about your clusters.</p>
+            <p className="text-sm text-muted-foreground">Ask about your cluster.</p>
           </div>
         }
         // Replace, so Back returns to whatever came before the empty page.

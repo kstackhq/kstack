@@ -16,7 +16,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { expectProseText } from '@/test-utils';
+import { expectCodeText, expectProseText } from '@/test-utils';
 
 const { useChatsMock, renameMock, deleteMock } = vi.hoisted(() => ({
   useChatsMock: vi.fn(),
@@ -99,12 +99,64 @@ describe('ChatNav', () => {
 
   it('waits for the snapshot before saying there are no chats', () => {
     renderNav([], 'connecting');
-    expect(screen.queryByText('No chats yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/No chats yet/)).not.toBeInTheDocument();
   });
 
   it('says there are no chats once the snapshot has closed', () => {
     renderNav([], 'live');
-    expect(screen.getByText('No chats yet.')).toBeInTheDocument();
+    expect(screen.getByText(/No chats yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Your chats will show up here/)).toBeInTheDocument();
+  });
+
+  // The panel has no New chat link to point at: its composer is right there.
+  it('keeps the dashboard’s empty state to one line', () => {
+    renderNav([], 'live', 'dashboard');
+    expect(screen.getByText(/No chats yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/Your chats will show up here/)).not.toBeInTheDocument();
+  });
+
+  it('lists the chats under one Recents heading, and drops it with no chats', () => {
+    const view = renderNav([chat('c1', 'First chat'), chat('c2', 'Second chat')]);
+    expect(screen.getAllByRole('heading')).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: 'Recents' })).toBeInTheDocument();
+
+    useChatsMock.mockReturnValue({ chats: [], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.queryByRole('heading', { name: 'Recents' })).not.toBeInTheDocument();
+  });
+
+  it('narrows the rows to the titles the search matches, ignoring case', async () => {
+    const user = userEvent.setup();
+    renderNav([chat('c1', 'Why is checkout crashing?'), chat('c2', 'Scale down staging')]);
+    const box = screen.getByRole('searchbox', { name: 'Search chats' });
+    expectCodeText(box);
+
+    await user.type(box, '  CHECKOUT ');
+    expect(screen.getByRole('link', { name: 'Why is checkout crashing?' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Scale down staging' })).not.toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(box).toHaveValue('');
+    expect(screen.getByRole('link', { name: 'Scale down staging' })).toBeInTheDocument();
+  });
+
+  it('says so when no title matches, in place of the heading', async () => {
+    const user = userEvent.setup();
+    renderNav([chat('c1', 'First chat')]);
+    await user.type(screen.getByRole('searchbox', { name: 'Search chats' }), 'nothing');
+
+    expect(screen.getByText('No chats match.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Recents' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/No chats yet/)).not.toBeInTheDocument();
+  });
+
+  it('offers a search only in chat mode, and only with chats to search', () => {
+    const { unmount } = renderNav([], 'live');
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    unmount();
+
+    renderNav([chat('c1', 'A dashboard chat', 'Dashboard')], 'live', 'dashboard');
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
   });
 
   it('links each chat to its own route', () => {
@@ -150,17 +202,17 @@ describe('ChatNav', () => {
 
     useActiveClusterMock.mockReturnValue({ clusterID: undefined, phase: 'live' });
     view.rerender(<ChatNav mode="chat" />);
-    expect(screen.getByText('No chats yet.')).toBeInTheDocument();
+    expect(screen.getByText(/No chats yet/)).toBeInTheDocument();
   });
 
   // The rows are the window's cluster's, so a chats snapshot that lands first has
-  // every row filtered out — "No chats yet." there would be about a cluster the
+  // every row filtered out — an empty state there would be about a cluster the
   // window has not been told it is on.
   it('waits for the clusters snapshot too before saying there are no chats', () => {
     useActiveClusterMock.mockReturnValue({ clusterID: undefined, phase: 'connecting' });
     renderNav([chat('c1', 'First chat')], 'live');
 
-    expect(screen.queryByText('No chats yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/No chats yet/)).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'First chat' })).not.toBeInTheDocument();
   });
 
@@ -168,7 +220,7 @@ describe('ChatNav', () => {
   // the filter, so a mode with none of its own says so even when the other has some.
   it('says there are no chats when only the other mode has any', () => {
     renderNav([chat('c1', 'A chat chat')], 'live', 'dashboard');
-    expect(screen.getByText('No chats yet.')).toBeInTheDocument();
+    expect(screen.getByText(/No chats yet/)).toBeInTheDocument();
   });
 
   // On the dashboard a chat is a search param, not a route, and the rest of the

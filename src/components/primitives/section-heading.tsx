@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A section's heading in the dashboard's resource nav: a muted, capitalized label. Lighter
-// than the rule above the search box, so the sections read as part of what the search
-// filters. The capitals are CSS; the label stays as written.
+// A section's heading in a sidebar list: a muted, capitalized label. The capitals are
+// CSS; the label stays as written.
 export function SectionHeading({ label }: { label: string }) {
   return (
     <h3 className="mt-2 truncate p-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</h3>
