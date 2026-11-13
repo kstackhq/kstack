@@ -24,7 +24,7 @@ import { ContextOmnibox } from '@/components/widgets/context-omnibox';
 import { HistoryNav } from '@/components/widgets/history-nav';
 import { NotificationButton } from '@/components/widgets/notification-button';
 import { SettingsButton } from '@/components/widgets/settings-button';
-import { WindowControls } from '@/components/widgets/window-controls';
+import { WindowControls } from '@/components/widgets/window';
 import { isMacOS } from '@/lib/platform';
 import { dismissPopupsOnWindowDrag } from '@/lib/window-drag';
 

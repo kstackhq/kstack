@@ -22,7 +22,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { TrafficLightGutter } from '@/components/widgets/app-bar-button';
 import { ClusterDot } from '@/components/widgets/cluster-dot';
 import { VisibleText } from '@/components/widgets/visible-text';
-import { WindowControls } from '@/components/widgets/window-controls';
+import { WindowControls } from '@/components/widgets/window';
 import { clusterHealth } from '@/lib/cluster-health';
 import { displayName } from '@/lib/clusters';
 import type { Cluster } from '@/lib/clusters';

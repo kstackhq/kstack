@@ -16,8 +16,7 @@ import { createRootRoute, Outlet } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { Provider as UrqlProvider } from 'urql';
 
-import { WindowFrame } from '@/components/widgets/window-frame';
-import { WindowResizeHandles } from '@/components/widgets/window-resize-handles';
+import { WindowFrame, WindowResizeHandles } from '@/components/widgets/window';
 import { AuthProvider } from '@/lib/auth';
 import { ClustersProvider } from '@/lib/clusters';
 import { ErrorBoundary } from '@/lib/error-boundary';
