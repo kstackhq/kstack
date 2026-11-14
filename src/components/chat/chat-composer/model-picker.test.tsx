@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
@@ -103,6 +103,35 @@ describe('ModelPicker', () => {
     await user.click(option('Model', 'Opus 5'));
     expect(option('Model', 'Opus 5')).toBeChecked();
     expect(trigger()).toHaveAccessibleName('Model: Opus 5, effort: medium');
+  });
+
+  it('keeps the effort when the picked model is picked again', async () => {
+    const user = userEvent.setup();
+    render(<Harness models={[fake, plain]} />);
+    await open(user);
+    await user.click(option('Effort', 'low'));
+
+    await user.click(option('Model', 'Fake model'));
+    expect(trigger()).toHaveAccessibleName('Model: Fake model, effort: low');
+  });
+
+  // Each group is one Tab stop, and the arrows move the pick within it.
+  it('moves through each group with the arrow keys', async () => {
+    const user = userEvent.setup();
+    render(<Harness models={[fake, plain]} />);
+    await open(user);
+
+    act(() => option('Model', 'Fake model').focus());
+    await user.keyboard('{ArrowDown}');
+    expect(option('Model', 'Plain model')).toHaveFocus();
+    expect(trigger()).toHaveAccessibleName('Model: Plain model');
+
+    await user.keyboard('{ArrowUp}');
+    expect(trigger()).toHaveAccessibleName('Model: Fake model, effort: high');
+    await user.tab();
+    expect(option('Effort', 'high')).toHaveFocus();
+    await user.keyboard('{ArrowLeft}');
+    expect(trigger()).toHaveAccessibleName('Model: Fake model, effort: low');
   });
 
   it('hides the effort for a model with no such knob', async () => {

@@ -14,6 +14,8 @@
 
 // The composer's model and effort: one button naming both, opening one menu with a tab
 // per provider, the tab's models and the picked model's effort levels.
+import { Radio } from '@base-ui/react/radio';
+import { RadioGroup } from '@base-ui/react/radio-group';
 import { Button } from '@kubetail/ui/elements/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import { Check } from 'lucide-react';
@@ -46,6 +48,10 @@ function ProviderMark({ id, label }: { id: string; label: string }) {
   );
 }
 
+// A model's value in the radio group: the id alone is not one, two providers being
+// free to name a model the same.
+const keyOf = (providerID: string, id: string) => `${providerID}/${id}`;
+
 // The catalog's providers, in the order their first model comes.
 function providersOf(models: Model[]): Model['provider'][] {
   const seen = new Map<string, Model['provider']>();
@@ -72,9 +78,14 @@ export function ModelPicker({ models, pick, picked, onPick }: ModelPickerProps) 
   const hasEffort = picked.efforts.length > 0;
 
   // Another model may not have the level this one is at, so the pick moves to the
-  // new model's default rather than to a name it happens to share.
-  const selectModel = (next: Model) =>
+  // new model's default rather than to a name it happens to share. The group calls
+  // this only for a different model, so the picked one keeps its effort.
+  const selectModel = (key: string) => {
+    const next = models.find((m) => keyOf(m.provider.id, m.id) === key);
+    /* v8 ignore next -- the group offers only the catalog's keys */
+    if (!next) return;
     onPick({ model: { providerID: next.provider.id, id: next.id }, effort: next.defaultEffort });
+  };
 
   return (
     <Popover onOpenChange={(open) => open && setTab(picked.provider.id)}>
@@ -120,47 +131,43 @@ export function ModelPicker({ models, pick, picked, onPick }: ModelPickerProps) 
             </>
           )}
           <SectionHeading label="Model" />
-          <div role="radiogroup" aria-label="Model">
+          <RadioGroup
+            aria-label="Model"
+            value={keyOf(pick.model.providerID, pick.model.id)}
+            onValueChange={(key: string) => selectModel(key)}
+          >
             {models
               .filter((m) => m.provider.id === tab)
-              .map((m) => {
-                const checked = m.provider.id === pick.model.providerID && m.id === pick.model.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={checked}
-                    className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-foreground hover:bg-muted aria-checked:bg-muted aria-checked:font-medium"
-                    onClick={() => selectModel(m)}
-                  >
-                    <span className="flex size-4 shrink-0 items-center justify-center">
-                      {checked && <Check className="size-4" aria-hidden />}
-                    </span>
-                    <span className="truncate">{m.label}</span>
-                  </button>
-                );
-              })}
-          </div>
+              .map((m) => (
+                <Radio.Root
+                  key={m.id}
+                  value={keyOf(m.provider.id, m.id)}
+                  className="group flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-foreground hover:bg-muted data-checked:bg-muted data-checked:font-medium"
+                >
+                  <span className="flex size-4 shrink-0 items-center justify-center">
+                    <Check className="hidden size-4 group-data-checked:block" aria-hidden />
+                  </span>
+                  <span className="truncate">{m.label}</span>
+                </Radio.Root>
+              ))}
+          </RadioGroup>
           {/* A model with no such knob has nothing to show here. */}
           {hasEffort && (
             <>
               <div className="my-1 h-px bg-border" />
               <SectionHeading label="Effort" />
-              <div role="radiogroup" aria-label="Effort" className={`${TRACK} mb-1`}>
+              <RadioGroup
+                aria-label="Effort"
+                className={`${TRACK} mb-1`}
+                value={pick.effort}
+                onValueChange={(effort: string) => onPick({ model: pick.model, effort })}
+              >
                 {picked.efforts.map((e) => (
-                  <button
-                    key={e}
-                    type="button"
-                    role="radio"
-                    aria-checked={e === pick.effort}
-                    className={`${SEGMENT} capitalize`}
-                    onClick={() => onPick({ model: pick.model, effort: e })}
-                  >
+                  <Radio.Root key={e} value={e} className={`${SEGMENT} capitalize`}>
                     {e}
-                  </button>
+                  </Radio.Root>
                 ))}
-              </div>
+              </RadioGroup>
             </>
           )}
         </div>
