@@ -52,7 +52,7 @@
       "figma": {
         "node": "22:164",
         "name": "WindowControls",
-        "hash": "52180810df1c6b0a"
+        "hash": "48cc5393828164c0"
       },
       "code": [
         {
@@ -86,7 +86,7 @@
       "figma": {
         "node": "7:248",
         "name": "HistoryNav",
-        "hash": "3372fba069e936bf"
+        "hash": "217a7c2b477a478c"
       },
       "code": [
         {
@@ -100,7 +100,7 @@
       "figma": {
         "node": "7:262",
         "name": "AppBar/Actions",
-        "hash": "14ebba5a2af92e16"
+        "hash": "6a4c4d1e0754875d"
       },
       "code": [
         {
@@ -114,7 +114,7 @@
       "figma": {
         "node": "22:159",
         "name": "AppMenu",
-        "hash": "4756f1f8a03a1e02"
+        "hash": "3ea24692e2e79ab0"
       },
       "code": [
         {
@@ -128,7 +128,7 @@
       "figma": {
         "node": "7:264",
         "name": "ContextOmnibox",
-        "hash": "593194107d028131"
+        "hash": "002dd1df49b2aa75"
       },
       "code": [
         {
@@ -142,7 +142,7 @@
       "figma": {
         "node": "9:92",
         "name": "ModeNav",
-        "hash": "c813aaa42d8b4621"
+        "hash": "2267102e27de68c7"
       },
       "code": [
         {
@@ -156,7 +156,7 @@
       "figma": {
         "node": "22:203",
         "name": "AppBar",
-        "hash": "926ee30fc7272908"
+        "hash": "1be6a6926ccae5c6"
       },
       "code": [
         {
@@ -212,7 +212,7 @@
       "figma": {
         "node": "9:129",
         "name": "NavGroup",
-        "hash": "526f45c8c485e392"
+        "hash": "5a1621487f1525f0"
       },
       "code": [
         {
@@ -226,7 +226,7 @@
       "figma": {
         "node": "9:113",
         "name": "NavItem",
-        "hash": "f22e3a501015aab2"
+        "hash": "35160cd7c1860e49"
       },
       "code": [
         {
@@ -259,7 +259,7 @@
       "figma": {
         "node": "10:128",
         "name": "ObjectsTable/PodRow",
-        "hash": "46378a90d9b3e72d"
+        "hash": "264f2ee7059c6273"
       },
       "code": [
         {
@@ -352,7 +352,7 @@
       "figma": {
         "node": "29:276",
         "name": "ClusterStatus/Verdict",
-        "hash": "96c1a5f3c9634bbf"
+        "hash": "8a4c742759869c12"
       },
       "code": [
         {
@@ -382,7 +382,7 @@
       "figma": {
         "node": "31:985",
         "name": "ClusterStatus",
-        "hash": "ff69cd5159c1456a"
+        "hash": "765f16e193ec4eec"
       },
       "code": [
         {
@@ -402,7 +402,7 @@
       "figma": {
         "node": "36:1326",
         "name": "ClusterPicker/Row",
-        "hash": "b22dca32a33f5ef9"
+        "hash": "97ba7a4499df5cc6"
       },
       "code": [
         {
@@ -419,7 +419,7 @@
       "figma": {
         "node": "36:1666",
         "name": "ClusterPicker",
-        "hash": "ab36c94bc25ac749"
+        "hash": "f769d6fcaeed726d"
       },
       "code": [
         {
@@ -437,7 +437,7 @@
       "figma": {
         "node": "37:1685",
         "name": "Memory/Row",
-        "hash": "489d2bee87ac2f59"
+        "hash": "8c66471479ad74c3"
       },
       "code": [
         {
@@ -456,7 +456,7 @@
       "figma": {
         "node": "39:2265",
         "name": "MemoryPopover",
-        "hash": "3af0d5fe15c8f38d"
+        "hash": "3a98e5b72219a111"
       },
       "code": [
         {
@@ -553,7 +553,7 @@
       "figma": {
         "node": "20:224",
         "name": "ChatComposer",
-        "hash": "6410fd27ce4a4079"
+        "hash": "9a1b2f87364e32ed"
       },
       "code": [
         {
@@ -608,7 +608,7 @@
       "figma": {
         "node": "2030:2222",
         "name": "ModelPicker/ModelRow",
-        "hash": "05519d2a8c77c6f0"
+        "hash": "e60558a7350d3aa8"
       },
       "code": [
         {
@@ -625,7 +625,7 @@
       "figma": {
         "node": "2034:2328",
         "name": "ModelPicker/Menu",
-        "hash": "0189516473da2672"
+        "hash": "33ec18c1b16b3196"
       },
       "code": [
         {
@@ -669,7 +669,7 @@
       "figma": {
         "node": "2050:2384",
         "name": "SandboxPopover/Menu",
-        "hash": "8f86b795684629d4"
+        "hash": "8cee5c0486172f79"
       },
       "code": [
         {
@@ -709,7 +709,7 @@
       "figma": {
         "node": "22:226",
         "name": "LogsWindowBar",
-        "hash": "f5b2f83d092448bc"
+        "hash": "c4f39e9cef15fa1a"
       },
       "code": [
         {
@@ -737,7 +737,7 @@
       "figma": {
         "node": "18:527",
         "name": "LogViewer/Toolbar",
-        "hash": "a2a49a42ed0d2a16"
+        "hash": "15b91fa74a821b7f"
       },
       "code": [
         {
@@ -791,630 +791,6 @@
           "blob": "24d66a7a4aa9e822ecdc89f2563d98483102d56d"
         }
       ]
-    },
-    {
-      "id": "icon/arrow-right",
-      "figma": {
-        "node": "5:9",
-        "name": "Icon/arrow-right",
-        "hash": "257ea44cc707d8f1"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "ArrowRightIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/arrow-up",
-      "figma": {
-        "node": "5:13",
-        "name": "Icon/arrow-up",
-        "hash": "a7e7f6f41ec9d855"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "ArrowUpIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/at-sign",
-      "figma": {
-        "node": "5:17",
-        "name": "Icon/at-sign",
-        "hash": "5e38ec67f4ef187a"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "AtSignIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/bell",
-      "figma": {
-        "node": "5:21",
-        "name": "Icon/bell",
-        "hash": "fa7f7f6467e83cd4"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "BellIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/brain",
-      "figma": {
-        "node": "5:31",
-        "name": "Icon/brain",
-        "hash": "c6ab4eaa4a764b51"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "BrainIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/chevrons-up-down",
-      "figma": {
-        "node": "5:35",
-        "name": "Icon/chevrons-up-down",
-        "hash": "cbe6d10dd1e9df72"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "ChevronsUpDownIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/clock",
-      "figma": {
-        "node": "5:39",
-        "name": "Icon/clock",
-        "hash": "d67920e4ca6ce490"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "ClockIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/code",
-      "figma": {
-        "node": "2049:2285",
-        "name": "Icon/code",
-        "hash": "9bf89b446c438f30"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "CodeIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/columns-3",
-      "figma": {
-        "node": "5:44",
-        "name": "Icon/columns-3",
-        "hash": "aaa1e0bc62aab7c8"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "Columns3Icon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/compass",
-      "figma": {
-        "node": "5:48",
-        "name": "Icon/compass",
-        "hash": "39ef66b56f64f516"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "CompassIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/copy",
-      "figma": {
-        "node": "5:52",
-        "name": "Icon/copy",
-        "hash": "0e13670fa2158e54"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "CopyIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/database",
-      "figma": {
-        "node": "5:57",
-        "name": "Icon/database",
-        "hash": "70b375b50b607dfb"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "DatabaseIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/file-code",
-      "figma": {
-        "node": "5:63",
-        "name": "Icon/file-code",
-        "hash": "2db1681061412449"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "FileCodeIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/globe",
-      "figma": {
-        "node": "5:68",
-        "name": "Icon/globe",
-        "hash": "347c9c20ff7568f5"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "GlobeIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/globe-off",
-      "figma": {
-        "node": "5:77",
-        "name": "Icon/globe-off",
-        "hash": "96c1abb585e1e8b2"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "GlobeOffIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/grip-vertical",
-      "figma": {
-        "node": "5:85",
-        "name": "Icon/grip-vertical",
-        "hash": "6ad204d405c5fd90"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "GripVerticalIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/history",
-      "figma": {
-        "node": "5:90",
-        "name": "Icon/history",
-        "hash": "3bf9e9c7bdafdf83"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "HistoryIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/layers",
-      "figma": {
-        "node": "5:95",
-        "name": "Icon/layers",
-        "hash": "338f31d5fcd2cc4e"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "LayersIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/layout-dashboard",
-      "figma": {
-        "node": "5:101",
-        "name": "Icon/layout-dashboard",
-        "hash": "c6230e764bad2f5f"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "LayoutDashboardIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/list",
-      "figma": {
-        "node": "5:109",
-        "name": "Icon/list",
-        "hash": "ec6d8c53f516c025"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "ListIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/log-out",
-      "figma": {
-        "node": "5:114",
-        "name": "Icon/log-out",
-        "hash": "fa554faeadd6a7f4"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "LogOutIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/menu",
-      "figma": {
-        "node": "5:119",
-        "name": "Icon/menu",
-        "hash": "1648479a3470ee99"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "MenuIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/message-circle",
-      "figma": {
-        "node": "5:122",
-        "name": "Icon/message-circle",
-        "hash": "352f7e55facf7c3e"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "MessageCircleIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/minus",
-      "figma": {
-        "node": "5:125",
-        "name": "Icon/minus",
-        "hash": "9185b7253c63a336"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "MinusIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/monitor",
-      "figma": {
-        "node": "5:130",
-        "name": "Icon/monitor",
-        "hash": "f27c4a5631a81f8e"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "MonitorIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/moon",
-      "figma": {
-        "node": "5:133",
-        "name": "Icon/moon",
-        "hash": "8e46f70e99b73c02"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "MoonIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/panel-right",
-      "figma": {
-        "node": "5:137",
-        "name": "Icon/panel-right",
-        "hash": "84a9e4b6008f32fc"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "PanelRightIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/pause",
-      "figma": {
-        "node": "5:141",
-        "name": "Icon/pause",
-        "hash": "5a28e828b84bb2ba"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "PauseIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/play",
-      "figma": {
-        "node": "5:144",
-        "name": "Icon/play",
-        "hash": "f1980ccf28df038f"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "PlayIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/plus",
-      "figma": {
-        "node": "2082:2400",
-        "name": "Icon/plus",
-        "hash": "00ab921324299855"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "PlusIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/power",
-      "figma": {
-        "node": "5:148",
-        "name": "Icon/power",
-        "hash": "925b9d4196c418b2"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "PowerIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/power-off",
-      "figma": {
-        "node": "5:154",
-        "name": "Icon/power-off",
-        "hash": "7ba77c740c7c42a7"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "PowerOffIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/rotate-cw",
-      "figma": {
-        "node": "5:158",
-        "name": "Icon/rotate-cw",
-        "hash": "b6337dbc88f35984"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "RotateCwIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/scroll-text",
-      "figma": {
-        "node": "5:164",
-        "name": "Icon/scroll-text",
-        "hash": "6a92f99ea7314c12"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "ScrollTextIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/server",
-      "figma": {
-        "node": "5:170",
-        "name": "Icon/server",
-        "hash": "379aa9fbeec37cff"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "ServerIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/settings",
-      "figma": {
-        "node": "5:174",
-        "name": "Icon/settings",
-        "hash": "8f1b553e57c4e2fd"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "SettingsIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/shield-check",
-      "figma": {
-        "node": "5:178",
-        "name": "Icon/shield-check",
-        "hash": "beb4532f3b5f6f44"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "ShieldCheckIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/shield-off",
-      "figma": {
-        "node": "5:183",
-        "name": "Icon/shield-off",
-        "hash": "9c864f5a782d3586"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "ShieldOffIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/skip-back",
-      "figma": {
-        "node": "5:187",
-        "name": "Icon/skip-back",
-        "hash": "5718f889d93a3508"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "SkipBackIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/skip-forward",
-      "figma": {
-        "node": "5:191",
-        "name": "Icon/skip-forward",
-        "hash": "8cf4e3a6bd3dcbc4"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "SkipForwardIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/slash",
-      "figma": {
-        "node": "5:194",
-        "name": "Icon/slash",
-        "hash": "8a8d59a8c576c343"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "SlashIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/square",
-      "figma": {
-        "node": "5:197",
-        "name": "Icon/square",
-        "hash": "a10cbe82601ee921"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "SquareIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/square-pen",
-      "figma": {
-        "node": "5:201",
-        "name": "Icon/square-pen",
-        "hash": "a2d758328e8e3c20"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "SquarePenIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/square-slash",
-      "figma": {
-        "node": "5:205",
-        "name": "Icon/square-slash",
-        "hash": "71fab9f91038d1d9"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "SquareSlashIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/sun",
-      "figma": {
-        "node": "5:216",
-        "name": "Icon/sun",
-        "hash": "b5512d664d3ac51a"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "SunIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/trash-2",
-      "figma": {
-        "node": "5:223",
-        "name": "Icon/trash-2",
-        "hash": "e388a323229a513e"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "Trash2Icon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/user",
-      "figma": {
-        "node": "5:227",
-        "name": "Icon/user",
-        "hash": "d1712d33790feb47"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "UserIcon",
-        "version": "1.68.0"
-      }
-    },
-    {
-      "id": "icon/user-round",
-      "figma": {
-        "node": "5:231",
-        "name": "Icon/user-round",
-        "hash": "902ca76ccf4f64d0"
-      },
-      "package": {
-        "name": "lucide-react",
-        "export": "UserRoundIcon",
-        "version": "1.68.0"
-      }
     }
   ],
   "screens": [
@@ -1458,7 +834,7 @@
       "figma": {
         "node": "42:10239",
         "name": "ClusterStatus",
-        "hash": "662d200f049c7779"
+        "hash": "01fe93fec2167a35"
       },
       "code": [
         {
@@ -1514,7 +890,7 @@
       "figma": {
         "node": "42:10242",
         "name": "Dashboard / Pods",
-        "hash": "13bf1a3cd26e3e59"
+        "hash": "c65f459ec7a3bbaf"
       },
       "code": [
         {
@@ -1532,7 +908,7 @@
       "figma": {
         "node": "42:10243",
         "name": "Chat / New",
-        "hash": "c428bc885360e674"
+        "hash": "f81414ff6dcb7d10"
       },
       "code": [
         {
@@ -1554,7 +930,7 @@
       "figma": {
         "node": "42:10244",
         "name": "Chat / Open",
-        "hash": "12053b8e4ee04297"
+        "hash": "d483045578453c97"
       },
       "code": [
         {
@@ -1576,7 +952,7 @@
       "figma": {
         "node": "2031:6729",
         "name": "Chat / Model picker open",
-        "hash": "4ea0fc919ee9e493"
+        "hash": "4e3ec1bd203142eb"
       },
       "code": [
         {
@@ -1590,7 +966,7 @@
       "figma": {
         "node": "2050:7406",
         "name": "Chat / Sandbox open",
-        "hash": "090590fc6f927974"
+        "hash": "c3ae2edef91cf6ac"
       },
       "code": [
         {
@@ -1604,7 +980,7 @@
       "figma": {
         "node": "2087:8438",
         "name": "Chat / Context open",
-        "hash": "7ef6481e3407bbe3"
+        "hash": "f4ba93ad71729695"
       },
       "code": [
         {
