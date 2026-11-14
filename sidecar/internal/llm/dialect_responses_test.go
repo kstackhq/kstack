@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 )
 
 // responsesStream is a recorded reply: one text block in two pieces, then its end.
@@ -158,6 +159,18 @@ func TestResponsesStreamsAReplyAndRecordsIt(t *testing.T) {
 	assert.Equal(t, false, rec.body["store"])
 	assert.Equal(t, "/responses", rec.path)
 	assert.Equal(t, "Bearer sk-test", rec.header.Get("Authorization"))
+	assert.Equal(t, "kstack/"+version.Version, rec.header.Get("User-Agent"))
+}
+
+func TestResponsesProviderCanOverrideTheUserAgent(t *testing.T) {
+	p, rec := responsesReplay(t, responsesStream)
+	p.KeyHeader, p.Key = "User-Agent", "provider/1"
+
+	_, _, err := askResponses(t, responsesRequest(p))
+
+	require.NoError(t, err)
+	assert.Equal(t, "provider/1", rec.header.Get("User-Agent"))
+	assert.Empty(t, rec.header.Get("Authorization"))
 }
 
 // A model that lists efforts asks to reason at that level and for a summary of it.

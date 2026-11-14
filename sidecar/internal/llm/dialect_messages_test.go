@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 )
 
 const messageStart = `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-4-5-20251001","content":[],"stop_reason":null,"usage":{"input_tokens":2,"output_tokens":1}}}`
@@ -179,6 +180,7 @@ func TestMessagesStreamsAReplyAndRecordsIt(t *testing.T) {
 		Usage: Usage{Reported: true, InputTokens: 2, OutputTokens: 9}}, resp)
 	assert.Equal(t, "/v1/messages", rec.path)
 	assert.Equal(t, "sk-ant-test", rec.header.Get("X-Api-Key"))
+	assert.Equal(t, "kstack/"+version.Version, rec.header.Get("User-Agent"))
 	assert.Equal(t, "claude-haiku-4-5-20251001", rec.body["model"])
 	assert.Equal(t, float64(64_000), rec.body["max_tokens"])
 	assert.Equal(t, []any{map[string]any{
@@ -187,6 +189,17 @@ func TestMessagesStreamsAReplyAndRecordsIt(t *testing.T) {
 	assert.Equal(t, []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": "what is a pod?"}}}}, rec.body["messages"])
 	assert.Nil(t, rec.body["thinking"], "no thinking is asked for")
 	assert.Nil(t, rec.body["tools"])
+}
+
+func TestMessagesProviderCanOverrideTheUserAgent(t *testing.T) {
+	p, rec := replay(t, textStream)
+	p.KeyHeader, p.Key = "User-Agent", "provider/1"
+
+	_, _, err := ask(t, request(p))
+
+	require.NoError(t, err)
+	assert.Equal(t, "provider/1", rec.header.Get("User-Agent"))
+	assert.Empty(t, rec.header.Get("X-Api-Key"))
 }
 
 // A model that lists efforts asks for adaptive thinking with a summary, at the

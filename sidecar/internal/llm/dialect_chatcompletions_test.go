@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 )
 
 // chunk is one chat.completion.chunk carrying the given delta and finish reason.
@@ -134,6 +135,18 @@ func TestChatCompletionsStreamsAReplyAndRecordsIt(t *testing.T) {
 	}, rec.body["messages"])
 	assert.Equal(t, "/chat/completions", rec.path)
 	assert.Equal(t, "Bearer gsk-test", rec.header.Get("Authorization"))
+	assert.Equal(t, "kstack/"+version.Version, rec.header.Get("User-Agent"))
+}
+
+func TestChatCompletionsProviderCanOverrideTheUserAgent(t *testing.T) {
+	p, rec := chatReplay(t, chatStream)
+	p.KeyHeader, p.Key = "User-Agent", "provider/1"
+
+	_, _, err := askChat(t, chatRequest(p))
+
+	require.NoError(t, err)
+	assert.Equal(t, "provider/1", rec.header.Get("User-Agent"))
+	assert.Empty(t, rec.header.Get("Authorization"))
 }
 
 // The wire streams no usage unless asked for it, so every request asks.

@@ -80,7 +80,11 @@ func streamMessages(ctx context.Context, req Request, idle time.Duration, clock 
 	if req.Model.MaxOutputTokens <= 0 {
 		return Response{}, fmt.Errorf("messages: model %q states no output cap", req.Model.ID)
 	}
-	opts := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithMaxRetries(0)}
+	opts := []option.RequestOption{
+		option.WithoutEnvironmentDefaults(),
+		option.WithMaxRetries(0),
+		option.WithHeader("User-Agent", clientUserAgent),
+	}
 	if req.Provider.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(req.Provider.BaseURL))
 	}
