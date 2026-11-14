@@ -107,9 +107,12 @@ export function ModelPicker({ models, pick, picked, onPick }: ModelPickerProps) 
       <PopoverContent
         align="end"
         sideOffset={6}
-        className="w-105 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl bg-background p-0 shadow-lg dark:bg-card"
+        className="flex w-105 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl bg-background p-0 shadow-lg dark:bg-card"
+        style={{ maxHeight: 'var(--available-height)' }}
       >
-        <div className="p-1">
+        {/* A catalog can outgrow the window: the model list alone shrinks and scrolls,
+            so the tabs, the effort and the footer stay in reach. */}
+        <div className="flex min-h-0 flex-col p-1">
           {/* One provider needs no tabs. */}
           {providers.length > 1 && (
             <>
@@ -133,6 +136,7 @@ export function ModelPicker({ models, pick, picked, onPick }: ModelPickerProps) 
           <SectionHeading label="Model" />
           <RadioGroup
             aria-label="Model"
+            className="min-h-0 overflow-y-auto"
             value={keyOf(pick.model.providerID, pick.model.id)}
             onValueChange={(key: string) => selectModel(key)}
           >

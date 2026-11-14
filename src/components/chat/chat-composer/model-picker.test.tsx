@@ -182,4 +182,14 @@ describe('ModelPicker', () => {
     const popup = await open(user);
     expect(within(popup).getByRole('button', { name: 'Manage providers' })).toBeInTheDocument();
   });
+
+  // jsdom has no layout, so this pins the shape: the popup is capped at the room on
+  // its side, and the model list is what scrolls.
+  it('caps its height and scrolls the model list', async () => {
+    const user = userEvent.setup();
+    render(<Harness models={[fake, plain]} />);
+    const popup = await open(user);
+    expect(popup.style.maxHeight).toBe('var(--available-height)');
+    expect(screen.getByRole('radiogroup', { name: 'Model' })).toHaveClass('min-h-0', 'overflow-y-auto');
+  });
 });
