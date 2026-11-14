@@ -9,6 +9,9 @@
 #   sidecar/, cli/, tools/     lint-go, vet-go-changed
 #   src-tauri/, proto/         lint-rust, vet-rust
 #   the webview and its config lint-ts, lint-tailwind
+#   design/, tools/designsync/, lint-design
+#   src/components/, layouts/,
+#   routes/
 #   *.sh                       lint-sh
 #   YAML, .github/             lint-yaml
 #
@@ -44,6 +47,7 @@ fi
 if has '^(src|lint)/|^\.ox[a-z]+rc[^/]*\.json$|^package\.json$|^pnpm-[^/]*\.yaml$|^tsconfig[^/]*\.json$|^[^/]*\.ts$'; then
   jobs+=(lint-ts lint-tailwind)
 fi
+if has '^(design|src/(components|layouts|routes)|tools/designsync)/'; then jobs+=(lint-design); fi
 if has '\.sh$'; then jobs+=(lint-sh); fi
 if has '\.ya?ml$|^\.github/|^\.yamllint'; then jobs+=(lint-yaml); fi
 jobs+=("$tests")

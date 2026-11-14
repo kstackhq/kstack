@@ -52,6 +52,17 @@ shell:
   - .github/workflows/ci.yml
   - Makefile
   - '**/*.sh'
+# The manifest and every file an entry in it can name.
+design:
+  - .github/workflows/ci.yml
+  - Makefile
+  - design/**
+  - src/components/**
+  - src/layouts/**
+  - src/routes/**
+  - tools/designsync/**
+  - tools/go.mod
+  - tools/go.sum
 yaml:
   - .github/**
   - .gitignore

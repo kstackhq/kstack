@@ -72,6 +72,7 @@ jobs:
       typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.typescript == 'true' }}
       shell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.shell == 'true' }}
       yaml: ${{ github.event_name != 'pull_request' || steps.filter.outputs.yaml == 'true' }}
+      design: ${{ github.event_name != 'pull_request' || steps.filter.outputs.design == 'true' }}
       # Matrix legs, as JSON: the ones this event runs, and the pull request's.
       legs: ${{ steps.legs.outputs.legs }}
       pull-request-legs: ${{ steps.legs.outputs.pull-request-legs }}
@@ -324,6 +325,22 @@ jobs:
           args: >-
             --config .github/ci-config/lychee.toml
             --files-from '${{ runner.temp }}/markdown-files'
+
+  design-lint:
+    name: Design · Lint
+    needs: changes
+    if: needs.changes.outputs.design == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-environment
+        with:
+          setup-go: "true"
+      - name: Check the design manifest
+        working-directory: ./tools
+        run: go run ./designsync check
 
   typescript-lint:
     name: TypeScript · Lint

@@ -233,7 +233,7 @@ Off macOS there is no native menu bar: `AppMenu` (`app-bar/menu.tsx`) owns `Ctrl
 
 ## Figma
 
-The webview's design lives in two Figma files: the kubetail-ui library and the Desktop file. [`docs/figma.md`](../docs/figma.md) says how they map to this code (tokens and modes, the sync line each component carries, how Tailwind's `/NN` colors translate both ways) and how an agent syncs them in either direction. **An agent asks the user which side wins before syncing**, and a design change to the approval request or the model's description is a security change. A change to `index.css`'s colors or to a drawn component leaves its Figma counterpart behind until someone re-syncs it.
+The webview's design lives in two Figma files: the kubetail-ui library and the Desktop file. [`design/CLAUDE.md`](../design/CLAUDE.md) says how they map to this code (tokens and modes, the manifest that joins each component to its source, how Tailwind's `/NN` colors translate both ways) and how an agent syncs them in either direction. **An agent asks the user which side wins before syncing**, and a design change to the approval request or the model's description is a security change. A change to `index.css`'s colors or to a drawn component leaves its Figma counterpart behind until someone re-syncs it.
 
 ## GraphQL — never talks HTTP directly
 

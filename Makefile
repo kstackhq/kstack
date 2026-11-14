@@ -10,7 +10,8 @@
 # No target names a file it makes.
 .PHONY: build-sidecar build-sidecar-dev build-bwrap build-pasta build-embedded-sources \
 	generate-proto generate-prompts generate-icons \
-	lint lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-markers \
+	lint lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-markers lint-design \
+	design-status \
 	vet vet-go vet-go-changed vet-rust \
 	test test-go test-rust test-ts test-changed test-livecache test-liveswitch \
 	cover-go cover-ts cover-changed \
@@ -68,7 +69,7 @@ generate-icons: ## Regenerate src-tauri/icons/, public/favicon.ico and src/asset
 	mkdir -p src/assets/icons
 	cp src-icons/app-light.svg src-icons/app-dark.svg src/assets/icons/
 
-lint: lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-markers ## Run every linter CI runs
+lint: lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-markers lint-design ## Run every linter CI runs
 
 lint-go: ## Check the sidecar's and the CLI's Go formatting
 	@unformatted=$$(gofmt -l sidecar cli); \
@@ -107,6 +108,12 @@ lint-md: ## Check local paths and anchors in tracked Markdown
 
 lint-markers: ## Check every coverage marker gives its reason
 	sh scripts/check-coverage-markers.sh
+
+lint-design: ## Check the design manifest against the code it names
+	cd tools && go run ./designsync check
+
+design-status: ## List the components and screens whose code or design moved since their last sync (STAMPS=<file> adds the design side)
+	cd tools && go run ./designsync status $(if $(STAMPS),-stamps $(abspath $(STAMPS)))
 
 vet: vet-go vet-rust ## Run go vet, staticcheck and clippy
 

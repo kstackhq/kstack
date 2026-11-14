@@ -11,7 +11,8 @@
     "respectEslintDisableDirectives": false
   },
   "categories": { "correctness": "error", "suspicious": "error", "perf": "error" },
-  "ignorePatterns": ["src/gql/**"],
+  // design/scripts/ runs inside Figma, as a function body: it returns at the top level.
+  "ignorePatterns": ["src/gql/**", "design/scripts/**"],
   "rules": {
     // The categories' rules, fitted to this code.
     // The automatic JSX runtime imports React itself.

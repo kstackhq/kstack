@@ -1,0 +1,1587 @@
+{
+  "$schema": "./components.schema.json",
+  "version": 1,
+  "components": [
+    {
+      "id": "primitives/app-mark",
+      "figma": {
+        "node": "7:227",
+        "name": "AppMark",
+        "hash": "7019a2bef1ee2960"
+      },
+      "code": [
+        {
+          "path": "src/components/primitives/app-mark.tsx",
+          "blob": "2891b513bd3d06579c710080e0d7b85027eb3abd"
+        }
+      ],
+      "notes": [
+        "The tile is color/primary and the glyph color/primary-foreground; the masters are src-icons/app-light.svg and app-dark.svg."
+      ]
+    },
+    {
+      "id": "primitives/app-logo",
+      "figma": {
+        "node": "7:231",
+        "name": "AppLogo",
+        "hash": "153589bb0c85b1cb"
+      },
+      "code": [
+        {
+          "path": "src/components/primitives/app-logo.tsx",
+          "blob": "d0a586d4c2233b56e9fdf3f203614c9c774cc919"
+        }
+      ]
+    },
+    {
+      "id": "primitives/section-heading",
+      "figma": {
+        "node": "9:93",
+        "name": "SectionHeading",
+        "hash": "7071022889626c3c"
+      },
+      "code": [
+        {
+          "path": "src/components/primitives/section-heading.tsx",
+          "blob": "4a49d2cce769fd88700b664f2919f5bab9104118"
+        }
+      ]
+    },
+    {
+      "id": "primitives/window-controls",
+      "figma": {
+        "node": "22:164",
+        "name": "WindowControls",
+        "hash": "52180810df1c6b0a"
+      },
+      "code": [
+        {
+          "path": "src/components/primitives/window-controls.tsx",
+          "blob": "6c9314a7af1fe4add423605958556dea2c20f644"
+        }
+      ],
+      "notes": [
+        "An instance fills its bar's height: 48px in AppBar, 40px in LogsWindowBar."
+      ]
+    },
+    {
+      "id": "primitives/window-frame",
+      "figma": {
+        "node": "22:228",
+        "name": "WindowFrame",
+        "hash": "ae4f17d54dd18802"
+      },
+      "code": [
+        {
+          "path": "src/components/primitives/window-frame.tsx",
+          "blob": "6932fe1133b090d029c7299517b40392a8c0b397"
+        }
+      ],
+      "notes": [
+        "The screen goes in the Window slot."
+      ]
+    },
+    {
+      "id": "shell/history-nav",
+      "figma": {
+        "node": "7:248",
+        "name": "HistoryNav",
+        "hash": "3372fba069e936bf"
+      },
+      "code": [
+        {
+          "path": "src/components/shell/app-bar/history-nav.tsx",
+          "blob": "99944c5aec7cba93d8d23de434c03113a46d96e8"
+        }
+      ]
+    },
+    {
+      "id": "shell/app-bar/actions",
+      "figma": {
+        "node": "7:262",
+        "name": "AppBar/Actions",
+        "hash": "14ebba5a2af92e16"
+      },
+      "code": [
+        {
+          "path": "src/components/shell/app-bar/bar.tsx",
+          "blob": "5d41e00f28aa6792ab645925b7fb15fce77da2d5"
+        }
+      ]
+    },
+    {
+      "id": "shell/app-menu",
+      "figma": {
+        "node": "22:159",
+        "name": "AppMenu",
+        "hash": "4756f1f8a03a1e02"
+      },
+      "code": [
+        {
+          "path": "src/components/shell/app-bar/menu.tsx",
+          "blob": "4fd3270a4d753b9be01794df99976d264f8427a8"
+        }
+      ]
+    },
+    {
+      "id": "shell/context-omnibox",
+      "figma": {
+        "node": "7:264",
+        "name": "ContextOmnibox",
+        "hash": "593194107d028131"
+      },
+      "code": [
+        {
+          "path": "src/components/shell/context-omnibox/omnibox.tsx",
+          "blob": "8b852ca16b21b33e2733c01e3a2c026221e47a43"
+        }
+      ]
+    },
+    {
+      "id": "shell/mode-nav",
+      "figma": {
+        "node": "9:92",
+        "name": "ModeNav",
+        "hash": "c813aaa42d8b4621"
+      },
+      "code": [
+        {
+          "path": "src/components/shell/mode-nav.tsx",
+          "blob": "979578f200f85525136212e5f653bc77d9691ad5"
+        }
+      ]
+    },
+    {
+      "id": "shell/app-bar",
+      "figma": {
+        "node": "22:203",
+        "name": "AppBar",
+        "hash": "926ee30fc7272908"
+      },
+      "code": [
+        {
+          "path": "src/components/shell/app-bar/bar.tsx",
+          "blob": "5d41e00f28aa6792ab645925b7fb15fce77da2d5"
+        }
+      ]
+    },
+    {
+      "id": "dashboard/scope-trigger",
+      "figma": {
+        "node": "9:130",
+        "name": "ScopeTrigger",
+        "hash": "10936a3b7cc82476"
+      },
+      "code": [
+        {
+          "path": "src/components/dashboard/dashboard-resource-nav/scope-menu.tsx",
+          "blob": "9e90bdf2b0e347f7d7e40c4e19d79e41178ab36d"
+        }
+      ]
+    },
+    {
+      "id": "dashboard/status-pill",
+      "figma": {
+        "node": "9:148",
+        "name": "StatusPill",
+        "hash": "2a92c7081415c681"
+      },
+      "code": [
+        {
+          "path": "src/components/dashboard/status-pill.tsx",
+          "blob": "49e431f248ba3d3233018996a7d257f92329ee52"
+        }
+      ]
+    },
+    {
+      "id": "dashboard/page-header",
+      "figma": {
+        "node": "9:149",
+        "name": "PageHeader",
+        "hash": "624f649939032222"
+      },
+      "code": [
+        {
+          "path": "src/components/dashboard/page-header.tsx",
+          "blob": "93ed76a1bd279e1c4569ac23154709a776ca9325"
+        }
+      ]
+    },
+    {
+      "id": "dashboard/nav-group",
+      "figma": {
+        "node": "9:129",
+        "name": "NavGroup",
+        "hash": "526f45c8c485e392"
+      },
+      "code": [
+        {
+          "path": "src/components/dashboard/dashboard-resource-nav/nav-group.tsx",
+          "blob": "4925db01c2f0b707ee1e0b08579c8f6f4ce3bfbe"
+        }
+      ]
+    },
+    {
+      "id": "dashboard/nav-item",
+      "figma": {
+        "node": "9:113",
+        "name": "NavItem",
+        "hash": "f22e3a501015aab2"
+      },
+      "code": [
+        {
+          "path": "src/components/dashboard/dashboard-resource-nav/nav-item.tsx",
+          "blob": "7a430c52d24cc332eccee4fbffc5a17c12dbf759"
+        }
+      ]
+    },
+    {
+      "id": "dashboard/objects-table/header",
+      "figma": {
+        "node": "10:91",
+        "name": "ObjectsTable/Header",
+        "hash": "a413afe4896b4cbf"
+      },
+      "code": [
+        {
+          "path": "src/components/dashboard/virtual-table.tsx",
+          "blob": "a810692a1876577b92002a8f0a3e7af3b2457557"
+        },
+        {
+          "path": "src/components/dashboard/objects-table/table.tsx",
+          "symbol": "HEADER",
+          "blob": "6646fa8acea7e17ae9a7422800d1a40ed5cf7e2b"
+        }
+      ]
+    },
+    {
+      "id": "dashboard/objects-table/pod-row",
+      "figma": {
+        "node": "10:128",
+        "name": "ObjectsTable/PodRow",
+        "hash": "46378a90d9b3e72d"
+      },
+      "code": [
+        {
+          "path": "src/components/dashboard/objects-table/columns/pods.tsx",
+          "blob": "e1d01b5d4c965652c62dd2fd7f4db18581347232"
+        },
+        {
+          "path": "src/components/dashboard/objects-table/table.tsx",
+          "blob": "6646fa8acea7e17ae9a7422800d1a40ed5cf7e2b"
+        }
+      ]
+    },
+    {
+      "id": "dashboard/objects-table/footer",
+      "figma": {
+        "node": "10:156",
+        "name": "ObjectsTable/Footer",
+        "hash": "67cec1f11ac51be0"
+      },
+      "code": [
+        {
+          "path": "src/components/dashboard/objects-table/table.tsx",
+          "blob": "6646fa8acea7e17ae9a7422800d1a40ed5cf7e2b"
+        }
+      ]
+    },
+    {
+      "id": "cluster/cluster-dot",
+      "figma": {
+        "node": "29:238",
+        "name": "ClusterDot",
+        "hash": "f7030a4dbb061203"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/cluster-dot.tsx",
+          "blob": "8a13e879c9a81cb0c29fb85804423eab1077a244"
+        }
+      ]
+    },
+    {
+      "id": "cluster/data-rate-sparkline",
+      "figma": {
+        "node": "29:239",
+        "name": "DataRateSparkline",
+        "hash": "cbbdd4a847fc99f1"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/data-rate-sparkline.tsx",
+          "blob": "596c7f52d4cf95a87660b9696f0b61b47a5e53c0"
+        }
+      ],
+      "notes": [
+        "Sample data, drawn as receivedOnly: the received rate alone.",
+        "The fill's fillOpacity={0.15} is layer opacity on the Fill layer."
+      ]
+    },
+    {
+      "id": "cluster/unverified-tls-badge",
+      "figma": {
+        "node": "36:1324",
+        "name": "UnverifiedTLSBadge",
+        "hash": "3a8db0d2278988fb"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/unverified-tls-badge.tsx",
+          "blob": "5bfa4d906bd3732647635fe28cee55e4ea2e7807"
+        }
+      ]
+    },
+    {
+      "id": "cluster/cluster-status/pill",
+      "figma": {
+        "node": "29:259",
+        "name": "ClusterStatus/Pill",
+        "hash": "7d7afde2c59659d4"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/cluster-status/popover.tsx",
+          "symbol": "PILL",
+          "blob": "6c2e32b2189b352876e0c8ca374436c170d2f0f2"
+        }
+      ]
+    },
+    {
+      "id": "cluster/cluster-status/verdict",
+      "figma": {
+        "node": "29:276",
+        "name": "ClusterStatus/Verdict",
+        "hash": "96c1a5f3c9634bbf"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/cluster-status/popover.tsx",
+          "symbol": "Verdict",
+          "blob": "6c2e32b2189b352876e0c8ca374436c170d2f0f2"
+        }
+      ]
+    },
+    {
+      "id": "cluster/cluster-status/stat",
+      "figma": {
+        "node": "29:277",
+        "name": "ClusterStatus/Stat",
+        "hash": "135ec5662c6c7aaa"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/cluster-status/popover.tsx",
+          "symbol": "Stat",
+          "blob": "6c2e32b2189b352876e0c8ca374436c170d2f0f2"
+        }
+      ]
+    },
+    {
+      "id": "cluster/cluster-status",
+      "figma": {
+        "node": "31:985",
+        "name": "ClusterStatus",
+        "hash": "ff69cd5159c1456a"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/cluster-status/popover.tsx",
+          "blob": "6c2e32b2189b352876e0c8ca374436c170d2f0f2"
+        }
+      ],
+      "notes": [
+        "Sample data.",
+        "State is the combination a person sees, from connectionStatus and syncStatus in src/lib/cluster-health.ts, not every product of the two.",
+        "Not reached is the header alone: no record for the context yet.",
+        "Every value is always drawn, a dash for a missing one, so the popup never reflows."
+      ]
+    },
+    {
+      "id": "cluster/cluster-picker/row",
+      "figma": {
+        "node": "36:1326",
+        "name": "ClusterPicker/Row",
+        "hash": "b22dca32a33f5ef9"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/cluster-picker/list.tsx",
+          "blob": "521c85f5f257690e3ef7a371785766f756ea0cf4"
+        }
+      ],
+      "notes": [
+        "The nested ClusterDot is exposed: set the context's tone through its Tone."
+      ]
+    },
+    {
+      "id": "cluster/cluster-picker",
+      "figma": {
+        "node": "36:1666",
+        "name": "ClusterPicker",
+        "hash": "ab36c94bc25ac749"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/cluster-picker/popover.tsx",
+          "blob": "465f9bb3f73f3ba173917979f926d3992572a217"
+        }
+      ],
+      "notes": [
+        "Sample data.",
+        "Context names and summaries are cluster data, drawn as text."
+      ]
+    },
+    {
+      "id": "cluster/memory/row",
+      "figma": {
+        "node": "37:1685",
+        "name": "Memory/Row",
+        "hash": "489d2bee87ac2f59"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/memory/list.tsx",
+          "symbol": "Row",
+          "blob": "3ef4e00d49e8b92f936583f5136bbf2cb9aafb02"
+        }
+      ],
+      "notes": [
+        "Default hides the checkbox and the actions without giving up their space: layer opacity here, invisible and opacity-0 in code.",
+        "The body is model-writable text."
+      ]
+    },
+    {
+      "id": "cluster/memory-popover",
+      "figma": {
+        "node": "39:2265",
+        "name": "MemoryPopover",
+        "hash": "3af0d5fe15c8f38d"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/memory/popover.tsx",
+          "blob": "cbf1c6564f98dd85b49e438c61f7b57de8010842"
+        }
+      ],
+      "notes": [
+        "Sample data.",
+        "Manage all memories leads nowhere yet.",
+        "Memory text is model-writable: it is drawn as text, never as Markdown."
+      ]
+    },
+    {
+      "id": "chat/chat-nav/row",
+      "figma": {
+        "node": "20:132",
+        "name": "ChatNav/Row",
+        "hash": "b7c9f286b8ab75ea"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-nav.tsx",
+          "blob": "76d06563cd55d58a65e26bb0d46c11e15380ac86"
+        }
+      ]
+    },
+    {
+      "id": "chat/user-message",
+      "figma": {
+        "node": "20:225",
+        "name": "Chat/UserMessage",
+        "hash": "e4366b1fd67ebc62"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-transcript/transcript.tsx",
+          "blob": "05af4739c27725cf2f4da140c601ac90741bc1ac"
+        }
+      ]
+    },
+    {
+      "id": "chat/tool-call",
+      "figma": {
+        "node": "20:227",
+        "name": "Chat/ToolCall",
+        "hash": "052c5fbad4443e5a"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-transcript/transcript.tsx",
+          "symbol": "ToolCalls",
+          "blob": "05af4739c27725cf2f4da140c601ac90741bc1ac"
+        }
+      ],
+      "security": true,
+      "notes": [
+        "The disclosure marker is the browser's native one, not an icon."
+      ]
+    },
+    {
+      "id": "chat/approval-request",
+      "figma": {
+        "node": "20:232",
+        "name": "Chat/ApprovalRequest",
+        "hash": "7125e6b20d84c8ad"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-transcript/transcript.tsx",
+          "symbol": "ApprovalRequest",
+          "blob": "05af4739c27725cf2f4da140c601ac90741bc1ac"
+        }
+      ],
+      "security": true
+    },
+    {
+      "id": "chat/logs-view-card",
+      "figma": {
+        "node": "20:263",
+        "name": "Chat/LogsViewCard",
+        "hash": "f37cd5c4a6328a1d"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/log-cards/view-card.tsx",
+          "blob": "96e0a8faaa6f6b15e820e8fff5af58e64e4c2c52"
+        }
+      ],
+      "security": true
+    },
+    {
+      "id": "chat/chat-composer",
+      "figma": {
+        "node": "20:224",
+        "name": "ChatComposer",
+        "hash": "b348fc91d4806c9f"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-composer/composer.tsx",
+          "blob": "8b29cbbc2b465179749e9d5855769058cf179d99"
+        }
+      ]
+    },
+    {
+      "id": "chat/model-picker/provider-mark",
+      "figma": {
+        "node": "2030:2196",
+        "name": "ModelPicker/ProviderMark",
+        "hash": "5fa66e011a064176"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-composer/model-picker.tsx",
+          "symbol": "ProviderMark",
+          "blob": "3581fc51ed3c40b750f53f1141e0a2193d83df51"
+        }
+      ],
+      "notes": [
+        "A provider with no brand colour (Local here) draws its initial on bg-muted.",
+        "Google's blue is a sample: providers are configurable."
+      ]
+    },
+    {
+      "id": "chat/model-picker/segment",
+      "figma": {
+        "node": "2030:2205",
+        "name": "ModelPicker/Segment",
+        "hash": "ff99796bda7dcd92"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-composer/model-picker.tsx",
+          "blob": "3581fc51ed3c40b750f53f1141e0a2193d83df51"
+        }
+      ],
+      "notes": [
+        "Figma only: the code has no Segment component. It is one option of the menu's provider tabs and of its effort control.",
+        "Drawn like ModeNav: the active one bg-background shadow-sm on a bg-muted track."
+      ]
+    },
+    {
+      "id": "chat/model-picker/model-row",
+      "figma": {
+        "node": "2030:2222",
+        "name": "ModelPicker/ModelRow",
+        "hash": "05519d2a8c77c6f0"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-composer/model-picker.tsx",
+          "blob": "3581fc51ed3c40b750f53f1141e0a2193d83df51"
+        }
+      ],
+      "notes": [
+        "Figma only: the code has no ModelRow component. It is a Base UI Radio in the menu's RadioGroup."
+      ]
+    },
+    {
+      "id": "chat/model-picker/menu",
+      "figma": {
+        "node": "2034:2328",
+        "name": "ModelPicker/Menu",
+        "hash": "0189516473da2672"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-composer/model-picker.tsx",
+          "blob": "3581fc51ed3c40b750f53f1141e0a2193d83df51"
+        }
+      ],
+      "notes": [
+        "Sample data. Only Anthropic's tab is drawn.",
+        "Its surface is the composer's (color/composer, bg-background dark:bg-card), not bg-popover.",
+        "Manage providers leads nowhere yet."
+      ]
+    },
+    {
+      "id": "chat/sandbox-popover/badge",
+      "figma": {
+        "node": "2049:2298",
+        "name": "SandboxPopover/Badge",
+        "hash": "28aaed2dd3ca2a0f"
+      },
+      "notes": [
+        "@kubetail/ui has no Badge, so this follows shadcn's: h-5 rounded-md px-2 gap-1 text-xs font-medium.",
+        "Variant secondary is bg-secondary text-secondary-foreground; outline is border text-foreground.",
+        "Secondary marks a folder's access; outline is an allowed domain, and Removable shows its X."
+      ]
+    },
+    {
+      "id": "chat/sandbox-popover/folder-row",
+      "figma": {
+        "node": "2049:2299",
+        "name": "SandboxPopover/FolderRow",
+        "hash": "0c4bff6a81816b7c"
+      },
+      "notes": [
+        "h-8 rounded-md px-2, as ModelPicker/ModelRow: the path (text-sm, truncated) and its access.",
+        "The access is a secondary SandboxPopover/Badge: Read, or Read & write."
+      ]
+    },
+    {
+      "id": "chat/sandbox-popover/menu",
+      "figma": {
+        "node": "2050:2384",
+        "name": "SandboxPopover/Menu",
+        "hash": "8f86b795684629d4"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-composer/sandbox-popover.tsx",
+          "blob": "4647d9e88a1af873d691b72c744800555d8a5dca"
+        }
+      ],
+      "notes": [
+        "Sample data.",
+        "A header (Sandbox and its state, a secondary Badge), then sections split by a border line, each under a SectionHeading with a muted count or mode on its right.",
+        "Network: the allowed domains as removable outline badges, and Add domain, an outline Button xs.",
+        "Files: a SandboxPopover/FolderRow per granted folder.",
+        "Two settings: a label and hint beside a Select (sm) or a Switch.",
+        "The footer (border-t bg-muted/50 px-3 py-2, as ModelPicker/Menu) sums up what the next request carries, beside Inspect payload, an outline Button xs.",
+        "Hangs 8px from the trigger, its left edge on the trigger's: below it on a new chat, above it on an open one."
+      ]
+    },
+    {
+      "id": "logs/logs-window-bar",
+      "figma": {
+        "node": "22:226",
+        "name": "LogsWindowBar",
+        "hash": "f5b2f83d092448bc"
+      },
+      "code": [
+        {
+          "path": "src/components/logs/log-window/bar.tsx",
+          "blob": "18f4e7a227a2c942e25a4c677b6f91b44b6dae99"
+        }
+      ]
+    },
+    {
+      "id": "logs/logs-view-header",
+      "figma": {
+        "node": "18:522",
+        "name": "LogsViewHeader",
+        "hash": "d03b298aa4572666"
+      },
+      "code": [
+        {
+          "path": "src/components/logs/log-panel.tsx",
+          "blob": "5dfe016ed72d646a16f525183a19452e2889327b"
+        }
+      ]
+    },
+    {
+      "id": "logs/log-viewer/toolbar",
+      "figma": {
+        "node": "18:527",
+        "name": "LogViewer/Toolbar",
+        "hash": "a2a49a42ed0d2a16"
+      },
+      "code": [
+        {
+          "path": "src/components/logs/log-viewer/toolbar.tsx",
+          "blob": "0e8d6e1e834c12c6d0856c1672c01f032ab91dad"
+        }
+      ]
+    },
+    {
+      "id": "logs/log-viewer/header",
+      "figma": {
+        "node": "18:566",
+        "name": "LogViewer/Header",
+        "hash": "e3519e8e53819ebb"
+      },
+      "code": [
+        {
+          "path": "src/components/logs/log-viewer/header.tsx",
+          "blob": "db07726175710e7f8c6b8b1ead507bfc2ac49219"
+        }
+      ]
+    },
+    {
+      "id": "logs/log-viewer/row",
+      "figma": {
+        "node": "18:591",
+        "name": "LogViewer/Row",
+        "hash": "9fd96123a3d91082"
+      },
+      "code": [
+        {
+          "path": "src/components/logs/log-viewer/row.tsx",
+          "blob": "24d66a7a4aa9e822ecdc89f2563d98483102d56d"
+        }
+      ],
+      "notes": [
+        "The dot's colour is a sample: the code picks it from DOT_PALETTE by a hash of namespace/pod/container."
+      ]
+    },
+    {
+      "id": "logs/log-viewer/gap-notice",
+      "figma": {
+        "node": "18:592",
+        "name": "LogViewer/GapNotice",
+        "hash": "898edae608263cde"
+      },
+      "code": [
+        {
+          "path": "src/components/logs/log-viewer/row.tsx",
+          "symbol": "GapNotice",
+          "blob": "24d66a7a4aa9e822ecdc89f2563d98483102d56d"
+        }
+      ]
+    },
+    {
+      "id": "icon/arrow-right",
+      "figma": {
+        "node": "5:9",
+        "name": "Icon/arrow-right",
+        "hash": "257ea44cc707d8f1"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "ArrowRightIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/arrow-up",
+      "figma": {
+        "node": "5:13",
+        "name": "Icon/arrow-up",
+        "hash": "a7e7f6f41ec9d855"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "ArrowUpIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/at-sign",
+      "figma": {
+        "node": "5:17",
+        "name": "Icon/at-sign",
+        "hash": "5e38ec67f4ef187a"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "AtSignIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/bell",
+      "figma": {
+        "node": "5:21",
+        "name": "Icon/bell",
+        "hash": "fa7f7f6467e83cd4"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "BellIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/brain",
+      "figma": {
+        "node": "5:31",
+        "name": "Icon/brain",
+        "hash": "c6ab4eaa4a764b51"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "BrainIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/chevrons-up-down",
+      "figma": {
+        "node": "5:35",
+        "name": "Icon/chevrons-up-down",
+        "hash": "cbe6d10dd1e9df72"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "ChevronsUpDownIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/clock",
+      "figma": {
+        "node": "5:39",
+        "name": "Icon/clock",
+        "hash": "d67920e4ca6ce490"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "ClockIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/code",
+      "figma": {
+        "node": "2049:2285",
+        "name": "Icon/code",
+        "hash": "9bf89b446c438f30"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "CodeIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/columns-3",
+      "figma": {
+        "node": "5:44",
+        "name": "Icon/columns-3",
+        "hash": "aaa1e0bc62aab7c8"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "Columns3Icon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/compass",
+      "figma": {
+        "node": "5:48",
+        "name": "Icon/compass",
+        "hash": "39ef66b56f64f516"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "CompassIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/copy",
+      "figma": {
+        "node": "5:52",
+        "name": "Icon/copy",
+        "hash": "0e13670fa2158e54"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "CopyIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/database",
+      "figma": {
+        "node": "5:57",
+        "name": "Icon/database",
+        "hash": "70b375b50b607dfb"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "DatabaseIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/file-code",
+      "figma": {
+        "node": "5:63",
+        "name": "Icon/file-code",
+        "hash": "2db1681061412449"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "FileCodeIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/globe",
+      "figma": {
+        "node": "5:68",
+        "name": "Icon/globe",
+        "hash": "347c9c20ff7568f5"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "GlobeIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/globe-off",
+      "figma": {
+        "node": "5:77",
+        "name": "Icon/globe-off",
+        "hash": "96c1abb585e1e8b2"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "GlobeOffIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/grip-vertical",
+      "figma": {
+        "node": "5:85",
+        "name": "Icon/grip-vertical",
+        "hash": "6ad204d405c5fd90"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "GripVerticalIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/history",
+      "figma": {
+        "node": "5:90",
+        "name": "Icon/history",
+        "hash": "3bf9e9c7bdafdf83"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "HistoryIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/layers",
+      "figma": {
+        "node": "5:95",
+        "name": "Icon/layers",
+        "hash": "338f31d5fcd2cc4e"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "LayersIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/layout-dashboard",
+      "figma": {
+        "node": "5:101",
+        "name": "Icon/layout-dashboard",
+        "hash": "c6230e764bad2f5f"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "LayoutDashboardIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/list",
+      "figma": {
+        "node": "5:109",
+        "name": "Icon/list",
+        "hash": "ec6d8c53f516c025"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "ListIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/log-out",
+      "figma": {
+        "node": "5:114",
+        "name": "Icon/log-out",
+        "hash": "fa554faeadd6a7f4"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "LogOutIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/menu",
+      "figma": {
+        "node": "5:119",
+        "name": "Icon/menu",
+        "hash": "1648479a3470ee99"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "MenuIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/message-circle",
+      "figma": {
+        "node": "5:122",
+        "name": "Icon/message-circle",
+        "hash": "352f7e55facf7c3e"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "MessageCircleIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/minus",
+      "figma": {
+        "node": "5:125",
+        "name": "Icon/minus",
+        "hash": "9185b7253c63a336"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "MinusIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/monitor",
+      "figma": {
+        "node": "5:130",
+        "name": "Icon/monitor",
+        "hash": "f27c4a5631a81f8e"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "MonitorIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/moon",
+      "figma": {
+        "node": "5:133",
+        "name": "Icon/moon",
+        "hash": "8e46f70e99b73c02"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "MoonIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/panel-right",
+      "figma": {
+        "node": "5:137",
+        "name": "Icon/panel-right",
+        "hash": "84a9e4b6008f32fc"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "PanelRightIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/pause",
+      "figma": {
+        "node": "5:141",
+        "name": "Icon/pause",
+        "hash": "5a28e828b84bb2ba"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "PauseIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/play",
+      "figma": {
+        "node": "5:144",
+        "name": "Icon/play",
+        "hash": "f1980ccf28df038f"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "PlayIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/power",
+      "figma": {
+        "node": "5:148",
+        "name": "Icon/power",
+        "hash": "925b9d4196c418b2"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "PowerIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/power-off",
+      "figma": {
+        "node": "5:154",
+        "name": "Icon/power-off",
+        "hash": "7ba77c740c7c42a7"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "PowerOffIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/rotate-cw",
+      "figma": {
+        "node": "5:158",
+        "name": "Icon/rotate-cw",
+        "hash": "b6337dbc88f35984"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "RotateCwIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/scroll-text",
+      "figma": {
+        "node": "5:164",
+        "name": "Icon/scroll-text",
+        "hash": "6a92f99ea7314c12"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "ScrollTextIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/server",
+      "figma": {
+        "node": "5:170",
+        "name": "Icon/server",
+        "hash": "379aa9fbeec37cff"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "ServerIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/settings",
+      "figma": {
+        "node": "5:174",
+        "name": "Icon/settings",
+        "hash": "8f1b553e57c4e2fd"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "SettingsIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/shield-check",
+      "figma": {
+        "node": "5:178",
+        "name": "Icon/shield-check",
+        "hash": "beb4532f3b5f6f44"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "ShieldCheckIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/shield-off",
+      "figma": {
+        "node": "5:183",
+        "name": "Icon/shield-off",
+        "hash": "9c864f5a782d3586"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "ShieldOffIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/skip-back",
+      "figma": {
+        "node": "5:187",
+        "name": "Icon/skip-back",
+        "hash": "5718f889d93a3508"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "SkipBackIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/skip-forward",
+      "figma": {
+        "node": "5:191",
+        "name": "Icon/skip-forward",
+        "hash": "8cf4e3a6bd3dcbc4"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "SkipForwardIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/slash",
+      "figma": {
+        "node": "5:194",
+        "name": "Icon/slash",
+        "hash": "8a8d59a8c576c343"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "SlashIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/square",
+      "figma": {
+        "node": "5:197",
+        "name": "Icon/square",
+        "hash": "a10cbe82601ee921"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "SquareIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/square-pen",
+      "figma": {
+        "node": "5:201",
+        "name": "Icon/square-pen",
+        "hash": "a2d758328e8e3c20"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "SquarePenIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/square-slash",
+      "figma": {
+        "node": "5:205",
+        "name": "Icon/square-slash",
+        "hash": "71fab9f91038d1d9"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "SquareSlashIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/sun",
+      "figma": {
+        "node": "5:216",
+        "name": "Icon/sun",
+        "hash": "b5512d664d3ac51a"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "SunIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/trash-2",
+      "figma": {
+        "node": "5:223",
+        "name": "Icon/trash-2",
+        "hash": "e388a323229a513e"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "Trash2Icon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/user",
+      "figma": {
+        "node": "5:227",
+        "name": "Icon/user",
+        "hash": "d1712d33790feb47"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "UserIcon",
+        "version": "1.68.0"
+      }
+    },
+    {
+      "id": "icon/user-round",
+      "figma": {
+        "node": "5:231",
+        "name": "Icon/user-round",
+        "hash": "902ca76ccf4f64d0"
+      },
+      "package": {
+        "name": "lucide-react",
+        "export": "UserRoundIcon",
+        "version": "1.68.0"
+      }
+    }
+  ],
+  "screens": [
+    {
+      "id": "screens/platforms",
+      "figma": {
+        "node": "22:2516",
+        "name": "Platforms",
+        "hash": "4af42ed55c12874a"
+      },
+      "code": [
+        {
+          "path": "src/layouts/app-layout.tsx",
+          "blob": "4c9f3248de91885a0e6f9b4608093595d4435c8b"
+        },
+        {
+          "path": "src/routes/__root.tsx",
+          "blob": "5c9b6ef720deffa7ea34459e0c1958b7867e2c25"
+        }
+      ]
+    },
+    {
+      "id": "screens/popups-on-shell",
+      "figma": {
+        "node": "42:10238",
+        "name": "Popups on Shell",
+        "hash": "1d02ff07ec0005bd"
+      },
+      "code": [
+        {
+          "path": "src/layouts/app-layout.tsx",
+          "blob": "4c9f3248de91885a0e6f9b4608093595d4435c8b"
+        }
+      ],
+      "notes": [
+        "The section's own layer is `Shell`, the screen every popup's frame holds an instance of."
+      ]
+    },
+    {
+      "id": "screens/popups-on-shell/cluster-status",
+      "figma": {
+        "node": "42:10239",
+        "name": "ClusterStatus",
+        "hash": "662d200f049c7779"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/cluster-status/popover.tsx",
+          "blob": "6c2e32b2189b352876e0c8ca374436c170d2f0f2"
+        }
+      ]
+    },
+    {
+      "id": "screens/popups-on-shell/cluster-picker",
+      "figma": {
+        "node": "42:10240",
+        "name": "ClusterPicker",
+        "hash": "1195438978a8081c"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/cluster-picker/popover.tsx",
+          "blob": "465f9bb3f73f3ba173917979f926d3992572a217"
+        }
+      ]
+    },
+    {
+      "id": "screens/popups-on-shell/memory-popover",
+      "figma": {
+        "node": "42:10241",
+        "name": "MemoryPopover",
+        "hash": "f0c0bf5d3f8d39ef"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/memory/popover.tsx",
+          "blob": "cbf1c6564f98dd85b49e438c61f7b57de8010842"
+        }
+      ]
+    },
+    {
+      "id": "screens/popups-on-shell/app-menu",
+      "figma": {
+        "node": "43:9226",
+        "name": "AppMenu",
+        "hash": "8839f0728e68d3fa"
+      },
+      "code": [
+        {
+          "path": "src/components/shell/app-bar/menu.tsx",
+          "blob": "4fd3270a4d753b9be01794df99976d264f8427a8"
+        }
+      ]
+    },
+    {
+      "id": "screens/dashboard-pods",
+      "figma": {
+        "node": "42:10242",
+        "name": "Dashboard / Pods",
+        "hash": "13bf1a3cd26e3e59"
+      },
+      "code": [
+        {
+          "path": "src/layouts/app-layout.tsx",
+          "blob": "4c9f3248de91885a0e6f9b4608093595d4435c8b"
+        },
+        {
+          "path": "src/routes/dashboard.tsx",
+          "blob": "e87b246bb4aa2ff19446ab250d5a007072f229b2"
+        }
+      ]
+    },
+    {
+      "id": "screens/chat-new",
+      "figma": {
+        "node": "42:10243",
+        "name": "Chat / New",
+        "hash": "c428bc885360e674"
+      },
+      "code": [
+        {
+          "path": "src/layouts/app-layout.tsx",
+          "blob": "4c9f3248de91885a0e6f9b4608093595d4435c8b"
+        },
+        {
+          "path": "src/routes/chat.tsx",
+          "blob": "24776e21becba9e2201d9eaf6a44ca4f4a7b883d"
+        },
+        {
+          "path": "src/components/chat/chat-pane.tsx",
+          "blob": "4609271bfa8abd792e8025148240beeb7a1cb0ac"
+        }
+      ]
+    },
+    {
+      "id": "screens/chat-open",
+      "figma": {
+        "node": "42:10244",
+        "name": "Chat / Open",
+        "hash": "12053b8e4ee04297"
+      },
+      "code": [
+        {
+          "path": "src/layouts/app-layout.tsx",
+          "blob": "4c9f3248de91885a0e6f9b4608093595d4435c8b"
+        },
+        {
+          "path": "src/routes/chat-id.tsx",
+          "blob": "e681754a00b802a2068e23d122c1bfc2a1b2c4fe"
+        },
+        {
+          "path": "src/components/chat/chat-pane.tsx",
+          "blob": "4609271bfa8abd792e8025148240beeb7a1cb0ac"
+        }
+      ]
+    },
+    {
+      "id": "screens/chat-model-picker-open",
+      "figma": {
+        "node": "2031:6729",
+        "name": "Chat / Model picker open",
+        "hash": "4ea0fc919ee9e493"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-composer/model-picker.tsx",
+          "blob": "3581fc51ed3c40b750f53f1141e0a2193d83df51"
+        }
+      ]
+    },
+    {
+      "id": "screens/chat-sandbox-open",
+      "figma": {
+        "node": "2050:7406",
+        "name": "Chat / Sandbox open",
+        "hash": "090590fc6f927974"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-composer/sandbox-popover.tsx",
+          "blob": "4647d9e88a1af873d691b72c744800555d8a5dca"
+        }
+      ]
+    },
+    {
+      "id": "screens/log-window",
+      "figma": {
+        "node": "42:10245",
+        "name": "Log window",
+        "hash": "618dbcd3ece19dcd"
+      },
+      "code": [
+        {
+          "path": "src/layouts/logs-window-layout.tsx",
+          "blob": "955e43c932c87d90e9537f8f10d9a3e95f5d5c8b"
+        },
+        {
+          "path": "src/components/logs/log-window/window.tsx",
+          "blob": "77fea868242868317b7aaf11249a2e3c8f37961b"
+        }
+      ]
+    }
+  ]
+}
