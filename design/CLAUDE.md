@@ -120,6 +120,16 @@ Screens are drawn for macOS. Each macOS screen frame draws the window's edge tha
 - **Draw a state on a screen when it changes how the popup sits in the window.** `ClusterStatus` is drawn Healthy and Disconnected (taller, with its alert), each in both schemes.
 - A popover has no scrim, so none is drawn.
 
+## Hover and focus states
+
+- **A hover or focus effect is a `State=Hover` variant of its component.** It is an effect, never a persistent state; a state that persists is a variant of its own. Light and dark stay modes.
+- **A screen draws the resting state, or `State=Hover` to show the effect in place.** Either way, the code reveals the effect only on hover or focus.
+- **No state moves a sibling.** The effect's space is reserved in every state, empty at rest, or the effect is absolutely positioned.
+- **Names carry the intent**: `State=Hover`, a layer shown only on hover named `… (hover only)`, a reserved space named `ActionsSlot (reserved)`, and `ActionsSlot (reserved, empty)` where it is empty.
+- **The stamp's `changes` says what a variant cannot show**: that the state is hover-only, that it triggers on hover or focus-within, and what is reserved or overlaid.
+- **A component whose content differs per instance holds it in a slot named `Content`.**
+- Colors are bound to variables, as everywhere else.
+
 ## Translucent colors
 
 Each Tailwind form has one Figma encoding:
