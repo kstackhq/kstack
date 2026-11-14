@@ -9,14 +9,14 @@ How the webview's design in Figma maps to the code in `src/`, and how agents syn
 
 Every group on a page is a Figma section, laid out so that no two overlap. A new component or screen goes in its group's section, and the section grows to fit it.
 
-- **Components** has one section per folder of `src/components/`, left to right: Icons, Primitives, Shell, Dashboard, Cluster, Chat, Logs. Each section names its folder under its title and stacks its components top to bottom. A popup gets a nested section of its own (`ClusterStatus`, `ClusterPicker`, `MemoryPopover` in Cluster).
-- **Screens** has one section per screen, top to bottom: Platforms, Popups on Shell, Dashboard / Pods, Chat / New, Chat / Open, Log window. A screen's section holds its *Kstack Light* frame, then its *Kstack Dark* frame.
+- **Components** has one section per folder of `src/components/`, left to right: Icons, Primitives, Shell, Dashboard, Cluster, Chat, Logs. Each section names its folder under its title and stacks its components top to bottom. A popup gets a nested section of its own (`ClusterStatus`, `ClusterPicker`, `MemoryPopover` in Cluster; `ModelPicker` in Chat).
+- **Screens** has one section per screen, top to bottom: Platforms, Popups on Shell, Dashboard / Pods, Chat / New, Chat / Open, Chat / Model picker open, Log window. A screen's section holds its *Kstack Light* frame, then its *Kstack Dark* frame.
 - The layers panel lists sections in the order the canvas shows them.
 
 ## Tokens
 
 - **The library's `Theme` collection holds Kstack's colors** in its *Kstack Light* and *Kstack Dark* modes, beside kubetail's own *Light* and *Dark*. They mirror `src/index.css`. Its `font/sans` variable is Inter in kubetail's modes and Roboto Flex in Kstack's; the library's sans text styles are bound to it.
-- **Desktop's `Kstack` collection holds the tokens the library lacks**: `--app-bar*`, `--series-*`, `--selection-band`, the `--ansi-*` whites, the status tones (`cluster-health.ts`'s `TONE`, and the cluster status pill's tints), the chat composer's surface (`color/composer`, `bg-background dark:bg-card`), the Linux window frame's border, and the macOS window's hairline (`color/macos-window-border`). Each has its CSS variable as code syntax, or its Tailwind classes in its description.
+- **Desktop's `Kstack` collection holds the tokens the library lacks**: `--app-bar*`, `--series-*`, `--selection-band`, the `--ansi-*` whites, the status tones (`cluster-health.ts`'s `TONE`, and the cluster status pill's tints), the chat composer's surface, which its model menu shares (`color/composer`, `bg-background dark:bg-card`), the Linux window frame's border, and the macOS window's hairline (`color/macos-window-border`). Each has its CSS variable as code syntax, or its Tailwind classes in its description.
 - **Every screen sets both collections' modes**: *Kstack Light* with *Light*, or *Kstack Dark* with *Dark*.
 - A color changed in `src/index.css` is changed by hand in the matching mode.
 
@@ -32,6 +32,14 @@ Every group on a page is a Figma section, laid out so that no two overlap. A new
   ```
 
   The SHA is the last commit that changed that file when the component was synced. An icon names its `lucide-react` version instead. `git log <sha>..main -- <path>` lists the commits since; any output means the design may be behind. Re-syncing a component updates its line.
+- **A component edited in Figma ahead of the code says so** in two more lines at the end of its description:
+
+  ```
+  Status: dirty
+  Change: ModelPicker's trigger draws no chevron.
+  ```
+
+  `Status` is `new` (no code draws it yet, so it has no sync line) or `dirty` (it changed since its sync line's commit). No `Status` line means the design matches the code at that commit. Each `Change` line is one change, in plain words; changes made before the code catches up add lines. A change drawn only on a screen, such as where a popup sits, goes on the component it concerns, since a screen has no description.
 - **Write a description through `descriptionMarkdown`.** Writing `description` stores `'` and `<` as HTML entities. Put JSX in backticks, or Markdown reads it as HTML.
 - **Screens hold instances.** An edit to a component reaches every screen; a screen keeps only its overrides (text, a variant, a color).
 
@@ -68,7 +76,11 @@ The plugin API reports a bound variable's own alpha as the paint's opacity. Tell
 
 ## Syncing
 
-**An agent never decides which side wins; it asks the user.** The sync line shows when the code moved (`git log <sha>..main -- <path>`), but nothing shows when a Figma component was edited. So before overwriting a Figma component from code, or code from a design, the agent names the components it will change and the direction, and waits for an answer.
+**An agent never decides which side wins; it asks the user.** The sync line shows when the code moved (`git log <sha>..main -- <path>`), and a `Status` line shows when a Figma component was edited, but only if whoever edited it wrote one. So before overwriting a Figma component from code, or code from a design, the agent names the components it will change and the direction, and waits for an answer.
+
+### Designing ahead of the code
+
+An agent that edits a component's design, rather than syncing it from code, adds a `Change` line for each change and sets `Status: dirty`, or `Status: new` on a component the code does not have. To list what is waiting on code, read every component's description on the Components page and keep those with a `Status` line.
 
 ### Code to Figma
 
@@ -85,7 +97,7 @@ The plugin API reports a bound variable's own alpha as the paint's opacity. Tell
 1. Load the `figma-design-to-code` skill, then call `get_design_context` on the node.
 2. Map library instances to `@kubetail/ui` imports, except the text boxes above, and colors back by [Translucent colors](#translucent-colors).
 3. Follow `src/CLAUDE.md`. Run `make test-changed` and `pnpm lint:tailwind`, then open a pull request.
-4. Once it merges, rewrite each changed component's sync line to the merged commit. The SHA does not exist before then.
+4. Once it merges, set each changed component's sync line to the merged commit and delete its `Status` and `Change` lines. The SHA does not exist before then.
 
 ## Security
 
@@ -101,16 +113,17 @@ The plugin API reports a bound variable's own alpha as the paint's opacity. Tell
 | Shell | Light and dark on macOS, Windows, Linux windowed and Linux maximized, side by side; light on Windows with `AppMenu` open; light and dark with `ClusterStatus` open, healthy and disconnected; `ClusterPicker` open, with four contexts and with seven (the filter); `MemoryPopover` open with memories |
 | Chat / New | Light and dark, with chats in the sidebar |
 | Chat / Open | Light and dark: a transcript with tool calls, a log card and a waiting approval; the composer answering |
+| Chat / Model picker open | Light and dark: `ModelPicker/Menu` open below the trigger on a new chat, and above it on an open one |
 | Log window | Light and dark: a tail with a grep, a gap notice and the landed row |
 
-`ClusterStatus`, `ClusterPicker` and `MemoryPopover` draw every state on the Components page. Not drawn yet: the other popovers (sandbox, scope menu and column picker), the memory row's actions menu and its delete confirm; hover and focus states; the dialog and drawer scrims; the Events page, the object panel and the settings dialog; loading, empty, deleted and error states; Markdown beyond paragraphs and inline code; and the log viewer's selection.
+`ClusterStatus`, `ClusterPicker` and `MemoryPopover` draw every state on the Components page; `ModelPicker/Menu` draws Anthropic's. Not drawn yet: the other popovers (sandbox, scope menu and column picker), the memory row's actions menu and its delete confirm; hover and focus states; the dialog and drawer scrims; the Events page, the object panel and the settings dialog; loading, empty, deleted and error states; Markdown beyond paragraphs and inline code; and the log viewer's selection.
 
 ## Traps
 
 - `resize()` turns an auto-layout frame's hug sizing off. Set `primaryAxisSizingMode = 'AUTO'` after it.
 - A nested instance takes its component set's name, not its variant's.
 - A text that truncates needs `maxLines = 1`; `textTruncation` alone wraps.
-- `setBoundVariableForPaint` drops the opacity of the paint it is given. Set the opacity on the returned paint.
+- `setBoundVariableForPaint` drops the opacity of the paint it is given. Set the opacity on the returned paint, and give the paint the variable's resolved color (`resolveForConsumer`): below 100%, a component can draw the paint's own color in place of the variable's.
 - Inter's style is `Semi Bold` and Roboto Flex's is `SemiBold`. Load both before binding `font/sans`.
 - Run `use_figma` calls one at a time.
 - `createAutoLayout()` and `createComponent()` frames start with a white fill. Light mode hides it; clear it, or dark mode draws white panels.
