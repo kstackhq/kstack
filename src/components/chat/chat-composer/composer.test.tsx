@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Profiler, useSyncExternalStore } from 'react';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LogLine } from '@/lib/log-viewer';
 import { createLogViewportHandle, EMPTY_LOG_VIEWPORT } from '@/lib/log-viewport';
@@ -178,10 +178,20 @@ const button = (name: string) => screen.getByRole('button', { name });
 
 const type = (text: string) => fireEvent.change(box(), { target: { value: text } });
 
-const segment = (label: string) => screen.getByRole('button', { name: new RegExp(`^${label}:`) });
+const picker = () => screen.getByRole('button', { name: /^Model:/ });
 
-// The menu portals in asynchronously, so wait for the item rather than reading it.
-const menuItem = (name: string) => screen.findByRole('menuitemradio', { name });
+// Opens the model picker's popup, waiting for it to portal in.
+async function openPicker(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(picker());
+  return screen.findByRole('dialog');
+}
+
+// Picks a model or an effort level from the popup, then closes it.
+async function pickOption(user: ReturnType<typeof userEvent.setup>, group: 'Model' | 'Effort', name: string) {
+  await openPicker(user);
+  await user.click(within(screen.getByRole('radiogroup', { name: group })).getByRole('radio', { name }));
+  await user.keyboard('{Escape}');
+}
 
 const click = (name: string) =>
   act(async () => {
@@ -211,11 +221,6 @@ const opus = {
 };
 
 const answered = { fetching: false, data: { models: [fake, plain] } };
-
-// base-ui scrolls the highlighted item into view; jsdom has no implementation.
-beforeAll(() => {
-  Element.prototype.scrollIntoView = vi.fn();
-});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -553,8 +558,7 @@ describe('ChatComposer', () => {
     expect(box()).toHaveValue('hello');
     expect(button('Send')).toBeEnabled();
 
-    await user.click(segment('Model'));
-    await user.click(await menuItem('Plain model'));
+    await pickOption(user, 'Model', 'Plain model');
     expect(screen.getByText(/^This chat is longer than Fake model can read\./)).toBeInTheDocument();
   });
 
@@ -672,17 +676,14 @@ describe('ChatComposer', () => {
     expect(screen.getByTestId('send-status')).toHaveTextContent('idle');
   });
 
-  // The two selects sit beside Send, on every chat: what answers, and how hard it
-  // thinks.
+  // The picker sits beside Send, on every chat: what answers, and how hard it thinks.
   it('picks the model, then its effort', async () => {
     const user = userEvent.setup();
     renderComposer();
-    expect(segment('Model')).toHaveAccessibleName('Model: Fake model');
-    expect(segment('Effort')).toHaveAccessibleName('Effort: high');
+    expect(picker()).toHaveAccessibleName('Model: Fake model, effort: high');
 
-    await user.click(segment('Effort'));
-    await user.click(await menuItem('low'));
-    expect(segment('Effort')).toHaveAccessibleName('Effort: low');
+    await pickOption(user, 'Effort', 'low');
+    expect(picker()).toHaveAccessibleName('Model: Fake model, effort: low');
 
     type('hello');
     await click('Send');
@@ -705,18 +706,16 @@ describe('ChatComposer', () => {
   });
 
   // A chat can move to any model, whichever provider wrote its answers so far.
-  it("lists every catalog model in an open chat's select", async () => {
+  it("offers every catalog model in an open chat's picker", async () => {
     const user = userEvent.setup();
     catalog.current = { fetching: false, data: { models: [fake, plain, opus] } };
     renderComposer();
 
-    await user.click(segment('Model'));
-    await menuItem('Opus 5');
-    expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
-      'Fake model',
-      'Plain model',
-      'Opus 5',
-    ]);
+    const popup = await openPicker(user);
+    const models = () => within(screen.getByRole('radiogroup', { name: 'Model' })).getAllByRole('radio');
+    expect(models().map((m) => m.textContent)).toEqual(['Fake model', 'Plain model']);
+    await user.click(within(popup).getByRole('button', { name: 'Anthropic' }));
+    expect(models().map((m) => m.textContent)).toEqual(['Opus 5']);
   });
 
   // No action in a session stores a pick the list lacks, so the state is set
@@ -725,8 +724,7 @@ describe('ChatComposer', () => {
   describe('a stored pick the catalog no longer has', () => {
     const picked = async (view: ReturnType<typeof renderComposer>) => {
       const user = userEvent.setup();
-      await user.click(segment('Model'));
-      await user.click(await menuItem('Plain model'));
+      await pickOption(user, 'Model', 'Plain model');
       expect(screen.getByTestId('pick')).toHaveTextContent('plain');
       return view;
     };
@@ -739,7 +737,7 @@ describe('ChatComposer', () => {
       view.rerender({ replaced: true });
       type('hello');
 
-      expect(segment('Model')).toHaveAccessibleName('Model: Fake model');
+      expect(picker()).toHaveAccessibleName('Model: Fake model, effort: high');
       expect(screen.getByTestId('pick')).toHaveTextContent('fake');
       expect(button('Send')).toBeEnabled();
       await click('Send');
