@@ -40,14 +40,13 @@ func (m *manifest) entries() []*component {
 type component struct {
 	ID       string    `json:"id"`
 	Figma    figmaNode `json:"figma"`
-	Code     []source  `json:"code,omitempty"`    // a component's or a screen's sources
-	Package  *npmPkg   `json:"package,omitempty"` // an icon's source, in place of Code
+	Code     []source  `json:"code,omitempty"`
 	Security bool      `json:"security,omitempty"`
 	Notes    []string  `json:"notes,omitempty"`
 }
 
 // built reports whether any code draws the component.
-func (c component) built() bool { return c.Package != nil || len(c.Code) > 0 }
+func (c component) built() bool { return len(c.Code) > 0 }
 
 type figmaNode struct {
 	Node string `json:"node"`
@@ -59,12 +58,6 @@ type source struct {
 	Path   string `json:"path"`
 	Symbol string `json:"symbol,omitempty"`
 	Blob   string `json:"blob"`
-}
-
-type npmPkg struct {
-	Name    string `json:"name"`
-	Export  string `json:"export"`
-	Version string `json:"version"`
 }
 
 // loadManifest returns the manifest and the bytes it was read from.

@@ -9,7 +9,7 @@ How the webview's design in Figma maps to the code in `src/`, and how agents syn
 
 Every group on a page is a Figma section, laid out so that no two overlap. A new component or screen goes in its group's section, and the section grows to fit it.
 
-- **Components** has one section per folder of `src/components/`, left to right: Icons, Primitives, Shell, Dashboard, Cluster, Chat, Logs. Each section names its folder under its title and stacks its components top to bottom. A popup gets a nested section of its own (`ClusterStatus`, `ClusterPicker`, `MemoryPopover` in Cluster; `ModelPicker`, `SandboxPopover`, `ContextPopover` in Chat).
+- **Components** has one section per folder of `src/components/`, left to right: Primitives, Shell, Dashboard, Cluster, Chat, Logs. Each section names its folder under its title and stacks its components top to bottom. A popup gets a nested section of its own (`ClusterStatus`, `ClusterPicker`, `MemoryPopover` in Cluster; `ModelPicker`, `SandboxPopover`, `ContextPopover` in Chat).
 - **Screens** has one section per screen, top to bottom: Platforms, Popups on Shell, Dashboard / Pods, Chat / New, Chat / Open, Chat / Model picker open, Chat / Sandbox open, Chat / Context open, Log window. A screen's section holds its *Kstack Light* frame, then its *Kstack Dark* frame, and above them its [stamp](#manifest), a text layer named `Stamp`.
 - The layers panel lists sections in the order the canvas shows them.
 
@@ -24,7 +24,9 @@ Every group on a page is a Figma section, laid out so that no two overlap. A new
 
 - **A `@kubetail/ui` component in the code is a library instance in Figma**, never a detached copy. Every other component in `src/components/` that a screen draws is a local component in Desktop, named as in the code.
 - **A library `Input`, `Textarea` or `SearchBox` becomes the wrapper of the same name from `components/primitives/text-entry.tsx`** in code, never `@kubetail/ui`'s. The wrapper adds attributes only, so the two look the same.
-- **Icons are Lucide.** The library has 20; Desktop holds the rest as local `Icon/<name>` components, their strokes bound to `color/foreground`.
+- **Every icon is a kubetail-ui instance of `Lucide Icons / <name>`**, the name lucide-react's in kebab case (`ServerIcon` is `server`). Desktop never draws an icon or holds one of its own. Find one with `search_design_system`.
+- **An icon the set lacks is added to kubetail-ui**, built like its neighbours from lucide-react's SVG at the version in `pnpm-lock.yaml`: a 24px component holding one `Vector`, its stroke bound to `color/foreground`. A person then publishes the library.
+- **An icon's color is an override on its instance's `Vector`**: the stroke bound to the token's variable, as `text-muted-foreground` is `color/muted-foreground`.
 - **Each component links to its source file on `main`**, and its description holds its [stamp](#manifest) and nothing else. What a component draws is read from its code; what is true of one component alone goes in its entry's `notes`.
 - **Write a description through `descriptionMarkdown`.** Writing `description` stores `'` and `<` as HTML entities. Put JSX in backticks, or Markdown reads it as HTML.
 - **Screens hold instances.** An edit to a component reaches every screen; a screen keeps only its overrides (text, a variant, a color).
@@ -45,7 +47,6 @@ Every group on a page is a Figma section, laid out so that no two overlap. A new
 
 - **`id` is the join key and never changes.** It is the area, then the Figma name, in kebab case. A rename on either side updates `figma.name` or `code`, not `id`.
 - **`code` lists every file that draws the component**, each with its git blob hash at the last sync. `symbol` names the part of a file that holds several components. A component no code draws yet has no `code`.
-- **An icon has `package` in place of `code`**: its `lucide-react` export and the version last synced.
 - **`figma.hash`** is the hash `read-stamps.js` gave the component at the last sync. It covers what each layer looks like and how it lays out: not the description, and not where the component sits on the canvas.
 - **`security: true`** marks a component under [Security](#security).
 - **`notes`** holds what is true of this one component, in either direction. A rule true of every component goes in this guide.
@@ -74,7 +75,7 @@ Every group on a page is a Figma section, laid out so that no two overlap. A new
 | --- | --- |
 | `check` (`make lint-design`) | Fails on an entry that is malformed, or that names a file or `symbol` that is not there. Part of `make lint` and CI's `Design · Lint`. |
 | `status [-stamps <file>]` (`make design-status`, `STAMPS=<file>`) | Lists every component and screen not in sync. Without the stamps file it reads the code side alone. |
-| `record [-stamps <file>] <id>...` | Sets the entries' `blob`s to the working tree's, and an icon's `version` to `pnpm-lock.yaml`'s. With the stamps file it sets each entry's `figma` too: node, name and hash. It says both sides match, so sync a side that is ahead before recording. |
+| `record [-stamps <file>] <id>...` | Sets the entries' `blob`s to the working tree's. With the stamps file it sets each entry's `figma` too: node, name and hash. It says both sides match, so sync a side that is ahead before recording. |
 | `format` | Rewrites the manifest in the one format `check` accepts. Run it after editing the manifest by hand. |
 
 The stamps reach it through two scripts in [`scripts/`](scripts/), which an agent runs with the Figma MCP's `use_figma` on the Desktop file:
@@ -218,6 +219,7 @@ Never `record -stamps` an edited component to clear the report without that answ
 - `createAutoLayout()` and `createComponent()` frames start with a white fill. Light mode hides it; clear it, or dark mode draws white panels.
 - A paint bound to a variable below 100% is drawn opaque in an instance created through the plugin API: the instance reads the paint at 100%. The library's own `Button` (destructive, `bg-destructive/10`) does it too. Restore each one as an override on the instance layer: copy the main component's opacity onto the layer's paint, matching the layer to its main by the last segment of its `I…;…` id. `DataRateSparkline`'s fill uses layer opacity instead.
 - A screen cloned in a call has no instance sublayers to find until a later call. Clone in one call, edit in the next.
+- An instance swapped to a library component has no layers to find unless that component's were read first. Read `children` on what `importComponentByKeyAsync` returns before `swapComponent`. A hidden instance has none either way.
 
 ## Code Connect
 
