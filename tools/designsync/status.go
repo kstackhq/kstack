@@ -34,10 +34,7 @@ func (t tool) statusCmd(stampsPath string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	rows, err := t.status(m, stamps, stampsPath != "")
-	if err != nil {
-		return err
-	}
+	rows := t.status(m, stamps, stampsPath != "")
 
 	slices.SortStableFunc(rows, func(a, b row) int {
 		return slices.Index(stateOrder, a.state) - slices.Index(stateOrder, b.state)
@@ -68,12 +65,7 @@ func (t tool) statusCmd(stampsPath string, out io.Writer) error {
 
 // status gives each manifest entry its state, then lists what the stamps and
 // the manifest disagree on. design is false when no stamps were read.
-func (t tool) status(m manifest, stamps []stamped, design bool) ([]row, error) {
-	versions, err := t.lockVersions()
-	if err != nil {
-		return nil, err
-	}
-
+func (t tool) status(m manifest, stamps []stamped, design bool) []row {
 	byID := map[string]stamped{}
 	var rows []row
 	for _, s := range stamps {
@@ -94,7 +86,7 @@ func (t tool) status(m manifest, stamps []stamped, design bool) ([]row, error) {
 
 	for _, e := range m.entries() {
 		c := *e
-		moved := t.codeMoved(c, versions)
+		moved := t.codeMoved(c)
 		code, fig := len(moved) > 0, false
 		if design {
 			s, ok := byID[c.ID]
@@ -131,19 +123,12 @@ func (t tool) status(m manifest, stamps []stamped, design bool) ([]row, error) {
 		s := byID[id]
 		rows = append(rows, row{unmatched, fmt.Sprintf("%s (%s)", s.Name, s.Node), "its stamp's id is not in the manifest: " + id})
 	}
-	return rows, nil
+	return rows
 }
 
 // codeMoved lists the sources that differ from what the entry recorded.
-func (t tool) codeMoved(c component, versions map[string]string) []string {
+func (t tool) codeMoved(c component) []string {
 	var moved []string
-	if p := c.Package; p != nil {
-		if v, ok := versions[p.Name]; !ok {
-			moved = append(moved, fmt.Sprintf("%s is not in %s", p.Name, lockPath))
-		} else if v != p.Version {
-			moved = append(moved, fmt.Sprintf("%s %s is now %s", p.Name, p.Version, v))
-		}
-	}
 	for _, s := range c.Code {
 		data, err := t.read(s.Path)
 		if err != nil {

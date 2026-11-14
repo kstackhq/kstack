@@ -17,12 +17,11 @@
       }
     },
     "screens": {
-      "description": "One entry per section of the Screens page that holds a screen's frames. An entry's id starts with screens/, and it has no package.",
+      "description": "One entry per section of the Screens page that holds a screen's frames. An entry's id starts with screens/.",
       "type": "array",
       "items": {
         "allOf": [{ "$ref": "#/$defs/component" }],
-        "properties": { "id": { "pattern": "^screens/" } },
-        "not": { "required": ["package"] }
+        "properties": { "id": { "pattern": "^screens/" } }
       }
     }
   },
@@ -39,12 +38,11 @@
         },
         "figma": { "$ref": "#/$defs/figma" },
         "code": {
-          "description": "The files that draw a component, or lay a screen out. Absent for an icon, and while no code draws the component.",
+          "description": "The files that draw a component, or lay a screen out. Absent while no code draws the component.",
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/$defs/source" }
         },
-        "package": { "$ref": "#/$defs/package" },
         "security": {
           "description": "The component draws what the security model rests on: a change to it is a security change, not a restyle.",
           "type": "boolean"
@@ -54,8 +52,7 @@
           "type": "array",
           "items": { "type": "string" }
         }
-      },
-      "not": { "required": ["code", "package"] }
+      }
     },
     "figma": {
       "type": "object",
@@ -83,17 +80,6 @@
           "type": "string",
           "pattern": "^[0-9a-f]{40}$"
         }
-      }
-    },
-    "package": {
-      "description": "An icon's source: an export of an npm package, at the version last synced.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "export", "version"],
-      "properties": {
-        "name": { "type": "string" },
-        "export": { "type": "string" },
-        "version": { "type": "string" }
       }
     }
   }

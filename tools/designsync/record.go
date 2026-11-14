@@ -17,10 +17,6 @@ func (t tool) recordCmd(stampsPath string, ids []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	versions, err := t.lockVersions()
-	if err != nil {
-		return err
-	}
 	design := map[string]stamped{}
 	for _, s := range stamps {
 		if s.Stamp != nil {
@@ -48,7 +44,7 @@ func (t tool) recordCmd(stampsPath string, ids []string, out io.Writer) error {
 				continue
 			}
 		}
-		if err := t.recordCode(c, versions); err != nil {
+		if err := t.recordCode(c); err != nil {
 			return fmt.Errorf("%s: %w", id, err)
 		}
 	}
@@ -61,18 +57,10 @@ func (t tool) recordCmd(stampsPath string, ids []string, out io.Writer) error {
 	return nil
 }
 
-// recordCode sets the entry's code fingerprints: an icon's version to the
-// lockfile's, a component's blobs to its files'.
-func (t tool) recordCode(c *component, versions map[string]string) error {
+// recordCode sets the entry's blobs to its files'.
+func (t tool) recordCode(c *component) error {
 	if !c.built() {
 		return fmt.Errorf("no code draws it yet: add its code to %s first", manifestPath)
-	}
-	if p := c.Package; p != nil {
-		v, ok := versions[p.Name]
-		if !ok {
-			return fmt.Errorf("%s is not a dependency in %s", p.Name, lockPath)
-		}
-		p.Version = v
 	}
 	for i := range c.Code {
 		data, err := t.read(c.Code[i].Path)

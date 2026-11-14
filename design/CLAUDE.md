@@ -75,7 +75,7 @@ Every group on a page is a Figma section, laid out so that no two overlap. A new
 | --- | --- |
 | `check` (`make lint-design`) | Fails on an entry that is malformed, or that names a file or `symbol` that is not there. Part of `make lint` and CI's `Design · Lint`. |
 | `status [-stamps <file>]` (`make design-status`, `STAMPS=<file>`) | Lists every component and screen not in sync. Without the stamps file it reads the code side alone. |
-| `record [-stamps <file>] <id>...` | Sets the entries' `blob`s to the working tree's, and an icon's `version` to `pnpm-lock.yaml`'s. With the stamps file it sets each entry's `figma` too: node, name and hash. It says both sides match, so sync a side that is ahead before recording. |
+| `record [-stamps <file>] <id>...` | Sets the entries' `blob`s to the working tree's. With the stamps file it sets each entry's `figma` too: node, name and hash. It says both sides match, so sync a side that is ahead before recording. |
 | `format` | Rewrites the manifest in the one format `check` accepts. Run it after editing the manifest by hand. |
 
 The stamps reach it through two scripts in [`scripts/`](scripts/), which an agent runs with the Figma MCP's `use_figma` on the Desktop file:

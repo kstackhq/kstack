@@ -33,7 +33,7 @@ func wantLines(t *testing.T, got string, lines ...string) {
 
 const (
 	pillStamp  = `{"node": "9:148", "name": "StatusPill", "hash": "00000000000000aa", "stamp": {"kstack": 1, "id": "dashboard/status-pill"}}`
-	bellStamp  = `{"node": "5:21", "name": "Icon/bell", "stamp": {"kstack": 1, "id": "icon/bell"}}`
+	bellStamp  = `{"node": "5:21", "name": "BellButton", "stamp": {"kstack": 1, "id": "shell/bell-button"}}`
 	badgeStamp = `{"node": "20:1", "name": "Badge", "stamp": {"kstack": 1, "id": "chat/badge", "changes": ["A badge."]}}`
 )
 
@@ -58,21 +58,16 @@ func TestStatusNamesTheSideThatMoved(t *testing.T) {
 	t.Run("code ahead", func(t *testing.T) {
 		tl := fixtureTool(t)
 		writeFile(t, tl, "src/status-pill.tsx", pillSource+"// rounder\n")
-		writeFile(t, tl, lockPath, strings.ReplaceAll(testLock, "1.2.0", "1.3.0"))
+		writeFile(t, tl, "src/bell-button.tsx", bellSource+"// louder\n")
 		wantLines(t, statusOf(t, tl, ""),
 			"code ahead  dashboard/status-pill  src/status-pill.tsx",
-			"code ahead  icon/bell              lucide-react 1.2.0 is now 1.3.0",
+			"code ahead  shell/bell-button      src/bell-button.tsx",
 			"2 code ahead, 1 not built")
 	})
 	t.Run("source gone", func(t *testing.T) {
 		tl := fixtureTool(t)
 		editManifest(t, tl, "src/status-pill.tsx", "src/gone.tsx")
 		wantLines(t, statusOf(t, tl, ""), "code ahead  dashboard/status-pill  src/gone.tsx is gone")
-	})
-	t.Run("package gone", func(t *testing.T) {
-		tl := fixtureTool(t)
-		writeFile(t, tl, lockPath, "importers: {}\n")
-		wantLines(t, statusOf(t, tl, ""), "code ahead  icon/bell   lucide-react is not in pnpm-lock.yaml")
 	})
 	t.Run("design ahead", func(t *testing.T) {
 		wantLines(t, statusOf(t, fixtureTool(t), "["+changes+","+bellStamp+","+badgeStamp+"]"),
@@ -101,16 +96,16 @@ func TestStatusNamesTheSideThatMoved(t *testing.T) {
 func TestStatusListsWhatTheStampsAndTheManifestDisagreeOn(t *testing.T) {
 	got := statusOf(t, fixtureTool(t), `[
 		{"node": "9:999", "name": "StatusPill", "stamp": {"kstack": 1, "id": "dashboard/status-pill"}},
-		{"node": "5:21", "name": "Icon/alarm", "stamp": {"kstack": 1, "id": "icon/bell"}},
-		{"node": "5:22", "name": "Icon/copy", "stamp": {"kstack": 1, "id": "icon/bell"}},
+		{"node": "5:21", "name": "AlarmButton", "stamp": {"kstack": 1, "id": "shell/bell-button"}},
+		{"node": "5:22", "name": "CopyButton", "stamp": {"kstack": 1, "id": "shell/bell-button"}},
 		{"node": "7:1", "name": "New", "stamp": null},
 		{"node": "7:2", "name": "Broken", "stamp": null, "invalid": true},
 		{"node": "7:3", "name": "Stray", "stamp": {"kstack": 1, "id": "chat/stray"}}
 	]`)
 	wantLines(t, got,
 		"dashboard/status-pill  its stamp is on node 9:999, not 9:148",
-		"icon/bell              renamed in Figma: Icon/bell is now Icon/alarm",
-		"Icon/copy (5:22)       carries Icon/alarm's stamp too: icon/bell",
+		"shell/bell-button      renamed in Figma: BellButton is now AlarmButton",
+		"CopyButton (5:22)      carries AlarmButton's stamp too: shell/bell-button",
 		"New (7:1)              has no stamp",
 		"Broken (7:2)           its stamp is not valid JSON",
 		"Stray (7:3)            its stamp's id is not in the manifest: chat/stray",
@@ -127,9 +122,6 @@ func TestStatusReportsWhatItCannotRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantErr(t, tl.statusCmd(bad, io.Discard), "bad.json:")
-
-	writeFile(t, tl, lockPath, "importers: [")
-	wantErr(t, tl.statusCmd("", io.Discard), "pnpm-lock.yaml:")
 
 	writeFile(t, tl, manifestPath, "{")
 	wantErr(t, tl.statusCmd("", io.Discard), "design/components.json:")

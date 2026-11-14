@@ -59,9 +59,6 @@ func (t tool) check(m manifest) []string {
 			if screen != strings.HasPrefix(c.ID, screenPrefix) {
 				add("%s: a screen's id starts with %s, and no component's does", c.ID, screenPrefix)
 			}
-			if screen && c.Package != nil {
-				add("%s: a screen has no package", c.ID)
-			}
 			if ids[c.ID] {
 				add("%s: id is used twice", c.ID)
 			}
@@ -81,14 +78,6 @@ func (t tool) check(m manifest) []string {
 			}
 			nodes[c.Figma.Node] = c.ID
 
-			if p := c.Package; p != nil {
-				if len(c.Code) > 0 {
-					add("%s: has both code and package", c.ID)
-				}
-				if p.Name == "" || p.Export == "" || p.Version == "" {
-					add("%s: package needs a name, an export and a version", c.ID)
-				}
-			}
 			for _, p := range t.checkSources(c.Code) {
 				add("%s: %s", c.ID, p)
 			}

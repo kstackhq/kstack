@@ -10,12 +10,11 @@ import (
 
 const (
 	pillSource = "export function StatusPill() {}\nconst TONE = {};\n"
-	testLock   = "---\nimporters:\n  .:\n    dependencies:\n      pnpm:\n        version: 12.0.0\n" +
-		"---\nimporters:\n  .:\n    dependencies:\n      lucide-react:\n        version: 1.2.0(react@19.0.0)\n"
+	bellSource = "export function BellButton() {}\n"
 )
 
 // testManifest is in the tool's format: an in-sync component with its design's
-// hash recorded, an icon and a component no code draws yet.
+// hash recorded, one without, and a component no code draws yet.
 var testManifest = `{
   "$schema": "./components.schema.json",
   "version": 1,
@@ -36,16 +35,17 @@ var testManifest = `{
       ]
     },
     {
-      "id": "icon/bell",
+      "id": "shell/bell-button",
       "figma": {
         "node": "5:21",
-        "name": "Icon/bell"
+        "name": "BellButton"
       },
-      "package": {
-        "name": "lucide-react",
-        "export": "BellIcon",
-        "version": "1.2.0"
-      }
+      "code": [
+        {
+          "path": "src/bell-button.tsx",
+          "blob": "` + blobHash([]byte(bellSource)) + `"
+        }
+      ]
     },
     {
       "id": "chat/badge",
@@ -88,13 +88,13 @@ func withScreen(t *testing.T, tl tool) {
 }
 
 // fixtureTool returns a tool over a checkout holding the test manifest, its
-// one source and a lockfile.
+// sources.
 func fixtureTool(t *testing.T) tool {
 	t.Helper()
 	tl := tool{root: t.TempDir()}
 	writeFile(t, tl, manifestPath, testManifest)
 	writeFile(t, tl, "src/status-pill.tsx", pillSource)
-	writeFile(t, tl, lockPath, testLock)
+	writeFile(t, tl, "src/bell-button.tsx", bellSource)
 	return tl
 }
 
