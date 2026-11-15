@@ -44,18 +44,21 @@ function TimeAgo({ at, className = '' }: { at: string; className?: string }) {
 // The row under a turn. Every turn reserves its 24px, so showing it moves nothing.
 // A question's row is right-aligned under its bubble and shown on hover; an
 // answer's is shown on hover, except the last answer's buttons, which are always
-// shown.
+// shown. An answer still working keeps the row empty.
 export function TurnActions({
   mine,
   text,
   createdAt,
   last = false,
+  working = false,
 }: {
   /** The user's question, rather than an answer. */
   mine: boolean;
   text: string;
   createdAt: string;
   last?: boolean;
+  /** The answer's turn has not finished. */
+  working?: boolean;
 }) {
   if (mine) {
     return (
@@ -71,6 +74,7 @@ export function TurnActions({
       </div>
     );
   }
+  if (working) return <div className="h-6" />;
   return (
     <div className="h-6 pl-0.5">
       <div className={`flex items-center gap-2 ${last ? '' : ON_HOVER}`}>

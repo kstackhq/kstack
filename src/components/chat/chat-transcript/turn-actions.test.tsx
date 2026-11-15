@@ -59,6 +59,13 @@ describe('TurnActions', () => {
     expect(screen.getByText('30 minutes ago').closest('.opacity-0')).not.toBeNull();
   });
 
+  it("draws nothing in a working answer's row", () => {
+    const { container } = render(<TurnActions mine={false} text="because" createdAt={HALF_HOUR_AGO()} last working />);
+    expect(screen.queryAllByRole('button')).toEqual([]);
+    expect(screen.queryByText('30 minutes ago')).toBeNull();
+    expect(container.querySelector('.h-6')).not.toBeNull();
+  });
+
   it('disables Copy on a turn with no text', () => {
     render(<TurnActions mine={false} text="" createdAt={HALF_HOUR_AGO()} />);
     expect(screen.getByRole('button', { name: 'Copy answer' })).toBeDisabled();

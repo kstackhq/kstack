@@ -115,7 +115,7 @@
   --animate-memory-save-pulse: memory-save-pulse 1.4s ease-out both;
   --animate-memory-save-fade: memory-save-fade 1.4s ease-out both;
 
-  /* A thinking answer's *Thinking* label: a band of foreground sweeping across `text-shimmer`. */
+  /* A working answer's *Working 8s* label: a band of foreground sweeping across `text-shimmer`. */
   --animate-shimmer: shimmer 2s linear infinite;
 
   @keyframes shimmer {

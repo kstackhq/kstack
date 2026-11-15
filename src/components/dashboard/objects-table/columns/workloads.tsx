@@ -14,9 +14,7 @@
 
 // The workload kinds' columns: kubectl's, its `-o wide` ones hidden, and a status for the
 // kinds whose objects converge on a desired count.
-import { useEffect, useState } from 'react';
-
-import { humanDuration } from '@/lib/human-duration';
+import { Elapsed } from '@/components/primitives/elapsed';
 import { ownerOf } from '@/lib/object-owner';
 
 import {
@@ -230,16 +228,6 @@ function jobDurationSeconds(b: JobBody): number | undefined {
   if (Number.isNaN(start)) return undefined;
   const end = b.status?.completionTime ? Date.parse(b.status.completionTime) : Date.now();
   return Number.isNaN(end) ? undefined : (end - start) / 1000;
-}
-
-// The time since `since`, by the clock: a running job sends no frame as its duration grows.
-function Elapsed({ since }: { since: number }) {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  return humanDuration(now - since);
 }
 
 const jobDuration = durationColumn('Duration', 88, jobDurationSeconds);

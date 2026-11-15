@@ -728,7 +728,7 @@ describe('ChatTranscript', () => {
 
   describe('the work disclosure', () => {
     // The disclosure is a <details>; its open attribute is the state under test.
-    const label = () => screen.getByText(/^(Thinking|Worked for .*)$/);
+    const label = () => screen.getByText(/^(Working .*|Worked for .*)$/);
     const disclosure = () => label().closest('details')!;
     const redraw = (rerender: (ui: ReactNode) => void, messages: ChatMessage[]) =>
       rerender(wrap(<ChatTranscript messages={messages} phase="live" mode="chat" chatID="c1" clusterID="1" />));
@@ -741,9 +741,13 @@ describe('ChatTranscript', () => {
     const settled = (over: Partial<ChatMessage> = {}) =>
       msg({ thinking: 'the pod question', finishedAt: FINISHED, ...over });
 
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it('is absent on an answer with no summary and no calls', () => {
       draw([msg({ finishedAt: FINISHED })]);
-      expect(screen.queryByText(/^(Thinking|Worked for .*)$/)).toBeNull();
+      expect(screen.queryByText(/^(Working .*|Worked for .*)$/)).toBeNull();
     });
 
     // The calls an answer made are its work: they fold away with the summary, and
@@ -788,12 +792,25 @@ describe('ChatTranscript', () => {
       expect(disclosure().querySelector('strong')).toHaveTextContent('bold');
     });
 
-    it('reads Thinking while the turn runs and how long it worked once it settles', () => {
+    it('counts how long the turn has worked, then says how long it worked', async () => {
+      // 8 seconds after `msg`'s createdAt.
+      vi.useFakeTimers({ now: Date.parse('2026-11-15T10:00:08Z'), toFake: ['Date', 'setInterval', 'clearInterval'] });
       const { rerender } = draw([thinkingOnly()]);
-      expect(label()).toHaveTextContent('Thinking');
+      expect(label()).toHaveTextContent('Working 8s');
+
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+      expect(label()).toHaveTextContent('Working 10s');
 
       redraw(rerender, [settled()]);
       expect(label()).toHaveTextContent('Worked for 14s');
+    });
+
+    it("draws the answer's actions only once its turn finishes", () => {
+      const { rerender } = draw([withText()]);
+      expect(screen.queryByRole('button', { name: 'Copy answer' })).toBeNull();
+
+      redraw(rerender, [settled()]);
+      expect(screen.getByRole('button', { name: 'Copy answer' })).toBeInTheDocument();
     });
 
     // The pause before the first word is what it exists to fill.

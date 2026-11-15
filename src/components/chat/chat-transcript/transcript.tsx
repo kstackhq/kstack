@@ -30,6 +30,7 @@ import { useMutation } from 'urql';
 
 import { LogsReadCard, LogsViewCard, LogsWatchCard } from '@/components/chat/log-cards';
 import { ModelDescription } from '@/components/chat/model-description';
+import { Elapsed } from '@/components/primitives/elapsed';
 import { Markdown } from '@/components/primitives/markdown';
 import { VisibleText } from '@/components/primitives/visible-text';
 import { FolderGrantForm } from '@/components/settings/folder-grant-form';
@@ -146,10 +147,10 @@ function Caret() {
 }
 
 // An answer's work: its thinking summary and the calls it made, under a line
-// naming how long the turn worked (*Thinking* until it settles). Untouched, it is
-// open while the answer is still all work — the pause it exists to fill — and
-// closed once text arrives. A click pins the reader's choice for as long as the
-// message stays mounted.
+// counting how long the turn has worked (*Working 8s*) until it settles, then
+// naming how long it did. Untouched, it is open while the answer is still all
+// work — the pause it exists to fill — and closed once text arrives. A click
+// pins the reader's choice for as long as the message stays mounted.
 function Work({
   summary,
   calls,
@@ -178,7 +179,9 @@ function Work({
         {finishedAt ? (
           `Worked for ${humanDuration(Date.parse(finishedAt) - Date.parse(createdAt))}`
         ) : (
-          <span className="animate-shimmer text-shimmer motion-reduce:animate-none">Thinking</span>
+          <span className="animate-shimmer text-shimmer motion-reduce:animate-none">
+            Working <Elapsed since={Date.parse(createdAt)} />
+          </span>
         )}
         <Caret />
       </summary>
@@ -1424,6 +1427,7 @@ function Message({
     />
   );
   const mine = message.role === 'User';
+  const working = inFlight(message.status);
   // A message of notices alone is its lines and nothing else: there is no bubble.
   // Its context, when the sandbox switch moved, is drawn above them.
   if (mine && text === '' && notices.length > 0) {
@@ -1452,13 +1456,13 @@ function Message({
           <Work
             summary={message.thinking}
             calls={worked.length > 0 && toolCallsOf(worked)}
-            stillThinking={inFlight(message.status) && text === ''}
+            stillThinking={working && text === ''}
             createdAt={message.createdAt}
             finishedAt={message.finishedAt}
           />
         )}
         {mine ? text : <Markdown text={text} />}
-        {inFlight(message.status) && (
+        {working && (
           <span className="ml-1 inline-flex align-middle" role="status" aria-label="Answering">
             <Spinner size="sm" />
           </span>
@@ -1490,7 +1494,7 @@ function Message({
           <p className="mt-1 text-xs text-destructive">{message.error || 'The answer failed.'}</p>
         )}
       </div>
-      <TurnActions mine={mine} text={text} createdAt={message.createdAt} last={last} />
+      <TurnActions mine={mine} text={text} createdAt={message.createdAt} last={last} working={working} />
       {onAskAgain && (
         <Button type="button" variant="outline" size="xs" onClick={onAskAgain}>
           Ask again
