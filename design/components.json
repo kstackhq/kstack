@@ -57,7 +57,7 @@
       "code": [
         {
           "path": "src/components/primitives/window-controls.tsx",
-          "blob": "6c9314a7af1fe4add423605958556dea2c20f644"
+          "blob": "02166409b1dbebb638df900f4da1e2c96a57f82b"
         }
       ],
       "notes": [
@@ -133,7 +133,7 @@
       "code": [
         {
           "path": "src/components/shell/context-omnibox/omnibox.tsx",
-          "blob": "8b852ca16b21b33e2733c01e3a2c026221e47a43"
+          "blob": "bca57f83d64c66e029edede61628bf96f007b029"
         }
       ]
     },
@@ -175,7 +175,7 @@
       "code": [
         {
           "path": "src/components/dashboard/dashboard-resource-nav/scope-menu.tsx",
-          "blob": "6138d7ada00e26632a9b7a347a07def72fa943c9"
+          "blob": "f2e070b495ca1cbc5846ee9df0f870ec7da016ff"
         }
       ]
     },
@@ -343,7 +343,7 @@
         {
           "path": "src/components/cluster/cluster-status/popover.tsx",
           "symbol": "PILL",
-          "blob": "6c2e32b2189b352876e0c8ca374436c170d2f0f2"
+          "blob": "a318ac98369984e6db6459239ab46bb0e1a3e15c"
         }
       ]
     },
@@ -358,7 +358,7 @@
         {
           "path": "src/components/cluster/cluster-status/popover.tsx",
           "symbol": "Verdict",
-          "blob": "6c2e32b2189b352876e0c8ca374436c170d2f0f2"
+          "blob": "a318ac98369984e6db6459239ab46bb0e1a3e15c"
         }
       ]
     },
@@ -367,13 +367,13 @@
       "figma": {
         "node": "29:277",
         "name": "ClusterStatus/Stat",
-        "hash": "7e4d5473392f29bb"
+        "hash": "5c1a38474ae7d0d5"
       },
       "code": [
         {
           "path": "src/components/cluster/cluster-status/popover.tsx",
           "symbol": "Stat",
-          "blob": "6c2e32b2189b352876e0c8ca374436c170d2f0f2"
+          "blob": "a318ac98369984e6db6459239ab46bb0e1a3e15c"
         }
       ]
     },
@@ -387,7 +387,7 @@
       "code": [
         {
           "path": "src/components/cluster/cluster-status/popover.tsx",
-          "blob": "6c2e32b2189b352876e0c8ca374436c170d2f0f2"
+          "blob": "a318ac98369984e6db6459239ab46bb0e1a3e15c"
         }
       ],
       "notes": [
@@ -480,7 +480,7 @@
       "code": [
         {
           "path": "src/components/chat/chat-nav.tsx",
-          "blob": "139a7d9a5fda590bf2418ca02e4f37bd8212fa74"
+          "blob": "71ab3e2affc1969ce8888a3da7b5bf5a85815cdd"
         }
       ]
     },
@@ -494,7 +494,7 @@
       "code": [
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
-          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
+          "blob": "2dd6696eb8cdac1d92d9809ca53166274a210638"
         }
       ]
     },
@@ -509,7 +509,7 @@
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "ToolCalls",
-          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
+          "blob": "2dd6696eb8cdac1d92d9809ca53166274a210638"
         },
         {
           "path": "src/components/chat/chat-transcript/kube-query.tsx",
@@ -532,12 +532,12 @@
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "Message",
-          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
+          "blob": "2dd6696eb8cdac1d92d9809ca53166274a210638"
         },
         {
           "path": "src/components/chat/chat-transcript/turn-actions.tsx",
           "symbol": "TurnActions",
-          "blob": "ead454c9655cea61ad215d2964638bd7c09abf8c"
+          "blob": "f12382403eae41251ee9529f4d198d71c8d1ca09"
         }
       ]
     },
@@ -552,12 +552,12 @@
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "Message",
-          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
+          "blob": "2dd6696eb8cdac1d92d9809ca53166274a210638"
         },
         {
           "path": "src/components/chat/chat-transcript/turn-actions.tsx",
           "symbol": "TurnActions",
-          "blob": "ead454c9655cea61ad215d2964638bd7c09abf8c"
+          "blob": "f12382403eae41251ee9529f4d198d71c8d1ca09"
         }
       ]
     },
@@ -587,7 +587,7 @@
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "Work",
-          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
+          "blob": "2dd6696eb8cdac1d92d9809ca53166274a210638"
         }
       ]
     },
@@ -602,7 +602,7 @@
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "ApprovalRequest",
-          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
+          "blob": "2dd6696eb8cdac1d92d9809ca53166274a210638"
         }
       ],
       "security": true
@@ -913,7 +913,7 @@
       "code": [
         {
           "path": "src/components/cluster/cluster-status/popover.tsx",
-          "blob": "6c2e32b2189b352876e0c8ca374436c170d2f0f2"
+          "blob": "a318ac98369984e6db6459239ab46bb0e1a3e15c"
         }
       ]
     },
@@ -995,7 +995,7 @@
         },
         {
           "path": "src/components/chat/chat-pane.tsx",
-          "blob": "fbd4ecc2eeaf484c81d9e98f6d82e7e0aab3b132"
+          "blob": "af2bba4c70aef8908f9948e5b0cff9e644280ac0"
         }
       ]
     },
@@ -1017,7 +1017,7 @@
         },
         {
           "path": "src/components/chat/chat-pane.tsx",
-          "blob": "fbd4ecc2eeaf484c81d9e98f6d82e7e0aab3b132"
+          "blob": "af2bba4c70aef8908f9948e5b0cff9e644280ac0"
         }
       ]
     },
@@ -1099,7 +1099,7 @@
         },
         {
           "path": "src/components/chat/chat-pane.tsx",
-          "blob": "fbd4ecc2eeaf484c81d9e98f6d82e7e0aab3b132"
+          "blob": "af2bba4c70aef8908f9948e5b0cff9e644280ac0"
         }
       ]
     },
@@ -1121,7 +1121,7 @@
         },
         {
           "path": "src/components/chat/chat-pane.tsx",
-          "blob": "fbd4ecc2eeaf484c81d9e98f6d82e7e0aab3b132"
+          "blob": "af2bba4c70aef8908f9948e5b0cff9e644280ac0"
         }
       ]
     }
