@@ -23,11 +23,11 @@ import { Fragment, useEffect, useState } from 'react';
 
 import { SectionHeading } from '@/components/primitives/section-heading';
 import { SearchBox } from '@/components/primitives/text-entry';
+import { SIDEBAR_CONTROL_CLASS } from '@/lib/control-style';
 import { useDashboardNav } from '@/lib/dashboard-nav';
 import { filterNav, groupCount, PINNED, resolveDashboardResource } from '@/lib/dashboard-resources';
 import type { DashboardResource, NavGroup as Group, NavSection } from '@/lib/dashboard-resources';
 import { usePersistedFlag } from '@/lib/persisted-flag';
-import { SIDEBAR_CONTROL_CLASS } from '@/lib/sidebar-style';
 
 import { NamespacePicker } from './namespace-picker';
 import { NavGroup } from './nav-group';

@@ -31,10 +31,10 @@ import { MemoryPopover } from '@/components/cluster/memory';
 import { UnverifiedTLSBadge } from '@/components/cluster/unverified-tls-badge';
 import { useActiveCluster } from '@/lib/active-cluster';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
-import { APP_BAR_CONTROL_CLASS, APP_BAR_HOVER_CLASS } from '@/lib/app-bar-style';
 import { contextHealth } from '@/lib/cluster-health';
 import type { Health } from '@/lib/cluster-health';
 import { clusterForContext, useClusters } from '@/lib/clusters';
+import { APP_BAR_CONTROL_CLASS, APP_BAR_HOVER_CLASS } from '@/lib/control-style';
 import { useMemories } from '@/lib/memories';
 import type { Memory } from '@/lib/memories';
 

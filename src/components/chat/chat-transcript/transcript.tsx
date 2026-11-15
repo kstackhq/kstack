@@ -37,11 +37,11 @@ import { FolderGrantForm } from '@/components/settings/folder-grant-form';
 import { graphql } from '@/gql';
 import type { ApprovalDecision, ApprovalDuration } from '@/gql/graphql';
 import type { AppMode } from '@/lib/app-mode';
-import { approvalAnchor } from '@/lib/approval-anchor';
 import { chatGrantsContext } from '@/lib/chat-grants';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import {
   actionKindLabel,
+  approvalAnchor,
   grantOffered,
   inFlight,
   isWaitingWrite,
@@ -53,10 +53,10 @@ import {
   waitingRequestsOf,
 } from '@/lib/chats';
 import type { ChatClusterWrite, ChatMessage, ChatToolCall, Source, TaskNotice, TaskNoticeOf } from '@/lib/chats';
+import { SMALL_ICON_STROKE } from '@/lib/control-style';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useHeldStill } from '@/lib/held-still';
 import { humanDuration } from '@/lib/human-duration';
-import { SMALL_ICON_STROKE } from '@/lib/icon-button-style';
 import { modelOf, useModels } from '@/lib/models';
 import { cutText, descriptionLine } from '@/lib/visible-text';
 

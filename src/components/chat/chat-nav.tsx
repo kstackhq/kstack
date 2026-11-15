@@ -46,7 +46,7 @@ import { useActiveCluster } from '@/lib/active-cluster';
 import type { AppMode } from '@/lib/app-mode';
 import { chatModeOf, useChats } from '@/lib/chats';
 import type { Chat } from '@/lib/chats';
-import { SIDEBAR_CONTROL_CLASS } from '@/lib/sidebar-style';
+import { SIDEBAR_CONTROL_CLASS } from '@/lib/control-style';
 
 const ChatRenameMutation = graphql(`
   mutation ChatRename($id: ChatID!, $title: String!) {

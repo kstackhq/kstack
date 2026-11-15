@@ -18,7 +18,7 @@ import { Button } from '@kubetail/ui/elements/button';
 import { cn } from '@kubetail/ui/lib/utils';
 import type { ComponentProps, ReactNode } from 'react';
 
-import { APP_BAR_HEIGHT_CLASS, APP_BAR_HOVER_CLASS, APP_BAR_SHAPE_CLASS } from '@/lib/app-bar-style';
+import { APP_BAR_HEIGHT_CLASS, APP_BAR_HOVER_CLASS, APP_BAR_SHAPE_CLASS } from '@/lib/control-style';
 
 const VARIANTS = { variant: 'ghost', size: 'icon' } as const;
 

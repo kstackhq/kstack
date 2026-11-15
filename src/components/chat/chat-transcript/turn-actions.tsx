@@ -18,7 +18,7 @@ import type { LucideIcon } from 'lucide-react';
 import ReactTimeAgo from 'react-timeago';
 
 import { CopyButton } from '@/components/primitives/copy-button';
-import { SMALL_ICON_STROKE } from '@/lib/icon-button-style';
+import { SMALL_ICON_STROKE } from '@/lib/control-style';
 
 // Shown while the turn, the `group/turn` around it, is hovered or holds focus.
 const ON_HOVER = 'opacity-0 group-focus-within/turn:opacity-100 group-hover/turn:opacity-100';

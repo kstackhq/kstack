@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The classes the app bar's controls share with components the bar imports: the
-// omnibox and the window's caption buttons. They sit in `src/lib/`, outside
+// The looks controls share across areas that do not import each other.
+
+// The app bar's controls share the `APP_BAR_*` classes with components the bar
+// imports: the omnibox and the window's caption buttons. They sit outside
 // `app-bar/`, so neither has to import the folder that imports it.
 
 // `ghost` is the library variant with no resting fill, so the bar's tint shows
@@ -34,3 +36,15 @@ export const APP_BAR_CONTROL_CLASS = `${APP_BAR_SHAPE_CLASS} ${APP_BAR_HEIGHT_CL
 // `dark:hover:bg-muted/50`, which tailwind-merge only replaces with a class
 // in the same variant chain.
 export const APP_BAR_HOVER_CLASS = 'hover:bg-app-bar-hover dark:hover:bg-app-bar-hover';
+
+// The look of the controls at the top of the left sidebar: New chat, the namespace
+// picker and both search boxes. The fill and the border are the chat composer's, so
+// they stay opaque on the sidebar's tint in both themes.
+//
+// The `dark:` border is needed too: the outline button carries `dark:border-input`,
+// which tailwind-merge only replaces with a class in the same variant chain.
+export const SIDEBAR_CONTROL_CLASS = 'rounded-lg border-border bg-background shadow-xs dark:border-border dark:bg-card';
+
+// The stroke of a 12px Lucide icon in an `icon-xs` button. Lucide measures it in
+// its 24-unit viewBox, so 2.2 draws the design's 1.1px line.
+export const SMALL_ICON_STROKE = 2.2;

@@ -23,7 +23,7 @@ import type { ComponentProps, KeyboardEvent, ReactElement } from 'react';
 
 import { CODE_TEXT } from '@/components/primitives/text-entry';
 import { VisibleText } from '@/components/primitives/visible-text';
-import { SIDEBAR_CONTROL_CLASS } from '@/lib/sidebar-style';
+import { SIDEBAR_CONTROL_CLASS } from '@/lib/control-style';
 
 export type ScopeMenuEntry =
   | { type: 'label'; key: string; label: string }

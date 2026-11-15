@@ -539,6 +539,9 @@ export function isWaitingWrite(call: ChatToolCall, write: ChatClusterWrite): boo
   return write.approval.status === 'Pending' && call.status === 'Running';
 }
 
+/** The DOM id of the approval request for approval `id`: what the composer's Show scrolls to. */
+export const approvalAnchor = (id: string): string => `approval-${id}`;
+
 /**
  * The requests awaiting approval, in the order they were asked — approval ids
  * are UUIDv7 — so a new one lands below the rest: an answer's own calls and

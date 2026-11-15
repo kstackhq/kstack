@@ -17,7 +17,7 @@ import { Check, Copy } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { copyToClipboard } from '@/lib/clipboard';
-import { SMALL_ICON_STROKE } from '@/lib/icon-button-style';
+import { SMALL_ICON_STROKE } from '@/lib/control-style';
 
 // How long the button shows the check after a click.
 const COPIED_FOR_MS = 1_500;
