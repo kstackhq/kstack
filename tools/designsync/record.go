@@ -7,13 +7,13 @@ import (
 
 // recordCmd sets the named entries' fingerprints to what the working tree
 // holds: the last step of a sync, once the design and the code match. With a
-// stamps file it sets the design's too: each entry's node, name and hash.
-func (t tool) recordCmd(stampsPath string, ids []string, out io.Writer) error {
+// token it sets the design's too: each entry's node, name and hash.
+func (t tool) recordCmd(ids []string, out io.Writer) error {
 	m, _, err := t.loadManifest()
 	if err != nil {
 		return err
 	}
-	stamps, err := loadStamps(stampsPath)
+	stamps, err := t.readDesign()
 	if err != nil {
 		return err
 	}
@@ -33,10 +33,10 @@ func (t tool) recordCmd(stampsPath string, ids []string, out io.Writer) error {
 		if c == nil {
 			return fmt.Errorf("%s is not in %s", id, manifestPath)
 		}
-		if stampsPath != "" {
+		if t.design != nil {
 			s, ok := design[id]
-			if !ok || s.Hash == "" {
-				return fmt.Errorf("%s: the stamps file has no hashed component or screen carrying its stamp", id)
+			if !ok {
+				return fmt.Errorf("%s: nothing in Figma carries its stamp", id)
 			}
 			c.Figma.Node, c.Figma.Name, c.Figma.Hash = s.Node, s.Name, s.Hash
 			// A component no code draws has only its design to record.
@@ -53,6 +53,9 @@ func (t tool) recordCmd(stampsPath string, ids []string, out io.Writer) error {
 	}
 	for _, id := range ids {
 		fmt.Fprintln(out, "recorded", id)
+	}
+	if t.design == nil {
+		fmt.Fprintln(out, "Code side only: set FIGMA_TOKEN to record the design too.")
 	}
 	return nil
 }

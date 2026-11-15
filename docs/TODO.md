@@ -851,7 +851,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   the sidecar beside the watch's own diff, and a second subscription while the dialog is open.
   **Trigger:** `ScopeBudget` or `BodyMax` growing enough that the stream's size shows.
 
-- **Nothing checks that the Figma designs keep up with the code.** [`design/components.json`](../design/components.json) records each component's source blobs at its last sync ([`design/CLAUDE.md`](../design/CLAUDE.md#drift)), and `make design-status` lists the designs behind their code. Nobody is made to run it, and the design side needs an agent to read Figma through the MCP. **Shape:** `tools/designsync` reports the components a pull request's changes left behind, and, given a token, reads each node's hash and stamp through the Figma REST API. It runs on a pull request touching `src/components/` or `src/index.css`, report-only, like `coverage / Gate`. **Needs:** a Figma access token as a CI secret, read-only.
+- **Nothing checks that the Figma designs keep up with the code.** [`design/components.json`](../design/components.json) records each component's source blobs at its last sync ([`design/CLAUDE.md`](../design/CLAUDE.md#drift)), and `make design-status` lists the designs behind their code. Nobody is made to run it. Given `FIGMA_TOKEN`, it reads the design side over Figma's REST API. **Shape:** `tools/designsync` reports the components a pull request's changes left behind. It runs on a pull request touching `src/components/` or `src/index.css`, report-only, like `coverage / Gate`. **Needs:** a Figma access token as a CI secret, read-only.
 
 ## CLI
 

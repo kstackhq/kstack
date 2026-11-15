@@ -18,6 +18,12 @@ Read by Vite, which bakes them into the bundle at build time. Set them in the sh
 | `KSTACK_LOG_LEVEL` | host, sidecar | Log level, in every build. The host takes an `EnvFilter` directive (`src-tauri/src/logging.rs`); the sidecar takes `debug`, `info`, `warn` or `error`. |
 | `NO_COLOR` | host | Turns off colour in terminal logs, which a debug build otherwise always uses. |
 
+## Tools
+
+| Variable | Read by | Effect |
+| --- | --- | --- |
+| `FIGMA_TOKEN` | `tools/designsync` | A Figma personal access token with read-only file content. `status` and `record` read the Desktop file with it; without it they read the code side alone. `make design-status` and `make design-record` take an unset one from the macOS Keychain item `kstack-figma-token` (`design/CLAUDE.md`, *Commands*). |
+
 ## Debug sidecar only
 
 These work only in a sidecar built with `-tags debug`, which `tauri dev` and `make build-sidecar-dev` build. A release build ignores them (`applyEnvOverrides` in `sidecar/config.go`).

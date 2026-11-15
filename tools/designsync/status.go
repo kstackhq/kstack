@@ -24,17 +24,17 @@ var stateOrder = []string{diverged, codeAhead, designAhead, notBuilt, unmatched,
 type row struct{ state, name, detail string }
 
 // statusCmd prints every component and screen that is not in sync, then a
-// count of each state. Without a stamps file it reads the code side alone.
-func (t tool) statusCmd(stampsPath string, out io.Writer) error {
+// count of each state. Without a token it reads the code side alone.
+func (t tool) statusCmd(out io.Writer) error {
 	m, _, err := t.loadManifest()
 	if err != nil {
 		return err
 	}
-	stamps, err := loadStamps(stampsPath)
+	stamps, err := t.readDesign()
 	if err != nil {
 		return err
 	}
-	rows := t.status(m, stamps, stampsPath != "")
+	rows := t.status(m, stamps)
 
 	slices.SortStableFunc(rows, func(a, b row) int {
 		return slices.Index(stateOrder, a.state) - slices.Index(stateOrder, b.state)
@@ -57,15 +57,15 @@ func (t tool) statusCmd(stampsPath string, out io.Writer) error {
 		}
 	}
 	fmt.Fprintln(out, strings.Join(summary, ", "))
-	if stampsPath == "" {
-		fmt.Fprintln(out, "Code side only: pass -stamps with the file design/scripts/read-stamps.js returns to read the design side.")
+	if t.design == nil {
+		fmt.Fprintln(out, "Code side only: set FIGMA_TOKEN to read the design side.")
 	}
 	return nil
 }
 
 // status gives each manifest entry its state, then lists what the stamps and
-// the manifest disagree on. design is false when no stamps were read.
-func (t tool) status(m manifest, stamps []stamped, design bool) []row {
+// the manifest disagree on.
+func (t tool) status(m manifest, stamps []stamped) []row {
 	byID := map[string]stamped{}
 	var rows []row
 	for _, s := range stamps {
@@ -88,7 +88,7 @@ func (t tool) status(m manifest, stamps []stamped, design bool) []row {
 		c := *e
 		moved := t.codeMoved(c)
 		code, fig := len(moved) > 0, false
-		if design {
+		if t.design != nil {
 			s, ok := byID[c.ID]
 			delete(byID, c.ID)
 			switch {

@@ -256,3 +256,4 @@ usually just documentation in the wrong place.
 | 2026-11-12 | [A model may override its provider's default dialect](2026-11-12-a-model-may-override-its-providers-default-dialect.md) | sidecar | Accepted |
 | 2026-11-12 | [The dashboard nav groups kinds by scope and API group, and lists every kind flat](2026-11-12-the-dashboard-nav-groups-kinds-by-scope-and-api-group.md) | frontend | Accepted |
 | 2026-11-12 | [The dashboard's namespace scope is a search param](2026-11-12-the-namespace-scope-is-a-search-param.md) | frontend | Accepted |
+| 2026-11-15 | [designsync reads Figma over the REST API](2026-11-15-designsync-reads-figma-over-the-rest-api.md) | repo | Accepted |

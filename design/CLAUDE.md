@@ -50,7 +50,7 @@ Every group on a page is a Figma section, laid out so that no two overlap. A new
 
 - **`id` is the join key and never changes.** It is the area, then the Figma name, in kebab case. A rename on either side updates `figma.name` or `code`, not `id`.
 - **`code` lists every file that draws the component**, each with its git blob hash at the last sync. `symbol` names the part of a file that holds several components. A component no code draws yet has no `code`.
-- **`figma.hash`** is the hash `read-stamps.js` gave the component at the last sync. It covers what each layer looks like and how it lays out: not the description, and not where the component sits on the canvas.
+- **`figma.hash`** is the hash `designsync` gave the component at the last sync. It covers what each layer looks like and how it lays out: not the description, and not where the component sits on the canvas.
 - **`security: true`** marks a component under [Security](#security).
 - **`notes`** holds what is true of this one component, in either direction. A rule true of every component goes in this guide.
 
@@ -72,19 +72,16 @@ Every group on a page is a Figma section, laid out so that no two overlap. A new
 
 ### Commands
 
-`tools/designsync` does the bookkeeping and never talks to Figma. Run it from `tools/` (`go run ./designsync <command>`), or through `make`.
+`tools/designsync` does the bookkeeping. With `FIGMA_TOKEN` set, it reads the Desktop file over Figma's REST API; it never writes to Figma. The token is a personal access token whose only scope is read-only file content. `make design-status` and `make design-record` take an unset token from the macOS Keychain item `kstack-figma-token`. Without a token, `designsync` reads the code side alone. Run it from `tools/` (`go run ./designsync <command>`), or through `make`. → [ADR: designsync reads Figma over the REST API](../docs/adr/2026-11-15-designsync-reads-figma-over-the-rest-api.md)
 
 | Command | What it does |
 | --- | --- |
 | `check` (`make lint-design`) | Fails on an entry that is malformed, or that names a file or `symbol` that is not there. Part of `make lint` and CI's `Design · Lint`. |
-| `status [-stamps <file>]` (`make design-status`, `STAMPS=<file>`) | Lists every component and screen not in sync. Without the stamps file it reads the code side alone. |
-| `record [-stamps <file>] <id>...` | Sets the entries' `blob`s to the working tree's. With the stamps file it sets each entry's `figma` too: node, name and hash. It says both sides match, so sync a side that is ahead before recording. |
+| `status` (`make design-status`) | Lists every component and screen not in sync. |
+| `record <id>...` (`make design-record IDS="<id>..."`) | Sets the entries' `blob`s to the working tree's and, with the token, each entry's `figma` from the live file: node, name and hash. It says both sides match, so sync a side that is ahead before recording. |
 | `format` | Rewrites the manifest in the one format `check` accepts. Run it after editing the manifest by hand. |
 
-The stamps reach it through two scripts in [`scripts/`](scripts/), which an agent runs with the Figma MCP's `use_figma` on the Desktop file:
-
-- **[`read-stamps.js`](scripts/read-stamps.js)** returns every component's and screen's node, name, hash and stamp. Save the result to a file unchanged, the *stamps file*, and pass it with `-stamps`. It ends with a checksum, and `designsync` refuses a file that does not match it: run the script again rather than mend the file.
-- **[`write-stamps.js`](scripts/write-stamps.js)** sets the stamps listed in its `STAMPS`, keeping the prose above a component's. It adds a screen's `Stamp` layer when the section has none.
+The REST API cannot edit a description or a text layer, so stamps are written through the Figma MCP: **[`write-stamps.js`](scripts/write-stamps.js)**, run with `use_figma` on the Desktop file, sets the stamps listed in its `STAMPS`, keeping the prose above a component's. It adds a screen's `Stamp` layer when the section has none.
 
 ### Drift
 
@@ -103,8 +100,8 @@ Each fingerprint reports more than its own component, and less:
 
 - **A blob covers its whole file.** A file that changed for one component reports every component it holds; `record` one the change did not touch.
 - **A blob covers only its file.** A change to a file the source imports, or to `src/index.css`, reports nothing.
-- **A hash covers the components nested in it.** An edit to one reports every component that holds an instance of it; `record -stamps` those once the edit is settled.
-- **A screen's hash stops at each instance.** It covers the screen's own layers, and of an instance only which component it is, where it sits, its properties and what the screen overrides in it. An edit to a component reports the component, and a screen only when it moves or resizes the screen's layers; `record -stamps` that screen once the edit is settled.
+- **A hash covers the components nested in it.** An edit to one reports every component that holds an instance of it; `record` those once the edit is settled.
+- **A screen's hash stops at each instance.** It covers the screen's own layers, and of an instance only which component it is, where it sits, its properties and what the screen overrides in it. An edit to a component reports the component, and a screen only when it moves or resizes the screen's layers; `record` that screen once the edit is settled.
 - **A screen that is not drawn reports nothing.**
 - **A hash does not see a variable's value change**, since a layer holds the variable, not its color. It sees a library update once Desktop accepts it.
 - **Figma has one state and the manifest has one per branch.** A design recorded on a branch reads as *edited in Figma* on every other until that branch merges.
@@ -162,7 +159,7 @@ The plugin API reports a bound variable's own alpha as the paint's opacity. Tell
 
 ### Everything at once
 
-Asked what is out of sync, run `read-stamps.js`, then `status -stamps`, and give the user its output. Change nothing.
+Asked what is out of sync, run `make design-status` and give the user its output. Change nothing. If it says *Code side only*, there is no token: say so rather than read Figma through the MCP.
 
 Asked to sync everything, run the same report, then give the user one plan grouped by state and wait for the answer:
 
@@ -182,10 +179,10 @@ An agent that edits a component's design, rather than syncing it from code, adds
 `status` reports a component as *edited in Figma* when its hash moved and its stamp has no `changes`. The hash says that it changed, not what changed. Show the user the component and ask which it is:
 
 - **Meant.** Add the `changes` to its stamp. It is now a design ahead of the code.
-- **Nothing a user sees**, such as a renamed layer. `record -stamps` its entry.
+- **Nothing a user sees**, such as a renamed layer. `record` its entry.
 - **A mistake.** A person restores it from Figma's version history.
 
-Never `record -stamps` an edited component to clear the report without that answer: recording says the design and the code match.
+Never `record` an edited component to clear the report without that answer: recording says the design and the code match.
 
 ### Code to Figma
 
@@ -193,7 +190,7 @@ Never `record -stamps` an edited component to clear the report without that answ
 2. Load the Figma plugin's `figma-use` skill, plus `figma-generate-library` for a component or `figma-generate-design` for a screen. Call `create_session` with the file's key.
 3. Find the component by its code name. Edit the component, not the screens that use it. Edit a screen's frames only for what the screen itself lays out.
 4. Use library instances, variables and text styles; follow [Translucent colors](#translucent-colors). Set both collections' modes on anything new.
-5. Set the component's link. Run `read-stamps.js` again and `record -stamps` its entry, so the manifest holds the design as it now is.
+5. Set the component's link. `record` its entry, so the manifest holds the design as it now is.
 6. Take one screenshot of the result and check it.
 7. A change to kubetail-ui needs a person to publish the library before Desktop sees it.
 
@@ -202,7 +199,7 @@ Never `record -stamps` an edited component to clear the report without that answ
 1. Load the `figma-design-to-code` skill, then call `get_design_context` on the node.
 2. Map library instances to `@kubetail/ui` imports, except the text boxes above, and colors back by [Translucent colors](#translucent-colors).
 3. Follow `src/CLAUDE.md`. Run `make test-changed` and `pnpm lint:tailwind`, then open a pull request.
-4. In that pull request, `record -stamps` each entry it implemented. Once it merges, delete the `changes` it implemented from the stamp.
+4. In that pull request, `record` each entry it implemented. Once it merges, delete the `changes` it implemented from the stamp.
 
 ## Security
 

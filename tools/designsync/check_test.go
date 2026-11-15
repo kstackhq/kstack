@@ -29,7 +29,7 @@ func TestCheckReportsEachProblem(t *testing.T) {
 		{"node shape", `"node": "5:21"`, `"node": "5-21"`, `shell/bell-button: figma.node "5-21" is not a node id`},
 		{"node twice", `"node": "5:21"`, `"node": "9:148"`, "shell/bell-button: figma.node 9:148 is also dashboard/status-pill's"},
 		{"name", `"name": "Badge"`, `"name": ""`, "chat/badge: figma.name is empty"},
-		{"hash", `"name": "Badge"`, `"name": "Badge", "hash": "abc"`, `chat/badge: figma.hash "abc" is not a read-stamps.js hash`},
+		{"hash", `"name": "Badge"`, `"name": "Badge", "hash": "abc"`, `chat/badge: figma.hash "abc" is not a designsync hash`},
 		{"blob", `"blob": "` + blobHash([]byte(pillSource)), `"blob": "x`, "is not a git blob hash"},
 		{"missing file", `"path": "src/status-pill.tsx"`, `"path": "src/gone.tsx"`, "dashboard/status-pill: open"},
 		{"missing symbol", `"symbol": "TONE"`, `"symbol": "TONES"`, "dashboard/status-pill: src/status-pill.tsx has no TONES"},

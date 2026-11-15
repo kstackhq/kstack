@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ func TestRecordSetsTheWorkingTreesFingerprints(t *testing.T) {
 	louder := bellSource + "// louder\n"
 	writeFile(t, tl, "src/bell-button.tsx", louder)
 
-	if err := tl.recordCmd("", []string{"dashboard/status-pill", "shell/bell-button"}, io.Discard); err != nil {
+	if err := tl.recordCmd([]string{"dashboard/status-pill", "shell/bell-button"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	want := strings.NewReplacer(blobHash([]byte(pillSource)), blobHash([]byte(changed)), blobHash([]byte(bellSource)), blobHash([]byte(louder))).Replace(testManifest)
@@ -43,7 +44,7 @@ func TestRecordRefusesWhatItCannotFingerprint(t *testing.T) {
 				tc.setup(t, tl)
 			}
 			before := readFile(t, tl, manifestPath)
-			wantErr(t, tl.recordCmd("", []string{tc.id}, io.Discard), tc.err)
+			wantErr(t, tl.recordCmd([]string{tc.id}, io.Discard), tc.err)
 			if got := readFile(t, tl, manifestPath); got != before {
 				t.Error("a failed record changed the manifest")
 			}
@@ -51,17 +52,14 @@ func TestRecordRefusesWhatItCannotFingerprint(t *testing.T) {
 	}
 }
 
-func TestRecordSetsTheDesignFromTheStamps(t *testing.T) {
-	tl := fixtureTool(t)
-	stamps := t.TempDir() + "/stamps.json"
-	writeStamps(t, stamps, `[
-		{"node": "9:200", "name": "Pill", "hash": "00000000000000bb", "stamp": {"kstack": 1, "id": "dashboard/status-pill"}},
-		{"node": "20:1", "name": "Badge", "hash": "00000000000000cc", "stamp": {"kstack": 1, "id": "chat/badge"}},
-		{"node": "5:21", "name": "BellButton", "stamp": {"kstack": 1, "id": "shell/bell-button"}},
-		{"node": "7:1", "name": "New", "hash": "00000000000000dd", "stamp": null}
-	]`)
+func TestRecordSetsTheDesignFromFigma(t *testing.T) {
+	tl := withDesign(fixtureTool(t),
+		stamped{Node: "9:200", Name: "Pill", Hash: "00000000000000bb", Stamp: &stamp{ID: "dashboard/status-pill"}},
+		stamped{Node: "20:1", Name: "Badge", Hash: "00000000000000cc", Stamp: &stamp{ID: "chat/badge"}},
+		stamped{Node: "7:1", Name: "New", Hash: "00000000000000dd"},
+	)
 
-	if err := tl.recordCmd(stamps, []string{"dashboard/status-pill", "chat/badge"}, io.Discard); err != nil {
+	if err := tl.recordCmd([]string{"dashboard/status-pill", "chat/badge"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	want := strings.NewReplacer(
@@ -77,9 +75,11 @@ func TestRecordSetsTheDesignFromTheStamps(t *testing.T) {
 		t.Errorf("manifest after record:\n%s", got)
 	}
 
-	// A component the stamps file gives no hash is not recorded.
-	wantErr(t, tl.recordCmd(stamps, []string{"shell/bell-button"}, io.Discard), "shell/bell-button: the stamps file has no hashed component")
-	wantErr(t, tl.recordCmd(t.TempDir()+"/none.json", []string{"shell/bell-button"}, io.Discard), "none.json")
+	// An entry nothing in Figma carries is not recorded.
+	wantErr(t, tl.recordCmd([]string{"shell/bell-button"}, io.Discard), "shell/bell-button: nothing in Figma carries its stamp")
+
+	tl.design = func() ([]stamped, error) { return nil, errors.New("reading Figma: 403 Forbidden") }
+	wantErr(t, tl.recordCmd([]string{"shell/bell-button"}, io.Discard), "403 Forbidden")
 }
 
 func TestRecordSetsAScreensFingerprints(t *testing.T) {
@@ -88,10 +88,11 @@ func TestRecordSetsAScreensFingerprints(t *testing.T) {
 	before := readFile(t, tl, manifestPath)
 	changed := screenSource + "// wider\n"
 	writeFile(t, tl, "src/dashboard.tsx", changed)
-	stamps := t.TempDir() + "/stamps.json"
-	writeStampsWithScreens(t, stamps, "[]", "["+strings.Replace(screenStamp, "00000000000000ee", "00000000000000ef", 1)+"]")
+	edited := figmaDashboard
+	edited.Hash = "00000000000000ef"
+	tl = withDesign(tl, edited)
 
-	if err := tl.recordCmd(stamps, []string{"screens/dashboard"}, io.Discard); err != nil {
+	if err := tl.recordCmd([]string{"screens/dashboard"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	want := strings.NewReplacer(blobHash([]byte(screenSource)), blobHash([]byte(changed)), "00000000000000ee", "00000000000000ef").Replace(before)

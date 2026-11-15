@@ -63,7 +63,7 @@ The `id` ties the Figma component or screen to its manifest entry. When the desi
 
 An edit made by hand in Figma is caught even with no `changes` line: the design's fingerprint no longer matches, and the report says *edited in Figma*. Write the line anyway. The fingerprint says that something changed, and only you can say what.
 
-To see which code has moved, run:
+To see what has moved, run:
 
 ```sh
 make design-status
@@ -77,7 +77,13 @@ not built   chat/sandbox-popover/badge
 1 code ahead, 1 not built, 94 in sync
 ```
 
-That reads the code side alone. For the design side too, ask an agent: *"What is out of sync between Figma and the code?"* It reads the stamps out of Figma and hands them to the same command.
+It reads the design side from Figma with a personal access token. Create one in Figma under **Settings → Security → Personal access tokens**, with **File content: Read-only** as its only scope. On a Mac, keep it in the Keychain, where `make` finds it:
+
+```sh
+security add-generic-password -a "$USER" -s kstack-figma-token -w
+```
+
+Elsewhere, set `FIGMA_TOKEN`. Without a token, the report covers the code side alone and says so.
 
 ## Example 1: you change the code first
 
@@ -143,7 +149,7 @@ A designer nudges `StatusPill`'s padding by hand and adds no `changes` line.
 You have not looked at the design in a while and want the whole picture.
 
 1. Ask an agent: *"What is out of sync between Figma and the code?"*
-2. The agent reads every component's and screen's stamp and fingerprint out of Figma, and compares them and the code with the manifest. It changes nothing.
+2. The agent runs `make design-status`, which reads every component's and screen's stamp and fingerprint out of Figma, and compares them and the code with the manifest. It changes nothing. You can run it yourself.
 3. It gives you the report:
 
    ```

@@ -71,7 +71,7 @@ func (t tool) check(m manifest) []string {
 				add("%s: figma.name is empty", c.ID)
 			}
 			if c.Figma.Hash != "" && !hashRE.MatchString(c.Figma.Hash) {
-				add("%s: figma.hash %q is not a read-stamps.js hash", c.ID, c.Figma.Hash)
+				add("%s: figma.hash %q is not a designsync hash", c.ID, c.Figma.Hash)
 			}
 			if other, ok := nodes[c.Figma.Node]; ok {
 				add("%s: figma.node %s is also %s's", c.ID, c.Figma.Node, other)

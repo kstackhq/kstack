@@ -11,7 +11,7 @@
 .PHONY: build-sidecar build-sidecar-dev build-bwrap build-pasta build-embedded-sources \
 	generate-proto generate-prompts generate-icons \
 	lint lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-markers lint-design \
-	design-status \
+	design-status design-record \
 	vet vet-go vet-go-changed vet-rust \
 	test test-go test-rust test-ts test-changed test-livecache test-liveswitch \
 	cover-go cover-ts cover-changed \
@@ -112,8 +112,15 @@ lint-markers: ## Check every coverage marker gives its reason
 lint-design: ## Check the design manifest against the code it names
 	cd tools && go run ./designsync check
 
-design-status: ## List the components and screens whose code or design moved since their last sync (STAMPS=<file> adds the design side)
-	cd tools && go run ./designsync status $(if $(STAMPS),-stamps $(abspath $(STAMPS)))
+# designsync reads Figma when FIGMA_TOKEN is set. On macOS an unset one comes
+# from the Keychain item kstack-figma-token; without either, the code side alone.
+design-status design-record: export FIGMA_TOKEN ?= $(shell security find-generic-password -s kstack-figma-token -w 2>/dev/null)
+
+design-status: ## List the components and screens whose code or design moved since their last sync, reading Figma with FIGMA_TOKEN
+	cd tools && go run ./designsync status
+
+design-record: ## Record the entries in IDS as in sync: their code's blobs and, with FIGMA_TOKEN, Figma's hash
+	cd tools && go run ./designsync record $(IDS)
 
 vet: vet-go vet-rust ## Run go vet, staticcheck and clippy
 

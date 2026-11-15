@@ -62,7 +62,7 @@
         "node": { "description": "The component's or component set's node id, or the screen's section's.", "type": "string", "pattern": "^\\d+:\\d+$" },
         "name": { "description": "The node's name at the last sync.", "type": "string" },
         "hash": {
-          "description": "The hash design/scripts/read-stamps.js gave the node at the last sync. Absent until recorded.",
+          "description": "The hash tools/designsync gave the node, read from Figma, at the last sync. Absent until recorded.",
           "type": "string",
           "pattern": "^[0-9a-f]{16}$"
         }

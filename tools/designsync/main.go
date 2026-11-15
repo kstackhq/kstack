@@ -1,32 +1,51 @@
 // Command designsync does the bookkeeping that keeps the Figma design and the
 // webview's code in step (design/CLAUDE.md). It reads the manifest,
-// design/components.json, and never talks to Figma: the design side reaches it
-// as the stamps file, what design/scripts/read-stamps.js returns.
+// design/components.json, and, when FIGMA_TOKEN is set, the Desktop file over
+// Figma's REST API. It never writes to Figma.
 // Run it from tools/: go run ./designsync <command> ....
 package main
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"time"
 )
 
 const usage = `usage: designsync <command> <args>
 
-  check                            fail on an entry that is malformed or names a missing file or symbol
-  status [-stamps <file>]          list the components and screens whose code or design moved since their last sync
-  record [-stamps <file>] <id>...  set each entry's fingerprints to the working tree's and the stamps file's
-  format                           rewrite the manifest in the tool's format`
+  check           fail on an entry that is malformed or names a missing file or symbol
+  status          list the components and screens whose code or design moved since their last sync
+  record <id>...  set each entry's fingerprints to the working tree's and, with FIGMA_TOKEN, Figma's
+  format          rewrite the manifest in the tool's format
+
+status and record read Figma when FIGMA_TOKEN holds a personal access token that can read file content`
 
 // A tool runs the commands against one checkout.
 type tool struct {
 	root string // the repository's root
+	// design reads Figma's components and screens. It is nil when there is no
+	// token, and the commands then read the code side alone.
+	design func() ([]stamped, error)
+}
+
+// readDesign reads Figma, or nothing when there is no token.
+func (t tool) readDesign() ([]stamped, error) {
+	if t.design == nil {
+		return nil, nil
+	}
+	return t.design()
 }
 
 func main() {
 	t := tool{root: ".."}
+	if token := os.Getenv("FIGMA_TOKEN"); token != "" {
+		// The file's two pages are about 25 MB.
+		client := &http.Client{Timeout: 2 * time.Minute}
+		t.design = figmaFile{api: figmaAPI, key: desktopFile, token: token, client: client}.read
+	}
 	if err := t.command(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "designsync:", err)
 		os.Exit(1)
@@ -37,20 +56,14 @@ func (t tool) command(args []string, out io.Writer) error {
 	if len(args) == 0 {
 		return errors.New(usage)
 	}
-	flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	stampsPath := flags.String("stamps", "", "")
-	if err := flags.Parse(args[1:]); err != nil {
-		return errors.New(usage)
-	}
-	rest := flags.Args()
+	rest := args[1:]
 	switch {
-	case args[0] == "check" && len(args) == 1:
+	case args[0] == "check" && len(rest) == 0:
 		return t.checkCmd(out)
 	case args[0] == "status" && len(rest) == 0:
-		return t.statusCmd(*stampsPath, out)
+		return t.statusCmd(out)
 	case args[0] == "record" && len(rest) > 0:
-		return t.recordCmd(*stampsPath, rest, out)
+		return t.recordCmd(rest, out)
 	case args[0] == "format" && len(args) == 1:
 		return t.formatCmd()
 	}

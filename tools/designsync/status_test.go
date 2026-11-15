@@ -1,22 +1,24 @@
 package main
 
 import (
+	"errors"
 	"io"
-	"os"
 	"strings"
 	"testing"
 )
 
-// statusOf runs status with the stamps, or with none when stamps is empty.
-func statusOf(t *testing.T, tl tool, stamps string) string {
+// The fixture's entries as Figma holds them in sync.
+var (
+	figmaPill      = stamped{Node: "9:148", Name: "StatusPill", Hash: "00000000000000aa", Stamp: &stamp{ID: "dashboard/status-pill"}}
+	figmaBell      = stamped{Node: "5:21", Name: "BellButton", Stamp: &stamp{ID: "shell/bell-button"}}
+	figmaBadge     = stamped{Node: "20:1", Name: "Badge", Stamp: &stamp{ID: "chat/badge", Changes: []string{"A badge."}}}
+	figmaDashboard = stamped{Node: "42:1", Name: "Dashboard", Hash: "00000000000000ee", Stamp: &stamp{ID: "screens/dashboard"}}
+)
+
+func statusOf(t *testing.T, tl tool) string {
 	t.Helper()
-	var path string
-	if stamps != "" {
-		path = t.TempDir() + "/stamps.json"
-		writeStamps(t, path, stamps)
-	}
 	var out strings.Builder
-	if err := tl.statusCmd(path, &out); err != nil {
+	if err := tl.statusCmd(&out); err != nil {
 		t.Fatal(err)
 	}
 	return out.String()
@@ -31,15 +33,8 @@ func wantLines(t *testing.T, got string, lines ...string) {
 	}
 }
 
-const (
-	pillStamp  = `{"node": "9:148", "name": "StatusPill", "hash": "00000000000000aa", "stamp": {"kstack": 1, "id": "dashboard/status-pill"}}`
-	bellStamp  = `{"node": "5:21", "name": "BellButton", "stamp": {"kstack": 1, "id": "shell/bell-button"}}`
-	badgeStamp = `{"node": "20:1", "name": "Badge", "stamp": {"kstack": 1, "id": "chat/badge", "changes": ["A badge."]}}`
-)
-
 func TestStatusOfTheCodeSideAlone(t *testing.T) {
-	tl := fixtureTool(t)
-	got := statusOf(t, tl, "")
+	got := statusOf(t, fixtureTool(t))
 	wantLines(t, got, "not built  chat/badge", "1 not built, 2 in sync", "Code side only")
 	if strings.Contains(got, "status-pill") {
 		t.Errorf("status lists a component in sync:\n%s", got)
@@ -47,10 +42,15 @@ func TestStatusOfTheCodeSideAlone(t *testing.T) {
 }
 
 func TestStatusNamesTheSideThatMoved(t *testing.T) {
-	changes := `{"node": "9:148", "name": "StatusPill", "hash": "00000000000000bb", "stamp": {"kstack": 1, "id": "dashboard/status-pill", "changes": ["Rounder.", "Taller."]}}`
+	changed := figmaPill
+	changed.Hash = "00000000000000bb"
+	changed.Stamp = &stamp{ID: "dashboard/status-pill", Changes: []string{"Rounder.", "Taller."}}
+	// The hash differs from the manifest's and the stamp declares nothing.
+	edited := figmaPill
+	edited.Hash = "00000000000000bb"
 
 	t.Run("in sync", func(t *testing.T) {
-		got := statusOf(t, fixtureTool(t), "["+pillStamp+","+bellStamp+","+badgeStamp+"]")
+		got := statusOf(t, withDesign(fixtureTool(t), figmaPill, figmaBell, figmaBadge))
 		if want := "not built  chat/badge  1 design change\n1 not built, 2 in sync\n"; got != want {
 			t.Errorf("status = %q, want %q", got, want)
 		}
@@ -59,7 +59,7 @@ func TestStatusNamesTheSideThatMoved(t *testing.T) {
 		tl := fixtureTool(t)
 		writeFile(t, tl, "src/status-pill.tsx", pillSource+"// rounder\n")
 		writeFile(t, tl, "src/bell-button.tsx", bellSource+"// louder\n")
-		wantLines(t, statusOf(t, tl, ""),
+		wantLines(t, statusOf(t, tl),
 			"code ahead  dashboard/status-pill  src/status-pill.tsx",
 			"code ahead  shell/bell-button      src/bell-button.tsx",
 			"2 code ahead, 1 not built")
@@ -67,41 +67,39 @@ func TestStatusNamesTheSideThatMoved(t *testing.T) {
 	t.Run("source gone", func(t *testing.T) {
 		tl := fixtureTool(t)
 		editManifest(t, tl, "src/status-pill.tsx", "src/gone.tsx")
-		wantLines(t, statusOf(t, tl, ""), "code ahead  dashboard/status-pill  src/gone.tsx is gone")
+		wantLines(t, statusOf(t, tl), "code ahead  dashboard/status-pill  src/gone.tsx is gone")
 	})
 	t.Run("design ahead", func(t *testing.T) {
-		wantLines(t, statusOf(t, fixtureTool(t), "["+changes+","+bellStamp+","+badgeStamp+"]"),
+		wantLines(t, statusOf(t, withDesign(fixtureTool(t), changed, figmaBell, figmaBadge)),
 			"design ahead  dashboard/status-pill  2 design changes")
 	})
-	// The hash differs from the manifest's and the stamp declares nothing.
-	edited := strings.Replace(pillStamp, "00000000000000aa", "00000000000000bb", 1)
 	t.Run("edited by hand", func(t *testing.T) {
-		wantLines(t, statusOf(t, fixtureTool(t), "["+edited+","+bellStamp+","+badgeStamp+"]"),
+		wantLines(t, statusOf(t, withDesign(fixtureTool(t), edited, figmaBell, figmaBadge)),
 			"design ahead  dashboard/status-pill  edited in Figma, with no changes written on its stamp")
 	})
 	t.Run("edited by hand and code ahead", func(t *testing.T) {
 		tl := fixtureTool(t)
 		writeFile(t, tl, "src/status-pill.tsx", pillSource+"// rounder\n")
-		wantLines(t, statusOf(t, tl, "["+edited+","+bellStamp+","+badgeStamp+"]"),
+		wantLines(t, statusOf(t, withDesign(tl, edited, figmaBell, figmaBadge)),
 			"diverged   dashboard/status-pill  src/status-pill.tsx, edited in Figma")
 	})
 	t.Run("diverged", func(t *testing.T) {
 		tl := fixtureTool(t)
 		writeFile(t, tl, "src/status-pill.tsx", pillSource+"// rounder\n")
-		wantLines(t, statusOf(t, tl, "["+changes+","+bellStamp+","+badgeStamp+"]"),
+		wantLines(t, statusOf(t, withDesign(tl, changed, figmaBell, figmaBadge)),
 			"diverged   dashboard/status-pill  src/status-pill.tsx, 2 design changes")
 	})
 }
 
 func TestStatusListsWhatTheStampsAndTheManifestDisagreeOn(t *testing.T) {
-	got := statusOf(t, fixtureTool(t), `[
-		{"node": "9:999", "name": "StatusPill", "stamp": {"kstack": 1, "id": "dashboard/status-pill"}},
-		{"node": "5:21", "name": "AlarmButton", "stamp": {"kstack": 1, "id": "shell/bell-button"}},
-		{"node": "5:22", "name": "CopyButton", "stamp": {"kstack": 1, "id": "shell/bell-button"}},
-		{"node": "7:1", "name": "New", "stamp": null},
-		{"node": "7:2", "name": "Broken", "stamp": null, "invalid": true},
-		{"node": "7:3", "name": "Stray", "stamp": {"kstack": 1, "id": "chat/stray"}}
-	]`)
+	got := statusOf(t, withDesign(fixtureTool(t),
+		stamped{Node: "9:999", Name: "StatusPill", Stamp: &stamp{ID: "dashboard/status-pill"}},
+		stamped{Node: "5:21", Name: "AlarmButton", Stamp: &stamp{ID: "shell/bell-button"}},
+		stamped{Node: "5:22", Name: "CopyButton", Stamp: &stamp{ID: "shell/bell-button"}},
+		stamped{Node: "7:1", Name: "New"},
+		stamped{Node: "7:2", Name: "Broken", Invalid: true},
+		stamped{Node: "7:3", Name: "Stray", Stamp: &stamp{ID: "chat/stray"}},
+	))
 	wantLines(t, got,
 		"dashboard/status-pill  its stamp is on node 9:999, not 9:148",
 		"shell/bell-button      renamed in Figma: BellButton is now AlarmButton",
@@ -115,54 +113,39 @@ func TestStatusListsWhatTheStampsAndTheManifestDisagreeOn(t *testing.T) {
 
 func TestStatusReportsWhatItCannotRead(t *testing.T) {
 	tl := fixtureTool(t)
-	wantErr(t, tl.statusCmd(t.TempDir()+"/none.json", io.Discard), "none.json")
-
-	bad := t.TempDir() + "/bad.json"
-	if err := os.WriteFile(bad, []byte("{"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	wantErr(t, tl.statusCmd(bad, io.Discard), "bad.json:")
+	tl.design = func() ([]stamped, error) { return nil, errors.New("reading Figma: 403 Forbidden") }
+	wantErr(t, tl.statusCmd(io.Discard), "403 Forbidden")
 
 	writeFile(t, tl, manifestPath, "{")
-	wantErr(t, tl.statusCmd("", io.Discard), "design/components.json:")
+	wantErr(t, tl.statusCmd(io.Discard), "design/components.json:")
 }
 
-const screenStamp = `{"node": "42:1", "name": "Dashboard", "hash": "00000000000000ee", "stamp": {"kstack": 1, "id": "screens/dashboard"}}`
-
 func TestStatusListsAScreenAsAComponent(t *testing.T) {
-	components := "[" + pillStamp + "," + bellStamp + "," + badgeStamp + "]"
-	statusWith := func(t *testing.T, tl tool, screen string) string {
+	// screenTool's manifest holds the screen, and Figma holds it as screen.
+	screenTool := func(t *testing.T, screen stamped) tool {
 		t.Helper()
-		path := t.TempDir() + "/stamps.json"
-		writeStampsWithScreens(t, path, components, "["+screen+"]")
-		var out strings.Builder
-		if err := tl.statusCmd(path, &out); err != nil {
-			t.Fatal(err)
-		}
-		return out.String()
+		tl := fixtureTool(t)
+		withScreen(t, tl)
+		return withDesign(tl, figmaPill, figmaBell, figmaBadge, screen)
 	}
 
 	t.Run("in sync", func(t *testing.T) {
-		tl := fixtureTool(t)
-		withScreen(t, tl)
-		wantLines(t, statusWith(t, tl, screenStamp), "1 not built, 3 in sync")
+		wantLines(t, statusOf(t, screenTool(t, figmaDashboard)), "1 not built, 3 in sync")
 	})
 	t.Run("code ahead", func(t *testing.T) {
-		tl := fixtureTool(t)
-		withScreen(t, tl)
+		tl := screenTool(t, figmaDashboard)
 		writeFile(t, tl, "src/dashboard.tsx", screenSource+"// wider\n")
-		wantLines(t, statusOf(t, tl, ""), "code ahead  screens/dashboard  src/dashboard.tsx")
+		wantLines(t, statusOf(t, tl), "code ahead  screens/dashboard  src/dashboard.tsx")
 	})
 	t.Run("edited by hand", func(t *testing.T) {
-		tl := fixtureTool(t)
-		withScreen(t, tl)
-		edited := strings.Replace(screenStamp, "00000000000000ee", "00000000000000ef", 1)
-		wantLines(t, statusWith(t, tl, edited), "design ahead  screens/dashboard  edited in Figma")
+		edited := figmaDashboard
+		edited.Hash = "00000000000000ef"
+		wantLines(t, statusOf(t, screenTool(t, edited)), "design ahead  screens/dashboard  edited in Figma")
 	})
 	t.Run("no stamp", func(t *testing.T) {
-		tl := fixtureTool(t)
-		withScreen(t, tl)
-		wantLines(t, statusWith(t, tl, `{"node": "42:1", "name": "Dashboard", "hash": "00000000000000ee", "stamp": null}`),
+		unstamped := figmaDashboard
+		unstamped.Stamp = nil
+		wantLines(t, statusOf(t, screenTool(t, unstamped)),
 			"unmatched  Dashboard (42:1)   has no stamp",
 			"unmatched  screens/dashboard  nothing in Figma carries its stamp")
 	})

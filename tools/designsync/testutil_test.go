@@ -118,31 +118,46 @@ func readFile(t *testing.T, tl tool, path string) string {
 	return string(data)
 }
 
-// writeStamps writes a stamps file holding the components, a JSON array, under
-// their checksum.
-func writeStamps(t *testing.T, path, components string) {
-	t.Helper()
-	writeStampsWithScreens(t, path, components, "[]")
+// withDesign returns tl with Figma holding the components and screens.
+func withDesign(tl tool, stamps ...stamped) tool {
+	tl.design = func() ([]stamped, error) { return stamps, nil }
+	return tl
 }
 
-// writeStampsWithScreens is writeStamps with the screens, a JSON array too.
-func writeStampsWithScreens(t *testing.T, path, components, screens string) {
+// fixtureNodes returns testdata/nodes.json, the nodes endpoint's response for
+// a small Components page and Screens page.
+func fixtureNodes(t *testing.T) []byte {
 	t.Helper()
-	var f stampsFile
-	if err := json.Unmarshal([]byte(components), &f.Components); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal([]byte(screens), &f.Screens); err != nil {
-		t.Fatal(err)
-	}
-	f.Sum = checksum(append(f.Components, f.Screens...))
-	data, err := json.Marshal(f)
+	data, err := os.ReadFile("testdata/nodes.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	return data
+}
+
+// fixturePages returns the fixture's two pages, decoded afresh so a test can
+// edit them.
+func fixturePages(t *testing.T) (components, screens *page) {
+	t.Helper()
+	var r struct {
+		Nodes map[string]*page
+	}
+	if err := json.Unmarshal(fixtureNodes(t), &r); err != nil {
 		t.Fatal(err)
 	}
+	return r.Nodes["3:3"], r.Nodes["3:4"]
+}
+
+// layer finds the layer with the id under p.
+func layer(t *testing.T, p *page, layerID string) node {
+	t.Helper()
+	for _, n := range descendants(p.Document) {
+		if id(n) == layerID {
+			return n
+		}
+	}
+	t.Fatalf("no layer %s", layerID)
+	return nil
 }
 
 // editManifest replaces old with new, which must be there once.
