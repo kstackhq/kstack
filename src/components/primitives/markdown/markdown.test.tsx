@@ -123,6 +123,18 @@ describe('Markdown', () => {
     expect(highlighted.filter((t) => t === 'kind: Pod\n')).toHaveLength(1);
   });
 
+  // A fence's opening line can stream in a word at a time.
+  it('highlights at once a fence whose language turns to one already loaded', async () => {
+    const loading = render(<Markdown text={'```yaml\nkind: Pod\n```'} />);
+    await waitFor(() => expect(document.querySelector('pre .hljs-attr')).toHaveTextContent('kind'));
+    loading.unmount();
+
+    const { rerender } = render(<Markdown text={'```ya\nkind: Pod\n```'} />);
+    expect(document.querySelector('pre [class*="hljs-"]')).toBeNull();
+    rerender(<Markdown text={'```yaml\nkind: Pod\n```'} />);
+    expect(document.querySelector('pre .hljs-attr')).toHaveTextContent('kind');
+  });
+
   it('leaves a fence naming a language it has no grammar for plain', async () => {
     render(<Markdown text={'```klingon\nkind: Pod\n```'} />);
     await waitFor(() => expect(screen.getByText('kind: Pod').closest('pre')).not.toBeNull());

@@ -346,8 +346,13 @@ describe('ChatTranscript', () => {
       const { rerender } = render(transcript([first]));
       expect(fetched).toEqual([{ kind: 'Last', limit: 8 }]);
 
+      // The new view runs live; the earlier one reads again, up to the new one's moment.
+      fetched.length = 0;
       rerender(transcript([first, answer('m2', 2, 'second', { toolCalls: [pinnedView('b', T2)] })]));
-      expect(fetched).toContainEqual({ kind: 'At', at: T2, limit: 8 });
+      expect(fetched).toEqual([
+        { kind: 'At', at: T2, limit: 8 },
+        { kind: 'Last', limit: 8 },
+      ]);
     });
   });
 

@@ -61,10 +61,9 @@ function highlighted(lang: string, source: string): ReactNode {
 // is never guessed at.
 function Code({ className, children, ...p }: ComponentProps<'code'>) {
   const lang = languageOf(className);
-  // The language whose grammar this fence has seen arrive. State, since the
-  // compiler caches a `loaded(lang)` read in render on `lang` and would miss the
-  // arrival.
-  const [arrived, setArrived] = useState(() => (lang !== undefined && loaded(lang) ? lang : undefined));
+  // The language whose grammar this fence's load brought in. The compiler caches
+  // `loaded(lang)` on `lang`, so only this state shows a grammar arriving later.
+  const [arrived, setArrived] = useState<string>();
   useEffect(() => {
     if (lang === undefined) return undefined;
     let live = true;
@@ -78,7 +77,7 @@ function Code({ className, children, ...p }: ComponentProps<'code'>) {
 
   // Highlighted once per source: each frame of a streaming answer re-renders the
   // fences it has finished.
-  const ready = lang !== undefined && arrived === lang;
+  const ready = lang !== undefined && (arrived === lang || loaded(lang));
   const body = useMemo(
     () => (ready && typeof children === 'string' ? highlighted(lang, children) : children),
     [lang, children, ready],
@@ -180,9 +179,13 @@ const components = {
   td: (p: ComponentProps<'td'>) => <td className="border border-border px-2 py-1" {...p} />,
 };
 
+function MarkdownText({ text }: MarkdownProps) {
+  return (
+    <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+      {text}
+    </ReactMarkdown>
+  );
+}
+
 // Memoized by hand, so a text is parsed once however often its row renders.
-export const Markdown = memo(({ text }: MarkdownProps) => (
-  <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
-    {text}
-  </ReactMarkdown>
-));
+export const Markdown = memo(MarkdownText);
