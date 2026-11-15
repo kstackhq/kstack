@@ -7,7 +7,7 @@
       "figma": {
         "node": "7:227",
         "name": "AppMark",
-        "hash": "7019a2bef1ee2960"
+        "hash": "5efc5527c620db6e"
       },
       "code": [
         {
@@ -24,7 +24,7 @@
       "figma": {
         "node": "7:231",
         "name": "AppLogo",
-        "hash": "153589bb0c85b1cb"
+        "hash": "bc6e580770da9011"
       },
       "code": [
         {
@@ -38,7 +38,7 @@
       "figma": {
         "node": "9:93",
         "name": "SectionHeading",
-        "hash": "7071022889626c3c"
+        "hash": "627d7c790cda6327"
       },
       "code": [
         {
@@ -52,7 +52,7 @@
       "figma": {
         "node": "22:164",
         "name": "WindowControls",
-        "hash": "48cc5393828164c0"
+        "hash": "fd1e1f6904bbe431"
       },
       "code": [
         {
@@ -86,7 +86,7 @@
       "figma": {
         "node": "7:248",
         "name": "HistoryNav",
-        "hash": "347730f729c7dd7f"
+        "hash": "16c78d075ddf7ed5"
       },
       "code": [
         {
@@ -100,7 +100,7 @@
       "figma": {
         "node": "7:262",
         "name": "AppBar/Actions",
-        "hash": "43b1797ba140373f"
+        "hash": "416c7b789143659b"
       },
       "code": [
         {
@@ -114,7 +114,7 @@
       "figma": {
         "node": "22:159",
         "name": "AppMenu",
-        "hash": "3ea24692e2e79ab0"
+        "hash": "2fff09520407f1d1"
       },
       "code": [
         {
@@ -128,7 +128,7 @@
       "figma": {
         "node": "7:264",
         "name": "ContextOmnibox",
-        "hash": "ee9afaf4f6c7ccc8"
+        "hash": "ee62541e32a0124c"
       },
       "code": [
         {
@@ -142,7 +142,7 @@
       "figma": {
         "node": "9:92",
         "name": "ModeNav",
-        "hash": "2267102e27de68c7"
+        "hash": "4431d7227d89ea8c"
       },
       "code": [
         {
@@ -156,7 +156,7 @@
       "figma": {
         "node": "22:203",
         "name": "AppBar",
-        "hash": "751df5108c2ba1cc"
+        "hash": "22011e5424d038a8"
       },
       "code": [
         {
@@ -170,7 +170,7 @@
       "figma": {
         "node": "9:130",
         "name": "ScopeTrigger",
-        "hash": "590656c432648860"
+        "hash": "a9d63e8300014b71"
       },
       "code": [
         {
@@ -184,7 +184,7 @@
       "figma": {
         "node": "9:148",
         "name": "StatusPill",
-        "hash": "2a92c7081415c681"
+        "hash": "82ff97edc3eeded2"
       },
       "code": [
         {
@@ -198,7 +198,7 @@
       "figma": {
         "node": "9:149",
         "name": "PageHeader",
-        "hash": "624f649939032222"
+        "hash": "30f901cc09923c4e"
       },
       "code": [
         {
@@ -212,7 +212,7 @@
       "figma": {
         "node": "9:129",
         "name": "NavGroup",
-        "hash": "5a1621487f1525f0"
+        "hash": "6165b2195f04394b"
       },
       "code": [
         {
@@ -226,7 +226,7 @@
       "figma": {
         "node": "9:113",
         "name": "NavItem",
-        "hash": "35160cd7c1860e49"
+        "hash": "df9305dc63d297ff"
       },
       "code": [
         {
@@ -240,7 +240,7 @@
       "figma": {
         "node": "10:91",
         "name": "ObjectsTable/Header",
-        "hash": "a413afe4896b4cbf"
+        "hash": "66cc9ad049652241"
       },
       "code": [
         {
@@ -259,7 +259,7 @@
       "figma": {
         "node": "10:128",
         "name": "ObjectsTable/PodRow",
-        "hash": "91dc81d459c8c016"
+        "hash": "4dbfa96c1d3f68c2"
       },
       "code": [
         {
@@ -277,7 +277,7 @@
       "figma": {
         "node": "10:156",
         "name": "ObjectsTable/Footer",
-        "hash": "67cec1f11ac51be0"
+        "hash": "f92684f16b52aaf0"
       },
       "code": [
         {
@@ -291,7 +291,7 @@
       "figma": {
         "node": "29:238",
         "name": "ClusterDot",
-        "hash": "f7030a4dbb061203"
+        "hash": "c26bbbd9c8528027"
       },
       "code": [
         {
@@ -323,7 +323,7 @@
       "figma": {
         "node": "36:1324",
         "name": "UnverifiedTLSBadge",
-        "hash": "3a8db0d2278988fb"
+        "hash": "482fa754e5f8f9da"
       },
       "code": [
         {
@@ -337,7 +337,7 @@
       "figma": {
         "node": "29:259",
         "name": "ClusterStatus/Pill",
-        "hash": "7d7afde2c59659d4"
+        "hash": "18a0c4e0290f996f"
       },
       "code": [
         {
@@ -352,7 +352,7 @@
       "figma": {
         "node": "29:276",
         "name": "ClusterStatus/Verdict",
-        "hash": "8a4c742759869c12"
+        "hash": "f53bec68603a9c8f"
       },
       "code": [
         {
@@ -367,7 +367,7 @@
       "figma": {
         "node": "29:277",
         "name": "ClusterStatus/Stat",
-        "hash": "135ec5662c6c7aaa"
+        "hash": "7e4d5473392f29bb"
       },
       "code": [
         {
@@ -382,7 +382,7 @@
       "figma": {
         "node": "31:985",
         "name": "ClusterStatus",
-        "hash": "614baec26f337370"
+        "hash": "9d5724b8527de3be"
       },
       "code": [
         {
@@ -402,7 +402,7 @@
       "figma": {
         "node": "36:1326",
         "name": "ClusterPicker/Row",
-        "hash": "97ba7a4499df5cc6"
+        "hash": "a7213fc3df7b6794"
       },
       "code": [
         {
@@ -419,7 +419,7 @@
       "figma": {
         "node": "36:1666",
         "name": "ClusterPicker",
-        "hash": "084b5643ff932b84"
+        "hash": "5111e9fa8f04ba30"
       },
       "code": [
         {
@@ -437,7 +437,7 @@
       "figma": {
         "node": "37:1685",
         "name": "Memory/Row",
-        "hash": "985e95649f56535c"
+        "hash": "7da9c7e4bbb773ff"
       },
       "code": [
         {
@@ -456,7 +456,7 @@
       "figma": {
         "node": "39:2265",
         "name": "MemoryPopover",
-        "hash": "bf68f40cd124ed4e"
+        "hash": "43dd12e964c5eb2b"
       },
       "code": [
         {
@@ -475,7 +475,7 @@
       "figma": {
         "node": "20:132",
         "name": "ChatNav/Row",
-        "hash": "09e2420bd88b52e9"
+        "hash": "0a08281fac38b274"
       },
       "code": [
         {
@@ -487,9 +487,9 @@
     {
       "id": "chat/user-message",
       "figma": {
-        "node": "20:225",
+        "node": "2177:2257",
         "name": "Chat/UserMessage",
-        "hash": "e4366b1fd67ebc62"
+        "hash": "5d9a9bbbfbd6690b"
       },
       "code": [
         {
@@ -503,7 +503,7 @@
       "figma": {
         "node": "2161:546",
         "name": "Chat/CallRow",
-        "hash": "e6f7b96275e742d5"
+        "hash": "0220a012e21365bb"
       },
       "code": [
         {
@@ -522,7 +522,7 @@
       "figma": {
         "node": "2106:10949",
         "name": "Chat/UserTurn",
-        "hash": "2001b258c8fe836c"
+        "hash": "357479a230607622"
       },
       "code": [
         {
@@ -542,7 +542,7 @@
       "figma": {
         "node": "2106:10963",
         "name": "Chat/AgentTurn",
-        "hash": "4ee626f1f61c2c1e"
+        "hash": "f73b6477f00ba9e8"
       },
       "code": [
         {
@@ -562,7 +562,7 @@
       "figma": {
         "node": "2106:10986",
         "name": "Chat/CodeFence",
-        "hash": "2ab5e1e0584b5a59"
+        "hash": "64d767aee9add65c"
       },
       "code": [
         {
@@ -577,7 +577,7 @@
       "figma": {
         "node": "2150:420",
         "name": "Chat/Work",
-        "hash": "25509591102da11c"
+        "hash": "f09dd00df0ec320a"
       },
       "code": [
         {
@@ -592,7 +592,7 @@
       "figma": {
         "node": "20:232",
         "name": "Chat/ApprovalRequest",
-        "hash": "b4fa2d09f0b2cfdd"
+        "hash": "ac44b7cc42b3f8e2"
       },
       "code": [
         {
@@ -608,7 +608,7 @@
       "figma": {
         "node": "20:263",
         "name": "Chat/LogsViewCard",
-        "hash": "5a2c098322970219"
+        "hash": "1e266c57f097ba3b"
       },
       "code": [
         {
@@ -623,7 +623,7 @@
       "figma": {
         "node": "20:224",
         "name": "ChatComposer",
-        "hash": "9a1b2f87364e32ed"
+        "hash": "194d4f0efdfd3436"
       },
       "code": [
         {
@@ -641,7 +641,7 @@
       "figma": {
         "node": "2030:2196",
         "name": "ModelPicker/ProviderMark",
-        "hash": "5fa66e011a064176"
+        "hash": "544d18574f5aad20"
       },
       "code": [
         {
@@ -660,7 +660,7 @@
       "figma": {
         "node": "2030:2205",
         "name": "ModelPicker/Segment",
-        "hash": "ff99796bda7dcd92"
+        "hash": "d63f63dd23401783"
       },
       "code": [
         {
@@ -678,7 +678,7 @@
       "figma": {
         "node": "2030:2222",
         "name": "ModelPicker/ModelRow",
-        "hash": "e60558a7350d3aa8"
+        "hash": "1b650e15af39cc84"
       },
       "code": [
         {
@@ -695,7 +695,7 @@
       "figma": {
         "node": "2034:2328",
         "name": "ModelPicker/Menu",
-        "hash": "77790a931bd6af59"
+        "hash": "21bb6b1d6a2257c1"
       },
       "code": [
         {
@@ -762,7 +762,7 @@
       "figma": {
         "node": "2087:2455",
         "name": "ContextPopover",
-        "hash": "f7375aad9f77cc36"
+        "hash": "60d4b948472c5981"
       },
       "code": [
         {
@@ -779,7 +779,7 @@
       "figma": {
         "node": "22:226",
         "name": "LogsWindowBar",
-        "hash": "57f9e789ca1e876c"
+        "hash": "d511f2b3eaf6cfe5"
       },
       "code": [
         {
@@ -793,7 +793,7 @@
       "figma": {
         "node": "18:522",
         "name": "LogsViewHeader",
-        "hash": "d03b298aa4572666"
+        "hash": "c5de9a966f13a137"
       },
       "code": [
         {
@@ -807,7 +807,7 @@
       "figma": {
         "node": "18:527",
         "name": "LogViewer/Toolbar",
-        "hash": "c1dfe240c872f7f8"
+        "hash": "00163eceeb5316a9"
       },
       "code": [
         {
@@ -821,7 +821,7 @@
       "figma": {
         "node": "18:566",
         "name": "LogViewer/Header",
-        "hash": "e3519e8e53819ebb"
+        "hash": "6c944858451e237c"
       },
       "code": [
         {
@@ -835,7 +835,7 @@
       "figma": {
         "node": "18:591",
         "name": "LogViewer/Row",
-        "hash": "9fd96123a3d91082"
+        "hash": "86bb747354b1073d"
       },
       "code": [
         {
@@ -852,7 +852,7 @@
       "figma": {
         "node": "18:592",
         "name": "LogViewer/GapNotice",
-        "hash": "898edae608263cde"
+        "hash": "cf2d58429e2ecf75"
       },
       "code": [
         {
@@ -946,7 +946,7 @@
       "figma": {
         "node": "43:9226",
         "name": "AppMenu",
-        "hash": "e63bd966a0e1979e"
+        "hash": "eef64098b59c5cf9"
       },
       "code": [
         {
@@ -978,7 +978,7 @@
       "figma": {
         "node": "42:10243",
         "name": "Chat / New",
-        "hash": "9e6276905b115f9e"
+        "hash": "0bba02df827af276"
       },
       "code": [
         {
@@ -1000,7 +1000,7 @@
       "figma": {
         "node": "42:10244",
         "name": "Chat / Open",
-        "hash": "1782713324efea65"
+        "hash": "5dd2a3ea356b336d"
       },
       "code": [
         {
@@ -1022,7 +1022,7 @@
       "figma": {
         "node": "2031:6729",
         "name": "Chat / Model picker open",
-        "hash": "7da3780679497a8d"
+        "hash": "1b68d3054fbcce19"
       },
       "code": [
         {
@@ -1036,7 +1036,7 @@
       "figma": {
         "node": "2050:7406",
         "name": "Chat / Sandbox open",
-        "hash": "24cf88bf0696e5f6"
+        "hash": "fd32f361692bf334"
       },
       "code": [
         {
@@ -1050,7 +1050,7 @@
       "figma": {
         "node": "2087:8438",
         "name": "Chat / Context open",
-        "hash": "fc06f9aa333f7409"
+        "hash": "250beece62a28395"
       },
       "code": [
         {

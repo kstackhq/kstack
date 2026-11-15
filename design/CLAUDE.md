@@ -15,7 +15,8 @@ Every group on a page is a Figma section, laid out so that no two overlap. A new
 
 ## Tokens
 
-- **The library's `Theme` collection holds Kstack's colors** in its *Kstack Light* and *Kstack Dark* modes, beside kubetail's own *Light* and *Dark*. They mirror `src/index.css`. Its `font/sans` variable is Inter in kubetail's modes and Roboto Flex in Kstack's; the library's sans text styles are bound to it. The webview's mono font is Roboto Mono (`--font-mono`); the library has no mono variable yet.
+- **The library's `Theme` collection holds Kstack's colors** in its *Kstack Light* and *Kstack Dark* modes, beside kubetail's own *Light* and *Dark*. They mirror `src/index.css`. It holds the two font families: `font/sans` (`--font-sans`) is Inter in kubetail's modes and Roboto Flex in Kstack's, and `font/mono` (`--font-mono`) is JetBrains Mono in kubetail's and Roboto Mono in Kstack's. The library's text styles are bound to them.
+- **Every text layer's font family is bound to `font/sans` or `font/mono`**, in both files, never typed in. The mode picks the face, so Desktop never names a font. Desktop's Components and Screens pages set *Kstack Light* with *Light*, so a component draws as the app does.
 - **Desktop's `Kstack` collection holds the tokens the library lacks**: `--app-bar*`, `--series-*`, `--selection-band`, the `--ansi-*` whites, the status tones (`cluster-health.ts`'s `TONE`, and the cluster status pill's tints), the chat composer's surface, which its model menu shares (`color/composer`, `bg-background dark:bg-card`), the Linux window frame's border, and the macOS window's hairline (`color/macos-window-border`). Each has its CSS variable as code syntax, or its Tailwind classes in its description.
 - **Every screen sets both collections' modes**: *Kstack Light* with *Light*, or *Kstack Dark* with *Dark*.
 - A color changed in `src/index.css` is changed by hand in the matching mode.
