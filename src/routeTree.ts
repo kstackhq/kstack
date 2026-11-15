@@ -20,6 +20,7 @@ import { Route as chatIdRoute } from '@/routes/chat-id';
 import { Route as dashboardRoute } from '@/routes/dashboard';
 import { Route as indexRoute } from '@/routes/index';
 import { Route as logsWindowRoute } from '@/routes/logs-window';
+import { Route as sidebarPreviewRoute } from '@/routes/sidebar-preview';
 
 // Chat and Dashboard are peers under the pathless `_app` layout route so they
 // share the sidebar shell; `/` only redirects to the default view. A chat is a
@@ -28,4 +29,5 @@ import { Route as logsWindowRoute } from '@/routes/logs-window';
 export const routeTree = rootRoute.addChildren([
   appRoute.addChildren([indexRoute, chatRoute, chatIdRoute, dashboardRoute]),
   logsRoute.addChildren([logsWindowRoute]),
+  ...(import.meta.env.DEV ? [sidebarPreviewRoute] : []),
 ]);

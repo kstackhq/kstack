@@ -62,6 +62,16 @@
           "width": 1512,
           "height": 982,
           "stack": 0
+        },
+        {
+          "name": "Sidebar",
+          "path": "/mockups/sidebar",
+          "currentPath": "/mockups/sidebar",
+          "x": 2002.1230706463805,
+          "y": -18.9952871068717,
+          "width": 800,
+          "height": 900,
+          "stack": 1
         }
       ]
     }
