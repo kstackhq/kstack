@@ -21,6 +21,8 @@ Each guide also owns its subsystem's `src/lib/` modules and lists them in its fi
 
 The security invariants stay in `src/CLAUDE.md`, whatever subsystem they name, so they load for every webview file.
 
+The host follows the same rule. `src-tauri/CLAUDE.md` keeps what crosses the host, and a part with a folder of its own and a body of rules no other part needs gets a guide there: `src-tauri/linux/CLAUDE.md` for what the Linux packages carry and `src-tauri/src/updater/CLAUDE.md` for the updater. A part that is one file (`logging.rs`, `log_windows.rs`) stays in the area guide, since a guide loads only by folder.
+
 ## Alternatives considered
 
 - **Keep one `src/CLAUDE.md`.** Every webview session pays for every subsystem, and the file keeps growing with each feature. Its budget was already the largest in the repo.
@@ -29,9 +31,9 @@ The security invariants stay in `src/CLAUDE.md`, whatever subsystem they name, s
 
 ## Consequences
 
-A session that touches one subsystem loads `src/CLAUDE.md` (about 27 KB) and that subsystem's guide, not 89 KB.
+A session that touches one webview subsystem loads `src/CLAUDE.md` (about 27 KB) and that subsystem's guide, not 89 KB. A host session no longer loads the Linux packaging and updater rules (about 7 KB) unless it reads a file in their folders.
 
-An agent changing a `src/lib/` module must open the subsystem's guide itself. That is the cost of a flat `src/lib/`, and the *Guides* table and each guide's module list are what pay it. A new module joins the list of the guide that owns it, in the same change.
+An agent changing a `src/lib/` module, or a script a host guide owns, must open that guide itself. That is the cost of a flat `src/lib/`, and the *Guides* table and each guide's module list are what pay it. A new module joins the list of the guide that owns it, in the same change.
 
 A rule that holds across subsystems belongs in `src/CLAUDE.md`. Copying it into two guides lets the copies drift apart.
 
