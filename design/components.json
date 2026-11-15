@@ -489,12 +489,12 @@
       "figma": {
         "node": "2177:2257",
         "name": "Chat/UserMessage",
-        "hash": "5d9a9bbbfbd6690b"
+        "hash": "2fbabfbef9186ad7"
       },
       "code": [
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
-          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
+          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
         }
       ]
     },
@@ -509,7 +509,11 @@
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "ToolCalls",
-          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
+          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
+        },
+        {
+          "path": "src/components/chat/chat-transcript/kube-query.tsx",
+          "blob": "c033c99ddbd5cad73dfdd71822174b0a827ce31b"
         }
       ],
       "security": true,
@@ -528,12 +532,12 @@
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "Message",
-          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
+          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
         },
         {
           "path": "src/components/chat/chat-transcript/turn-actions.tsx",
           "symbol": "TurnActions",
-          "blob": "56faa01651ebbf34a72737dc9fc9b1eb5a3f0f7b"
+          "blob": "ead454c9655cea61ad215d2964638bd7c09abf8c"
         }
       ]
     },
@@ -542,18 +546,18 @@
       "figma": {
         "node": "2106:10963",
         "name": "Chat/AgentTurn",
-        "hash": "f73b6477f00ba9e8"
+        "hash": "191017957e1a460f"
       },
       "code": [
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "Message",
-          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
+          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
         },
         {
           "path": "src/components/chat/chat-transcript/turn-actions.tsx",
           "symbol": "TurnActions",
-          "blob": "56faa01651ebbf34a72737dc9fc9b1eb5a3f0f7b"
+          "blob": "ead454c9655cea61ad215d2964638bd7c09abf8c"
         }
       ]
     },
@@ -577,13 +581,13 @@
       "figma": {
         "node": "2150:420",
         "name": "Chat/Work",
-        "hash": "f09dd00df0ec320a"
+        "hash": "5faa76446f34706a"
       },
       "code": [
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "Work",
-          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
+          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
         }
       ]
     },
@@ -598,7 +602,7 @@
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "ApprovalRequest",
-          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
+          "blob": "bfb8efdf21a9503d1dc81c123e2f91eee1be3f79"
         }
       ],
       "security": true
@@ -1074,6 +1078,50 @@
         {
           "path": "src/components/logs/log-window/window.tsx",
           "blob": "77fea868242868317b7aaf11249a2e3c8f37961b"
+        }
+      ]
+    },
+    {
+      "id": "screens/chat-working",
+      "figma": {
+        "node": "2178:6011",
+        "name": "Chat / Working",
+        "hash": "47db50364f8ab6a5"
+      },
+      "code": [
+        {
+          "path": "src/layouts/app-layout.tsx",
+          "blob": "4c9f3248de91885a0e6f9b4608093595d4435c8b"
+        },
+        {
+          "path": "src/routes/chat-id.tsx",
+          "blob": "521c4919c468893b6b0200b7ed256bedbe9a53d7"
+        },
+        {
+          "path": "src/components/chat/chat-pane.tsx",
+          "blob": "fbd4ecc2eeaf484c81d9e98f6d82e7e0aab3b132"
+        }
+      ]
+    },
+    {
+      "id": "screens/chat-waiting",
+      "figma": {
+        "node": "2178:5891",
+        "name": "Chat / Waiting",
+        "hash": "9a84a107bfe5c4b0"
+      },
+      "code": [
+        {
+          "path": "src/layouts/app-layout.tsx",
+          "blob": "4c9f3248de91885a0e6f9b4608093595d4435c8b"
+        },
+        {
+          "path": "src/routes/chat-id.tsx",
+          "blob": "521c4919c468893b6b0200b7ed256bedbe9a53d7"
+        },
+        {
+          "path": "src/components/chat/chat-pane.tsx",
+          "blob": "fbd4ecc2eeaf484c81d9e98f6d82e7e0aab3b132"
         }
       ]
     }
