@@ -31,11 +31,6 @@ if (isLinux()) document.documentElement.classList.add('frameless');
 // `ThemeProvider` re-applies on mount and owns changes thereafter.
 // See docs/adr/2026-08-09-first-paint-theming.md
 
-// Before React mounts: a startup failure or a boundary crash happens above
-// anything a component could catch, and the host's log is where it must land.
-startErrorLogForwarder();
-installGlobalErrorHandlers();
-
 const router = createRouter({ routeTree });
 
 declare module '@tanstack/react-router' {
@@ -44,8 +39,24 @@ declare module '@tanstack/react-router' {
   }
 }
 
-createRoot(document.getElementById('root') as HTMLElement).render(
-  <StrictMode>
-    <RouterProvider router={router} />
-  </StrictMode>,
-);
+async function start() {
+  // `pnpm dev` in a plain browser has no Tauri host: stand in for it with sample
+  // data (src/lib/browser-mock). A production build drops this branch.
+  if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
+    const { installBrowserMock } = await import('@/lib/browser-mock');
+    installBrowserMock();
+  }
+
+  // Before React mounts: a startup failure or a boundary crash happens above
+  // anything a component could catch, and the host's log is where it must land.
+  startErrorLogForwarder();
+  installGlobalErrorHandlers();
+
+  createRoot(document.getElementById('root') as HTMLElement).render(
+    <StrictMode>
+      <RouterProvider router={router} />
+    </StrictMode>,
+  );
+}
+
+void start();

@@ -4,6 +4,9 @@ Environment variables that change how a dev run behaves. Each one is off unless 
 
 ## Webview
 
+**`pnpm dev` in a plain browser** serves sample clusters, workloads and chats. With no Tauri host to answer, `src/main.tsx` installs `src/lib/browser-mock/`, which runs every GraphQL operation against the sidecar's schema over the fixtures in `fixtures.ts`. A production build never includes it. Add `?colorScheme=dark` (or `light`) to the URL to set the color scheme the host would inject.
+
+
 Read by Vite, which bakes them into the bundle at build time. Set them in the shell that runs `pnpm tauri dev`, or in `.env.local` (git-ignored).
 
 | Variable | Values | Effect |
