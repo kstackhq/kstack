@@ -86,7 +86,7 @@
       "figma": {
         "node": "7:248",
         "name": "HistoryNav",
-        "hash": "217a7c2b477a478c"
+        "hash": "347730f729c7dd7f"
       },
       "code": [
         {
@@ -100,7 +100,7 @@
       "figma": {
         "node": "7:262",
         "name": "AppBar/Actions",
-        "hash": "6a4c4d1e0754875d"
+        "hash": "43b1797ba140373f"
       },
       "code": [
         {
@@ -128,7 +128,7 @@
       "figma": {
         "node": "7:264",
         "name": "ContextOmnibox",
-        "hash": "002dd1df49b2aa75"
+        "hash": "ee9afaf4f6c7ccc8"
       },
       "code": [
         {
@@ -156,7 +156,7 @@
       "figma": {
         "node": "22:203",
         "name": "AppBar",
-        "hash": "1be6a6926ccae5c6"
+        "hash": "751df5108c2ba1cc"
       },
       "code": [
         {
@@ -170,12 +170,12 @@
       "figma": {
         "node": "9:130",
         "name": "ScopeTrigger",
-        "hash": "10936a3b7cc82476"
+        "hash": "590656c432648860"
       },
       "code": [
         {
           "path": "src/components/dashboard/dashboard-resource-nav/scope-menu.tsx",
-          "blob": "9e90bdf2b0e347f7d7e40c4e19d79e41178ab36d"
+          "blob": "6138d7ada00e26632a9b7a347a07def72fa943c9"
         }
       ]
     },
@@ -259,7 +259,7 @@
       "figma": {
         "node": "10:128",
         "name": "ObjectsTable/PodRow",
-        "hash": "264f2ee7059c6273"
+        "hash": "91dc81d459c8c016"
       },
       "code": [
         {
@@ -382,7 +382,7 @@
       "figma": {
         "node": "31:985",
         "name": "ClusterStatus",
-        "hash": "765f16e193ec4eec"
+        "hash": "614baec26f337370"
       },
       "code": [
         {
@@ -419,7 +419,7 @@
       "figma": {
         "node": "36:1666",
         "name": "ClusterPicker",
-        "hash": "f769d6fcaeed726d"
+        "hash": "084b5643ff932b84"
       },
       "code": [
         {
@@ -437,7 +437,7 @@
       "figma": {
         "node": "37:1685",
         "name": "Memory/Row",
-        "hash": "8c66471479ad74c3"
+        "hash": "985e95649f56535c"
       },
       "code": [
         {
@@ -456,7 +456,7 @@
       "figma": {
         "node": "39:2265",
         "name": "MemoryPopover",
-        "hash": "3a98e5b72219a111"
+        "hash": "bf68f40cd124ed4e"
       },
       "code": [
         {
@@ -475,12 +475,12 @@
       "figma": {
         "node": "20:132",
         "name": "ChatNav/Row",
-        "hash": "b7c9f286b8ab75ea"
+        "hash": "09e2420bd88b52e9"
       },
       "code": [
         {
           "path": "src/components/chat/chat-nav.tsx",
-          "blob": "76d06563cd55d58a65e26bb0d46c11e15380ac86"
+          "blob": "139a7d9a5fda590bf2418ca02e4f37bd8212fa74"
         }
       ]
     },
@@ -494,27 +494,97 @@
       "code": [
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
-          "blob": "05af4739c27725cf2f4da140c601ac90741bc1ac"
+          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
         }
       ]
     },
     {
       "id": "chat/tool-call",
       "figma": {
-        "node": "20:227",
-        "name": "Chat/ToolCall",
-        "hash": "052c5fbad4443e5a"
+        "node": "2161:546",
+        "name": "Chat/CallRow",
+        "hash": "e6f7b96275e742d5"
       },
       "code": [
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "ToolCalls",
-          "blob": "05af4739c27725cf2f4da140c601ac90741bc1ac"
+          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
         }
       ],
       "security": true,
       "notes": [
-        "The disclosure marker is the browser's native one, not an icon."
+        "The Tag is drawn as error, in color/destructive. Any other tag (denied, not run, cancelled — may have run) is the row's color at opacity-70."
+      ]
+    },
+    {
+      "id": "chat/user-turn",
+      "figma": {
+        "node": "2106:10949",
+        "name": "Chat/UserTurn",
+        "hash": "2001b258c8fe836c"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-transcript/transcript.tsx",
+          "symbol": "Message",
+          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
+        },
+        {
+          "path": "src/components/chat/chat-transcript/turn-actions.tsx",
+          "symbol": "TurnActions",
+          "blob": "56faa01651ebbf34a72737dc9fc9b1eb5a3f0f7b"
+        }
+      ]
+    },
+    {
+      "id": "chat/agent-turn",
+      "figma": {
+        "node": "2106:10963",
+        "name": "Chat/AgentTurn",
+        "hash": "4ee626f1f61c2c1e"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-transcript/transcript.tsx",
+          "symbol": "Message",
+          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
+        },
+        {
+          "path": "src/components/chat/chat-transcript/turn-actions.tsx",
+          "symbol": "TurnActions",
+          "blob": "56faa01651ebbf34a72737dc9fc9b1eb5a3f0f7b"
+        }
+      ]
+    },
+    {
+      "id": "chat/code-fence",
+      "figma": {
+        "node": "2106:10986",
+        "name": "Chat/CodeFence",
+        "hash": "2ab5e1e0584b5a59"
+      },
+      "code": [
+        {
+          "path": "src/components/primitives/markdown/markdown.tsx",
+          "symbol": "CodeBlock",
+          "blob": "e4b1874a50e20c243150bcb2d01716790a638989"
+        }
+      ]
+    },
+    {
+      "id": "chat/work",
+      "figma": {
+        "node": "2150:420",
+        "name": "Chat/Work",
+        "hash": "25509591102da11c"
+      },
+      "code": [
+        {
+          "path": "src/components/chat/chat-transcript/transcript.tsx",
+          "symbol": "Work",
+          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
+        }
       ]
     },
     {
@@ -522,13 +592,13 @@
       "figma": {
         "node": "20:232",
         "name": "Chat/ApprovalRequest",
-        "hash": "7125e6b20d84c8ad"
+        "hash": "b4fa2d09f0b2cfdd"
       },
       "code": [
         {
           "path": "src/components/chat/chat-transcript/transcript.tsx",
           "symbol": "ApprovalRequest",
-          "blob": "05af4739c27725cf2f4da140c601ac90741bc1ac"
+          "blob": "f3352676503012fa3500305c281ddbfc59e8e217"
         }
       ],
       "security": true
@@ -538,7 +608,7 @@
       "figma": {
         "node": "20:263",
         "name": "Chat/LogsViewCard",
-        "hash": "f37cd5c4a6328a1d"
+        "hash": "5a2c098322970219"
       },
       "code": [
         {
@@ -625,7 +695,7 @@
       "figma": {
         "node": "2034:2328",
         "name": "ModelPicker/Menu",
-        "hash": "33ec18c1b16b3196"
+        "hash": "77790a931bd6af59"
       },
       "code": [
         {
@@ -709,7 +779,7 @@
       "figma": {
         "node": "22:226",
         "name": "LogsWindowBar",
-        "hash": "c4f39e9cef15fa1a"
+        "hash": "57f9e789ca1e876c"
       },
       "code": [
         {
@@ -737,7 +807,7 @@
       "figma": {
         "node": "18:527",
         "name": "LogViewer/Toolbar",
-        "hash": "15b91fa74a821b7f"
+        "hash": "c1dfe240c872f7f8"
       },
       "code": [
         {
@@ -876,7 +946,7 @@
       "figma": {
         "node": "43:9226",
         "name": "AppMenu",
-        "hash": "8839f0728e68d3fa"
+        "hash": "e63bd966a0e1979e"
       },
       "code": [
         {
@@ -890,7 +960,7 @@
       "figma": {
         "node": "42:10242",
         "name": "Dashboard / Pods",
-        "hash": "c65f459ec7a3bbaf"
+        "hash": "5376f213b68d07e1"
       },
       "code": [
         {
@@ -908,7 +978,7 @@
       "figma": {
         "node": "42:10243",
         "name": "Chat / New",
-        "hash": "f81414ff6dcb7d10"
+        "hash": "9e6276905b115f9e"
       },
       "code": [
         {
@@ -921,7 +991,7 @@
         },
         {
           "path": "src/components/chat/chat-pane.tsx",
-          "blob": "4609271bfa8abd792e8025148240beeb7a1cb0ac"
+          "blob": "fbd4ecc2eeaf484c81d9e98f6d82e7e0aab3b132"
         }
       ]
     },
@@ -930,7 +1000,7 @@
       "figma": {
         "node": "42:10244",
         "name": "Chat / Open",
-        "hash": "d483045578453c97"
+        "hash": "1782713324efea65"
       },
       "code": [
         {
@@ -939,11 +1009,11 @@
         },
         {
           "path": "src/routes/chat-id.tsx",
-          "blob": "e681754a00b802a2068e23d122c1bfc2a1b2c4fe"
+          "blob": "521c4919c468893b6b0200b7ed256bedbe9a53d7"
         },
         {
           "path": "src/components/chat/chat-pane.tsx",
-          "blob": "4609271bfa8abd792e8025148240beeb7a1cb0ac"
+          "blob": "fbd4ecc2eeaf484c81d9e98f6d82e7e0aab3b132"
         }
       ]
     },
@@ -952,7 +1022,7 @@
       "figma": {
         "node": "2031:6729",
         "name": "Chat / Model picker open",
-        "hash": "4e3ec1bd203142eb"
+        "hash": "7da3780679497a8d"
       },
       "code": [
         {
@@ -966,7 +1036,7 @@
       "figma": {
         "node": "2050:7406",
         "name": "Chat / Sandbox open",
-        "hash": "c3ae2edef91cf6ac"
+        "hash": "24cf88bf0696e5f6"
       },
       "code": [
         {
@@ -980,7 +1050,7 @@
       "figma": {
         "node": "2087:8438",
         "name": "Chat / Context open",
-        "hash": "f4ba93ad71729695"
+        "hash": "fc06f9aa333f7409"
       },
       "code": [
         {

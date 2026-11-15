@@ -215,13 +215,13 @@ Never `record -stamps` an edited component to clear the report without that answ
 | Dashboard / Pods | Light and dark, macOS |
 | Shell | Light and dark on macOS, Windows, Linux windowed and Linux maximized, side by side; light on Windows with `AppMenu` open; light and dark with `ClusterStatus` open, healthy and disconnected; `ClusterPicker` open, with four contexts and with seven (the filter); `MemoryPopover` open with memories |
 | Chat / New | Light and dark, with chats in the sidebar |
-| Chat / Open | Light and dark: a transcript with tool calls, a log card and a waiting approval; the composer answering |
+| Chat / Open | Light and dark: three turns, the first with its *Worked for* disclosure open on a failed call drawn open, the user's second message with its actions; the composer answering |
 | Chat / Model picker open | Light and dark: `ModelPicker/Menu` open below the trigger on a new chat, and above it on an open one |
 | Chat / Sandbox open | Light and dark: `SandboxPopover` open on a new chat and on an open one |
 | Chat / Context open | Light and dark: `ContextPopover` open below the add-context button on a new chat |
 | Log window | Light and dark: a tail with a grep, a gap notice and the landed row |
 
-`ClusterStatus`, `ClusterPicker` and `MemoryPopover` draw every state on the Components page; `ModelPicker/Menu` draws Anthropic's. Not drawn yet: the other popovers (scope menu and column picker), the memory row's actions menu and its delete confirm; hover and focus states; the dialog and drawer scrims; the Events page, the object panel and the settings dialog; loading, empty, deleted and error states; Markdown beyond paragraphs and inline code; and the log viewer's selection.
+`ClusterStatus`, `ClusterPicker` and `MemoryPopover` draw every state on the Components page; `ModelPicker/Menu` draws Anthropic's. The chat's turns, code fence, *Worked for* disclosure and call row draw their hover states. Not drawn yet: the other popovers (scope menu and column picker), the memory row's actions menu and its delete confirm; other hover and focus states; the dialog and drawer scrims; the Events page, the object panel and the settings dialog; loading, empty, deleted and error states; Markdown beyond paragraphs, inline code and code fences; the log viewer's selection; and a log card or a waiting approval in the new transcript (Chat / Model picker open and Chat / Sandbox open still draw the archived `Chat/ToolCall`).
 
 ## Traps
 
