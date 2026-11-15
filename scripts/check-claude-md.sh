@@ -5,10 +5,10 @@ cd "$(dirname "$0")/.."
 git ls-files -- 'CLAUDE.md' '**/CLAUDE.md' | {
   status=0
   while IFS= read -r file; do
-    budget=$(awk -v file="$file" '$1 == file { print $2 }' scripts/claude-md-budget)
+    budget=$(awk -F': ' -v file="$file" '$1 == file { print $2 }' .github/ci-config/claude-md-budgets.yml)
     case "$budget" in
       ''|*[!0-9]*)
-        echo "$file: missing or invalid size budget in scripts/claude-md-budget" >&2
+        echo "$file: missing or invalid size budget in .github/ci-config/claude-md-budgets.yml" >&2
         status=1
         continue
         ;;

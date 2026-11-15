@@ -15,7 +15,7 @@ The webview's code splits two ways. `src/components/` has one folder per area (`
 
 ## Decision
 
-`src/CLAUDE.md` holds what crosses the webview: the security invariants, routing and component areas, errors, window state, theming and storage, GraphQL, codegen, tests, and lint and build. Each larger subsystem has its own guide in its components folder (`src/components/<area>/CLAUDE.md`), with an `AGENTS.md` beside it, and a byte budget in `scripts/claude-md-budget`.
+`src/CLAUDE.md` holds what crosses the webview: the security invariants, routing and component areas, errors, window state, theming and storage, GraphQL, codegen, tests, and lint and build. Each larger subsystem has its own guide in its components folder (`src/components/<area>/CLAUDE.md`), with an `AGENTS.md` beside it, and a byte budget in `.github/ci-config/claude-md-budgets.yml`.
 
 Each guide also owns its subsystem's `src/lib/` modules and lists them in its first paragraph. A nested guide loads only for files in its own folder, so `src/CLAUDE.md`'s *Guides* table tells an agent to open the subsystem's guide before changing those modules. A guide about code in another area's folder (the cluster guide covers `shell/context-omnibox/`) says so in the guide that does load, which points to it.
 
