@@ -24,7 +24,7 @@ const viteConfig = (coverage: boolean) =>
       tailwindcss(),
       Unfonts({
         fontsource: {
-          families: ['Roboto Flex Variable'],
+          families: ['Roboto Flex Variable', 'Roboto Mono Variable'],
         },
       }),
     ],

@@ -100,6 +100,7 @@
 
 @theme {
   --font-sans: 'Roboto Flex Variable', Arial, Helvetica, sans-serif;
+  --font-mono: 'Roboto Mono Variable', ui-monospace, monospace;
   --color-app-bar: var(--app-bar);
   --color-app-bar-hover: var(--app-bar-hover);
   --color-app-bar-input-border: var(--app-bar-input-border);
