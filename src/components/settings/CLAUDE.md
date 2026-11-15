@@ -1,6 +1,6 @@
 # src/components/settings — the settings dialog
 
-The settings dialog and the folder-grant form, with the `src/lib/` hooks behind them (`sandbox-*.tsx`, `permission-settings.tsx`). Read it before changing any of them. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md). The color-scheme picker is there too (*Theming & storage*).
+The settings dialog and the folder-grant form. Also owns `src/lib/`'s `sandbox-*.tsx` and `permission-settings.tsx`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md), which also covers the color-scheme picker (*Theming & storage*).
 
 **The Settings dialog** is `components/settings/settings-dialog/`, exporting `SettingsDialog` alone. **Its Sandbox and Permissions sections draw only while `useSandbox` answers `available: true`.** Each has one hook that reads its queries and runs its mutations. Every path, target, context, pattern and rule line goes through `VisibleText` (`components/primitives/visible-text.tsx`). A hook re-asks its query after each mutation and on focus where the query alone carries state another window can change.
 

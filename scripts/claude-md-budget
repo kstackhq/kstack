@@ -10,7 +10,7 @@ sidecar/internal/services/logs/CLAUDE.md 23552
 sidecar/internal/services/settings/CLAUDE.md 6656
 sidecar/internal/tools/CLAUDE.md 28672
 src-tauri/CLAUDE.md 37376
-src/CLAUDE.md 29184
+src/CLAUDE.md 28672
 src/components/chat/CLAUDE.md 24576
 src/components/cluster/CLAUDE.md 7680
 src/components/dashboard/CLAUDE.md 17408

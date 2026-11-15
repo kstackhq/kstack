@@ -1,6 +1,6 @@
 # src/components/shell — the app's frame
 
-The app bar, both sidebars, the window frame and its controls, and the startup gate, with `layouts/app-layout.tsx` and the `src/lib/` modules behind them (`window-drag.ts`, `focus-trap.ts`, `persisted-width.ts`, `right-sidebar.tsx`). The omnibox's cluster picker and popovers are the cluster guide's ([`../cluster/CLAUDE.md`](../cluster/CLAUDE.md)). Read it before changing any of them. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md).
+The app bar, both sidebars, the window frame and its controls, the startup gate and `layouts/app-layout.tsx`. Also owns `src/lib/`'s `window-drag.ts`, `focus-trap.ts`, `persisted-width.ts` and `right-sidebar.tsx`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md). **`context-omnibox/` is described in the cluster guide** ([`../cluster/CLAUDE.md`](../cluster/CLAUDE.md)): open it before changing the omnibox.
 
 ## Startup
 

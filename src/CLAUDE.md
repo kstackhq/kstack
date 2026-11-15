@@ -20,7 +20,7 @@ The whole picture is [`docs/security-model.md`](../docs/security-model.md). What
 
 ## Guides
 
-This file is what holds across the webview. Each larger subsystem has a guide beside its components. A nested guide loads only when a file in its folder is read, and `src/lib/` is flat, so **open the subsystem's guide before changing its `src/lib/` modules too**:
+This file holds what crosses the webview; each larger subsystem has a guide beside its components. A nested guide loads only when a file in its folder is read, and `src/lib/` is flat, so **open a subsystem's guide before changing its `src/lib/` modules**. Each guide's first line lists the modules it owns. → [ADR: agent guides sit beside the components they describe](../docs/adr/2026-11-15-agent-guides-sit-beside-the-components-they-describe.md)
 
 | Guide | Covers |
 | --- | --- |
@@ -80,7 +80,6 @@ This file is what holds across the webview. Each larger subsystem has a guide be
 
 `src/lib/theme.tsx` has two axes: **color scheme** (`system`/`light`/`dark` → `.dark` on `<html>`) and **skin** (reserved). The preference lives in `host.json` (`src/lib/host-file.ts` owns read/update/subscribe), never localStorage. Boot is synchronous via `window.__KSTACK_HOST__` and the inline script in `index.html`, which **hand-mirrors `resolveColorScheme`**; its boot mark shows the light or dark app icon by the `.dark` class, as `AppMark` does, pinned by the root `index.test.ts`. Keep both in sync. → [ADR: host.json settings](../docs/adr/2026-08-09-host-json-settings.md), [ADR: first-paint theming](../docs/adr/2026-08-09-first-paint-theming.md). The picker is in `settings-dialog/dialog.tsx`.
 
-
 ## Text boxes
 
 **Every text box turns off the webview's autocomplete, autocorrect, autocapitalize and inline predictions** (`writingsuggestions`, WebKit's). Draw one with `Input`, `Textarea` or `SearchBox` from `components/primitives/text-entry.tsx`, never `@kubetail/ui`'s (the lint refuses that import). Prose (the chat composer, a chat title, memory bodies and instructions) passes `prose` and keeps spellcheck; code-like text (a grep, a path, a name, a pattern) has it off. A raw `<input>`/`<textarea>` spreads `CODE_TEXT` or `PROSE_TEXT` from the same file. Each box's test pins its set with `expectCodeText`/`expectProseText` from `@/test-utils`.
@@ -112,57 +111,26 @@ The webview has **no network access**. urql routes everything through Tauri IPC 
 
 ## Tests
 
-Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo-wide rules are the root `CLAUDE.md`'s *Testing conventions*. Mock the Tauri bridge with **`mockTauriCore()` from `@/test-utils`** (+ `vi.mock('@tauri-apps/api/core', …)` and dynamic import of the module under test). For GraphQL-driven components, push frames via `liveChannel().onmessage!(...)` — see `src/lib/graphql/use-watch-subscription.test.tsx`.
+Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`), under the root `CLAUDE.md`'s *Testing conventions*. Mock the Tauri bridge with **`mockTauriCore()` from `@/test-utils`** (+ `vi.mock('@tauri-apps/api/core', …)` and dynamic import of the module under test). For GraphQL-driven components, push frames via `liveChannel().onmessage!(...)` — see `src/lib/graphql/use-watch-subscription.test.tsx`.
 
-- The repo-wide rules above (co-located test files, no magic sleeps) apply here.
 - Workers run with `--no-experimental-webstorage` (`vite.config.ts`): Node's own `localStorage` would shadow jsdom's.
 - Run: `make test-changed` while working; `pnpm test --run` (or `make test-ts`) for the whole suite. Watch: `pnpm test`.
 - **Coverage is measured in `coverage / TypeScript (linux)`** and gated by `coverage / Gate` (root `CLAUDE.md`, *Testing conventions*). A line no test can reach takes `/* v8 ignore next -- <reason> */`, in a component as anywhere. Coverage runs as `vitest run --mode coverage`, which loads no React compiler, so markers survive and the compiler's cached branches are not measured. A test of re-renders fails there if it passes only through the compiler: memoize by hand where the re-render is the code's own promise (the log row's cells), and test no re-renders elsewhere. → [ADR: TypeScript coverage is measured without the React compiler](../docs/adr/2026-10-30-typescript-coverage-is-measured-without-the-react-compiler.md). Exclusions are in `vite.config.ts` and `.github/codecov.yml`'s `ignore` (`src/gql/`, `routeTree.ts`, `main.tsx`, `test-utils.tsx`). `make cover-ts` prints the per-file numbers.
 
 ## Lint / build
 
-- `pnpm lint` (oxlint, then `oxfmt --check`) → `make lint-ts`. Run before committing. `pnpm format`
-  writes, sorting imports too. → [ADR: lint the webview with oxlint's categories](../docs/adr/2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list.md),
-  [ADR: oxlint's native React compiler rules](../docs/adr/2026-11-05-lint-the-react-compilers-rules-with-oxlints-native-ports.md)
-- **Linting is oxlint** (`.oxlintrc.json`): the `correctness`, `suspicious` and `perf` categories,
-  rules from the other categories named one by one, and type-aware rules through `oxlint-tsgolint`.
-  A rule an enabled category already turns on is listed only to give it options or turn it off,
-  with the reason beside it. **Every rule is an error and a warning fails the run.** Kstack's own
-  rules are `lint/oxlint-plugin.js`, tested in `lint/oxlint-plugin.test.ts`.
-- **Tailwind classes are `pnpm lint:tailwind`** (`.oxlintrc.tailwind.json`, `make lint-tailwind`),
-  a run apart from `pnpm lint` because loading Tailwind takes most of its ~6s. It checks `className`
-  and `cn(...)` against `src/index.css`'s design system: the canonical spelling (`wrap-break-word`,
-  not `break-words`; `size-4`, not `h-4 w-4`), no class Tailwind does not know, and no two classes
-  setting the same property. `pnpm lint:tailwind --fix` rewrites a spelling. A class string built
-  anywhere else is not checked. Order and wrapping are `oxfmt`'s. **Run it after changing classes.**
-  CI's `TypeScript · Lint` runs it.
-  → [ADR: lint Tailwind classes in a run of their own](../docs/adr/2026-11-05-lint-tailwind-classes-in-a-run-of-their-own.md)
-- **What the rules ask for**: no `any` and no value typed `any` outside tests; `toSorted` and
-  `toReversed`, never a `sort` or `reverse` in place on an array others hold; `??` for a nullish
-  default, `||` where an empty string or `false` should fall through; a default prop that is an
-  object, array or function is a module constant. `for…of` is allowed, `for…in` is not.
-- **A switch over a union lists every member** and needs no `default`; a `default` does not stand in
-  for a missing one. Any other switch has a `default`.
-- **`tsc` checks fallthrough, implicit returns and `import type`** (`noFallthroughCasesInSwitch`,
-  `noImplicitReturns`, `verbatimModuleSyntax`); the lint has no rule for them.
-- **A disable comment is `oxlint-disable…` and gives its reason**:
-  `// oxlint-disable-next-line <rule> -- <why the rule is wrong here>`. `kstack/disable-needs-reason`
-  fails one without, an unused one fails, and `eslint-disable` comments are not read.
-- **A promise nothing awaits is marked `void`** (`typescript/no-floating-promises`): an urql
-  mutation or a `navigate` fired from a handler, for example. A JSX handler may return one.
-- **Formatting is oxfmt** (`.oxfmtrc.json`), which also sorts imports: packages, `@/`, then relative
-  paths, a blank line between. The `lint`/`format` scripts pass **globs only**: a directory
-  argument mixed with a glob silently narrows to the glob's extensions. `.vscode/settings.json` runs
-  the same binaries in the editor (`oxc.oxc-vscode`, resolved from `node_modules`).
-- The **React compiler** is on in two places that must stay in step: the babel transform
-  (`vite.config.ts`, off in `--mode coverage`) and oxlint's native ports of the compiler's rules
-  (`react/purity`, `react/refs`, `react/exhaustive-deps`, …: `recommended-latest`'s set, in
-  `.oxlintrc.json`). A disable comment names them `react/…`. A bail-out on a broken rule is a lint
-  error; one on syntax the compiler does not support yet (`react/todo`, such as `??=`) is silent.
-- **Write as though the compiler weren't there** — it bails per-function, silently. So
-  `react/exhaustive-deps` is an **error**, and manual `useMemo`/`useCallback` are ordinary
-  tools.
-- In the Linux sandbox, `node_modules` is symlinks into a store every worktree shares, and a package resolves only the dependencies it declares. Never edit a file under it. An error seen only there is most likely an undeclared dependency → [ADR: share one pnpm store across sandbox worktrees](../docs/adr/2026-10-28-share-one-pnpm-store-across-sandbox-worktrees.md).
+- `pnpm lint` (oxlint, then `oxfmt --check`) → `make lint-ts`. Run before committing. `pnpm format` writes, sorting imports too. → [ADR: lint the webview with oxlint's categories](../docs/adr/2026-11-05-lint-the-webview-with-oxlints-categories-and-a-chosen-rule-list.md), [ADR: oxlint's native React compiler rules](../docs/adr/2026-11-05-lint-the-react-compilers-rules-with-oxlints-native-ports.md)
+- **Linting is oxlint** (`.oxlintrc.json`): the `correctness`, `suspicious` and `perf` categories, rules from the other categories named one by one, and type-aware rules through `oxlint-tsgolint`. A rule an enabled category already turns on is listed only to give it options or turn it off, with the reason beside it. **Every rule is an error and a warning fails the run.** Kstack's own rules are `lint/oxlint-plugin.js`, tested in `lint/oxlint-plugin.test.ts`.
+- **Tailwind classes are `pnpm lint:tailwind`** (`.oxlintrc.tailwind.json`, `make lint-tailwind`), a run apart from `pnpm lint` because loading Tailwind takes most of its ~6s. It checks `className` and `cn(...)` against `src/index.css`'s design system: the canonical spelling (`wrap-break-word`, not `break-words`; `size-4`, not `h-4 w-4`), no class Tailwind does not know, and no two classes setting the same property. `pnpm lint:tailwind --fix` rewrites a spelling. A class string built anywhere else is not checked. Order and wrapping are `oxfmt`'s. **Run it after changing classes.** CI's `TypeScript · Lint` runs it. → [ADR: lint Tailwind classes in a run of their own](../docs/adr/2026-11-05-lint-tailwind-classes-in-a-run-of-their-own.md)
+- **What the rules ask for**: no `any` and no value typed `any` outside tests; `toSorted` and `toReversed`, never a `sort` or `reverse` in place on an array others hold; `??` for a nullish default, `||` where an empty string or `false` should fall through; a default prop that is an object, array or function is a module constant. `for…of` is allowed, `for…in` is not.
+- **A switch over a union lists every member** and needs no `default`; a `default` does not stand in for a missing one. Any other switch has a `default`.
+- **`tsc` checks fallthrough, implicit returns and `import type`** (`noFallthroughCasesInSwitch`, `noImplicitReturns`, `verbatimModuleSyntax`); the lint has no rule for them.
+- **A disable comment is `oxlint-disable…` and gives its reason**: `// oxlint-disable-next-line <rule> -- <why the rule is wrong here>`. `kstack/disable-needs-reason` fails one without, an unused one fails, and `eslint-disable` comments are not read.
+- **A promise nothing awaits is marked `void`** (`typescript/no-floating-promises`): an urql mutation or a `navigate` fired from a handler, for example. A JSX handler may return one.
+- **Formatting is oxfmt** (`.oxfmtrc.json`), which also sorts imports: packages, `@/`, then relative paths, a blank line between. The `lint`/`format` scripts pass **globs only**: a directory argument mixed with a glob silently narrows to the glob's extensions. `.vscode/settings.json` runs the same binaries in the editor (`oxc.oxc-vscode`, resolved from `node_modules`).
+- The **React compiler** is on in two places that must stay in step: the babel transform (`vite.config.ts`, off in `--mode coverage`) and oxlint's native ports of the compiler's rules (`react/purity`, `react/refs`, `react/exhaustive-deps`, …: `recommended-latest`'s set, in `.oxlintrc.json`). A disable comment names them `react/…`. A bail-out on a broken rule is a lint error; one on syntax the compiler does not support yet (`react/todo`, such as `??=`) is silent.
+- **Write as though the compiler weren't there** — it bails per-function, silently. So `react/exhaustive-deps` is an **error**, and manual `useMemo`/`useCallback` are ordinary tools.
+- In the Linux sandbox a package resolves only the dependencies it declares, so an error seen only there is most likely an undeclared dependency (root `CLAUDE.md`, *Building inside a Linux sandbox*).
 - **An `*.svg?react` import is a React component** drawing the SVG inline (`vite-plugin-svgr`, in `vite.config.ts`); a plain `*.svg` import is a URL.
 - `pnpm build` = `tsc -b && vite build`. Dev: `pnpm dev` (webview) or `pnpm tauri dev` (full app).
 
