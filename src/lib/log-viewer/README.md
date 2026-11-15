@@ -33,18 +33,18 @@ cursor drops nothing new. The library holds it as part of the line and draws not
 
 ### The edges
 
-*The live end* is `follow`: set on a page that read every stream to its end, in place of `next`.
+_The live end_ is `follow`: set on a page that read every stream to its end, in place of `next`.
 A page from it polls for lines written since, and a follow opens there.
 
-| Query | `prev` | `next` | `follow` |
-| --- | --- | --- | --- |
-| `First` | null | set when a line lies newer | *the live end* when `next` is null |
-| `Last` | set when a line lies older | null | *the live end* |
-| `At` | as `Last`, from the moment back | as `First`, from the moment on | as `First` |
-| `Until` | as `Last`, from the moment back | ignored | ignored |
-| `Since` | ignored | as `First`, from the moment on | as `First` |
-| `Continue` from `prev` | as `Last`, back from the cursor | ignored | ignored |
-| `Continue` from `next` or `follow` | ignored | as `First`, on from the cursor | as `First` |
+| Query                              | `prev`                          | `next`                         | `follow`                           |
+| ---------------------------------- | ------------------------------- | ------------------------------ | ---------------------------------- |
+| `First`                            | null                            | set when a line lies newer     | _the live end_ when `next` is null |
+| `Last`                             | set when a line lies older      | null                           | _the live end_                     |
+| `At`                               | as `Last`, from the moment back | as `First`, from the moment on | as `First`                         |
+| `Until`                            | as `Last`, from the moment back | ignored                        | ignored                            |
+| `Since`                            | ignored                         | as `First`, from the moment on | as `First`                         |
+| `Continue` from `prev`             | as `Last`, back from the cursor | ignored                        | ignored                            |
+| `Continue` from `next` or `follow` | ignored                         | as `First`, on from the cursor | as `First`                         |
 
 - **The window reads an edge off its strings.** The before edge has more while `prev` is set.
   After, a page with no line and a `next` is a read that spent its budget, read on by hand; an
@@ -84,7 +84,7 @@ Its rules, one each:
   its keys, so a prepend or a drop leaves it on the same lines. A drop clears its edge's ticket and cursor;
   one after also unpins and rebuilds the newest line of each container from what it kept.
 - **A dropped edge reads back from a moment.** A drop folds its lines' farthest stamp into the
-  edge's *seam*: the newest dropped before, the oldest dropped after, never moving it back, since
+  edge's _seam_: the newest dropped before, the oldest dropped after, never moving it back, since
   lines are held in arrival order. While a seam is set that edge pages with an `Until` or a
   `Since` at it, and the page's own cursor replaces it. Each container's held lines stay one run
   of its log, so its oldest and newest held lines are enough to read back without a repeat.

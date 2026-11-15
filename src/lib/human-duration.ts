@@ -14,7 +14,7 @@
 
 // kubectl's HumanDuration: finer units while they still say something.
 export function humanDuration(ms: number): string {
-  const s = Math.floor(ms / 1000);
+  const s = Math.floor(Math.max(0, ms) / 1000);
   const m = Math.floor(s / 60);
   const h = Math.floor(m / 60);
   if (s < 120) return `${s}s`;
@@ -23,4 +23,12 @@ export function humanDuration(ms: number): string {
   if (h < 8) return `${h}h${m % 60 ? `${m % 60}m` : ''}`;
   if (h < 48) return `${h}h`;
   return `${Math.floor(h / 24)}d`;
+}
+
+// humanDuration by the whole minute ("<1m", "5m", "3h20m"), for a span drawn
+// beside one that ticks each second.
+export function humanMinutes(ms: number): string {
+  const m = Math.floor(ms / 60_000);
+  if (m < 2) return m < 1 ? '<1m' : '1m';
+  return humanDuration(m * 60_000);
 }

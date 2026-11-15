@@ -1356,7 +1356,7 @@ describe('ClusterSyncPanel', () => {
     await user.click(await screen.findByRole('button', { name: /current/i }));
 
     expect(await screen.findByText(/last update received/i)).toBeInTheDocument();
-    expect(await screen.findByText('1h ago')).toBeInTheDocument();
+    expect(await screen.findByText('60m ago')).toBeInTheDocument();
     expect(await screen.findByText(/sync verified/i)).toBeInTheDocument();
     expect(await screen.findByText('5s ago')).toBeInTheDocument();
     // Staleness is engine-derived; an old update stamp alone must not raise the banner.
@@ -1481,7 +1481,7 @@ describe('ClusterSyncPanel', () => {
   });
 
   // The clock is frozen so each age reads the same however long the clicks take.
-  it('shows a connected cluster’s uptime in its largest unit', async () => {
+  it('shows a connected cluster’s uptime by the whole minute', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     onTestFinished(() => {
       vi.useRealTimers();
@@ -1503,7 +1503,7 @@ describe('ClusterSyncPanel', () => {
     expect(screen.getByText('3h')).toBeInTheDocument();
   });
 
-  it('spans each repeated attempt in its largest unit, and counts down past a minute', async () => {
+  it('spans each repeated attempt, and counts down past a minute', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     onTestFinished(() => {
       vi.useRealTimers();
@@ -1538,7 +1538,7 @@ describe('ClusterSyncPanel', () => {
 
     expect(await screen.findByText('(9m)')).toBeInTheDocument();
     expect(screen.getByText('(3h)')).toBeInTheDocument();
-    expect(screen.getByText('in 1m 30s')).toBeInTheDocument();
+    expect(screen.getByText('in 90s')).toBeInTheDocument();
   });
 
   it('reports a plain kind count when every kind is healthy', async () => {

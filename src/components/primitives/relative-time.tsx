@@ -12,22 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import ReactTimeAgo, { type Formatter } from 'react-timeago';
+import { Elapsed } from '@/components/primitives/elapsed';
+import { humanDuration } from '@/lib/human-duration';
 
-const SECOND_MS = 1_000;
-const MINUTE_MS = 60 * SECOND_MS;
-const HOUR_MS = 60 * MINUTE_MS;
+const ago = (ms: number) => `${humanDuration(ms)} ago`;
 
-// Live "Xs ago" counter rolling up to minutes/hours; no "just now" bucket.
-const relativeFormatter: Formatter = (_value, _unit, _suffix, epochMs) => {
-  const diff = Math.max(0, Date.now() - epochMs);
-  if (diff < MINUTE_MS) return `${Math.floor(diff / SECOND_MS)}s ago`;
-  if (diff < HOUR_MS) return `${Math.floor(diff / MINUTE_MS)}m ago`;
-  return `${Math.floor(diff / HOUR_MS)}h ago`;
-};
-
-// maxPeriod={1} forces a per-second re-render; react-timeago otherwise throttles
-// to once-a-minute above 60s, freezing a countdown.
-export function RelativeTime({ ms, formatter = relativeFormatter }: { ms: number; formatter?: Formatter }) {
-  return <ReactTimeAgo date={ms} component="span" formatter={formatter} maxPeriod={1} />;
+// The time since `ms` ("45s ago"), ticking each second; `format` words it otherwise.
+export function RelativeTime({ ms, format = ago }: { ms: number; format?: (ms: number) => string }) {
+  return (
+    <span>
+      <Elapsed since={ms} format={format} />
+    </span>
+  );
 }

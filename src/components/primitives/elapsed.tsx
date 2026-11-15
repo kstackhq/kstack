@@ -17,12 +17,13 @@ import { useEffect, useState } from 'react';
 import { humanDuration } from '@/lib/human-duration';
 
 // The time since `since` ("42s", "10m"), ticking each second: nothing redraws
-// what only the clock changes.
-export function Elapsed({ since }: { since: number }) {
+// what only the clock changes. `format` words the milliseconds, which are
+// negative while `since` is ahead.
+export function Elapsed({ since, format = humanDuration }: { since: number; format?: (ms: number) => string }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
-  return humanDuration(now - since);
+  return format(now - since);
 }

@@ -12,21 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { type Formatter } from 'react-timeago';
+import { Elapsed } from '@/components/primitives/elapsed';
+import { humanDuration } from '@/lib/human-duration';
 
-import { RelativeTime } from '@/components/primitives/relative-time';
+const countdown = (elapsed: number) => (elapsed > -1000 ? 'now' : `in ${humanDuration(-elapsed)}`);
 
-const SECOND_MS = 1_000;
-
-// Countdown to the next retry ("in 1m 30s"); "now" once due.
-const countdownFormatter: Formatter = (_value, _unit, _suffix, epochMs) => {
-  const totalSec = Math.floor(Math.max(0, epochMs - Date.now()) / SECOND_MS);
-  if (totalSec < 1) return 'now';
-  if (totalSec < 60) return `in ${totalSec}s`;
-  return `in ${Math.floor(totalSec / 60)}m ${totalSec % 60}s`;
-};
-
-// "in 1m 30s", ticking each second, then "now".
+// "in 90s", ticking each second, then "now".
 export function Countdown({ ms }: { ms: number }) {
-  return <RelativeTime ms={ms} formatter={countdownFormatter} />;
+  return <Elapsed since={ms} format={countdown} />;
 }
