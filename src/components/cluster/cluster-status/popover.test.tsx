@@ -302,10 +302,10 @@ describe('ClusterStatusPopover', () => {
     const in90s = () => new Date(Date.now() + 90_000).toISOString();
 
     act(() => pushSchedule(in90s(), false, 1));
-    expect(alert).toHaveTextContent(/1 attempt · Retrying in 1m \d+s$/);
+    expect(alert).toHaveTextContent(/1 attempt · Retrying in \d+s$/);
 
     act(() => pushSchedule(in90s(), false, 3));
-    expect(alert).toHaveTextContent(/3 attempts · Retrying in 1m \d+s$/);
+    expect(alert).toHaveTextContent(/3 attempts · Retrying in \d+s$/);
 
     // While a probe runs the countdown gives way to the retry itself.
     act(() => pushSchedule(null, true, 3));
@@ -510,8 +510,8 @@ describe('ClusterStatusPopover', () => {
   it.each<[string, () => Cluster, string]>([
     ['under a minute', () => upFor(10_000), '<1m'],
     ['minutes', () => upFor(5 * 60_000 + 10_000), '5m'],
-    ['hours', () => upFor(2 * 3_600_000 + 10_000), '2h 0m'],
-    ['days', () => upFor(((3 * 24 + 4) * 60 + 12) * 60_000 + 10_000), '3d 4h 12m'],
+    ['hours', () => upFor(3 * 3_600_000 + 20 * 60_000 + 10_000), '3h20m'],
+    ['days', () => upFor(((3 * 24 + 4) * 60 + 12) * 60_000 + 10_000), '3d'],
     ['none while unconfirmed', () => withConnected(clusterRecord({ context: 'prod' }), { unconfirmed: true }), '—'],
     ['none while connecting', () => clusterRecord({ context: 'prod', connected: 'Unknown' }), '—'],
   ])('counts the uptime: %s', async (_name, cluster, want) => {

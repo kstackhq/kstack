@@ -23,7 +23,6 @@ import { Button } from '@kubetail/ui/elements/button';
 import { Popover, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import { ArrowRight, Check, CircleAlert, Server, TriangleAlert } from 'lucide-react';
 import { type ReactElement, type ReactNode, useState } from 'react';
-import { type Formatter } from 'react-timeago';
 
 import { ClusterDot } from '@/components/cluster/cluster-dot';
 import { DataRateSparkline } from '@/components/cluster/data-rate-sparkline';
@@ -47,6 +46,7 @@ import {
 } from '@/lib/cluster-health';
 import { type Cluster, type ClusterCacheHealth, formatRate } from '@/lib/clusters';
 import { useDialog } from '@/lib/dialog';
+import { humanMinutes } from '@/lib/human-duration';
 
 // The header's pill: the overall tone in one word.
 const PILL: Record<Tone, { label: string; className: string }> = {
@@ -62,20 +62,6 @@ function summary(connection: Status, sync: Status): string {
   const cache = sync.label === 'Current' ? 'cache in sync' : `cache ${sync.label.toLowerCase()}`;
   return `${conn} · ${cache}`;
 }
-
-const MINUTE_MS = 60_000;
-
-// "3d 4h 12m", minute-grained so it does not tick every second; "<1m" at first.
-const uptimeFormatter: Formatter = (_value, _unit, _suffix, epochMs) => {
-  const minutes = Math.floor(Math.max(0, Date.now() - epochMs) / MINUTE_MS);
-  const m = minutes % 60;
-  const h = Math.floor(minutes / 60) % 24;
-  const d = Math.floor(minutes / (24 * 60));
-  if (minutes < 1) return '<1m';
-  if (minutes < 60) return `${m}m`;
-  if (minutes < 24 * 60) return `${h}h ${m}m`;
-  return `${d}d ${h}h ${m}m`;
-};
 
 function Section({ title, verdict, children }: { title: string; verdict?: ReactNode; children: ReactNode }) {
   return (
@@ -141,17 +127,11 @@ function KubeconfigSection({ context, cluster }: { context: string; cluster: Clu
   );
 }
 
-// Seconds alone ("95s ago"): the sparkline spans two minutes, and a minute-grained age would
-// give half its points the same label.
-const secondsAgoFormatter: Formatter = (_value, _unit, _suffix, epochMs) =>
-  `${Math.floor(Math.max(0, Date.now() - epochMs) / 1000)}s ago`;
-
 // A hovered sparkline sample: its download rate and age.
 function rateTooltip(sample: { at: string; receivedBytesPerSecond: number }) {
   return (
     <>
-      {formatRate(sample.receivedBytesPerSecond)} ·{' '}
-      <RelativeTime ms={Date.parse(sample.at)} formatter={secondsAgoFormatter} />
+      {formatRate(sample.receivedBytesPerSecond)} · <RelativeTime ms={Date.parse(sample.at)} />
     </>
   );
 }
@@ -178,7 +158,7 @@ function ConnectionSection({ cluster }: { cluster: Cluster }) {
     <Section title="Connection" verdict={<Verdict status={status} label={connectionVerdictLabel(status)} />}>
       <dl className="grid grid-cols-3 items-end gap-2">
         <Stat label={down ? 'Downtime' : 'Uptime'}>
-          {Number.isNaN(sinceMs) ? '—' : <RelativeTime ms={sinceMs} formatter={uptimeFormatter} />}
+          {Number.isNaN(sinceMs) ? '—' : <RelativeTime ms={sinceMs} format={humanMinutes} />}
         </Stat>
         <Stat label="Download">{rate ? formatRate(rate.receivedBytesPerSecond) : '—'}</Stat>
         {rates && (

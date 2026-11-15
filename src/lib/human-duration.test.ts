@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { humanDuration } from './human-duration';
+import { humanDuration, humanMinutes } from './human-duration';
 
 describe('humanDuration', () => {
   it('keeps finer units while they say something', () => {
@@ -29,6 +29,25 @@ describe('humanDuration', () => {
       '3h20m',
       '3h',
       '20h',
+      '3d',
+    ]);
+  });
+
+  it('reads a time before its start as none', () => {
+    expect(humanDuration(-5000)).toBe('0s');
+  });
+});
+
+describe('humanMinutes', () => {
+  it('counts whole minutes, and never seconds', () => {
+    const m = 60_000;
+    const h = 60 * m;
+    expect([-m, 59_000, 90_000, 5 * m + 7000, 3 * h + 20 * m + 59_000, 72 * h].map(humanMinutes)).toEqual([
+      '<1m',
+      '<1m',
+      '1m',
+      '5m',
+      '3h20m',
       '3d',
     ]);
   });

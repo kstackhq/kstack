@@ -26,11 +26,13 @@ describe('Countdown', () => {
     vi.useRealTimers();
   });
 
-  it('counts down in seconds, then minutes and seconds', () => {
+  it('counts down as kubectl prints a duration', () => {
     const { rerender } = render(<Countdown ms={Date.now() + 5_000} />);
     expect(screen.getByText('in 5s')).toBeInTheDocument();
     rerender(<Countdown ms={Date.now() + 90_000} />);
-    expect(screen.getByText('in 1m 30s')).toBeInTheDocument();
+    expect(screen.getByText('in 90s')).toBeInTheDocument();
+    rerender(<Countdown ms={Date.now() + 5 * 60_000 + 7_000} />);
+    expect(screen.getByText('in 5m7s')).toBeInTheDocument();
   });
 
   it('reads now once due', () => {

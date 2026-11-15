@@ -20,7 +20,6 @@ import { Spinner } from '@kubetail/ui/elements/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@kubetail/ui/elements/table';
 import { ChevronDown, Database, Pause, Play, Power, PowerOff, Slash, Trash2 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { type Formatter } from 'react-timeago';
 import { useMutation } from 'urql';
 
 import { DataRateSparkline } from '@/components/cluster/data-rate-sparkline';
@@ -63,6 +62,7 @@ import {
 import { type AppDialogProps, useDialogHost } from '@/lib/dialog';
 import { perFrame, useWatchSubscription, watchPhase } from '@/lib/graphql/use-watch-subscription';
 import { EVENTS_GVR, gvrKey } from '@/lib/gvr';
+import { humanDuration, humanMinutes } from '@/lib/human-duration';
 
 const ClusterEnabledSetMutation = graphql(`
   mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {
@@ -368,26 +368,10 @@ function connectionDetail(c: Cluster): {
   };
 }
 
-const SECOND_MS = 1_000;
-const MINUTE_MS = 60 * SECOND_MS;
-const HOUR_MS = 60 * MINUTE_MS;
-
-// Coarse elapsed counter ("<1m" / "5m" / "3h") — minute-grained so it doesn't tick
-// per-second against the "Next check" countdown.
-const elapsedCoarseFormatter: Formatter = (_value, _unit, _suffix, epochMs) => {
-  const diff = Math.max(0, Date.now() - epochMs);
-  if (diff < MINUTE_MS) return '<1m';
-  if (diff < HOUR_MS) return `${Math.floor(diff / MINUTE_MS)}m`;
-  return `${Math.floor(diff / HOUR_MS)}h`;
-};
-
-// Run span, largest unit only; "Once" for a single probe.
+// Run span; "Once" for a single probe.
 function formatRunDuration(count: number, firstMs: number | null, lastMs: number | null): string {
   if (count <= 1 || firstMs === null || lastMs === null) return 'Once';
-  const diff = Math.max(0, lastMs - firstMs);
-  if (diff < MINUTE_MS) return `${Math.floor(diff / SECOND_MS)}s`;
-  if (diff < HOUR_MS) return `${Math.floor(diff / MINUTE_MS)}m`;
-  return `${Math.floor(diff / HOUR_MS)}h`;
+  return humanDuration(lastMs - firstMs);
 }
 
 // One diagnostics line. Non-null `ms` ticks live; null shows `fallback` or omits
@@ -397,13 +381,13 @@ function DetailRow({
   ms,
   prefix,
   fallback,
-  formatter,
+  format,
 }: {
   label: string;
   ms: number | null;
   prefix?: string;
   fallback?: ReactNode;
-  formatter?: Formatter;
+  format?: (ms: number) => string;
 }) {
   if (ms === null && fallback === undefined) return null;
   return (
@@ -413,7 +397,7 @@ function DetailRow({
         {ms !== null ? (
           <>
             {prefix}
-            <RelativeTime ms={ms} formatter={formatter} />
+            <RelativeTime ms={ms} format={format} />
           </>
         ) : (
           fallback
@@ -514,7 +498,7 @@ export function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; co
           label="Uptime"
           ms={detail.connected ? detail.stateSinceMs : null}
           fallback={detail.unconfirmed ? '—' : '0m'}
-          formatter={elapsedCoarseFormatter}
+          format={humanMinutes}
         />
         <div className="flex gap-2">
           <dt className="w-28 shrink-0">Next check</dt>
