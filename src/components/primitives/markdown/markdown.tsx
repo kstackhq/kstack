@@ -17,8 +17,8 @@
 // tag in it renders as the literal characters. `react-markdown` leaves raw HTML out
 // unless a rehype plugin puts it back — none is added.
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime';
-import { Fragment, useEffect, useState } from 'react';
-import type { ComponentProps } from 'react';
+import { Fragment, memo, useEffect, useMemo, useState } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import ReactMarkdown, { type ExtraProps } from 'react-markdown';
 import { jsx, jsxs } from 'react/jsx-runtime';
 import remarkGfm from 'remark-gfm';
@@ -49,29 +49,40 @@ function languageOf(className?: string): string | undefined {
   return className?.match(/(?:^|\s)language-(\S+)/)?.[1];
 }
 
+// `source` highlighted in `lang`, whose grammar must be loaded.
+function highlighted(lang: string, source: string): ReactNode {
+  // oxlint-disable-next-line typescript/no-unsafe-return -- tsgolint fails to resolve `toJsxRuntime`'s `JSX.Element`, which tsc reads
+  return toJsxRuntime(highlight(lang, source), { Fragment, jsx, jsxs });
+}
+
 // Inline code and the code inside a fence share the tag; the fence's `<pre>` is
 // what sets it apart, so the block styles ride there. A fence naming a language
 // is highlighted once its grammar has arrived, plain until then; one naming none
 // is never guessed at.
 function Code({ className, children, ...p }: ComponentProps<'code'>) {
   const lang = languageOf(className);
-  const [, arrived] = useState(0);
+  // The language whose grammar this fence has seen arrive. State, since the
+  // compiler caches a `loaded(lang)` read in render on `lang` and would miss the
+  // arrival.
+  const [arrived, setArrived] = useState(() => (lang !== undefined && loaded(lang) ? lang : undefined));
   useEffect(() => {
-    if (lang === undefined || loaded(lang)) return undefined;
+    if (lang === undefined) return undefined;
     let live = true;
     void load(lang).then((ok) => {
-      if (live && ok) arrived((n) => n + 1);
+      if (live && ok) setArrived(lang);
     });
     return () => {
       live = false;
     };
   }, [lang]);
 
-  let body = children;
-  if (lang !== undefined && typeof children === 'string' && loaded(lang)) {
-    // oxlint-disable-next-line typescript/no-unsafe-assignment -- tsgolint fails to resolve `toJsxRuntime`'s `JSX.Element`, which tsc reads
-    body = toJsxRuntime(highlight(lang, children), { Fragment, jsx, jsxs });
-  }
+  // Highlighted once per source: each frame of a streaming answer re-renders the
+  // fences it has finished.
+  const ready = lang !== undefined && arrived === lang;
+  const body = useMemo(
+    () => (ready && typeof children === 'string' ? highlighted(lang, children) : children),
+    [lang, children, ready],
+  );
   return (
     <code className={`rounded bg-muted px-1 py-0.5 font-mono text-xs ${className ?? ''}`} {...p}>
       {body}
@@ -169,10 +180,9 @@ const components = {
   td: (p: ComponentProps<'td'>) => <td className="border border-border px-2 py-1" {...p} />,
 };
 
-export function Markdown({ text }: MarkdownProps) {
-  return (
-    <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
-      {text}
-    </ReactMarkdown>
-  );
-}
+// Memoized by hand, so a text is parsed once however often its row renders.
+export const Markdown = memo(({ text }: MarkdownProps) => (
+  <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+    {text}
+  </ReactMarkdown>
+));

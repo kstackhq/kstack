@@ -17,8 +17,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Markdown } from './markdown';
 
+// The real GFM plugin and highlighter, under spies: the plugin runs once per
+// parse, and the highlighter notes each source it is given.
+const { highlighted, parses } = vi.hoisted(() => ({ highlighted: [] as string[], parses: { count: 0 } }));
+vi.mock('remark-gfm', async (importOriginal) => {
+  const real = (await importOriginal<typeof import('remark-gfm')>()).default;
+  return {
+    default: function gfm(this: ThisParameterType<typeof real>, ...args: Parameters<typeof real>) {
+      parses.count++;
+      return real.apply(this, args);
+    },
+  };
+});
+vi.mock('@/lib/highlight', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/highlight')>();
+  return {
+    ...real,
+    highlight: (lang: string, text: string) => {
+      highlighted.push(text);
+      return real.highlight(lang, text);
+    },
+  };
+});
+
 describe('Markdown', () => {
   beforeEach(() => {
+    highlighted.length = 0;
+    parses.count = 0;
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
   });
 
@@ -31,6 +56,12 @@ describe('Markdown', () => {
     expect(screen.getByRole('heading', { name: 'Pods' })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
     expect(screen.getByText('kubectl').tagName).toBe('CODE');
+  });
+
+  it('parses a text once however often it is drawn', () => {
+    const { rerender } = render(<Markdown text="the answer" />);
+    rerender(<Markdown text="the answer" />);
+    expect(parses.count).toBe(1);
   });
 
   it('renders every heading level at its own level', () => {
@@ -79,6 +110,17 @@ describe('Markdown', () => {
   it('highlights a fence that names a language once its grammar arrives', async () => {
     render(<Markdown text={'```yaml\nkind: Pod\n```'} />);
     await waitFor(() => expect(document.querySelector('pre .hljs-attr')).toHaveTextContent('kind'));
+  });
+
+  // A streaming answer grows past a fence it has finished.
+  it('highlights a fence the text grows past once in total', async () => {
+    const fence = '```yaml\nkind: Pod\n```';
+    const { rerender } = render(<Markdown text={fence} />);
+    await waitFor(() => expect(document.querySelector('pre .hljs-attr')).toHaveTextContent('kind'));
+
+    rerender(<Markdown text={`${fence}\n\nThe`} />);
+    rerender(<Markdown text={`${fence}\n\nThe pod`} />);
+    expect(highlighted.filter((t) => t === 'kind: Pod\n')).toHaveLength(1);
   });
 
   it('leaves a fence naming a language it has no grammar for plain', async () => {

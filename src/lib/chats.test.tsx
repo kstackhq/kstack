@@ -240,6 +240,25 @@ describe('useChatMessages', () => {
     expect(result.current.messages[0].content).toEqual([{ type: 'text', text: 'Hello' }]);
   });
 
+  // The transcript's memoized rows rely on it: a message the frame left alone
+  // keeps its object, so its row skips the render.
+  it('keeps every message a Modified left alone as the same object', () => {
+    const { result, rerender } = renderMessages();
+    pushMessages(
+      { type: 'Added', message: msg('m1', 1) },
+      { type: 'Added', message: msg('m2', 2) },
+      { type: 'Added', message: msg('m3', 3, { status: 'Streaming' }) },
+      { type: 'Bookmark', message: null },
+    );
+    rerender();
+    const [m1, m2] = result.current.messages;
+
+    pushMessages({ type: 'Modified', message: msg('m3', 3, { status: 'Streaming', content: [] }) });
+    rerender();
+    expect(result.current.messages[0]).toBe(m1);
+    expect(result.current.messages[1]).toBe(m2);
+  });
+
   // A tool-call change arrives as a Modified frame of its message, so the fold
   // needs nothing new: the selection is what brings the calls in.
   it("carries a message's tool calls off the frame", () => {

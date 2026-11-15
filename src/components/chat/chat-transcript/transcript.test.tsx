@@ -23,16 +23,27 @@ import { fakeLogWindows } from '@/test-utils';
 // The seams: urql's hooks, and the client a view's window reads through, which reads
 // nothing and says what it was asked. The outbox is the real one, since Ask again is its
 // operation, and so is the catalog the label reads.
-const { sendMock, catalog, fetched } = vi.hoisted(() => ({
+const { sendMock, catalog, fetched, markdownRenders } = vi.hoisted(() => ({
   sendMock: vi.fn(),
   catalog: { current: {} },
   fetched: [] as FetchQuery[],
+  markdownRenders: [] as string[],
 }));
 vi.mock('urql', () => ({
   useMutation: () => [{}, sendMock],
   useQuery: () => [catalog.current, vi.fn()],
   useClient: () => ({}),
 }));
+// The real Markdown, under a spy that notes the text of each render.
+vi.mock('@/components/primitives/markdown', async (importOriginal) => {
+  const { Markdown } = await importOriginal<typeof import('@/components/primitives/markdown')>();
+  return {
+    Markdown: ({ text }: { text: string }) => {
+      markdownRenders.push(text);
+      return <Markdown text={text} />;
+    },
+  };
+});
 vi.mock('@/lib/logs-client', () => ({
   createLogsClient: () => ({
     fetch: (query: FetchQuery) => {
@@ -71,6 +82,7 @@ const fake = {
 beforeEach(() => {
   vi.clearAllMocks();
   fetched.length = 0;
+  markdownRenders.length = 0;
   catalog.current = { fetching: false, data: { models: [fake, opus] } };
   sendMock.mockResolvedValue({ data: { chatSend: { id: 'm9', chatID: 'c1', seq: 9, status: 'Streaming' } } });
 });
@@ -313,6 +325,32 @@ describe('viewEnds', () => {
 });
 
 describe('ChatTranscript', () => {
+  describe('while an answer streams', () => {
+    const answer = (id: string, seq: number, text: string, over: Partial<ChatMessage> = {}) =>
+      msg({ id, seq, content: [{ type: 'text', text }], ...over });
+    const transcript = (messages: ChatMessage[]) =>
+      wrap(<ChatTranscript messages={messages} phase="live" mode="chat" chatID="c1" clusterID="1" />);
+
+    it('renders the streaming message alone on each frame', () => {
+      const finished = [answer('m1', 1, 'first'), answer('m2', 2, 'second')];
+      const { rerender } = render(transcript([...finished, answer('m3', 3, 'Hel', { status: 'Streaming' })]));
+      expect(markdownRenders).toEqual(['first', 'second', 'Hel']);
+
+      rerender(transcript([...finished, answer('m3', 3, 'Hello', { status: 'Streaming' })]));
+      expect(markdownRenders).toEqual(['first', 'second', 'Hel', 'Hello']);
+    });
+
+    // The rows' `ends` must not go stale.
+    it('ends an earlier view where a later message opens the next one', () => {
+      const first = answer('m1', 1, 'first', { toolCalls: [pinnedView('a', T1)] });
+      const { rerender } = render(transcript([first]));
+      expect(fetched).toEqual([{ kind: 'Last', limit: 8 }]);
+
+      rerender(transcript([first, answer('m2', 2, 'second', { toolCalls: [pinnedView('b', T2)] })]));
+      expect(fetched).toContainEqual({ kind: 'At', at: T2, limit: 8 });
+    });
+  });
+
   it('runs only the newest view live, and reads the older one up to the newer one’s moment', () => {
     draw([msg({ status: 'Complete', toolCalls: [pinnedView('a', T1), pinnedView('b', T2)] })]);
     expect(fetched).toEqual([

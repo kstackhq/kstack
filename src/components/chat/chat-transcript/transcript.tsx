@@ -24,7 +24,7 @@
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { ChevronRight } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation } from 'urql';
 
@@ -833,6 +833,16 @@ export function viewEnds(messages: ChatMessage[]): ViewEnds {
   return new Map(opened.map((call, i) => [call.id, opened[i + 1]?.action?.logsView?.resolvedAt ?? null]));
 }
 
+// `viewEnds`, as the same map for as long as its entries hold, so a frame of a
+// streaming answer hands every row the `ends` it already has.
+function useViewEnds(messages: ChatMessage[]): ViewEnds {
+  const next = viewEnds(messages);
+  const [ends, setEnds] = useState(next);
+  if (next.size === ends.size && [...next].every(([id, end]) => ends.get(id) === end)) return ends;
+  setEnds(next);
+  return next;
+}
+
 // An answer's calls split into its own and its subagents', which are drawn
 // inside their Agent call. A subagent's call awaiting approval is in neither: it
 // is the request.
@@ -1480,6 +1490,11 @@ function Message({
   );
 }
 
+// Memoized by hand, so the transcript's promise holds where the compiler bails
+// out: a frame of a streaming answer renders that answer's row alone. Every prop
+// `ChatTranscript` passes must therefore keep its identity from frame to frame.
+const MessageRow = memo(Message);
+
 // The question a failed answer followed, which Ask again sends afresh; null when
 // that message was notices alone, since then there is nothing to ask.
 function questionBefore(messages: ChatMessage[], index: number): string | null {
@@ -1534,7 +1549,7 @@ export function ChatTranscript({
   );
 
   const drawn = messages.filter(isDrawn);
-  const ends = viewEnds(messages);
+  const ends = useViewEnds(messages);
   // Labelled where the model changed, so a switch is visible where it happened and a
   // chat that stayed on one model — the first answer included — stays unlabelled.
   const rows: { message: (typeof drawn)[number]; label: string | undefined }[] = [];
@@ -1580,7 +1595,7 @@ export function ChatTranscript({
     body = <p className="text-sm text-muted-foreground">No messages yet.</p>;
   } else {
     body = rows.map(({ message, label }) => (
-      <Message
+      <MessageRow
         key={message.id}
         message={message}
         chatID={chatID}

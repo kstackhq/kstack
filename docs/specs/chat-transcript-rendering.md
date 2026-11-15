@@ -85,10 +85,10 @@ Tests:
 In `components/primitives/markdown/markdown.tsx`:
 
 - Wrap `Markdown` in `memo`. Its one prop is `text`.
-- Memoize `Code`'s highlighted body with `useMemo` on `[lang, children, ready]`, where
-  `ready = lang !== undefined && loaded(lang)`. `ready` is what turns a fence drawn plain into a
-  highlighted one when its grammar arrives, whether this fence or another loaded it. A memo on
-  `[lang, children]` alone passes `react/exhaustive-deps` and keeps the plain body forever.
+- Memoize `Code`'s highlighted body with `useMemo` on `[lang, children, ready]`. `ready` is what
+  turns a fence drawn plain into a highlighted one when its grammar arrives. It comes from state
+  the load sets, not from `loaded(lang)` read in render: the compiler caches that call on `lang`,
+  so a fence drawn before its grammar arrived would stay plain.
 
 Tests, in `markdown.test.tsx`:
 

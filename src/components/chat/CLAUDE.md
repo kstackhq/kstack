@@ -102,6 +102,7 @@ The security records of the tools whose requests this draws: [the bash tool](../
 - *Sources* and *Searched the web · N* draw under an answer as soon as seen — the queries left the machine.
 - A question is plain text, never markdown. The context it carried (cluster card, memory notes, workspace, view, sandbox) is not drawn.
 - The transcript follows a growing answer only within 32px of the end.
+- **While an answer streams, only its row renders.** `Message` is memoized by hand, so every prop `ChatTranscript` passes it must keep its identity across frames: the fold keeps an unchanged message's object, and `useViewEnds` keeps `ends` while its entries hold. `Markdown` is memoized on `text`, and a fence's highlight on its source.
 
 ## The chat list
 
