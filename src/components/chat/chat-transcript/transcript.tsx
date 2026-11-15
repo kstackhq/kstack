@@ -15,21 +15,21 @@
 // One chat's messages. Status is drawn from the row, text from the blocks: a
 // streaming, failed or cancelled answer is drawn even with nothing in it, because a
 // provider that refuses before its first chunk leaves an empty row whose error is
-// all there is to show. An answer's thinking summary is a
-// disclosure above its text, and the cluster card a question carries — what the
-// app told the model about the cluster on that turn — is one above the question.
-// An answer's tool calls are listed under its text off the row, and the one the
-// turn waits on is the approval request. A background command's end reaches the
+// all there is to show. An answer's work — its thinking summary and its settled
+// tool calls — is a disclosure above its text, and the cluster card a question
+// carries — what the app told the model about the cluster on that turn — is one
+// above the question. The calls the user looks at stay under the text, and the one
+// the turn waits on is the approval request. A background command's end reaches the
 // model as a notice on a user message, drawn as a muted line rather than a bubble.
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
+import { ChevronRight } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation } from 'urql';
 
 import { LogsReadCard, LogsViewCard, LogsWatchCard } from '@/components/chat/log-cards';
 import { ModelDescription } from '@/components/chat/model-description';
-import { AppLogo } from '@/components/primitives/app-logo';
 import { Markdown } from '@/components/primitives/markdown';
 import { VisibleText } from '@/components/primitives/visible-text';
 import { FolderGrantForm } from '@/components/settings/folder-grant-form';
@@ -55,10 +55,13 @@ import {
 import type { ChatClusterWrite, ChatMessage, ChatToolCall, Source, TaskNotice, TaskNoticeOf } from '@/lib/chats';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useHeldStill } from '@/lib/held-still';
+import { humanDuration } from '@/lib/human-duration';
+import { SMALL_ICON_STROKE } from '@/lib/icon-button-style';
 import { modelOf, useModels } from '@/lib/models';
 import { cutText, descriptionLine } from '@/lib/visible-text';
 
 import { DiffBlock } from './diff-block';
+import { TurnActions } from './turn-actions';
 
 // How close to the end still counts as reading the end. Fixed, not a fraction of the
 // viewport: a threshold that grows with the window yanks a reader back mid-paragraph.
@@ -102,6 +105,21 @@ type ChatTranscriptProps = {
   networkEnabled?: boolean;
   /** One of the chat's switches is in flight, which Ask again waits for. */
   switching?: boolean;
+  /** Held at the bottom of the visible part as the messages scroll under it: the composer. */
+  footer?: ReactNode;
+};
+
+// Chat mode's page pads the column from the window and centres the messages and the
+// composer in the main panel, each at its own width; the dashboard's sidebar is narrow
+// enough to fill. The footer's backdrop is the surface behind it, so messages
+// scrolling under it stay hidden.
+const COLUMN: Record<AppMode, string> = {
+  chat: 'px-2 pt-6',
+  dashboard: '',
+};
+const FOOTER: Record<AppMode, string> = {
+  chat: 'mx-auto w-full max-w-162 bg-background pb-2',
+  dashboard: 'bg-card',
 };
 
 // Every message with something to say about itself: its text, the notices it
@@ -112,26 +130,61 @@ function isDrawn(message: ChatMessage): boolean {
   return textOf(message.content) !== '' || message.finishReason !== '' || noticesOf(message.content).length > 0;
 }
 
-// The summary of an answer's thinking. Untouched, it is open while the answer is
-// still all thinking — the pause it exists to fill — and closed once text arrives. A
-// click pins the reader's choice for as long as the message stays mounted.
-function Thinking({ summary, stillThinking }: { summary: string; stillThinking: boolean }) {
+// A disclosure's summary row: no native marker, lifted from muted by hover or focus.
+const SUMMARY =
+  'flex list-none items-center select-none hover:text-foreground focus-visible:text-foreground [&::-webkit-details-marker]:hidden';
+
+// A disclosure's caret, last in its summary: it points down while its `<details>` is open.
+function Caret() {
+  return (
+    <ChevronRight
+      aria-hidden="true"
+      className="size-3 shrink-0 [details[open]>summary>&]:rotate-90"
+      strokeWidth={SMALL_ICON_STROKE}
+    />
+  );
+}
+
+// An answer's work: its thinking summary and the calls it made, under a line
+// naming how long the turn worked (*Thinking* until it settles). Untouched, it is
+// open while the answer is still all work — the pause it exists to fill — and
+// closed once text arrives. A click pins the reader's choice for as long as the
+// message stays mounted.
+function Work({
+  summary,
+  calls,
+  stillThinking,
+  createdAt,
+  finishedAt,
+}: {
+  summary: string;
+  calls: ReactNode;
+  stillThinking: boolean;
+  createdAt: string;
+  finishedAt: string | null;
+}) {
   const [pinned, setPinned] = useState<boolean>();
   const open = pinned ?? stillThinking;
   return (
-    <details open={open} className="mb-2">
+    <details open={open} className="mb-3">
       <summary
-        className="text-xs text-muted-foreground select-none"
+        className={`${SUMMARY} gap-1 border-b border-border/60 pb-2 text-xs text-muted-foreground/70`}
         onClick={(e) => {
           // The attribute is React's: the click sets the pin, never the DOM.
           e.preventDefault();
           setPinned(!open);
         }}
       >
-        Thinking
+        {finishedAt ? (
+          `Worked for ${humanDuration(Date.parse(finishedAt) - Date.parse(createdAt))}`
+        ) : (
+          <span className="animate-shimmer text-shimmer motion-reduce:animate-none">Thinking</span>
+        )}
+        <Caret />
       </summary>
-      <div className="mt-1 border-l-2 border-muted pl-3 text-xs text-muted-foreground">
-        <Markdown text={summary} />
+      <div className="mt-2 flex flex-col gap-2">
+        {summary !== '' && <Markdown text={summary} />}
+        {calls}
       </div>
     </details>
   );
@@ -202,19 +255,13 @@ function Searches({ count, queries }: { count: number; queries: string[] }) {
   );
 }
 
-// The tag beside a call's summary, off its status alone. A failed call's first
-// line is the sidecar's own — its exit code, or the timeout, which carries the
-// duration — and the command's output starts on the next, so the tag reads that
-// line alone and infers nothing else.
+// The tag beside a call's row, off its status alone. It speaks only when something
+// went wrong or is still going: a failure reads "error", and the output says which.
 function toolCallTag(call: ChatToolCall): string {
   if (call.background) return backgroundTag(call.background);
   switch (call.status) {
-    case 'Failed': {
-      const [first] = call.output.split('\n', 1);
-      if (first.startsWith('Exit code ')) return `exit ${first.slice('Exit code '.length)}`;
-      if (first.startsWith('Command timed out')) return 'timed out';
-      return 'failed';
-    }
+    case 'Failed':
+      return 'error';
     case 'Denied':
       return 'denied';
     case 'NotRun':
@@ -237,19 +284,18 @@ function backgroundTag(task: NonNullable<ChatToolCall['background']>): string {
     case 'Running':
       return 'running in background';
     case 'Exited':
-      return task.exitCode === null ? 'exited' : `exit ${task.exitCode}`;
-    case 'Completed':
-      return 'completed';
+      return task.exitCode === 0 ? '' : 'error';
     case 'Failed':
-      return 'failed';
-    case 'Matched':
-      return 'matched';
+      return 'error';
     case 'Expired':
       return 'expired';
     case 'Stopped':
       return 'stopped';
     case 'Lost':
       return 'lost';
+    case 'Completed':
+    case 'Matched':
+      return '';
   }
 }
 
@@ -303,23 +349,30 @@ function GrantOffer({ chatID }: { chatID: string }) {
   );
 }
 
-// The one reader of a call's summary: the command its action runs, the path it
-// reads or writes, the query it searched, else its kind, else the tool's name.
-// The sidecar reads the action off the arguments, so nothing here parses them.
-function summaryOf(call: ChatToolCall): string {
-  const write = writeOf(call.action);
-  if (call.action?.command) return call.action.command.text;
-  if (call.action?.read) return `Read ${call.action.read.path}`;
-  if (write) return `Write ${write.path}`;
-  if (call.action?.edit) return `Edit ${call.action.edit.path}`;
-  if (call.action?.search) return call.action.search.query === '' ? 'Search' : `Search ${call.action.search.query}`;
-  if (call.action?.fetch) return `Fetch ${call.action.fetch.url}`;
-  if (call.action?.memory) return `${MEMORY_OPS[call.action.memory.op] ?? 'Memory'} ${call.action.memory.name}`;
+// A call's kind, what the row leads with: the app's words, or for a call its tool
+// could not show the tool's name, which is the model's.
+function kindOf(call: ChatToolCall): string {
+  if (call.action?.memory) return MEMORY_OPS[call.action.memory.op] ?? 'Memory';
   if (call.actionKind) return actionKindLabel(call.actionKind);
   return call.name;
 }
 
-// A memory call's summary, by its op.
+// The one reader of what a call acts on: the command it runs, the path it reads
+// or writes, the query it searched, the page or the memory; '' for none. The
+// sidecar reads the action off the arguments, so nothing here parses them.
+function targetOf(call: ChatToolCall): string {
+  const write = writeOf(call.action);
+  if (call.action?.command) return call.action.command.text;
+  if (call.action?.read) return call.action.read.path;
+  if (write) return write.path;
+  if (call.action?.edit) return call.action.edit.path;
+  if (call.action?.search) return call.action.search.query;
+  if (call.action?.fetch) return call.action.fetch.url;
+  if (call.action?.memory) return call.action.memory.name;
+  return '';
+}
+
+// A memory call's kind, by its op.
 const MEMORY_OPS: Record<string, string> = { save: 'Save memory', forget: 'Forget memory' };
 
 // What a save kept, on the page where it was kept, as text, since the model may
@@ -494,11 +547,37 @@ function edgesOf(text: string): string {
   return 'No newline at either end.';
 }
 
-// The calls that are not on the user: one closed disclosure each, the summary
-// with the model's description under it, and what the model read as its body,
-// all text. The summary is spelled like the approval request, so an override in
-// it cannot reorder the tag, and carries no title, since a native tooltip would
-// draw it raw. A call its tool could not show reads as its tool's name.
+// A write that ran unasked is one in the chat's workspace or a folder granted
+// read-write: what it wrote is drawn open, since a later command may run it.
+function drawnOpen(call: ChatToolCall): boolean {
+  return (
+    call.approval === null &&
+    call.status === 'Succeeded' &&
+    (writeOf(call.action) !== null || call.action?.edit != null)
+  );
+}
+
+// Whether a call is drawn under the answer rather than folded into its work: a
+// log card the user looks at, a task the user may stop, an unasked change the
+// user should see, and a failure that offers a grant.
+function standsOut(call: ChatToolCall): boolean {
+  const a = call.action;
+  return (
+    a?.logsView != null ||
+    a?.logsRead != null ||
+    a?.logsWatch != null ||
+    call.background?.status === 'Running' ||
+    drawnOpen(call) ||
+    grantOffered(call)
+  );
+}
+
+// The calls that are not on the user: one closed disclosure each. The row is the
+// call's kind, then the model's description, or with none what the call acts on;
+// the body is what it ran and what the model read, all text. The row is spelled
+// like the approval request, so an override in it cannot reorder the tag, and
+// carries no title, since a native tooltip would draw it raw. A call its tool
+// could not show reads as its tool's name.
 function ToolCalls({
   calls,
   byAgent,
@@ -517,7 +596,7 @@ function ToolCalls({
   ends: ViewEnds;
 }) {
   return (
-    <div className="mt-1 text-xs text-muted-foreground">
+    <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
       {calls.map((call) => {
         // A view that opened is a card, not a disclosure: the user looks at it.
         if (call.action?.logsView) {
@@ -562,73 +641,100 @@ function ToolCalls({
             </Fragment>
           );
         }
-        const summary = summaryOf(call);
+        const kind = kindOf(call);
+        const target = targetOf(call);
         const line = descriptionLine(call.action?.description ?? '');
-        const cwd = call.action?.command?.cwd ?? '';
-        const sandboxed = call.action?.command?.sandboxed ?? false;
-        let confined: string | undefined;
-        if (sandboxed) confined = call.network ? ', sandboxed, with network' : ', sandboxed';
+        const command = call.action?.command ?? null;
+        let where = '';
+        if (command?.sandboxed) where = call.network ? ' · sandboxed, with network' : ' · sandboxed';
         const written = writeOf(call.action);
         const edit = call.action?.edit ?? null;
         const delegate = call.action?.delegate ?? null;
         const tag = toolCallTag(call);
-        // A write that ran unasked is one in the chat's workspace or a folder
-        // granted read-write: what it wrote is drawn open, since a later command
-        // may run it.
-        const open = call.approval === null && call.status === 'Succeeded';
+        const open = drawnOpen(call);
         const changed = (
           <>
             {written && (
               <FoldedBlock
                 text={written.content}
-                className="mt-1 border-l-2 border-muted pl-3 font-mono break-all whitespace-pre-wrap"
+                className="border-l-2 border-muted pl-3 font-mono break-all whitespace-pre-wrap"
                 file
               />
             )}
             {edit && <EditStrings edit={edit} />}
           </>
         );
+        // The row draws the description in the target's place, so the body draws the target.
+        const targetInBody = line !== '' && target !== '';
         return (
           <Fragment key={call.id}>
             <details>
-              <summary className="select-none">
-                <span className="font-mono break-all">
-                  <VisibleText text={summary} />
+              <summary className={`${SUMMARY} gap-2`}>
+                <span className="shrink-0 font-medium">
+                  <VisibleText text={kind} />
                 </span>
-                {call.action?.memory?.scope === 'everywhere' && (
-                  <span className="ml-2 opacity-70">for every cluster</span>
+                {line !== '' ? (
+                  <span className="max-w-110 min-w-0">
+                    <ModelDescription line={line} quoted={false} />
+                  </span>
+                ) : (
+                  target !== '' && (
+                    <span className="min-w-0 font-mono break-all">
+                      <VisibleText text={target} />
+                    </span>
+                  )
                 )}
-                {tag !== '' && <span className="ml-2 opacity-70">{tag}</span>}
-                {line !== '' && <ModelDescription line={line} />}
+                {call.action?.memory?.scope === 'everywhere' && (
+                  <span className="shrink-0 opacity-70">for every cluster</span>
+                )}
+                {tag !== '' && (
+                  <span className={tag === 'error' ? 'shrink-0 text-destructive' : 'shrink-0 opacity-70'}>{tag}</span>
+                )}
+                <Caret />
               </summary>
-              {cwd !== '' && <LabelledLine label="in" text={cwd} after={confined} />}
-              {!open && changed}
-              {call.action?.kubeQuery && (
-                <FoldedBlock
-                  text={call.action.kubeQuery.sql}
-                  className="mt-1 border-l-2 border-muted pl-3 font-mono break-all whitespace-pre-wrap"
-                />
-              )}
-              {call.action?.memory?.op === 'save' && call.status === 'Succeeded' && (
-                <MemoryKept body={call.action.memory.body} />
-              )}
-              {delegate ? (
-                <AgentBody
-                  delegate={delegate}
-                  calls={byAgent.get(call.id) ?? NO_CALLS}
-                  report={call.background?.report ?? ''}
-                  modelLabel={modelLabel}
-                  chatID={chatID}
-                  clusterID={clusterID}
-                  mode={mode}
-                  ends={ends}
-                />
-              ) : (
-                <pre className="mt-1 border-l-2 border-muted pl-3 font-mono break-all whitespace-pre-wrap">
-                  {call.output}
-                </pre>
-              )}
-              <ClusterWriteLines call={call} />
+              <div className="flex flex-col gap-1.5 py-2">
+                {!open && changed}
+                {call.action?.kubeQuery && (
+                  <FoldedBlock
+                    text={call.action.kubeQuery.sql}
+                    className="border-l-2 border-muted pl-3 font-mono break-all whitespace-pre-wrap"
+                  />
+                )}
+                {call.action?.memory?.op === 'save' && call.status === 'Succeeded' && (
+                  <MemoryKept body={call.action.memory.body} />
+                )}
+                {delegate ? (
+                  <AgentBody
+                    delegate={delegate}
+                    calls={byAgent.get(call.id) ?? NO_CALLS}
+                    report={call.background?.report ?? ''}
+                    modelLabel={modelLabel}
+                    chatID={chatID}
+                    clusterID={clusterID}
+                    mode={mode}
+                    ends={ends}
+                  />
+                ) : (
+                  (targetInBody || call.output !== '') && (
+                    <div className="flex flex-col gap-1.5 rounded-md bg-muted/60 px-3 py-2.5 font-mono leading-4.5">
+                      {targetInBody && (
+                        <p className="break-all text-foreground">
+                          {command && '$ '}
+                          <VisibleText text={target} />
+                        </p>
+                      )}
+                      {call.output !== '' && <pre className="break-all whitespace-pre-wrap">{call.output}</pre>}
+                    </div>
+                  )
+                )}
+                {command && command.cwd !== '' && (
+                  <p className="text-muted-foreground/70">
+                    Ran in <VisibleText text={command.cwd} />
+                    {where}
+                  </p>
+                )}
+                <ClusterWriteLines call={call} />
+              </div>
             </details>
             {open && changed}
             {call.background?.status === 'Running' && <StopTask id={call.id} />}
@@ -649,7 +755,7 @@ function ClusterWriteLines({ call }: { call: ChatToolCall }) {
   const settled = call.clusterWrites.filter((w) => !isWaitingWrite(call, w));
   if (settled.length === 0) return null;
   return (
-    <ul className="mt-1 border-l-2 border-muted pl-3">
+    <ul className="border-l-2 border-muted pl-3">
       {settled.map((w) => (
         <li key={w.approval.id}>
           <span className="font-mono break-all">
@@ -1267,6 +1373,7 @@ function Message({
   ends,
   label,
   labelOf,
+  last,
   onAskAgain,
   approveArmMs,
   sandboxAvailable,
@@ -1283,6 +1390,8 @@ function Message({
   label?: string;
   /** How a model is named, by its provider and id. */
   labelOf: (providerID: string | undefined, id: string) => string;
+  /** The transcript's last row, whose answer always shows its actions. */
+  last: boolean;
   /** Present on a failed last answer alone; disabled while anything else is in flight. */
   onAskAgain?: () => void;
 }) {
@@ -1295,12 +1404,25 @@ function Message({
   // A search that ran is drawn by its query alone, under Searched the web; every
   // other call is a disclosure, the provider's included, since it left the machine.
   const done = own.filter((call) => !ranSearch(call) && call.status !== 'AwaitingApproval');
+  const worked = done.filter((call) => !standsOut(call));
+  const shown = done.filter(standsOut);
   const waiting = waitingRequestsOf(message.toolCalls);
   const agentOf = (call: ChatToolCall) =>
     call.agentCallID === null
       ? null
       : descriptionLine(message.toolCalls.find((c) => c.id === call.agentCallID)?.action?.description ?? '');
   const modelLabel = (id: string) => labelOf(message.provider?.id, id);
+  const toolCallsOf = (calls: ChatToolCall[]) => (
+    <ToolCalls
+      calls={calls}
+      byAgent={byAgent}
+      modelLabel={modelLabel}
+      chatID={chatID}
+      clusterID={clusterID}
+      mode={mode}
+      ends={ends}
+    />
+  );
   const mine = message.role === 'User';
   // A message of notices alone is its lines and nothing else: there is no bubble.
   // Its context, when the sandbox switch moved, is drawn above them.
@@ -1313,24 +1435,27 @@ function Message({
     );
   }
   return (
-    <article className={mine ? 'flex flex-col items-end gap-1' : 'flex flex-col items-start gap-1'}>
+    <article
+      className={mine ? 'group/turn flex flex-col items-end gap-1' : 'group/turn flex flex-col items-start gap-1'}
+    >
       {mine && notices.length > 0 && <Notices notices={notices} />}
-      {!mine && (
-        <div className="px-1">
-          <AppLogo />
-        </div>
-      )}
       {label && <p className="px-1 text-xs text-muted-foreground">{label}</p>}
       <div
         className={
           mine
             ? 'max-w-[80%] rounded-lg bg-muted px-3 py-2 text-sm whitespace-pre-wrap'
-            : 'max-w-[80%] px-1 py-2 text-sm'
+            : 'w-full px-1 pt-2 text-sm *:last:mb-0'
         }
       >
         {mine && card !== '' && <ClusterContext card={card} />}
-        {!mine && message.thinking !== '' && (
-          <Thinking summary={message.thinking} stillThinking={inFlight(message.status) && text === ''} />
+        {!mine && (message.thinking !== '' || worked.length > 0) && (
+          <Work
+            summary={message.thinking}
+            calls={worked.length > 0 && toolCallsOf(worked)}
+            stillThinking={inFlight(message.status) && text === ''}
+            createdAt={message.createdAt}
+            finishedAt={message.finishedAt}
+          />
         )}
         {mine ? text : <Markdown text={text} />}
         {inFlight(message.status) && (
@@ -1338,17 +1463,7 @@ function Message({
             <Spinner size="sm" />
           </span>
         )}
-        {done.length > 0 && (
-          <ToolCalls
-            calls={done}
-            byAgent={byAgent}
-            modelLabel={modelLabel}
-            chatID={chatID}
-            clusterID={clusterID}
-            mode={mode}
-            ends={ends}
-          />
-        )}
+        {shown.length > 0 && <div className="mt-1">{toolCallsOf(shown)}</div>}
         {waiting.map(({ call, approval, change }) => (
           // Keyed on the approval, never the call or the message, so a decided
           // request's pressed state never reaches the next. Live while a run of
@@ -1375,6 +1490,7 @@ function Message({
           <p className="mt-1 text-xs text-destructive">{message.error || 'The answer failed.'}</p>
         )}
       </div>
+      <TurnActions mine={mine} text={text} createdAt={message.createdAt} last={last} />
       {onAskAgain && (
         <Button type="button" variant="outline" size="xs" onClick={onAskAgain}>
           Ask again
@@ -1408,6 +1524,7 @@ export function ChatTranscript({
   sandboxDisabled,
   networkEnabled,
   switching = false,
+  footer,
 }: ChatTranscriptProps) {
   const { models } = useModels();
   const { send, askAgain } = useChatOutbox(mode, chatID, clusterID);
@@ -1492,6 +1609,7 @@ export function ChatTranscript({
         ends={ends}
         label={label}
         labelOf={labelOf}
+        last={message.id === last?.id}
         onAskAgain={message.id === last?.id ? onAskAgain : undefined}
         approveArmMs={approveArmMs}
         sandboxAvailable={sandboxAvailable}
@@ -1499,14 +1617,19 @@ export function ChatTranscript({
     ));
   }
 
+  // The scroller is the whole pane, so its bar sits at the pane's edge.
   return (
     <div
       ref={scroller}
       onScroll={onScroll}
       data-testid="chat-transcript"
-      className="flex flex-1 flex-col gap-3 overflow-y-auto p-4"
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto"
     >
-      {body}
+      <div className={`flex w-full grow flex-col ${COLUMN[mode]}`}>
+        {/* Capped, so the answer keeps a readable line length. */}
+        <div className="mx-auto flex w-full max-w-163.5 grow flex-col gap-3 p-4">{body}</div>
+        {footer && <div className={`sticky bottom-0 ${FOOTER[mode]}`}>{footer}</div>}
+      </div>
     </div>
   );
 }

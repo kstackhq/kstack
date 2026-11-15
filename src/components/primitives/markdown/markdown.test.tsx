@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Markdown } from './markdown';
@@ -114,20 +114,11 @@ describe('Markdown', () => {
     expect(screen.queryByRole('button', { name: 'Copy code' })).toBeNull();
   });
 
-  it('shows the check for 1.5 seconds after the latest click', () => {
-    vi.useFakeTimers();
-    const advance = (ms: number) =>
-      act(() => {
-        vi.advanceTimersByTime(ms);
-      });
-    render(<Markdown text={'```\nkubectl get pods\n```'} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
-    advance(1000);
-    fireEvent.click(screen.getByRole('button', { name: 'Copied' }));
-    advance(1000);
-    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
-    advance(500);
-    expect(screen.getByRole('button', { name: 'Copy code' })).toBeInTheDocument();
+  it('labels a fence with its language, and one naming none with nothing', () => {
+    const { container } = render(<Markdown text={'```yaml\nkind: Pod\n```\n\n```\nplain\n```'} />);
+    const [named, bare] = container.querySelectorAll('.group\\/code');
+    expect(named.querySelector('p')).toHaveTextContent('yaml');
+    expect(bare.querySelector('p')).toBeNull();
   });
 
   it('renders an unterminated fence mid-stream as a code block', () => {

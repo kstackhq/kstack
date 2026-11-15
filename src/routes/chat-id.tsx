@@ -15,7 +15,6 @@
 // One chat on a page of its own.
 import { createRoute, useNavigate } from '@tanstack/react-router';
 
-import { CenteredColumn } from '@/components/chat/centered-column';
 import { ChatPane } from '@/components/chat/chat-pane';
 import { Route as appRoute } from '@/routes/_app';
 
@@ -29,9 +28,5 @@ function ChatById() {
   const { chatId } = Route.useParams();
   const navigate = useNavigate();
 
-  return (
-    <CenteredColumn>
-      <ChatPane chatID={chatId} mode="chat" onGone={() => navigate({ to: '/chat' })} />
-    </CenteredColumn>
-  );
+  return <ChatPane chatID={chatId} mode="chat" onGone={() => navigate({ to: '/chat' })} />;
 }

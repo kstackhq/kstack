@@ -17,7 +17,6 @@
 // tag in it renders as the literal characters. `react-markdown` leaves raw HTML out
 // unless a rehype plugin puts it back — none is added.
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime';
-import { Check, Copy } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import type { ComponentProps } from 'react';
 import ReactMarkdown, { type ExtraProps } from 'react-markdown';
@@ -25,7 +24,8 @@ import { jsx, jsxs } from 'react/jsx-runtime';
 import remarkGfm from 'remark-gfm';
 
 import './markdown.css';
-import { copyToClipboard } from '@/lib/clipboard';
+import { CopyButton } from '@/components/primitives/copy-button';
+import { VisibleText } from '@/components/primitives/visible-text';
 import { highlight, load, loaded } from '@/lib/highlight';
 
 type MarkdownProps = {
@@ -33,9 +33,6 @@ type MarkdownProps = {
 };
 
 const remarkPlugins = [remarkGfm];
-
-// How long a fence's copy button shows the check after a click.
-const COPIED_FOR_MS = 1_500;
 
 // A link is drawn but never followed: the webview has no window to open a page in,
 // and the only URLs the host opens are ones it names itself.
@@ -92,35 +89,31 @@ function fenceSource(pre: Element): string {
   return (code.children[0] as Text).value;
 }
 
-// A fence, with a button that copies its source. The check stays `COPIED_FOR_MS`
-// after the latest click; the count re-arms the timer on every one.
+// A fence's language, off the class on its `<code>`.
+function fenceLanguage(pre: Element): string | undefined {
+  const classes = (pre.children[0] as Element).properties.className;
+  return Array.isArray(classes) ? languageOf(classes.join(' ')) : undefined;
+}
+
+// A fence: its language over its code, and a copy button over the top right
+// corner that hover or focus reveals, taking no room.
 function CodeBlock({ node, children, ...p }: ComponentProps<'pre'> & ExtraProps) {
-  const [copies, setCopies] = useState(0);
-  useEffect(() => {
-    if (copies === 0) return undefined;
-    const timer = setTimeout(() => setCopies(0), COPIED_FOR_MS);
-    return () => clearTimeout(timer);
-  }, [copies]);
-
-  const copy = () => {
-    copyToClipboard(fenceSource(node!));
-    setCopies((n) => n + 1);
-  };
-  const copied = copies > 0;
-
+  const lang = fenceLanguage(node!);
   return (
-    <div className="group/code relative my-2 rounded-md bg-muted">
-      <button
-        type="button"
-        aria-label={copied ? 'Copied' : 'Copy code'}
-        className="absolute top-2 right-2 rounded border border-border bg-background/90 p-1.5 text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover/code:opacity-100 group-focus-within/code:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={copy}
-      >
-        {copied ? <Check aria-hidden="true" className="size-3.5" /> : <Copy aria-hidden="true" className="size-3.5" />}
-      </button>
-      <pre className="overflow-x-auto py-3 pr-12 pl-3 text-xs [&>code]:bg-transparent [&>code]:p-0" {...p}>
+    <div className="group/code relative my-2 flex flex-col gap-2 rounded-md border border-border bg-background p-3">
+      {lang !== undefined && (
+        <p className="text-xs leading-[normal] text-muted-foreground/70">
+          <VisibleText text={lang} />
+        </p>
+      )}
+      <pre className="overflow-x-auto [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-[13px]/5" {...p}>
         {children}
       </pre>
+      <CopyButton
+        text={fenceSource(node!)}
+        label="Copy code"
+        className="absolute top-[3px] right-[3px] opacity-0 group-focus-within/code:opacity-100 group-hover/code:opacity-100"
+      />
     </div>
   );
 }

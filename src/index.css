@@ -114,6 +114,18 @@
   --animate-memory-save-pulse: memory-save-pulse 1.4s ease-out both;
   --animate-memory-save-fade: memory-save-fade 1.4s ease-out both;
 
+  /* A thinking answer's *Thinking* label: a band of foreground sweeping across `text-shimmer`. */
+  --animate-shimmer: shimmer 2s linear infinite;
+
+  @keyframes shimmer {
+    from {
+      background-position: 100% 0;
+    }
+    to {
+      background-position: -100% 0;
+    }
+  }
+
   @keyframes memory-save-pulse {
     0% {
       clip-path: inset(100% 0 0 0);
@@ -297,4 +309,18 @@ html.frameless.frame-maximized [data-slot='dialog-overlay'] {
     display: none;
   }
   scrollbar-width: none;
+}
+
+/* Muted text with a band of foreground in it, swept by `animate-shimmer`. Reduced motion
+   leaves the band still, so the text stays readable. */
+@utility text-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--muted-foreground) 40%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 60%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  color: transparent;
 }

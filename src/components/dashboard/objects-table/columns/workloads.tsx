@@ -16,6 +16,7 @@
 // kinds whose objects converge on a desired count.
 import { useEffect, useState } from 'react';
 
+import { humanDuration } from '@/lib/human-duration';
 import { ownerOf } from '@/lib/object-owner';
 
 import {
@@ -23,7 +24,6 @@ import {
   conditionStatus,
   countColumn,
   durationColumn,
-  humanDuration,
   kind,
   labelsText,
   listColumn,

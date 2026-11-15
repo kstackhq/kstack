@@ -52,6 +52,8 @@ const ChatMessagesWatchSubscription = graphql(`
         chatID
         seq
         role
+        createdAt
+        finishedAt
         content
         thinking
         status

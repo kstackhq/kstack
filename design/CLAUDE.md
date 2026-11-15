@@ -130,6 +130,11 @@ Screens are drawn for macOS. Each macOS screen frame draws the window's edge tha
 - **A component whose content differs per instance holds it in a slot named `Content`.**
 - Colors are bound to variables, as everywhere else.
 
+## Width
+
+- **A screen's widths are auto-layout constraints, never fixed sizes.** A gutter is the parent's horizontal padding (`px-2` is 8px); a cap is the child's max width on Fill container (`max-w-162` is 648px). Resizing the screen frame shows how the layout responds.
+- **The chat screens draw both rules.** On an open chat, the column fills `main` with an 8px gutter, and the transcript (654px) and composer (648px) each fill it up to their cap. On a new chat, `CenteredColumn` fills up to 664px with the same gutter.
+
 ## Translucent colors
 
 Each Tailwind form has one Figma encoding:

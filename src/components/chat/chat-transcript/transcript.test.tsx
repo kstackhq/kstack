@@ -142,6 +142,8 @@ function msg(over: Partial<ChatMessage> = {}): ChatMessage {
     chatID: 'c1',
     seq: 1,
     role: 'Assistant',
+    createdAt: '2026-11-15T10:00:00Z',
+    finishedAt: null,
     content: [{ type: 'text', text: 'the answer' }],
     thinking: '',
     status: 'Complete',
@@ -333,7 +335,7 @@ describe('ChatTranscript', () => {
     expect(screen.getByText(/Logs: Deployment webapp in prod/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument();
     expect(screen.getByText('Logs')).toBeInTheDocument();
-    expect(screen.getByText('failed')).toBeInTheDocument();
+    expect(screen.getByText('error')).toBeInTheDocument();
   });
 
   it('draws a LogsRead call that read as its card, and one refused as Read logs', () => {
@@ -724,24 +726,74 @@ describe('ChatTranscript', () => {
     });
   });
 
-  describe('the thinking disclosure', () => {
+  describe('the work disclosure', () => {
     // The disclosure is a <details>; its open attribute is the state under test.
-    const disclosure = () => screen.getByText('Thinking').closest('details')!;
+    const label = () => screen.getByText(/^(Thinking|Worked for .*)$/);
+    const disclosure = () => label().closest('details')!;
     const redraw = (rerender: (ui: ReactNode) => void, messages: ChatMessage[]) =>
       rerender(wrap(<ChatTranscript messages={messages} phase="live" mode="chat" chatID="c1" clusterID="1" />));
     const thinkingOnly = (over: Partial<ChatMessage> = {}) =>
       msg({ status: 'Streaming', content: [], thinking: 'the pod question', ...over });
     const withText = (over: Partial<ChatMessage> = {}) =>
       msg({ status: 'Streaming', content: [{ type: 'text', text: 'A pod' }], thinking: 'the pod question', ...over });
+    // 14 seconds after `msg`'s createdAt.
+    const FINISHED = '2026-11-15T10:00:14Z';
+    const settled = (over: Partial<ChatMessage> = {}) =>
+      msg({ thinking: 'the pod question', finishedAt: FINISHED, ...over });
 
-    it('is absent on an answer with no summary', () => {
-      draw([msg()]);
-      expect(screen.queryByText('Thinking')).toBeNull();
+    it('is absent on an answer with no summary and no calls', () => {
+      draw([msg({ finishedAt: FINISHED })]);
+      expect(screen.queryByText(/^(Thinking|Worked for .*)$/)).toBeNull();
+    });
+
+    // The calls an answer made are its work: they fold away with the summary, and
+    // draw the disclosure on an answer with no summary.
+    it('holds the calls, with or without a summary', () => {
+      const { rerender } = draw([msg({ finishedAt: FINISHED, toolCalls: [decided({ status: 'Succeeded' })] })]);
+      expect(label()).toHaveTextContent('Worked for 14s');
+      expect(disclosure()).toContainElement(screen.getByText('wc -l ~/.kube/config'));
+
+      redraw(rerender, [settled({ toolCalls: [decided({ status: 'Succeeded' })] })]);
+      expect(disclosure()).toHaveTextContent('the pod question');
+      expect(disclosure()).toContainElement(screen.getByText('wc -l ~/.kube/config'));
+    });
+
+    // A card the user looks at, a task the user may stop and a failure that offers
+    // a grant stay under the answer, outside the fold.
+    it('leaves a log card, a running task and a grant offer outside', () => {
+      const running = decided({ id: 'bg', status: 'Succeeded' });
+      running.action!.command!.text = 'make serve';
+      running.background = {
+        status: 'Running',
+        exitCode: null,
+        report: '',
+        matched: [],
+        endedBecause: '',
+        viewAround: null,
+      };
+      const failed = decided({ id: 'sb', status: 'Failed', output: 'Exit code 1\n' });
+      failed.action!.command!.text = 'cat /secret';
+      failed.action!.command!.sandboxed = true;
+      draw([settled({ toolCalls: [logsViewCall(), running, failed, decided({ id: 'in', status: 'Succeeded' })] })]);
+      expect(disclosure()).toContainElement(screen.getByText('wc -l ~/.kube/config'));
+      expect(disclosure()).not.toContainElement(screen.getByText(/Logs: Deployment webapp in prod/));
+      expect(disclosure()).not.toContainElement(screen.getByText('make serve'));
+      expect(disclosure()).not.toContainElement(screen.getByRole('button', { name: 'Stop' }));
+      expect(disclosure()).not.toContainElement(screen.getByText('cat /secret'));
+      expect(disclosure()).not.toContainElement(screen.getByRole('button', { name: 'Grant a folder…' }));
     });
 
     it('holds the summary as markdown', () => {
-      draw([msg({ thinking: '**bold** thought' })]);
+      draw([settled({ thinking: '**bold** thought' })]);
       expect(disclosure().querySelector('strong')).toHaveTextContent('bold');
+    });
+
+    it('reads Thinking while the turn runs and how long it worked once it settles', () => {
+      const { rerender } = draw([thinkingOnly()]);
+      expect(label()).toHaveTextContent('Thinking');
+
+      redraw(rerender, [settled()]);
+      expect(label()).toHaveTextContent('Worked for 14s');
     });
 
     // The pause before the first word is what it exists to fill.
@@ -752,12 +804,12 @@ describe('ChatTranscript', () => {
       redraw(rerender, [withText()]);
       expect(disclosure().open).toBe(false);
 
-      redraw(rerender, [withText({ status: 'Complete' })]);
+      redraw(rerender, [withText({ status: 'Complete', finishedAt: FINISHED })]);
       expect(disclosure().open).toBe(false);
     });
 
     it('is closed on a settled answer', () => {
-      draw([msg({ thinking: 'the pod question' })]);
+      draw([settled()]);
       expect(disclosure().open).toBe(false);
     });
 
@@ -767,18 +819,18 @@ describe('ChatTranscript', () => {
       const { rerender } = draw([withText()]);
       expect(disclosure().open).toBe(false);
 
-      fireEvent.click(screen.getByText('Thinking'));
+      fireEvent.click(label());
       expect(disclosure().open).toBe(true);
 
       redraw(rerender, [withText({ content: [{ type: 'text', text: 'A pod is a group.' }] })]);
       expect(disclosure().open).toBe(true);
-      redraw(rerender, [withText({ status: 'Complete' })]);
+      redraw(rerender, [withText({ status: 'Complete', finishedAt: FINISHED })]);
       expect(disclosure().open).toBe(true);
     });
 
     it('stays closed once the reader closed it, even while the answer still has no text', () => {
       const { rerender } = draw([thinkingOnly()]);
-      fireEvent.click(screen.getByText('Thinking'));
+      fireEvent.click(label());
       expect(disclosure().open).toBe(false);
 
       redraw(rerender, [thinkingOnly({ thinking: 'the pod question, longer' })]);
@@ -786,17 +838,17 @@ describe('ChatTranscript', () => {
     });
 
     it('toggles on a settled answer with each click', () => {
-      draw([msg({ thinking: 'the pod question' })]);
-      fireEvent.click(screen.getByText('Thinking'));
+      draw([settled()]);
+      fireEvent.click(label());
       expect(disclosure().open).toBe(true);
-      fireEvent.click(screen.getByText('Thinking'));
+      fireEvent.click(label());
       expect(disclosure().open).toBe(false);
     });
 
     it('stays readable on an answer whose model differs from the next', () => {
       draw([
-        msg({ id: 'm1', seq: 1, thinking: 'the pod question', model: 'fake' }),
-        msg({
+        settled({ id: 'm1', seq: 1, model: 'fake' }),
+        settled({
           id: 'm2',
           seq: 2,
           thinking: 'the node question',
@@ -804,8 +856,35 @@ describe('ChatTranscript', () => {
           provider: { id: 'anthropic', label: 'Anthropic' },
         }),
       ]);
-      expect(screen.getAllByText('Thinking')).toHaveLength(2);
+      expect(screen.getAllByText('Worked for 14s')).toHaveLength(2);
       expect(screen.getByText('Opus 5')).toBeInTheDocument();
+    });
+  });
+
+  describe('the turn actions', () => {
+    const turns = [
+      msg({ id: 'q1', seq: 1, role: 'User', content: [{ type: 'text', text: 'what is a pod?' }] }),
+      msg({ id: 'a1', seq: 2, content: [{ type: 'text', text: 'a group of containers' }] }),
+      msg({ id: 'q2', seq: 3, role: 'User', content: [{ type: 'text', text: 'and a node?' }] }),
+      msg({ id: 'a2', seq: 4, content: [{ type: 'text', text: 'a machine' }] }),
+    ];
+
+    it('gives every question and answer a row, the last answer always shown', () => {
+      draw(turns);
+      expect(screen.getAllByRole('button', { name: 'Copy message' })).toHaveLength(2);
+      const answers = screen.getAllByRole('button', { name: 'Copy answer' });
+      expect(answers).toHaveLength(2);
+      expect(answers[0].closest('.opacity-0')).not.toBeNull();
+      expect(answers[1].closest('.opacity-0')).toBeNull();
+    });
+
+    it("copies a turn's text", () => {
+      Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+      draw(turns);
+      fireEvent.click(screen.getAllByRole('button', { name: 'Copy message' })[1]);
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('and a node?');
+      fireEvent.click(screen.getAllByRole('button', { name: 'Copy answer' })[0]);
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('a group of containers');
     });
   });
 
@@ -1001,8 +1080,8 @@ describe('ChatTranscript', () => {
     it('tags an ended agent by how it ended, with no Stop', () => {
       (
         [
-          ['Completed', 'completed'],
-          ['Failed', 'failed'],
+          ['Completed', ''],
+          ['Failed', 'error'],
           ['Stopped', 'stopped'],
           ['Lost', 'lost'],
         ] as const
@@ -1016,7 +1095,7 @@ describe('ChatTranscript', () => {
             ],
           }),
         ]);
-        expect(screen.getByText('Agent').closest('summary')).toHaveTextContent(tag);
+        expect(screen.getByText('Agent').closest('summary')).toHaveTextContent(new RegExp(`${tag}$`));
         expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
         unmount();
       });
@@ -1654,8 +1733,8 @@ describe('ChatTranscript', () => {
             ],
           }),
         ]);
-        const details = document.querySelector('details')!;
-        expect(details.querySelector('summary')!.textContent).toBe('Write /Users/ana/values.yaml');
+        const details = document.querySelector('details details')!;
+        expect(details.querySelector('summary')!.textContent).toBe('Write/Users/ana/values.yaml');
         expect(details.querySelectorAll('pre')[0]).not.toHaveTextContent('end: x');
         expect(details.querySelectorAll('pre')[1]).toHaveTextContent('File created successfully');
 
@@ -1756,9 +1835,9 @@ describe('ChatTranscript', () => {
           ],
         }),
       ]);
-      const details = document.querySelector('details')!;
+      const details = document.querySelector('details details')!;
       const head = details.querySelector('summary')!;
-      expect(head.querySelector('.font-mono')).toHaveTextContent(/^Query$/);
+      expect(head.querySelector('.font-medium')).toHaveTextContent(/^Query$/);
       expect(head).toHaveTextContent('Pods in a crash loop');
       const [query, output] = details.querySelectorAll('pre');
       expect(query).toHaveTextContent(sql);
@@ -1902,8 +1981,8 @@ describe('ChatTranscript', () => {
       // the request, then what the model read.
       it('summarises a settled edit by its path', () => {
         draw([settled('replicas: 1', 'replicas: 3')]);
-        const details = document.querySelector('details')!;
-        expect(details.querySelector('summary')!.textContent).toBe('Edit /Users/ana/values.yaml');
+        const details = document.querySelector('details details')!;
+        expect(details.querySelector('summary')!.textContent).toBe('Edit/Users/ana/values.yaml');
         const pres = details.querySelectorAll('pre');
         expect(pres[0]).toHaveTextContent('replicas: 1');
         expect(pres[1]).toHaveTextContent('replicas: 3');
@@ -2430,9 +2509,12 @@ describe('ChatTranscript', () => {
       expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
     });
 
-    it('tags a failed command with the exit code its first line names', () => {
+    // The output's first line names the exit code; the tag says only that it failed.
+    it('tags a failed command as an error', () => {
       draw([msg({ toolCalls: [decided({ status: 'Failed', output: 'Exit code 1\nno such file\n' })] })]);
-      expect(summary('wc -l ~/.kube/config')).toHaveTextContent('exit 1');
+      expect(summary('wc -l ~/.kube/config')).toHaveTextContent(/error$/);
+      expect(screen.getByText('error')).toHaveClass('text-destructive');
+      expect(disclosure('wc -l ~/.kube/config').querySelector('pre')).toHaveTextContent('Exit code 1');
     });
 
     // The header carries the duration, so the tag reads its prefix.
@@ -2444,26 +2526,14 @@ describe('ChatTranscript', () => {
           ],
         }),
       ]);
-      expect(summary('wc -l ~/.kube/config')).toHaveTextContent('timed out');
+      expect(summary('wc -l ~/.kube/config')).toHaveTextContent(/error$/);
+      expect(disclosure('wc -l ~/.kube/config')).toHaveTextContent('Command timed out after 120s');
       expect(disclosure('wc -l ~/.kube/config')).toHaveTextContent('tick');
-    });
-
-    // Only the first line is the sidecar's: what the command printed after it is
-    // never read for a header.
-    it('reads the tag off the first line alone', () => {
-      draw([msg({ toolCalls: [decided({ status: 'Failed', output: 'Exit code 3\nCommand timed out after 120s' })] })]);
-      expect(summary('wc -l ~/.kube/config')).toHaveTextContent('exit 3');
-      expect(summary('wc -l ~/.kube/config')).not.toHaveTextContent('timed out');
-    });
-
-    it('tags a command that never started as failed', () => {
-      draw([msg({ toolCalls: [decided({ status: 'Failed', output: 'could not start: no such file' })] })]);
-      expect(summary('wc -l ~/.kube/config')).toHaveTextContent('failed');
     });
 
     it('never tags a successful command whose output imitates a header', () => {
       draw([msg({ toolCalls: [decided({ status: 'Succeeded', output: 'Command timed out after 120s\n' })] })]);
-      expect(summary('wc -l ~/.kube/config')).toHaveTextContent(/^wc -l ~\/\.kube\/config$/);
+      expect(summary('wc -l ~/.kube/config')).toHaveTextContent(/^Commandwc -l ~\/\.kube\/config$/);
     });
 
     it('tags a denied command', () => {
@@ -2574,8 +2644,9 @@ describe('ChatTranscript', () => {
           approval: null,
         });
       draw([msg({ toolCalls: [search('a', 'k8s 1.34'), search('b', '')] })]);
-      expect(summary('Search k8s 1.34')).toHaveTextContent('denied');
-      expect(summary('Search')).toHaveTextContent('denied');
+      expect(summary('k8s 1.34')).toHaveTextContent(/^Searchk8s 1\.34denied$/);
+      const [, bare] = document.querySelectorAll('details details > summary');
+      expect(bare.textContent).toBe('Searchdenied');
       expect(screen.queryByText(/^Searched the web/)).toBeNull();
     });
 
@@ -2608,8 +2679,8 @@ describe('ChatTranscript', () => {
           ],
         }),
       ]);
-      expect(summary('rm -rf /tmp/x')).toHaveTextContent('not run');
-      expect(summary('rm -rf /tmp/x')).toHaveTextContent('Clear the scratch');
+      expect(summary('Clear the scratch')).toHaveTextContent('not run');
+      expect(disclosure('Clear the scratch')).toHaveTextContent('$ rm -rf /tmp/x');
       expect(screen.queryByText('in')).toBeNull();
       expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
     });
@@ -2635,7 +2706,7 @@ describe('ChatTranscript', () => {
         },
         approval: { id: 'ap-1', status: 'Approved', duration: null },
       });
-    const onlySummary = () => document.querySelector('details > summary')!;
+    const onlySummary = () => document.querySelector('details details > summary')!;
 
     // Read is ungated, so it has no approval: its summary is the path it read.
     it('summarises a Read from its action, spelled', () => {
@@ -2667,7 +2738,7 @@ describe('ChatTranscript', () => {
           ],
         }),
       ]);
-      expect(onlySummary().textContent).toBe('Read /data/chats/c1/results/\\u{202E}X.txt');
+      expect(onlySummary().textContent).toBe('Read/data/chats/c1/results/\\u{202E}X.txt');
       expect([...onlySummary().querySelectorAll('mark')].map((m) => m.textContent)).toEqual(['\\u{202E}']);
     });
 
@@ -2700,7 +2771,7 @@ describe('ChatTranscript', () => {
           ],
         }),
       ]);
-      expect(onlySummary().textContent).toBe('Fetch https://kubernetes.io/releases/');
+      expect(onlySummary().textContent).toBe('Fetch pagehttps://kubernetes.io/releases/');
     });
 
     // Arguments Read refuses carry no action.
@@ -2713,57 +2784,58 @@ describe('ChatTranscript', () => {
         }),
       ]);
       expect(onlySummary()).toHaveTextContent(/^Read/);
-      expect(onlySummary().textContent).toBe('Readfailed');
+      expect(onlySummary().textContent).toBe('Readerror');
     });
 
-    // The command names the call; the model's description sits under it, in the
-    // summary, italic and quoted, muted like the command.
-    it("draws a settled command's description under it", () => {
+    // The kind is the app's word and leads the row; the model's description follows it,
+    // italic, one line. The command waits in the body, so a description cannot hide it
+    // from a reader who opens the call.
+    it('draws a settled command by its kind and description, the command in its body', () => {
       draw([msg({ toolCalls: [settled('wc -l ~/.kube/config', 'Count lines\nmore')] })]);
       const line = screen.getByText('Count lines…');
-      expect(summary('wc -l ~/.kube/config')).toContainElement(line);
+      const head = summary('Count lines…');
+      expect(head.firstChild).toHaveTextContent(/^Command$/);
+      expect(head.firstChild).not.toHaveClass('italic');
       expect(line).toHaveClass('truncate');
-      expect(line.previousSibling).toHaveTextContent('“');
-      expect(line.nextSibling).toHaveTextContent('”');
       expect(line.closest('.italic')).not.toBeNull();
-      const command = screen.getByText('wc -l ~/.kube/config');
-      expect(command.compareDocumentPosition(line)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(head).not.toHaveTextContent('“');
+      expect(head).not.toHaveTextContent('wc -l');
+      const command = screen.getByText('$ wc -l ~/.kube/config');
+      expect(command).toHaveClass('text-foreground');
+      expect(disclosure('Count lines…')).toContainElement(command);
+      expect(line.compareDocumentPosition(command)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     });
 
-    // The body opens with where the command ran, above what it printed.
-    it("opens a settled command's body with its directory", () => {
+    // The body ends with where the command ran, under what it printed.
+    const ranIn = () => screen.getByText(/^Ran in /);
+    it("closes a settled command's body with its directory", () => {
       draw([msg({ toolCalls: [settled('wc -l ~/.kube/config', '')] })]);
       const body = disclosure('wc -l ~/.kube/config');
-      expect(body).toContainElement(dirLine());
-      expect(body.querySelector('summary')).not.toContainElement(dirLine());
-      expect(follows(dirLine(), body.querySelector('pre')!)).toBe(true);
+      expect(body).toContainElement(ranIn());
+      expect(body.querySelector('summary')).not.toContainElement(ranIn());
+      expect(follows(body.querySelector('pre')!, ranIn())).toBe(true);
+      expect(ranIn()).toHaveClass('text-muted-foreground/70');
     });
 
-    // A call a sandbox confined says so after its directory, in the label's muted
-    // color and outside the directory's own text.
     it("says a sandboxed command's directory was sandboxed", () => {
       const sandboxed = settled('wc -l ~/.kube/config', '');
       sandboxed.action!.command!.sandboxed = true;
       draw([msg({ toolCalls: [sandboxed] })]);
-      expect(dirLine()).toHaveTextContent(/^in\s*\/Users\/ana, sandboxed$/);
-      expect(screen.getByText(', sandboxed')).toHaveClass('text-muted-foreground');
+      expect(ranIn().textContent).toBe('Ran in /Users/ana · sandboxed');
       expect(screen.queryByRole('group', { name: 'Command awaiting approval' })).toBeNull();
-      expect(screen.getByText('/Users/ana')).not.toHaveTextContent('sandboxed');
     });
 
-    // A call that had the internet says so after sandboxed, muted, off its row.
     it("says a sandboxed command's directory had network", () => {
       const networked = settled('curl -sI https://example.com', '');
       networked.action!.command!.sandboxed = true;
       networked.network = 'Approved';
       draw([msg({ toolCalls: [networked] })]);
-      expect(dirLine()).toHaveTextContent(/^in\s*\/Users\/ana, sandboxed, with network$/);
-      expect(screen.getByText(', sandboxed, with network')).toHaveClass('text-muted-foreground');
+      expect(ranIn().textContent).toBe('Ran in /Users/ana · sandboxed, with network');
     });
 
     it("says nothing of a sandbox on an unconfined command's directory", () => {
       draw([msg({ toolCalls: [settled('wc -l ~/.kube/config', '')] })]);
-      expect(dirLine()).toHaveTextContent(/^in\s*\/Users\/ana$/);
+      expect(ranIn().textContent).toBe('Ran in /Users/ana');
     });
 
     it('draws no directory line in the body of a call that ran nowhere', () => {
@@ -2792,7 +2864,7 @@ describe('ChatTranscript', () => {
           ],
         }),
       ]);
-      expect(screen.queryByText('in')).toBeNull();
+      expect(screen.queryByText(/^Ran in /)).toBeNull();
     });
 
     it('draws a settled command alone when it has no description', () => {
@@ -2813,23 +2885,29 @@ describe('ChatTranscript', () => {
       draw([msg({ toolCalls: [settled('\u{202E}rm -rf ~', '')] })]);
       expect(onlySummary().textContent).not.toContain('\u{202E}');
       expect([...onlySummary().querySelectorAll('mark')].map((m) => m.textContent)).toEqual(['\\u{202E}']);
-      expect(onlySummary()).toHaveTextContent('exit 1');
+      expect(onlySummary()).toHaveTextContent(/error$/);
     });
 
     it('spells an override in the description, keeping the tag in place', () => {
       draw([msg({ toolCalls: [settled('wc -l ~/.kube/config', 'Count\u{202E} lines')] })]);
       expect(onlySummary().textContent).not.toContain('\u{202E}');
       expect([...onlySummary().querySelectorAll('mark')].map((m) => m.textContent)).toEqual(['\\u{202E}']);
-      expect(onlySummary()).toHaveTextContent('exit 1');
+      expect(onlySummary()).toHaveTextContent(/error$/);
+    });
+
+    it('spells an override in the name of a call its tool could not show', () => {
+      draw([msg({ toolCalls: [{ ...settled('wc -l', ''), action: null, actionKind: null, name: '\u{202E}Bash' }] })]);
+      expect(onlySummary().textContent).not.toContain('\u{202E}');
+      expect([...onlySummary().querySelectorAll('mark')].map((m) => m.textContent)).toEqual(['\\u{202E}']);
     });
   });
 
-  it('heads every answer with the Kstack mark and none of the questions', () => {
+  it('heads no answer with the Kstack mark', () => {
     draw([
       msg({ id: 'q', seq: 0, role: 'User', content: [{ type: 'text', text: 'a question' }] }),
       msg({ id: 'a', seq: 1 }),
     ]);
-    expect(screen.getAllByText('Kstack')).toHaveLength(1);
+    expect(screen.queryByText('Kstack')).toBeNull();
   });
 
   describe('the model label', () => {
@@ -2859,6 +2937,18 @@ describe('ChatTranscript', () => {
       draw(answers({ model: 'fake', providerID: 'fake' }, { model: 'claude-opus-5', providerID: 'anthropic' }));
       expect(screen.getByText('claude-opus-5')).toBeInTheDocument();
     });
+  });
+
+  it('holds its footer at the bottom of what the scroller shows', () => {
+    render(
+      wrap(
+        <ChatTranscript messages={[msg()]} phase="live" mode="chat" chatID="c1" footer={<p>the composer</p>} />,
+        'chat',
+      ),
+    );
+    const footer = screen.getByText('the composer').parentElement!;
+    expect(footer).toHaveClass('sticky', 'bottom-0');
+    expect(scroller()).toContainElement(footer);
   });
 
   it('follows a growing answer while the reader is at the bottom', () => {
@@ -2921,8 +3011,9 @@ describe('ChatTranscript', () => {
         output: '{"saved":"pages"}',
         ...over,
       });
-    const summaryText = () => document.querySelector('details summary .font-mono')!.textContent;
-    const summary = () => document.querySelector('details summary')!;
+    const summary = () => document.querySelector('details details summary')!;
+    const summaryText = () =>
+      [...summary().querySelectorAll('.font-medium, .font-mono')].map((e) => e.textContent).join(' ');
 
     it.each([
       ['save', 'Save memory pages'],
@@ -2943,7 +3034,7 @@ describe('ChatTranscript', () => {
           ],
         }),
       ]);
-      const disclosure = document.querySelector('details')!;
+      const disclosure = document.querySelector('details details')!;
       expect(disclosure).not.toHaveTextContent('For this cluster');
       expect(disclosure).not.toHaveTextContent('Type');
       expect(disclosure).not.toHaveTextContent('Description');
@@ -2957,7 +3048,7 @@ describe('ChatTranscript', () => {
           toolCalls: [memoryCall({ body: 'the refused body' }, { status: 'Failed', output: '{"error":"secret"}' })],
         }),
       ]);
-      expect(document.querySelector('details')).not.toHaveTextContent('the refused body');
+      expect(document.querySelector('details details')).not.toHaveTextContent('the refused body');
     });
 
     // Closed, a save for every cluster still says so, whatever came of it, so a
@@ -2967,7 +3058,7 @@ describe('ChatTranscript', () => {
       const { unmount } = draw([msg({ toolCalls: [memoryCall(everywhere)] })]);
       expect(summary()).toHaveTextContent('for every cluster');
       expect(summaryText()).toBe('Save memory pages');
-      expect(document.querySelector('details')).toHaveTextContent('The user is Bob.');
+      expect(document.querySelector('details details')).toHaveTextContent('The user is Bob.');
       unmount();
 
       draw([
@@ -2982,7 +3073,7 @@ describe('ChatTranscript', () => {
         }),
       ]);
       expect(summary()).toHaveTextContent('for every cluster');
-      expect(document.querySelector('details')).not.toHaveTextContent('The user is Bob.');
+      expect(document.querySelector('details details')).not.toHaveTextContent('The user is Bob.');
     });
 
     it('names a forget for every cluster in its summary', () => {
@@ -3644,10 +3735,11 @@ describe('ChatTranscript', () => {
     it('tags an ended background command by how it ended, with no Stop', () => {
       (
         [
-          [{ status: 'Exited', exitCode: 3, report: '' }, 'exit 3'],
+          [{ status: 'Exited', exitCode: 3, report: '' }, 'error'],
+          [{ status: 'Exited', exitCode: 0, report: '' }, ''],
           [{ status: 'Stopped', exitCode: null, report: '' }, 'stopped'],
           [{ status: 'Lost', exitCode: null, report: '' }, 'lost'],
-          [{ status: 'Matched', exitCode: null, report: '' }, 'matched'],
+          [{ status: 'Matched', exitCode: null, report: '' }, ''],
           [{ status: 'Expired', exitCode: null, report: '' }, 'expired'],
         ] as const
       ).forEach(([task, tag]) => {
@@ -3656,8 +3748,7 @@ describe('ChatTranscript', () => {
             toolCalls: [background({ background: { ...task, matched: [], endedBecause: '', viewAround: null } })],
           }),
         ]);
-        expect(summary()).toHaveTextContent(tag);
-        expect(summary()).not.toHaveTextContent('running in background');
+        expect(summary()).toHaveTextContent(new RegExp(`^Commandmake serve${tag}$`));
         expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
         unmount();
       });
@@ -3717,6 +3808,11 @@ describe('ChatTranscript', () => {
     it('spells an invisible character in the command out', () => {
       draw([noticeOnly({ command: 'make\u202eserve' })]);
       expect(document.querySelector('mark')).toHaveTextContent('\\u{202E}');
+    });
+
+    it('gives a message of notices alone no actions row', () => {
+      draw([noticeOnly()]);
+      expect(screen.queryByRole('button', { name: 'Copy message' })).toBeNull();
     });
 
     it('draws the notices a question carried above its bubble', () => {

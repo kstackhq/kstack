@@ -14,6 +14,7 @@
 
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { useChatsMock, useChatMessagesMock } = vi.hoisted(() => ({
@@ -88,7 +89,13 @@ vi.mock('@/components/chat/chat-composer', async () => {
   };
 });
 vi.mock('@/components/chat/chat-transcript/transcript', () => ({
-  ChatTranscript: (props: Record<string, unknown>) => <div data-testid="transcript">{JSON.stringify(props)}</div>,
+  // The footer is the composer, drawn as the transcript draws it, under the props.
+  ChatTranscript: ({ footer, ...props }: { footer?: ReactNode }) => (
+    <>
+      <div data-testid="transcript">{JSON.stringify(props)}</div>
+      {footer}
+    </>
+  ),
 }));
 
 const { ChatOutboxProvider } = await import('@/lib/chat-outbox');

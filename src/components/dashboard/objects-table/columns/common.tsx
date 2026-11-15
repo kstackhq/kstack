@@ -27,6 +27,7 @@ import type { VirtualColumn } from '@/components/dashboard/virtual-table';
 import { VisibleText } from '@/components/primitives/visible-text';
 import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
 import { gvrKey } from '@/lib/gvr';
+import { humanDuration } from '@/lib/human-duration';
 import type { SortValue } from '@/lib/sort-rows';
 
 export type Status = { label: string; tone: StatusTone };
@@ -133,19 +134,6 @@ export function selectorText(s: LabelSelector | undefined): string | undefined {
     else if (e.operator === 'DoesNotExist') parts.push(`!${e.key}`);
   }
   return parts.length ? parts.join(',') : undefined;
-}
-
-// kubectl's HumanDuration: finer units while they still say something.
-export function humanDuration(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const h = Math.floor(m / 60);
-  if (s < 120) return `${s}s`;
-  if (m < 10) return `${m}m${s % 60 ? `${s % 60}s` : ''}`;
-  if (m < 180) return `${m}m`;
-  if (h < 8) return `${h}h${m % 60 ? `${m % 60}m` : ''}`;
-  if (h < 48) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
 }
 
 // A quantity's suffixes, as the API writes them: milli, decimal and binary.

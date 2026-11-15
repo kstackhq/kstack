@@ -17,7 +17,7 @@
 /*
  * Token colors for the code blocks in an answer, on highlight.js's class names.
  * One small palette in the app's own two schemes rather than a shipped theme,
- * so the blocks sit on `bg-muted` the way the rest of the transcript does.
+ * so the blocks sit on the app's own surfaces.
  */
 
 :root,

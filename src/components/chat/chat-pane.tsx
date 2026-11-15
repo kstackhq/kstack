@@ -176,42 +176,39 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Narrower than the composer, so the answer keeps a readable line length. */}
-      <div className="mx-auto flex min-h-0 w-full max-w-156 flex-1 flex-col">
-        <ChatTranscript
-          messages={messages}
-          phase={phase}
+    <ChatTranscript
+      messages={messages}
+      phase={phase}
+      chatID={chatID}
+      mode={mode}
+      clusterID={chat?.clusterID}
+      sandboxAvailable={sandbox.available}
+      sandboxDisabled={chat?.sandboxDisabled}
+      networkEnabled={chat?.networkEnabled}
+      switching={switching}
+      footer={
+        // The chat's own cluster, so a send into it needs no active one.
+        <ChatComposer
           chatID={chatID}
           mode={mode}
           clusterID={chat?.clusterID}
+          phase={phase}
+          last={messages.at(-1) ?? null}
+          lastAnswer={messages.findLast((m) => m.role === 'Assistant') ?? null}
           sandboxAvailable={sandbox.available}
           sandboxDisabled={chat?.sandboxDisabled}
+          networkAvailable={sandbox.networkAvailable}
+          networkReason={sandbox.networkReason}
           networkEnabled={chat?.networkEnabled}
           switching={switching}
+          onSwitchNetwork={networkSwitch.setNetworkEnabled}
+          onShowWaiting={
+            waiting
+              ? () => document.getElementById(approvalAnchor(waiting))?.scrollIntoView({ block: 'center' })
+              : undefined
+          }
         />
-      </div>
-      {/* The chat's own cluster, so a send into it needs no active one. */}
-      <ChatComposer
-        chatID={chatID}
-        mode={mode}
-        clusterID={chat?.clusterID}
-        phase={phase}
-        last={messages.at(-1) ?? null}
-        lastAnswer={messages.findLast((m) => m.role === 'Assistant') ?? null}
-        sandboxAvailable={sandbox.available}
-        sandboxDisabled={chat?.sandboxDisabled}
-        networkAvailable={sandbox.networkAvailable}
-        networkReason={sandbox.networkReason}
-        networkEnabled={chat?.networkEnabled}
-        switching={switching}
-        onSwitchNetwork={networkSwitch.setNetworkEnabled}
-        onShowWaiting={
-          waiting
-            ? () => document.getElementById(approvalAnchor(waiting))?.scrollIntoView({ block: 'center' })
-            : undefined
-        }
-      />
-    </div>
+      }
+    />
   );
 }

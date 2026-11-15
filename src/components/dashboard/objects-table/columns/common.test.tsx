@@ -19,7 +19,6 @@ import {
   ageColumn,
   conditionStatus,
   countColumn,
-  humanDuration,
   kind,
   labelsText,
   listColumn,
@@ -191,24 +190,6 @@ describe('quantityValue', () => {
       undefined,
       undefined,
       undefined,
-    ]);
-  });
-});
-
-describe('humanDuration', () => {
-  it('keeps finer units while they say something', () => {
-    const s = 1000;
-    const m = 60 * s;
-    const h = 60 * m;
-    expect([90 * s, 5 * m, 5 * m + 7 * s, 42 * m, 3 * h + 20 * m, 3 * h, 20 * h, 72 * h].map(humanDuration)).toEqual([
-      '90s',
-      '5m',
-      '5m7s',
-      '42m',
-      '3h20m',
-      '3h',
-      '20h',
-      '3d',
     ]);
   });
 });
