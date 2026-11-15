@@ -407,14 +407,6 @@ function isTextBlock(block: unknown): block is TextBlock {
   return type === 'text' && typeof text === 'string';
 }
 
-type ContextBlock = { type: 'context'; text: string };
-
-function isContextBlock(block: unknown): block is ContextBlock {
-  if (typeof block !== 'object' || block === null) return false;
-  const { type, text } = block as { type?: unknown; text?: unknown };
-  return type === 'context' && typeof text === 'string';
-}
-
 function isToolBlock(block: unknown): boolean {
   if (typeof block !== 'object' || block === null) return false;
   const { type } = block as { type?: unknown };
@@ -530,16 +522,6 @@ export function sourcesOf(citations: readonly ChatCitation[]): Source[] {
     sources.push({ url, title });
   });
   return sources;
-}
-
-/**
- * The cluster card a question carries — what the app told the model about the
- * cluster on that turn — or '' for a question without one. The one reader of a
- * context block.
- */
-export function contextOf(content: unknown): string {
-  if (!Array.isArray(content)) return '';
-  return content.find(isContextBlock)?.text ?? '';
 }
 
 /**

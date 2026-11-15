@@ -30,7 +30,6 @@ vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
 const {
   actionKindLabel,
   chatModeOf,
-  contextOf,
   grantOffered,
   noticesOf,
   queryResultOf,
@@ -353,23 +352,6 @@ describe('textOf', () => {
     expect(textOf([null, 'text', 42, { type: 'text' }, { type: 'text', text: 7 }, { type: 'text', text: 'ok' }])).toBe(
       'ok',
     );
-  });
-});
-
-describe('contextOf', () => {
-  it('is the card a question carries', () => {
-    expect(
-      contextOf([
-        { type: 'context', text: '<context>\n## Cluster\n\n```json\n{"context":"prod"}\n```\n</context>' },
-        { type: 'text', text: 'why?' },
-      ]),
-    ).toBe('<context>\n## Cluster\n\n```json\n{"context":"prod"}\n```\n</context>');
-  });
-
-  it('is empty for a question with none, and for content that is not blocks', () => {
-    expect(contextOf([{ type: 'text', text: 'why?' }])).toBe('');
-    expect(contextOf(undefined)).toBe('');
-    expect(contextOf({ type: 'context', text: 'not an array' })).toBe('');
   });
 });
 

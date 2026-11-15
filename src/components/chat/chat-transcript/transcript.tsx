@@ -42,7 +42,6 @@ import { chatGrantsContext } from '@/lib/chat-grants';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import {
   actionKindLabel,
-  contextOf,
   grantOffered,
   inFlight,
   isWaitingWrite,
@@ -189,22 +188,6 @@ function Work({
       <div className="mt-2 flex flex-col gap-2">
         {summary !== '' && <Markdown text={summary} />}
         {calls}
-      </div>
-    </details>
-  );
-}
-
-// The context a question carries — the cluster card, the memory notes, the
-// workspace, the view and the sandbox — closed: it is there so the user can see
-// what the provider was told, at the message it rode, escapes and all. Plain text,
-// never markdown, with every invisible or reordering character spelled: its names
-// and selected lines came from the cluster.
-function ClusterContext({ card }: { card: string }) {
-  return (
-    <details className="mb-2">
-      <summary className="text-xs text-muted-foreground select-none">Context</summary>
-      <div className="mt-1 border-l-2 border-muted pl-3 text-xs whitespace-pre-wrap text-muted-foreground">
-        <VisibleText text={card} />
       </div>
     </details>
   );
@@ -1396,7 +1379,6 @@ function Message({
   onAskAgain?: () => void;
 }) {
   const text = textOf(message.content);
-  const card = contextOf(message.content);
   const sources = sourcesOf(message.citations);
   const searches = searchesOf(message.toolCalls);
   const notices = noticesOf(message.content);
@@ -1426,11 +1408,9 @@ function Message({
   const mine = message.role === 'User';
   const working = inFlight(message.status);
   // A message of notices alone is its lines and nothing else: there is no bubble.
-  // Its context, when the sandbox switch moved, is drawn above them.
   if (mine && text === '' && notices.length > 0) {
     return (
       <article>
-        {card !== '' && <ClusterContext card={card} />}
         <Notices notices={notices} />
       </article>
     );
@@ -1448,7 +1428,6 @@ function Message({
             : 'w-full px-1 pt-2 text-sm *:last:mb-0'
         }
       >
-        {mine && card !== '' && <ClusterContext card={card} />}
         {!mine && (message.thinking !== '' || worked.length > 0) && (
           <Work
             summary={message.thinking}

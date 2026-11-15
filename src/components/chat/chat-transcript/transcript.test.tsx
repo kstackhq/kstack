@@ -679,51 +679,18 @@ describe('ChatTranscript', () => {
     expect(screen.getByText('No messages yet.')).toBeInTheDocument();
   });
 
-  describe('the context disclosure', () => {
-    const question = (content: ChatMessage['content']) => msg({ role: 'User', content });
-
-    it("draws a question's card closed", () => {
-      draw([
-        question([
-          { type: 'context', text: '<context>\n## Cluster\n\n```json\n{"context":"prod"}\n```\n</context>' },
+  it("draws a question's text and none of the context it carried", () => {
+    draw([
+      msg({
+        role: 'User',
+        content: [
+          { type: 'context', text: '## Cluster\n\n```json\n{"context":"prod"}\n```' },
           { type: 'text', text: 'why?' },
-        ]),
-      ]);
-      const disclosure = screen.getByText('Context').closest('details')!;
-      expect(disclosure).not.toHaveAttribute('open');
-      expect(disclosure).toHaveTextContent('{"context":"prod"}');
-      expect(screen.getByText('why?')).toBeInTheDocument();
-    });
-
-    it('draws nothing on a question without one', () => {
-      draw([question([{ type: 'text', text: 'why?' }])]);
-      expect(screen.queryByText('Context')).toBeNull();
-    });
-
-    it('shows the card as its characters, never markup', () => {
-      draw([
-        question([
-          { type: 'context', text: 'name: <b>prod</b>' },
-          { type: 'text', text: 'why?' },
-        ]),
-      ]);
-      const disclosure = screen.getByText('Context').closest('details')!;
-      expect(disclosure.querySelector('b')).toBeNull();
-      expect(disclosure).toHaveTextContent('name: <b>prod</b>');
-    });
-
-    // A selected line is the cluster's text, and JSON leaves a reordering
-    // character as it is.
-    it('spells a reordering character in a selected line', () => {
-      draw([
-        question([
-          { type: 'context', text: '## View\n\n```json\n{"selected":[{"message":"ok\u{202E}gnp.exe"}]}\n```' },
-          { type: 'text', text: "what's this?" },
-        ]),
-      ]);
-      const disclosure = screen.getByText('Context').closest('details')!;
-      expect(disclosure.querySelector('mark')).toHaveTextContent('\\u{202E}');
-    });
+        ],
+      }),
+    ]);
+    expect(screen.getByText('why?')).toBeInTheDocument();
+    expect(screen.queryByText(/"context":"prod"/)).toBeNull();
   });
 
   describe('the work disclosure', () => {
@@ -3803,13 +3770,11 @@ describe('ChatTranscript', () => {
       expect(screen.getByText('make serve')).toBeInTheDocument();
     });
 
-    it("draws a notice-only message's context above its lines", () => {
+    it("draws a notice-only message's lines and none of its context", () => {
       const context = { type: 'context', text: '## Sandbox\n\n```json\n{"commands":"outside"}\n```' };
       draw([msg({ id: 'n1', seq: 3, role: 'User', content: [context, notice()] })]);
-      const disclosure = screen.getByText('Context');
-      const line = screen.getByText(/Background command finished · exit 0/);
-      expect(disclosure.compareDocumentPosition(line)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-      expect(line.closest('.bg-muted')).toBeNull();
+      expect(screen.getByText(/Background command finished · exit 0/)).toBeInTheDocument();
+      expect(screen.queryByText(/"commands":"outside"/)).toBeNull();
     });
 
     it('says so when an agent started the command', () => {
