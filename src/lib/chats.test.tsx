@@ -33,6 +33,7 @@ const {
   contextOf,
   grantOffered,
   noticesOf,
+  queryResultOf,
   ranSearch,
   searchesOf,
   sourcesOf,
@@ -771,5 +772,51 @@ describe('grantOffered', () => {
       };
       expect(grantOffered(task), status).toBe(false);
     });
+  });
+});
+
+describe('queryResultOf', () => {
+  const rows = {
+    cluster: 'prod',
+    freshness: { status: 'watching', reason: '' },
+    columns: ['name', 'n'],
+    more: true,
+    rows: [
+      ['a', 1],
+      ['b', null],
+    ],
+  };
+
+  it('reads an answer of rows', () => {
+    expect(queryResultOf(JSON.stringify(rows))).toEqual({
+      cluster: 'prod',
+      columns: ['name', 'n'],
+      rows: [
+        ['a', 1],
+        ['b', null],
+      ],
+      more: true,
+    });
+  });
+
+  it('reads a missing cluster or more as empty', () => {
+    expect(queryResultOf('{"columns":[],"rows":[]}')).toEqual({
+      cluster: '',
+      columns: [],
+      rows: [],
+      more: false,
+    });
+  });
+
+  it.each([
+    ['an error', '{"error":"sql","message":"no such column"}'],
+    ['a withheld answer', '{"cluster":"prod","freshness":{"status":"unknown"}}'],
+    ['a saved result', '<persisted-output>\nOutput too large\n</persisted-output>'],
+    ['JSON that is not an object', '[1]'],
+    ['a column that is not a name', '{"columns":[1],"rows":[]}'],
+    ['a row of another width', '{"columns":["a"],"rows":[["x","y"]]}'],
+    ['a row that is not an array', '{"columns":["a"],"rows":["x"]}'],
+  ])('answers null for %s', (_, output) => {
+    expect(queryResultOf(output)).toBeNull();
   });
 });

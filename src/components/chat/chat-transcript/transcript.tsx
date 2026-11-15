@@ -62,6 +62,7 @@ import { modelOf, useModels } from '@/lib/models';
 import { cutText, descriptionLine } from '@/lib/visible-text';
 
 import { DiffBlock } from './diff-block';
+import { KubeQuery } from './kube-query';
 import { TurnActions } from './turn-actions';
 
 // How close to the end still counts as reading the end. Fixed, not a fraction of the
@@ -695,14 +696,9 @@ function ToolCalls({
                 )}
                 <Caret />
               </summary>
-              <div className="flex flex-col gap-1.5 py-2">
+              <div className="flex flex-col gap-1.5 pt-0.5 pb-2">
                 {!open && changed}
-                {call.action?.kubeQuery && (
-                  <FoldedBlock
-                    text={call.action.kubeQuery.sql}
-                    className="border-l-2 border-muted pl-3 font-mono break-all whitespace-pre-wrap"
-                  />
-                )}
+                {call.action?.kubeQuery && <KubeQuery sql={call.action.kubeQuery.sql} output={call.output} />}
                 {call.action?.memory?.op === 'save' && call.status === 'Succeeded' && (
                   <MemoryKept body={call.action.memory.body} />
                 )}
@@ -718,6 +714,7 @@ function ToolCalls({
                     ends={ends}
                   />
                 ) : (
+                  !call.action?.kubeQuery &&
                   (targetInBody || call.output !== '') && (
                     <div className="flex flex-col gap-1.5 rounded-md bg-muted/60 px-3 py-2.5 font-mono leading-4.5">
                       {targetInBody && (

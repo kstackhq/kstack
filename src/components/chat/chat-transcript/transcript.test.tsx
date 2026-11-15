@@ -1829,8 +1829,8 @@ describe('ChatTranscript', () => {
     });
 
     // A query asks no one: it reads as Query with the model's description, and its
-    // body is the SQL, folded, above what the model read.
-    it('draws a KubeQuery call as Query, its description, then its SQL above its output', () => {
+    // body is the SQL above the rows the model read.
+    it('draws a KubeQuery call as Query, its description, then its SQL above its rows', () => {
       const sql = "SELECT namespace, name FROM objects WHERE status = 'CrashLoopBackOff'";
       draw([
         msg({
@@ -1855,7 +1855,8 @@ describe('ChatTranscript', () => {
                 logsWatch: null,
               },
               approval: null,
-              output: '{"cluster":"prod","freshness":{"status":"watching"}}',
+              output:
+                '{"cluster":"prod","freshness":{"status":"watching"},"columns":["namespace","name"],"more":false,"rows":[["default","worker"]]}',
             }),
           ],
         }),
@@ -1864,10 +1865,11 @@ describe('ChatTranscript', () => {
       const head = details.querySelector('summary')!;
       expect(head.querySelector('.font-medium')).toHaveTextContent(/^Query$/);
       expect(head).toHaveTextContent('Pods in a crash loop');
-      const [query, output] = details.querySelectorAll('pre');
-      expect(query).toHaveTextContent(sql);
-      expect(query).toHaveClass('font-mono');
-      expect(output).toHaveTextContent('"cluster":"prod"');
+      const pres = details.querySelectorAll('pre');
+      expect(pres).toHaveLength(1);
+      expect(pres[0]).toHaveTextContent(sql);
+      expect(within(details as HTMLElement).getByRole('cell', { name: 'worker' })).toBeInTheDocument();
+      expect(details).toHaveTextContent('1 row · prod');
       expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
     });
 

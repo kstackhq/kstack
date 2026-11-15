@@ -649,3 +649,32 @@ export function noticesOf(content: unknown): TaskNotice[] {
     ];
   });
 }
+
+/** What a KubeQuery call answered: the cluster it read and the rows. */
+export type QueryResult = {
+  cluster: string;
+  columns: string[];
+  /** Each row's cells as the sidecar rendered them: strings, numbers, null, or JSON. */
+  rows: unknown[][];
+  /** Whether rows were left out past the limit or the answer's size. */
+  more: boolean;
+};
+
+/**
+ * A KubeQuery call's output as rows, or null for any answer that is not rows: an
+ * error, a cache that withheld them, or a result saved to a file. The one reader of
+ * a query's output; the caller draws the output as text when it answers null.
+ */
+export function queryResultOf(output: string): QueryResult | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const { cluster, columns, rows, more } = parsed as Record<string, unknown>;
+  if (!Array.isArray(columns) || !columns.every((c) => typeof c === 'string')) return null;
+  if (!Array.isArray(rows) || !rows.every((r) => Array.isArray(r) && r.length === columns.length)) return null;
+  return { cluster: stringOr(cluster), columns, rows: rows as unknown[][], more: more === true };
+}
