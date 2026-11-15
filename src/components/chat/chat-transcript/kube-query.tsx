@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { HighlightedText } from '@/components/primitives/highlighted-text';
 import { VisibleText } from '@/components/primitives/visible-text';
 import { queryResultOf } from '@/lib/chats';
 import type { QueryResult } from '@/lib/chats';
-import { sqlRuns } from '@/lib/sql-keywords';
 
-// A KubeQuery call's body: its SQL, keywords lit, over the rows it read as a
+// A KubeQuery call's body: its SQL, highlighted, over the rows it read as a
 // table and a footer counting them and naming the cluster. An answer that is not
 // rows (an error, a withheld or saved result) draws as its text. The SQL is the
 // model's and the cells are the cluster's, so both draw through VisibleText.
@@ -26,12 +26,7 @@ export function KubeQuery({ sql, output }: { sql: string; output: string }) {
   return (
     <div className="overflow-hidden rounded-md border border-border">
       <pre className="bg-muted px-3 py-2.5 font-mono leading-4.5 break-all whitespace-pre-wrap text-muted-foreground">
-        {sqlRuns(sql).map((run, i) => (
-          // oxlint-disable-next-line react/no-array-index-key -- runs are a fixed cut of one string
-          <span key={i} className={run.keyword ? 'text-foreground' : undefined}>
-            <VisibleText text={run.text} />
-          </span>
-        ))}
+        <HighlightedText lang="sql" text={sql} />
       </pre>
       {result ? (
         <>

@@ -105,17 +105,6 @@ describe('ObjectYamlView', () => {
     );
   });
 
-  it('stops waiting for the grammar once unmounted', async () => {
-    // A fresh module graph, so the grammar is not loaded yet.
-    vi.resetModules();
-    const { ObjectYamlView: Fresh } = await import('./yaml-view');
-    const { load } = await import('@/lib/highlight');
-    watch([row('Running')]);
-    const { unmount } = render(<Fresh object={POD} />);
-    unmount();
-    await expect(load('yaml')).resolves.toBe(true);
-  });
-
   it('offers no copy before a body has arrived', () => {
     watch([], 'connecting');
     render(<ObjectYamlView object={POD} />);

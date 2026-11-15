@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { KubeQuery } from './kube-query';
@@ -33,15 +33,13 @@ const answer = (over: Record<string, unknown> = {}) =>
   });
 
 describe('KubeQuery', () => {
-  it('lights the keywords of its SQL and leaves the rest muted', () => {
+  it('draws its SQL, highlighted once the grammar arrives', async () => {
     const { container } = render(<KubeQuery sql={SQL} output={answer()} />);
     const pre = container.querySelector('pre')!;
     expect(pre).toHaveTextContent(SQL);
-    expect([...pre.querySelectorAll('.text-foreground')].map((s) => s.textContent)).toEqual([
-      'SELECT',
-      'FROM',
-      'WHERE',
-    ]);
+    await waitFor(() => expect(pre.querySelector('.hljs-string')).toHaveTextContent("'Pod'"));
+    expect([...pre.querySelectorAll('.hljs-keyword')].map((s) => s.textContent)).toEqual(['SELECT', 'FROM', 'WHERE']);
+    expect(pre).toHaveTextContent(SQL);
   });
 
   it('draws the rows under their columns, numbers right-aligned', () => {

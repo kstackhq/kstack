@@ -18,62 +18,16 @@
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { Copy } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 
-import '@/components/primitives/markdown/markdown.css';
-import { VisibleText } from '@/components/primitives/visible-text';
+import { HighlightedText } from '@/components/primitives/highlighted-text';
 import { copyToClipboard } from '@/lib/clipboard';
 import { useClusterCachedDataObjects } from '@/lib/cluster-cached-data-objects';
 import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
-import { highlight, load, loaded } from '@/lib/highlight';
 import type { FocusedObject } from '@/lib/object-view';
 import { objectYaml } from '@/lib/object-yaml';
 
 import { ObjectPanelNote } from './note';
-
-type HastNode = ReturnType<typeof highlight>['children'][number];
-
-// A highlighted tree as React elements, each run of text through VisibleText, since the
-// YAML is the cluster's text.
-function hastToReact(nodes: HastNode[]): ReactNode[] {
-  return nodes.map((node, i) => {
-    if (node.type === 'text') {
-      // oxlint-disable-next-line react/no-array-index-key -- a tree's children are cut afresh and never reorder
-      return <VisibleText key={i} text={node.value} />;
-    }
-    /* v8 ignore next -- highlight.js emits text and spans alone */
-    if (node.type !== 'element') return null;
-    // highlight.js gives every span its classes as a list.
-    const className = node.properties.className as string[];
-    return (
-      // oxlint-disable-next-line react/no-array-index-key -- a tree's children are cut afresh and never reorder
-      <span key={i} className={className.join(' ')}>
-        {hastToReact(node.children)}
-      </span>
-    );
-  });
-}
-
-// Plain until the YAML grammar has arrived, highlighted after.
-function YamlText({ text }: { text: string }) {
-  const [ready, setReady] = useState(() => loaded('yaml'));
-  useEffect(() => {
-    if (ready) return undefined;
-    let live = true;
-    void load('yaml').then((ok) => {
-      if (live) setReady(ok);
-    });
-    return () => {
-      live = false;
-    };
-  }, [ready]);
-  const body = useMemo(
-    () => (ready ? hastToReact(highlight('yaml', text).children) : <VisibleText text={text} />),
-    [ready, text],
-  );
-  return <code>{body}</code>;
-}
 
 export function ObjectYamlView({ object }: { object: FocusedObject }) {
   // Its own connection: the kind's page may already hold the same watch, and a second
@@ -119,7 +73,9 @@ export function ObjectYamlView({ object }: { object: FocusedObject }) {
         </Button>
       </div>
       <pre className="min-h-0 flex-1 overflow-auto p-4 font-mono text-xs">
-        <YamlText text={yaml} />
+        <code>
+          <HighlightedText lang="yaml" text={yaml} />
+        </code>
       </pre>
     </>
   );
