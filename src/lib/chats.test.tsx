@@ -795,6 +795,7 @@ describe('queryResultOf', () => {
     ['a withheld answer', '{"cluster":"prod","freshness":{"status":"unknown"}}'],
     ['a saved result', '<persisted-output>\nOutput too large\n</persisted-output>'],
     ['JSON that is not an object', '[1]'],
+    ['JSON null', 'null'],
     ['a column that is not a name', '{"columns":[1],"rows":[]}'],
     ['a row of another width', '{"columns":["a"],"rows":[["x","y"]]}'],
     ['a row that is not an array', '{"columns":["a"],"rows":["x"]}'],

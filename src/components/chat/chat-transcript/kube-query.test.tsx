@@ -77,6 +77,11 @@ describe('KubeQuery', () => {
     expect(screen.getByText('2 rows · kind-kstack')).toBeInTheDocument();
   });
 
+  it('counts the rows alone when the answer names no cluster', () => {
+    render(<KubeQuery sql={SQL} output={answer({ cluster: '' })} />);
+    expect(screen.getByText('2 rows')).toBeInTheDocument();
+  });
+
   it('says one row, and says when rows were left out', () => {
     const { rerender } = render(<KubeQuery sql={SQL} output={answer({ rows: [['a', 1]] })} />);
     expect(screen.getByText('1 row · kind-kstack')).toBeInTheDocument();
