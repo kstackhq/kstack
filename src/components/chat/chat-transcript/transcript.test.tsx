@@ -1053,6 +1053,14 @@ describe('ChatTranscript', () => {
       expect(screen.queryByText(/Agent launched/)).toBeNull();
     });
 
+    it('draws the brief and no report for an agent that never got a task', () => {
+      draw([msg({ toolCalls: [agent({ status: 'Failed', output: 'launch failed', background: null })] })]);
+
+      const disclosure = screen.getByText('Agent').closest('details')!;
+      expect(within(disclosure).getByText('Count the pods in every namespace.')).toBeInTheDocument();
+      expect(screen.queryByText('twelve')).toBeNull();
+    });
+
     it('draws no report while the agent runs, and a Stop under the call', () => {
       draw([
         msg({
