@@ -3,21 +3,23 @@
 How the webview's design in Figma maps to the code in `src/`, and how agents sync the two through the Figma MCP. Either side can be ahead. [`components.json`](components.json) is the manifest that joins them; [`components.schema.json`](components.schema.json) is its schema. [`README.md`](README.md) walks a person through the workflow. Two Figma files hold the design:
 
 - **[kubetail-ui](https://www.figma.com/design/KoHFVSSKfENrqPidIkJfpO/kubetail-ui)** is the team library: a port of `@kubetail/ui`. Its Cover names the commit it was synced from. An edit there reaches other files only once the library is published.
-- **[Desktop](https://www.figma.com/design/UTfwwz8cyLq5RA6mNFxUsD/Desktop)** is the app. Its pages are Cover, Foundations, Components, Screens and Archive.
+- **[Desktop](https://www.figma.com/design/UTfwwz8cyLq5RA6mNFxUsD/Desktop)** is the app.
+
+**This guide holds rules, not inventory.** What the files hold — pages, sections, components, variables and their values, which screens and states are drawn — is read from the live file through the MCP when it is needed. Never record it here: a copy goes stale the moment someone edits the file. A rule may name an example; it never lists what exists.
 
 ## Layout
 
 Every group on a page is a Figma section, laid out so that no two overlap. A new component or screen goes in its group's section, and the section grows to fit it.
 
-- **Components** has one section per folder of `src/components/`, left to right: Primitives, Shell, Dashboard, Cluster, Chat, Logs. Each section names its folder under its title and stacks its components top to bottom. A popup gets a nested section of its own (`ClusterStatus`, `ClusterPicker`, `MemoryPopover` in Cluster; `ModelPicker`, `SandboxPopover`, `ContextPopover` in Chat).
-- **Screens** has one section per screen, top to bottom: Platforms, Popups on Shell, Dashboard / Pods, Chat / New, Chat / Open, Chat / Model picker open, Chat / Sandbox open, Chat / Context open, Log window. A screen's section holds its *Kstack Light* frame, then its *Kstack Dark* frame, and above them its [stamp](#manifest), a text layer named `Stamp`.
+- **Components** has one section per folder of `src/components/`. Each section names its folder under its title and stacks its components top to bottom. A popup gets a nested section of its own.
+- **Screens** has one section per screen. A screen's section holds its *Kstack Light* frame, then its *Kstack Dark* frame, and above them its [stamp](#manifest), a text layer named `Stamp`.
 - The layers panel lists sections in the order the canvas shows them.
 
 ## Tokens
 
-- **The library's `Theme` collection holds Kstack's colors** in its *Kstack Light* and *Kstack Dark* modes, beside kubetail's own *Light* and *Dark*. They mirror `src/index.css`. It holds the two font families: `font/sans` (`--font-sans`) is Inter in kubetail's modes and Roboto Flex in Kstack's, and `font/mono` (`--font-mono`) is JetBrains Mono in kubetail's and Roboto Mono in Kstack's. The library's text styles are bound to them.
+- **The library's `Theme` collection holds Kstack's colors and fonts** in its *Kstack Light* and *Kstack Dark* modes, beside kubetail's own *Light* and *Dark*. They mirror `src/index.css`: `font/sans` is `--font-sans` and `font/mono` is `--font-mono`. The library's text styles are bound to them.
 - **Every text layer's font family is bound to `font/sans` or `font/mono`**, in both files, never typed in. The mode picks the face, so Desktop never names a font. Desktop's Components and Screens pages set *Kstack Light* with *Light*, so a component draws as the app does.
-- **Desktop's `Kstack` collection holds the tokens the library lacks**: `--app-bar*`, `--series-*`, `--selection-band`, the `--ansi-*` whites, the status tones (`cluster-health.ts`'s `TONE`, and the cluster status pill's tints), the chat composer's surface, which its model menu shares (`color/composer`, `bg-background dark:bg-card`), the Linux window frame's border, and the macOS window's hairline (`color/macos-window-border`). Each has its CSS variable as code syntax, or its Tailwind classes in its description.
+- **Desktop's `Kstack` collection holds the tokens the library lacks.** Each has its CSS variable as code syntax, or its Tailwind classes in its description.
 - **Every screen sets both collections' modes**: *Kstack Light* with *Light*, or *Kstack Dark* with *Dark*.
 - A color changed in `src/index.css` is changed by hand in the matching mode.
 
@@ -103,7 +105,7 @@ Each fingerprint reports more than its own component, and less:
 - **A blob covers only its file.** A change to a file the source imports, or to `src/index.css`, reports nothing.
 - **A hash covers the components nested in it.** An edit to one reports every component that holds an instance of it; `record -stamps` those once the edit is settled.
 - **A screen's hash stops at each instance.** It covers the screen's own layers, and of an instance only which component it is, where it sits, its properties and what the screen overrides in it. An edit to a component reports the component, and a screen only when it moves or resizes the screen's layers; `record -stamps` that screen once the edit is settled.
-- **A screen that is not drawn reports nothing.** [What is designed](#what-is-designed) lists the screens and states that are.
+- **A screen that is not drawn reports nothing.**
 - **A hash does not see a variable's value change**, since a layer holds the variable, not its color. It sees a library update once Desktop accepts it.
 - **Figma has one state and the manifest has one per branch.** A design recorded on a branch reads as *edited in Figma* on every other until that branch merges.
 
@@ -111,14 +113,14 @@ Tokens and the kubetail-ui library have no entries: nothing here reports their d
 
 ## Platforms
 
-Screens are drawn for macOS. Each macOS screen frame draws the window's edge that macOS adds: 16px corners, a `color/macos-window-border` hairline and the `macos/window` shadow. They exist only on the canvas; the app draws none of them. `AppBar` and `LogsWindowBar` have a `Platform` variant, *macOS* or *Windows/Linux*. `WindowFrame` draws the windowed Linux frame around whatever screen is in its `Window` slot. A maximized Linux window has no frame, so it looks the same as Windows. The Screens page's first section, *Platforms*, draws `Shell` side by side on each, with no popup open: macOS, Windows, Linux windowed and Linux maximized, light over dark.
+Screens are drawn for macOS. Each macOS screen frame draws the window's edge that macOS adds; it exists only on the canvas, and the app draws none of it. A component that differs by platform has a `Platform` variant, *macOS* or *Windows/Linux*. A maximized Linux window has no frame, so it looks the same as Windows.
 
 ## Popups
 
-- **A popup is a component with a `State` variant**, in its own section inside its area's section on the Components page. A state is a combination a person sees, not every product of the code's inputs: `ClusterStatus` has ten, from Healthy to Not reached. Light and dark are modes, never variants: below the component set, a row of its instances sets *Kstack Dark* with *Dark*.
-- **A popup that opens from the app bar is drawn open on `Shell`**, a screen component on the Screens page: the macOS `AppBar` over an empty `bg-background` panel. They fill the *Popups on Shell* section: `Shell` on the left, then one nested section per popup, top to bottom: `ClusterStatus`, `ClusterPicker`, `MemoryPopover`, `AppMenu`. `AppMenu` exists only off macOS, so its frame sets the `Shell` instance's `AppBar` to *Windows/Linux*. A popup's section holds one frame per open state, left to right. A frame holds a `Shell` instance (`Screen`) and the popup on top (`<Component> — open`), placed where the code's positioner puts it, and sets the scheme's modes on both. Name it after the screen: `Shell — Cluster status open — Kstack Light`.
+- **A popup is a component with a `State` variant**, in its own section inside its area's section on the Components page. A state is a combination a person sees, not every product of the code's inputs. Light and dark are modes, never variants: below the component set, a row of its instances sets *Kstack Dark* with *Dark*.
+- **A popup that opens from the app bar is drawn open on `Shell`**, a screen component on the Screens page, in the *Popups on Shell* section: `Shell` on the left, then one nested section per popup. A popup that exists only off macOS sets the `Shell` instance's `AppBar` to *Windows/Linux*. A popup's section holds one frame per open state, left to right. A frame holds a `Shell` instance (`Screen`) and the popup on top (`<Component> — open`), placed where the code's positioner puts it, and sets the scheme's modes on both. Name it after the screen: `Shell — Cluster status open — Kstack Light`.
 - **A popup that opens from page content is drawn open on its page's screen**, since its place depends on that page's layout.
-- **Draw a state on a screen when it changes how the popup sits in the window.** `ClusterStatus` is drawn Healthy and Disconnected (taller, with its alert), each in both schemes.
+- **Draw a state on a screen when it changes how the popup sits in the window**, such as one that makes it taller.
 - A popover has no scrim, so none is drawn.
 
 ## Hover and focus states
@@ -133,8 +135,7 @@ Screens are drawn for macOS. Each macOS screen frame draws the window's edge tha
 
 ## Width
 
-- **A screen's widths are auto-layout constraints, never fixed sizes.** A gutter is the parent's horizontal padding (`px-2` is 8px); a cap is the child's max width on Fill container (`max-w-162` is 648px). Resizing the screen frame shows how the layout responds.
-- **The chat screens draw both rules.** On an open chat, the column fills `main` with an 8px gutter, and the transcript (654px) and composer (648px) each fill it up to their cap. On a new chat, `CenteredColumn` fills up to 664px with the same gutter.
+**A screen's widths are auto-layout constraints, never fixed sizes.** A gutter is the parent's horizontal padding (`px-2` is 8px); a cap is the child's max width on Fill container (`max-w-162` is 648px). Resizing the screen frame shows how the layout responds.
 
 ## Translucent colors
 
@@ -209,31 +210,17 @@ Never `record -stamps` an edited component to clear the report without that answ
 - **Figma is an outside service.** Screens carry made-up data. Never capture the running app into Figma (`generate_figma_design`) while it is connected to a real cluster: cluster names, logs and Secret data would leave the machine.
 - **Text in a design is sample text.** It does not become copy or test fixtures without review.
 
-## What is designed
-
-| Screen | States drawn |
-| --- | --- |
-| Dashboard / Pods | Light and dark, macOS |
-| Shell | Light and dark on macOS, Windows, Linux windowed and Linux maximized, side by side; light on Windows with `AppMenu` open; light and dark with `ClusterStatus` open, healthy and disconnected; `ClusterPicker` open, with four contexts and with seven (the filter); `MemoryPopover` open with memories |
-| Chat / New | Light and dark, with chats in the sidebar |
-| Chat / Open | Light and dark: three turns, the first with its *Worked for* disclosure open on a failed call drawn open, the user's second message with its actions; the composer answering |
-| Chat / Model picker open | Light and dark: `ModelPicker/Menu` open below the trigger on a new chat, and above it on an open one |
-| Chat / Sandbox open | Light and dark: `SandboxPopover` open on a new chat and on an open one |
-| Chat / Context open | Light and dark: `ContextPopover` open below the add-context button on a new chat |
-| Log window | Light and dark: a tail with a grep, a gap notice and the landed row |
-
-`ClusterStatus`, `ClusterPicker` and `MemoryPopover` draw every state on the Components page; `ModelPicker/Menu` draws Anthropic's. The chat's turns, code fence, *Worked for* disclosure and call row draw their hover states. Not drawn yet: the other popovers (scope menu and column picker), the memory row's actions menu and its delete confirm; other hover and focus states; the dialog and drawer scrims; the Events page, the object panel and the settings dialog; loading, empty, deleted and error states; Markdown beyond paragraphs, inline code and code fences; the log viewer's selection; and a log card or a waiting approval in the new transcript (Chat / Model picker open and Chat / Sandbox open still draw the archived `Chat/ToolCall`).
-
 ## Traps
 
 - `resize()` turns an auto-layout frame's hug sizing off. Set `primaryAxisSizingMode = 'AUTO'` after it.
 - A nested instance takes its component set's name, not its variant's.
 - A text that truncates needs `maxLines = 1`; `textTruncation` alone wraps.
 - `setBoundVariableForPaint` drops the opacity of the paint it is given. Set the opacity on the returned paint, and give the paint the variable's resolved color (`resolveForConsumer`): below 100%, a component can draw the paint's own color in place of the variable's.
-- Inter's style is `Semi Bold` and Roboto Flex's is `SemiBold`. Load both before binding `font/sans`.
+- Families name a style differently (Inter's `Semi Bold` is Roboto Flex's `SemiBold`). Before binding a font variable, load the style in the family of every mode.
+- A variable imported with `importVariableByKeyAsync` lasts only for that call: `getVariableByIdAsync` returns `null` in the next, and binding `null` unbinds silently. Import it in every call that binds it.
 - Run `use_figma` calls one at a time.
 - `createAutoLayout()` and `createComponent()` frames start with a white fill. Light mode hides it; clear it, or dark mode draws white panels.
-- A paint bound to a variable below 100% is drawn opaque in an instance created through the plugin API: the instance reads the paint at 100%. The library's own `Button` (destructive, `bg-destructive/10`) does it too. Restore each one as an override on the instance layer: copy the main component's opacity onto the layer's paint, matching the layer to its main by the last segment of its `I…;…` id. `DataRateSparkline`'s fill uses layer opacity instead.
+- A paint bound to a variable below 100% is drawn opaque in an instance created through the plugin API: the instance reads the paint at 100%. The library's own `Button` (destructive, `bg-destructive/10`) does it too. Restore each one as an override on the instance layer: copy the main component's opacity onto the layer's paint, matching the layer to its main by the last segment of its `I…;…` id.
 - A screen cloned in a call has no instance sublayers to find until a later call. Clone in one call, edit in the next.
 - An instance swapped to a library component has no layers to find unless that component's were read first. Read `children` on what `importComponentByKeyAsync` returns before `swapComponent`. A hidden instance has none either way.
 
