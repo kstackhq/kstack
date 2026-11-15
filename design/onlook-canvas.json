@@ -1,0 +1,69 @@
+{
+  "format": "onlook-canvas-manifest",
+  "version": 1,
+  "description": "Portable canvas record for recreation through Onlook's canvas tools. This is not a native Onlook import format.",
+  "baseUrl": "http://localhost:1430",
+  "restoreInstructions": [
+    "Open this repository in the destination Onlook instance and start the app using that instance's project setup.",
+    "Read this manifest and list the destination canvas pages and frames before making changes.",
+    "Create new canvas pages in the recorded order; do not delete or overwrite existing pages. Map each manifest page key to its newly created page ID.",
+    "For each frame, create a browser frame on its mapped page using name, x, y, and the running app's base URL plus path. Resize it to width and height with move_frame. Create frames in stack order.",
+    "The path records the frame's configured address. When currentPath differs, navigate the frame to that path after creation to restore the captured view while keeping its configured address.",
+    "Use the destination app's actual host and port instead of assuming localhost:1430. Preserve query strings.",
+    "Verify all restored frames with list_frames. Report their links. Repeating this restore creates additional pages unless the user requests reconciliation."
+  ],
+  "pages": [
+    {
+      "key": "page-1",
+      "name": "Page 1",
+      "frames": [
+        {
+          "name": "Chat",
+          "path": "/",
+          "currentPath": "/chat/chat-1",
+          "x": 0,
+          "y": 0,
+          "width": 1512,
+          "height": 982,
+          "stack": 0
+        },
+        {
+          "name": "Dashboard",
+          "path": "/dashboard?resource=pods",
+          "currentPath": "/dashboard?resource=pods",
+          "x": 1612,
+          "y": 0,
+          "width": 1512,
+          "height": 982,
+          "stack": 1
+        },
+        {
+          "name": "Chat dark",
+          "path": "/chat/chat-1?colorScheme=dark",
+          "currentPath": "/chat/chat-1?colorScheme=dark",
+          "x": 0,
+          "y": 1142,
+          "width": 1512,
+          "height": 982,
+          "stack": 2
+        }
+      ]
+    },
+    {
+      "key": "page-2",
+      "name": "Page 2",
+      "frames": [
+        {
+          "name": "localhost:1430",
+          "path": "/",
+          "currentPath": "/chat",
+          "x": 390.1230706463805,
+          "y": -18.9952871068717,
+          "width": 1512,
+          "height": 982,
+          "stack": 0
+        }
+      ]
+    }
+  ]
+}
