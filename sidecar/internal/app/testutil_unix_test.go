@@ -349,6 +349,19 @@ func (e *e2e) bashCallWithin(t *testing.T, within time.Duration, want ...string)
 	return row
 }
 
+// lastBashResult waits for the app's latest finished Bash call to hold text
+// in its result, and answers the result.
+func (e *e2e) lastBashResult(t *testing.T, text string) string {
+	t.Helper()
+	var result string
+	require.Eventually(t, func() bool {
+		err := e.db.QueryRow(`SELECT coalesce(result, '') FROM tool_calls WHERE tool_name = 'Bash' AND status IN ('succeeded', 'failed')
+			ORDER BY started_at DESC LIMIT 1`).Scan(&result)
+		return err == nil && strings.Contains(result, text)
+	}, e2eConverge, 10*time.Millisecond, "a Bash result holding %q", text)
+	return result
+}
+
 // writeRow is a cluster write's approval as the test reads it: its id, its
 // status and the request it holds.
 type writeRow struct {
