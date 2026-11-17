@@ -257,7 +257,9 @@ write timeout, which would cut a watch.
   `Enter` false and cancels what `Enter` let in; `Wait` joins it. `Challenge` answers 407 when
   `Limits.Challenges`, else 401.
 - `Body` reads a body in one of `Limits.Bodies` slots (403 encoded, 429 none free, 413 past 1 MiB);
-  `Slot` takes a slot, then the limiter; `Outbound` never copies `Authorization` or
+  `Slot` takes a slot, then the limiter; `BodyRefusal` and `SlotRefusal` word their statuses; `IsForm` reads a form's type;
+  `Upgrades` reads an `Upgrade` header, even an empty one, and the `Connection` list, for the
+  run's door and `kubeproxy` alike; `Outbound` never copies `Authorization` or
   `Proxy-Authorization`.
 - **`Decide` is the one ask path**: it keeps `Class` and `Summary` alone, stamps the target,
   refuses with no asker and a request that cannot be shown (not UTF-8 with no `Unshown`, a query

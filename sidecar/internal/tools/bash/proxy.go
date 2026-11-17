@@ -28,11 +28,13 @@ import (
 )
 
 // A run's grant takes 20 requests a second past a burst of 50, and holds at
-// most 32 open at once.
+// most 32 open at once; a cloud platform's also holds at most 16 request
+// bodies.
 const (
 	proxyQPS         = 20
 	proxyBurst       = 50
 	proxyMaxInFlight = 32
+	proxyBodies      = 16
 )
 
 // runProxy is a sandboxed run's door: one listener and one server on the
@@ -165,6 +167,10 @@ func (p *runProxy) end() {
 	}
 }
 
+// refusedUpgrade is the door's answer to a cloud platform's request that asks for a
+// stream past HTTP.
+const refusedUpgrade = "kstack: the sandbox does not upgrade a connection to a cloud platform"
+
 // door routes each request of a run by its Host to that route's handler, and
 // answers anything else as the cluster's grant answers a request it does not
 // hold: an unknown host, a CONNECT, a cloud platform whose switch is off. It
@@ -207,6 +213,13 @@ func (d *door) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	route, ok := d.routes[r.Host]
 	if !ok || r.Method == http.MethodConnect || route.target != permissions.Cluster && !d.on(route.target) {
 		kubeproxy.Unauthorized(w)
+		return
+	}
+	// No cloud platform's proxy forwards a stream past HTTP, so none is asked to
+	// remember refusing one. The cluster's grant refuses its own, in the
+	// API server's shape kubectl prints.
+	if route.target != permissions.Cluster && runproxy.Upgrades(r.Header) {
+		http.Error(w, refusedUpgrade, http.StatusForbidden)
 		return
 	}
 	route.handler.ServeHTTP(w, r)

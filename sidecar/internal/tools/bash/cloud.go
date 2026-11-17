@@ -53,6 +53,10 @@ type CloudMount struct {
 	Grant  *runproxy.Grant // required: the run ends it
 }
 
+// cloudLimits bound each cloud platform's grant; one whose client sends proxy
+// credentials only once asked sets Challenges on a copy.
+var cloudLimits = runproxy.Limits{QPS: proxyQPS, Burst: proxyBurst, Open: proxyMaxInFlight, Bodies: proxyBodies}
+
 // Route is one Host on the run's door, and its handler.
 type Route struct {
 	Host    string

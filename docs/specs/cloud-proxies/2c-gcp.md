@@ -35,7 +35,9 @@ request.
   (`tools/bash/prompts/sandbox.md`). No build writes that key yet.
 - **Step 1 built the shared pieces and no cloud platform.** `sandbox.gcp` exists and is off, and
   `permissions.GCP` is a `Target`. `app/runtime.go` hands `bash.New` a `bash.Cloud` whose
-  `Platforms` is `Config.cloudPlatforms`: none in production, a test's fake otherwise. The
+  `Platforms` is
+  `cloudPlatformsFor`'s: the build's list, `builtCloudPlatforms` (`app/cloudplatforms_unix.go`), or a
+  test's `Config.cloudPlatforms` in its place, and none on a machine with no sandbox. The
   wire lists a switch per cloud platform of that list, and Settings draws none yet
   ([`TODO.md`](../../TODO.md), *Draw each cloud platform's switch in Settings*).
 - **Google's name and refusals are written.** `tools/bash/cloud.go` holds *Google Cloud*
@@ -316,9 +318,7 @@ stand for the bytes and leave the rest enough to approve
 list, not beside it.
 
 `Mount` builds the grant, `runproxy.NewGrant(permissions.GCP, run.Session, run.Asker,
-run.Refusal, limits)`, the handler over it, a route per table row and §3's rows. The limits are
-`tools/bash/proxy.go`'s `proxyQPS`, `proxyBurst` and `proxyMaxInFlight`, and 16 bodies, a
-constant beside them that the first cloud platform built adds. It adds nothing to `settings`:
+run.Refusal, limits)`, the handler over it, a route per table row and §3's rows. The limits are `cloudLimits` (`tools/bash/cloud.go`). It adds nothing to `settings`:
 `sandbox.gcp` exists, off by default.
 
 **Google's line of the switch's confirm** is *Log entries are read without asking; an object's

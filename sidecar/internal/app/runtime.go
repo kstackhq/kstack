@@ -171,13 +171,14 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
 
 	pathList := func() settings.RunPath { return settingsStore.Get().RunPath() }
-	shell, found := bash.New(p.Bash, cfg.HostPID, sb, rt.Cluster, pathList, bash.Cloud{Platforms: cfg.cloudPlatforms, On: settingsStore.CloudOn})
+	platforms := cloudPlatformsFor(probed, cfg.cloudPlatforms)
+	shell, found := bash.New(p.Bash, cfg.HostPID, sb, rt.Cluster, pathList, bash.Cloud{Platforms: platforms, On: settingsStore.CloudOn})
 	if found && cfg.callDeadline != nil {
 		shell.SetCallDeadline(cfg.callDeadline)
 	}
 	rt.Shell = shell
 	rt.SandboxStatus = sandboxStatusOf(found, probed)
-	rt.CloudTargets = cloudTargets(cfg.cloudPlatforms)
+	rt.CloudTargets = cloudTargets(platforms)
 	rt.Settings = newSettingsService(settingsStore, boxer, shell, rt.SandboxStatus, p.Bash.DeniedDirs, login.fault, p.Bash.TmpDir)
 
 	rt.Memory, err = memory.New(db, serverUIDLookup{clusters: rt.Cluster.Clusters()})
@@ -258,6 +259,19 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		Logs:          rt.Logs,
 		CloudTargets:  rt.CloudTargets,
 	}
+}
+
+// cloudPlatformsFor is the cloud platforms a sandboxed run may reach: the
+// build's, or a test's in their place. A machine with no sandbox has none, so
+// it offers no switch.
+func cloudPlatformsFor(status sandbox.Status, configured []bash.CloudPlatform) []bash.CloudPlatform {
+	switch {
+	case !status.Available:
+		return nil
+	case configured != nil:
+		return configured
+	}
+	return builtCloudPlatforms()
 }
 
 // cloudTargets is each cloud platform's target, in the build's order.

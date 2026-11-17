@@ -143,18 +143,10 @@ func (g *Grant) Decide(ctx context.Context, req Request, forward func() error) O
 	}
 	release, status := g.Slot(ctx)
 	if status != 0 {
-		return refused(status, slotRefusal(status))
+		return refused(status, SlotRefusal(status))
 	}
 	defer release()
 	return Outcome{Forwarded: true, Err: forward()}
-}
-
-// slotRefusal is the message for a status Slot answered.
-func slotRefusal(status int) string {
-	if status == http.StatusTooManyRequests {
-		return refusedOpen
-	}
-	return unauthorized
 }
 
 // unshowable is why s cannot be put to the user, or "": a body that is not
@@ -169,7 +161,7 @@ func unshowable(s Sent) string {
 	if _, err := url.ParseQuery(query); err != nil {
 		return refusedQuery
 	}
-	if s.Unshown == "" && isForm(s.ContentType) {
+	if s.Unshown == "" && IsForm(s.ContentType) {
 		if _, err := url.ParseQuery(string(s.Body)); err != nil {
 			return refusedForm
 		}
@@ -177,9 +169,9 @@ func unshowable(s Sent) string {
 	return ""
 }
 
-// isForm is whether contentType names a URL-encoded form, read as leniently as
+// IsForm is whether contentType names a URL-encoded form, read as leniently as
 // a cloud platform reads it: parameters and case ignored.
-func isForm(contentType string) bool {
+func IsForm(contentType string) bool {
 	mediaType, _, _ := strings.Cut(contentType, ";")
 	return strings.EqualFold(strings.TrimSpace(mediaType), "application/x-www-form-urlencoded")
 }

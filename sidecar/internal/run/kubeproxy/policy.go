@@ -19,6 +19,8 @@ import (
 	"net/url"
 	"path"
 	"strings"
+
+	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 )
 
 // refusal is why the policy refuses a request, in the words the client prints;
@@ -121,15 +123,8 @@ func isSelfReview(p apiPath) bool {
 
 // reaches is whether h asks for a stream past HTTP, or to act as someone else.
 func reaches(h http.Header) bool {
-	if h.Get("Upgrade") != "" {
+	if runproxy.Upgrades(h) {
 		return true
-	}
-	for _, v := range h.Values("Connection") {
-		for token := range strings.SplitSeq(v, ",") {
-			if strings.EqualFold(strings.TrimSpace(token), "upgrade") {
-				return true
-			}
-		}
 	}
 	for name := range h {
 		if strings.HasPrefix(http.CanonicalHeaderKey(name), "Impersonate-") {

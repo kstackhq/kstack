@@ -42,7 +42,9 @@ Step 1's [*What is true now*](1-shared-pieces.md#what-is-true-now) holds. Azure 
   there.
 - **Step 1 built the shared pieces and no cloud platform.** `sandbox.azure` exists and is off, and
   `permissions.Azure` is a `Target`. `app/runtime.go` hands `bash.New` a `bash.Cloud` whose
-  `Platforms` is `Config.cloudPlatforms`: none in production, a test's fake otherwise. The
+  `Platforms` is
+  `cloudPlatformsFor`'s: the build's list, `builtCloudPlatforms` (`app/cloudplatforms_unix.go`), or a
+  test's `Config.cloudPlatforms` in its place, and none on a machine with no sandbox. The
   wire lists a switch per cloud platform of that list, and Settings draws none yet
   ([`TODO.md`](../../TODO.md), *Draw each cloud platform's switch in Settings*).
 - **Azure's name and refusals are written.** `tools/bash/cloud.go` holds *Azure*
@@ -218,9 +220,7 @@ name `azure`, with no other change. A test's `Config.cloudPlatforms` stands in p
 built list, not beside it. Who gets a grant is [step 1's](1-shared-pieces.md#4-the-gate).
 
 `Mount` builds the grant, `runproxy.NewGrant(permissions.Azure, run.Session, run.Asker,
-run.Refusal, limits)`, with no challenge. The limits are `tools/bash/proxy.go`'s `proxyQPS`,
-`proxyBurst` and `proxyMaxInFlight`, and 16 bodies, a constant beside them that the first
-cloud platform built adds. It returns the TLS route, the grant, and the variables below.
+run.Refusal, limits)`, with no challenge. The limits are `cloudLimits` (`tools/bash/cloud.go`). It returns the TLS route, the grant, and the variables below.
 
 `run/azureproxy` imports `runproxy`, `permissions` and `session`, and nothing of `tools` or
 `services`. It reaches the service through two interfaces of its own, `Accounts` and `Tokens`.

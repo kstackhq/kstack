@@ -26,9 +26,11 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -211,6 +213,46 @@ func (g *Grant) Slot(ctx context.Context) (release func(), status int) {
 		return func() {}, http.StatusUnauthorized
 	}
 	return func() { g.open.Release(1) }, 0
+}
+
+// BodyRefusal is the message for a status Body answered.
+func BodyRefusal(status int) string {
+	switch status {
+	case http.StatusForbidden:
+		return "kstack: the sandbox does not send an encoded body"
+	case http.StatusTooManyRequests:
+		return "kstack: too many request bodies are being read at once. Send one at a time."
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Sprintf("kstack: the sandbox does not send a body past %d MiB", maxBody>>20)
+	case http.StatusBadRequest:
+		return "kstack: the request's body did not arrive whole"
+	}
+	return "kstack: the request's body was refused"
+}
+
+// Upgrades is whether h asks for a stream past HTTP, which no cloud
+// platform's proxy forwards: an Upgrade header, even an empty one, or a
+// Connection list naming one.
+func Upgrades(h http.Header) bool {
+	if _, ok := h["Upgrade"]; ok {
+		return true
+	}
+	for _, v := range h.Values("Connection") {
+		for token := range strings.SplitSeq(v, ",") {
+			if strings.EqualFold(strings.TrimSpace(token), "upgrade") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// SlotRefusal is the message for a status Slot answered.
+func SlotRefusal(status int) string {
+	if status == http.StatusTooManyRequests {
+		return refusedOpen
+	}
+	return unauthorized
 }
 
 // Outbound is the headers a cloud platform forwards: those of in that allowed

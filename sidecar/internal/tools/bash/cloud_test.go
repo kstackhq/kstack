@@ -63,7 +63,7 @@ func (p *fakePlatform) Mount(_ context.Context, run CloudRun) (CloudMount, error
 	if p.err != nil {
 		return CloudMount{}, p.err
 	}
-	g := runproxy.NewGrant(p.target, run.Session, run.Asker, run.Refusal, runproxy.Limits{QPS: 1000, Burst: 1000, Open: 8, Bodies: 8})
+	g := runproxy.NewGrant(p.target, run.Session, run.Asker, run.Refusal, cloudLimits)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !g.Holds(r.Header.Get(tokenHeader)) {
 			g.Challenge(w)

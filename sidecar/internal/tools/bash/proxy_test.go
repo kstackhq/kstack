@@ -71,6 +71,30 @@ func TestTheDoorRoutesByHost(t *testing.T) {
 	}
 }
 
+// A cloud platform's request asking for a stream past HTTP is refused at the
+// door, before its proxy; the cluster's goes to its grant, which refuses it
+// itself.
+func TestTheDoorRefusesACloudPlatformsUpgrade(t *testing.T) {
+	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
+	cluster := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "cluster") })
+	d, err := newDoor(cluster, []CloudMount{aws}, switchesOn(permissions.AWS).On)
+	require.NoError(t, err)
+	for _, h := range []http.Header{{"Upgrade": {"websocket"}}, {"Connection": {"keep-alive, Upgrade"}}} {
+		r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:6443/x", nil)
+		r.Header = h.Clone()
+		r.Header.Set(tokenHeader, aws.Grant.Token())
+		w := httptest.NewRecorder()
+		d.ServeHTTP(w, r)
+		assert.Equal(t, http.StatusForbidden, w.Code, h)
+		assert.Contains(t, w.Body.String(), refusedUpgrade, h)
+	}
+	r := httptest.NewRequest(http.MethodGet, "http://cluster.kstack.invalid/x", nil)
+	r.Header.Set("Upgrade", "SPDY/3.1")
+	w := httptest.NewRecorder()
+	d.ServeHTTP(w, r)
+	assert.Equal(t, "cluster", w.Body.String())
+}
+
 // A run with no cluster still answers the cluster's host 401.
 func TestTheDoorWithNoClusterRefusesItsHost(t *testing.T) {
 	d, err := newDoor(nil, []CloudMount{mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))}, switchesOn(permissions.AWS).On)

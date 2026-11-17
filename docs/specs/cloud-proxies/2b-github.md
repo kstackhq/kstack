@@ -27,7 +27,9 @@ Each line is read from the code, beyond what step 1 lists.
 - **`gqlparser` is a dependency** (`sidecar/go.mod`), used by the wire.
 - **Step 1 built the shared pieces and no cloud platform.** `sandbox.github` exists and is off, and
   `permissions.GitHub` is a `Target`. `app/runtime.go` hands `bash.New` a `bash.Cloud` whose
-  `Platforms` is `Config.cloudPlatforms`: none in production, a test's fake otherwise. The
+  `Platforms` is
+  `cloudPlatformsFor`'s: the build's list, `builtCloudPlatforms` (`app/cloudplatforms_unix.go`), or a
+  test's `Config.cloudPlatforms` in its place, and none on a machine with no sandbox. The
   wire lists a switch per cloud platform of that list, and Settings draws none yet
   ([`TODO.md`](../../TODO.md), *Draw each cloud platform's switch in Settings*).
 - **GitHub's name and refusals are written.** `tools/bash/cloud.go` holds *GitHub*
@@ -345,9 +347,7 @@ service.
 
 - `Target` is `permissions.GitHub`.
 - `Mount` builds the grant, `runproxy.NewGrant(permissions.GitHub, run.Session, run.Asker,
-  run.Refusal, limits)`, with `Challenges` set. The limits are `tools/bash/proxy.go`'s
-  `proxyQPS`, `proxyBurst` and `proxyMaxInFlight`, and 16 bodies, a constant beside them that
-  the first cloud platform built adds. It writes the two files of
+  run.Refusal, limits)`, with `Challenges` set. The limits are `cloudLimits` (`tools/bash/cloud.go`). It writes the two files of
   [§1](#1-the-hosts-and-how-git-and-gh-reach-them) under `run.Dir`, and returns the two
   routes, the variables and the grant.
 - `app/runtime.go` puts GitHub in the `bash.Cloud.Platforms` it hands `bash.New`. `cloudTargets`

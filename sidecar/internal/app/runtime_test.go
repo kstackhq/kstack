@@ -90,6 +90,17 @@ func TestCloudTargetsKeepTheBuildsOrder(t *testing.T) {
 	assert.Empty(t, cloudTargets(nil))
 }
 
+// With a sandbox the cloud platforms are the build's, or a test's in their
+// place; without one there are none.
+func TestCloudPlatformsNeedASandbox(t *testing.T) {
+	sandboxed := sandbox.Status{Available: true}
+	configured := []bash.CloudPlatform{targetOnly(permissions.AWS)}
+	assert.Equal(t, cloudTargets(builtCloudPlatforms()), cloudTargets(cloudPlatformsFor(sandboxed, nil)))
+	assert.Equal(t, []permissions.Target{permissions.AWS}, cloudTargets(cloudPlatformsFor(sandboxed, configured)))
+	assert.Empty(t, cloudPlatformsFor(sandbox.Status{Reason: "no bwrap"}, nil))
+	assert.Empty(t, cloudPlatformsFor(sandbox.Status{}, configured))
+}
+
 // targetOnly is a cloud platform that names its target and mounts nothing.
 type targetOnly permissions.Target
 

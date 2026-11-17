@@ -18,6 +18,23 @@ per step; its steps need step 1 alone and can be built at the same time.
 The sequence lands once, when its last step is built. Step 2D opens with a spike; if it fails,
 that step is retired unbuilt and the sequence lands without it.
 
+## What wave 2's steps share
+
+Each step uses these as they are and adds none of its own:
+
+- **The list.** A step adds its cloud platform to `builtCloudPlatforms`
+  (`app/cloudplatforms_unix.go`), in `PermissionTarget`'s order, and nothing to `runtime.go`.
+- **The grant's limits.** `cloudLimits` (`tools/bash/cloud.go`); a step that needs `Challenges`
+  sets it on a copy.
+- **A run's file.** `writeNew` (`tools/bash/rundir.go`).
+- **Refusals.** `runproxy.BodyRefusal` and `runproxy.SlotRefusal` word the statuses `Body` and
+  `Slot` answer. The door refuses a cloud platform's upgrade, so no proxy checks for one.
+- **Words.** AWS, GitHub, Google Cloud and Azure are *cloud platforms*: `CloudPlatform` in Go,
+  "cloud platform" in prose. A bare "platform" is an OS, and a "provider" is a model's.
+
+A step that is built deletes its spec and its row above, and edits no other step's spec
+([`../README.md`](../README.md)).
+
 ## The sequence's gate
 
 Each step has its own integration gate. The sequence has one more, run once the last step is

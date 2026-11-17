@@ -750,7 +750,8 @@ function SandboxActionLines({ call }: { call: ChatToolCall }) {
         let line = a.action?.summary ?? '';
         if (cluster) line = `${cluster.method} ${cluster.path}`;
         if (cloud) line = `${cloud.method} ${cloud.host}${cloud.path}`;
-        const tag = target === 'Cluster' ? sandboxActionTag(a) : `${CLOUD_PLATFORM_NAMES[target]} · ${sandboxActionTag(a)}`;
+        const tag =
+          target === 'Cluster' ? sandboxActionTag(a) : `${CLOUD_PLATFORM_NAMES[target]} · ${sandboxActionTag(a)}`;
         return (
           <li key={a.approval.id}>
             <span className="font-mono break-all">

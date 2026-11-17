@@ -33,7 +33,9 @@ Each line is read from the code, with step 1 built.
   `cloud` names its cloud platform.** No build writes that key yet.
 - **Step 1 built the shared pieces and no cloud platform.** `sandbox.aws` exists and is off, and
   `permissions.AWS` exists. `app/runtime.go` hands `bash.New` a `bash.Cloud` whose `Platforms`
-  is `Config.cloudPlatforms`: none in production, a test's fake otherwise. The wire lists a
+  is
+  `cloudPlatformsFor`'s: the build's list, `builtCloudPlatforms` (`app/cloudplatforms_unix.go`), or a
+  test's `Config.cloudPlatforms` in its place, and none on a machine with no sandbox. The wire lists a
   switch per cloud platform of that list, and Settings draws none yet
   ([`TODO.md`](../../TODO.md), *Draw each cloud platform's switch in Settings*).
 - **AWS's name and refusals are written.** `tools/bash/cloud.go` holds *AWS* (`platformNames`)
@@ -88,9 +90,7 @@ place of the built list, not beside it: step 1's `fakeCloud` (`app/app_unix_test
   [the door](1-shared-pieces.md#1-the-door) keeps for AWS. `AWS_ENDPOINT_URL` is dialled
   directly, so the client's `Host` is the loopback authority.
 - **One grant**, `runproxy.NewGrant(permissions.AWS, run.Session, run.Asker, run.Refusal,
-  limits)`, with no challenge. The limits are `tools/bash/proxy.go`'s `proxyQPS`, `proxyBurst`
-  and `proxyMaxInFlight`, and 16 bodies, a constant beside them that the first cloud platform built
-  adds.
+  limits)`, with no challenge. The limits are `cloudLimits` (`tools/bash/cloud.go`).
 - **Six variables**, every value from the mount:
 
   | Variable | Value |
