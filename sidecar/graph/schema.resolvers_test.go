@@ -2277,17 +2277,20 @@ func TestAMessageCarriesItsToolCalls(t *testing.T) {
 	}}, frame["message"].(map[string]any)["toolCalls"])
 }
 
-// A call carries its cluster writes in the order asked: one that waits with its
-// body and subresource, one decided or abandoned, and a pending one on a call no
-// longer running, with neither body nor media type.
-func TestToolCallCarriesItsClusterWrites(t *testing.T) {
+// A call carries its sandbox actions in the order asked, a cluster's and a
+// provider's in one list: one that waits with its body and subresource, one
+// decided or abandoned, and a pending one on a call no longer running, with
+// neither body nor media type.
+func TestToolCallCarriesItsSandboxActions(t *testing.T) {
 	srv, db, fake := newChatServerOver(t)
 	fake.SetToolCalls(llm.StagedCall("Bash", `{"command":"kubectl delete pod x"}`))
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
-		message { seq status toolCalls { clusterWrites { approval { id status } method path subresource contentType body dryRun } } } } }`
+		message { seq status toolCalls { sandboxActions { approval { id status } action { target } request {
+			... on ClusterWrite { method path subresource contentType body dryRun }
+			... on CloudRequest { host method path contentType body unshown details { label value } } } } } } } }`
 	settled := func(f map[string]any) bool {
 		msg, ok := f["message"].(map[string]any)
 		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
@@ -2296,7 +2299,7 @@ func TestToolCallCarriesItsClusterWrites(t *testing.T) {
 		resp, events := chatFrames(t, srv, query)
 		defer resp.Body.Close()
 		f := awaitChatFrame(t, events, settled)
-		return f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["clusterWrites"].([]any)
+		return f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["sandboxActions"].([]any)
 	}
 	resp, events := chatFrames(t, srv, query)
 	awaitChatFrame(t, events, settled)
@@ -2306,10 +2309,11 @@ func TestToolCallCarriesItsClusterWrites(t *testing.T) {
 	require.NoError(t, db.Read.QueryRow(`SELECT id FROM tool_calls`).Scan(&callID))
 	_, err := db.Write.Exec(`UPDATE tool_calls SET status = 'running', started_at = 1, finished_at = NULL WHERE id = ?`, callID)
 	require.NoError(t, err)
-	ids := []string{appdb.NewID(), appdb.NewID(), appdb.NewID()}
+	ids := []string{appdb.NewID(), appdb.NewID(), appdb.NewID(), appdb.NewID()}
 	for i, row := range []struct{ status, request string }{
 		{"approved", `{"write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/a","subresource":"","contentType":"","body":"","dryRun":false}}`},
 		{"abandoned", `{"write":{"method":"PATCH","path":"/apis/apps/v1/namespaces/web/deployments/b?dryRun=All","subresource":"","contentType":"application/merge-patch+json","body":"{}","dryRun":true}}`},
+		{"pending", `{"action":{"target":"aws","class":4},"cloud":{"host":"ec2.amazonaws.com","method":"POST","path":"/","contentType":"text/plain","body":"Action=X","details":[{"label":"Region","value":"eu-west-1"}]}}`},
 		{"pending", `{"write":{"method":"POST","path":"/api/v1/namespaces/web/pods/c/eviction","subresource":"eviction","contentType":"application/json","body":"{\"kind\":\"Eviction\"}","dryRun":false}}`},
 	} {
 		_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, created_at) VALUES (?, ?, 'action', ?, ?, ?)`,
@@ -2317,20 +2321,31 @@ func TestToolCallCarriesItsClusterWrites(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	cluster := map[string]any{"target": "Cluster"}
 	assert.Equal(t, []any{
-		map[string]any{"approval": map[string]any{"id": ids[0], "status": "Approved"}, "method": "DELETE", "path": "/api/v1/namespaces/web/pods/a",
-			"subresource": "", "contentType": "", "body": "", "dryRun": false},
-		map[string]any{"approval": map[string]any{"id": ids[1], "status": "Abandoned"}, "method": "PATCH", "path": "/apis/apps/v1/namespaces/web/deployments/b?dryRun=All",
-			"subresource": "", "contentType": "", "body": "", "dryRun": true},
-		map[string]any{"approval": map[string]any{"id": ids[2], "status": "Pending"}, "method": "POST", "path": "/api/v1/namespaces/web/pods/c/eviction",
-			"subresource": "eviction", "contentType": "application/json", "body": `{"kind":"Eviction"}`, "dryRun": false},
+		map[string]any{"approval": map[string]any{"id": ids[0], "status": "Approved"}, "action": cluster, "request": map[string]any{
+			"method": "DELETE", "path": "/api/v1/namespaces/web/pods/a", "subresource": "", "contentType": "", "body": "", "dryRun": false,
+		}},
+		map[string]any{"approval": map[string]any{"id": ids[1], "status": "Abandoned"}, "action": cluster, "request": map[string]any{
+			"method": "PATCH", "path": "/apis/apps/v1/namespaces/web/deployments/b?dryRun=All", "subresource": "", "contentType": "", "body": "", "dryRun": true,
+		}},
+		map[string]any{"approval": map[string]any{"id": ids[2], "status": "Pending"}, "action": map[string]any{"target": "AWS"}, "request": map[string]any{
+			"host": "ec2.amazonaws.com", "method": "POST", "path": "/", "contentType": "text/plain", "body": "Action=X", "unshown": "",
+			"details": []any{map[string]any{"label": "Region", "value": "eu-west-1"}},
+		}},
+		map[string]any{"approval": map[string]any{"id": ids[3], "status": "Pending"}, "action": cluster, "request": map[string]any{
+			"method": "POST", "path": "/api/v1/namespaces/web/pods/c/eviction", "subresource": "eviction", "contentType": "application/json",
+			"body": `{"kind":"Eviction"}`, "dryRun": false,
+		}},
 	}, writes())
 
 	_, err = db.Write.Exec(`UPDATE tool_calls SET status = 'failed', error = '{"error":"stranded"}', finished_at = 2 WHERE id = ?`, callID)
 	require.NoError(t, err)
-	stranded := writes()[2].(map[string]any)
-	assert.Equal(t, "", stranded["body"], "a pending write on a call no longer running does not wait")
-	assert.Equal(t, "", stranded["contentType"])
+	for _, i := range []int{2, 3} {
+		stranded := writes()[i].(map[string]any)["request"].(map[string]any)
+		assert.Equal(t, "", stranded["body"], "a pending action on a call no longer running does not wait")
+		assert.Equal(t, "", stranded["contentType"])
+	}
 }
 
 // A memory call's action carries who the note reaches, which is what the approval
@@ -3078,7 +3093,7 @@ func TestAClusterWriteCarriesItsAction(t *testing.T) {
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
-		message { seq status toolCalls { clusterWrites { action { summary class context namespace verb group kind grantable commandRule chatRule } } } } } }`
+		message { seq status toolCalls { sandboxActions { action { summary class context namespace verb group kind grantable commandRule chatRule } } } } } }`
 	settled := func(f map[string]any) bool {
 		msg, ok := f["message"].(map[string]any)
 		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
@@ -3099,7 +3114,7 @@ func TestAClusterWriteCarriesItsAction(t *testing.T) {
 	resp, events = chatFrames(t, srv, query)
 	defer resp.Body.Close()
 	f := awaitChatFrame(t, events, settled)
-	writes := f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["clusterWrites"].([]any)
+	writes := f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["sandboxActions"].([]any)
 	assert.Equal(t, []any{map[string]any{"action": map[string]any{
 		"summary": "Delete pods/x in web on dev", "class": "UpstreamWrite", "context": "dev", "namespace": "web",
 		"verb": "delete", "group": "core", "kind": "pods", "grantable": true,
@@ -3141,7 +3156,7 @@ func TestAClusterWriteCarriesItsDurationAndDiff(t *testing.T) {
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
-		message { seq status toolCalls { clusterWrites { approval { status duration } diff diffCut diffError } } } } }`
+		message { seq status toolCalls { sandboxActions { approval { status duration } request { ... on ClusterWrite { diff diffCut diffError } } } } } } }`
 	settled := func(f map[string]any) bool {
 		msg, ok := f["message"].(map[string]any)
 		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
@@ -3168,9 +3183,9 @@ func TestAClusterWriteCarriesItsDurationAndDiff(t *testing.T) {
 		return ok && msg["seq"] == float64(1)
 	})
 	assert.Equal(t, []any{
-		map[string]any{"approval": map[string]any{"status": "Approved", "duration": "Chat"}, "diff": "", "diffCut": false, "diffError": ""},
-		map[string]any{"approval": map[string]any{"status": "Pending", "duration": nil}, "diff": "-a\n+b\n", "diffCut": true, "diffError": ""},
-	}, f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["clusterWrites"])
+		map[string]any{"approval": map[string]any{"status": "Approved", "duration": "Chat"}, "request": map[string]any{"diff": "", "diffCut": false, "diffError": ""}},
+		map[string]any{"approval": map[string]any{"status": "Pending", "duration": nil}, "request": map[string]any{"diff": "-a\n+b\n", "diffCut": true, "diffError": ""}},
+	}, f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["sandboxActions"])
 }
 
 // fakeProber probes each tool as found and passing but for helm, which

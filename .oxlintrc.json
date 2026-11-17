@@ -19,8 +19,8 @@
     "react/react-in-jsx-scope": "off",
     // Stylesheets and test setup are imported for their effect.
     "import/no-unassigned-import": ["error", { "allow": ["**/*.css", "@testing-library/jest-dom/vitest"] }],
-    // Names the host page and TanStack Router define.
-    "no-underscore-dangle": ["error", { "allow": ["__KSTACK_HOST__", "__TSR_index", "__TSR_key"] }],
+    // Names the host page and TanStack Router define, and GraphQL's discriminant of a union's member.
+    "no-underscore-dangle": ["error", { "allow": ["__KSTACK_HOST__", "__TSR_index", "__TSR_key", "__typename"] }],
     // A mapped copy is how React state stays immutable.
     "oxc/no-map-spread": "off",
     // It reads `it` followed by a backtick in a JSX comment's prose as a test.

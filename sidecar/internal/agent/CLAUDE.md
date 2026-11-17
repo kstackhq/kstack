@@ -185,8 +185,8 @@ channel is buffered. **The commit is the line a cancel stops at**: a cancel that
 approval `pending`; a decision that wins is written without the cancel, and a decision write that
 fails refuses the call `not-run`. **One row per call** (`t.openTool`); `ToolCallStarted` sets
 `started_at` only once its write lands. A subagent's wait ends at `unansweredLimit`. **A sandboxed
-command's cluster action** is asked the same way under the call that sent it (`Runtime.ActionAsker`,
-`askAction` on a proxy goroutine): `journalMu` serializes journal writes and is never held across a
+command's cluster or provider action** is asked the same way under the call that sent it, in one
+list, `SandboxActions` (`Runtime.ActionAsker`, `askAction` on a proxy goroutine): `journalMu` serializes journal writes and is never held across a
 wait; `askMu` keeps one ask at a time. A policy decision is recorded with no wait (`recordAction`).
 A refused journal write sends the command a 403 and the change is not sent.
 → [security records: the bash tool](../../../docs/security/2026-09-18-bash-tool.md), [cluster writes
@@ -208,8 +208,8 @@ grants](../../../docs/security/2026-10-04-path-grants.md).
 box, so a call the turn was not offered records one too), and no later write changes it. A shown
 action, and a watch's result, are decoded through the box, under the row's contract; one the box
 refuses costs the call its action, lines or view, never the read, and logs one warning carrying
-the sentinel alone (`warnRefused`). A cluster write whose stored request does not decode is served
-with its approval and a null action, and offers Deny alone. → [ADR: a tool call
+the sentinel alone (`warnRefused`). A sandbox action whose stored request does not decode is served
+with its approval and a null action and request, and offers Deny alone. → [ADR: a tool call
 records its tool's contract](../../../docs/adr/2026-10-25-a-tool-call-records-its-tools-contract.md).
 
 **The live message lists every call, off its rows.** `ChatMessage.ToolCalls` is one JSON string,

@@ -254,8 +254,16 @@ models:
 
   ToolCallApproval:
     model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallApproval
+  SandboxAction:
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.SandboxAction
+  SandboxRequest:
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.SandboxRequest
   ClusterWrite:
     model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ClusterWrite
+  CloudRequest:
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.CloudRequest
+  RequestDetail:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.Detail
   PermissionAction:
     model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.PermissionAction
 
@@ -629,6 +637,19 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Destructive
       SecretRead:
         value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.SecretRead
+  PermissionTarget:
+    model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Target
+    enum_values:
+      Cluster:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Cluster
+      AWS:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.AWS
+      GitHub:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.GitHub
+      GCP:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.GCP
+      Azure:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Azure
   PermissionMode:
     model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Mode
     enum_values:

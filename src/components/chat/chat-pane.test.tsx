@@ -312,7 +312,7 @@ describe('ChatPane', () => {
       id,
       status: 'AwaitingApproval',
       approval: { id, status: 'Pending', duration: null },
-      clusterWrites: [],
+      sandboxActions: [],
     });
     renderPanes().open('c1', {
       messages: [

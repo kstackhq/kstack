@@ -16,7 +16,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ChatClusterWrite, ChatMessage, ChatToolCall } from '@/lib/chats';
+import type { ChatClusterRequest, ChatMessage, ChatSandboxAction, ChatToolCall } from '@/lib/chats';
 import type { FetchQuery } from '@/lib/log-viewer';
 import { fakeLogWindows } from '@/test-utils';
 
@@ -208,7 +208,7 @@ function call(over: Partial<ChatToolCall> = {}): ChatToolCall {
     output: '',
     background: null,
     agentCallID: null,
-    clusterWrites: [],
+    sandboxActions: [],
     ...over,
   };
 }
@@ -3125,39 +3125,226 @@ describe('ChatTranscript', () => {
     });
   });
 
-  describe('cluster writes', () => {
-    // A write a sandboxed command sent, as the sidecar serves it: waiting unless a
-    // case says otherwise.
-    const clusterWrite = (over: Partial<ChatClusterWrite> = {}): ChatClusterWrite => ({
-      approval: { id: 'w-1', status: 'Pending', duration: null },
+  describe('cloud requests', () => {
+    // A request a sandboxed command sent to a provider, as the sidecar serves
+    // it: waiting unless a case says otherwise.
+    const cloudRequest = (
+      over: Partial<ChatSandboxAction> = {},
+      request: Partial<NonNullable<ChatSandboxAction['request']>> = {},
+    ): ChatSandboxAction => ({
+      approval: { id: 'c-1', status: 'Pending', duration: null },
       action: {
-        summary: 'Delete pods/x in web on dev',
+        target: 'AWS',
+        summary: 'AWS: call ec2:TerminateInstances in eu-west-1',
         class: 'UpstreamWrite',
-        context: 'dev',
-        namespace: 'web',
-        verb: 'delete',
-        group: 'core',
-        kind: 'pods',
-        grantable: true,
-        commandRule: 'Allow delete of core pods in dev / web for this command',
-        chatRule: 'Allow cluster writes in dev / web',
+        context: '',
+        namespace: '',
+        verb: 'TerminateInstances',
+        group: 'ec2',
+        kind: '',
+        grantable: false,
+        commandRule: '',
+        chatRule: '',
       },
-      method: 'DELETE',
-      path: '/api/v1/namespaces/web/pods/x',
-      subresource: '',
-      contentType: 'application/json',
-      body: '{"propagationPolicy":"Background"}',
-      dryRun: false,
-      diff: '',
-      diffCut: false,
-      diffError: '',
+      request: {
+        __typename: 'CloudRequest',
+        host: 'ec2.eu-west-1.amazonaws.com',
+        method: 'POST',
+        path: '/?Action=TerminateInstances',
+        contentType: 'application/x-www-form-urlencoded',
+        body: 'InstanceId.1=i-0abc\u{202E}',
+        unshown: '',
+        details: [
+          { label: 'Region', value: 'eu-west-1' },
+          { label: 'Account', value: '1234\u{200B}' },
+        ],
+        ...request,
+      } as ChatSandboxAction['request'],
       reason: null,
       ...over,
     });
+    const waitingOn = (actions: ChatSandboxAction[]) =>
+      msg({
+        status: 'WaitingApproval',
+        awaitingApproval: true,
+        content: [],
+        toolCalls: [call({ status: 'Running', approval: null, sandboxActions: actions })],
+      });
+
+    // The summary heads it, then the host, each detail, and the raw request
+    // open: method, path, media type and body, every string spelled.
+    it('draws the summary, host, details and request through VisibleText', () => {
+      draw([waitingOn([cloudRequest()])]);
+      const request = screen.getByRole('group', { name: 'AWS change awaiting approval' });
+      expect(request).toHaveTextContent('AWS: call ec2:TerminateInstances in eu-west-1');
+      expect(request).toHaveTextContent('ec2.eu-west-1.amazonaws.com');
+      expect(request).toHaveTextContent('Region');
+      expect(request).toHaveTextContent('eu-west-1');
+      expect(request).toHaveTextContent('/?Action=TerminateInstances');
+      expect(request).toHaveTextContent('POST application/x-www-form-urlencoded');
+      expect(request).toHaveTextContent('InstanceId.1=i-0abc');
+      const marks = [...request.querySelectorAll('mark')].map((m) => m.textContent);
+      expect(marks).toEqual(expect.arrayContaining(['\\u{202E}', '\\u{200B}']));
+      expect(
+        within(request)
+          .getAllByRole('button')
+          .map((b) => b.textContent),
+      ).toEqual(['Approve once', 'Deny']);
+    });
+
+    it('labels a data read, and names each provider in words', () => {
+      draw([
+        waitingOn([
+          cloudRequest({ action: { ...cloudRequest().action!, class: 'SecretRead' } }),
+          cloudRequest({
+            approval: { id: 'c-2', status: 'Pending', duration: null },
+            action: { ...cloudRequest().action!, target: 'GCP' },
+          }),
+        ]),
+      ]);
+      expect(screen.getByRole('group', { name: 'AWS data read awaiting approval' })).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'Google Cloud change awaiting approval' })).toBeInTheDocument();
+    });
+
+    it("draws the provider's sentence in the body's place", () => {
+      draw([waitingOn([cloudRequest({}, { body: '', unshown: 'A Git pack of the commits pushed.' })])]);
+      const request = screen.getByRole('group', { name: 'AWS change awaiting approval' });
+      expect(request).toHaveTextContent('A Git pack of the commits pushed.');
+    });
+
+    // A body behind the provider's sentence is never drawn, so it holds
+    // nothing back.
+    it('holds Approve on no body the sentence stands for', () => {
+      draw([
+        waitingOn([cloudRequest({}, { body: 'line\n'.repeat(200), unshown: 'A Git pack of the commits pushed.' })]),
+      ]);
+      const request = screen.getByRole('group', { name: 'AWS change awaiting approval' });
+      expect(request).not.toHaveTextContent('line');
+      expect(within(request).getByRole('button', { name: 'Approve once' })).toBeEnabled();
+    });
+
+    // A rule is always a cluster's, so a provider's request offers no allow
+    // answer even when marked grantable.
+    it('offers no allow answer on a grantable provider request', () => {
+      const action = { ...cloudRequest().action!, grantable: true, commandRule: 'c', chatRule: 'r' };
+      draw([waitingOn([cloudRequest({ action })])]);
+      const request = screen.getByRole('group', { name: 'AWS change awaiting approval' });
+      expect(
+        within(request)
+          .getAllByRole('button')
+          .map((b) => b.textContent),
+      ).toEqual(['Approve once', 'Deny']);
+    });
+
+    // A request it cannot draw is still headed by its target and class.
+    it('heads a data read it cannot draw as a data read', () => {
+      const action = { ...cloudRequest().action!, class: 'SecretRead' as const };
+      draw([waitingOn([cloudRequest({ action, request: null })])]);
+      const request = screen.getByRole('group', { name: 'AWS data read awaiting approval' });
+      expect(request).toHaveTextContent("This request can't be shown.");
+    });
+
+    // A long body folds, and Approve waits until it is shown.
+    it('folds a long body and holds Approve until it is shown', async () => {
+      draw([waitingOn([cloudRequest({}, { body: 'line\n'.repeat(200) })])]);
+      const request = screen.getByRole('group', { name: 'AWS change awaiting approval' });
+      expect(within(request).getByRole('button', { name: 'Approve once' })).toBeDisabled();
+      await act(async () => {
+        fireEvent.click(within(request).getByRole('button', { name: /^Show/ }));
+      });
+      expect(within(request).getByRole('button', { name: 'Approve once' })).toBeEnabled();
+    });
+
+    // A settled action this build cannot read draws no request, tagged as
+    // the cluster's.
+    it('draws a settled action it cannot read as an empty line', () => {
+      draw([
+        msg({
+          toolCalls: [
+            call({
+              status: 'Succeeded',
+              approval: null,
+              sandboxActions: [
+                {
+                  approval: { id: 'c-1', status: 'Denied', duration: null },
+                  action: null,
+                  request: null,
+                  reason: null,
+                },
+              ],
+            }),
+          ],
+        }),
+      ]);
+      expect(screen.getByText('denied')).toBeInTheDocument();
+    });
+
+    // A settled request is one line tagged with its provider and the decision.
+    it("tags a settled request with its provider's name", () => {
+      draw([
+        msg({
+          toolCalls: [
+            call({
+              status: 'Succeeded',
+              approval: null,
+              sandboxActions: [
+                cloudRequest({ approval: { id: 'c-1', status: 'Denied', duration: null } }, { body: '' }),
+              ],
+            }),
+          ],
+        }),
+      ]);
+      expect(document.body).toHaveTextContent(
+        'POST ec2.eu-west-1.amazonaws.com/?Action=TerminateInstancesAWS · denied',
+      );
+    });
+  });
+
+  describe('cluster writes', () => {
+    // A write a sandboxed command sent, as the sidecar serves it: waiting unless a
+    // case says otherwise.
+    // Spelled flat, as a case overrides it; an empty method is an action with
+    // no request.
+    type FlatWrite = Omit<ChatSandboxAction, 'request'> & Omit<ChatClusterRequest, '__typename'>;
+    const clusterWrite = (over: Partial<FlatWrite> = {}): ChatSandboxAction => {
+      const { approval, action, reason, ...request }: FlatWrite = {
+        approval: { id: 'w-1', status: 'Pending', duration: null },
+        action: {
+          target: 'Cluster',
+          summary: 'Delete pods/x in web on dev',
+          class: 'UpstreamWrite',
+          context: 'dev',
+          namespace: 'web',
+          verb: 'delete',
+          group: 'core',
+          kind: 'pods',
+          grantable: true,
+          commandRule: 'Allow delete of core pods in dev / web for this command',
+          chatRule: 'Allow cluster writes in dev / web',
+        },
+        method: 'DELETE',
+        path: '/api/v1/namespaces/web/pods/x',
+        subresource: '',
+        contentType: 'application/json',
+        body: '{"propagationPolicy":"Background"}',
+        dryRun: false,
+        diff: '',
+        diffCut: false,
+        diffError: '',
+        reason: null,
+        ...over,
+      };
+      return {
+        approval,
+        action,
+        reason,
+        request: request.method === '' ? null : { __typename: 'ClusterWrite', ...request },
+      };
+    };
     // The sandboxed command that sent the writes, running while one waits.
-    const sender = (writes: ChatClusterWrite[], over: Partial<ChatToolCall> = {}) =>
-      call({ status: 'Running', approval: null, clusterWrites: writes, ...over });
-    const waitingOn = (writes: ChatClusterWrite[], over: Partial<ChatToolCall> = {}) =>
+    const sender = (writes: ChatSandboxAction[], over: Partial<ChatToolCall> = {}) =>
+      call({ status: 'Running', approval: null, sandboxActions: writes, ...over });
+    const waitingOn = (writes: ChatSandboxAction[], over: Partial<ChatToolCall> = {}) =>
       msg({ status: 'WaitingApproval', awaitingApproval: true, content: [], toolCalls: [sender(writes, over)] });
     const request = () => screen.getByRole('group', { name: 'Cluster change awaiting approval' });
     const approve = () => screen.getByRole('button', { name: 'Approve once' });
@@ -3379,10 +3566,12 @@ describe('ChatTranscript', () => {
     // what is not.
     it('offers Deny alone for a write it cannot read', () => {
       draw([waitingOn([clusterWrite({ action: null, method: '', path: '', body: '', contentType: '' })])]);
-      expect(request()).toHaveTextContent("This request can't be shown.");
+      // With no action, nothing says whose request it is.
+      const unread = screen.getByRole('group', { name: 'Request awaiting approval' });
+      expect(unread).toHaveTextContent("This request can't be shown.");
       expect(document.body).toHaveTextContent('wc -l ~/.kube/config');
       expect(
-        within(request())
+        within(unread)
           .getAllByRole('button')
           .map((b) => b.textContent),
       ).toEqual(['Deny']);
@@ -3503,9 +3692,10 @@ describe('ChatTranscript', () => {
     });
 
     // A read of Secret data the proxy asks about, as the sidecar serves it.
-    const secretRead = (over: Partial<ChatClusterWrite> = {}): ChatClusterWrite =>
+    const secretRead = (over: Partial<FlatWrite> = {}): ChatSandboxAction =>
       clusterWrite({
         action: {
+          target: 'Cluster',
           summary: 'Show Secret db in web on dev',
           class: 'SecretRead',
           context: 'dev',

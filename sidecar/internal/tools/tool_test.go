@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 )
 
@@ -115,4 +116,28 @@ func TestLogsReadActionKeepsTheWindow(t *testing.T) {
 	raw, err = json.Marshal(action)
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), `"pageFrom":null`)
+}
+
+// A cloud request round-trips through the approval's request column, and a
+// stored cluster request, written before it existed, reads as it did.
+func TestACloudRequestRoundTripsAsJSON(t *testing.T) {
+	in := ActionRequest{
+		Action: permissions.Action{Target: permissions.AWS, Class: permissions.UpstreamWrite, Summary: "AWS: call ec2:TerminateInstances in eu-west-1"},
+		Cloud: &CloudRequest{
+			Host: "ec2.eu-west-1.amazonaws.com", Method: "POST", Path: "/?a=1", ContentType: "application/x-www-form-urlencoded",
+			Body: "Action=TerminateInstances", Details: []Detail{{Label: "Region", Value: "eu-west-1"}},
+		},
+	}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	var out ActionRequest
+	require.NoError(t, json.Unmarshal(b, &out))
+	assert.Equal(t, in, out)
+	assert.NotContains(t, string(b), `"write"`)
+
+	var stored ActionRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"action":{"class":4,"verb":"delete"},"write":{"method":"DELETE","path":"/api/v1/namespaces/a/pods/b"}}`), &stored))
+	assert.Nil(t, stored.Cloud)
+	assert.Equal(t, permissions.Cluster, stored.Action.Target)
+	assert.Equal(t, "DELETE", stored.Write.Method)
 }

@@ -341,30 +341,62 @@ type ToolCall struct {
 	// AgentCallID is the Agent call a subagent's call ran under; nil on the
 	// answer's own calls.
 	AgentCallID *ToolCallID `json:"agentCallID"`
-	// ClusterWrites is every request the call's sandboxed command sent to change
-	// the cluster, in the order asked.
-	ClusterWrites []ClusterWrite `json:"clusterWrites"`
+	// SandboxActions is every request the call's sandboxed command sent that a
+	// proxy decided, the cluster's and each provider's, in the order asked.
+	SandboxActions []SandboxAction `json:"sandboxActions"`
 }
 
-// ClusterWrite is an action a sandboxed command's request asked for and the
-// user's decision on it, as the wire serves them: the request as sent, and the
-// action the proxy classified it as. ContentType and Body are empty once it
-// no longer waits, since each publish sends the call list whole; the record
-// keeps them. An action with no write serves an empty request, and one whose
-// stored request this build cannot read serves no action as well.
+// SandboxAction is an action a sandboxed command's request asked for and the
+// user's decision on it, as the wire serves them: the action a proxy
+// classified it as, and the request as sent. A request's body, media type and
+// diff are empty once it no longer waits, since each publish sends the call
+// list whole; the record keeps them. An action with no request serves none,
+// and one whose stored request this build cannot read serves no action as
+// well.
+type SandboxAction struct {
+	Approval ToolCallApproval  `json:"approval"`
+	Action   *PermissionAction `json:"action"`
+	// Write is a request to the cluster, Cloud one to a provider; at most one
+	// is set.
+	Write *ClusterWrite `json:"write,omitempty"`
+	Cloud *CloudRequest `json:"cloud,omitempty"`
+	// Reason is the mode or rule that decided an action nobody was asked
+	// about; nil for one the user answered.
+	Reason *string `json:"reason"`
+}
+
+// Request is the action's request as the wire's union serves it; nil for none.
+func (a SandboxAction) Request() SandboxRequest {
+	switch {
+	case a.Write != nil:
+		return a.Write
+	case a.Cloud != nil:
+		return a.Cloud
+	}
+	return nil
+}
+
+// SandboxRequest is a request a sandboxed command sent: a *ClusterWrite or a
+// *CloudRequest.
+type SandboxRequest interface{ isSandboxRequest() }
+
+// ClusterWrite is a request to the cluster: the request as sent, and its diff
+// while it waits. Diff is the change as YAML; DiffCut says it stops short of
+// the whole change, and DiffError why there is none.
 type ClusterWrite struct {
-	Approval ToolCallApproval `json:"approval"`
 	tools.ClusterWrite
-	Action *PermissionAction `json:"action"`
-	// Diff is the change as YAML while the write waits; DiffCut says it stops
-	// short of the whole change, and DiffError why there is none.
 	Diff      string `json:"diff"`
 	DiffCut   bool   `json:"diffCut"`
 	DiffError string `json:"diffError"`
-	// Reason is the mode or rule that decided a write nobody was asked about;
-	// nil for one the user answered.
-	Reason *string `json:"reason"`
 }
+
+// CloudRequest is a request to a provider, as sent.
+type CloudRequest struct {
+	tools.CloudRequest
+}
+
+func (*ClusterWrite) isSandboxRequest() {} // coverage:ignore a marker no code calls
+func (*CloudRequest) isSandboxRequest() {} // coverage:ignore a marker no code calls
 
 // PermissionAction is a classified action as the wire serves it: the action,
 // whether a rule may allow it, and the rule each allow answer adds, in words.
@@ -375,37 +407,44 @@ type PermissionAction struct {
 	ChatRule    string `json:"chatRule"`
 }
 
-// clusterWriteOf is an action approval as the wire serves it, the request
+// sandboxActionOf is an action approval as the wire serves it, the request
 // whole: the approval alone when r is nil, a request this build cannot read.
-func clusterWriteOf(a ToolCallApproval, r *tools.ActionRequest) ClusterWrite {
+func sandboxActionOf(a ToolCallApproval, r *tools.ActionRequest) SandboxAction {
 	if r == nil {
-		return ClusterWrite{Approval: a}
+		return SandboxAction{Approval: a}
 	}
-	w := ClusterWrite{
+	out := SandboxAction{
 		Approval: a,
 		Action:   &PermissionAction{Action: r.Action, Grantable: r.Grantable, CommandRule: r.CommandRule, ChatRule: r.ChatRule},
-		Diff:     r.Diff, DiffCut: r.DiffCut, DiffError: r.DiffError,
 	}
-	if r.Write != nil {
-		w.ClusterWrite = *r.Write
+	switch {
+	case r.Write != nil:
+		out.Write = &ClusterWrite{ClusterWrite: *r.Write, Diff: r.Diff, DiffCut: r.DiffCut, DiffError: r.DiffError}
+	case r.Cloud != nil:
+		out.Cloud = &CloudRequest{CloudRequest: *r.Cloud}
 	}
-	return w
+	return out
 }
 
-// clusterWritesOf is a call's actions as the wire serves them. An action waits
-// while its approval is pending and its call running.
-func clusterWritesOf(r toolCallEntry) []ClusterWrite {
-	out := make([]ClusterWrite, 0, len(r.ClusterWrites))
-	for _, a := range r.ClusterWrites {
-		w := clusterWriteOf(toolCallApprovalOf(a), a.Request)
+// sandboxActionsOf is a call's actions as the wire serves them. An action
+// waits while its approval is pending and its call running.
+func sandboxActionsOf(r toolCallEntry) []SandboxAction {
+	out := make([]SandboxAction, 0, len(r.SandboxActions))
+	for _, a := range r.SandboxActions {
+		act := sandboxActionOf(toolCallApprovalOf(a), a.Request)
 		if a.Reason != "" {
-			w.Reason = &a.Reason
+			act.Reason = &a.Reason
 		}
 		if a.Status != ApprovalPending || r.Status != toolRunning {
-			w.ContentType, w.Body = "", ""
-			w.Diff, w.DiffCut, w.DiffError = "", false, ""
+			if act.Write != nil {
+				act.Write.ContentType, act.Write.Body = "", ""
+				act.Write.Diff, act.Write.DiffCut, act.Write.DiffError = "", false, ""
+			}
+			if act.Cloud != nil {
+				act.Cloud.ContentType, act.Cloud.Body = "", ""
+			}
 		}
-		out = append(out, w)
+		out = append(out, act)
 	}
 	return out
 }
@@ -508,7 +547,7 @@ func marshalToolCalls(rows []toolCallEntry, box tools.Box) rawjson.RawJSON {
 			ID: r.ID, ToolUseID: r.ToolUseID, Name: r.Name, Contract: r.Contract, Arguments: argumentsJSON(r.Arguments),
 			Status: status, RunsOn: runsOn, ActionKind: actionKindOf(box, r), Action: actionOf(box, r),
 			Output: r.Result, IsError: r.Error != "", Background: backgroundTaskOf(box, r),
-			ClusterWrites: clusterWritesOf(r), Network: toolCallNetworkOf(r.Network),
+			SandboxActions: sandboxActionsOf(r), Network: toolCallNetworkOf(r.Network),
 		}
 		if a := r.Approval; a != nil {
 			approval := toolCallApprovalOf(a)

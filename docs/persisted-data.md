@@ -38,7 +38,8 @@ Each kind of change has one shape. The tests named here are what fails when it i
   runs on the file in place, with no copy; the first `app.db` migration past `0001` waits for the
   backup in #823.
 - **A JSON column**: rides `app.db`'s version, so the change is an `app.db` migration using
-  SQLite's JSON functions. A rewrite SQL cannot express has no path yet (below).
+  SQLite's JSON functions. A rewrite SQL cannot express has no path yet (below). A new key a
+  row may lack, read as its zero value, needs none: no stored row changes.
 - **A preference** (`settings.json`): a field's layout change bumps `schemaVersion` and upgrades
   in the reader. A file a build cannot parse reads as defaults and its next write replaces it, so
   a new choice for a setting is a new field, never a new value of an old one.
@@ -77,7 +78,7 @@ cluster no longer has.
 | Format | Where | Owner | Class | Version stamp | Forward path | Newer file | Pinned by |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | App DB | `<data>/app.db` | `internal/appdb` | durable | `sqlitemigrate` | SQL migrations | refused; the sidecar does not start and the start screen names the file | `appdb` `TestAShippedMigrationIsNeverEdited`, `TestOpenRefusesANewerFile`; the message: `TestANewerAppDBFailsTheBuildNamingTheVersions`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
-| App DB JSON columns | `app.db`: message content blocks, server-tool counts, tool-call input and error, `ActionRequest`, watch result | `agent/chat`, `tools` | durable | rides `app.db`'s | an `app.db` migration | with `app.db` | with `app.db` |
+| App DB JSON columns | `app.db`: message content blocks, server-tool counts, tool-call input and error, `ActionRequest` (its `cloud` and its action's `target` optional, a row with neither the cluster's), watch result | `agent/chat`, `tools` | durable | rides `app.db`'s | an `app.db` migration | with `app.db` | with `app.db` |
 | Control-plane store | `<data>/beehive.db` | `github.com/amorey/beehive/sqlite` | durable | beehive's own runner | beehive's migrations, taken by a module bump | refused; the sidecar does not start and the start screen names the file | beehive's `internal/sqlitemigrate` tests; the message: `TestANewerBeehiveDBFailsTheServiceSayingSo`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
 | Chat and monitor directories | `<data>/chats/<chat id>/`, `<data>/monitor/<cluster id>/`: `results/`, `tasks/`, `workspace/`, `toolhome/` | `agent/chat`, `tools` | durable | none | none yet: the layout only grows and the root never moves (*What cannot change yet*) | a path this build does not know is left alone | — |
 | Cluster cache | `<cache>/kube/<cache id>.db` | `kubestore` | durable | `sqlitemigrate` | SQL migrations | refused; the cache reports `StoreFailed` with the message and the rest of the app runs | `kubestore` `TestAShippedMigrationIsNeverEdited`, `TestOpenRefusesANewerFile`, `TestMigration0002IndexesTheEventsByInvolvedNamespace` (`0002`); `kubesync` `TestArmReportsAStoreThatWillNotOpen` (any open failure reaches `StoreFailed`) |
