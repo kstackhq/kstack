@@ -55,11 +55,11 @@ func TestNewDeclinesWithoutGitBash(t *testing.T) {
 	bin := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "bash.exe"), []byte("MZ"), 0o700))
 	t.Setenv("PATH", bin)
-	_, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
+	_, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
 	assert.False(t, ok, "a bash.exe on PATH must not be found")
 
 	stubInstallPath(t, t.TempDir(), true) // recorded, but bin\bash.exe absent
-	_, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
+	_, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
 	assert.False(t, ok)
 }
 
@@ -69,7 +69,7 @@ func TestNewFindsTheRecordedBash(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(install, "bin"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(install, "bin", "bash.exe"), []byte("MZ"), 0o700))
 	stubInstallPath(t, install, true)
-	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
+	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
 	require.True(t, ok)
 	assert.Equal(t, filepath.Join(install, "bin", "bash.exe"), tl.shell)
 }
@@ -79,7 +79,7 @@ func TestNewFindsGitBash(t *testing.T) {
 	if _, ok := registryInstallPath(); !ok {
 		t.Skip("no Git for Windows install record on this machine")
 	}
-	_, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
+	_, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
 	assert.True(t, ok)
 }
 

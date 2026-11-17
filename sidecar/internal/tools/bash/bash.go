@@ -146,6 +146,8 @@ type Tool struct {
 	// clusterSvc is the cluster service, which a sandboxed run reads the chat's
 	// cluster through.
 	clusterSvc cluster.Service
+	// cloud is the providers a sandboxed run may reach, and their switches.
+	cloud Cloud
 	// runsDir and tmpDir are where a sandboxed run's own directory and its
 	// TMPDIR are made, and kubectlDir where each cluster's kubectl cache is.
 	runsDir, tmpDir, kubectlDir string
@@ -225,7 +227,7 @@ type Paths struct {
 // user's stored PATH list, which a sandboxed run reads at its start and searches
 // the adopted entries of, since a sync, Include or Remove changes it while the
 // tool lives; nil for none.
-func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Service, pathList func() settings.RunPath) (t *Tool, ok bool) {
+func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Service, pathList func() settings.RunPath, cloud Cloud) (t *Tool, ok bool) {
 	shell, kind, found := findShell()
 	if !found {
 		return nil, false
@@ -252,6 +254,7 @@ func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Se
 		shell: shell, kind: kind, home: home, scripts: scripts, platform: runtime.GOOS,
 		env:          kstackEnv(hostPID),
 		clusterSvc:   clusterSvc,
+		cloud:        cloud,
 		runsDir:      paths.RunsDir,
 		tmpDir:       paths.TmpDir,
 		kubectlDir:   paths.KubectlDir,
@@ -723,8 +726,9 @@ func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime, network 
 }
 
 // sandboxedRun is what a sandboxed run carries beyond an unconfined one: the
-// sandboxer, for a run with a cluster its claim and its proxy, the run's own
-// directory, and the Run the sandboxer is handed, less what shellCmd fills in.
+// sandboxer, for a run with a cluster its claim, for a run with a cluster or a
+// provider its door, the run's own directory, and the Run the sandboxer is
+// handed, less what shellCmd fills in.
 type sandboxedRun struct {
 	boxer sandboxer
 	claim claimed
@@ -733,8 +737,9 @@ type sandboxedRun struct {
 	run   sandbox.Run
 }
 
-// end ends whatever of the run was made: the proxy, which cancels what is in
-// flight and closes the socket, then the claim, then the run's directory.
+// end ends whatever of the run was made: the door, which ends every grant,
+// cancels what is in flight and closes the socket, then the claim, then the
+// run's directory.
 func (r *sandboxedRun) end() {
 	if r.proxy != nil {
 		r.proxy.end()
@@ -749,11 +754,14 @@ func (r *sandboxedRun) end() {
 
 // sandboxedRunFor makes a sandboxed run's directory and builds its environment,
 // for a call of rt's chat starting in cwd: with the chat's cluster, its claim,
-// its proxy, whose writes go as writesFor says, its kubeconfig and its kubectl
-// cache; with the internet when network is set, and the resolv.conf the
-// sandbox needs for it. A cluster that is gone fails it before anything is
-// made, since a sandboxed kubectl aimed at nothing would read as the cluster
-// being down. The caller calls end when the run ends.
+// its grant, whose writes go as writesFor says, its kubeconfig and its kubectl
+// cache; with each provider whose switch is on (providersFor), its mount; with
+// either, the door on the run's one relay; with the internet when network is
+// set, and the resolv.conf the sandbox needs for it. A cluster that is gone
+// fails it before anything is made, since a sandboxed kubectl aimed at nothing
+// would read as the cluster being down. A mount that fails, or routes or
+// variables that clash, fail it and end what was made. The caller calls end
+// when the run ends.
 func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Runtime, cwd string, background bool, network session.Network) (*sandboxedRun, error) {
 	internet := network != session.NoNetwork
 	limits := sandbox.Limits{MemoryBytes: limitMemory, OpenFiles: limitOpenFiles}
@@ -774,17 +782,23 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 	var cluster *target
 	var port int
 	var err error
+	providers := t.cloud.providersFor(rt)
 	if rt.ClusterID != "" {
 		tg, err := t.target(ctx, rt.ClusterID)
 		if err != nil {
 			return nil, err
 		}
 		cluster = &tg
-		// Only a run with a cluster dials its port.
+	}
+	// Only a run with a cluster or a provider has a door, and dials its port.
+	serves := cluster != nil || len(providers) > 0
+	if serves {
 		if port, err = boxer.Port(); err != nil {
 			return nil, err
 		}
-		if r.claim, err = t.claim(ctx, rt.ClusterID, tg.serverUID); err != nil {
+	}
+	if cluster != nil {
+		if r.claim, err = t.claim(ctx, rt.ClusterID, cluster.serverUID); err != nil {
 			return nil, err
 		}
 	}
@@ -810,18 +824,30 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 	}
 	ws, toolHome := tools.WorkspacePath(rt.Dir), tools.ToolHomePath(rt.Dir)
 	writes := []string{ws, toolHome, r.dir.tmp}
-	if cluster != nil {
+	var cloudVars []string
+	if serves {
+		r.proxy = &runProxy{}
+		if cluster != nil {
+			asker, refusal := writesFor(rt, background)
+			r.proxy.grant = newClusterGrant(r.claim, rt.Session, cluster.scopeContext, asker, refusal)
+		}
+		run := CloudRun{Port: port, Dir: r.dir.path, ToolHome: toolHome, TmpDir: r.dir.tmp, Session: rt.Session}
+		if cloudVars, err = r.proxy.mount(ctx, providers, rt, background, run); err != nil {
+			r.end()
+			return nil, err
+		}
 		socket := r.dir.socket()
-		asker, refusal := writesFor(rt, background)
-		if r.proxy, err = startProxy(r.claim, rt.Session, cluster.scopeContext, socket, asker, refusal); err != nil {
+		if err := r.proxy.serve(socket, t.cloud.on); err != nil {
 			r.end()
 			return nil, err
 		}
-		if err := writeKubeconfig(r.dir.kubeconfig(), cluster.context, port, r.proxy.grant.Token()); err != nil {
-			r.end()
-			return nil, err
+		if cluster != nil {
+			if err := writeKubeconfig(r.dir.kubeconfig(), cluster.context, port, r.proxy.grant.Token()); err != nil {
+				r.end()
+				return nil, err
+			}
+			writes = append(writes, cluster.cacheDir)
 		}
-		writes = append(writes, cluster.cacheDir)
 		net.Relays = []sandbox.Relay{{Port: port, Socket: socket}}
 	}
 	// Read once, here: nothing the store changes while the run lives reaches it.
@@ -842,7 +868,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		if sys.Asdf {
 			toolchain = slices.Concat(sys.Env, toolVersions(t.home))
 		}
-		env := sandboxedRunEnv(os.Environ(), t.env, joinPath(folders), ws, cwd, r.dir, cluster, toolHome, toolchain)
+		env := sandboxedRunEnv(os.Environ(), t.env, joinPath(folders), ws, cwd, r.dir, cluster, toolHome, toolchain, cloudVars)
 		files := sys.Files.WithSearch(pathReads)
 		grants := t.grantRules(rt.Session.GrantedFolders(ctx), sys.Files, never, list.Entries)
 		built <- sandbox.Run{Env: env, Policy: t.workspacePolicy(files, grants, never, reads, writes, net, limits)}

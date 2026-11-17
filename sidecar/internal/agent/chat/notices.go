@@ -269,7 +269,7 @@ func (s *service) tryNoticeTurn(ctx context.Context, chatID ChatID) error {
 		// section replaced. It has no screen behind it, so it drops the View.
 		// Its turn has no toggle.
 		var question []llm.Block
-		state := sandboxState{outside: c.SandboxDisabled, networkEnabled: c.NetworkEnabled, folders: folders}
+		state := sandboxState{outside: c.SandboxDisabled, networkEnabled: c.NetworkEnabled, folders: folders, cloudTargetsOn: s.cloudTargetsOn()}
 		if replaced := s.withSandboxReplaced(withoutView(newest), state); replaced != newest {
 			question = []llm.Block{llm.ContextBlock(replaced)}
 		}

@@ -267,7 +267,8 @@ in the answer's row](../../../docs/adr/2026-09-14-tool-rounds-live-in-the-answer
 
 **A question carries a context block when it has changed** (`questionBlocks` against
 `newestContext`): the cluster card, `## Memory`, `## Workspace`, `## View` when the send carries a
-snapshot, and `## Sandbox`, always last. **The View** (`view.go`) restates the named call's stored
+snapshot, and `## Sandbox`, always last, whose `cloud` key names the build's providers whose switch
+is on. **The View** (`view.go`) restates the named call's stored
 view (`viewCall`: a `LogsView` call's action, a `LogsRead` call's `viewAround`, a subagent's
 included, or a finished `LogsWatch` call's, joined from its task's `result`), never the client's, with what was on screen and the selected lines through
 `logs.ForModel`, under `viewBudget` as the section spells it; a snapshot naming no such call of

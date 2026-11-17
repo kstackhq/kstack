@@ -148,9 +148,10 @@ var (
 	secrets   []string
 )
 
-// AddSecret registers a value to blank wherever it appears in rendered text.
-// Called once per key the config read, before anything is logged. A value under
-// minSecretLen registers nothing.
+// AddSecret registers a value to blank wherever it appears in rendered text:
+// a key the config read, before anything is logged, or a credential a service
+// holds, until it calls ForgetSecret. A value under minSecretLen registers
+// nothing.
 func AddSecret(value string) {
 	if len(value) < minSecretLen {
 		return
@@ -158,6 +159,20 @@ func AddSecret(value string) {
 	secretsMu.Lock()
 	defer secretsMu.Unlock()
 	secrets = append(secrets, value)
+}
+
+// ForgetSecret drops one registration of value, so a credential that rotates
+// does not grow the list. A value registered twice stays blanked until each
+// registration is forgotten.
+func ForgetSecret(value string) {
+	secretsMu.Lock()
+	defer secretsMu.Unlock()
+	i := slices.Index(secrets, value)
+	if i < 0 {
+		return
+	}
+	// A new slice, since blankSecrets reads the old one outside the lock.
+	secrets = slices.Concat(secrets[:i], secrets[i+1:])
 }
 
 // ResetSecrets forgets every registered value. For tests.

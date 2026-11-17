@@ -37,13 +37,26 @@ func (s *service) withWorkspace(card string, id ChatID) string {
 
 // sandboxState is what the Sandbox section tells the model: whether the
 // chat's commands run outside the sandbox, and, in it, whether the chat's
-// switch or the turn's toggle gives them the internet, and the folders they
-// read and write.
+// switch or the turn's toggle gives them the internet, the folders they read
+// and write, and the cloud targets they reach, by their words.
 type sandboxState struct {
 	outside         bool
 	networkEnabled  bool
 	networkThisTurn bool
 	folders         []session.Folder
+	cloudTargetsOn  []string
+}
+
+// cloudTargetsOn is the words of the cloud targets the build has whose switch
+// is on.
+func (s *service) cloudTargetsOn() []string {
+	var on []string
+	for _, target := range s.cloudTargets {
+		if s.settings.CloudOn(target) {
+			on = append(on, string(target))
+		}
+	}
+	return on
 }
 
 // maxListedFolders is how many folders the Sandbox section names; past it, a
@@ -52,8 +65,8 @@ const maxListedFolders = 20
 
 // withSandbox is card with where the chat's commands run appended as its own
 // section, on a machine with a sandbox: in it, with the network they have and
-// the folders they read and write, or outside it once the user switched the
-// chat, where neither applies. The block goes again when what it says changes.
+// the folders they read and write and the providers they reach, or outside it
+// once the user switched the chat, where none applies. The block goes again when what it says changes.
 func (s *service) withSandbox(card string, state sandboxState) string {
 	if !s.sandboxStatus.Available {
 		return card
@@ -62,6 +75,9 @@ func (s *service) withSandbox(card string, state sandboxState) string {
 		return withSection(card, "Sandbox", map[string]any{"commands": "outside"})
 	}
 	fields := map[string]any{"commands": "sandboxed", "network": s.networkValue(state)}
+	if len(state.cloudTargetsOn) > 0 {
+		fields["cloud"] = state.cloudTargetsOn
+	}
 	if folders := state.folders; len(folders) > 0 {
 		read, readWrite := []string{}, []string{}
 		for _, f := range folders[:min(len(folders), maxListedFolders)] {

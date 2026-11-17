@@ -164,12 +164,12 @@ func startSandboxRig(t *testing.T) sandboxRig {
 		ShellDir: filepath.Join(runtime, "shell"), RunsDir: filepath.Join(runtime, "runs"),
 		TmpDir: filepath.Join(cache, "tmp"), KubectlDir: filepath.Join(cache, "kubectl"),
 		DeniedDirs: []string{data, cache, runtime},
-	}, 0, sb, clusterService{api: api}, nil)
+	}, 0, sb, clusterService{api: api}, nil, bash.Cloud{})
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
 	box, lists := testBox(tool)
-	s, err := newService(openTestDB(t, data), chatsDirIn(data), monitorDirIn(data), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.Status{}, testSettings(t))
+	s, err := newService(openTestDB(t, data), chatsDirIn(data), monitorDirIn(data), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.Status{}, testSettings(t), nil)
 	require.NoError(t, err)
 	startPrepared(t, s)
 	home := grantable(t, s)

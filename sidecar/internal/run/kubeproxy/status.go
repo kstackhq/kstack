@@ -42,3 +42,9 @@ func writeStatus(w http.ResponseWriter, code int, message string) {
 	w.WriteHeader(code)
 	_, _ = w.Write(body)
 }
+
+// Unauthorized answers 401 as a dead grant, or a request without its token,
+// is answered: what a run's door answers a request no route takes.
+func Unauthorized(w http.ResponseWriter) {
+	writeStatus(w, http.StatusUnauthorized, "kstack: unauthorized")
+}

@@ -187,7 +187,7 @@ that namespace's scope. →
 **`internal/run/kubeproxy` is the cluster proxy**; it imports nothing of `tools` or
 `services/cluster`. Files: `kubeproxy.go` (grant, handler), `policy.go` (path parse, read
 policy), `write.go` (write path), `classify.go`, `diff.go` (preview), `secretread.go`, `redact.go`
-and `redact_helm.go` (Secret rewriter), `status.go` (every refusal's `Status`).
+and `redact_helm.go` (Secret rewriter), `status.go` (every refusal's `Status`, and `Unauthorized`).
 → [ADR: the proxy reads a request as the API server will](../../../docs/adr/2026-10-17-the-cluster-proxy-reads-a-request-as-the-api-server-does.md).
 
 - **A `Grant`** (`NewGrant`) holds the run's session, the kube-context its writes are decided in, a
