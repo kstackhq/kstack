@@ -452,7 +452,9 @@ describe("LogsWindow's viewport push", () => {
     fireEvent.click(screen.getByRole('button', { name: 'select two' }));
     await blur();
 
-    expect(pushes()).toEqual([
+    // The viewer's mount writes an empty selection, whose push may go out on the next
+    // frame, before the click.
+    expect(pushes().at(-1)).toEqual(
       expect.objectContaining({
         generation: 4,
         grep: 'error',
@@ -461,7 +463,7 @@ describe("LogsWindow's viewport push", () => {
           selectedCount: 2,
         }),
       }),
-    ]);
+    );
   });
 
   it('names the grep applied here, over the open one', async () => {
