@@ -73,6 +73,8 @@ Paths in task lists are relative to `sidecar/internal/` unless explicitly rooted
 When complete, update current-state documentation and ADRs as the spec's *When it lands* lists,
 then delete **that spec only** and remove its row from the sequence's README in the same change. Keep later spec numbers
 stable: their prerequisites are delivered code and current-state docs, never a retired spec file.
+A spec that later specs of its sequence cite stays, marked built, until the last of them is
+complete, and is deleted with it.
 
 ### Verification commands
 

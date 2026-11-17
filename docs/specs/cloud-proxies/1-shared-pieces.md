@@ -669,14 +669,14 @@ All start Planned. Each ends green under `make test-changed`.
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | `Target`, the provider verdict, `Rule.Matches` | `run/permissions/` | — | Planned |
-| 2 | The server moves | `run/runproxy/server.go`; `run/kubeproxy/server.go` and its test removed; `tools/bash/proxy.go`'s one call | — | Planned |
-| 3 | The grant core, the body slots, the outbound headers and the ask path | `run/runproxy/grant.go`, `ask.go` | 1 | Planned |
-| 4 | The action family: `Cloud`, `SandboxActions`, `ToolCall.sandboxActions`, the drawing | `tools/tool.go`, `agent/chat/record.go`, `approval.go`, `store.go`, `sidecar/graph/schema.graphqls`, generated code, `src/gql/`, `src/lib/chats.tsx`, `src/components/chat/chat-transcript/`, `docs/persisted-data.md` | 1 | Planned |
-| 5 | The switch: the four fields, `cloudFields`, the wire, the Settings row and confirm | `services/settings/`, `sidecar/graph/`, `src/lib/`, `src/components/settings/settings-dialog/`, `design/components.json` if a component is added | 4 | Planned |
-| 6 | The door and its switch read, the seam, `cloudAsker`, a port for a run with a provider, the end order, `NO_PROXY`, the context's `cloud` key, the prompt's one sentence, `safe.ForgetSecret` | `tools/bash/proxy.go`, `bash.go`, `env.go`, `rundir.go`, `prompts/sandbox.md` and its golden, `agent/chat/workspace.go`, `lib/safe/safe.go`, `app/` | 2, 3, 4, 5 | Planned |
-| 7 | A fake provider through the real sandbox | `app/` (`Config`'s test field, `startE2E`, `curl` in its `toolsFolder`) | 6 | Planned |
-| 8 | Docs, per *When it lands* | see there | 1–7 | Planned |
+| 1 | `Target`, the provider verdict, `Rule.Matches` | `run/permissions/` | — | Done |
+| 2 | The server moves | `run/runproxy/server.go`; `run/kubeproxy/server.go` and its test removed; `tools/bash/proxy.go`'s one call | — | Done |
+| 3 | The grant core, the body slots, the outbound headers and the ask path | `run/runproxy/grant.go`, `ask.go` | 1 | Done |
+| 4 | The action family: `Cloud`, `SandboxActions`, `ToolCall.sandboxActions`, the drawing | `tools/tool.go`, `agent/chat/record.go`, `approval.go`, `store.go`, `sidecar/graph/schema.graphqls`, generated code, `src/gql/`, `src/lib/chats.tsx`, `src/components/chat/chat-transcript/`, `docs/persisted-data.md` | 1 | Done |
+| 5 | The switch: the four fields, `cloudFields`, the wire, the Settings row and confirm | `services/settings/`, `sidecar/graph/`, `src/lib/`, `src/components/settings/settings-dialog/`, `design/components.json` if a component is added | 4 | Done, but the Settings row and confirm, which wait for the new settings panel |
+| 6 | The door and its switch read, the seam, `cloudAsker`, a port for a run with a provider, the end order, `NO_PROXY`, the context's `cloud` key, the prompt's one sentence, `safe.ForgetSecret` | `tools/bash/proxy.go`, `bash.go`, `env.go`, `rundir.go`, `prompts/sandbox.md` and its golden, `agent/chat/workspace.go`, `lib/safe/safe.go`, `app/` | 2, 3, 4, 5 | Done |
+| 7 | A fake provider through the real sandbox | `app/` (`Config`'s test field, `startE2E`, `curl` in its `toolsFolder`) | 6 | Done |
+| 8 | Docs, per *When it lands* | see there | 1–7 | Done |
 
 1 and 2 can start together; 3 and 4 after 1; 5 after 4, which adds `PermissionTarget`; 6 after
 all of them, since `cloudAsker` writes `ActionRequest.Cloud` (4) and a run reads `CloudOn` (5).
@@ -864,7 +864,8 @@ When this step is complete on `wip/cloud-proxies`:
   `sidecar/internal/services/settings/CLAUDE.md` and `src/components/settings/CLAUDE.md` (the
   switch); `src/CLAUDE.md`'s security line on cluster changes. Raise a budget in
   `.github/ci-config/claude-md-budgets.yml` only with the reason in the commit body.
-- This file is deleted and its row leaves [`README.md`](README.md).
+- This file stays, marked built, while steps 2A to 2D cite it, and is deleted with the last of
+  them; its row leaves [`README.md`](README.md) then.
 
 ## What each provider step owes
 
