@@ -18,7 +18,7 @@
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
-import { Plus } from 'lucide-react';
+import { ArrowRight, Plus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { ReactElement, RefObject } from 'react';
 
@@ -108,8 +108,9 @@ export function MemoryPopoverContent() {
       </div>
       {/* Settings has no Memory pane yet, so the link leads nowhere. */}
       <footer className="flex h-12 shrink-0 items-center justify-between border-t bg-muted/50 px-5 py-2">
-        <Button variant="link" size="sm" className="text-xs text-foreground">
-          Open Memory settings
+        <Button variant="link" size="sm" className="px-0 text-xs text-foreground">
+          Open memory settings
+          <ArrowRight aria-hidden />
         </Button>
         <Button
           variant="outline"

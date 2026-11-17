@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -139,9 +139,15 @@ describe('MemoryList', () => {
   // hides: the trash button only fades, never leaving the tab order.
   it("keeps a note's trash button in reach of the keyboard", () => {
     render(<List initial={[memory(0)]} />);
-    const trash = button('Delete note');
+    const trash = button(`Delete note: ${BODY}`);
     expect(trash).toHaveClass('opacity-0', 'group-focus-within/row:opacity-100', 'group-hover/row:opacity-100');
     expect(trash).not.toHaveClass('hidden', 'invisible');
+  });
+
+  it("names each trash button by its note's body", () => {
+    render(<List initial={[memory(0, { body: 'First.' }), memory(1, { body: 'Second.' })]} />);
+    expect(button('Delete note: First.')).toBeInTheDocument();
+    expect(button('Delete note: Second.')).toBeInTheDocument();
   });
 
   describe('editing', () => {
@@ -154,7 +160,7 @@ describe('MemoryList', () => {
       expect([editor().selectionStart, editor().selectionEnd]).toEqual([0, BODY.length]);
       expectProseText(editor());
       // The note being edited draws no trash button.
-      expect(screen.getAllByRole('button', { name: 'Delete note' })).toHaveLength(2);
+      expect(screen.getAllByRole('button', { name: `Delete note: ${BODY}` })).toHaveLength(2);
     });
 
     it('breaks a line on Enter and saves on Cmd+Enter', async () => {
@@ -203,6 +209,18 @@ describe('MemoryList', () => {
       await user.keyboard('{Escape}');
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
       expect(screen.getAllByText(BODY)).toHaveLength(3);
+      expect(saves).toEqual([]);
+    });
+
+    it('leaves Escape and Cmd+Enter to an IME composing text', async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List saves={saves} />);
+      await editNote(user);
+      await user.type(editor(), ' 日本');
+      fireEvent.keyDown(editor(), { key: 'Escape', isComposing: true });
+      fireEvent.keyDown(editor(), { key: 'Enter', metaKey: true, isComposing: true });
+      expect(editor()).toHaveValue(`${BODY} 日本`);
       expect(saves).toEqual([]);
     });
 
@@ -474,11 +492,11 @@ describe('MemoryList', () => {
     it('deletes a note after confirming', async () => {
       const user = userEvent.setup();
       render(<List />);
-      await user.click(screen.getAllByRole('button', { name: 'Delete note' })[0]);
+      await user.click(screen.getAllByRole('button', { name: `Delete note: ${BODY}` })[0]);
       expect(await screen.findByText('Delete note?')).toBeInTheDocument();
       expect(screen.getByText(/permanently deleted from Minikube/)).toBeInTheDocument();
 
-      await user.click(screen.getAllByRole('button', { name: 'Delete note' }).at(-1)!);
+      await user.click(screen.getByRole('button', { name: 'Delete note' }));
       expect(screen.getAllByText(BODY)).toHaveLength(2);
       expect(screen.queryByText('Delete note?')).not.toBeInTheDocument();
     });
@@ -486,7 +504,7 @@ describe('MemoryList', () => {
     it('keeps the note when the confirm is cancelled', async () => {
       const user = userEvent.setup();
       render(<List />);
-      await user.click(screen.getAllByRole('button', { name: 'Delete note' })[0]);
+      await user.click(screen.getAllByRole('button', { name: `Delete note: ${BODY}` })[0]);
       await user.click(await screen.findByRole('button', { name: 'Cancel' }));
       expect(screen.getAllByText(BODY)).toHaveLength(3);
     });
@@ -494,8 +512,8 @@ describe('MemoryList', () => {
     it('keeps the confirm and says so when a delete fails, and a retry deletes it', async () => {
       const user = userEvent.setup();
       render(<List failing />);
-      await user.click(screen.getAllByRole('button', { name: 'Delete note' })[0]);
-      const confirm = async () => user.click((await screen.findAllByRole('button', { name: 'Delete note' })).at(-1)!);
+      await user.click(screen.getAllByRole('button', { name: `Delete note: ${BODY}` })[0]);
+      const confirm = async () => user.click(await screen.findByRole('button', { name: 'Delete note' }));
 
       await confirm();
       expect(await screen.findByText('The note could not be deleted.')).toBeInTheDocument();
@@ -509,8 +527,8 @@ describe('MemoryList', () => {
     it('deletes down to the empty state', async () => {
       const user = userEvent.setup();
       render(<List initial={[memory(0)]} />);
-      await user.click(button('Delete note'));
-      await user.click((await screen.findAllByRole('button', { name: 'Delete note' })).at(-1)!);
+      await user.click(button(`Delete note: ${BODY}`));
+      await user.click(await screen.findByRole('button', { name: 'Delete note' }));
       expect(screen.getByText('No notes yet.')).toBeInTheDocument();
     });
   });
