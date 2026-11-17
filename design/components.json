@@ -865,6 +865,53 @@
           "blob": "24d66a7a4aa9e822ecdc89f2563d98483102d56d"
         }
       ]
+    },
+    {
+      "id": "settings/folder-grant-form",
+      "figma": {
+        "node": "2235:2287",
+        "name": "FolderGrantForm",
+        "hash": "af3a3f245417b489"
+      },
+      "code": [
+        {
+          "path": "src/components/settings/folder-grant-form.tsx",
+          "blob": "06db8b20ac0fdf79058b435eed85996478512628"
+        }
+      ],
+      "notes": [
+        "Drawn with one duration, as the Settings dialog passes it: no How long tabs and no Cancel."
+      ]
+    },
+    {
+      "id": "settings/settings-dialog",
+      "figma": {
+        "node": "2235:2307",
+        "name": "SettingsDialog",
+        "hash": "b4340e714e18d969"
+      },
+      "code": [
+        {
+          "path": "src/components/settings/settings-dialog/dialog.tsx",
+          "blob": "9d92c7c61538333e05da912620b38f200af5b9cb"
+        },
+        {
+          "path": "src/components/settings/settings-dialog/sandbox.tsx",
+          "blob": "35937f20c8ec407d46ec29a61e3e3e4f89bb93fe"
+        },
+        {
+          "path": "src/components/settings/settings-dialog/permissions.tsx",
+          "blob": "9a60f1fcba8f18b1cd28d0deae72667dcd8b62f1"
+        }
+      ],
+      "security": true,
+      "notes": [
+        "Sample data.",
+        "Drawn with the sandbox available, so the Sandbox fields and Permissions show.",
+        "The panel is DialogContent's classes on a local frame: kubetail-ui's Dialog holds its body in a text slot.",
+        "Tabs/Trigger has no icon slot, so the Appearance picker's Monitor, Sun and Moon icons are not drawn.",
+        "The component is as tall as its content; an instance set shorter clips the Body, as max-h-[85vh] scrolls it."
+      ]
     }
   ],
   "screens": [
@@ -1123,6 +1170,27 @@
           "path": "src/components/chat/chat-pane.tsx",
           "blob": "af2bba4c70aef8908f9948e5b0cff9e644280ac0"
         }
+      ]
+    },
+    {
+      "id": "screens/settings",
+      "figma": {
+        "node": "2236:8530",
+        "name": "Settings",
+        "hash": "fa6a040b5b48ed10"
+      },
+      "code": [
+        {
+          "path": "src/components/primitives/dialog.tsx",
+          "blob": "b8b062aeede1a164a574576421f0bd5faf5c5c26"
+        },
+        {
+          "path": "src/components/shell/app-dialogs.tsx",
+          "blob": "fe4b890a0c702674b205cfce843dbdd060180600"
+        }
+      ],
+      "notes": [
+        "SettingsDialog — open sits centered at 85% of the window's height, over the Overlay (bg-black/50)."
       ]
     }
   ]
