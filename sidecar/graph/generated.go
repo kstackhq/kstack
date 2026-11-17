@@ -125,6 +125,11 @@ type ComplexityRoot struct {
 		URL       func(childComplexity int) int
 	}
 
+	CloudAccess struct {
+		On     func(childComplexity int) int
+		Target func(childComplexity int) int
+	}
+
 	CloudRequest struct {
 		Body        func(childComplexity int) int
 		ContentType func(childComplexity int) int
@@ -657,6 +662,7 @@ type ComplexityRoot struct {
 		PermissionModeSet               func(childComplexity int, context string, mode permissions.Mode) int
 		PermissionRuleAdd               func(childComplexity int, input model.PermissionRuleInput) int
 		PermissionRuleRemove            func(childComplexity int, id string) int
+		SandboxCloudAccessSet           func(childComplexity int, target permissions.Target, on bool) int
 		SandboxExecutableRegister       func(childComplexity int, name string, invocation *string) int
 		SandboxExecutableRemove         func(childComplexity int, name string) int
 		SandboxExecutablesProbe         func(childComplexity int) int
@@ -744,6 +750,7 @@ type ComplexityRoot struct {
 		Models              func(childComplexity int) int
 		PermissionSettings  func(childComplexity int) int
 		Sandbox             func(childComplexity int) int
+		SandboxCloudAccess  func(childComplexity int) int
 		SandboxExecutables  func(childComplexity int) int
 		SandboxFolders      func(childComplexity int, chatID *apimeta.ChatID) int
 		SandboxPath         func(childComplexity int) int
@@ -962,6 +969,7 @@ type MutationResolver interface {
 	ChatSandboxDisabledSet(ctx context.Context, id apimeta.ChatID, sandboxDisabled bool) (*chat.Chat, error)
 	ChatNetworkEnabledSet(ctx context.Context, id apimeta.ChatID, enabled bool) (*chat.Chat, error)
 	ChatDelete(ctx context.Context, id apimeta.ChatID) (bool, error)
+	SandboxCloudAccessSet(ctx context.Context, target permissions.Target, on bool) ([]*model.CloudAccess, error)
 	SandboxPathInclude(ctx context.Context, dir string, target string) ([]*model.SandboxPathEntry, error)
 	SandboxPathRemove(ctx context.Context, dir string) ([]*model.SandboxPathEntry, error)
 	SandboxPathRefresh(ctx context.Context) ([]*model.SandboxPathEntry, error)
@@ -992,6 +1000,7 @@ type QueryResolver interface {
 	ClusterCachedKind(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCachedKind, error)
 	ClusterCachedKinds(ctx context.Context, cacheID *apimeta.ObjectID) ([]*cluster.ClusterCachedKind, error)
 	SettingsRefused(ctx context.Context) ([]*jsonsettings.Refusal, error)
+	SandboxCloudAccess(ctx context.Context) ([]*model.CloudAccess, error)
 	SandboxPath(ctx context.Context) ([]*model.SandboxPathEntry, error)
 	SandboxPathFault(ctx context.Context) (*string, error)
 	SandboxPathResolved(ctx context.Context) (bool, error)
@@ -1303,6 +1312,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Citation.URL(childComplexity), true
+
+	case "CloudAccess.on":
+		if e.ComplexityRoot.CloudAccess.On == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CloudAccess.On(childComplexity), true
+	case "CloudAccess.target":
+		if e.ComplexityRoot.CloudAccess.Target == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CloudAccess.Target(childComplexity), true
 
 	case "CloudRequest.body":
 		if e.ComplexityRoot.CloudRequest.Body == nil {
@@ -3540,6 +3562,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.PermissionRuleRemove(childComplexity, args["id"].(string)), true
+	case "Mutation.sandboxCloudAccessSet":
+		if e.ComplexityRoot.Mutation.SandboxCloudAccessSet == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_sandboxCloudAccessSet_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SandboxCloudAccessSet(childComplexity, args["target"].(permissions.Target), args["on"].(bool)), true
 	case "Mutation.sandboxExecutableRegister":
 		if e.ComplexityRoot.Mutation.SandboxExecutableRegister == nil {
 			break
@@ -3965,6 +3998,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Sandbox(childComplexity), true
+	case "Query.sandboxCloudAccess":
+		if e.ComplexityRoot.Query.SandboxCloudAccess == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.SandboxCloudAccess(childComplexity), true
 	case "Query.sandboxExecutables":
 		if e.ComplexityRoot.Query.SandboxExecutables == nil {
 			break
@@ -4976,6 +5015,16 @@ func (ec *executionContext) childFields_Citation(ctx context.Context, field grap
 		return ec.fieldContext_Citation_citedText(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Citation", field.Name)
+}
+
+func (ec *executionContext) childFields_CloudAccess(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "target":
+		return ec.fieldContext_CloudAccess_target(ctx, field)
+	case "on":
+		return ec.fieldContext_CloudAccess_on(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type CloudAccess", field.Name)
 }
 
 func (ec *executionContext) childFields_Cluster(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -7118,6 +7167,28 @@ func (ec *executionContext) field_Mutation_permissionRuleRemove_args(ctx context
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_sandboxCloudAccessSet_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "target",
+		func(ctx context.Context, v any) (permissions.Target, error) {
+			return ec.unmarshalNPermissionTarget2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐTarget(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["target"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "on",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["on"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_sandboxExecutableRegister_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -8704,6 +8775,52 @@ func (ec *executionContext) _Citation_citedText(ctx context.Context, field graph
 }
 func (ec *executionContext) fieldContext_Citation_citedText(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Citation", field, false, false, "String")
+}
+
+func (ec *executionContext) _CloudAccess_target(ctx context.Context, field graphql.CollectedField, obj *model.CloudAccess) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CloudAccess_target(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Target, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v permissions.Target) graphql.Marshaler {
+			return ec.marshalNPermissionTarget2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐTarget(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CloudAccess_target(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CloudAccess", field, false, false, "PermissionTarget")
+}
+
+func (ec *executionContext) _CloudAccess_on(ctx context.Context, field graphql.CollectedField, obj *model.CloudAccess) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CloudAccess_on(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.On, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CloudAccess_on(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CloudAccess", field, false, false, "Boolean")
 }
 
 func (ec *executionContext) _CloudRequest_host(ctx context.Context, field graphql.CollectedField, obj *chat.CloudRequest) (ret graphql.Marshaler) {
@@ -17122,6 +17239,50 @@ func (ec *executionContext) fieldContext_Mutation_chatDelete(ctx context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_sandboxCloudAccessSet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_sandboxCloudAccessSet(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SandboxCloudAccessSet(ctx, fc.Args["target"].(permissions.Target), fc.Args["on"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.CloudAccess) graphql.Marshaler {
+			return ec.marshalNCloudAccess2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐCloudAccessᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_sandboxCloudAccessSet(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_CloudAccess(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_sandboxCloudAccessSet_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_sandboxPathInclude(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -19219,6 +19380,38 @@ func (ec *executionContext) fieldContext_Query_settingsRefused(_ context.Context
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_SettingsRefusal(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_sandboxCloudAccess(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_sandboxCloudAccess(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().SandboxCloudAccess(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.CloudAccess) graphql.Marshaler {
+			return ec.marshalNCloudAccess2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐCloudAccessᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_sandboxCloudAccess(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_CloudAccess(ctx, field)
 		},
 	}
 	return fc, nil
@@ -24810,6 +25003,44 @@ func (ec *executionContext) _Citation(ctx context.Context, sel ast.SelectionSet,
 	return out
 }
 
+var cloudAccessImplementors = []string{"CloudAccess"}
+
+func (ec *executionContext) _CloudAccess(ctx context.Context, sel ast.SelectionSet, obj *model.CloudAccess) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, cloudAccessImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("CloudAccess")
+		case "target":
+			out.Values[i] = ec._CloudAccess_target(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "on":
+			out.Values[i] = ec._CloudAccess_on(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
 var cloudRequestImplementors = []string{"CloudRequest", "SandboxRequest"}
 
 func (ec *executionContext) _CloudRequest(ctx context.Context, sel ast.SelectionSet, obj *chat.CloudRequest) graphql.Marshaler {
@@ -28302,6 +28533,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "sandboxCloudAccessSet":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_sandboxCloudAccessSet(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "sandboxPathInclude":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_sandboxPathInclude(ctx, field)
@@ -28958,6 +29196,12 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_settingsRefused(ctx, field)
+				})
+		case "sandboxCloudAccess":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_sandboxCloudAccess(ctx, field)
 				})
 		case "sandboxPath":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
@@ -30691,6 +30935,30 @@ func (ec *executionContext) marshalNCitation2ᚖgithubᚗcomᚋkstackhqᚋkstack
 		return graphql.Null
 	}
 	return ec._Citation(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNCloudAccess2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐCloudAccessᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.CloudAccess) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNCloudAccess2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐCloudAccess(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNCloudAccess2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐCloudAccess(ctx context.Context, sel ast.SelectionSet, v *model.CloudAccess) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "CloudAccess!")
+		return graphql.Null
+	}
+	return ec._CloudAccess(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNCluster2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterᚄ(ctx context.Context, sel ast.SelectionSet, v []*cluster.Cluster) graphql.Marshaler {

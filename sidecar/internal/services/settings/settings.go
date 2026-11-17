@@ -30,7 +30,7 @@ type Settings struct {
 }
 
 // SandboxSettings is the sandbox group: the user's PATH as a sandboxed run
-// searches it.
+// searches it, and what else a run may reach.
 type SandboxSettings struct {
 	Path []PathEntry `json:"path,omitempty"` // the user's PATH, frozen, in the shell's order
 	// PathResolved is set by the first sync: before it a run searches the
@@ -40,6 +40,12 @@ type SandboxSettings struct {
 	// cleared by the next sync, which it makes file every new entry pending:
 	// the entry the store could not read may have been a removal.
 	PathStrict bool `json:"pathStrict,omitempty"`
+	// AWS, GitHub, GCP and Azure are each provider's consent switch: on, a
+	// sandboxed command reaches it as the user (cloud.go).
+	AWS    bool `json:"aws,omitempty"`
+	GitHub bool `json:"github,omitempty"`
+	GCP    bool `json:"gcp,omitempty"`
+	Azure  bool `json:"azure,omitempty"`
 }
 
 // PermissionSettings is the permissions group: the approval modes and the

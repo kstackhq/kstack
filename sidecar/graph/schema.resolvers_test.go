@@ -33,6 +33,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
@@ -3607,4 +3608,51 @@ func TestLogsFollowCarriesARefusal(t *testing.T) {
 	ev := testutil.Recv(t, events, "the refusal").data
 	assert.Contains(t, ev, `"rule":"cursor-invalid"`)
 	assert.NotContains(t, ev, `"watchFailed"`)
+}
+
+// newCloudServer is a resolver over a fresh settings file whose build has the
+// providers targets.
+func newCloudServer(t *testing.T, targets ...permissions.Target) (*httptest.Server, *settings.Store) {
+	t.Helper()
+	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
+	require.NoError(t, err)
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
+		ClusterSvc: newFakeClusterService(clusterFixtures()), Settings: settings.NewService(cfg, nil, nil, ""), CloudTargets: targets,
+	}))
+	t.Cleanup(srv.Close)
+	return srv, cfg
+}
+
+// sandboxCloudAccess lists only the providers the build has, each off until
+// turned on; sandboxCloudAccessSet writes its provider's field and answers the
+// list.
+func TestSandboxCloudAccessListsTheBuildsProviders(t *testing.T) {
+	srv, cfg := newCloudServer(t, permissions.AWS, permissions.GCP)
+	data := mutate(t, srv, `{ sandboxCloudAccess { target on } }`)
+	assert.Equal(t, []any{
+		map[string]any{"target": "AWS", "on": false},
+		map[string]any{"target": "GCP", "on": false},
+	}, data["sandboxCloudAccess"])
+
+	data = mutate(t, srv, `mutation { sandboxCloudAccessSet(target: GCP, on: true) { target on } }`)
+	assert.Equal(t, []any{
+		map[string]any{"target": "AWS", "on": false},
+		map[string]any{"target": "GCP", "on": true},
+	}, data["sandboxCloudAccessSet"])
+	assert.True(t, cfg.CloudOn(permissions.GCP))
+	assert.False(t, cfg.CloudOn(permissions.AWS))
+
+	empty, _ := newCloudServer(t)
+	assert.Equal(t, []any{}, mutate(t, empty, `{ sandboxCloudAccess { target on } }`)["sandboxCloudAccess"])
+}
+
+// The cluster has no switch, and a provider the build lacks has none either.
+func TestSandboxCloudAccessSetRefusesWhatHasNoSwitch(t *testing.T) {
+	srv, cfg := newCloudServer(t, permissions.AWS)
+	for _, target := range []string{"Cluster", "GitHub"} {
+		message, code := refusalOf(t, srv, `mutation { sandboxCloudAccessSet(target: `+target+`, on: true) { target } }`)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", code, target)
+		assert.Equal(t, "This build has no switch for that target.", message, target)
+	}
+	assert.False(t, cfg.CloudOn(permissions.GitHub), "nothing was written")
 }

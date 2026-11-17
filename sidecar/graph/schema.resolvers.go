@@ -8,6 +8,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	gqlerrors "github.com/kstackhq/kstack/sidecar/graph/errors"
@@ -255,6 +256,17 @@ func (r *mutationResolver) ChatDelete(ctx context.Context, id apimeta.ChatID) (b
 	return true, nil
 }
 
+// SandboxCloudAccessSet is the resolver for the sandboxCloudAccessSet field.
+func (r *mutationResolver) SandboxCloudAccessSet(ctx context.Context, target permissions.Target, on bool) ([]*model.CloudAccess, error) {
+	if !slices.Contains(r.CloudTargets, target) {
+		return nil, gqlerrors.NewValidationError("sandbox-cloud", "This build has no switch for that target.")
+	}
+	if err := r.Settings.SetCloud(target, on); err != nil { // coverage:ignore a listed provider has a switch, so only the file's write fails
+		return nil, err
+	}
+	return r.cloudAccess(), nil
+}
+
 // SandboxPathInclude is the resolver for the sandboxPathInclude field.
 func (r *mutationResolver) SandboxPathInclude(ctx context.Context, dir string, target string) ([]*model.SandboxPathEntry, error) {
 	entries, err := r.Settings.AdoptPath(dir, target)
@@ -495,6 +507,11 @@ func (r *queryResolver) SettingsRefused(ctx context.Context) ([]*jsonsettings.Re
 		out[i] = &refused[i]
 	}
 	return out, nil
+}
+
+// SandboxCloudAccess is the resolver for the sandboxCloudAccess field.
+func (r *queryResolver) SandboxCloudAccess(ctx context.Context) ([]*model.CloudAccess, error) {
+	return r.cloudAccess(), nil
 }
 
 // SandboxPath is the resolver for the sandboxPath field.
