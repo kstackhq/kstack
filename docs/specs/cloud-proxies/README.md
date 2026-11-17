@@ -29,6 +29,19 @@ Each step uses these as they are and adds none of its own:
 - **A run's file.** `writeNew` (`tools/bash/rundir.go`).
 - **Refusals.** `runproxy.BodyRefusal` and `runproxy.SlotRefusal` word the statuses `Body` and
   `Slot` answer. The door refuses a cloud platform's upgrade, so no proxy checks for one.
+- **The prompt.** `prompts/sandbox.md` states once what holds for every cloud platform: through a
+  proxy as the user, a read runs, a change asks each time, a background command changes nothing,
+  a credential is refused. A step adds one paragraph after it, opening *Where `cloud` names
+  `<word>`,*, that says only what is its own: its tools, what it reaches, and what does not work.
+- **Names.** One shape for the four, `<name>` being `aws`, `github`, `gcp` or `azure`:
+
+  | Piece | Name |
+  | --- | --- |
+  | The proxy | `run/<name>proxy` |
+  | The credential's service | `services/<name>auth` |
+  | The mount | `tools/bash/<name>.go`, with `_unix` only where it cannot build on Windows |
+  | Its type and constructor | `awsPlatform` and `NewAWS`, `gitHubPlatform` and `NewGitHub`, `gcpPlatform` and `NewGCP`, `azurePlatform` and `NewAzure` |
+  | What the mount needs of the service | an interface the mount file declares, `<Name>Login` |
 - **Words.** AWS, GitHub, Google Cloud and Azure are *cloud platforms*: `CloudPlatform` in Go,
   "cloud platform" in prose. A bare "platform" is an OS, and a "provider" is a model's.
 
