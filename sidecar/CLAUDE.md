@@ -205,6 +205,27 @@ Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + P
 
 Watches are pull-first: a 30-minute backstop tick under fsnotify and a poke subscription. **Keep the tick under any new push layer.** Use `resolvePaths` and keep every path in one namespace (no `filepath.EvalSymlinks`, which matches nothing on macOS).
 
+## AWS login (`internal/services/awsauth`)
+
+**The user's AWS credentials**, for `run/awsproxy`: the SDK's default chain in the sidecar's
+environment, resolved through its cache only when a request needs them. A chain is fixed at load,
+so the configuration is loaded again after a load yields none, a retrieval fails or a `Drop`: a
+profile the user creates, or keys they replace, need no restart. It holds the secret key and
+session token under `safe.AddSecret`, forgets them on refresh or `Drop`, and answers every failure
+as `ErrNoLogin`, never the SDK's text.
+
+**Each retrieval and each `Drop` takes one turn**, so what `safe` blanks is always what the cache
+last answered. A retrieval loads its chain in the turn, and holds the turn until the SDK's refresh
+ends, even once its caller has given up, or until `retrieveTimeout`, after which its chain is
+unloaded.
+
+**A `credential_process` runs quiet** (`process_unix.go`): no stdin, no stderr, since the host logs
+the sidecar's stderr as is, and in a session of its own, so it has no terminal to prompt on. The
+SDK's timeout kills its process group, and a descendant that left the group is waited for no
+longer than `helperWaitDelay`. A role assumed from a source profile's process is no login, since
+the SDK runs that one with the sidecar's own. The package is built for Unix alone
+(`awsauth_unix.go`): Windows has no sandbox to reach AWS from.
+
 ## Resync broadcaster (`internal/services/poke`)
 
 A leaf: wall-clock gap detector (15s tick, 2× factor) plus a `gochan/broadcast` hub. `Poke(src)` never blocks. A poke is a fan-out, never a cascade through spec counters or conditions. → [ADR: poke resync fan-out](../docs/adr/2026-08-09-poke-resync-fanout.md).
