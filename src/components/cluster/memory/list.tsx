@@ -155,9 +155,10 @@ function Row({ memory, onEdit, onDelete }: { memory: Memory; onEdit: () => void;
     // The trash button hides by opacity alone, so it keeps its space and its
     // tab stop: focus inside the row shows it. It shows without the Button's
     // fade, which would leave the last row's icon trailing the hover.
+    // Both buttons are named by their action and the body, so a screen reader
+    // tells the notes apart.
     <div className="group/row flex items-start gap-3 py-2.5 pr-3 pl-4 focus-within:bg-secondary hover:bg-secondary">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {/* Named by its action and its body, so a screen reader tells the notes apart. */}
         <button
           type="button"
           aria-label={`Edit note: ${memory.body}`}
@@ -171,7 +172,7 @@ function Row({ memory, onEdit, onDelete }: { memory: Memory; onEdit: () => void;
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label="Delete note"
+        aria-label={`Delete note: ${memory.body}`}
         onClick={onDelete}
         className="self-center text-muted-foreground opacity-0 transition-none group-focus-within/row:opacity-100 group-hover/row:opacity-100"
       >

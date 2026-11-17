@@ -166,8 +166,8 @@ describe('MemoryPopoverContent', () => {
     const user = userEvent.setup();
     watched.memories = [memory()];
     renderContent();
-    await user.click(button('Delete note'));
-    await user.click((await screen.findAllByRole('button', { name: 'Delete note' })).at(-1)!);
+    await user.click(button('Delete note: Treat its pods as prod.'));
+    await user.click(await screen.findByRole('button', { name: 'Delete note' }));
 
     expect(deleteMock).toHaveBeenCalledWith({ id: 'm1' });
   });
