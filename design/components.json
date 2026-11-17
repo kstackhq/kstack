@@ -469,7 +469,7 @@
       ],
       "notes": [
         "Sample data.",
-        "Open Memory settings leads nowhere yet.",
+        "Open memory settings leads nowhere yet.",
         "The popup takes the omnibox's width, up to 640px; Figma draws it at 620px.",
         "The instructions box marks focus by its border alone, with no ring/50 ring.",
         "The scroller keeps the system's overlay scrollbar, as the other popups do, not table-scrollbar.",

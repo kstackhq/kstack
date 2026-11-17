@@ -130,7 +130,7 @@ describe('MemoryPopoverContent', () => {
     renderContent();
     const footer = screen.getByRole('contentinfo');
     expect(footer).toHaveClass('bg-muted/50');
-    expect(footer).toContainElement(button('Open Memory settings'));
+    expect(footer).toContainElement(button('Open memory settings'));
     expect(footer).toContainElement(button('Add note'));
   });
 
