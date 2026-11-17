@@ -105,7 +105,6 @@ interprocess = { version = "2", features = ["tokio"] }
 hyper = { version = "1", features = ["http1", "client"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
 # SSE wire-format parser for the GraphQL subscription transport
 # (`graphql/subscribe.rs`). Transport-agnostic: turns the hyper response
 # body's `Bytes` stream into parsed SSE events, replacing a hand-rolled
@@ -125,7 +124,6 @@ tonic = "0.14"
 tonic-prost = "0.14"
 prost = "0.14"
 tower = { version = "0.5", features = ["util"] }
-file-rotate = "0.8"
 
 # The in-app updater (`updater/platform.rs`). Linux applies no update, so it
 # is not built there. Held to a minor: `configure_client` hands over the

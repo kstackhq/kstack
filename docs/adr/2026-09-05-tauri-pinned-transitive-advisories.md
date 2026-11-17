@@ -42,13 +42,22 @@ retired crates stay in the graph whatever we do. `src-tauri` also depends on zbu
 the Linux wake sources in `wake/linux.rs`; moving it to 6 alone would put two zbus majors in the
 Linux build and clear nothing, so it moves with the plugins.
 
+**chrono 0.4, [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543)** (added
+2026-11-17) — unmaintained; no defect is claimed. Nothing in any build compiles it
+(`cargo tree -i chrono --target all -e all` prints nothing), yet it stays in `Cargo.lock`:
+`serde_with`, which `tauri-utils` depends on, names it through weak `chrono_0_4?/…` features in its
+default `std` feature, and Cargo locks the optional dependency a weak feature names. `cargo audit`
+reads the lockfile, so the notice fires anyway. The host's own uses of chrono — an unused direct
+dependency and `file-rotate`, which needed it for timestamp suffixes the host never used — were
+removed rather than accepted; size rotation is `log_rotate.rs`.
+
 We pin none of the first three groups. `tao`, `wry`, `tauri`, `muda` and `libappindicator` bring in the GTK 3 line,
 and `tauri-utils` brings in `urlpattern`. Every glib consumer in the lock is part of that Linux
 GTK/WebKitGTK stack, so the first two groups do not compile into the macOS or Windows builds.
 
 ## Decision
 
-Accept all seventeen, and the three zbus notices with them, and make the acceptance a thing CI enforces rather than a thing a reviewer
+Accept all seventeen, and the three zbus notices and the chrono notice with them, and make the acceptance a thing CI enforces rather than a thing a reviewer
 remembers. `src-tauri/.cargo/audit.toml` lists them with a reason each, and CI runs
 `cargo audit --deny unsound --deny unmaintained`, so a *new* advisory fails the build while these
 stay recorded and visible.
@@ -97,7 +106,9 @@ this narrows what they miss rather than adding a protection.
 ## Revisit when
 
 `tauri-utils` publishes past 2.9.3 with `urlpattern >= 0.4`, which retires the five unic entries
-for the cost of a `cargo update`; check on each Tauri bump. Or `tauri-plugin-opener` and `tauri-plugin-single-instance` both
+for the cost of a `cargo update`; check on each Tauri bump. Or `serde_with` stops naming chrono, or
+Cargo stops locking an optional dependency only a weak feature names, which retires the chrono
+entry. Or `tauri-plugin-opener` and `tauri-plugin-single-instance` both
 publish on zbus 6, which retires the three zbus entries: bump them, move our own `zbus` to 6 and
 port `wake/linux.rs` in the same change. Or Tauri's Linux backend moves off
 GTK 3, which retires the other eleven — not close: `wry` and `tao` still pin `gtk = "0.18"` and

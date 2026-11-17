@@ -31,6 +31,7 @@ use tracing_subscriber::layer::{Layer, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{reload, EnvFilter, Registry};
 
+use crate::log_rotate::RotatingFile;
 use crate::paths::{log_dir, Roots};
 
 /// Swaps the file layer in once a path is known. Boxed because a
@@ -43,7 +44,7 @@ use crate::error::{AppError, Result};
 
 /// Where the live file rotates and how many archives (`main.log.1`…) survive.
 /// Rotation is by size, so a bad day costs the same disk as a quiet week.
-const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_ARCHIVES: usize = 5;
 
 /// The target every `webview_log` record carries, and the key the file layer
@@ -291,14 +292,8 @@ fn is_host_log(meta: &Metadata<'_>) -> bool {
 /// Builds the size-rotating file layer over `dir`: host events to `main.log`,
 /// webview records to `webview.log`.
 pub fn file_layer(dir: &Path) -> Result<FileLog> {
-    file_layer_with(dir, MAX_FILE_BYTES, MAX_ARCHIVES)
-}
-
-/// The caps are parameters so a test rotates in tens of bytes.
-fn file_layer_with(dir: &Path, max_bytes: usize, max_archives: usize) -> Result<FileLog> {
-    let (main, main_guard) = rotating_writer(&dir.join("main.log"), max_bytes, max_archives)?;
-    let (webview, webview_guard) =
-        rotating_writer(&dir.join("webview.log"), max_bytes, max_archives)?;
+    let (main, main_guard) = rotating_writer(&dir.join("main.log"))?;
+    let (webview, webview_guard) = rotating_writer(&dir.join("webview.log"))?;
 
     // JSON, and flattened so a record's own fields sit beside the built-in
     // ones: the sidecar's file is the same shape, so the three read as one
@@ -328,42 +323,10 @@ fn file_layer_with(dir: &Path, max_bytes: usize, max_archives: usize) -> Result<
 }
 
 /// One size-rotating file, written off-thread.
-fn rotating_writer(
-    path: &Path,
-    max_bytes: usize,
-    max_archives: usize,
-) -> Result<(NonBlocking, WorkerGuard)> {
-    Ok(tracing_appender::non_blocking(rotating_file(
-        path,
-        max_bytes,
-        max_archives,
-    )?))
-}
-
-/// The size-rotating file under [`rotating_writer`]'s worker.
-fn rotating_file(
-    path: &Path,
-    max_bytes: usize,
-    max_archives: usize,
-) -> Result<file_rotate::FileRotate<file_rotate::suffix::AppendCount>> {
-    // `FileRotate` swallows a failed open and then writes to nowhere, so an
-    // unopenable file has to be caught here to reach the stderr fallback.
-    std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(path)
+fn rotating_writer(path: &Path) -> Result<(NonBlocking, WorkerGuard)> {
+    let file = RotatingFile::open(path, MAX_FILE_BYTES, MAX_ARCHIVES)
         .map_err(|e| AppError::Io(std::io::Error::other(format!("open log file: {e}"))))?;
-
-    // `BytesSurpassed`, not `Bytes`: the exact cap cuts mid-write, splitting a
-    // log line across two files. Surpassed rotates after the write that
-    // crosses it, so the file overshoots by at most one line.
-    Ok(file_rotate::FileRotate::new(
-        path,
-        file_rotate::suffix::AppendCount::new(max_archives),
-        file_rotate::ContentLimit::BytesSurpassed(max_bytes),
-        file_rotate::compression::Compression::None,
-        None,
-    ))
+    Ok(tracing_appender::non_blocking(file))
 }
 
 /// A `tracing` sink a test reads back, one formatted line per event.
@@ -493,44 +456,6 @@ mod tests {
         // them there says only what the filename does.
         assert!(!webview.contains(r#""target""#), "got: {webview}");
         assert!(main.contains(r#""target""#), "got: {main}");
-
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    /// Rotation is what a reader sees as history: the live file holds the
-    /// newest lines, each numbered archive is one rotation older, and archives
-    /// past the cap are deleted. The caps are parameters so the test rotates
-    /// in tens of bytes, not megabytes.
-    ///
-    /// The file is written directly rather than through the worker: dropping
-    /// a `WorkerGuard` waits at most about a second for the worker, so a slow
-    /// rename could leave the last rotation unfinished when the files are read.
-    #[test]
-    fn rotates_by_size_and_keeps_a_bounded_history() {
-        use std::io::Write;
-
-        let dir = temp_dir("rotate");
-        let mut file = rotating_file(&dir.join("main.log"), 64, 2).expect("open log file");
-        // Each line surpasses the cap on its own, so every line after the
-        // first begins with a rotation.
-        for n in 1..=4 {
-            let line = format!("line{n} {}\n", "x".repeat(64));
-            file.write_all(line.as_bytes()).expect("write line");
-        }
-        // Windows removes no open file, and the cleanup below removes this one.
-        drop(file);
-
-        let mut names: Vec<String> = std::fs::read_dir(&dir)
-            .expect("log dir readable")
-            .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
-            .collect();
-        names.sort();
-        assert_eq!(names, ["main.log", "main.log.1", "main.log.2"]);
-
-        let live = std::fs::read_to_string(dir.join("main.log")).expect("live file");
-        assert!(live.contains("line4"), "got: {live}");
-        let oldest = std::fs::read_to_string(dir.join("main.log.2")).expect("oldest archive");
-        assert!(oldest.contains("line2"), "got: {oldest}");
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

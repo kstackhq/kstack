@@ -44,4 +44,10 @@ ignore = [
   "RUSTSEC-2026-0370",
   "RUSTSEC-2026-0371",
   "RUSTSEC-2026-0372",
+
+  # chrono 0.4 — unmaintained. In Cargo.lock only, never compiled: serde_with, a
+  # tauri-utils dependency, names it through weak `chrono_0_4?/…` features, and the
+  # lockfile records an optional dependency a weak feature names. Drop it once
+  # serde_with stops naming chrono or Cargo stops locking weak dependencies.
+  "RUSTSEC-2026-0543",
 ]

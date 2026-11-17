@@ -31,6 +31,7 @@ mod commands;
 mod dock_menu;
 mod error;
 mod host_file;
+mod log_rotate;
 mod log_windows;
 mod logging;
 mod os_theme;
