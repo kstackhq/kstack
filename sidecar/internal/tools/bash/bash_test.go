@@ -464,7 +464,7 @@ func tool(t *testing.T) *Tool {
 	t.Helper()
 	t.Setenv("SHELL", "")
 	k := kstackDirs(t)
-	tl, ok := New(Paths{ShellDir: filepath.Join(k.runtime, "shell")}, 0, nil, nil, nil)
+	tl, ok := New(Paths{ShellDir: filepath.Join(k.runtime, "shell")}, 0, nil, nil, nil, Cloud{})
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
@@ -631,14 +631,14 @@ func (f *fakeSandboxer) seen() []sandbox.Run {
 // through a nil pointer: Bash is offered as it is on a machine with none.
 func TestNewTakesNoSandboxAsNone(t *testing.T) {
 	t.Setenv("SHELL", "")
-	none, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
+	none, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
 	assert.Nil(t, none.sandboxer)
 	assert.JSONEq(t, string(unsandboxedSchema), string(none.Definition().InputSchema))
 
-	some, ok := New(Paths{ShellDir: t.TempDir()}, 0, &sandbox.Sandbox{}, nil, nil)
+	some, ok := New(Paths{ShellDir: t.TempDir()}, 0, &sandbox.Sandbox{}, nil, nil, Cloud{})
 	require.True(t, ok)
 	assert.NotNil(t, some.sandboxer)
 	assert.JSONEq(t, string(inputSchema), string(some.Definition().InputSchema))
@@ -679,7 +679,7 @@ func TestTheToolsHomeIsTheUsers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
+	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
@@ -692,7 +692,7 @@ func TestNewSweepsWhatACrashLeft(t *testing.T) {
 	left := filepath.Join(shell, "cmd-left-behind")
 	require.NoError(t, os.MkdirAll(shell, 0o700))
 	require.NoError(t, os.WriteFile(left, []byte("x"), 0o400))
-	if _, ok := New(Paths{ShellDir: shell}, 0, nil, nil, nil); !ok {
+	if _, ok := New(Paths{ShellDir: shell}, 0, nil, nil, nil, Cloud{}); !ok {
 		t.Skip("no bash found on this machine")
 	}
 	_, err := os.Stat(left)
@@ -1140,7 +1140,7 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "The sandbox reaches the internet only when the context says its `network` is on.")
 	assert.Contains(t, sandboxPrompt, "A command that needs it otherwise can set `network: true`, which asks the user to approve that command; "+
 		"a refusal is their decision.")
-	assert.Contains(t, sandboxPrompt, "With the internet a command still holds no credential, so `gh`, `aws` and a private registry have no login.")
+	assert.Contains(t, sandboxPrompt, "With the internet a command still holds no credential, so a tool has a login only where the context's `cloud` names its provider, and a private registry has none.")
 	assert.NotContains(t, sandboxPrompt, "is for a command run outside the sandbox", "the dry-run advice holds in the sandbox too")
 	assert.Contains(t, sandboxPrompt, "It has the user's tools and none of their shell's functions, aliases or variables; "+
 		"`HOME` is the workspace; `sudo` does not work.", "what a sandboxed run starts from")

@@ -580,3 +580,62 @@ func TestAClassSixRuleReadsAsReads(t *testing.T) {
 		assert.NotContains(t, rule.Line(), "writes")
 	}
 }
+
+// awsCall is a provider action of class c, as Decide leaves it: a target, a
+// class and a summary.
+func awsCall(c Class) Action {
+	return Action{Target: AWS, Class: c, Summary: "AWS: call ec2:TerminateInstances"}
+}
+
+// A provider's change, destructive change and data read ask under every mode,
+// and no answer to one may write a rule.
+func TestAProviderActionAlwaysAsks(t *testing.T) {
+	for _, mode := range []Mode{ReadOnly, Ask, Auto} {
+		for _, c := range []Class{UpstreamWrite, Destructive, SecretRead} {
+			v, why := Policy{Mode: mode}.Authorize(awsCall(c))
+			assert.Equal(t, Forbid, v, "%s, class %d", mode, c)
+			assert.Equal(t, "a provider's request always asks", why)
+			assert.False(t, Grantable(v, awsCall(c)))
+		}
+	}
+}
+
+// No rule the user wrote for a cluster, and neither stand-in for one Kstack
+// could not read, reaches a provider's action.
+func TestNoRuleReachesAProviderAction(t *testing.T) {
+	for _, r := range []Rule{
+		{ID: "a", Effect: Allow, Class: UpstreamWrite},
+		{ID: "d", Effect: Deny, Class: UpstreamWrite},
+		{ID: "k", Effect: AskFor, Class: UpstreamWrite},
+		{ID: "s", Effect: Allow, Class: SecretRead},
+		Refused, RefusedSecrets,
+	} {
+		for _, c := range []Class{UpstreamWrite, SecretRead} {
+			assert.False(t, r.Matches(awsCall(c)), r.ID)
+			v, _ := Policy{Mode: Auto, Rules: []Rule{r}}.Authorize(awsCall(c))
+			assert.Equal(t, Forbid, v, r.ID)
+		}
+	}
+}
+
+func TestNoPromptsRefusesAProviderAction(t *testing.T) {
+	v, why := Policy{Mode: Auto, NoPrompts: true}.Authorize(awsCall(UpstreamWrite))
+	assert.Equal(t, Refuse, v)
+	assert.Equal(t, "this session never asks: a provider's request always asks", why)
+}
+
+func TestNoSecretDataRefusesAProviderDataRead(t *testing.T) {
+	v, why := Policy{Mode: Auto, NoSecretData: true}.Authorize(awsCall(SecretRead))
+	assert.Equal(t, Refuse, v)
+	assert.Equal(t, "this session never reads Secret data", why)
+}
+
+// A cluster action's JSON carries no target, so a stored row reads as it did.
+func TestAClusterActionStoresNoTarget(t *testing.T) {
+	b, err := json.Marshal(patch(UpstreamWrite))
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), "target")
+	b, err = json.Marshal(awsCall(UpstreamWrite))
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `"target":"aws"`)
+}

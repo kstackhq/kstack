@@ -57,8 +57,8 @@ const (
 	stmtSelectToolCalls
 	stmtSelectRunToolCalls
 	stmtSelectViewCall
-	stmtSelectClusterWrites
-	stmtSelectRunClusterWrites
+	stmtSelectSandboxActions
+	stmtSelectRunSandboxActions
 
 	stmtInsertTask
 	stmtDeleteTask
@@ -115,16 +115,16 @@ const toolCallReadFrom = ` FROM tool_calls t JOIN llm_calls c ON c.id = t.llm_ca
 	LEFT JOIN background_tasks b ON b.tool_call_id = t.id
 	LEFT JOIN agent_runs sr ON sr.id = t.spawned_run_id`
 
-// clusterWriteReadColumns is what a read of the actions scans, in
-// clusterWritesByCall's order, over approvals a joined up to their run r. Only a
+// sandboxActionReadColumns is what a read of the actions scans, in
+// sandboxActionsByCall's order, over approvals a joined up to their run r. Only a
 // pending action's body and diff are read: no other is served. A request that is
 // not JSON is read as it is, for the read to refuse alone.
-const clusterWriteReadColumns = `a.tool_call_id, a.id, a.status, COALESCE(a.duration, ''),
+const sandboxActionReadColumns = `a.tool_call_id, a.id, a.status, COALESCE(a.duration, ''),
 	CASE WHEN a.status = 'pending' OR NOT json_valid(a.request) THEN a.request
-	ELSE json_remove(a.request, '$.write.body', '$.write.contentType', '$.diff') END,
+	ELSE json_remove(a.request, '$.write.body', '$.write.contentType', '$.diff', '$.cloud.body', '$.cloud.contentType') END,
 	COALESCE(a.reason, ''), a.created_at, a.decided_at`
 
-const clusterWriteReadFrom = ` FROM approvals a JOIN tool_calls t ON t.id = a.tool_call_id
+const sandboxActionReadFrom = ` FROM approvals a JOIN tool_calls t ON t.id = a.tool_call_id
 	JOIN llm_calls c ON c.id = t.llm_call_id JOIN agent_runs r ON r.id = c.run_id`
 
 // messageReadColumns is the public projection of a message: its row, then what its
@@ -245,10 +245,10 @@ var statements = []sqlstmt.Statement{
 	JOIN llm_calls l ON l.id = t.llm_call_id JOIN agent_runs r ON r.id = l.run_id
 	LEFT JOIN background_tasks b ON b.tool_call_id = t.id
 	WHERE t.id = ? AND r.chat_id = ?`),
-	// The cluster writes of the same calls, in the order asked.
-	stmtSelectClusterWrites: sqlstmt.OnBoth(`SELECT ` + clusterWriteReadColumns + clusterWriteReadFrom + `
+	// The sandbox actions of the same calls, in the order asked.
+	stmtSelectSandboxActions: sqlstmt.OnBoth(`SELECT ` + sandboxActionReadColumns + sandboxActionReadFrom + `
 	WHERE a.kind = 'action' AND r.chat_id = ? ORDER BY a.created_at, a.id`),
-	stmtSelectRunClusterWrites: sqlstmt.OnBoth(`SELECT ` + clusterWriteReadColumns + clusterWriteReadFrom + `
+	stmtSelectRunSandboxActions: sqlstmt.OnBoth(`SELECT ` + sandboxActionReadColumns + sandboxActionReadFrom + `
 	WHERE a.kind = 'action' AND (r.id = ?1 OR r.parent_run_id = ?1) ORDER BY a.created_at, a.id`),
 
 	// A task's row goes in running before its process starts, and is deleted when

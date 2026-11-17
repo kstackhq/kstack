@@ -299,6 +299,15 @@ func valueOf[T any](p *T) T {
 	return v
 }
 
+// cloudAccess is the build's providers, each with its switch.
+func (r *Resolver) cloudAccess() []*model.CloudAccess {
+	out := make([]*model.CloudAccess, 0, len(r.CloudTargets))
+	for _, target := range r.CloudTargets {
+		out = append(out, &model.CloudAccess{Target: target, On: r.Settings.CloudOn(target)})
+	}
+	return out
+}
+
 // sandboxPathErr is what every sandbox path resolver returns an error
 // through: a refusal in the user's words is a validation error carrying them,
 // and anything else stays opaque.

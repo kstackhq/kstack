@@ -36,16 +36,16 @@ request.
 
 ## What this step builds
 
-With `sandbox.google` on, on macOS and Linux, `gcloud` in a sandboxed run works as the user's
+With `sandbox.gcp` on, on macOS and Linux, `gcloud` in a sandboxed run works as the user's
 active `gcloud` account on six services, with network off and no Google credential in the
 sandbox.
 
-1. **The token service** (`services/googletoken`): the active account's access token and
+1. **The token service** (`services/gcptoken`): the active account's access token and
    project, read outside the sandbox and kept in memory.
-2. **The proxy** (`run/googleproxy`): the service table, the classifier, the handler and the
+2. **The proxy** (`run/gcpproxy`): the service table, the classifier, the handler and the
    rewriter that blanks secret-holding metadata in an answer, over a
    [`runproxy.Grant`](1-shared-pieces.md#3-the-grant-core-runrunproxy).
-3. **The provider** (`tools/bash/google.go`): Google's
+3. **The provider** (`tools/bash/gcp.go`): Google's
    [`CloudProvider`](1-shared-pieces.md#7-the-provider-seam-toolsbash), its routes and the run's
    `CLOUDSDK_*` variables. `app` adds it to the list it builds.
 4. **The prompt's paragraph** for Google.
@@ -69,10 +69,10 @@ sandbox.
 
 ## Design
 
-### 1. The token service (`services/googletoken`)
+### 1. The token service (`services/gcptoken`)
 
 It follows step 1's [rules for a credential](1-shared-pieces.md#7-the-provider-seam-toolsbash).
-`run/googleproxy` reaches it through an interface.
+`run/gcpproxy` reaches it through an interface.
 
 ```go
 // Source answers the active gcloud account's access token and project, read
@@ -105,7 +105,7 @@ type Token struct {
 
 ### 2. The services and their routes
 
-One table, `run/googleproxy/services.go`. A row is the name `gcloud` uses in an endpoint
+One table, `run/gcpproxy/services.go`. A row is the name `gcloud` uses in an endpoint
 override, the one upstream host, and the path prefixes served.
 
 | Service | Upstream | Paths |
@@ -119,7 +119,7 @@ override, the one upstream host, and the path prefixes served.
 
 - The first five are the issue's. `cloudresourcemanager` holds a project's IAM policy
   (`gcloud projects get-iam-policy`).
-- **A row's route is `<service>.google.kstack.invalid`**, by step 1's
+- **A row's route is `<service>.gcp.kstack.invalid`**, by step 1's
   [naming rule](1-shared-pieces.md#1-the-door): `gcloud` takes an endpoint per service and a
   proxy of its own, so Kstack picks the name. The mount returns one `Route` per row.
 - **The upstream is read from the table by the `Host`'s first label**, never built from the
@@ -136,7 +136,7 @@ Google's mount returns these rows. Every value is the mount's.
 | Variable | Value | Why |
 | --- | --- | --- |
 | `CLOUDSDK_AUTH_ACCESS_TOKEN` | the grant's `Token()` | The grant's one slot: `gcloud` sends it as `Authorization: Bearer` on every request and consults no credential store |
-| `CLOUDSDK_API_ENDPOINT_OVERRIDES_<SERVICE>` | `http://<service>.google.kstack.invalid/`, one per table row | The request names a host the door routes |
+| `CLOUDSDK_API_ENDPOINT_OVERRIDES_<SERVICE>` | `http://<service>.gcp.kstack.invalid/`, one per table row | The request names a host the door routes |
 | `CLOUDSDK_PROXY_TYPE`, `CLOUDSDK_PROXY_ADDRESS`, `CLOUDSDK_PROXY_PORT` | `http`, `127.0.0.1`, the run's port | `gcloud` alone is pointed at the relay. `HTTP_PROXY` stays unset, so no other tool changes |
 | `CLOUDSDK_CORE_PROJECT` | the source's `Project`, left out when empty | A command needs no `--project` |
 | `CLOUDSDK_CORE_DISABLE_PROMPTS` | `1` | stdin is the null device |
@@ -172,17 +172,17 @@ Task 1 checks them against a real `gcloud` before anything else is built:
 
 If 2, 3 or 4 fails, the design changes and this spec is revised before task 2.
 
-### 4. The proxy (`run/googleproxy`)
+### 4. The proxy (`run/gcpproxy`)
 
 A leaf over a [`runproxy.Grant`](1-shared-pieces.md#3-the-grant-core-runrunproxy) with `Target`
-`Google`. It imports `permissions`, `session` and `runproxy`, and nothing of `tools` or
+`GCP`. It imports `permissions`, `session` and `runproxy`, and nothing of `tools` or
 `services`. The grant gives it the token, the life, the limits and the ask path. The mount
 passes step 1's limits and no challenge.
 
 ```go
 // TokenSource is the user's token, borrowed at use.
 type TokenSource interface {
-	Token(ctx context.Context) (googletoken.Token, error) // the fields, as the leaf's own type
+	Token(ctx context.Context) (gcptoken.Token, error) // the fields, as the leaf's own type
 	Drop(token string)
 }
 
@@ -284,8 +284,8 @@ off the table, so they reach nothing.
 
 **The action** for a change or a data read:
 
-- `Target` `Google`; `Class` as classified; `Verb` the method; `Group` the service; `Context`
-  and `Namespace` empty.
+- `Target` `GCP` and `Class` as classified. No other field is set: the service and the method
+  are in `Summary` and `Details` ([step 1](1-shared-pieces.md#4-the-gate)).
 - `Summary` is written from the parsed path, never from the body: *Google Cloud: `DELETE`
   `container` `projects/p/locations/us-central1/clusters/dev`*.
 - `Sent` is the upstream host, the method, the path and query, the media type and the body.
@@ -298,19 +298,19 @@ upload is refused. A multipart upload names its object inside the body, so no se
 stand for the bytes and leave the rest enough to approve
 ([*Open questions*](#open-questions), 2).
 
-### 5. The provider (`tools/bash/google.go`)
+### 5. The provider (`tools/bash/gcp.go`)
 
-`NewGoogle(src)` answers the `CloudProvider` whose `Target` is `Google`. `app` builds the
+`NewGCP(src)` answers the `CloudProvider` whose `Target` is `GCP`. `app` builds the
 `Source`, calls it, and adds the result to the list it hands `bash.New`, so Settings draws
 Google's switch.
 
 `Mount` builds the grant from the run's inputs, the handler over it, a route per table row and
-§3's rows. It adds nothing to `settings`: `sandbox.google` exists, off by default.
+§3's rows. It adds nothing to `settings`: `sandbox.gcp` exists, off by default.
 
 ### 6. The prompt
 
 `tools/bash/prompts/sandbox.md` gains one paragraph, read only when the context's `cloud`
-names `google`:
+names `gcp`:
 
 - `gcloud` works in the sandbox as the user's signed-in account, through a proxy, for Compute
   Engine, GKE, IAM, Cloud Logging, Cloud Storage and Resource Manager.
@@ -333,9 +333,9 @@ All start Planned. Each ends green under `make test-changed`.
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
 | 1 | Spike §3's four behaviours against a real `gcloud` on macOS and Linux, in the real sandbox with a throwaway handler; record the `gcloud` version and the result in this spec | — | — | Planned |
-| 2 | The token service: the borrow, the cache, the sentinels, `ForgetSecret` | `services/googletoken/` | 1 | Planned |
-| 3 | The proxy: the table, the classifier, the header list, the handler, the rewriter and the write-back refusal | `run/googleproxy/` | 1 | Planned |
-| 4 | The provider on a run: the mount, the variables, `CLOUDSDK_CONFIG`, the `Source` in `app`, the prompt | `tools/bash/google.go`, `tools/bash/toolhome.go`, `tools/bash/prompts/sandbox.md`, `app/` | 2, 3 | Planned |
+| 2 | The token service: the borrow, the cache, the sentinels, `ForgetSecret` | `services/gcptoken/` | 1 | Planned |
+| 3 | The proxy: the table, the classifier, the header list, the handler, the rewriter and the write-back refusal | `run/gcpproxy/` | 1 | Planned |
+| 4 | The provider on a run: the mount, the variables, `CLOUDSDK_CONFIG`, the `Source` in `app`, the prompt | `tools/bash/gcp.go`, `tools/bash/toolhome.go`, `tools/bash/prompts/sandbox.md`, `app/` | 2, 3 | Planned |
 | 5 | End to end through the real sandbox | `app/` (`startE2E`) | 4 | Planned |
 | 6 | Docs, per *When it lands* | see there | 1–5 | Planned |
 
@@ -346,7 +346,7 @@ All start Planned. Each ends green under `make test-changed`.
 Each is a test beside its file. No test starts a real `gcloud` or reaches Google: the source's
 `run` is a field, and the proxy's transport is pointed at an `httptest` TLS server.
 
-**`services/googletoken`**
+**`services/gcptoken`**
 
 - `TestTheTokenIsReadOncePerExpiry`: two calls run the helper once; a call past the expiry less
   a minute runs it again; concurrent callers share one run.
@@ -356,7 +356,7 @@ Each is a test beside its file. No test starts a real `gcloud` or reaches Google
 - `TestAHeldTokenIsARegisteredSecret`: `safe.Redact` blanks it, and no longer once it is
   dropped or replaced.
 
-**`run/googleproxy`**
+**`run/gcpproxy`**
 
 - `TestARequestCarriesTheUsersToken`: a `GET` with the grant's bearer reaches the fake upstream
   with the user's token and none of the grant's; the answer streams back.
@@ -379,7 +379,7 @@ Each is a test beside its file. No test starts a real `gcloud` or reaches Google
 - `TestOnlyTheListedHeadersAreForwarded`: `X-HTTP-Method-Override`, `X-Goog-Api-Key` and
   `x-goog-encryption-key` never reach the upstream; a `GET` carrying the override is forwarded
   as a `GET`.
-- `TestAChangeAsksWithItsAccount`: a `DELETE` waits on the asker with `Target` `Google`, its
+- `TestAChangeAsksWithItsAccount`: a `DELETE` waits on the asker with `Target` `GCP`, its
   summary and the *Account*, *Service* and *Quota project* details, forwards once approved and
   is `403` denied.
 - `TestAnObjectReadAsks` and `TestAnInstanceReadAsks`, each class 6.
@@ -389,12 +389,12 @@ Each is a test beside its file. No test starts a real `gcloud` or reaches Google
 
 **`tools/bash`**
 
-- `TestGoogleMountsARoutePerService` (`google_test.go`): each route's host is
-  `<service>.google.kstack.invalid` and on the table.
+- `TestGCPMountsARoutePerService` (`gcp_test.go`): each route's host is
+  `<service>.gcp.kstack.invalid` and on the table.
 - `TestTheSandboxedEnvironmentNamesGcloud`: §3's rows, each override's host a route, and none
   of them in a run with Google off.
 - `TestCloudSDKConfigIsUnderTheToolHome` (`toolhome_test.go`).
-- **`TestNoGoogleCredentialEntersTheSandbox`** (`bash_unix_test.go`, the issue's pin): with a
+- **`TestNoGCPCredentialEntersTheSandbox`** (`bash_unix_test.go`, the issue's pin): with a
   source answering a known token and a sidecar environment holding
   `GOOGLE_APPLICATION_CREDENTIALS` and `CLOUDSDK_CONFIG`, a real sandboxed run sends a request
   through the proxy. Then `env`, and a search of every file the run can read under the run
@@ -404,11 +404,11 @@ Each is a test beside its file. No test starts a real `gcloud` or reaches Google
 **`app`** (`startE2E`, `testutil.RequireSandbox`, a fake helper and a fake upstream), network
 off, Google turned on through `sandboxCloudAccessSet`
 
-- `TestASandboxedGoogleReadRunsUnasked`: a command's `GET` to `container.google.kstack.invalid`
+- `TestASandboxedGCPReadRunsUnasked`: a command's `GET` to `container.gcp.kstack.invalid`
   through the run's port answers the fake's body with no request.
-- `TestASandboxedGoogleChangeAsks`: a `DELETE` waits on one request, served in
+- `TestASandboxedGCPChangeAsks`: a `DELETE` waits on one request, served in
   `sandboxActions` with its account, and reaches the fake once approved.
-- `TestGoogleOffServesNothing`: with the switch off the route is the door's `401`, and the
+- `TestGCPOffServesNothing`: with the switch off the route is the door's `401`, and the
   helper never runs.
 
 **Integration gate:** the full checks in
@@ -449,7 +449,7 @@ This is what Google adds.
 
 - No Google credential is in the sandbox. Its environment holds the grant's bearer, which
   opens Google's proxy alone and ends with the run. The user's token lives in the sidecar's
-  memory. `TestNoGoogleCredentialEntersTheSandbox` pins it.
+  memory. `TestNoGCPCredentialEntersTheSandbox` pins it.
 - The token goes only to a host on the table, on a path on the table, over TLS the sidecar
   verifies.
 - Every change asks, and no answer writes a rule. A read of an object's contents, or of what
@@ -482,7 +482,7 @@ When this step is complete on `wip/cloud-proxies`:
   the commit.
 - **`docs/security-model.md`**:
   - New **Enforced** rows: no Google credential enters the sandbox
-    (`TestNoGoogleCredentialEntersTheSandbox`); a credential-answering request is refused and
+    (`TestNoGCPCredentialEntersTheSandbox`); a credential-answering request is refused and
     a data read asks (`TestEveryRequestIsClassified`); only the listed headers reach Google
     (`TestOnlyTheListedHeadersAreForwarded`); a path off the table is refused
     (`TestAPathOffTheTableIsRefused`).
@@ -492,9 +492,9 @@ When this step is complete on `wip/cloud-proxies`:
 - **`docs/TODO.md`**: the security line step 1's commit added loses Google Cloud, the same
   way. New lines: a narrower identity, the services off the table, uploads that are not text.
 - **`docs/persisted-data.md`**: the tool home's row names `gcloud`.
-- **`CLAUDE.md`**: `sidecar/internal/run/CLAUDE.md` (`googleproxy`);
-  `sidecar/internal/tools/CLAUDE.md` (`google.go`, the `gcloud` variables); the `services/`
-  guide that lists its packages (`googletoken`). Raise a budget in
+- **`CLAUDE.md`**: `sidecar/internal/run/CLAUDE.md` (`gcpproxy`);
+  `sidecar/internal/tools/CLAUDE.md` (`gcp.go`, the `gcloud` variables); the `services/`
+  guide that lists its packages (`gcptoken`). Raise a budget in
   `.github/ci-config/claude-md-budgets.yml` only with the reason in the commit body.
 - This file is deleted and its row leaves [`README.md`](README.md).
 

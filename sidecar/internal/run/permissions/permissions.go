@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package permissions decides, for one classified cluster write, whether it
-// runs, asks or is refused: by its class, the approval mode, and the rules.
+// Package permissions decides, for one classified cluster write or provider
+// request, whether it runs, asks or is refused: by its target and class, the
+// approval mode, and the rules.
 // Authorization is binary and fails closed: the policy permits an action or
 // denies it, a forbid wins over a permit, and nothing matching is a denial. A
 // prompt is a denial the user may lift. A leaf: the proxy that enforces it
@@ -86,9 +87,24 @@ type Rule struct {
 	Folder  string `json:"folder,omitempty"` // classes 1 and 2: the folder, absolute and resolved
 }
 
+// Target is what an action acts on. The zero value is the chat's cluster.
+type Target string
+
+const (
+	Cluster Target = ""
+	AWS     Target = "aws"
+	GitHub  Target = "github"
+	GCP     Target = "gcp"
+	Azure   Target = "azure"
+)
+
 // Action is one classified request, as the proxy read it. It is stored with
 // the approval that records it.
 type Action struct {
+	// Target is what the action acts on. A provider's action carries its
+	// class and summary alone: every other field names a cluster's object,
+	// and rules and modes read them.
+	Target    Target `json:"target,omitempty"`
 	Class     Class  `json:"class"`
 	Context   string `json:"context"`   // the kube-context the grant was made for; "" for a record naming none
 	Namespace string `json:"namespace"` // "" for a cluster-scoped request
@@ -238,8 +254,12 @@ func (p Policy) Authorize(act Action) (Verdict, string) {
 
 // verdict is Authorize's verdict before the session's two flags. The checks
 // run strongest first, so the first that applies is the verdict, and which
-// rules match decides it whatever their order.
+// rules match decides it whatever their order. A provider's action always
+// asks: a mode is the user's word on one kube-context, and no rule reaches it.
 func (p Policy) verdict(act Action) (Verdict, string) {
+	if act.Target != Cluster {
+		return Forbid, "a provider's request always asks"
+	}
 	if r, ok := p.first(Deny, act); ok {
 		return Refuse, "a rule denies it: " + r.Line()
 	}
@@ -285,9 +305,10 @@ var RefusedSecrets = Rule{ID: "refused-secrets", Effect: Deny, Class: SecretRead
 // Matches is whether r applies to act: a class that covers act's, and every
 // set field matching. Class 4 covers class 5, since a destructive write is a
 // cluster write. An Inside rule never matches a Namespace object, and a folder
-// grant matches nothing, so it never reaches a verdict.
+// grant matches nothing, so it never reaches a verdict. Every rule is a
+// cluster's, so none matches a provider's action.
 func (r Rule) Matches(act Action) bool {
-	return r.Folder == "" &&
+	return r.Folder == "" && act.Target == Cluster &&
 		(r.Class == act.Class || r.Class == UpstreamWrite && act.Class == Destructive) &&
 		matchSet(r.Context, act.Context) &&
 		matchNamespace(r.Namespace, act.Namespace) &&

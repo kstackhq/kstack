@@ -20,11 +20,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -39,6 +43,8 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -68,7 +74,7 @@ func TestBashIsOfferedWithTheSandbox(t *testing.T) {
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
-	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, sb, nil, nil)
+	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, sb, nil, nil, bash.Cloud{})
 	require.True(t, found)
 
 	var schema struct {
@@ -87,7 +93,7 @@ func TestBashIsOfferedWhenItIsFound(t *testing.T) {
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
-	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
+	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, bash.Cloud{})
 	require.True(t, found)
 	box, err := chatTools(toolDeps{shell: shell, fenced: []string{t.TempDir()}, umask: 0o022})
 	require.NoError(t, err)
@@ -105,7 +111,7 @@ func TestEveryGatedToolCanBeShown(t *testing.T) {
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
-	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
+	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, bash.Cloud{})
 	require.True(t, found)
 
 	box, err := chatTools(toolDeps{shell: shell, fenced: []string{t.TempDir()}, umask: 0o022})
@@ -449,4 +455,133 @@ func TestAQuitDuringTheProbeReleasesTheLock(t *testing.T) {
 	_, err := build(ctx, cfg)
 	require.ErrorIs(t, err, context.Canceled)
 	requireUnlocked(t, cfg.DataDir)
+}
+
+// fakeCloud is a provider whose upstream is an httptest TLS server: a GET is
+// a read, forwarded unasked, and anything else a change put to the user. Its
+// client finds the route and its token in FAKE_CLOUD_URL and
+// FAKE_CLOUD_TOKEN, and carries the token in X-Fake-Token.
+type fakeCloud struct {
+	upstream *httptest.Server
+	seen     chan string // each request the upstream received, "<method> <path>"
+}
+
+func newFakeCloud(t *testing.T) *fakeCloud {
+	f := &fakeCloud{seen: make(chan string, 8)}
+	f.upstream = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.seen <- r.Method + " " + r.URL.Path
+		_, _ = io.WriteString(w, "upstream "+r.Method)
+	}))
+	t.Cleanup(f.upstream.Close)
+	return f
+}
+
+func (f *fakeCloud) Target() permissions.Target { return permissions.AWS }
+
+func (f *fakeCloud) Mount(_ context.Context, run bash.CloudRun) (bash.CloudMount, error) {
+	g := runproxy.NewGrant(permissions.AWS, run.Session, run.Asker, run.Refusal, runproxy.Limits{QPS: 100, Burst: 100, Open: 8, Bodies: 8})
+	client := f.upstream.Client()
+	host := "127.0.0.1:" + strconv.Itoa(run.Port)
+	forward := func(w http.ResponseWriter, r *http.Request) error {
+		out, err := http.NewRequestWithContext(r.Context(), r.Method, f.upstream.URL+r.URL.Path, r.Body)
+		if err != nil {
+			return err
+		}
+		out.Header = runproxy.Outbound(r.Header, []string{"Content-Type"})
+		resp, err := client.Do(out)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		w.WriteHeader(resp.StatusCode)
+		_, err = io.Copy(w, resp.Body)
+		return err
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !g.Holds(r.Header.Get("X-Fake-Token")) {
+			g.Challenge(w)
+			return
+		}
+		r, done, ok := g.Enter(r)
+		if !ok {
+			g.Challenge(w)
+			return
+		}
+		defer done()
+		if r.Method == http.MethodGet {
+			release, status := g.Slot(r.Context())
+			if status != 0 {
+				http.Error(w, "kstack: no slot", status)
+				return
+			}
+			defer release()
+			_ = forward(w, r)
+			return
+		}
+		body, release, status := g.Body(w, r)
+		defer release()
+		if status != 0 {
+			http.Error(w, "kstack: unreadable body", status)
+			return
+		}
+		out := g.Decide(r.Context(), runproxy.Request{
+			Action: permissions.Action{Class: permissions.UpstreamWrite, Summary: "AWS: fake change"},
+			Sent: runproxy.Sent{
+				Host: f.upstream.Listener.Addr().String(), Method: r.Method, Path: r.URL.RequestURI(),
+				ContentType: r.Header.Get("Content-Type"), Body: body,
+			},
+		}, func() error { return forward(w, r) })
+		if !out.Forwarded {
+			http.Error(w, out.Message, out.Status)
+		}
+	})
+	return bash.CloudMount{
+		Routes: []bash.Route{{Host: host, Handler: handler}},
+		Env:    []string{"FAKE_CLOUD_URL=http://" + host, "FAKE_CLOUD_TOKEN=" + g.Token()},
+		Grant:  g,
+	}, nil
+}
+
+// With its switch turned on through the wire, a sandboxed curl reads the
+// provider unasked, and its change waits on one request and reaches the
+// upstream once approved; with the switch off the route is the door's 401.
+func TestASandboxedCommandReachesAProviderThroughTheDoor(t *testing.T) {
+	cloud := newFakeCloud(t)
+	e := startE2E(t, func(c *Config) { c.cloudProviders = []bash.CloudProvider{cloud} })
+	raw := graphql(t, e.url, `mutation { sandboxCloudAccessSet(target: AWS, on: true) { target on } }`)
+	require.Contains(t, raw, `{"target":"AWS","on":true}`, raw)
+
+	curl := `curl -sS -H "X-Fake-Token: $FAKE_CLOUD_TOKEN" `
+	chatID := e.ask(t, "reach the provider", llm.StagedCall("Bash", bashInput(
+		curl+`"$FAKE_CLOUD_URL/read"; echo; `+curl+`-X POST -H 'Content-Type: text/plain' -d 'change=1' "$FAKE_CLOUD_URL/change"`)))
+
+	assert.Equal(t, "GET /read", testutil.Recv(t, cloud.seen, "the read"))
+	w := e.clusterWrite(t, "pending")
+	require.NotNil(t, w.request.Cloud)
+	assert.Equal(t, permissions.AWS, w.request.Action.Target)
+	assert.Equal(t, "POST", w.request.Cloud.Method)
+	assert.Equal(t, "change=1", w.request.Cloud.Body)
+	assert.Empty(t, cloud.seen, "nothing reaches the provider before the user decides")
+	raw = graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", decision: Once) }`)
+	require.Contains(t, raw, `"approvalDecide":true`, raw)
+	assert.Equal(t, "POST /change", testutil.Recv(t, cloud.seen, "the change"))
+	row := e.bashCall(t, "succeeded", "failed")
+	assert.Contains(t, row.result, "upstream GET")
+	assert.Contains(t, row.result, "upstream POST")
+
+	raw = graphql(t, e.url, `mutation { sandboxCloudAccessSet(target: AWS, on: false) { target on } }`)
+	require.Contains(t, raw, `{"target":"AWS","on":false}`, raw)
+	// A run started while it is off mounts nothing, so the route is the door's.
+	// The door's port is the run's own, read from its kubeconfig.
+	e.askAgain(t, chatID, false, "reach the provider", llm.StagedCall("Bash", bashInput(
+		`door=$(grep -o '127\.0\.0\.1:[0-9]*' "$KUBECONFIG" | head -n 1); `+
+			`curl -s -o /dev/null -w '%{http_code}' -H "X-Fake-Token: none" "http://$door/read"; echo " $FAKE_CLOUD_URL"`)))
+	var result string
+	require.Eventually(t, func() bool {
+		err := e.db.QueryRow(`SELECT coalesce(result, '') FROM tool_calls WHERE tool_name = 'Bash' AND status IN ('succeeded', 'failed')
+			ORDER BY started_at DESC LIMIT 1`).Scan(&result)
+		return err == nil && strings.Contains(result, "401")
+	}, e2eConverge, 10*time.Millisecond, "the second command's 401")
+	assert.NotContains(t, result, "http://", "a run with the switch off holds no route")
+	assert.Empty(t, cloud.seen)
 }

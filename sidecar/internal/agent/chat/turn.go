@@ -702,7 +702,7 @@ func (j *runJournal) writeCalls(ctx context.Context, st stmts) error {
 				return err
 			}
 		}
-		for _, w := range c.ClusterWrites {
+		for _, w := range c.SandboxActions {
 			if err := upsertApproval(ctx, st, *w); err != nil {
 				return err
 			}

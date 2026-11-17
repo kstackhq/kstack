@@ -2,7 +2,7 @@
 
 Answers [#932](https://github.com/kstackhq/kstack/issues/932). A wave 2 step of
 [the cloud proxies](README.md), on `wip/cloud-proxies`. It needs [step 1](1-shared-pieces.md)
-alone and can be built beside the wave's other steps (`2a-aws.md`, `2c-google-cloud.md`,
+alone and can be built beside the wave's other steps (`2a-aws.md`, `2c-gcp.md`,
 `2d-azure.md`).
 
 Step 1 owns the door, the grant, the gate, the request's shape and drawing, the consent switch
@@ -197,8 +197,8 @@ on the list.
 ### 3. The classifier
 
 Every request lands in one row of [step 1's class table](1-shared-pieces.md#4-the-gate). What
-the classifier cannot prove a read asks. An action has `Target` `GitHub` and an empty
-`Context`; no kube-context and no mode is read.
+the classifier cannot prove a read asks. An action has `Target` `GitHub`, its `Class` and
+its `Summary`, and no other field; no kube-context and no mode is read.
 
 **`GitHost`.** Only Git's smart protocol:
 

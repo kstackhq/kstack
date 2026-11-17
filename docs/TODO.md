@@ -254,16 +254,6 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **The proxy.** Reads skip the asker and writes wait one at a time behind the write lock; asked
     reads need their own answer to both.
 
-- **Draw every approval from an action once a second target asks.** A call's request draws from
-  its `ToolAction`, one of `command`, `read`, `write` and the rest, while a cluster write is a
-  `ClusterWrite` of its own with its own branch in the request. When a second target asks too (a
-  host the egress proxy holds, a folder), make each target's request an action in that family
-  (`ClusterAction`, `HostAction`), carrying what `tools.ActionRequest` carries for the
-  cluster, so one request draws whatever is asked. The table stays as it is: `approvals.kind` says what the
-  row holds, `call` or `action`, and the read maps a target's row to its action as the box maps a
-  call's arguments to its own. In the same change, fold `toolCallEntry`'s `ClusterWrites` into one
-  list with `Approval`, so a new target adds no field.
-
 - **Give the Bash tool a fallback toolbox.** A command runs the user's own tools, off the
   snapshot's `PATH`, and a machine without `kubectl` leaves the agent unable to read a cluster. Ship
   a small read-only set the agent's own work needs — `kubectl`, perhaps `helm` and `jq` — at pinned
@@ -1042,6 +1032,23 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   [#934](https://github.com/kstackhq/kstack/issues/934): a proxy per provider in the sidecar
   behind the run's one relay, a switch per provider that is off by default, and a gate that asks
   for anything but a read.
+
+- **Rules, modes and durations for a provider's actions.** Every change a sandboxed command
+  sends to a provider asks, Once or Deny: no rule, mode or duration reaches one
+  ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-a-provider-through-a-proxy-on-its-runs-one-relay.md)).
+  Wanted once a provider's users approve the same change often: a provider's own rules, and a
+  read-only mode among them.
+
+- **Draw each provider's switch in Settings.** `sandboxCloudAccess` and `sandboxCloudAccessSet`
+  are served, and nothing draws them: the switches wait for the new settings panel. Each turns on
+  behind a confirm naming the provider and what of its stored data is read unasked (step 1 of
+  [the cloud proxies](specs/cloud-proxies/1-shared-pieces.md#6-the-consent-switch)).
+
+- **A provider switch per chat.** `sandbox.<provider>` is global: a provider on is on for every
+  chat. Network is the chat's; a chat about one cluster has no need of another cloud.
+
+- **Build the cluster grant on `runproxy.Grant`.** `kubeproxy.Grant` keeps its own token, life,
+  limits and write queue beside `runproxy`'s, so the two copies can drift.
 
 - **A setting that turns a cloud model platform on.** Bedrock, Vertex AI and Foundry are pending
   the LLM rebuild, and when they return, no platform is on until a setting turns it on: a cluster

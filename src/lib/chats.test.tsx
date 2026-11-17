@@ -17,7 +17,7 @@ import { print } from 'graphql';
 import type { DocumentNode } from 'graphql';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ChatCitation, ChatClusterWrite, ChatToolCall } from './chats';
+import type { ChatCitation, ChatSandboxAction, ChatToolCall } from './chats';
 
 // Same seam as the cached-data hooks' suites: stand in for useWatchSubscription,
 // capture the reducer it was handed, and fold frames through it directly.
@@ -264,7 +264,7 @@ describe('useChatMessages', () => {
   it("carries a message's tool calls off the frame", () => {
     const { result, rerender } = renderMessages();
     expect(print(lastArgs!.query!)).toMatch(
-      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+network\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+logsView \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+logsRead \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+since\s+until\s+before \{\s+lines\s+span\s+\}\s+after \{\s+lines\s+span\s+\}\s+pageFrom\s+resolvedAt\s+lines \{\s+timestamp\s+namespace\s+pod\s+container\s+previous\s+message\s+gap \{\s+after\s+before\s+\}\s+truncatedBytes\s+\}\s+olderMore\s+newerMore\s+notices \{\s+code\s+message\s+\}\s+viewAround \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+\}\s+logsWatch \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+since\s+limit\s+maxBytes\s+maxMessageBytes\s+resolvedAt\s+until\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+duration\s+\}\s+network\s+clusterWrites \{\s+approval \{\s+id\s+status\s+duration\s+\}\s+action \{\s+summary\s+class\s+context\s+namespace\s+verb\s+group\s+kind\s+grantable\s+commandRule\s+chatRule\s+\}\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+diff\s+diffCut\s+diffError\s+reason\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+matched \{\s+timestamp\s+namespace\s+pod\s+container\s+previous\s+message\s+gap \{\s+after\s+before\s+\}\s+truncatedBytes\s+\}\s+endedBecause\s+viewAround \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+\}\s+\}/,
+      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+network\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+logsView \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+logsRead \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+since\s+until\s+before \{\s+lines\s+span\s+\}\s+after \{\s+lines\s+span\s+\}\s+pageFrom\s+resolvedAt\s+lines \{\s+timestamp\s+namespace\s+pod\s+container\s+previous\s+message\s+gap \{\s+after\s+before\s+\}\s+truncatedBytes\s+\}\s+olderMore\s+newerMore\s+notices \{\s+code\s+message\s+\}\s+viewAround \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+\}\s+logsWatch \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+since\s+limit\s+maxBytes\s+maxMessageBytes\s+resolvedAt\s+until\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+duration\s+\}\s+network\s+sandboxActions \{\s+approval \{\s+id\s+status\s+duration\s+\}\s+action \{\s+target\s+summary\s+class\s+context\s+namespace\s+verb\s+group\s+kind\s+grantable\s+commandRule\s+chatRule\s+\}\s+request \{\s+__typename\s+\.\.\. on ClusterWrite \{\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+diff\s+diffCut\s+diffError\s+\}\s+\.\.\. on CloudRequest \{\s+host\s+method\s+path\s+contentType\s+body\s+unshown\s+details \{\s+label\s+value\s+\}\s+\}\s+\}\s+reason\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+matched \{\s+timestamp\s+namespace\s+pod\s+container\s+previous\s+message\s+gap \{\s+after\s+before\s+\}\s+truncatedBytes\s+\}\s+endedBecause\s+viewAround \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+\}\s+\}/,
     );
     expect(print(lastArgs!.query!)).toMatch(/citations \{\s+type\s+url\s+title\s+citedText\s+\}/);
     const call = {
@@ -655,10 +655,11 @@ describe('textOf across a server call', () => {
 });
 
 /** A cluster write of approval id and status, as the sidecar serves it. */
-function clusterWrite(id: string, status: ChatClusterWrite['approval']['status']): ChatClusterWrite {
+function clusterWrite(id: string, status: ChatSandboxAction['approval']['status']): ChatSandboxAction {
   return {
     approval: { id, status, duration: null },
     action: {
+      target: 'Cluster',
       summary: 'Delete pods/x in web on dev',
       class: 'UpstreamWrite',
       context: 'dev',
@@ -670,15 +671,49 @@ function clusterWrite(id: string, status: ChatClusterWrite['approval']['status']
       commandRule: '',
       chatRule: '',
     },
-    method: 'DELETE',
-    path: '/api/v1/namespaces/web/pods/x',
-    subresource: '',
-    contentType: '',
-    body: '',
-    dryRun: false,
-    diff: '',
-    diffCut: false,
-    diffError: '',
+    request: {
+      __typename: 'ClusterWrite',
+      method: 'DELETE',
+      path: '/api/v1/namespaces/web/pods/x',
+      subresource: '',
+      contentType: '',
+      body: '',
+      dryRun: false,
+      diff: '',
+      diffCut: false,
+      diffError: '',
+    },
+    reason: null,
+  };
+}
+
+/** A provider request of approval id and status, as the sidecar serves it. */
+function cloudRequest(id: string, status: ChatSandboxAction['approval']['status']): ChatSandboxAction {
+  return {
+    approval: { id, status, duration: null },
+    action: {
+      target: 'AWS',
+      summary: 'AWS: call ec2:TerminateInstances',
+      class: 'UpstreamWrite',
+      context: '',
+      namespace: '',
+      verb: 'TerminateInstances',
+      group: 'ec2',
+      kind: '',
+      grantable: false,
+      commandRule: '',
+      chatRule: '',
+    },
+    request: {
+      __typename: 'CloudRequest',
+      host: 'ec2.amazonaws.com',
+      method: 'POST',
+      path: '/',
+      contentType: 'text/plain',
+      body: 'Action=TerminateInstances',
+      unshown: '',
+      details: [],
+    },
     reason: null,
   };
 }
@@ -687,7 +722,7 @@ function clusterWrite(id: string, status: ChatClusterWrite['approval']['status']
 function callWith(
   id: string,
   status: ChatToolCall['status'],
-  writes: ChatClusterWrite[],
+  writes: ChatSandboxAction[],
   approval: ChatToolCall['approval'] = null,
 ): ChatToolCall {
   return {
@@ -702,11 +737,25 @@ function callWith(
     network: null,
     output: '',
     background: null,
-    clusterWrites: writes,
+    sandboxActions: writes,
   };
 }
 
 describe('waitingRequestsOf', () => {
+  // One command's cluster and provider requests are one list, in the order asked.
+  it("orders a call's cluster and cloud requests by approval id", () => {
+    const running = callWith('c1', 'Running', [
+      clusterWrite('a1', 'Pending'),
+      cloudRequest('a2', 'Pending'),
+      clusterWrite('a3', 'Pending'),
+    ]);
+
+    const got = waitingRequestsOf([running]);
+
+    expect(got.map((r) => r.approval.id)).toEqual(['a1', 'a2', 'a3']);
+    expect(got[1].change?.request?.__typename).toBe('CloudRequest');
+  });
+
   // A write waits while it is pending and its call runs; ids are UUIDv7, so a
   // call's request and a write's sort together in the order asked.
   it("orders a call's and a write's requests together by approval id", () => {
@@ -717,7 +766,7 @@ describe('waitingRequestsOf', () => {
 
     expect(got.map((r) => r.approval.id)).toEqual(['a2', 'a4']);
     expect(got[0].change).toBeNull();
-    expect(got[1].change?.path).toBe('/api/v1/namespaces/web/pods/x');
+    expect(got[1].change?.request?.path).toBe('/api/v1/namespaces/web/pods/x');
     expect(got[1].call).toBe(running);
   });
 

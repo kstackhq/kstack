@@ -61,7 +61,7 @@ func profileTool(t *testing.T, kind, rc string) *Tool {
 	case "zsh":
 		require.NoError(t, os.WriteFile(filepath.Join(home, ".zshrc"), []byte(rc), 0o600))
 	}
-	tl, ok := New(Paths{ShellDir: t.TempDir(), TmpDir: t.TempDir()}, 0, nil, nil, nil)
+	tl, ok := New(Paths{ShellDir: t.TempDir(), TmpDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
 	require.True(t, ok)
 	require.Equal(t, kind, tl.kind)
 	tl.home = t.TempDir()
@@ -522,7 +522,7 @@ func TestAnExtglobFunctionSurvivesTheSnapshot(t *testing.T) {
 func TestTheSnapshotIsInItsShellDirectory(t *testing.T) {
 	t.Setenv("SHELL", "")
 	shell := filepath.Join(t.TempDir(), "shell")
-	tl, ok := New(Paths{ShellDir: shell}, 0, nil, nil, nil)
+	tl, ok := New(Paths{ShellDir: shell}, 0, nil, nil, nil, Cloud{})
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}

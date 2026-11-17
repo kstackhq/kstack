@@ -676,3 +676,19 @@ func TestTheFieldRuleReadsCamelCase(t *testing.T) {
 	want := "clientSecret: [redacted]\naccessToken: [redacted]\napiKey: [redacted]\nsecretAccessKey: [redacted]\nprivateKey: [redacted]"
 	assert.Equal(t, want, safe.Redact(in))
 }
+
+// A forgotten value is no longer blanked; one added twice and forgotten once
+// still is, since its other holder still holds it.
+func TestAForgottenSecretIsNotBlanked(t *testing.T) {
+	t.Cleanup(safe.ResetSecrets)
+	safe.AddSecret("rotating-token-0123456789")
+	safe.AddSecret("shared-token-0123456789")
+	safe.AddSecret("shared-token-0123456789")
+
+	safe.ForgetSecret("rotating-token-0123456789")
+	safe.ForgetSecret("shared-token-0123456789")
+	safe.ForgetSecret("never-added-0123456789")
+
+	assert.Equal(t, "token rotating-token-0123456789", safe.String("token rotating-token-0123456789"))
+	assert.Equal(t, "token "+safe.Redacted, safe.String("token shared-token-0123456789"))
+}

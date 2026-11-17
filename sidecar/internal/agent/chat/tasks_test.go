@@ -986,7 +986,7 @@ func TestTheStartSweepMarksRunningTasksLost(t *testing.T) {
 	}
 	require.NoError(t, db.Close())
 
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

@@ -1149,19 +1149,29 @@ type ToolCall {
   background: BackgroundTask
   "The `Agent` call a subagent's call ran under; null on the answer's own calls."
   agentCallID: ToolCallID
-  "Every request the call's sandboxed command sent that the proxy decided — a change to the cluster, or a read of Secret data — in the order asked. Empty on every call but a sandboxed command's."
-  clusterWrites: [ClusterWrite!]!
+  "Every request the call's sandboxed command sent that a proxy decided — a change to the cluster, a read of Secret data, or a request to a provider — in the order asked. Empty on every call but a sandboxed command's."
+  sandboxActions: [SandboxAction!]!
 }
 
 """
-A request a sandboxed command sent that the proxy decided — a change to the cluster, or a read of
-Secret data — and the action the proxy classified it as. It waits while its approval is `Pending`
-and its call `Running`.
+A request a sandboxed command sent that a proxy decided, and the user's decision on it. It waits
+while its approval is `Pending` and its call `Running`.
 """
-type ClusterWrite {
+type SandboxAction {
   approval: ToolCallApproval!
-  "The action the request is, as the sidecar's classifier read it. Null when this build cannot read the stored request; `method` and `path` are then empty, and the write offers Deny alone."
+  "The action the request is, as the sidecar's classifier read it. Null when this build cannot read the stored request; the action then offers Deny alone."
   action: PermissionAction
+  "The request as sent. Null with a null action, and for an action with no request."
+  request: SandboxRequest
+  "Who decided an action nobody was asked about: the mode (`this context is read-only`, `auto mode`) or the rule's line. Null for an action the user answered."
+  reason: String
+}
+
+"A request a sandboxed command sent: to the cluster, or to a provider (`PermissionAction.target`)."
+union SandboxRequest = ClusterWrite | CloudRequest
+
+"A request a sandboxed command sent to the cluster: a change, or a read of Secret data."
+type ClusterWrite {
   "The change as YAML, a unified diff of the object now against the dry run's answer, while the write waits; empty otherwise, and for a create or a delete."
   diff: String!
   "Whether the diff was cut short of the whole change. The request then draws the raw request open, and Approve waits on it."
@@ -1180,8 +1190,29 @@ type ClusterWrite {
   body: String!
   "Whether the request asks for a dry run: a POST, PUT or PATCH whose every `dryRun` is `All`. Never a DELETE."
   dryRun: Boolean!
-  "Who decided a write nobody was asked about: the mode (`this context is read-only`, `auto mode`) or the rule's line. Null for a write the user answered."
-  reason: String
+}
+
+"A request a sandboxed command sent to a provider, as the user is shown it. Every string is the command's text."
+type CloudRequest {
+  "The upstream host the proxy dials."
+  host: String!
+  method: String!
+  "The path and query, exactly as sent."
+  path: String!
+  "The media type, while the request waits; empty otherwise."
+  contentType: String!
+  "The body, exactly as sent, while the request waits; empty otherwise, and with `unshown`. The record keeps it."
+  body: String!
+  "The provider's sentence for a body the request does not show; empty for a shown body."
+  unshown: String!
+  "What the provider's classifier read from the request, one line each."
+  details: [RequestDetail!]!
+}
+
+"One line a provider's classifier read from a request: a label of the provider's, and the command's text."
+type RequestDetail {
+  label: String!
+  value: String!
 }
 
 "What a call does, from the tool that made it. Never read from the call's arguments."
@@ -1871,7 +1902,9 @@ type PermissionRule {
 
 "A classified action, as the sidecar's classifier wrote it. Every string is cluster or user text: draw it through VisibleText."
 type PermissionAction {
-  "The action in one line, naming its target as kubectl does: `Delete pods/api-7f9c in team-a on dev-eks`."
+  "What the action acts on: the chat's cluster, or a provider."
+  target: PermissionTarget!
+  "The action in one line, naming its target as kubectl does (`Delete pods/api-7f9c in team-a on dev-eks`), or its provider in words (`AWS: call ec2:TerminateInstances in eu-west-1`)."
   summary: String!
   class: PermissionClass!
   context: String!
@@ -1885,6 +1918,21 @@ type PermissionAction {
   commandRule: String!
   "The rule a Chat or Always answer writes, in the same words; empty when not grantable."
   chatRule: String!
+}
+
+"A provider's consent switch: whether sandboxed commands may reach it as the user."
+type CloudAccess {
+  target: PermissionTarget!
+  on: Boolean!
+}
+
+"What an action acts on."
+enum PermissionTarget {
+  Cluster
+  AWS
+  GitHub
+  GCP
+  Azure
 }
 
 "A context the clusters watch knows, and the mode its sandboxed commands run under."
@@ -2083,6 +2131,9 @@ type Query {
   "Every value the settings file held that the sidecar left out at start, each with its reason. Fixed for the process's life, so this is a query and not a watch."
   settingsRefused: [SettingsRefusal!]!
 
+  "One row per provider this build has, in a fixed order, each with whether sandboxed commands may reach it as the user. Off by default."
+  sandboxCloudAccess: [CloudAccess!]!
+
   "The frozen PATH sandboxed commands search, in the shell's order. Empty on a machine with no sandbox."
   sandboxPath: [SandboxPathEntry!]!
 
@@ -2168,6 +2219,8 @@ type Mutation {
   chatDelete(id: ChatID!): Boolean!
 
   # --- Sandbox ---
+  "Turns a provider's switch on or off, and answers the list. Refuses `Cluster`, and a provider this build lacks, with `KSTACK_VALIDATION_ERROR`."
+  sandboxCloudAccessSet(target: PermissionTarget!, on: Boolean!): [CloudAccess!]!
   "Include a pending or removed PATH entry, for `target`, the folder the user was shown. Refused KSTACK_VALIDATION_ERROR for a dir not listed or already included, one whose target has moved since, while the settings file holds an entry Kstack cannot read, or on a machine with no sandbox. Returns the whole list."
   sandboxPathInclude(dir: String!, target: String!): [SandboxPathEntry!]!
 

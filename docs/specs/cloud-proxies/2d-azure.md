@@ -2,7 +2,7 @@
 
 Answers [#934](https://github.com/kstackhq/kstack/issues/934). Step 2D of
 [the cloud proxies](README.md), on `wip/cloud-proxies`. It needs [step 1](1-shared-pieces.md)
-alone. The other steps of wave 2 (`2a-aws.md`, `2b-github.md`, `2c-google-cloud.md`) are built
+alone. The other steps of wave 2 (`2a-aws.md`, `2b-github.md`, `2c-gcp.md`) are built
 beside it, and none needs another.
 
 Step 1 owns the door, the grant, the gate, the request's shape, the consent switch and the
@@ -392,13 +392,14 @@ Recommended, since Azure can name what loses the most:
 
 ##### The action
 
-`Target` `Azure`, no `Context`, `Namespace` the resource group, `Group` the provider namespace,
-`Kind` the resource type, `Name` the last named segment, `Verb` the method in lower case.
+`Target` `Azure`, its `Class` and its `Summary`, and no other field: the resource group and the
+resource are its details.
 
 - **`Summary`** is one line and names the provider: *Azure: delete resource group rg-dev in
   Pay-As-You-Go*, *Azure: read app settings of Microsoft.Web/sites/shop in rg-dev*, else
   *Azure: PUT Microsoft.Compute/virtualMachines/vm-1 in rg-dev*.
 - **`Details`**: *Subscription* (its name and id), *Resource group* when the path names one,
+  *Resource* (the provider namespace, the type and the last named segment) when it names one,
   and *If-Match* and *If-None-Match* when sent. The labels are constants of the package.
 - **No body is `Unshown`.** Resource Manager's bodies are JSON. One past step 1's 1 MiB is
   `413`, so a deployment template larger than that is not sent.

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package kubeproxy
+package runproxy
 
 import (
 	"net/http"
@@ -25,18 +25,19 @@ const (
 	maxHeaderBytes    = 64 << 10
 )
 
-// NewServer is the server a run serves its grant on. Any local process can
-// reach a forwarder's port, so a connection that never sends its headers, or
-// sits idle between requests, is closed rather than held for the run's life.
+// NewServer is the server a run serves its door h on, HTTP/1.1 alone. Any
+// local process can reach a forwarder's port, so a connection that never sends
+// its headers, or sits idle between requests, is closed rather than held for
+// the run's life.
 // It sets no read or write timeout, which would cut a watch; a watch is not
 // idle while it streams.
-func NewServer(g *Grant) *http.Server {
-	return newServer(g, readHeaderTimeout, idleTimeout)
+func NewServer(h http.Handler) *http.Server {
+	return newServer(h, readHeaderTimeout, idleTimeout)
 }
 
-func newServer(g *Grant, readHeader, idle time.Duration) *http.Server {
+func newServer(h http.Handler, readHeader, idle time.Duration) *http.Server {
 	return &http.Server{
-		Handler:           g,
+		Handler:           h,
 		ReadHeaderTimeout: readHeader,
 		IdleTimeout:       idle,
 		MaxHeaderBytes:    maxHeaderBytes,

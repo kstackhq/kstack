@@ -103,7 +103,7 @@ const call = {
   output: 'Read 12 lines',
   background: null,
   agentCallID: null,
-  clusterWrites: [],
+  sandboxActions: [],
 } as unknown as ChatToolCall;
 
 function Focused() {

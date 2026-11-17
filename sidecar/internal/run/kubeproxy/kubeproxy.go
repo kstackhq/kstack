@@ -182,7 +182,7 @@ func (g *Grant) enter() bool {
 
 func (g *Grant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Host != Host || !g.authorized(r) || !g.enter() {
-		writeStatus(w, http.StatusUnauthorized, "kstack: unauthorized")
+		Unauthorized(w)
 		return
 	}
 	defer g.handlers.Done()
