@@ -29,7 +29,7 @@ This file holds what crosses the webview; each larger subsystem has a guide besi
 | [`components/logs/CLAUDE.md`](components/logs/CLAUDE.md) | the focused log view, log windows, the log window's page, `LogViewer`, `src/lib/log-viewer/` |
 | [`components/shell/CLAUDE.md`](components/shell/CLAUDE.md) | `ReadyGate`, the app bar, both sidebars, the window frame, `AppMenu` and `WindowControls` |
 | [`components/cluster/CLAUDE.md`](components/cluster/CLAUDE.md) | the context omnibox, the cluster picker, the status popover, the kubeconfig mirror, memory |
-| [`components/settings/CLAUDE.md`](components/settings/CLAUDE.md) | the settings dialog: `PATH`, executables, folders, permissions |
+| [`components/settings/CLAUDE.md`](components/settings/CLAUDE.md) | the settings dialog and its tabs; `PATH`, executables, folders, permissions |
 
 ## Routing & layout
 
@@ -78,7 +78,7 @@ This file holds what crosses the webview; each larger subsystem has a guide besi
 
 **Every window shares one `localStorage`; each has its own `sessionStorage`.** Chrome shape (`usePersistedWidth`, `usePersistedFlag`) is an app-wide default with no live sync: the next window opens the way the last was left. The history ceiling is per-webview and lives in `sessionStorage`. → [ADR: chrome shape is an app-wide default](../docs/adr/2026-10-17-chrome-shape-is-an-app-wide-default-in-localstorage.md). Every `kstack:*` key is *disposable* in [`docs/persisted-data.md`](../docs/persisted-data.md): a bad value reads as the default, and a new or changed key updates its register row in the same commit.
 
-`src/lib/theme.tsx` has two axes: **color scheme** (`system`/`light`/`dark` → `.dark` on `<html>`) and **skin** (reserved). The preference lives in `host.json` (`src/lib/host-file.ts` owns read/update/subscribe), never localStorage. Boot is synchronous via `window.__KSTACK_HOST__` and the inline script in `index.html`, which **hand-mirrors `resolveColorScheme`**; its boot mark shows the light or dark app icon by the `.dark` class, as `AppMark` does, pinned by the root `index.test.ts`. Keep both in sync. → [ADR: host.json settings](../docs/adr/2026-08-09-host-json-settings.md), [ADR: first-paint theming](../docs/adr/2026-08-09-first-paint-theming.md). The picker is in `settings-dialog/dialog.tsx`.
+`src/lib/theme.tsx` has two axes: **color scheme** (`system`/`light`/`dark` → `.dark` on `<html>`) and **skin** (reserved). The preference lives in `host.json` (`src/lib/host-file.ts` owns read/update/subscribe), never localStorage. Boot is synchronous via `window.__KSTACK_HOST__` and the inline script in `index.html`, which **hand-mirrors `resolveColorScheme`**; its boot mark shows the light or dark app icon by the `.dark` class, as `AppMark` does, pinned by the root `index.test.ts`. Keep both in sync. → [ADR: host.json settings](../docs/adr/2026-08-09-host-json-settings.md), [ADR: first-paint theming](../docs/adr/2026-08-09-first-paint-theming.md). The picker is `settings-dialog/color-scheme-picker.tsx`.
 
 ## Text boxes
 

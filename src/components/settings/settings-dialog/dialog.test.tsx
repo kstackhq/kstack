@@ -12,64 +12,79 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { mockTauriCore } from '@/test-utils';
 
 const { invokeMock, factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
-// The section reads the sidecar; its own test covers it.
-vi.mock('./sandbox', () => ({ SandboxSettings: () => <p>sandbox section</p> }));
-vi.mock('./permissions', () => ({
-  PermissionSettings: () => <section aria-label="Permissions" />,
-}));
 
 const { ThemeProvider } = await import('@/lib/theme');
 const { SettingsDialog } = await import('./dialog');
 
+function renderDialog(onOpenChange = vi.fn()) {
+  render(
+    <ThemeProvider>
+      <SettingsDialog open onOpenChange={onOpenChange} />
+    </ThemeProvider>,
+  );
+  return onOpenChange;
+}
+
+const TABS = ['General', 'Clusters', 'Connectors', 'Providers', 'Memory', 'Sandbox', 'Permissions'];
+
 beforeEach(() => {
-  document.documentElement.classList.remove('dark');
   invokeMock.mockReset();
   invokeMock.mockResolvedValue(undefined);
 });
 
 describe('SettingsDialog', () => {
-  it('holds the Permissions section', () => {
-    render(
-      <ThemeProvider>
-        <SettingsDialog open onOpenChange={() => {}} />
-      </ThemeProvider>,
-    );
-    expect(screen.getByRole('region', { name: 'Permissions' })).toBeInTheDocument();
+  it('lists its tabs in a vertical tab list, General selected on open', async () => {
+    renderDialog();
+    await screen.findByRole('dialog', { name: 'Settings' });
+
+    const list = screen.getByRole('tablist');
+    expect(list).toHaveAttribute('aria-orientation', 'vertical');
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(TABS);
+    expect(screen.getByRole('tab', { name: 'General', selected: true })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Appearance' })).toBeInTheDocument();
   });
 
-  it('drives the theme through the appearance picker', async () => {
-    render(
-      <ThemeProvider>
-        <SettingsDialog open onOpenChange={() => {}} />
-      </ThemeProvider>,
-    );
+  it.each(TABS.slice(1))('shows %s by its name, and Coming soon', async (name) => {
+    const user = userEvent.setup();
+    renderDialog();
 
-    // The three appearance segments are present.
-    const dark = screen.getByRole('tab', { name: 'Dark' });
-    expect(screen.getByRole('tab', { name: 'System' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Light' })).toBeInTheDocument();
+    await user.click(await screen.findByRole('tab', { name }));
 
-    // Picking Dark applies the scheme and persists it through the host.
-    act(() => dark.click());
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('update_host_file', { patch: { colorSchemePreference: 'dark' } }),
-    );
+    expect(screen.getByRole('tab', { name, selected: true })).toBeInTheDocument();
+    const panel = screen.getByRole('tabpanel');
+    expect(panel).toHaveTextContent(name);
+    expect(panel).toHaveTextContent('Coming soon');
   });
 
-  it('holds the sandbox section', () => {
-    render(
-      <ThemeProvider>
-        <SettingsDialog open onOpenChange={() => {}} />
-      </ThemeProvider>,
-    );
-    expect(screen.getByText('sandbox section')).toBeInTheDocument();
+  it('moves between tabs with the arrow keys', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole('tab', { name: 'General' }));
+    await user.keyboard('{ArrowDown}');
+
+    expect(screen.getByRole('tab', { name: 'Clusters' })).toHaveFocus();
+    expect(screen.getByRole('heading', { name: 'Clusters' })).toBeInTheDocument();
+
+    await user.keyboard('{ArrowUp}');
+    expect(screen.getByRole('tab', { name: 'General', selected: true })).toHaveFocus();
+  });
+
+  it('closes from the Close button in the pane header', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = renderDialog();
+
+    await user.click(await screen.findByRole('button', { name: 'Close' }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

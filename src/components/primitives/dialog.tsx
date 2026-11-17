@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The app's reusable centered dialog over @kubetail/ui's base-ui `Dialog*`
-// primitives: standard header + viewport-capped scrolling body. Fully controlled
-// (no built-in trigger). `className` is tailwind-merged, so a `sm:max-w-*`
-// replaces the default width rather than stacking. Under `DialogProvider` it
-// reports close-completion so a lazily-mounted dialog unmounts only after its
-// exit animation.
+// The app's reusable centered dialogs over @kubetail/ui's base-ui `Dialog*`
+// primitives. `Dialog` draws a standard header over a viewport-capped scrolling
+// body; `PanelDialog` draws a bare frame whose children lay out the whole window
+// and draw its `DialogTitle`. Both are fully controlled (no built-in trigger).
+// `className` is tailwind-merged, so a `sm:max-w-*` replaces the default width
+// rather than stacking. Under `DialogProvider` each reports close-completion so
+// a lazily-mounted dialog unmounts only after its exit animation.
 import {
   Dialog as DialogRoot,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -50,17 +52,15 @@ function WindowDragBand() {
   );
 }
 
-type DialogProps = {
+type PanelDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  title: ReactNode;
-  description?: ReactNode;
-  // Extra classes for the dialog content box — chiefly width (e.g. `sm:max-w-4xl`).
+  // Extra classes for the dialog content box — chiefly its size (e.g. `sm:max-w-4xl`).
   className?: string;
   children: ReactNode;
 };
 
-export function Dialog({ open, onOpenChange, title, description, className, children }: DialogProps) {
+function Root({ open, onOpenChange, children }: Omit<PanelDialogProps, 'className'>) {
   const host = useDialogHost();
   return (
     <DialogRoot
@@ -72,6 +72,19 @@ export function Dialog({ open, onOpenChange, title, description, className, chil
       }}
     >
       {open && <WindowDragBand />}
+      {children}
+    </DialogRoot>
+  );
+}
+
+type DialogProps = PanelDialogProps & {
+  title: ReactNode;
+  description?: ReactNode;
+};
+
+export function Dialog({ open, onOpenChange, title, description, className, children }: DialogProps) {
+  return (
+    <Root open={open} onOpenChange={onOpenChange}>
       {/* Column + viewport cap so the body scrolls inside instead of pushing the
           dialog off-screen. */}
       <DialogContent className={cn('flex max-h-[85vh] flex-col', className)}>
@@ -83,6 +96,19 @@ export function Dialog({ open, onOpenChange, title, description, className, chil
             scrolls here rather than growing the dialog. */}
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </DialogContent>
-    </DialogRoot>
+    </Root>
   );
 }
+
+// Children must draw a `DialogTitle`: it names the dialog.
+export function PanelDialog({ open, onOpenChange, className, children }: PanelDialogProps) {
+  return (
+    <Root open={open} onOpenChange={onOpenChange}>
+      <DialogContent showCloseButton={false} className={cn('flex max-h-[85vh] gap-0 overflow-hidden p-0', className)}>
+        {children}
+      </DialogContent>
+    </Root>
+  );
+}
+
+export { DialogClose, DialogTitle };

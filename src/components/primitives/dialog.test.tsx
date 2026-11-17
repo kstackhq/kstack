@@ -16,7 +16,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Dialog } from './dialog';
+import { Dialog, DialogTitle, PanelDialog } from './dialog';
 
 // A press as base-ui's outside-press reads one: down, up, then the click.
 function press(target: Element) {
@@ -64,6 +64,36 @@ describe('Dialog', () => {
 
     await userEvent.keyboard('{Escape}');
 
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('PanelDialog', () => {
+  function renderPanel() {
+    const onOpenChange = vi.fn();
+    render(
+      <PanelDialog open onOpenChange={onOpenChange}>
+        <DialogTitle>Settings</DialogTitle>
+        body
+      </PanelDialog>,
+    );
+    return onOpenChange;
+  }
+
+  it('is named by the title its children draw, and draws no close button of its own', async () => {
+    renderPanel();
+    const dialog = await screen.findByRole('dialog', { name: 'Settings' });
+    expect(dialog).toHaveTextContent('body');
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+  });
+
+  it('keeps the drag band, and still closes on Escape', async () => {
+    const onOpenChange = renderPanel();
+    await screen.findByRole('dialog');
+    press(screen.getByTestId('dialog-window-drag-region'));
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    await userEvent.keyboard('{Escape}');
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

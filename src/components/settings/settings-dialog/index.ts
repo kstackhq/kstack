@@ -12,5 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The Settings dialog. Its sandbox and permissions sections are its own.
+// The Settings dialog.
 export { SettingsDialog } from './dialog';

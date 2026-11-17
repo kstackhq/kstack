@@ -12,67 +12,81 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The app's settings dialog: one `Field` row per setting, then the Permissions
-// section. Rendered by
-// `AppDialogs`, not inline in the account menu that opens it, so it outlives the
-// sidebar card unmounting on auto-collapse. Settings persist to the host's
-// host.json; see docs/adr/2026-08-09-host-json-settings.md
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@kubetail/ui/elements/field';
-import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
-import { Monitor, Moon, Sun } from 'lucide-react';
+// The app's settings dialog: a sidebar of tabs beside the selected tab's pane.
+// Rendered by `AppDialogs`, not inline in the account menu that opens it, so it
+// outlives the sidebar card unmounting on auto-collapse. Settings persist to the
+// host's host.json; see docs/adr/2026-08-09-host-json-settings.md
+import { Tabs } from '@base-ui/react/tabs';
+import { Button } from '@kubetail/ui/elements/button';
+import {
+  Brain,
+  Container,
+  type LucideIcon,
+  Plug,
+  Server,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import type { ComponentType } from 'react';
 
-import { Dialog } from '@/components/primitives/dialog';
+import { DialogClose, DialogTitle, PanelDialog } from '@/components/primitives/dialog';
 import { type AppDialogProps } from '@/lib/dialog';
-import { type ColorSchemePreference, useColorScheme } from '@/lib/theme';
 
-import { PermissionSettings } from './permissions';
-import { SandboxSettings } from './sandbox';
+import { GeneralSettings } from './general';
 
-// "System" leads because it's the default.
-const COLOR_SCHEME_OPTIONS: { value: ColorSchemePreference; label: string; icon: ComponentType }[] = [
-  { value: 'system', label: 'System', icon: Monitor },
-  { value: 'light', label: 'Light', icon: Sun },
-  { value: 'dark', label: 'Dark', icon: Moon },
+// A tab with no `content` says "Coming soon".
+const TABS: { label: string; icon: LucideIcon; content?: ComponentType }[] = [
+  { label: 'General', icon: SlidersHorizontal, content: GeneralSettings },
+  { label: 'Clusters', icon: Server },
+  { label: 'Connectors', icon: Plug },
+  { label: 'Providers', icon: Sparkles },
+  { label: 'Memory', icon: Brain },
+  { label: 'Sandbox', icon: Container },
+  { label: 'Permissions', icon: ShieldCheck },
 ];
-
-// `Tabs` used as a segmented picker — no panels.
-function ColorSchemePicker() {
-  const { preference, setPreference } = useColorScheme();
-  return (
-    <Tabs value={preference} onValueChange={(value) => setPreference(value as ColorSchemePreference)}>
-      <TabsList aria-label="Appearance">
-        {COLOR_SCHEME_OPTIONS.map(({ value, label, icon: Icon }) => (
-          <TabsTrigger key={value} value={value}>
-            <Icon />
-            {label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-    </Tabs>
-  );
-}
 
 export function SettingsDialog({ open, onOpenChange }: AppDialogProps) {
   return (
-    <Dialog
+    <PanelDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Settings"
-      description="Manage your app preferences."
-      className="sm:max-w-2xl"
+      className="h-160 w-220 bg-popover shadow-2xl sm:max-w-[calc(100%-2rem)]"
     >
-      <FieldGroup>
-        <Field orientation="responsive">
-          <FieldContent>
-            <FieldLabel>Appearance</FieldLabel>
-            <FieldDescription>Choose how the app looks, or follow your system setting.</FieldDescription>
-          </FieldContent>
-          <ColorSchemePicker />
-        </Field>
-        <SandboxSettings />
-      </FieldGroup>
-      <PermissionSettings />
-    </Dialog>
+      <Tabs.Root orientation="vertical" defaultValue={TABS[0].label} className="flex min-w-0 flex-1">
+        <div className="flex w-54 shrink-0 flex-col gap-0.5 border-r bg-muted px-3 py-4">
+          <DialogTitle className="px-2 pt-1 pb-3 text-sm font-medium text-muted-foreground">Settings</DialogTitle>
+          <Tabs.List activateOnFocus className="flex flex-col gap-0.5">
+            {TABS.map(({ label, icon: Icon }) => (
+              <Tabs.Tab
+                key={label}
+                value={label}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-popover-foreground outline-none hover:bg-accent/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-selected:bg-accent aria-selected:font-medium aria-selected:text-foreground"
+              >
+                <Icon className="size-4" />
+                {label}
+              </Tabs.Tab>
+            ))}
+          </Tabs.List>
+        </div>
+        {TABS.map(({ label, content: Content }) => (
+          <Tabs.Panel key={label} value={label} className="flex min-w-0 flex-1 flex-col outline-none">
+            <div className="flex items-center gap-3 pt-4 pr-4 pb-3 pl-6">
+              <h3 className="flex-1 text-base font-medium text-popover-foreground">{label}</h3>
+              <DialogClose
+                aria-label="Close"
+                render={<Button variant="ghost" size="icon" className="size-7 rounded-md" />}
+              >
+                <X className="size-4" />
+              </DialogClose>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 pt-2 pb-6">
+              {Content ? <Content /> : <p className="m-auto text-sm text-muted-foreground">Coming soon</p>}
+            </div>
+          </Tabs.Panel>
+        ))}
+      </Tabs.Root>
+    </PanelDialog>
   );
 }
