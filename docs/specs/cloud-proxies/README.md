@@ -10,7 +10,6 @@ per step; its steps need step 1 alone and can be built at the same time.
 | Step | Spec | Builds | Answers | Needs |
 | --- | --- | --- | --- | --- |
 | 1 | [`1-shared-pieces.md`](1-shared-pieces.md) | Built: the run's door, the per-grant token, the gate, the request's shape, the consent switch | [#935](https://github.com/kstackhq/kstack/issues/935) | — |
-| 2B | [`2b-github.md`](2b-github.md) | The token-injecting proxy for GitHub | [#932](https://github.com/kstackhq/kstack/issues/932) | 1 |
 | 2C | [`2c-gcp.md`](2c-gcp.md) | The token-injecting proxy for Google Cloud | [#933](https://github.com/kstackhq/kstack/issues/933) | 1 |
 
 The sequence lands once, when its last step is built.
