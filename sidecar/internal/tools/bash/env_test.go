@@ -92,7 +92,8 @@ func TestTheToolchainsVariablesRideTheEnvironment(t *testing.T) {
 
 	got := sandboxedRunEnv([]string{"LANG=C"}, kstackVars, "/usr/bin", "/ws", "/ws", rd, nil, "/th", toolchain, nil)
 
-	i := slices.Index(got, "CARGO_HOME=/th/cargo")
+	home := toolHomeEnv("/th")
+	i := slices.Index(got, home[len(home)-1])
 	assert.Equal(t, toolchain, got[i+1:i+3])
 	assert.Equal(t, kstackVars, got[i+3:])
 }

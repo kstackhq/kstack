@@ -33,6 +33,7 @@ var toolHomeVars = []struct{ name, dir string }{
 	{"PIP_CACHE_DIR", "pip"},
 	{"GOCACHE", "go/build"}, {"GOMODCACHE", "go/mod"},
 	{"CARGO_HOME", "cargo"},
+	{"CLOUDSDK_CONFIG", "gcloud"},
 }
 
 // toolHomeEnv is the variables that point each tool into home.

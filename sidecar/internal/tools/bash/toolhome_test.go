@@ -44,3 +44,9 @@ func TestTheToolHomeIsPerChat(t *testing.T) {
 
 	assert.NotEqual(t, tools.ToolHomePath(a.Dir), tools.ToolHomePath(b.Dir))
 }
+
+// gcloud keeps its configuration and logs in the tool home, not the
+// workspace.
+func TestCloudSDKConfigIsUnderTheToolHome(t *testing.T) {
+	assert.Contains(t, toolHomeEnv("/home/t"), "CLOUDSDK_CONFIG=/home/t/gcloud")
+}
