@@ -195,6 +195,14 @@ Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + P
 - `Config` carries production knobs only; test seams are unexported options on `newWithOptions`. `Logout` clears locally first, revokes fire-and-forget.
 - `TokenSource(ctx)` is nil when degraded; consumers read `AccessToken` only. The GraphQL projection drops tokens.
 
+## GitHub's token (`internal/services/githubauth`)
+
+**The user's GitHub token, for GitHub's proxy alone.** `Token` runs `gh auth token --hostname
+github.com` on the sidecar's `PATH` on first use (no stdin, prompts off, killed past 10 s), holds it
+five minutes under `safe.AddSecret` and never writes or logs it. `gh` runs at most once a minute:
+a failure is held that long, and `Refused` (an upstream `401`) drops the token only a minute after
+the last run. Concurrent reads share one run; the exec is a field.
+
 ## Kubeconfig (`internal/services/kubeconfig`)
 
 **The one reader of the user's kubeconfig.** Nothing else watches the file, calls `clientcmd`, or builds a `rest.Config`. `New` reads nothing, not even `KUBECONFIG`; `Start` reads, after `app.New`'s shell import, so a GUI launch sees the login shell's file list. `Get()` returns the last snapshot plus whether a read has happened; `Subscribe()` is current-on-subscribe; `Close()` ends every subscription in the process, so only the app calls it.
