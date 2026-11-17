@@ -215,7 +215,7 @@ func requireSandbox(t *testing.T) {
 func startE2E(t *testing.T, with ...func(*Config)) *e2e {
 	t.Helper()
 	requireSandbox(t)
-	bin := toolsFolder(t, "kubectl", "jq")
+	bin := toolsFolder(t, "kubectl", "jq", "curl")
 
 	cluster := serveFakeCluster(t)
 	dir := t.TempDir()

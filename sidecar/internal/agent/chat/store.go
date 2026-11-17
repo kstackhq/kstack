@@ -370,8 +370,9 @@ type toolCallEntry struct {
 	AgentCallID ToolCallID
 	// Approval is the call's own approvals row, nil on an ungated call.
 	Approval *approval
-	// ClusterWrites are the call's action approvals, in the order asked.
-	ClusterWrites []*approval
+	// SandboxActions are the call's action approvals, a cluster's and a
+	// provider's in one list, in the order asked.
+	SandboxActions []*approval
 	// Task is the background task the call started, off its row; nil on every
 	// other call. Only the reads set it: the turn's own entries carry none.
 	Task *taskState
@@ -641,20 +642,20 @@ func upsertApproval(ctx context.Context, st stmts, a approval) error {
 	return nil
 }
 
-// callReads is a read of tool calls and the read of their cluster writes over
+// callReads is a read of tool calls and the read of their sandbox actions over
 // the same scope.
-type callReads struct{ calls, writes stmtID }
+type callReads struct{ calls, actions stmtID }
 
 var (
-	chatCallReads = callReads{calls: stmtSelectToolCalls, writes: stmtSelectClusterWrites}
-	runCallReads  = callReads{calls: stmtSelectRunToolCalls, writes: stmtSelectRunClusterWrites}
+	chatCallReads = callReads{calls: stmtSelectToolCalls, actions: stmtSelectSandboxActions}
+	runCallReads  = callReads{calls: stmtSelectRunToolCalls, actions: stmtSelectRunSandboxActions}
 )
 
 // toolCallsByRun reads the tool calls reads selects, joined to their own
-// approvals and carrying their cluster writes, grouped by run in the order the
+// approvals and carrying their sandbox actions, grouped by run in the order the
 // model asked them.
 func toolCallsByRun(ctx context.Context, st stmts, reads callReads, arg string) (map[RunID][]toolCallEntry, error) {
-	writes, err := clusterWritesByCall(ctx, st, reads.writes, arg)
+	actions, err := sandboxActionsByCall(ctx, st, reads.actions, arg)
 	if err != nil {
 		return nil, err
 	}
@@ -697,7 +698,7 @@ func toolCallsByRun(ctx context.Context, st stmts, reads callReads, arg string) 
 		if taskStatus.Valid {
 			c.Task = &taskState{Status: taskStatus.String, ExitCode: exitCode, Report: report.String, Result: watched.String}
 		}
-		c.ClusterWrites = writes[c.ID]
+		c.SandboxActions = actions[c.ID]
 		out[run] = append(out[run], c)
 	}
 	if err := rows.Err(); err != nil {
@@ -706,12 +707,12 @@ func toolCallsByRun(ctx context.Context, st stmts, reads callReads, arg string) 
 	return out, nil
 }
 
-// clusterWritesByCall reads the cluster writes stmt selects, by call, in the
+// sandboxActionsByCall reads the sandbox actions stmt selects, by call, in the
 // order asked.
-func clusterWritesByCall(ctx context.Context, st stmts, stmt stmtID, arg string) (map[ToolCallID][]*approval, error) {
+func sandboxActionsByCall(ctx context.Context, st stmts, stmt stmtID, arg string) (map[ToolCallID][]*approval, error) {
 	rows, err := st.Query(ctx, stmt, arg)
 	if err != nil {
-		return nil, fmt.Errorf("cluster writes: %w", err)
+		return nil, fmt.Errorf("sandbox actions: %w", err)
 	}
 	defer rows.Close()
 
@@ -724,7 +725,7 @@ func clusterWritesByCall(ctx context.Context, st stmts, stmt stmtID, arg string)
 		)
 		var duration string
 		if err := rows.Scan(&a.ToolCallID, &a.ID, &a.Status, &duration, &request, &a.Reason, &createdAt, &a.DecidedAt); err != nil {
-			return nil, fmt.Errorf("cluster writes: %w", err)
+			return nil, fmt.Errorf("sandbox actions: %w", err)
 		}
 		a.CreatedAt, a.Duration = time.UnixMilli(createdAt).UTC(), permissions.Duration(duration)
 		a.Request = &tools.ActionRequest{}
@@ -735,7 +736,7 @@ func clusterWritesByCall(ctx context.Context, st stmts, stmt stmtID, arg string)
 		out[a.ToolCallID] = append(out[a.ToolCallID], &a)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("cluster writes: %w", err)
+		return nil, fmt.Errorf("sandbox actions: %w", err)
 	}
 	return out, nil
 }

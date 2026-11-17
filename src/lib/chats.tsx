@@ -233,13 +233,14 @@ const ChatMessagesWatchSubscription = graphql(`
             duration
           }
           network
-          clusterWrites {
+          sandboxActions {
             approval {
               id
               status
               duration
             }
             action {
+              target
               summary
               class
               context
@@ -251,15 +252,32 @@ const ChatMessagesWatchSubscription = graphql(`
               commandRule
               chatRule
             }
-            method
-            path
-            subresource
-            contentType
-            body
-            dryRun
-            diff
-            diffCut
-            diffError
+            request {
+              __typename
+              ... on ClusterWrite {
+                method
+                path
+                subresource
+                contentType
+                body
+                dryRun
+                diff
+                diffCut
+                diffError
+              }
+              ... on CloudRequest {
+                host
+                method
+                path
+                contentType
+                body
+                unshown
+                details {
+                  label
+                  value
+                }
+              }
+            }
             reason
           }
           output
@@ -318,7 +336,30 @@ const ChatMessagesWatchSubscription = graphql(`
 export type Chat = NonNullable<ChatsWatchSubscription['chatsWatch']['chat']>;
 export type ChatMessage = NonNullable<ChatMessagesWatchSubscription['chatMessagesWatch']['message']>;
 export type ChatToolCall = ChatMessage['toolCalls'][number];
-export type ChatClusterWrite = ChatToolCall['clusterWrites'][number];
+export type ChatSandboxAction = ChatToolCall['sandboxActions'][number];
+type ChatSandboxRequest = NonNullable<ChatSandboxAction['request']>;
+export type ChatClusterRequest = Extract<ChatSandboxRequest, { __typename: 'ClusterWrite' }>;
+export type ChatCloudRequest = Extract<ChatSandboxRequest, { __typename: 'CloudRequest' }>;
+export type PermissionTarget = NonNullable<ChatSandboxAction['action']>['target'];
+
+/** A provider's name in the user's words. */
+export const PROVIDER_NAMES: Record<PermissionTarget, string> = {
+  Cluster: 'Cluster',
+  AWS: 'AWS',
+  GitHub: 'GitHub',
+  GCP: 'Google Cloud',
+  Azure: 'Azure',
+};
+
+/** The cluster request an action carries, null for any other. */
+export function clusterRequestOf(a: ChatSandboxAction): ChatClusterRequest | null {
+  return a.request?.__typename === 'ClusterWrite' ? a.request : null;
+}
+
+/** The provider request an action carries, null for any other. */
+export function cloudRequestOf(a: ChatSandboxAction): ChatCloudRequest | null {
+  return a.request?.__typename === 'CloudRequest' ? a.request : null;
+}
 export type ChatCitation = ChatMessage['citations'][number];
 
 // Whether the turn behind an answer is still running: streaming, or stopped on
@@ -525,18 +566,19 @@ export function sourcesOf(citations: readonly ChatCitation[]): Source[] {
 }
 
 /**
- * One request waiting on the user: a call's own, or a cluster write its
- * sandboxed command sent, which `change` holds (null for a call's own).
+ * One request waiting on the user: a call's own, or an action its sandboxed
+ * command sent to the cluster or a provider, which `change` holds (null for a
+ * call's own).
  */
 export type WaitingRequest = {
   call: ChatToolCall;
   approval: NonNullable<ChatToolCall['approval']>;
-  change: ChatClusterWrite | null;
+  change: ChatSandboxAction | null;
 };
 
-/** Whether a cluster write waits on the user: pending, while its call runs. */
-export function isWaitingWrite(call: ChatToolCall, write: ChatClusterWrite): boolean {
-  return write.approval.status === 'Pending' && call.status === 'Running';
+/** Whether a sandbox action waits on the user: pending, while its call runs. */
+export function isWaitingAction(call: ChatToolCall, action: ChatSandboxAction): boolean {
+  return action.approval.status === 'Pending' && call.status === 'Running';
 }
 
 /** The DOM id of the approval request for approval `id`: what the composer's Show scrolls to. */
@@ -545,18 +587,18 @@ export const approvalAnchor = (id: string): string => `approval-${id}`;
 /**
  * The requests awaiting approval, in the order they were asked — approval ids
  * are UUIDv7 — so a new one lands below the rest: an answer's own calls and
- * cluster writes, and each of its agents', which wait whether or not the answer
- * is still going.
+ * sandbox actions, the cluster's and each provider's, and each of its agents',
+ * which wait whether or not the answer is still going.
  */
 export function waitingRequestsOf(calls: ChatToolCall[]): WaitingRequest[] {
   return calls
     .flatMap((call): WaitingRequest[] => {
       const own =
         call.status === 'AwaitingApproval' && call.approval ? [{ call, approval: call.approval, change: null }] : [];
-      const writes = call.clusterWrites
-        .filter((w) => isWaitingWrite(call, w))
-        .map((w) => ({ call, approval: w.approval, change: w }));
-      return [...own, ...writes];
+      const actions = call.sandboxActions
+        .filter((a) => isWaitingAction(call, a))
+        .map((a) => ({ call, approval: a.approval, change: a }));
+      return [...own, ...actions];
     })
     .toSorted((a, b) => (a.approval.id < b.approval.id ? -1 : 1));
 }

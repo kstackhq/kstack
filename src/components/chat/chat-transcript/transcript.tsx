@@ -44,7 +44,10 @@ import {
   approvalAnchor,
   grantOffered,
   inFlight,
-  isWaitingWrite,
+  isWaitingAction,
+  clusterRequestOf,
+  cloudRequestOf,
+  PROVIDER_NAMES,
   noticesOf,
   ranSearch,
   searchesOf,
@@ -52,7 +55,7 @@ import {
   textOf,
   waitingRequestsOf,
 } from '@/lib/chats';
-import type { ChatClusterWrite, ChatMessage, ChatToolCall, Source, TaskNotice, TaskNoticeOf } from '@/lib/chats';
+import type { ChatMessage, ChatSandboxAction, ChatToolCall, Source, TaskNotice, TaskNoticeOf } from '@/lib/chats';
 import { SMALL_ICON_STROKE } from '@/lib/control-style';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useHeldStill } from '@/lib/held-still';
@@ -716,7 +719,7 @@ function ToolCalls({
                     {where}
                   </p>
                 )}
-                <ClusterWriteLines call={call} />
+                <SandboxActionLines call={call} />
               </div>
             </details>
             {open && changed}
@@ -729,30 +732,40 @@ function ToolCalls({
   );
 }
 
-// A call's cluster writes and Secret reads that no longer wait, one line each:
-// the method and the path, tagged with what the user or the permissions
-// engine decided, and for the engine's, the mode or rule that decided it.
-// `approved` and `allowed` are the decision, not that the cluster received it;
-// the output says what the command read back.
-function ClusterWriteLines({ call }: { call: ChatToolCall }) {
-  const settled = call.clusterWrites.filter((w) => !isWaitingWrite(call, w));
+// A call's sandbox actions that no longer wait, one line each: the method and
+// the path (a provider's after its host), tagged with what the user or the
+// permissions engine decided, a provider's request with its name first, and
+// for the engine's, the mode or rule that decided it. `approved` and `allowed`
+// are the decision, not that the cluster or provider received it; the output
+// says what the command read back.
+function SandboxActionLines({ call }: { call: ChatToolCall }) {
+  const settled = call.sandboxActions.filter((a) => !isWaitingAction(call, a));
   if (settled.length === 0) return null;
   return (
     <ul className="border-l-2 border-muted pl-3">
-      {settled.map((w) => (
-        <li key={w.approval.id}>
-          <span className="font-mono break-all">
-            <VisibleText text={`${w.method} ${w.path}`} />
-          </span>
-          {w.dryRun && ' (dry run)'}
-          <span className="ml-2 opacity-70">{clusterWriteTag(w)}</span>
-          {w.reason && (
-            <span className="ml-2 text-muted-foreground">
-              <VisibleText text={w.reason} />
+      {settled.map((a) => {
+        const cluster = clusterRequestOf(a);
+        const cloud = cloudRequestOf(a);
+        const target = a.action?.target ?? 'Cluster';
+        let line = a.action?.summary ?? '';
+        if (cluster) line = `${cluster.method} ${cluster.path}`;
+        if (cloud) line = `${cloud.method} ${cloud.host}${cloud.path}`;
+        const tag = target === 'Cluster' ? sandboxActionTag(a) : `${PROVIDER_NAMES[target]} · ${sandboxActionTag(a)}`;
+        return (
+          <li key={a.approval.id}>
+            <span className="font-mono break-all">
+              <VisibleText text={line} />
             </span>
-          )}
-        </li>
-      ))}
+            {cluster?.dryRun && ' (dry run)'}
+            <span className="ml-2 opacity-70">{tag}</span>
+            {a.reason && (
+              <span className="ml-2 text-muted-foreground">
+                <VisibleText text={a.reason} />
+              </span>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -794,12 +807,24 @@ const DURATION_WORDS: Record<ApprovalDuration, string> = {
   Always: 'always',
 };
 
-// What became of a write that no longer waits. A pending one here is one a
+// What became of an action that no longer waits. A pending one here is one a
 // crash stranded, as an abandoned one's wait ended with nobody's answer.
-function clusterWriteTag(w: ChatClusterWrite): string {
-  switch (w.approval.status) {
+/**
+ * A sandbox action's heading: its target and whether it reads data or changes
+ * something. An action this build cannot read names neither.
+ */
+function sandboxActionLabel(action: ChatSandboxAction['action']): string {
+  if (action === null) return 'Request awaiting approval';
+  const reads = action.class === 'SecretRead';
+  if (action.target === 'Cluster') return reads ? 'Secret read awaiting approval' : 'Cluster change awaiting approval';
+  const provider = PROVIDER_NAMES[action.target];
+  return reads ? `${provider} data read awaiting approval` : `${provider} change awaiting approval`;
+}
+
+function sandboxActionTag(a: ChatSandboxAction): string {
+  switch (a.approval.status) {
     case 'Approved':
-      return w.approval.duration ? `approved · ${DURATION_WORDS[w.approval.duration]}` : 'approved';
+      return a.approval.duration ? `approved · ${DURATION_WORDS[a.approval.duration]}` : 'approved';
     case 'Denied':
       return 'denied';
     case 'Allowed':
@@ -920,7 +945,9 @@ function AgentBody({
 function LabelledLine({ label, text, after }: { label: string; text: string; after?: string }) {
   return (
     <p className="mt-1 flex min-w-0 gap-1 text-xs">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="shrink-0 text-muted-foreground">
+        <VisibleText text={label} />
+      </span>
       <span className="min-w-0 font-mono break-all">
         <VisibleText text={text} />
       </span>
@@ -961,11 +988,12 @@ function commandHeading(command: CommandAction, sandboxAvailable: boolean | unde
 // Approve: what the user cannot see, they cannot approve. `agent` is the
 // description of the Agent call a subagent's request ran under, null on the
 // answer's own: the user is approving a call whose reasoning they cannot see,
-// so the request says whose it is. `change` is a cluster write the call's
-// sandboxed command sent, which is what the request asks about when it is set;
-// the call's command is then drawn under it as what sent it. A change is the
-// one request that offers a rule: an action a rule may allow offers four allow
-// answers beside Deny, each with the rule it adds in the sidecar's words.
+// so the request says whose it is. `change` is an action the call's sandboxed
+// command sent to the cluster or a provider, which is what the request asks
+// about when it is set; the call's command is then drawn under it as what sent
+// it. A cluster change is the one request that offers a rule: an action a rule
+// may allow offers four allow answers beside Deny, each with the rule it adds
+// in the sidecar's words. A provider's never may.
 function ApprovalRequest({
   approval,
   action,
@@ -977,7 +1005,7 @@ function ApprovalRequest({
 }: {
   approval: NonNullable<ChatToolCall['approval']>;
   action: ChatToolCall['action'];
-  change: ChatClusterWrite | null;
+  change: ChatSandboxAction | null;
   live: boolean;
   agent: string | null;
   armMs: number;
@@ -998,14 +1026,19 @@ function ApprovalRequest({
   const page = action?.fetch ?? null;
   // A memory call for one cluster never asks, so it is no kind this draws.
   const memory = action?.memory?.scope === 'everywhere' ? action.memory : null;
-  const folding = change ? change.body : (command?.text ?? write?.content ?? memory?.body ?? '');
+  const cluster = change ? clusterRequestOf(change) : null;
+  const cloud = change ? cloudRequestOf(change) : null;
+  // A provider's body under an Unshown sentence is never drawn, so it never
+  // folds and Approve never waits on it.
+  const requestBody = cluster?.body ?? (cloud?.unshown === '' ? cloud.body : '');
+  const folding = change ? requestBody : (command?.text ?? write?.content ?? memory?.body ?? '');
   const { head, rest } = useCut(folding);
-  const diff = useCut(change?.diff ?? '');
+  const diff = useCut(cluster?.diff ?? '');
   const line = descriptionLine(action?.description ?? '');
   // A whole diff is what a change's user reads, so the request behind it is a
   // fold Approve does not wait on; with no diff, or one cut short, the request
   // is drawn open and Approve waits on its body.
-  const requestOpen = change === null || change.diff === '' || change.diffCut;
+  const requestOpen = cluster === null || cluster.diff === '' || cluster.diffCut;
   const folded =
     (rest !== '' && !shown && requestOpen) ||
     (diff.rest !== '' && !diffShown) ||
@@ -1035,37 +1068,33 @@ function ApprovalRequest({
   // approved.
   let drawn = true;
   let body: ReactNode;
-  if (change && (change.method === '' || change.action === null)) {
-    // An action with no request of its own is a kind a later step draws; one
-    // with no action is a request this build cannot read. This branch comes
-    // first, so neither offers Approve.
-    label = 'Cluster change awaiting approval';
-    drawn = false;
-    body = <p className="text-xs text-muted-foreground">This request can&apos;t be shown.</p>;
-  } else if (change?.action) {
-    // The action is the heading, the sidecar's summary, so nothing here parses
-    // a path; the diff a dry run computed is what changes. The request itself
-    // is never a reading of it: the path and query as sent, one line the proxy
-    // bounds; the method, and the media type, which decides what a patch's body
-    // does; then the body as a file's content is. The command under Sent by is
-    // context, so Approve does not wait on its fold. A read of Secret data is
-    // drawn the same way: a GET with no body and no diff.
-    label = change.action.class === 'SecretRead' ? 'Secret read awaiting approval' : 'Cluster change awaiting approval';
-    const sent = (
-      <>
-        <p className="mt-1 font-mono text-xs break-all whitespace-pre-wrap">
-          <VisibleText text={change.path} />
+  // The request as sent, drawn alike for the cluster and a provider: the path
+  // and query as sent, one line the proxy bounds; the method, and the media
+  // type, which decides what a body does; then the body as a file's content
+  // is, or the provider's sentence for one it does not show. The command under
+  // Sent by is context, so Approve does not wait on its fold.
+  const request = cluster ?? cloud;
+  const unshown = cloud?.unshown ?? '';
+  const sent = request && (
+    <>
+      <p className="mt-1 font-mono text-xs break-all whitespace-pre-wrap">
+        <VisibleText text={request.path} />
+      </p>
+      <p aria-label="Method and media type" className="mt-1 font-mono text-xs break-all">
+        {request.method}
+        {request.contentType !== '' && (
+          <>
+            {' '}
+            <VisibleText text={request.contentType} />
+          </>
+        )}
+      </p>
+      {unshown !== '' ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          <VisibleText text={unshown} />
         </p>
-        <p aria-label="Method and media type" className="mt-1 font-mono text-xs break-all">
-          {change.method}
-          {change.contentType !== '' && (
-            <>
-              {' '}
-              <VisibleText text={change.contentType} />
-            </>
-          )}
-        </p>
-        {change.body !== '' && (
+      ) : (
+        request.body !== '' && (
           <FoldedText
             head={head}
             rest={rest}
@@ -1074,21 +1103,60 @@ function ApprovalRequest({
             className={REQUEST_TEXT}
             file
           />
-        )}
-      </>
-    );
+        )
+      )}
+    </>
+  );
+  const sentBy = command && (
+    <>
+      <p className="mt-1 text-xs text-muted-foreground">Sent by</p>
+      <FoldedBlock text={command.text} className={REQUEST_TEXT} />
+    </>
+  );
+  if (change && (change.request === null || change.action === null)) {
+    // An action with no request of its own is a kind a later step draws; one
+    // with no action is a request this build cannot read. This branch comes
+    // first, so neither offers Approve.
+    label = sandboxActionLabel(change.action);
+    drawn = false;
+    body = <p className="text-xs text-muted-foreground">This request can&apos;t be shown.</p>;
+  } else if (change?.action && cloud) {
+    // A provider's request: the summary as its heading, the host it goes to,
+    // each line the classifier read, then the raw request open, as it is the
+    // whole of what is approved. Every string is the command's text.
+    label = sandboxActionLabel(change.action);
     body = (
       <>
         <p className="text-xs text-muted-foreground">
           <VisibleText text={change.action.summary} />
-          {change.dryRun && ' (dry run)'}
         </p>
-        {change.diff !== '' && (
+        <LabelledLine label="Host:" text={cloud.host} />
+        {cloud.details.map((d, i) => (
+          // oxlint-disable-next-line react/no-array-index-key -- details are a fixed list, and two may share a label
+          <LabelledLine key={i} label={d.label} text={d.value} />
+        ))}
+        {sent}
+        {sentBy}
+      </>
+    );
+  } else if (change?.action && cluster) {
+    // The action is the heading, the sidecar's summary, so nothing here parses
+    // a path; the diff a dry run computed is what changes. The request itself
+    // is never a reading of it. A read of Secret data is drawn the same way: a
+    // GET with no body and no diff.
+    label = sandboxActionLabel(change.action);
+    body = (
+      <>
+        <p className="text-xs text-muted-foreground">
+          <VisibleText text={change.action.summary} />
+          {cluster.dryRun && ' (dry run)'}
+        </p>
+        {cluster.diff !== '' && (
           <DiffBlock head={diff.head} rest={diff.rest} shown={diffShown} onShow={() => setDiffShown(true)} />
         )}
-        {change.diffError !== '' && (
+        {cluster.diffError !== '' && (
           <p className="mt-1 text-xs text-muted-foreground">
-            No preview: <VisibleText text={change.diffError} />
+            No preview: <VisibleText text={cluster.diffError} />
           </p>
         )}
         {requestOpen ? (
@@ -1099,12 +1167,7 @@ function ApprovalRequest({
             {sent}
           </details>
         )}
-        {command && (
-          <>
-            <p className="mt-1 text-xs text-muted-foreground">Sent by</p>
-            <FoldedBlock text={command.text} className={REQUEST_TEXT} />
-          </>
-        )}
+        {sentBy}
       </>
     );
   } else if (command) {
@@ -1255,7 +1318,7 @@ function ApprovalRequest({
             {change ? 'Approve once' : 'Approve'}
           </Button>
         )}
-        {drawn && change?.action?.grantable && (
+        {drawn && change?.action?.grantable && change.action.target === 'Cluster' && (
           <>
             <AllowAnswer
               label="Allow for this command"

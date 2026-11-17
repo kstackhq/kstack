@@ -1,8 +1,9 @@
 # internal/run — what confines one run
 
-Five leaves that know no tool and no record: `loginshell` (the user's shell, read once per launch),
-`session` (one run's policy), `sandbox` (the machine's sandbox), `permissions` (the decision over a
-cluster action) and `kubeproxy` (the proxy a sandboxed command reaches its cluster through). A tool
+Six leaves that know no tool and no record: `loginshell` (the user's shell, read once a launch),
+`session` (one run's policy), `sandbox` (the machine's sandbox), `permissions` (the decision over an
+action), `kubeproxy` (the proxy a sandboxed command reaches its cluster through)
+and `runproxy` (what every provider's proxy shares, and the run's server). A tool
 imports these; none imports a tool. Posture and the tests that pin it:
 [`docs/security-model.md`](../../../docs/security-model.md).
 
@@ -162,6 +163,8 @@ a chat through the real sandbox.
   class 6 asks under `ReadOnly` and `Ask` and is `Permit` under `Auto`. A grant's `Duration` is
   `once`, `command`, `chat` or `always`. **The verdict is order-independent**; rule order picks the reason
   alone. `Unmatched` and `Forbid` prompt; a prompt is a denial the user may lift.
+- **A provider's action** (`Action.Target` not `Cluster`) carries `Class` and `Summary` alone,
+  is `Forbid` before any rule or mode, and no rule matches it; the two flags still apply.
 - `Match` is the one glob matcher. **Every pattern Kstack writes from a value goes through
   `Literal`.** `ClusterScope` (`[cluster]`) matches cluster-scoped actions alone.
 - `Rule.Line` is the rule in the user's words, shown in Settings, reasons and requests; keep its
@@ -184,7 +187,7 @@ that namespace's scope. →
 **`internal/run/kubeproxy` is the cluster proxy**; it imports nothing of `tools` or
 `services/cluster`. Files: `kubeproxy.go` (grant, handler), `policy.go` (path parse, read
 policy), `write.go` (write path), `classify.go`, `diff.go` (preview), `secretread.go`, `redact.go`
-and `redact_helm.go` (Secret rewriter), `status.go` (every refusal's `Status`), `server.go`.
+and `redact_helm.go` (Secret rewriter), `status.go` (every refusal's `Status`, and `Unauthorized`).
 → [ADR: the proxy reads a request as the API server will](../../../docs/adr/2026-10-17-the-cluster-proxy-reads-a-request-as-the-api-server-does.md).
 
 - **A `Grant`** (`NewGrant`) holds the run's session, the kube-context its writes are decided in, a
@@ -242,4 +245,22 @@ and `redact_helm.go` (Secret rewriter), `status.go` (every refusal's `Status`), 
   **A helm release is redacted inside** (`redact_helm.go`). **A failure fails closed**: a 502
   before the first piece, a cut body after (a watch sends its status line at once).
   → [ADR: helm release Secrets pass redacted inside](../../../docs/adr/2026-09-28-helm-release-secrets-pass-redacted-inside.md).
-- **The server** sets no read or write timeout, which would cut a watch.
+
+## The provider grant (`runproxy`)
+
+**`internal/run/runproxy` is what each provider's proxy (`run/<provider>proxy`) builds on**; it
+imports `permissions` and `session` alone. `NewServer` is the run's server: HTTP/1.1, no read or
+write timeout, which would cut a watch.
+
+- **A `Grant`** is one run's access to one provider: a 256-bit token, its `Limits`, and an `Asker`
+  or a refusal. `NewGrant` panics on `Cluster` or a zero limit. `End` makes `Holds` and
+  `Enter` false and cancels what `Enter` let in; `Wait` joins it. `Challenge` answers 407 when
+  `Limits.Challenges`, else 401.
+- `Body` reads a body in one of `Limits.Bodies` slots (403 encoded, 429 none free, 413 past 1 MiB);
+  `Slot` takes a slot, then the limiter; `Outbound` never copies `Authorization` or
+  `Proxy-Authorization`.
+- **`Decide` is the one ask path**: it keeps `Class` and `Summary` alone, stamps the target,
+  refuses with no asker and a request that cannot be shown (not UTF-8 with no `Unshown`, a query
+  or form body that does not parse), then takes its lock (`maxQueued` waiting). A refusal is
+  recorded; the rest ask; only an approval takes a slot and forwards. A data read gives up the
+  lock before `forward`, a change at its return.

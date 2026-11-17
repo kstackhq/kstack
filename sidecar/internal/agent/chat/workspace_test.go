@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -202,4 +203,29 @@ func TestTheContextListsTheGrants(t *testing.T) {
 	_, last, _ = strings.Cut(newestContextOf(t, s, first.ChatID), "## Sandbox")
 	assert.Equal(t, map[string]any{"commands": "sandboxed", "network": "unavailable on this machine", "read": []any{code}, "readWrite": []any{svc}}, sectionOf(t, last),
 		"the next question carries the grants as they are now")
+}
+
+// The section names the providers the build has whose switch is on, leaves
+// the key out with none, and goes again when a switch changes.
+func TestTheSandboxSectionNamesTheProvidersOn(t *testing.T) {
+	t.Parallel()
+
+	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
+	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.cloudTargets = []permissions.Target{permissions.AWS, permissions.GCP}
+
+	first := sendAndSettle(t, s, nil, "1", "1", "one")
+	assert.Contains(t, newestContextOf(t, s, first.ChatID), "## Sandbox\n\n```json\n{\"commands\":\"sandboxed\",\"network\":\"off\"}\n```")
+
+	require.NoError(t, s.settings.SetCloud(permissions.GCP, true))
+	require.NoError(t, s.settings.SetCloud(permissions.GitHub, true))
+	sendAndSettle(t, s, &first.ChatID, "1", "2", "two")
+	assert.Contains(t, newestContextOf(t, s, first.ChatID),
+		"## Sandbox\n\n```json\n{\"cloud\":[\"gcp\"],\"commands\":\"sandboxed\",\"network\":\"off\"}\n```",
+		"a switch the build has no provider for is not named")
+
+	off := sandboxState{}
+	on := sandboxState{cloudTargetsOn: []string{"gcp"}}
+	newest := s.withSandbox("## Cluster\n\n```json\n{}\n```", off)
+	assert.NotEqual(t, newest, s.withSandboxReplaced(newest, on), "a switch that moved sends the section again")
 }

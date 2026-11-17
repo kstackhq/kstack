@@ -107,7 +107,7 @@ const call = {
   network: null,
   output: 'Watching',
   agentCallID: null,
-  clusterWrites: [],
+  sandboxActions: [],
 } as unknown as ChatToolCall;
 
 function Focused() {

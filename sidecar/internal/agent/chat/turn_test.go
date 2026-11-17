@@ -943,7 +943,7 @@ func TestASettleThatFailsUntilStopLeavesTheRunForTheNextStart(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)
@@ -1328,7 +1328,7 @@ func TestAStrandedAnswerKeepsItsLastCheckpoint(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
 	require.NoError(t, err)
 	s.checkpointEvery = 0
 	stop, err := s.Start(t.Context())

@@ -215,7 +215,7 @@ func startService(t *testing.T, dir string) *service {
 // tool box and lists.
 func startServiceWith(t *testing.T, dir string, llmSvc *llm.Service, clusterCards ClusterCards, box tools.Box, lists ToolLists) *service {
 	t.Helper()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), llmSvc, clusterCards, nil, box, lists, sandbox.Status{}, testSettings(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), llmSvc, clusterCards, nil, box, lists, sandbox.Status{}, testSettings(t), nil)
 	require.NoError(t, err)
 	startPrepared(t, s)
 	return s
@@ -227,7 +227,7 @@ func startServiceOn(t *testing.T, table []sqlstmt.Statement) *service {
 	t.Helper()
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
-	s, err := newService(db, chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), &stubClusterCards{}, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
+	s, err := newService(db, chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), &stubClusterCards{}, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
 	require.NoError(t, err)
 	require.NoError(t, s.store.Close())
 	s.store = prepareTable(t, db, table)

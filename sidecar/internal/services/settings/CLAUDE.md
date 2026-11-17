@@ -74,3 +74,8 @@ record](../../../../docs/security/2026-10-04-path-grants.md).
 **`Executables` is the user's registered executables** (`executables.go`), probed beside
 `CuratedExecutables`. `CheckExecutable` is the one shape check, on register and on read-back. An
 executable only widens what is probed, so the read-back drops a refused one and holds nothing.
+
+**`sandbox.aws`, `sandbox.github`, `sandbox.google` and `sandbox.azure` are each provider's consent
+switch** (`cloud.go`, `cloudSwitch`): off by default, and each only grants, so a refused value reads
+off and `strictest` holds none. `CloudOn` reads one; `SetCloud` writes one, naming its field, and
+refuses `Cluster` (`ErrNoCloudSwitch`). A switch whose provider the build lacks is read by nothing.

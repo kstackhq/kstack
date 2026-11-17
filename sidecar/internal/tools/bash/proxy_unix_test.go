@@ -305,10 +305,11 @@ func TestTheGrantKeepsTheSession(t *testing.T) {
 	assert.Equal(t, rt.Session, r.proxy.grant.Session())
 }
 
-// A proxy that cannot listen on its socket answers why.
+// A door that cannot listen on its socket answers why.
 func TestAProxyThatCannotListenFails(t *testing.T) {
-	_, err := startProxy(refused{}, session.Session{}, "prod", filepath.Join(t.TempDir(), "missing", socketName), nil, refusedNoAsker)
-	assert.Error(t, err)
+	p := &runProxy{grant: newClusterGrant(refused{}, session.Session{}, "prod", nil, refusedNoAsker)}
+	t.Cleanup(p.end)
+	assert.Error(t, p.serve(filepath.Join(t.TempDir(), "missing", socketName), Cloud{}.on))
 }
 
 // A run whose directory cannot be made releases its claim, and runs nothing.
@@ -610,8 +611,8 @@ func TestABackgroundGrantRefusesWrites(t *testing.T) {
 // answers 100 Continue, which Go's server sends on the handler's first read.
 func TestTheProxyClosesBeforeItWaits(t *testing.T) {
 	socket := filepath.Join(shortTemp(t), socketName)
-	p, err := startProxy(refused{}, session.Session{}, "prod", socket, runtimeAsker{&fakeActionAsker{approve: true}}, "")
-	require.NoError(t, err)
+	p := &runProxy{grant: newClusterGrant(refused{}, session.Session{}, "prod", runtimeAsker{&fakeActionAsker{approve: true}}, "")}
+	require.NoError(t, p.serve(socket, Cloud{}.on))
 	conn, err := net.Dial("unix", socket)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })

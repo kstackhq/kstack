@@ -20,6 +20,12 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
+// A provider's consent switch: whether sandboxed commands may reach it as the user.
+type CloudAccess struct {
+	Target permissions.Target `json:"target"`
+	On     bool               `json:"on"`
+}
+
 // The connecting principal's effective RBAC in one namespace (live
 // SelfSubjectRulesReview). Namespace-scoped (the API has no all-namespaces form)
 // and point-in-time — for UI/debugging, not authoritative for access decisions.

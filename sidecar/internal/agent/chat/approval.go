@@ -182,7 +182,7 @@ func (j *runJournal) recordAction(ctx context.Context, r tools.ActionRequest, d 
 	if err := s.store.InTx(wctx, func(st stmts) error { return upsertApproval(wctx, st, *a) }); err != nil {
 		return err
 	}
-	call.ClusterWrites = append(call.ClusterWrites, a)
+	call.SandboxActions = append(call.SandboxActions, a)
 	if j.asking {
 		j.publish(StatusWaitingApproval)
 	} else {
@@ -238,7 +238,7 @@ func (j *runJournal) openAction(ctx context.Context, r tools.ActionRequest) (*ap
 		s.forget(w)
 		return nil, nil, err
 	}
-	call.ClusterWrites = append(call.ClusterWrites, a)
+	call.SandboxActions = append(call.SandboxActions, a)
 	j.asking = true
 	j.publish(StatusWaitingApproval)
 	s.notify(chatsKey)
@@ -310,9 +310,10 @@ type waiter struct {
 }
 
 // decide is the decision d is on w, or ErrBadRequest for one w does not take:
-// a call's own, and an action no rule may allow, take Once and Deny alone.
+// a call's own, an action no rule may allow, and every provider's action take
+// Once and Deny alone, since a rule is always a cluster's.
 func (w *waiter) decide(d ApprovalDecision) (decision, error) {
-	grantable := w.request != nil && w.request.Grantable
+	grantable := w.request != nil && w.request.Grantable && w.request.Action.Target == permissions.Cluster
 	switch d {
 	case DecisionDeny:
 		return decision{status: ApprovalDenied}, nil

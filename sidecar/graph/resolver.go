@@ -11,6 +11,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
@@ -49,6 +50,9 @@ type Resolver struct {
 	Executables ExecutableProber
 	// Logs pages and follows a scope's lines.
 	Logs LogsService
+	// CloudTargets are the providers this build has, in the order Settings
+	// lists them: the only ones whose switch the wire reads or writes.
+	CloudTargets []permissions.Target
 }
 
 // LogsService pages and follows a scope's lines: *logs.Service, or a test's fake.

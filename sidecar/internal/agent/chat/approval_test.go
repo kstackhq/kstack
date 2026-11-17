@@ -997,7 +997,7 @@ func TestAStrandedWaitClearsTheChatsMark(t *testing.T) {
 	setRunStatus(t, db, turn.Run, RunWaitingApproval)
 	require.NoError(t, db.Close())
 
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -1089,7 +1089,7 @@ func awaitWrite(t *testing.T, s *service, msg ChatMessage, status ApprovalStatus
 		if json.Unmarshal([]byte(f.Message.ToolCalls), &calls) != nil || len(calls) == 0 {
 			return false
 		}
-		writes := calls[0].ClusterWrites
+		writes := calls[0].SandboxActions
 		return len(writes) > 0 && writes[len(writes)-1].Approval.Status == status
 	})
 	return *f.Message
@@ -1113,9 +1113,9 @@ func TestAWriteIsAskedUnderTheRunningCall(t *testing.T) {
 	require.Len(t, calls, 1)
 	assert.Equal(t, ToolCallRunning, calls[0].Status)
 	assert.Nil(t, calls[0].Approval, "the call itself was not asked about")
-	require.Len(t, calls[0].ClusterWrites, 1)
-	w := calls[0].ClusterWrites[0]
-	assert.Equal(t, clusterWriteOf(ToolCallApproval{ID: w.Approval.ID, Status: ApprovalPending}, &deleteX), w)
+	require.Len(t, calls[0].SandboxActions, 1)
+	w := calls[0].SandboxActions[0]
+	assert.Equal(t, sandboxActionOf(ToolCallApproval{ID: w.Approval.ID, Status: ApprovalPending}, &deleteX), w)
 	assert.Equal(t, RunWaitingApproval, runStatusOf(t, s.db, msg.RunID))
 	assert.Equal(t, []approvalRow{{status: ApprovalPending}}, approvalRows(t, s.db))
 
@@ -1123,10 +1123,10 @@ func TestAWriteIsAskedUnderTheRunningCall(t *testing.T) {
 	got = awaitWrite(t, s, msg, ApprovalApproved)
 	assert.Equal(t, RunRunning, runStatusOf(t, s.db, msg.RunID))
 	assert.Equal(t, StatusStreaming, got.Status)
-	w = toolCallsOf(t, got)[0].ClusterWrites[0]
+	w = toolCallsOf(t, got)[0].SandboxActions[0]
 	once := permissions.DurationOnce
-	decided := clusterWriteOf(ToolCallApproval{ID: w.Approval.ID, Status: ApprovalApproved, Duration: &once}, &deleteX)
-	decided.ContentType, decided.Body = "", ""
+	decided := sandboxActionOf(ToolCallApproval{ID: w.Approval.ID, Status: ApprovalApproved, Duration: &once}, &deleteX)
+	decided.Write.ContentType, decided.Write.Body = "", ""
 	assert.Equal(t, decided, w)
 	assert.Equal(t, []approvalRow{{status: ApprovalApproved, decided: true}}, approvalRows(t, s.db))
 
@@ -1135,7 +1135,7 @@ func TestAWriteIsAskedUnderTheRunningCall(t *testing.T) {
 	calls = toolCallsOf(t, settled)
 	assert.Equal(t, "true once", calls[0].Output)
 	assert.Equal(t, ToolCallSucceeded, calls[0].Status)
-	assert.Equal(t, ApprovalApproved, calls[0].ClusterWrites[0].Approval.Status)
+	assert.Equal(t, ApprovalApproved, calls[0].SandboxActions[0].Approval.Status)
 }
 
 // A denied write answers false to the command, which runs on.
@@ -1146,12 +1146,12 @@ func TestADeniedWriteAnswersFalse(t *testing.T) {
 
 	msg := send(t, s, nil, "1", "hi")
 	got := awaitWrite(t, s, msg, ApprovalPending)
-	approve(t, s, toolCallsOf(t, got)[0].ClusterWrites[0].Approval.ID, false)
+	approve(t, s, toolCallsOf(t, got)[0].SandboxActions[0].Approval.ID, false)
 	settled := awaitSettled(t, s, msg.ChatID, msg.ID)
 
 	calls := toolCallsOf(t, settled)
 	assert.Equal(t, "false ", calls[0].Output)
-	assert.Equal(t, ApprovalDenied, calls[0].ClusterWrites[0].Approval.Status)
+	assert.Equal(t, ApprovalDenied, calls[0].SandboxActions[0].Approval.Status)
 }
 
 // A write's wait that ends with its request, while the run goes on, writes it
@@ -1165,7 +1165,7 @@ func TestAWriteWaitEndsWithTheRequest(t *testing.T) {
 	s := startWriter(t, writerTool{hold: hold, ctx: ctx})
 
 	msg := send(t, s, nil, "1", "hi")
-	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID
+	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
 	drop()
 	got := awaitWrite(t, s, msg, ApprovalAbandoned)
 
@@ -1193,7 +1193,7 @@ func TestAWriteWaitEndsWithTheRun(t *testing.T) {
 	settled := awaitSettled(t, s, msg.ChatID, msg.ID)
 
 	assert.Equal(t, StatusCancelled, settled.Status)
-	assert.Equal(t, ApprovalAbandoned, toolCallsOf(t, settled)[0].ClusterWrites[0].Approval.Status)
+	assert.Equal(t, ApprovalAbandoned, toolCallsOf(t, settled)[0].SandboxActions[0].Approval.Status)
 	assert.Equal(t, []approvalRow{{status: ApprovalAbandoned, decided: true}}, approvalRows(t, s.db))
 }
 
@@ -1206,7 +1206,7 @@ func TestTheSettleRewritesTheWrites(t *testing.T) {
 	s := startWriter(t, writerTool{hold: hold})
 
 	msg := send(t, s, nil, "1", "hi")
-	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID
+	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
 	approve(t, s, id, false)
 	awaitWrite(t, s, msg, ApprovalDenied)
 	_, err := s.db.Write.Exec(`UPDATE approvals SET status = 'pending', decided_at = NULL WHERE id = ?`, string(id))
@@ -1269,7 +1269,7 @@ func TestADecisionThatCannotBeRecordedForwardsNothing(t *testing.T) {
 	require.NoError(t, err)
 
 	msg := send(t, s, nil, "1", "hi")
-	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID
+	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
 	approve(t, s, id, true)
 	got := awaitWrite(t, s, msg, ApprovalApproved)
 	assert.Equal(t, StatusStreaming, got.Status)
@@ -1341,11 +1341,11 @@ func TestARecordedWriteNeedsNoWait(t *testing.T) {
 	got := awaitWrite(t, s, msg, ApprovalRefused)
 
 	assert.Equal(t, StatusStreaming, got.Status)
-	writes := toolCallsOf(t, got)[0].ClusterWrites
+	writes := toolCallsOf(t, got)[0].SandboxActions
 	require.Len(t, writes, 2)
 	assert.Equal(t, ApprovalAllowed, writes[0].Approval.Status)
 	assert.Equal(t, "auto mode", *writes[0].Reason)
-	assert.Empty(t, writes[0].Body, "a recorded write waits on nobody, so its body is not served")
+	assert.Empty(t, writes[0].Write.Body, "a recorded write waits on nobody, so its body is not served")
 	assert.Equal(t, ApprovalRefused, writes[1].Approval.Status)
 	assert.Equal(t, "this context is read-only", *writes[1].Reason)
 	assert.Equal(t, []approvalRow{{status: ApprovalAllowed, decided: true}, {status: ApprovalRefused, decided: true}}, approvalRows(t, s.db))
@@ -1354,7 +1354,7 @@ func TestARecordedWriteNeedsNoWait(t *testing.T) {
 	close(hold)
 	settled := awaitSettled(t, s, msg.ChatID, msg.ID)
 	assert.Equal(t, "recorded", toolCallsOf(t, settled)[0].Output)
-	assert.Equal(t, "auto mode", *toolCallsOf(t, settled)[0].ClusterWrites[0].Reason, "the stored read serves the reason")
+	assert.Equal(t, "auto mode", *toolCallsOf(t, settled)[0].SandboxActions[0].Reason, "the stored read serves the reason")
 }
 
 // A write recorded while no call of the run is running is refused.
@@ -1394,7 +1394,7 @@ func TestARecordTheStoreRefusesIsNotCarried(t *testing.T) {
 	err := j.recordAction(t.Context(), deleteX, permissions.Allowed, "auto mode")
 
 	assert.ErrorContains(t, err, "refused")
-	assert.Empty(t, call.ClusterWrites)
+	assert.Empty(t, call.SandboxActions)
 }
 
 // A decision the request does not name is refused, whatever the request.
@@ -1461,7 +1461,7 @@ func TestAnActionIsRecordedWithItsRequest(t *testing.T) {
 
 	s := startWriter(t, writerTool{})
 	msg := send(t, s, nil, "1", "hi")
-	approve(t, s, toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID, false)
+	approve(t, s, toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID, false)
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 	kinds, requests := actionRequests(t, s.db)
 	assert.Equal(t, []string{"action"}, kinds)
@@ -1480,12 +1480,13 @@ func TestAnActionIsRecordedWithItsRequest(t *testing.T) {
 }
 
 // twoRequestsTool is a tool whose run asks deleteX on one goroutine and, once
-// the test closes second, sends allowedPatch on another: asked, or recorded
-// allowed when record is set. Each result goes to done.
+// the test closes second, sends allowedPatch, or then when set, on another:
+// asked, or recorded allowed when record is set. Each result goes to done.
 type twoRequestsTool struct {
 	testTool
 	second chan struct{}
 	record bool
+	then   *tools.ActionRequest
 	done   chan error
 }
 
@@ -1495,12 +1496,16 @@ func (w twoRequestsTool) Run(ctx context.Context, rt tools.Runtime, _ json.RawMe
 		w.done <- err
 	}()
 	<-w.second
+	next := allowedPatch
+	if w.then != nil {
+		next = *w.then
+	}
 	go func() {
 		if w.record {
-			w.done <- rt.ActionAsker.Record(ctx, allowedPatch, permissions.Allowed, "auto mode")
+			w.done <- rt.ActionAsker.Record(ctx, next, permissions.Allowed, "auto mode")
 			return
 		}
-		_, err := rt.ActionAsker.Ask(ctx, allowedPatch)
+		_, err := rt.ActionAsker.Ask(ctx, next)
 		w.done <- err
 	}()
 	<-w.done
@@ -1528,7 +1533,7 @@ func startTwoRequests(t *testing.T, w twoRequestsTool) (*service, ChatMessage, f
 					continue
 				}
 				var calls []ToolCall
-				if json.Unmarshal([]byte(f.Message.ToolCalls), &calls) == nil && len(calls) > 0 && len(calls[0].ClusterWrites) == n {
+				if json.Unmarshal([]byte(f.Message.ToolCalls), &calls) == nil && len(calls) > 0 && len(calls[0].SandboxActions) == n {
 					out <- *f.Message
 					return
 				}
@@ -1553,9 +1558,38 @@ func TestAsksTakeTheJournalOneAtATime(t *testing.T) {
 	// A negative assertion: the second ask must not write while the first waits.
 	testutil.NoRecv(t, two, 200*time.Millisecond, "a second request while the first waits")
 
-	approve(t, s, toolCallsOf(t, first)[0].ClusterWrites[0].Approval.ID, false)
+	approve(t, s, toolCallsOf(t, first)[0].SandboxActions[0].Approval.ID, false)
 	both := testutil.Recv(t, two, "the second request once the first is answered")
-	approve(t, s, toolCallsOf(t, both)[0].ClusterWrites[1].Approval.ID, false)
+	approve(t, s, toolCallsOf(t, both)[0].SandboxActions[1].Approval.ID, false)
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+}
+
+// A cluster request and a provider's asked together are opened one after the
+// other, the second once the first is answered, in one list.
+func TestTwoProxiesAskOneAtATime(t *testing.T) {
+	t.Parallel()
+
+	cloud := tools.ActionRequest{
+		Action: permissions.Action{Target: permissions.AWS, Class: permissions.UpstreamWrite, Summary: "AWS: call ec2:X"},
+		Cloud:  &tools.CloudRequest{Host: "ec2.amazonaws.com", Method: "POST", Path: "/"},
+	}
+	second := make(chan struct{})
+	s, msg, withN := startTwoRequests(t, twoRequestsTool{second: second, then: &cloud, done: make(chan error, 2)})
+
+	first := testutil.Recv(t, withN(1), "the cluster request")
+	two := withN(2)
+	close(second)
+	// A negative assertion: the provider's ask must not open while the
+	// cluster's waits.
+	testutil.NoRecv(t, two, 200*time.Millisecond, "the provider's request while the cluster's waits")
+
+	approve(t, s, toolCallsOf(t, first)[0].SandboxActions[0].Approval.ID, false)
+	both := testutil.Recv(t, two, "the provider's request once the first is answered")
+	actions := toolCallsOf(t, both)[0].SandboxActions
+	assert.NotNil(t, actions[0].Write)
+	require.NotNil(t, actions[1].Cloud)
+	assert.Equal(t, "ec2.amazonaws.com", actions[1].Cloud.Host)
+	approve(t, s, actions[1].Approval.ID, false)
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 }
 
@@ -1573,9 +1607,9 @@ func TestARecordNeverWaitsBehindAnAsk(t *testing.T) {
 	close(second)
 	got := testutil.Recv(t, two, "the record while the ask waits")
 	assert.Equal(t, StatusWaitingApproval, got.Status)
-	assert.Equal(t, ApprovalAllowed, toolCallsOf(t, got)[0].ClusterWrites[1].Approval.Status)
+	assert.Equal(t, ApprovalAllowed, toolCallsOf(t, got)[0].SandboxActions[1].Approval.Status)
 
-	approve(t, s, toolCallsOf(t, first)[0].ClusterWrites[0].Approval.ID, false)
+	approve(t, s, toolCallsOf(t, first)[0].SandboxActions[0].Approval.ID, false)
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 }
 
@@ -1604,7 +1638,7 @@ func askOnce(t *testing.T, d ApprovalDecision) (*service, ChatMessage) {
 	t.Helper()
 	s := startWriter(t, writerTool{})
 	msg := send(t, s, nil, "1", "hi")
-	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID
+	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
 	ok, err := s.Approve(t.Context(), id, d)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -1663,7 +1697,28 @@ func TestAnUngrantableActionTakesOnceOrDenyAlone(t *testing.T) {
 	destructive.CommandRule, destructive.ChatRule = "", ""
 	s := startWriter(t, writerTool{request: &destructive})
 	msg := send(t, s, nil, "1", "hi")
-	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID
+	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
+
+	for _, d := range []ApprovalDecision{DecisionCommand, DecisionChat, DecisionAlways} {
+		ok, err := s.Approve(t.Context(), id, d)
+		assert.ErrorIs(t, err, ErrBadRequest, d)
+		assert.False(t, ok)
+	}
+	approve(t, s, id, true)
+	settled := awaitSettled(t, s, msg.ChatID, msg.ID)
+	assert.Equal(t, "true once", toolCallsOf(t, settled)[0].Output)
+}
+
+// A provider's action takes Once or Deny alone even when marked grantable: a
+// rule is always a cluster's.
+func TestAProvidersActionTakesOnceOrDenyAlone(t *testing.T) {
+	t.Parallel()
+
+	cloud := deleteX
+	cloud.Action.Target = permissions.AWS
+	s := startWriter(t, writerTool{request: &cloud})
+	msg := send(t, s, nil, "1", "hi")
+	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
 
 	for _, d := range []ApprovalDecision{DecisionCommand, DecisionChat, DecisionAlways} {
 		ok, err := s.Approve(t.Context(), id, d)
@@ -1758,7 +1813,7 @@ func TestARuleAlreadyHeldIsWrittenOnce(t *testing.T) {
 // approveWrite answers msg's first pending write d.
 func approveWrite(t *testing.T, s *service, msg ChatMessage, d ApprovalDecision) {
 	t.Helper()
-	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID
+	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
 	ok, err := s.Approve(t.Context(), id, d)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -1788,7 +1843,7 @@ func TestAlwaysWaitsWhileTheRulesAreHeld(t *testing.T) {
 	require.NoError(t, err)
 
 	msg := send(t, s, nil, "1", "hi")
-	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID
+	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
 	ok, err := s.Approve(t.Context(), id, DecisionAlways)
 	assert.ErrorIs(t, err, settings.ErrHeld)
 	assert.False(t, ok)
@@ -1821,7 +1876,7 @@ func TestApproveClaimsTheWaiterBeforeWriting(t *testing.T) {
 	second := make(chan struct{})
 	s, msg, withN := startTwoRequests(t, twoRequestsTool{second: second, record: true, done: make(chan error, 2)})
 	entered, release := blockedRule(s)
-	id := toolCallsOf(t, testutil.Recv(t, withN(1), "the request"))[0].ClusterWrites[0].Approval.ID
+	id := toolCallsOf(t, testutil.Recv(t, withN(1), "the request"))[0].SandboxActions[0].Approval.ID
 
 	answers := make(chan bool, 2)
 	for _, d := range []ApprovalDecision{DecisionChat, DecisionAlways} {
@@ -1851,7 +1906,7 @@ func TestAFailedRuleWriteLeavesTheRequestWaiting(t *testing.T) {
 	release <- errors.New("store refused")
 
 	msg := send(t, s, nil, "1", "hi")
-	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID
+	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
 	ok, err := s.Approve(t.Context(), id, DecisionChat)
 	assert.EqualError(t, err, "store refused")
 	assert.False(t, ok)
@@ -1868,7 +1923,7 @@ func TestAFailedRuleWriteAfterTheTurnStoppedLeavesNoWaiter(t *testing.T) {
 	s := startWriter(t, writerTool{})
 	entered, release := blockedRule(s)
 	msg := send(t, s, nil, "1", "hi")
-	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID
+	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
 
 	answered := make(chan error, 1)
 	go func() {

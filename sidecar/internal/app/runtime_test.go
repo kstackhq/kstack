@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,7 +11,9 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
 // The app keeps every service it built, so a caller reaches one through the
@@ -77,4 +80,20 @@ func TestTheResolverHasNoProberWithoutAShell(t *testing.T) {
 	rt := &Runtime{SandboxStatus: sandbox.Status{Available: true}}
 
 	assert.True(t, rt.resolver().Executables == nil)
+}
+
+// The resolver and the chat service list the build's providers in its order.
+func TestCloudTargetsKeepTheBuildsOrder(t *testing.T) {
+	got := cloudTargets([]bash.CloudProvider{targetOnly(permissions.GCP), targetOnly(permissions.AWS)})
+	assert.Equal(t, []permissions.Target{permissions.GCP, permissions.AWS}, got)
+	assert.Empty(t, cloudTargets(nil))
+}
+
+// targetOnly is a provider that names its target and mounts nothing.
+type targetOnly permissions.Target
+
+func (p targetOnly) Target() permissions.Target { return permissions.Target(p) }
+
+func (targetOnly) Mount(context.Context, bash.CloudRun) (bash.CloudMount, error) {
+	return bash.CloudMount{}, nil
 }

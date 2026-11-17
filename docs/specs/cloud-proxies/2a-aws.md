@@ -2,7 +2,7 @@
 
 Answers [#931](https://github.com/kstackhq/kstack/issues/931). Step 2A of
 [the cloud proxies](README.md), on `wip/cloud-proxies`. It needs step 1 alone and can be built
-beside the wave's other steps (`2b-github.md`, `2c-google-cloud.md`, `2d-azure.md`).
+beside the wave's other steps (`2b-github.md`, `2c-gcp.md`, `2d-azure.md`).
 
 [Step 1](1-shared-pieces.md) is the contract. This spec states only what is AWS's own and links
 step 1 for the rest: the door, the grant, the gate, the request's shape and drawing, the switch
@@ -282,9 +282,9 @@ user would have to run outside the sandbox.
 ### 5. The class
 
 The classes and the verdict are [step 1's](1-shared-pieces.md#4-the-gate). An AWS action is
-`Target` `AWS` with `Context` empty: no kube-context and no mode is read. `Kind` is
-`<service>:<Operation>`, or the method and path for a REST row. `Verb` is `call`. `Summary` is
-*AWS: call ec2:TerminateInstances in eu-west-1*.
+`Target` `AWS`, its `Class` and its `Summary`, and no other field: no kube-context and no mode
+is read. `Summary` is *AWS: call ec2:TerminateInstances in eu-west-1*, or the method and path for
+a REST row; the service, region and operation are its *Details* below.
 
 The classifier reads the operation the way the row's protocol carries it. It checks the lists
 in this order: refused, class 6, class 5, read, and what is left is class 4.

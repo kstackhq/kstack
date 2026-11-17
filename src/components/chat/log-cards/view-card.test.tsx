@@ -95,7 +95,7 @@ const call = {
   output: 'Viewing deployments/webapp in prod from 2026-10-08T14:02:00Z, pinned to the end.',
   background: null,
   agentCallID: null,
-  clusterWrites: [],
+  sandboxActions: [],
 } as ChatToolCall;
 
 // What the focused view is, as the card set it, and the sidebar's controls.

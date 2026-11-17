@@ -216,6 +216,9 @@ type service struct {
 	// settings holds the modes, the always rules and the folders granted always
 	// each session decides by, and the zones a folder is checked against.
 	settings *settings.Service
+	// cloudTargets is the cloud targets this build has a proxy for, which the
+	// Sandbox section names when their switch is on.
+	cloudTargets []permissions.Target
 	// tools is every tool the app knows, in offer order, and the readers of those
 	// this machine cannot offer: each turn is offered what its list names and its
 	// target takes, and every stored call is read through it, whether or not a
@@ -286,15 +289,15 @@ type service struct {
 // name, the card source, the memories each chat's cluster sees, the box: the
 // tools every turn is offered from, which read every stored call, the lists
 // that pick a turn's tools from it, whether the machine offers sandboxed Bash,
-// and the user's settings a session's modes, rules and folders come from.
-// Nothing runs until Start.
-func New(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, settingsSvc *settings.Service) (Service, error) {
-	return newService(db, chatsDir, monitorDir, llmSvc, clusterCards, memories, box, lists, sandboxStatus, settingsSvc)
+// the user's settings a session's modes, rules and folders come from, and the
+// cloud targets the build has. Nothing runs until Start.
+func New(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, settingsSvc *settings.Service, cloudTargets []permissions.Target) (Service, error) {
+	return newService(db, chatsDir, monitorDir, llmSvc, clusterCards, memories, box, lists, sandboxStatus, settingsSvc, cloudTargets)
 }
 
 // newService is New returning the concrete type, for tests. A nil memories sends
 // no memory section.
-func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, settingsSvc *settings.Service) (*service, error) {
+func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, settingsSvc *settings.Service, cloudTargets []permissions.Target) (*service, error) {
 	chatsRoot, err := rootdir.MakeRoot(chatsDir)
 	if err != nil {
 		return nil, fmt.Errorf("open the chats' directory: %w", err)
@@ -322,6 +325,7 @@ func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, 
 		lists:              lists,
 		sandboxStatus:      sandboxStatus,
 		settings:           settingsSvc,
+		cloudTargets:       cloudTargets,
 		turns:              map[ChatID]*turn{},
 		deleting:           map[ChatID]int{},
 		pending:            map[ApprovalID]*waiter{},
@@ -563,7 +567,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 			block = withView(block, toolUseID, view, *snap)
 		}
 		question, err := questionBlocks(ctx, st, id, s.withSandbox(block, sandboxState{
-			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn, folders: folders,
+			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn, folders: folders, cloudTargetsOn: s.cloudTargetsOn(),
 		}), content)
 		if err != nil {
 			return err

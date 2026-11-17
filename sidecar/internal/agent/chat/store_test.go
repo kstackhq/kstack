@@ -127,10 +127,10 @@ func TestAReadWithTheWrongShapeIsReported(t *testing.T) {
 func assertCallReadsFail(t *testing.T, st stmts, id ChatID) {
 	t.Helper()
 	ctx := t.Context()
-	_, err := toolCallsByRun(ctx, st, callReads{calls: stmtSelectToolCalls, writes: stmtSelectRunClusterWrites}, string(id))
+	_, err := toolCallsByRun(ctx, st, callReads{calls: stmtSelectToolCalls, actions: stmtSelectRunSandboxActions}, string(id))
 	assert.ErrorContains(t, err, "tool calls")
-	_, err = clusterWritesByCall(ctx, st, stmtSelectClusterWrites, string(id))
-	assert.ErrorContains(t, err, "cluster writes")
+	_, err = sandboxActionsByCall(ctx, st, stmtSelectSandboxActions, string(id))
+	assert.ErrorContains(t, err, "sandbox actions")
 	_, err = waitingNotices(ctx, st, id, testReaders)
 	assert.ErrorContains(t, err, "waiting notices")
 }
@@ -139,7 +139,7 @@ func assertCallReadsFail(t *testing.T, st stmts, id ChatID) {
 // the two tests around this swap the statement to provoke.
 var multiRowReads = []stmtID{
 	stmtSelectChats, stmtSelectMessages, stmtSelectChatIDsByCluster, stmtFailStrandedRuns,
-	stmtSelectToolCalls, stmtSelectClusterWrites, stmtSelectWaitingNotices,
+	stmtSelectToolCalls, stmtSelectSandboxActions, stmtSelectWaitingNotices,
 }
 
 // A read that fails partway through its rows is reported, never taken as the rows
@@ -1131,12 +1131,12 @@ func TestACallWithWritesReadsOnce(t *testing.T) {
 		w := aWrite(row.ID, int64(3_000+i))
 		w.Status = status
 		w.Request.Write.ContentType, w.Request.Write.Body = "application/json", `{"n":`+fmt.Sprint(i)+`}`
-		row.ClusterWrites = append(row.ClusterWrites, &w)
+		row.SandboxActions = append(row.SandboxActions, &w)
 	}
 	require.NoError(t, set.InTx(ctx, func(st stmts) error {
 		require.NoError(t, upsertToolCall(ctx, st, row))
 		require.NoError(t, upsertApproval(ctx, st, *row.Approval))
-		for _, w := range row.ClusterWrites {
+		for _, w := range row.SandboxActions {
 			require.NoError(t, upsertApproval(ctx, st, *w))
 		}
 		return nil
@@ -1154,15 +1154,15 @@ func TestACallWithWritesReadsOnce(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(stored), &got))
 	require.NotNil(t, got[0].Approval)
 	assert.Equal(t, ApprovalApproved, got[0].Approval.Status)
-	require.Len(t, got[0].ClusterWrites, 3)
+	require.Len(t, got[0].SandboxActions, 3)
 	var statuses []ApprovalStatus
-	for _, w := range got[0].ClusterWrites {
+	for _, w := range got[0].SandboxActions {
 		statuses = append(statuses, w.Approval.Status)
 	}
 	assert.Equal(t, []ApprovalStatus{ApprovalDenied, ApprovalAbandoned, ApprovalPending}, statuses)
-	assert.Empty(t, got[0].ClusterWrites[0].Body, "a decided write carries no body")
-	assert.Empty(t, got[0].ClusterWrites[1].ContentType, "an abandoned one carries no media type")
-	assert.Equal(t, `{"n":2}`, got[0].ClusterWrites[2].Body, "a write that waits carries its body")
+	assert.Empty(t, got[0].SandboxActions[0].Write.Body, "a decided write carries no body")
+	assert.Empty(t, got[0].SandboxActions[1].Write.ContentType, "an abandoned one carries no media type")
+	assert.Equal(t, `{"n":2}`, got[0].SandboxActions[2].Write.Body, "a write that waits carries its body")
 }
 
 // The approvals table holds its own shape: a call's row holds no request and
@@ -1328,9 +1328,9 @@ func TestARefusedWatchResultLogsNoneOfTheRow(t *testing.T) {
 	assert.NotContains(t, logs.String(), "MARKER")
 }
 
-// readStoredWrite is a running Bash call with one cluster write of status, its
-// request stored as given, and answers the write as the run's read serves it.
-func readStoredWrite(t *testing.T, status ApprovalStatus, stored string) ClusterWrite {
+// readStoredWrite is a running Bash call with one sandbox action of status, its
+// request stored as given, and answers the action as the run's read serves it.
+func readStoredWrite(t *testing.T, status ApprovalStatus, stored string) SandboxAction {
 	t.Helper()
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
@@ -1351,8 +1351,8 @@ func readStoredWrite(t *testing.T, status ApprovalStatus, stored string) Cluster
 	require.NoError(t, err)
 	calls := toolCallsOf(t, ChatMessage{ToolCalls: marshalToolCalls(byRun[runID], testReaders)})
 	require.Len(t, calls, 1)
-	require.Len(t, calls[0].ClusterWrites, 1)
-	return calls[0].ClusterWrites[0]
+	require.Len(t, calls[0].SandboxActions, 1)
+	return calls[0].SandboxActions[0]
 }
 
 // Stored cluster writes read the same forever: never edit this table. Its
@@ -1360,17 +1360,20 @@ func readStoredWrite(t *testing.T, status ApprovalStatus, stored string) Cluster
 func TestClusterWritesReadOldRowsTheSame(t *testing.T) {
 	t.Parallel()
 
-	for stored, want := range map[string]ClusterWrite{
+	for stored, want := range map[string]SandboxAction{
 		`{"action":{"class":5,"context":"prod","namespace":"web","verb":"delete","group":"core","kind":"pods","name":"x","summary":"Delete pod web/x","dryRun":false},"grantable":false,"commandRule":"","chatRule":"","write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/x","subresource":"","contentType":"","body":"","dryRun":false},"diff":"","diffCut":false,"diffError":""}`: {
-			ClusterWrite: tools.ClusterWrite{Method: "DELETE", Path: "/api/v1/namespaces/web/pods/x"},
+			Write: &ClusterWrite{ClusterWrite: tools.ClusterWrite{Method: "DELETE", Path: "/api/v1/namespaces/web/pods/x"}},
 			Action: &PermissionAction{Action: permissions.Action{
 				Class: permissions.Destructive, Context: "prod", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods", Name: "x", Summary: "Delete pod web/x",
 			}},
 		},
 		`{"action":{"class":4,"context":"prod","namespace":"web","verb":"patch","group":"apps","kind":"deployments/scale","name":"api","summary":"Scale deployment web/api","dryRun":false},"grantable":true,"commandRule":"patch deployments/scale in web","chatRule":"patch deployments/scale in web","write":{"method":"PATCH","path":"/apis/apps/v1/namespaces/web/deployments/api/scale","subresource":"scale","contentType":"application/merge-patch+json","body":"{\"spec\":{\"replicas\":3}}","dryRun":false},"diff":"-replicas: 1\n+replicas: 3\n","diffCut":false,"diffError":""}`: {
-			ClusterWrite: tools.ClusterWrite{
-				Method: "PATCH", Path: "/apis/apps/v1/namespaces/web/deployments/api/scale", Subresource: "scale",
-				ContentType: "application/merge-patch+json", Body: `{"spec":{"replicas":3}}`,
+			Write: &ClusterWrite{
+				ClusterWrite: tools.ClusterWrite{
+					Method: "PATCH", Path: "/apis/apps/v1/namespaces/web/deployments/api/scale", Subresource: "scale",
+					ContentType: "application/merge-patch+json", Body: `{"spec":{"replicas":3}}`,
+				},
+				Diff: "-replicas: 1\n+replicas: 3\n",
 			},
 			Action: &PermissionAction{
 				Action: permissions.Action{
@@ -1379,7 +1382,6 @@ func TestClusterWritesReadOldRowsTheSame(t *testing.T) {
 				},
 				Grantable: true, CommandRule: "patch deployments/scale in web", ChatRule: "patch deployments/scale in web",
 			},
-			Diff: "-replicas: 1\n+replicas: 3\n",
 		},
 	} {
 		got := readStoredWrite(t, ApprovalPending, stored)
@@ -1398,10 +1400,86 @@ func TestAnUnreadableClusterWriteKeepsItsApproval(t *testing.T) {
 	got := readStoredWrite(t, ApprovalDenied, `{"action":{"summary":"MARKER-5f3a"`)
 
 	assert.Nil(t, got.Action)
-	assert.Empty(t, got.Method)
-	assert.Empty(t, got.Path)
+	assert.Nil(t, got.Request())
 	assert.Equal(t, ApprovalDenied, got.Approval.Status)
 	assert.Contains(t, logs.String(), tools.ErrDecode.Error())
 	assert.Contains(t, logs.String(), `"request"`)
 	assert.NotContains(t, logs.String(), "MARKER")
+}
+
+// aCloudRequest is a pending provider request under call.
+func aCloudRequest(call ToolCallID, millis int64) approval {
+	return approval{
+		ID: newApprovalID(), ToolCallID: call, Status: ApprovalPending, CreatedAt: time.UnixMilli(millis).UTC(),
+		Request: &tools.ActionRequest{
+			Action: permissions.Action{Target: permissions.AWS, Class: permissions.UpstreamWrite, Summary: "AWS: call ec2:TerminateInstances"},
+			Cloud: &tools.CloudRequest{
+				Host: "ec2.amazonaws.com", Method: "POST", Path: "/", ContentType: "application/x-www-form-urlencoded",
+				Body: "Action=TerminateInstances", Details: []tools.Detail{{Label: "Region", Value: "eu-west-1"}},
+			},
+		},
+	}
+}
+
+// A cluster write, a cloud request and a cluster write under one call are
+// served in that order, each with its own request.
+func TestACallsActionsKeepTheirOrder(t *testing.T) {
+	t.Parallel()
+
+	db := openTestDB(t, t.TempDir())
+	set := prepareOn(t, db)
+	st := set.Stmts()
+	ctx := t.Context()
+	callID := seedLLMCall(t, db, st)
+	row := sidecarRow(callID)
+	first, cloud, last := aWrite(row.ID, 3_000), aCloudRequest(row.ID, 3_001), aWrite(row.ID, 3_002)
+	row.SandboxActions = []*approval{&first, &cloud, &last}
+	require.NoError(t, set.InTx(ctx, func(st stmts) error {
+		require.NoError(t, upsertToolCall(ctx, st, row))
+		for _, a := range row.SandboxActions {
+			require.NoError(t, upsertApproval(ctx, st, *a))
+		}
+		return nil
+	}))
+
+	var runID RunID
+	require.NoError(t, db.Read.QueryRow(`SELECT run_id FROM llm_calls WHERE id = ?`, string(callID)).Scan(&runID))
+	byRun, err := toolCallsByRun(ctx, st, runCallReads, string(runID))
+	require.NoError(t, err)
+	calls := toolCallsOf(t, ChatMessage{ToolCalls: marshalToolCalls(byRun[runID], testReaders)})
+	require.Len(t, calls, 1)
+	got := calls[0].SandboxActions
+	require.Len(t, got, 3)
+	assert.Equal(t, first.ID, got[0].Approval.ID)
+	assert.NotNil(t, got[0].Write)
+	assert.Equal(t, cloud.ID, got[1].Approval.ID)
+	assert.Nil(t, got[1].Write)
+	require.NotNil(t, got[1].Cloud)
+	assert.Equal(t, *cloud.Request.Cloud, got[1].Cloud.CloudRequest, "a waiting cloud request carries its body")
+	assert.Equal(t, permissions.AWS, got[1].Action.Target)
+	assert.Equal(t, got[1].Cloud, got[1].Request())
+	assert.Equal(t, last.ID, got[2].Approval.ID)
+}
+
+// A decided cloud request is served with no body or media type; the record
+// keeps them.
+func TestADecidedCloudRequestCarriesNoBody(t *testing.T) {
+	t.Parallel()
+
+	stored := `{"action":{"target":"aws","class":4,"summary":"AWS: call ec2:TerminateInstances"},"cloud":{"host":"ec2.amazonaws.com","method":"POST","path":"/","contentType":"text/plain","body":"Action=TerminateInstances","details":[{"label":"Region","value":"eu-west-1"}]}}`
+	got := readStoredWrite(t, ApprovalDenied, stored)
+	require.NotNil(t, got.Cloud)
+	assert.Equal(t, tools.CloudRequest{Host: "ec2.amazonaws.com", Method: "POST", Path: "/", Details: []tools.Detail{{Label: "Region", Value: "eu-west-1"}}}, got.Cloud.CloudRequest)
+	assert.Equal(t, permissions.AWS, got.Action.Target)
+}
+
+// A cloud request this build cannot read keeps its approval, with no action
+// and no request, so it offers Deny alone.
+func TestAnUnreadableCloudRequestKeepsItsApproval(t *testing.T) {
+	t.Parallel()
+
+	got := readStoredWrite(t, ApprovalPending, `{"action":{"target":"aws"},"cloud":{"host":`)
+	assert.Nil(t, got.Action)
+	assert.Nil(t, got.Request())
+	assert.Equal(t, ApprovalPending, got.Approval.Status)
 }
