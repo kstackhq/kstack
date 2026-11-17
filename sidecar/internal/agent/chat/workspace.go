@@ -65,8 +65,9 @@ const maxListedFolders = 20
 
 // withSandbox is card with where the chat's commands run appended as its own
 // section, on a machine with a sandbox: in it, with the network they have and
-// the folders they read and write and the providers they reach, or outside it
-// once the user switched the chat, where none applies. The block goes again when what it says changes.
+// the folders they read and write and the cloud platforms they reach, or
+// outside it once the user switched the chat, where none applies. The block
+// goes again when what it says changes.
 func (s *service) withSandbox(card string, state sandboxState) string {
 	if !s.sandboxStatus.Available {
 		return card

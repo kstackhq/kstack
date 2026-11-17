@@ -131,3 +131,14 @@ func removeUnder(path string) error {
 	defer root.Close()
 	return rootdir.RemoveAll(root, filepath.Base(path))
 }
+
+// writeNew writes data to a new file at path, owner-only, refusing one that
+// exists: a run's files are made for the run and never replace another.
+func writeNew(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	return errors.Join(err, f.Close())
+}

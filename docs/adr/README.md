@@ -258,4 +258,4 @@ usually just documentation in the wrong place.
 | 2026-11-12 | [The dashboard's namespace scope is a search param](2026-11-12-the-namespace-scope-is-a-search-param.md) | frontend | Accepted |
 | 2026-11-15 | [designsync reads Figma over the REST API](2026-11-15-designsync-reads-figma-over-the-rest-api.md) | repo | Accepted |
 | 2026-11-15 | [Agent guides sit beside the components they describe](2026-11-15-agent-guides-sit-beside-the-components-they-describe.md) | repo | Accepted |
-| 2026-11-17 | [A sandboxed command reaches a provider through a proxy on its run's one relay](2026-11-17-a-sandboxed-command-reaches-a-provider-through-a-proxy-on-its-runs-one-relay.md) | sidecar | Accepted |
+| 2026-11-17 | [A sandboxed command reaches a cloud platform through a proxy on its run's one relay](2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md) | sidecar | Accepted |

@@ -15,10 +15,8 @@
 package bash
 
 import (
-	"errors"
 	"net"
 	"net/url"
-	"os"
 	"strconv"
 
 	"k8s.io/client-go/tools/clientcmd"
@@ -57,10 +55,5 @@ func writeKubeconfig(path, context string, port int, token string) error {
 	if err != nil { // coverage:ignore a config of strings always encodes
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(raw)
-	return errors.Join(err, f.Close())
+	return writeNew(path, raw)
 }

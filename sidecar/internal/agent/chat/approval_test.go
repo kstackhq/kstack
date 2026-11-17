@@ -1564,8 +1564,8 @@ func TestAsksTakeTheJournalOneAtATime(t *testing.T) {
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 }
 
-// A cluster request and a provider's asked together are opened one after the
-// other, the second once the first is answered, in one list.
+// A cluster request and a cloud platform's asked together are opened one after
+// the other, the second once the first is answered, in one list.
 func TestTwoProxiesAskOneAtATime(t *testing.T) {
 	t.Parallel()
 
@@ -1579,12 +1579,12 @@ func TestTwoProxiesAskOneAtATime(t *testing.T) {
 	first := testutil.Recv(t, withN(1), "the cluster request")
 	two := withN(2)
 	close(second)
-	// A negative assertion: the provider's ask must not open while the
+	// A negative assertion: the cloud platform's ask must not open while the
 	// cluster's waits.
-	testutil.NoRecv(t, two, 200*time.Millisecond, "the provider's request while the cluster's waits")
+	testutil.NoRecv(t, two, 200*time.Millisecond, "the cloud platform's request while the cluster's waits")
 
 	approve(t, s, toolCallsOf(t, first)[0].SandboxActions[0].Approval.ID, false)
-	both := testutil.Recv(t, two, "the provider's request once the first is answered")
+	both := testutil.Recv(t, two, "the cloud platform's request once the first is answered")
 	actions := toolCallsOf(t, both)[0].SandboxActions
 	assert.NotNil(t, actions[0].Write)
 	require.NotNil(t, actions[1].Cloud)
@@ -1709,9 +1709,9 @@ func TestAnUngrantableActionTakesOnceOrDenyAlone(t *testing.T) {
 	assert.Equal(t, "true once", toolCallsOf(t, settled)[0].Output)
 }
 
-// A provider's action takes Once or Deny alone even when marked grantable: a
-// rule is always a cluster's.
-func TestAProvidersActionTakesOnceOrDenyAlone(t *testing.T) {
+// A cloud platform's action takes Once or Deny alone even when marked
+// grantable: a rule is always a cluster's.
+func TestACloudPlatformsActionTakesOnceOrDenyAlone(t *testing.T) {
 	t.Parallel()
 
 	cloud := deleteX

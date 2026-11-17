@@ -43,8 +43,8 @@ func get(t *testing.T, d http.Handler, method, host, token string) (int, string)
 // Each host reaches its own handler; anything else is the cluster grant's
 // 401, whatever its host or method.
 func TestTheDoorRoutesByHost(t *testing.T) {
-	aws := mountFor(t, newFakeProvider(permissions.AWS, "127.0.0.1:6443"))
-	gcp := mountFor(t, newFakeProvider(permissions.GCP, "storage.gcp.kstack.invalid"))
+	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
+	gcp := mountFor(t, newFakePlatform(permissions.GCP, "storage.gcp.kstack.invalid"))
 	cluster := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "cluster") })
 	d, err := newDoor(cluster, []CloudMount{aws, gcp}, switchesOn(permissions.AWS, permissions.GCP).On)
 	require.NoError(t, err)
@@ -71,19 +71,43 @@ func TestTheDoorRoutesByHost(t *testing.T) {
 	}
 }
 
+// A cloud platform's request asking for a stream past HTTP is refused at the
+// door, before its proxy; the cluster's goes to its grant, which refuses it
+// itself.
+func TestTheDoorRefusesACloudPlatformsUpgrade(t *testing.T) {
+	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
+	cluster := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "cluster") })
+	d, err := newDoor(cluster, []CloudMount{aws}, switchesOn(permissions.AWS).On)
+	require.NoError(t, err)
+	for _, h := range []http.Header{{"Upgrade": {"websocket"}}, {"Connection": {"keep-alive, Upgrade"}}} {
+		r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:6443/x", nil)
+		r.Header = h.Clone()
+		r.Header.Set(tokenHeader, aws.Grant.Token())
+		w := httptest.NewRecorder()
+		d.ServeHTTP(w, r)
+		assert.Equal(t, http.StatusForbidden, w.Code, h)
+		assert.Contains(t, w.Body.String(), refusedUpgrade, h)
+	}
+	r := httptest.NewRequest(http.MethodGet, "http://cluster.kstack.invalid/x", nil)
+	r.Header.Set("Upgrade", "SPDY/3.1")
+	w := httptest.NewRecorder()
+	d.ServeHTTP(w, r)
+	assert.Equal(t, "cluster", w.Body.String())
+}
+
 // A run with no cluster still answers the cluster's host 401.
 func TestTheDoorWithNoClusterRefusesItsHost(t *testing.T) {
-	d, err := newDoor(nil, []CloudMount{mountFor(t, newFakeProvider(permissions.AWS, "127.0.0.1:6443"))}, switchesOn(permissions.AWS).On)
+	d, err := newDoor(nil, []CloudMount{mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))}, switchesOn(permissions.AWS).On)
 	require.NoError(t, err)
 	code, _ := get(t, d, http.MethodGet, "cluster.kstack.invalid", "")
 	assert.Equal(t, http.StatusUnauthorized, code)
 }
 
-// The door is not trusted: one provider's token on another's route is that
-// grant's refusal.
+// The door is not trusted: one cloud platform's token on another's route is
+// that grant's refusal.
 func TestAWrongRouteIsUnauthorized(t *testing.T) {
-	aws := mountFor(t, newFakeProvider(permissions.AWS, "127.0.0.1:6443"))
-	gcp := mountFor(t, newFakeProvider(permissions.GCP, "storage.gcp.kstack.invalid"))
+	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
+	gcp := mountFor(t, newFakePlatform(permissions.GCP, "storage.gcp.kstack.invalid"))
 	d, err := newDoor(nil, []CloudMount{aws, gcp}, switchesOn(permissions.AWS, permissions.GCP).On)
 	require.NoError(t, err)
 	code, _ := get(t, d, http.MethodGet, "storage.gcp.kstack.invalid", aws.Grant.Token())
@@ -92,8 +116,8 @@ func TestAWrongRouteIsUnauthorized(t *testing.T) {
 
 // A route reads its switch on every request: off, its host is the door's
 // 401; on again, it is served.
-func TestSwitchingAProviderOffClosesItsRoute(t *testing.T) {
-	aws := mountFor(t, newFakeProvider(permissions.AWS, "127.0.0.1:6443"))
+func TestSwitchingACloudPlatformOffClosesItsRoute(t *testing.T) {
+	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
 	sw := switchesOn(permissions.AWS)
 	d, err := newDoor(nil, []CloudMount{aws}, sw.On)
 	require.NoError(t, err)
@@ -110,12 +134,12 @@ func TestSwitchingAProviderOffClosesItsRoute(t *testing.T) {
 }
 
 func TestTwoMountsCannotNameOneHost(t *testing.T) {
-	aws := mountFor(t, newFakeProvider(permissions.AWS, "127.0.0.1:6443"))
-	clash := mountFor(t, newFakeProvider(permissions.Azure, "127.0.0.1:6443"))
+	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
+	clash := mountFor(t, newFakePlatform(permissions.Azure, "127.0.0.1:6443"))
 	_, err := newDoor(nil, []CloudMount{aws, clash}, switchesOn().On)
 	assert.ErrorContains(t, err, "127.0.0.1:6443")
 
-	onCluster := mountFor(t, newFakeProvider(permissions.GCP, "cluster.kstack.invalid"))
+	onCluster := mountFor(t, newFakePlatform(permissions.GCP, "cluster.kstack.invalid"))
 	_, err = newDoor(http.NotFoundHandler(), []CloudMount{onCluster}, switchesOn().On)
 	assert.ErrorContains(t, err, "cluster.kstack.invalid")
 }

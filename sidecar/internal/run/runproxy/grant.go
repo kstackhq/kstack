@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package runproxy is what every provider's proxy in a sandboxed run shares:
-// the server the run's door is served on, and a grant per provider, which
-// holds the run's token for it, its life, its limits and the one way its
-// requests are put to the user. It knows no provider and no tool.
+// Package runproxy is what every cloud platform's proxy in a sandboxed run
+// shares: the server the run's door is served on, and a grant per cloud
+// cloud platform, which holds the run's token for it, its life, its limits and the
+// one way its requests are put to the user. It knows no cloud platform and no
+// tool.
 package runproxy
 
 import (
@@ -25,9 +26,11 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,7 +56,7 @@ type Limits struct {
 	Challenges bool
 }
 
-// Grant is one run's access to one provider, dead once End is called.
+// Grant is one run's access to one cloud platform, dead once End is called.
 type Grant struct {
 	target  permissions.Target
 	session session.Session
@@ -87,7 +90,7 @@ type Grant struct {
 // every request the user approves.
 func NewGrant(target permissions.Target, sess session.Session, asker Asker, refusal string, limits Limits) *Grant {
 	if target == permissions.Cluster {
-		panic("runproxy: a grant names a provider, never the cluster")
+		panic("runproxy: a grant names a cloud platform, never the cluster")
 	}
 	if limits.QPS <= 0 || limits.Burst < 1 || limits.Open < 1 || limits.Bodies < 1 {
 		panic("runproxy: every limit admits at least one request")
@@ -106,7 +109,7 @@ func NewGrant(target permissions.Target, sess session.Session, asker Asker, refu
 	}
 }
 
-// Target is the provider the grant reaches.
+// Target is the cloud platform the grant reaches.
 func (g *Grant) Target() permissions.Target { return g.target }
 
 // Token is the run's credential for this grant: 256 bits, hex. It opens the
@@ -212,7 +215,47 @@ func (g *Grant) Slot(ctx context.Context) (release func(), status int) {
 	return func() { g.open.Release(1) }, 0
 }
 
-// Outbound is the headers a provider forwards: those of in that allowed
+// BodyRefusal is the message for a status Body answered.
+func BodyRefusal(status int) string {
+	switch status {
+	case http.StatusForbidden:
+		return "kstack: the sandbox does not send an encoded body"
+	case http.StatusTooManyRequests:
+		return "kstack: too many request bodies are being read at once. Send one at a time."
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Sprintf("kstack: the sandbox does not send a body past %d MiB", maxBody>>20)
+	case http.StatusBadRequest:
+		return "kstack: the request's body did not arrive whole"
+	}
+	return "kstack: the request's body was refused"
+}
+
+// Upgrades is whether h asks for a stream past HTTP, which no cloud
+// platform's proxy forwards: an Upgrade header, even an empty one, or a
+// Connection list naming one.
+func Upgrades(h http.Header) bool {
+	if _, ok := h["Upgrade"]; ok {
+		return true
+	}
+	for _, v := range h.Values("Connection") {
+		for token := range strings.SplitSeq(v, ",") {
+			if strings.EqualFold(strings.TrimSpace(token), "upgrade") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// SlotRefusal is the message for a status Slot answered.
+func SlotRefusal(status int) string {
+	if status == http.StatusTooManyRequests {
+		return refusedOpen
+	}
+	return unauthorized
+}
+
+// Outbound is the headers a cloud platform forwards: those of in that allowed
 // names, never Authorization or Proxy-Authorization.
 func Outbound(in http.Header, allowed []string) http.Header {
 	out := http.Header{}

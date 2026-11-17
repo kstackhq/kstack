@@ -457,10 +457,10 @@ func TestAQuitDuringTheProbeReleasesTheLock(t *testing.T) {
 	requireUnlocked(t, cfg.DataDir)
 }
 
-// fakeCloud is a provider whose upstream is an httptest TLS server: a GET is
-// a read, forwarded unasked, and anything else a change put to the user. Its
-// client finds the route and its token in FAKE_CLOUD_URL and
-// FAKE_CLOUD_TOKEN, and carries the token in X-Fake-Token.
+// fakeCloud is a cloud platform whose upstream is an httptest TLS server: a GET
+// is a read, forwarded unasked, and anything else a change put to the user. Its
+// client finds the route and its token in FAKE_CLOUD_URL and FAKE_CLOUD_TOKEN,
+// and carries the token in X-Fake-Token.
 type fakeCloud struct {
 	upstream *httptest.Server
 	seen     chan string // each request the upstream received, "<method> <path>"
@@ -543,16 +543,16 @@ func (f *fakeCloud) Mount(_ context.Context, run bash.CloudRun) (bash.CloudMount
 }
 
 // With its switch turned on through the wire, a sandboxed curl reads the
-// provider unasked, and its change waits on one request and reaches the
+// cloud platform unasked, and its change waits on one request and reaches the
 // upstream once approved; with the switch off the route is the door's 401.
-func TestASandboxedCommandReachesAProviderThroughTheDoor(t *testing.T) {
+func TestASandboxedCommandReachesACloudPlatformThroughTheDoor(t *testing.T) {
 	cloud := newFakeCloud(t)
-	e := startE2E(t, func(c *Config) { c.cloudProviders = []bash.CloudProvider{cloud} })
+	e := startE2E(t, func(c *Config) { c.cloudPlatforms = []bash.CloudPlatform{cloud} })
 	raw := graphql(t, e.url, `mutation { sandboxCloudAccessSet(target: AWS, on: true) { target on } }`)
 	require.Contains(t, raw, `{"target":"AWS","on":true}`, raw)
 
 	curl := `curl -sS -H "X-Fake-Token: $FAKE_CLOUD_TOKEN" `
-	chatID := e.ask(t, "reach the provider", llm.StagedCall("Bash", bashInput(
+	chatID := e.ask(t, "reach the cloud platform", llm.StagedCall("Bash", bashInput(
 		curl+`"$FAKE_CLOUD_URL/read"; echo; `+curl+`-X POST -H 'Content-Type: text/plain' -d 'change=1' "$FAKE_CLOUD_URL/change"`)))
 
 	assert.Equal(t, "GET /read", testutil.Recv(t, cloud.seen, "the read"))
@@ -561,7 +561,7 @@ func TestASandboxedCommandReachesAProviderThroughTheDoor(t *testing.T) {
 	assert.Equal(t, permissions.AWS, w.request.Action.Target)
 	assert.Equal(t, "POST", w.request.Cloud.Method)
 	assert.Equal(t, "change=1", w.request.Cloud.Body)
-	assert.Empty(t, cloud.seen, "nothing reaches the provider before the user decides")
+	assert.Empty(t, cloud.seen, "nothing reaches the cloud platform before the user decides")
 	raw = graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", decision: Once) }`)
 	require.Contains(t, raw, `"approvalDecide":true`, raw)
 	assert.Equal(t, "POST /change", testutil.Recv(t, cloud.seen, "the change"))
@@ -573,7 +573,7 @@ func TestASandboxedCommandReachesAProviderThroughTheDoor(t *testing.T) {
 	require.Contains(t, raw, `{"target":"AWS","on":false}`, raw)
 	// A run started while it is off mounts nothing, so the route is the door's.
 	// The door's port is the run's own, read from its kubeconfig.
-	e.askAgain(t, chatID, false, "reach the provider", llm.StagedCall("Bash", bashInput(
+	e.askAgain(t, chatID, false, "reach the cloud platform", llm.StagedCall("Bash", bashInput(
 		`door=$(grep -o '127\.0\.0\.1:[0-9]*' "$KUBECONFIG" | head -n 1); `+
 			`curl -s -o /dev/null -w '%{http_code}' -H "X-Fake-Token: none" "http://$door/read"; echo " $FAKE_CLOUD_URL"`)))
 	var result string

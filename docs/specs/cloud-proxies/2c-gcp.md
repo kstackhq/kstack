@@ -5,7 +5,7 @@ Answers [#933](https://github.com/kstackhq/kstack/issues/933). Step 2C of
 beside the wave's other steps (`2a-aws.md`, `2b-github.md`, `2d-azure.md`).
 
 [Step 1](1-shared-pieces.md) owns the door, the grant, the gate, the request's shape and
-drawing, the consent switch and the provider seam. This step states only what is Google's, and
+drawing, the consent switch and the cloud platform seam. This step states only what is Google's, and
 links step 1 for the rest.
 
 This step changes a security boundary: it lends the user's Google login to sandboxed commands.
@@ -31,16 +31,18 @@ request.
   reads: `CLOUDSDK_CONFIG`, `CLOUDSDK_CORE_PROJECT` and `GOOGLE_APPLICATION_CREDENTIALS`
   (`run/loginshell/loginshell.go`, `imported`).
 - **No `CLOUDSDK_*` name is on `neverEnv`** (`run/sandbox/env.go`).
-- **The prompt says a tool has a login only where the context's `cloud` names its provider**
+- **The prompt says a tool has a login only where the context's `cloud` names its cloud platform**
   (`tools/bash/prompts/sandbox.md`). No build writes that key yet.
-- **Step 1 built the shared pieces and no provider.** `sandbox.gcp` exists and is off, and
+- **Step 1 built the shared pieces and no cloud platform.** `sandbox.gcp` exists and is off, and
   `permissions.GCP` is a `Target`. `app/runtime.go` hands `bash.New` a `bash.Cloud` whose
-  `Providers` is `Config.cloudProviders`: none in production, a test's fake otherwise. The
-  wire lists a switch per provider of that list, and Settings draws none yet
-  ([`TODO.md`](../../TODO.md), *Draw each provider's switch in Settings*).
+  `Platforms` is
+  `cloudPlatformsFor`'s: the build's list, `builtCloudPlatforms` (`app/cloudplatforms_unix.go`), or a
+  test's `Config.cloudPlatforms` in its place, and none on a machine with no sandbox. The
+  wire lists a switch per cloud platform of that list, and Settings draws none yet
+  ([`TODO.md`](../../TODO.md), *Draw each cloud platform's switch in Settings*).
 - **Google's name and refusals are written.** `tools/bash/cloud.go` holds *Google Cloud*
-  (`providerNames`) and fills a mount's `CloudRun.Asker` and `Refusal` (`cloudAskerFor`). The
-  webview holds the name too (`PROVIDER_NAMES`, `src/lib/chats.tsx`).
+  (`platformNames`) and fills a mount's `CloudRun.Asker` and `Refusal` (`cloudAskerFor`). The
+  webview holds the name too (`CLOUD_PLATFORM_NAMES`, `src/lib/chats.tsx`).
 
 ## What this step builds
 
@@ -53,9 +55,9 @@ sandbox.
 2. **The proxy** (`run/gcpproxy`): the service table, the classifier, the handler and the
    rewriter that blanks secret-holding metadata in an answer, over a
    [`runproxy.Grant`](1-shared-pieces.md#3-the-grant-core-runrunproxy).
-3. **The provider** (`tools/bash/gcp.go`): Google's
-   [`CloudProvider`](1-shared-pieces.md#7-the-provider-seam-toolsbash), its routes and the run's
-   `CLOUDSDK_*` variables. `app/runtime.go` adds it to the list it builds.
+3. **The cloud platform** (`tools/bash/gcp.go`): Google's
+   [`CloudPlatform`](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash), its routes and the
+   run's `CLOUDSDK_*` variables. `app/runtime.go` adds it to the list it builds.
 4. **The prompt's paragraph** for Google.
 
 ### Not in this step
@@ -79,8 +81,9 @@ sandbox.
 
 ### 1. The token service (`services/gcptoken`)
 
-It follows step 1's [rules for a credential](1-shared-pieces.md#7-the-provider-seam-toolsbash).
-`run/gcpproxy` reaches it through an interface.
+It follows step 1's [rules for a
+credential](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash). `run/gcpproxy` reaches it
+through an interface.
 
 ```go
 // Source answers the active gcloud account's access token and project, read
@@ -185,7 +188,7 @@ If 2, 3 or 4 fails, the design changes and this spec is revised before task 2.
 A leaf over a [`runproxy.Grant`](1-shared-pieces.md#3-the-grant-core-runrunproxy) with `Target`
 `GCP`. It imports `permissions`, `session` and `runproxy`, and nothing of `tools` or
 `services`. The grant gives it the token, the life, the limits and the ask path. The mount
-builds it with no challenge ([§5](#5-the-provider-toolsbashgcpgo)).
+builds it with no challenge ([§5](#5-the-cloud-platform-toolsbashgcpgo)).
 
 ```go
 // TokenSource is the user's token, borrowed at use.
@@ -306,23 +309,21 @@ upload is refused. A multipart upload names its object inside the body, so no se
 stand for the bytes and leave the rest enough to approve
 ([*Open questions*](#open-questions), 2).
 
-### 5. The provider (`tools/bash/gcp.go`)
+### 5. The cloud platform (`tools/bash/gcp.go`)
 
-`NewGCP(src)` answers the `CloudProvider` whose `Target` is `GCP`. `app/runtime.go` builds the
-`Source`, calls it, and puts the result in the `bash.Cloud.Providers` it hands `bash.New`.
+`NewGCP(src)` answers the `CloudPlatform` whose `Target` is `GCP`. `app/runtime.go` builds the
+`Source`, calls it, and puts the result in the `bash.Cloud.Platforms` it hands `bash.New`.
 `cloudTargets` then gives the wire Google's switch and lets the context's `cloud` key name
-`gcp`, with no other change. A test's `Config.cloudProviders` stands in place of the built
+`gcp`, with no other change. A test's `Config.cloudPlatforms` stands in place of the built
 list, not beside it.
 
 `Mount` builds the grant, `runproxy.NewGrant(permissions.GCP, run.Session, run.Asker,
-run.Refusal, limits)`, the handler over it, a route per table row and §3's rows. The limits are
-`tools/bash/proxy.go`'s `proxyQPS`, `proxyBurst` and `proxyMaxInFlight`, and 16 bodies, a
-constant beside them that the first provider built adds. It adds nothing to `settings`:
+run.Refusal, limits)`, the handler over it, a route per table row and §3's rows. The limits are `cloudLimits` (`tools/bash/cloud.go`). It adds nothing to `settings`:
 `sandbox.gcp` exists, off by default.
 
 **Google's line of the switch's confirm** is *Log entries are read without asking; an object's
 contents ask first.* Settings draws no switch yet, so the line goes in
-[`TODO.md`](../../TODO.md)'s *Draw each provider's switch in Settings*.
+[`TODO.md`](../../TODO.md)'s *Draw each cloud platform's switch in Settings*.
 
 ### 6. The prompt
 
@@ -352,7 +353,7 @@ All start Planned. Each ends green under `make test-changed`.
 | 1 | Spike §3's four behaviours against a real `gcloud` on macOS and Linux, in the real sandbox with a throwaway handler; record the `gcloud` version and the result in this spec | — | — | Planned |
 | 2 | The token service: the borrow, the cache, the sentinels, `ForgetSecret` | `services/gcptoken/` | 1 | Planned |
 | 3 | The proxy: the table, the classifier, the header list, the handler, the rewriter and the write-back refusal | `run/gcpproxy/` | 1 | Planned |
-| 4 | The provider on a run: the mount, the body limit, the variables, `CLOUDSDK_CONFIG`, the `Source` in `app`, the prompt | `tools/bash/gcp.go`, `tools/bash/proxy.go`, `tools/bash/toolhome.go`, `tools/bash/prompts/sandbox.md`, `app/runtime.go`, the prompt goldens | 2, 3 | Planned |
+| 4 | The cloud platform on a run: the mount, the body limit, the variables, `CLOUDSDK_CONFIG`, the `Source` in `app`, the prompt | `tools/bash/gcp.go`, `tools/bash/proxy.go`, `tools/bash/toolhome.go`, `tools/bash/prompts/sandbox.md`, `app/runtime.go`, the prompt goldens | 2, 3 | Planned |
 | 5 | End to end through the real sandbox | `app/app_unix_test.go` (`startE2E`) | 4 | Planned |
 | 6 | Docs, per *When it lands* | see there | 1–5 | Planned |
 
@@ -419,8 +420,8 @@ Each is a test beside its file. No test starts a real `gcloud` or reaches Google
   value.
 
 **`app`** (`startE2E`, `testutil.RequireSandbox`), network off, Google turned on through
-`sandboxCloudAccessSet`. As `TestASandboxedCommandReachesAProviderThroughTheDoor` does with its
-fake, each test sets `Config.cloudProviders`: Google's provider over a fake helper and a fake
+`sandboxCloudAccessSet`. As `TestASandboxedCommandReachesACloudPlatformThroughTheDoor` does with its
+fake, each test sets `Config.cloudPlatforms`: Google's cloud platform over a fake helper and a fake
 upstream.
 
 - `TestASandboxedGCPReadRunsUnasked`: a command's `GET` to `container.gcp.kstack.invalid`
@@ -432,7 +433,7 @@ upstream.
 
 **Integration gate:** the full checks in
 [`../README.md`](../README.md#verification-commands). The sequence's gate, one run with all
-four providers on, is the sequence [README](README.md)'s.
+four cloud platforms on, is the sequence [README](README.md)'s.
 
 **By hand**, `pnpm tauri dev` on macOS and on Linux, `gcloud` signed in, network off, and the
 switch turned on through `sandboxCloudAccessSet`, since Settings draws none yet:
@@ -459,7 +460,7 @@ This is what Google adds.
 **Widened**, with the switch on
 
 - A sandboxed command reads what the user's Google account reads on six services, on the
-  model's word, unasked, and the answer reaches the model's provider: cluster definitions, IAM
+  model's word, unasked, and the answer reaches the model's cloud platform: cluster definitions, IAM
   policies, log entries, bucket and object listings.
 - With network on, what a command read can be sent anywhere
   ([network is the user's switch](../../adr/2026-10-04-network-is-the-users-switch.md)).
@@ -498,7 +499,8 @@ When this step is complete on `wip/cloud-proxies`:
 
 - **ADR**, Google's alone: *Google Cloud is reached with the active `gcloud` account's token*.
   It records the token's source, the six services and the path lists, what is class 6 and
-  what is refused. It cites [step 1's ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-provider-through-a-proxy-on-its-runs-one-relay.md)
+  what is refused. It cites [step 1's
+  ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md)
   for the decision to lend a credential through a proxy and for what
   [#25](https://github.com/kstackhq/kstack/pull/25) decided.
 - **`docs/security/<date>-google-cloud-through-the-proxy.md`**, from *Security* above, naming
@@ -510,10 +512,10 @@ When this step is complete on `wip/cloud-proxies`:
     (`TestOnlyTheListedHeadersAreForwarded`); a path off the table is refused
     (`TestAPathOffTheTableIsRefused`).
   - New **By decision** rows for the residuals above, linking the ADR.
-  - The **Not built** row on the four providers loses Google Cloud. The step that builds the
-    last provider removes the row.
+  - The **Not built** row on the four cloud platforms loses Google Cloud. The step that builds the
+    last cloud platform removes the row.
 - **`docs/TODO.md`**: *Let a sandboxed command reach the user's cloud accounts without holding
-  a credential* loses Google Cloud, the same way. *Draw each provider's switch in Settings*
+  a credential* loses Google Cloud, the same way. *Draw each cloud platform's switch in Settings*
   gains Google's line of the confirm. New lines: a narrower identity, the services off the
   table, uploads that are not text.
 - **`docs/persisted-data.md`**: the *Chat and monitor directories* row, which holds the tool

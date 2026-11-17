@@ -453,3 +453,13 @@ func TestTheLoginShellsTempDirIsARuns(t *testing.T) {
 	cleanup()
 	assert.NoDirExists(t, dir)
 }
+
+// A run's file is owner-only from birth.
+func TestANewFileIsOwnerOnly(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, writeNew(path, []byte("x")))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}

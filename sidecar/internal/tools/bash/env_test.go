@@ -97,8 +97,8 @@ func TestTheToolchainsVariablesRideTheEnvironment(t *testing.T) {
 	assert.Equal(t, kstackVars, got[i+3:])
 }
 
-// The providers' variables follow the toolchain's, before Kstack's own.
-func TestTheProvidersVariablesRideTheEnvironment(t *testing.T) {
+// The cloud platforms' variables follow the toolchain's, before Kstack's own.
+func TestTheCloudPlatformsVariablesRideTheEnvironment(t *testing.T) {
 	rd := &runDir{path: "/run/r", tmp: "/cache/t"}
 	toolchain, cloud := []string{"NVM_DIR=/home/ana/.nvm"}, []string{"GH_HOST=github.localhost"}
 

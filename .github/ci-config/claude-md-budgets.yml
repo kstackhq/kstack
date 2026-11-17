@@ -8,7 +8,7 @@ design/CLAUDE.md: 21504
 sidecar/CLAUDE.md: 24064
 sidecar/internal/agent/CLAUDE.md: 25088
 sidecar/internal/llm/CLAUDE.md: 16384
-sidecar/internal/run/CLAUDE.md: 20480
+sidecar/internal/run/CLAUDE.md: 21504
 sidecar/internal/services/cluster/CLAUDE.md: 18432
 sidecar/internal/services/logs/CLAUDE.md: 23552
 sidecar/internal/services/settings/CLAUDE.md: 6656
