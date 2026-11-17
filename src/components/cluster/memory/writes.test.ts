@@ -20,7 +20,7 @@ vi.mock('urql', () => ({
   useMutation: (doc: unknown) => [{}, JSON.stringify(doc).includes('memoryDelete') ? deleteMock : saveMock],
 }));
 
-const { bodyFits, slugify, typedName, uniqueName, useMemoryWrites } = await import('./writes');
+const { bodyFits, nameFor, slugify, uniqueName, useMemoryWrites } = await import('./writes');
 
 const refused = (code: string) => ({ error: { graphQLErrors: [{ extensions: { code } }] } });
 const writes = () => renderHook(() => useMemoryWrites()).result.current;
@@ -39,29 +39,28 @@ describe('useMemoryWrites', () => {
   });
 
   it.each([
-    ['KSTACK_RECORD_NOT_FOUND', 'This memory or its cluster is gone.'],
-    ['KSTACK_MEMORY_NAME_TAKEN', 'Another memory here has this name.'],
-    ['KSTACK_MEMORY_FULL', 'There is no room for this memory here. Shorten or delete one first.'],
-    ['KSTACK_MEMORY_SECRET', 'This looks like a credential. Memories never keep one.'],
-    ['KSTACK_VALIDATION_ERROR', 'A memory is at most 500 bytes.'],
-    ['KSTACK_SOMETHING_ELSE', 'The memory could not be saved.'],
+    ['KSTACK_RECORD_NOT_FOUND', 'This note or its cluster is gone.'],
+    ['KSTACK_MEMORY_NAME_TAKEN', 'Another note here starts the same way. Reword its opening.'],
+    ['KSTACK_MEMORY_FULL', 'There is no room for this note here. Shorten or delete one first.'],
+    ['KSTACK_MEMORY_SECRET', 'This looks like a credential. Notes never keep one.'],
+    ['KSTACK_VALIDATION_ERROR', 'A note is at most 500 bytes.'],
+    ['KSTACK_SOMETHING_ELSE', 'The note could not be saved.'],
   ])('says why a save was refused with %s', async (code, message) => {
     saveMock.mockResolvedValue(refused(code));
     expect(await writes().save(input)).toBe(message);
   });
 
-  it('deletes every id and answers the ones still there', async () => {
-    expect(await writes().remove(['m1', 'm2'])).toEqual([]);
-    expect(deleteMock.mock.calls).toEqual([[{ id: 'm1' }], [{ id: 'm2' }]]);
+  it('deletes by id and answers whether the memory is gone', async () => {
+    expect(await writes().remove('m1')).toBe(true);
+    expect(deleteMock).toHaveBeenCalledWith({ id: 'm1' });
 
-    deleteMock.mockResolvedValueOnce({ data: { memoryDelete: true } });
     deleteMock.mockResolvedValueOnce({ error: { graphQLErrors: [], message: 'socket closed' } });
-    expect(await writes().remove(['m1', 'm2'])).toEqual(['m2']);
+    expect(await writes().remove('m1')).toBe(false);
   });
 
   it('counts a memory already gone as deleted', async () => {
     deleteMock.mockResolvedValue(refused('KSTACK_RECORD_NOT_FOUND'));
-    expect(await writes().remove(['m1'])).toEqual([]);
+    expect(await writes().remove('m1')).toBe(true);
   });
 });
 
@@ -86,19 +85,6 @@ describe('slugify', () => {
   });
 });
 
-describe('typedName', () => {
-  it('keeps a trailing hyphen and drops a leading one', () => {
-    expect(typedName('Prod Deploy')).toBe('prod-deploy');
-    expect(typedName('prod ')).toBe('prod-');
-    expect(typedName(' -prod')).toBe('prod');
-    expect(typedName('Café')).toBe('cafe');
-  });
-
-  it('cuts hard at 48, keeping the word being typed', () => {
-    expect(typedName(`${'a'.repeat(40)} ${'b'.repeat(10)}`)).toBe(`${'a'.repeat(40)}-${'b'.repeat(7)}`);
-  });
-});
-
 describe('uniqueName', () => {
   it('suffixes a taken name until one is free', () => {
     expect(uniqueName('oncall', new Set())).toBe('oncall');
@@ -111,6 +97,18 @@ describe('uniqueName', () => {
   it('cuts a long name to fit its suffix, leaving no double hyphen', () => {
     const base = `${'a'.repeat(45)}-bc`;
     expect(uniqueName(base, new Set([base]))).toBe(`${'a'.repeat(45)}-2`);
+  });
+});
+
+describe('nameFor', () => {
+  it("slugs the body's opening words, clear of the names taken", () => {
+    expect(nameFor('Page payments.', new Set())).toBe('page-payments');
+    expect(nameFor('Page payments.', new Set(['page-payments']))).toBe('page-payments-2');
+  });
+
+  it('falls back to "note" for a body with no Latin letters', () => {
+    expect(nameFor('本番環境', new Set())).toBe('note');
+    expect(nameFor('本番環境', new Set(['note']))).toBe('note-2');
   });
 });
 

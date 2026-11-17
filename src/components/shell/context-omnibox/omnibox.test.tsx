@@ -153,7 +153,7 @@ describe('ContextOmnibox', () => {
     render(<ContextOmnibox />);
 
     await user.click(screen.getByRole('button', { name: 'Memory' }));
-    expect(screen.getByText('SAVED MEMORIES')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Notes' })).toBeInTheDocument();
   });
 
   it('keeps the brain icon gray at rest, primary only while a save pulses', () => {

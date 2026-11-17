@@ -12,109 +12,78 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { useState } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { expectProseText } from '@/test-utils';
 
-import { MemoryInstructions } from './instructions';
+import { MemoryInstructions, SAVE_DELAY_MS, SAVED_SHOWN_MS } from './instructions';
 
-// The saved text is the parent's; this gives it somewhere to live.
-function Instructions({ initial = '' }: { initial?: string }) {
-  const [text, setText] = useState(initial);
-  return <MemoryInstructions text={text} onSave={setText} />;
-}
-
-const button = (name: string) => screen.getByRole('button', { name });
+const box = () => screen.getByRole('textbox', { name: 'Instructions' });
+// Hidden by opacity, so it is in the tree throughout.
+const saved = () => screen.getByText('Saved');
+const type = (text: string) => fireEvent.change(box(), { target: { value: text } });
+const advance = (ms: number) => {
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
+};
 
 describe('MemoryInstructions', () => {
-  it('keeps spellcheck in the editor but no other suggestions', async () => {
-    const user = userEvent.setup();
-    render(<Instructions />);
-    await user.click(button('Add instructions'));
-    expectProseText(screen.getByRole('textbox'));
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it('starts empty, with a prompt to add instructions', () => {
-    render(<Instructions />);
-    expect(screen.getByText('No instructions added')).toBeInTheDocument();
-    expect(button('Add instructions')).toBeInTheDocument();
+  it('keeps spellcheck but no other suggestions', () => {
+    render(<MemoryInstructions />);
+    expectProseText(box());
   });
 
-  it('saves a draft typed into the editor', async () => {
-    const user = userEvent.setup();
-    render(<Instructions />);
-
-    await user.click(button('Add instructions'));
-    await user.type(screen.getByRole('textbox'), 'Always use traefik.');
-    await user.click(button('Save'));
-
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByText('Always use traefik.')).toBeInTheDocument();
+  it('opens empty, with its placeholder and "Saved" hidden', () => {
+    render(<MemoryInstructions />);
+    expect(box()).toHaveValue('');
+    expect(box()).toHaveAttribute('placeholder', 'e.g. keep explanations brief and to the point');
+    expect(saved()).toHaveAttribute('aria-hidden', 'true');
+    expect(saved()).toHaveClass('opacity-0');
   });
 
-  it('keeps a draft while the parent draws again, and saves it', async () => {
-    const user = userEvent.setup();
-    const onSave = vi.fn();
-    const { rerender } = render(<MemoryInstructions text="" onSave={onSave} />);
-    await user.click(button('Add instructions'));
-    await user.type(screen.getByRole('textbox'), 'Draft.');
+  it('shows "Saved" a pause after the last keystroke, then hides it', () => {
+    render(<MemoryInstructions />);
+    type('Always use traefik.');
+    expect(box()).toHaveValue('Always use traefik.');
 
-    rerender(<MemoryInstructions text="" onSave={onSave} />);
-    expect(screen.getByRole('textbox')).toHaveValue('Draft.');
-    await user.click(button('Save'));
-    expect(onSave).toHaveBeenCalledWith('Draft.');
+    advance(SAVE_DELAY_MS - 1);
+    expect(saved()).toHaveAttribute('aria-hidden', 'true');
+    advance(1);
+    expect(saved()).toHaveAttribute('aria-hidden', 'false');
+    expect(saved()).not.toHaveClass('opacity-0');
+    expect(screen.getByRole('status')).toBe(saved());
+
+    advance(SAVED_SHOWN_MS);
+    expect(saved()).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('reopens the editor pre-filled on Edit', async () => {
-    const user = userEvent.setup();
-    render(<Instructions initial="Always use traefik." />);
+  it('restarts the wait on each keystroke, and hides "Saved" while typing', () => {
+    render(<MemoryInstructions />);
+    type('Always');
+    advance(SAVE_DELAY_MS - 100);
+    type('Always use');
+    advance(SAVE_DELAY_MS - 100);
+    expect(saved()).toHaveAttribute('aria-hidden', 'true');
+    advance(100);
+    expect(saved()).toHaveAttribute('aria-hidden', 'false');
 
-    await user.click(button('Edit'));
-    expect(screen.getByRole('textbox')).toHaveValue('Always use traefik.');
+    type('Always use traefik.');
+    expect(saved()).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('discards the draft on Cancel', async () => {
-    const user = userEvent.setup();
-    render(<Instructions />);
-
-    await user.click(button('Add instructions'));
-    await user.type(screen.getByRole('textbox'), 'Never mind this.');
-    await user.click(button('Cancel'));
-
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByText('No instructions added')).toBeInTheDocument();
-  });
-
-  it('Clear text empties the draft alone, until Save commits it', async () => {
-    const user = userEvent.setup();
-    render(<Instructions initial="Always use traefik." />);
-
-    await user.click(button('Edit'));
-    await user.click(button('Clear text'));
-    expect(screen.getByRole('textbox')).toHaveValue('');
-
-    await user.click(button('Cancel'));
-    expect(screen.getByText('Always use traefik.')).toBeInTheDocument();
-
-    await user.click(button('Edit'));
-    await user.click(button('Clear text'));
-    await user.click(button('Save'));
-    expect(screen.getByText('No instructions added')).toBeInTheDocument();
-  });
-
-  it('disables Save on an unchanged empty draft, and Clear text once already empty', async () => {
-    const user = userEvent.setup();
-    render(<Instructions />);
-
-    await user.click(button('Add instructions'));
-    expect(button('Save')).toBeDisabled();
-    expect(button('Clear text')).toBeDisabled();
-
-    await user.type(screen.getByRole('textbox'), 'Always use traefik.');
-    expect(button('Save')).toBeEnabled();
-    expect(button('Clear text')).toBeEnabled();
+  it('drops its timer when it unmounts', () => {
+    const { unmount } = render(<MemoryInstructions />);
+    type('Always use traefik.');
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

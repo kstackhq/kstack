@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { cn } from '@kubetail/ui/lib/utils';
 import type { ComponentProps } from 'react';
 
 // oxlint-disable-next-line no-restricted-imports -- the one place the library's boxes are drawn
@@ -38,16 +39,20 @@ export const PROSE_TEXT = { ...CODE_TEXT, spellCheck: true } as const;
 
 type TextProps = { prose?: boolean };
 
-export function Input({ prose = false, ...props }: ComponentProps<'input'> & TextProps) {
-  return <UiInput {...(prose ? PROSE_TEXT : CODE_TEXT)} {...props} />;
+// A text box marks focus by its border alone. The library adds a ring on
+// `:focus-visible`, which a browser matches on a click into a text box too.
+const NO_RING = 'focus-visible:ring-0';
+
+export function Input({ prose = false, className, ...props }: ComponentProps<'input'> & TextProps) {
+  return <UiInput {...(prose ? PROSE_TEXT : CODE_TEXT)} className={cn(NO_RING, className)} {...props} />;
 }
 
 // The library's search box, typed here: its own declaration file resolves its props to
 // `any`. A search is code-like text.
-export function SearchBox(props: ComponentProps<'input'> & { containerClassName?: string }) {
-  return <UiSearchBox {...CODE_TEXT} {...props} />;
+export function SearchBox({ className, ...props }: ComponentProps<'input'> & { containerClassName?: string }) {
+  return <UiSearchBox {...CODE_TEXT} className={cn(NO_RING, className)} {...props} />;
 }
 
-export function Textarea({ prose = false, ...props }: ComponentProps<'textarea'> & TextProps) {
-  return <UiTextarea {...(prose ? PROSE_TEXT : CODE_TEXT)} {...props} />;
+export function Textarea({ prose = false, className, ...props }: ComponentProps<'textarea'> & TextProps) {
+  return <UiTextarea {...(prose ? PROSE_TEXT : CODE_TEXT)} className={cn(NO_RING, className)} {...props} />;
 }

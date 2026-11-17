@@ -12,29 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The memory popover: the window's cluster's instructions and saved memories,
-// read and written through the sidecar. The instructions are local state;
-// nothing stores them yet.
+// The memory popover: the window's cluster's instructions and notes, read and
+// written through the sidecar. A note is a memory; the instructions are local
+// state, since nothing stores them yet.
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { Button } from '@kubetail/ui/elements/button';
-import { Popover, PopoverClose, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import { Spinner } from '@kubetail/ui/elements/spinner';
-import { ArrowRight, X } from 'lucide-react';
-import { useState } from 'react';
-import type { ReactElement } from 'react';
+import { Plus } from 'lucide-react';
+import { useRef, useState } from 'react';
+import type { ReactElement, RefObject } from 'react';
 
 import { useActiveCluster } from '@/lib/active-cluster';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { useMemories } from '@/lib/memories';
 import type { Memory } from '@/lib/memories';
 
+import { OmniboxPopover } from '../omnibox-popover';
 import { MemoryInstructions } from './instructions';
-import { MemoryList } from './list';
+import { MemoryList, UnsavedDrafts } from './list';
 import { useMemoryWrites } from './writes';
 
-// The cluster's own memories. Its watch also carries the memories for every
+// The cluster's own notes. Its watch also carries the memories for every
 // cluster; the popover leaves those out.
-function MemoryDetail({
+function Notes({
   scope,
   clusterID,
   adding,
@@ -48,66 +48,68 @@ function MemoryDetail({
   const { memories, phase } = useMemories(clusterID);
   const { save, remove } = useMemoryWrites();
 
+  let body;
   if (!clusterID) {
-    return <p className="px-6 py-2 text-xs text-muted-foreground">Kstack has not reached this cluster yet.</p>;
+    body = <p className="text-xs text-muted-foreground">Kstack has not reached this cluster yet.</p>;
+  } else if (phase === 'connecting') {
+    body = <Spinner />;
+  } else {
+    const own = memories.filter((m) => m.clusterID === clusterID);
+    const onSave = (memory: Memory | undefined, name: string, text: string) =>
+      save({ id: memory?.id ?? null, clusterID, name, body: text });
+    body = (
+      <MemoryList
+        scope={scope}
+        memories={own}
+        adding={adding}
+        onSave={onSave}
+        onAddDone={onAddDone}
+        onDelete={remove}
+      />
+    );
   }
-  if (phase === 'connecting') return <Spinner />;
-
-  const own = memories.filter((m) => m.clusterID === clusterID);
-  const onSave = (memory: Memory | undefined, name: string, body: string) =>
-    save({ id: memory?.id ?? null, clusterID, name, body });
 
   return (
-    <MemoryList scope={scope} memories={own} adding={adding} onSave={onSave} onAddDone={onAddDone} onDelete={remove} />
+    <section className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-0.5">
+        <h3 className="text-sm font-medium">Notes</h3>
+        <p className="text-xs text-muted-foreground">Facts Kstack knows about this cluster.</p>
+      </div>
+      {body}
+    </section>
   );
 }
 
 export function MemoryPopoverContent() {
   const { context } = useActiveKubeContext();
   const { clusterID } = useActiveCluster();
-  const [instructions, setInstructions] = useState('');
   const [adding, setAdding] = useState(false);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-[18px]">
-      <header className="flex shrink-0 items-start">
-        <div className="flex min-w-0 flex-1 flex-col gap-1 pt-3 pl-6">
-          <p className="text-base font-medium">{context ? `${context} memory` : 'Memory'}</p>
-          <p className="text-xs text-muted-foreground">
-            Notes the chats on {context || 'this cluster'} read. Kstack saves some as you talk; you can add, edit and
-            delete them.
-          </p>
-        </div>
-        {/* In the popup's corner, 2px inside its border. */}
-        <div className="shrink-0 p-0.5">
-          <PopoverClose
-            render={<Button variant="ghost" size="icon-sm" className="size-8 text-foreground" />}
-            aria-label="Close"
-          >
-            <X aria-hidden />
-          </PopoverClose>
-        </div>
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="flex shrink-0 flex-col gap-0.5 border-b px-5 pt-3.5 pb-3">
+        <p className="text-base font-medium">Memory</p>
+        <p className="text-xs text-muted-foreground">Chats on {context || 'this cluster'} read this.</p>
       </header>
-      <div className="flex min-h-0 flex-1 flex-col px-[18px]">
-        <div
-          data-testid="memory-detail"
-          className="flex min-h-0 flex-1 flex-col gap-6 rounded-xl border bg-background px-2 py-3"
-        >
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* The bottom padding is the fade's room once scrolled to the end. */}
+        <div className="flex flex-col gap-6 px-5 pt-4 pb-8">
           {context ? (
             <>
-              <MemoryInstructions text={instructions} onSave={setInstructions} />
-              <MemoryDetail scope={context} clusterID={clusterID} adding={adding} onAddDone={() => setAdding(false)} />
+              <MemoryInstructions />
+              <Notes scope={context} clusterID={clusterID} adding={adding} onAddDone={() => setAdding(false)} />
             </>
           ) : (
-            <p className="px-6 py-2 text-xs text-muted-foreground">Pick a cluster to see its memory.</p>
+            <p className="text-xs text-muted-foreground">Pick a cluster to see its memory.</p>
           )}
         </div>
+        {/* Says more lies below. */}
+        <div aria-hidden className="pointer-events-none sticky bottom-0 z-20 -mt-8 h-8 bg-linear-to-t from-popover" />
       </div>
-      {/* Nothing manages every memory yet, so the link leads nowhere. */}
-      <footer className="flex shrink-0 items-center justify-between border-t bg-muted/50 px-[18px] py-2">
-        <Button variant="ghost" size="sm" className="text-xs text-foreground">
-          Manage all memories
-          <ArrowRight aria-hidden className="size-4" />
+      {/* Settings has no Memory pane yet, so the link leads nowhere. */}
+      <footer className="flex h-12 shrink-0 items-center justify-between border-t bg-muted/50 px-5 py-2">
+        <Button variant="link" size="sm" className="text-xs text-foreground">
+          Open Memory settings
         </Button>
         <Button
           variant="outline"
@@ -116,42 +118,54 @@ export function MemoryPopoverContent() {
           disabled={!clusterID || adding}
           onClick={() => setAdding(true)}
         >
-          Add memory
+          <Plus aria-hidden />
+          Add note
         </Button>
       </footer>
     </div>
   );
 }
 
-// Hangs below the brain button, its right edge on the button's. z-50, as the
-// library's popover content has: above the sidebar drawer and its scrim. It
-// never flips above: its height is capped at the room below, which would
-// otherwise trip the flip.
-export function MemoryPopover({ children }: { children: ReactElement }) {
-  // Keyed on the window's cluster, so its instructions and any draft never
-  // carry over to another.
+// Hangs from the omnibox, at its width.
+export function MemoryPopover({
+  anchorRef,
+  children,
+}: {
+  anchorRef: RefObject<HTMLElement | null>;
+  children: ReactElement;
+}) {
   const { context } = useActiveKubeContext();
+  // Opening focuses the popup itself, so no field inside looks active until
+  // the user picks one, and Tab still starts inside it.
+  const popupRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [drafts] = useState(() => new Set<string>());
+
+  // A close waits while an editor holds unsaved work. The press that asked for
+  // it also blurs the editor, which saves; once that lands, the next press
+  // closes.
+  const onOpenChange = (next: boolean) => {
+    if (next || drafts.size === 0) setOpen(next);
+  };
+
+  const popup = (
+    <PopoverPrimitive.Popup
+      ref={popupRef}
+      initialFocus={popupRef}
+      data-testid="memory-popup"
+      className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg outline-hidden"
+      style={{ width: 'var(--anchor-width)', height: 'min(476px, var(--available-height))' }}
+    >
+      {/* Keyed on the window's cluster, so no instructions or draft carry over to another. */}
+      <UnsavedDrafts value={drafts}>
+        <MemoryPopoverContent key={context} />
+      </UnsavedDrafts>
+    </PopoverPrimitive.Popup>
+  );
 
   return (
-    <Popover>
-      <PopoverTrigger render={children} />
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Positioner
-          align="end"
-          side="bottom"
-          sideOffset={8}
-          collisionAvoidance={{ side: 'none' }}
-          className="z-50"
-        >
-          <PopoverPrimitive.Popup
-            data-testid="memory-popup"
-            className="w-155 max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg outline-hidden"
-            style={{ height: 'min(476px, var(--available-height))' }}
-          >
-            <MemoryPopoverContent key={context} />
-          </PopoverPrimitive.Popup>
-        </PopoverPrimitive.Positioner>
-      </PopoverPrimitive.Portal>
-    </Popover>
+    <OmniboxPopover anchorRef={anchorRef} popup={popup} open={open} onOpenChange={onOpenChange}>
+      {children}
+    </OmniboxPopover>
   );
 }

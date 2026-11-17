@@ -12,83 +12,68 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A cluster's standing instructions: the saved text, or the editor over it. The
-// text is the parent's; this owns only the draft. The parent remounts it on a
-// cluster switch so a draft never leaks onto another cluster.
-import { Button } from '@kubetail/ui/elements/button';
-import { useState } from 'react';
+// A cluster's standing instructions. Nothing stores them yet: the text lives
+// here and is lost when the popover closes, and "Saved" marks a pause in typing
+// alone. The parent remounts this on a cluster switch, so text never carries
+// over to another cluster.
+import { cn } from '@kubetail/ui/lib/utils';
+import { Check } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import { Textarea } from '@/components/primitives/text-entry';
 
-export function MemoryInstructions({ text, onSave }: { text: string; onSave: (text: string) => void }) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const editing = draft !== null;
+// How long after the last keystroke "Saved" shows, and for how long.
+export const SAVE_DELAY_MS = 800;
+export const SAVED_SHOWN_MS = 2000;
 
-  const save = () => {
-    onSave(draft ?? '');
-    setDraft(null);
+export function MemoryInstructions() {
+  const id = useId();
+  const [text, setText] = useState('');
+  const [saved, setSaved] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const onChange = (value: string) => {
+    setText(value);
+    setSaved(false);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      setSaved(true);
+      timer.current = setTimeout(() => setSaved(false), SAVED_SHOWN_MS);
+    }, SAVE_DELAY_MS);
   };
 
-  let body;
-  if (editing) {
-    body = (
-      <div className="flex flex-col gap-2">
-        <Textarea
-          prose
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          className="h-20 resize-y text-xs"
-          autoFocus
-        />
-        <div className="flex items-center justify-between">
-          {/* Clear empties the draft alone; Save commits it, even empty, unless
-              there was nothing to begin with. */}
-          <Button
-            variant="link"
-            size="xs"
-            className="px-0 text-muted-foreground"
-            disabled={draft === ''}
-            onClick={() => setDraft('')}
-          >
-            Clear text
-          </Button>
-          <div className="flex gap-1.5">
-            <Button variant="ghost" size="xs" className="h-7 px-3" onClick={() => setDraft(null)}>
-              Cancel
-            </Button>
-            <Button size="xs" className="h-7 px-3" disabled={draft === '' && text === ''} onClick={save}>
-              Save
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  } else if (text !== '') {
-    body = (
-      <div className="flex items-start gap-3 rounded-md border-l-2 border-primary bg-background px-3 py-2">
-        <p className="flex-1 text-xs text-card-foreground">{text}</p>
-        <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setDraft(text)}>
-          Edit
-        </Button>
-      </div>
-    );
-  } else {
-    body = (
-      <div className="flex items-center justify-between py-2">
-        <p className="text-xs text-muted-foreground">No instructions added</p>
-        <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setDraft('')}>
-          Add instructions
-        </Button>
-      </div>
-    );
-  }
-
   return (
-    // In line with the memory list's text, past its checkbox column, and as
-    // far in on the right.
-    <div className="flex flex-col gap-1.5 px-6">
-      <p className="text-xs font-medium text-muted-foreground">INSTRUCTIONS</p>
-      {body}
-    </div>
+    <section className="flex flex-col gap-2.5">
+      <div className="flex items-end justify-between gap-3">
+        <div className="flex flex-col gap-0.5">
+          <label htmlFor={id} className="text-sm font-medium">
+            Instructions
+          </label>
+          <p className="text-xs text-muted-foreground">How Kstack should behave on this cluster.</p>
+        </div>
+        <p
+          role="status"
+          aria-hidden={!saved}
+          className={cn(
+            'flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition-opacity duration-300',
+            !saved && 'opacity-0',
+          )}
+        >
+          <Check aria-hidden className="size-3" />
+          Saved
+        </p>
+      </div>
+      <Textarea
+        prose
+        id={id}
+        value={text}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="e.g. keep explanations brief and to the point"
+        // A fixed box the user can stretch: the library's grows with its text.
+        className="field-sizing-fixed h-15 min-h-15 resize-y border-border bg-background px-3 py-2.5 text-sm not-placeholder-shown:border-input hover:border-input md:text-sm dark:bg-background"
+      />
+    </section>
   );
 }
