@@ -305,8 +305,12 @@ under `safe.AddSecret` until `safe.ForgetSecret`. →
 [the run's door](../../../docs/security/2026-11-17-the-runs-door.md).
 
 **A `Route` with `TLS` is served over the door's TLS** on the same listener. When a mount returns
-one, the run gets a `runproxy.Certificate` and its bundle at `CloudRun.CAFile` (`ca.pem` in the
-run directory).
+one, the run gets a `runproxy.Certificate` and its bundle at `CloudRun.CAFile` (`ca.pem` in the run
+directory). **Azure** (`azure.go`, over `run/azureproxy` and `services/azureauth`) mounts a TLS route
+at the loopback authority, and, with an account, `az`'s `clouds.config`, `config` and
+`azureProfile.json` under `TMPDIR/azure`, signing each subscription in as a managed identity whose
+endpoint is the door. A mount waits `azureMountWait` for the login, then mounts with none. →
+[ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md).
 
 **The executable probe** (`executableprobe.go`) runs each executable in the sandbox, **never through
 a shell**, with no cluster and no network. **Every disk read outside Kstack's directories is bounded**

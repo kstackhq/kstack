@@ -3,7 +3,7 @@
 Answers [#935](https://github.com/kstackhq/kstack/issues/935). Step 1 of
 [the cloud proxies](README.md), on `wip/cloud-proxies`. The four cloud platform steps of wave 2
 ([2A](2a-aws.md) AWS, [2B](2b-github.md) GitHub, [2C](2c-gcp.md) Google Cloud,
-[2D](2d-azure.md) Azure) build on it and restate none of it.
+[2D](../../adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md) Azure) build on it and restate none of it.
 
 This step changes a security boundary: what a run's one relay leads to, what the permissions
 engine decides, and what the user's approval request draws. It lands with an ADR, a
@@ -82,7 +82,7 @@ the shared code with a fake cloud platform.
 
 - Each cloud platform's endpoints, signing, service table, classifier and credential source.
 - Rules, modes and durations for a cloud platform's actions beyond asking once.
-- TLS. The door is plain HTTP; a TLS route is [step 2D's to build](2d-azure.md).
+- TLS. The door is plain HTTP; a TLS route is [step 2D's to build](../../adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md).
 - Any change to `run/sandbox`. The relay, the forwarder and both profiles stay as they are.
 - Any change to how the cluster proxy decides a request.
 - Windows, which has no sandbox.
@@ -167,7 +167,7 @@ keychain, and a run without network has no trust daemon
 (`TestTrustFetchesNothingWithoutTheInternet`). `gh` also picks plain HTTP by host name.
 
 **A client that refuses plain HTTP** gets a TLS route on the same listener and port, built by
-its cloud platform's spec. Only `az` is known to need one, and [step 2D](2d-azure.md) holds the
+its cloud platform's spec. Only `az` is known to need one, and [step 2D](../../adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md) holds the
 design and the spike that decides it. Nothing in this step
 waits on it: a route gains a transport in its key, and the door's other routes do not change.
 
@@ -871,7 +871,7 @@ When this step is complete on `wip/cloud-proxies`:
 ## What each cloud platform step owes
 
 The four drafts were rewritten on this step as [2A](2a-aws.md), [2B](2b-github.md),
-[2C](2c-gcp.md) and [2D](2d-azure.md). Each restates none of it, and each states:
+[2C](2c-gcp.md) and [2D](../../adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md). Each restates none of it, and each states:
 
 - its routes, and why its hosts are the ones they are;
 - its token's slot, and its `Limits`;

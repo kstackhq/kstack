@@ -1155,6 +1155,14 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.NotContains(t, got, "snap")
 }
 
+// Azure's paragraph says what is Azure's own, after what holds for every
+// cloud platform.
+func TestTheSandboxPromptSaysWhatIsAzures(t *testing.T) {
+	assert.Contains(t, sandboxPrompt, "Where `cloud` names `azure`, `az` reaches Azure Resource Manager alone.")
+	assert.Contains(t, sandboxPrompt, "Storage data, Key Vault secrets, `az ad` and `az login` do not work there")
+	assert.Less(t, strings.Index(sandboxPrompt, "names a cloud platform"), strings.Index(sandboxPrompt, "names `azure`"))
+}
+
 // On Linux the sandbox's section goes on to say a snap's program does not run
 // in it, so the model runs one outside rather than read the failure as the
 // cluster's. Without a sandbox there is no section to add to.

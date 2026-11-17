@@ -66,6 +66,14 @@ inputs:
     description: 'kubectl version the sandbox tests run'
     required: false
     default: 'v1.37.0'
+  install-az:
+    description: 'Whether to install az for the app tests that run it in the sandbox, on a Linux X64 runner'
+    required: false
+    default: 'false'
+  az-version:
+    description: 'Azure CLI version install-az installs'
+    required: false
+    default: '2.93.0'
 
 runs:
   using: "composite"
@@ -235,3 +243,18 @@ runs:
         else
           brew install jq
         fi
+
+    # The app's Azure tests run the az KSTACK_TEST_AZ names in the sandbox, so
+    # az's private file formats are pinned on one leg; elsewhere they skip.
+    # /opt is a folder a sandboxed run reads; /opt/az is the runner image's
+    # own az, so this one goes beside it.
+    - name: Install az
+      if: inputs.install-az == 'true' && runner.os == 'Linux' && runner.arch == 'X64'
+      shell: bash
+      env:
+        AZ_VERSION: ${{ inputs.az-version }}
+      run: |
+        sudo python3 -m venv /opt/kstack-az
+        sudo /opt/kstack-az/bin/pip install --quiet "azure-cli==${AZ_VERSION}"
+        /opt/kstack-az/bin/az version --output tsv
+        echo KSTACK_TEST_AZ=/opt/kstack-az/bin/az >> "$GITHUB_ENV"

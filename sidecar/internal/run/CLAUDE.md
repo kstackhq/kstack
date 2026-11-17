@@ -283,4 +283,5 @@ A change naming no subscription is refused; any other goes to `Decide`. Forwardi
 the user's token for the subscription's tenant; a `401` drops it and answers the
 sign-in sentence. `rewrite.go` points `Location`, `Azure-AsyncOperation`, `Operation-Location`
 and the top-level `nextLink` at the door. A `429`, which `az` retries, is answered `403`. →
-[ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md).
+[ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md),
+[record](../../../docs/security/2026-11-17-azure-through-the-proxy.md).

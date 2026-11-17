@@ -13,10 +13,8 @@ per step; its steps need step 1 alone and can be built at the same time.
 | 2A | [`2a-aws.md`](2a-aws.md) | The re-signing proxy for AWS | [#931](https://github.com/kstackhq/kstack/issues/931) | 1 |
 | 2B | [`2b-github.md`](2b-github.md) | The token-injecting proxy for GitHub | [#932](https://github.com/kstackhq/kstack/issues/932) | 1 |
 | 2C | [`2c-gcp.md`](2c-gcp.md) | The token-injecting proxy for Google Cloud | [#933](https://github.com/kstackhq/kstack/issues/933) | 1 |
-| 2D | [`2d-azure.md`](2d-azure.md) | The token-injecting proxy for Azure, and the door's TLS route | [#934](https://github.com/kstackhq/kstack/issues/934) | 1 |
 
-The sequence lands once, when its last step is built. Step 2D opens with a spike; if it fails,
-that step is retired unbuilt and the sequence lands without it.
+The sequence lands once, when its last step is built.
 
 ## What wave 2's steps share
 
