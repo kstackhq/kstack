@@ -109,6 +109,8 @@ function NoteEditor({
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    // A key that ends an IME composition belongs to the input method.
+    if (e.nativeEvent.isComposing) return;
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       void save(true);

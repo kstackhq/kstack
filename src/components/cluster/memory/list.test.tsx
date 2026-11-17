@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -203,6 +203,18 @@ describe('MemoryList', () => {
       await user.keyboard('{Escape}');
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
       expect(screen.getAllByText(BODY)).toHaveLength(3);
+      expect(saves).toEqual([]);
+    });
+
+    it('leaves Escape and Cmd+Enter to an IME composing text', async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List saves={saves} />);
+      await editNote(user);
+      await user.type(editor(), ' 日本');
+      fireEvent.keyDown(editor(), { key: 'Escape', isComposing: true });
+      fireEvent.keyDown(editor(), { key: 'Enter', metaKey: true, isComposing: true });
+      expect(editor()).toHaveValue(`${BODY} 日本`);
       expect(saves).toEqual([]);
     });
 
