@@ -2,7 +2,7 @@
 
 Answers [#935](https://github.com/kstackhq/kstack/issues/935). Step 1 of
 [the cloud proxies](README.md), on `wip/cloud-proxies`. The four provider steps of wave 2
-([2A](2a-aws.md) AWS, [2B](2b-github.md) GitHub, [2C](2c-google-cloud.md) Google Cloud,
+([2A](2a-aws.md) AWS, [2B](2b-github.md) GitHub, [2C](2c-gcp.md) Google Cloud,
 [2D](2d-azure.md) Azure) build on it and restate none of it.
 
 This step changes a security boundary: what a run's one relay leads to, what the permissions
@@ -114,7 +114,7 @@ It reads nothing else of the request.
 | `Host` | Handler | Why this name |
 | --- | --- | --- |
 | `cluster.kstack.invalid` | the cluster grant | as today |
-| `<service>.google.kstack.invalid` | Google Cloud | `gcloud` takes an endpoint per service and a proxy of its own, so Kstack picks the name |
+| `<service>.gcp.kstack.invalid` | Google Cloud | `gcloud` takes an endpoint per service and a proxy of its own, so Kstack picks the name |
 | `github.localhost`, `api.github.localhost` | GitHub | `gh` speaks plain HTTP to this host name alone (step 2B's hand check) |
 | `127.0.0.1:<port>` | AWS | `AWS_ENDPOINT_URL` is dialled directly, so `Host` is the loopback authority |
 
@@ -140,7 +140,7 @@ It reads nothing else of the request.
   it resolves nowhere (RFC 2606), so a request that misses the proxy reaches nothing. Where the
   client dictates the host, the route takes the client's name and the provider's spec says why.
 - **One word per provider**, everywhere a provider is named in code, a key or a host: `aws`,
-  `github`, `google`, `azure`.
+  `github`, `gcp`, `azure`.
 
 **The server** moves from `kubeproxy.NewServer(*Grant)` to `runproxy.NewServer(http.Handler)`,
 with the same header timeout, idle timeout and header cap, and no read or write timeout. HTTP/1.1
@@ -285,8 +285,10 @@ open at once), and 16 bodies held at once, counted per grant. No slot is a `429`
 `Retry-After`.
 
 **The grant says what its actions act on.** `NewGrant` panics on `Cluster`, a wiring mistake
-as `NewBox`'s are. `Decide` sets `req.Action.Target` to the grant's before anything reads it,
-so an action a classifier left unset is never decided, recorded or drawn as the cluster's.
+as `NewBox`'s are, and on a limit below one, which would refuse every approved request.
+`Decide` replaces `req.Action` with the grant's target and the classifier's `Class` and
+`Summary` before anything reads it, so an action a classifier left unset is never decided,
+recorded or drawn as the cluster's, and no field naming a cluster's object reaches a record.
 
 **The ask path** (`Decide`) is `kubeproxy/write.go`'s, less the cluster's parts (no command
 rules, no helm gate, no diff, no mode):
@@ -333,7 +335,8 @@ holds both, in the order asked.
   the list only when the classifier reads it and the request draws it as a detail. So no
   header the user was not shown changes what an approval sends, or turns a read into a change.
 - **A query `url.ParseQuery` refuses is refused** (`403`), as the cluster proxy refuses one:
-  the query shown would not be the query that runs.
+  the query shown would not be the query that runs. So is a body sent as
+  `application/x-www-form-urlencoded` that `url.ParseQuery` refuses, for the same reason.
 - **A shown body is valid UTF-8**, and is drawn as sent.
 - **`Decide` refuses any other** (`403`, *the request cannot be shown*), unless the provider
   sets `Unshown`: one fixed sentence of its own saying what bytes the request does not show
@@ -369,13 +372,16 @@ const (
 	Cluster Target = ""
 	AWS     Target = "aws"
 	GitHub  Target = "github"
-	Google  Target = "google"
+	GCP     Target = "gcp"
 	Azure   Target = "azure"
 )
 ```
 
-A provider's action leaves `Context` empty: no kube-context decides it. Its other fields are
-the classifier's.
+**A provider's action carries `Target`, `Class` and `Summary` alone.** Every other field
+(`Context`, `Namespace`, `Verb`, `Group`, `Kind`, `Name`, `DryRun`) names a cluster's object,
+and rules and modes read them as that. What a classifier reads from a request (a service, an
+operation, a resource group) goes in `Sent.Details`, which the request draws under its own
+label.
 
 **The classes are the cluster's**, and every provider's classifier puts a request in exactly
 one row:
@@ -408,7 +414,7 @@ one row:
   is the same; the request reads differently.
 
 **One verdict for a provider's action**, in `Policy.verdict`, taken first when `act.Target` is
-not `Cluster`: `Forbid`, *it always asks*. `Authorize`'s two flags stand around it unchanged:
+not `Cluster`: `Forbid`, *a provider's request always asks*. `Authorize`'s two flags stand around it unchanged:
 
 1. `NoSecretData` and class 6: refused.
 2. Otherwise `Forbid`: a prompt.
@@ -514,7 +520,7 @@ type CloudRequest {
 
 type RequestDetail { label: String!  value: String! }
 
-enum PermissionTarget { Cluster AWS GitHub Google Azure }
+enum PermissionTarget { Cluster AWS GitHub GCP Azure }
 ```
 
 The list is `sandboxActions`, not `actions`: `ToolCall.action` is the call's own `ToolAction`.
@@ -533,14 +539,14 @@ differs is lines of text. A fifth provider adds an enum value.
 host, each detail, then the raw request open (method, path, media type, and the body or the `unshown`
 sentence) and Once and Deny. Its label is *`<Provider>` change awaiting approval*, or
 *`<Provider>` data read awaiting approval* for class 6; a settled one is tagged with the
-provider's name. The webview holds each provider's name (*Google Cloud* for `Google`). There is
+provider's name. The webview holds each provider's name (*Google Cloud* for `GCP`). There is
 no diff. **Every string of it is the command's text and is drawn through `VisibleText`**,
 labels included. Approve stays one click on the drawn request: this adds a thing the request
 shows, not an approval path.
 
 ### 6. The consent switch
 
-- **The keys are `sandbox.aws`, `sandbox.github`, `sandbox.google` and `sandbox.azure`**:
+- **The keys are `sandbox.aws`, `sandbox.github`, `sandbox.gcp` and `sandbox.azure`**:
   booleans in the existing `sandbox` group, each with its `Field*` constant. Each only grants,
   so a refused value drops to off and `strictest` needs no entry. A new field needs no
   `schemaVersion` bump. The group is `sandbox` because the switch widens what the sandbox
@@ -608,7 +614,7 @@ type CloudMount struct {
 `CloudRun` carries what a provider may read of the run: the port, the run directory, the tool
 home, the run's `TMPDIR`, and the grant's inputs (session, asker or refusal).
 
-**A provider's `CloudProvider` is a file of `tools/bash`** (`google.go`), since it answers this
+**A provider's `CloudProvider` is a file of `tools/bash`** (`gcp.go`), since it answers this
 package's types: a constructor `app` calls with the provider's service, over the provider's
 `run/` leaf. The leaf holds the handler, the classifier and the table, and imports nothing of
 `tools`.
@@ -646,7 +652,7 @@ Rules every provider's mount follows:
   rotates hourly does not grow the list for the sidecar's life.
 - **The context says which providers are on.** The Sandbox section `agent/chat/workspace.go`
   writes (`withSandbox`) gains a `cloud` key beside `network`: the words of the providers the
-  build has whose switch is on (`["google"]`), left out when there is none. The section goes
+  build has whose switch is on (`["gcp"]`), left out when there is none. The section goes
   again when a switch changes, as it does for `network`. This step builds the key; with no
   provider built it is never written.
 - **The prompt.** This step rewords one sentence of `tools/bash/prompts/sandbox.md`, the one
@@ -706,8 +712,9 @@ Each is a test beside its file. The provider is a fake: a `CloudProvider` in the
 - `TestOnlyAllowedHeadersAreForwarded`: a header off the list, `X-HTTP-Method-Override` among
   them, never reaches the upstream, and neither do `Authorization` and `Proxy-Authorization`
   when the list names them.
-- `TestDecideStampsTheGrantsTarget`: an action with no target, and one with another
-  provider's, are each decided, recorded and asked as the grant's.
+- `TestDecideKeepsAProvidersFieldsAlone`: an action with no target, and one with another
+  provider's and every cluster field set, are each decided, recorded and asked as the grant's,
+  with its class and summary alone.
   `TestAGrantForTheClusterPanics`.
 - `TestADataReadForwardsOutsideTheLock`: while an approved class 6 read's `forward` runs, a
   second request is decided. `TestAChangeHoldsTheLockUntilItIsForwarded`.
@@ -862,7 +869,7 @@ When this step is complete on `wip/cloud-proxies`:
 ## What each provider step owes
 
 The four drafts were rewritten on this step as [2A](2a-aws.md), [2B](2b-github.md),
-[2C](2c-google-cloud.md) and [2D](2d-azure.md). Each restates none of it, and each states:
+[2C](2c-gcp.md) and [2D](2d-azure.md). Each restates none of it, and each states:
 
 - its routes, and why its hosts are the ones they are;
 - its token's slot, and its `Limits`;

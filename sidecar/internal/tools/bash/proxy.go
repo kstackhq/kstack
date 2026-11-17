@@ -21,6 +21,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/run/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -104,7 +105,7 @@ func startProxy(up kubeproxy.Upstream, sess session.Session, kubeContext, socket
 		return nil, err
 	}
 	grant := kubeproxy.NewGrant(up, sess, kubeContext, asker, refusal, proxyQPS, proxyBurst, proxyMaxInFlight)
-	p := &runProxy{grant: grant, ln: ln, srv: kubeproxy.NewServer(grant)}
+	p := &runProxy{grant: grant, ln: ln, srv: runproxy.NewServer(grant)}
 	go func() { _ = p.srv.Serve(ln) }()
 	return p, nil
 }
