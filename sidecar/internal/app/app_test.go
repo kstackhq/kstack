@@ -648,7 +648,7 @@ func TestAppClosesTheDatabaseWhenADirectoryFails(t *testing.T) {
 // A constructor failing after the open closes the file. A service's statements fail
 // to prepare on a database whose migration is recorded but whose tables are gone.
 func TestAppClosesTheDatabaseWhenAConstructorFails(t *testing.T) {
-	for table, service := range map[string]string{"clusters": "cluster", "approvals": "chat", "memories": "memory"} {
+	for table, service := range map[string]string{"clusters": "cluster", "approvals": "chat", "memories": "memory", "app_settings": "app settings"} {
 		t.Run(service, func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "app.db")

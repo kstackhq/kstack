@@ -261,6 +261,9 @@ models:
 
   # --- Memory ---
   # The memory types bind 1:1 into internal/services/memory, like the chat ones.
+  AppSettings:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/appsettings.Settings
+
   MemoryID:
     model: github.com/kstackhq/kstack/sidecar/internal/services/memory.MemoryID
 

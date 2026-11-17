@@ -1923,6 +1923,16 @@ input PermissionRuleInput {
   kind: String! = ""
 }
 
+# --- App settings ---
+# The app-level choices the user makes in Kstack's own UI, kept in app.db. The
+# settings file's surface is the Permissions and Sandbox sections.
+
+"Kstack's app settings."
+type AppSettings {
+  "Kstack's default cluster, which sits above the kubeconfig's `current-context`; null when unset. Served as stored: an id that no longer names a present, enabled cluster is not an error, and a reader falls back to the kubeconfig's."
+  defaultClusterID: ClusterID
+}
+
 # --- Cloud account ---
 # The sidecar-owned sign-in and display identity. Tokens never appear here.
 # Login verifies claims; startup restores display claims without re-verification.
@@ -2125,6 +2135,9 @@ type Mutation {
   "Enable or disable syncing for a cluster. Disabling stops sync and freezes the cache. Returns the updated cluster."
   clusterSyncEnabledSet(id: ClusterID!, syncEnabled: Boolean!): Cluster!
 
+  "Make a cluster Kstack's default, above the kubeconfig's `current-context`; null clears it. Refused `KSTACK_RECORD_NOT_FOUND` for an unknown cluster, and `KSTACK_VALIDATION_ERROR` for one that is disabled, being deleted, or no longer in its source. Never writes the kubeconfig."
+  clusterDefaultSet(id: ClusterID): AppSettings!
+
   "Let the background monitor run against this cluster, or stop it. Returns the updated record."
   clusterMonitoringEnabledSet(id: ClusterID!, monitoringEnabled: Boolean!): Cluster!
 
@@ -2322,6 +2335,10 @@ type Subscription {
   # --- Sandbox ---
   "GAUGE. The executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables."
   sandboxExecutablesWatch: SandboxExecutablesReport!
+
+  # --- App settings ---
+  "GAUGE. Kstack's app settings: the current value, then a fresh one on each change, a cluster's deletion clearing the default included."
+  appSettingsWatch: AppSettings!
 
   # --- Cloud account ---
   "Authentication state as a gauge: a fresh snapshot on every sign-in, sign-out, and refresh failure."

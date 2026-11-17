@@ -170,6 +170,18 @@ information.** → [ADR: memory is
 rows](../docs/adr/2026-09-24-memory-is-rows-scoped-to-a-cluster-or-every-cluster.md), [security
 record](../docs/security/2026-09-24-memory.md).
 
+## App settings (`internal/services/appsettings`)
+
+**The one row of `app.db`'s `app_settings`**, a typed column per setting: the choices the user
+makes in Kstack's own UI. `settings.json` is the policy a person edits by hand, and
+`services/settings` owns it. A new setting is a column added by the next migration, a field on
+`Settings` and a write that RETURNs the row and notifies `appdb.KeyAppSettings`. `Watch` is a
+gauge that sends the row when it differs from the last one sent; it re-reads on `KeyClusters`
+too, since deleting a cluster clears `default_cluster_id`. `SetDefaultCluster` refuses a marked
+or absent cluster as `ErrClusterNotFound`; the default may name a disabled or archived one, and
+readers fall back to the kubeconfig's `current-context`. → [ADR: app settings are one typed
+row](../docs/adr/2026-11-17-app-settings-are-one-typed-row-in-app-db.md).
+
 ## Auth / identity (`internal/services/auth`)
 
 Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + PKCE, loopback redirect), verification via go-oidc, refresh token in the OS keyring. Signed-in ⇔ refresh token present; works offline; degrades to signed-out when unconfigured. → [ADR: local-first auth](../docs/adr/2026-08-09-local-first-auth-settings.md).

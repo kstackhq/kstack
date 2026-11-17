@@ -3,6 +3,8 @@ title: A shipped schema changes only by a new migration
 date: 2026-11-08
 scope: cross-cutting
 status: Accepted
+amended_by:
+  - [App settings are one typed row in app.db, migrated ahead of the backup](2026-11-17-app-settings-are-one-typed-row-in-app-db.md)
 ---
 
 # A shipped schema changes only by a new migration

@@ -59,6 +59,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/graph"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/appsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
@@ -3592,4 +3593,154 @@ func TestLogsFollowCarriesARefusal(t *testing.T) {
 	ev := testutil.Recv(t, events, "the refusal").data
 	assert.Contains(t, ev, `"rule":"cursor-invalid"`)
 	assert.NotContains(t, ev, `"watchFailed"`)
+}
+
+// The default-cluster fixtures: one cluster per state clusterDefaultSet tells
+// apart, one whose row left app.db after the cluster service read it, and an id
+// naming none.
+const (
+	defaultPresent  = "1"
+	defaultDisabled = "2"
+	defaultDeleting = "3"
+	defaultArchived = "4"
+	defaultRowGone  = "5"
+	defaultUnknown  = "6"
+)
+
+// appSettingsServer is a server over the default-cluster fixtures and an app
+// settings service of its own.
+type appSettingsServer struct {
+	*httptest.Server
+	fake *fakeClusterService
+	svc  appsettings.Service
+	db   *appdb.DB
+	stop func(context.Context) error
+}
+
+func newAppSettingsServer(t *testing.T) *appSettingsServer {
+	t.Helper()
+	fixture := func(id cluster.ClusterID, enabled, present bool) clusterFixture {
+		return clusterFixture{
+			id: id,
+			spec: cluster.ClusterSpec{
+				Enabled: enabled,
+				Source:  cluster.ClusterSpecSource{Kubeconfig: &cluster.ClusterSpecSourceKubeconfig{Context: string(id)}},
+			},
+			connStatus: cluster.ClusterStatus{
+				Source: cluster.ClusterStatusSource{Kubeconfig: &cluster.ClusterStatusSourceKubeconfig{IsPresent: present}},
+			},
+		}
+	}
+	fake := newFakeClusterService([]clusterFixture{
+		fixture(defaultPresent, true, true),
+		fixture(defaultDisabled, false, true),
+		fixture(defaultDeleting, true, true),
+		fixture(defaultArchived, true, false),
+		fixture(defaultRowGone, true, true),
+	})
+	marked := time.Now()
+	fake.clusters[defaultDeleting].DeletionRequestedAt = &marked
+
+	db := appdbtest.Open(t)
+	for _, id := range []string{defaultPresent, defaultDisabled, defaultDeleting, defaultArchived} {
+		_, err := db.Write.Exec(`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES (?, 'kubeconfig', ?, 0, 0)`, id, "ctx-"+id)
+		require.NoError(t, err)
+	}
+	svc, err := appsettings.New(db)
+	require.NoError(t, err)
+	stop, err := svc.Start(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, stop(context.Background()))
+		require.NoError(t, svc.Close())
+	})
+
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: fake, AppSettings: svc}))
+	t.Cleanup(srv.Close)
+	return &appSettingsServer{Server: srv, fake: fake, svc: svc, db: db, stop: stop}
+}
+
+// stored is the default the service holds, "" for none.
+func (s *appSettingsServer) stored(t *testing.T) string {
+	t.Helper()
+	got, err := s.svc.Get(t.Context())
+	require.NoError(t, err)
+	if got.DefaultClusterID == nil {
+		return ""
+	}
+	return string(*got.DefaultClusterID)
+}
+
+func clusterDefaultSet(id string) string {
+	return `mutation { clusterDefaultSet(id: ` + id + `) { defaultClusterID } }`
+}
+
+// clusterDefaultSet stores the default and answers the settings it left; null
+// clears it.
+func TestClusterDefaultSetStoresTheDefault(t *testing.T) {
+	srv := newAppSettingsServer(t)
+
+	data := mutate(t, srv.Server, clusterDefaultSet(`"`+defaultPresent+`"`))
+	assert.Equal(t, map[string]any{"defaultClusterID": defaultPresent}, data["clusterDefaultSet"])
+	assert.Equal(t, defaultPresent, srv.stored(t))
+
+	data = mutate(t, srv.Server, clusterDefaultSet(`null`))
+	assert.Equal(t, map[string]any{"defaultClusterID": nil}, data["clusterDefaultSet"])
+	assert.Empty(t, srv.stored(t))
+}
+
+// A cluster the user cannot switch to is refused, and so is one whose row went
+// after its check; the stored default stays.
+func TestClusterDefaultSetRefusesAClusterThatCannotBeTheDefault(t *testing.T) {
+	srv := newAppSettingsServer(t)
+	mutate(t, srv.Server, clusterDefaultSet(`"`+defaultPresent+`"`))
+
+	for id, want := range map[string]string{
+		defaultUnknown:  "KSTACK_RECORD_NOT_FOUND",
+		defaultRowGone:  "KSTACK_RECORD_NOT_FOUND",
+		defaultDisabled: "KSTACK_VALIDATION_ERROR",
+		defaultDeleting: "KSTACK_VALIDATION_ERROR",
+		defaultArchived: "KSTACK_VALIDATION_ERROR",
+	} {
+		_, code := refusalOf(t, srv.Server, clusterDefaultSet(`"`+id+`"`))
+		assert.Equal(t, want, code, id)
+	}
+	assert.Equal(t, defaultPresent, srv.stored(t))
+}
+
+// A read or a write that fails is an error, not a refusal.
+func TestClusterDefaultSetFailsWithItsReadOrWrite(t *testing.T) {
+	set := clusterDefaultSet(`"` + defaultPresent + `"`)
+
+	srv := newAppSettingsServer(t)
+	srv.fake.getErr = errors.New("store closed")
+	_, code := refusalOf(t, srv.Server, set)
+	assert.Empty(t, code)
+
+	srv = newAppSettingsServer(t)
+	_, err := srv.db.Write.Exec(`DROP TABLE app_settings`)
+	require.NoError(t, err)
+	_, code = refusalOf(t, srv.Server, set)
+	assert.Empty(t, code)
+}
+
+// The watch opens with the stored settings and sends them again on each change.
+func TestAppSettingsWatchFollowsTheDefault(t *testing.T) {
+	srv := newAppSettingsServer(t)
+
+	resp, events := chatFrames(t, srv.Server, `subscription { appSettingsWatch { defaultClusterID } }`)
+	defer resp.Body.Close()
+	assert.Equal(t, map[string]any{"defaultClusterID": nil}, nextChatFrame(t, events))
+
+	mutate(t, srv.Server, clusterDefaultSet(`"`+defaultPresent+`"`))
+	assert.Equal(t, map[string]any{"defaultClusterID": defaultPresent}, nextChatFrame(t, events))
+}
+
+// A watch opened as the service stops is refused as unavailable.
+func TestAppSettingsWatchIsRefusedAsTheServiceStops(t *testing.T) {
+	srv := newAppSettingsServer(t)
+	require.NoError(t, srv.stop(t.Context()))
+
+	body, _ := json.Marshal(map[string]string{"query": `subscription { appSettingsWatch { defaultClusterID } }`})
+	assert.Contains(t, string(postGQL(t, srv.URL, string(body))), `"code":"KSTACK_SERVICE_UNAVAILABLE"`)
 }

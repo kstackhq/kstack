@@ -17,6 +17,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
+	"github.com/kstackhq/kstack/sidecar/internal/services/appsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
@@ -49,6 +50,7 @@ type Runtime struct {
 	SandboxStatus sandbox.Status
 	Settings      *settings.Service
 	Memory        memory.Service
+	AppSettings   appsettings.Service
 	Tools         tools.Box
 	Chat          chat.Service
 
@@ -182,6 +184,12 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.add("memory service", rt.Memory)
 
+	rt.AppSettings, err = appsettings.New(db)
+	if err != nil {
+		return fail(err)
+	}
+	rt.add("app settings service", rt.AppSettings)
+
 	// The file tools are fenced out of every one of Kstack's directories.
 	rt.Tools, err = chatTools(toolDeps{
 		shell: shell, fenced: p.Bash.DeniedDirs, hidden: rt.Settings.Hidden, umask: cfg.UserUmask,
@@ -246,6 +254,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		ClusterSvc:    rt.Cluster,
 		ChatSvc:       rt.Chat,
 		MemorySvc:     rt.Memory,
+		AppSettings:   rt.AppSettings,
 		LLMSvc:        rt.LLM,
 		SandboxStatus: rt.SandboxStatus,
 		Auth:          rt.Auth,

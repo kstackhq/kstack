@@ -12,6 +12,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/services/appsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
@@ -33,6 +34,8 @@ type Resolver struct {
 	ChatSvc chat.Service
 	// MemorySvc backs the memory popover's watch and writes.
 	MemorySvc memory.Service
+	// AppSettings is the app settings kept in app.db: Kstack's default cluster.
+	AppSettings appsettings.Service
 	// LLMSvc answers the models query, every provider's catalog in picker order, and
 	// labels a message's provider.
 	LLMSvc *llm.Service

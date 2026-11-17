@@ -19,6 +19,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/services/appsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
@@ -140,6 +141,24 @@ func (r *mutationResolver) ClusterEnabledSet(ctx context.Context, id apimeta.Clu
 func (r *mutationResolver) ClusterSyncEnabledSet(ctx context.Context, id apimeta.ClusterID, syncEnabled bool) (*cluster.Cluster, error) {
 	c, err := r.ClusterSvc.Clusters().SetSyncEnabled(ctx, id, syncEnabled)
 	return c, clusterErr(err)
+}
+
+// ClusterDefaultSet is the resolver for the clusterDefaultSet field. The
+// cluster is checked as it stands now: one that later leaves its source or is
+// disabled stays stored, and readers fall back.
+func (r *mutationResolver) ClusterDefaultSet(ctx context.Context, id *apimeta.ClusterID) (*appsettings.Settings, error) {
+	var def apimeta.ClusterID // empty clears the default
+	if id != nil {
+		if err := r.checkDefaultCluster(ctx, *id); err != nil {
+			return nil, err
+		}
+		def = *id
+	}
+	out, err := r.AppSettings.SetDefaultCluster(ctx, def)
+	if err != nil {
+		return nil, appSettingsErr(err)
+	}
+	return &out, nil
 }
 
 // ClusterMonitoringEnabledSet is the resolver for the clusterMonitoringEnabledSet field.
@@ -796,6 +815,15 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 		}
 	}()
 	return out, nil
+}
+
+// AppSettingsWatch is the resolver for the appSettingsWatch field.
+func (r *subscriptionResolver) AppSettingsWatch(ctx context.Context) (<-chan *appsettings.Settings, error) {
+	st, err := r.AppSettings.Watch(ctx)
+	if err != nil {
+		return nil, appSettingsErr(err)
+	}
+	return watchStream(ctx, st.Frames, st.Err), nil
 }
 
 // AuthStateWatch is the resolver for the authStateWatch field; the stream is

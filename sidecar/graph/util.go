@@ -16,6 +16,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/services/appsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/iso8601"
@@ -151,6 +152,17 @@ func memoryErr(err error) error {
 		if errors.Is(err, r.err) {
 			return gqlerrors.Clone(r.wire)
 		}
+	}
+	return err
+}
+
+// appSettingsErr is what every app settings resolver returns an error through.
+func appSettingsErr(err error) error {
+	switch {
+	case errors.Is(err, appsettings.ErrClusterNotFound):
+		return gqlerrors.Clone(gqlerrors.ErrRecordNotFound)
+	case errors.Is(err, appsettings.ErrStopping):
+		return gqlerrors.Clone(gqlerrors.ErrServiceUnavailable)
 	}
 	return err
 }
@@ -498,4 +510,26 @@ func rulePointers(rules []permissions.Rule) []*permissions.Rule {
 		out = append(out, &rules[i])
 	}
 	return out
+}
+
+// checkDefaultCluster refuses a cluster that cannot be Kstack's default: the
+// default is a cluster a window can open on.
+func (r *Resolver) checkDefaultCluster(ctx context.Context, id apimeta.ClusterID) error {
+	c, err := r.ClusterSvc.Clusters().Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return gqlerrors.Clone(gqlerrors.ErrRecordNotFound)
+	}
+	src := c.Status.Source.Kubeconfig
+	switch {
+	case !c.Spec.Enabled:
+		return gqlerrors.NewValidationError("cluster", "The cluster is disabled.")
+	case c.DeletionRequestedAt != nil:
+		return gqlerrors.NewValidationError("cluster", "The cluster is being deleted.")
+	case src == nil || !src.IsPresent:
+		return gqlerrors.NewValidationError("cluster", "The cluster is no longer in its source.")
+	}
+	return nil
 }

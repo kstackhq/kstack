@@ -35,8 +35,8 @@ Each kind of change has one shape. The tests named here are what fails when it i
   added or missing file. The migration ships with a test that builds the previous schema from
   the frozen files, seeds it, migrates and reads the seed back. `kubestore`'s triggers name
   their tables, so rebuilding one drops the triggers first and recreates them after. A migration
-  runs on the file in place, with no copy; the first `app.db` migration past `0001` waits for the
-  backup in #823.
+  runs on the file in place, with no copy, until the backup in #823 lands; `app.db`'s `0002`
+  ships ahead of it ([ADR](adr/2026-11-17-app-settings-are-one-typed-row-in-app-db.md)).
 - **A JSON column**: rides `app.db`'s version, so the change is an `app.db` migration using
   SQLite's JSON functions. A rewrite SQL cannot express has no path yet (below).
 - **A preference** (`settings.json`): a field's layout change bumps `schemaVersion` and upgrades
@@ -76,7 +76,7 @@ cluster no longer has.
 
 | Format | Where | Owner | Class | Version stamp | Forward path | Newer file | Pinned by |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| App DB | `<data>/app.db` | `internal/appdb` | durable | `sqlitemigrate` | SQL migrations | refused; the sidecar does not start and the start screen names the file | `appdb` `TestAShippedMigrationIsNeverEdited`, `TestOpenRefusesANewerFile`; the message: `TestANewerAppDBFailsTheBuildNamingTheVersions`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
+| App DB | `<data>/app.db` | `internal/appdb` | durable | `sqlitemigrate` | SQL migrations | refused; the sidecar does not start and the start screen names the file | `appdb` `TestAShippedMigrationIsNeverEdited`, `TestOpenRefusesANewerFile`, `TestMigration0002AddsTheAppSettings` (`0002`); the message: `TestANewerAppDBFailsTheBuildNamingTheVersions`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
 | App DB JSON columns | `app.db`: message content blocks, server-tool counts, tool-call input and error, `ActionRequest`, watch result | `agent/chat`, `tools` | durable | rides `app.db`'s | an `app.db` migration | with `app.db` | with `app.db` |
 | Control-plane store | `<data>/beehive.db` | `github.com/amorey/beehive/sqlite` | durable | beehive's own runner | beehive's migrations, taken by a module bump | refused; the sidecar does not start and the start screen names the file | beehive's `internal/sqlitemigrate` tests; the message: `TestANewerBeehiveDBFailsTheServiceSayingSo`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
 | Chat and monitor directories | `<data>/chats/<chat id>/`, `<data>/monitor/<cluster id>/`: `results/`, `tasks/`, `workspace/`, `toolhome/` | `agent/chat`, `tools` | durable | none | none yet: the layout only grows and the root never moves (*What cannot change yet*) | a path this build does not know is left alone | — |

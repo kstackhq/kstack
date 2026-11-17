@@ -123,6 +123,9 @@ const (
 	// KeyMemories: a memories row was inserted, rewritten or removed by a write of
 	// the memory service. A cascade from a clusters delete notifies KeyClusters alone.
 	KeyMemories = "memories"
+	// KeyAppSettings: the app_settings row was written by the app settings service.
+	// A clusters delete that clears a column of it notifies KeyClusters alone.
+	KeyAppSettings = "app-settings"
 )
 
 // MessagesKey: the chat's message rows changed. Re-read and diff.

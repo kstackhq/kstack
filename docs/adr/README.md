@@ -258,3 +258,4 @@ usually just documentation in the wrong place.
 | 2026-11-12 | [The dashboard's namespace scope is a search param](2026-11-12-the-namespace-scope-is-a-search-param.md) | frontend | Accepted |
 | 2026-11-15 | [designsync reads Figma over the REST API](2026-11-15-designsync-reads-figma-over-the-rest-api.md) | repo | Accepted |
 | 2026-11-15 | [Agent guides sit beside the components they describe](2026-11-15-agent-guides-sit-beside-the-components-they-describe.md) | repo | Accepted |
+| 2026-11-17 | [App settings are one typed row in app.db, migrated ahead of the backup](2026-11-17-app-settings-are-one-typed-row-in-app-db.md) | sidecar | Accepted |

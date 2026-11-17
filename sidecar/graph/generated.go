@@ -24,6 +24,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/services/appsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
@@ -62,6 +63,10 @@ type DirectiveRoot struct {
 }
 
 type ComplexityRoot struct {
+	AppSettings struct {
+		DefaultClusterID func(childComplexity int) int
+	}
+
 	AuthState struct {
 		Authenticated func(childComplexity int) int
 		Identity      func(childComplexity int) int
@@ -636,6 +641,7 @@ type ComplexityRoot struct {
 		ClusterCacheClear               func(childComplexity int, id apimeta.ObjectID) int
 		ClusterCachedKindSyncEnabledSet func(childComplexity int, id apimeta.ObjectID, syncEnabled bool) int
 		ClusterConnectionRetry          func(childComplexity int, id apimeta.ClusterID) int
+		ClusterDefaultSet               func(childComplexity int, id *apimeta.ClusterID) int
 		ClusterDelete                   func(childComplexity int, id apimeta.ClusterID) int
 		ClusterEnabledSet               func(childComplexity int, id apimeta.ClusterID, enabled bool) int
 		ClusterMonitoringEnabledSet     func(childComplexity int, id apimeta.ClusterID, monitoringEnabled bool) int
@@ -821,6 +827,7 @@ type ComplexityRoot struct {
 	}
 
 	Subscription struct {
+		AppSettingsWatch              func(childComplexity int) int
 		AuthStateWatch                func(childComplexity int) int
 		ChatMessagesWatch             func(childComplexity int, chatID apimeta.ChatID) int
 		ChatsWatch                    func(childComplexity int) int
@@ -929,6 +936,7 @@ type ClusterPrincipalResolver interface {
 type MutationResolver interface {
 	ClusterEnabledSet(ctx context.Context, id apimeta.ClusterID, enabled bool) (*cluster.Cluster, error)
 	ClusterSyncEnabledSet(ctx context.Context, id apimeta.ClusterID, syncEnabled bool) (*cluster.Cluster, error)
+	ClusterDefaultSet(ctx context.Context, id *apimeta.ClusterID) (*appsettings.Settings, error)
 	ClusterMonitoringEnabledSet(ctx context.Context, id apimeta.ClusterID, monitoringEnabled bool) (*cluster.Cluster, error)
 	ClusterConnectionRetry(ctx context.Context, id apimeta.ClusterID) (bool, error)
 	ClusterDelete(ctx context.Context, id apimeta.ClusterID) (bool, error)
@@ -1001,6 +1009,7 @@ type SubscriptionResolver interface {
 	MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memory.MemoryWatchFrame, error)
 	LogsFollow(ctx context.Context, id apimeta.ClusterID, request model.LogsFollowInput) (<-chan *model.LogsFollowFrame, error)
 	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
+	AppSettingsWatch(ctx context.Context) (<-chan *appsettings.Settings, error)
 	AuthStateWatch(ctx context.Context) (<-chan *auth.State, error)
 }
 type ToolCallResolver interface {
@@ -1024,6 +1033,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	ec := newExecutionContext(nil, e, nil)
 	_ = ec
 	switch typeName + "." + field {
+
+	case "AppSettings.defaultClusterID":
+		if e.ComplexityRoot.AppSettings.DefaultClusterID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AppSettings.DefaultClusterID(childComplexity), true
 
 	case "AuthState.authenticated":
 		if e.ComplexityRoot.AuthState.Authenticated == nil {
@@ -3341,6 +3357,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ClusterConnectionRetry(childComplexity, args["id"].(apimeta.ClusterID)), true
+	case "Mutation.clusterDefaultSet":
+		if e.ComplexityRoot.Mutation.ClusterDefaultSet == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_clusterDefaultSet_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ClusterDefaultSet(childComplexity, args["id"].(*apimeta.ClusterID)), true
 	case "Mutation.clusterDelete":
 		if e.ComplexityRoot.Mutation.ClusterDelete == nil {
 			break
@@ -4225,6 +4252,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SettingsRefusal.Value(childComplexity), true
 
+	case "Subscription.appSettingsWatch":
+		if e.ComplexityRoot.Subscription.AppSettingsWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.AppSettingsWatch(childComplexity), true
 	case "Subscription.authStateWatch":
 		if e.ComplexityRoot.Subscription.AuthStateWatch == nil {
 			break
@@ -4762,6 +4795,14 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 // childFields_* functions provide shared child field context lookups.
 // Each function is generated once per unique object type, deduplicating the
 // switch statements that were previously inlined in every fieldContext_* function.
+
+func (ec *executionContext) childFields_AppSettings(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "defaultClusterID":
+		return ec.fieldContext_AppSettings_defaultClusterID(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type AppSettings", field.Name)
+}
 
 func (ec *executionContext) childFields_AuthState(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
@@ -6781,6 +6822,20 @@ func (ec *executionContext) field_Mutation_clusterConnectionRetry_args(ctx conte
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_clusterDefaultSet_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (*apimeta.ClusterID, error) {
+			return ec.unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_clusterDelete_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -7582,6 +7637,29 @@ func (ec *executionContext) field___Type_inputFields_args(ctx context.Context, r
 // endregion ***************************** args.gotpl *****************************
 
 // region    **************************** field.gotpl *****************************
+
+func (ec *executionContext) _AppSettings_defaultClusterID(ctx context.Context, field graphql.CollectedField, obj *appsettings.Settings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AppSettings_defaultClusterID(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DefaultClusterID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *apimeta.ClusterID) graphql.Marshaler {
+			return ec.marshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_AppSettings_defaultClusterID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AppSettings", field, false, false, "ClusterID")
+}
 
 func (ec *executionContext) _AuthState_authenticated(ctx context.Context, field graphql.CollectedField, obj *auth.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
@@ -16382,6 +16460,50 @@ func (ec *executionContext) fieldContext_Mutation_clusterSyncEnabledSet(ctx cont
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_clusterDefaultSet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_clusterDefaultSet(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ClusterDefaultSet(ctx, fc.Args["id"].(*apimeta.ClusterID))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *appsettings.Settings) graphql.Marshaler {
+			return ec.marshalNAppSettings2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋappsettingsᚐSettings(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_clusterDefaultSet(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_AppSettings(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_clusterDefaultSet_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_clusterMonitoringEnabledSet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -21163,6 +21285,38 @@ func (ec *executionContext) fieldContext_Subscription_sandboxExecutablesWatch(_ 
 	return fc, nil
 }
 
+func (ec *executionContext) _Subscription_appSettingsWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_appSettingsWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().AppSettingsWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *appsettings.Settings) graphql.Marshaler {
+			return ec.marshalNAppSettings2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋappsettingsᚐSettings(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_appSettingsWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_AppSettings(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Subscription_authStateWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
 	return graphql.ResolveFieldStream(
 		ctx,
@@ -24028,6 +24182,39 @@ func UnmarshalPermissionRuleInput(ctx context.Context, raw any) (model.Permissio
 // endregion ************************** interface.gotpl ***************************
 
 // region    **************************** object.gotpl ****************************
+
+var appSettingsImplementors = []string{"AppSettings"}
+
+func (ec *executionContext) _AppSettings(ctx context.Context, sel ast.SelectionSet, obj *appsettings.Settings) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, appSettingsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("AppSettings")
+		case "defaultClusterID":
+			out.Values[i] = ec._AppSettings_defaultClusterID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
 
 var authStateImplementors = []string{"AuthState"}
 
@@ -27793,6 +27980,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "clusterDefaultSet":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_clusterDefaultSet(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "clusterMonitoringEnabledSet":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_clusterMonitoringEnabledSet(ctx, field)
@@ -29193,6 +29387,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_logsFollow(ctx, fields[0])
 	case "sandboxExecutablesWatch":
 		return ec._Subscription_sandboxExecutablesWatch(ctx, fields[0])
+	case "appSettingsWatch":
+		return ec._Subscription_appSettingsWatch(ctx, fields[0])
 	case "authStateWatch":
 		return ec._Subscription_authStateWatch(ctx, fields[0])
 	default:
@@ -29887,6 +30083,14 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 // endregion **************************** object.gotpl ****************************
 
 // region    ***************************** type.gotpl *****************************
+
+func (ec *executionContext) marshalNAppSettings2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋappsettingsᚐSettings(ctx context.Context, sel ast.SelectionSet, v *appsettings.Settings) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "AppSettings!")
+		return graphql.Null
+	}
+	return ec._AppSettings(ctx, sel, v)
+}
 
 func (ec *executionContext) unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalDecision(ctx context.Context, v any) (chat.ApprovalDecision, error) {
 	tmp, err := graphql.UnmarshalString(v)

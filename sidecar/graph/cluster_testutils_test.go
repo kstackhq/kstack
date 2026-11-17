@@ -52,7 +52,9 @@ type fakeClusterService struct {
 	// When set, Delete fails with it.
 	deleteErr error
 	// When set, List fails with it.
-	listErr     error
+	listErr error
+	// When set, Get fails with it.
+	getErr      error
 	syncEvents  map[cluster.ClusterCachedKindID][]cluster.Event
 	events      map[cluster.ClusterID][]cluster.Event                   // connection-event history, keyed by ClusterID
 	cacheEvents map[cluster.ClusterCacheID][]cluster.Event              // sync-event history, keyed by ClusterCacheID
@@ -195,6 +197,9 @@ func (f fakeClusters) List(context.Context) ([]*cluster.Cluster, error) {
 func (f fakeClusters) Get(_ context.Context, id cluster.ClusterID) (*cluster.Cluster, error) {
 	f.s.mu.Lock()
 	defer f.s.mu.Unlock()
+	if f.s.getErr != nil {
+		return nil, f.s.getErr
+	}
 	c, ok := f.s.clusters[id]
 	if !ok {
 		return nil, nil

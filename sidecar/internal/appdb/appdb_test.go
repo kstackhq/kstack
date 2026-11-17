@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/amorey/gobus"
 	"github.com/stretchr/testify/assert"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitepool"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
@@ -28,10 +31,10 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	require.FileExists(t, path)
 
-	// Migrations ran: the schema_migrations sequence is at version 1.
+	// Migrations ran: the schema_migrations sequence is at version 2.
 	var v int
 	require.NoError(t, db.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 1, v)
+	require.Equal(t, 2, v)
 	requireTables(t, db.Write.DB)
 	require.NoError(t, db.Close())
 
@@ -40,7 +43,7 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db2.Close() })
 	require.NoError(t, db2.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 1, v)
+	require.Equal(t, 2, v)
 	requireTables(t, db2.Write.DB)
 }
 
@@ -141,6 +144,7 @@ func requireTables(t *testing.T, db *sql.DB) {
 	require.NoError(t, rows.Err())
 	require.Equal(t, []string{
 		"agent_runs wr=0 strict=1",
+		"app_settings wr=0 strict=1",
 		"approvals wr=1 strict=1",
 		"background_tasks wr=1 strict=1",
 		"chat_grants wr=1 strict=1",
@@ -397,7 +401,8 @@ func TestOpenRefusesANewerFile(t *testing.T) {
 // line in the PR that writes it. Once a desktop release carries a migration, every
 // installed app.db has run it, so its line never changes again.
 var shippedMigrations = map[string]string{
-	"0001_init.sql": "5bce01af11e58cea4359e82f58d5c5719c9077646fb71c0b4a3055e8a0489944", // desktop/v0.0.1
+	"0001_init.sql":         "5bce01af11e58cea4359e82f58d5c5719c9077646fb71c0b4a3055e8a0489944", // desktop/v0.0.1
+	"0002_app_settings.sql": "1f3678e6d594233532133e2af7a30d0bf03dc6fd425c5fa514fe9e0d2f75083d",
 }
 
 func TestAShippedMigrationIsNeverEdited(t *testing.T) {
@@ -453,4 +458,45 @@ func TestSubscriptionsEndOnClose(t *testing.T) {
 func TestSubscribeWithNoKeysPanics(t *testing.T) {
 	h, _ := openTestDB(t)
 	require.Panics(t, func() { h.Subscribe() })
+}
+
+// 0002 adds app_settings and its one row to an app.db 0001 made, leaving its
+// rows alone. The default is cleared with its cluster's row.
+func TestMigration0002AddsTheAppSettings(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "app.db")
+	frozen, err := fs.ReadFile(migrationsFS, "migrations/0001_init.sql")
+	require.NoError(t, err)
+	pool, err := sqlitepool.OpenWriter(path)
+	require.NoError(t, err)
+	_, err = sqlitemigrate.Apply(ctx, pool.DB, fstest.MapFS{"migrations/0001_init.sql": {Data: frozen}}, "migrations")
+	require.NoError(t, err)
+	_, err = pool.ExecContext(ctx, `INSERT INTO clusters (id, source, source_key, created_at, updated_at)
+		VALUES ('c1', 'kubeconfig', 'prod', 0, 0)`)
+	require.NoError(t, err)
+	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
+
+	db, err := Open(path, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	var source string
+	require.NoError(t, db.Write.QueryRowContext(ctx, `SELECT source_key FROM clusters WHERE id = 'c1'`).Scan(&source))
+	assert.Equal(t, "prod", source)
+
+	var def sql.NullString
+	require.NoError(t, db.Write.QueryRowContext(ctx, `SELECT default_cluster_id FROM app_settings`).Scan(&def))
+	assert.False(t, def.Valid, "the seeded row has no default")
+
+	_, err = db.Write.ExecContext(ctx, `INSERT INTO app_settings (slot) VALUES (1)`)
+	assert.Error(t, err, "one row at most")
+	_, err = db.Write.ExecContext(ctx, `UPDATE app_settings SET default_cluster_id = 'gone'`)
+	assert.Error(t, err, "a default names a cluster")
+	_, err = db.Write.ExecContext(ctx, `UPDATE app_settings SET default_cluster_id = 'c1'`)
+	require.NoError(t, err)
+
+	_, err = db.Write.ExecContext(ctx, `DELETE FROM clusters WHERE id = 'c1'`)
+	require.NoError(t, err)
+	require.NoError(t, db.Write.QueryRowContext(ctx, `SELECT default_cluster_id FROM app_settings`).Scan(&def))
+	assert.False(t, def.Valid)
 }
