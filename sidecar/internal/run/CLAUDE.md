@@ -1,10 +1,11 @@
 # internal/run — what confines one run
 
-Nine leaves that know no tool and no record: `loginshell` (the user's shell, read once a launch),
+Ten leaves that know no tool and no record: `loginshell` (the user's shell, read once a launch),
 `session` (one run's policy), `sandbox` (the machine's sandbox), `permissions` (the decision over an
 action), `kubeproxy` (the proxy a sandboxed command reaches its cluster through),
 `runproxy` (what every cloud platform's proxy shares, and the run's server), `awsproxy` (AWS's),
-`azureproxy` (Azure's) and `githubproxy` (GitHub's). A tool imports these; none imports a tool.
+`azureproxy` (Azure's), `githubproxy` (GitHub's) and `gcpproxy` (Google Cloud's). A tool imports
+these; none imports a tool.
 Posture and the tests that pin it:
 [`docs/security-model.md`](../../../docs/security-model.md).
 
@@ -330,3 +331,14 @@ its `TokenSource`. → [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-re
   GitHub breaks off is broken off to the client.
 - **No redirect is followed.** A link to the upstream's own origin, in `Location` or `Link`, is
   handed back as the route's; one to another host passes on an approved data read alone.
+
+## Google Cloud's proxy (`gcpproxy`)
+
+**`internal/run/gcpproxy` is the proxy a sandboxed `gcloud` reaches Google through**, over a
+`runproxy.Grant`. It reaches the user's token through `TokenSource`, never `services`.
+`services.go` is the table: six services, each one upstream host and its path prefixes, routed as
+`<service>.gcp.kstack.invalid`. `request.go` reads a path by decoded segment and refuses an encoded
+`/` or `.` outside a storage object's name. `classify.go` answers read, change, data read (class 6)
+or refused. `redact.go` blanks secrets in `compute`'s and `container`'s 2xx answers and fails
+closed. **Every refusal is Google's 403**, a grant's 429 included, since `gcloud` retries a 429 and
+a 5xx. → [ADR](../../../docs/adr/2026-11-17-google-cloud-is-reached-with-the-active-gcloud-accounts-token.md).
