@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A cluster's standing instructions. The text saves on Cmd/Ctrl+Enter or when
-// the box loses focus, never mid-edit, so a chat never reads half-written instructions. Nothing
-// stores them yet: the text lives here and is lost when the popover closes. The
-// parent remounts this on a cluster switch, so text never carries over to
-// another cluster.
+// A cluster's standing instructions. They save on Cmd/Ctrl+Enter or when the
+// box loses focus, never mid-edit, so a chat never reads them half-written.
+// Nothing stores them yet: the text lives here and is lost when the popover
+// closes. The parent remounts this on a cluster switch, so text never carries
+// over to another cluster.
 import { cn } from '@kubetail/ui/lib/utils';
 import { Check } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -47,14 +47,12 @@ export function MemoryInstructions() {
     if (text === savedText) return;
     setSavedText(text);
     setSaved(true);
-    clearTimeout(timer.current);
     timer.current = setTimeout(() => setSaved(false), SAVED_SHOWN_MS);
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    // A key that ends an IME composition belongs to the input method.
-    if (e.nativeEvent.isComposing) return;
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    // An Enter that ends an IME composition belongs to the input method.
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
       e.preventDefault();
       save();
     }
@@ -93,7 +91,7 @@ export function MemoryInstructions() {
           // A fixed box the user can stretch: the library's grows with its text.
           className="field-sizing-fixed h-15 min-h-15 resize-y border-border bg-background px-3 py-2.5 text-sm not-placeholder-shown:border-input hover:border-input md:text-sm dark:bg-background [&::-webkit-resizer]:bg-transparent"
         />
-        {/* Drawn over the native grip, which stays the drag target, in the box's border color. */}
+        {/* The design's grip, in the border's color. The native one beneath it, made transparent, takes the drag. */}
         <ResizeThumb
           aria-hidden
           className="pointer-events-none absolute right-0.5 bottom-0.5 size-5 text-border group-hover/box:text-input group-has-not-placeholder-shown/box:text-input group-has-focus-visible/box:text-ring"

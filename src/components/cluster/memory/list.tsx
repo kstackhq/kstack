@@ -152,11 +152,10 @@ function NoteEditor({
 
 function Row({ memory, onEdit, onDelete }: { memory: Memory; onEdit: () => void; onDelete: () => void }) {
   return (
-    // The trash button hides by opacity alone, so it keeps its space and its
-    // tab stop: focus inside the row shows it. It shows without the Button's
-    // fade, which would leave the last row's icon trailing the hover.
-    // Both buttons are named by their action and the body, so a screen reader
-    // tells the notes apart.
+    // Each button is named by its action and the note's body, so a screen
+    // reader tells the notes apart. The trash button hides by opacity alone,
+    // keeping its space and its tab stop, so focus inside the row shows it. It
+    // has no fade: one would trail the pointer from row to row.
     <div className="group/row flex items-start gap-3 py-2.5 pr-3 pl-4 focus-within:bg-secondary hover:bg-secondary">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <button
