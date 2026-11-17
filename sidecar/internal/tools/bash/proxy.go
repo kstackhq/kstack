@@ -36,10 +36,10 @@ const (
 )
 
 // runProxy is a sandboxed run's door: one listener and one server on the
-// run's socket, in front of the cluster's grant and each provider's.
+// run's socket, in front of the cluster's grant and each cloud platform's.
 type runProxy struct {
 	grant  *kubeproxy.Grant // the cluster's; nil for a run with no cluster
-	mounts []CloudMount     // each provider's, in the order mounted
+	mounts []CloudMount     // each cloud platform's, in the order mounted
 	ln     net.Listener
 	srv    *http.Server
 }
@@ -106,7 +106,7 @@ func newClusterGrant(up kubeproxy.Upstream, sess session.Session, kubeContext st
 }
 
 // serve listens on socket and serves the door over the grants p holds, each
-// provider's route reading on.
+// cloud platform's route reading on.
 func (p *runProxy) serve(socket string, on func(permissions.Target) bool) error {
 	var cluster http.Handler
 	if p.grant != nil {
@@ -126,7 +126,7 @@ func (p *runProxy) serve(socket string, on func(permissions.Target) bool) error 
 }
 
 // grant is what a run's door ends and joins: the cluster's grant or a
-// provider's.
+// cloud platform's.
 type grant interface {
 	End()
 	Wait()
@@ -167,12 +167,12 @@ func (p *runProxy) end() {
 
 // door routes each request of a run by its Host to that route's handler, and
 // answers anything else as the cluster's grant answers a request it does not
-// hold: an unknown host, a CONNECT, a provider whose switch is off. It reads
-// nothing else of the request and authenticates nothing: each grant checks its
-// own token, so no route is trusted because of its Host.
+// hold: an unknown host, a CONNECT, a cloud platform whose switch is off. It
+// reads nothing else of the request and authenticates nothing: each grant
+// checks its own token, so no route is trusted because of its Host.
 type door struct {
 	routes map[string]doorRoute
-	on     func(permissions.Target) bool // a provider's switch, now
+	on     func(permissions.Target) bool // a cloud platform's switch, now
 }
 
 // doorRoute is one host's handler, and whose it is.
@@ -182,8 +182,8 @@ type doorRoute struct {
 }
 
 // newDoor is the door over cluster, nil for a run with none, and mounts, each
-// provider's route reading on. No two routes share a Host, and none takes the
-// cluster's.
+// cloud platform's route reading on. No two routes share a Host, and none takes
+// the cluster's.
 func newDoor(cluster http.Handler, mounts []CloudMount, on func(permissions.Target) bool) (*door, error) {
 	d := &door{routes: map[string]doorRoute{}, on: on}
 	if cluster != nil {
@@ -200,7 +200,7 @@ func newDoor(cluster http.Handler, mounts []CloudMount, on func(permissions.Targ
 	return d, nil
 }
 
-// ServeHTTP hands r to its route. A provider's route reads its switch on
+// ServeHTTP hands r to its route. A cloud platform's route reads its switch on
 // every request, so one turned off while the run lives answers the door's 401
 // to the next; a request already past the door ends as it would have.
 func (d *door) ServeHTTP(w http.ResponseWriter, r *http.Request) {

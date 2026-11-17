@@ -47,7 +47,7 @@ import {
   isWaitingAction,
   clusterRequestOf,
   cloudRequestOf,
-  PROVIDER_NAMES,
+  CLOUD_PLATFORM_NAMES,
   noticesOf,
   ranSearch,
   searchesOf,
@@ -733,11 +733,11 @@ function ToolCalls({
 }
 
 // A call's sandbox actions that no longer wait, one line each: the method and
-// the path (a provider's after its host), tagged with what the user or the
-// permissions engine decided, a provider's request with its name first, and
-// for the engine's, the mode or rule that decided it. `approved` and `allowed`
-// are the decision, not that the cluster or provider received it; the output
-// says what the command read back.
+// the path (a cloud platform's after its host), tagged with what the user or
+// the permissions engine decided, a cloud platform's request with its name
+// first, and for the engine's, the mode or rule that decided it. `approved` and
+// `allowed` are the decision, not that the cluster or cloud platform received
+// it; the output says what the command read back.
 function SandboxActionLines({ call }: { call: ChatToolCall }) {
   const settled = call.sandboxActions.filter((a) => !isWaitingAction(call, a));
   if (settled.length === 0) return null;
@@ -750,7 +750,7 @@ function SandboxActionLines({ call }: { call: ChatToolCall }) {
         let line = a.action?.summary ?? '';
         if (cluster) line = `${cluster.method} ${cluster.path}`;
         if (cloud) line = `${cloud.method} ${cloud.host}${cloud.path}`;
-        const tag = target === 'Cluster' ? sandboxActionTag(a) : `${PROVIDER_NAMES[target]} · ${sandboxActionTag(a)}`;
+        const tag = target === 'Cluster' ? sandboxActionTag(a) : `${CLOUD_PLATFORM_NAMES[target]} · ${sandboxActionTag(a)}`;
         return (
           <li key={a.approval.id}>
             <span className="font-mono break-all">
@@ -817,8 +817,8 @@ function sandboxActionLabel(action: ChatSandboxAction['action']): string {
   if (action === null) return 'Request awaiting approval';
   const reads = action.class === 'SecretRead';
   if (action.target === 'Cluster') return reads ? 'Secret read awaiting approval' : 'Cluster change awaiting approval';
-  const provider = PROVIDER_NAMES[action.target];
-  return reads ? `${provider} data read awaiting approval` : `${provider} change awaiting approval`;
+  const platform = CLOUD_PLATFORM_NAMES[action.target];
+  return reads ? `${platform} data read awaiting approval` : `${platform} change awaiting approval`;
 }
 
 function sandboxActionTag(a: ChatSandboxAction): string {
@@ -989,11 +989,11 @@ function commandHeading(command: CommandAction, sandboxAvailable: boolean | unde
 // description of the Agent call a subagent's request ran under, null on the
 // answer's own: the user is approving a call whose reasoning they cannot see,
 // so the request says whose it is. `change` is an action the call's sandboxed
-// command sent to the cluster or a provider, which is what the request asks
-// about when it is set; the call's command is then drawn under it as what sent
-// it. A cluster change is the one request that offers a rule: an action a rule
-// may allow offers four allow answers beside Deny, each with the rule it adds
-// in the sidecar's words. A provider's never may.
+// command sent to the cluster or a cloud platform, which is what the request
+// asks about when it is set; the call's command is then drawn under it as what
+// sent it. A cluster change is the one request that offers a rule: an action a
+// rule may allow offers four allow answers beside Deny, each with the rule it
+// adds in the sidecar's words. A cloud platform's never may.
 function ApprovalRequest({
   approval,
   action,
@@ -1028,8 +1028,8 @@ function ApprovalRequest({
   const memory = action?.memory?.scope === 'everywhere' ? action.memory : null;
   const cluster = change ? clusterRequestOf(change) : null;
   const cloud = change ? cloudRequestOf(change) : null;
-  // A provider's body under an Unshown sentence is never drawn, so it never
-  // folds and Approve never waits on it.
+  // A cloud platform's body under an Unshown sentence is never drawn, so it
+  // never folds and Approve never waits on it.
   const requestBody = cluster?.body ?? (cloud?.unshown === '' ? cloud.body : '');
   const folding = change ? requestBody : (command?.text ?? write?.content ?? memory?.body ?? '');
   const { head, rest } = useCut(folding);
@@ -1068,11 +1068,11 @@ function ApprovalRequest({
   // approved.
   let drawn = true;
   let body: ReactNode;
-  // The request as sent, drawn alike for the cluster and a provider: the path
-  // and query as sent, one line the proxy bounds; the method, and the media
-  // type, which decides what a body does; then the body as a file's content
-  // is, or the provider's sentence for one it does not show. The command under
-  // Sent by is context, so Approve does not wait on its fold.
+  // The request as sent, drawn alike for the cluster and a cloud platform: the
+  // path and query as sent, one line the proxy bounds; the method, and the
+  // media type, which decides what a body does; then the body as a file's
+  // content is, or the cloud platform's sentence for one it does not show. The
+  // command under Sent by is context, so Approve does not wait on its fold.
   const request = cluster ?? cloud;
   const unshown = cloud?.unshown ?? '';
   const sent = request && (
@@ -1121,9 +1121,9 @@ function ApprovalRequest({
     drawn = false;
     body = <p className="text-xs text-muted-foreground">This request can&apos;t be shown.</p>;
   } else if (change?.action && cloud) {
-    // A provider's request: the summary as its heading, the host it goes to,
-    // each line the classifier read, then the raw request open, as it is the
-    // whole of what is approved. Every string is the command's text.
+    // A cloud platform's request: the summary as its heading, the host it goes
+    // to, each line the classifier read, then the raw request open, as it is
+    // the whole of what is approved. Every string is the command's text.
     label = sandboxActionLabel(change.action);
     body = (
       <>

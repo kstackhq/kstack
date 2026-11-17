@@ -187,7 +187,8 @@ func TestABodyPastTheCapIs413(t *testing.T) {
 	assert.Equal(t, http.StatusRequestEntityTooLarge, status)
 }
 
-// The read body is the request's body again, for a provider that forwards r.
+// The read body is the request's body again, for a cloud platform that forwards
+// r.
 func TestABodyReadIsForwardable(t *testing.T) {
 	g := newTestGrant(t, nil, testLimits)
 	r := post(`{"a":1}`)

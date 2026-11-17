@@ -4,8 +4,8 @@ A sandboxed command reaches AWS, GitHub, Google Cloud and Azure as the user, thr
 the sidecar that adds the credential, so the sandbox holds none. One sequence, on
 `wip/cloud-proxies`.
 
-Step 1 builds what the four providers share, and is built. Wave 2 builds one provider per step; its
-steps need step 1 alone and can be built at the same time.
+Step 1 builds what the four cloud platforms share, and is built. Wave 2 builds one cloud platform
+per step; its steps need step 1 alone and can be built at the same time.
 
 | Step | Spec | Builds | Answers | Needs |
 | --- | --- | --- | --- | --- |
@@ -21,10 +21,10 @@ that step is retired unbuilt and the sequence lands without it.
 ## The sequence's gate
 
 Each step has its own integration gate. The sequence has one more, run once the last step is
-built, since two providers can collide where neither does alone:
+built, since two cloud platforms can collide where neither does alone:
 
-- One sandboxed run with every provider built turned on and a cluster, network off, through the
-  real sandbox with a fake upstream per provider: each provider's read answers, and `kubectl`
-  still reads the cluster.
-- The same run's environment holds no variable two providers set to different values.
+- One sandboxed run with every cloud platform built turned on and a cluster, network off, through
+  the real sandbox with a fake upstream per cloud platform: each cloud platform's read answers, and
+  `kubectl` still reads the cluster.
+- The same run's environment holds no variable two cloud platforms set to different values.
 - The full checks in [`../README.md`](../README.md#verification-commands), with the wire checks.

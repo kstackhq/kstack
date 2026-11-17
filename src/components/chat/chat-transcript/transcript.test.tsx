@@ -3126,8 +3126,8 @@ describe('ChatTranscript', () => {
   });
 
   describe('cloud requests', () => {
-    // A request a sandboxed command sent to a provider, as the sidecar serves
-    // it: waiting unless a case says otherwise.
+    // A request a sandboxed command sent to a cloud platform, as the sidecar
+    // serves it: waiting unless a case says otherwise.
     const cloudRequest = (
       over: Partial<ChatSandboxAction> = {},
       request: Partial<NonNullable<ChatSandboxAction['request']>> = {},
@@ -3192,7 +3192,7 @@ describe('ChatTranscript', () => {
       ).toEqual(['Approve once', 'Deny']);
     });
 
-    it('labels a data read, and names each provider in words', () => {
+    it('labels a data read, and names each cloud platform in words', () => {
       draw([
         waitingOn([
           cloudRequest({ action: { ...cloudRequest().action!, class: 'SecretRead' } }),
@@ -3206,13 +3206,13 @@ describe('ChatTranscript', () => {
       expect(screen.getByRole('group', { name: 'Google Cloud change awaiting approval' })).toBeInTheDocument();
     });
 
-    it("draws the provider's sentence in the body's place", () => {
+    it("draws the cloud platform's sentence in the body's place", () => {
       draw([waitingOn([cloudRequest({}, { body: '', unshown: 'A Git pack of the commits pushed.' })])]);
       const request = screen.getByRole('group', { name: 'AWS change awaiting approval' });
       expect(request).toHaveTextContent('A Git pack of the commits pushed.');
     });
 
-    // A body behind the provider's sentence is never drawn, so it holds
+    // A body behind the cloud platform's sentence is never drawn, so it holds
     // nothing back.
     it('holds Approve on no body the sentence stands for', () => {
       draw([
@@ -3223,9 +3223,9 @@ describe('ChatTranscript', () => {
       expect(within(request).getByRole('button', { name: 'Approve once' })).toBeEnabled();
     });
 
-    // A rule is always a cluster's, so a provider's request offers no allow
-    // answer even when marked grantable.
-    it('offers no allow answer on a grantable provider request', () => {
+    // A rule is always a cluster's, so a cloud platform's request offers no
+    // allow answer even when marked grantable.
+    it('offers no allow answer on a grantable cloud platform request', () => {
       const action = { ...cloudRequest().action!, grantable: true, commandRule: 'c', chatRule: 'r' };
       draw([waitingOn([cloudRequest({ action })])]);
       const request = screen.getByRole('group', { name: 'AWS change awaiting approval' });
@@ -3279,8 +3279,9 @@ describe('ChatTranscript', () => {
       expect(screen.getByText('denied')).toBeInTheDocument();
     });
 
-    // A settled request is one line tagged with its provider and the decision.
-    it("tags a settled request with its provider's name", () => {
+    // A settled request is one line tagged with its cloud platform and the
+    // decision.
+    it("tags a settled request with its cloud platform's name", () => {
       draw([
         msg({
           toolCalls: [

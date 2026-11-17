@@ -6,7 +6,7 @@ alone. The other steps of wave 2 (`2a-aws.md`, `2b-github.md`, `2c-gcp.md`) are 
 beside it, and none needs another.
 
 Step 1 owns the door, the grant, the gate, the request's shape, the consent switch and the
-provider seam. This spec links to them and restates none. It builds what is Azure's, and the
+cloud platform seam. This spec links to them and restates none. It builds what is Azure's, and the
 door's TLS route, which only `az` needs.
 
 This step changes a security boundary: the sidecar starts holding the user's Azure tokens, a
@@ -38,15 +38,16 @@ Step 1's [*What is true now*](1-shared-pieces.md#what-is-true-now) holds. Azure 
   `tools/bash/proxy.go`), and `runProxy.serve` listens on the run's socket and serves it on
   `runproxy.NewServer(http.Handler)`.
 - **A mount is told the run's `TMPDIR`.** `CloudRun` carries `Port`, `Dir`, `ToolHome` and
-  `TmpDir`, and step 1's seam lets a provider write a file its client must write per run there.
-- **Step 1 built the shared pieces and no provider.** `sandbox.azure` exists and is off, and
+  `TmpDir`, and step 1's seam lets a cloud platform write a file its client must write per run
+  there.
+- **Step 1 built the shared pieces and no cloud platform.** `sandbox.azure` exists and is off, and
   `permissions.Azure` is a `Target`. `app/runtime.go` hands `bash.New` a `bash.Cloud` whose
-  `Providers` is `Config.cloudProviders`: none in production, a test's fake otherwise. The
-  wire lists a switch per provider of that list, and Settings draws none yet
-  ([`TODO.md`](../../TODO.md), *Draw each provider's switch in Settings*).
+  `Platforms` is `Config.cloudPlatforms`: none in production, a test's fake otherwise. The
+  wire lists a switch per cloud platform of that list, and Settings draws none yet
+  ([`TODO.md`](../../TODO.md), *Draw each cloud platform's switch in Settings*).
 - **Azure's name and refusals are written.** `tools/bash/cloud.go` holds *Azure*
-  (`providerNames`) and fills a mount's `CloudRun.Asker` and `Refusal` (`cloudAskerFor`). The
-  webview holds the name too (`PROVIDER_NAMES`, `src/lib/chats.tsx`).
+  (`platformNames`) and fills a mount's `CloudRun.Asker` and `Refusal` (`cloudAskerFor`). The
+  webview holds the name too (`CLOUD_PLATFORM_NAMES`, `src/lib/chats.tsx`).
 
 ## What this step builds
 
@@ -167,7 +168,8 @@ at the file still verifies public hosts. `sandboxedRunFor` writes it once a moun
 route, before the command starts.
 
 **Azure sets `REQUESTS_CA_BUNDLE` to that file.** It is a variable other tools read, so
-[step 1, §7](1-shared-pieces.md#7-the-provider-seam-toolsbash) asks for its cost under network:
+[step 1, §7](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash) asks for its cost under
+network:
 
 - With network off, nothing: no public host is reachable.
 - With network on, every tool that reads the variable verifies public hosts against the
@@ -178,7 +180,7 @@ route, before the command starts.
 
 ### 4. The Azure service (`services/azure`)
 
-The credential source, as [step 1, §7](1-shared-pieces.md#7-the-provider-seam-toolsbash)
+The credential source, as [step 1, §7](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash)
 places it. A part of the `Runtime` (`app/runtime.go`).
 
 **It runs the user's `az`, outside the sandbox, with fixed arguments.** `az` is found on the
@@ -209,25 +211,25 @@ read from `az`.
 
 ### 5. What a run holds
 
-`tools/bash/azure.go` is Azure's `CloudProvider`, over the `run/azureproxy` leaf.
-`app/runtime.go` builds it with the service and puts it in the `bash.Cloud.Providers` it hands
+`tools/bash/azure.go` is Azure's `CloudPlatform`, over the `run/azureproxy` leaf.
+`app/runtime.go` builds it with the service and puts it in the `bash.Cloud.Platforms` it hands
 `bash.New`. `cloudTargets` then gives the wire Azure's switch and lets the context's `cloud` key
-name `azure`, with no other change. A test's `Config.cloudProviders` stands in place of the
+name `azure`, with no other change. A test's `Config.cloudPlatforms` stands in place of the
 built list, not beside it. Who gets a grant is [step 1's](1-shared-pieces.md#4-the-gate).
 
 `Mount` builds the grant, `runproxy.NewGrant(permissions.Azure, run.Session, run.Asker,
 run.Refusal, limits)`, with no challenge. The limits are `tools/bash/proxy.go`'s `proxyQPS`,
 `proxyBurst` and `proxyMaxInFlight`, and 16 bodies, a constant beside them that the first
-provider built adds. It returns the TLS route, the grant, and the variables below.
+cloud platform built adds. It returns the TLS route, the grant, and the variables below.
 
 `run/azureproxy` imports `runproxy`, `permissions` and `session`, and nothing of `tools` or
 `services`. It reaches the service through two interfaces of its own, `Accounts` and `Tokens`.
 
 **The config directory is `<TMPDIR>/azure`**, under `run.TmpDir`. `az` writes its command index
 and logs beside its configuration, so the directory is writable and the run's own. Of the three
-places [step 1's seam](1-shared-pieces.md#7-the-provider-seam-toolsbash) names for a provider's
-files, the run directory is read-only and the tool home is shared by a chat's runs, whose ports
-differ on macOS. The run's `TMPDIR` is the one for a file a client must write per run.
+places [step 1's seam](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash) names for a cloud
+platform's files, the run directory is read-only and the tool home is shared by a chat's runs, whose
+ports differ on macOS. The run's `TMPDIR` is the one for a file a client must write per run.
 
 The mount writes three files into it, each 0600, created with `O_EXCL`. None holds the token.
 
@@ -258,7 +260,7 @@ The mount writes three files into it, each 0600, created with `O_EXCL`. None hol
 | `IDENTITY_HEADER` | the grant's token |
 | `REQUESTS_CA_BUNDLE` | `<run dir>/ca.pem` |
 
-Azure sets no proxy variable. Where another provider sets one, step 1's `NO_PROXY=127.0.0.1`
+Azure sets no proxy variable. Where another cloud platform sets one, step 1's `NO_PROXY=127.0.0.1`
 keeps `az` dialling the door directly.
 
 **How `az` comes to send the token.** An account marked `assignedIdentityInfo: MSI` makes `az`
@@ -285,7 +287,7 @@ The sentence on tools with no login is step 1's and does not change.
 
 A handler over a `runproxy.Grant` with `Target` `Azure`. The token's mechanics, the grant's
 life and its limits are [step 1's](1-shared-pieces.md#3-the-grant-core-runrunproxy), and so is
-what every provider's proxy does around the core.
+what every cloud platform's proxy does around the core.
 
 **The token's slot is `Authorization: Bearer`**, which `az` sends on every Resource Manager
 request. The identity endpoint is the one exception: MSAL sends the token there as
@@ -346,14 +348,14 @@ Nothing else of the request's is forwarded.
 
 #### The path policy
 
-Resource Manager folds case in a path, so every comparison of a provider namespace, a type or
+Resource Manager folds case in a path, so every comparison of a cloud platform namespace, a type or
 an action folds case too.
 
 - A path that is not canonical is refused, as is a query `url.ParseQuery` refuses, a read's
   included, since the classifier reads `$expand`.
 - A path is read by Resource Manager's grammar:
-  `/subscriptions/{id}[/resourceGroups/{g}][/providers/{namespace}/{type}/{name}…][/{action}]`,
-  `/providers/…`, `/tenants`, `/subscriptions`. Any other path is refused, `/batch` among them:
+  `/subscriptions/{id}[/resourceGroups/{g}][/platforms/{namespace}/{type}/{name}…][/{action}]`,
+  `/platforms/…`, `/tenants`, `/subscriptions`. Any other path is refused, `/batch` among them:
   it carries other requests in its body.
 - A method that is not `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE` is refused.
 
@@ -383,7 +385,7 @@ metadata list alone.
 
 **Azure's line of the switch's confirm** says so: *Stored data is not reached; an app's
 settings and a deployment's parameters ask first.* Settings draws no switch yet, so the line
-goes in [`TODO.md`](../../TODO.md)'s *Draw each provider's switch in Settings*.
+goes in [`TODO.md`](../../TODO.md)'s *Draw each cloud platform's switch in Settings*.
 
 ##### Metadata that holds secrets
 
@@ -420,11 +422,11 @@ Recommended, since Azure can name what loses the most:
 `Target` `Azure`, its `Class` and its `Summary`, and no other field: the resource group and the
 resource are its details.
 
-- **`Summary`** is one line and names the provider: *Azure: delete resource group rg-dev in
+- **`Summary`** is one line and names the cloud platform: *Azure: delete resource group rg-dev in
   Pay-As-You-Go*, *Azure: read app settings of Microsoft.Web/sites/shop in rg-dev*, else
   *Azure: PUT Microsoft.Compute/virtualMachines/vm-1 in rg-dev*.
 - **`Details`**: *Subscription* (its name and id), *Resource group* when the path names one,
-  *Resource* (the provider namespace, the type and the last named segment) when it names one,
+  *Resource* (the cloud platform namespace, the type and the last named segment) when it names one,
   and *If-Match* and *If-None-Match* when sent. The labels are constants of the package.
 - **No body is `Unshown`.** Resource Manager's bodies are JSON. One past step 1's 1 MiB is
   `413`, so a deployment template larger than that is not sent.
@@ -464,7 +466,7 @@ All start Planned. Each ends green under `make test-changed`.
 | 5 | The proxy: the identity endpoint, the path policy, the table, the headers, forwarding, rewriting | `run/azureproxy` | 1 | Planned |
 | 6 | The classifier and the call of `Decide` | `run/azureproxy/classify.go` | 5 | Planned |
 | 7 | `neverEnv`'s four names | `run/sandbox/env.go` | — | Planned |
-| 8 | The provider: the mount, the body limit, the three files, the variables, the prompt, the list `app` builds | `tools/bash/azure.go`, `proxy.go`, `prompts/sandbox.md`, `app/runtime.go`, the prompt goldens (`app/testdata/prompt/`) | 3, 4, 6, 7 | Planned |
+| 8 | The cloud platform: the mount, the body limit, the three files, the variables, the prompt, the list `app` builds | `tools/bash/azure.go`, `proxy.go`, `prompts/sandbox.md`, `app/runtime.go`, the prompt goldens (`app/testdata/prompt/`) | 3, 4, 6, 7 | Planned |
 | 9 | A real `az` through the real sandbox, and `az` on one CI leg | `app/app_unix_test.go`, `.github/` | 8 | Planned |
 | 10 | Docs, per [*When it lands*](#when-it-lands) | see there | 1–9 | Planned |
 
@@ -523,7 +525,7 @@ platforms.
 
 **`tools/bash`**
 
-- `TestTheLoopbackAuthorityRoutesByTransport`: with a fake plain provider on the loopback
+- `TestTheLoopbackAuthorityRoutesByTransport`: with a fake plain cloud platform on the loopback
   authority, a plain request reaches it and a TLS one reaches Azure; the cluster's host over
   TLS is the door's `401`.
 - `TestARunWithNoTLSRouteHasNoCertificate`: no `ca.pem`, and a TLS connection is closed.
@@ -543,8 +545,8 @@ platforms.
 
 **`app`** (`startE2E`, `testutil.RequireSandbox`, skipped where `az` is absent), network off,
 Azure turned on through `sandboxCloudAccessSet`. As
-`TestASandboxedCommandReachesAProviderThroughTheDoor` does with its fake, each test sets
-`Config.cloudProviders`: Azure's provider over a fake `az` runner for the service and a fake
+`TestASandboxedCommandReachesACloudPlatformThroughTheDoor` does with its fake, each test sets
+`Config.cloudPlatforms`: Azure's cloud platform over a fake `az` runner for the service and a fake
 Resource Manager for the upstream.
 
 - `TestAzListsInTheSandbox`: `az aks list` and `az vm list` print the fake's rows across a
@@ -552,7 +554,7 @@ Resource Manager for the upstream.
 - `TestAnAzChangeAsks`: `az group delete -n rg --yes` waits on one request in
   `sandboxActions` whose summary is *Azure: delete resource group rg in …*. Denied, it exits
   non-zero and the fake saw no `DELETE`.
-- `TestAzureBesideEveryOtherProvider`: one run with a cluster, Azure, and every provider then
+- `TestAzureBesideEveryOtherPlatform`: one run with a cluster, Azure, and every cloud platform then
   built on `wip/cloud-proxies` turned on. `az` reads, `kubectl` reads, and no variable is set
   two ways.
 
@@ -624,12 +626,13 @@ When this step is complete on `wip/cloud-proxies`:
   listener and its certificate, Resource Manager alone, the three clouds, the config directory
   in `TMPDIR`, and no narrower role. Rejected: plain HTTP, a second listener, a written MSAL
   cache, a real token in the run, `HTTPS_PROXY` with interception. It cites
-  [step 1's ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-provider-through-a-proxy-on-its-runs-one-relay.md)
+  [step 1's
+  ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md)
   for the decision to lend a credential through a proxy.
 - **`docs/security/<date>-azure-through-the-proxy.md`**, from *Security* above, the TLS
   route's residual included, naming the commit.
 - **`docs/security-model.md`**:
-  - Azure leaves the **Not built** row on the four providers. No new one is added.
+  - Azure leaves the **Not built** row on the four cloud platforms. No new one is added.
   - A new **Enforced** row: a sandboxed command reaches Azure Resource Manager alone, holds no
     Azure credential, and is refused every action that answers one
     (`TestNoAzureCredentialIsInTheRun`, `TestACredentialActionIsRefusedUnasked`,
@@ -641,7 +644,7 @@ When this step is complete on `wip/cloud-proxies`:
     runs the user's `az` and holds its tokens in memory.
   - The environment row names the four variables and `neverEnv`'s four names.
 - **`docs/TODO.md`**: Azure leaves *Let a sandboxed command reach the user's cloud accounts
-  without holding a credential*. No new one is added for it. *Draw each provider's switch in
+  without holding a credential*. No new one is added for it. *Draw each cloud platform's switch in
   Settings* gains Azure's line of the confirm. New lines: Azure's data plane, Microsoft Graph,
   a registered cloud.
 - **`CLAUDE.md`**: `sidecar/internal/run/CLAUDE.md` (the `azureproxy` leaf; `runproxy`'s TLS

@@ -32,13 +32,14 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
-// tokenHeader is where the fake provider's client carries its grant's token.
+// tokenHeader is where the fake cloud platform's client carries its grant's
+// token.
 const tokenHeader = "X-Kstack-Token"
 
-// fakeProvider is a CloudProvider whose routes are hosts. A request holding
+// fakePlatform is a CloudPlatform whose routes are hosts. A request holding
 // its grant's token is a read when it is a GET, answered "read <target>", and
 // otherwise a change put through Decide, answered "changed" once forwarded.
-type fakeProvider struct {
+type fakePlatform struct {
 	target permissions.Target
 	hosts  []string
 	env    []string
@@ -52,13 +53,13 @@ type fakeMount struct {
 	grant *runproxy.Grant
 }
 
-func newFakeProvider(target permissions.Target, hosts ...string) *fakeProvider {
-	return &fakeProvider{target: target, hosts: hosts, mounts: make(chan fakeMount, 8)}
+func newFakePlatform(target permissions.Target, hosts ...string) *fakePlatform {
+	return &fakePlatform{target: target, hosts: hosts, mounts: make(chan fakeMount, 8)}
 }
 
-func (p *fakeProvider) Target() permissions.Target { return p.target }
+func (p *fakePlatform) Target() permissions.Target { return p.target }
 
-func (p *fakeProvider) Mount(_ context.Context, run CloudRun) (CloudMount, error) {
+func (p *fakePlatform) Mount(_ context.Context, run CloudRun) (CloudMount, error) {
 	if p.err != nil {
 		return CloudMount{}, p.err
 	}
@@ -97,7 +98,7 @@ func (p *fakeProvider) Mount(_ context.Context, run CloudRun) (CloudMount, error
 	return CloudMount{Routes: routes, Env: p.env, Grant: g}, nil
 }
 
-// switches is each provider's switch as a test flips it.
+// switches is each cloud platform's switch as a test flips it.
 type switches struct {
 	mu sync.Mutex
 	on map[permissions.Target]bool
@@ -151,7 +152,7 @@ func (a *answeringAsker) Record(context.Context, tools.ActionRequest, permission
 
 // mountFor mounts p for a foreground chat run and answers its routes and
 // grant.
-func mountFor(t *testing.T, p *fakeProvider) CloudMount {
+func mountFor(t *testing.T, p *fakePlatform) CloudMount {
 	t.Helper()
 	m, err := p.Mount(t.Context(), CloudRun{Session: session.Session{Kind: session.Chat}, Refusal: "kstack: no"})
 	require.NoError(t, err)
@@ -159,7 +160,7 @@ func mountFor(t *testing.T, p *fakeProvider) CloudMount {
 	return m
 }
 
-func TestTwoProvidersCannotSetOneVariableTwoWays(t *testing.T) {
+func TestTwoCloudPlatformsCannotSetOneVariableTwoWays(t *testing.T) {
 	_, err := cloudEnv([]CloudMount{{Env: []string{"A=1", "B=2"}}, {Env: []string{"B=2", "C=3"}}})
 	assert.NoError(t, err, "one value set twice agrees")
 	_, err = cloudEnv([]CloudMount{{Env: []string{"A=1"}}, {Env: []string{"A=2"}}})
@@ -176,7 +177,7 @@ func TestAProxyVariableBringsNoProxy(t *testing.T) {
 	assert.Equal(t, []string{"HTTPS_PROXY=http://127.0.0.1:6443", "NO_PROXY=127.0.0.1", "no_proxy=127.0.0.1"}, env)
 
 	_, err = cloudEnv([]CloudMount{{Env: []string{"HTTPS_PROXY=http://127.0.0.1:6443", "NO_PROXY=example.com"}}})
-	assert.ErrorContains(t, err, "NO_PROXY", "a provider's own NO_PROXY clashes with the loopback's")
+	assert.ErrorContains(t, err, "NO_PROXY", "a cloud platform's own NO_PROXY clashes with the loopback's")
 }
 
 // cloudAsker hands the runtime's asker every field of what was sent, as the
@@ -208,7 +209,7 @@ func TestACloudRequestReachesTheAskerWhole(t *testing.T) {
 }
 
 // A grant's requests go to the runtime's asker for a foreground call, and are
-// refused naming the provider for a background command or no asker.
+// refused naming the cloud platform for a background command or no asker.
 func TestCloudAskerFor(t *testing.T) {
 	a := newAnsweringAsker()
 	asker, refusal := cloudAskerFor(tools.Runtime{ActionAsker: a}, false, permissions.GCP)
@@ -224,12 +225,12 @@ func TestCloudAskerFor(t *testing.T) {
 	assert.Equal(t, "kstack: this sandbox reads AWS and changes nothing.", refusal)
 }
 
-// grantlessProvider mounts with no grant, a wiring mistake.
-type grantlessProvider struct{}
+// grantlessPlatform mounts with no grant, a wiring mistake.
+type grantlessPlatform struct{}
 
-func (grantlessProvider) Target() permissions.Target { return permissions.AWS }
+func (grantlessPlatform) Target() permissions.Target { return permissions.AWS }
 
-func (grantlessProvider) Mount(context.Context, CloudRun) (CloudMount, error) {
+func (grantlessPlatform) Mount(context.Context, CloudRun) (CloudMount, error) {
 	return CloudMount{Env: []string{"A=1"}}, nil
 }
 
@@ -237,7 +238,7 @@ func (grantlessProvider) Mount(context.Context, CloudRun) (CloudMount, error) {
 // reach.
 func TestAMountWithNoGrantFailsTheRun(t *testing.T) {
 	p := &runProxy{}
-	_, err := p.mount(t.Context(), []CloudProvider{grantlessProvider{}}, tools.Runtime{}, false, CloudRun{})
+	_, err := p.mount(t.Context(), []CloudPlatform{grantlessPlatform{}}, tools.Runtime{}, false, CloudRun{})
 	require.EqualError(t, err, "the AWS mount names no grant")
 	assert.Empty(t, p.mounts)
 	p.end()

@@ -6,7 +6,7 @@ alone and can be built beside the wave's other steps (`2a-aws.md`, `2c-gcp.md`,
 `2d-azure.md`).
 
 Step 1 owns the door, the grant, the gate, the request's shape and drawing, the consent switch
-and the provider seam. This step links to them and states only what is GitHub's.
+and the cloud platform seam. This step links to them and states only what is GitHub's.
 
 It changes a security boundary: with the switch on, a sandboxed command reads GitHub as the
 user. It lands with an ADR and a `docs/security/` record ([*When it lands*](#when-it-lands)).
@@ -23,16 +23,16 @@ Each line is read from the code, beyond what step 1 lists.
   `SSH_AUTH_SOCK` (`run/sandbox/env.go`).
 - **The prompt says so.** `tools/bash/prompts/sandbox.md`: *With the internet a command still
   holds no credential, so a tool has a login only where the context's `cloud` names its
-  provider, and a private registry has none.* No build writes that key yet.
+  cloud platform, and a private registry has none.* No build writes that key yet.
 - **`gqlparser` is a dependency** (`sidecar/go.mod`), used by the wire.
-- **Step 1 built the shared pieces and no provider.** `sandbox.github` exists and is off, and
+- **Step 1 built the shared pieces and no cloud platform.** `sandbox.github` exists and is off, and
   `permissions.GitHub` is a `Target`. `app/runtime.go` hands `bash.New` a `bash.Cloud` whose
-  `Providers` is `Config.cloudProviders`: none in production, a test's fake otherwise. The
-  wire lists a switch per provider of that list, and Settings draws none yet
-  ([`TODO.md`](../../TODO.md), *Draw each provider's switch in Settings*).
+  `Platforms` is `Config.cloudPlatforms`: none in production, a test's fake otherwise. The
+  wire lists a switch per cloud platform of that list, and Settings draws none yet
+  ([`TODO.md`](../../TODO.md), *Draw each cloud platform's switch in Settings*).
 - **GitHub's name and refusals are written.** `tools/bash/cloud.go` holds *GitHub*
-  (`providerNames`) and fills a mount's `CloudRun.Asker` and `Refusal` (`cloudAskerFor`). The
-  webview holds the name too (`PROVIDER_NAMES`, `src/lib/chats.tsx`).
+  (`platformNames`) and fills a mount's `CloudRun.Asker` and `Refusal` (`cloudAskerFor`). The
+  webview holds the name too (`CLOUD_PLATFORM_NAMES`, `src/lib/chats.tsx`).
 
 ## What this step builds
 
@@ -51,7 +51,7 @@ The pieces:
 1. **`run/githubproxy`**: the handler over a `runproxy.Grant`, the upstream table, the
    classifier for REST, GraphQL and Git's smart HTTP, and the push reader.
 2. **`services/githubauth`**: the user's token, read from `gh` outside the sandbox.
-3. **`tools/bash/github.go`**: GitHub's `CloudProvider`, which writes the run's `gitconfig` and
+3. **`tools/bash/github.go`**: GitHub's `CloudPlatform`, which writes the run's `gitconfig` and
    `gh/hosts.yml` and sets its variables.
 4. GitHub's paragraph in `tools/bash/prompts/sandbox.md`, and GitHub in the list
    `app/runtime.go` builds.
@@ -73,7 +73,7 @@ The pieces:
 - **SSH.** A `git@github.com:` remote is rewritten to the proxy's HTTP route; nothing speaks
   SSH.
 - Anything on Windows, and anything for a monitor
-  ([step 1](1-shared-pieces.md#4-the-gate), *Who gets a provider at all*).
+  ([step 1](1-shared-pieces.md#4-the-gate), *Who gets a cloud platform at all*).
 
 ## Design
 
@@ -135,8 +135,9 @@ refuses to run with no login, so it reads the placeholder as one and sends it as
 `Authorization`. The proxy never forwards it ([§2](#2-the-proxy-rungithubproxy)). `gh` works
 with its config directory read-only.
 
-Both files follow [the seam's rules for a file](1-shared-pieces.md#7-the-provider-seam-toolsbash):
-0600, `O_EXCL`, the grant's token or the fixed placeholder, no user text.
+Both files follow [the seam's rules for a
+file](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash): 0600, `O_EXCL`, the grant's token or
+the fixed placeholder, no user text.
 
 **`HTTP_PROXY` is the one variable that is not GitHub's own.** `gh` has no proxy setting.
 Upper-case `HTTP_PROXY` is read by Go and Python programs and ignored by `curl` and `wget`.
@@ -146,7 +147,7 @@ Its cost:
 - **Network on:** a Go or Python tool's plain-HTTP request to any other host goes to the door
   and is answered its `401`. HTTPS is untouched. kubectl and helm use the kubeconfig's
   `proxy-url`.
-- **Another provider on:** the run holds `NO_PROXY=127.0.0.1` and `no_proxy=127.0.0.1`, which
+- **Another cloud platform on:** the run holds `NO_PROXY=127.0.0.1` and `no_proxy=127.0.0.1`, which
   step 1 sets for any proxy variable, so a client dialling the loopback authority (the AWS CLI)
   stays direct.
 - **The token is in the variable**, so any Go or Python program in the run sends it to the
@@ -275,9 +276,9 @@ Second, the metadata whose answer GitHub documents as able to hold a secret valu
   turned on to read. GitHub serves it from Git's protocol, dozens of REST routes (contents,
   blobs, commits, diffs, search) and GraphQL fields, so no list names it whole, and a gate on
   some routes would be drawn as a boundary and not be one. Step 1 leaves which stored data
-  asks to the provider. GitHub's line of the switch's confirm says it: *Private repositories
+  asks to the cloud platform. GitHub's line of the switch's confirm says it: *Private repositories
   are read without asking.* Settings draws no switch yet, so the line goes in
-  [`TODO.md`](../../TODO.md)'s *Draw each provider's switch in Settings*.
+  [`TODO.md`](../../TODO.md)'s *Draw each cloud platform's switch in Settings*.
 - **Secrets' listings** (Actions, Dependabot, Codespaces) answer names and a public key, never
   a value.
 - **Deploy keys, SSH keys and GPG keys** answer the public half.
@@ -318,7 +319,7 @@ the workspace. What the request cannot say is in the sentence.
 ### 5. The credential (`services/githubauth`)
 
 A service `app` builds, following
-[the seam's rules for a credential](1-shared-pieces.md#7-the-provider-seam-toolsbash).
+[the seam's rules for a credential](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash).
 `Token(ctx)` answers the user's token or one sentinel error. `githubproxy` reaches it through
 its `TokenSource` interface.
 
@@ -337,21 +338,21 @@ its `TokenSource` interface.
 
 The exec is a field (`run func(ctx) ([]byte, error)`), so tests never start `gh`.
 
-### 6. The provider (`tools/bash/github.go`)
+### 6. The cloud platform (`tools/bash/github.go`)
 
-GitHub's `CloudProvider`, built by a constructor `app/runtime.go` calls with the `githubauth`
+GitHub's `CloudPlatform`, built by a constructor `app/runtime.go` calls with the `githubauth`
 service.
 
 - `Target` is `permissions.GitHub`.
 - `Mount` builds the grant, `runproxy.NewGrant(permissions.GitHub, run.Session, run.Asker,
   run.Refusal, limits)`, with `Challenges` set. The limits are `tools/bash/proxy.go`'s
   `proxyQPS`, `proxyBurst` and `proxyMaxInFlight`, and 16 bodies, a constant beside them that
-  the first provider built adds. It writes the two files of
+  the first cloud platform built adds. It writes the two files of
   [§1](#1-the-hosts-and-how-git-and-gh-reach-them) under `run.Dir`, and returns the two
   routes, the variables and the grant.
-- `app/runtime.go` puts GitHub in the `bash.Cloud.Providers` it hands `bash.New`. `cloudTargets`
+- `app/runtime.go` puts GitHub in the `bash.Cloud.Platforms` it hands `bash.New`. `cloudTargets`
   then gives the wire GitHub's switch and lets the context's `cloud` key name `github`, with
-  no other change. A test's `Config.cloudProviders` stands in place of the built list, not
+  no other change. A test's `Config.cloudPlatforms` stands in place of the built list, not
   beside it.
 
 **The prompt.** `tools/bash/prompts/sandbox.md` gains GitHub's paragraph, read when the
@@ -371,7 +372,7 @@ All start Planned. Each ends green under `make test-changed`.
 | 2 | `githubauth`: the token source | `services/githubauth/` | — | Planned |
 | 3 | `githubproxy`: the handler, the upstream table, the header list, the classifier, the forward, the redirect rule | `run/githubproxy/githubproxy.go`, `classify.go`, `graphql.go`, their tests | 1 | Planned |
 | 4 | The push reader and the requests that ask: summaries, details, `Unshown` | `run/githubproxy/push.go`, `request.go`, their tests | 3 | Planned |
-| 5 | The provider: the mount, the body limit, `gitconfig`, `gh/hosts.yml`, the variables, the prompt, GitHub in `app`'s list | `tools/bash/github.go`, `proxy.go`, `prompts/sandbox.md`, `app/runtime.go`, their tests, the prompt goldens (`app/testdata/prompt/`) | 2, 4 | Planned |
+| 5 | The cloud platform: the mount, the body limit, `gitconfig`, `gh/hosts.yml`, the variables, the prompt, GitHub in `app`'s list | `tools/bash/github.go`, `proxy.go`, `prompts/sandbox.md`, `app/runtime.go`, their tests, the prompt goldens (`app/testdata/prompt/`) | 2, 4 | Planned |
 | 6 | `git` and `gh` through the real sandbox | `tools/bash/github_unix_test.go`, `app/app_unix_test.go` (`startE2E`) | 5 | Planned |
 | 7 | Docs, per *When it lands* | see there | 1–6 | Planned |
 
@@ -436,7 +437,7 @@ as a parameter.
   `gitconfig` and `HTTP_PROXY`, the placeholder in `hosts.yml`.
 - `TestARunWithoutGitHubHasNoneOfIt`.
 - `TestGitHubsProxyVariableLeavesTheLoopbackDirect`: a run with GitHub and step 1's
-  `fakeProvider` (`cloud_test.go`) on the loopback authority, setting a variable of its own.
+  `fakePlatform` (`cloud_test.go`) on the loopback authority, setting a variable of its own.
   The run holds `HTTP_PROXY`,
   `NO_PROXY=127.0.0.1` and `no_proxy=127.0.0.1`; a client that reads them reaches the fake's
   route directly and GitHub's through the proxy; no variable is set two ways.
@@ -448,12 +449,12 @@ as a parameter.
   `TestASandboxedGhReadsTheAPI` runs `gh api user` and checks that `gh auth token` prints the
   placeholder.
 
-**`app`** (`startE2E`), network off. As `TestASandboxedCommandReachesAProviderThroughTheDoor`
-does with its fake, the test sets `Config.cloudProviders`: GitHub's provider over a fake
+**`app`** (`startE2E`), network off. As `TestASandboxedCommandReachesACloudPlatformThroughTheDoor`
+does with its fake, the test sets `Config.cloudPlatforms`: GitHub's cloud platform over a fake
 upstream and a known token. With `sandbox.github` turned on through
 `sandboxCloudAccessSet`, a sandboxed `git ls-remote` reads unasked and `kubectl` still reads
 the cluster; a push waits on one request in `sandboxActions`. The same run is repeated with
-every provider then built on `wip/cloud-proxies` turned on, and checks that no two set one
+every cloud platform then built on `wip/cloud-proxies` turned on, and checks that no two set one
 variable to different values.
 
 **Integration gate:** the full checks in
@@ -466,7 +467,7 @@ draws no switch yet: `git clone` and `git fetch` of a private repository,
 
 **Widened.** With GitHub on, a sandboxed command reads what the user's token reads on
 `github.com` unasked: private repositories and their content, issues, Actions metadata, the
-user's profile and private email addresses. The answer reaches the model's provider, and with
+user's profile and private email addresses. The answer reaches the model's cloud platform, and with
 network on the command can send it anywhere. The sidecar holds a GitHub token in memory and
 runs `gh` outside the sandbox to get it. A prompt injection in a repository's text can ask for
 a change; the request is the gate.
@@ -501,15 +502,16 @@ a change; the request is the gate.
 When this step is complete on `wip/cloud-proxies`:
 
 - **ADR**, GitHub's alone: *a sandboxed command reaches GitHub over plain HTTP at `gh`'s own
-  host name*. It cites [step 1's ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-provider-through-a-proxy-on-its-runs-one-relay.md)
-  for the proxy and the relay, and records `HTTP_PROXY` over
-  a `gh` wrapper on `PATH`, no repository allowlist, a repository's content as a read, redirects
-  not followed, and the token from `gh auth token` alone.
+  host name*. It cites [step 1's
+  ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md)
+  for the proxy and the relay, and records `HTTP_PROXY` over a `gh` wrapper on `PATH`, no repository
+  allowlist, a repository's content as a read, redirects not followed, and the token from `gh auth
+  token` alone.
 - **`docs/security/<date>-a-sandboxed-command-reaches-github.md`**, from *Security* above, with
   task 1's hand checks and tool versions, naming the commit.
 - **`docs/security-model.md`**:
-  - The **Not built** row on the four providers is narrowed to the providers not yet built, or
-    removed with the last. No new row of that kind is added.
+  - The **Not built** row on the four cloud platforms is narrowed to the cloud platforms not yet
+    built, or removed with the last. No new row of that kind is added.
   - *Assets* gains the GitHub token, held in memory. *Boundaries* gains sidecar → GitHub.
   - New **Enforced** rows: no GitHub token in the run (`TestNoGitHubTokenIsInTheRun`); the
     upstream is fixed (`TestTheUpstreamIsFixed`); a credential path is refused
@@ -517,7 +519,7 @@ When this step is complete on `wip/cloud-proxies`:
     (`TestARedirectToAnotherHostNeedsAnApprovedDataRead`).
   - New **By decision** rows for the residuals above, linking the ADR.
 - **`docs/TODO.md`**: *Let a sandboxed command reach the user's cloud accounts without holding
-  a credential* is narrowed the same way. *Draw each provider's switch in Settings* gains
+  a credential* is narrowed the same way. *Draw each cloud platform's switch in Settings* gains
   GitHub's line of the confirm. New lines for what the open questions defer.
 - **`CLAUDE.md`**: `sidecar/internal/run/CLAUDE.md` (a `githubproxy` section: the hosts, the
   header list, the classifier's lists, the push reader); `sidecar/internal/tools/CLAUDE.md`

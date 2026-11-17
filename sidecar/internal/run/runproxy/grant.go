@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package runproxy is what every provider's proxy in a sandboxed run shares:
-// the server the run's door is served on, and a grant per provider, which
-// holds the run's token for it, its life, its limits and the one way its
-// requests are put to the user. It knows no provider and no tool.
+// Package runproxy is what every cloud platform's proxy in a sandboxed run
+// shares: the server the run's door is served on, and a grant per cloud
+// cloud platform, which holds the run's token for it, its life, its limits and the
+// one way its requests are put to the user. It knows no cloud platform and no
+// tool.
 package runproxy
 
 import (
@@ -53,7 +54,7 @@ type Limits struct {
 	Challenges bool
 }
 
-// Grant is one run's access to one provider, dead once End is called.
+// Grant is one run's access to one cloud platform, dead once End is called.
 type Grant struct {
 	target  permissions.Target
 	session session.Session
@@ -87,7 +88,7 @@ type Grant struct {
 // every request the user approves.
 func NewGrant(target permissions.Target, sess session.Session, asker Asker, refusal string, limits Limits) *Grant {
 	if target == permissions.Cluster {
-		panic("runproxy: a grant names a provider, never the cluster")
+		panic("runproxy: a grant names a cloud platform, never the cluster")
 	}
 	if limits.QPS <= 0 || limits.Burst < 1 || limits.Open < 1 || limits.Bodies < 1 {
 		panic("runproxy: every limit admits at least one request")
@@ -106,7 +107,7 @@ func NewGrant(target permissions.Target, sess session.Session, asker Asker, refu
 	}
 }
 
-// Target is the provider the grant reaches.
+// Target is the cloud platform the grant reaches.
 func (g *Grant) Target() permissions.Target { return g.target }
 
 // Token is the run's credential for this grant: 256 bits, hex. It opens the
@@ -212,7 +213,7 @@ func (g *Grant) Slot(ctx context.Context) (release func(), status int) {
 	return func() { g.open.Release(1) }, 0
 }
 
-// Outbound is the headers a provider forwards: those of in that allowed
+// Outbound is the headers a cloud platform forwards: those of in that allowed
 // names, never Authorization or Proxy-Authorization.
 func Outbound(in http.Header, allowed []string) http.Header {
 	out := http.Header{}

@@ -261,7 +261,7 @@ func (r *mutationResolver) SandboxCloudAccessSet(ctx context.Context, target per
 	if !slices.Contains(r.CloudTargets, target) {
 		return nil, gqlerrors.NewValidationError("sandbox-cloud", "This build has no switch for that target.")
 	}
-	if err := r.Settings.SetCloud(target, on); err != nil { // coverage:ignore a listed provider has a switch, so only the file's write fails
+	if err := r.Settings.SetCloud(target, on); err != nil { // coverage:ignore a listed cloud platform has a switch, so only the file's write fails
 		return nil, err
 	}
 	return r.cloudAccess(), nil

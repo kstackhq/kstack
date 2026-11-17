@@ -82,14 +82,15 @@ func TestTheResolverHasNoProberWithoutAShell(t *testing.T) {
 	assert.True(t, rt.resolver().Executables == nil)
 }
 
-// The resolver and the chat service list the build's providers in its order.
+// The resolver and the chat service list the build's cloud platforms in its
+// order.
 func TestCloudTargetsKeepTheBuildsOrder(t *testing.T) {
-	got := cloudTargets([]bash.CloudProvider{targetOnly(permissions.GCP), targetOnly(permissions.AWS)})
+	got := cloudTargets([]bash.CloudPlatform{targetOnly(permissions.GCP), targetOnly(permissions.AWS)})
 	assert.Equal(t, []permissions.Target{permissions.GCP, permissions.AWS}, got)
 	assert.Empty(t, cloudTargets(nil))
 }
 
-// targetOnly is a provider that names its target and mounts nothing.
+// targetOnly is a cloud platform that names its target and mounts nothing.
 type targetOnly permissions.Target
 
 func (p targetOnly) Target() permissions.Target { return permissions.Target(p) }

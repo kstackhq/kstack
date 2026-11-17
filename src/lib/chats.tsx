@@ -342,8 +342,8 @@ export type ChatClusterRequest = Extract<ChatSandboxRequest, { __typename: 'Clus
 export type ChatCloudRequest = Extract<ChatSandboxRequest, { __typename: 'CloudRequest' }>;
 export type PermissionTarget = NonNullable<ChatSandboxAction['action']>['target'];
 
-/** A provider's name in the user's words. */
-export const PROVIDER_NAMES: Record<PermissionTarget, string> = {
+/** A cloud platform's name in the user's words. */
+export const CLOUD_PLATFORM_NAMES: Record<PermissionTarget, string> = {
   Cluster: 'Cluster',
   AWS: 'AWS',
   GitHub: 'GitHub',
@@ -356,7 +356,7 @@ export function clusterRequestOf(a: ChatSandboxAction): ChatClusterRequest | nul
   return a.request?.__typename === 'ClusterWrite' ? a.request : null;
 }
 
-/** The provider request an action carries, null for any other. */
+/** The cloud platform request an action carries, null for any other. */
 export function cloudRequestOf(a: ChatSandboxAction): ChatCloudRequest | null {
   return a.request?.__typename === 'CloudRequest' ? a.request : null;
 }
@@ -567,7 +567,7 @@ export function sourcesOf(citations: readonly ChatCitation[]): Source[] {
 
 /**
  * One request waiting on the user: a call's own, or an action its sandboxed
- * command sent to the cluster or a provider, which `change` holds (null for a
+ * command sent to the cluster or a cloud platform, which `change` holds (null for a
  * call's own).
  */
 export type WaitingRequest = {
@@ -587,7 +587,7 @@ export const approvalAnchor = (id: string): string => `approval-${id}`;
 /**
  * The requests awaiting approval, in the order they were asked — approval ids
  * are UUIDv7 — so a new one lands below the rest: an answer's own calls and
- * sandbox actions, the cluster's and each provider's, and each of its agents',
+ * sandbox actions, the cluster's and each cloud platform's, and each of its agents',
  * which wait whether or not the answer is still going.
  */
 export function waitingRequestsOf(calls: ChatToolCall[]): WaitingRequest[] {

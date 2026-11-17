@@ -230,7 +230,7 @@ func TestAFailedRecordForwardsNothing(t *testing.T) {
 	out, forwarded := decideNow(t, g, change())
 	assert.False(t, forwarded)
 	assert.Equal(t, http.StatusForbidden, out.Status)
-	assert.Equal(t, "kstack: AWS: call ec2:TerminateInstances is not allowed: this session never asks: a provider's request always asks", out.Message)
+	assert.Equal(t, "kstack: AWS: call ec2:TerminateInstances is not allowed: this session never asks: a cloud platform's request always asks", out.Message)
 	rec := testutil.Recv(t, a.recorded, "the record")
 	assert.Equal(t, permissions.Denied, rec.d)
 	assert.Empty(t, a.asked)
@@ -251,10 +251,10 @@ func TestNoSecretDataRefusesADataRead(t *testing.T) {
 	assert.Empty(t, a.asked)
 }
 
-// An action a classifier left as the cluster's, or named another provider
+// An action a classifier left as the cluster's, or named another cloud platform
 // for, is decided, recorded and asked as the grant's, carrying its class and
 // summary and no field of a cluster's object.
-func TestDecideKeepsAProvidersFieldsAlone(t *testing.T) {
+func TestDecideKeepsACloudPlatformsFieldsAlone(t *testing.T) {
 	want := permissions.Action{Target: permissions.AWS, Class: permissions.UpstreamWrite, Summary: "AWS: call ec2:TerminateInstances"}
 	for _, target := range []permissions.Target{permissions.Cluster, permissions.GitHub} {
 		a := newFakeAsker()

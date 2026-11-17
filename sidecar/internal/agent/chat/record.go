@@ -342,7 +342,8 @@ type ToolCall struct {
 	// answer's own calls.
 	AgentCallID *ToolCallID `json:"agentCallID"`
 	// SandboxActions is every request the call's sandboxed command sent that a
-	// proxy decided, the cluster's and each provider's, in the order asked.
+	// proxy decided, the cluster's and each cloud platform's, in the order
+	// asked.
 	SandboxActions []SandboxAction `json:"sandboxActions"`
 }
 
@@ -356,8 +357,8 @@ type ToolCall struct {
 type SandboxAction struct {
 	Approval ToolCallApproval  `json:"approval"`
 	Action   *PermissionAction `json:"action"`
-	// Write is a request to the cluster, Cloud one to a provider; at most one
-	// is set.
+	// Write is a request to the cluster, Cloud one to a cloud platform; at most
+	// one is set.
 	Write *ClusterWrite `json:"write,omitempty"`
 	Cloud *CloudRequest `json:"cloud,omitempty"`
 	// Reason is the mode or rule that decided an action nobody was asked
@@ -390,7 +391,7 @@ type ClusterWrite struct {
 	DiffError string `json:"diffError"`
 }
 
-// CloudRequest is a request to a provider, as sent.
+// CloudRequest is a request to a cloud platform, as sent.
 type CloudRequest struct {
 	tools.CloudRequest
 }

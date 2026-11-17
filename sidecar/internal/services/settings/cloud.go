@@ -20,8 +20,8 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-// The consent switches, one per provider a sandboxed command may reach. Each
-// only grants, so a refused value reads as off.
+// The consent switches, one per cloud platform a sandboxed command may reach.
+// Each only grants, so a refused value reads as off.
 const (
 	FieldAWS    = "sandbox.aws"
 	FieldGitHub = "sandbox.github"

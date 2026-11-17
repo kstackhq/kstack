@@ -299,7 +299,7 @@ func valueOf[T any](p *T) T {
 	return v
 }
 
-// cloudAccess is the build's providers, each with its switch.
+// cloudAccess is the build's cloud platforms, each with its switch.
 func (r *Resolver) cloudAccess() []*model.CloudAccess {
 	out := make([]*model.CloudAccess, 0, len(r.CloudTargets))
 	for _, target := range r.CloudTargets {

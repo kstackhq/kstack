@@ -185,7 +185,7 @@ channel is buffered. **The commit is the line a cancel stops at**: a cancel that
 approval `pending`; a decision that wins is written without the cancel, and a decision write that
 fails refuses the call `not-run`. **One row per call** (`t.openTool`); `ToolCallStarted` sets
 `started_at` only once its write lands. A subagent's wait ends at `unansweredLimit`. **A sandboxed
-command's cluster or provider action** is asked the same way under the call that sent it, in one
+command's cluster or cloud platform action** is asked the same way under the call that sent it, in one
 list, `SandboxActions` (`Runtime.ActionAsker`, `askAction` on a proxy goroutine): `journalMu` serializes journal writes and is never held across a
 wait; `askMu` keeps one ask at a time. A policy decision is recorded with no wait (`recordAction`).
 A refused journal write sends the command a 403 and the change is not sent.
@@ -267,7 +267,7 @@ in the answer's row](../../../docs/adr/2026-09-14-tool-rounds-live-in-the-answer
 
 **A question carries a context block when it has changed** (`questionBlocks` against
 `newestContext`): the cluster card, `## Memory`, `## Workspace`, `## View` when the send carries a
-snapshot, and `## Sandbox`, always last, whose `cloud` key names the build's providers whose switch
+snapshot, and `## Sandbox`, always last, whose `cloud` key names the build's cloud platforms whose switch
 is on. **The View** (`view.go`) restates the named call's stored
 view (`viewCall`: a `LogsView` call's action, a `LogsRead` call's `viewAround`, a subagent's
 included, or a finished `LogsWatch` call's, joined from its task's `result`), never the client's, with what was on screen and the selected lines through

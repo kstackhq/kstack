@@ -46,7 +46,7 @@ func outsideEnv(environ, kstack []string, dir string) []string {
 // and KUBECACHEDIR for a run with a cluster (cluster not nil); LANG the
 // sidecar's or the platform's default; TERM=dumb; then the variables that
 // point each tool into toolHome; then toolchain, each found location's
-// variables and asdf's versions; then cloud, each mounted provider's
+// variables and asdf's versions; then cloud, each mounted cloud platform's
 // variables (cloudEnv); then what Kstack adds.
 func sandboxedRunEnv(environ, kstack []string, path, workspace, dir string, rd *runDir, cluster *target, toolHome string, toolchain, cloud []string) []string {
 	var lang, tz string

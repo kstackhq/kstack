@@ -310,8 +310,8 @@ type waiter struct {
 }
 
 // decide is the decision d is on w, or ErrBadRequest for one w does not take:
-// a call's own, an action no rule may allow, and every provider's action take
-// Once and Deny alone, since a rule is always a cluster's.
+// a call's own, an action no rule may allow, and every cloud platform's action
+// take Once and Deny alone, since a rule is always a cluster's.
 func (w *waiter) decide(d ApprovalDecision) (decision, error) {
 	grantable := w.request != nil && w.request.Grantable && w.request.Action.Target == permissions.Cluster
 	switch d {

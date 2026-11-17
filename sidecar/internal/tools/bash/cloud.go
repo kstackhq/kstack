@@ -26,15 +26,15 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
-// A CloudProvider is one provider a sandboxed run can reach.
-type CloudProvider interface {
+// A CloudPlatform is one cloud platform a sandboxed run can reach.
+type CloudPlatform interface {
 	Target() permissions.Target
-	// Mount builds the provider's part of one run: its grant, its routes on
-	// the run's door, and the files it writes under the run's directories.
+	// Mount builds the cloud platform's part of one run: its grant, its routes
+	// on the run's door, and the files it writes under the run's directories.
 	Mount(ctx context.Context, run CloudRun) (CloudMount, error)
 }
 
-// CloudRun is what a provider may read of the run it mounts on, and its
+// CloudRun is what a cloud platform may read of the run it mounts on, and its
 // grant's inputs: the session, and the asker or, with none, the refusal.
 type CloudRun struct {
 	Port     int    // the loopback port the run dials its door on
@@ -46,7 +46,7 @@ type CloudRun struct {
 	Refusal  string
 }
 
-// CloudMount is what a provider adds to one run.
+// CloudMount is what a cloud platform adds to one run.
 type CloudMount struct {
 	Routes []Route
 	Env    []string        // rows for the run's environment
@@ -59,11 +59,11 @@ type Route struct {
 	Handler http.Handler
 }
 
-// Cloud is the providers this build has, and each one's switch.
+// Cloud is the cloud platforms this build has, and each one's switch.
 type Cloud struct {
-	Providers []CloudProvider
-	// On reads a provider's switch, at a run's start and on every request;
-	// nil reads every one off.
+	Platforms []CloudPlatform
+	// On reads a cloud platform's switch, at a run's start and on every
+	// request; nil reads every one off.
 	On func(permissions.Target) bool
 }
 
@@ -72,23 +72,23 @@ func (c Cloud) on(target permissions.Target) bool {
 	return c.On != nil && c.On(target)
 }
 
-// providerNames is each provider in the user's words.
-var providerNames = map[permissions.Target]string{
+// platformNames is each cloud platform in the user's words.
+var platformNames = map[permissions.Target]string{
 	permissions.AWS:    "AWS",
 	permissions.GitHub: "GitHub",
 	permissions.GCP:    "Google Cloud",
 	permissions.Azure:  "Azure",
 }
 
-// providersFor is the providers a run of rt mounts: those whose switch is on
-// at its start, for a run a turn of the user's started, a chat's or a
+// platformsFor is the cloud platforms a run of rt mounts: those whose switch is
+// on at its start, for a run a turn of the user's started, a chat's or a
 // subagent's. A monitor's, and the probe's, which names no kind, get none.
-func (c Cloud) providersFor(rt tools.Runtime) []CloudProvider {
+func (c Cloud) platformsFor(rt tools.Runtime) []CloudPlatform {
 	if rt.Session.Kind != session.Chat && rt.Session.Kind != session.Subagent {
 		return nil
 	}
-	var on []CloudProvider
-	for _, p := range c.Providers {
+	var on []CloudPlatform
+	for _, p := range c.Platforms {
 		if c.on(p.Target()) {
 			on = append(on, p)
 		}
@@ -96,29 +96,29 @@ func (c Cloud) providersFor(rt tools.Runtime) []CloudProvider {
 	return on
 }
 
-// mount adds each provider's part of run to the door, its requests that ask
-// going as cloudAskerFor says, and answers the variables the mounts set. It
+// mount adds each cloud platform's part of run to the door, its requests that
+// ask going as cloudAskerFor says, and answers the variables the mounts set. It
 // keeps the mounts made before one that fails, for end to end.
-func (p *runProxy) mount(ctx context.Context, providers []CloudProvider, rt tools.Runtime, background bool, run CloudRun) ([]string, error) {
-	for _, provider := range providers {
-		run.Asker, run.Refusal = cloudAskerFor(rt, background, provider.Target())
-		m, err := provider.Mount(ctx, run)
+func (p *runProxy) mount(ctx context.Context, platforms []CloudPlatform, rt tools.Runtime, background bool, run CloudRun) ([]string, error) {
+	for _, platform := range platforms {
+		run.Asker, run.Refusal = cloudAskerFor(rt, background, platform.Target())
+		m, err := platform.Mount(ctx, run)
 		if err != nil {
 			return nil, err
 		}
 		if m.Grant == nil {
-			return nil, fmt.Errorf("the %s mount names no grant", providerNames[provider.Target()])
+			return nil, fmt.Errorf("the %s mount names no grant", platformNames[platform.Target()])
 		}
 		p.mounts = append(p.mounts, m)
 	}
 	return cloudEnv(p.mounts)
 }
 
-// cloudAskerFor is where a provider's grant puts a request that asks: a
+// cloudAskerFor is where a cloud platform's grant puts a request that asks: a
 // foreground call's runtime asker, or, for a background command and a runtime
-// with none, the refusal naming the provider.
+// with none, the refusal naming the cloud platform.
 func cloudAskerFor(rt tools.Runtime, background bool, target permissions.Target) (runproxy.Asker, string) {
-	name := providerNames[target]
+	name := platformNames[target]
 	switch {
 	case background:
 		return nil, "kstack: a background command cannot change " + name + ". Run it in the foreground."
@@ -128,7 +128,7 @@ func cloudAskerFor(rt tools.Runtime, background bool, target permissions.Target)
 	return cloudAsker{rt.ActionAsker}, ""
 }
 
-// cloudAsker is a runtime's ActionAsker as a provider grant's Asker, so
+// cloudAsker is a runtime's ActionAsker as a cloud platform grant's Asker, so
 // neither package imports the other.
 type cloudAsker struct{ a tools.ActionAsker }
 
@@ -141,8 +141,8 @@ func (a cloudAsker) Record(ctx context.Context, r runproxy.Request, d permission
 	return a.a.Record(ctx, cloudRequestOf(r), d, reason)
 }
 
-// cloudRequestOf is a provider grant's request as the runtime's asker takes
-// it.
+// cloudRequestOf is a cloud platform grant's request as the runtime's asker
+// takes it.
 func cloudRequestOf(r runproxy.Request) tools.ActionRequest {
 	var details []tools.Detail
 	for _, d := range r.Sent.Details {
@@ -187,7 +187,7 @@ func cloudEnv(mounts []CloudMount) ([]string, error) {
 			values[name] = value
 			env = append(env, kv)
 		case set != value:
-			return nil, fmt.Errorf("two cloud providers set %s to different values", name)
+			return nil, fmt.Errorf("two cloud platforms set %s to different values", name)
 		}
 	}
 	return env, nil

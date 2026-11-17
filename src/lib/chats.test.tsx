@@ -687,7 +687,7 @@ function clusterWrite(id: string, status: ChatSandboxAction['approval']['status'
   };
 }
 
-/** A provider request of approval id and status, as the sidecar serves it. */
+/** A cloud platform request of approval id and status, as the sidecar serves it. */
 function cloudRequest(id: string, status: ChatSandboxAction['approval']['status']): ChatSandboxAction {
   return {
     approval: { id, status, duration: null },
@@ -742,7 +742,8 @@ function callWith(
 }
 
 describe('waitingRequestsOf', () => {
-  // One command's cluster and provider requests are one list, in the order asked.
+  // One command's cluster and cloud platform requests are one list, in the
+  // order asked.
   it("orders a call's cluster and cloud requests by approval id", () => {
     const running = callWith('c1', 'Running', [
       clusterWrite('a1', 'Pending'),

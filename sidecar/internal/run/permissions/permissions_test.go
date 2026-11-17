@@ -581,28 +581,28 @@ func TestAClassSixRuleReadsAsReads(t *testing.T) {
 	}
 }
 
-// awsCall is a provider action of class c, as Decide leaves it: a target, a
-// class and a summary.
+// awsCall is a cloud platform action of class c, as Decide leaves it: a target,
+// a class and a summary.
 func awsCall(c Class) Action {
 	return Action{Target: AWS, Class: c, Summary: "AWS: call ec2:TerminateInstances"}
 }
 
-// A provider's change, destructive change and data read ask under every mode,
-// and no answer to one may write a rule.
-func TestAProviderActionAlwaysAsks(t *testing.T) {
+// A cloud platform's change, destructive change and data read ask under every
+// mode, and no answer to one may write a rule.
+func TestACloudPlatformActionAlwaysAsks(t *testing.T) {
 	for _, mode := range []Mode{ReadOnly, Ask, Auto} {
 		for _, c := range []Class{UpstreamWrite, Destructive, SecretRead} {
 			v, why := Policy{Mode: mode}.Authorize(awsCall(c))
 			assert.Equal(t, Forbid, v, "%s, class %d", mode, c)
-			assert.Equal(t, "a provider's request always asks", why)
+			assert.Equal(t, "a cloud platform's request always asks", why)
 			assert.False(t, Grantable(v, awsCall(c)))
 		}
 	}
 }
 
 // No rule the user wrote for a cluster, and neither stand-in for one Kstack
-// could not read, reaches a provider's action.
-func TestNoRuleReachesAProviderAction(t *testing.T) {
+// could not read, reaches a cloud platform's action.
+func TestNoRuleReachesACloudPlatformAction(t *testing.T) {
 	for _, r := range []Rule{
 		{ID: "a", Effect: Allow, Class: UpstreamWrite},
 		{ID: "d", Effect: Deny, Class: UpstreamWrite},
@@ -618,13 +618,13 @@ func TestNoRuleReachesAProviderAction(t *testing.T) {
 	}
 }
 
-func TestNoPromptsRefusesAProviderAction(t *testing.T) {
+func TestNoPromptsRefusesACloudPlatformAction(t *testing.T) {
 	v, why := Policy{Mode: Auto, NoPrompts: true}.Authorize(awsCall(UpstreamWrite))
 	assert.Equal(t, Refuse, v)
-	assert.Equal(t, "this session never asks: a provider's request always asks", why)
+	assert.Equal(t, "this session never asks: a cloud platform's request always asks", why)
 }
 
-func TestNoSecretDataRefusesAProviderDataRead(t *testing.T) {
+func TestNoSecretDataRefusesACloudPlatformDataRead(t *testing.T) {
 	v, why := Policy{Mode: Auto, NoSecretData: true}.Authorize(awsCall(SecretRead))
 	assert.Equal(t, Refuse, v)
 	assert.Equal(t, "this session never reads Secret data", why)

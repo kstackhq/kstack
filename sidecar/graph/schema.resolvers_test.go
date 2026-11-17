@@ -2279,8 +2279,8 @@ func TestAMessageCarriesItsToolCalls(t *testing.T) {
 }
 
 // A call carries its sandbox actions in the order asked, a cluster's and a
-// provider's in one list: one that waits with its body and subresource, one
-// decided or abandoned, and a pending one on a call no longer running, with
+// cloud platform's in one list: one that waits with its body and subresource,
+// one decided or abandoned, and a pending one on a call no longer running, with
 // neither body nor media type.
 func TestToolCallCarriesItsSandboxActions(t *testing.T) {
 	srv, db, fake := newChatServerOver(t)
@@ -3611,7 +3611,7 @@ func TestLogsFollowCarriesARefusal(t *testing.T) {
 }
 
 // newCloudServer is a resolver over a fresh settings file whose build has the
-// providers targets.
+// cloud platforms targets.
 func newCloudServer(t *testing.T, targets ...permissions.Target) (*httptest.Server, *settings.Store) {
 	t.Helper()
 	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
@@ -3623,10 +3623,10 @@ func newCloudServer(t *testing.T, targets ...permissions.Target) (*httptest.Serv
 	return srv, cfg
 }
 
-// sandboxCloudAccess lists only the providers the build has, each off until
-// turned on; sandboxCloudAccessSet writes its provider's field and answers the
-// list.
-func TestSandboxCloudAccessListsTheBuildsProviders(t *testing.T) {
+// sandboxCloudAccess lists only the cloud platforms the build has, each off
+// until turned on; sandboxCloudAccessSet writes its cloud platform's field and
+// answers the list.
+func TestSandboxCloudAccessListsTheBuildsCloudPlatforms(t *testing.T) {
 	srv, cfg := newCloudServer(t, permissions.AWS, permissions.GCP)
 	data := mutate(t, srv, `{ sandboxCloudAccess { target on } }`)
 	assert.Equal(t, []any{
@@ -3646,7 +3646,8 @@ func TestSandboxCloudAccessListsTheBuildsProviders(t *testing.T) {
 	assert.Equal(t, []any{}, mutate(t, empty, `{ sandboxCloudAccess { target on } }`)["sandboxCloudAccess"])
 }
 
-// The cluster has no switch, and a provider the build lacks has none either.
+// The cluster has no switch, and a cloud platform the build lacks has none
+// either.
 func TestSandboxCloudAccessSetRefusesWhatHasNoSwitch(t *testing.T) {
 	srv, cfg := newCloudServer(t, permissions.AWS)
 	for _, target := range []string{"Cluster", "GitHub"} {
