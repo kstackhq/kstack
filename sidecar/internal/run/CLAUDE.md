@@ -1,10 +1,10 @@
 # internal/run — what confines one run
 
-Six leaves that know no tool and no record: `loginshell` (the user's shell, read once a launch),
+Seven leaves that know no tool and no record: `loginshell` (the user's shell, read once a launch),
 `session` (one run's policy), `sandbox` (the machine's sandbox), `permissions` (the decision over an
-action), `kubeproxy` (the proxy a sandboxed command reaches its cluster through)
-and `runproxy` (what every cloud platform's proxy shares, and the run's server). A tool
-imports these; none imports a tool. Posture and the tests that pin it:
+action), `kubeproxy` (the proxy a sandboxed command reaches its cluster through),
+`runproxy` (what every cloud platform's proxy shares, and the run's server) and `azureproxy` (Azure's).
+A tool imports these; none imports a tool. Posture and the tests that pin it:
 [`docs/security-model.md`](../../../docs/security-model.md).
 
 ## The login shell (`loginshell`)
@@ -269,3 +269,18 @@ under the header bound; `IsTLS` tells a handler.
   or form body that does not parse), then takes its lock (`maxQueued` waiting). A refusal is
   recorded; the rest ask; only an approval takes a slot and forwards. A data read gives up the
   lock before `forward`, a change at its return.
+
+## Azure's proxy (`azureproxy`)
+
+**`internal/run/azureproxy` is Azure Resource Manager's proxy** over a `runproxy.Grant` and the
+`Account` its run mounted with. The token is a bearer, or `X-IDENTITY-HEADER` at `IdentityPath`,
+the managed-identity endpoint, which answers the grant's token. `path.go` reads Resource
+Manager's grammar, its words ASCII, any case, and two polling paths (`GET`).
+`classify.go` refuses AKS run-command, access profiles, a credential action (by name, or listed:
+`publishxml`, `readonlykeys`, any method) and an unnamed `list`/`get`; then class 6 (the
+secret-metadata list, and an operation's result in its namespaces), reads, class 5, class 4.
+A change naming no subscription is refused; any other goes to `Decide`. Forwarding adds
+the user's token for the subscription's tenant; a `401` drops it and answers the
+sign-in sentence. `rewrite.go` points `Location`, `Azure-AsyncOperation`, `Operation-Location`
+and the top-level `nextLink` at the door. A `429`, which `az` retries, is answered `403`. →
+[ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md).
