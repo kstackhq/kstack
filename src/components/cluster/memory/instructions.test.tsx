@@ -17,12 +17,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { expectProseText } from '@/test-utils';
 
-import { MemoryInstructions, SAVE_DELAY_MS, SAVED_SHOWN_MS } from './instructions';
+import { MemoryInstructions, SAVED_SHOWN_MS } from './instructions';
 
 const box = () => screen.getByRole('textbox', { name: 'Instructions' });
 // Hidden by opacity, so it is in the tree throughout.
 const saved = () => screen.getByText('Saved');
 const type = (text: string) => fireEvent.change(box(), { target: { value: text } });
+const leave = () => fireEvent.blur(box());
 const advance = (ms: number) => {
   act(() => {
     vi.advanceTimersByTime(ms);
@@ -50,14 +51,18 @@ describe('MemoryInstructions', () => {
     expect(saved()).toHaveClass('opacity-0');
   });
 
-  it('shows "Saved" a pause after the last keystroke, then hides it', () => {
+  it('never saves while typing, however long the pause', () => {
     render(<MemoryInstructions />);
     type('Always use traefik.');
     expect(box()).toHaveValue('Always use traefik.');
-
-    advance(SAVE_DELAY_MS - 1);
+    advance(60_000);
     expect(saved()).toHaveAttribute('aria-hidden', 'true');
-    advance(1);
+  });
+
+  it('shows "Saved" when the box loses focus, then hides it', () => {
+    render(<MemoryInstructions />);
+    type('Always use traefik.');
+    leave();
     expect(saved()).toHaveAttribute('aria-hidden', 'false');
     expect(saved()).not.toHaveClass('opacity-0');
     expect(screen.getByRole('status')).toBe(saved());
@@ -66,23 +71,52 @@ describe('MemoryInstructions', () => {
     expect(saved()).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('restarts the wait on each keystroke, and hides "Saved" while typing', () => {
+  it('saves on Cmd+Enter or Ctrl+Enter, keeping the text', () => {
     render(<MemoryInstructions />);
-    type('Always');
-    advance(SAVE_DELAY_MS - 100);
-    type('Always use');
-    advance(SAVE_DELAY_MS - 100);
-    expect(saved()).toHaveAttribute('aria-hidden', 'true');
-    advance(100);
+    type('Always use traefik.');
+    fireEvent.keyDown(box(), { key: 'Enter', metaKey: true });
     expect(saved()).toHaveAttribute('aria-hidden', 'false');
+    expect(box()).toHaveValue('Always use traefik.');
+
+    type('Always use nginx.');
+    fireEvent.keyDown(box(), { key: 'Enter', ctrlKey: true });
+    expect(saved()).toHaveAttribute('aria-hidden', 'false');
+  });
+
+  it('does not save on a bare Enter or while an IME composes', () => {
+    render(<MemoryInstructions />);
+    type('Always use traefik.');
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    fireEvent.keyDown(box(), { key: 'Enter', metaKey: true, isComposing: true });
+    expect(saved()).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('does not save when the text is unchanged since the last save', () => {
+    render(<MemoryInstructions />);
+    leave();
+    expect(saved()).toHaveAttribute('aria-hidden', 'true');
 
     type('Always use traefik.');
+    leave();
+    advance(SAVED_SHOWN_MS);
+    leave();
     expect(saved()).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('hides "Saved" when typing resumes', () => {
+    render(<MemoryInstructions />);
+    type('Always');
+    leave();
+    type('Always use traefik.');
+    expect(saved()).toHaveAttribute('aria-hidden', 'true');
+    // The hide timer from the last save is gone, not left to fire later.
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('drops its timer when it unmounts', () => {
     const { unmount } = render(<MemoryInstructions />);
     type('Always use traefik.');
+    leave();
     unmount();
     expect(vi.getTimerCount()).toBe(0);
   });
