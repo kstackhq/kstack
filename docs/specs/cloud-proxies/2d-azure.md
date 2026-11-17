@@ -38,18 +38,15 @@ Step 1's [*What is true now*](1-shared-pieces.md#what-is-true-now) holds. Azure 
   `tools/bash/proxy.go`), and `runProxy.serve` listens on the run's socket and serves it on
   `runproxy.NewServer(http.Handler)`.
 - **A mount is told the run's `TMPDIR`.** `CloudRun` carries `Port`, `Dir`, `ToolHome` and
-  `TmpDir`, and step 1's seam lets a cloud platform write a file its client must write per run
-  there.
+  `TmpDir`, and step 1's seam lets a cloud platform write a file its client must write per run there.
 - **Step 1 built the shared pieces and no cloud platform.** `sandbox.azure` exists and is off, and
   `permissions.Azure` is a `Target`. `app/runtime.go` hands `bash.New` a `bash.Cloud` whose
-  `Platforms` is
-  `cloudPlatformsFor`'s: the build's list, `builtCloudPlatforms` (`app/cloudplatforms_unix.go`), or a
-  test's `Config.cloudPlatforms` in its place, and none on a machine with no sandbox. The
+  `Platforms` is `Config.cloudPlatforms`: none in production, a test's fake otherwise. The
   wire lists a switch per cloud platform of that list, and Settings draws none yet
   ([`TODO.md`](../../TODO.md), *Draw each cloud platform's switch in Settings*).
 - **Azure's name and refusals are written.** `tools/bash/cloud.go` holds *Azure*
   (`platformNames`) and fills a mount's `CloudRun.Asker` and `Refusal` (`cloudAskerFor`). The
-  webview holds the name too (`CLOUD_PLATFORM_NAMES`, `src/lib/chats.tsx`).
+  webview holds the name too (`PROVIDER_NAMES`, `src/lib/chats.tsx`).
 
 ## What this step builds
 
@@ -99,9 +96,12 @@ Everything below about `az` was read in source on 2026-11-16 (`Azure/azure-cli` 
 2. **`az` gets that token as a managed identity**: with [§5](#5-what-a-run-holds)'s three files
    and four variables it asks `IDENTITY_ENDPOINT` once and runs no `az login`.
 3. **`az aks list` and `az vm list` print a paged answer**, sent only
-   [§6](#the-headers-forwarded)'s headers and given a rewritten `nextLink`.
+   [§6](#the-headers-forwarded)'s headers and given a rewritten `nextLink`, and **`az group
+   delete` follows a `202`'s rewritten `Location`** to its end.
 4. **`az` starts in a sandboxed run with no network**: its own install is readable there, its
    config directory is writable, and the trust needs no daemon.
+5. **The newest Python `az` ships accepts [§3](#3-the-runs-certificate)'s certificate.** From
+   3.13, `ssl.create_default_context` sets `VERIFY_X509_STRICT`.
 
 **It must state:**
 
@@ -110,7 +110,10 @@ Everything below about `az` was read in source on 2026-11-16 (`Azure/azure-cli` 
   happens on a machine with none of [§3](#3-the-runs-certificate)'s three system bundles.
 - **`az`'s cold start** in a fresh config directory.
 - **Which statuses `az` retries, and for how long.** azure-core's retry policy is read as
-  retrying `408`, `429` and `5xx` with a backoff.
+  retrying `408`, `429` and `5xx` with a backoff. If it retries a `400`, a `401`, a `403` or a
+  `413`, [§6](#the-statuses)'s statuses change.
+- **Whether `az` writes the managed identity's token under `AZURE_CONFIG_DIR`**, and in which
+  file ([open question 9](#open-questions)).
 
 **If it fails**, on TLS trust or on the managed identity, this step is retired unbuilt: this
 file is deleted, its row leaves [`README.md`](README.md), and the sequence lands without Azure.
@@ -133,6 +136,10 @@ gains one row:
 
 A request on a transport and host with no route is the door's `401`, so the cluster's host over
 TLS reaches nothing.
+
+AWS's route shares this door's key, and each step of wave 2 adds the same constant for 16 bodies
+([§5](#5-what-a-run-holds)). Whichever of them lands second rebases onto the first's constant
+and door key.
 
 **One listener, both transports** (`run/runproxy/listen.go`), wrapped round the Unix listener
 `runProxy.serve` opens. The first byte a connection sends decides: `0x16` is a TLS handshake
@@ -158,8 +165,9 @@ record, which no HTTP request starts with.
 `cert.go` makes one certificate per run, only for a run with a TLS route.
 
 - An ECDSA P-256 key and a self-signed certificate whose one name is the IP `127.0.0.1`.
-- It carries the extensions a strict verifier wants: subject and authority key ids, critical
-  basic constraints, `serverAuth`.
+- Its profile is fixed: basic constraints critical with `IsCA` false, key usage
+  `digitalSignature`, extended key usage `serverAuth`, a subject and an authority key id, and
+  the one IP SAN.
 - It is valid from an hour before for 365 days. The key lives in the sidecar's memory and dies
   with the run, so expiry protects nothing.
 
@@ -167,11 +175,11 @@ record, which no HTTP request starts with.
 system's bundle: the first that exists of `/etc/ssl/cert.pem`,
 `/etc/ssl/certs/ca-certificates.crt` and `/etc/pki/tls/certs/ca-bundle.crt`. A client pointed
 at the file still verifies public hosts. `sandboxedRunFor` writes it once a mount returns a TLS
-route, before the command starts.
+route, before the command starts. Azure's mount always returns one, so the file is written with
+no account too.
 
 **Azure sets `REQUESTS_CA_BUNDLE` to that file.** It is a variable other tools read, so
-[step 1, §7](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash) asks for its cost under
-network:
+[step 1, §7](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash) asks for its cost under network:
 
 - With network off, nothing: no public host is reachable.
 - With network on, every tool that reads the variable verifies public hosts against the
@@ -198,9 +206,13 @@ read from `az`.
     `isDefault`, and of the cloud, its name and its endpoint and suffix tables.
   - The cloud's name must be in [the upstream table](#the-upstream-table) and every id a GUID,
     or there is no account.
-  - Discovery runs when a run mounts Azure and there is none yet, and that run waits for it. It
-    runs again in the background when a run mounts and the user's `azureProfile.json` has
-    another mtime. It never runs at startup or while the switch is off.
+  - Discovery runs when a run mounts Azure and none has run yet, and that run waits for it. It
+    never runs at startup or while the switch is off.
+  - Its result is remembered, a failure included: no `az`, no login, a cloud not in the table.
+  - It runs again when a run mounts and the user's `azureProfile.json` or `config` has another
+    mtime, or has appeared. A run with no account waits for it. A run with one does not.
+  - The user's files are in the sidecar's `AZURE_CONFIG_DIR`, else `~/.azure`: the directory
+    the `az` it runs reads.
 - **`Token(ctx, tenant) (string, error)`** runs `az account get-access-token --resource <the
   table's resource> --tenant <tenant> --output json`, for a tenant among the account's alone.
   One call per tenant runs at a time. The token is kept in memory until five minutes before its
@@ -220,16 +232,18 @@ name `azure`, with no other change. A test's `Config.cloudPlatforms` stands in p
 built list, not beside it. Who gets a grant is [step 1's](1-shared-pieces.md#4-the-gate).
 
 `Mount` builds the grant, `runproxy.NewGrant(permissions.Azure, run.Session, run.Asker,
-run.Refusal, limits)`, with no challenge. The limits are `cloudLimits` (`tools/bash/cloud.go`). It returns the TLS route, the grant, and the variables below.
+run.Refusal, limits)`, with no challenge. The limits are `tools/bash/proxy.go`'s `proxyQPS`,
+`proxyBurst` and `proxyMaxInFlight`, and 16 bodies, a constant beside them that the first
+cloud platform built adds. It returns the TLS route, the grant, and the variables below.
 
 `run/azureproxy` imports `runproxy`, `permissions` and `session`, and nothing of `tools` or
 `services`. It reaches the service through two interfaces of its own, `Accounts` and `Tokens`.
 
 **The config directory is `<TMPDIR>/azure`**, under `run.TmpDir`. `az` writes its command index
 and logs beside its configuration, so the directory is writable and the run's own. Of the three
-places [step 1's seam](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash) names for a cloud
-platform's files, the run directory is read-only and the tool home is shared by a chat's runs, whose
-ports differ on macOS. The run's `TMPDIR` is the one for a file a client must write per run.
+places [step 1's seam](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash) names for a cloud platform's
+files, the run directory is read-only and the tool home is shared by a chat's runs, whose ports
+differ on macOS. The run's `TMPDIR` is the one for a file a client must write per run.
 
 The mount writes three files into it, each 0600, created with `O_EXCL`. None holds the token.
 
@@ -248,7 +262,8 @@ The mount writes three files into it, each 0600, created with `O_EXCL`. None hol
   }]}
   ```
 
-  A subscription's name is the user's text, so this file is written by `encoding/json`, and
+  Each entry's `isDefault` is the user's own. A subscription's name is the user's text, so this
+  file is written by `encoding/json`, and
   `clouds.config` holds no name.
 
 **The variables:**
@@ -274,9 +289,10 @@ never run in the sandbox.
 handed a real Azure credential by name. This narrows what a run may hold, and is a security
 change of its own, in its own commit.
 
-**With no account** (no `az`, or no login) the mount writes no file and sets no variable. `az`
-in the run says it is not logged in. The route stays, and answers every request the fixed
-sentence of [§6](#6-the-proxy-runazureproxy).
+**With no account** (no `az`, or no login) the mount writes none of the three files and sets no
+variable. `az` in the run says it is not logged in. The route stays, and answers every request
+the fixed sentence of [§6](#6-the-proxy-runazureproxy). It is a TLS route, so `ca.pem` is
+written ([§3](#3-the-runs-certificate)), and nothing points at it.
 
 **The prompt.** This step adds Azure's paragraph to `tools/bash/prompts/sandbox.md`, in
 step 1's words, read when the context's `cloud` names `azure`. It adds what is Azure's: only
@@ -311,10 +327,24 @@ slot and no other.
 7. Forward to the table's host with `Outbound`'s headers and the user's token.
 
 **A refusal is Resource Manager's error shape**, `{"error": {"code": "KstackRefused",
-"message": "kstack: …"}}`, which `az` prints. Every answer the proxy writes for itself is a
-`403`, the sign-in sentence and an upstream failure included, since `az` is read as retrying
-`5xx` with a backoff. The grant's `429` and `413` are step 1's; the spike says what a `429`
-costs `az`.
+"message": "kstack: …"}}`, which `az` prints.
+
+#### The statuses
+
+`az` is read as retrying `408`, `429` and `5xx` with a backoff, so the proxy writes none of
+them for itself.
+
+| Answer | Status |
+| --- | --- |
+| A refusal, the sign-in sentence, an upstream failure | `403` |
+| The grant's `429`: no slot from `Slot`, no body slot from `Body`, a full queue from `Decide` | `403` |
+| No token, a token in the wrong slot, a grant that ended, the door's own | `401` |
+| The identity endpoint asked for another resource; a body that ended early | `400` |
+| A body past step 1's cap | `413` |
+
+A `429` of `Decide`'s carries its own sentence. One of `Slot`'s or `Body`'s is answered *kstack:
+too many requests at once. Send fewer at a time.* This is the status
+[step 1](1-shared-pieces.md#what-each-cloud-platform-step-owes) asks each cloud platform to name.
 
 #### The upstream table
 
@@ -348,21 +378,58 @@ Nothing else of the request's is forwarded.
 
 #### The path policy
 
-Resource Manager folds case in a path, so every comparison of a cloud platform namespace, a type or
-an action folds case too.
+Resource Manager folds case in a path, so every comparison folds case too: of the grammar's
+fixed words (`subscriptions`, `resourceGroups`, `cloud platforms`), which Azure's own links write
+`resourcegroups`, and of a cloud platform namespace, a type or an action.
 
 - A path that is not canonical is refused, as is a query `url.ParseQuery` refuses, a read's
   included, since the classifier reads `$expand`.
-- A path is read by Resource Manager's grammar:
-  `/subscriptions/{id}[/resourceGroups/{g}][/platforms/{namespace}/{type}/{name}…][/{action}]`,
-  `/platforms/…`, `/tenants`, `/subscriptions`. Any other path is refused, `/batch` among them:
-  it carries other requests in its body.
 - A method that is not `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE` is refused.
+- A path is read by Resource Manager's grammar, or is one of
+  [the polling paths](#the-polling-paths). Any other path is refused, `/batch` among them: it
+  carries other requests in its body.
+
+```text
+/subscriptions
+/tenants
+/subscriptions/{id}[/resourceGroups/{g}]{cloud platform}…[/{last}]
+{cloud platform}…[/{last}]
+
+{cloud platform} = /cloud platforms/{namespace}[/{type}/{name}]…
+```
+
+- `{cloud platform}…` is none or more, and the last form has at least one.
+- `{last}` is one segment: a collection's type or an action.
+- **A scope nests.** An extension resource has a second `/cloud platforms/` segment
+  (`…/virtualMachines/vm/cloud platforms/Microsoft.Authorization/roleAssignments/{name}`), so
+  `cloud platforms` in a type's place starts the next `{cloud platform}`.
+
+##### The polling paths
+
+A change that Azure finishes later answers a `Location` or `Azure-AsyncOperation` link, which
+[§7](#7-answer-rewriting) rewrites and `az` polls. A resource group's delete answers the first
+of these.
+
+```text
+/subscriptions/{id}/operationresults/{id}
+/subscriptions/{id}/resourceGroups/{g}/operationresults/{id}
+/subscriptions/{id}/cloud platforms/{namespace}/locations/{location}/operations/{id}
+/subscriptions/{id}/cloud platforms/{namespace}/locations/{location}/operationResults/{id}
+/subscriptions/{id}/cloud platforms/{namespace}/locations/{location}/operationStatuses/{id}
+{a resource}/operationResults/{id}
+{a resource}/operationStatuses/{id}
+```
+
+The first two are outside the grammar, and are admitted for `GET` alone. The rest fit it. Each
+is a read, and asks nothing.
 
 #### The classifier
 
 `classify.go` puts a request in exactly one row of
 [step 1's classes](1-shared-pieces.md#4-the-gate). The first row that matches decides.
+
+A row or a list that names a cloud platform namespace reads the path's last `/cloud platforms/` segment. A
+role assignment on a VM is under `Microsoft.Authorization/`, not `Microsoft.Compute/`.
 
 | # | Request | Is |
 | --- | --- | --- |
@@ -413,7 +480,7 @@ Three notes:
 Recommended, since Azure can name what loses the most:
 
 - `DELETE` of a resource group, and `DELETE` with no `resourceGroups` segment.
-- Any change under `Microsoft.Authorization/` (role assignments, locks, policy).
+- Any change under `Microsoft.Authorization/` (role assignments, locks, policy), at any scope.
 - `DELETE` of `Microsoft.ContainerService/managedClusters/*`.
 - Any `runCommand` or `runCommands` segment not already refused (a VM's).
 
@@ -426,7 +493,8 @@ resource are its details.
   Pay-As-You-Go*, *Azure: read app settings of Microsoft.Web/sites/shop in rg-dev*, else
   *Azure: PUT Microsoft.Compute/virtualMachines/vm-1 in rg-dev*.
 - **`Details`**: *Subscription* (its name and id), *Resource group* when the path names one,
-  *Resource* (the cloud platform namespace, the type and the last named segment) when it names one,
+  *Resource* (the last `/cloud platforms/` segment's namespace, type and last named segment) when it
+  names one,
   and *If-Match* and *If-None-Match* when sent. The labels are constants of the package.
 - **No body is `Unshown`.** Resource Manager's bodies are JSON. One past step 1's 1 MiB is
   `413`, so a deployment template larger than that is not sent.
@@ -444,7 +512,9 @@ The request rides `ToolCall.sandboxActions` as a `CloudRequest` and takes step 1
 - The body is rewritten as a stream, as `kubeproxy`'s `rewriteSecrets` rewrites one
   (`run/kubeproxy/redact.go`). A `nextLink` inside an item is left alone.
 - `WWW-Authenticate` is dropped.
-- An upstream `401` calls `Drop` with the token that was sent.
+- An upstream `401` calls `Drop` with the token that was sent. A `GET` or `HEAD` is then sent
+  once more, with a fresh token from `Tokens.Token`. A change is never sent twice: it was
+  approved once. A second `401`, and a change's, answer the sign-in sentence.
 
 ### 8. A narrower role
 
@@ -483,8 +553,10 @@ proxy its `Accounts`, its `Tokens` and its upstream's roots.
   that reads its transport.
 - `TestASilentConnectionEndsAtTheHeaderTimeout`, while a second connection is served.
 - `TestATLSConnectionWithNoCertificateIsClosed`.
-- `TestTheCertificateNamesTheLoopbackAlone`; `TestTheBundleKeepsTheSystemsRoots`, and holds
-  the certificate alone where no system bundle exists.
+- `TestTheCertificateNamesTheLoopbackAlone`: [§3](#3-the-runs-certificate)'s profile, field
+  by field.
+- `TestTheBundleKeepsTheSystemsRoots`, and holds the certificate alone where no system bundle
+  exists.
 
 **`run/sandbox`**: `TestARunWithAnUnpassableVariableIsRefused` gains the four names, on both
 platforms.
@@ -497,6 +569,9 @@ platforms.
 - `TestOnlyTheAccountsTenantsReachAz`: a tenant that is not the account's never runs `az`.
 - `TestAnAccountWithABadIdOrAnUnknownCloudIsNone`.
 - `TestDiscoveryWaitsForAMount`: nothing runs `az` until a run mounts.
+- `TestAFailedDiscoveryIsNotRepeatedUntilTheProfileChanges`: after a failed discovery, a second
+  mount runs no `az`; once `azureProfile.json` or `config` appears or has another mtime, the
+  next mount waits for a new one.
 - `TestAFailedAzSaysNothingOfItsOutput`: the error and the log hold none of it.
 
 **`run/azureproxy`**
@@ -510,18 +585,24 @@ platforms.
 - `TestOnlyTheListedHeadersAreForwarded`: `x-ms-authorization-auxiliary`, each method-override
   header and `Accept-Encoding` never reach the upstream.
 - `TestEveryRequestIsClassified`: one table over the path policy and the classifier's rows, in
-  mixed case.
+  mixed case. It holds each polling path as a read, the two outside the grammar as refused for
+  any other method, a role assignment under a VM as class 5, and
+  `/subscriptions/{id}/resourcegroups/{g}/cloud platforms/…` in lower case.
 - `TestACredentialActionIsRefusedUnasked`: `listKeys`, `regenerateKey`, a `list*Credential`,
   `accessProfiles` and a `list` action no row names; none reaches the asker or Azure.
 - `TestSecretMetadataAsksAsADataRead`: each row of the list is class 6, and
   `operationStatuses` is a read.
 - `TestAConditionalHeaderIsDrawn`: `If-Match` and `If-None-Match` are details.
 - `TestAChangeAsksAndOnlyAnApprovalForwards`.
-- `TestAnotherSubscriptionIsRefused`, `TestAFailedTokenIsOneFixedSentence`,
-  `TestARefusalIsNeverRetried`: every status the proxy writes for itself is `403`.
+- `TestAnotherSubscriptionIsRefused`, `TestAFailedTokenIsOneFixedSentence`.
+- `TestARefusalAndAFullGrantAre403`: every refusal, an upstream failure, and each of the
+  grant's `429`s (`Slot`'s, `Body`'s, `Decide`'s) is `403` in Resource Manager's error shape. A
+  body past the cap is `413`.
 - `TestTheAnswersLinksNameTheDoor`: the three headers and a paged body's `nextLink`; a
   `nextLink` inside an item is left alone.
-- `TestA401DropsTheToken`.
+- `TestA401DropsTheTokenAndRetriesARead`: on an upstream `401` the token is dropped; a `GET`
+  is sent once more with a fresh one, and a second `401` is the sign-in sentence; a `DELETE`
+  is sent once.
 
 **`tools/bash`**
 
@@ -538,14 +619,15 @@ platforms.
 - `TestTheSandboxedEnvironmentIsFixed` gains the four variables.
 - `TestTheAzureFilesHoldNoName`: a subscription named with quotes, newlines and `]` leaves
   `clouds.config` and `config` unchanged and `azureProfile.json` valid JSON.
-- `TestARunWithNoAccountHasTheRouteAlone`: no file, no variable, and the route answers the
-  sign-in sentence.
+- `TestARunWithNoAccountHasTheRouteAlone`: none of the three `az` files and no variable;
+  `ca.pem` is written, and the route answers the sign-in sentence.
 - `TestTheSandboxPromptSaysWhenToReadAzure` (`bash_test.go`): the paragraph is static, and tells
   the model to read it only where the context's `cloud` names `azure`. The prompt goldens.
 
 **`app`** (`startE2E`, `testutil.RequireSandbox`, skipped where `az` is absent), network off,
-Azure turned on through `sandboxCloudAccessSet`. As
-`TestASandboxedCommandReachesACloudPlatformThroughTheDoor` does with its fake, each test sets
+Azure turned on through `sandboxCloudAccessSet`. One Linux leg of CI installs `az`, so the
+tests run there and pin `az`'s private file formats ([§5](#5-what-a-run-holds)). As
+`TestASandboxedCommandReachesAProviderThroughTheDoor` does with its fake, each test sets
 `Config.cloudPlatforms`: Azure's cloud platform over a fake `az` runner for the service and a fake
 Resource Manager for the upstream.
 
@@ -554,7 +636,10 @@ Resource Manager for the upstream.
 - `TestAnAzChangeAsks`: `az group delete -n rg --yes` waits on one request in
   `sandboxActions` whose summary is *Azure: delete resource group rg in …*. Denied, it exits
   non-zero and the fake saw no `DELETE`.
-- `TestAzureBesideEveryOtherPlatform`: one run with a cluster, Azure, and every cloud platform then
+- `TestAnApprovedAzChangePollsToItsEnd`: the fake answers the `DELETE` `202` with a `Location`
+  of `https://management.azure.com/subscriptions/{id}/operationresults/{token}`. Approved,
+  `az group delete -n rg --yes` polls that path through the door, exits zero, and asked once.
+- `TestAzureBesideEveryOtherProvider`: one run with a cluster, Azure, and every cloud platform then
   built on `wip/cloud-proxies` turned on. `az` reads, `kubectl` reads, and no variable is set
   two ways.
 
@@ -626,8 +711,7 @@ When this step is complete on `wip/cloud-proxies`:
   listener and its certificate, Resource Manager alone, the three clouds, the config directory
   in `TMPDIR`, and no narrower role. Rejected: plain HTTP, a second listener, a written MSAL
   cache, a real token in the run, `HTTPS_PROXY` with interception. It cites
-  [step 1's
-  ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md)
+  [step 1's ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md)
   for the decision to lend a credential through a proxy.
 - **`docs/security/<date>-azure-through-the-proxy.md`**, from *Security* above, the TLS
   route's residual included, naming the commit.
@@ -680,6 +764,7 @@ When this step is complete on `wip/cloud-proxies`:
 8. **Three clouds, or the public one alone?** Recommended: the three in the table.
 9. **Is a config directory per run acceptable?** `az` rebuilds its command index in a fresh
    one, which the spike times. If it is slow, the index can be kept in the chat's tool home,
-   at the cost of a file one run leaves for the next.
-10. **CI needs an `az`** on one Linux leg for the `app` tests. Without it only the fakes run,
-   and `az`'s private file formats ([§5](#5-what-a-run-holds)) are unpinned.
+   at the cost of a file one run leaves for the next. The managed identity's token must not
+   move with it. The identity endpoint stamps the grant's token valid for 24 h, so a later run
+   would read the last run's dead token and every `az` call in it would fail. The spike says
+   whether `az` writes that token to a file.
