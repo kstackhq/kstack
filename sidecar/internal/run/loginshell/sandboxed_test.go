@@ -465,3 +465,12 @@ func TestAShellThatCannotWriteItsStateFallsBack(t *testing.T) {
 	assert.Equal(t, reasonShellExited, fault.Reason)
 	assert.Equal(t, 1, fault.ExitCode)
 }
+
+// The shell starts with no Azure credential, but keeps AZURE_CONFIG_DIR,
+// which says where the user's az keeps its login.
+func TestTheShellKeepsAzuresConfigDir(t *testing.T) {
+	got := sandboxedEnv([]string{
+		"AZURE_CONFIG_DIR=/home/ana/.azure-work", "AZURE_CLIENT_SECRET=s", "ARM_CLIENT_SECRET=s", "KEPT=yes",
+	}, "/scratch")
+	assert.Equal(t, []string{"AZURE_CONFIG_DIR=/home/ana/.azure-work", "KEPT=yes", "TMPDIR=/scratch"}, got)
+}

@@ -20,21 +20,26 @@ import (
 )
 
 // EnvRule matches an environment variable no sandboxed run may hold: by its
-// name, or every name starting with Prefix.
+// name, or every name starting with Prefix but those Except lists.
 type EnvRule struct {
 	Name   string
 	Prefix string
+	Except []string
 }
 
 // neverEnv is what no sandboxed run may hold: what reaches past the sandbox,
 // what changes what a program loads, what a shell runs on its own, and every
-// AWS variable.
+// AWS and Azure variable, Terraform's and kubelogin's Azure credentials among
+// them. Azure's credential variables keep growing, so they go by prefix;
+// AZURE_CONFIG_DIR, where az keeps its login, is the one a run may hold.
 var neverEnv = []EnvRule{
 	{Name: "SSH_AUTH_SOCK"}, {Name: "GITHUB_TOKEN"}, {Name: "GH_TOKEN"}, {Name: "DOCKER_HOST"},
 	{Name: "DYLD_LIBRARY_PATH"}, {Name: "DYLD_INSERT_LIBRARIES"}, {Name: "DYLD_FRAMEWORK_PATH"},
 	{Name: "LD_LIBRARY_PATH"}, {Name: "LD_PRELOAD"}, {Name: "LD_AUDIT"},
 	{Name: "BASH_ENV"}, {Name: "ENV"}, {Name: "PROMPT_COMMAND"},
 	{Prefix: "AWS_"},
+	{Prefix: "AZURE_", Except: []string{"AZURE_CONFIG_DIR"}}, {Prefix: "ARM_"},
+	{Name: "AAD_SERVICE_PRINCIPAL_CLIENT_SECRET"}, {Name: "MSI_SECRET"},
 }
 
 // NeverEnv is the rules, a copy each call.
@@ -46,7 +51,7 @@ func Unpassable(name string) bool { return unpassable(neverEnv, name) }
 func unpassable(rules []EnvRule, name string) bool {
 	return slices.ContainsFunc(rules, func(r EnvRule) bool {
 		if r.Prefix != "" {
-			return strings.HasPrefix(name, r.Prefix)
+			return strings.HasPrefix(name, r.Prefix) && !slices.Contains(r.Except, name)
 		}
 		return name == r.Name
 	})
