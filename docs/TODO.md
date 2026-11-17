@@ -1023,17 +1023,6 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   sandbox starts somewhere no unasked write reaches unless the user names the workspace, or the
   request says when the directory holds config a tool would run.
 
-- **Let a sandboxed command reach the user's Google Cloud account without holding a credential.**
-  AWS ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md)), GitHub
-  ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-github-over-plain-http-at-ghs-own-host-name.md))
-  and Azure Resource Manager are built. A sandboxed run reaches no other cloud API:
-  `~/.config/gcloud` is denied always and no credential variable passes, so an agent cannot read
-  the Google Cloud account around a cluster. Specified in `docs/specs/cloud-proxies/` on
-  [#940](https://github.com/kstackhq/kstack/pull/940), for [#935](https://github.com/kstackhq/kstack/issues/935) and
-  [#933](https://github.com/kstackhq/kstack/issues/933): a proxy per cloud platform in the sidecar
-  behind the run's one relay, a switch per cloud platform that is off by default, and a gate that
-  asks for anything but a read.
-
 - **A narrower AWS identity.** A sandboxed command reaches AWS as the sidecar's default chain,
   with every permission the login has. Wanted: a read-only role per profile that the proxy
   assumes, and the profile the chat's kubeconfig names in its `exec` block.
@@ -1083,8 +1072,23 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   panel. Each turns on behind a confirm naming the cloud platform and what of its stored data is
   read unasked (step 1 of [the cloud
   proxies](specs/cloud-proxies/1-shared-pieces.md#6-the-consent-switch)). AWS's line: *An object's
-  contents ask first.* GitHub's line: *Private repositories are read without asking.* Azure's
-  line: *Stored data is not reached; an app's settings and a deployment's parameters ask first.*
+  contents ask first.* GitHub's line: *Private repositories are read without asking.* Google's
+  line: *Log entries are read without asking; an object's contents ask first.* Azure's line:
+  *Stored data is not reached; an app's settings and a deployment's parameters ask first.*
+
+- **A narrower Google identity.** A sandboxed `gcloud` acts as the user's active account. Issue
+  [#933](https://github.com/kstackhq/kstack/issues/933) asks to consider impersonating a service
+  account instead, which needs a setting, a UI and the user's own IAM binding.
+
+- **Google services off the table.** Secret Manager, Cloud Functions, Cloud Run, Deployment
+  Manager, regional and mTLS endpoints, Cloud Storage's XML API, batch requests and `logging`'s
+  gRPC tail reach nothing, nor do `gsutil`, `bq` and client libraries. Each needs its own reading
+  of which answers hold a secret.
+
+- **Google uploads that are not text.** A binary upload, or one past 1 MiB, is refused, so
+  `gcloud storage cp` of a binary file does not work in the sandbox. A media upload names its
+  bucket and object in the query, so it could be `Unshown` with a sentence naming them; a
+  multipart one could not.
 
 - **Azure's data plane.** A sandboxed `az` reaches Resource Manager alone: `az storage blob`,
   `az keyvault secret` and `az acr login` fail with the proxy's message

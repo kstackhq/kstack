@@ -31,7 +31,9 @@ var errTooLong = errors.New("gcloud's answer is too long")
 
 // runner runs program's config-helper with the sidecar's environment, so the
 // account and configuration are those a GKE connection uses. Its stderr is
-// discarded, and its arguments are constants.
+// discarded, and its arguments are constants. It never runs on native
+// Windows, whose gcloud is a .cmd wrapper: that build has no sandbox and so
+// no Google cloud platform (app's builtCloudPlatforms).
 func runner(program string) func(ctx context.Context, refresh bool) ([]byte, error) {
 	return func(ctx context.Context, refresh bool) ([]byte, error) {
 		args := []string{"config", "config-helper", "--format=json", "--min-expiry=10m"}

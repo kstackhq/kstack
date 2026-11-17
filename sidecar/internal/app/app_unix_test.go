@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net"
@@ -52,6 +53,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/services/gcpauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -869,3 +871,106 @@ type knownTokens string
 
 func (k knownTokens) Token(context.Context) (string, error) { return string(k), nil }
 func (knownTokens) Refused(string)                          {}
+
+// fakeGoogle is Google's helper and upstream for Google's real cloud platform: the
+// helper answers a token and counts its runs, and the upstream is a TLS
+// server reached whatever the host, which keeps "<method> <path>" and the
+// bearer of each request.
+type fakeGoogle struct {
+	upstream *httptest.Server
+	seen     chan string
+	runs     atomic.Int32
+}
+
+func newFakeGoogle(t *testing.T) *fakeGoogle {
+	g := &fakeGoogle{seen: make(chan string, 8)}
+	g.upstream = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		g.seen <- r.Method + " " + r.URL.Path + " " + r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"clusters":[{"name":"from-google"}]}`)
+	}))
+	t.Cleanup(g.upstream.Close)
+	return g
+}
+
+func (g *fakeGoogle) RoundTrip(r *http.Request) (*http.Response, error) {
+	out := r.Clone(r.Context())
+	out.URL.Host = g.upstream.Listener.Addr().String()
+	return g.upstream.Client().Transport.RoundTrip(out)
+}
+
+// cloudPlatform is Google's real cloud platform over g.
+func (g *fakeGoogle) cloudPlatform() bash.CloudPlatform {
+	src := gcpauth.New(func(context.Context, bool) ([]byte, error) {
+		g.runs.Add(1)
+		return fmt.Appendf(nil, `{"configuration":{"properties":{"core":{"account":"dev@example.com","project":"proj-1"}}},`+
+			`"credential":{"access_token":"users-google-token","token_expiry":%q}}`, time.Now().Add(time.Hour).Format(time.RFC3339)), nil
+	})
+	return bash.NewGCP(src, g)
+}
+
+// gcloudCurl is a curl sending method to path on service as gcloud does:
+// through the run's door as its proxy, with the run's token.
+func gcloudCurl(method, service, path string) string {
+	return `curl -sS -X ` + method + ` -x "http://127.0.0.1:$CLOUDSDK_PROXY_PORT" -H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN" ` +
+		`"http://` + service + `.gcp.kstack.invalid` + path + `"`
+}
+
+// googleOn starts the app with Google's cloud platform over g and its switch on.
+func googleOn(t *testing.T, g *fakeGoogle) *e2e {
+	e := startE2E(t, func(c *Config) { c.cloudPlatforms = []bash.CloudPlatform{g.cloudPlatform()} })
+	raw := graphql(t, e.url, `mutation { sandboxCloudAccessSet(target: GCP, on: true) { target on } }`)
+	require.Contains(t, raw, `{"target":"GCP","on":true}`, raw)
+	return e
+}
+
+func TestASandboxedGCPReadRunsUnasked(t *testing.T) {
+	g := newFakeGoogle(t)
+	e := googleOn(t, g)
+
+	e.ask(t, "list the clusters", llm.StagedCall("Bash", bashInput(gcloudCurl("GET", "container", "/v1/projects/p/locations/-/clusters"))))
+
+	assert.Equal(t, "GET /v1/projects/p/locations/-/clusters Bearer users-google-token", testutil.Recv(t, g.seen, "the read"))
+	row := e.bashCall(t, "succeeded")
+	assert.Contains(t, row.result, "from-google")
+	var asked int
+	require.NoError(t, e.db.QueryRow(`SELECT count(*) FROM approvals WHERE kind = 'action'`).Scan(&asked))
+	assert.Zero(t, asked, "a read asks nobody")
+}
+
+func TestASandboxedGCPChangeAsks(t *testing.T) {
+	g := newFakeGoogle(t)
+	e := googleOn(t, g)
+
+	e.ask(t, "delete the cluster", llm.StagedCall("Bash", bashInput(gcloudCurl("DELETE", "container", "/v1/projects/p/locations/l/clusters/dev"))))
+
+	w := e.clusterWrite(t, "pending")
+	require.NotNil(t, w.request.Cloud)
+	assert.Equal(t, permissions.GCP, w.request.Action.Target)
+	assert.Equal(t, permissions.Destructive, w.request.Action.Class)
+	assert.Equal(t, "DELETE", w.request.Cloud.Method)
+	assert.Contains(t, w.request.Cloud.Details, tools.Detail{Label: "Account", Value: "dev@example.com"})
+	assert.Empty(t, g.seen, "nothing reaches Google before the user decides")
+	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", decision: Once) }`)
+	require.Contains(t, raw, `"approvalDecide":true`, raw)
+	assert.Equal(t, "DELETE /v1/projects/p/locations/l/clusters/dev Bearer users-google-token", testutil.Recv(t, g.seen, "the change"))
+	e.bashCall(t, "succeeded")
+}
+
+// With the switch off, a run mounts nothing: the route is the door's 401,
+// and gcloud's helper never runs.
+func TestGCPOffServesNothing(t *testing.T) {
+	g := newFakeGoogle(t)
+	e := startE2E(t, func(c *Config) { c.cloudPlatforms = []bash.CloudPlatform{g.cloudPlatform()} })
+
+	// The door's port is the run's own, read from its kubeconfig.
+	e.ask(t, "list the clusters", llm.StagedCall("Bash", bashInput(
+		`door=$(grep -o '127\.0\.0\.1:[0-9]*' "$KUBECONFIG" | head -n 1); `+
+			`curl -s -o /dev/null -w '%{http_code}' -x "http://$door" "http://container.gcp.kstack.invalid/v1/projects/p/locations/-/clusters"; `+
+			`echo " ${CLOUDSDK_AUTH_ACCESS_TOKEN:-unset}"`)))
+
+	row := e.bashCall(t, "succeeded", "failed")
+	assert.Equal(t, "401 unset", firstLine(row.result))
+	assert.Empty(t, g.seen)
+	assert.Zero(t, g.runs.Load(), "the helper never runs")
+}

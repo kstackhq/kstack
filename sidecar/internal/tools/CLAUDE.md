@@ -305,6 +305,7 @@ the loopback authority, `AWS_` placeholders and `<run>/aws/config`.
 **GitHub's** (`github.go`, `NewGitHub`) writes `gitconfig` (named through `GIT_CONFIG_COUNT` and `include.path`) and `gh/hosts.yml` (a placeholder login) under the run's directory, and sets `GH_HOST=github.localhost` and `HTTP_PROXY`; its grant challenges. →
 [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md),
 [the run's door](../../../docs/security/2026-11-17-the-runs-door.md).
+**Google Cloud is `gcp.go`**: `NewGCP` over a `GCPLogin`. Its mount waits 5 s for the project.
 
 **A `Route` with `TLS` is served over the door's TLS** on the same listener. When a mount returns
 one, the run gets a `runproxy.Certificate` and its bundle at `CloudRun.CAFile` (`ca.pem` in the run
