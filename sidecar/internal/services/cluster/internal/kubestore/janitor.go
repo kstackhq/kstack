@@ -19,7 +19,6 @@ package kubestore
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 )
 
@@ -96,13 +95,13 @@ func sweep(ctx context.Context, f *file, ret Retention) {
 		if _, err := f.set.Stmts().Exec(ctx, stmtSweepStatusHistory,
 			time.Now().Add(-ret.StatusHistoryTTL).UnixMilli(),
 		); err != nil {
-			slog.Warn("kubestore: status_history sweep failed", "cacheID", f.cacheID, "err", err)
+			warn(ctx, f, "kubestore: status_history sweep failed", err)
 		}
 	}
 
 	if ret.DeletesTTL > 0 {
 		if err := trimDeletes(ctx, f, time.Now().Add(-ret.DeletesTTL).UnixMilli()); err != nil {
-			slog.Warn("kubestore: deletes sweep failed", "cacheID", f.cacheID, "err", err)
+			warn(ctx, f, "kubestore: deletes sweep failed", err)
 		}
 	}
 
@@ -112,12 +111,21 @@ func sweep(ctx context.Context, f *file, ret Retention) {
 	// strand the file at its high-water mark forever.
 	var freePages int64
 	if err := f.db.QueryRowContext(ctx, `PRAGMA freelist_count`).Scan(&freePages); err != nil {
-		slog.Warn("kubestore: freelist_count failed", "cacheID", f.cacheID, "err", err)
+		warn(ctx, f, "kubestore: freelist_count failed", err)
 	} else if freePages > 0 {
 		vacuum(ctx, f, freePages)
 	}
 
 	checkSizeLimit(ctx, f, ret.SizeLimit)
+}
+
+// warn logs a sweep's failed step. The file's close cancels ctx, often mid-sweep, and a
+// step that fails after it is the close, not a failure.
+func warn(ctx context.Context, f *file, msg string, err error) {
+	if ctx.Err() != nil {
+		return
+	}
+	f.log.Warn(msg, "cacheID", f.cacheID, "err", err)
 }
 
 // vacuum hands at most f.vacuumPages free pages back to the OS. Bounded because the
@@ -126,7 +134,7 @@ func sweep(ctx context.Context, f *file, ret Retention) {
 func vacuum(ctx context.Context, f *file, freePages int64) {
 	pages := min(freePages, f.vacuumPages)
 	if _, err := f.db.ExecContext(ctx, fmt.Sprintf(`PRAGMA incremental_vacuum(%d)`, pages)); err != nil {
-		slog.Warn("kubestore: incremental_vacuum failed", "cacheID", f.cacheID, "err", err)
+		warn(ctx, f, "kubestore: incremental_vacuum failed", err)
 	}
 }
 
@@ -137,7 +145,7 @@ func checkpoint(ctx context.Context, f *file) {
 	var busy, logPages, movedPages int64
 	if err := f.db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).
 		Scan(&busy, &logPages, &movedPages); err != nil {
-		slog.Warn("kubestore: wal_checkpoint failed", "cacheID", f.cacheID, "err", err)
+		warn(ctx, f, "kubestore: wal_checkpoint failed", err)
 	}
 }
 
@@ -157,13 +165,14 @@ const (
 //
 // A failed measurement leaves the verdict alone. A file gone from under a sweep is a clear
 // or a teardown, and answering "under" for it would publish a release nothing released.
+// A closing file is not measured at all.
 func checkSizeLimit(ctx context.Context, f *file, limit int64) {
-	if limit <= 0 {
+	if limit <= 0 || ctx.Err() != nil {
 		return
 	}
 	usage, err := statDiskUsage(f.path)
 	if err != nil {
-		slog.Warn("kubestore: size check failed", "cacheID", f.cacheID, "err", err)
+		warn(ctx, f, "kubestore: size check failed", err)
 		return
 	}
 	// A log larger than its database is a checkpoint owed, not a full cache: its pages
@@ -172,7 +181,7 @@ func checkSizeLimit(ctx context.Context, f *file, limit int64) {
 	if usage.wal > usage.db {
 		checkpoint(ctx, f)
 		if usage, err = statDiskUsage(f.path); err != nil { // coverage:ignore only the file going during the checkpoint reaches it, and the stat before it found the file
-			slog.Warn("kubestore: size check failed", "cacheID", f.cacheID, "err", err)
+			warn(ctx, f, "kubestore: size check failed", err)
 			return
 		}
 	}

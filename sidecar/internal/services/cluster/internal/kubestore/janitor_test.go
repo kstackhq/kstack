@@ -16,6 +16,7 @@ package kubestore
 
 import (
 	"context"
+	"log/slog"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -336,9 +337,66 @@ func TestSweepSurvivesATrimItCannotMake(t *testing.T) {
 	swapTable(t, store, "deletes",
 		`SELECT 1 AS seq, 'v1' AS api_version, 'Pod' AS kind, 'uid-1' AS uid, 0 AS at`)
 
-	assert.NotPanics(t, func() {
-		sweep(context.Background(), openFileOf(t, store), Retention{DeletesTTL: time.Hour})
-	})
+	f := openFileOf(t, store)
+	logs := captureWarnings(f)
+	assert.NotPanics(t, func() { sweep(context.Background(), f, Retention{DeletesTTL: time.Hour}) })
+	assert.Contains(t, logs.String(), "kubestore: deletes sweep failed")
+}
+
+// A failed status_history trim is a real failure, so it is still logged.
+func TestSweepWarnsOfAStatusHistoryTrimItCannotMake(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	swapTable(t, store, "status_history", `SELECT 'uid' AS uid, 0 AS at, 'Running' AS summary`)
+	f := openFileOf(t, store)
+	logs := captureWarnings(f)
+
+	sweep(context.Background(), f, Retention{StatusHistoryTTL: time.Hour})
+
+	assert.Contains(t, logs.String(), "kubestore: status_history sweep failed")
+}
+
+// captureWarnings points f's janitor log at a capture. Safe only on a file with no janitor
+// running, which a zero Interval guarantees.
+func captureWarnings(f *file) *testutil.LogCapture {
+	logs := &testutil.LogCapture{}
+	f.log = slog.New(slog.NewTextHandler(logs, nil))
+	return logs
+}
+
+// Closing a cache cancels its janitor's context, often mid-sweep. That is no failure, so
+// the sweep warns of nothing, trims nothing and forms no verdict.
+func TestASweepOnAClosingFileLogsNothing(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	fillStatusHistory(t, store, 10)
+	f := openFileOf(t, store)
+	logs := captureWarnings(f)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	sweep(ctx, f, Retention{StatusHistoryTTL: time.Hour, DeletesTTL: time.Hour, SizeLimit: 1})
+
+	assert.Empty(t, logs.String())
+	assert.Equal(t, 10, countRows(t, store, `SELECT COUNT(*) FROM status_history`), "a sweep on a closing file trims nothing")
+	assert.Equal(t, sizeUnknown, f.sizeVerdict.Load(), "a sweep on a closing file forms no verdict")
+}
+
+// The vacuum and the checkpoint are as quiet on a closing file.
+func TestAStepTheCloseInterruptsLogsNothing(t *testing.T) {
+	t.Parallel()
+
+	f := openFileOf(t, newTestStore(t))
+	logs := captureWarnings(f)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	vacuum(ctx, f, 1)
+	checkpoint(ctx, f)
+
+	assert.Empty(t, logs.String())
 }
 
 // The ceiling is the whole footprint, so a sweep's verdict is the sum of the three files

@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -96,7 +97,9 @@ type file struct {
 	// cacheID is the key the size verdict is published under, and what the janitor's log
 	// lines name.
 	cacheID int64
-	db      *sqlitepool.Pool
+	// log is where the janitor warns: slog's default, or a capture in a test.
+	log *slog.Logger
+	db  *sqlitepool.Pool
 	// readDB is the reader pool beside the writer: the watches re-read on every ping, and
 	// a read must not queue behind the one write connection. Distinct from the manager's
 	// openReadOnly, which opens a CLOSED cache's file per call to measure it; this serves
@@ -281,6 +284,7 @@ func newFile(
 		cancelQueries:   cancelQueries,
 		path:            path,
 		cacheID:         cacheID,
+		log:             slog.Default(),
 		db:              db,
 		readDB:          readDB,
 		queryDB:         queryDB,
