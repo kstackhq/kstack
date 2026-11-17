@@ -29,10 +29,16 @@ Each line is read from the code, with step 1 built.
   authenticates outside the sandbox.
 - **`sidecar/go.mod` has no AWS module.** `lib/safe` blanks `AKIA…` and `ASIA…` key ids
   (`awsKeyRE`, `lib/safe/safe.go`).
-- **`tools/bash/prompts/sandbox.md` tells the model `gh`, `aws` and a private registry have no
-  login.**
-- **Step 1 built the shared pieces and no provider.** `sandbox.aws` exists and is off,
-  `permissions.AWS` exists, and the list of `CloudProvider`s `app` builds is empty.
+- **`tools/bash/prompts/sandbox.md` tells the model a tool has a login only where the context's
+  `cloud` names its provider.** No build writes that key yet.
+- **Step 1 built the shared pieces and no provider.** `sandbox.aws` exists and is off, and
+  `permissions.AWS` exists. `app/runtime.go` hands `bash.New` a `bash.Cloud` whose `Providers`
+  is `Config.cloudProviders`: none in production, a test's fake otherwise. The wire lists a
+  switch per provider of that list, and Settings draws none yet
+  ([`TODO.md`](../../TODO.md), *Draw each provider's switch in Settings*).
+- **AWS's name and refusals are written.** `tools/bash/cloud.go` holds *AWS* (`providerNames`)
+  and fills a mount's `CloudRun.Asker` and `Refusal` (`cloudAskerFor`). The webview holds the
+  name too (`PROVIDER_NAMES`, `src/lib/chats.tsx`).
 
 ## What this step builds
 
@@ -45,7 +51,7 @@ A sandboxed run calls the AWS API as the user, with no AWS credential inside the
 2. **The credential service** (`services/awscreds`), which resolves the user's credentials
    outside the sandbox.
 3. **The provider** (`tools/bash/aws.go`): the route at the loopback authority, six variables,
-   and AWS in the list `app` builds.
+   and AWS in the list `app/runtime.go` builds.
 4. **`EnvRule.Except`** in `run/sandbox`, so the `AWS_` rule lets exactly those six names
    through.
 5. **The prompt's paragraph** for AWS.
@@ -69,8 +75,11 @@ A sandboxed run calls the AWS API as the user, with no AWS credential inside the
 ### 1. The run (`tools/bash/aws.go`)
 
 AWS's `CloudProvider` ([step 1, §7](1-shared-pieces.md#7-the-provider-seam-toolsbash)) is one
-file of `tools/bash`: a constructor `app` calls with the `awscreds` service. `app` adds it to
-the list it hands `bash.New`. Which runs get a grant, and when, is
+file of `tools/bash`: a constructor `app/runtime.go` calls with the `awscreds` service. The
+result goes in the `bash.Cloud.Providers` it hands `bash.New`, so `cloudTargets` gives the wire
+and the chat's context AWS with no other change. A test's `Config.cloudProviders` stands in
+place of the built list, not beside it: step 1's `fakeCloud` (`app/app_unix_test.go`) has
+`Target` `AWS` and the loopback route. Which runs get a grant, and when, is
 [step 1's](1-shared-pieces.md#4-the-gate).
 
 `Mount` answers:
@@ -78,8 +87,10 @@ the list it hands `bash.New`. Which runs get a grant, and when, is
 - **One route**, `127.0.0.1:<port>`, the row
   [the door](1-shared-pieces.md#1-the-door) keeps for AWS. `AWS_ENDPOINT_URL` is dialled
   directly, so the client's `Host` is the loopback authority.
-- **One grant**, `runproxy.NewGrant(permissions.AWS, …)` with step 1's limits and no
-  challenge.
+- **One grant**, `runproxy.NewGrant(permissions.AWS, run.Session, run.Asker, run.Refusal,
+  limits)`, with no challenge. The limits are `tools/bash/proxy.go`'s `proxyQPS`, `proxyBurst`
+  and `proxyMaxInFlight`, and 16 bodies, a constant beside them that the first provider built
+  adds.
 - **Six variables**, every value from the mount:
 
   | Variable | Value |
@@ -146,7 +157,8 @@ A leaf beside `kubeproxy`. It imports `runproxy` and `permissions`, and nothing 
 1. **Enter.** `Grant.Enter`.
 2. **The run's key.** The request names its credential in `Authorization: AWS4-HMAC-SHA256
    Credential=<id>/<date>/<region>/<service>/aws4_request, …` or in `X-Amz-Credential`. The
-   handler takes the token out of `<id>` and asks `Grant.Holds`. No key id, a wrong one, both
+   handler takes the token out of `<id>`, lower-cases it, since `Token` is lower-case hex, and
+   asks `Grant.Holds`. No key id, a wrong one, both
    places at once and any other scheme (SigV4A, SigV2) are `Grant.Challenge`'s `401`. The
    signature is not verified: the id is the token, and the secret beside it in the same
    environment would prove nothing more.
@@ -240,8 +252,9 @@ Task 1 records every header the clients send, and this list is corrected there.
 #### The body
 
 - **A body is read through `Grant.Body`**: at most 1 MiB, in one of the grant's body slots,
-  refused with a `Content-Encoding`. A query row's read is a `POST` with a form body, so it
-  takes a slot as a change does.
+  refused with a `Content-Encoding`. `Body` answers a status and no message (`403`, `429`,
+  `413`, `400`), so the handler writes each in the row's shape. A query row's read is a `POST`
+  with a form body, so it takes a slot as a change does.
 - **No body is `Unshown`.** A sandbox with no network has no way out, and an upload the user
   cannot read would be one: bytes approved on a bucket and key the command chose, in any
   account that takes them. So a body is shown or the request is refused.
@@ -371,8 +384,8 @@ All start Planned. Each ends green under `make test-changed`.
 | 4 | The handler: the key, reads, signing, the answer check, refusal shapes | `run/awsproxy/awsproxy.go`, `sign.go`, `status.go` | 3 | Planned |
 | 5 | The ask path through `Decide`, the body, the upload refusal | `run/awsproxy/awsproxy.go` | 4 | Planned |
 | 6 | `services/awscreds` and the modules; the sidecar's size before and after, in the PR | `services/awscreds/`, `sidecar/go.mod` | — | Planned |
-| 7 | The provider, AWS in `app`'s list, the prompt | `tools/bash/aws.go`, `tools/bash/prompts/sandbox.md`, `app/`, the prompt goldens | 2, 5, 6 | Planned |
-| 8 | AWS through the real sandbox | `app/` (`startE2E`) | 7 | Planned |
+| 7 | The provider, the body limit, AWS in `app`'s list, the prompt | `tools/bash/aws.go`, `tools/bash/proxy.go`, `tools/bash/prompts/sandbox.md`, `app/runtime.go`, the prompt goldens (`app/testdata/prompt/`) | 2, 5, 6 | Planned |
+| 8 | AWS through the real sandbox | `app/app_unix_test.go` (`startE2E`) | 7 | Planned |
 | 9 | Docs, per *When it lands* | see there | 1–8 | Planned |
 
 **Task 1's measurement.** Before any code, run AWS CLI v2 and one SDK (boto3) against a
@@ -402,7 +415,8 @@ behind the proxy's host seam, and the credentials are known test values.
 
 - `TestOnlyTheSixAWSNamesPass`: each of the six is passable, and `AWS_PROFILE`,
   `AWS_SESSION_TOKEN`, `AWS_CONTAINER_CREDENTIALS_FULL_URI` and `AWS_ENDPOINT_URL_S3` are not.
-- `Command` still fails a run holding any other `AWS_` name.
+- `TestARunWithAnUnpassableVariableIsRefused` still fails a run holding any other `AWS_` name,
+  on both platforms.
 
 **`run/awsproxy`**
 
@@ -444,16 +458,20 @@ behind the proxy's host seam, and the credentials are known test values.
 - `TestNoRealCredentialIsInTheRun`: with test credentials resolved, no key id, secret or
   session token is in the run's environment, its run directory, its `TMPDIR` or its tool
   home.
-- `TestTheSandboxPromptNamesAWSOnlyWhenOn`; the prompt goldens.
+- `TestTheSandboxPromptSaysWhenToReadAWS` (`bash_test.go`): the paragraph is static, and tells
+  the model to read it only where the context's `cloud` names `aws`. The prompt goldens.
 
-**`app`** (`startE2E`, `testutil.RequireSandbox`), network off, a fake upstream:
+**`app`** (`startE2E`, `testutil.RequireSandbox`), network off. As
+`TestASandboxedCommandReachesAProviderThroughTheDoor` does with its fake, the test sets
+`Config.cloudProviders`: AWS's provider over a fake upstream and known credentials.
 
-- With the switch on, a sandboxed `curl --aws-sigv4` using the run's variables reads
-  unasked, and `kubectl` still reads the cluster. A change waits on one request served in
-  `sandboxActions` and reaches the upstream once approved.
+- With the switch turned on through `sandboxCloudAccessSet`, a sandboxed `curl --aws-sigv4`
+  using the run's variables reads unasked, and `kubectl` still reads the cluster. A change
+  waits on one request served in `sandboxActions` and reaches the upstream once approved.
 - With the switch off, the run's environment holds no `AWS_` name.
 
-**Manual**, on macOS and Linux, against a real account with network off: `aws sts
+**Manual**, on macOS and Linux, against a real account with network off and the switch turned
+on through `sandboxCloudAccessSet`, since Settings draws none yet: `aws sts
 get-caller-identity`, `aws ec2 describe-instances` and `aws s3 ls` work; `aws ec2
 stop-instances` asks; `aws s3 cp` up and down each ask; `aws ecr get-login-password` is
 refused. CI has no AWS account.
@@ -502,7 +520,8 @@ residuals hold here.
 When this step is complete on `wip/cloud-proxies`:
 
 - **ADR**: *a sandboxed command reaches AWS through a re-signing proxy*. It covers AWS alone
-  and cites step 1's ADR for the door, the gate and the switch. It records why re-signing and
+  and cites [step 1's ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-provider-through-a-proxy-on-its-runs-one-relay.md)
+  for the door, the gate and the switch. It records why re-signing and
   not handed-out credentials, why the key id is the token, why the services are a list, why no
   upload is approved unshown, and why `neverEnv` gained an exception.
 - **`docs/security/<date>-sandboxed-aws.md`**, from *Security* above, naming the commit.
@@ -511,18 +530,20 @@ When this step is complete on `wip/cloud-proxies`:
     the listed services, as the user's identity and holding none of it*; *an AWS answer that
     is a credential is refused*; *no real AWS credential is in a run*, each with its tests
     above.
-  - The **Not built** row step 1's commit added is narrowed to the providers not yet built,
+  - The **Not built** row on the four providers is narrowed to the providers not yet built,
     and removed by the last.
   - *No credential variable rides in, and no run holds a name `NeverEnv` lists* names the six
     variables and `TestOnlyTheSixAWSNamesPass`.
   - New **By decision** rows for the residuals above, linking the ADR.
   - *Assets* gains the user's AWS credentials.
-- **`docs/TODO.md`**: the security line step 1's commit added is narrowed the same way. New
-  lines: a narrower role per profile, a profile per kube-context, more services.
+- **`docs/TODO.md`**: *Let a sandboxed command reach the user's cloud accounts without holding
+  a credential* is narrowed the same way. *Draw each provider's switch in Settings* gains
+  AWS's line of the confirm: *An object's contents ask first.* New lines: a narrower role per
+  profile, a profile per kube-context, more services.
 - **`docs/persisted-data.md`**: nothing. This step persists no format.
 - **`CLAUDE.md`**: `sidecar/internal/run/CLAUDE.md` (the `awsproxy` leaf, the count of
-  leaves, `neverEnv`'s exception); `sidecar/internal/tools/CLAUDE.md` (`aws.go` and its six
-  variables); `sidecar/CLAUDE.md` (`services/awscreds`). Raise a budget in
+  leaves, `neverEnv`'s exception); `sidecar/internal/tools/CLAUDE.md` (`aws.go`, its six
+  variables, the body limit); `sidecar/CLAUDE.md` (`services/awscreds`). Raise a budget in
   `.github/ci-config/claude-md-budgets.yml` only with the reason in the commit body.
 - **`docs/development-switches.md`** only if a debug override is added for the upstream host.
 - This file is deleted and its row leaves [`README.md`](README.md).

@@ -22,14 +22,21 @@ Each line is read from the code, beyond what step 1 lists.
 - **No GitHub credential variable passes.** `neverEnv` holds `GITHUB_TOKEN`, `GH_TOKEN` and
   `SSH_AUTH_SOCK` (`run/sandbox/env.go`).
 - **The prompt says so.** `tools/bash/prompts/sandbox.md`: *With the internet a command still
-  holds no credential, so `gh`, `aws` and a private registry have no login.*
+  holds no credential, so a tool has a login only where the context's `cloud` names its
+  provider, and a private registry has none.* No build writes that key yet.
 - **`gqlparser` is a dependency** (`sidecar/go.mod`), used by the wire.
-- After step 1, `sandbox.github` exists and is off, `permissions.GitHub` is a `Target`, and no
-  `CloudProvider` is built for it.
+- **Step 1 built the shared pieces and no provider.** `sandbox.github` exists and is off, and
+  `permissions.GitHub` is a `Target`. `app/runtime.go` hands `bash.New` a `bash.Cloud` whose
+  `Providers` is `Config.cloudProviders`: none in production, a test's fake otherwise. The
+  wire lists a switch per provider of that list, and Settings draws none yet
+  ([`TODO.md`](../../TODO.md), *Draw each provider's switch in Settings*).
+- **GitHub's name and refusals are written.** `tools/bash/cloud.go` holds *GitHub*
+  (`providerNames`) and fills a mount's `CloudRun.Asker` and `Refusal` (`cloudAskerFor`). The
+  webview holds the name too (`PROVIDER_NAMES`, `src/lib/chats.tsx`).
 
 ## What this step builds
 
-On macOS and Linux, once the user turns **GitHub** on in Settings:
+On macOS and Linux, once `sandbox.github` is on:
 
 - `git clone`, `git fetch` and `git ls-remote` of a `github.com` repository the user can read
   work in a sandboxed run with network off.
@@ -46,7 +53,8 @@ The pieces:
 2. **`services/githubauth`**: the user's token, read from `gh` outside the sandbox.
 3. **`tools/bash/github.go`**: GitHub's `CloudProvider`, which writes the run's `gitconfig` and
    `gh/hosts.yml` and sets its variables.
-4. GitHub's paragraph in `tools/bash/prompts/sandbox.md`, and GitHub in the list `app` builds.
+4. GitHub's paragraph in `tools/bash/prompts/sandbox.md`, and GitHub in the list
+   `app/runtime.go` builds.
 
 ### Not in this step
 
@@ -268,7 +276,8 @@ Second, the metadata whose answer GitHub documents as able to hold a secret valu
   blobs, commits, diffs, search) and GraphQL fields, so no list names it whole, and a gate on
   some routes would be drawn as a boundary and not be one. Step 1 leaves which stored data
   asks to the provider. GitHub's line of the switch's confirm says it: *Private repositories
-  are read without asking.*
+  are read without asking.* Settings draws no switch yet, so the line goes in
+  [`TODO.md`](../../TODO.md)'s *Draw each provider's switch in Settings*.
 - **Secrets' listings** (Actions, Dependabot, Codespaces) answer names and a public key, never
   a value.
 - **Deploy keys, SSH keys and GPG keys** answer the public half.
@@ -314,9 +323,9 @@ A service `app` builds, following
 its `TokenSource` interface.
 
 - It runs `gh auth token --hostname github.com` outside the sandbox, as the sidecar: `gh`
-  resolved on the sidecar's own `PATH` (on macOS the login shell's, set process-wide in
-  `app/runtime.go`), with no stdin, `GH_PROMPT_DISABLED=1` and a 10-second bound passed as a
-  parameter.
+  resolved on the sidecar's own `PATH` (on macOS the login shell's, set process-wide by
+  `setShellEnv`, `app/launchshell_darwin.go`), with no stdin, `GH_PROMPT_DISABLED=1` and a
+  10-second bound passed as a parameter.
 - The answer is one line matching `^[A-Za-z0-9_]{1,255}$`, else the sentinel.
 - It is held in memory for five minutes, a parameter, and never written. Concurrent reads
   share one run of `gh`.
@@ -330,14 +339,20 @@ The exec is a field (`run func(ctx) ([]byte, error)`), so tests never start `gh`
 
 ### 6. The provider (`tools/bash/github.go`)
 
-GitHub's `CloudProvider`, built by a constructor `app` calls with the `githubauth` service.
+GitHub's `CloudProvider`, built by a constructor `app/runtime.go` calls with the `githubauth`
+service.
 
 - `Target` is `permissions.GitHub`.
-- `Mount` builds the grant with step 1's limits and `Challenges` set, writes the two files of
-  [§1](#1-the-hosts-and-how-git-and-gh-reach-them), and returns the two routes, the variables
-  and the grant.
-- `app/runtime.go` adds GitHub to the list it hands `bash.New`. Settings then draws its switch
-  and the context's `cloud` key can name `github`.
+- `Mount` builds the grant, `runproxy.NewGrant(permissions.GitHub, run.Session, run.Asker,
+  run.Refusal, limits)`, with `Challenges` set. The limits are `tools/bash/proxy.go`'s
+  `proxyQPS`, `proxyBurst` and `proxyMaxInFlight`, and 16 bodies, a constant beside them that
+  the first provider built adds. It writes the two files of
+  [§1](#1-the-hosts-and-how-git-and-gh-reach-them) under `run.Dir`, and returns the two
+  routes, the variables and the grant.
+- `app/runtime.go` puts GitHub in the `bash.Cloud.Providers` it hands `bash.New`. `cloudTargets`
+  then gives the wire GitHub's switch and lets the context's `cloud` key name `github`, with
+  no other change. A test's `Config.cloudProviders` stands in place of the built list, not
+  beside it.
 
 **The prompt.** `tools/bash/prompts/sandbox.md` gains GitHub's paragraph, read when the
 context's `cloud` names `github`: `git` and `gh` reach `github.com` as the user through a
@@ -356,8 +371,8 @@ All start Planned. Each ends green under `make test-changed`.
 | 2 | `githubauth`: the token source | `services/githubauth/` | — | Planned |
 | 3 | `githubproxy`: the handler, the upstream table, the header list, the classifier, the forward, the redirect rule | `run/githubproxy/githubproxy.go`, `classify.go`, `graphql.go`, their tests | 1 | Planned |
 | 4 | The push reader and the requests that ask: summaries, details, `Unshown` | `run/githubproxy/push.go`, `request.go`, their tests | 3 | Planned |
-| 5 | The provider: the mount, `gitconfig`, `gh/hosts.yml`, the variables, the prompt, GitHub in `app`'s list | `tools/bash/github.go`, `prompts/sandbox.md`, `app/runtime.go`, their tests | 2, 4 | Planned |
-| 6 | `git` and `gh` through the real sandbox | `tools/bash/github_unix_test.go`, `app/` (`startE2E`) | 5 | Planned |
+| 5 | The provider: the mount, the body limit, `gitconfig`, `gh/hosts.yml`, the variables, the prompt, GitHub in `app`'s list | `tools/bash/github.go`, `proxy.go`, `prompts/sandbox.md`, `app/runtime.go`, their tests, the prompt goldens (`app/testdata/prompt/`) | 2, 4 | Planned |
+| 6 | `git` and `gh` through the real sandbox | `tools/bash/github_unix_test.go`, `app/app_unix_test.go` (`startE2E`) | 5 | Planned |
 | 7 | Docs, per *When it lands* | see there | 1–6 | Planned |
 
 1 and 2 can start together. Nothing here touches `run/sandbox`, `run/permissions`,
@@ -420,18 +435,22 @@ as a parameter.
 - `TestGitHubsMountWritesItsFilesAndVariables`: both files 0600, the grant's token in
   `gitconfig` and `HTTP_PROXY`, the placeholder in `hosts.yml`.
 - `TestARunWithoutGitHubHasNoneOfIt`.
-- `TestGitHubsProxyVariableLeavesTheLoopbackDirect`: a run with GitHub and a fake provider on
-  the loopback authority that sets a variable of its own. The run holds `HTTP_PROXY`,
+- `TestGitHubsProxyVariableLeavesTheLoopbackDirect`: a run with GitHub and step 1's
+  `fakeProvider` (`cloud_test.go`) on the loopback authority, setting a variable of its own.
+  The run holds `HTTP_PROXY`,
   `NO_PROXY=127.0.0.1` and `no_proxy=127.0.0.1`; a client that reads them reaches the fake's
   route directly and GitHub's through the proxy; no variable is set two ways.
-- `TestThePromptNamesGitHubOnlyWhenItIsOn`.
+- `TestTheSandboxPromptSaysWhenToReadGitHub` (`bash_test.go`): the paragraph is static, and
+  tells the model to read it only where the context's `cloud` names `github`.
 - Through the real sandbox (`testutil.RequireSandbox`), network off, where the tool is on the
   machine: `TestASandboxedCloneReachesGitHub` clones from a fake that runs `git http-backend`;
   `TestASandboxedPushAsksAndRuns` and `TestASandboxedPushDeniedIsForbidden`;
   `TestASandboxedGhReadsTheAPI` runs `gh api user` and checks that `gh auth token` prints the
   placeholder.
 
-**`app`** (`startE2E`), network off: with `sandbox.github` turned on through
+**`app`** (`startE2E`), network off. As `TestASandboxedCommandReachesAProviderThroughTheDoor`
+does with its fake, the test sets `Config.cloudProviders`: GitHub's provider over a fake
+upstream and a known token. With `sandbox.github` turned on through
 `sandboxCloudAccessSet`, a sandboxed `git ls-remote` reads unasked and `kubectl` still reads
 the cluster; a push waits on one request in `sandboxActions`. The same run is repeated with
 every provider then built on `wip/cloud-proxies` turned on, and checks that no two set one
@@ -439,7 +458,8 @@ variable to different values.
 
 **Integration gate:** the full checks in
 [`../README.md`](../README.md#verification-commands). Then by hand on `pnpm tauri dev`, macOS
-and Linux, GitHub on and network off: `git clone` and `git fetch` of a private repository,
+and Linux, network off and GitHub turned on through `sandboxCloudAccessSet`, since Settings
+draws no switch yet: `git clone` and `git fetch` of a private repository,
 `gh api user`, and a `git push` that asks.
 
 ## Security
@@ -481,25 +501,28 @@ a change; the request is the gate.
 When this step is complete on `wip/cloud-proxies`:
 
 - **ADR**, GitHub's alone: *a sandboxed command reaches GitHub over plain HTTP at `gh`'s own
-  host name*. It cites step 1's ADR for the proxy and the relay, and records `HTTP_PROXY` over
+  host name*. It cites [step 1's ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-provider-through-a-proxy-on-its-runs-one-relay.md)
+  for the proxy and the relay, and records `HTTP_PROXY` over
   a `gh` wrapper on `PATH`, no repository allowlist, a repository's content as a read, redirects
   not followed, and the token from `gh auth token` alone.
 - **`docs/security/<date>-a-sandboxed-command-reaches-github.md`**, from *Security* above, with
   task 1's hand checks and tool versions, naming the commit.
 - **`docs/security-model.md`**:
-  - The **Not built** row step 1 added is narrowed to the providers not yet built, or removed
-    with the last. No new row of that kind is added.
+  - The **Not built** row on the four providers is narrowed to the providers not yet built, or
+    removed with the last. No new row of that kind is added.
   - *Assets* gains the GitHub token, held in memory. *Boundaries* gains sidecar → GitHub.
   - New **Enforced** rows: no GitHub token in the run (`TestNoGitHubTokenIsInTheRun`); the
     upstream is fixed (`TestTheUpstreamIsFixed`); a credential path is refused
     (`TestACredentialPathIsRefused`); a signed link needs an approved data read
     (`TestARedirectToAnotherHostNeedsAnApprovedDataRead`).
   - New **By decision** rows for the residuals above, linking the ADR.
-- **`docs/TODO.md`**: the security line step 1 added is narrowed the same way. New lines for
-  what the open questions defer.
+- **`docs/TODO.md`**: *Let a sandboxed command reach the user's cloud accounts without holding
+  a credential* is narrowed the same way. *Draw each provider's switch in Settings* gains
+  GitHub's line of the confirm. New lines for what the open questions defer.
 - **`CLAUDE.md`**: `sidecar/internal/run/CLAUDE.md` (a `githubproxy` section: the hosts, the
   header list, the classifier's lists, the push reader); `sidecar/internal/tools/CLAUDE.md`
-  (`github.go`, the two files, the variables); `sidecar/CLAUDE.md` (`services/githubauth`).
+  (`github.go`, the two files, the variables, the body limit); `sidecar/CLAUDE.md`
+  (`services/githubauth`).
   Raise a budget in `.github/ci-config/claude-md-budgets.yml` only with the reason in the
   commit body.
 - This file is deleted and its row leaves [`README.md`](README.md).
