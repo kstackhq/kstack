@@ -1149,7 +1149,7 @@ type ToolCall {
   background: BackgroundTask
   "The `Agent` call a subagent's call ran under; null on the answer's own calls."
   agentCallID: ToolCallID
-  "Every request the call's sandboxed command sent that a proxy decided — a change to the cluster, a read of Secret data, or a request to a provider — in the order asked. Empty on every call but a sandboxed command's."
+  "Every request the call's sandboxed command sent that a proxy decided — a change to the cluster, a read of Secret data, or a request to a cloud platform — in the order asked. Empty on every call but a sandboxed command's."
   sandboxActions: [SandboxAction!]!
 }
 
@@ -1167,7 +1167,7 @@ type SandboxAction {
   reason: String
 }
 
-"A request a sandboxed command sent: to the cluster, or to a provider (`PermissionAction.target`)."
+"A request a sandboxed command sent: to the cluster, or to a cloud platform (`PermissionAction.target`)."
 union SandboxRequest = ClusterWrite | CloudRequest
 
 "A request a sandboxed command sent to the cluster: a change, or a read of Secret data."
@@ -1192,7 +1192,7 @@ type ClusterWrite {
   dryRun: Boolean!
 }
 
-"A request a sandboxed command sent to a provider, as the user is shown it. Every string is the command's text."
+"A request a sandboxed command sent to a cloud platform, as the user is shown it. Every string is the command's text."
 type CloudRequest {
   "The upstream host the proxy dials."
   host: String!
@@ -1203,13 +1203,13 @@ type CloudRequest {
   contentType: String!
   "The body, exactly as sent, while the request waits; empty otherwise, and with `unshown`. The record keeps it."
   body: String!
-  "The provider's sentence for a body the request does not show; empty for a shown body."
+  "The cloud platform's sentence for a body the request does not show; empty for a shown body."
   unshown: String!
-  "What the provider's classifier read from the request, one line each."
+  "What the cloud platform's classifier read from the request, one line each."
   details: [RequestDetail!]!
 }
 
-"One line a provider's classifier read from a request: a label of the provider's, and the command's text."
+"One line a cloud platform's classifier read from a request: a label of the cloud platform's, and the command's text."
 type RequestDetail {
   label: String!
   value: String!
@@ -1902,9 +1902,9 @@ type PermissionRule {
 
 "A classified action, as the sidecar's classifier wrote it. Every string is cluster or user text: draw it through VisibleText."
 type PermissionAction {
-  "What the action acts on: the chat's cluster, or a provider."
+  "What the action acts on: the chat's cluster, or a cloud platform."
   target: PermissionTarget!
-  "The action in one line, naming its target as kubectl does (`Delete pods/api-7f9c in team-a on dev-eks`), or its provider in words (`AWS: call ec2:TerminateInstances in eu-west-1`)."
+  "The action in one line, naming its target as kubectl does (`Delete pods/api-7f9c in team-a on dev-eks`), or its cloud platform in words (`AWS: call ec2:TerminateInstances in eu-west-1`)."
   summary: String!
   class: PermissionClass!
   context: String!
@@ -1920,7 +1920,7 @@ type PermissionAction {
   chatRule: String!
 }
 
-"A provider's consent switch: whether sandboxed commands may reach it as the user."
+"A cloud platform's consent switch: whether sandboxed commands may reach it as the user."
 type CloudAccess {
   target: PermissionTarget!
   on: Boolean!
@@ -2131,7 +2131,7 @@ type Query {
   "Every value the settings file held that the sidecar left out at start, each with its reason. Fixed for the process's life, so this is a query and not a watch."
   settingsRefused: [SettingsRefusal!]!
 
-  "One row per provider this build has, in a fixed order, each with whether sandboxed commands may reach it as the user. Off by default."
+  "One row per cloud platform this build has, in a fixed order, each with whether sandboxed commands may reach it as the user. Off by default."
   sandboxCloudAccess: [CloudAccess!]!
 
   "The frozen PATH sandboxed commands search, in the shell's order. Empty on a machine with no sandbox."
@@ -2219,7 +2219,7 @@ type Mutation {
   chatDelete(id: ChatID!): Boolean!
 
   # --- Sandbox ---
-  "Turns a provider's switch on or off, and answers the list. Refuses `Cluster`, and a provider this build lacks, with `KSTACK_VALIDATION_ERROR`."
+  "Turns a cloud platform's switch on or off, and answers the list. Refuses `Cluster`, and a cloud platform this build lacks, with `KSTACK_VALIDATION_ERROR`."
   sandboxCloudAccessSet(target: PermissionTarget!, on: Boolean!): [CloudAccess!]!
   "Include a pending or removed PATH entry, for `target`, the folder the user was shown. Refused KSTACK_VALIDATION_ERROR for a dir not listed or already included, one whose target has moved since, while the settings file holds an entry Kstack cannot read, or on a machine with no sandbox. Returns the whole list."
   sandboxPathInclude(dir: String!, target: String!): [SandboxPathEntry!]!

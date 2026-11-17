@@ -35,13 +35,13 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
-// cloudTool is a tool on a fake sandbox whose build has providers, each
+// cloudTool is a tool on a fake sandbox whose build has cloud platforms, each
 // switched as sw says.
-func cloudTool(t *testing.T, sw *switches, providers ...CloudProvider) *Tool {
+func cloudTool(t *testing.T, sw *switches, platforms ...CloudPlatform) *Tool {
 	t.Helper()
 	tl := tool(t)
 	tl.sandboxer = &fakeSandboxer{}
-	tl.cloud = Cloud{Providers: providers, On: sw.On}
+	tl.cloud = Cloud{Platforms: platforms, On: sw.On}
 	return tl
 }
 
@@ -82,8 +82,8 @@ func send(t *testing.T, r *sandboxedRun, method, host, token string) (int, strin
 	return resp.StatusCode, string(body)
 }
 
-func TestARunWithAProviderAndNoClusterHasARelay(t *testing.T) {
-	p := newFakeProvider(permissions.AWS, "127.0.0.1:6443")
+func TestARunWithACloudPlatformAndNoClusterHasARelay(t *testing.T) {
+	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
 	tl := cloudTool(t, switchesOn(permissions.AWS), p)
 	r := startRun(t, tl, chatRuntime(t, session.Chat, nil), false)
 
@@ -108,33 +108,34 @@ func TestARunWithNeitherHasNoRelay(t *testing.T) {
 	assert.Nil(t, r.proxy)
 }
 
-// A provider whose switch is off at the run's start, a monitor's run and the
-// probe's get no grant at all.
-func TestAProviderThatIsOffHasNoRoute(t *testing.T) {
-	p := newFakeProvider(permissions.AWS, "127.0.0.1:6443")
+// A cloud platform whose switch is off at the run's start, a monitor's run and
+// the probe's get no grant at all.
+func TestACloudPlatformThatIsOffHasNoRoute(t *testing.T) {
+	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
 	r := startRun(t, cloudTool(t, switchesOn(), p), chatRuntime(t, session.Chat, nil), false)
 	assert.Empty(t, p.mounts)
 	assert.Empty(t, r.run.Policy.Network.Relays)
 }
 
-func TestAMonitorHasNoProvider(t *testing.T) {
-	p := newFakeProvider(permissions.AWS, "127.0.0.1:6443")
+func TestAMonitorHasNoPlatform(t *testing.T) {
+	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
 	startRun(t, cloudTool(t, switchesOn(permissions.AWS), p), chatRuntime(t, session.Monitor, nil), false)
 	assert.Empty(t, p.mounts)
 }
 
-func TestTheProbeHasNoProvider(t *testing.T) {
-	p := newFakeProvider(permissions.AWS, "127.0.0.1:6443")
+func TestTheProbeHasNoPlatform(t *testing.T) {
+	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
 	tl := cloudTool(t, switchesOn(permissions.AWS), p)
 	// The probe's runtime names no kind: no turn of the user's started it.
 	startRun(t, tl, tools.Runtime{Dir: testChatDir(t)}, false)
 	assert.Empty(t, p.mounts)
 }
 
-// A subagent's run reaches a provider as its parent's would; a background
-// command's grant has no asker and refuses every change naming the provider.
+// A subagent's run reaches a cloud platform as its parent's would; a background
+// command's grant has no asker and refuses every change naming the cloud
+// platform.
 func TestABackgroundCommandsGrantHasNoAsker(t *testing.T) {
-	p := newFakeProvider(permissions.GCP, "storage.gcp.kstack.invalid")
+	p := newFakePlatform(permissions.GCP, "storage.gcp.kstack.invalid")
 	tl := cloudTool(t, switchesOn(permissions.GCP), p)
 	a := newAnsweringAsker()
 
@@ -154,8 +155,8 @@ func TestABackgroundCommandsGrantHasNoAsker(t *testing.T) {
 // switch does later.
 func TestARunStartedWhileOffNeverGetsARoute(t *testing.T) {
 	sw := switchesOn()
-	p := newFakeProvider(permissions.AWS, "127.0.0.1:6443")
-	other := newFakeProvider(permissions.GCP, "storage.gcp.kstack.invalid")
+	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
+	other := newFakePlatform(permissions.GCP, "storage.gcp.kstack.invalid")
 	sw.set(permissions.GCP, true)
 	r := startRun(t, cloudTool(t, sw, p, other), chatRuntime(t, session.Chat, nil), false)
 	sw.set(permissions.AWS, true)
@@ -168,7 +169,7 @@ func TestARunStartedWhileOffNeverGetsARoute(t *testing.T) {
 // approved: it was already past the door.
 func TestARequestWaitingOnTheUserOutlivesTheSwitch(t *testing.T) {
 	sw := switchesOn(permissions.AWS)
-	p := newFakeProvider(permissions.AWS, "127.0.0.1:6443")
+	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
 	a := newAnsweringAsker()
 	r := startRun(t, cloudTool(t, sw, p), chatRuntime(t, session.Chat, a), false)
 	token := testutil.Recv(t, p.mounts, "the mount").grant.Token()
@@ -195,8 +196,8 @@ func TestARequestWaitingOnTheUserOutlivesTheSwitch(t *testing.T) {
 // A mount that fails fails the run, ends every grant already mounted and
 // leaves nothing behind.
 func TestAFailedMountEndsTheEarlierOnes(t *testing.T) {
-	first := newFakeProvider(permissions.AWS, "127.0.0.1:6443")
-	failing := newFakeProvider(permissions.GCP, "storage.gcp.kstack.invalid")
+	first := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
+	failing := newFakePlatform(permissions.GCP, "storage.gcp.kstack.invalid")
 	failing.err = errors.New("no login")
 	tl := cloudTool(t, switchesOn(permissions.AWS, permissions.GCP), first, failing)
 	var dir string
@@ -212,19 +213,19 @@ func TestAFailedMountEndsTheEarlierOnes(t *testing.T) {
 	assert.NoDirExists(t, dir)
 }
 
-// A run whose providers' routes or variables clash fails as a failed mount
-// does.
+// A run whose cloud platforms' routes or variables clash fails as a failed
+// mount does.
 func TestAClashFailsTheRun(t *testing.T) {
-	for name, second := range map[string]*fakeProvider{
-		"a host": newFakeProvider(permissions.GCP, "127.0.0.1:6443"),
-		"a variable": func() *fakeProvider {
-			p := newFakeProvider(permissions.GCP, "storage.gcp.kstack.invalid")
+	for name, second := range map[string]*fakePlatform{
+		"a host": newFakePlatform(permissions.GCP, "127.0.0.1:6443"),
+		"a variable": func() *fakePlatform {
+			p := newFakePlatform(permissions.GCP, "storage.gcp.kstack.invalid")
 			p.env = []string{"SHARED=b"}
 			return p
 		}(),
 	} {
 		t.Run(name, func(t *testing.T) {
-			first := newFakeProvider(permissions.AWS, "127.0.0.1:6443")
+			first := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
 			first.env = []string{"SHARED=a"}
 			tl := cloudTool(t, switchesOn(permissions.AWS, permissions.GCP), first, second)
 			rt := chatRuntime(t, session.Chat, nil)
@@ -236,9 +237,9 @@ func TestAClashFailsTheRun(t *testing.T) {
 	}
 }
 
-// A provider's variables ride the run's environment.
-func TestAProvidersVariablesRideTheRun(t *testing.T) {
-	p := newFakeProvider(permissions.AWS, "127.0.0.1:6443")
+// A cloud platform's variables ride the run's environment.
+func TestACloudPlatformsVariablesRideTheRun(t *testing.T) {
+	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
 	p.env = []string{"FAKE_ENDPOINT=http://127.0.0.1:6443"}
 	r := startRun(t, cloudTool(t, switchesOn(permissions.AWS), p), chatRuntime(t, session.Chat, nil), false)
 	assert.Contains(t, r.run.Env, "FAKE_ENDPOINT=http://127.0.0.1:6443")
@@ -247,7 +248,7 @@ func TestAProvidersVariablesRideTheRun(t *testing.T) {
 // Once the run ends, every grant has ended, and a request waiting on the
 // user was cancelled before end returned.
 func TestTheRunEndsEveryGrant(t *testing.T) {
-	p := newFakeProvider(permissions.AWS, "127.0.0.1:6443")
+	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
 	a := newAnsweringAsker()
 	tl := cloudTool(t, switchesOn(permissions.AWS), p)
 	rt := chatRuntime(t, session.Chat, a)

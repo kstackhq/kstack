@@ -187,7 +187,8 @@ func TestABodyPastTheCapIs413(t *testing.T) {
 	assert.Equal(t, http.StatusRequestEntityTooLarge, status)
 }
 
-// The read body is the request's body again, for a provider that forwards r.
+// The read body is the request's body again, for a cloud platform that forwards
+// r.
 func TestABodyReadIsForwardable(t *testing.T) {
 	g := newTestGrant(t, nil, testLimits)
 	r := post(`{"a":1}`)
@@ -276,4 +277,26 @@ func TestEndInterruptsAStalledBodyRead(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, testutil.Recv(t, statuses, "the stalled read's answer"))
 	testutil.WaitReturn(t, g.Wait, "Wait, with the upload still open")
 	assert.True(t, g.bodies.TryAcquire(1), "the body slot came free")
+}
+
+// Each status Body and Slot answer has its message.
+func TestEachStatusHasItsRefusal(t *testing.T) {
+	assert.Contains(t, BodyRefusal(http.StatusForbidden), "encoded body")
+	assert.Contains(t, BodyRefusal(http.StatusTooManyRequests), "too many request bodies")
+	assert.Equal(t, "kstack: the sandbox does not send a body past 1 MiB", BodyRefusal(http.StatusRequestEntityTooLarge))
+	assert.Contains(t, BodyRefusal(http.StatusBadRequest), "did not arrive whole")
+	assert.Contains(t, BodyRefusal(http.StatusTeapot), "was refused", "a status Body never answers")
+	assert.Equal(t, refusedOpen, SlotRefusal(http.StatusTooManyRequests))
+	assert.Equal(t, unauthorized, SlotRefusal(http.StatusUnauthorized))
+}
+
+// An Upgrade, or Upgrade anywhere in a Connection list, asks past HTTP.
+func TestUpgradesReadsTheConnectionList(t *testing.T) {
+	assert.False(t, Upgrades(http.Header{"Connection": {"keep-alive"}}))
+	for _, h := range []http.Header{
+		{"Upgrade": {"h2c"}}, {"Connection": {"Upgrade"}}, {"Connection": {"keep-alive, upgrade"}},
+		{"Connection": {"keep-alive", "Upgrade"}}, {"Upgrade": {""}}, {"Upgrade": {"", "websocket"}},
+	} {
+		assert.True(t, Upgrades(h), h)
+	}
 }

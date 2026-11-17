@@ -50,8 +50,8 @@ type Resolver struct {
 	Executables ExecutableProber
 	// Logs pages and follows a scope's lines.
 	Logs LogsService
-	// CloudTargets are the providers this build has, in the order Settings
-	// lists them: the only ones whose switch the wire reads or writes.
+	// CloudTargets are the cloud platforms this build has, in the order
+	// Settings lists them: the only ones whose switch the wire reads or writes.
 	CloudTargets []permissions.Target
 }
 

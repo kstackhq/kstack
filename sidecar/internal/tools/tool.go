@@ -618,21 +618,22 @@ type ClusterWrite struct {
 	DryRun bool   `json:"dryRun"`
 }
 
-// CloudRequest is what a sandboxed command sent to a provider, as the user is
-// shown it. The provider is the action's Target.
+// CloudRequest is what a sandboxed command sent to a cloud platform, as the
+// user is shown it. The cloud platform is the action's Target.
 type CloudRequest struct {
 	Host        string `json:"host"` // the upstream host dialled
 	Method      string `json:"method"`
 	Path        string `json:"path"` // path and raw query, as forwarded
 	ContentType string `json:"contentType"`
 	Body        string `json:"body"` // as sent; empty with Unshown
-	// Unshown is the provider's sentence for a body the request does not show.
+	// Unshown is the cloud platform's sentence for a body the request does not
+	// show.
 	Unshown string   `json:"unshown,omitempty"`
 	Details []Detail `json:"details,omitempty"`
 }
 
-// Detail is one line the provider's classifier read from the request: a
-// label of the provider's, and the command's text.
+// Detail is one line the cloud platform's classifier read from the request: a
+// label of the cloud platform's, and the command's text.
 type Detail struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
@@ -652,7 +653,8 @@ type ActionRequest struct {
 	ChatRule    string `json:"chatRule"`
 	// Write is the request as sent; nil for an action with none.
 	Write *ClusterWrite `json:"write,omitempty"`
-	// Cloud is a request to a provider as sent; nil for a cluster request.
+	// Cloud is a request to a cloud platform as sent; nil for a cluster
+	// request.
 	Cloud *CloudRequest `json:"cloud,omitempty"`
 	// Diff is the change as a unified diff of YAML; "" for none.
 	Diff string `json:"diff"`

@@ -1407,7 +1407,7 @@ func TestAnUnreadableClusterWriteKeepsItsApproval(t *testing.T) {
 	assert.NotContains(t, logs.String(), "MARKER")
 }
 
-// aCloudRequest is a pending provider request under call.
+// aCloudRequest is a pending cloud platform request under call.
 func aCloudRequest(call ToolCallID, millis int64) approval {
 	return approval{
 		ID: newApprovalID(), ToolCallID: call, Status: ApprovalPending, CreatedAt: time.UnixMilli(millis).UTC(),

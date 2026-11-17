@@ -91,9 +91,8 @@ type Config struct {
 	// fake is a test's own fake, added as AddFake adds one, so the test can
 	// stage its replies.
 	fake *llm.Fake
-	// cloudProviders are the providers a sandboxed run may reach: none in
-	// production yet, and a test's fake.
-	cloudProviders []bash.CloudProvider
+	// cloudPlatforms, when a test sets them, stand in place of the build's.
+	cloudPlatforms []bash.CloudPlatform
 	// HostPID is the host's process, which a command's kill is refused against;
 	// 0 when the sidecar was not told it.
 	HostPID int

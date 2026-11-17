@@ -371,7 +371,7 @@ type toolCallEntry struct {
 	// Approval is the call's own approvals row, nil on an ungated call.
 	Approval *approval
 	// SandboxActions are the call's action approvals, a cluster's and a
-	// provider's in one list, in the order asked.
+	// cloud platform's in one list, in the order asked.
 	SandboxActions []*approval
 	// Task is the background task the call started, off its row; nil on every
 	// other call. Only the reads set it: the turn's own entries carry none.

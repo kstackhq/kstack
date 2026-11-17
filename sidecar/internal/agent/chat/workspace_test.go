@@ -205,9 +205,9 @@ func TestTheContextListsTheGrants(t *testing.T) {
 		"the next question carries the grants as they are now")
 }
 
-// The section names the providers the build has whose switch is on, leaves
-// the key out with none, and goes again when a switch changes.
-func TestTheSandboxSectionNamesTheProvidersOn(t *testing.T) {
+// The section names the cloud platforms the build has whose switch is on,
+// leaves the key out with none, and goes again when a switch changes.
+func TestTheSandboxSectionNamesTheCloudPlatformsOn(t *testing.T) {
 	t.Parallel()
 
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
@@ -222,7 +222,7 @@ func TestTheSandboxSectionNamesTheProvidersOn(t *testing.T) {
 	sendAndSettle(t, s, &first.ChatID, "1", "2", "two")
 	assert.Contains(t, newestContextOf(t, s, first.ChatID),
 		"## Sandbox\n\n```json\n{\"cloud\":[\"gcp\"],\"commands\":\"sandboxed\",\"network\":\"off\"}\n```",
-		"a switch the build has no provider for is not named")
+		"a switch the build has no cloud platform for is not named")
 
 	off := sandboxState{}
 	on := sandboxState{cloudTargetsOn: []string{"gcp"}}

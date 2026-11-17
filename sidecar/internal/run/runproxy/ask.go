@@ -57,13 +57,13 @@ type Sent struct {
 	Path        string // path and raw query, as forwarded
 	ContentType string
 	Body        []byte // as sent; empty with Unshown
-	// Unshown is the provider's one fixed sentence for a body the request does
-	// not show.
+	// Unshown is the cloud platform's one fixed sentence for a body the request
+	// does not show.
 	Unshown string
 	Details []Detail
 }
 
-// Detail is one line the provider's classifier read from the request.
+// Detail is one line the cloud platform's classifier read from the request.
 type Detail struct {
 	Label string
 	Value string
@@ -94,14 +94,15 @@ func refused(status int, message string) Outcome {
 // Decide puts req to the user and calls forward once they approve it. It
 // keeps the action's class and summary alone and stamps the grant's target,
 // so no field that names a cluster's object is decided, recorded or drawn for
-// a provider; what a classifier read goes in req.Sent.Details. A grant with no
-// asker, and a request that cannot be shown, are refused before any queue. The rest wait for the grant's lock, so the user sees one at a time and
-// the provider sees changes in the order decided. The verdict reads no mode and
-// no rule, only the session's two flags: a refusal is recorded, and anything
-// else asks. A data read gives up the lock once approved, so a long download
-// holds no other request; a change holds it until forward returns. Only an
-// approval takes a slot and the limiter, so a request waiting on the user holds
-// neither.
+// a cloud platform; what a classifier read goes in req.Sent.Details. A grant
+// with no asker, and a request that cannot be shown, are refused before any
+// queue. The rest wait for the grant's lock, so the user sees one at a time and
+// the cloud platform sees changes in the order decided. The verdict reads no
+// mode and no rule, only the session's two flags: a refusal is recorded, and
+// anything else asks. A data read gives up the lock once approved, so a long
+// download holds no other request; a change holds it until forward returns.
+// Only an approval takes a slot and the limiter, so a request waiting on the
+// user holds neither.
 func (g *Grant) Decide(ctx context.Context, req Request, forward func() error) Outcome {
 	req.Action = permissions.Action{Target: g.target, Class: req.Action.Class, Summary: req.Action.Summary}
 	if g.asker == nil {
@@ -123,7 +124,7 @@ func (g *Grant) Decide(ctx context.Context, req Request, forward func() error) O
 	p := permissions.Policy{NoPrompts: g.session.NoPrompts, NoSecretData: g.session.NoSecretData}
 	if v, reason := p.Authorize(req.Action); v == permissions.Refuse {
 		if err := g.asker.Record(ctx, req, permissions.Denied, reason); err != nil {
-			slog.Warn("a refused provider request was not recorded", "err", err)
+			slog.Warn("a refused cloud platform request was not recorded", "err", err)
 			return refused(http.StatusForbidden, refusedUnrecorded)
 		}
 		return refused(http.StatusForbidden, "kstack: "+req.Action.Summary+" is not allowed: "+reason)
@@ -142,18 +143,10 @@ func (g *Grant) Decide(ctx context.Context, req Request, forward func() error) O
 	}
 	release, status := g.Slot(ctx)
 	if status != 0 {
-		return refused(status, slotRefusal(status))
+		return refused(status, SlotRefusal(status))
 	}
 	defer release()
 	return Outcome{Forwarded: true, Err: forward()}
-}
-
-// slotRefusal is the message for a status Slot answered.
-func slotRefusal(status int) string {
-	if status == http.StatusTooManyRequests {
-		return refusedOpen
-	}
-	return unauthorized
 }
 
 // unshowable is why s cannot be put to the user, or "": a body that is not
@@ -168,7 +161,7 @@ func unshowable(s Sent) string {
 	if _, err := url.ParseQuery(query); err != nil {
 		return refusedQuery
 	}
-	if s.Unshown == "" && isForm(s.ContentType) {
+	if s.Unshown == "" && IsForm(s.ContentType) {
 		if _, err := url.ParseQuery(string(s.Body)); err != nil {
 			return refusedForm
 		}
@@ -176,9 +169,9 @@ func unshowable(s Sent) string {
 	return ""
 }
 
-// isForm is whether contentType names a URL-encoded form, read as leniently as
-// a provider reads it: parameters and case ignored.
-func isForm(contentType string) bool {
+// IsForm is whether contentType names a URL-encoded form, read as leniently as
+// a cloud platform reads it: parameters and case ignored.
+func IsForm(contentType string) bool {
 	mediaType, _, _ := strings.Cut(contentType, ";")
 	return strings.EqualFold(strings.TrimSpace(mediaType), "application/x-www-form-urlencoded")
 }

@@ -146,7 +146,8 @@ type Tool struct {
 	// clusterSvc is the cluster service, which a sandboxed run reads the chat's
 	// cluster through.
 	clusterSvc cluster.Service
-	// cloud is the providers a sandboxed run may reach, and their switches.
+	// cloud is the cloud platforms a sandboxed run may reach, and their
+	// switches.
 	cloud Cloud
 	// runsDir and tmpDir are where a sandboxed run's own directory and its
 	// TMPDIR are made, and kubectlDir where each cluster's kubectl cache is.
@@ -727,8 +728,8 @@ func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime, network 
 
 // sandboxedRun is what a sandboxed run carries beyond an unconfined one: the
 // sandboxer, for a run with a cluster its claim, for a run with a cluster or a
-// provider its door, the run's own directory, and the Run the sandboxer is
-// handed, less what shellCmd fills in.
+// cloud platform its door, the run's own directory, and the Run the sandboxer
+// is handed, less what shellCmd fills in.
 type sandboxedRun struct {
 	boxer sandboxer
 	claim claimed
@@ -755,9 +756,9 @@ func (r *sandboxedRun) end() {
 // sandboxedRunFor makes a sandboxed run's directory and builds its environment,
 // for a call of rt's chat starting in cwd: with the chat's cluster, its claim,
 // its grant, whose writes go as writesFor says, its kubeconfig and its kubectl
-// cache; with each provider whose switch is on (providersFor), its mount; with
-// either, the door on the run's one relay; with the internet when network is
-// set, and the resolv.conf the sandbox needs for it. A cluster that is gone
+// cache; with each cloud platform whose switch is on (platformsFor), its mount;
+// with either, the door on the run's one relay; with the internet when network
+// is set, and the resolv.conf the sandbox needs for it. A cluster that is gone
 // fails it before anything is made, since a sandboxed kubectl aimed at nothing
 // would read as the cluster being down. A mount that fails, or routes or
 // variables that clash, fail it and end what was made. The caller calls end
@@ -782,7 +783,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 	var cluster *target
 	var port int
 	var err error
-	providers := t.cloud.providersFor(rt)
+	platforms := t.cloud.platformsFor(rt)
 	if rt.ClusterID != "" {
 		tg, err := t.target(ctx, rt.ClusterID)
 		if err != nil {
@@ -790,8 +791,9 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		}
 		cluster = &tg
 	}
-	// Only a run with a cluster or a provider has a door, and dials its port.
-	serves := cluster != nil || len(providers) > 0
+	// Only a run with a cluster or a cloud platform has a door, and dials its
+	// port.
+	serves := cluster != nil || len(platforms) > 0
 	if serves {
 		if port, err = boxer.Port(); err != nil {
 			return nil, err
@@ -832,7 +834,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 			r.proxy.grant = newClusterGrant(r.claim, rt.Session, cluster.scopeContext, asker, refusal)
 		}
 		run := CloudRun{Port: port, Dir: r.dir.path, ToolHome: toolHome, TmpDir: r.dir.tmp, Session: rt.Session}
-		if cloudVars, err = r.proxy.mount(ctx, providers, rt, background, run); err != nil {
+		if cloudVars, err = r.proxy.mount(ctx, platforms, rt, background, run); err != nil {
 			r.end()
 			return nil, err
 		}

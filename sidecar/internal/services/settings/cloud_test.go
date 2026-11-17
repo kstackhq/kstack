@@ -24,11 +24,11 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-var providers = []permissions.Target{permissions.AWS, permissions.GitHub, permissions.GCP, permissions.Azure}
+var platforms = []permissions.Target{permissions.AWS, permissions.GitHub, permissions.GCP, permissions.Azure}
 
-func TestEachProviderIsOffWhenUnset(t *testing.T) {
+func TestEachCloudPlatformIsOffWhenUnset(t *testing.T) {
 	s, _ := openFile(t, "")
-	for _, target := range providers {
+	for _, target := range platforms {
 		assert.False(t, s.CloudOn(target), target)
 	}
 }
@@ -50,7 +50,7 @@ func TestARefusedSwitchIsOff(t *testing.T) {
 
 func TestSetCloudWritesItsField(t *testing.T) {
 	s, file := openFile(t, "")
-	for _, target := range providers {
+	for _, target := range platforms {
 		require.NoError(t, s.SetCloud(target, true))
 		assert.True(t, s.CloudOn(target))
 		_, field := cloudSwitch(&Settings{}, target)

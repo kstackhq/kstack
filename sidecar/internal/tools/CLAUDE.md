@@ -45,8 +45,8 @@ session.
 - **`FileStamps`** keys by `fileguard.Abs`; a `Stamp`'s `Whole` is set only when the model saw
   every byte unaltered.
 - **`ActionAsker`** puts a sandboxed command's classified `ActionRequest` to the user, or
-  `Record`s one decided unasked: a cluster's (`Write`) or a provider's (`Cloud`). Nil where nobody
-  can be asked.
+  `Record`s one decided unasked: a cluster's (`Write`) or a cloud platform's (`Cloud`). Nil where
+  nobody can be asked.
 - **A tool that acts through a service is built with it** (`memory.New`, `kubequery.New`,
   `logsview.New`, `logsread.New` and `logswatch.New` over the log service too, in `app`'s
   `chatTools`) and maps the service's errors to the model's codes →
@@ -278,29 +278,30 @@ replace its own paths](../../../docs/security/2026-09-30-a-run-cannot-replace-it
 - `onRunDir` is a test's hook on a run's fresh directory: planting a folder at the resolver,
   socket or kubeconfig path fails that step of the setup.
 
-**A run with a cluster or a provider serves its door on its socket** (`proxy.go`): one server
-routing by `Host` to the cluster's grant (`upstream.go`) and each provider's, anything else the
-cluster grant's 401. The door authenticates nothing; a provider's route reads its switch on every
-request. The claim watches the record and revokes on disable, mark or delete. A claim that cannot
-be made still runs the command, answering each request not connectable. A background command's
-writes are refused. **The run ends in order** (`sandboxedRun.end`) — every grant, server, handlers
-joined, claim, directory — so no request reaches the user once `Run` returns. → [cluster writes
-ask](../../../docs/security/2026-09-29-cluster-writes-ask.md), [the permissions
+**A run with a cluster or a cloud platform serves its door on its socket** (`proxy.go`): one server
+routing by `Host` to the cluster's grant (`upstream.go`) and each cloud platform's, anything else
+the cluster grant's 401. The door authenticates nothing; a cloud platform's route reads its switch
+on every request and refuses an upgrade. The claim watches the record and revokes on disable, mark or delete. A claim that
+cannot be made still runs the command, answering each request not connectable. A background
+command's writes are refused. **The run ends in order** (`sandboxedRun.end`) — every grant, server,
+handlers joined, claim, directory — so no request reaches the user once `Run` returns. → [cluster
+writes ask](../../../docs/security/2026-09-29-cluster-writes-ask.md), [the permissions
 engine](../../../docs/security/2026-10-02-the-permissions-engine.md), [Secret data is a permissioned
 read](../../../docs/security/2026-10-05-secret-data-is-a-permissioned-read.md).
 
-**A provider joins a run through `CloudProvider`** (`cloud.go`), a list `app` hands `bash.New` in
-`Cloud` with each switch's reader. A run of a chat or a subagent mounts each provider whose switch
-is on at its start; a monitor's and the probe's mount none. `Mount` gets the port, the run's
+**A cloud platform joins a run through `CloudPlatform`** (`cloud.go`), a list `app` hands `bash.New`
+in `Cloud` with each switch's reader: `builtCloudPlatforms` (`app/cloudplatforms_unix.go`), and none
+on a machine with no sandbox. A run of a chat or a subagent mounts each cloud platform whose
+switch is on at its start; a monitor's and the probe's mount none. `Mount` gets the port, the run's
 directories and the grant's inputs (`cloudAskerFor`: the runtime's asker as `cloudAsker`, or a
-refusal naming the provider), and answers routes, variables and a `runproxy.Grant`. Two routes on
-one host, two values for one variable, or a failed mount fail the run and end what was made; a
+refusal naming the cloud platform), and answers routes, variables and a `runproxy.Grant`. Two routes
+on one host, two values for one variable, or a failed mount fail the run and end what was made; a
 proxy variable brings `NO_PROXY=127.0.0.1`. **A mount's rules**: every value comes from the mount,
-never the sidecar's environment; a file it writes is 0600 and `O_EXCL`, under the run's directory,
+never the sidecar's environment; its grant takes `cloudLimits`; a file it writes goes through `writeNew`, 0600 and `O_EXCL`, under the run's directory,
 the tool home or `TMPDIR`, and holds a token or a placeholder, never a credential; a credential
-lives in a service under `services/`, resolved no earlier than a mount with the switch on, and
-held under `safe.AddSecret` until `safe.ForgetSecret`. →
-[ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-a-provider-through-a-proxy-on-its-runs-one-relay.md),
+lives in a service under `services/`, resolved no earlier than a mount with the switch on, and held
+under `safe.AddSecret` until `safe.ForgetSecret`. →
+[ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md),
 [the run's door](../../../docs/security/2026-11-17-the-runs-door.md).
 
 **The executable probe** (`executableprobe.go`) runs each executable in the sandbox, **never through

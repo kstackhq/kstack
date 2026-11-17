@@ -89,6 +89,7 @@ func TestThePolicy(t *testing.T) {
 		"a node's proxy":       {method: "GET", path: "/api/v1/nodes/n1/proxy/configz", want: refusedReach},
 		"the legacy proxy":     {method: "GET", path: "/api/v1/proxy/namespaces/web/pods/x", want: refusedReach},
 		"an upgrade":           {method: "GET", path: "/api/v1/pods", header: http.Header{"Upgrade": {"SPDY/3.1"}}, want: refusedReach},
+		"an empty upgrade":     {method: "GET", path: "/api/v1/pods", header: http.Header{"Upgrade": {""}}, want: refusedReach},
 		"a connection upgrade": {method: "GET", path: "/api/v1/pods", header: http.Header{"Connection": {"keep-alive, Upgrade"}}, want: refusedReach},
 		"a user impersonated":  {method: "GET", path: "/api/v1/pods", header: http.Header{"Impersonate-User": {"admin"}}, want: refusedReach},
 		"a group impersonated": {method: "GET", path: "/version", header: http.Header{"Impersonate-Group": {"system:masters"}}, want: refusedReach},

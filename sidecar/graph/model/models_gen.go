@@ -20,7 +20,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
-// A provider's consent switch: whether sandboxed commands may reach it as the user.
+// A cloud platform's consent switch: whether sandboxed commands may reach it as the user.
 type CloudAccess struct {
 	Target permissions.Target `json:"target"`
 	On     bool               `json:"on"`

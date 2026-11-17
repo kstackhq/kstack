@@ -82,14 +82,26 @@ func TestTheResolverHasNoProberWithoutAShell(t *testing.T) {
 	assert.True(t, rt.resolver().Executables == nil)
 }
 
-// The resolver and the chat service list the build's providers in its order.
+// The resolver and the chat service list the build's cloud platforms in its
+// order.
 func TestCloudTargetsKeepTheBuildsOrder(t *testing.T) {
-	got := cloudTargets([]bash.CloudProvider{targetOnly(permissions.GCP), targetOnly(permissions.AWS)})
+	got := cloudTargets([]bash.CloudPlatform{targetOnly(permissions.GCP), targetOnly(permissions.AWS)})
 	assert.Equal(t, []permissions.Target{permissions.GCP, permissions.AWS}, got)
 	assert.Empty(t, cloudTargets(nil))
 }
 
-// targetOnly is a provider that names its target and mounts nothing.
+// With a sandbox the cloud platforms are the build's, or a test's in their
+// place; without one there are none.
+func TestCloudPlatformsNeedASandbox(t *testing.T) {
+	sandboxed := sandbox.Status{Available: true}
+	configured := []bash.CloudPlatform{targetOnly(permissions.AWS)}
+	assert.Equal(t, cloudTargets(builtCloudPlatforms()), cloudTargets(cloudPlatformsFor(sandboxed, nil)))
+	assert.Equal(t, []permissions.Target{permissions.AWS}, cloudTargets(cloudPlatformsFor(sandboxed, configured)))
+	assert.Empty(t, cloudPlatformsFor(sandbox.Status{Reason: "no bwrap"}, nil))
+	assert.Empty(t, cloudPlatformsFor(sandbox.Status{}, configured))
+}
+
+// targetOnly is a cloud platform that names its target and mounts nothing.
 type targetOnly permissions.Target
 
 func (p targetOnly) Target() permissions.Target { return permissions.Target(p) }

@@ -1140,7 +1140,9 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "The sandbox reaches the internet only when the context says its `network` is on.")
 	assert.Contains(t, sandboxPrompt, "A command that needs it otherwise can set `network: true`, which asks the user to approve that command; "+
 		"a refusal is their decision.")
-	assert.Contains(t, sandboxPrompt, "With the internet a command still holds no credential, so a tool has a login only where the context's `cloud` names its provider, and a private registry has none.")
+	assert.Contains(t, sandboxPrompt, "With the internet a command still holds no credential, so a tool has a login only where the context's `cloud` names its cloud platform, and a private registry has none.")
+	assert.Contains(t, sandboxPrompt, "Where the context's `cloud` names a cloud platform, its tools reach it as the user through a proxy, with the internet or without.")
+	assert.Contains(t, sandboxPrompt, "A change waits for the user to approve it each time, or comes back refused, which is the user's decision; a background command changes nothing. A request whose answer is a credential is refused.")
 	assert.NotContains(t, sandboxPrompt, "is for a command run outside the sandbox", "the dry-run advice holds in the sandbox too")
 	assert.Contains(t, sandboxPrompt, "It has the user's tools and none of their shell's functions, aliases or variables; "+
 		"`HOME` is the workspace; `sudo` does not work.", "what a sandboxed run starts from")

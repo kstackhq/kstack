@@ -1029,23 +1029,24 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   around a cluster or the repository behind a deploy. Specified in `docs/specs/cloud-proxies/` on
   [#940](https://github.com/kstackhq/kstack/pull/940), for [#935](https://github.com/kstackhq/kstack/issues/935) and
   [#931](https://github.com/kstackhq/kstack/issues/931) to
-  [#934](https://github.com/kstackhq/kstack/issues/934): a proxy per provider in the sidecar
-  behind the run's one relay, a switch per provider that is off by default, and a gate that asks
-  for anything but a read.
+  [#934](https://github.com/kstackhq/kstack/issues/934): a proxy per cloud platform in the sidecar
+  behind the run's one relay, a switch per cloud platform that is off by default, and a gate that
+  asks for anything but a read.
 
-- **Rules, modes and durations for a provider's actions.** Every change a sandboxed command
-  sends to a provider asks, Once or Deny: no rule, mode or duration reaches one
-  ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-a-provider-through-a-proxy-on-its-runs-one-relay.md)).
-  Wanted once a provider's users approve the same change often: a provider's own rules, and a
-  read-only mode among them.
+- **Rules, modes and durations for a cloud platform's actions.** Every change a sandboxed command
+  sends to a cloud platform asks, Once or Deny: no rule, mode or duration reaches one
+  ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md)).
+  Wanted once a cloud platform's users approve the same change often: a cloud platform's own rules,
+  and a read-only mode among them.
 
-- **Draw each provider's switch in Settings.** `sandboxCloudAccess` and `sandboxCloudAccessSet`
-  are served, and nothing draws them: the switches wait for the new settings panel. Each turns on
-  behind a confirm naming the provider and what of its stored data is read unasked (step 1 of
-  [the cloud proxies](specs/cloud-proxies/1-shared-pieces.md#6-the-consent-switch)).
+- **Draw each cloud platform's switch in Settings.** `sandboxCloudAccess` and
+  `sandboxCloudAccessSet` are served, and nothing draws them: the switches wait for the new settings
+  panel. Each turns on behind a confirm naming the cloud platform and what of its stored data is
+  read unasked (step 1 of [the cloud
+  proxies](specs/cloud-proxies/1-shared-pieces.md#6-the-consent-switch)).
 
-- **A provider switch per chat.** `sandbox.<provider>` is global: a provider on is on for every
-  chat. Network is the chat's; a chat about one cluster has no need of another cloud.
+- **A cloud platform switch per chat.** `sandbox.<platform>` is global: a cloud platform on is on
+  for every chat. Network is the chat's; a chat about one cluster has no need of another cloud.
 
 - **Build the cluster grant on `runproxy.Grant`.** `kubeproxy.Grant` keeps its own token, life,
   limits and write queue beside `runproxy`'s, so the two copies can drift.
