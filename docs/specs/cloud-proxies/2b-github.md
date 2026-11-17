@@ -65,9 +65,18 @@ The pieces:
   script's `curl`) reaches nothing with network off, and GitHub with no login with network on.
 - **Nothing GitHub serves from another host.** Workflow logs, artifacts, release assets and
   source archives are answered with a link to another host. The proxy follows nothing
-  ([§3](#3-the-classifier)), so with network off they fail.
-- **A renamed repository.** GitHub answers its old name with a redirect to `github.com` or
-  `api.github.com`, which the client follows past the proxy.
+  ([§3](#3-the-classifier)), so with network off they fail. The proxy does not know the run's
+  network state, so the read still asks, and an approved one fails at the link. The proxy
+  rewrites no URL inside an answer's body, so `gh release download` and `gh run download`,
+  which request the `url` an answer names on `api.github.com`, go past the proxy and fail
+  without asking.
+- **A `github.com` URL handed to `gh`.** `gh pr view https://github.com/o/r/pull/1` dials
+  `https://api.github.com` itself, past the proxy. A repository is named as `-R owner/repo`.
+- **A run whose own git config rewrites `github.com`.** Git applies the longest matching
+  `insteadOf`, the first read on a tie, and reads the run's file last. An `insteadOf` or
+  `pushInsteadOf` of equal or greater length in the repository's config or the run's global
+  one wins, and that remote does not reach the proxy. In the sandbox the global config is the
+  workspace's `.gitconfig` or the tool home's `xdg/config/git/config`, never the user's own.
 - **Git LFS**, the dumb Git protocol, and release-asset upload (`uploads.github.com`).
 - **No repository allowlist.** Git and REST name the repository in the path, but GraphQL names
   it in the document, by name or node id. A user who wants a narrower reach logs `gh` in with a
@@ -170,20 +179,26 @@ passes the constants, a test its fake's.
 1. `Grant.Holds` on the `Proxy-Authorization` password, else `Grant.Challenge`. Then
    `Grant.Enter`.
 2. A path that is not canonical, an `Upgrade` and a `Connection: upgrade` are refused.
-3. The request is classified by its host, method, path and headers
-   ([§3](#3-the-classifier)): refused, a read, or one that asks.
-4. A body the classifier or the user must read is read through `Grant.Body`: a GraphQL
+3. A body the classifier or the user must read is read through `Grant.Body`: a GraphQL
    request's, and an API change's. A push's is read as [§4](#4-what-a-request-shows) says.
    A fetch's (`git-upload-pack`) is streamed unread: its path says what it is.
+4. The request is classified by its host, method, path, headers and, for GraphQL and a push,
+   the body read ([§3](#3-the-classifier)): refused, a read, or one that asks.
 5. A read takes `Grant.Slot` and is forwarded. Anything else goes through `Grant.Decide`.
 6. **Forwarding** builds the headers with `runproxy.Outbound` and the list below, reads the token
    from the `TokenSource` and adds it: `Authorization: Bearer <token>` to the API,
    `Authorization: Basic` of `x-access-token:<token>` to Git.
-7. The answer passes as sent, less `Set-Cookie`. An upstream `401` drops the held token
+7. The answer passes as sent, less `Set-Cookie`, with its `Link` and `Location` as step 8
+   says. An upstream `401` drops the held token, at most once per interval
    ([§5](#5-the-credential-servicesgithubauth)). An upstream failure is a `502`.
-8. **A redirect is never followed.** A `Location` on the request's own upstream passes
-   unchanged. A `Location` to another host passes only on an approved class 6 request; on any
-   other it is replaced by a refusal, so no signed link reaches a command unasked.
+8. **A redirect is never followed, and the answer names the route.** `gh` and `git` follow an
+   absolute URL as written, so the upstream's own origin is rewritten to the route's in the
+   answer's `Link` header and in a `Location` that starts with it: `https://api.github.com/`
+   to `http://api.github.localhost/` on the API host, `https://github.com/` to
+   `http://github.localhost/` on the Git host. The client's next request, a later page or a
+   renamed repository's new path, comes back through the proxy and is classified as any other.
+   A `Location` to any other host passes only on an approved class 6 request; on any other it
+   is replaced by a refusal, so no signed link reaches a command unasked.
 
 **Refusals** start `kstack:` and are `403`, which neither tool retries. The API host writes
 GitHub's error shape, `{"message": "…"}`, which `gh` prints. The Git host writes `text/plain`.
@@ -197,7 +212,7 @@ With no login found the answer is one fixed sentence: *kstack: no GitHub login w
 | `Accept` | both | Yes: a media type picks the answer's form, and on a release asset the asset itself. The classifier reads it; a request that asks draws it as the detail *Accept* |
 | `X-GitHub-Api-Version` | API | Yes: it picks the REST version that reads the body. Drawn as the detail *API version* |
 | `GraphQL-Features` | API | Yes: it turns on preview fields. Forwarded on `/graphql` alone, drawn as the detail *Features* |
-| `Git-Protocol` | Git | Yes: it picks the protocol version. Forwarded on a `git-upload-pack` request alone, which is a read in every version; never on `git-receive-pack`, so a push arrives in the form the push reader reads |
+| `Git-Protocol` | Git | Yes: it picks the protocol version. Forwarded on `GET …/info/refs?service=git-upload-pack`, where the version is negotiated, and on `POST …/git-upload-pack`; both are reads in every version. Never on a `git-receive-pack` request, `GET` or `POST`, so a push arrives in the form the push reader reads |
 | `Content-Type` | both | Drawn as the request's media type |
 | `Content-Encoding` | Git | Forwarded on `POST …/git-upload-pack` alone, whose body git compresses. Anywhere else a request carrying it is refused |
 | `Content-Length`, `Accept-Encoding`, `User-Agent`, `If-None-Match`, `If-Modified-Since` | both | No |
@@ -238,6 +253,12 @@ its `Summary`, and no other field; no kube-context and no mode is read.
 | any other `POST`, `PUT`, `PATCH` or `DELETE` | class 4 |
 | any other method | refused |
 
+**Paths by id.** GitHub serves every `/repos/{owner}/{repo}/…` route as
+`/repositories/{id}/…` too, and every `/orgs/{org}/…` route as `/organizations/{id}/…`. The
+classifier matches each list below against the path with `/repositories/{id}` read as
+`/repos/*/*` and `/organizations/{id}` as `/orgs/*`. The path forwarded and drawn is the
+request's own.
+
 **GraphQL.** The document is parsed with `gqlparser`, without a schema. Any mutation in the
 document makes the request a change, whatever `operationName` selects, so the verdict does not
 depend on reading the selection as GitHub does. The summary names each mutation's top-level
@@ -248,7 +269,10 @@ the document and its variables.
 **`credentialPaths`** are the requests whose answer is a credential:
 
 - `/app/installations/*/access_tokens`
+- `/app-manifests/*/conversions`, whose answer is a GitHub App's private key, client secret
+  and webhook secret
 - `/applications/*/token` and below
+- `/copilot_internal/` and below, which can answer a Copilot token
 - `/repos/*/*/actions/runners/registration-token`, `remove-token` and `generate-jitconfig`,
   and the same three under `/orgs/*` and `/enterprises/*`
 
@@ -306,17 +330,22 @@ Its summary is *GitHub: `<METHOD>` `<path>`*, or the GraphQL form.
 - the detail *Repository*;
 - a detail per ref, labelled *Creates*, *Updates* or *Deletes*, whose value is the ref's name
   and its old and new commit ids in full;
+- a detail *Push option* per push option sent;
 - `Unshown`: *a Git pack of the commits pushed; an update may rewrite history*.
 
-The proxy reads the refs from the pkt-lines that open the body, at most 64 KiB, then streams
-the pack to GitHub unread once the push is approved. A push whose opening it cannot read is
-refused: one past 64 KiB, with a `Content-Encoding`, a push certificate, or a ref name that is
-not printable UTF-8.
+The proxy reads the pkt-lines that open the body, at most 64 KiB: the `shallow` lines, which
+it skips, the commands, which name the refs, and, when the `push-options` capability is sent,
+the options that follow them. It then streams the pack to GitHub unread once the push is
+approved. A push whose opening it cannot read is refused: one past 64 KiB, with a
+`Content-Encoding`, a push certificate, or a ref name or push option that is not printable
+UTF-8. 64 KiB holds about 600 refs, so a large `git push --tags` or `--mirror` is refused,
+and its refusal says to push fewer refs at a time.
 
 **Why that is enough to approve.** A push changes refs and nothing else. The request names the
-repository and every ref changed, and a commit id is a hash of its whole content, so the new id
-says exactly which commit the ref will name. The user who wants to read the commits has them in
-the workspace. What the request cannot say is in the sentence.
+repository, every ref changed and every option sent with them, and a commit id is a hash of
+its whole content, so the new id says exactly which commit the ref will name. The user who
+wants to read the commits has them in the workspace. What the request cannot say is in the
+sentence.
 
 ### 5. The credential (`services/githubauth`)
 
@@ -332,8 +361,14 @@ its `TokenSource` interface.
 - The answer is one line matching `^[A-Za-z0-9_]{1,255}$`, else the sentinel.
 - It is held in memory for five minutes, a parameter, and never written. Concurrent reads
   share one run of `gh`.
+- **An upstream `401` drops it at most once a minute**, a parameter. A `401` inside the
+  interval leaves the held token in place. So a token GitHub refuses is read again, and a
+  command that draws `401`s (`GET /app` wants an app's JWT) cannot run `gh` faster than that.
+- **A failed read is held for the same interval.** No login, no `gh`, a timeout and an answer
+  that is not a token each answer the sentinel until the interval ends, so a run with no login
+  does not run `gh` on every request.
 - **It is registered while held**: `safe.AddSecret` when a token is taken, before it is
-  returned, and `safe.ForgetSecret` when it expires or an upstream `401` drops it.
+  returned, and `safe.ForgetSecret` when it expires or a `401` drops it.
 - It runs on the first request that needs it. Only a request past the door asks, and the door
   reads the switch.
 - Nothing logs the token, `gh`'s output or its stderr. A failure logs one fixed reason.
@@ -358,8 +393,9 @@ service.
 **The prompt.** `tools/bash/prompts/sandbox.md` gains GitHub's paragraph, read when the
 context's `cloud` names `github`: `git` and `gh` reach `github.com` as the user through a
 proxy; a read runs; a change, a push included, waits for the user each time or is refused; a
-background command changes nothing; nothing that answers a credential works; logs, artifacts,
-archives and release assets ask first and then need network. The sentence on tools with no
+background command changes nothing; nothing that answers a credential works; a repository is
+named to `gh` as `-R owner/repo`, never by URL; logs, artifacts, archives and release assets
+ask first and then need network. The sentence on tools with no
 login is step 1's and does not change.
 
 ## Tasks
@@ -370,7 +406,7 @@ All start Planned. Each ends green under `make test-changed`.
 | --- | --- | --- | --- | --- |
 | 1 | The hand checks of [*Acceptance*](#acceptance), repeated and recorded here with the tool versions | this spec | — | Planned |
 | 2 | `githubauth`: the token source | `services/githubauth/` | — | Planned |
-| 3 | `githubproxy`: the handler, the upstream table, the header list, the classifier, the forward, the redirect rule | `run/githubproxy/githubproxy.go`, `classify.go`, `graphql.go`, their tests | 1 | Planned |
+| 3 | `githubproxy`: the handler, the upstream table, the header list, the classifier, the forward, the redirect and origin rules | `run/githubproxy/githubproxy.go`, `classify.go`, `graphql.go`, their tests | 1 | Planned |
 | 4 | The push reader and the requests that ask: summaries, details, `Unshown` | `run/githubproxy/push.go`, `request.go`, their tests | 3 | Planned |
 | 5 | The cloud platform: the mount, the body limit, `gitconfig`, `gh/hosts.yml`, the variables, the prompt, GitHub in `app`'s list | `tools/bash/github.go`, `proxy.go`, `prompts/sandbox.md`, `app/runtime.go`, their tests, the prompt goldens (`app/testdata/prompt/`) | 2, 4 | Planned |
 | 6 | `git` and `gh` through the real sandbox | `tools/bash/github_unix_test.go`, `app/app_unix_test.go` (`startE2E`) | 5 | Planned |
@@ -395,6 +431,19 @@ as a parameter.
 - What each tool prints for a `403` in each refusal shape.
 - GitHub's GraphQL schema serves none of `dataPaths`' data. A field that does is classed 6 by
   name before task 3 is done.
+- GitHub's REST description names no route whose answer is a credential beyond
+  `credentialPaths`. One that does joins the list before task 3 is done.
+
+Already confirmed with gh 2.103.3 and git 2.47.3 on Linux; macOS is still to be checked:
+
+- `gh api user` with `GH_HOST=github.localhost`, `HTTP_PROXY` and §1's `hosts.yml` in a 0500
+  config directory works and leaves the directory unchanged. It sends absolute-form
+  `http://api.github.localhost/user` with `Proxy-Authorization` on the first request and
+  `Authorization: token kstack-placeholder`.
+- `gh` sends `Accept`, `Content-Type`, `X-Github-Api-Version`, `Accept-Encoding` and
+  `User-Agent`.
+- `git` loads the file through `GIT_CONFIG_COUNT` and `include.path`, applies all three
+  `insteadOf`, and sends `Proxy-Authorization` only after a `407`.
 
 **`run/githubproxy`** (`t.Parallel()`)
 
@@ -403,24 +452,36 @@ as a parameter.
 - `TestTheUpstreamIsFixed`: no `Host`, path, header or query sends a request anywhere but the
   two origins.
 - `TestOnlyTheListedHeadersReachGitHub`: the placeholder `Authorization`, `Cookie`,
-  `X-HTTP-Method-Override` and `X-GitHub-OTP` do not; `Git-Protocol` rides a fetch and never a
-  push. `TestTheTokenIsAddedOutside`: the fake sees the real token in the form for its host.
+  `X-HTTP-Method-Override` and `X-GitHub-OTP` do not; `Git-Protocol` rides a fetch's `GET` and
+  `POST` and neither of a push's. `TestTheTokenIsAddedOutside`: the fake sees the real token
+  in the form for its host.
 - `TestEveryRequestIsClassified`: a table over both hosts, every row of §3.
+- `TestAPathByIDIsClassifiedAsItsRoute`: `/repositories/{id}/…` and `/organizations/{id}/…`
+  land in the row of their `/repos/*/*/…` and `/orgs/*/…` form, and the path forwarded is the
+  request's own.
 - `TestAnyMutationIsAChange`: a document with a query and a mutation, whichever
   `operationName`. `TestAGraphQLBodyThatDoesNotReadIsRefused`: duplicate keys, a non-string
   `query`, a subscription, a `GET`.
 - `TestACredentialPathIsRefused`, never asked. `TestADataPathAsks`: class 6, each entry, and
-  the release asset only with its `Accept`.
-- `TestADeletedRefIsDestructive`, by push, REST and GraphQL.
+  the release asset only with its `Accept`. Both run each `/repos` and `/orgs` entry in its id
+  form too.
+- `TestADeletedRefIsDestructive`, by push, REST, by name and by id, and GraphQL.
 - `TestARedirectIsNotFollowed`; `TestARedirectToAnotherHostNeedsAnApprovedDataRead`.
+- `TestALinkHeaderNamesTheRoute`: each URL of an API answer's `Link` on `api.github.com`
+  arrives on `api.github.localhost`, and a URL on another host is untouched.
+- `TestARedirectOnTheSameUpstreamNamesTheRoute`: on each host, a `Location` on the upstream's
+  origin arrives on the route's, and the request it names is classified again. A host that
+  only starts with the upstream's name is another host.
 - `TestAnAPIChangeShowsWhatIsSent`: method, path, media type, body, and the details for
   `Accept`, the API version and the GraphQL features.
 - `TestAPushNamesItsRefs`: create, update and delete from recorded pkt-lines, each a detail,
-  the `Unshown` sentence set; once approved the pack reaches the fake byte for byte.
-- `TestAPushThatDoesNotReadIsRefused`, `TestAPushProbePasses`,
-  `TestAFetchIsStreamedWhateverItsEncoding`.
+  the `Unshown` sentence set; `shallow` lines are skipped and each push option is a detail;
+  once approved the whole body reaches the fake byte for byte.
+- `TestAPushThatDoesNotReadIsRefused`: each case of §4, a push option that is not printable
+  UTF-8 among them. `TestAPushProbePasses`, `TestAFetchIsStreamedWhateverItsEncoding`.
 - `TestOnlyAnApprovedChangeReachesGitHub`: a denial and a grant with no asker forward nothing.
-- `TestNoLoginIsOneFixedMessage`, `TestARefusedTokenIsReadAgain`.
+- `TestNoLoginIsOneFixedMessage`. `TestARefusedTokenIsReadAgain`: an upstream `401` is
+  reported to the `TokenSource`, and the request after it carries the token read anew.
 
 **`services/githubauth`**
 
@@ -428,6 +489,9 @@ as a parameter.
   `TestAnAnswerThatIsNotATokenIsRefused`, `TestConcurrentReadsShareOneRun`,
   `TestTheTokenIsNeverLogged`.
 - `TestAHeldTokenIsBlankedAndADroppedOneIsForgotten`.
+- `TestRepeatedRefusalsRunGhOncePerInterval`: `401`s inside the interval run `gh` once, and
+  the first one after it runs `gh` again. Likewise for reads that find no login, and for an
+  answer that is not a token.
 
 **`tools/bash`**
 
@@ -476,10 +540,12 @@ a change; the request is the gate.
 
 - The command holds no GitHub credential. The denied-always list and `neverEnv` are unchanged;
   the run's files hold a placeholder and the grant's token.
-- The upstream is one of two fixed origins. No redirect is followed.
+- The upstream is one of two fixed origins. No redirect is followed, and a link to the
+  upstream's own origin is handed back as the route's.
 - Every change waits on the user and shows the bytes sent, or for a push the refs.
 - A credential path is refused, and a signed link reaches a command only through an approved
-  data read.
+  data read, by name or by id.
+- A command cannot make the sidecar run `gh` more than once per interval.
 
 **Residuals**, each a **By decision** row.
 
@@ -488,6 +554,9 @@ a change; the request is the gate.
 - **The token's reach is the proxy's reach.** There is no repository fence.
 - **An answer's body can hold a signed link** the lists do not name, such as a private file's
   `download_url`. It is short-lived and opens one download.
+- **`credentialPaths` and `dataPaths` are lists kept by hand.** A route GitHub adds whose
+  answer is a credential or a secret's value is a read until it joins one. Task 1 checks
+  GitHub's REST description against both.
 - **GraphQL is classified by Kstack's parser, not GitHub's.** The any-mutation rule and the
   strict body checks keep the two from disagreeing on a change. A query that reads `dataPaths`'
   data would be unasked; task 1 checks there is none.
@@ -534,8 +603,8 @@ When this step is complete on `wip/cloud-proxies`:
 1. **Is deletion the right class 5 list?** Recommended: yes, a deleted ref or repository
    alone. Drawing a push to the default branch as destructive needs a request to GitHub to
    learn which branch that is, and a rewritten history cannot be told from the push's opening.
-2. **Should the proxy follow GitHub's own redirects?** Following a link to a short list of
-   GitHub's download hosts, from the sidecar, would make `gh run view --log` and
+2. **Should the proxy follow a redirect to GitHub's download hosts?** Following a link to a
+   short list of them, from the sidecar, would make `gh run view --log` and
    `gh release download` work with network off and keep the signed link out of the sandbox. It
    also makes the proxy a path to those hosts. Recommended: not in this step.
 3. **Is `HTTP_PROXY` acceptable** at [§1's cost](#1-the-hosts-and-how-git-and-gh-reach-them)?
