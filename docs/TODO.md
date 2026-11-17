@@ -1033,6 +1033,16 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   sandbox starts somewhere no unasked write reaches unless the user names the workspace, or the
   request says when the directory holds config a tool would run.
 
+- **Let a sandboxed command reach the user's cloud accounts without holding a credential.** A
+  sandboxed run reaches no cloud API: `~/.aws`, `~/.config/gcloud`, `~/.azure` and `~/.config/gh`
+  are denied always and no credential variable passes, so an agent cannot read the account
+  around a cluster or the repository behind a deploy. Specified in `docs/specs/cloud-proxies/` on
+  [#940](https://github.com/kstackhq/kstack/pull/940), for [#935](https://github.com/kstackhq/kstack/issues/935) and
+  [#931](https://github.com/kstackhq/kstack/issues/931) to
+  [#934](https://github.com/kstackhq/kstack/issues/934): a proxy per provider in the sidecar
+  behind the run's one relay, a switch per provider that is off by default, and a gate that asks
+  for anything but a read.
+
 - **A setting that turns a cloud model platform on.** Bedrock, Vertex AI and Foundry are pending
   the LLM rebuild, and when they return, no platform is on until a setting turns it on: a cluster
   credential and a model credential are the same identity there, so the environment is never read
