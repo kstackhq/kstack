@@ -20,6 +20,7 @@ import { cn } from '@kubetail/ui/lib/utils';
 import { Check } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 
+import ResizeThumb from '@/assets/resize-thumb.svg?react';
 import { Textarea } from '@/components/primitives/text-entry';
 
 // How long after the last keystroke "Saved" shows, and for how long.
@@ -65,15 +66,22 @@ export function MemoryInstructions() {
           Saved
         </p>
       </div>
-      <Textarea
-        prose
-        id={id}
-        value={text}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="e.g. keep explanations brief and to the point"
-        // A fixed box the user can stretch: the library's grows with its text.
-        className="field-sizing-fixed h-15 min-h-15 resize-y border-border bg-background px-3 py-2.5 text-sm not-placeholder-shown:border-input hover:border-input md:text-sm dark:bg-background"
-      />
+      <div className="group/box relative">
+        <Textarea
+          prose
+          id={id}
+          value={text}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="e.g. keep explanations brief and to the point"
+          // A fixed box the user can stretch: the library's grows with its text.
+          className="field-sizing-fixed h-15 min-h-15 resize-y border-border bg-background px-3 py-2.5 text-sm not-placeholder-shown:border-input hover:border-input md:text-sm dark:bg-background [&::-webkit-resizer]:bg-transparent"
+        />
+        {/* Drawn over the native grip, which stays the drag target, in the box's border color. */}
+        <ResizeThumb
+          aria-hidden
+          className="pointer-events-none absolute right-0.5 bottom-0.5 size-5 text-border group-hover/box:text-input group-has-not-placeholder-shown/box:text-input group-has-focus-visible/box:text-ring"
+        />
+      </div>
     </section>
   );
 }
