@@ -170,7 +170,7 @@ function Row({ memory, onEdit, onDelete }: { memory: Memory; onEdit: () => void;
         size="icon-sm"
         aria-label="Delete note"
         onClick={onDelete}
-        className="text-muted-foreground opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
+        className="self-center text-muted-foreground opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
       >
         <Trash2 aria-hidden />
       </Button>
