@@ -42,7 +42,7 @@ request.
   ([`TODO.md`](../../TODO.md), *Draw each cloud platform's switch in Settings*).
 - **Google's name and refusals are written.** `tools/bash/cloud.go` holds *Google Cloud*
   (`platformNames`) and fills a mount's `CloudRun.Asker` and `Refusal` (`cloudAskerFor`). The
-  webview holds the name too (`CLOUD_PLATFORM_NAMES`, `src/lib/chats.tsx`).
+  webview holds the name too (`PROVIDER_NAMES`, `src/lib/chats.tsx`).
 
 ## What this step builds
 
@@ -56,8 +56,8 @@ sandbox.
    rewriter that blanks secret-holding metadata in an answer, over a
    [`runproxy.Grant`](1-shared-pieces.md#3-the-grant-core-runrunproxy).
 3. **The cloud platform** (`tools/bash/gcp.go`): Google's
-   [`CloudPlatform`](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash), its routes and the
-   run's `CLOUDSDK_*` variables. `app/runtime.go` adds it to the list it builds.
+   [`CloudPlatform`](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash), its routes and the run's
+   `CLOUDSDK_*` variables. `app/runtime.go` adds it to the list it builds.
 4. **The prompt's paragraph** for Google.
 
 ### Not in this step
@@ -72,7 +72,7 @@ sandbox.
 - **Uploading an object that is not text under 1 MiB**, and resumable uploads.
 - **Application Default Credentials.** The token is the active `gcloud` account's.
 - **A narrower identity** (impersonating a service account).
-- **Credential status or re-login in the app.** A missing login is a `503` the command prints.
+- **Credential status or re-login in the app.** A missing login is a `403` the command prints.
 - **Opening any part of `~/.config/gcloud`.** `Never` and `neverEnv` stay as they are.
 - Anything of `settings`, the wire, the webview or `run/sandbox`. Step 1 built what Google
   uses of each.
@@ -81,9 +81,8 @@ sandbox.
 
 ### 1. The token service (`services/gcptoken`)
 
-It follows step 1's [rules for a
-credential](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash). `run/gcpproxy` reaches it
-through an interface.
+It follows step 1's [rules for a credential](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash).
+`run/gcpproxy` reaches it through an interface.
 
 ```go
 // Source answers the active gcloud account's access token and project, read
@@ -112,6 +111,11 @@ type Token struct {
 - Errors are sentinels the proxy words itself: `ErrNoCLI` (no `gcloud` on `PATH`),
   `ErrNoAccount` (the helper exits non-zero), `ErrTimeout`. The helper's stderr is never
   returned or logged.
+- **A failure is cached for 30 s**, and answered from the cache until then. So a machine with
+  no login runs the helper at most twice a minute, however many commands run.
+- **A caller that gives up leaves the run going.** A caller whose context ends gets its
+  context's error. The run goes on to its own bound, and its result is cached for the next
+  caller.
 - `app` builds one `Source`. Its `run` and clock are fields, so no test starts a real `gcloud`.
 
 ### 2. The services and their routes
@@ -158,30 +162,42 @@ Google's mount returns these rows. Every value is the mount's.
 - The override is the root of a host, so `gcloud` appends each API's own versioned path
   (`compute/v1/`, `compute/beta/`, `v1/`).
 - The mount writes no file.
-- **The project is read at the mount**, through `Source.Token`, under the run's context. This
-  is the one borrow a request does not start ([*Open questions*](#open-questions), 1). A failed
-  borrow leaves `CLOUDSDK_CORE_PROJECT` out, and the first request answers the `503` below.
+- **The project is read at the mount**, through `Source.Token`. This is the one borrow a
+  request does not start. Step 1's
+  [rule](1-shared-pieces.md#7-the-cloud-platform-seam-toolsbash) allows it: the first mount with the
+  switch on. Later mounts are served from the cache.
+- **The mount waits 5 s for it, no longer.** The bound is a field of the cloud platform, under the
+  run's context. A borrow that fails or is still running then leaves `CLOUDSDK_CORE_PROJECT`
+  out, and the run starts. A request with no login answers [§4](#4-the-proxy-rungcpproxy)'s
+  `403`.
 - A `gcloud` command on a service off the table, with network, tunnels through the same proxy
   setting. It gets the door's `401` for a `CONNECT`, before any TLS and so before the bearer is
   sent.
-- `gcloud container clusters get-credentials` writes a kubeconfig whose plugin answers the
+- **`gcloud container clusters get-credentials` gives no working kubeconfig.** With a cluster,
+  `KUBECONFIG` points into the run directory, which the run cannot write, so the write fails.
+  With none, the kubeconfig lands in `<workspace>/.kube/config`, and its plugin answers the
   run's bearer, which no cluster accepts. The chat's cluster is reached through its own
   kubeconfig, as today.
 
-These rows rest on documented `gcloud` properties and on four behaviours no test here has run.
+These rows rest on documented `gcloud` properties and on five behaviours no test here has run.
 Task 1 checks them against a real `gcloud` before anything else is built:
 
 1. `CLOUDSDK_AUTH_ACCESS_TOKEN` gets every listed command past the auth check with an empty
    `CLOUDSDK_CONFIG`. Fallback: `CLOUDSDK_AUTH_ACCESS_TOKEN_FILE` naming a 0600 file in the run
    directory that holds the grant's token.
 2. A root-path override over plain HTTP gets the API's versioned path appended, for `compute`
-   in its `v1` and `beta` tracks and for `container`.
+   in its `v1` and `beta` tracks and for `container`. Under `storage`'s override,
+   `gcloud storage` builds `/storage/v1/`, `/download/storage/v1/` and `/upload/storage/v1/`.
 3. `CLOUDSDK_PROXY_*` sends a plain-HTTP request to the proxy in absolute form, and
    `gcloud storage` honours the override and the proxy as the other commands do.
 4. No listed command sends a request body with a `Content-Encoding`, which
    [`Grant.Body`](1-shared-pieces.md#what-the-user-approves-is-what-is-sent) refuses.
+5. Which statuses `gcloud` and `gcloud storage` retry. The design reads both as retrying a
+   `429` and a `5xx`, `gcloud storage` up to `storage/max_retries` (32) times with a backoff,
+   and neither as retrying a `403`.
 
-If 2, 3 or 4 fails, the design changes and this spec is revised before task 2.
+If 2, 3 or 4 fails, or a `403` is retried too, the design changes and this spec is revised
+before task 2.
 
 ### 4. The proxy (`run/gcpproxy`)
 
@@ -191,14 +207,23 @@ A leaf over a [`runproxy.Grant`](1-shared-pieces.md#3-the-grant-core-runrunproxy
 builds it with no challenge ([§5](#5-the-cloud-platform-toolsbashgcpgo)).
 
 ```go
+// Token is the user's token and the account a request draws.
+type Token struct {
+	Value   string
+	Account string
+}
+
 // TokenSource is the user's token, borrowed at use.
 type TokenSource interface {
-	Token(ctx context.Context) (gcptoken.Token, error) // the fields, as the leaf's own type
+	Token(ctx context.Context) (Token, error)
 	Drop(token string)
 }
 
 func New(grant *runproxy.Grant, src TokenSource, transport http.RoundTripper) *Handler
 ```
+
+The leaf has its own `ErrNoCLI`, `ErrNoAccount` and `ErrTimeout`. `tools/bash/gcp.go` adapts
+`*gcptoken.Source` to the interface, mapping its `Token` and its sentinels onto the leaf's.
 
 **The handler, in order:**
 
@@ -214,20 +239,31 @@ func New(grant *runproxy.Grant, src TokenSource, transport http.RoundTripper) *H
 5. A read takes `grant.Slot` and forwards.
 6. A change or a data read borrows the token first, for the account it draws, then calls
    `grant.Decide` with the action and the request below. Only an approval forwards.
-7. Forwarding borrows through `src.Token`. A sentinel is a `503` with its own fixed sentence
+7. Forwarding borrows through `src.Token`. A sentinel is a `403` with its own fixed sentence
    (*gcloud is not installed on this machine*; *gcloud has no signed-in account; the user can
-   run `gcloud auth login`*).
+   run `gcloud auth login`*; *gcloud did not answer in time*).
 8. The request goes over HTTPS to the table's host: the path and query as sent, the headers
    `runproxy.Outbound` keeps, and `Authorization` set to the user's token. The transport is one
    per sidecar with `Proxy: http.ProxyFromEnvironment`, so a corporate proxy the login shell
-   imported applies. It follows no redirect. An upstream failure is a `502` with a fixed
-   sentence.
+   imported applies. It follows no redirect. An upstream failure, a dial or TLS error or a
+   redirect, is a `403` with a fixed sentence. Google's own answers pass through, a `5xx`
+   included.
 9. A `401` from upstream calls `src.Drop` and passes through. The next request borrows again.
 
 The answer streams back unread (`FlushInterval: -1`), but for `compute`'s and `container`'s,
 which pass through the rewriter below. Every refusal is Google's error shape,
 which `gcloud` prints and does not retry:
 `{"error":{"code":403,"message":"kstack: …","status":"PERMISSION_DENIED"}}`.
+
+- **A missing login is this `403`**, not a `5xx`. `gcloud` retries a `5xx`, so a command with
+  no login would wait out its retries.
+- **The grant's `429` is answered as this `403`**, with the grant's sentence, as
+  [step 1](1-shared-pieces.md#3-the-grant-core-runrunproxy) asks of a client that retries a
+  `429`. That is a full queue in `Decide`, no slot in `Slot` and no body slot in `Body`.
+- **An upstream failure and an answer the rewriter cannot read are this `403`** too. `gcloud`
+  retries a `5xx`, and a retried change would ask again.
+- **A `5xx` from Google passes through**, and `gcloud` retries it as it would with no proxy. A
+  retried change asks again.
 
 **The headers forwarded**, a constant of the package:
 
@@ -246,14 +282,22 @@ either.
 
 | Request | Answer |
 | --- | --- |
-| `POST` to `iam` whose path ends in `/keys`; any path ending in `:signBlob`, `:signJwt`, `:generateAccessToken` or `:generateIdToken`; `POST` to `storage` under `/hmacKeys` | refused: the answer is a credential |
+| `POST` to `iam` whose path ends in `/keys`; any path ending in `:signBlob`, `:signJwt`, `:generateAccessToken` or `:generateIdToken`; `POST` to `storage` under `/hmacKeys`; any method on `iam` whose path holds a `credentials` segment under `oauthClients` | refused: the answer is a credential |
 | `storage` with `uploadType=resumable` | refused: the answer is a session URI that uploads with no token |
-| `GET` with `alt=media` or `$alt=media`, on any service; `GET` on `storage` under `/download/` | data read, class 6 |
+| `GET` in which any `alt` or `$alt` value is `media`, on any service; `GET` on `storage` under `/download/` | data read, class 6 |
 | A `GET` of what a guest wrote, below | data read, class 6 |
 | `GET`, `HEAD` | read |
-| `POST` whose last segment is `getIamPolicy` or ends in `:getIamPolicy` or `:testIamPermissions`; `POST /v2/entries:list` on `logging` | read: Google sends these reads as `POST` |
+| `POST` whose last segment is `getIamPolicy` or `testIamPermissions`, or ends in `:getIamPolicy` or `:testIamPermissions`; `POST /v2/entries:list` on `logging` | read: Google sends these reads as `POST` |
 | A change on the destructive list below | change, class 5 |
 | anything else | change, class 4 |
+
+IAM's OAuth client credentials (`v1/projects/*/locations/*/oauthClients/*/credentials`)
+answer `clientSecret` on a create and on a get, so the whole collection is refused.
+
+**Each service's discovery document is audited** in task 3, for every output field that holds
+a secret. Each one found is refused, class 6 or blanked, and the ADR records it. The audit
+also confirms that `compute`'s VPN tunnel `sharedSecret` and router `md5AuthenticationKeys`
+are input-only.
 
 **Metadata that holds secrets is blanked, not asked for.** Google's documentation says
 instance metadata and startup scripts are readable by anyone who can read the instance, and
@@ -263,8 +307,8 @@ would stop `gcloud compute instances list`. The read runs unasked and the values
 **The rewriter** (`redact.go`) reads every answer from `compute` and `container`, as
 `kubeproxy`'s `rewriteSecrets` reads a Secret's:
 
-- The request's `Accept-Encoding` and `Range` are dropped and `alt`, when set, must be `json`,
-  else `403`. An answer that is not `application/json`, or is encoded, is a `502`.
+- The request's `Accept-Encoding` and `Range` are dropped. Every `alt` and `$alt` value must
+  be `json`, else `403`. An answer that is not `application/json`, or is encoded, is a `403`.
 - The body is rewritten as a stream (`json.Decoder`, `UseNumber`), a list one element at a
   time, and found by key at any depth, so a list, an aggregated list and one object are read
   alike.
@@ -274,13 +318,17 @@ would stop `gcloud compute instances list`. The read runs unasked and the values
   startup script is set.
 - **`container`**: under any key named `masterAuth`, `clientKey` and `password` become
   `safe.Redacted`. A cluster created with a client certificate or a password answers them on
-  every read, and they are credentials.
-- **A failure fails closed**: a `502` before the first byte, a cut body after.
+  every read, and they are credentials. Under any key named `nodeConfig` or `config`, each
+  value of the `metadata` map becomes `safe.Redacted`. That covers a cluster's node
+  configuration and each node pool's, in a cluster, a node pool and their lists. Any other
+  `config` key's `metadata` map is blanked too, which hides more and never less. A node's
+  metadata is a string map, and holds what an instance's does.
+- **A failure fails closed**: a `403` before the first byte, a cut body after.
 
 **A change that would write a blanked value back is refused.** `gcloud compute instances
-add-metadata` reads the instance, edits the list and sends it whole. A change whose body
-holds `safe.Redacted` in any string is `403`, *kstack: this change would overwrite a value the
-sandbox cannot read; make it outside the sandbox*, before `Decide`.
+add-metadata` reads the instance, edits the list and sends it whole. A change to either
+service whose body holds `safe.Redacted` in any string is `403`, *kstack: this change would
+overwrite a value the sandbox cannot read; make it outside the sandbox*, before `Decide`.
 
 **What a guest wrote asks**, class 6: an instance's `serialPort`, `getGuestAttributes` and
 `screenshot`. Their whole answer is the guest's text, and no everyday listing reads them.
@@ -289,9 +337,11 @@ Cloud Functions' and Cloud Run's environment variables, Secret Manager's `versio
 and Deployment Manager's and Runtime Config's values are also such reads. Their services are
 off the table, so they reach nothing.
 
-**The destructive list**, class 5: a `DELETE` of a project, a GKE cluster or a bucket, and any
-`POST` whose last segment is `setIamPolicy` or ends in `:setIamPolicy`. The verdict is class
-4's; the request draws as destructive.
+**The destructive list**, class 5: a `DELETE` of a project, a GKE cluster, a bucket or, on
+`iam`, a service account; any
+`POST` whose last segment is `setIamPolicy` or ends in `:setIamPolicy`; and
+`PUT /storage/v1/b/{bucket}/iam`, which sets a bucket's policy. The verdict is class 4's; the
+request draws as destructive.
 
 **The action** for a change or a data read:
 
@@ -305,9 +355,9 @@ off the table, so they reach nothing.
 
 **No body is `Unshown`.** A body that is not UTF-8 is refused by `Decide`, and one past 1 MiB
 by `Body`. So an upload of a text object under 1 MiB is drawn whole and asks, and any other
-upload is refused. A multipart upload names its object inside the body, so no sentence could
-stand for the bytes and leave the rest enough to approve
-([*Open questions*](#open-questions), 2).
+upload is refused: `gcloud storage cp` of a binary file does not work here. A multipart
+upload names its object inside the body, so no sentence could stand for the bytes and leave
+the rest enough to approve.
 
 ### 5. The cloud platform (`tools/bash/gcp.go`)
 
@@ -318,8 +368,10 @@ stand for the bytes and leave the rest enough to approve
 list, not beside it.
 
 `Mount` builds the grant, `runproxy.NewGrant(permissions.GCP, run.Session, run.Asker,
-run.Refusal, limits)`, the handler over it, a route per table row and §3's rows. The limits are `cloudLimits` (`tools/bash/cloud.go`). It adds nothing to `settings`:
-`sandbox.gcp` exists, off by default.
+run.Refusal, limits)`, the handler over it, a route per table row and §3's rows. The limits are
+`tools/bash/proxy.go`'s `proxyQPS`, `proxyBurst` and `proxyMaxInFlight`, and `proxyBodies`,
+16, beside them. Whichever wave 2 step lands first adds `proxyBodies`, and the others reuse
+it. It adds nothing to `settings`: `sandbox.gcp` exists, off by default.
 
 **Google's line of the switch's confirm** is *Log entries are read without asking; an object's
 contents ask first.* Settings draws no switch yet, so the line goes in
@@ -335,11 +387,12 @@ names `gcp`:
 - A read runs. A change, and a read of an object's contents, a serial port or guest
   attributes, waits for the user each time or is refused; a refusal comes back
   `PERMISSION_DENIED` naming why.
-- Instance metadata values and a cluster's `masterAuth` secrets read as `[redacted]`, and a
-  change that would write one back is refused: `add-metadata` and `remove-metadata` do not
-  work here.
+- Instance metadata values, GKE node metadata values and a cluster's `masterAuth` secrets
+  read as `[redacted]`, and a change that would write one back is refused: `add-metadata` and
+  `remove-metadata` do not work here.
 - A background command changes nothing.
-- Nothing that answers a credential works: a service account key, `gcloud auth`, a signed URL.
+- Nothing that answers a credential works: a service account key, an OAuth client credential,
+  `gcloud auth`, a signed URL.
 
 The sentence on tools with no login is step 1's and does not change. The paragraph is static
 text. `make generate-prompts` pins it in the goldens (`app/testdata/prompt/`).
@@ -350,10 +403,10 @@ All start Planned. Each ends green under `make test-changed`.
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | Spike §3's four behaviours against a real `gcloud` on macOS and Linux, in the real sandbox with a throwaway handler; record the `gcloud` version and the result in this spec | — | — | Planned |
-| 2 | The token service: the borrow, the cache, the sentinels, `ForgetSecret` | `services/gcptoken/` | 1 | Planned |
-| 3 | The proxy: the table, the classifier, the header list, the handler, the rewriter and the write-back refusal | `run/gcpproxy/` | 1 | Planned |
-| 4 | The cloud platform on a run: the mount, the body limit, the variables, `CLOUDSDK_CONFIG`, the `Source` in `app`, the prompt | `tools/bash/gcp.go`, `tools/bash/proxy.go`, `tools/bash/toolhome.go`, `tools/bash/prompts/sandbox.md`, `app/runtime.go`, the prompt goldens | 2, 3 | Planned |
+| 1 | Spike §3's five behaviours against a real `gcloud` on macOS and Linux, in the real sandbox with a throwaway handler; record the `gcloud` version and the result in this spec | — | — | Planned |
+| 2 | The token service: the borrow, the cache, the failure cache, the sentinels, `ForgetSecret` | `services/gcptoken/` | 1 | Planned |
+| 3 | The proxy: the table, the audit of the six discovery documents, the classifier, the header list, the handler, the rewriter and the write-back refusal | `run/gcpproxy/` | 1 | Planned |
+| 4 | The cloud platform on a run: the mount and its bound on the project, the body limit, the variables, `CLOUDSDK_CONFIG`, the `Source` in `app`, the prompt | `tools/bash/gcp.go`, `tools/bash/proxy.go`, `tools/bash/toolhome.go`, `tools/bash/prompts/sandbox.md`, `app/runtime.go`, the prompt goldens | 2, 3 | Planned |
 | 5 | End to end through the real sandbox | `app/app_unix_test.go` (`startE2E`) | 4 | Planned |
 | 6 | Docs, per *When it lands* | see there | 1–5 | Planned |
 
@@ -371,6 +424,10 @@ Each is a test beside its file. No test starts a real `gcloud` or reaches Google
 - `TestDropForgetsOnlyTheCachedToken`.
 - `TestEachFailureIsItsSentinel`: no binary, a non-zero exit, a timeout, output past the bound,
   JSON without a token. No error's text holds the helper's output.
+- `TestAFailureIsCachedBriefly`: a second call within 30 s of a failure answers the same
+  sentinel and runs no helper; one past it runs the helper again.
+- `TestACallerThatGivesUpLeavesTheRunGoing`: a caller whose context ends gets its error while
+  the helper runs on; the next caller gets that run's token.
 - `TestAHeldTokenIsARegisteredSecret`: `safe.Redact` blanks it, and no longer once it is
   dropped or replaced.
 
@@ -385,14 +442,20 @@ Each is a test beside its file. No test starts a real `gcloud` or reaches Google
   `storage`, a `/batch/` path and a path off its service's list are each `403`.
 - `TestACredentialInTheQueryIsRefused`: `access_token`, `oauth_token`, `key`.
 - `TestEveryRequestIsClassified`: one row per line of §4's table, with `compute`'s
-  `getIamPolicy`, Resource Manager's `:getIamPolicy`, `entries:list`, a key create, an HMAC key
-  create, a resumable upload, `alt=media`, `$alt=media`, a `/download/` path, each read of
-  what a guest wrote and each destructive change.
+  `testIamPermissions`, Resource Manager's `:getIamPolicy`, `entries:list`, a key create, an
+  HMAC key create, an OAuth client credential's create, get and list, a resumable upload,
+  `alt=media`, `$alt=media`, an `alt` sent twice whose second value is `media`, a `/download/`
+  path, each read of what a guest wrote and each destructive change, a service account's
+  `DELETE` and a bucket's IAM `PUT` among them.
 - `TestInstanceMetadataIsBlanked`: an instance, a list, an aggregated list, a template, a
   machine image and the project each answer every metadata key and no value.
   `TestMasterAuthSecretsAreBlanked`: a cluster and a list of clusters.
-- `TestAnAnswerThatCannotBeRewrittenFailsClosed`: one that is not JSON, one encoded and one
-  cut short; an `alt` other than `json` is `403`.
+  `TestNodeMetadataIsBlanked`: a cluster's `nodeConfig` and its node pools' `config`, a list
+  of clusters, a node pool read alone and a list of node pools each answer every metadata key
+  and no value.
+- `TestAnAnswerThatCannotBeRewrittenFailsClosed`: one that is not JSON and one encoded are
+  each `403` in Google's shape, and one cut short is a cut body; an `alt` other than `json`,
+  alone or beside a `json`, is `403`.
 - `TestAChangeCarryingABlankedValueIsRefused`, never asked.
 - `TestOnlyTheListedHeadersAreForwarded`: `X-HTTP-Method-Override`, `X-Goog-Api-Key` and
   `x-goog-encryption-key` never reach the upstream; a `GET` carrying the override is forwarded
@@ -403,7 +466,12 @@ Each is a test beside its file. No test starts a real `gcloud` or reaches Google
 - `TestAnObjectReadAsks` and `TestAnInstanceReadAsks`, each class 6.
 - `TestABinaryUploadIsRefused`; `TestATextUploadIsShownWhole`.
 - `TestARefusalIsGooglesErrorShape`.
-- `TestAnUpstream401DropsTheToken`; `TestEachSourceFailureIsA503NamingIt`.
+- `TestAnUpstream401DropsTheToken`; `TestEachSourceFailureIsA403NamingIt`.
+- `TestTheGrantsLimitsAnswer403`: a full queue, no slot and no body slot are each `403` in
+  Google's shape, never `429`.
+- `TestAnUpstreamFailureIsA403`: a refused dial and a redirect each answer `403` in Google's
+  shape with the fixed sentence, never a `5xx`; a `503` from the upstream passes through
+  unchanged.
 
 **`tools/bash`**
 
@@ -411,6 +479,11 @@ Each is a test beside its file. No test starts a real `gcloud` or reaches Google
   `<service>.gcp.kstack.invalid` and on the table.
 - `TestTheSandboxedEnvironmentNamesGcloud`: §3's rows, each override's host a route, and none
   of them in a run with Google off.
+- `TestAFailedBorrowLeavesTheProjectOut` (`gcp_test.go`): with a source answering a sentinel,
+  the mount succeeds and sets no `CLOUDSDK_CORE_PROJECT`.
+- `TestASlowHelperDoesNotDelayTheRun` (`gcp_test.go`): with a source that answers only when
+  its context ends and the bound shrunk, the mount returns at the bound with no
+  `CLOUDSDK_CORE_PROJECT`.
 - `TestCloudSDKConfigIsUnderTheToolHome` (`toolhome_test.go`).
 - **`TestNoGCPCredentialEntersTheSandbox`** (`bash_unix_test.go`, the issue's pin): with a
   source answering a known token and a sidecar environment holding
@@ -449,7 +522,8 @@ switch turned on through `sandboxCloudAccessSet`, since Settings draws none yet:
 - `env | grep -i -e cloudsdk -e google` shows §3's rows and nothing of the user's.
   `ls ~/.config/gcloud` fails, and `gcloud auth print-access-token` prints the grant's token.
 - `gcloud iam service-accounts keys create` is refused.
-- After `gcloud auth revoke`, a command prints the `503`'s sentence.
+- After `gcloud auth revoke`, a command prints the sign-in sentence once and returns, with no
+  retry.
 - With the switch off, `gcloud` finds no account, as today.
 
 ## Security
@@ -476,17 +550,23 @@ This is what Google adds.
 - The token goes only to a host on the table, on a path on the table, over TLS the sidecar
   verifies.
 - Every change asks, and no answer writes a rule. A read of an object's contents, or of what
-  a guest wrote, asks. Instance metadata values and a cluster's `masterAuth` secrets are
-  blanked in every answer. A request whose answer is a credential is refused.
+  a guest wrote, asks. Instance metadata values, node metadata values and a cluster's
+  `masterAuth` secrets are blanked in every answer. A request whose answer is a credential
+  is refused.
 - No header off the list reaches Google, so no header turns a read into a change.
 
 **Residuals**, each a **By decision** row unless the review says otherwise
 
 - The reads are as wide as the account.
 - Log entries are read unasked, as a pod's logs are, and hold whatever a workload printed.
-- The model never reads an instance's metadata values, and `add-metadata` does not work in
-  the sandbox.
-- A secret in a `compute` field no list names (a label, a description) is read unasked.
+- The model never reads an instance's or a node's metadata values, and `add-metadata` does
+  not work in the sandbox.
+- A secret in a field no list names (a label, a description) is read unasked.
+- A token is held until it expires, up to an hour. An account or project the user switches
+  to in a terminal reaches the sandbox only once it does. Each request draws the account it
+  uses.
+- With no login, each run's mount and each request find the cached failure, and the helper
+  runs again every 30 s while commands run.
 - A `POST` that reads and is not on the list asks. A `GET` that answers something sensitive
   and is on no list passes. The lists grow as cases are met.
 - A command can ask repeatedly. Each request waits behind the grant's lock and counts against
@@ -499,8 +579,9 @@ When this step is complete on `wip/cloud-proxies`:
 
 - **ADR**, Google's alone: *Google Cloud is reached with the active `gcloud` account's token*.
   It records the token's source, the six services and the path lists, what is class 6 and
-  what is refused. It cites [step 1's
-  ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md)
+  what is refused, the class 5 list, which uploads are refused, and what the audit of the
+  discovery documents found. It cites
+  [step 1's ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md)
   for the decision to lend a credential through a proxy and for what
   [#25](https://github.com/kstackhq/kstack/pull/25) decided.
 - **`docs/security/<date>-google-cloud-through-the-proxy.md`**, from *Security* above, naming
@@ -517,7 +598,8 @@ When this step is complete on `wip/cloud-proxies`:
 - **`docs/TODO.md`**: *Let a sandboxed command reach the user's cloud accounts without holding
   a credential* loses Google Cloud, the same way. *Draw each cloud platform's switch in Settings*
   gains Google's line of the confirm. New lines: a narrower identity, the services off the
-  table, uploads that are not text.
+  table, and uploads that are not text, where a media upload could be `Unshown` with a
+  sentence naming its bucket and object.
 - **`docs/persisted-data.md`**: the *Chat and monitor directories* row, which holds the tool
   home, names `gcloud`.
 - **`CLAUDE.md`**: `sidecar/internal/run/CLAUDE.md` (`gcpproxy`);
@@ -525,20 +607,3 @@ When this step is complete on `wip/cloud-proxies`:
   `sidecar/CLAUDE.md` (`services/gcptoken`). Raise a budget in
   `.github/ci-config/claude-md-budgets.yml` only with the reason in the commit body.
 - This file is deleted and its row leaves [`README.md`](README.md).
-
-## Open questions
-
-1. **A default project?** `CLOUDSDK_CORE_PROJECT` must be in the environment before the
-   command starts, so the mount borrows once per run while the switch is on, served from the
-   cache after the first, as step 1's seam allows. The alternative is no default project, and
-   every command naming one.
-2. **Binary uploads.** None is `Unshown` here, so `gcloud storage cp` of a binary file is
-   refused. A media upload names its bucket and object in the query, so it could be `Unshown`
-   with *the contents of the object uploaded*; a multipart one could not. Wanted now or later?
-3. **Is the class 5 list right?** A project, a cluster, a bucket and any `setIamPolicy`. It
-   changes only how the request reads.
-4. **ADC as a fallback?** It would work without `gcloud` on the sidecar's `PATH`, but needs
-   `golang.org/x/oauth2/google` and reads a key file the sidecar does not open today.
-5. **A narrower identity.** The issue asks to consider impersonating a service account. It
-   needs a setting, a UI and the user's own IAM binding. This work or a later issue?
-6. **`cloudresourcemanager`** is not in the issue's list. Keep it?
