@@ -393,10 +393,14 @@ func TestEachUpstreamSentinelIsServiceUnavailable(t *testing.T) {
 
 // A cluster that does not answer is a 502 that names no error.
 func TestAClusterThatDoesNotAnswerIsBadGateway(t *testing.T) {
-	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
-	up := api.upstream()
-	api.Close()
-	s := serve(t, up)
+	// The server hangs up rather than closing: a closed server's port is free
+	// for the proxy's own listener to take, and the proxy would answer itself.
+	api := newAPIServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		conn, _, err := http.NewResponseController(w).Hijack()
+		require.NoError(t, err)
+		conn.Close()
+	})
+	s := serve(t, api.upstream())
 
 	resp, body := s.send(t, "GET", "/api", s.g.Token())
 
