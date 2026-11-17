@@ -551,7 +551,7 @@ shows, not an approval path.
   so a refused value drops to off and `strictest` needs no entry. A new field needs no
   `schemaVersion` bump. The group is `sandbox` because the switch widens what the sandbox
   reaches, and one group keeps four providers from adding four.
-- **This step adds all four fields**, the table that joins them (`cloudFields`, target to
+- **This step adds all four fields**, the table that joins them (`cloudSwitch`, target to
   field), and `Store.CloudOn(target)` and `SetCloud(target, on)` over it. A provider's step
   adds nothing to `settings`.
 - **A switch exists only for a provider the build has.** `app` hands one list of
@@ -673,7 +673,7 @@ All start Planned. Each ends green under `make test-changed`.
 | 2 | The server moves | `run/runproxy/server.go`; `run/kubeproxy/server.go` and its test removed; `tools/bash/proxy.go`'s one call | — | Done |
 | 3 | The grant core, the body slots, the outbound headers and the ask path | `run/runproxy/grant.go`, `ask.go` | 1 | Done |
 | 4 | The action family: `Cloud`, `SandboxActions`, `ToolCall.sandboxActions`, the drawing | `tools/tool.go`, `agent/chat/record.go`, `approval.go`, `store.go`, `sidecar/graph/schema.graphqls`, generated code, `src/gql/`, `src/lib/chats.tsx`, `src/components/chat/chat-transcript/`, `docs/persisted-data.md` | 1 | Done |
-| 5 | The switch: the four fields, `cloudFields`, the wire, the Settings row and confirm | `services/settings/`, `sidecar/graph/`, `src/lib/`, `src/components/settings/settings-dialog/`, `design/components.json` if a component is added | 4 | Done, but the Settings row and confirm, which wait for the new settings panel |
+| 5 | The switch: the four fields, `cloudSwitch`, the wire, the Settings row and confirm | `services/settings/`, `sidecar/graph/`, `src/lib/`, `src/components/settings/settings-dialog/`, `design/components.json` if a component is added | 4 | Done, but the Settings row and confirm, which wait for the new settings panel |
 | 6 | The door and its switch read, the seam, `cloudAsker`, a port for a run with a provider, the end order, `NO_PROXY`, the context's `cloud` key, the prompt's one sentence, `safe.ForgetSecret` | `tools/bash/proxy.go`, `bash.go`, `env.go`, `rundir.go`, `prompts/sandbox.md` and its golden, `agent/chat/workspace.go`, `lib/safe/safe.go`, `app/` | 2, 3, 4, 5 | Done |
 | 7 | A fake provider through the real sandbox | `app/` (`Config`'s test field, `startE2E`, `curl` in its `toolsFolder`) | 6 | Done |
 | 8 | Docs, per *When it lands* | see there | 1–7 | Done |

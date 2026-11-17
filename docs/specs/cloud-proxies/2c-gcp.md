@@ -31,8 +31,16 @@ request.
   reads: `CLOUDSDK_CONFIG`, `CLOUDSDK_CORE_PROJECT` and `GOOGLE_APPLICATION_CREDENTIALS`
   (`run/loginshell/loginshell.go`, `imported`).
 - **No `CLOUDSDK_*` name is on `neverEnv`** (`run/sandbox/env.go`).
-- **The prompt says `gh`, `aws` and a private registry have no login**
-  (`tools/bash/prompts/sandbox.md`).
+- **The prompt says a tool has a login only where the context's `cloud` names its provider**
+  (`tools/bash/prompts/sandbox.md`). No build writes that key yet.
+- **Step 1 built the shared pieces and no provider.** `sandbox.gcp` exists and is off, and
+  `permissions.GCP` is a `Target`. `app/runtime.go` hands `bash.New` a `bash.Cloud` whose
+  `Providers` is `Config.cloudProviders`: none in production, a test's fake otherwise. The
+  wire lists a switch per provider of that list, and Settings draws none yet
+  ([`TODO.md`](../../TODO.md), *Draw each provider's switch in Settings*).
+- **Google's name and refusals are written.** `tools/bash/cloud.go` holds *Google Cloud*
+  (`providerNames`) and fills a mount's `CloudRun.Asker` and `Refusal` (`cloudAskerFor`). The
+  webview holds the name too (`PROVIDER_NAMES`, `src/lib/chats.tsx`).
 
 ## What this step builds
 
@@ -47,7 +55,7 @@ sandbox.
    [`runproxy.Grant`](1-shared-pieces.md#3-the-grant-core-runrunproxy).
 3. **The provider** (`tools/bash/gcp.go`): Google's
    [`CloudProvider`](1-shared-pieces.md#7-the-provider-seam-toolsbash), its routes and the run's
-   `CLOUDSDK_*` variables. `app` adds it to the list it builds.
+   `CLOUDSDK_*` variables. `app/runtime.go` adds it to the list it builds.
 4. **The prompt's paragraph** for Google.
 
 ### Not in this step
@@ -177,7 +185,7 @@ If 2, 3 or 4 fails, the design changes and this spec is revised before task 2.
 A leaf over a [`runproxy.Grant`](1-shared-pieces.md#3-the-grant-core-runrunproxy) with `Target`
 `GCP`. It imports `permissions`, `session` and `runproxy`, and nothing of `tools` or
 `services`. The grant gives it the token, the life, the limits and the ask path. The mount
-passes step 1's limits and no challenge.
+builds it with no challenge ([§5](#5-the-provider-toolsbashgcpgo)).
 
 ```go
 // TokenSource is the user's token, borrowed at use.
@@ -300,12 +308,21 @@ stand for the bytes and leave the rest enough to approve
 
 ### 5. The provider (`tools/bash/gcp.go`)
 
-`NewGCP(src)` answers the `CloudProvider` whose `Target` is `GCP`. `app` builds the
-`Source`, calls it, and adds the result to the list it hands `bash.New`, so Settings draws
-Google's switch.
+`NewGCP(src)` answers the `CloudProvider` whose `Target` is `GCP`. `app/runtime.go` builds the
+`Source`, calls it, and puts the result in the `bash.Cloud.Providers` it hands `bash.New`.
+`cloudTargets` then gives the wire Google's switch and lets the context's `cloud` key name
+`gcp`, with no other change. A test's `Config.cloudProviders` stands in place of the built
+list, not beside it.
 
-`Mount` builds the grant from the run's inputs, the handler over it, a route per table row and
-§3's rows. It adds nothing to `settings`: `sandbox.gcp` exists, off by default.
+`Mount` builds the grant, `runproxy.NewGrant(permissions.GCP, run.Session, run.Asker,
+run.Refusal, limits)`, the handler over it, a route per table row and §3's rows. The limits are
+`tools/bash/proxy.go`'s `proxyQPS`, `proxyBurst` and `proxyMaxInFlight`, and 16 bodies, a
+constant beside them that the first provider built adds. It adds nothing to `settings`:
+`sandbox.gcp` exists, off by default.
+
+**Google's line of the switch's confirm** is *Log entries are read without asking; an object's
+contents ask first.* Settings draws no switch yet, so the line goes in
+[`TODO.md`](../../TODO.md)'s *Draw each provider's switch in Settings*.
 
 ### 6. The prompt
 
@@ -323,8 +340,8 @@ names `gcp`:
 - A background command changes nothing.
 - Nothing that answers a credential works: a service account key, `gcloud auth`, a signed URL.
 
-The sentence on tools with no login is step 1's and does not change. `make generate-prompts`
-pins the paragraph.
+The sentence on tools with no login is step 1's and does not change. The paragraph is static
+text. `make generate-prompts` pins it in the goldens (`app/testdata/prompt/`).
 
 ## Tasks
 
@@ -335,8 +352,8 @@ All start Planned. Each ends green under `make test-changed`.
 | 1 | Spike §3's four behaviours against a real `gcloud` on macOS and Linux, in the real sandbox with a throwaway handler; record the `gcloud` version and the result in this spec | — | — | Planned |
 | 2 | The token service: the borrow, the cache, the sentinels, `ForgetSecret` | `services/gcptoken/` | 1 | Planned |
 | 3 | The proxy: the table, the classifier, the header list, the handler, the rewriter and the write-back refusal | `run/gcpproxy/` | 1 | Planned |
-| 4 | The provider on a run: the mount, the variables, `CLOUDSDK_CONFIG`, the `Source` in `app`, the prompt | `tools/bash/gcp.go`, `tools/bash/toolhome.go`, `tools/bash/prompts/sandbox.md`, `app/` | 2, 3 | Planned |
-| 5 | End to end through the real sandbox | `app/` (`startE2E`) | 4 | Planned |
+| 4 | The provider on a run: the mount, the body limit, the variables, `CLOUDSDK_CONFIG`, the `Source` in `app`, the prompt | `tools/bash/gcp.go`, `tools/bash/proxy.go`, `tools/bash/toolhome.go`, `tools/bash/prompts/sandbox.md`, `app/runtime.go`, the prompt goldens | 2, 3 | Planned |
+| 5 | End to end through the real sandbox | `app/app_unix_test.go` (`startE2E`) | 4 | Planned |
 | 6 | Docs, per *When it lands* | see there | 1–5 | Planned |
 
 2 and 3 can be built at the same time.
@@ -401,8 +418,10 @@ Each is a test beside its file. No test starts a real `gcloud` or reaches Google
   directory, the tool home and the workspace, find neither the token nor either variable's
   value.
 
-**`app`** (`startE2E`, `testutil.RequireSandbox`, a fake helper and a fake upstream), network
-off, Google turned on through `sandboxCloudAccessSet`
+**`app`** (`startE2E`, `testutil.RequireSandbox`), network off, Google turned on through
+`sandboxCloudAccessSet`. As `TestASandboxedCommandReachesAProviderThroughTheDoor` does with its
+fake, each test sets `Config.cloudProviders`: Google's provider over a fake helper and a fake
+upstream.
 
 - `TestASandboxedGCPReadRunsUnasked`: a command's `GET` to `container.gcp.kstack.invalid`
   through the run's port answers the fake's body with no request.
@@ -415,12 +434,15 @@ off, Google turned on through `sandboxCloudAccessSet`
 [`../README.md`](../README.md#verification-commands). The sequence's gate, one run with all
 four providers on, is the sequence [README](README.md)'s.
 
-**By hand**, `pnpm tauri dev` on macOS and on Linux, `gcloud` signed in, the switch on, network
-off:
+**By hand**, `pnpm tauri dev` on macOS and on Linux, `gcloud` signed in, network off, and the
+switch turned on through `sandboxCloudAccessSet`, since Settings draws none yet:
 
 - `gcloud container clusters list` prints the project's rows with no request.
-- `gcloud compute instances list` draws a data read naming the account; approved, it prints
-  the rows.
+- `gcloud compute instances list` prints the rows with no request, and
+  `gcloud compute instances describe <name> --zone <zone>` shows each metadata key with its
+  value `[redacted]`.
+- `gcloud compute instances get-serial-port-output <name> --zone <zone>` draws a data read
+  naming the account; approved, it prints the output.
 - `gcloud compute instances delete <name> --zone <zone> --quiet` draws one request naming the
   method and the instance; Deny prints `PERMISSION_DENIED`.
 - `env | grep -i -e cloudsdk -e google` shows §3's rows and nothing of the user's.
@@ -476,8 +498,9 @@ When this step is complete on `wip/cloud-proxies`:
 
 - **ADR**, Google's alone: *Google Cloud is reached with the active `gcloud` account's token*.
   It records the token's source, the six services and the path lists, what is class 6 and
-  what is refused. It cites step 1's ADR for the decision to lend a credential through a
-  proxy and for what [#25](https://github.com/kstackhq/kstack/pull/25) decided.
+  what is refused. It cites [step 1's ADR](../../adr/2026-11-17-a-sandboxed-command-reaches-a-provider-through-a-proxy-on-its-runs-one-relay.md)
+  for the decision to lend a credential through a proxy and for what
+  [#25](https://github.com/kstackhq/kstack/pull/25) decided.
 - **`docs/security/<date>-google-cloud-through-the-proxy.md`**, from *Security* above, naming
   the commit.
 - **`docs/security-model.md`**:
@@ -487,14 +510,17 @@ When this step is complete on `wip/cloud-proxies`:
     (`TestOnlyTheListedHeadersAreForwarded`); a path off the table is refused
     (`TestAPathOffTheTableIsRefused`).
   - New **By decision** rows for the residuals above, linking the ADR.
-  - The **Not built** row step 1's commit added loses Google Cloud. The step that builds the
+  - The **Not built** row on the four providers loses Google Cloud. The step that builds the
     last provider removes the row.
-- **`docs/TODO.md`**: the security line step 1's commit added loses Google Cloud, the same
-  way. New lines: a narrower identity, the services off the table, uploads that are not text.
-- **`docs/persisted-data.md`**: the tool home's row names `gcloud`.
+- **`docs/TODO.md`**: *Let a sandboxed command reach the user's cloud accounts without holding
+  a credential* loses Google Cloud, the same way. *Draw each provider's switch in Settings*
+  gains Google's line of the confirm. New lines: a narrower identity, the services off the
+  table, uploads that are not text.
+- **`docs/persisted-data.md`**: the *Chat and monitor directories* row, which holds the tool
+  home, names `gcloud`.
 - **`CLAUDE.md`**: `sidecar/internal/run/CLAUDE.md` (`gcpproxy`);
-  `sidecar/internal/tools/CLAUDE.md` (`gcp.go`, the `gcloud` variables); the `services/`
-  guide that lists its packages (`gcptoken`). Raise a budget in
+  `sidecar/internal/tools/CLAUDE.md` (`gcp.go`, the `gcloud` variables, the body limit);
+  `sidecar/CLAUDE.md` (`services/gcptoken`). Raise a budget in
   `.github/ci-config/claude-md-budgets.yml` only with the reason in the commit body.
 - This file is deleted and its row leaves [`README.md`](README.md).
 
