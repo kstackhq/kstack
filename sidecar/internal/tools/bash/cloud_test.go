@@ -18,6 +18,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -42,8 +44,17 @@ const tokenHeader = "X-Kstack-Token"
 type fakePlatform struct {
 	target permissions.Target
 	hosts  []string
+	tls    bool // its routes are TLS
 	env    []string
-	err    error
+	// exports adds FAKE_TOKEN, the grant's token, FAKE_CA, the run's CAFile,
+	// and FAKE_DOOR, the run's loopback authority, to env.
+	exports bool
+	// atDoor routes the run's own loopback authority in place of hosts: on
+	// macOS its port is the run's.
+	atDoor bool
+	// onMount, when set, runs with each run before the mount is made.
+	onMount func(CloudRun)
+	err     error
 	// mounts gets each run's CloudRun and the grant made for it.
 	mounts chan fakeMount
 }
@@ -62,6 +73,9 @@ func (p *fakePlatform) Target() permissions.Target { return p.target }
 func (p *fakePlatform) Mount(_ context.Context, run CloudRun) (CloudMount, error) {
 	if p.err != nil {
 		return CloudMount{}, p.err
+	}
+	if p.onMount != nil {
+		p.onMount(run)
 	}
 	g := runproxy.NewGrant(p.target, run.Session, run.Asker, run.Refusal, cloudLimits)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -90,12 +104,21 @@ func (p *fakePlatform) Mount(_ context.Context, run CloudRun) (CloudMount, error
 			http.Error(w, out.Message, out.Status)
 		}
 	})
-	routes := make([]Route, 0, len(p.hosts))
-	for _, h := range p.hosts {
-		routes = append(routes, Route{Host: h, Handler: handler})
+	door := "127.0.0.1:" + strconv.Itoa(run.Port)
+	hosts := p.hosts
+	if p.atDoor {
+		hosts = []string{door}
+	}
+	routes := make([]Route, 0, len(hosts))
+	for _, h := range hosts {
+		routes = append(routes, Route{Host: h, TLS: p.tls, Handler: handler})
+	}
+	env := p.env
+	if p.exports {
+		env = append(slices.Clone(env), "FAKE_TOKEN="+g.Token(), "FAKE_CA="+run.CAFile, "FAKE_DOOR="+door)
 	}
 	p.mounts <- fakeMount{run, g}
-	return CloudMount{Routes: routes, Env: p.env, Grant: g}, nil
+	return CloudMount{Routes: routes, Env: env, Grant: g}, nil
 }
 
 // switches is each cloud platform's switch as a test flips it.

@@ -74,7 +74,8 @@ deepest existing folder. Both platforms compile one merged list (`Policy.rules`)
 winning, the run's own paths last.
 
 **`neverEnv` (`env.go`) is the one list of variables that may never pass** (agent sockets,
-`DOCKER_HOST`, tokens, loader variables, shell startup hooks, every `AWS_`) →
+`DOCKER_HOST`, tokens, loader variables, shell startup hooks, every `AWS_`, `ARM_` and `AZURE_`
+but `AZURE_CONFIG_DIR`) →
 [the sandbox's own environment](../../../docs/security/2026-10-02-the-sandboxs-own-environment.md).
 
 **The zones are Kstack's lists** (`lists.go`, `lists_linux.go`, `lists_darwin.go`): `System`,
@@ -250,7 +251,9 @@ and `redact_helm.go` (Secret rewriter), `status.go` (every refusal's `Status`, a
 
 **`internal/run/runproxy` is what each cloud platform's proxy (`run/<platform>proxy`) builds on**;
 it imports `permissions` and `session` alone. `NewServer` is the run's server: HTTP/1.1, no read or
-write timeout, which would cut a watch.
+write timeout, which would cut a watch. With a `Certificate` (`cert.go`: ECDSA, `127.0.0.1` alone,
+key in memory) it serves TLS on the same listener: `listen.go` reads a connection's first byte
+under the header bound; `IsTLS` tells a handler.
 
 - **A `Grant`** is one run's access to one cloud platform: a 256-bit token, its `Limits`, and an
   `Asker` or a refusal. `NewGrant` panics on `Cluster` or a zero limit. `End` makes `Holds` and

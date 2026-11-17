@@ -15,15 +15,21 @@
 package bash
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 )
 
 // get sends d a request for host carrying token, and answers its status and
@@ -137,9 +143,73 @@ func TestTwoMountsCannotNameOneHost(t *testing.T) {
 	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
 	clash := mountFor(t, newFakePlatform(permissions.Azure, "127.0.0.1:6443"))
 	_, err := newDoor(nil, []CloudMount{aws, clash}, switchesOn().On)
-	assert.ErrorContains(t, err, "127.0.0.1:6443")
+	assert.ErrorContains(t, err, "127.0.0.1:6443 over plain HTTP")
+
+	overTLS := newFakePlatform(permissions.Azure, "127.0.0.1:6443")
+	overTLS.tls = true
+	_, err = newDoor(nil, []CloudMount{aws, mountFor(t, overTLS)}, switchesOn().On)
+	assert.NoError(t, err, "one host on two transports is two routes")
+	twiceOverTLS := newFakePlatform(permissions.GCP, "127.0.0.1:6443")
+	twiceOverTLS.tls = true
+	_, err = newDoor(nil, []CloudMount{mountFor(t, overTLS), mountFor(t, twiceOverTLS)}, switchesOn().On)
+	assert.ErrorContains(t, err, "127.0.0.1:6443 over TLS")
 
 	onCluster := mountFor(t, newFakePlatform(permissions.GCP, "cluster.kstack.invalid"))
 	_, err = newDoor(http.NotFoundHandler(), []CloudMount{onCluster}, switchesOn().On)
 	assert.ErrorContains(t, err, "cluster.kstack.invalid")
+}
+
+// sendOver sends a GET for host over TLS or plain HTTP to addr, carrying
+// token, and answers its status and body.
+func sendOver(t *testing.T, addr string, roots *x509.CertPool, overTLS bool, host, token string) (int, string) {
+	t.Helper()
+	scheme := "http"
+	if overTLS {
+		scheme = "https"
+	}
+	r, err := http.NewRequest(http.MethodGet, scheme+"://"+addr+"/x", nil)
+	require.NoError(t, err)
+	r.Host = host
+	r.Header.Set(tokenHeader, token)
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1"}}}
+	resp, err := client.Do(r)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, string(b)
+}
+
+// The loopback authority names a route per transport: a plain request reaches
+// the plain cloud platform, a TLS one the TLS cloud platform, and the cluster's host over
+// TLS is the door's 401.
+func TestTheLoopbackAuthorityRoutesByTransport(t *testing.T) {
+	plain := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
+	secure := newFakePlatform(permissions.Azure, "127.0.0.1:6443")
+	secure.tls = true
+	azure := mountFor(t, secure)
+	cluster := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "cluster") })
+	d, err := newDoor(cluster, []CloudMount{plain, azure}, switchesOn(permissions.AWS, permissions.Azure).On)
+	require.NoError(t, err)
+	cert, err := runproxy.NewCertificate(time.Now())
+	require.NoError(t, err)
+	srv := runproxy.NewServer(d, cert)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	roots := x509.NewCertPool()
+	roots.AppendCertsFromPEM(cert.PEM)
+	addr := ln.Addr().String()
+
+	_, body := sendOver(t, addr, roots, false, "127.0.0.1:6443", plain.Grant.Token())
+	assert.Equal(t, "read aws", body)
+	_, body = sendOver(t, addr, roots, true, "127.0.0.1:6443", azure.Grant.Token())
+	assert.Equal(t, "read azure", body)
+	_, body = sendOver(t, addr, roots, false, "cluster.kstack.invalid", "")
+	assert.Equal(t, "cluster", body)
+	code, _ := sendOver(t, addr, roots, true, "cluster.kstack.invalid", "")
+	assert.Equal(t, http.StatusUnauthorized, code)
+	code, _ = sendOver(t, addr, roots, true, "127.0.0.1:6443", plain.Grant.Token())
+	assert.Equal(t, http.StatusUnauthorized, code, "the plain cloud platform's token over TLS is Azure's refusal")
 }

@@ -42,6 +42,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
@@ -833,13 +834,18 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 			asker, refusal := writesFor(rt, background)
 			r.proxy.grant = newClusterGrant(r.claim, rt.Session, cluster.scopeContext, asker, refusal)
 		}
-		run := CloudRun{Port: port, Dir: r.dir.path, ToolHome: toolHome, TmpDir: r.dir.tmp, Session: rt.Session}
+		run := CloudRun{Port: port, Dir: r.dir.path, ToolHome: toolHome, TmpDir: r.dir.tmp, CAFile: r.dir.caFile(), Session: rt.Session}
 		if cloudVars, err = r.proxy.mount(ctx, platforms, rt, background, run); err != nil {
 			r.end()
 			return nil, err
 		}
+		var cert *runproxy.Certificate
+		if cert, err = r.proxy.certify(run.CAFile); err != nil {
+			r.end()
+			return nil, err
+		}
 		socket := r.dir.socket()
-		if err := r.proxy.serve(socket, t.cloud.on); err != nil {
+		if err := r.proxy.serve(socket, t.cloud.on, cert); err != nil {
 			r.end()
 			return nil, err
 		}

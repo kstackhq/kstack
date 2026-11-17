@@ -41,9 +41,12 @@ type CloudRun struct {
 	Dir      string // the run's directory, read-only to the run
 	ToolHome string
 	TmpDir   string // the run's TMPDIR
-	Session  session.Session
-	Asker    runproxy.Asker
-	Refusal  string
+	// CAFile is where the run's certificate bundle is, once a mount returns a
+	// TLS route: the run's certificate, then the system's roots.
+	CAFile  string
+	Session session.Session
+	Asker   runproxy.Asker
+	Refusal string
 }
 
 // CloudMount is what a cloud platform adds to one run.
@@ -57,9 +60,10 @@ type CloudMount struct {
 // credentials only once asked sets Challenges on a copy.
 var cloudLimits = runproxy.Limits{QPS: proxyQPS, Burst: proxyBurst, Open: proxyMaxInFlight, Bodies: proxyBodies}
 
-// Route is one Host on the run's door, and its handler.
+// Route is one Host on the run's door, over one transport, and its handler.
 type Route struct {
 	Host    string
+	TLS     bool // served over the door's TLS, with the run's certificate
 	Handler http.Handler
 }
 
