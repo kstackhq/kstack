@@ -75,7 +75,8 @@ winning, the run's own paths last.
 
 **`neverEnv` (`env.go`) is the one list of variables that may never pass** (agent sockets,
 `DOCKER_HOST`, tokens, loader variables, shell startup hooks, every `AWS_`, `ARM_` and `AZURE_`
-but `AZURE_CONFIG_DIR`) →
+but `AZURE_CONFIG_DIR`). **`Run.check` passes one only as a placeholder** (`placeholders.go`): an
+exact name holding the value AWS's mount writes, so a real key fails the run →
 [the sandbox's own environment](../../../docs/security/2026-10-02-the-sandboxs-own-environment.md).
 
 **The zones are Kstack's lists** (`lists.go`, `lists_linux.go`, `lists_darwin.go`): `System`,
