@@ -13,7 +13,8 @@
 // limitations under the License.
 
 // The user's memory writes to the sidecar, and the rules a write must fit.
-// Every save from here marks the memory as the user's.
+// Every save from here marks the memory as the user's. The popover calls a
+// memory a note.
 import { useMutation } from 'urql';
 
 import { graphql } from '@/gql';
@@ -33,7 +34,7 @@ const MemoryDeleteMutation = graphql(`
 `);
 
 // The sidecar's shape rules (memory.checkNote). A name is a slug, since it is
-// the key the model saves and forgets by.
+// the key the model saves and forgets by; the user never sees one.
 const NAME_MAX = 48;
 const BODY_MAX_BYTES = 500;
 export const BODY_RULE = `At most ${BODY_MAX_BYTES} bytes.`;
@@ -59,10 +60,6 @@ export function slugify(text: string): string {
   return hyphen === -1 ? cut : cut.slice(0, hyphen);
 }
 
-// A name as the user types it. The trailing hyphen stays, since a space has to
-// land before the next word; the save drops it.
-export const typedName = (text: string) => fold(text).replace(/^-/, '').slice(0, NAME_MAX);
-
 // `base`, or the first of `base-2`, `base-3`, … not in `taken`. Cutting `base`
 // to fit the suffix can leave a hyphen at its end, which would double.
 export function uniqueName(base: string, taken: ReadonlySet<string>): string {
@@ -74,13 +71,16 @@ export function uniqueName(base: string, taken: ReadonlySet<string>): string {
   }
 }
 
+// A new note's name: its body's opening words, clear of `taken`.
+export const nameFor = (body: string, taken: ReadonlySet<string>) => uniqueName(slugify(body) || 'note', taken);
+
 // Why a save was refused, by the code the sidecar sent.
 const REFUSALS: Record<string, string> = {
-  KSTACK_RECORD_NOT_FOUND: 'This memory or its cluster is gone.',
-  KSTACK_MEMORY_NAME_TAKEN: 'Another memory here has this name.',
-  KSTACK_MEMORY_FULL: 'There is no room for this memory here. Shorten or delete one first.',
-  KSTACK_MEMORY_SECRET: 'This looks like a credential. Memories never keep one.',
-  KSTACK_VALIDATION_ERROR: `A memory is at most ${BODY_MAX_BYTES} bytes.`,
+  KSTACK_RECORD_NOT_FOUND: 'This note or its cluster is gone.',
+  KSTACK_MEMORY_NAME_TAKEN: 'Another note here starts the same way. Reword its opening.',
+  KSTACK_MEMORY_FULL: 'There is no room for this note here. Shorten or delete one first.',
+  KSTACK_MEMORY_SECRET: 'This looks like a credential. Notes never keep one.',
+  KSTACK_VALIDATION_ERROR: `A note is at most ${BODY_MAX_BYTES} bytes.`,
 };
 
 // `clusterID` null saves the memory for every cluster.
@@ -89,9 +89,9 @@ export type MemorySaveInput = { id: string | null; clusterID: string | null; nam
 export function useMemoryWrites(): {
   // Resolves to why the sidecar refused, or null once saved.
   save: (input: MemorySaveInput) => Promise<string | null>;
-  // Resolves to the ids still there. One already gone counts as deleted, so
-  // retrying a delete that partly failed can succeed.
-  remove: (ids: string[]) => Promise<string[]>;
+  // Resolves to whether the memory is gone. One already gone counts as
+  // deleted, so a retry can succeed.
+  remove: (id: string) => Promise<boolean>;
 } {
   const [, memorySave] = useMutation(MemorySaveMutation);
   const [, memoryDelete] = useMutation(MemoryDeleteMutation);
@@ -100,15 +100,12 @@ export function useMemoryWrites(): {
     const result = await memorySave({ input });
     if (!result.error) return null;
     const code = result.error.graphQLErrors[0]?.extensions?.code;
-    return REFUSALS[String(code)] ?? 'The memory could not be saved.';
+    return REFUSALS[String(code)] ?? 'The note could not be saved.';
   };
 
-  const remove = async (ids: string[]) => {
-    const results = await Promise.all(ids.map((id) => memoryDelete({ id })));
-    return ids.filter((_, i) => {
-      const { error } = results[i];
-      return error && error.graphQLErrors[0]?.extensions?.code !== 'KSTACK_RECORD_NOT_FOUND';
-    });
+  const remove = async (id: string) => {
+    const { error } = await memoryDelete({ id });
+    return !error || error.graphQLErrors[0]?.extensions?.code === 'KSTACK_RECORD_NOT_FOUND';
   };
 
   return { save, remove };

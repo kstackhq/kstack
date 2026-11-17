@@ -447,7 +447,10 @@
         }
       ],
       "notes": [
-        "Default hides the checkbox and the actions without giving up their space: layer opacity here, invisible and opacity-0 in code.",
+        "Default hides the trash button without giving up its space: layer opacity here, opacity-0 in code.",
+        "The age is humanDuration's, as everywhere in the app: \"3d ago\", not \"3 days ago\".",
+        "Editing and New draw the library Textarea, focus marked by its border alone, with no primary/20 glow (src/CLAUDE.md, Text boxes).",
+        "The editor's box is min-h-10, not Figma's 64px, so New is as tall as a saved one-line note (60px).",
         "The body is model-writable text."
       ]
     },
@@ -466,7 +469,10 @@
       ],
       "notes": [
         "Sample data.",
-        "Manage all memories leads nowhere yet.",
+        "Open Memory settings leads nowhere yet.",
+        "The popup takes the omnibox's width, up to 640px; Figma draws it at 620px.",
+        "The instructions box marks focus by its border alone, with no ring/50 ring.",
+        "The scroller keeps the system's overlay scrollbar, as the other popups do, not table-scrollbar.",
         "Memory text is model-writable: it is drawn as text, never as Markdown."
       ]
     },

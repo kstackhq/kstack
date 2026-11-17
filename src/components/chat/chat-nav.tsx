@@ -118,7 +118,7 @@ function RenameBox({ chat, onDone }: { chat: Chat; onDone: () => void }) {
       {...PROSE_TEXT}
       aria-label="Chat title"
       value={title}
-      className="w-full rounded-md border bg-background px-2 py-1 text-sm"
+      className="w-full rounded-md border bg-background px-2 py-1 text-sm outline-none focus-visible:border-ring"
       onChange={(e) => setTitle(e.target.value)}
       onBlur={onDone}
       onKeyDown={(e) => {

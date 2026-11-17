@@ -141,7 +141,7 @@ export function ScopeMenu({ trigger, searchLabel, placeholder, entries, current,
               setHighlight(undefined);
             }}
             onKeyDown={onKeyDown}
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm outline-none focus-visible:border-ring"
           />
         </div>
         <div

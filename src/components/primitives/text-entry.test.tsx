@@ -47,6 +47,27 @@ describe('text entry', () => {
     expectCodeText(screen.getByRole('searchbox', { name: 'search' }));
   });
 
+  // jsdom applies no CSS, so this checks the class that turns the library's
+  // ring off, and that a caller's classes still join it.
+  it('marks focus by the border alone, never a ring', () => {
+    render(
+      <>
+        <Input aria-label="input" className="h-8" />
+        <Textarea aria-label="textarea" />
+        <SearchBox aria-label="search" />
+      </>,
+    );
+    for (const box of [
+      screen.getByLabelText('input'),
+      screen.getByLabelText('textarea'),
+      screen.getByLabelText('search'),
+    ]) {
+      expect(box).toHaveClass('focus-visible:border-ring', 'focus-visible:ring-0');
+      expect(box).not.toHaveClass('focus-visible:ring-3');
+    }
+    expect(screen.getByLabelText('input')).toHaveClass('h-8');
+  });
+
   it('lets a caller override a setting', () => {
     render(<Input autoComplete="on" aria-label="input" />);
     expect(screen.getByLabelText('input')).toHaveAttribute('autocomplete', 'on');

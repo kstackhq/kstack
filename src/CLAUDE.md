@@ -82,7 +82,7 @@ This file holds what crosses the webview; each larger subsystem has a guide besi
 
 ## Text boxes
 
-**Every text box turns off the webview's autocomplete, autocorrect, autocapitalize and inline predictions** (`writingsuggestions`, WebKit's). Draw one with `Input`, `Textarea` or `SearchBox` from `components/primitives/text-entry.tsx`, never `@kubetail/ui`'s (the lint refuses that import). Prose (the chat composer, a chat title, memory bodies and instructions) passes `prose` and keeps spellcheck; code-like text (a grep, a path, a name, a pattern) has it off. A raw `<input>`/`<textarea>` spreads `CODE_TEXT` or `PROSE_TEXT` from the same file. Each box's test pins its set with `expectCodeText`/`expectProseText` from `@/test-utils`.
+**Every text box turns off the webview's autocomplete, autocorrect, autocapitalize and inline predictions** (`writingsuggestions`, WebKit's). Draw one with `Input`, `Textarea` or `SearchBox` from `components/primitives/text-entry.tsx`, never `@kubetail/ui`'s (the lint refuses that import). Prose (the chat composer, a chat title, memory bodies and instructions) passes `prose` and keeps spellcheck; code-like text (a grep, a path, a name, a pattern) has it off. A raw `<input>`/`<textarea>` spreads `CODE_TEXT` or `PROSE_TEXT` from the same file. Each box's test pins its set with `expectCodeText`/`expectProseText` from `@/test-utils`. **A text box marks focus by its border alone, never a ring**: browsers match `:focus-visible` on a click into a text box, so a ring would show on every click. The primitives turn the library's ring off; a raw box sets `outline-none focus-visible:border-ring`. Other controls keep the library's keyboard-only ring.
 
 ## Cursors
 

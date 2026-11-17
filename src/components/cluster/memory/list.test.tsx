@@ -18,7 +18,7 @@ import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Memory } from '@/lib/memories';
-import { expectCodeText, expectProseText } from '@/test-utils';
+import { expectProseText } from '@/test-utils';
 
 import { MemoryList } from './list';
 
@@ -29,182 +29,97 @@ const BODY = 'This cluster routes through traefik, not nginx.';
 const memory = (i: number, over: Partial<Memory> = {}): Memory => ({
   id: `m${i}`,
   clusterID: 'c1',
-  name: 'traefik-only',
+  name: `note-${i}`,
   body: BODY,
   writtenBy: 'Model',
-  updatedAt: '2026-09-20T10:00:00Z',
+  updatedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
   ...over,
 });
-const FIVE = Array.from({ length: 5 }, (_, i) => memory(i));
+const THREE = Array.from({ length: 3 }, (_, i) => memory(i));
 
-// The rows are the parent's; this gives them somewhere to live. `refusal` and
-// `failing` stand in for the sidecar's answers: each id in `failing` fails its
-// first delete.
+type Saved = { memory: Memory | undefined; name: string; body: string };
+
+// The notes are the parent's; this gives them somewhere to live. `refusal`
+// stands in for the sidecar's answer to a save, `failing` for a delete that
+// fails once.
 function List({
-  initial = FIVE,
+  initial = THREE,
   adding: startAdding = false,
   refusal = null,
-  failing = [],
+  failing = false,
+  saves = [],
+  pending,
 }: {
   initial?: Memory[];
   adding?: boolean;
   refusal?: string | null;
-  failing?: string[];
+  failing?: boolean;
+  saves?: Saved[];
+  // Holds every save until it resolves.
+  pending?: Promise<void>;
 }) {
   const [memories, setMemories] = useState(initial);
   const [stuck, setStuck] = useState(failing);
   const [adding, setAdding] = useState(startAdding);
   return (
-    <MemoryList
-      scope="Minikube"
-      memories={memories}
-      adding={adding}
-      onSave={async (m, name, body) => {
-        if (refusal) return refusal;
-        setMemories((prev) =>
-          m
-            ? prev.map((x) => (x.id === m.id ? { ...x, name, body, writtenBy: 'User' } : x))
-            : [memory(prev.length + 10, { name, body, writtenBy: 'User' }), ...prev],
-        );
-        return null;
-      }}
-      onAddDone={() => setAdding(false)}
-      onDelete={async (ids) => {
-        const left = ids.filter((id) => stuck.includes(id));
-        setStuck([]);
-        setMemories((prev) => prev.filter((m) => !ids.includes(m.id) || left.includes(m.id)));
-        return left;
-      }}
-    />
+    <>
+      <MemoryList
+        scope="Minikube"
+        memories={memories}
+        adding={adding}
+        onSave={async (m, name, body) => {
+          saves.push({ memory: m, name, body });
+          await pending;
+          if (refusal) return refusal;
+          setMemories((prev) =>
+            m
+              ? prev.map((x) => (x.id === m.id ? { ...x, body, writtenBy: 'User' } : x))
+              : [memory(prev.length + 10, { name, body, writtenBy: 'User' }), ...prev],
+          );
+          return null;
+        }}
+        onAddDone={() => setAdding(false)}
+        onDelete={async (id) => {
+          if (stuck) {
+            setStuck(false);
+            return false;
+          }
+          setMemories((prev) => prev.filter((m) => m.id !== id));
+          return true;
+        }}
+      />
+      <button type="button" onClick={() => setAdding(true)}>
+        Add
+      </button>
+      <button type="button">Elsewhere</button>
+    </>
   );
 }
 
 const button = (name: string) => screen.getByRole('button', { name });
-const checkbox = (i: number) => screen.getAllByRole('checkbox')[i];
-const openMenu = (user: ReturnType<typeof userEvent.setup>) =>
-  user.click(screen.getAllByRole('button', { name: 'Actions for traefik-only' })[0]);
+const editNote = (user: ReturnType<typeof userEvent.setup>, i = 0) =>
+  user.click(screen.getAllByRole('button', { name: /^Edit note: / })[i]);
+// The age is its own element, so the line is matched whole.
+const provenance = (text: string) => screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === text);
+const editor = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Note' });
 
 describe('MemoryList', () => {
-  it('edits a row in place from its menu', async () => {
-    const user = userEvent.setup();
-    render(<List />);
-
-    await openMenu(user);
-    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
-    const textarea = screen.getByRole('textbox', { name: 'Body' });
-    expect(textarea).toHaveValue(BODY);
-
-    await user.clear(textarea);
-    await user.type(textarea, '  Uses nginx.  ');
-    await user.click(button('Save'));
-
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByText('Uses nginx.')).toBeInTheDocument();
-    expect(screen.getAllByText(BODY)).toHaveLength(4);
+  it('says so when there are no notes', () => {
+    render(<List initial={[]} />);
+    expect(screen.getByText('No notes yet.')).toBeInTheDocument();
   });
 
-  it('keeps the row on Cancel, and disables Save on a blank draft', async () => {
-    const user = userEvent.setup();
-    render(<List />);
-
-    await openMenu(user);
-    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
-    await user.clear(screen.getByRole('textbox'));
-    await user.type(screen.getByRole('textbox'), '   ');
-    expect(button('Save')).toBeDisabled();
-
-    await user.click(button('Cancel'));
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getAllByText(BODY)).toHaveLength(5);
+  it('draws who wrote each note and how long ago, never its name', () => {
+    render(<List initial={[memory(0), memory(1, { writtenBy: 'User' })]} />);
+    expect(provenance('By Kstack · 3d ago')).toBeInTheDocument();
+    expect(provenance('By you · 3d ago')).toBeInTheDocument();
+    expect(screen.queryByText(/note-0/)).not.toBeInTheDocument();
   });
 
-  it('deletes one row from its menu after confirming', async () => {
-    const user = userEvent.setup();
-    render(<List />);
-
-    await openMenu(user);
-    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
-    expect(await screen.findByText('Delete 1 memory?')).toBeInTheDocument();
-
-    await user.click(button('Delete 1 memory'));
-    expect(screen.getAllByText(BODY)).toHaveLength(4);
-  });
-
-  it('keeps the row when the confirm is cancelled', async () => {
-    const user = userEvent.setup();
-    render(<List />);
-
-    await openMenu(user);
-    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
-    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
-
-    expect(screen.getAllByText(BODY)).toHaveLength(5);
-  });
-
-  it('keeps the row when the confirm is closed with Escape', async () => {
-    const user = userEvent.setup();
-    render(<List />);
-
-    await openMenu(user);
-    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
-    await user.keyboard('{Escape}');
-
-    expect(screen.queryByText('Delete 1 memory?')).not.toBeInTheDocument();
-    expect(screen.getAllByText(BODY)).toHaveLength(5);
-  });
-
-  it('swaps the heading for the bulk bar while any row is checked', async () => {
-    const user = userEvent.setup();
-    render(<List />);
-
-    await user.click(checkbox(0));
-    expect(screen.queryByText('SAVED MEMORIES')).not.toBeInTheDocument();
-    expect(screen.getByText('1 selected')).toBeInTheDocument();
-    expect(screen.getByText('5 memories in total')).toBeInTheDocument();
-
-    await user.click(button('Cancel'));
-    expect(screen.getByText('SAVED MEMORIES')).toBeInTheDocument();
-  });
-
-  it('selects every row from the bulk bar, and clears them on a second press', async () => {
-    const user = userEvent.setup();
-    render(<List />);
-
-    await user.click(checkbox(0));
-    // Once the bar shows, its select-all is the first checkbox.
-    await user.click(checkbox(0));
-    expect(screen.getByText('5 selected')).toBeInTheDocument();
-
-    await user.click(checkbox(0));
-    expect(screen.getByText('SAVED MEMORIES')).toBeInTheDocument();
-  });
-
-  it('deletes the selection after confirming, down to the empty state', async () => {
-    const user = userEvent.setup();
-    render(<List />);
-
-    await user.click(checkbox(0));
-    await user.click(checkbox(2));
-    expect(screen.getByText('2 selected')).toBeInTheDocument();
-
-    await user.click(button('Delete (2)'));
-    expect(await screen.findByText('Delete 2 memories?')).toBeInTheDocument();
-    await user.click(button('Delete 2 memories'));
-    expect(screen.getAllByText(BODY)).toHaveLength(3);
-    expect(screen.getByText('SAVED MEMORIES')).toBeInTheDocument();
-
-    await user.click(checkbox(0));
-    await user.click(checkbox(0));
-    await user.click(button('Delete (3)'));
-    await user.click(await screen.findByRole('button', { name: 'Delete 3 memories' }));
-    expect(screen.getByText('No saved memories yet.')).toBeInTheDocument();
-  });
-
-  it('draws who wrote each memory, and when', () => {
-    render(<List initial={[memory(0), memory(1, { name: 'prefs', writtenBy: 'User' })]} />);
-    const date = new Date('2026-09-20T10:00:00Z').toLocaleDateString();
-    expect(screen.getByText(`by Kstack · ${date}`)).toBeInTheDocument();
-    expect(screen.getByText(`by you · ${date}`)).toBeInTheDocument();
+  it("names each note's edit button by its body", () => {
+    render(<List initial={[memory(0), memory(1, { body: 'Page payments.' })]} />);
+    expect(screen.getByRole('button', { name: `Edit note: ${BODY}` })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit note: Page payments.' })).toBeInTheDocument();
   });
 
   it('draws a body as its characters, never markup', () => {
@@ -215,223 +130,388 @@ describe('MemoryList', () => {
     expect(document.querySelector('h1')).toBeNull();
   });
 
-  describe('adopting', () => {
-    const line = 'Saving makes this your memory: Kstack will follow it.';
-
-    it("says saving one of Kstack's memories makes it yours", async () => {
-      const user = userEvent.setup();
-      render(<List initial={[memory(0)]} />);
-      await openMenu(user);
-      await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
-      expect(screen.getByText(line)).toBeInTheDocument();
-    });
-
-    it('says nothing for a memory already yours, or a new one', async () => {
-      const user = userEvent.setup();
-      const { unmount } = render(<List initial={[memory(0, { writtenBy: 'User' })]} />);
-      await openMenu(user);
-      await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
-      expect(screen.queryByText(line)).toBeNull();
-      unmount();
-
-      render(<List adding />);
-      expect(screen.queryByText(line)).toBeNull();
-    });
-  });
-
-  it('keeps the draft on a refused save and says why', async () => {
-    const user = userEvent.setup();
-    render(<List refusal="Another memory here has this name." />);
-
-    await openMenu(user);
-    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
-    await user.clear(screen.getByRole('textbox', { name: 'Body' }));
-    await user.type(screen.getByRole('textbox', { name: 'Body' }), 'my draft');
-    await user.click(button('Save'));
-
-    expect(screen.getByRole('textbox', { name: 'Body' })).toHaveValue('my draft');
-    expect(screen.getByText('Another memory here has this name.')).toBeInTheDocument();
-  });
-
-  describe('adding', () => {
-    const name = () => screen.getByRole<HTMLInputElement>('textbox', { name: 'Name' });
-    const body = () => screen.getByRole('textbox', { name: 'Body' });
-    const add = async (user: ReturnType<typeof userEvent.setup>, text: string, typed = '') => {
-      await user.type(body(), text);
-      if (typed) await user.type(name(), typed);
-      await user.click(button('Save'));
-    };
-
-    it('keeps spellcheck in the body alone, and no other suggestions in either field', () => {
-      render(<List initial={[]} adding />);
-      expectProseText(body());
-      expectCodeText(name());
-    });
-
-    it('opens on the body and holds Save until it has text', async () => {
-      const user = userEvent.setup();
-      render(<List initial={[]} adding />);
-      expect(body()).toHaveFocus();
-      expect(name()).toHaveAttribute('placeholder', 'name (optional)');
-      expect(button('Save')).toBeDisabled();
-
-      await user.type(body(), 'Page the payments team.');
-      expect(button('Save')).toBeEnabled();
-    });
-
-    it("names a memory after its body's opening words", async () => {
-      const user = userEvent.setup();
-      render(<List initial={[]} adding />);
-      await add(user, 'Page the payments team.');
-
-      expect(screen.queryByRole('textbox', { name: 'Name' })).not.toBeInTheDocument();
-      expect(screen.getByText('Page the payments team.')).toBeInTheDocument();
-      expect(screen.getByText('page-the-payments-team')).toBeInTheDocument();
-    });
-
-    it('suffixes a derived name the scope already holds', async () => {
-      const user = userEvent.setup();
-      render(<List initial={[memory(1, { name: 'page-the-payments-team' })]} adding />);
-      await add(user, 'Page the payments team!');
-
-      expect(screen.getByText('page-the-payments-team-2')).toBeInTheDocument();
-    });
-
-    it('names a body with no Latin letters "memory"', async () => {
-      const user = userEvent.setup();
-      render(<List initial={[]} adding />);
-      await add(user, '本番環境');
-
-      expect(screen.getByText('memory')).toBeInTheDocument();
-    });
-
-    it.each([
-      ['Prod Deploy', 'prod-deploy'],
-      ['prod ', 'prod'],
-    ])('sends a typed %j as %j', async (typed, sent) => {
-      const user = userEvent.setup();
-      render(<List initial={[]} adding />);
-      await add(user, 'Ask before deploying.', typed);
-
-      expect(screen.getByText(sent)).toBeInTheDocument();
-    });
-
-    it('keeps the first 48 characters of a typed name', async () => {
-      const user = userEvent.setup();
-      render(<List initial={[]} adding />);
-      await user.type(name(), `${'a'.repeat(40)} ${'b'.repeat(10)}`);
-
-      expect(name()).toHaveValue(`${'a'.repeat(40)}-${'b'.repeat(7)}`);
-    });
-
-    it('leaves the caret after the hyphen a space in the middle became', async () => {
-      const user = userEvent.setup();
-      render(<List initial={[]} adding />);
-      await user.type(name(), 'prod-deploy');
-      await user.type(name(), ' ', { initialSelectionStart: 4, initialSelectionEnd: 4 });
-
-      expect(name()).toHaveValue('prod-deploy');
-      expect(name().selectionStart).toBe(5);
-    });
-  });
-
-  it("sends an edited memory's own name", async () => {
-    const user = userEvent.setup();
-    render(<List initial={[memory(1, { name: 'traefik-only' })]} />);
-
-    await openMenu(user);
-    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
-    await user.clear(screen.getByRole('textbox', { name: 'Body' }));
-    await user.type(screen.getByRole('textbox', { name: 'Body' }), 'Uses nginx now.');
-    await user.click(button('Save'));
-
-    expect(screen.getByText('Uses nginx now.')).toBeInTheDocument();
-    expect(screen.getByText('traefik-only')).toBeInTheDocument();
-  });
-
-  it('draws the rule a body breaks and holds Save', async () => {
-    const user = userEvent.setup();
-    render(<List adding />);
-    await user.type(screen.getByRole('textbox', { name: 'Body' }), 'b');
-    expect(button('Save')).toBeEnabled();
-
-    const field = screen.getByRole('textbox', { name: 'Body' });
-    await user.clear(field);
-    await user.click(field);
-    // 251 two-byte characters: under 500 characters, over 500 bytes.
-    await user.paste('é'.repeat(251));
-    expect(screen.getByText('At most 500 bytes.')).toBeInTheDocument();
-    expect(button('Save')).toBeDisabled();
-  });
-
-  it('keeps the confirm and says so when a delete fails, and a retry deletes it', async () => {
-    const user = userEvent.setup();
-    render(<List failing={['m0']} />);
-
-    await openMenu(user);
-    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
-    await user.click(await screen.findByRole('button', { name: 'Delete 1 memory' }));
-    expect(screen.getByText('1 memory could not be deleted.')).toBeInTheDocument();
-    expect(screen.getAllByText(BODY)).toHaveLength(5);
-
-    await user.click(button('Delete 1 memory'));
-    expect(screen.queryByText('Delete 1 memory?')).not.toBeInTheDocument();
-    expect(screen.getAllByText(BODY)).toHaveLength(4);
-  });
-
-  it('retries only what a bulk delete left behind', async () => {
-    const user = userEvent.setup();
-    render(<List failing={['m1']} />);
-
-    await user.click(checkbox(0));
-    await user.click(checkbox(2));
-    await user.click(button('Delete (2)'));
-    await user.click(await screen.findByRole('button', { name: 'Delete 2 memories' }));
-
-    expect(screen.getAllByText(BODY)).toHaveLength(4);
-    expect(screen.getByText('Delete 1 memory?')).toBeInTheDocument();
-    expect(screen.getByText('1 memory could not be deleted.')).toBeInTheDocument();
-    expect(screen.getByText('1 selected')).toBeInTheDocument();
-
-    await user.click(button('Delete 1 memory'));
-    expect(screen.getAllByText(BODY)).toHaveLength(3);
-    expect(screen.getByText('SAVED MEMORIES')).toBeInTheDocument();
+  it('divides the notes, with no line above the first', () => {
+    render(<List />);
+    expect(screen.getAllByRole('separator', { hidden: true })).toHaveLength(2);
   });
 
   // jsdom applies no CSS, so this checks the classes that decide what a browser
-  // hides: the trigger only fades, never leaving the tab order.
-  it("keeps a row's actions in reach of the keyboard", async () => {
-    const user = userEvent.setup();
+  // hides: the trash button only fades, never leaving the tab order.
+  it("keeps a note's trash button in reach of the keyboard", () => {
     render(<List initial={[memory(0)]} />);
-    const trigger = button('Actions for traefik-only');
-    expect(trigger).not.toHaveClass('hidden');
-    expect(trigger).toHaveClass('opacity-0', 'group-focus-within/row:opacity-100');
-    expect(screen.getByRole('checkbox')).toHaveClass('invisible', 'group-hover/row:visible');
-
-    trigger.focus();
-    await user.keyboard('{Enter}');
-    expect(await screen.findByRole('menuitem', { name: 'Edit' })).toBeInTheDocument();
+    const trash = button('Delete note');
+    expect(trash).toHaveClass('opacity-0', 'group-focus-within/row:opacity-100', 'group-hover/row:opacity-100');
+    expect(trash).not.toHaveClass('hidden', 'invisible');
   });
 
-  it('drops a checked row the watch removes from the selection', async () => {
-    const user = userEvent.setup();
-    const props = {
-      scope: 'Minikube',
-      adding: false,
-      onSave: async () => null,
-      onAddDone: () => {},
-      onDelete: async () => [],
-    };
-    const { rerender } = render(<MemoryList {...props} memories={FIVE} />);
-    await user.click(checkbox(0));
-    await user.click(checkbox(2));
-    expect(screen.getByText('2 selected')).toBeInTheDocument();
+  describe('editing', () => {
+    it('opens on a click of the text, selected, with spellcheck alone', async () => {
+      const user = userEvent.setup();
+      render(<List />);
+      await editNote(user);
+      expect(editor()).toHaveValue(BODY);
+      expect(editor()).toHaveFocus();
+      expect([editor().selectionStart, editor().selectionEnd]).toEqual([0, BODY.length]);
+      expectProseText(editor());
+      // The note being edited draws no trash button.
+      expect(screen.getAllByRole('button', { name: 'Delete note' })).toHaveLength(2);
+    });
 
-    rerender(<MemoryList {...props} memories={FIVE.slice(1)} />);
-    expect(screen.getByText('1 selected')).toBeInTheDocument();
-    expect(screen.getByText('4 memories in total')).toBeInTheDocument();
+    it('breaks a line on Enter and saves on Cmd+Enter', async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List saves={saves} />);
+      await editNote(user);
+      await user.clear(editor());
+      await user.type(editor(), '  Uses nginx.{Enter}Really.  ');
+      expect(editor()).toHaveValue('  Uses nginx.\nReally.  ');
 
-    rerender(<MemoryList {...props} memories={FIVE.slice(2)} />);
-    expect(screen.getByText('SAVED MEMORIES')).toBeInTheDocument();
+      await user.keyboard('{Meta>}{Enter}{/Meta}');
+      expect(saves).toEqual([{ memory: THREE[0], name: 'note-0', body: 'Uses nginx.\nReally.' }]);
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+      expect(screen.getByText(/^Uses nginx\./)).toBeInTheDocument();
+      expect(provenance('By you · 3d ago')).toBeInTheDocument();
+    });
+
+    it('saves on Ctrl+Enter', async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List saves={saves} />);
+      await editNote(user);
+      await user.type(editor(), ' Twice.');
+      await user.keyboard('{Control>}{Enter}{/Control}');
+      expect(saves.map((s) => s.body)).toEqual([`${BODY} Twice.`]);
+    });
+
+    it('saves when the field loses focus', async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List saves={saves} />);
+      await editNote(user);
+      await user.type(editor(), ' Twice.');
+      await user.click(button('Elsewhere'));
+      expect(saves.map((s) => s.body)).toEqual([`${BODY} Twice.`]);
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    });
+
+    it('discards the draft on Escape, saving nothing', async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List saves={saves} />);
+      await editNote(user);
+      await user.type(editor(), ' Never mind.');
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+      expect(screen.getAllByText(BODY)).toHaveLength(3);
+      expect(saves).toEqual([]);
+    });
+
+    it('just closes on a blank or unchanged draft', async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List saves={saves} initial={THREE.map((m) => ({ ...m, writtenBy: 'User' as const }))} />);
+      await editNote(user);
+      await user.keyboard('{Meta>}{Enter}{/Meta}');
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+
+      await editNote(user);
+      await user.clear(editor());
+      await user.type(editor(), '   ');
+      await user.click(button('Elsewhere'));
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+      expect(screen.getAllByText(BODY)).toHaveLength(3);
+      expect(saves).toEqual([]);
+    });
+
+    it("adopts one of Kstack's notes on an explicit save, even unchanged", async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List saves={saves} />);
+      await editNote(user);
+      await user.keyboard('{Meta>}{Enter}{/Meta}');
+      expect(saves).toEqual([{ memory: THREE[0], name: 'note-0', body: BODY }]);
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+      expect(provenance('By you · 3d ago')).toBeInTheDocument();
+    });
+
+    it("never adopts one of Kstack's notes on a blur alone", async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List saves={saves} />);
+      await editNote(user);
+      await user.click(button('Elsewhere'));
+      expect(saves).toEqual([]);
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    });
+
+    it('saves nothing on a blur when only the watch changed the note', async () => {
+      const user = userEvent.setup();
+      const onSave = vi.fn(async () => null);
+      const props = { scope: 'Minikube', adding: false, onSave, onAddDone: () => {}, onDelete: async () => true };
+      const { rerender } = render(
+        <>
+          <MemoryList {...props} memories={[memory(0)]} />
+          <button type="button">Elsewhere</button>
+        </>,
+      );
+      await editNote(user);
+      rerender(
+        <>
+          <MemoryList {...props} memories={[memory(0, { body: 'Rewritten by Kstack.' })]} />
+          <button type="button">Elsewhere</button>
+        </>,
+      );
+      expect(editor()).toHaveValue(BODY);
+
+      await user.click(button('Elsewhere'));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    });
+
+    it("says saving one of Kstack's notes makes it yours, and nothing for yours", async () => {
+      const user = userEvent.setup();
+      const line = 'Saving makes this your note: Kstack will follow it.';
+      render(<List initial={[memory(0), memory(1, { writtenBy: 'User' })]} />);
+      await editNote(user, 0);
+      expect(screen.getByText(line)).toBeInTheDocument();
+      await user.keyboard('{Escape}');
+
+      await editNote(user, 1);
+      expect(screen.queryByText(line)).not.toBeInTheDocument();
+    });
+
+    it('keeps the draft on a refused save and says why', async () => {
+      const user = userEvent.setup();
+      render(<List refusal="This looks like a credential. Notes never keep one." />);
+      await editNote(user);
+      await user.type(editor(), ' token=abc');
+      await user.keyboard('{Meta>}{Enter}{/Meta}');
+      expect(await screen.findByText('This looks like a credential. Notes never keep one.')).toHaveClass(
+        'text-destructive',
+      );
+      expect(editor()).toHaveValue(`${BODY} token=abc`);
+    });
+
+    it('draws the rule a body over 500 bytes breaks, and holds the save', async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List saves={saves} />);
+      await editNote(user);
+      await user.clear(editor());
+      await user.click(editor());
+      await user.paste('é'.repeat(251));
+      expect(screen.getByText('At most 500 bytes.')).toHaveClass('text-destructive');
+
+      await user.keyboard('{Meta>}{Enter}{/Meta}');
+      await user.click(button('Elsewhere'));
+      expect(saves).toEqual([]);
+      expect(editor()).toBeInTheDocument();
+    });
+
+    describe('while a save is in flight', () => {
+      // Holds every save until `release` is called.
+      const held = () => {
+        let release = () => {};
+        const pending = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return { pending, release: () => release() };
+      };
+
+      it('ignores a second save', async () => {
+        const user = userEvent.setup();
+        const saves: Saved[] = [];
+        const { pending, release } = held();
+        render(<List saves={saves} pending={pending} />);
+        await editNote(user);
+        await user.type(editor(), ' Twice.');
+        await user.keyboard('{Meta>}{Enter}{/Meta}');
+        await user.keyboard('{Meta>}{Enter}{/Meta}');
+        expect(saves).toHaveLength(1);
+
+        release();
+        await screen.findByText(`${BODY} Twice.`);
+      });
+
+      it('takes no typing, so nothing typed after the save is dropped', async () => {
+        const user = userEvent.setup();
+        const { pending, release } = held();
+        render(<List pending={pending} />);
+        await editNote(user);
+        await user.type(editor(), ' Twice.');
+        await user.keyboard('{Meta>}{Enter}{/Meta}');
+        expect(editor()).toHaveAttribute('readonly');
+        await user.type(editor(), ' Thrice.');
+        expect(editor()).toHaveValue(`${BODY} Twice.`);
+
+        release();
+        await screen.findByText(`${BODY} Twice.`);
+      });
+
+      it('waits out Escape, since the save is already sent', async () => {
+        const user = userEvent.setup();
+        const saves: Saved[] = [];
+        const { pending, release } = held();
+        render(<List saves={saves} pending={pending} />);
+        await editNote(user);
+        await user.type(editor(), ' Twice.');
+        await user.keyboard('{Meta>}{Enter}{/Meta}');
+        await user.keyboard('{Escape}');
+        expect(editor()).toBeInTheDocument();
+
+        release();
+        await screen.findByText(`${BODY} Twice.`);
+        expect(saves).toHaveLength(1);
+      });
+    });
+
+    describe('starting another note', () => {
+      const editors = () => screen.getAllByRole('textbox', { name: 'Note' });
+
+      it('saves the first on its way out', async () => {
+        const user = userEvent.setup();
+        const saves: Saved[] = [];
+        render(<List saves={saves} />);
+        await editNote(user, 0);
+        await user.type(editor(), ' Twice.');
+        // Note 0 is the editor now, so the first text left is note 1's.
+        await editNote(user, 0);
+        expect(saves.map((s) => s.memory?.id)).toEqual(['m0']);
+        expect(await screen.findByText(`${BODY} Twice.`)).toBeInTheDocument();
+        expect(editor()).toHaveValue(BODY);
+      });
+
+      it('keeps the first open with its draft and reason when its save is refused', async () => {
+        const user = userEvent.setup();
+        render(<List refusal="This looks like a credential. Notes never keep one." />);
+        await editNote(user, 0);
+        await user.type(editor(), ' token=abc');
+        await editNote(user, 0);
+
+        expect(await screen.findByText('This looks like a credential. Notes never keep one.')).toBeInTheDocument();
+        expect(editors().map((e) => (e as HTMLTextAreaElement).value)).toEqual([`${BODY} token=abc`, BODY]);
+      });
+
+      it('keeps the first open when its draft is over 500 bytes', async () => {
+        const user = userEvent.setup();
+        const saves: Saved[] = [];
+        render(<List saves={saves} />);
+        await editNote(user, 0);
+        await user.clear(editor());
+        await user.paste('é'.repeat(251));
+        await editNote(user, 0);
+
+        expect(screen.getByText('At most 500 bytes.')).toBeInTheDocument();
+        expect(editors()).toHaveLength(2);
+        expect(editors()[0]).toHaveValue('é'.repeat(251));
+        expect(saves).toEqual([]);
+      });
+    });
+  });
+
+  describe('adding', () => {
+    const newNote = () => screen.getByRole('textbox', { name: 'New note' });
+
+    it('opens empty and focused at the top of the list', () => {
+      render(<List adding />);
+      expect(newNote()).toHaveValue('');
+      expect(newNote()).toHaveFocus();
+      expect(newNote()).toHaveAttribute('placeholder', 'What should Kstack remember?');
+      expect(newNote().compareDocumentPosition(screen.getAllByText(BODY)[0])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(screen.getAllByRole('separator', { hidden: true })).toHaveLength(3);
+      expect(screen.queryByText(/Saving makes this your note/)).not.toBeInTheDocument();
+    });
+
+    it('opens into an empty list too', () => {
+      render(<List initial={[]} adding />);
+      expect(newNote()).toBeInTheDocument();
+      expect(screen.queryByText('No notes yet.')).not.toBeInTheDocument();
+    });
+
+    it("names a note after its body's opening words, clear of the cluster's names", async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List initial={[memory(0, { name: 'page-payments' })]} adding saves={saves} />);
+      await user.type(newNote(), 'Page payments.');
+      await user.keyboard('{Meta>}{Enter}{/Meta}');
+      expect(saves).toEqual([{ memory: undefined, name: 'page-payments-2', body: 'Page payments.' }]);
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+      expect(screen.getByText('Page payments.')).toBeInTheDocument();
+    });
+
+    it('names a body with no Latin letters "note"', async () => {
+      const user = userEvent.setup();
+      const saves: Saved[] = [];
+      render(<List adding saves={saves} />);
+      await user.type(newNote(), '本番環境');
+      await user.click(button('Elsewhere'));
+      expect(saves.map((s) => s.name)).toEqual(['note']);
+    });
+
+    it('closes on Escape or when left empty', async () => {
+      const user = userEvent.setup();
+      render(<List adding />);
+      await user.type(newNote(), 'Never mind.');
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+
+      await user.click(button('Add'));
+      await user.click(button('Elsewhere'));
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    });
+
+    it('stays open on a refused save', async () => {
+      const user = userEvent.setup();
+      render(<List adding refusal="There is no room for this note here. Shorten or delete one first." />);
+      await user.type(newNote(), 'Page payments.');
+      await user.keyboard('{Meta>}{Enter}{/Meta}');
+      expect(await screen.findByText(/^There is no room/)).toBeInTheDocument();
+      expect(newNote()).toHaveValue('Page payments.');
+    });
+  });
+
+  describe('deleting', () => {
+    it('deletes a note after confirming', async () => {
+      const user = userEvent.setup();
+      render(<List />);
+      await user.click(screen.getAllByRole('button', { name: 'Delete note' })[0]);
+      expect(await screen.findByText('Delete note?')).toBeInTheDocument();
+      expect(screen.getByText(/permanently deleted from Minikube/)).toBeInTheDocument();
+
+      await user.click(screen.getAllByRole('button', { name: 'Delete note' }).at(-1)!);
+      expect(screen.getAllByText(BODY)).toHaveLength(2);
+      expect(screen.queryByText('Delete note?')).not.toBeInTheDocument();
+    });
+
+    it('keeps the note when the confirm is cancelled', async () => {
+      const user = userEvent.setup();
+      render(<List />);
+      await user.click(screen.getAllByRole('button', { name: 'Delete note' })[0]);
+      await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+      expect(screen.getAllByText(BODY)).toHaveLength(3);
+    });
+
+    it('keeps the confirm and says so when a delete fails, and a retry deletes it', async () => {
+      const user = userEvent.setup();
+      render(<List failing />);
+      await user.click(screen.getAllByRole('button', { name: 'Delete note' })[0]);
+      const confirm = async () => user.click((await screen.findAllByRole('button', { name: 'Delete note' })).at(-1)!);
+
+      await confirm();
+      expect(await screen.findByText('The note could not be deleted.')).toBeInTheDocument();
+      expect(screen.getByText('Delete note?')).toBeInTheDocument();
+
+      await confirm();
+      expect(screen.getAllByText(BODY)).toHaveLength(2);
+      expect(screen.queryByText('The note could not be deleted.')).not.toBeInTheDocument();
+    });
+
+    it('deletes down to the empty state', async () => {
+      const user = userEvent.setup();
+      render(<List initial={[memory(0)]} />);
+      await user.click(button('Delete note'));
+      await user.click((await screen.findAllByRole('button', { name: 'Delete note' })).at(-1)!);
+      expect(screen.getByText('No notes yet.')).toBeInTheDocument();
+    });
   });
 });
