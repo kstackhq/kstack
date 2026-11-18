@@ -25,8 +25,6 @@ type Documents = {
     "\n  subscription ClusterDiscoveryEvents($id: ObjectID!) {\n    eventsWatch(id: $id, category: \"discovery\") {\n      type\n      event {\n        id\n        type\n        reason\n        message\n        count\n        firstAt\n        lastAt\n      }\n    }\n  }\n": typeof types.ClusterDiscoveryEventsDocument,
     "\n  subscription ClusterCacheSyncStatus($id: ClusterID!, $cacheID: ObjectID!) {\n    clusterCacheSyncStatusWatch(id: $id, cacheID: $cacheID) {\n      discovery {\n        reason\n        message\n      }\n      kinds {\n        apiVersion\n        resource\n        reason\n        message\n        objectCount\n      }\n    }\n  }\n": typeof types.ClusterCacheSyncStatusDocument,
     "\n  subscription ClusterCachedKinds($cacheID: ObjectID!) {\n    clusterCachedKindsWatch(cacheID: $cacheID) {\n      type\n      kind {\n        id\n        spec {\n          apiVersion\n          resource\n        }\n      }\n    }\n  }\n": typeof types.ClusterCachedKindsDocument,
-    "\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n": typeof types.MemorySaveDocument,
-    "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n": typeof types.MemoryDeleteDocument,
     "\n  mutation ClusterConnectionRetry($id: ClusterID!) {\n    clusterConnectionRetry(id: $id)\n  }\n": typeof types.ClusterConnectionRetryDocument,
     "\n  subscription AuthStateWatch {\n    authStateWatch {\n      authenticated\n      identity {\n        sub\n        email\n        name\n      }\n    }\n  }\n": typeof types.AuthStateWatchDocument,
     "\n  mutation AuthLoginStart {\n    authLoginStart\n  }\n": typeof types.AuthLoginStartDocument,
@@ -52,6 +50,8 @@ type Documents = {
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": typeof types.LogsFetchDocument,
     "\n  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {\n    logsFollow(id: $id, request: $request) {\n      type\n      record {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      notice {\n        code\n        message\n      }\n      ended {\n        code\n        message\n      }\n    }\n  }\n": typeof types.LogsFollowDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": typeof types.MemoriesWatchDocument,
+    "\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n": typeof types.MemorySaveDocument,
+    "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n": typeof types.MemoryDeleteDocument,
     "\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": typeof types.ModelsDocument,
     "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n": typeof types.ChatNetworkEnabledSetDocument,
     "\n  query PermissionSettings {\n    permissionSettings {\n      defaultMode\n      contexts {\n        context\n        mode\n        source\n        pattern\n        own\n      }\n      rules {\n        id\n        effect\n        class\n        context\n        namespace\n        verb\n        group\n        kind\n        line\n      }\n      destructive\n      held\n    }\n  }\n": typeof types.PermissionSettingsDocument,
@@ -89,8 +89,6 @@ const documents: Documents = {
     "\n  subscription ClusterDiscoveryEvents($id: ObjectID!) {\n    eventsWatch(id: $id, category: \"discovery\") {\n      type\n      event {\n        id\n        type\n        reason\n        message\n        count\n        firstAt\n        lastAt\n      }\n    }\n  }\n": types.ClusterDiscoveryEventsDocument,
     "\n  subscription ClusterCacheSyncStatus($id: ClusterID!, $cacheID: ObjectID!) {\n    clusterCacheSyncStatusWatch(id: $id, cacheID: $cacheID) {\n      discovery {\n        reason\n        message\n      }\n      kinds {\n        apiVersion\n        resource\n        reason\n        message\n        objectCount\n      }\n    }\n  }\n": types.ClusterCacheSyncStatusDocument,
     "\n  subscription ClusterCachedKinds($cacheID: ObjectID!) {\n    clusterCachedKindsWatch(cacheID: $cacheID) {\n      type\n      kind {\n        id\n        spec {\n          apiVersion\n          resource\n        }\n      }\n    }\n  }\n": types.ClusterCachedKindsDocument,
-    "\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n": types.MemorySaveDocument,
-    "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n": types.MemoryDeleteDocument,
     "\n  mutation ClusterConnectionRetry($id: ClusterID!) {\n    clusterConnectionRetry(id: $id)\n  }\n": types.ClusterConnectionRetryDocument,
     "\n  subscription AuthStateWatch {\n    authStateWatch {\n      authenticated\n      identity {\n        sub\n        email\n        name\n      }\n    }\n  }\n": types.AuthStateWatchDocument,
     "\n  mutation AuthLoginStart {\n    authLoginStart\n  }\n": types.AuthLoginStartDocument,
@@ -116,6 +114,8 @@ const documents: Documents = {
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": types.LogsFetchDocument,
     "\n  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {\n    logsFollow(id: $id, request: $request) {\n      type\n      record {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      notice {\n        code\n        message\n      }\n      ended {\n        code\n        message\n      }\n    }\n  }\n": types.LogsFollowDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": types.MemoriesWatchDocument,
+    "\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n": types.MemorySaveDocument,
+    "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n": types.MemoryDeleteDocument,
     "\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": types.ModelsDocument,
     "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n": types.ChatNetworkEnabledSetDocument,
     "\n  query PermissionSettings {\n    permissionSettings {\n      defaultMode\n      contexts {\n        context\n        mode\n        source\n        pattern\n        own\n      }\n      rules {\n        id\n        effect\n        class\n        context\n        namespace\n        verb\n        group\n        kind\n        line\n      }\n      destructive\n      held\n    }\n  }\n": types.PermissionSettingsDocument,
@@ -200,14 +200,6 @@ export function graphql(source: "\n  subscription ClusterCacheSyncStatus($id: Cl
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  subscription ClusterCachedKinds($cacheID: ObjectID!) {\n    clusterCachedKindsWatch(cacheID: $cacheID) {\n      type\n      kind {\n        id\n        spec {\n          apiVersion\n          resource\n        }\n      }\n    }\n  }\n"): (typeof documents)["\n  subscription ClusterCachedKinds($cacheID: ObjectID!) {\n    clusterCachedKindsWatch(cacheID: $cacheID) {\n      type\n      kind {\n        id\n        spec {\n          apiVersion\n          resource\n        }\n      }\n    }\n  }\n"];
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n"): (typeof documents)["\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n"];
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n"): (typeof documents)["\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -308,6 +300,14 @@ export function graphql(source: "\n  subscription LogsFollow($id: ClusterID!, $r
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n"): (typeof documents)["\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n"): (typeof documents)["\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n"): (typeof documents)["\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
