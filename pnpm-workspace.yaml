@@ -43,3 +43,10 @@ trustPolicyExclude:
   # semver's 6.x line is still patched after 7.x gained provenance, so its
   # releases carry less trust evidence than the latest one. Not a takeover.
   - semver@6.3.1
+# Advisories accepted with no patched version to move to; each names its reason.
+# → docs/adr/2026-11-18-accept-picomatchs-redos-advisory-in-dev-tooling.md
+auditConfig:
+  ignoreGhsas:
+    # picomatch <=4.0.7 ReDoS on a crafted glob, unpatched. Only build and test
+    # tooling reaches it, matching globs from our own config.
+    - GHSA-fc5q-39xc-vjpf
