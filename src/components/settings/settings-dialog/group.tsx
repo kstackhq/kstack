@@ -49,6 +49,16 @@ export function Group({ title, lede, info, action, children }: GroupProps) {
   );
 }
 
+// A pane that is one list, which the pane's own heading names: its lede over its body.
+export function Intro({ lede, children }: { lede: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">{lede}</p>
+      {children}
+    </div>
+  );
+}
+
 // A row of a group's card: a label, then its note.
 export function NoteRow({ label, children }: { label: string; children: ReactNode }) {
   return (

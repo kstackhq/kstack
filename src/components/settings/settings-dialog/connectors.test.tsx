@@ -32,38 +32,25 @@ beforeEach(() => {
 });
 
 describe('ConnectorsSettings', () => {
-  it('groups connected services above available ones, each with its hint', () => {
+  it('lists every service in one list under its lede, by name over its detail', () => {
+    state.connectors = [
+      connector('GitHub', true),
+      connector('OpenRouter', false),
+      connector('AWS', true),
+      connector('Google', false),
+    ];
     render(<ConnectorsSettings />);
 
-    const headings = screen.getAllByRole('group').map((g) => within(g).getByRole('heading').textContent);
-    expect(headings).toEqual(['Connected', 'Available']);
-    expect(screen.getByRole('group', { name: 'Connected' })).toHaveTextContent(
-      'Services Kstack signs in to. Providers and tools use their credentials.',
-    );
-    expect(screen.getByRole('group', { name: 'Available' })).toHaveTextContent(
-      'Connect a service to use its credentials in Kstack.',
-    );
-  });
-
-  it.each([
-    ['Connected', 'Available', connector('Google', false)],
-    ['Available', 'Connected', connector('GitHub', true)],
-  ])('draws no %s group with no service in it', (empty, drawn, only) => {
-    state.connectors = [only];
-    render(<ConnectorsSettings />);
-
-    expect(screen.queryByRole('group', { name: empty })).toBeNull();
-    expect(screen.getByRole('group', { name: drawn })).toBeInTheDocument();
-  });
-
-  it('lists each service by its name over its detail', () => {
-    state.connectors = [connector('GitHub', true), connector('AWS', true), connector('Google', false)];
-    render(<ConnectorsSettings />);
-
-    const rows = within(screen.getByRole('group', { name: 'Connected' })).getAllByRole('listitem');
-    expect(rows.map((r) => r.textContent)).toEqual(['GitHubGitHub detail', 'AWSAWS detail']);
-    const available = within(screen.getByRole('group', { name: 'Available' })).getByRole('listitem');
-    expect(available).toHaveTextContent('GoogleGoogle detail');
+    expect(
+      screen.getByText('Accounts Kstack signs in to. Model providers and tools use their credentials.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading')).toBeNull();
+    expect(screen.getAllByRole('listitem').map((r) => r.textContent)).toEqual([
+      'AWSAWS detail',
+      'GitHubGitHub detail',
+      'GoogleGoogle detailComing soon',
+      'OpenRouterOpenRouter detailComing soon',
+    ]);
   });
 
   it('spells out control characters in the name and the detail', () => {
@@ -78,11 +65,9 @@ describe('ConnectorsSettings', () => {
   it('offers a disabled Coming soon on an available service alone', () => {
     render(<ConnectorsSettings />);
 
-    const available = within(screen.getByRole('group', { name: 'Available' }));
-    expect(available.getByRole('button', { name: 'Coming soon' })).toBeDisabled();
-    expect(
-      within(screen.getByRole('group', { name: 'Connected' })).queryByRole('button', { name: 'Coming soon' }),
-    ).toBeNull();
+    const row = (name: string) => screen.getByText(name).closest('li')!;
+    expect(within(row('Google')).getByRole('button', { name: 'Coming soon' })).toBeDisabled();
+    expect(within(row('GitHub')).queryByRole('button', { name: 'Coming soon' })).toBeNull();
   });
 
   describe('row menu', () => {

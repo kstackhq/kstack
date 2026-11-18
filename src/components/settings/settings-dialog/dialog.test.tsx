@@ -50,7 +50,19 @@ vi.mock('@/lib/permission-settings', () => ({
 
 vi.mock('./connectors', () => ({ ConnectorsSettings: () => <p>The connectors</p> }));
 
-vi.mock('./providers', () => ({ ProvidersSettings: () => <p>The providers</p> }));
+vi.mock('./providers', async () => {
+  const { useSelectSettingsTab } = await import('@/lib/settings-tab');
+  return {
+    ProvidersSettings: () => {
+      const selectTab = useSelectSettingsTab();
+      return (
+        <button type="button" onClick={() => selectTab('Connectors')}>
+          The providers
+        </button>
+      );
+    },
+  };
+});
 
 vi.mock('./memory', () => ({ MemorySettings: () => <p>The memory</p> }));
 
@@ -135,6 +147,17 @@ describe('SettingsDialog', () => {
 
     const panel = screen.getByRole('tabpanel');
     expect(panel).toHaveTextContent('The providers');
+  });
+
+  it('lets a pane select another tab', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole('tab', { name: 'Providers' }));
+    await user.click(screen.getByRole('button', { name: 'The providers' }));
+
+    expect(screen.getByRole('tab', { name: 'Connectors', selected: true })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('The connectors');
   });
 
   it('draws the Memory tab', async () => {

@@ -12,24 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The form a provider is set up from, drawn inside its row under Available.
-// Placeholder throughout: nothing here sends or stores a credential.
+// The form a provider is configured from, drawn in its dialog: a choice of
+// where its credentials come from, then that source's fields. Placeholder
+// throughout: nothing here sends or stores a credential.
+import { Radio } from '@base-ui/react/radio';
+import { RadioGroup } from '@base-ui/react/radio-group';
 import { Button } from '@kubetail/ui/elements/button';
-import { Field, FieldDescription, FieldLabel } from '@kubetail/ui/elements/field';
+import { Field, FieldLabel } from '@kubetail/ui/elements/field';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@kubetail/ui/elements/select';
-import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
 import { useId, useState } from 'react';
 
 import { Input } from '@/components/primitives/text-entry';
 
 /** Where a provider's credentials can come from. */
-export type CredentialSource = 'aws-connector' | 'access-key' | 'google-connector' | 'api-key';
+export type CredentialSource =
+  | 'environment'
+  | 'aws-connector'
+  | 'access-key'
+  | 'google-connector'
+  | 'azure-connector'
+  | 'chatgpt-connector'
+  | 'api-key'
+  | 'host';
 
-const SOURCE_LABELS: Record<CredentialSource, string> = {
-  'aws-connector': 'AWS connector',
-  'access-key': 'Access key',
-  'google-connector': 'Google connector',
-  'api-key': 'API key',
+// Each source's radio: its label and the line under it. Placeholder: a source
+// marked `soon` awaits a design, then its mutation.
+const SOURCES: Record<CredentialSource, { label: string; note?: string; soon?: true }> = {
+  environment: { label: 'Environment variable' },
+  'aws-connector': { label: 'AWS connector', note: 'Sign in through an AWS connector.' },
+  'access-key': { label: 'Access key', note: 'An AWS access key ID and secret.', soon: true },
+  'google-connector': { label: 'Google connector', note: 'Sign in with your Google account.', soon: true },
+  'azure-connector': { label: 'Azure connector', note: 'Sign in with your Azure account.', soon: true },
+  'chatgpt-connector': { label: 'ChatGPT connector', note: 'Sign in with your ChatGPT account.', soon: true },
+  'api-key': { label: 'Saved key', note: 'A key Kstack keeps in your system keychain.' },
+  host: { label: 'Host', note: 'The address of the server that runs the models.', soon: true },
 };
 
 // Placeholder: awaits connectors.
@@ -38,47 +54,98 @@ const CONNECTORS = ['Example connector'];
 // Placeholder: awaits the Bedrock provider's region list.
 const REGIONS = ['us-east-1', 'us-east-2', 'us-west-2', 'eu-central-1', 'eu-west-1', 'ap-northeast-1'];
 
-export function ProviderSetupForm({ sources, onCancel }: { sources: CredentialSource[]; onCancel: () => void }) {
+/** The environment variable a provider reads its key from, and whether Kstack found it. */
+export type KeyVar = { name: string; set: boolean };
+
+/** Opens on the first of `sources`. */
+export function ProviderSetupForm({
+  sources,
+  keyVar,
+  onCancel,
+}: {
+  sources: CredentialSource[];
+  keyVar?: KeyVar;
+  onCancel: () => void;
+}) {
   const [source, setSource] = useState(sources[0]);
   return (
     <div className="flex flex-col gap-4">
-      <Field>
-        <FieldLabel>Credentials</FieldLabel>
-        <Tabs value={source} onValueChange={(next) => setSource(next as CredentialSource)}>
-          <TabsList aria-label="Credentials">
-            {sources.map((s) => (
-              <TabsTrigger key={s} value={s}>
-                {SOURCE_LABELS[s]}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      </Field>
-      <SourceFields source={source} />
+      <RadioGroup
+        aria-label="Credentials"
+        className="flex flex-col gap-3"
+        value={source}
+        onValueChange={(next: CredentialSource) => setSource(next)}
+      >
+        {sources.map((s) => (
+          <SourceOption key={s} source={s} keyVar={keyVar} />
+        ))}
+      </RadioGroup>
+      {source === 'aws-connector' && <AwsConnectorFields />}
+      {source === 'api-key' && <ApiKeyField />}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           Cancel
         </Button>
-        {/* Placeholder: awaits a setup mutation per credential source. */}
+        {/* Placeholder: awaits a mutation choosing the provider's credential source. */}
         <Button type="button" size="sm" disabled>
-          Set up
+          Save
         </Button>
       </div>
     </div>
   );
 }
 
-function SourceFields({ source }: { source: CredentialSource }) {
-  switch (source) {
-    case 'aws-connector':
-      return <AwsConnectorFields />;
-    case 'api-key':
-      return <ApiKeyField />;
-    // Placeholder: awaits a design, then the mutation.
-    case 'access-key':
-    case 'google-connector':
-      return <p className="text-sm text-muted-foreground">Coming soon</p>;
+// One source's radio: its label, with a line saying what it means.
+function SourceOption({ source, keyVar }: { source: CredentialSource; keyVar?: KeyVar }) {
+  const labelID = useId();
+  const noteID = useId();
+  const { label, soon } = SOURCES[source];
+  return (
+    <div className="flex items-start gap-2.5">
+      <Radio.Root
+        value={source}
+        aria-labelledby={labelID}
+        aria-describedby={noteID}
+        className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border border-input outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 data-checked:border-primary"
+      >
+        <Radio.Indicator className="size-2 rounded-full bg-primary" />
+      </Radio.Root>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="flex items-center gap-2 text-sm text-popover-foreground">
+          <span id={labelID}>{label}</span>
+          {soon && <span className="text-xs text-muted-foreground">Coming soon</span>}
+        </span>
+        <span id={noteID} className="text-xs text-muted-foreground">
+          <SourceNote source={source} keyVar={keyVar} />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// A source's note, naming the provider's key variable where it bears on the
+// source. The sidecar reads that variable from its launch environment or the
+// login shell, once, at start.
+function SourceNote({ source, keyVar }: { source: CredentialSource; keyVar?: KeyVar }) {
+  if (source === 'environment' && keyVar) {
+    return keyVar.set ? (
+      <>
+        Kstack uses <code>{keyVar.name}</code> from your environment.
+      </>
+    ) : (
+      <>
+        <code>{keyVar.name}</code> is not set. Kstack reads it from your login shell when it starts.
+      </>
+    );
   }
+  if (source === 'api-key' && keyVar?.set) {
+    return (
+      <>
+        A key Kstack keeps in your system keychain, used over <code>{keyVar.name}</code>.
+      </>
+    );
+  }
+  return SOURCES[source].note;
 }
 
 // Placeholder: disabled, so no secret is typed into the webview, until a
@@ -89,7 +156,6 @@ function ApiKeyField() {
     <Field>
       <FieldLabel htmlFor={id}>API key</FieldLabel>
       <Input id={id} type="password" disabled />
-      <FieldDescription>Kstack keeps the key in your system keychain.</FieldDescription>
     </Field>
   );
 }

@@ -29,10 +29,11 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import type { ComponentType } from 'react';
+import { type ComponentType, useState } from 'react';
 
 import { DialogClose, DialogTitle, PanelDialog } from '@/components/primitives/dialog';
 import { type AppDialogProps } from '@/lib/dialog';
+import { SelectSettingsTab } from '@/lib/settings-tab';
 
 import { ClustersSettings } from './clusters';
 import { ConnectorsSettings } from './connectors';
@@ -60,7 +61,17 @@ export function SettingsDialog({ open, onOpenChange }: AppDialogProps) {
       onOpenChange={onOpenChange}
       className="h-160 w-220 bg-popover shadow-2xl sm:max-w-[calc(100%-2rem)]"
     >
-      <Tabs.Root orientation="vertical" defaultValue={TABS[0].label} className="flex min-w-0 flex-1">
+      <SettingsTabs />
+    </PanelDialog>
+  );
+}
+
+// Inside the dialog's content, so each opening starts on the first tab.
+function SettingsTabs() {
+  const [tab, setTab] = useState(TABS[0].label);
+  return (
+    <SelectSettingsTab value={setTab}>
+      <Tabs.Root orientation="vertical" value={tab} onValueChange={setTab} className="flex min-w-0 flex-1">
         <div className="flex w-54 shrink-0 flex-col gap-0.5 border-r bg-muted px-3 py-4">
           <DialogTitle className="px-2 pt-1 pb-3 text-sm font-medium text-muted-foreground">Settings</DialogTitle>
           <Tabs.List activateOnFocus className="flex flex-col gap-0.5">
@@ -93,6 +104,6 @@ export function SettingsDialog({ open, onOpenChange }: AppDialogProps) {
           </Tabs.Panel>
         ))}
       </Tabs.Root>
-    </PanelDialog>
+    </SelectSettingsTab>
   );
 }

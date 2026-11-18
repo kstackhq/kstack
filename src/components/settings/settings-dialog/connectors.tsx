@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The Settings dialog's Connectors tab: the services Kstack signs in to, then
-// the ones it can.
+// The Settings dialog's Connectors tab: every service Kstack can sign in to,
+// in one alphabetical list, each connected or not.
 import { Button } from '@kubetail/ui/elements/button';
 import {
   DropdownMenu,
@@ -27,36 +27,18 @@ import { Ellipsis, ExternalLink } from 'lucide-react';
 import { VisibleText } from '@/components/primitives/visible-text';
 import { type Connector, useConnectors } from '@/lib/connectors';
 
-import { Group } from './group';
+import { Intro } from './group';
 
 export function ConnectorsSettings() {
-  const connectors = useConnectors();
+  const connectors = useConnectors().toSorted((a, b) => a.name.localeCompare(b.name));
   return (
-    <>
-      <ConnectorGroup
-        title="Connected"
-        lede="Services Kstack signs in to. Providers and tools use their credentials."
-        connectors={connectors.filter((c) => c.connected)}
-      />
-      <ConnectorGroup
-        title="Available"
-        lede="Connect a service to use its credentials in Kstack."
-        connectors={connectors.filter((c) => !c.connected)}
-      />
-    </>
-  );
-}
-
-function ConnectorGroup({ title, lede, connectors }: { title: string; lede: string; connectors: Connector[] }) {
-  if (connectors.length === 0) return null;
-  return (
-    <Group title={title} lede={lede}>
+    <Intro lede="Accounts Kstack signs in to. Model providers and tools use their credentials.">
       <ul className="divide-y rounded-lg border">
         {connectors.map((c) => (
           <ConnectorRow key={c.id} connector={c} />
         ))}
       </ul>
-    </Group>
+    </Intro>
   );
 }
 

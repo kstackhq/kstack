@@ -16,7 +16,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { Group, InfoPopover, NoteRow } from './group';
+import { Group, InfoPopover, Intro, NoteRow } from './group';
 
 describe('Group', () => {
   it('names a group by its heading, with its lede and children', () => {
@@ -54,6 +54,20 @@ describe('Group', () => {
   it('draws a title alone', () => {
     render(<Group title="Appearance">body</Group>);
     expect(screen.getByRole('group', { name: 'Appearance' }).querySelector('p')).toBeNull();
+  });
+
+  it('draws an intro as its lede over its body, with no heading or group', () => {
+    render(
+      <Intro lede="Services Kstack signs in to.">
+        <ul>
+          <li>a row</li>
+        </ul>
+      </Intro>,
+    );
+    expect(screen.getByText('Services Kstack signs in to.')).toBeInTheDocument();
+    expect(screen.getByRole('listitem')).toHaveTextContent('a row');
+    expect(screen.queryByRole('heading')).toBeNull();
+    expect(screen.queryByRole('group')).toBeNull();
   });
 
   it('opens its note from the info icon', async () => {
