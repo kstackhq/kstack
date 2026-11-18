@@ -48,6 +48,8 @@ vi.mock('@/lib/permission-settings', () => ({
   }),
 }));
 
+vi.mock('./connectors', () => ({ ConnectorsSettings: () => <p>The connectors</p> }));
+
 const { ThemeProvider } = await import('@/lib/theme');
 const { SettingsDialog, TABS } = await import('./dialog');
 
@@ -123,6 +125,17 @@ describe('SettingsDialog', () => {
     expect(screen.getByRole('tabpanel')).toHaveTextContent(
       'This machine has no sandbox, so every command asks before it runs. Modes and rules apply only to sandboxed commands.',
     );
+  });
+
+  it('draws the Connectors tab', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole('tab', { name: 'Connectors' }));
+
+    const panel = screen.getByRole('tabpanel');
+    expect(panel).toHaveTextContent('The connectors');
+    expect(panel).not.toHaveTextContent('Coming soon');
   });
 
   // Each row's cache size is a live watch; it must not run behind another tab.

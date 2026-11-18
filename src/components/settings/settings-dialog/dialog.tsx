@@ -35,6 +35,7 @@ import { DialogClose, DialogTitle, PanelDialog } from '@/components/primitives/d
 import { type AppDialogProps } from '@/lib/dialog';
 
 import { ClustersSettings } from './clusters';
+import { ConnectorsSettings } from './connectors';
 import { GeneralSettings } from './general';
 import { PermissionSettings } from './permissions';
 import { SandboxSettings } from './sandbox';
@@ -44,7 +45,7 @@ import { SandboxSettings } from './sandbox';
 export const TABS: { label: string; icon: LucideIcon; content?: ComponentType }[] = [
   { label: 'General', icon: SlidersHorizontal, content: GeneralSettings },
   { label: 'Clusters', icon: Server, content: ClustersSettings },
-  { label: 'Connectors', icon: Plug },
+  { label: 'Connectors', icon: Plug, content: ConnectorsSettings },
   { label: 'Providers', icon: Sparkles },
   { label: 'Memory', icon: Brain },
   { label: 'Sandbox', icon: Container, content: SandboxSettings },
