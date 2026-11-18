@@ -259,4 +259,5 @@ usually just documentation in the wrong place.
 | 2026-11-15 | [designsync reads Figma over the REST API](2026-11-15-designsync-reads-figma-over-the-rest-api.md) | repo | Accepted |
 | 2026-11-15 | [Agent guides sit beside the components they describe](2026-11-15-agent-guides-sit-beside-the-components-they-describe.md) | repo | Accepted |
 | 2026-11-17 | [A sandboxed command reaches a cloud platform through a proxy on its run's one relay](2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md) | sidecar | Accepted |
+| 2026-11-17 | [A sandboxed command reaches AWS through a re-signing proxy](2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md) | sidecar | Accepted |
 | 2026-11-17 | [A sandboxed command reaches Azure through a token-injecting proxy](2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md) | sidecar | Accepted |

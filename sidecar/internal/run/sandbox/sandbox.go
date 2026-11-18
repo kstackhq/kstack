@@ -76,14 +76,14 @@ type Run struct {
 }
 
 // check is why r cannot start: its policy's Check, or a variable in its
-// environment that NeverEnv names. Both platforms' Command call it, so no
-// caller passes one by hand.
+// environment that NeverEnv names and that is not a mount's placeholder. Both
+// platforms' Command call it, so no caller passes one by hand.
 func (r Run) check() error {
 	if err := r.Policy.Check(); err != nil {
 		return err
 	}
 	for _, kv := range r.Env {
-		if name, _, _ := strings.Cut(kv, "="); Unpassable(name) {
+		if name, value, _ := strings.Cut(kv, "="); Unpassable(name) && !r.placeholder(name, value) {
 			return fmt.Errorf("%s may not pass into a sandboxed run", name)
 		}
 	}

@@ -1,10 +1,10 @@
 # internal/run — what confines one run
 
-Seven leaves that know no tool and no record: `loginshell` (the user's shell, read once a launch),
+Eight leaves that know no tool and no record: `loginshell` (the user's shell, read once a launch),
 `session` (one run's policy), `sandbox` (the machine's sandbox), `permissions` (the decision over an
 action), `kubeproxy` (the proxy a sandboxed command reaches its cluster through),
-`runproxy` (what every cloud platform's proxy shares, and the run's server) and `azureproxy` (Azure's).
-A tool imports these; none imports a tool. Posture and the tests that pin it:
+`runproxy` (what every cloud platform's proxy shares, and the run's server), `awsproxy` (AWS's) and
+`azureproxy` (Azure's). A tool imports these; none imports a tool. Posture and the tests that pin it:
 [`docs/security-model.md`](../../../docs/security-model.md).
 
 ## The login shell (`loginshell`)
@@ -75,7 +75,8 @@ winning, the run's own paths last.
 
 **`neverEnv` (`env.go`) is the one list of variables that may never pass** (agent sockets,
 `DOCKER_HOST`, tokens, loader variables, shell startup hooks, every `AWS_`, `ARM_` and `AZURE_`
-but `AZURE_CONFIG_DIR`) →
+but `AZURE_CONFIG_DIR`). **`Run.check` passes one only as a placeholder** (`placeholders.go`): an
+exact name holding the value AWS's mount writes, so a real key fails the run →
 [the sandbox's own environment](../../../docs/security/2026-10-02-the-sandboxs-own-environment.md).
 
 **The zones are Kstack's lists** (`lists.go`, `lists_linux.go`, `lists_darwin.go`): `System`,
@@ -285,3 +286,23 @@ sign-in sentence. `rewrite.go` points `Location`, `Azure-AsyncOperation`, `Opera
 and the top-level `nextLink` at the door. A `429`, which `az` retries, is answered `403`. →
 [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md),
 [record](../../../docs/security/2026-11-17-azure-through-the-proxy.md).
+
+## The AWS proxy (`awsproxy`)
+
+**`internal/run/awsproxy` re-signs** →
+[ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md).
+The run's key id is `KSTACK` and its grant's token. The handler reads service and region from the
+SigV4 scope (`scope.go`), refuses a service off `services.go`'s table, drops the sandbox's
+signature, and signs the request it builds for the table's host with the user's credentials
+(`Identity`, `forward.go`). The classifier (`classify.go`) reads the operation only where the
+row's protocol names it, refusing a request that names it elsewhere or twice, then checks refused,
+class 6, class 5, then a read, and asks for the rest; a read naming another account's bucket,
+registry or template URL asks, against the login's own buckets (`Buckets`, one list shared by its
+runs, trusted only while fresh). An `x-amz` header
+off `headers.go`'s list, a forwarded header sent twice, a streamed or multipart upload, and a body
+that is not text are refused,
+in the shape its service's clients read an error (`refuse.go`). An error answer is read whole and
+checked for the user's key; a dead credential's code calls `Drop` before that check,
+and forgets the bucket list, since the next login may be another account's (`readError`, which the
+bucket list reads its errors through too). Adding a row or a header is a
+security change.

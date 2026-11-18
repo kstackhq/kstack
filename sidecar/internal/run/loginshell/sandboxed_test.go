@@ -474,3 +474,15 @@ func TestTheShellKeepsAzuresConfigDir(t *testing.T) {
 	}, "/scratch")
 	assert.Equal(t, []string{"AZURE_CONFIG_DIR=/home/ana/.azure-work", "KEPT=yes", "TMPDIR=/scratch"}, got)
 }
+
+// The sandboxed shell starts from the process's environment, so a real AWS key
+// the user exported stays out of it, though a cloud platform's mount may set
+// the same names in a command's run.
+func TestTheSandboxedShellDropsAWSCredentials(t *testing.T) {
+	env := sandboxedEnv([]string{
+		"PATH=/usr/bin", "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+		"AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "AWS_REGION=eu-west-1",
+	}, "/tmp/scratch")
+
+	assert.Equal(t, []string{"PATH=/usr/bin", "TMPDIR=/tmp/scratch"}, env)
+}

@@ -18,10 +18,12 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -35,6 +37,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -578,12 +581,7 @@ func TestASandboxedCommandReachesACloudPlatformThroughTheDoor(t *testing.T) {
 	e.askAgain(t, chatID, false, "reach the cloud platform", llm.StagedCall("Bash", bashInput(
 		`door=$(grep -o '127\.0\.0\.1:[0-9]*' "$KUBECONFIG" | head -n 1); `+
 			`curl -s -o /dev/null -w '%{http_code}' -H "X-Fake-Token: none" "http://$door/read"; echo " $FAKE_CLOUD_URL"`)))
-	var result string
-	require.Eventually(t, func() bool {
-		err := e.db.QueryRow(`SELECT coalesce(result, '') FROM tool_calls WHERE tool_name = 'Bash' AND status IN ('succeeded', 'failed')
-			ORDER BY started_at DESC LIMIT 1`).Scan(&result)
-		return err == nil && strings.Contains(result, "401")
-	}, e2eConverge, 10*time.Millisecond, "the second command's 401")
+	result := e.lastBashResult(t, "401")
 	assert.NotContains(t, result, "http://", "a run with the switch off holds no route")
 	assert.Empty(t, cloud.seen)
 }
@@ -765,4 +763,65 @@ func TestAzureBesideTheCluster(t *testing.T) {
 	assert.Contains(t, row.result, "pod/")
 	assert.Contains(t, row.result, "vm-1")
 	assert.NotContains(t, row.result, "twice:")
+}
+
+// awsLogin is the user's AWS login for an end-to-end run: these credentials,
+// in eu-west-1.
+type awsLogin aws.Credentials
+
+func (l awsLogin) Credentials(context.Context) (aws.Credentials, error) {
+	return aws.Credentials(l), nil
+}
+func (awsLogin) Drop()          {}
+func (awsLogin) Region() string { return "eu-west-1" }
+
+// With AWS turned on through the wire, a sandboxed curl signing with the run's
+// variables reads unasked, and a change waits on one request and reaches AWS
+// once approved, signed with the user's credentials; kubectl still reads the
+// cluster. With the switch off the run holds no AWS variable.
+func TestASandboxedCommandReachesAWS(t *testing.T) {
+	// Each request AWS got: its host, its body and who signed it.
+	seen := make(chan string, 8)
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		signer, _, _ := strings.Cut(r.Header.Get("Authorization"), "/")
+		seen <- r.Host + " " + string(body) + " " + signer
+		_, _ = io.WriteString(w, "<DescribeInstancesResponse/>")
+	}))
+	t.Cleanup(upstream.Close)
+	client := &http.Client{Transport: &http.Transport{
+		// Every host of the table dials the test's upstream.
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, upstream.Listener.Addr().String())
+		},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // the test's own upstream
+	}}
+	login := awsLogin{AccessKeyID: "AKIAIOSFODNN7EXAMPLE", SecretAccessKey: "wJalrXUtnFEMIK7MDENGbPxRfiCYzzKEY"}
+	e := startE2E(t, func(c *Config) { c.cloudPlatforms = []bash.CloudPlatform{bash.NewAWS(login, client)} })
+	raw := graphql(t, e.url, `mutation { sandboxCloudAccessSet(target: AWS, on: true) { target on } }`)
+	require.Contains(t, raw, `{"target":"AWS","on":true}`, raw)
+
+	curl := `curl -sS --aws-sigv4 aws:amz:eu-west-1:ec2 --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" `
+	chatID := e.ask(t, "reach AWS", llm.StagedCall("Bash", bashInput(
+		curl+`-d Action=DescribeInstances "$AWS_ENDPOINT_URL/"; echo; `+curl+`-d Action=StopInstances "$AWS_ENDPOINT_URL/"; echo; kubectl get pods -o name`)))
+
+	signed := "AWS4-HMAC-SHA256 Credential=" + login.AccessKeyID
+	assert.Equal(t, "ec2.eu-west-1.amazonaws.com Action=DescribeInstances "+signed, testutil.Recv(t, seen, "the read"))
+	w := e.clusterWrite(t, "pending")
+	require.NotNil(t, w.request.Cloud)
+	assert.Equal(t, permissions.AWS, w.request.Action.Target)
+	assert.Equal(t, "AWS: call ec2:StopInstances in eu-west-1", w.request.Action.Summary)
+	assert.Empty(t, seen, "nothing reaches AWS before the user decides")
+	raw = graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", decision: Once) }`)
+	require.Contains(t, raw, `"approvalDecide":true`, raw)
+	assert.Equal(t, "ec2.eu-west-1.amazonaws.com Action=StopInstances "+signed, testutil.Recv(t, seen, "the change"))
+	row := e.bashCall(t, "succeeded", "failed")
+	assert.Contains(t, row.result, "<DescribeInstancesResponse/>")
+	assert.Contains(t, row.result, "pod/")
+
+	raw = graphql(t, e.url, `mutation { sandboxCloudAccessSet(target: AWS, on: false) { target on } }`)
+	require.Contains(t, raw, `{"target":"AWS","on":false}`, raw)
+	e.askAgain(t, chatID, false, "reach AWS", llm.StagedCall("Bash", bashInput(`echo "aws names: $(env | grep -c '^AWS_')"`)))
+	e.lastBashResult(t, "aws names: 0")
+	assert.Empty(t, seen)
 }

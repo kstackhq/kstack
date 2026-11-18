@@ -1023,16 +1023,37 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   sandbox starts somewhere no unasked write reaches unless the user names the workspace, or the
   request says when the directory holds config a tool would run.
 
-- **Let a sandboxed command reach the user's cloud accounts without holding a credential.** A
-  sandboxed run reaches Azure Resource Manager alone, through its door, and no other cloud API:
-  `~/.aws`, `~/.config/gcloud`, `~/.azure` and `~/.config/gh` are denied always and no credential
-  variable passes, so an agent cannot read the AWS or Google Cloud account around a cluster or the
-  repository behind a deploy. Specified in `docs/specs/cloud-proxies/` on
+- **Let a sandboxed command reach the user's GitHub and Google Cloud accounts without holding a
+  credential.** AWS ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md))
+  and Azure Resource Manager are built. A sandboxed run reaches no other cloud API:
+  `~/.config/gcloud` and `~/.config/gh` are denied always and no credential variable passes, so an
+  agent cannot read the Google Cloud account around a cluster or the repository behind a deploy.
+  Specified in `docs/specs/cloud-proxies/` on
   [#940](https://github.com/kstackhq/kstack/pull/940), for [#935](https://github.com/kstackhq/kstack/issues/935) and
-  [#931](https://github.com/kstackhq/kstack/issues/931) to
-  [#934](https://github.com/kstackhq/kstack/issues/934): a proxy per cloud platform in the sidecar
+  [#932](https://github.com/kstackhq/kstack/issues/932) and
+  [#933](https://github.com/kstackhq/kstack/issues/933): a proxy per cloud platform in the sidecar
   behind the run's one relay, a switch per cloud platform that is off by default, and a gate that
   asks for anything but a read.
+
+- **A narrower AWS identity.** A sandboxed command reaches AWS as the sidecar's default chain,
+  with every permission the login has. Wanted: a read-only role per profile that the proxy
+  assumes, and the profile the chat's kubeconfig names in its `exec` block.
+
+- **More AWS services, a row at a time.** `run/awsproxy/services.go` lists thirteen. Each new
+  row names its class 6 reads: `secretsmanager` `GetSecretValue` and `BatchGetSecretValue`;
+  `ssm` `GetParameter`, `GetParameters`, `GetParametersByPath` and `GetParameterHistory` with
+  `WithDecryption`; `lambda` `GetFunctionConfiguration` and `ListFunctions` (the environment),
+  and `GetFunction`, or a refusal, since it answers a presigned URL to the code; `ecs`
+  `DescribeTaskDefinition` (the container environment).
+
+- **Skip the EC2 metadata probe when no AWS profile names a credential.** With no AWS
+  configuration, the default chain falls through to the EC2 metadata endpoint, which takes
+  seconds to fail off EC2, on each sandboxed AWS request. Disabling it outright would break a
+  Kstack on an EC2 machine with an instance role, as the EKS plugin's chain uses one.
+
+- **S3 uploads and buckets the user names.** No file is uploaded to S3 from the sandbox, and a
+  login without `s3:ListAllMyBuckets` is asked for every bucket read. Wanted: uploads to a
+  bucket the user names in Settings, and buckets named there as the login's own.
 
 - **Rules, modes and durations for a cloud platform's actions.** Every change a sandboxed command
   sends to a cloud platform asks, Once or Deny: no rule, mode or duration reaches one
@@ -1044,8 +1065,9 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   `sandboxCloudAccessSet` are served, and nothing draws them: the switches wait for the new settings
   panel. Each turns on behind a confirm naming the cloud platform and what of its stored data is
   read unasked (step 1 of [the cloud
-  proxies](specs/cloud-proxies/1-shared-pieces.md#6-the-consent-switch)). Azure's
-  line: *Stored data is not reached; an app's settings and a deployment's parameters ask first.*
+  proxies](specs/cloud-proxies/1-shared-pieces.md#6-the-consent-switch)). AWS's line: *An object's
+  contents ask first.* Azure's line: *Stored data is not reached; an app's settings and a
+  deployment's parameters ask first.*
 
 - **Azure's data plane.** A sandboxed `az` reaches Resource Manager alone: `az storage blob`,
   `az keyvault secret` and `az acr login` fail with the proxy's message
