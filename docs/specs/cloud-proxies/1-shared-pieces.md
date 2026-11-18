@@ -571,7 +571,7 @@ not an approval path.
 - **One switch.** The Sandbox section of Settings gains *Cloud access*: a row per cloud platform the
   wire lists, a switch, and a confirm before it turns on, as the chat's network switch has.
   The confirm says, for the named cloud platform: sandboxed commands read your account without
-  asking; what they read is sent to the model's cloud platform; with network on a command can send
+  asking; what they read is sent to the model's provider; with network on a command can send
   it anywhere; a change asks first; nothing that answers a credential works. Then one line
   that is the cloud platform's own, held by the webview beside its name: what of its stored data is
   read unasked and what asks (*Private repositories are read without asking*; *An object's
@@ -796,7 +796,7 @@ the code three protections rest on.
 
 **What it sets up for the cloud platforms to widen**, each recorded in that cloud platform's own
 step: with a switch on, a sandboxed command reads the metadata and state the user's login reads, on
-the model's word, unasked, and the answer reaches the model's cloud platform; with network on a
+the model's word, unasked, and the answer reaches the model's provider; with network on a
 command can send it anywhere. This is the cluster-read decision ([the sandbox is the
 gate](../../adr/2026-09-28-the-sandbox-is-the-gate-for-a-sandboxed-command.md)) applied to an
 account, behind a switch the cluster does not need.
