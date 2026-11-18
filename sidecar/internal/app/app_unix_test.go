@@ -30,6 +30,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -42,6 +43,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/run/azureproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
@@ -584,4 +586,183 @@ func TestASandboxedCommandReachesACloudPlatformThroughTheDoor(t *testing.T) {
 	}, e2eConverge, 10*time.Millisecond, "the second command's 401")
 	assert.NotContains(t, result, "http://", "a run with the switch off holds no route")
 	assert.Empty(t, cloud.seen)
+}
+
+const (
+	azSub    = "00000000-0000-0000-0000-000000000001"
+	azTenant = "0000000a-0000-0000-0000-000000000000"
+	// azConverge bounds a command running az, whose first run in a fresh
+	// configuration directory takes seconds, more on a loaded runner.
+	azConverge = 2 * time.Minute
+)
+
+// fakeAzLogin is the user's az as Azure's mount reads it: signed into one
+// subscription, its token a known string.
+type fakeAzLogin struct{}
+
+func (fakeAzLogin) Account(context.Context) (azureproxy.Account, bool) {
+	return azureproxy.Account{
+		Cloud: azureproxy.Cloud{Name: "AzureCloud", Endpoints: map[string]string{
+			"resourceManager":           "https://management.azure.com/",
+			"activeDirectory":           "https://login.microsoftonline.com",
+			"activeDirectoryResourceId": "https://management.core.windows.net/",
+		}},
+		Subscriptions: []azureproxy.Subscription{{ID: azSub, Name: "Pay-As-You-Go", TenantID: azTenant, IsDefault: true}},
+	}, true
+}
+
+func (fakeAzLogin) Token(context.Context, string) (string, error) { return "users-own-arm-token", nil }
+func (fakeAzLogin) Drop(string, string)                           {}
+
+// fakeARM is Resource Manager over TLS: two pages of AKS clusters, one VM,
+// and a resource group delete Azure finishes after one poll. Its polls say
+// Retry-After 1: az reads 0 as unset and waits its default 30 s. seen is
+// each request's method and path.
+type fakeARM struct {
+	srv  *httptest.Server
+	mu   sync.Mutex
+	seen []string
+}
+
+func newFakeARM(t *testing.T) *fakeARM {
+	f := &fakeARM{}
+	f.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.seen = append(f.seen, r.Method+" "+r.URL.Path)
+		polls := 0
+		for _, s := range f.seen {
+			if strings.Contains(s, "/operationresults/") {
+				polls++
+			}
+		}
+		f.mu.Unlock()
+		if r.Header.Get("Authorization") != "Bearer users-own-arm-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		p := strings.ToLower(r.URL.Path)
+		switch {
+		case strings.HasSuffix(p, "/managedclusters") && r.URL.Query().Get("page") == "":
+			_, _ = io.WriteString(w, `{"value": [{"name": "aks-1", "location": "westus"}], "nextLink": "https://management.azure.com`+r.URL.Path+`?api-version=2024-05-01&page=2"}`)
+		case strings.HasSuffix(p, "/managedclusters"):
+			_, _ = io.WriteString(w, `{"value": [{"name": "aks-2", "location": "westus"}]}`)
+		case strings.HasSuffix(p, "/virtualmachines"):
+			_, _ = io.WriteString(w, `{"value": [{"name": "vm-1", "location": "westus"}]}`)
+		case r.Method == http.MethodDelete:
+			w.Header().Set("Location", "https://management.azure.com/subscriptions/"+azSub+"/operationresults/tok?api-version=2024-11-01")
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusAccepted)
+		case strings.Contains(p, "/operationresults/") && polls < 2:
+			w.Header().Set("Location", "https://management.azure.com"+r.URL.RequestURI())
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusAccepted)
+		case strings.Contains(p, "/operationresults/"):
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error": {"code": "NotFound", "message": "none"}}`)
+		}
+	}))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (f *fakeARM) requests() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.seen)
+}
+
+// startAzureE2E is startE2E with Azure's mount over the fake login and
+// arm, its switch turned on, and the az KSTACK_TEST_AZ names on the run's
+// PATH. It skips without one: a runner image's own az is any version, and
+// may be a launcher that finds its Python by a path relative to itself.
+func startAzureE2E(t *testing.T, arm *fakeARM) *e2e {
+	t.Helper()
+	az := os.Getenv("KSTACK_TEST_AZ")
+	if az == "" {
+		t.Skip("KSTACK_TEST_AZ names no az")
+	}
+	bin, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, os.Symlink(az, filepath.Join(bin, "az")))
+	e := startE2E(t, func(c *Config) {
+		c.cloudPlatforms = []bash.CloudPlatform{bash.NewAzure(fakeAzLogin{}, testutil.DialAnywhere(arm.srv))}
+		c.launchPath = append([]string{bin}, c.launchPath...)
+	})
+	raw := graphql(t, e.url, `mutation { sandboxPathInclude(dir: "`+bin+`", target: "`+bin+`") { dir } }`)
+	require.Contains(t, raw, `"dir":"`+bin+`"`, raw)
+	raw = graphql(t, e.url, `mutation { sandboxCloudAccessSet(target: Azure, on: true) { target on } }`)
+	require.Contains(t, raw, `{"target":"Azure","on":true}`, raw)
+	return e
+}
+
+// az reads Resource Manager in the sandbox across a paged answer, unasked.
+func TestAzListsInTheSandbox(t *testing.T) {
+	arm := newFakeARM(t)
+	e := startAzureE2E(t, arm)
+	e.ask(t, "list azure", llm.StagedCall("Bash", bashInput(`az aks list --query '[].name' -o tsv && az vm list --query '[].name' -o tsv`)))
+
+	row := e.bashCallWithin(t, azConverge, "succeeded", "failed")
+	assert.Equal(t, "succeeded", row.status, row.result)
+	assert.Contains(t, row.result, "aks-1\naks-2\nvm-1")
+	assert.NotContains(t, row.result, "users-own-arm-token")
+}
+
+// A resource group delete waits on one request; denied, az fails and Azure
+// sees no DELETE.
+func TestAnAzChangeAsks(t *testing.T) {
+	arm := newFakeARM(t)
+	e := startAzureE2E(t, arm)
+	e.ask(t, "delete azure group", llm.StagedCall("Bash", bashInput(`az group delete -n rg --yes`)))
+
+	w := e.clusterWriteWithin(t, azConverge, "pending")
+	require.NotNil(t, w.request.Cloud)
+	assert.Equal(t, permissions.Azure, w.request.Action.Target)
+	assert.Equal(t, permissions.Destructive, w.request.Action.Class)
+	assert.Equal(t, "Azure: delete resource group rg in Pay-As-You-Go", w.request.Action.Summary)
+	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", decision: Deny) }`)
+	require.Contains(t, raw, `"approvalDecide":true`, raw)
+
+	row := e.bashCallWithin(t, azConverge, "succeeded", "failed")
+	assert.Contains(t, row.result, "kstack: the user did not approve this request.")
+	for _, r := range arm.requests() {
+		assert.False(t, strings.HasPrefix(r, http.MethodDelete), r)
+	}
+}
+
+// Approved, the delete reaches Azure once and az polls its result through
+// the door to the end.
+func TestAnApprovedAzChangePollsToItsEnd(t *testing.T) {
+	arm := newFakeARM(t)
+	e := startAzureE2E(t, arm)
+	e.ask(t, "delete azure group for real", llm.StagedCall("Bash", bashInput(`az group delete -n rg --yes && echo deleted`)))
+
+	w := e.clusterWriteWithin(t, azConverge, "pending")
+	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", decision: Once) }`)
+	require.Contains(t, raw, `"approvalDecide":true`, raw)
+
+	row := e.bashCallWithin(t, azConverge, "succeeded", "failed")
+	assert.Contains(t, row.result, "deleted", row.result)
+	assert.Equal(t, []string{
+		"DELETE /subscriptions/" + azSub + "/resourcegroups/rg",
+		"GET /subscriptions/" + azSub + "/operationresults/tok",
+		"GET /subscriptions/" + azSub + "/operationresults/tok",
+	}, arm.requests())
+}
+
+// One run holds the cluster and Azure: kubectl and az each read, and no
+// variable is set two ways.
+func TestAzureBesideTheCluster(t *testing.T) {
+	arm := newFakeARM(t)
+	e := startAzureE2E(t, arm)
+	e.ask(t, "kubectl and az", llm.StagedCall("Bash", bashInput(
+		`kubectl get pods -o name && az vm list --query '[].name' -o tsv && env | cut -d= -f1 | sort | uniq -d | sed 's/^/twice: /'`)))
+
+	row := e.bashCallWithin(t, azConverge, "succeeded", "failed")
+	assert.Equal(t, "succeeded", row.status, row.result)
+	assert.Contains(t, row.result, "pod/")
+	assert.Contains(t, row.result, "vm-1")
+	assert.NotContains(t, row.result, "twice:")
 }

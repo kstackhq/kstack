@@ -159,6 +159,9 @@ Full picture: [`docs/security-model.md`](../docs/security-model.md).
   tokens.
 - **Restored identity is display-only.** Keep `UnverifiedIdentity` and `Authenticated` out of
   authorization.
+- **The sidecar runs the user's `az`** (`services/azureauth`), off `PATH`, with fixed arguments but
+  for a tenant the account holds; its output is never logged or kept, and a token it gives is held
+  in memory under `safe.AddSecret`. It runs no earlier than a run that mounts Azure.
 
 ## Memory (`internal/services/memory`)
 
@@ -169,6 +172,20 @@ everywhere`, after a dry check. **A note the user wrote is a request; one the mo
 information.** → [ADR: memory is
 rows](../docs/adr/2026-09-24-memory-is-rows-scoped-to-a-cluster-or-every-cluster.md), [security
 record](../docs/security/2026-09-24-memory.md).
+
+## Azure (`internal/services/azureauth`)
+
+**The user's `az` login, for Azure's mount**, in `run/azureproxy`'s types. `Account` discovers it
+(`az version`, `az account list`, `az cloud show`) when a run first asks, and again once `azureProfile.json`,
+`config` or `clouds.config` changes. One discovery runs at a time, apart from any run's context: a
+run with no account waits for it until its own context ends, one with an account does not. A
+discovery whose `az` did not run to an answer (`ErrNotRun`: none found, or cut off at its bound)
+keeps nothing; an `az` before 2.73, which asks IMDS, is no login. `Token` runs `az account
+get-access-token` per tenant, one at a time, kept until five minutes before expiry (`expires_on`,
+else `expiresOn` from an `az` before 2.54); `Drop` forgets one Azure answered `401`. **Each
+discovery drops every held token**, and a token `az` gave while one completed is not kept: the user
+may have signed in as someone else. Every failure is `ErrNoToken`. →
+[ADR](../docs/adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md).
 
 ## Auth / identity (`internal/services/auth`)
 

@@ -414,6 +414,7 @@ jobs:
         with:
           setup-go: "true"
           setup-sandbox: "true"
+          install-az: "true"
           go-cache-key: ${{ github.job }}-${{ matrix.runner }}
           go-cache-mode: ${{ env.CACHE_MODE }}
       # Go's test cache keys a test on the files it reads by modification time,

@@ -70,3 +70,4 @@ KSTACK_FAULTS='watch pods=stalled' pnpm tauri dev      # a stale watch
 | `KSTACK_HOST_TRIPLE` | Names the Rust host triple for `scripts/build-sidecar.go`, so a build can run without Rust installed. CI sets it. |
 | `SIDECAR_VERSION` | Stamped into the sidecar by `scripts/build-sidecar.go` (`internal/lib/version`). |
 | `KSTACK_REQUIRE_SANDBOX` | `1` fails a Go test that needs a sandbox the machine lacks, instead of skipping it. CI sets it. |
+| `KSTACK_TEST_AZ` | The `az` the app's Azure tests run in the sandbox, 2.73 or later; without it they skip. CI sets it on one Linux leg. |

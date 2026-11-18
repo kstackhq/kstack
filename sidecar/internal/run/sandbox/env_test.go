@@ -20,12 +20,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// A rule matches its name exactly, or every name its prefix starts.
+// A rule matches its name exactly, or every name its prefix starts but those
+// it excepts.
 func TestUnpassableMatchesNamesAndPrefixes(t *testing.T) {
-	rules := []EnvRule{{Name: "SECRET"}, {Prefix: "CLOUD_"}}
+	rules := []EnvRule{{Name: "SECRET"}, {Prefix: "CLOUD_", Except: []string{"CLOUD_DIR"}}}
 	for name, want := range map[string]bool{
 		"SECRET": true, "SECRETS": false, "MY_SECRET": false,
 		"CLOUD_TOKEN": true, "CLOUD_": true, "CLOUD": false,
+		"CLOUD_DIR": false, "CLOUD_DIRS": true,
 		"PATH": false,
 	} {
 		assert.Equal(t, want, unpassable(rules, name), name)
@@ -33,16 +35,21 @@ func TestUnpassableMatchesNamesAndPrefixes(t *testing.T) {
 }
 
 // The rules name what lets a run reach past the sandbox or change what a
-// program loads, and every AWS variable.
+// program loads, every AWS variable, and every Azure variable but
+// AZURE_CONFIG_DIR.
 func TestNeverEnvHoldsTheRules(t *testing.T) {
 	for _, name := range []string{
 		"SSH_AUTH_SOCK", "GITHUB_TOKEN", "GH_TOKEN", "DOCKER_HOST", "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
 		"DYLD_FRAMEWORK_PATH", "LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "BASH_ENV", "ENV", "PROMPT_COMMAND",
 		"AWS_SESSION_TOKEN", "AWS_PROFILE",
+		"AZURE_CLIENT_SECRET", "AZURE_CLIENT_CERTIFICATE_PASSWORD", "AZURE_STORAGE_CONNECTION_STRING",
+		"AZURE_DEVOPS_EXT_PAT", "ARM_CLIENT_SECRET", "ARM_ACCESS_KEY",
+		"AAD_SERVICE_PRINCIPAL_CLIENT_SECRET", "MSI_SECRET",
 	} {
 		assert.True(t, Unpassable(name), name)
 	}
 	assert.False(t, Unpassable("PATH"))
+	assert.False(t, Unpassable("AZURE_CONFIG_DIR"), "the one Azure name a run may hold")
 }
 
 // NeverEnv hands out a copy, so no caller changes the rules.

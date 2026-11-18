@@ -20,9 +20,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
 // The build's cloud platforms, in Settings' order.
 func TestTheBuildsCloudPlatforms(t *testing.T) {
-	assert.Empty(t, cloudTargets(builtCloudPlatforms()))
+	assert.Equal(t, []permissions.Target{permissions.Azure}, cloudTargets(builtCloudPlatforms()))
 }

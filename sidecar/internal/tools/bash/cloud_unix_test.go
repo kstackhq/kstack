@@ -18,10 +18,13 @@ package bash
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -273,4 +276,75 @@ func TestTheRunEndsEveryGrant(t *testing.T) {
 	assert.Empty(t, a.answers)
 	testutil.Wait(t, sent, "the request to end")
 	assert.Empty(t, a.asked, "nothing is asked once the run is over")
+}
+
+// tlsOverSocket is a TLS client of the run's socket trusting roots.
+func tlsOverSocket(r *sandboxedRun, roots *x509.CertPool) *http.Client {
+	c := overSocket(r)
+	c.Transport.(*http.Transport).TLSClientConfig = &tls.Config{RootCAs: roots, ServerName: "127.0.0.1"}
+	return c
+}
+
+// A run with a TLS route writes ca.pem where the mount was told it would be,
+// and the door answers TLS with the certificate it holds.
+func TestARunWithATLSRouteHasItsCertificate(t *testing.T) {
+	p := newFakePlatform(permissions.Azure, "127.0.0.1:6443")
+	p.tls = true
+	r := startRun(t, cloudTool(t, switchesOn(permissions.Azure), p), chatRuntime(t, session.Chat, nil), false)
+	m := testutil.Recv(t, p.mounts, "the mount")
+	assert.Equal(t, r.dir.caFile(), m.run.CAFile)
+
+	bundle, err := os.ReadFile(r.dir.caFile())
+	require.NoError(t, err)
+	roots := x509.NewCertPool()
+	require.True(t, roots.AppendCertsFromPEM(bundle))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://127.0.0.1:6443/x", nil)
+	require.NoError(t, err)
+	req.Header.Set(tokenHeader, m.grant.Token())
+	resp, err := tlsOverSocket(r, roots).Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	assert.Equal(t, "read azure", string(b))
+}
+
+// A run with no TLS route has no ca.pem, and its door closes a handshake.
+func TestARunWithNoTLSRouteHasNoCertificate(t *testing.T) {
+	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
+	r := startRun(t, cloudTool(t, switchesOn(permissions.AWS), p), chatRuntime(t, session.Chat, nil), false)
+	testutil.Recv(t, p.mounts, "the mount")
+	assert.NoFileExists(t, r.dir.caFile())
+
+	_, err := tlsOverSocket(r, x509.NewCertPool()).Get("https://127.0.0.1:6443/x")
+	assert.Error(t, err)
+	code, _ := send(t, r, http.MethodGet, "127.0.0.1:6443", "")
+	assert.Equal(t, http.StatusUnauthorized, code, "plain HTTP is still served")
+}
+
+// Through the real sandbox, curl trusting ca.pem alone reaches a TLS route.
+func TestACurlTrustsTheRunsCertificate(t *testing.T) {
+	tl := confiningTool(t)
+	withTool(t, tl, "curl")
+	p := newFakePlatform(permissions.Azure)
+	p.tls, p.exports, p.atDoor = true, true, true
+	tl.cloud = Cloud{Platforms: []CloudPlatform{p}, On: switchesOn(permissions.Azure).On}
+
+	text, isError := tl.Run(t.Context(), chatRuntime(t, session.Chat, nil),
+		command(`curl -sS --cacert "$FAKE_CA" -H "`+tokenHeader+`: $FAKE_TOKEN" "https://$FAKE_DOOR/x"`))
+
+	require.False(t, isError, text)
+	assert.Equal(t, "read azure", text)
+}
+
+// A ca.pem that cannot be written fails the run, and ends the grant mounted.
+func TestABundleThatCannotBeWrittenFailsTheRun(t *testing.T) {
+	p := newFakePlatform(permissions.Azure, "127.0.0.1:6443")
+	p.tls = true
+	p.onMount = func(run CloudRun) { _ = os.WriteFile(run.CAFile, nil, 0o600) }
+	tl := cloudTool(t, switchesOn(permissions.Azure), p)
+	rt := chatRuntime(t, session.Chat, nil)
+	_, err := tl.sandboxedRunFor(t.Context(), tl.sandboxer, rt, tools.WorkspacePath(rt.Dir), false, session.NoNetwork)
+	require.Error(t, err)
+	m := testutil.Recv(t, p.mounts, "the mount")
+	assert.False(t, m.grant.Holds(m.grant.Token()))
 }

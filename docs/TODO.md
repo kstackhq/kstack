@@ -1024,9 +1024,10 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   request says when the directory holds config a tool would run.
 
 - **Let a sandboxed command reach the user's cloud accounts without holding a credential.** A
-  sandboxed run reaches no cloud API: `~/.aws`, `~/.config/gcloud`, `~/.azure` and `~/.config/gh`
-  are denied always and no credential variable passes, so an agent cannot read the account
-  around a cluster or the repository behind a deploy. Specified in `docs/specs/cloud-proxies/` on
+  sandboxed run reaches Azure Resource Manager alone, through its door, and no other cloud API:
+  `~/.aws`, `~/.config/gcloud`, `~/.azure` and `~/.config/gh` are denied always and no credential
+  variable passes, so an agent cannot read the AWS or Google Cloud account around a cluster or the
+  repository behind a deploy. Specified in `docs/specs/cloud-proxies/` on
   [#940](https://github.com/kstackhq/kstack/pull/940), for [#935](https://github.com/kstackhq/kstack/issues/935) and
   [#931](https://github.com/kstackhq/kstack/issues/931) to
   [#934](https://github.com/kstackhq/kstack/issues/934): a proxy per cloud platform in the sidecar
@@ -1043,7 +1044,18 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   `sandboxCloudAccessSet` are served, and nothing draws them: the switches wait for the new settings
   panel. Each turns on behind a confirm naming the cloud platform and what of its stored data is
   read unasked (step 1 of [the cloud
-  proxies](specs/cloud-proxies/1-shared-pieces.md#6-the-consent-switch)).
+  proxies](specs/cloud-proxies/1-shared-pieces.md#6-the-consent-switch)). Azure's
+  line: *Stored data is not reached; an app's settings and a deployment's parameters ask first.*
+
+- **Azure's data plane.** A sandboxed `az` reaches Resource Manager alone: `az storage blob`,
+  `az keyvault secret` and `az acr login` fail with the proxy's message
+  ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md)).
+
+- **Microsoft Graph for a sandboxed `az`.** `az ad` fails, and `az role assignment list` prints
+  ids without names.
+
+- **An Azure cloud the user registered.** A run serves the three public clouds alone; a user on
+  Azure Stack gets no account in the run.
 
 - **A cloud platform switch per chat.** `sandbox.<platform>` is global: a cloud platform on is on
   for every chat. Network is the chat's; a chat about one cluster has no need of another cloud.

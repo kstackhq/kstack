@@ -331,6 +331,13 @@ type bashRow struct {
 // answers its row.
 func (e *e2e) bashCall(t *testing.T, want ...string) bashRow {
 	t.Helper()
+	return e.bashCallWithin(t, e2eConverge, want...)
+}
+
+// bashCallWithin is bashCall waiting up to within, for a command slower than
+// the cluster's: az builds its command index on its first run in a run.
+func (e *e2e) bashCallWithin(t *testing.T, within time.Duration, want ...string) bashRow {
+	t.Helper()
 	var row bashRow
 	require.Eventually(t, func() bool {
 		err := e.db.QueryRow(`SELECT tc.status, tc.sandboxed, coalesce(tc.result, ''),
@@ -338,7 +345,7 @@ func (e *e2e) bashCall(t *testing.T, want ...string) bashRow {
 			FROM tool_calls tc LEFT JOIN approvals a ON a.tool_call_id = tc.id AND a.kind = 'call'
 			WHERE tc.tool_name = 'Bash'`).Scan(&row.status, &row.sandboxed, &row.result, &row.approvalID, &row.approvalStatus)
 		return err == nil && slices.Contains(want, row.status)
-	}, e2eConverge, 10*time.Millisecond, "a Bash call in %v", want)
+	}, within, 10*time.Millisecond, "a Bash call in %v", want)
 	return row
 }
 
@@ -353,12 +360,19 @@ type writeRow struct {
 // want, and answers its row.
 func (e *e2e) clusterWrite(t *testing.T, want ...string) writeRow {
 	t.Helper()
+	return e.clusterWriteWithin(t, e2eConverge, want...)
+}
+
+// clusterWriteWithin is clusterWrite waiting up to within, for a command
+// slower than the cluster's to send its change.
+func (e *e2e) clusterWriteWithin(t *testing.T, within time.Duration, want ...string) writeRow {
+	t.Helper()
 	var row writeRow
 	require.Eventually(t, func() bool {
 		var request string
 		err := e.db.QueryRow(`SELECT id, status, request FROM approvals WHERE kind = 'action'`).Scan(&row.id, &row.status, &request)
 		return err == nil && json.Unmarshal([]byte(request), &row.request) == nil && slices.Contains(want, row.status)
-	}, e2eConverge, 10*time.Millisecond, "a cluster write in %v", want)
+	}, within, 10*time.Millisecond, "a cluster write in %v", want)
 	return row
 }
 
