@@ -26,5 +26,7 @@ import (
 
 // The build's cloud platforms, in Settings' order.
 func TestTheBuildsCloudPlatforms(t *testing.T) {
-	assert.Equal(t, []permissions.Target{permissions.Azure}, cloudTargets(builtCloudPlatforms()))
+	assert.Equal(t, []permissions.Target{
+		permissions.AWS, permissions.Azure,
+	}, cloudTargets(builtCloudPlatforms()))
 }

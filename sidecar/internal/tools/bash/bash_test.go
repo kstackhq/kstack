@@ -1333,3 +1333,13 @@ func TestThePromptSaysWhatAnAllowKeeps(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "one allowed for the command runs unasked for the rest of that command alone.")
 	assert.Contains(t, sandboxPrompt, "a change from a background command come back `Forbidden`")
 }
+
+// The AWS paragraph says only what is AWS's own.
+func TestTheSandboxPromptSaysWhatIsAWSsOwn(t *testing.T) {
+	assert.Contains(t, sandboxPrompt, "Where `cloud` names `aws`, `aws` and AWS SDK clients reach the user's AWS account.")
+	assert.Contains(t, sandboxPrompt, "The run has one profile, the user's, so pass no `--profile`; pass `--region` when a command says no region is set.")
+	assert.Contains(t, sandboxPrompt, "Reading an object's contents asks like a change, and so does a read that names another account's bucket, registry or template URL")
+	assert.Contains(t, sandboxPrompt, "every bucket read asks when the login cannot list its own buckets.")
+	assert.Contains(t, sandboxPrompt, "`aws eks get-token`, `aws sts assume-role`, ECR logins and uploading a file to S3 do not work")
+	assert.Contains(t, sandboxPrompt, "A service the proxy does not reach is refused by name")
+}

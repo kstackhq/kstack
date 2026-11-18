@@ -19,6 +19,7 @@ package app
 import (
 	"net/http"
 
+	"github.com/kstackhq/kstack/sidecar/internal/services/awsauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/azureauth"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -27,6 +28,7 @@ import (
 // Settings' order.
 func builtCloudPlatforms() []bash.CloudPlatform {
 	return []bash.CloudPlatform{
+		bash.NewAWS(awsauth.New(), nil),
 		bash.NewAzure(azureauth.New(), http.DefaultTransport),
 	}
 }

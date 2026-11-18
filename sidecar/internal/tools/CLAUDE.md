@@ -300,7 +300,8 @@ proxy variable brings `NO_PROXY=127.0.0.1`. **A mount's rules**: every value com
 never the sidecar's environment; its grant takes `cloudLimits`; a file it writes goes through `writeNew`, 0600 and `O_EXCL`, under the run's directory,
 the tool home or `TMPDIR`, and holds a token or a placeholder, never a credential; a credential
 lives in a service under `services/`, resolved no earlier than a mount with the switch on, and held
-under `safe.AddSecret` until `safe.ForgetSecret`. →
+under `safe.AddSecret` until `safe.ForgetSecret`. AWS's is `aws.go`: one route at
+the loopback authority, `AWS_` placeholders and `<run>/aws/config`. →
 [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md),
 [the run's door](../../../docs/security/2026-11-17-the-runs-door.md).
 
