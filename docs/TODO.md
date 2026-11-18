@@ -1023,9 +1023,9 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   sandbox starts somewhere no unasked write reaches unless the user names the workspace, or the
   request says when the directory holds config a tool would run.
 
-- **A narrower AWS identity.** A sandboxed command reaches AWS as the sidecar's default chain,
-  with every permission the login has. Wanted: a read-only role per profile that the proxy
-  assumes, and the profile the chat's kubeconfig names in its `exec` block.
+- **A narrower AWS identity.** A sandboxed command reaches AWS as its cluster's profile, or the
+  sidecar's default chain, with every permission the login has. Wanted: a read-only role per
+  profile that the proxy assumes.
 
 - **More AWS services, a row at a time.** `run/awsproxy/services.go` lists thirteen. Each new
   row names its class 6 reads: `secretsmanager` `GetSecretValue` and `BatchGetSecretValue`;

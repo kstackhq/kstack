@@ -95,10 +95,10 @@ func TestCloudTargetsKeepTheBuildsOrder(t *testing.T) {
 func TestCloudPlatformsNeedASandbox(t *testing.T) {
 	sandboxed := sandbox.Status{Available: true}
 	configured := []bash.CloudPlatform{targetOnly(permissions.AWS)}
-	assert.Equal(t, cloudTargets(builtCloudPlatforms()), cloudTargets(cloudPlatformsFor(sandboxed, nil)))
-	assert.Equal(t, []permissions.Target{permissions.AWS}, cloudTargets(cloudPlatformsFor(sandboxed, configured)))
-	assert.Empty(t, cloudPlatformsFor(sandbox.Status{Reason: "no bwrap"}, nil))
-	assert.Empty(t, cloudPlatformsFor(sandbox.Status{}, configured))
+	assert.Equal(t, cloudTargets(builtCloudPlatforms(nil)), cloudTargets(cloudPlatformsFor(sandboxed, nil, nil)))
+	assert.Equal(t, []permissions.Target{permissions.AWS}, cloudTargets(cloudPlatformsFor(sandboxed, configured, nil)))
+	assert.Empty(t, cloudPlatformsFor(sandbox.Status{Reason: "no bwrap"}, nil, nil))
+	assert.Empty(t, cloudPlatformsFor(sandbox.Status{}, configured, nil))
 }
 
 // targetOnly is a cloud platform that names its target and mounts nothing.

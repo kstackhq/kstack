@@ -835,6 +835,9 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 			r.proxy.grant = newClusterGrant(r.claim, rt.Session, cluster.scopeContext, asker, refusal)
 		}
 		run := CloudRun{Port: port, Dir: r.dir.path, ToolHome: toolHome, TmpDir: r.dir.tmp, CAFile: r.dir.caFile(), Session: rt.Session}
+		if cluster != nil {
+			run.KubeContext = cluster.scopeContext
+		}
 		if cloudVars, err = r.proxy.mount(ctx, platforms, rt, background, run); err != nil {
 			r.end()
 			return nil, err

@@ -30,8 +30,9 @@ const (
 )
 
 var (
-	awsRegionRE = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]$`)
-	awsKeyIDRE  = regexp.MustCompile(`^` + regexp.QuoteMeta(AWSKeyIDPrefix) + `[0-9A-F]{64}$`)
+	awsRegionRE  = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]$`)
+	awsKeyIDRE   = regexp.MustCompile(`^` + regexp.QuoteMeta(AWSKeyIDPrefix) + `[0-9A-F]{64}$`)
+	awsProfileRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.@+:/-]{0,127}$`)
 )
 
 // AWSRegion is whether region is one of AWS's commercial partition, the only
@@ -44,6 +45,11 @@ func AWSRegion(region string) bool {
 	parts := strings.Split(region, "-")
 	return parts[0] != "cn" && !strings.HasPrefix(region, "us-gov-") && !strings.HasPrefix(parts[1], "iso")
 }
+
+// AWSProfile is whether profile is a name the AWS mount may write into the
+// run's config file as a section header: no bracket, space, comment mark or
+// line break that could end the header or start another.
+func AWSProfile(profile string) bool { return awsProfileRE.MatchString(profile) }
 
 // AWSConfigPath is the AWS config file a mount writes in the run directory
 // dir, which a client reads in place of one in the workspace.

@@ -24,16 +24,28 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/azureauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/gcpauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/githubauth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
 // builtCloudPlatforms are the cloud platforms this build reaches, in
-// Settings' order.
-func builtCloudPlatforms() []bash.CloudPlatform {
+// Settings' order. AWS reads each kube-context's profile through kc.
+func builtCloudPlatforms(kc *kubeconfig.Service) []bash.CloudPlatform {
 	return []bash.CloudPlatform{
-		bash.NewAWS(awsauth.New(), nil),
+		bash.NewAWS(awsLogins{kubeconfig: kc, logins: awsauth.New()}, nil),
 		bash.NewGitHub(githubauth.New(), githubproxy.GitHub()),
 		bash.NewGCP(gcpauth.New(nil), nil),
 		bash.NewAzure(azureauth.New(), http.DefaultTransport),
 	}
 }
+
+// awsLogins are the user's AWS logins by profile, and each kube-context's
+// profile off the kubeconfig.
+type awsLogins struct {
+	kubeconfig *kubeconfig.Service
+	logins     *awsauth.Logins
+}
+
+func (l awsLogins) Profile(kubeContext string) string { return l.kubeconfig.AWSProfile(kubeContext) }
+
+func (l awsLogins) Login(profile string) bash.AWSLogin { return l.logins.Login(profile) }

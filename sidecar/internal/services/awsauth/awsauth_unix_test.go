@@ -59,7 +59,7 @@ func profile(t *testing.T, region string, fail bool) (*Service, string) {
 		text += "region = " + region + "\n"
 	}
 	require.NoError(t, os.WriteFile(cfg, []byte(text), 0o600))
-	s := newService(func(ctx context.Context) (aws.Config, error) {
+	s := newService("", func(ctx context.Context) (aws.Config, error) {
 		return config.LoadDefaultConfig(ctx, config.WithSharedConfigFiles([]string{cfg}),
 			config.WithSharedCredentialsFiles([]string{filepath.Join(dir, "none")}),
 			config.WithSharedConfigProfile("kstack-test"))
@@ -119,15 +119,15 @@ func TestAHeldCredentialIsBlankedAndADroppedOneIsForgotten(t *testing.T) {
 func TestAFailedChainIsOneSentence(t *testing.T) {
 	s, _ := profile(t, "eu-west-1", true)
 	_, err := s.Credentials(context.Background())
-	assert.Equal(t, ErrNoLogin, err)
+	assert.ErrorIs(t, err, ErrNoLogin)
 }
 
 // A configuration that does not load, or names no chain, is no login.
 func TestAConfigurationThatDoesNotLoadIsNoLogin(t *testing.T) {
-	s := newService(func(context.Context) (aws.Config, error) { return aws.Config{}, errors.New("bad file") })
+	s := newService("", func(context.Context) (aws.Config, error) { return aws.Config{}, errors.New("bad file") })
 	assert.Empty(t, s.Region())
 	_, err := s.Credentials(context.Background())
-	assert.Equal(t, ErrNoLogin, err)
+	assert.ErrorIs(t, err, ErrNoLogin)
 	s.Drop()
 }
 
@@ -151,7 +151,7 @@ func (g *gated) Retrieve(context.Context) (aws.Credentials, error) {
 // holds.
 func TestDropWaitsForARetrievalInFlight(t *testing.T) {
 	g := &gated{entered: make(chan struct{}, 2), release: make(chan struct{}, 2)}
-	s := newService(func(context.Context) (aws.Config, error) {
+	s := newService("", func(context.Context) (aws.Config, error) {
 		return aws.Config{Credentials: aws.NewCredentialsCache(g)}, nil
 	})
 	t.Cleanup(s.Drop)
@@ -184,7 +184,7 @@ func TestDropWaitsForARetrievalInFlight(t *testing.T) {
 // A retrieval whose request ends while it waits its turn is no login.
 func TestARetrievalThatEndsWaitingIsNoLogin(t *testing.T) {
 	g := &gated{entered: make(chan struct{}, 1), release: make(chan struct{}, 1)}
-	s := newService(func(context.Context) (aws.Config, error) {
+	s := newService("", func(context.Context) (aws.Config, error) {
 		return aws.Config{Credentials: aws.NewCredentialsCache(g)}, nil
 	})
 	go func() { _, _ = s.Credentials(context.Background()) }()
@@ -192,7 +192,7 @@ func TestARetrievalThatEndsWaitingIsNoLogin(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := s.Credentials(ctx)
-	assert.Equal(t, ErrNoLogin, err)
+	assert.ErrorIs(t, err, ErrNoLogin)
 	g.release <- struct{}{}
 	t.Cleanup(s.Drop)
 }
@@ -202,7 +202,7 @@ func TestARetrievalThatEndsWaitingIsNoLogin(t *testing.T) {
 // what that refresh filled in.
 func TestACancelledRetrievalHoldsItsTurnUntilTheRefreshEnds(t *testing.T) {
 	g := &gated{entered: make(chan struct{}, 2), release: make(chan struct{}, 2)}
-	s := newService(func(context.Context) (aws.Config, error) {
+	s := newService("", func(context.Context) (aws.Config, error) {
 		return aws.Config{Credentials: aws.NewCredentialsCache(g)}, nil
 	})
 	t.Cleanup(s.Drop)
@@ -215,7 +215,7 @@ func TestACancelledRetrievalHoldsItsTurnUntilTheRefreshEnds(t *testing.T) {
 	}()
 	testutil.Recv(t, g.entered, "the refresh")
 	cancel()
-	assert.Equal(t, ErrNoLogin, testutil.Recv(t, gaveUp, "the caller giving up"))
+	assert.ErrorIs(t, testutil.Recv(t, gaveUp, "the caller giving up"), ErrNoLogin)
 
 	dropped := make(chan struct{})
 	go func() {
@@ -244,7 +244,7 @@ func TestAConfigurationIsReadAgainUntilItLoads(t *testing.T) {
 		`printf '{"Version":1,"AccessKeyId":"ASIAIOSFODNN7EXAMPLE","SecretAccessKey":"Hr5Jm9Kp3Lq7Ns2Tw6Vy`+rand.Text()+`"}'`+"\n"), 0o700))
 	cfg := filepath.Join(dir, "config")
 	require.NoError(t, os.WriteFile(cfg, []byte("[profile other]\n"), 0o600))
-	s := newService(func(ctx context.Context) (aws.Config, error) {
+	s := newService("", func(ctx context.Context) (aws.Config, error) {
 		return config.LoadDefaultConfig(ctx, config.WithSharedConfigFiles([]string{cfg}),
 			config.WithSharedCredentialsFiles([]string{filepath.Join(dir, "none")}),
 			config.WithSharedConfigProfile("kstack-test"))
@@ -252,7 +252,7 @@ func TestAConfigurationIsReadAgainUntilItLoads(t *testing.T) {
 	t.Cleanup(s.Drop)
 
 	_, err := s.Credentials(context.Background())
-	assert.Equal(t, ErrNoLogin, err, "the profile is missing")
+	assert.ErrorIs(t, err, ErrNoLogin, "the profile is missing")
 
 	require.NoError(t, os.WriteFile(cfg, []byte("[profile kstack-test]\ncredential_process = "+script+"\nregion = eu-west-1\n"), 0o600))
 	creds, err := s.Credentials(context.Background())
@@ -266,7 +266,7 @@ func TestAConfigurationIsReadAgainUntilItLoads(t *testing.T) {
 func files(t *testing.T) (*Service, string) {
 	dir := t.TempDir()
 	creds := filepath.Join(dir, "credentials")
-	s := newService(func(ctx context.Context) (aws.Config, error) {
+	s := newService("", func(ctx context.Context) (aws.Config, error) {
 		return config.LoadDefaultConfig(ctx, config.WithSharedConfigFiles([]string{filepath.Join(dir, "config")}),
 			config.WithSharedCredentialsFiles([]string{creds}))
 	})
@@ -283,7 +283,7 @@ func TestAProfileCreatedAfterNoLoginIsRead(t *testing.T) {
 	s, creds := files(t)
 
 	_, err := s.Credentials(context.Background())
-	assert.Equal(t, ErrNoLogin, err)
+	assert.ErrorIs(t, err, ErrNoLogin)
 
 	key := "Jt6Kr0Ms4Nv8Px2Qz5Rb" + rand.Text()
 	require.NoError(t, os.WriteFile(creds, []byte("[default]\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = "+key+"\n"), 0o600))
@@ -322,7 +322,7 @@ func TestAHungRefreshGivesUpItsTurn(t *testing.T) {
 	g := &gated{entered: make(chan struct{}, 1), release: make(chan struct{}, 1)}
 	key := "Pw3Rx7Sz1Tb5Uc9Vd2We" + rand.Text()
 	var loads atomic.Int32
-	s := newService(func(context.Context) (aws.Config, error) {
+	s := newService("", func(context.Context) (aws.Config, error) {
 		if loads.Add(1) == 1 {
 			return aws.Config{Credentials: aws.NewCredentialsCache(g)}, nil
 		}
@@ -340,7 +340,7 @@ func TestAHungRefreshGivesUpItsTurn(t *testing.T) {
 		_, err := s.Credentials(context.Background())
 		gaveUp <- err
 	}()
-	assert.Equal(t, ErrNoLogin, testutil.Recv(t, gaveUp, "the retrieval's deadline"))
+	assert.ErrorIs(t, testutil.Recv(t, gaveUp, "the retrieval's deadline"), ErrNoLogin)
 	testutil.WaitReturn(t, s.Drop, "Drop after the hung refresh")
 	creds, err := s.Credentials(context.Background())
 	require.NoError(t, err)
@@ -350,7 +350,7 @@ func TestAHungRefreshGivesUpItsTurn(t *testing.T) {
 // A load that fails keeps no region from an earlier one.
 func TestAFailedLoadKeepsNoRegion(t *testing.T) {
 	var loads atomic.Int32
-	s := newService(func(context.Context) (aws.Config, error) {
+	s := newService("", func(context.Context) (aws.Config, error) {
 		if loads.Add(1) == 1 {
 			return aws.Config{Region: "eu-west-1"}, nil
 		}
@@ -358,4 +358,90 @@ func TestAFailedLoadKeepsNoRegion(t *testing.T) {
 	})
 	assert.Equal(t, "eu-west-1", s.Region())
 	assert.Empty(t, s.Region())
+}
+
+// Each profile is one login, made once; "" is the default chain's.
+func TestEachProfileIsOneLogin(t *testing.T) {
+	var made []string
+	l := newLogins(func(profile string) *Service {
+		made = append(made, profile)
+		return newService(profile, nil)
+	})
+	prod := l.Login("prod")
+	assert.Same(t, prod, l.Login("prod"))
+	assert.NotSame(t, prod, l.Login("dev"))
+	assert.NotSame(t, prod, l.Login(""))
+	assert.Equal(t, []string{"prod", "dev", ""}, made)
+}
+
+// A named profile resolves as itself, with no AWS_PROFILE in the environment
+// and no default profile; the default chain then finds no login. The test
+// sets the process's environment, so it does not run in parallel.
+func TestALoginReachesAWSAsItsProfile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config")
+	keys := map[string]string{"prod": "Pr7Kd2Lm9Nq4Rs8Tv3Wx" + rand.Text(), "dev": "Dv4Jk8Ln2Mp6Qr0St5Uw" + rand.Text()}
+	require.NoError(t, os.WriteFile(cfg, []byte(
+		"[profile prod]\naws_access_key_id = AKIAPRODEXAMPLE\naws_secret_access_key = "+keys["prod"]+"\nregion = eu-west-1\n"+
+			"[profile dev]\naws_access_key_id = AKIADEVEXAMPLE\naws_secret_access_key = "+keys["dev"]+"\nregion = us-east-2\n"), 0o600))
+	t.Setenv("AWS_CONFIG_FILE", cfg)
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "none"))
+	for _, name := range []string{"AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_REGION", "AWS_DEFAULT_REGION"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	l := New()
+
+	for profile, region := range map[string]string{"prod": "eu-west-1", "dev": "us-east-2"} {
+		s := l.Login(profile)
+		t.Cleanup(s.Drop)
+		creds, err := s.Credentials(context.Background())
+		require.NoError(t, err, profile)
+		assert.Equal(t, keys[profile], creds.SecretAccessKey, profile)
+		assert.Equal(t, region, s.Region(), profile)
+	}
+
+	_, err := l.Login("").Credentials(context.Background())
+	assert.ErrorIs(t, err, ErrNoLogin)
+	_, err = l.Login("gone").Credentials(context.Background())
+	assert.EqualError(t, err, "no AWS login was found for the profile gone")
+}
+
+// The refusal names the profile tried, and how to sign in only for SSO.
+func TestNoLoginNamesTheProfileTried(t *testing.T) {
+	for _, tc := range []struct {
+		err  NoLoginError
+		want string
+	}{
+		{NoLoginError{}, "no AWS login was found"},
+		{NoLoginError{SSO: true}, "no AWS login was found; run `aws sso login` outside the sandbox"},
+		{NoLoginError{Profile: "prod"}, "no AWS login was found for the profile prod"},
+		{NoLoginError{Profile: "prod", SSO: true}, "no AWS login was found for the profile prod; run `aws sso login --profile prod` outside the sandbox"},
+	} {
+		assert.EqualError(t, &tc.err, tc.want)
+		assert.Equal(t, tc.want, tc.err.Refusal())
+		assert.ErrorIs(t, &tc.err, ErrNoLogin)
+	}
+}
+
+// An SSO profile with no session signed in fails as SSO, through its
+// session's profile or a role chained from it.
+func TestAnSSOProfileWithNoSessionSaysToSignIn(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir) // no SSO token cache
+	cfg := filepath.Join(dir, "config")
+	require.NoError(t, os.WriteFile(cfg, []byte("[profile dev]\nsso_session = s\nsso_account_id = 123456789012\n"+
+		"sso_role_name = r\nregion = eu-west-1\n"+
+		"[profile role]\nrole_arn = arn:aws:iam::123456789012:role/r\nsource_profile = dev\n"+
+		"[sso-session s]\nsso_start_url = https://example.invalid/start\nsso_region = eu-west-1\n"), 0o600))
+	for _, profile := range []string{"dev", "role"} {
+		s := newService(profile, func(ctx context.Context) (aws.Config, error) {
+			return config.LoadDefaultConfig(ctx, config.WithSharedConfigFiles([]string{cfg}),
+				config.WithSharedCredentialsFiles([]string{filepath.Join(dir, "none")}),
+				config.WithSharedConfigProfile(profile))
+		})
+		_, err := s.Credentials(context.Background())
+		assert.EqualError(t, err, "no AWS login was found for the profile "+profile+
+			"; run `aws sso login --profile "+profile+"` outside the sandbox")
+	}
 }

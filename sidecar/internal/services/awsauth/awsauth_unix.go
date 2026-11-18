@@ -14,9 +14,9 @@
 
 //go:build unix
 
-// Package awsauth holds the user's AWS login: the SDK's default chain in the
-// sidecar's environment, the one the EKS exec plugin sees, resolved outside
-// the sandbox and only when a request needs it. Only a sandboxed run reaches
+// Package awsauth holds the user's AWS logins, resolved outside the sandbox
+// and only when a request needs them: one per named profile, and the SDK's
+// default chain in the sidecar's environment. Only a sandboxed run reaches
 // AWS, so it is built where a sandbox is: not on Windows.
 package awsauth
 
@@ -33,23 +33,93 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 )
 
-// ErrNoLogin is every failure to resolve the chain: the SDK's own text can
-// name files and accounts.
+// ErrNoLogin is every failure to resolve a chain, which a NoLoginError
+// matches: the SDK's own text can name files and accounts.
 var ErrNoLogin = errors.New("no AWS login was found")
+
+// NoLoginError is a login that resolved no credentials. Its text names the
+// profile tried, and how to sign in only for an SSO profile; never the SDK's.
+type NoLoginError struct {
+	Profile string // "" for the default chain
+	SSO     bool
+}
+
+func (e *NoLoginError) Error() string {
+	switch {
+	case e.Profile == "" && e.SSO:
+		return ErrNoLogin.Error() + "; run `aws sso login` outside the sandbox"
+	case e.Profile == "":
+		return ErrNoLogin.Error()
+	case e.SSO:
+		return ErrNoLogin.Error() + " for the profile " + e.Profile + "; run `aws sso login --profile " + e.Profile + "` outside the sandbox"
+	}
+	return ErrNoLogin.Error() + " for the profile " + e.Profile
+}
+
+func (e *NoLoginError) Is(target error) bool { return target == ErrNoLogin }
+
+// Refusal is the error's text, which the proxy shows the run.
+func (e *NoLoginError) Refusal() string { return e.Error() }
 
 // retrieveTimeout is how long a retrieval may take: past the SDK's one-minute
 // timeout for a credential_process and its helper's wait.
 const retrieveTimeout = 2 * time.Minute
 
-// Service is the user's AWS login.
+// Logins are the user's AWS logins, one per profile, each made on first use
+// and kept: its own turn, cache and held secrets.
+type Logins struct {
+	newLogin func(profile string) *Service
+
+	mu     sync.Mutex
+	logins map[string]*Service
+}
+
+// New is the logins over the SDK's configuration. It reads nothing until
+// asked.
+func New() *Logins {
+	return newLogins(func(profile string) *Service {
+		return newService(profile, func(ctx context.Context) (aws.Config, error) {
+			return config.LoadDefaultConfig(ctx, loadOptions(profile)...)
+		})
+	})
+}
+
+// loadOptions name profile's chain; "" is the default chain.
+func loadOptions(profile string) []func(*config.LoadOptions) error {
+	if profile == "" {
+		return nil
+	}
+	return []func(*config.LoadOptions) error{config.WithSharedConfigProfile(profile)}
+}
+
+// newLogins is the logins newLogin makes, a test's own.
+func newLogins(newLogin func(profile string) *Service) *Logins {
+	return &Logins{newLogin: newLogin, logins: map[string]*Service{}}
+}
+
+// Login is profile's login, "" for the SDK's default chain.
+func (l *Logins) Login(profile string) *Service {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	s, ok := l.logins[profile]
+	if !ok {
+		s = l.newLogin(profile)
+		l.logins[profile] = s
+	}
+	return s
+}
+
+// Service is one AWS login: a named profile's chain, or the default chain.
 type Service struct {
-	load func(context.Context) (aws.Config, error)
+	profile string // "" for the default chain
+	load    func(context.Context) (aws.Config, error)
 	// retrieveTimeout bounds a retrieval, which an SSO or STS endpoint that
 	// never answers would otherwise hold its turn through for good.
 	retrieveTimeout time.Duration
 
-	mu     sync.Mutex // guards region and cache
+	mu     sync.Mutex // guards region, sso and cache
 	region string
+	sso    bool                  // the last load's profile signs in through SSO
 	cache  *aws.CredentialsCache // nil until a load yields a chain
 
 	// turn is held across each retrieval and each Drop, with the registration
@@ -59,17 +129,9 @@ type Service struct {
 	held aws.Credentials // what safe blanks now; read and written in turn
 }
 
-// New is the service over the SDK's default configuration. It reads nothing
-// until asked.
-func New() *Service {
-	return newService(func(ctx context.Context) (aws.Config, error) { // coverage:ignore it reads the user's own configuration
-		return config.LoadDefaultConfig(ctx)
-	})
-}
-
-// newService is the service over load, a test's own configuration.
-func newService(load func(context.Context) (aws.Config, error)) *Service {
-	return &Service{load: load, retrieveTimeout: retrieveTimeout, turn: semaphore.NewWeighted(1)}
+// newService is profile's login over load.
+func newService(profile string, load func(context.Context) (aws.Config, error)) *Service {
+	return &Service{profile: profile, load: load, retrieveTimeout: retrieveTimeout, turn: semaphore.NewWeighted(1)}
 }
 
 // config is the configuration's region and credential chain, loaded when no
@@ -85,6 +147,7 @@ func (s *Service) config() (region string, cache *aws.CredentialsCache) {
 		cfg, err := s.load(context.Background())
 		// A load that fails keeps no region of an earlier one.
 		s.region = cfg.Region
+		s.sso = usesSSO(sharedConfig(cfg))
 		if err == nil {
 			// LoadDefaultConfig answers its chain as a cache; anything else is none.
 			s.cache, _ = quiet(cfg).(*aws.CredentialsCache)
@@ -106,12 +169,19 @@ func (s *Service) Region() string {
 	return region
 }
 
+// noLogin is the failure to resolve this login, worded by the last load.
+func (s *Service) noLogin() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return &NoLoginError{Profile: s.profile, SSO: s.sso}
+}
+
 // Credentials resolves the login through the SDK's cache, so an expiring SSO
 // or assumed-role credential refreshes. The secret key and session token are
-// blanked in rendered text while held.
+// blanked in rendered text while held. Every failure is a NoLoginError.
 func (s *Service) Credentials(ctx context.Context) (aws.Credentials, error) {
 	if err := s.turn.Acquire(ctx, 1); err != nil {
-		return aws.Credentials{}, ErrNoLogin
+		return aws.Credentials{}, s.noLogin()
 	}
 	done := make(chan aws.Credentials, 1)
 	go func() {
@@ -127,11 +197,11 @@ func (s *Service) Credentials(ctx context.Context) (aws.Credentials, error) {
 	select {
 	case creds := <-done:
 		if !creds.HasKeys() {
-			return aws.Credentials{}, ErrNoLogin
+			return aws.Credentials{}, s.noLogin()
 		}
 		return creds, nil
 	case <-ctx.Done():
-		return aws.Credentials{}, ErrNoLogin
+		return aws.Credentials{}, s.noLogin()
 	}
 }
 

@@ -265,3 +265,4 @@ usually just documentation in the wrong place.
 | 2026-11-17 | [Google Cloud is reached with the active gcloud account's token](2026-11-17-google-cloud-is-reached-with-the-active-gcloud-accounts-token.md) | sidecar | Accepted |
 | 2026-11-18 | [Every cloud platform is on until the user turns it off](2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md) | sidecar | Accepted |
 | 2026-11-18 | [Accept picomatch's ReDoS advisory in dev tooling](2026-11-18-accept-picomatchs-redos-advisory-in-dev-tooling.md) | repo | Accepted |
+| 2026-11-18 | [A run's AWS identity follows its chat's cluster](2026-11-18-a-runs-aws-identity-follows-its-chats-cluster.md) | sidecar | Accepted |

@@ -778,6 +778,10 @@ func (l awsLogin) Credentials(context.Context) (aws.Credentials, error) {
 func (awsLogin) Drop()          {}
 func (awsLogin) Region() string { return "eu-west-1" }
 
+// Every kube-context names no profile, so each run reaches AWS as l.
+func (awsLogin) Profile(string) string        { return "" }
+func (l awsLogin) Login(string) bash.AWSLogin { return l }
+
 // With AWS turned on through the wire, a sandboxed curl signing with the run's
 // variables reads unasked, and a change waits on one request and reaches AWS
 // once approved, signed with the user's credentials; kubectl still reads the

@@ -41,7 +41,7 @@ func (p *Proxy) forward(w http.ResponseWriter, req *request) {
 	ctx := req.r.Context()
 	creds, err := p.up.Identity.Credentials(ctx)
 	if err != nil {
-		refuse(w, req, http.StatusForbidden, noLogin)
+		refuse(w, req, http.StatusForbidden, noLoginRefusal(err))
 		return
 	}
 	resp, err := p.send(ctx, creds, outbound{

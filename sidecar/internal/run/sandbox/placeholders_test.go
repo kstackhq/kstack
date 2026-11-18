@@ -38,6 +38,18 @@ func TestAWSRegion(t *testing.T) {
 	}
 }
 
+// A profile is a name that cannot end its section header or start another.
+func TestAWSProfile(t *testing.T) {
+	for _, profile := range []string{"default", "prod", "my-org_dev.admin", "a@b", "team/role", "acct:123", "x+y", "_x"} {
+		assert.True(t, AWSProfile(profile), profile)
+	}
+	for _, profile := range []string{
+		"", "a b", "a]\n[default", "a]", "[a", "a\nb", "a;b", "a#b", "a=b", "-a", ".a", strings.Repeat("a", 129),
+	} {
+		assert.False(t, AWSProfile(profile), profile)
+	}
+}
+
 // awsRun is a run holding the AWS mount's variables, with its run directory
 // and relay port; extra replaces or adds rows.
 func awsRun(t *testing.T, extra ...string) Run {

@@ -35,9 +35,17 @@ import (
 
 // Identity is the user's AWS login, resolved outside the sandbox.
 type Identity interface {
+	// Credentials' failure is shown to the run when it is a Refusal, and
+	// otherwise as noLogin.
 	Credentials(ctx context.Context) (aws.Credentials, error)
 	// Drop forgets the credentials, which AWS said are dead.
 	Drop()
+}
+
+// A Refusal is a failure whose Refusal text is the run's to read: it names no
+// file, account or credential.
+type Refusal interface {
+	Refusal() string
 }
 
 // Upstream is what the proxy reaches AWS with.

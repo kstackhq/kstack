@@ -298,7 +298,7 @@ and the top-level `nextLink` at the door. A `429`, which `az` retries, is answer
 The run's key id is `KSTACK` and its grant's token. The handler reads service and region from the
 SigV4 scope (`scope.go`), refuses a service off `services.go`'s table, drops the sandbox's
 signature, and signs the request it builds for the table's host with the user's credentials
-(`Identity`, `forward.go`). The classifier (`classify.go`) reads the operation only where the
+(`Identity`, `forward.go`); a login that resolves none is answered its `Refusal`'s text, else a fixed sentence. The classifier (`classify.go`) reads the operation only where the
 row's protocol names it, refusing a request that names it elsewhere or twice, then checks refused,
 class 6, class 5, then a read, and asks for the rest; a read naming another account's bucket,
 registry or template URL asks, against the login's own buckets (`Buckets`, one list shared by its

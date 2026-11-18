@@ -1336,8 +1336,8 @@ func TestThePromptSaysWhatAnAllowKeeps(t *testing.T) {
 
 // The AWS paragraph says only what is AWS's own.
 func TestTheSandboxPromptSaysWhatIsAWSsOwn(t *testing.T) {
-	assert.Contains(t, sandboxPrompt, "Where `cloud` names `aws`, `aws` and AWS SDK clients reach the user's AWS account.")
-	assert.Contains(t, sandboxPrompt, "The run has one profile, the user's, so pass no `--profile`; pass `--region` when a command says no region is set.")
+	assert.Contains(t, sandboxPrompt, "Where `cloud` names `aws`, `aws` and AWS SDK clients reach the user's AWS account, as the profile the chat's cluster's kubeconfig names, else the user's default login.")
+	assert.Contains(t, sandboxPrompt, "The run has that one login, so pass no `--profile`: its own name works, any other fails; pass `--region` when a command says no region is set.")
 	assert.Contains(t, sandboxPrompt, "Reading an object's contents asks like a change, and so does a read that names another account's bucket, registry or template URL")
 	assert.Contains(t, sandboxPrompt, "every bucket read asks when the login cannot list its own buckets.")
 	assert.Contains(t, sandboxPrompt, "`aws eks get-token`, `aws sts assume-role`, ECR logins and uploading a file to S3 do not work")

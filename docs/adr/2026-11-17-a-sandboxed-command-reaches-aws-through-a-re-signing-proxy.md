@@ -3,6 +3,7 @@ title: A sandboxed command reaches AWS through a re-signing proxy
 date: 2026-11-17
 scope: sidecar
 status: Accepted
+amended_by: [A run's AWS identity follows its chat's cluster](2026-11-18-a-runs-aws-identity-follows-its-chats-cluster.md)
 ---
 
 # A sandboxed command reaches AWS through a re-signing proxy

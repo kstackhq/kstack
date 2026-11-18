@@ -215,12 +215,13 @@ Watches are pull-first: a 30-minute backstop tick under fsnotify and a poke subs
 
 ## AWS login (`internal/services/awsauth`)
 
-**The user's AWS credentials**, for `run/awsproxy`: the SDK's default chain in the sidecar's
-environment, resolved through its cache only when a request needs them. A chain is fixed at load,
-so the configuration is loaded again after a load yields none, a retrieval fails or a `Drop`: a
-profile the user creates, or keys they replace, need no restart. It holds the secret key and
-session token under `safe.AddSecret`, forgets them on refresh or `Drop`, and answers every failure
-as `ErrNoLogin`, never the SDK's text.
+**The user's AWS credentials**, for `run/awsproxy`: a `Service` per profile (`Logins`), the one
+the run's kube-context names (`kubeconfig.AWSProfile`), else the SDK's default chain, resolved
+only when a request needs it. A chain is fixed at load, so it is loaded again after a load yields
+none, a retrieval fails or a `Drop`: new profiles or keys need no restart. It holds the secret key and
+session token under `safe.AddSecret`, forgets them on refresh or `Drop`, and answers a failure
+as a `NoLoginError` naming the profile, not the SDK's text. →
+[ADR](../docs/adr/2026-11-18-a-runs-aws-identity-follows-its-chats-cluster.md).
 
 **Each retrieval and each `Drop` takes one turn**, so what `safe` blanks is always what the cache
 last answered. A retrieval loads its chain in the turn, and holds the turn until the SDK's refresh

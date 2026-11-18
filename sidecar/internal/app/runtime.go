@@ -171,7 +171,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
 
 	pathList := func() settings.RunPath { return settingsStore.Get().RunPath() }
-	platforms := cloudPlatformsFor(probed, cfg.cloudPlatforms)
+	platforms := cloudPlatformsFor(probed, cfg.cloudPlatforms, rt.Kubeconfig)
 	shell, found := bash.New(p.Bash, cfg.HostPID, sb, rt.Cluster, pathList, bash.Cloud{Platforms: platforms, On: settingsStore.CloudOn})
 	if found && cfg.callDeadline != nil {
 		shell.SetCallDeadline(cfg.callDeadline)
@@ -262,16 +262,16 @@ func (rt *Runtime) resolver() *graph.Resolver {
 }
 
 // cloudPlatformsFor is the cloud platforms a sandboxed run may reach: the
-// build's, or a test's in their place. A machine with no sandbox has none, so
-// it offers no switch.
-func cloudPlatformsFor(status sandbox.Status, configured []bash.CloudPlatform) []bash.CloudPlatform {
+// build's, over kc, or a test's in their place. A machine with no sandbox has
+// none, so it offers no switch.
+func cloudPlatformsFor(status sandbox.Status, configured []bash.CloudPlatform, kc *kubeconfig.Service) []bash.CloudPlatform {
 	switch {
 	case !status.Available:
 		return nil
 	case configured != nil:
 		return configured
 	}
-	return builtCloudPlatforms()
+	return builtCloudPlatforms(kc)
 }
 
 // cloudTargets is each cloud platform's target, in the build's order.

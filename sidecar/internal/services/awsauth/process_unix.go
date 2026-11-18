@@ -57,6 +57,17 @@ func sharedConfig(cfg aws.Config) config.SharedConfig {
 	return config.SharedConfig{}
 }
 
+// usesSSO is whether profile, or a source profile it chains from, signs in
+// through IAM Identity Center.
+func usesSSO(profile config.SharedConfig) bool {
+	for p := &profile; p != nil; p = p.Source {
+		if p.SSOSessionName != "" || p.SSOStartURL != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // runsProcess is whether the SDK resolves profile's role chain by a
 // credential_process: the deepest source's, whose credentials it uses, when
 // that profile holds no keys, which the SDK prefers.

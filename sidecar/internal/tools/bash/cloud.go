@@ -41,6 +41,9 @@ type CloudRun struct {
 	Dir      string // the run's directory, read-only to the run
 	ToolHome string
 	TmpDir   string // the run's TMPDIR
+	// KubeContext is the chat's cluster's kube-context, "" for a chat with no
+	// cluster.
+	KubeContext string
 	// CAFile is where the run's certificate bundle is, once a mount returns a
 	// TLS route: the run's certificate, then the system's roots.
 	CAFile  string

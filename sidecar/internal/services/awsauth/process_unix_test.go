@@ -52,7 +52,7 @@ func TestAHelpersStderrNeverReachesTheSidecars(t *testing.T) {
 
 	s, _ := profile(t, "eu-west-1", true)
 	_, err = s.Credentials(context.Background())
-	assert.Equal(t, ErrNoLogin, err)
+	assert.ErrorIs(t, err, ErrNoLogin)
 
 	os.Stderr = stderr
 	require.NoError(t, w.Close())
@@ -72,14 +72,14 @@ func TestARoleChainedFromAProcessIsNoLogin(t *testing.T) {
 	cfg := filepath.Join(dir, "config")
 	require.NoError(t, os.WriteFile(cfg, []byte("[profile kstack-test]\nrole_arn = arn:aws:iam::123456789012:role/r\n"+
 		"source_profile = src\nregion = eu-west-1\n[profile src]\ncredential_process = "+script+"\n"), 0o600))
-	s := newService(func(ctx context.Context) (aws.Config, error) {
+	s := newService("", func(ctx context.Context) (aws.Config, error) {
 		return config.LoadDefaultConfig(ctx, config.WithSharedConfigFiles([]string{cfg}),
 			config.WithSharedCredentialsFiles([]string{filepath.Join(dir, "none")}),
 			config.WithSharedConfigProfile("kstack-test"))
 	})
 
 	_, err := s.Credentials(context.Background())
-	assert.Equal(t, ErrNoLogin, err)
+	assert.ErrorIs(t, err, ErrNoLogin)
 	assert.NoFileExists(t, ran)
 }
 

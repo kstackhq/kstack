@@ -16,6 +16,7 @@ package awsproxy
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -143,7 +144,7 @@ func TestARedirectIsPassedBack(t *testing.T) {
 }
 
 // An upstream that cannot be reached is a 502 that carries no error text, and
-// a login that cannot be resolved is one fixed sentence.
+// a login that cannot be resolved is its Refusal, else one fixed sentence.
 func TestAnUpstreamFailureCarriesNoText(t *testing.T) {
 	f := newFixture(t)
 	f.upstream.Close()
@@ -159,7 +160,21 @@ func TestAnUpstreamFailureCarriesNoText(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "kstack: no AWS login was found; run `aws sso login` outside the sandbox")
 	assert.NotContains(t, w.Body.String(), "token expired")
 	f.none()
+
+	f = newFixture(t)
+	f.id.err = fmt.Errorf("wrapped: %w", testRefusal("no AWS login was found for the profile prod"))
+	w = f.serve(f.ec2())
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "kstack: no AWS login was found for the profile prod<")
+	assert.NotContains(t, w.Body.String(), "wrapped")
+	f.none()
 }
+
+// testRefusal is a login's failure worded for the run.
+type testRefusal string
+
+func (r testRefusal) Error() string   { return "wrapped: " + string(r) }
+func (r testRefusal) Refusal() string { return string(r) }
 
 // An error answer is checked before it is passed back: one too long to check,
 // or holding the user's key id or session token, is a 502.

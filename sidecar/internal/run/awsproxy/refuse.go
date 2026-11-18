@@ -17,6 +17,7 @@ package awsproxy
 import (
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"html"
 	"net/http"
 	"strings"
@@ -29,6 +30,16 @@ const (
 	upstreamFailed = "kstack: AWS did not answer"
 	uncheckable    = "kstack: AWS's error could not be checked for the user's credentials, so it is not passed on"
 )
+
+// noLoginRefusal is what the proxy answers when the login resolved no
+// credentials: the failure's own Refusal, or noLogin.
+func noLoginRefusal(err error) string {
+	var r Refusal
+	if errors.As(err, &r) {
+		return "kstack: " + r.Refusal()
+	}
+	return noLogin
+}
 
 // refuse answers req with status and message in the shape its service's
 // clients read, so the client prints the message. A call naming its operation
