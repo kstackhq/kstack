@@ -12,38 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// One cluster's notes, in one bordered card. A note's text edits in place on a
+// One scope's notes, in one bordered card. A note's text edits in place on a
 // click, and its trash button deletes it after a confirm. A note may have been
 // written by the model from cluster data, so its body is drawn as text, never
 // as markdown. The name is the model's key and is never shown.
 import { Button } from '@kubetail/ui/elements/button';
 import { Separator } from '@kubetail/ui/elements/separator';
 import { Trash2 } from 'lucide-react';
-import { createContext, Fragment, useContext, useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 
 import { Dialog } from '@/components/primitives/dialog';
 import { RelativeTime } from '@/components/primitives/relative-time';
 import { Textarea } from '@/components/primitives/text-entry';
 import type { Memory } from '@/lib/memories';
-
-import { BODY_RULE, bodyFits, nameFor } from './writes';
-
-// The editors holding work not yet saved, by id. The popover stays open while
-// any does, so a dismissal never drops a draft or the reason its save failed.
-export const UnsavedDrafts = createContext<Set<string> | null>(null);
-
-function useHoldsUnsaved(held: boolean) {
-  const drafts = useContext(UnsavedDrafts);
-  const id = useId();
-  useEffect(() => {
-    if (!held || !drafts) return;
-    drafts.add(id);
-    return () => {
-      drafts.delete(id);
-    };
-  }, [drafts, held, id]);
-}
+import { BODY_RULE, bodyFits, nameFor } from '@/lib/memory-writes';
+import { useHoldsUnsaved } from '@/lib/unsaved-drafts';
 
 function Provenance({ memory }: { memory: Memory }) {
   return (

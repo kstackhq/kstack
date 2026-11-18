@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // The user's memory writes to the sidecar, and the rules a write must fit.
-// Every save from here marks the memory as the user's. The popover calls a
+// Every save from here marks the memory as the user's. The webview calls a
 // memory a note.
 import { useMutation } from 'urql';
 

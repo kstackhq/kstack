@@ -20,7 +20,7 @@ vi.mock('urql', () => ({
   useMutation: (doc: unknown) => [{}, JSON.stringify(doc).includes('memoryDelete') ? deleteMock : saveMock],
 }));
 
-const { bodyFits, nameFor, slugify, uniqueName, useMemoryWrites } = await import('./writes');
+const { bodyFits, nameFor, slugify, uniqueName, useMemoryWrites } = await import('./memory-writes');
 
 const refused = (code: string) => ({ error: { graphQLErrors: [{ extensions: { code } }] } });
 const writes = () => renderHook(() => useMemoryWrites()).result.current;

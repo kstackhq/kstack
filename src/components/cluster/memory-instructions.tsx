@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A cluster's standing instructions. They save on Cmd/Ctrl+Enter or when the
+// A scope's standing instructions. They save on Cmd/Ctrl+Enter or when the
 // box loses focus, never mid-edit, so a chat never reads them half-written.
-// Nothing stores them yet: the text lives here and is lost when the popover
-// closes. The parent remounts this on a cluster switch, so text never carries
-// over to another cluster.
+// Nothing stores them yet: the text lives here and is lost on unmount. The
+// parent remounts this on a scope switch, so text never carries over to
+// another scope.
 import { cn } from '@kubetail/ui/lib/utils';
 import { Check } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -28,7 +28,11 @@ import { Textarea } from '@/components/primitives/text-entry';
 // How long "Saved" shows after a save.
 export const SAVED_SHOWN_MS = 2000;
 
-export function MemoryInstructions() {
+export function MemoryInstructions({
+  description = 'How Kstack should behave on this cluster.',
+}: {
+  description?: string;
+}) {
   const id = useId();
   const [text, setText] = useState('');
   const [savedText, setSavedText] = useState('');
@@ -65,7 +69,7 @@ export function MemoryInstructions() {
           <label htmlFor={id} className="text-sm font-medium">
             Instructions
           </label>
-          <p className="text-xs text-muted-foreground">How Kstack should behave on this cluster.</p>
+          <p className="text-xs text-muted-foreground">{description}</p>
         </div>
         <p
           role="status"

@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { expectProseText } from '@/test-utils';
 
-import { MemoryInstructions, SAVED_SHOWN_MS } from './instructions';
+import { MemoryInstructions, SAVED_SHOWN_MS } from './memory-instructions';
 
 const box = () => screen.getByRole('textbox', { name: 'Instructions' });
 // Hidden by opacity, so it is in the tree throughout.
@@ -41,6 +41,13 @@ describe('MemoryInstructions', () => {
   it('keeps spellcheck but no other suggestions', () => {
     render(<MemoryInstructions />);
     expectProseText(box());
+  });
+
+  it('describes itself for one cluster unless told otherwise', () => {
+    const { rerender } = render(<MemoryInstructions />);
+    expect(screen.getByText('How Kstack should behave on this cluster.')).toBeInTheDocument();
+    rerender(<MemoryInstructions description="Given to every chat." />);
+    expect(screen.getByText('Given to every chat.')).toBeInTheDocument();
   });
 
   it('opens empty, with its placeholder and "Saved" hidden', () => {

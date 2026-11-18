@@ -52,8 +52,10 @@ vi.mock('./connectors', () => ({ ConnectorsSettings: () => <p>The connectors</p>
 
 vi.mock('./providers', () => ({ ProvidersSettings: () => <p>The providers</p> }));
 
+vi.mock('./memory', () => ({ MemorySettings: () => <p>The memory</p> }));
+
 const { ThemeProvider } = await import('@/lib/theme');
-const { SettingsDialog, TABS } = await import('./dialog');
+const { SettingsDialog } = await import('./dialog');
 
 function renderDialog(onOpenChange = vi.fn()) {
   render(
@@ -83,20 +85,6 @@ describe('SettingsDialog', () => {
     expect(screen.getByRole('tab', { name: 'General', selected: true })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Appearance' })).toBeInTheDocument();
-  });
-
-  const comingSoon = TABS.filter((t) => !t.content).map((t) => t.label);
-
-  it.each(comingSoon)('shows %s by its name, and Coming soon', async (name) => {
-    const user = userEvent.setup();
-    renderDialog();
-
-    await user.click(await screen.findByRole('tab', { name }));
-
-    expect(screen.getByRole('tab', { name, selected: true })).toBeInTheDocument();
-    const panel = screen.getByRole('tabpanel');
-    expect(panel).toHaveTextContent(name);
-    expect(panel).toHaveTextContent('Coming soon');
   });
 
   it('draws the Sandbox tab', async () => {
@@ -147,7 +135,16 @@ describe('SettingsDialog', () => {
 
     const panel = screen.getByRole('tabpanel');
     expect(panel).toHaveTextContent('The providers');
-    expect(panel).not.toHaveTextContent('Coming soon');
+  });
+
+  it('draws the Memory tab', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole('tab', { name: 'Memory' }));
+
+    const panel = screen.getByRole('tabpanel');
+    expect(panel).toHaveTextContent('The memory');
   });
 
   // Each row's cache size is a live watch; it must not run behind another tab.

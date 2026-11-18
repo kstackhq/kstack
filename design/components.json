@@ -441,9 +441,9 @@
       },
       "code": [
         {
-          "path": "src/components/cluster/memory/list.tsx",
+          "path": "src/components/cluster/memory-list.tsx",
           "symbol": "Row",
-          "blob": "3ef4e00d49e8b92f936583f5136bbf2cb9aafb02"
+          "blob": "df8d77730e0a4f44707f6f47843fcf43c3ca4007"
         }
       ],
       "notes": [
@@ -464,7 +464,15 @@
       "code": [
         {
           "path": "src/components/cluster/memory/popover.tsx",
-          "blob": "cbf1c6564f98dd85b49e438c61f7b57de8010842"
+          "blob": "daf498b67f6fb04acf05b0d80fa8badeea4378d3"
+        },
+        {
+          "path": "src/components/cluster/memory-instructions.tsx",
+          "blob": "afca99ab784e543742881b3d607894537ed35ad7"
+        },
+        {
+          "path": "src/components/cluster/memory-list.tsx",
+          "blob": "df8d77730e0a4f44707f6f47843fcf43c3ca4007"
         }
       ],
       "notes": [
@@ -899,7 +907,7 @@
       "code": [
         {
           "path": "src/components/settings/settings-dialog/dialog.tsx",
-          "blob": "f63ed7ee8d08986dc41baf5711f4c1131586e28e"
+          "blob": "e1021b70b5672c7f7b027e7939f511f542f18dfb"
         },
         {
           "path": "src/components/settings/settings-dialog/sandbox.tsx",
@@ -912,6 +920,10 @@
         {
           "path": "src/components/settings/settings-dialog/permissions.tsx",
           "blob": "9a60f1fcba8f18b1cd28d0deae72667dcd8b62f1"
+        },
+        {
+          "path": "src/components/settings/settings-dialog/memory.tsx",
+          "blob": "c23afb1381f1a90b624eecf99bb9b1e3dfd54936"
         }
       ],
       "security": true,
@@ -919,6 +931,7 @@
         "Sample data.",
         "Drawn with the sandbox available, so the Sandbox fields and Permissions show.",
         "The panel is DialogContent's classes on a local frame: kubetail-ui's Dialog holds its body in a text slot.",
+        "Memory's scope items draw no note count: nothing counts a scope's notes yet.",
         "Tabs/Trigger has no icon slot, so the Appearance picker's Monitor, Sun and Moon icons are not drawn.",
         "The component is as tall as its content; an instance set shorter clips the Body, as max-h-[85vh] scrolls it."
       ]

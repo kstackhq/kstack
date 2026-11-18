@@ -26,11 +26,12 @@ import { useActiveCluster } from '@/lib/active-cluster';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { useMemories } from '@/lib/memories';
 import type { Memory } from '@/lib/memories';
+import { useMemoryWrites } from '@/lib/memory-writes';
+import { UnsavedDrafts } from '@/lib/unsaved-drafts';
 
+import { MemoryInstructions } from '../memory-instructions';
+import { MemoryList } from '../memory-list';
 import { OmniboxPopover } from '../omnibox-popover';
-import { MemoryInstructions } from './instructions';
-import { MemoryList, UnsavedDrafts } from './list';
-import { useMemoryWrites } from './writes';
 
 // The cluster's own notes. Its watch also carries the memories for every
 // cluster; the popover leaves those out.
@@ -106,7 +107,7 @@ export function MemoryPopoverContent() {
         {/* Says more lies below. */}
         <div aria-hidden className="pointer-events-none sticky bottom-0 z-20 -mt-8 h-8 bg-linear-to-t from-popover" />
       </div>
-      {/* Settings has no Memory pane yet, so the link leads nowhere. */}
+      {/* Settings cannot open on a tab yet, so the link leads nowhere. */}
       <footer className="flex h-12 shrink-0 items-center justify-between border-t bg-muted/50 px-5 py-2">
         <Button variant="link" size="sm" className="px-0 text-xs text-foreground">
           Open memory settings

@@ -20,7 +20,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Memory } from '@/lib/memories';
 import { expectProseText } from '@/test-utils';
 
-import { MemoryList } from './list';
+import { MemoryList } from './memory-list';
 
 vi.mock('@/lib/dialog', () => ({ useDialogHost: () => null }));
 
