@@ -24,6 +24,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -35,6 +36,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
+	"github.com/kstackhq/kstack/sidecar/internal/services/gcpauth"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -347,4 +349,83 @@ func TestABundleThatCannotBeWrittenFailsTheRun(t *testing.T) {
 	require.Error(t, err)
 	m := testutil.Recv(t, p.mounts, "the mount")
 	assert.False(t, m.grant.Holds(m.grant.Token()))
+}
+
+// recordingUpstream is a cloud platform's API over TLS that answers body to
+// every request and keeps the Authorization each one carried.
+func recordingUpstream(t *testing.T, body string) (*httptest.Server, chan string) {
+	t.Helper()
+	seen := make(chan string, 8)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen <- r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, seen
+}
+
+// Through the real sandbox, with network off, one run on a cluster with all
+// four cloud platforms on reads each cloud platform as the user, and its
+// client still reads the cluster. No variable is set twice.
+func TestEveryCloudPlatformAndTheClusterAnswerInOneRun(t *testing.T) {
+	api := newFakeAPI(t)
+	tl := proxyTool(t, &fakeLease{serverUID: "uid-1", conn: api.connection()})
+	tl.sandboxer = confining(t)
+	withTool(t, tl, "curl")
+
+	awsUpstream, awsSeen := recordingUpstream(t, `{"aws":"ok"}`)
+	githubUpstream, githubSeen := recordingUpstream(t, `{"login":"octo"}`)
+	google := newFakeGoogle(t)
+	_, azureSeen, azureTransport := fakeResourceManager(t)
+	login := fakeLogin{account: azureAccount("Pay-As-You-Go"), ok: true, token: "users-entra-token"}
+	tl.cloud = Cloud{
+		Platforms: []CloudPlatform{
+			NewAWS(fakeAWSLogin{"eu-west-1"}, &http.Client{Transport: testutil.DialAnywhere(awsUpstream)}),
+			newTestGitHub(upstreamsOf(githubUpstream)),
+			NewGCP(gcpauth.New(helperAnswering("users-google-token", "proj-1")), google),
+			NewAzure(login, azureTransport),
+		},
+		On: switchesOn(permissions.AWS, permissions.GitHub, permissions.GCP, permissions.Azure).On,
+	}
+	rt := tools.Runtime{ClusterID: "7", Dir: testChatDir(t), Session: session.Session{Kind: session.Chat, Policy: askSession.Policy}}
+
+	text, isError := tl.Run(t.Context(), rt, command(
+		`curl -sS --aws-sigv4 aws:amz:eu-west-1:ec2 -u "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" `+
+			`"$AWS_ENDPOINT_URL/?Action=DescribeInstances&Version=2016-11-15"; echo; `+
+			`curl -sS -x "$HTTP_PROXY" http://api.github.localhost/user; echo; `+
+			`curl -sS -x "http://127.0.0.1:$CLOUDSDK_PROXY_PORT" -H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN" `+
+			`http://logging.gcp.kstack.invalid/v2/projects/proj-1/logs; echo; `+
+			`curl -sS --cacert "$REQUESTS_CA_BUNDLE" -H "Authorization: Bearer $IDENTITY_HEADER" `+
+			`"${IDENTITY_ENDPOINT%/kstack/identity}/subscriptions/`+azSub+`/providers/Microsoft.ContainerService/managedClusters?api-version=1"; echo; `+
+			// The client's own output is left out: under coverage its exit
+			// warning names a directory outside the sandbox.
+			clientLine()+` >/dev/null 2>&1; echo "cluster $?"; `+
+			`echo "--- env"; env`))
+
+	require.False(t, isError, text)
+	out, env, found := strings.Cut(text, "--- env\n")
+	require.True(t, found, text)
+	assert.Contains(t, out, `{"aws":"ok"}`)
+	assert.Contains(t, out, `{"login":"octo"}`)
+	assert.Contains(t, out, `{"logNames":[]}`)
+	assert.Contains(t, out, `"aks-1"`)
+	assert.Contains(t, out, "cluster 0\n")
+
+	assert.Contains(t, testutil.Recv(t, awsSeen, "AWS's read"), "Credential="+awsTestCreds.AccessKeyID+"/")
+	assert.Equal(t, "Bearer "+usersToken, testutil.Recv(t, githubSeen, "GitHub's read"))
+	assert.Equal(t, "Bearer users-google-token", testutil.Recv(t, google.auths, "Google's read"))
+	assert.Equal(t, "Bearer users-entra-token", testutil.Recv(t, azureSeen, "Azure's read"))
+	assert.Equal(t, []string{"Bearer users-own"}, api.credentials())
+
+	names := map[string]bool{}
+	for line := range strings.Lines(env) {
+		name, _, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		assert.False(t, names[name], "%s is set twice", name)
+		names[name] = true
+	}
+	assert.True(t, names["AWS_ENDPOINT_URL"] && names["HTTP_PROXY"] && names["CLOUDSDK_AUTH_ACCESS_TOKEN"] && names["IDENTITY_ENDPOINT"] && names["KUBECONFIG"])
 }

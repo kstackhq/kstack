@@ -25,10 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/run/githubproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
-	"github.com/kstackhq/kstack/sidecar/internal/services/gcpauth"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -67,31 +65,4 @@ func TestNoRealCredentialIsInTheRun(t *testing.T) {
 		}
 		return nil
 	}))
-}
-
-// A run with all four cloud platforms on starts through the real sandbox:
-// no mount sets a name another does, and each one's variables pass the
-// check.
-func TestTheCloudPlatformsMountInOneRun(t *testing.T) {
-	tl := tool(t)
-	tl.sandboxer = sandboxed(t)
-	tl.cloud = Cloud{
-		Platforms: []CloudPlatform{
-			NewAWS(fakeAWSLogin{"eu-west-1"}, nil),
-			newTestGitHub(githubproxy.GitHub()),
-			NewGCP(gcpauth.New(helperAnswering("users-token", "proj-1")), nil),
-			NewAzure(fakeLogin{account: azureAccount("Pay-As-You-Go"), ok: true}, nil),
-		},
-		On: switchesOn(permissions.AWS, permissions.GitHub, permissions.GCP, permissions.Azure).On,
-	}
-	rt := tools.Runtime{Dir: testChatDir(t), Session: session.Session{Kind: session.Chat}}
-
-	text, isError := tl.Run(t.Context(), rt, command(`env`))
-	require.False(t, isError, text)
-	assert.Contains(t, text, "AWS_ACCESS_KEY_ID=KSTACK")
-	assert.Contains(t, text, "AWS_ENDPOINT_URL=http://127.0.0.1:")
-	assert.Contains(t, text, "GH_HOST=github.localhost")
-	assert.Contains(t, text, "CLOUDSDK_AUTH_ACCESS_TOKEN=")
-	assert.Contains(t, text, "IDENTITY_ENDPOINT=https://127.0.0.1:")
-	assert.Contains(t, text, "AZURE_CONFIG_DIR=")
 }
