@@ -70,6 +70,14 @@ function spellInvisible(text: string): Segment[] {
     );
 }
 
+// visibleTitle is text for a tooltip, which cannot mark a spelled character
+// apart: each invisible character is its spelling alone.
+export function visibleTitle(text: string): string {
+  return spellInvisible(text)
+    .map((segment) => segment.text)
+    .join('');
+}
+
 // cutText splits text at whichever bound comes first: chars code points, or
 // the newline that would start line lines+1. The rest is what a reader has to
 // ask for, never what is dropped — a wall of newlines ahead of the command

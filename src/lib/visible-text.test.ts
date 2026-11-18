@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { cutText, descriptionLine, spell, visibleSegments } from './visible-text';
+import { cutText, descriptionLine, spell, visibleSegments, visibleTitle } from './visible-text';
 
 // Every character under test is written as an escape: this file must not hold
 // the characters it is about.
@@ -108,6 +108,14 @@ describe('visibleSegments', () => {
       { text: '\n', spelled: false },
     ]);
     expect(visibleSegments('a \nb '), 'a command keeps them').toEqual([{ text: 'a \nb ', spelled: false }]);
+  });
+});
+
+describe('visibleTitle', () => {
+  // A tooltip cannot mark a spelled character apart, so it carries the spelling alone.
+  it('spells every invisible character and keeps the rest', () => {
+    expect(visibleTitle('https://x\u202eevil')).toBe(`https://x${spell('\u202e')}evil`);
+    expect(visibleTitle('arn:aws:iam::1:user/dev')).toBe('arn:aws:iam::1:user/dev');
   });
 });
 

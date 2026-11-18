@@ -899,11 +899,15 @@
       "code": [
         {
           "path": "src/components/settings/settings-dialog/dialog.tsx",
-          "blob": "9d92c7c61538333e05da912620b38f200af5b9cb"
+          "blob": "f63ed7ee8d08986dc41baf5711f4c1131586e28e"
         },
         {
           "path": "src/components/settings/settings-dialog/sandbox.tsx",
           "blob": "35937f20c8ec407d46ec29a61e3e3e4f89bb93fe"
+        },
+        {
+          "path": "src/components/settings/settings-dialog/clusters.tsx",
+          "blob": "22b1f4fca02fec320ac432df76e76299fa93ffba"
         },
         {
           "path": "src/components/settings/settings-dialog/permissions.tsx",

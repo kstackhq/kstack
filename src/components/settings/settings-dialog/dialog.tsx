@@ -34,12 +34,14 @@ import type { ComponentType } from 'react';
 import { DialogClose, DialogTitle, PanelDialog } from '@/components/primitives/dialog';
 import { type AppDialogProps } from '@/lib/dialog';
 
+import { ClustersSettings } from './clusters';
 import { GeneralSettings } from './general';
 
-// A tab with no `content` says "Coming soon".
+// A tab with no `content` says "Coming soon". A hidden tab's pane unmounts, so
+// its watches run only while it is selected.
 const TABS: { label: string; icon: LucideIcon; content?: ComponentType }[] = [
   { label: 'General', icon: SlidersHorizontal, content: GeneralSettings },
-  { label: 'Clusters', icon: Server },
+  { label: 'Clusters', icon: Server, content: ClustersSettings },
   { label: 'Connectors', icon: Plug },
   { label: 'Providers', icon: Sparkles },
   { label: 'Memory', icon: Brain },

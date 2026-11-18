@@ -14,12 +14,25 @@
 
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { mockTauriCore } from '@/test-utils';
 
 const { invokeMock, factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
+
+// The tab's own behavior is its test's; here it only says when it is mounted.
+const { clustersMounted } = vi.hoisted(() => ({ clustersMounted: vi.fn() }));
+vi.mock('./clusters', () => ({
+  ClustersSettings: () => {
+    useEffect(() => {
+      clustersMounted(true);
+      return () => clustersMounted(false);
+    }, []);
+    return <p>The clusters</p>;
+  },
+}));
 
 const { ThemeProvider } = await import('@/lib/theme');
 const { SettingsDialog } = await import('./dialog');
@@ -53,7 +66,7 @@ describe('SettingsDialog', () => {
     expect(screen.getByRole('group', { name: 'Appearance' })).toBeInTheDocument();
   });
 
-  it.each(TABS.slice(1))('shows %s by its name, and Coming soon', async (name) => {
+  it.each(TABS.slice(2))('shows %s by its name, and Coming soon', async (name) => {
     const user = userEvent.setup();
     renderDialog();
 
@@ -63,6 +76,20 @@ describe('SettingsDialog', () => {
     const panel = screen.getByRole('tabpanel');
     expect(panel).toHaveTextContent(name);
     expect(panel).toHaveTextContent('Coming soon');
+  });
+
+  // Each row's cache size is a live watch; it must not run behind another tab.
+  it('draws the Clusters tab while it is selected, and lets it go after', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole('tab', { name: 'Clusters' }));
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('The clusters');
+    expect(clustersMounted).toHaveBeenLastCalledWith(true);
+
+    await user.click(screen.getByRole('tab', { name: 'General' }));
+    expect(clustersMounted).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByText('The clusters')).toBeNull();
   });
 
   it('moves between tabs with the arrow keys', async () => {

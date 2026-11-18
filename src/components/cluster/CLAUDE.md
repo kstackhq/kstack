@@ -1,6 +1,6 @@
 # src/components/cluster — the cluster's controls
 
-The context omnibox (in `components/shell/`) and what it opens: the cluster picker, the status popover, the sync panel and the memory popover. Also owns `src/lib/`'s `cluster-health.ts`, `cluster-diagnostics.ts`, `kube-config.tsx` and `memories.tsx`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md).
+The context omnibox (in `components/shell/`) and what it opens: the cluster picker, the status popover, the sync panel and the memory popover. Also owns `src/lib/`'s `cluster-health.ts`, `cluster-diagnostics.ts`, `cluster-mutations.ts`, `kube-config.tsx` and `memories.tsx`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md).
 
 ## The context omnibox
 
@@ -24,7 +24,7 @@ The status button is the server icon with the window's cluster's verdict as a do
 
 Around it:
 
-- **It shares the Clusters dialog's streams** (`useDataRate`, `useCacheContents`, `useNextCheck`, `src/lib/cluster-diagnostics.ts`), its sync wording (`syncReason`, `countLabel`, `src/lib/cluster-health.ts`) and its components (`RelativeTime`, `Countdown` and `RetryButton` in `primitives/`, `DataRateSparkline` in `cluster/`, each a file of its own). The schedule gauge (`useNextCheck`) is read once, in `ClusterStatus`, and handed down. The history stays in the Clusters dialog.
+- **It shares the Clusters dialog's streams** (`useDataRate`, `useCacheContents`, `useNextCheck`, `src/lib/cluster-diagnostics.ts`), its sync wording (`syncReason`, `countLabel`, `src/lib/cluster-health.ts`) and its components (`RelativeTime`, `Countdown` and `RetryButton` in `primitives/`, `DataRateSparkline` in `cluster/`). The schedule gauge (`useNextCheck`) is read once, in `ClusterStatus`, and handed down. The history stays in the Clusters dialog.
 - **Size.** It hangs below the server icon, left edges aligned, 320px wide and as tall as its content. When the window is shorter, the alerts and sections scroll between a fixed header and footer, so a long message never hides the footer's buttons. It neither resizes nor remembers a size.
 - *View details* calls `openDialog('clusters', { clusterId, pane })`. **`clusterDetail` is the one way a dialog opens with state**: `ClusterSyncPanel` (`components/cluster/cluster-sync-panel/`, its one export) reads it once as it mounts, opens that row's pane and scrolls to it, and every other open clears it.
 

@@ -19,11 +19,7 @@ type Documents = {
     "\n  mutation ChatDelete($id: ChatID!) {\n    chatDelete(id: $id)\n  }\n": typeof types.ChatDeleteDocument,
     "\n  mutation ApprovalDecide($id: ApprovalID!, $decision: ApprovalDecision!) {\n    approvalDecide(id: $id, decision: $decision)\n  }\n": typeof types.ApprovalDecideDocument,
     "\n  mutation BackgroundTaskStop($id: ToolCallID!) {\n    backgroundTaskStop(id: $id)\n  }\n": typeof types.BackgroundTaskStopDocument,
-    "\n  mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {\n    clusterEnabledSet(id: $id, enabled: $enabled) {\n      id\n      spec {\n        enabled\n      }\n    }\n  }\n": typeof types.ClusterEnabledSetDocument,
-    "\n  mutation ClusterSyncEnabledSet($id: ClusterID!, $syncEnabled: Boolean!) {\n    clusterSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n": typeof types.ClusterSyncEnabledSetDocument,
-    "\n  mutation ClusterCacheClear($id: ObjectID!) {\n    clusterCacheClear(id: $id) {\n      id\n    }\n  }\n": typeof types.ClusterCacheClearDocument,
     "\n  mutation ClusterCachedKindSyncEnabledSet($id: ObjectID!, $syncEnabled: Boolean!) {\n    clusterCachedKindSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n": typeof types.ClusterCachedKindSyncEnabledSetDocument,
-    "\n  mutation ClusterDelete($id: ClusterID!) {\n    clusterDelete(id: $id)\n  }\n": typeof types.ClusterDeleteDocument,
     "\n  subscription ClusterConnectionEvents($id: ClusterID!) {\n    clusterEventsWatch(id: $id, category: \"connection\") {\n      type\n      event {\n        id\n        type\n        reason\n        message\n        count\n        firstAt\n        lastAt\n      }\n    }\n  }\n": typeof types.ClusterConnectionEventsDocument,
     "\n  subscription ClusterSyncEvents($id: ObjectID!) {\n    eventsWatch(id: $id, category: \"sync\") {\n      type\n      event {\n        id\n        type\n        reason\n        message\n        count\n        firstAt\n        lastAt\n      }\n    }\n  }\n": typeof types.ClusterSyncEventsDocument,
     "\n  subscription ClusterDiscoveryEvents($id: ObjectID!) {\n    eventsWatch(id: $id, category: \"discovery\") {\n      type\n      event {\n        id\n        type\n        reason\n        message\n        count\n        firstAt\n        lastAt\n      }\n    }\n  }\n": typeof types.ClusterDiscoveryEventsDocument,
@@ -46,6 +42,10 @@ type Documents = {
     "\n  subscription ClusterCacheStats($id: ClusterID!, $cacheID: ObjectID!) {\n    clusterCacheStatsWatch(id: $id, cacheID: $cacheID) {\n      exists\n      bytes\n      dbBytes\n      walBytes\n      shmBytes\n      objectCount\n      kindCount\n    }\n  }\n": typeof types.ClusterCacheStatsDocument,
     "\n  subscription ClusterSchedule($id: ClusterID!) {\n    clusterScheduleWatch(id: $id) {\n      nextRequeueAt\n      probing\n      failures\n    }\n  }\n": typeof types.ClusterScheduleDocument,
     "\n  subscription ClusterDataRate($id: ClusterID!) {\n    clusterDataRateWatch(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n": typeof types.ClusterDataRateDocument,
+    "\n  mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {\n    clusterEnabledSet(id: $id, enabled: $enabled) {\n      id\n      spec {\n        enabled\n      }\n    }\n  }\n": typeof types.ClusterEnabledSetDocument,
+    "\n  mutation ClusterSyncEnabledSet($id: ClusterID!, $syncEnabled: Boolean!) {\n    clusterSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n": typeof types.ClusterSyncEnabledSetDocument,
+    "\n  mutation ClusterCacheClear($id: ObjectID!) {\n    clusterCacheClear(id: $id) {\n      id\n    }\n  }\n": typeof types.ClusterCacheClearDocument,
+    "\n  mutation ClusterDelete($id: ClusterID!) {\n    clusterDelete(id: $id)\n  }\n": typeof types.ClusterDeleteDocument,
     "\n  subscription ClustersWatch {\n    clustersWatch {\n      type\n      cluster {\n        id\n        deletionRequestedAt\n        spec {\n          name\n          syncEnabled\n          enabled\n          source {\n            kubeconfig {\n              context\n            }\n          }\n        }\n        status {\n          source {\n            kubeconfig {\n              cluster {\n                name\n                entry {\n                  server\n                  insecureSkipTLSVerify\n                }\n              }\n              user {\n                name\n              }\n              isPresent\n              isDefault\n            }\n          }\n          server {\n            uid\n          }\n        }\n        conditions {\n          type\n          status\n          reason\n          message\n          liveness\n          unconfirmed\n          transitionedAt\n        }\n      }\n    }\n  }\n": typeof types.ClustersWatchDocument,
     "\n  subscription ClusterCachesWatch {\n    clusterCachesWatch {\n      type\n      cache {\n        id\n        clusterID\n        spec {\n          serverUid\n        }\n        # On-disk stats ride clusterCacheStatsWatch, subscribed per expanded row.\n      }\n    }\n  }\n": typeof types.ClusterCachesWatchDocument,
     "\n  subscription ClusterCacheHealthWatch {\n    clusterCacheHealthWatch {\n      cacheID\n      status\n      reason\n      unhealthyKindRefs {\n        apiVersion\n        resource\n        reason\n      }\n      failure\n      totalKinds\n      unhealthyKinds\n      pausedKinds\n      lastUpdateAt\n      lastLiveAt\n    }\n  }\n": typeof types.ClusterCacheHealthWatchDocument,
@@ -82,11 +82,7 @@ const documents: Documents = {
     "\n  mutation ChatDelete($id: ChatID!) {\n    chatDelete(id: $id)\n  }\n": types.ChatDeleteDocument,
     "\n  mutation ApprovalDecide($id: ApprovalID!, $decision: ApprovalDecision!) {\n    approvalDecide(id: $id, decision: $decision)\n  }\n": types.ApprovalDecideDocument,
     "\n  mutation BackgroundTaskStop($id: ToolCallID!) {\n    backgroundTaskStop(id: $id)\n  }\n": types.BackgroundTaskStopDocument,
-    "\n  mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {\n    clusterEnabledSet(id: $id, enabled: $enabled) {\n      id\n      spec {\n        enabled\n      }\n    }\n  }\n": types.ClusterEnabledSetDocument,
-    "\n  mutation ClusterSyncEnabledSet($id: ClusterID!, $syncEnabled: Boolean!) {\n    clusterSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n": types.ClusterSyncEnabledSetDocument,
-    "\n  mutation ClusterCacheClear($id: ObjectID!) {\n    clusterCacheClear(id: $id) {\n      id\n    }\n  }\n": types.ClusterCacheClearDocument,
     "\n  mutation ClusterCachedKindSyncEnabledSet($id: ObjectID!, $syncEnabled: Boolean!) {\n    clusterCachedKindSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n": types.ClusterCachedKindSyncEnabledSetDocument,
-    "\n  mutation ClusterDelete($id: ClusterID!) {\n    clusterDelete(id: $id)\n  }\n": types.ClusterDeleteDocument,
     "\n  subscription ClusterConnectionEvents($id: ClusterID!) {\n    clusterEventsWatch(id: $id, category: \"connection\") {\n      type\n      event {\n        id\n        type\n        reason\n        message\n        count\n        firstAt\n        lastAt\n      }\n    }\n  }\n": types.ClusterConnectionEventsDocument,
     "\n  subscription ClusterSyncEvents($id: ObjectID!) {\n    eventsWatch(id: $id, category: \"sync\") {\n      type\n      event {\n        id\n        type\n        reason\n        message\n        count\n        firstAt\n        lastAt\n      }\n    }\n  }\n": types.ClusterSyncEventsDocument,
     "\n  subscription ClusterDiscoveryEvents($id: ObjectID!) {\n    eventsWatch(id: $id, category: \"discovery\") {\n      type\n      event {\n        id\n        type\n        reason\n        message\n        count\n        firstAt\n        lastAt\n      }\n    }\n  }\n": types.ClusterDiscoveryEventsDocument,
@@ -109,6 +105,10 @@ const documents: Documents = {
     "\n  subscription ClusterCacheStats($id: ClusterID!, $cacheID: ObjectID!) {\n    clusterCacheStatsWatch(id: $id, cacheID: $cacheID) {\n      exists\n      bytes\n      dbBytes\n      walBytes\n      shmBytes\n      objectCount\n      kindCount\n    }\n  }\n": types.ClusterCacheStatsDocument,
     "\n  subscription ClusterSchedule($id: ClusterID!) {\n    clusterScheduleWatch(id: $id) {\n      nextRequeueAt\n      probing\n      failures\n    }\n  }\n": types.ClusterScheduleDocument,
     "\n  subscription ClusterDataRate($id: ClusterID!) {\n    clusterDataRateWatch(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n": types.ClusterDataRateDocument,
+    "\n  mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {\n    clusterEnabledSet(id: $id, enabled: $enabled) {\n      id\n      spec {\n        enabled\n      }\n    }\n  }\n": types.ClusterEnabledSetDocument,
+    "\n  mutation ClusterSyncEnabledSet($id: ClusterID!, $syncEnabled: Boolean!) {\n    clusterSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n": types.ClusterSyncEnabledSetDocument,
+    "\n  mutation ClusterCacheClear($id: ObjectID!) {\n    clusterCacheClear(id: $id) {\n      id\n    }\n  }\n": types.ClusterCacheClearDocument,
+    "\n  mutation ClusterDelete($id: ClusterID!) {\n    clusterDelete(id: $id)\n  }\n": types.ClusterDeleteDocument,
     "\n  subscription ClustersWatch {\n    clustersWatch {\n      type\n      cluster {\n        id\n        deletionRequestedAt\n        spec {\n          name\n          syncEnabled\n          enabled\n          source {\n            kubeconfig {\n              context\n            }\n          }\n        }\n        status {\n          source {\n            kubeconfig {\n              cluster {\n                name\n                entry {\n                  server\n                  insecureSkipTLSVerify\n                }\n              }\n              user {\n                name\n              }\n              isPresent\n              isDefault\n            }\n          }\n          server {\n            uid\n          }\n        }\n        conditions {\n          type\n          status\n          reason\n          message\n          liveness\n          unconfirmed\n          transitionedAt\n        }\n      }\n    }\n  }\n": types.ClustersWatchDocument,
     "\n  subscription ClusterCachesWatch {\n    clusterCachesWatch {\n      type\n      cache {\n        id\n        clusterID\n        spec {\n          serverUid\n        }\n        # On-disk stats ride clusterCacheStatsWatch, subscribed per expanded row.\n      }\n    }\n  }\n": types.ClusterCachesWatchDocument,
     "\n  subscription ClusterCacheHealthWatch {\n    clusterCacheHealthWatch {\n      cacheID\n      status\n      reason\n      unhealthyKindRefs {\n        apiVersion\n        resource\n        reason\n      }\n      failure\n      totalKinds\n      unhealthyKinds\n      pausedKinds\n      lastUpdateAt\n      lastLiveAt\n    }\n  }\n": types.ClusterCacheHealthWatchDocument,
@@ -177,23 +177,7 @@ export function graphql(source: "\n  mutation BackgroundTaskStop($id: ToolCallID
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {\n    clusterEnabledSet(id: $id, enabled: $enabled) {\n      id\n      spec {\n        enabled\n      }\n    }\n  }\n"): (typeof documents)["\n  mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {\n    clusterEnabledSet(id: $id, enabled: $enabled) {\n      id\n      spec {\n        enabled\n      }\n    }\n  }\n"];
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  mutation ClusterSyncEnabledSet($id: ClusterID!, $syncEnabled: Boolean!) {\n    clusterSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n"): (typeof documents)["\n  mutation ClusterSyncEnabledSet($id: ClusterID!, $syncEnabled: Boolean!) {\n    clusterSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n"];
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  mutation ClusterCacheClear($id: ObjectID!) {\n    clusterCacheClear(id: $id) {\n      id\n    }\n  }\n"): (typeof documents)["\n  mutation ClusterCacheClear($id: ObjectID!) {\n    clusterCacheClear(id: $id) {\n      id\n    }\n  }\n"];
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
 export function graphql(source: "\n  mutation ClusterCachedKindSyncEnabledSet($id: ObjectID!, $syncEnabled: Boolean!) {\n    clusterCachedKindSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n"): (typeof documents)["\n  mutation ClusterCachedKindSyncEnabledSet($id: ObjectID!, $syncEnabled: Boolean!) {\n    clusterCachedKindSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n"];
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  mutation ClusterDelete($id: ClusterID!) {\n    clusterDelete(id: $id)\n  }\n"): (typeof documents)["\n  mutation ClusterDelete($id: ClusterID!) {\n    clusterDelete(id: $id)\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -282,6 +266,22 @@ export function graphql(source: "\n  subscription ClusterSchedule($id: ClusterID
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  subscription ClusterDataRate($id: ClusterID!) {\n    clusterDataRateWatch(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n"): (typeof documents)["\n  subscription ClusterDataRate($id: ClusterID!) {\n    clusterDataRateWatch(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {\n    clusterEnabledSet(id: $id, enabled: $enabled) {\n      id\n      spec {\n        enabled\n      }\n    }\n  }\n"): (typeof documents)["\n  mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {\n    clusterEnabledSet(id: $id, enabled: $enabled) {\n      id\n      spec {\n        enabled\n      }\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation ClusterSyncEnabledSet($id: ClusterID!, $syncEnabled: Boolean!) {\n    clusterSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n"): (typeof documents)["\n  mutation ClusterSyncEnabledSet($id: ClusterID!, $syncEnabled: Boolean!) {\n    clusterSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation ClusterCacheClear($id: ObjectID!) {\n    clusterCacheClear(id: $id) {\n      id\n    }\n  }\n"): (typeof documents)["\n  mutation ClusterCacheClear($id: ObjectID!) {\n    clusterCacheClear(id: $id) {\n      id\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation ClusterDelete($id: ClusterID!) {\n    clusterDelete(id: $id)\n  }\n"): (typeof documents)["\n  mutation ClusterDelete($id: ClusterID!) {\n    clusterDelete(id: $id)\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

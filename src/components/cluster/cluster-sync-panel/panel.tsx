@@ -50,6 +50,12 @@ import {
   syncStatus,
 } from '@/lib/cluster-health';
 import {
+  ClusterCacheClearMutation,
+  ClusterDeleteMutation,
+  ClusterEnabledSetMutation,
+  ClusterSyncEnabledSetMutation,
+} from '@/lib/cluster-mutations';
+import {
   type Cluster,
   type ClusterCacheHealth,
   type Keyed,
@@ -64,36 +70,6 @@ import { perFrame, useWatchSubscription, watchPhase } from '@/lib/graphql/use-wa
 import { EVENTS_GVR, gvrKey } from '@/lib/gvr';
 import { humanDuration, humanMinutes } from '@/lib/human-duration';
 
-const ClusterEnabledSetMutation = graphql(`
-  mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {
-    clusterEnabledSet(id: $id, enabled: $enabled) {
-      id
-      spec {
-        enabled
-      }
-    }
-  }
-`);
-
-const ClusterSyncEnabledSetMutation = graphql(`
-  mutation ClusterSyncEnabledSet($id: ClusterID!, $syncEnabled: Boolean!) {
-    clusterSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {
-      id
-      spec {
-        syncEnabled
-      }
-    }
-  }
-`);
-
-const ClusterCacheClearMutation = graphql(`
-  mutation ClusterCacheClear($id: ObjectID!) {
-    clusterCacheClear(id: $id) {
-      id
-    }
-  }
-`);
-
 // One kind's own switch. Pausing keeps the cached rows, which is the whole difference from
 // clusterCacheClear — the objects stay listed and readable while the watch is stopped.
 const ClusterCachedKindSyncEnabledSetMutation = graphql(`
@@ -104,12 +80,6 @@ const ClusterCachedKindSyncEnabledSetMutation = graphql(`
         syncEnabled
       }
     }
-  }
-`);
-
-const ClusterDeleteMutation = graphql(`
-  mutation ClusterDelete($id: ClusterID!) {
-    clusterDelete(id: $id)
   }
 `);
 
