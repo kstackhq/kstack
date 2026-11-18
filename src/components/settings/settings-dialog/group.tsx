@@ -48,6 +48,16 @@ export function Group({ title, lede, info, action, children }: GroupProps) {
   );
 }
 
+// A row of a group's card: a label, then its note.
+export function NoteRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <li className="flex gap-4 px-4 py-3">
+      <span className="w-28 shrink-0 text-sm text-popover-foreground">{label}</span>
+      <div className="min-w-0 flex-1 text-sm text-muted-foreground">{children}</div>
+    </li>
+  );
+}
+
 // The info icon beside a group's heading, opening a note.
 export function InfoPopover({ label, children }: { label: string; children: ReactNode }) {
   return (

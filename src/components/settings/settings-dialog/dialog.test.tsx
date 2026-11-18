@@ -34,6 +34,8 @@ vi.mock('./clusters', () => ({
   },
 }));
 
+vi.mock('./sandbox', () => ({ SandboxSettings: () => <p>The sandbox</p> }));
+
 const { ThemeProvider } = await import('@/lib/theme');
 const { SettingsDialog, TABS } = await import('./dialog');
 
@@ -78,6 +80,14 @@ describe('SettingsDialog', () => {
     const panel = screen.getByRole('tabpanel');
     expect(panel).toHaveTextContent(name);
     expect(panel).toHaveTextContent('Coming soon');
+  });
+
+  it('draws the Sandbox tab', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(await screen.findByRole('tab', { name: 'Sandbox' }));
+    expect(screen.getByRole('heading', { name: 'Sandbox' })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('The sandbox');
   });
 
   // Each row's cache size is a live watch; it must not run behind another tab.

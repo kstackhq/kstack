@@ -16,7 +16,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { Group, InfoPopover } from './group';
+import { Group, InfoPopover, NoteRow } from './group';
 
 describe('Group', () => {
   it('names a group by its heading, with its lede and children', () => {
@@ -40,6 +40,15 @@ describe('Group', () => {
     const group = screen.getByRole('group', { name: 'PATH' });
     expect(within(group).getByRole('button', { name: 'Import' })).toBeInTheDocument();
     expect(within(group).getByRole('button', { name: 'About' })).toBeInTheDocument();
+  });
+
+  it('draws a note row as its label and note', () => {
+    render(
+      <ul>
+        <NoteRow label="Your clusters">Through Kstack.</NoteRow>
+      </ul>,
+    );
+    expect(screen.getByRole('listitem')).toHaveTextContent('Your clustersThrough Kstack.');
   });
 
   it('opens its note from the info icon', async () => {

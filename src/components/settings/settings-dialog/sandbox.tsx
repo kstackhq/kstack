@@ -12,151 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The Settings dialog's Sandbox section: the frozen PATH sandboxed commands search, each folder's state,
-// and Include, Remove and Refresh PATH; then the executables the probe checks
-// and the user's own executables; then the folders granted always, with Add
-// and Remove; then what no grant opens. A folder name is text the user's shell or hand produced, so it is
-// drawn through VisibleText with its whitespace kept and the trailing
-// spelled: a change approves the folder drawn, and two that differ only in
-// whitespace must not look alike. A executable's path, version and error are its
-// own text, drawn the same way.
+// The Settings dialog's Sandbox tab: the status card, then Folders, Network,
+// PATH, Executables and Environment, each a titled card in a file beside this
+// one but Executables. On a machine with no sandbox, the status card alone. An
+// executable's path, version and error are its own text, so they are drawn
+// through VisibleText with the trailing spelled.
 import { Button } from '@kubetail/ui/elements/button';
-import { Field, FieldContent, FieldDescription, FieldLabel } from '@kubetail/ui/elements/field';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { useState } from 'react';
 
 import { Input } from '@/components/primitives/text-entry';
 import { VisibleText } from '@/components/primitives/visible-text';
-import { FolderGrantForm } from '@/components/settings/folder-grant-form';
-import { isMacOS } from '@/lib/platform';
 import { useSandbox } from '@/lib/sandbox';
 import { useSandboxExecutables } from '@/lib/sandbox-executables';
 import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-executables';
-import { useSandboxFolders } from '@/lib/sandbox-folders';
-import type { SandboxFolder } from '@/lib/sandbox-folders';
 import { useSandboxPath } from '@/lib/sandbox-path';
-import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
 
-const TAGS: Record<SandboxPathEntry['state'], string> = {
-  Adopted: 'included',
-  Pending: 'waiting for you',
-  Gone: 'removed',
-};
-
-function PathEntry({
-  entry,
-  busy,
-  onInclude,
-  onRemove,
-}: {
-  entry: SandboxPathEntry;
-  busy: boolean;
-  onInclude: () => void;
-  onRemove: () => void;
-}) {
-  return (
-    <li className="flex items-start gap-2 py-1.5">
-      <div className="min-w-0 flex-1 text-xs">
-        <p className="font-mono break-all whitespace-pre-wrap" data-testid="dir">
-          <VisibleText text={entry.dir} trailing="end" />
-        </p>
-        {entry.target !== entry.dir && (
-          <p className="font-mono break-all whitespace-pre-wrap text-muted-foreground" data-testid="target">
-            <VisibleText text={entry.target} trailing="end" />
-          </p>
-        )}
-        <p className="text-muted-foreground">
-          <span>{TAGS[entry.state]}</span>
-          {entry.shared && (
-            <>
-              <span> · </span>
-              <span>shared with its group</span>
-            </>
-          )}
-        </p>
-      </div>
-      {entry.state !== 'Adopted' && (
-        <Button size="sm" variant="outline" disabled={busy} onClick={onInclude}>
-          Include
-        </Button>
-      )}
-      {entry.state !== 'Gone' && (
-        <Button size="sm" variant="ghost" disabled={busy} onClick={onRemove}>
-          Remove
-        </Button>
-      )}
-    </li>
-  );
-}
-
-// What commands search while the shell cannot be read: the stored list, or
-// with none, the default only before the shell was ever read.
-function inEffect(entries: number, resolved: boolean | undefined): string {
-  if (entries > 0) return 'The list is from the last time it could.';
-  if (resolved) return 'Sandboxed commands search no folder.';
-  return "Sandboxed commands use the system's default PATH.";
-}
-
-// The PATH list with Refresh PATH, Include and Remove; its heading is the caller's.
-function SandboxPathList({ path, onRefreshed }: { path: SandboxPath; onRefreshed: () => void }) {
-  const { entries, fault, resolved, changing, refreshing, changeError, refreshError, include, remove, refresh } = path;
-  return (
-    <>
-      <div>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={refreshing}
-          onClick={async () => {
-            // A new PATH can change which binary each executable resolves to.
-            if (await refresh()) onRefreshed();
-          }}
-        >
-          Refresh PATH
-        </Button>
-        {refreshError && <p className="mt-1 text-xs text-destructive">{refreshError}</p>}
-      </div>
-      {fault && (
-        <p className="text-xs text-muted-foreground">
-          {`Kstack could not read your shell's PATH: ${fault}. ${inEffect(entries?.length ?? 0, resolved)}`}
-        </p>
-      )}
-      <ul className="divide-y">
-        {entries?.map((entry) => (
-          <PathEntry
-            key={entry.dir}
-            entry={entry}
-            busy={changing.has(entry.dir) || refreshing}
-            onInclude={() => include(entry.dir, entry.target)}
-            onRemove={() => remove(entry.dir)}
-          />
-        ))}
-      </ul>
-      {changeError && <p className="text-xs text-destructive">{changeError}</p>}
-    </>
-  );
-}
-
-function SandboxPathSection({ onRefreshed }: { onRefreshed: () => void }) {
-  const path = useSandboxPath();
-  return (
-    <Field>
-      <FieldContent>
-        <FieldLabel>Sandbox</FieldLabel>
-        <FieldDescription>
-          Sandboxed commands find programs in these folders, in this order. Kstack reads them from your shell at each
-          launch; a new folder that would open more to commands waits for you.
-        </FieldDescription>
-      </FieldContent>
-      <SandboxPathList path={path} onRefreshed={onRefreshed} />
-    </Field>
-  );
-}
+import { Group } from './group';
+import { SandboxConsole } from './sandbox-console';
+import { SandboxEnvironment } from './sandbox-environment';
+import { SandboxFolderGroups } from './sandbox-folders';
+import { SandboxNetwork } from './sandbox-network';
+import { SandboxPathSection } from './sandbox-path';
+import { SandboxStatus } from './sandbox-status';
 
 function ExecutableRow({ executable }: { executable: SandboxExecutable }) {
   const { name, probed, resolved, shim, target, ok, version, error } = executable;
   return (
-    <li className="py-1.5 text-xs">
+    <li className="px-4 py-2 text-xs">
       <p className="flex gap-2">
         <span className="font-mono font-medium break-all whitespace-pre-wrap">
           <VisibleText text={name} trailing="end" />
@@ -245,13 +128,19 @@ function RegisteredExecutables({ executables }: { executables: SandboxExecutable
   );
 }
 
-// The executables report with Probe again; its heading and its line for a
-// missing kubectl are the caller's.
-function SandboxExecutableList({ executables }: { executables: SandboxExecutables }) {
+// kubectlMissing reports whether the probe ran kubectl and found no binary.
+function kubectlMissing(report: SandboxExecutable[] | undefined): boolean {
+  const kubectl = report?.find((executable) => executable.name === 'kubectl');
+  return !!kubectl?.probed && !kubectl.resolved;
+}
+
+function SandboxExecutableSection({ executables }: { executables: SandboxExecutables }) {
   const { report, probing, probeError, probe } = executables;
   return (
-    <>
-      <div>
+    <Group
+      title="Executables"
+      lede="Kstack runs each executable once in the sandbox, with no cluster and no network, to see what it needs."
+      action={
         <Button size="sm" variant="outline" disabled={probing} onClick={() => probe()}>
           {probing ? (
             <>
@@ -262,149 +151,63 @@ function SandboxExecutableList({ executables }: { executables: SandboxExecutable
             'Probe again'
           )}
         </Button>
-        {probeError && <p className="mt-1 text-xs text-destructive">{probeError}</p>}
-      </div>
-      <ul className="divide-y" aria-label="Executables">
-        {report?.map((executable) => (
-          <ExecutableRow key={executable.name} executable={executable} />
-        ))}
-      </ul>
-    </>
-  );
-}
-
-// kubectlMissing reports whether the probe ran kubectl and found no binary.
-function kubectlMissing(report: SandboxExecutable[] | undefined): boolean {
-  const kubectl = report?.find((executable) => executable.name === 'kubectl');
-  return !!kubectl?.probed && !kubectl.resolved;
-}
-
-function SandboxExecutableSection({ executables }: { executables: SandboxExecutables }) {
-  return (
-    <Field>
-      <FieldContent>
-        <FieldLabel>Executables</FieldLabel>
-        <FieldDescription>
-          Kstack runs each executable once in the sandbox, with no cluster and no network, to see what it needs.
-        </FieldDescription>
-      </FieldContent>
-      {kubectlMissing(executables.report) && (
+      }
+    >
+      {probeError && <p className="text-xs text-destructive">{probeError}</p>}
+      {kubectlMissing(report) && (
         <p className="text-xs text-destructive">
           kubectl was not found on the sandbox&apos;s PATH. Install it, or include its folder above.
         </p>
       )}
-      <SandboxExecutableList executables={executables} />
+      <ul className="divide-y rounded-lg border" aria-label="Executables">
+        {report?.map((executable) => (
+          <ExecutableRow key={executable.name} executable={executable} />
+        ))}
+      </ul>
       <RegisteredExecutables executables={executables} />
-    </Field>
+    </Group>
   );
 }
 
-// The folders macOS's privacy control guards for the app, under the home.
-const PRIVATE_FOLDERS = ['Documents', 'Desktop', 'Downloads'];
-
-// guardedByMacOS reports whether path lies inside one of the home's private
-// folders, where macOS may ask the user before Kstack reaches it.
-function guardedByMacOS(path: string, home: string | undefined): boolean {
-  return (
-    home !== undefined &&
-    PRIVATE_FOLDERS.some((name) => path.startsWith(`${home}/${name}/`) || path === `${home}/${name}`)
-  );
-}
-
-function FolderRow({
-  folder,
-  home,
-  busy,
-  onRemove,
+// The sections below the status card. Folders and PATH share one PATH reader,
+// so a refresh holds both; PATH's import probes the executables again.
+function SandboxSections({
+  networkAvailable,
+  networkReason,
 }: {
-  folder: SandboxFolder;
-  home: string | undefined;
-  busy: boolean;
-  onRemove: () => void;
+  networkAvailable: boolean | undefined;
+  networkReason: string;
 }) {
-  // Destructured: the HTML-sink lint refuses any `.write`.
-  const { path, write, refused } = folder;
-  return (
-    <li className="flex items-start gap-2 py-1.5">
-      <div className="min-w-0 flex-1 text-xs">
-        <p className="font-mono break-all whitespace-pre-wrap" data-testid="folder">
-          <VisibleText text={path} trailing="end" />
-        </p>
-        <p className="text-muted-foreground">{write ? 'read and write' : 'read'}</p>
-        {refused && <p className="text-muted-foreground">{refused}</p>}
-        {isMacOS() && guardedByMacOS(path, home) && (
-          <p className="text-muted-foreground">macOS may ask you to let Kstack reach this folder.</p>
-        )}
-      </div>
-      <Button size="sm" variant="ghost" disabled={busy} onClick={onRemove}>
-        Remove
-      </Button>
-    </li>
-  );
-}
-
-function SandboxFolderList() {
-  const { always, never, wide, rulesHeld, revoking, revokeError, revoke } = useSandboxFolders();
-  const home = wide?.[0];
-
-  return (
-    <>
-      <Field>
-        <FieldContent>
-          <FieldLabel>Folders</FieldLabel>
-          <FieldDescription>
-            Sandboxed commands, and Read, Write and Edit, reach these folders in every chat without asking: read, or
-            read and write.
-          </FieldDescription>
-        </FieldContent>
-        <ul className="divide-y" aria-label="Folders">
-          {always?.map((folder) => (
-            <FolderRow
-              key={folder.id}
-              folder={folder}
-              home={home}
-              busy={rulesHeld || revoking.has(folder.id)}
-              onRemove={() => revoke(folder.id)}
-            />
-          ))}
-        </ul>
-        {revokeError && <p className="text-xs text-destructive">{revokeError}</p>}
-        <FolderGrantForm durations={['Always']} submitLabel="Add" />
-      </Field>
-      <Field>
-        <FieldContent>
-          <FieldLabel>Never readable</FieldLabel>
-          <FieldDescription>
-            A sandboxed command never reads these, whatever you grant: the credential and private folders Kstack knows
-            of, and Kstack&apos;s own data. A secret kept anywhere else is readable once its folder is granted.
-          </FieldDescription>
-        </FieldContent>
-        <ul aria-label="Never readable" className="text-xs">
-          {never?.map((p) => (
-            <li key={p} className="font-mono break-all whitespace-pre-wrap text-muted-foreground">
-              <VisibleText text={p} trailing="end" />
-            </li>
-          ))}
-        </ul>
-      </Field>
-    </>
-  );
-}
-
-// One reader of the executables for the section, since a Refresh PATH probes them.
-function SandboxSections() {
+  const path = useSandboxPath();
   const executables = useSandboxExecutables();
   return (
     <>
-      <SandboxPathSection onRefreshed={executables.probe} />
+      <SandboxFolderGroups path={path} />
+      <SandboxNetwork networkAvailable={networkAvailable} networkReason={networkReason} />
+      <SandboxPathSection path={path} onRefreshed={executables.probe} />
       <SandboxExecutableSection executables={executables} />
-      <SandboxFolderList />
+      <SandboxEnvironment />
     </>
   );
 }
 
 export function SandboxSettings() {
-  const { available } = useSandbox();
-  if (available !== true) return null;
-  return <SandboxSections />;
+  const sandbox = useSandbox();
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  return (
+    <>
+      {/* Placeholder: awaits a global sandbox setting and its mutation, so the switch is on and disabled. */}
+      <SandboxStatus sandbox={sandbox} on onTry={() => setConsoleOpen(true)} />
+      {sandbox.available && (
+        <>
+          <SandboxSections networkAvailable={sandbox.networkAvailable} networkReason={sandbox.networkReason} />
+          <SandboxConsole
+            open={consoleOpen}
+            onOpenChange={setConsoleOpen}
+            networkAvailable={sandbox.networkAvailable}
+          />
+        </>
+      )}
+    </>
+  );
 }

@@ -62,6 +62,7 @@ type Documents = {
     "\n  mutation PermissionRuleAdd($input: PermissionRuleInput!) {\n    permissionRuleAdd(input: $input) {\n      held\n    }\n  }\n": typeof types.PermissionRuleAddDocument,
     "\n  mutation PermissionRuleRemove($id: String!) {\n    permissionRuleRemove(id: $id) {\n      held\n    }\n  }\n": typeof types.PermissionRuleRemoveDocument,
     "\n  mutation PermissionDiscardRefused($field: String!) {\n    permissionDiscardRefused(field: $field) {\n      held\n    }\n  }\n": typeof types.PermissionDiscardRefusedDocument,
+    "\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n": typeof types.SandboxCloudAccessDocument,
     "\n  subscription SandboxExecutablesWatch {\n    sandboxExecutablesWatch {\n      probing\n      probes\n      executables {\n        name\n        invocation\n        registered\n        probed\n        resolved\n        shim\n        target\n        ok\n        version\n        error\n      }\n    }\n  }\n": typeof types.SandboxExecutablesWatchDocument,
     "\n  mutation SandboxExecutablesProbe {\n    sandboxExecutablesProbe {\n      name\n    }\n  }\n": typeof types.SandboxExecutablesProbeDocument,
     "\n  mutation SandboxExecutableRegister($name: String!, $invocation: String) {\n    sandboxExecutableRegister(name: $name, invocation: $invocation) {\n      name\n    }\n  }\n": typeof types.SandboxExecutableRegisterDocument,
@@ -125,6 +126,7 @@ const documents: Documents = {
     "\n  mutation PermissionRuleAdd($input: PermissionRuleInput!) {\n    permissionRuleAdd(input: $input) {\n      held\n    }\n  }\n": types.PermissionRuleAddDocument,
     "\n  mutation PermissionRuleRemove($id: String!) {\n    permissionRuleRemove(id: $id) {\n      held\n    }\n  }\n": types.PermissionRuleRemoveDocument,
     "\n  mutation PermissionDiscardRefused($field: String!) {\n    permissionDiscardRefused(field: $field) {\n      held\n    }\n  }\n": types.PermissionDiscardRefusedDocument,
+    "\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n": types.SandboxCloudAccessDocument,
     "\n  subscription SandboxExecutablesWatch {\n    sandboxExecutablesWatch {\n      probing\n      probes\n      executables {\n        name\n        invocation\n        registered\n        probed\n        resolved\n        shim\n        target\n        ok\n        version\n        error\n      }\n    }\n  }\n": types.SandboxExecutablesWatchDocument,
     "\n  mutation SandboxExecutablesProbe {\n    sandboxExecutablesProbe {\n      name\n    }\n  }\n": types.SandboxExecutablesProbeDocument,
     "\n  mutation SandboxExecutableRegister($name: String!, $invocation: String) {\n    sandboxExecutableRegister(name: $name, invocation: $invocation) {\n      name\n    }\n  }\n": types.SandboxExecutableRegisterDocument,
@@ -346,6 +348,10 @@ export function graphql(source: "\n  mutation PermissionRuleRemove($id: String!)
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  mutation PermissionDiscardRefused($field: String!) {\n    permissionDiscardRefused(field: $field) {\n      held\n    }\n  }\n"): (typeof documents)["\n  mutation PermissionDiscardRefused($field: String!) {\n    permissionDiscardRefused(field: $field) {\n      held\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n"): (typeof documents)["\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

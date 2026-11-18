@@ -36,6 +36,7 @@ import { type AppDialogProps } from '@/lib/dialog';
 
 import { ClustersSettings } from './clusters';
 import { GeneralSettings } from './general';
+import { SandboxSettings } from './sandbox';
 
 // A tab with no `content` says "Coming soon". A hidden tab's pane unmounts, so
 // its watches run only while it is selected.
@@ -45,7 +46,7 @@ export const TABS: { label: string; icon: LucideIcon; content?: ComponentType }[
   { label: 'Connectors', icon: Plug },
   { label: 'Providers', icon: Sparkles },
   { label: 'Memory', icon: Brain },
-  { label: 'Sandbox', icon: Container },
+  { label: 'Sandbox', icon: Container, content: SandboxSettings },
   { label: 'Permissions', icon: ShieldCheck },
 ];
 
