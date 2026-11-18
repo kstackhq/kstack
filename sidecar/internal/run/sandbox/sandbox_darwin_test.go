@@ -602,15 +602,19 @@ func leaveGroup(call string) int {
 	return 0
 }
 
-// linger waits on dir's go FIFO until the test has killed the run's group,
-// then tries the stand-in home and a loopback listener and writes what it got.
+// linger waits for a byte on dir's go FIFO, which the test writes once it has
+// killed the run's group, then tries the stand-in home and a loopback listener
+// and writes what it got.
 func linger(dir string) int {
 	f, err := os.Open(filepath.Join(dir, "go"))
 	if err != nil {
 		return 1
 	}
-	_, _ = io.Copy(io.Discard, f)
+	_, err = io.ReadFull(f, make([]byte, 1))
 	_ = f.Close()
+	if err != nil {
+		return 1
+	}
 	home, network := "read", "reached"
 	if _, err := os.ReadFile(os.Getenv(homeFileEnv)); err != nil {
 		home = "denied"
@@ -1419,7 +1423,9 @@ open("pid", "w").write(str(pid))' "$BIN"`}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
 
-	// Opening the FIFO waits for linger to open it too.
+	// Opening the FIFO waits for linger to open it too. The write end stays
+	// open until the test ends: a reader macOS wakes after the last writer has
+	// closed goes back to waiting in open, and never returns.
 	opened := make(chan *os.File, 1)
 	go func() {
 		if f, err := os.OpenFile(fifo, os.O_WRONLY, 0); err == nil {
@@ -1427,7 +1433,9 @@ open("pid", "w").write(str(pid))' "$BIN"`}
 		}
 	}()
 	f := testutil.Recv(t, opened, "the process left behind opens its FIFO")
-	require.NoError(t, f.Close())
+	t.Cleanup(func() { _ = f.Close() })
+	_, err = f.Write([]byte("x"))
+	require.NoError(t, err)
 	result := filepath.Join(m.ws, "result")
 	require.Eventually(t, func() bool { _, err := os.Stat(result); return err == nil }, testutil.Timeout, 10*time.Millisecond)
 	got, err := os.ReadFile(result)
