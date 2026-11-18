@@ -44,7 +44,7 @@
   },
   "devDependencies": {
     "@graphql-codegen/cli": "^8.0.0",
-    "@graphql-codegen/client-preset": "^6.2.3",
+    "@graphql-codegen/client-preset": "^7.0.0",
     "@oxlint/plugins": "1.93.0",
     "@rolldown/plugin-babel": "^0.3.1",
     "@tailwindcss/vite": "^4.3.5",
