@@ -47,6 +47,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/azureproxy"
+	"github.com/kstackhq/kstack/sidecar/internal/run/githubproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
@@ -825,3 +826,46 @@ func TestASandboxedCommandReachesAWS(t *testing.T) {
 	e.lastBashResult(t, "aws names: 0")
 	assert.Empty(t, seen)
 }
+
+// With GitHub turned on through the wire, and the fake cloud platform beside it, a
+// sandboxed git reads github.com unasked while kubectl still reads the
+// cluster, and a push waits on one request and lands once approved. The run
+// starting at all says no two cloud platforms set one variable two ways.
+func TestASandboxedGitReachesGitHubThroughTheDoor(t *testing.T) {
+	origin, repo := testutil.GitOrigin(t)
+	cloud := newFakeCloud(t)
+	github := bash.NewGitHub(knownTokens("gho_theUsersOwnGitHubToken0001"), githubproxy.Upstreams{
+		Git: origin.URL, API: origin.URL, Client: origin.Client(),
+	})
+	e := startE2E(t, func(c *Config) { c.cloudPlatforms = []bash.CloudPlatform{github, cloud} })
+	for _, target := range []string{"GitHub", "AWS"} {
+		raw := graphql(t, e.url, `mutation { sandboxCloudAccessSet(target: `+target+`, on: true) { target on } }`)
+		require.Contains(t, raw, `{"target":"`+target+`","on":true}`, raw)
+	}
+
+	e.ask(t, "push to github", llm.StagedCall("Bash", bashInput(
+		`git ls-remote https://github.com/o/r.git main | grep -c .; `+
+			`kubectl get pods -o json | jq '.items | length'; `+
+			`git clone -q https://github.com/o/r.git r && cd r && `+
+			`git -c user.name=k -c user.email=k@example.com -c maintenance.auto=false commit -q --allow-empty -m pushed && `+
+			`git push -q origin HEAD:main; echo "push $?"`)))
+
+	w := e.clusterWrite(t, "pending")
+	require.NotNil(t, w.request.Cloud)
+	assert.Equal(t, permissions.GitHub, w.request.Action.Target)
+	assert.Equal(t, "GitHub: push to o/r", w.request.Action.Summary)
+	assert.Equal(t, "seeded\n", testutil.Git(t, "", "-C", repo, "log", "--format=%s", "main"), "nothing lands before the user decides")
+	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", decision: Once) }`)
+	require.Contains(t, raw, `"approvalDecide":true`, raw)
+
+	row := e.bashCall(t, "succeeded", "failed")
+	assert.True(t, strings.HasPrefix(row.result, "1\n2\npush 0\n"), row.result)
+	assert.Contains(t, e.cluster.requests(), "GET /api/v1/namespaces/default/pods", "kubectl reached the cluster")
+	assert.Equal(t, "pushed\nseeded\n", testutil.Git(t, "", "-C", repo, "log", "--format=%s", "main"))
+}
+
+// knownTokens answers one known token.
+type knownTokens string
+
+func (k knownTokens) Token(context.Context) (string, error) { return string(k), nil }
+func (knownTokens) Refused(string)                          {}

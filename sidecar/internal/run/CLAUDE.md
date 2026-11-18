@@ -1,10 +1,11 @@
 # internal/run — what confines one run
 
-Eight leaves that know no tool and no record: `loginshell` (the user's shell, read once a launch),
+Nine leaves that know no tool and no record: `loginshell` (the user's shell, read once a launch),
 `session` (one run's policy), `sandbox` (the machine's sandbox), `permissions` (the decision over an
 action), `kubeproxy` (the proxy a sandboxed command reaches its cluster through),
-`runproxy` (what every cloud platform's proxy shares, and the run's server), `awsproxy` (AWS's) and
-`azureproxy` (Azure's). A tool imports these; none imports a tool. Posture and the tests that pin it:
+`runproxy` (what every cloud platform's proxy shares, and the run's server), `awsproxy` (AWS's),
+`azureproxy` (Azure's) and `githubproxy` (GitHub's). A tool imports these; none imports a tool.
+Posture and the tests that pin it:
 [`docs/security-model.md`](../../../docs/security-model.md).
 
 ## The login shell (`loginshell`)
@@ -261,6 +262,8 @@ under the header bound; `IsTLS` tells a handler.
   `Enter` false and cancels what `Enter` let in; `Wait` joins it. `Challenge` answers 407 when
   `Limits.Challenges`, else 401.
 - `Body` reads a body in one of `Limits.Bodies` slots (403 encoded, 429 none free, 413 past 1 MiB);
+  `BodySlot` takes one for a body the cloud platform reads itself; each cuts a read short at `End`, as
+  `CutReadsOnEnd` does for a body streamed unread;
   `Slot` takes a slot, then the limiter; `BodyRefusal` and `SlotRefusal` word their statuses; `IsForm` reads a form's type;
   `Upgrades` reads an `Upgrade` header, even an empty one, and the `Connection` list, for the
   run's door and `kubeproxy` alike; `Outbound` never copies `Authorization` or
@@ -306,3 +309,24 @@ checked for the user's key; a dead credential's code calls `Drop` before that ch
 and forgets the bucket list, since the next login may be another account's (`readError`, which the
 bucket list reads its errors through too). Adding a row or a header is a
 security change.
+
+## GitHub's proxy (`githubproxy`)
+
+**`internal/run/githubproxy` is GitHub's proxy over a `runproxy.Grant`**; the token comes through
+its `TokenSource`. → [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-github-over-plain-http-at-ghs-own-host-name.md).
+
+- **The hosts are `gh`'s**: `GitHost` (`github.localhost`, Git's smart HTTP to `github.com`) and
+  `APIHost` (`api.github.localhost`, REST and GraphQL). The grant's token is the `Basic` proxy
+  password, and the grant challenges with `407`, since `git` sends it only once asked.
+- **The headers forwarded are lists by exact name** (`apiHeaders`, `gitHeaders`); `Git-Protocol`
+  rides a fetch alone and `GraphQL-Features` `/graphql` alone. A refusal starts `kstack:`, a 403,
+  in GitHub's JSON on the API host and text on the Git host.
+- **The classifier** (`classify.go`, `graphql.go`): a read passes; a change, a push and
+  `dataPaths` ask; `credentialPaths` is refused. A path matches in any case, and one by id
+  (`/repositories/{id}`, `/organizations/{id}`) as its form by name. GraphQL is a JSON `POST` with
+  no query string, and any mutation makes its document a change.
+- **The push reader** (`push.go`) reads at most 64 KiB of pkt-lines (shallow lines, commands,
+  options) in a body slot, refuses what it cannot read, then streams the pack unread. An answer
+  GitHub breaks off is broken off to the client.
+- **No redirect is followed.** A link to the upstream's own origin, in `Location` or `Link`, is
+  handed back as the route's; one to another host passes on an approved data read alone.
