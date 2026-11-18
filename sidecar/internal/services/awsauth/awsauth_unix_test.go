@@ -360,20 +360,6 @@ func TestAFailedLoadKeepsNoRegion(t *testing.T) {
 	assert.Empty(t, s.Region())
 }
 
-// Each profile is one login, made once; "" is the default chain's.
-func TestEachProfileIsOneLogin(t *testing.T) {
-	var made []string
-	l := newLogins(func(profile string) *Service {
-		made = append(made, profile)
-		return newService(profile, nil)
-	})
-	prod := l.Login("prod")
-	assert.Same(t, prod, l.Login("prod"))
-	assert.NotSame(t, prod, l.Login("dev"))
-	assert.NotSame(t, prod, l.Login(""))
-	assert.Equal(t, []string{"prod", "dev", ""}, made)
-}
-
 // A named profile resolves as itself, with no AWS_PROFILE in the environment
 // and no default profile; the default chain then finds no login. The test
 // sets the process's environment, so it does not run in parallel.
@@ -390,10 +376,9 @@ func TestALoginReachesAWSAsItsProfile(t *testing.T) {
 		t.Setenv(name, "")
 	}
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	l := New()
 
 	for profile, region := range map[string]string{"prod": "eu-west-1", "dev": "us-east-2"} {
-		s := l.Login(profile)
+		s := New(profile)
 		t.Cleanup(s.Drop)
 		creds, err := s.Credentials(context.Background())
 		require.NoError(t, err, profile)
@@ -401,9 +386,9 @@ func TestALoginReachesAWSAsItsProfile(t *testing.T) {
 		assert.Equal(t, region, s.Region(), profile)
 	}
 
-	_, err := l.Login("").Credentials(context.Background())
+	_, err := New("").Credentials(context.Background())
 	assert.ErrorIs(t, err, ErrNoLogin)
-	_, err = l.Login("gone").Credentials(context.Background())
+	_, err = New("gone").Credentials(context.Background())
 	assert.EqualError(t, err, "no AWS login was found for the profile gone")
 }
 

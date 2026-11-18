@@ -15,7 +15,7 @@
 //go:build unix
 
 // Package awsauth holds the user's AWS logins, resolved outside the sandbox
-// and only when a request needs them: one per named profile, and the SDK's
+// and only when a request needs them: a named profile's chain, or the SDK's
 // default chain in the sidecar's environment. Only a sandboxed run reaches
 // AWS, so it is built where a sandbox is: not on Windows.
 package awsauth
@@ -45,15 +45,15 @@ type NoLoginError struct {
 }
 
 func (e *NoLoginError) Error() string {
-	switch {
-	case e.Profile == "" && e.SSO:
-		return ErrNoLogin.Error() + "; run `aws sso login` outside the sandbox"
-	case e.Profile == "":
-		return ErrNoLogin.Error()
-	case e.SSO:
-		return ErrNoLogin.Error() + " for the profile " + e.Profile + "; run `aws sso login --profile " + e.Profile + "` outside the sandbox"
+	text, signIn := ErrNoLogin.Error(), "aws sso login"
+	if e.Profile != "" {
+		text += " for the profile " + e.Profile
+		signIn += " --profile " + e.Profile
 	}
-	return ErrNoLogin.Error() + " for the profile " + e.Profile
+	if e.SSO {
+		text += "; run `" + signIn + "` outside the sandbox"
+	}
+	return text
 }
 
 func (e *NoLoginError) Is(target error) bool { return target == ErrNoLogin }
@@ -64,50 +64,6 @@ func (e *NoLoginError) Refusal() string { return e.Error() }
 // retrieveTimeout is how long a retrieval may take: past the SDK's one-minute
 // timeout for a credential_process and its helper's wait.
 const retrieveTimeout = 2 * time.Minute
-
-// Logins are the user's AWS logins, one per profile, each made on first use
-// and kept: its own turn, cache and held secrets.
-type Logins struct {
-	newLogin func(profile string) *Service
-
-	mu     sync.Mutex
-	logins map[string]*Service
-}
-
-// New is the logins over the SDK's configuration. It reads nothing until
-// asked.
-func New() *Logins {
-	return newLogins(func(profile string) *Service {
-		return newService(profile, func(ctx context.Context) (aws.Config, error) {
-			return config.LoadDefaultConfig(ctx, loadOptions(profile)...)
-		})
-	})
-}
-
-// loadOptions name profile's chain; "" is the default chain.
-func loadOptions(profile string) []func(*config.LoadOptions) error {
-	if profile == "" {
-		return nil
-	}
-	return []func(*config.LoadOptions) error{config.WithSharedConfigProfile(profile)}
-}
-
-// newLogins is the logins newLogin makes, a test's own.
-func newLogins(newLogin func(profile string) *Service) *Logins {
-	return &Logins{newLogin: newLogin, logins: map[string]*Service{}}
-}
-
-// Login is profile's login, "" for the SDK's default chain.
-func (l *Logins) Login(profile string) *Service {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	s, ok := l.logins[profile]
-	if !ok {
-		s = l.newLogin(profile)
-		l.logins[profile] = s
-	}
-	return s
-}
 
 // Service is one AWS login: a named profile's chain, or the default chain.
 type Service struct {
@@ -129,7 +85,15 @@ type Service struct {
 	held aws.Credentials // what safe blanks now; read and written in turn
 }
 
-// newService is profile's login over load.
+// New is profile's login over the SDK's configuration, "" for its default
+// chain. It reads nothing until asked.
+func New(profile string) *Service {
+	return newService(profile, func(ctx context.Context) (aws.Config, error) {
+		return config.LoadDefaultConfig(ctx, config.WithSharedConfigProfile(profile))
+	})
+}
+
+// newService is profile's login over load, a test's own configuration.
 func newService(profile string, load func(context.Context) (aws.Config, error)) *Service {
 	return &Service{profile: profile, load: load, retrieveTimeout: retrieveTimeout, turn: semaphore.NewWeighted(1)}
 }

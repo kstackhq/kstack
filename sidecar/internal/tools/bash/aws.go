@@ -37,50 +37,48 @@ type AWSLogin interface {
 	Region() string
 }
 
-// AWSLogins are the user's AWS logins, and the profile a kube-context names.
-type AWSLogins interface {
-	// Profile is the AWS profile kubeContext's credentials plugin reaches AWS
-	// as, "" for none (services/kubeconfig).
-	Profile(kubeContext string) string
-	// Login is profile's login; "" is the SDK's default chain.
-	Login(profile string) AWSLogin
-}
-
 // awsAnswerTimeout is how long AWS may take to answer a request's headers.
 const awsAnswerTimeout = 2 * time.Minute
 
-// awsSettings are what every section of the run's AWS config file sets: no
-// compressed body, which a grant does not read.
-const awsSettings = "disable_request_compression = true\n"
-
 // awsConfig is the run's AWS config file. Naming it keeps a client from
-// reading a config in the workspace. The run's profile, if any, is declared
-// so --profile parses, and holds the run's keys, since the AWS CLI ignores
-// the environment's keys once --profile names a profile.
+// reading a config in the workspace, and it asks for no compressed body, which
+// a grant does not read. The run's profile, if any, is declared so --profile
+// parses, and holds the run's keys, since the AWS CLI ignores the
+// environment's keys once --profile names a profile.
 func awsConfig(profile, keyID string) string {
-	keys := "aws_access_key_id = " + keyID + "\naws_secret_access_key = " + sandbox.AWSSecretPlaceholder + "\n"
-	switch profile {
-	case "":
-		return "[default]\n" + awsSettings
-	case "default":
-		return "[default]\n" + keys + awsSettings
+	const settings = "disable_request_compression = true\n"
+	if profile == "" {
+		return "[default]\n" + settings
 	}
-	return "[default]\n" + awsSettings + "[profile " + profile + "]\n" + keys + awsSettings
+	section := "aws_access_key_id = " + keyID + "\naws_secret_access_key = " + sandbox.AWSSecretPlaceholder + "\n" + settings
+	if profile == "default" {
+		return "[default]\n" + section
+	}
+	return "[default]\n" + settings + "[profile " + profile + "]\n" + section
 }
 
 // awsPlatform is AWS: a route at the loopback authority, since the client
 // dials AWS_ENDPOINT_URL directly, over the re-signing proxy.
 type awsPlatform struct {
-	logins AWSLogins
-	client *http.Client
+	profileOf func(kubeContext string) string
+	newLogin  func(profile string) AWSLogin
+	client    *http.Client
 
-	mu      sync.Mutex
-	buckets map[string]*awsproxy.Buckets // each login's, by profile, shared by its runs
+	mu       sync.Mutex
+	profiles map[string]awsProfile // each made on first use and kept
 }
 
-// NewAWS is AWS over logins, reaching AWS through client: nil is the
-// sidecar's own network.
-func NewAWS(logins AWSLogins, client *http.Client) CloudPlatform {
+// awsProfile is one profile's login and its buckets, shared by its runs.
+type awsProfile struct {
+	login   AWSLogin
+	buckets *awsproxy.Buckets
+}
+
+// NewAWS is AWS, reaching it through client: nil is the sidecar's own
+// network. profileOf is the AWS profile a kube-context's credentials plugin
+// reaches AWS as, "" for none (services/kubeconfig); newLogin makes a
+// profile's login, "" being the SDK's default chain.
+func NewAWS(profileOf func(kubeContext string) string, newLogin func(profile string) AWSLogin, client *http.Client) CloudPlatform {
 	if client == nil {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		// An object stored gzipped passes as stored, so the client's checksum
@@ -91,35 +89,30 @@ func NewAWS(logins AWSLogins, client *http.Client) CloudPlatform {
 		transport.ResponseHeaderTimeout = awsAnswerTimeout
 		client = &http.Client{Transport: transport}
 	}
-	return &awsPlatform{logins: logins, client: client, buckets: map[string]*awsproxy.Buckets{}}
+	return &awsPlatform{profileOf: profileOf, newLogin: newLogin, client: client, profiles: map[string]awsProfile{}}
 }
 
 func (*awsPlatform) Target() permissions.Target { return permissions.AWS }
 
-// bucketsOf is profile's login's buckets.
-func (p *awsPlatform) bucketsOf(profile string) *awsproxy.Buckets {
+// profileFor is the profile a run reaches AWS as, by name: the one its
+// cluster's kube-context names, else "" for the default chain. A name the
+// config file cannot hold is none.
+func (p *awsPlatform) profileFor(run CloudRun) (string, awsProfile) {
+	name := ""
+	if run.KubeContext != "" {
+		name = p.profileOf(run.KubeContext)
+	}
+	if !sandbox.AWSProfile(name) {
+		name = ""
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	b, ok := p.buckets[profile]
+	profile, ok := p.profiles[name]
 	if !ok {
-		b = awsproxy.NewBuckets()
-		p.buckets[profile] = b
+		profile = awsProfile{login: p.newLogin(name), buckets: awsproxy.NewBuckets()}
+		p.profiles[name] = profile
 	}
-	return b
-}
-
-// profileOf is the profile a run reaches AWS as: the one its cluster's
-// kube-context names, else "" for the default chain. A name the config file
-// cannot hold is none.
-func (p *awsPlatform) profileOf(run CloudRun) string {
-	if run.KubeContext == "" {
-		return ""
-	}
-	profile := p.logins.Profile(run.KubeContext)
-	if !sandbox.AWSProfile(profile) {
-		return ""
-	}
-	return profile
+	return name, profile
 }
 
 // Mount writes the run's config file and answers the route, the variables
@@ -127,12 +120,11 @@ func (p *awsPlatform) profileOf(run CloudRun) string {
 // key id carries the grant's token; the secret signs nothing AWS accepts. A
 // region the sandbox would refuse is left out.
 func (p *awsPlatform) Mount(ctx context.Context, run CloudRun) (CloudMount, error) {
-	profile := p.profileOf(run)
-	login := p.logins.Login(profile)
+	name, profile := p.profileFor(run)
 	// Region can read the user's AWS config from a network mount, so the read
 	// is abandoned when ctx ends, before anything is written.
 	regions := make(chan string, 1)
-	go func() { regions <- login.Region() }()
+	go func() { regions <- profile.login.Region() }()
 	var region string
 	select {
 	case region = <-regions:
@@ -145,7 +137,7 @@ func (p *awsPlatform) Mount(ctx context.Context, run CloudRun) (CloudMount, erro
 	}
 	g := runproxy.NewGrant(permissions.AWS, run.Session, run.Asker, run.Refusal, cloudLimits)
 	keyID := sandbox.AWSKeyIDPrefix + strings.ToUpper(g.Token())
-	if err := writeNew(config, []byte(awsConfig(profile, keyID))); err != nil { // coverage:ignore the folder was made empty just now
+	if err := writeNew(config, []byte(awsConfig(name, keyID))); err != nil { // coverage:ignore the folder was made empty just now
 		g.End()
 		return CloudMount{}, err
 	}
@@ -160,6 +152,6 @@ func (p *awsPlatform) Mount(ctx context.Context, run CloudRun) (CloudMount, erro
 	if sandbox.AWSRegion(region) {
 		env = append(env, "AWS_REGION="+region, "AWS_DEFAULT_REGION="+region)
 	}
-	proxy := awsproxy.New(g, awsproxy.Upstream{Identity: login, Client: p.client, Buckets: p.bucketsOf(profile)})
+	proxy := awsproxy.New(g, awsproxy.Upstream{Identity: profile.login, Client: p.client, Buckets: profile.buckets})
 	return CloudMount{Routes: []Route{{Host: authority, Handler: proxy}}, Env: env, Grant: g}, nil
 }

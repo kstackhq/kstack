@@ -215,7 +215,7 @@ Watches are pull-first: a 30-minute backstop tick under fsnotify and a poke subs
 
 ## AWS login (`internal/services/awsauth`)
 
-**The user's AWS credentials**, for `run/awsproxy`: a `Service` per profile (`Logins`), the one
+**The user's AWS credentials**, for `run/awsproxy`: a `Service` per profile, the one
 the run's kube-context names (`kubeconfig.AWSProfile`), else the SDK's default chain, resolved
 only when a request needs it. A chain is fixed at load, so it is loaded again after a load yields
 none, a retrieval fails or a `Drop`: new profiles or keys need no restart. It holds the secret key and

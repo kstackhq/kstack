@@ -32,20 +32,12 @@ import (
 // Settings' order. AWS reads each kube-context's profile through kc.
 func builtCloudPlatforms(kc *kubeconfig.Service) []bash.CloudPlatform {
 	return []bash.CloudPlatform{
-		bash.NewAWS(awsLogins{kubeconfig: kc, logins: awsauth.New()}, nil),
+		bash.NewAWS(kc.AWSProfile, newAWSLogin, nil),
 		bash.NewGitHub(githubauth.New(), githubproxy.GitHub()),
 		bash.NewGCP(gcpauth.New(nil), nil),
 		bash.NewAzure(azureauth.New(), http.DefaultTransport),
 	}
 }
 
-// awsLogins are the user's AWS logins by profile, and each kube-context's
-// profile off the kubeconfig.
-type awsLogins struct {
-	kubeconfig *kubeconfig.Service
-	logins     *awsauth.Logins
-}
-
-func (l awsLogins) Profile(kubeContext string) string { return l.kubeconfig.AWSProfile(kubeContext) }
-
-func (l awsLogins) Login(profile string) bash.AWSLogin { return l.logins.Login(profile) }
+// newAWSLogin is a login for profile, "" for the SDK's default chain.
+func newAWSLogin(profile string) bash.AWSLogin { return awsauth.New(profile) }

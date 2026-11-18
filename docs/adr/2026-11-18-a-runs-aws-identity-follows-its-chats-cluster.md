@@ -25,9 +25,9 @@ This ADR replaces the parent's "the SDK's default chain" in its first decision; 
   kube-context's `exec` provider names (`kubeconfig.Service.AWSProfile`: `AWS_PROFILE` in `env`,
   else `--profile` in `args`) and reaches AWS as it. A run with no cluster, or a context naming no
   profile, uses the default chain.
-- **One login per profile.** `awsauth.Logins` holds a `Service` per profile, each its own chain
-  (`config.WithSharedConfigProfile`), turn, cache and `safe` hold. Each profile has its own
-  `awsproxy.Buckets`.
+- **One login per profile.** The mount keeps an `awsauth.Service` per profile, made on first use,
+  each its own chain (`config.WithSharedConfigProfile`), turn, cache and `safe` hold. Each profile
+  has its own `awsproxy.Buckets`.
 - **The run declares its profile.** `<run>/aws/config` holds `[profile <name>]` with the run's key
   id and placeholder secret, since the AWS CLI ignores the environment's keys once `--profile` names
   a profile. `aws --profile <name>` works; another name fails, as before. A name the file cannot

@@ -17,14 +17,11 @@
 package app
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/services/awsauth"
-	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 )
 
 // The build's cloud platforms, in Settings' order.
@@ -34,11 +31,7 @@ func TestTheBuildsCloudPlatforms(t *testing.T) {
 	}, cloudTargets(builtCloudPlatforms(nil)))
 }
 
-// AWS's logins read a kube-context's profile off the kubeconfig, none before
-// it is read, and hand out one login per profile.
-func TestAWSLoginsJoinTheKubeconfigAndTheLogins(t *testing.T) {
-	logins := awsLogins{kubeconfig: kubeconfig.New(filepath.Join(t.TempDir(), "config"), nil), logins: awsauth.New()}
-	assert.Empty(t, logins.Profile("eks"))
-	assert.Same(t, logins.Login("prod"), logins.Login("prod"))
-	assert.NotSame(t, logins.Login("prod"), logins.Login(""))
+// Each AWS login made is its own, so no two profiles share one.
+func TestEachAWSLoginIsItsOwn(t *testing.T) {
+	assert.NotSame(t, newAWSLogin("prod"), newAWSLogin("dev"))
 }

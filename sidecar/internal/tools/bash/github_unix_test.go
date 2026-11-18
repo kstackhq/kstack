@@ -187,7 +187,7 @@ func TestARunWithoutGitHubHasNoneOfIt(t *testing.T) {
 func TestGitHubsProxyVariableLeavesTheLoopbackDirect(t *testing.T) {
 	google := newFakeGoogle(t)
 	r, _ := githubRun(t,
-		NewAWS(fakeAWSLogin{"eu-west-1"}, nil),
+		awsAs(fakeAWSLogin{"eu-west-1"}, nil),
 		NewGCP(gcpauth.New(helperAnswering("users-google-token", "proj-1")), google),
 		NewAzure(fakeLogin{account: azureAccount("Pay-As-You-Go"), ok: true}, nil))
 	env := map[string]string{}

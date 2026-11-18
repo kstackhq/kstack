@@ -302,7 +302,7 @@ the tool home or `TMPDIR`, and holds a token or a placeholder, never a credentia
 lives in a service under `services/`, resolved no earlier than a mount with the switch on, and held
 under `safe.AddSecret` until `safe.ForgetSecret`. AWS's is `aws.go`: one route at
 the loopback authority, `AWS_` placeholders and `<run>/aws/config`, reaching AWS as the profile
-`CloudRun.KubeContext` names (`AWSLogins`), which the file declares with the run's key id.
+`CloudRun.KubeContext` names, one login and bucket list per profile, which the file declares with the run's key id.
 **GitHub's** (`github.go`, `NewGitHub`) writes `gitconfig` (named through `GIT_CONFIG_COUNT` and `include.path`) and `gh/hosts.yml` (a placeholder login) under the run's directory, and sets `GH_HOST=github.localhost` and `HTTP_PROXY`; its grant challenges. →
 [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md),
 [the run's door](../../../docs/security/2026-11-17-the-runs-door.md).

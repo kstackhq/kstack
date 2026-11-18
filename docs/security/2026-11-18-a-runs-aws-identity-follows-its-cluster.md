@@ -22,8 +22,8 @@ profile: the `exec` plugin signs in as it on every probe. Every other control of
 - **The file holds no credential.** The profile's keys are the run's key id, the grant's token, and
   the placeholder secret, as its environment holds (`TestTheAWSConfigFileDeclaresTheProfile`).
 - **Each profile's secrets are its own.** Each login has its own turn, cache and `safe` hold
-  (`TestEachProfileIsOneLogin`, `TestALoginReachesAWSAsItsProfile`), and its own bucket list
-  (`TestEachProfileHasItsOwnBuckets`), so one profile's buckets never pass as another's.
+  (`TestALoginReachesAWSAsItsProfile`), and its own bucket list
+  (`TestEachProfileHasItsOwnLoginAndBuckets`), so one profile's buckets never pass as another's.
 - **The refusal shows no SDK text.** It names the profile tried and, for an SSO profile alone, the
   sign-in command (`TestNoLoginNamesTheProfileTried`, `TestAnSSOProfileWithNoSessionSaysToSignIn`);
   any other error is the proxy's fixed sentence (`TestAnUpstreamFailureCarriesNoText`).

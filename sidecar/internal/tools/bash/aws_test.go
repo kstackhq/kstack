@@ -41,33 +41,23 @@ var awsTestCreds = aws.Credentials{
 }
 
 // fakeAWSLogin is the user's AWS login for a test: known credentials and a
-// region. As logins, it is every profile's, and no kube-context names one.
+// region.
 type fakeAWSLogin struct{ region string }
 
 func (l fakeAWSLogin) Credentials(context.Context) (aws.Credentials, error) { return awsTestCreds, nil }
 func (fakeAWSLogin) Drop()                                                  {}
 func (l fakeAWSLogin) Region() string                                       { return l.region }
-func (fakeAWSLogin) Profile(string) string                                  { return "" }
-func (l fakeAWSLogin) Login(string) AWSLogin                                { return l }
 
-// profileLogins are logins whose kube-contexts name profiles: each profile's
-// region is its own, and Login records the profile asked for.
-type profileLogins struct {
-	profiles map[string]string // by kube-context
-	asked    []string
-}
-
-func (l *profileLogins) Profile(kubeContext string) string { return l.profiles[kubeContext] }
-
-func (l *profileLogins) Login(profile string) AWSLogin {
-	l.asked = append(l.asked, profile)
-	return fakeAWSLogin{map[string]string{"prod": "eu-west-1", "dev": "us-east-2"}[profile]}
+// awsAs is AWS where no kube-context names a profile, so every run reaches
+// it as login.
+func awsAs(login AWSLogin, client *http.Client) CloudPlatform {
+	return NewAWS(func(string) string { return "" }, func(string) AWSLogin { return login }, client)
 }
 
 // awsMount mounts AWS on a fresh run directory at port 4100.
 func awsMount(t *testing.T, region string) (CloudMount, CloudRun) {
 	run := CloudRun{Port: 4100, Dir: t.TempDir(), Session: session.Session{Kind: session.Chat}}
-	m, err := NewAWS(fakeAWSLogin{region}, nil).Mount(t.Context(), run)
+	m, err := awsAs(fakeAWSLogin{region}, nil).Mount(t.Context(), run)
 	require.NoError(t, err)
 	t.Cleanup(m.Grant.End)
 	return m, run
@@ -118,10 +108,17 @@ func TestTheAWSConfigFileDeclaresTheProfile(t *testing.T) {
 // A run on a cluster whose kube-context names a profile reaches AWS as that
 // profile, in its region, and declares it; one with no cluster, a context
 // naming none, or a name the file cannot hold reaches AWS as the default
-// chain.
+// chain. Each profile's login is made once.
 func TestTheAWSMountFollowsTheClustersProfile(t *testing.T) {
-	logins := &profileLogins{profiles: map[string]string{"eks-prod": "prod", "eks-odd": "a]\n[x"}}
-	platform := NewAWS(logins, nil)
+	profiles := map[string]string{"eks-prod": "prod", "eks-odd": "a]\n[x"}
+	regions := map[string]string{"prod": "eu-west-1"}
+	var made []string
+	platform := NewAWS(
+		func(kubeContext string) string { return profiles[kubeContext] },
+		func(profile string) AWSLogin {
+			made = append(made, profile)
+			return fakeAWSLogin{regions[profile]}
+		}, nil)
 	mount := func(kubeContext string) (CloudMount, string) {
 		run := CloudRun{Port: 4100, Dir: t.TempDir(), KubeContext: kubeContext, Session: session.Session{Kind: session.Chat}}
 		m, err := platform.Mount(t.Context(), run)
@@ -132,30 +129,41 @@ func TestTheAWSMountFollowsTheClustersProfile(t *testing.T) {
 		return m, string(text)
 	}
 
-	m, text := mount("eks-prod")
-	assert.Contains(t, m.Env, "AWS_REGION=eu-west-1")
-	assert.Equal(t, awsConfig("prod", sandbox.AWSKeyIDPrefix+strings.ToUpper(m.Grant.Token())), text)
+	for range 2 {
+		m, text := mount("eks-prod")
+		assert.Contains(t, m.Env, "AWS_REGION=eu-west-1")
+		assert.Equal(t, awsConfig("prod", sandbox.AWSKeyIDPrefix+strings.ToUpper(m.Grant.Token())), text)
+	}
 	for _, kubeContext := range []string{"", "eks-plain", "eks-odd"} {
 		m, text := mount(kubeContext)
 		assert.NotContains(t, strings.Join(m.Env, "\n"), "REGION=", kubeContext)
 		assert.Equal(t, awsConfig("", ""), text, kubeContext)
 	}
-	assert.Equal(t, []string{"prod", "", "", ""}, logins.asked)
+	assert.Equal(t, []string{"prod", ""}, made)
 }
 
-// Each profile's login keeps one bucket list, which its runs share.
-func TestEachProfileHasItsOwnBuckets(t *testing.T) {
-	p := NewAWS(&profileLogins{}, nil).(*awsPlatform)
-	assert.Same(t, p.bucketsOf("prod"), p.bucketsOf("prod"))
-	assert.NotSame(t, p.bucketsOf("prod"), p.bucketsOf("dev"))
-	assert.NotSame(t, p.bucketsOf("prod"), p.bucketsOf(""))
+// Each profile keeps one login and one bucket list, which its runs share.
+func TestEachProfileHasItsOwnLoginAndBuckets(t *testing.T) {
+	p := NewAWS(
+		func(kubeContext string) string { return kubeContext },
+		func(profile string) AWSLogin { return fakeAWSLogin{profile} }, nil).(*awsPlatform)
+	of := func(kubeContext string) awsProfile {
+		_, profile := p.profileFor(CloudRun{KubeContext: kubeContext})
+		return profile
+	}
+	prod, dev, none := of("prod"), of("dev"), of("")
+	assert.Equal(t, prod, of("prod"))
+	assert.Equal(t, []string{"prod", "dev", ""}, []string{prod.login.Region(), dev.login.Region(), none.login.Region()})
+	assert.Same(t, prod.buckets, of("prod").buckets)
+	assert.NotSame(t, prod.buckets, dev.buckets)
+	assert.NotSame(t, prod.buckets, none.buckets)
 }
 
 // A run directory that already holds an aws folder fails the mount.
 func TestAnAWSFolderAlreadyThereFailsTheMount(t *testing.T) {
 	run := CloudRun{Port: 4100, Dir: t.TempDir()}
 	require.NoError(t, os.Mkdir(filepath.Join(run.Dir, "aws"), 0o700))
-	_, err := NewAWS(fakeAWSLogin{"eu-west-1"}, nil).Mount(t.Context(), run)
+	_, err := awsAs(fakeAWSLogin{"eu-west-1"}, nil).Mount(t.Context(), run)
 	assert.ErrorIs(t, err, fs.ErrExist)
 }
 
@@ -165,8 +173,6 @@ type hungLogin struct {
 	fakeAWSLogin
 	release chan struct{}
 }
-
-func (l hungLogin) Login(string) AWSLogin { return l }
 
 func (l hungLogin) Region() string {
 	<-l.release
@@ -183,7 +189,7 @@ func TestAMountAbandonsAHungRegionRead(t *testing.T) {
 	cancel()
 	mounted := make(chan error, 1)
 	go func() {
-		_, err := NewAWS(login, nil).Mount(ctx, run)
+		_, err := awsAs(login, nil).Mount(ctx, run)
 		mounted <- err
 	}()
 	assert.ErrorIs(t, testutil.Recv(t, mounted, "the mount giving up"), context.Canceled)
@@ -193,7 +199,7 @@ func TestAMountAbandonsAHungRegionRead(t *testing.T) {
 // The client AWS is reached through waits for an answer's headers no longer
 // than awsAnswerTimeout, and leaves a stored encoding as stored.
 func TestTheAWSClientBoundsAnAnswersWait(t *testing.T) {
-	transport := NewAWS(fakeAWSLogin{}, nil).(*awsPlatform).client.Transport.(*http.Transport)
+	transport := awsAs(fakeAWSLogin{}, nil).(*awsPlatform).client.Transport.(*http.Transport)
 	assert.Equal(t, awsAnswerTimeout, transport.ResponseHeaderTimeout)
 	assert.True(t, transport.DisableCompression)
 }

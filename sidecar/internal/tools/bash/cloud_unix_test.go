@@ -381,7 +381,7 @@ func TestEveryCloudPlatformAndTheClusterAnswerInOneRun(t *testing.T) {
 	login := fakeLogin{account: azureAccount("Pay-As-You-Go"), ok: true, token: "users-entra-token"}
 	tl.cloud = Cloud{
 		Platforms: []CloudPlatform{
-			NewAWS(fakeAWSLogin{"eu-west-1"}, &http.Client{Transport: testutil.DialAnywhere(awsUpstream)}),
+			awsAs(fakeAWSLogin{"eu-west-1"}, &http.Client{Transport: testutil.DialAnywhere(awsUpstream)}),
 			newTestGitHub(upstreamsOf(githubUpstream)),
 			NewGCP(gcpauth.New(helperAnswering("users-google-token", "proj-1")), google),
 			NewAzure(login, azureTransport),

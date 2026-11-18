@@ -778,10 +778,6 @@ func (l awsLogin) Credentials(context.Context) (aws.Credentials, error) {
 func (awsLogin) Drop()          {}
 func (awsLogin) Region() string { return "eu-west-1" }
 
-// Every kube-context names no profile, so each run reaches AWS as l.
-func (awsLogin) Profile(string) string        { return "" }
-func (l awsLogin) Login(string) bash.AWSLogin { return l }
-
 // With AWS turned on through the wire, a sandboxed curl signing with the run's
 // variables reads unasked, and a change waits on one request and reaches AWS
 // once approved, signed with the user's credentials; kubectl still reads the
@@ -804,7 +800,9 @@ func TestASandboxedCommandReachesAWS(t *testing.T) {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // the test's own upstream
 	}}
 	login := awsLogin{AccessKeyID: "AKIAIOSFODNN7EXAMPLE", SecretAccessKey: "wJalrXUtnFEMIK7MDENGbPxRfiCYzzKEY"}
-	e := startE2E(t, func(c *Config) { c.cloudPlatforms = []bash.CloudPlatform{bash.NewAWS(login, client)} })
+	// No kube-context names a profile, so each run reaches AWS as login.
+	platform := bash.NewAWS(func(string) string { return "" }, func(string) bash.AWSLogin { return login }, client)
+	e := startE2E(t, func(c *Config) { c.cloudPlatforms = []bash.CloudPlatform{platform} })
 	raw := graphql(t, e.url, `mutation { sandboxCloudAccessSet(target: AWS, on: true) { target on } }`)
 	require.Contains(t, raw, `{"target":"AWS","on":true}`, raw)
 
