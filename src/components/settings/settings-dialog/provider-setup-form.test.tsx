@@ -35,16 +35,41 @@ describe('ProviderSetupForm', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Access key' }));
 
-    expect(screen.queryByRole('combobox')).toBeNull();
-    expect(screen.getByText('Coming soon')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Connector' })).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Region' })).toHaveTextContent('us-east-1');
+    expect(screen.queryByText('Coming soon')).toBeNull();
   });
 
   // No secret is typed into the webview until a mutation hands it to the keychain.
-  it("draws Gemini's API key box disabled, and its Google connector as coming soon", async () => {
+  it("draws Bedrock's access key boxes disabled", async () => {
+    const user = userEvent.setup();
+    render(<ProviderSetupForm sources={['aws-connector', 'access-key']} onCancel={vi.fn()} />);
+
+    await user.click(screen.getByRole('tab', { name: 'Access key' }));
+
+    for (const label of ['Access key ID', 'Secret access key']) {
+      const box = screen.getByLabelText(label, { selector: 'input' });
+      expect(box).toBeDisabled();
+      expectCodeText(box);
+    }
+    expect(screen.getByLabelText('Secret access key', { selector: 'input' })).toHaveAttribute('type', 'password');
+    expect(screen.getByText('Kstack keeps the key in your system keychain.')).toBeInTheDocument();
+  });
+
+  it("draws Gemini's Google connector as a connector picker", () => {
+    render(<ProviderSetupForm sources={['google-connector', 'api-key']} onCancel={vi.fn()} />);
+
+    expect(screen.getByRole('tab', { name: 'Google connector', selected: true })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Connector' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Region' })).toBeNull();
+    expect(screen.queryByText('Coming soon')).toBeNull();
+  });
+
+  // No secret is typed into the webview until a mutation hands it to the keychain.
+  it("draws Gemini's API key box disabled", async () => {
     const user = userEvent.setup();
     render(<ProviderSetupForm sources={['google-connector', 'api-key']} onCancel={vi.fn()} />);
 
-    expect(screen.getByText('Coming soon')).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'API key' }));
 
     const key = screen.getByLabelText('API key', { selector: 'input' });
@@ -52,7 +77,6 @@ describe('ProviderSetupForm', () => {
     expect(key).toHaveAttribute('type', 'password');
     expectCodeText(key);
     expect(screen.getByText('Kstack keeps the key in your system keychain.')).toBeInTheDocument();
-    expect(screen.queryByText('Coming soon')).toBeNull();
   });
 
   it('collapses on Cancel', async () => {

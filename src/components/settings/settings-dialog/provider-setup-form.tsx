@@ -72,26 +72,13 @@ function SourceFields({ source }: { source: CredentialSource }) {
   switch (source) {
     case 'aws-connector':
       return <AwsConnectorFields />;
-    case 'api-key':
-      return <ApiKeyField />;
-    // Placeholder: awaits a design, then the mutation.
     case 'access-key':
+      return <AccessKeyFields />;
     case 'google-connector':
-      return <p className="text-sm text-muted-foreground">Coming soon</p>;
+      return <PickField label="Connector" options={CONNECTORS} />;
+    case 'api-key':
+      return <KeyField label="API key" secret />;
   }
-}
-
-// Placeholder: disabled, so no secret is typed into the webview, until a
-// mutation hands the key to the sidecar for the keychain.
-function ApiKeyField() {
-  const id = useId();
-  return (
-    <Field>
-      <FieldLabel htmlFor={id}>API key</FieldLabel>
-      <Input id={id} type="password" disabled />
-      <FieldDescription>Kstack keeps the key in your system keychain.</FieldDescription>
-    </Field>
-  );
 }
 
 function AwsConnectorFields() {
@@ -100,6 +87,29 @@ function AwsConnectorFields() {
       <PickField label="Connector" options={CONNECTORS} />
       <PickField label="Region" options={REGIONS} initial={REGIONS[0]} />
     </div>
+  );
+}
+
+function AccessKeyFields() {
+  return (
+    <div className="flex flex-col gap-4">
+      <KeyField label="Access key ID" />
+      <KeyField label="Secret access key" secret />
+      <PickField label="Region" options={REGIONS} initial={REGIONS[0]} />
+    </div>
+  );
+}
+
+// Placeholder: disabled, so no secret is typed into the webview, until a
+// mutation hands the key to the sidecar for the keychain.
+function KeyField({ label, secret = false }: { label: string; secret?: boolean }) {
+  const id = useId();
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Input id={id} type={secret ? 'password' : 'text'} disabled />
+      {secret && <FieldDescription>Kstack keeps the key in your system keychain.</FieldDescription>}
+    </Field>
   );
 }
 
