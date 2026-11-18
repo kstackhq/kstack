@@ -23,6 +23,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/app"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
 )
 
 // config is everything the command line decides: the app's own configuration
@@ -141,5 +142,8 @@ func applyEnvOverrides(cfg *config, getenv func(string) string) {
 			cfg.App.LLMBaseURLs = map[string]string{}
 		}
 		cfg.App.LLMBaseURLs[id] = url
+	}
+	if url := getenv(chatgptauth.IssuerURLVar); url != "" {
+		cfg.App.ConnectorIssuerURLs = map[string]string{chatgptauth.ID: url}
 	}
 }

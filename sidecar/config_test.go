@@ -69,13 +69,15 @@ func TestConfigFromArgsDefaultsToProduction(t *testing.T) {
 // asserts the override a `make build-sidecar-dev` build honours.
 func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 	e := env{
-		"KSTACK_OAUTH_ISSUER":     "https://issuer.override",
-		"KSTACK_OAUTH_CLIENT_ID":  "override",
-		"KSTACK_DATA_DIR":         "/tmp/override",
-		"KSTACK_CACHE_DIR":        "/tmp/override-cache",
-		"KSTACK_RUNTIME_DIR":      "/tmp/override-run",
-		"KSTACK_KEYCHAIN_SERVICE": "Kstack-override",
-		"KSTACK_FAULTS":           "get api=refused",
+		"KSTACK_OAUTH_ISSUER":       "https://issuer.override",
+		"KSTACK_OAUTH_CLIENT_ID":    "override",
+		"KSTACK_DATA_DIR":           "/tmp/override",
+		"KSTACK_CACHE_DIR":          "/tmp/override-cache",
+		"KSTACK_RUNTIME_DIR":        "/tmp/override-run",
+		"KSTACK_KEYCHAIN_SERVICE":   "Kstack-override",
+		"KSTACK_FAULTS":             "get api=refused",
+		"KSTACK_CHATGPT_ISSUER_URL": "http://127.0.0.1:1",
+		"KSTACK_CHATGPT_BASE_URL":   "http://127.0.0.1:2/v1",
 	}
 
 	want := productionConfig
@@ -87,6 +89,8 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 		want.App.CacheDir = "/tmp/override-cache"
 		want.App.RuntimeDir = "/tmp/override-run"
 		want.App.KeychainService = "Kstack-override"
+		want.App.ConnectorIssuerURLs = map[string]string{"chatgpt": "http://127.0.0.1:1"}
+		want.App.LLMBaseURLs = map[string]string{"chatgpt": "http://127.0.0.1:2/v1"}
 	}
 	assertConfig(t, want, mustConfigFromArgs(t, nil, e))
 }

@@ -3,6 +3,7 @@ title: A discovered model is listed only on its catalog's word
 date: 2026-10-17
 scope: sidecar
 status: Accepted
+amended_by: [A signed-in provider's catalog follows its connection](2026-11-18-a-signed-in-providers-catalog-follows-its-connection.md)
 ---
 
 # A discovered model is listed only on its catalog's word

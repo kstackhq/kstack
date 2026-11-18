@@ -697,7 +697,7 @@ func TestTheCatalogIsTheConfigs(t *testing.T) {
 		LLMKeys:     map[string]string{"anthropic": "sk-ant-test"},
 		LLMBaseURLs: map[string]string{"anthropic": "http://127.0.0.1:1"},
 		AddFake:     true,
-	}).Providers()
+	}, nil).Providers()
 
 	require.Len(t, providers, 2)
 	assert.Equal(t, "sk-ant-test", providers[0].Key)

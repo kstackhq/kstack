@@ -196,6 +196,12 @@ Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + P
 - `Config` carries production knobs only; test seams are unexported options on `newWithOptions`. `Logout` clears locally first, revokes fire-and-forget.
 - `TokenSource(ctx)` is nil when degraded; consumers read `AccessToken` only. The GraphQL projection drops tokens.
 
+## A signed-in provider's models (`services/connectors/catalogsync`)
+
+**`Start` keeps one signed-in provider's model catalog the account's**, as its only writer: read
+when its `oauthconn` connection connects, on a poke and every six hours, emptied otherwise. Its
+read lives in `agent/catalog`.
+
 ## GitHub's token (`internal/services/githubauth`)
 
 **The user's GitHub token, for GitHub's proxy alone.** `Token` runs `gh auth token --hostname

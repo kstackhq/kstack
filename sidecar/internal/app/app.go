@@ -82,6 +82,9 @@ type Config struct {
 	// LLMBaseURLs moves a listed provider's base URL, by provider id. Only a
 	// debug build sets it.
 	LLMBaseURLs map[string]string
+	// ConnectorIssuerURLs moves a connector's OAuth issuer, by its provider id.
+	// Only a debug build sets it.
+	ConnectorIssuerURLs map[string]string
 	// AddFake adds the fake to the catalog, last, so a dev run answers with no
 	// key. Debug builds only.
 	AddFake bool
@@ -246,13 +249,14 @@ func (u serverUIDLookup) ServerUID(ctx context.Context, id apimeta.ClusterID) st
 }
 
 // newCatalog is the providers cfg lists: each keyed one at the base URL a debug
-// build moved it to, then the fake when asked for.
-func newCatalog(cfg Config) catalog.Catalog {
+// build moved it to, then each signed-in one signers holds, then the fake when
+// asked for.
+func newCatalog(cfg Config, signers map[string]llm.SessionSigner) catalog.Catalog {
 	fake := cfg.fake
 	if fake == nil && cfg.AddFake {
 		fake = llm.NewFake(llm.FakeChunkDelay)
 	}
-	return catalog.New(catalog.Config{APIKeys: cfg.LLMKeys, BaseURLs: cfg.LLMBaseURLs, Fake: fake})
+	return catalog.New(catalog.Config{APIKeys: cfg.LLMKeys, BaseURLs: cfg.LLMBaseURLs, Signers: signers, Fake: fake})
 }
 
 // probeSandbox is sandbox.Probe, which a test replaces to count its calls.

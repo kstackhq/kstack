@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -19,8 +20,12 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth/browser"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/catalogsync"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
@@ -41,8 +46,10 @@ type Runtime struct {
 	Cluster    cluster.Service
 	// Logs reads views' lines through the cluster service and owns each cluster
 	// cache's log file, which the cluster service clears and removes with the cache.
-	Logs    *logs.Service
-	Auth    auth.Service
+	Logs *logs.Service
+	Auth auth.Service
+	// ChatGPT is Sign in with ChatGPT, which signs the chatgpt provider.
+	ChatGPT *oauthconn.Service
 	Catalog catalog.Catalog
 	LLM     *llm.Service
 	// Shell is nil on a machine with no shell.
@@ -167,8 +174,22 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return fail(err)
 	}
 
-	rt.Catalog = newCatalog(cfg)
+	rt.ChatGPT, err = oauthconn.New(oauthconn.Config{
+		Provider:        movedProvider(chatgptauth.Provider(), cfg),
+		DB:              db,
+		KeychainService: keychainService,
+	})
+	if err != nil { // coverage:ignore the statements prepare on the schema app.db was just migrated to
+		return fail(err)
+	}
+	rt.add("chatgpt service", lifecycle.CloseFunc(func() error { rt.ChatGPT.Close(); return nil }))
+
+	rt.Catalog = newCatalog(cfg, map[string]llm.SessionSigner{chatgptauth.ID: rt.ChatGPT})
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
+	rt.add("chatgpt catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
+		stop := catalogsync.Start(chatgptauth.ID, rt.ChatGPT, rt.Poke, rt.LLM, catalog.ReadSignedModels)
+		return func(context.Context) error { stop(); return nil }, nil
+	}))
 
 	pathList := func() settings.RunPath { return settingsStore.Get().RunPath() }
 	platforms := cloudPlatformsFor(probed, cfg.cloudPlatforms, rt.Kubeconfig)
@@ -254,6 +275,8 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		LLMSvc:        rt.LLM,
 		SandboxStatus: rt.SandboxStatus,
 		Auth:          rt.Auth,
+		ChatGPT:       rt.ChatGPT,
+		OpenURL:       browser.Open,
 		Settings:      rt.Settings,
 		Executables:   prober,
 		Logs:          rt.Logs,
@@ -281,4 +304,11 @@ func cloudTargets(platforms []bash.CloudPlatform) []permissions.Target {
 		targets = append(targets, p.Target())
 	}
 	return targets
+}
+
+// movedProvider is p at the issuer and the base URL a debug build moved it to.
+func movedProvider(p oauthconn.Provider, cfg Config) oauthconn.Provider {
+	p.Issuer = cmp.Or(cfg.ConnectorIssuerURLs[p.ID], p.Issuer)
+	p.APIBaseURL = cmp.Or(cfg.LLMBaseURLs[p.ID], p.APIBaseURL)
+	return p
 }

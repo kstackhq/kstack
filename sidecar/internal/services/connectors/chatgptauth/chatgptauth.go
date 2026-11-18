@@ -30,6 +30,8 @@ const (
 	ID = "chatgpt"
 	// Issuer is OpenAI's auth server.
 	Issuer = "https://auth.openai.com"
+	// IssuerURLVar moves Issuer in a debug build.
+	IssuerURLVar = "KSTACK_CHATGPT_ISSUER_URL"
 	// APIBaseURL is the one resource the tokens are for.
 	APIBaseURL = "https://api.openai.com/v1"
 	// UsageURL is ChatGPT's page that manages each app's access and usage.

@@ -61,8 +61,8 @@ internal/llm/
 - **Eleven keyed providers**, picker order: `anthropic` (Messages), `openai` (Responses), then
   `gemini`, `groq`, `mistral`, `deepseek`, `xai`, `openrouter`, `together`, `fireworks`,
   `opencode-go` (Chat Completions), each keyed by the vendor's own variable (`catalog.KeyVars()`).
-  **Every catalog is written.** Each provider file says whether its ids were checked; no test
-  reaches a vendor.
+  Then `chatgpt` (Responses), whose catalog is the account's. **Every other catalog is written.** Each provider file says whether its ids were checked; no
+  test reaches a vendor.
 - **A provider's `Dialect` and `BaseURL` are defaults; a model may override them**
   (`Model.Dialect`, `Model.BaseURL`, empty to keep the default). `Provider.ForModel(m)` applies
   the overrides, and **every `Target` holds the provider it returns**: `Resolve` alone builds
@@ -202,8 +202,8 @@ None of this is in the code. Each design is fixed by its ADR or record; build to
   function call spelling the tool's name fails the reply**; an unoffered tool's call replays as a
   plain function round. → [shell tool](../../../docs/security/2026-09-18-shell-tool.md),
   [tools on the Responses API](../../../docs/security/2026-09-18-tools-on-the-responses-api.md).
-- **Discovery**: once, off the path to READY, each entry under its own deadline. A model is listed
-  only when its catalog says it can chat.
+- **Discovery** of the keyed vendors: once, off the path to READY, each entry under its own
+  deadline. A model is listed only when its catalog says it can chat.
   → [ADR: a discovered model is listed on its catalog's word](../../../docs/adr/2026-10-17-a-discovered-model-is-listed-on-its-catalogs-word.md).
 - **Cloud platforms** (Bedrock via Mantle, Vertex, Foundry): a signer per entry, never a dialect;
   every value from the platform's own conventions, no `KSTACK_` variables.

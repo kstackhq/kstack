@@ -449,7 +449,9 @@ func TestNewTakesTheProviderKeysTheShellSets(t *testing.T) {
 	assert.Equal(t, slices.Sorted(maps.Values(catalog.KeyVars())), asked)
 	keys := map[string]string{}
 	for _, p := range a.rt.Catalog.Providers() {
-		keys[p.ID] = p.Key
+		if p.Key != "" {
+			keys[p.ID] = p.Key
+		}
 	}
 	assert.Equal(t, map[string]string{"anthropic": "sk-ant-shell-0123456789", "openai": "sk-openai-launch-0123456789"}, keys)
 }

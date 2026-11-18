@@ -1988,6 +1988,53 @@ type AuthState {
   identity: Identity
 }
 
+# --- ChatGPT connector ---
+# Sign in with ChatGPT, which runs the agent on the user's ChatGPT plan. The sidecar
+# opens the browser on a URL it built; no mutation carries a URL. No token is here.
+
+"Where the ChatGPT connector is."
+enum ChatGPTConnectionPhase {
+  SignedOut
+  "The browser is open on OpenAI's sign-in."
+  SigningIn
+  Connected
+  "The last attempt or session ended; `failure` says why."
+  Failed
+}
+
+"Why the last ChatGPT sign-in or session ended."
+enum ChatGPTConnectionFailure {
+  "The user declined on OpenAI's page."
+  Declined
+  "The sign-in did not grant use of the plan."
+  PlanUsageNotGranted
+  "The account is not the one this installation registered; Use a different account changes it."
+  AccountMismatch
+  "Nobody finished the sign-in in time."
+  TimedOut
+  "OpenAI could not be reached."
+  Unavailable
+  "This machine could not save the sign-in: its keyring or its data directory refused."
+  NotSaved
+  "OpenAI ended the session; sign in again."
+  SessionEnded
+  "OpenAI refused the sign-in."
+  Refused
+}
+
+"The ChatGPT connector's state. No token is ever here."
+type ChatGPTConnection {
+  phase: ChatGPTConnectionPhase!
+  "The account's email, from the ID token verified at sign-in. Display only. Null unless Connected, and when the ID token named none."
+  email: String
+  "Why the last attempt or session ended. Null unless Failed."
+  failure: ChatGPTConnectionFailure
+  "Whether OpenAI has registered this installation, so Connect reuses its client."
+  registered: Boolean!
+  "Tokens this machine dropped, at a sign-out or a sign-in that could not be saved, which OpenAI did not confirm it revoked. False again at the next connect."
+  revocationUnconfirmed: Boolean!
+}
+
 "What the sandbox does with one folder of the user's PATH."
 enum SandboxPathState {
   "On the sandbox's PATH and readable in it."
@@ -2100,7 +2147,7 @@ type SettingsRefusal {
 
 type Query {
   # --- Model ---
-  "Every model the sidecar can answer with, in catalog order — the first entry is what a picker starts on. Fixed for the process's life, so this is a query and not a watch."
+  "Every model the sidecar can answer with, in catalog order — the first entry is what a picker starts on. The ChatGPT plan's models come and go with its connection; modelsWatch follows them."
   models: [Model!]!
 
   # --- Sandbox ---
@@ -2166,6 +2213,10 @@ type Query {
   # --- Cloud account ---
   "Current authentication state. Signed-out when no cloud account is configured; live updates via authStateWatch."
   authState: AuthState!
+
+  # --- ChatGPT connector ---
+  "The ChatGPT connector's state; live updates via chatGPTConnectionWatch."
+  chatGPTConnection: ChatGPTConnection!
 }
 
 type Mutation {
@@ -2280,6 +2331,16 @@ type Mutation {
 
   "Sign out: clear local credentials, broadcast signed-out, and revoke the token server-side (best-effort). Returns true; no-op without a cloud account."
   authLogout: Boolean!
+
+  # --- ChatGPT connector ---
+  "Open the browser on OpenAI's sign-in. Returns once it opens; the outcome arrives on chatGPTConnectionWatch. `fresh` forgets the saved registration first. Refused (KSTACK_VALIDATION_ERROR) during an attempt and while connected."
+  chatGPTConnect(fresh: Boolean!): Boolean!
+  "End a sign-in under way. Returns true; a no-op otherwise."
+  chatGPTConnectCancel: Boolean!
+  "Sign out on this machine, then ask OpenAI to end the session. Returns once this machine is signed out; an unconfirmed revocation arrives on chatGPTConnectionWatch."
+  chatGPTDisconnect: Boolean!
+  "Open ChatGPT's usage settings in the browser. The address is the sidecar's constant."
+  chatGPTUsageOpen: Boolean!
 }
 
 type Subscription {
@@ -2379,4 +2440,12 @@ type Subscription {
   # --- Cloud account ---
   "Authentication state as a gauge: a fresh snapshot on every sign-in, sign-out, and refresh failure."
   authStateWatch: AuthState!
+
+  # --- ChatGPT connector ---
+  "GAUGE. The ChatGPT connector's state, a fresh value on every change."
+  chatGPTConnectionWatch: ChatGPTConnection!
+
+  # --- Model ---
+  "GAUGE. Every model the sidecar can answer with, as the models query lists them, a fresh list each time a provider's catalog changes."
+  modelsWatch: [Model!]!
 }

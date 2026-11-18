@@ -15,6 +15,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
@@ -53,6 +54,20 @@ type Resolver struct {
 	// CloudTargets are the cloud platforms this build has, in the order
 	// Settings lists them: the only ones whose switch the wire reads or writes.
 	CloudTargets []permissions.Target
+	// ChatGPT is the ChatGPT connector: *oauthconn.Service, or a test's fake.
+	ChatGPT ChatGPTConnector
+	// OpenURL opens one of the sidecar's own addresses in the browser:
+	// browser.Open, or a test's fake. No caller hands it an address.
+	OpenURL func(url string) error
+}
+
+// ChatGPTConnector is the ChatGPT connector as the wire drives it.
+type ChatGPTConnector interface {
+	State() oauthconn.State
+	Subscribe() (<-chan oauthconn.State, func())
+	Connect(ctx context.Context, fresh bool) error
+	Cancel()
+	Disconnect(ctx context.Context) error
 }
 
 // LogsService pages and follows a scope's lines: *logs.Service, or a test's fake.

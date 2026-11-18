@@ -296,8 +296,16 @@ func TestBaseURLVarsNamesEachProvidersOverride(t *testing.T) {
 		"together":    "KSTACK_TOGETHER_BASE_URL",
 		"fireworks":   "KSTACK_FIREWORKS_BASE_URL",
 		"opencode-go": "KSTACK_OPENCODE_GO_BASE_URL",
+		"chatgpt":     "KSTACK_CHATGPT_BASE_URL",
 	}, BaseURLVars())
-	assert.Equal(t, "KSTACK_BEDROCK_GPT_BASE_URL", baseURLVar("bedrock-gpt"))
+	assert.Equal(t, "KSTACK_BEDROCK_GPT_BASE_URL", idVar("bedrock-gpt", "BASE_URL"))
+}
+
+// An account's catalog is read off a signed-in provider's row alone.
+func TestReadSignedModelsRefusesAKeyedProvider(t *testing.T) {
+	_, err := ReadSignedModels(t.Context(), llm.Provider{ID: "openai"})
+
+	assert.ErrorContains(t, err, "openai is not a signed-in provider")
 }
 
 // Every model of a wire whose whole catalog takes tools says so.

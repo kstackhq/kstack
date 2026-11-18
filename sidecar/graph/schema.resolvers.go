@@ -22,9 +22,27 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
+
+// Email is the resolver for the email field.
+func (r *chatGPTConnectionResolver) Email(ctx context.Context, obj *oauthconn.State) (*string, error) {
+	if obj.Phase != oauthconn.Connected || obj.Email == "" {
+		return nil, nil
+	}
+	return &obj.Email, nil
+}
+
+// Failure is the resolver for the failure field.
+func (r *chatGPTConnectionResolver) Failure(ctx context.Context, obj *oauthconn.State) (*oauthconn.Failure, error) {
+	if obj.Phase != oauthconn.Failed {
+		return nil, nil
+	}
+	return &obj.Failure, nil
+}
 
 // Thinking is the resolver for the thinking field: what the message's blocks hold
 // of the model's thinking, so the webview reads a summary without learning a
@@ -437,18 +455,39 @@ func (r *mutationResolver) AuthLogout(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// ChatGPTConnect is the resolver for the chatGPTConnect field.
+func (r *mutationResolver) ChatGPTConnect(ctx context.Context, fresh bool) (bool, error) {
+	if err := r.ChatGPT.Connect(ctx, fresh); err != nil {
+		return false, chatGPTErr(err)
+	}
+	return true, nil
+}
+
+// ChatGPTConnectCancel is the resolver for the chatGPTConnectCancel field.
+func (r *mutationResolver) ChatGPTConnectCancel(ctx context.Context) (bool, error) {
+	r.ChatGPT.Cancel()
+	return true, nil
+}
+
+// ChatGPTDisconnect is the resolver for the chatGPTDisconnect field.
+func (r *mutationResolver) ChatGPTDisconnect(ctx context.Context) (bool, error) {
+	if err := r.ChatGPT.Disconnect(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ChatGPTUsageOpen is the resolver for the chatGPTUsageOpen field.
+func (r *mutationResolver) ChatGPTUsageOpen(ctx context.Context) (bool, error) {
+	if err := r.OpenURL(chatgptauth.UsageURL); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Models is the resolver for the models field.
 func (r *queryResolver) Models(ctx context.Context) ([]*model.Model, error) {
-	var out []*model.Model
-	for _, p := range r.LLMSvc.Providers() {
-		provider := &model.Provider{ID: p.ID, Label: p.Label, LlmDialect: &p.Dialect}
-		for _, m := range p.Catalog {
-			out = append(out, &model.Model{
-				Provider: provider, ID: m.ID, Label: m.Label, Efforts: m.Efforts, DefaultEffort: m.DefaultEffort,
-			})
-		}
-	}
-	return out, nil
+	return modelsOf(r.LLMSvc.Providers()), nil
 }
 
 // Sandbox is the resolver for the sandbox field.
@@ -584,6 +623,12 @@ func (r *queryResolver) AuthState(ctx context.Context) (*auth.State, error) {
 		return nil, err
 	}
 	return &state, nil
+}
+
+// ChatGPTConnection is the resolver for the chatGPTConnection field.
+func (r *queryResolver) ChatGPTConnection(ctx context.Context) (*oauthconn.State, error) {
+	st := r.ChatGPT.State()
+	return &st, nil
 }
 
 // EventsWatch is the resolver for the eventsWatch field — the live event tail for any
@@ -822,6 +867,18 @@ func (r *subscriptionResolver) AuthStateWatch(ctx context.Context) (<-chan *auth
 	return mapStream(ctx, states, cancel, func(s auth.State) *auth.State { return &s }), nil
 }
 
+// ChatGPTConnectionWatch is the resolver for the chatGPTConnectionWatch field.
+func (r *subscriptionResolver) ChatGPTConnectionWatch(ctx context.Context) (<-chan *oauthconn.State, error) {
+	states, cancel := r.ChatGPT.Subscribe()
+	return mapStream(ctx, states, cancel, func(s oauthconn.State) *oauthconn.State { return &s }), nil
+}
+
+// ModelsWatch is the resolver for the modelsWatch field.
+func (r *subscriptionResolver) ModelsWatch(ctx context.Context) (<-chan []*model.Model, error) {
+	frames, cancel := r.LLMSvc.Subscribe()
+	return mapStream(ctx, frames, cancel, modelsOf), nil
+}
+
 // Status is the resolver for the status field: null for a call the provider
 // ran, which the record keeps as "".
 func (r *toolCallResolver) Status(ctx context.Context, obj *chat.ToolCall) (*chat.ToolCallStatus, error) {
@@ -829,6 +886,11 @@ func (r *toolCallResolver) Status(ctx context.Context, obj *chat.ToolCall) (*cha
 		return nil, nil
 	}
 	return &obj.Status, nil
+}
+
+// ChatGPTConnection returns ChatGPTConnectionResolver implementation.
+func (r *Resolver) ChatGPTConnection() ChatGPTConnectionResolver {
+	return &chatGPTConnectionResolver{r}
 }
 
 // ChatMessage returns ChatMessageResolver implementation.
@@ -866,6 +928,7 @@ func (r *Resolver) Subscription() SubscriptionResolver { return &subscriptionRes
 func (r *Resolver) ToolCall() ToolCallResolver { return &toolCallResolver{r} }
 
 type (
+	chatGPTConnectionResolver     struct{ *Resolver }
 	chatMessageResolver           struct{ *Resolver }
 	clusterResolver               struct{ *Resolver }
 	clusterCacheResolver          struct{ *Resolver }

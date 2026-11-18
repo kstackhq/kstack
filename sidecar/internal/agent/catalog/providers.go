@@ -15,6 +15,8 @@
 package catalog
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
@@ -62,16 +64,45 @@ func KeyVars() map[string]string {
 // no URL and is not in it.
 func BaseURLVars() map[string]string {
 	vars := map[string]string{}
+	for _, sp := range signedProviders() {
+		vars[sp.id] = idVar(sp.id, "BASE_URL")
+	}
 	for _, kp := range keyedProviders() {
-		vars[kp.provider.ID] = baseURLVar(kp.provider.ID)
+		vars[kp.provider.ID] = idVar(kp.provider.ID, "BASE_URL")
 	}
 	return vars
 }
 
-// baseURLVar is KSTACK_<ID>_BASE_URL, the id upper-cased and each '-' as '_',
-// since a shell variable's name holds no hyphen.
-func baseURLVar(id string) string {
-	return "KSTACK_" + strings.ToUpper(strings.ReplaceAll(id, "-", "_")) + "_BASE_URL"
+// idVar is KSTACK_<ID>_<suffix>, the id upper-cased and each '-' as '_', since
+// a shell variable's name holds no hyphen.
+func idVar(id, suffix string) string {
+	return "KSTACK_" + strings.ToUpper(strings.ReplaceAll(id, "-", "_")) + "_" + suffix
+}
+
+// signedProvider is a provider the user signs in to: its row under the
+// sign-in's signer, and how its account's catalog is read off that row.
+type signedProvider struct {
+	id     string
+	row    func(llm.Signer) llm.Provider
+	models func(context.Context, llm.Provider) ([]llm.Model, error)
+}
+
+// signedProviders is every signed-in provider, in picker order.
+func signedProviders() []signedProvider {
+	return []signedProvider{
+		{id: ChatGPTID, row: newChatGPTProvider, models: ReadChatGPTModels},
+	}
+}
+
+// ReadSignedModels reads the account's catalog off p, a signed-in provider's
+// row.
+func ReadSignedModels(ctx context.Context, p llm.Provider) ([]llm.Model, error) {
+	for _, sp := range signedProviders() {
+		if sp.id == p.ID {
+			return sp.models(ctx, p)
+		}
+	}
+	return nil, fmt.Errorf("catalog: %s is not a signed-in provider", p.ID)
 }
 
 // The rows, in picker order. Each is one vendor: where its requests go and the

@@ -49,13 +49,18 @@ type Config struct {
 	// BaseURLs replaces a listed provider's base URL, by provider id. Set only by
 	// a debug build: a release never takes an endpoint from the environment.
 	BaseURLs map[string]string
+	// Signers is each signed-in provider's signer, by provider id. A provider
+	// with no signer here is left out. They are listed after the keyed providers
+	// and before the fake.
+	Signers map[string]llm.SessionSigner
 	// Fake, when non-nil, is listed last: a run with no key still has a model to
 	// answer on.
 	Fake *llm.Fake
 }
 
 // New is every keyed provider whose key cfg holds, in picker order, at the base
-// URL cfg moves it to, then the fake.
+// URL cfg moves it to, then each signed-in provider cfg holds a signer for, then
+// the fake.
 func New(cfg Config) Catalog {
 	var c Catalog
 	for _, kp := range keyedProviders() {
@@ -72,6 +77,17 @@ func New(cfg Config) Catalog {
 			}
 		}
 		c.providers = append(c.providers, kp.provider)
+	}
+	for _, sp := range signedProviders() {
+		signer, ok := cfg.Signers[sp.id]
+		if !ok {
+			continue
+		}
+		p := sp.row(signer)
+		if url, ok := cfg.BaseURLs[sp.id]; ok {
+			p.BaseURL = url
+		}
+		c.providers = append(c.providers, p)
 	}
 	if cfg.Fake != nil {
 		c.providers = append(c.providers, llm.FakeProvider(cfg.Fake))
@@ -111,5 +127,6 @@ var lists = map[string][]string{
 	"together":    ours,
 	"fireworks":   ours,
 	"opencode-go": ours,
+	ChatGPTID:     ours,
 	"fake":        withSearch,
 }

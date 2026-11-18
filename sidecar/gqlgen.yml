@@ -691,6 +691,47 @@ models:
   AuthState:
     model: github.com/kstackhq/kstack/sidecar/internal/services/auth.State
 
+  # --- ChatGPT connector ---
+  # The state binds to the connector's own, which holds no token. Email and failure
+  # are null outside their phases, so each has a resolver.
+  ChatGPTConnection:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.State
+    fields:
+      email:
+        resolver: true
+      failure:
+        resolver: true
+  ChatGPTConnectionPhase:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Phase
+    enum_values:
+      SignedOut:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.SignedOut
+      SigningIn:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.SigningIn
+      Connected:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Connected
+      Failed:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Failed
+  ChatGPTConnectionFailure:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Failure
+    enum_values:
+      Declined:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Declined
+      PlanUsageNotGranted:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.ScopeNotGranted
+      AccountMismatch:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.AccountMismatch
+      TimedOut:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.TimedOut
+      Unavailable:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Unavailable
+      NotSaved:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.NotSaved
+      SessionEnded:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.SessionEnded
+      Refused:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Refused
+
   Identity:
     model: github.com/kstackhq/kstack/sidecar/internal/services/auth.Identity
     fields:

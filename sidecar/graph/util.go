@@ -14,9 +14,11 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/iso8601"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
@@ -153,6 +155,29 @@ func memoryErr(err error) error {
 		}
 	}
 	return err
+}
+
+// chatGPTErr is a refused Connect as the wire codes it: during an attempt, or
+// while connected.
+func chatGPTErr(err error) error {
+	if errors.Is(err, oauthconn.ErrSigningIn) || errors.Is(err, oauthconn.ErrConnected) {
+		return gqlerrors.Clone(gqlerrors.ErrValidationError)
+	}
+	return err
+}
+
+// modelsOf is every provider's models as the wire lists them, in picker order.
+func modelsOf(providers []llm.Provider) []*model.Model {
+	var out []*model.Model
+	for _, p := range providers {
+		provider := &model.Provider{ID: p.ID, Label: p.Label, LlmDialect: &p.Dialect}
+		for _, m := range p.Catalog {
+			out = append(out, &model.Model{
+				Provider: provider, ID: m.ID, Label: m.Label, Efforts: m.Efforts, DefaultEffort: m.DefaultEffort,
+			})
+		}
+	}
+	return out
 }
 
 // chatErr is what every chat resolver returns an error through.

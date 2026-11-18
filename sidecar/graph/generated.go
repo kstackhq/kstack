@@ -27,6 +27,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
@@ -46,6 +47,7 @@ func NewExecutableSchema(cfg Config) graphql.ExecutableSchema {
 type Config = graphql.Config[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
 type ResolverRoot interface {
+	ChatGPTConnection() ChatGPTConnectionResolver
 	ChatMessage() ChatMessageResolver
 	Cluster() ClusterResolver
 	ClusterCache() ClusterCacheResolver
@@ -86,6 +88,14 @@ type ComplexityRoot struct {
 		SandboxDisabled  func(childComplexity int) int
 		Title            func(childComplexity int) int
 		UpdatedAt        func(childComplexity int) int
+	}
+
+	ChatGPTConnection struct {
+		Email                 func(childComplexity int) int
+		Failure               func(childComplexity int) int
+		Phase                 func(childComplexity int) int
+		Registered            func(childComplexity int) int
+		RevocationUnconfirmed func(childComplexity int) int
 	}
 
 	ChatMessage struct {
@@ -640,6 +650,10 @@ type ComplexityRoot struct {
 		BackgroundTaskStop              func(childComplexity int, id chat.ToolCallID) int
 		ChatCancel                      func(childComplexity int, chatID apimeta.ChatID) int
 		ChatDelete                      func(childComplexity int, id apimeta.ChatID) int
+		ChatGPTConnect                  func(childComplexity int, fresh bool) int
+		ChatGPTConnectCancel            func(childComplexity int) int
+		ChatGPTDisconnect               func(childComplexity int) int
+		ChatGPTUsageOpen                func(childComplexity int) int
 		ChatGrantRemove                 func(childComplexity int, chatID apimeta.ChatID, id string) int
 		ChatNetworkEnabledSet           func(childComplexity int, id apimeta.ChatID, enabled bool) int
 		ChatRename                      func(childComplexity int, id apimeta.ChatID, title string) int
@@ -739,6 +753,7 @@ type ComplexityRoot struct {
 
 	Query struct {
 		AuthState           func(childComplexity int) int
+		ChatGPTConnection   func(childComplexity int) int
 		ChatGrants          func(childComplexity int, chatID apimeta.ChatID) int
 		Cluster             func(childComplexity int, id apimeta.ClusterID) int
 		ClusterCache        func(childComplexity int, id apimeta.ObjectID) int
@@ -849,6 +864,7 @@ type ComplexityRoot struct {
 
 	Subscription struct {
 		AuthStateWatch                func(childComplexity int) int
+		ChatGPTConnectionWatch        func(childComplexity int) int
 		ChatMessagesWatch             func(childComplexity int, chatID apimeta.ChatID) int
 		ChatsWatch                    func(childComplexity int) int
 		ClusterCacheHealthWatch       func(childComplexity int) int
@@ -866,6 +882,7 @@ type ComplexityRoot struct {
 		EventsWatch                   func(childComplexity int, id apimeta.ObjectID, category *string) int
 		LogsFollow                    func(childComplexity int, id apimeta.ClusterID, request model.LogsFollowInput) int
 		MemoriesWatch                 func(childComplexity int, clusterID apimeta.ClusterID) int
+		ModelsWatch                   func(childComplexity int) int
 		SandboxExecutablesWatch       func(childComplexity int) int
 	}
 
@@ -926,6 +943,10 @@ type ComplexityRoot struct {
 
 // region    ************************** generated!.gotpl **************************
 
+type ChatGPTConnectionResolver interface {
+	Email(ctx context.Context, obj *oauthconn.State) (*string, error)
+	Failure(ctx context.Context, obj *oauthconn.State) (*oauthconn.Failure, error)
+}
 type ChatMessageResolver interface {
 	Thinking(ctx context.Context, obj *chat.ChatMessage) (string, error)
 
@@ -989,6 +1010,10 @@ type MutationResolver interface {
 	FolderRevoke(ctx context.Context, id string) (*model.SandboxFolders, error)
 	AuthLoginStart(ctx context.Context) (bool, error)
 	AuthLogout(ctx context.Context) (bool, error)
+	ChatGPTConnect(ctx context.Context, fresh bool) (bool, error)
+	ChatGPTConnectCancel(ctx context.Context) (bool, error)
+	ChatGPTDisconnect(ctx context.Context) (bool, error)
+	ChatGPTUsageOpen(ctx context.Context) (bool, error)
 }
 type QueryResolver interface {
 	Models(ctx context.Context) ([]*model.Model, error)
@@ -1010,6 +1035,7 @@ type QueryResolver interface {
 	ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
 	LogsFetch(ctx context.Context, id apimeta.ClusterID, request model.LogsFetchInput) (*model.LogRecordsPage, error)
 	AuthState(ctx context.Context) (*auth.State, error)
+	ChatGPTConnection(ctx context.Context) (*oauthconn.State, error)
 }
 type SubscriptionResolver interface {
 	EventsWatch(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *cluster.EventWatchFrame, error)
@@ -1031,6 +1057,8 @@ type SubscriptionResolver interface {
 	LogsFollow(ctx context.Context, id apimeta.ClusterID, request model.LogsFollowInput) (<-chan *model.LogsFollowFrame, error)
 	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
 	AuthStateWatch(ctx context.Context) (<-chan *auth.State, error)
+	ChatGPTConnectionWatch(ctx context.Context) (<-chan *oauthconn.State, error)
+	ModelsWatch(ctx context.Context) (<-chan []*model.Model, error)
 }
 type ToolCallResolver interface {
 	Status(ctx context.Context, obj *chat.ToolCall) (*chat.ToolCallStatus, error)
@@ -1158,6 +1186,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Chat.UpdatedAt(childComplexity), true
+
+	case "ChatGPTConnection.email":
+		if e.ComplexityRoot.ChatGPTConnection.Email == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChatGPTConnection.Email(childComplexity), true
+	case "ChatGPTConnection.failure":
+		if e.ComplexityRoot.ChatGPTConnection.Failure == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChatGPTConnection.Failure(childComplexity), true
+	case "ChatGPTConnection.phase":
+		if e.ComplexityRoot.ChatGPTConnection.Phase == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChatGPTConnection.Phase(childComplexity), true
+	case "ChatGPTConnection.registered":
+		if e.ComplexityRoot.ChatGPTConnection.Registered == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChatGPTConnection.Registered(childComplexity), true
+	case "ChatGPTConnection.revocationUnconfirmed":
+		if e.ComplexityRoot.ChatGPTConnection.RevocationUnconfirmed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChatGPTConnection.RevocationUnconfirmed(childComplexity), true
 
 	case "ChatMessage.awaitingApproval":
 		if e.ComplexityRoot.ChatMessage.AwaitingApproval == nil {
@@ -3320,6 +3379,35 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ChatDelete(childComplexity, args["id"].(apimeta.ChatID)), true
+	case "Mutation.chatGPTConnect":
+		if e.ComplexityRoot.Mutation.ChatGPTConnect == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_chatGPTConnect_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ChatGPTConnect(childComplexity, args["fresh"].(bool)), true
+	case "Mutation.chatGPTConnectCancel":
+		if e.ComplexityRoot.Mutation.ChatGPTConnectCancel == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.ChatGPTConnectCancel(childComplexity), true
+	case "Mutation.chatGPTDisconnect":
+		if e.ComplexityRoot.Mutation.ChatGPTDisconnect == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.ChatGPTDisconnect(childComplexity), true
+	case "Mutation.chatGPTUsageOpen":
+		if e.ComplexityRoot.Mutation.ChatGPTUsageOpen == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.ChatGPTUsageOpen(childComplexity), true
 	case "Mutation.chatGrantRemove":
 		if e.ComplexityRoot.Mutation.ChatGrantRemove == nil {
 			break
@@ -3896,6 +3984,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.AuthState(childComplexity), true
+	case "Query.chatGPTConnection":
+		if e.ComplexityRoot.Query.ChatGPTConnection == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.ChatGPTConnection(childComplexity), true
 	case "Query.chatGrants":
 		if e.ComplexityRoot.Query.ChatGrants == nil {
 			break
@@ -4359,6 +4453,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.AuthStateWatch(childComplexity), true
+	case "Subscription.chatGPTConnectionWatch":
+		if e.ComplexityRoot.Subscription.ChatGPTConnectionWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.ChatGPTConnectionWatch(childComplexity), true
 	case "Subscription.chatMessagesWatch":
 		if e.ComplexityRoot.Subscription.ChatMessagesWatch == nil {
 			break
@@ -4526,6 +4626,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.MemoriesWatch(childComplexity, args["clusterID"].(apimeta.ClusterID)), true
+	case "Subscription.modelsWatch":
+		if e.ComplexityRoot.Subscription.ModelsWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.ModelsWatch(childComplexity), true
 	case "Subscription.sandboxExecutablesWatch":
 		if e.ComplexityRoot.Subscription.SandboxExecutablesWatch == nil {
 			break
@@ -4941,6 +5047,22 @@ func (ec *executionContext) childFields_Chat(ctx context.Context, field graphql.
 		return ec.fieldContext_Chat_networkEnabled(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Chat", field.Name)
+}
+
+func (ec *executionContext) childFields_ChatGPTConnection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "phase":
+		return ec.fieldContext_ChatGPTConnection_phase(ctx, field)
+	case "email":
+		return ec.fieldContext_ChatGPTConnection_email(ctx, field)
+	case "failure":
+		return ec.fieldContext_ChatGPTConnection_failure(ctx, field)
+	case "registered":
+		return ec.fieldContext_ChatGPTConnection_registered(ctx, field)
+	case "revocationUnconfirmed":
+		return ec.fieldContext_ChatGPTConnection_revocationUnconfirmed(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ChatGPTConnection", field.Name)
 }
 
 func (ec *executionContext) childFields_ChatMessage(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -6675,6 +6797,20 @@ func (ec *executionContext) field_Mutation_chatDelete_args(ctx context.Context, 
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_chatGPTConnect_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "fresh",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["fresh"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_chatGrantRemove_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -8155,6 +8291,121 @@ func (ec *executionContext) _Chat_networkEnabled(ctx context.Context, field grap
 }
 func (ec *executionContext) fieldContext_Chat_networkEnabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Chat", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _ChatGPTConnection_phase(ctx context.Context, field graphql.CollectedField, obj *oauthconn.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ChatGPTConnection_phase(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Phase, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v oauthconn.Phase) graphql.Marshaler {
+			return ec.marshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ChatGPTConnection_phase(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ChatGPTConnection", field, false, false, "ChatGPTConnectionPhase")
+}
+
+func (ec *executionContext) _ChatGPTConnection_email(ctx context.Context, field graphql.CollectedField, obj *oauthconn.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ChatGPTConnection_email(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ChatGPTConnection().Email(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ChatGPTConnection_email(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ChatGPTConnection", field, true, true, "String")
+}
+
+func (ec *executionContext) _ChatGPTConnection_failure(ctx context.Context, field graphql.CollectedField, obj *oauthconn.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ChatGPTConnection_failure(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ChatGPTConnection().Failure(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *oauthconn.Failure) graphql.Marshaler {
+			return ec.marshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ChatGPTConnection_failure(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ChatGPTConnection", field, true, true, "ChatGPTConnectionFailure")
+}
+
+func (ec *executionContext) _ChatGPTConnection_registered(ctx context.Context, field graphql.CollectedField, obj *oauthconn.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ChatGPTConnection_registered(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Registered, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ChatGPTConnection_registered(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ChatGPTConnection", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _ChatGPTConnection_revocationUnconfirmed(ctx context.Context, field graphql.CollectedField, obj *oauthconn.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ChatGPTConnection_revocationUnconfirmed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RevocationUnconfirmed, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ChatGPTConnection_revocationUnconfirmed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ChatGPTConnection", field, false, false, "Boolean")
 }
 
 func (ec *executionContext) _ChatMessage_id(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
@@ -18053,6 +18304,119 @@ func (ec *executionContext) fieldContext_Mutation_authLogout(_ context.Context, 
 	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
 }
 
+func (ec *executionContext) _Mutation_chatGPTConnect(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_chatGPTConnect(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ChatGPTConnect(ctx, fc.Args["fresh"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_chatGPTConnect(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_chatGPTConnect_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_chatGPTConnectCancel(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_chatGPTConnectCancel(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().ChatGPTConnectCancel(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_chatGPTConnectCancel(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
+func (ec *executionContext) _Mutation_chatGPTDisconnect(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_chatGPTDisconnect(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().ChatGPTDisconnect(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_chatGPTDisconnect(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
+func (ec *executionContext) _Mutation_chatGPTUsageOpen(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_chatGPTUsageOpen(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().ChatGPTUsageOpen(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_chatGPTUsageOpen(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
 func (ec *executionContext) _NonResourceRule_verbs(ctx context.Context, field graphql.CollectedField, obj *model.NonResourceRule) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -19718,6 +20082,38 @@ func (ec *executionContext) fieldContext_Query_authState(_ context.Context, fiel
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_AuthState(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_chatGPTConnection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_chatGPTConnection(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().ChatGPTConnection(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *oauthconn.State) graphql.Marshaler {
+			return ec.marshalNChatGPTConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐState(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_chatGPTConnection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ChatGPTConnection(ctx, field)
 		},
 	}
 	return fc, nil
@@ -21730,6 +22126,70 @@ func (ec *executionContext) fieldContext_Subscription_authStateWatch(_ context.C
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_AuthState(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_chatGPTConnectionWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_chatGPTConnectionWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().ChatGPTConnectionWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *oauthconn.State) graphql.Marshaler {
+			return ec.marshalNChatGPTConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐState(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_chatGPTConnectionWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ChatGPTConnection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_modelsWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_modelsWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().ModelsWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.Model) graphql.Marshaler {
+			return ec.marshalNModel2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐModelᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_modelsWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Model(ctx, field)
 		},
 	}
 	return fc, nil
@@ -24743,6 +25203,61 @@ func (ec *executionContext) _Chat(ctx context.Context, sel ast.SelectionSet, obj
 			out.Values[i] = ec._Chat_networkEnabled(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var chatGPTConnectionImplementors = []string{"ChatGPTConnection"}
+
+func (ec *executionContext) _ChatGPTConnection(ctx context.Context, sel ast.SelectionSet, obj *oauthconn.State) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, chatGPTConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChatGPTConnection")
+		case "phase":
+			out.Values[i] = ec._ChatGPTConnection_phase(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "email":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._ChatGPTConnection_email(ctx, field, obj)
+				})
+		case "failure":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._ChatGPTConnection_failure(ctx, field, obj)
+				})
+		case "registered":
+			out.Values[i] = ec._ChatGPTConnection_registered(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "revocationUnconfirmed":
+			out.Values[i] = ec._ChatGPTConnection_revocationUnconfirmed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
@@ -28673,6 +29188,34 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "chatGPTConnect":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_chatGPTConnect(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "chatGPTConnectCancel":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_chatGPTConnectCancel(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "chatGPTDisconnect":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_chatGPTDisconnect(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "chatGPTUsageOpen":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_chatGPTUsageOpen(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -29256,6 +29799,12 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_authState(ctx, field)
+				})
+		case "chatGPTConnection":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_chatGPTConnection(ctx, field)
 				})
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
@@ -29948,6 +30497,10 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_sandboxExecutablesWatch(ctx, fields[0])
 	case "authStateWatch":
 		return ec._Subscription_authStateWatch(ctx, fields[0])
+	case "chatGPTConnectionWatch":
+		return ec._Subscription_chatGPTConnectionWatch(ctx, fields[0])
+	case "modelsWatch":
+		return ec._Subscription_modelsWatch(ctx, fields[0])
 	default:
 		panic("unknown field " + strconv.Quote(fields[0].Name))
 	}
@@ -30789,6 +31342,44 @@ func (ec *executionContext) marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋs
 	}
 	return ec._Chat(ctx, sel, v)
 }
+
+func (ec *executionContext) marshalNChatGPTConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐState(ctx context.Context, sel ast.SelectionSet, v *oauthconn.State) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "ChatGPTConnection!")
+		return graphql.Null
+	}
+	return ec._ChatGPTConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase(ctx context.Context, v any) (oauthconn.Phase, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase[tmp]
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase(ctx context.Context, sel ast.SelectionSet, v oauthconn.Phase) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(marshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase[v])
+	if res == graphql.Null {
+		graphql.AddInvalidNullFromMarshaler(ctx, "ChatGPTConnectionPhase!")
+	}
+	return res
+}
+
+var (
+	unmarshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase = map[string]oauthconn.Phase{
+		"SignedOut": oauthconn.SignedOut,
+		"SigningIn": oauthconn.SigningIn,
+		"Connected": oauthconn.Connected,
+		"Failed":    oauthconn.Failed,
+	}
+	marshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase = map[oauthconn.Phase]string{
+		oauthconn.SignedOut: "SignedOut",
+		oauthconn.SigningIn: "SigningIn",
+		oauthconn.Connected: "Connected",
+		oauthconn.Failed:    "Failed",
+	}
+)
 
 func (ec *executionContext) unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx context.Context, v any) (apimeta.ChatID, error) {
 	tmp, err := graphql.UnmarshalString(v)
@@ -32778,6 +33369,48 @@ func (ec *executionContext) marshalOChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋs
 	}
 	return ec._Chat(ctx, sel, v)
 }
+
+func (ec *executionContext) unmarshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure(ctx context.Context, v any) (*oauthconn.Failure, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure[tmp]
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure(ctx context.Context, sel ast.SelectionSet, v *oauthconn.Failure) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(marshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure[*v])
+	return res
+}
+
+var (
+	unmarshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure = map[string]oauthconn.Failure{
+		"Declined":            oauthconn.Declined,
+		"PlanUsageNotGranted": oauthconn.ScopeNotGranted,
+		"AccountMismatch":     oauthconn.AccountMismatch,
+		"TimedOut":            oauthconn.TimedOut,
+		"Unavailable":         oauthconn.Unavailable,
+		"NotSaved":            oauthconn.NotSaved,
+		"SessionEnded":        oauthconn.SessionEnded,
+		"Refused":             oauthconn.Refused,
+	}
+	marshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure = map[oauthconn.Failure]string{
+		oauthconn.Declined:        "Declined",
+		oauthconn.ScopeNotGranted: "PlanUsageNotGranted",
+		oauthconn.AccountMismatch: "AccountMismatch",
+		oauthconn.TimedOut:        "TimedOut",
+		oauthconn.Unavailable:     "Unavailable",
+		oauthconn.NotSaved:        "NotSaved",
+		oauthconn.SessionEnded:    "SessionEnded",
+		oauthconn.Refused:         "Refused",
+	}
+)
 
 func (ec *executionContext) unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx context.Context, v any) (*apimeta.ChatID, error) {
 	if v == nil {

@@ -36,6 +36,8 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
@@ -3656,4 +3658,183 @@ func TestSandboxCloudAccessSetRefusesWhatHasNoSwitch(t *testing.T) {
 		assert.Equal(t, "This build has no switch for that target.", message, target)
 	}
 	assert.True(t, cfg.CloudOn(permissions.GitHub), "nothing was written")
+}
+
+// fakeChatGPT is the ChatGPT connector as the wire sees it: a state the test
+// sets, and a record of what was asked of it.
+type fakeChatGPT struct {
+	mu            sync.Mutex
+	state         oauthconn.State
+	connectErr    error
+	disconnectErr error
+	connects      []bool
+	cancels       int
+	disconnect    int
+	hub           *watch.Hub[oauthconn.State]
+	tx            *watch.Sender[oauthconn.State]
+}
+
+func newFakeChatGPT(st oauthconn.State) *fakeChatGPT {
+	hub := watch.New(st)
+	return &fakeChatGPT{state: st, hub: hub, tx: hub.Sender()}
+}
+
+func (f *fakeChatGPT) State() oauthconn.State {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.state
+}
+
+func (f *fakeChatGPT) Subscribe() (<-chan oauthconn.State, func()) {
+	rx := f.hub.Receiver()
+	return rx.Chan(), rx.Close
+}
+
+func (f *fakeChatGPT) Connect(_ context.Context, fresh bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.connects = append(f.connects, fresh)
+	return f.connectErr
+}
+
+func (f *fakeChatGPT) Cancel() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cancels++
+}
+
+func (f *fakeChatGPT) Disconnect(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.disconnect++
+	return f.disconnectErr
+}
+
+func (f *fakeChatGPT) publish(st oauthconn.State) {
+	f.mu.Lock()
+	f.state = st
+	f.mu.Unlock()
+	_ = f.tx.Send(st)
+}
+
+func chatGPTServer(t *testing.T, f *fakeChatGPT, opened *[]string) *httptest.Server {
+	t.Helper()
+	return chatGPTServerOpening(t, f, func(u string) error { *opened = append(*opened, u); return nil })
+}
+
+func chatGPTServerOpening(t *testing.T, f *fakeChatGPT, open func(string) error) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
+		ChatGPT: f,
+		OpenURL: open,
+		LLMSvc:  llm.New(),
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+const chatGPTFields = `phase email failure registered revocationUnconfirmed`
+
+// The connection projects the state: the email only while connected and known, the
+// failure only while failed, and nothing a token could ride.
+func TestChatGPTConnectionProjectsTheState(t *testing.T) {
+	f := newFakeChatGPT(oauthconn.State{Phase: oauthconn.Connected, Email: "ada@example.com", Failure: oauthconn.Refused, Registered: true})
+	var opened []string
+	srv := chatGPTServer(t, f, &opened)
+
+	data, errs := mutation(t, srv.URL, `query { chatGPTConnection { `+chatGPTFields+` } }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{
+		"phase": "Connected", "email": "ada@example.com", "failure": nil, "registered": true, "revocationUnconfirmed": false,
+	}, data["chatGPTConnection"])
+
+	f.publish(oauthconn.State{Phase: oauthconn.Connected})
+	data, errs = mutation(t, srv.URL, `query { chatGPTConnection { email } }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"email": nil}, data["chatGPTConnection"], "no email is null, never empty")
+
+	f.publish(oauthconn.State{Phase: oauthconn.Failed, Email: "ada@example.com", Failure: oauthconn.SessionEnded, RevocationUnconfirmed: true})
+	data, errs = mutation(t, srv.URL, `query { chatGPTConnection { `+chatGPTFields+` } }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{
+		"phase": "Failed", "email": nil, "failure": "SessionEnded", "registered": false, "revocationUnconfirmed": true,
+	}, data["chatGPTConnection"])
+}
+
+// The watch is a gauge: the current state, then each change.
+func TestChatGPTConnectionWatchIsAGauge(t *testing.T) {
+	f := newFakeChatGPT(oauthconn.State{Phase: oauthconn.SignedOut})
+	var opened []string
+	srv := chatGPTServer(t, f, &opened)
+
+	resp := openSSESubscription(t, srv.URL, "", `subscription { chatGPTConnectionWatch { phase } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
+
+	f.publish(oauthconn.State{Phase: oauthconn.SigningIn})
+
+	assert.Contains(t, nextSSE(t, events).data, `"phase":"SigningIn"`)
+}
+
+// The mutations drive the connector; a refused Connect is a validation error.
+func TestChatGPTMutations(t *testing.T) {
+	f := newFakeChatGPT(oauthconn.State{Phase: oauthconn.SignedOut})
+	var opened []string
+	srv := chatGPTServer(t, f, &opened)
+
+	data, errs := mutation(t, srv.URL, `mutation { chatGPTConnect(fresh: true) }`)
+	require.Empty(t, errs)
+	assert.Equal(t, true, data["chatGPTConnect"])
+	assert.Equal(t, []bool{true}, f.connects)
+
+	for _, refusal := range []error{oauthconn.ErrSigningIn, oauthconn.ErrConnected} {
+		f.connectErr = refusal
+		_, errs = mutation(t, srv.URL, `mutation { chatGPTConnect(fresh: false) }`)
+		require.Len(t, errs, 1)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"])
+	}
+	f.connectErr = errors.New("boom")
+	_, errs = mutation(t, srv.URL, `mutation { chatGPTConnect(fresh: false) }`)
+	require.Len(t, errs, 1)
+	assert.Nil(t, errs[0].Extensions["code"])
+
+	data, errs = mutation(t, srv.URL, `mutation { chatGPTConnectCancel chatGPTDisconnect chatGPTUsageOpen }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"chatGPTConnectCancel": true, "chatGPTDisconnect": true, "chatGPTUsageOpen": true}, data)
+	assert.Equal(t, 1, f.cancels)
+	assert.Equal(t, 1, f.disconnect)
+	assert.Equal(t, []string{chatgptauth.UsageURL}, opened)
+}
+
+// modelsWatch is a gauge of the catalog: the models now, then the list after a
+// provider's catalog changes.
+func TestModelsWatchFollowsTheCatalog(t *testing.T) {
+	svc := llm.New(llm.Provider{ID: "chatgpt", Label: "ChatGPT plan", Dialect: llm.DialectResponses})
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{LLMSvc: svc}))
+	defer srv.Close()
+
+	resp := openSSESubscription(t, srv.URL, "", `subscription { modelsWatch { id provider { id label } } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	assert.Contains(t, nextSSE(t, events).data, `"modelsWatch":[]`)
+
+	svc.SetCatalog("chatgpt", []llm.Model{{ID: "gpt-6.1-sol"}})
+
+	ev := nextSSE(t, events)
+	assert.Contains(t, ev.data, `"id":"gpt-6.1-sol"`)
+	assert.Contains(t, ev.data, `"label":"ChatGPT plan"`)
+}
+
+// A sign-out that could not be recorded, and a browser that cannot open, are
+// errors on the wire.
+func TestChatGPTMutationsFail(t *testing.T) {
+	f := newFakeChatGPT(oauthconn.State{Phase: oauthconn.Connected})
+	f.disconnectErr = errors.New("the keyring refused")
+	srv := chatGPTServerOpening(t, f, func(string) error { return errors.New("no browser") })
+
+	for _, op := range []string{`mutation { chatGPTDisconnect }`, `mutation { chatGPTUsageOpen }`} {
+		_, errs := mutation(t, srv.URL, op)
+		assert.Len(t, errs, 1, op)
+	}
 }

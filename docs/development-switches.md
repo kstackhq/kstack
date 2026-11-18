@@ -33,7 +33,8 @@ These work only in a sidecar built with `-tags debug`, which `tauri dev` and `ma
 | `KSTACK_OAUTH_ISSUER`, `KSTACK_OAUTH_CLIENT_ID` | Point sign-in at another OAuth server. |
 | `KSTACK_DATA_DIR`, `KSTACK_CACHE_DIR`, `KSTACK_RUNTIME_DIR` | Replace the directories the host passes. |
 | `KSTACK_KEYCHAIN_SERVICE` | Use another keychain entry. |
-| `KSTACK_<PROVIDER>_BASE_URL` | Move a model provider's base URL, the provider id upper-cased with `-` as `_` (`baseURLVar` in `sidecar/internal/agent/catalog/providers.go`). |
+| `KSTACK_<PROVIDER>_BASE_URL` | Move a model provider's base URL, the provider id upper-cased with `-` as `_` (`baseURLVar` in `sidecar/internal/agent/catalog/providers.go`). `KSTACK_CHATGPT_BASE_URL` also moves the resource the ChatGPT connector signs for. |
+| `KSTACK_CHATGPT_ISSUER_URL` | Point Sign in with ChatGPT at another OAuth issuer; its discovery document must name that URL as its issuer. |
 | `KSTACK_FAULTS` | Fail cluster requests inside every connection, so the failure states draw from real data. See [Injected faults](#injected-faults). |
 
 A debug sidecar also adds a fake model to the catalog, so a dev run can chat without an API key.
