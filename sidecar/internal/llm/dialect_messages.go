@@ -43,7 +43,7 @@ var cacheHour = anthropic.CacheControlEphemeralParam{TTL: anthropic.CacheControl
 // messagesWire is one request's view of the Messages API: what every helper
 // in this file reads of the request.
 type messagesWire struct {
-	providerID string
+	provider Provider
 	// thinks says the request asks the model to think, which decides what a
 	// thinking block does on this wire.
 	thinks bool
@@ -84,15 +84,13 @@ func streamMessages(ctx context.Context, req Request, idle time.Duration, clock 
 	if req.Provider.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(req.Provider.BaseURL))
 	}
-	// The SDK sets x-api-key to whatever it is given, an empty value included,
-	// and a provider naming its own key header gets the key there alone.
-	if req.Provider.Key != "" && req.Provider.KeyHeader == "" {
-		opts = append(opts, option.WithAPIKey(req.Provider.Key))
-	}
-	opts = append(opts, providerOptions(req.Provider, nil, option.WithHeader, option.WithQueryAdd, option.WithJSONSet, option.WithJSONDel)...)
+	opts = append(opts, option.WithHTTPClient(noRedirectClient), option.WithMiddleware(func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+		return send(req.Provider, r, next)
+	}))
+	opts = append(opts, providerOptions(req.Provider, nil, option.WithQueryAdd, option.WithJSONSet, option.WithJSONDel)...)
 	client := anthropic.NewMessageService(opts...)
 
-	w := messagesWire{providerID: req.Provider.ID, thinks: req.Effort != ""}
+	w := messagesWire{provider: req.Provider, thinks: req.Effort != ""}
 	for _, o := range req.NativeTools {
 		tool, ok := o.Tool.(MessagesServerTool)
 		if !o.Server || !ok {
@@ -280,14 +278,14 @@ func (w messagesWire) conversation(msgs []Message) []anthropic.MessageParam {
 	var out []anthropic.MessageParam
 	var ids replayIDs
 	for i, m := range msgs {
-		blocks := stripForeign(w.providerID, DialectMessages, m)
+		blocks := stripForeign(w.provider.ID, DialectMessages, m)
 		if m.Role != "assistant" {
 			if content := w.content(blocks); len(content) > 0 {
 				out = append(out, anthropic.NewUserMessage(content...))
 			}
 			continue
 		}
-		if i == last && w.thinks && (m.foreign(w.providerID, DialectMessages) || m.Effort == "") {
+		if i == last && w.thinks && (m.foreign(w.provider.ID, DialectMessages) || m.Effort == "") {
 			// With thinking on the API refuses a final assistant message whose
 			// lastmost tool_use has no thinking block ahead of it, and neither a foreign
 			// row, its payloads stripped, nor one written with thinking off
@@ -302,7 +300,7 @@ func (w messagesWire) conversation(msgs []Message) []anthropic.MessageParam {
 			// resumes from that call.
 			blocks = w.answeredServerCalls(blocks)
 		}
-		out = append(out, w.unfold(ids.replay(blocks, m.foreign(w.providerID, DialectMessages)))...)
+		out = append(out, w.unfold(ids.replay(blocks, m.foreign(w.provider.ID, DialectMessages)))...)
 	}
 	return out
 }
@@ -530,7 +528,7 @@ func (w messagesWire) answer(content []anthropic.ContentBlockUnion, inputs messa
 			case cutOff:
 				input = json.RawMessage(`{}`)
 			default:
-				return nil, ReadError(w.providerID)
+				return nil, ReadError(w.provider.ID)
 			}
 			out = append(out, ToolUseBlock(c.ID, c.Name, input))
 		default:
@@ -540,12 +538,12 @@ func (w messagesWire) answer(content []anthropic.ContentBlockUnion, inputs messa
 			} else if w.isServerResult(c.Type) {
 				out = append(out, Block{Type: BlockNative, ID: c.ToolUseID, Payload: json.RawMessage(c.RawJSON())})
 			} else {
-				slog.Debug("messages: a block the stream does not carry", "provider", w.providerID, "index", i)
+				slog.Debug("messages: a block the stream does not carry", "provider", w.provider.ID, "index", i)
 			}
 		}
 	}
 	if slices.ContainsFunc(out, func(b Block) bool { return !b.replayable() }) {
-		return nil, ReadError(w.providerID)
+		return nil, ReadError(w.provider.ID)
 	}
 	return out, nil
 }
@@ -560,17 +558,21 @@ func (w messagesWire) failure(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return context.Cause(ctx)
 	}
+	// The middleware's own: nothing was sent, or a redirect was refused.
+	if own, ok := errors.AsType[*Error](err); ok {
+		return own
+	}
 	if api, ok := errors.AsType[*anthropic.Error](err); ok {
 		// An error event that was not the API's shape has no type: unreadable.
 		if api.Type() == "" {
-			return ReadError(w.providerID)
+			return ReadError(w.provider.ID)
 		}
-		return ResponseError(w.providerID, api.StatusCode, w.errorType(api.Type()), w.code(api.RawJSON()))
+		return ResponseError(w.provider, api.StatusCode, w.errorType(api.Type()), w.code(api.RawJSON()))
 	}
 	if noResponse(err) {
-		return TransportError(w.providerID, err)
+		return TransportError(w.provider.ID, err)
 	}
-	return ReadError(w.providerID)
+	return ReadError(w.provider.ID)
 }
 
 // messagesErrorTypes is every type the API defines. Any other spelling is the

@@ -549,7 +549,8 @@ func (t *turn) Settled(_ context.Context, res loop.Result, err error) error {
 
 // runOutcome is the status a stream error settles a run as, and the text stored
 // with it: a cancel is cancelled and carries none, a provider that refused to read
-// the chat is failed in the transcript's own words, and a clean stream succeeded.
+// the chat or refused at a usage limit is failed in the transcript's own words, and
+// a clean stream succeeded.
 func runOutcome(streamErr error) (RunStatus, string) {
 	switch {
 	case streamErr == nil:
@@ -558,8 +559,13 @@ func runOutcome(streamErr error) (RunStatus, string) {
 		return RunCancelled, ""
 	}
 	var pe *llm.Error
-	if errors.As(streamErr, &pe) && pe.ContextFull() {
-		return RunFailed, contextFullText
+	if errors.As(streamErr, &pe) {
+		switch {
+		case pe.ContextFull():
+			return RunFailed, contextFullText
+		case pe.UsageLimit():
+			return RunFailed, usageLimitText
+		}
 	}
 	return RunFailed, streamErr.Error()
 }

@@ -41,6 +41,20 @@ internal/llm/
   model or unspoken dialect (`ErrUnknownModel`) and an unlisted effort (`ErrBadEffort`; a model
   with no efforts takes `""`). The agent never builds a `Request`; `Target.Stream` does.
   `Model.ContextWindow` 0 is unstated, and such a model is never refused ahead.
+- **The provider list is fixed; a provider's catalog is not.** `SetCatalog` replaces one
+  provider's models, and `Subscribe` is a gauge of the list (`modelsWatch`).
+
+## Credentials: a key or a signer
+
+- **`Provider.Key` or `Provider.Signer`, never both** (`New` panics). A `Signer` sets each
+  request's authorization and hears a `401` (`Refused`). Every wire runs `send` (`helpers.go`) on
+  `noRedirectClient`, key or signer; no SDK is given a key. `authorize` puts a key in `KeyHeader`,
+  else the dialect's own header. A failed `Sign` sends nothing: `SignError`. → [ADR: a provider's
+  credential is a key or a signer](../../../docs/adr/2026-11-18-a-providers-credential-is-a-key-or-a-signer.md).
+- **A `SessionSigner` binds**: `Resolve` puts `Bind()`'s signer on the target, and
+  `ResolveUnder(parent, …)` keeps the parent's for a subagent on its provider.
+- **`Provider.Codes`** is a row's own error codes and their class, kept by the OpenAI wires
+  (`openAICode`); `ResponseError` sets `Error.Class` from it, and `Error.UsageLimit()` reads it.
 
 ## Providers and the catalog
 
@@ -58,10 +72,10 @@ internal/llm/
   override its provider's default dialect](../../../docs/adr/2026-11-12-a-model-may-override-its-providers-default-dialect.md).
 - **Effort is the vendor's own vocabulary**, never translated. A model with an output cap of
   zero on Chat Completions sends no `max_tokens`; Messages and Responses always state one.
-- **Four option lines on a provider, applied by every wire** through `providerOptions`: `Extra`
-  (JSON set), `KeyHeader`, `Query` and `Omit` (JSON delete). `Omit` goes last, after the wire's
+- **Three option lines on a provider, applied by every wire** through `providerOptions`: `Extra`
+  (JSON set), `Query` and `Omit` (JSON delete). `Omit` goes last, after the wire's
   own options, so it deletes what the wire wrote too (all but `stream`). `Extra` and `Query` go
-  sorted. **With `KeyHeader` set the key goes there alone.**
+  sorted.
 - **OpenRouter's `Extra` is `provider.data_collection: deny`** — OpenRouter's classification, not
   ours, and not zero-data-retention.
 - **Keys are one environment variable per provider, read once per launch** (a new key needs a
@@ -193,7 +207,7 @@ None of this is in the code. Each design is fixed by its ADR or record; build to
   → [ADR: a discovered model is listed on its catalog's word](../../../docs/adr/2026-10-17-a-discovered-model-is-listed-on-its-catalogs-word.md).
 - **Cloud platforms** (Bedrock via Mantle, Vertex, Foundry): a signer per entry, never a dialect;
   every value from the platform's own conventions, no `KSTACK_` variables.
-  → [ADR: a cloud platform is auth on a vendor's wire](../../../docs/adr/2026-10-17-a-cloud-platform-is-auth-on-a-vendors-wire.md),
+  → [ADR: a provider's credential is a key or a signer](../../../docs/adr/2026-11-18-a-providers-credential-is-a-key-or-a-signer.md),
   [security record](../../../docs/security/2026-09-13-cloud-platforms.md).
 - **Ollama**: the one keyless entry, always last, dialed where `OLLAMA_HOST` says. A cloud-backed
   model is never listed.

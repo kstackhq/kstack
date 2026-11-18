@@ -130,36 +130,81 @@ func (b beatingBody) Read(p []byte) (int, error) {
 // NewClient is never called: it is the one caller of DefaultClientOptions, the
 // SDK's one reader of the vendor's variables, so each wire builds its service from
 // these options instead. Retries are off: a retry repeats a paid call, and after
-// an ambiguous failure can run a turn twice. With an empty key the SDK sends no
-// Authorization header at all, which is what a local endpoint needs, and what a
-// provider naming its own key header gets. wire is the wire's own options, which
-// go ahead of the provider's omits.
+// an ambiguous failure can run a turn twice. The SDK is given no key: send sets
+// the credential. wire is the wire's own options, which go ahead of the
+// provider's omits.
 func openAIOptions(p Provider, wire ...option.RequestOption) []option.RequestOption {
-	key := p.Key
-	if p.KeyHeader != "" {
-		key = ""
-	}
 	opts := []option.RequestOption{
 		option.WithBaseURL(p.BaseURL),
-		option.WithAPIKey(key),
 		option.WithMaxRetries(0),
+		option.WithHTTPClient(noRedirectClient),
+		option.WithMiddleware(func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+			return send(p, r, next)
+		}),
 	}
-	return append(opts, providerOptions(p, wire, option.WithHeader, option.WithQueryAdd, option.WithJSONSet, option.WithJSONDel)...)
+	return append(opts, providerOptions(p, wire, option.WithQueryAdd, option.WithJSONSet, option.WithJSONDel)...)
 }
 
-// providerOptions is a provider's own lines as one SDK's request options: the
-// key in the header it names, its query parameters, its extra body fields, the
-// wire's own options, and last the body paths it omits, so an omit also deletes
-// what the wire wrote. Query keys and Extra paths go in sorted order, so a
-// request is the same on every run. Each constructor is the SDK's own, so this
-// names no SDK.
+// authorize sets r's credential: the signer's, or the key in the header the row
+// names, else the dialect's own. A provider with neither sends none.
+func authorize(p Provider, r *http.Request) error {
+	switch {
+	case p.Signer != nil:
+		return p.Signer.Sign(r)
+	case p.Key == "":
+	case p.KeyHeader != "":
+		r.Header.Set(p.KeyHeader, p.Key)
+	case p.Dialect == DialectMessages:
+		r.Header.Set("X-Api-Key", p.Key)
+	default:
+		r.Header.Set("Authorization", "Bearer "+p.Key)
+	}
+	return nil
+}
+
+// send is every wire's middleware: authorize, send, and tell a signer of a
+// 401. A redirect fails here, since noRedirectClient follows none and the SDKs
+// read a 3xx as an answer.
+func send(p Provider, r *http.Request, next func(*http.Request) (*http.Response, error)) (*http.Response, error) {
+	if err := authorize(p, r); err != nil {
+		return nil, SignError(p.ID, err)
+	}
+	resp, err := next(r)
+	if err != nil {
+		return resp, err
+	}
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized:
+		if p.Signer != nil {
+			p.Signer.Refused(r)
+		}
+	case resp.StatusCode/100 == 3:
+		resp.Body.Close()
+		return nil, ResponseError(p, resp.StatusCode, "", "")
+	}
+	return resp, nil
+}
+
+// SignedDo sends req as every wire sends a request of p: authorized, following
+// no redirect, a signer told of a 401.
+func SignedDo(p Provider, req *http.Request) (*http.Response, error) {
+	return send(p, req, noRedirectClient.Do)
+}
+
+// noRedirectClient is every request's client. It follows no redirect: Go
+// resends Authorization to a target on the same domain or a subdomain, and any
+// other header to any target, and a credential is for its endpoint alone.
+var noRedirectClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+// providerOptions is a provider's own lines as one SDK's request options: its
+// query parameters, its extra body fields, the wire's own options, and last the
+// body paths it omits, so an omit also deletes what the wire wrote. Query keys
+// and Extra paths go in sorted order, so a request is the same on every run.
+// Each constructor is the SDK's own, so this names no SDK.
 func providerOptions[O any](p Provider, wire []O,
-	header, query func(k, v string) O, set func(path string, v any) O, del func(path string) O,
+	query func(k, v string) O, set func(path string, v any) O, del func(path string) O,
 ) []O {
 	var opts []O
-	if p.KeyHeader != "" && p.Key != "" {
-		opts = append(opts, header(p.KeyHeader, p.Key))
-	}
 	for _, k := range slices.Sorted(maps.Keys(p.Query)) {
 		opts = append(opts, query(k, p.Query[k]))
 	}
@@ -202,17 +247,21 @@ func cacheOptions[O any](p Provider, m Model, key string, header func(k, v strin
 // is one the API defines, and never its message. A failure with no response at
 // all names a host and no body, so it may be logged. Everything else is the
 // reply's own bytes, which can echo the conversation, and is kept nowhere.
-func openAIFailure(ctx context.Context, providerID string, err error) error {
+func openAIFailure(ctx context.Context, p Provider, err error) error {
 	if ctx.Err() != nil {
 		return context.Cause(ctx)
 	}
+	// The middleware's own: nothing was sent, or a redirect was refused.
+	if own, ok := errors.AsType[*Error](err); ok {
+		return own
+	}
 	if api, ok := errors.AsType[*openai.Error](err); ok {
-		return ResponseError(providerID, api.StatusCode, openAIErrorType(api.Type), openAICode(api.Code))
+		return ResponseError(p, api.StatusCode, openAIErrorType(api.Type), openAICode(p, api.Code))
 	}
 	if noResponse(err) {
-		return TransportError(providerID, err)
+		return TransportError(p.ID, err)
 	}
-	return ReadError(providerID)
+	return ReadError(p.ID)
 }
 
 // openAIErrorTypes is the types we name. OpenAI's own vocabulary is not
@@ -237,12 +286,13 @@ func openAIErrorType(t string) string {
 	return ""
 }
 
-// openAICode gives one refusal a code: the request the model cannot read, which
-// OpenAI and the compatible vendors that classify at all spell the same way.
-// Every other code is the body's text and is not kept.
-func openAICode(code string) string {
-	if code == CodeContextLengthExceeded {
-		return CodeContextLengthExceeded
+// openAICode is the code an OpenAI wire keeps: one p's row defines, or the
+// request the model cannot read, which OpenAI and the compatible vendors that
+// classify at all spell the same way. Every other code is the body's text and
+// is not kept.
+func openAICode(p Provider, code string) string {
+	if _, defined := p.Codes[code]; defined || code == CodeContextLengthExceeded {
+		return code
 	}
 	return ""
 }

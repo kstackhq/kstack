@@ -196,3 +196,39 @@ func goStream(stream func() (Response, error)) <-chan streamResult {
 	}()
 	return done
 }
+
+// fakeSigner signs every request with its token, or fails with err, and records
+// the Authorization of each request it was told was refused.
+type fakeSigner struct {
+	token string
+	err   error
+
+	mu      sync.Mutex
+	refused []string
+}
+
+func (s *fakeSigner) Sign(r *http.Request) error {
+	if s.err != nil {
+		return s.err
+	}
+	r.Header.Set("Authorization", "Bearer "+s.token)
+	return nil
+}
+
+func (s *fakeSigner) Refused(r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refused = append(s.refused, r.Header.Get("Authorization"))
+}
+
+func (s *fakeSigner) refusals() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.refused
+}
+
+// signedBy is p with s as its credential in place of its key.
+func signedBy(p Provider, s Signer) Provider {
+	p.Key, p.Signer = "", s
+	return p
+}

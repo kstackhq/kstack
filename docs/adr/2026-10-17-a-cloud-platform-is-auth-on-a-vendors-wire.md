@@ -2,7 +2,7 @@
 title: A cloud platform is how a vendor's wire is authenticated, never a dialect
 date: 2026-10-17
 scope: sidecar
-status: Accepted
+status: Superseded by [2026-11-18-a-providers-credential-is-a-key-or-a-signer](2026-11-18-a-providers-credential-is-a-key-or-a-signer.md)
 ---
 
 # A cloud platform is how a vendor's wire is authenticated, never a dialect

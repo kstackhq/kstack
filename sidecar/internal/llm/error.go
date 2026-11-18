@@ -47,9 +47,22 @@ type Error struct {
 	// that could not be read.
 	Kind string
 
+	// Class is what Code means, for a code the provider's row defines.
+	Class CodeClass
 	// cause is for the caller's own branching, never for the text.
 	cause error
 }
+
+// CodeClass is what an error code a provider defines means.
+type CodeClass int
+
+const (
+	// CodeOther is a code with no meaning the app acts on.
+	CodeOther CodeClass = iota
+	// CodeUsageLimit is a plan's usage limit: nothing is billed elsewhere, and
+	// nothing retries.
+	CodeUsageLimit
+)
 
 // CodeContextLengthExceeded is the request the model could not read whole.
 const CodeContextLengthExceeded = "context_length_exceeded"
@@ -57,9 +70,13 @@ const CodeContextLengthExceeded = "context_length_exceeded"
 // ContextFull reports whether the provider refused to read the request.
 func (e *Error) ContextFull() bool { return e.Code == CodeContextLengthExceeded }
 
-// ResponseError is a failure the API described.
-func ResponseError(providerID string, status int, typ, code string) *Error {
-	return &Error{ProviderID: providerID, Status: status, Type: typ, Code: code}
+// UsageLimit reports whether the provider refused the request at a plan's limit.
+func (e *Error) UsageLimit() bool { return e.Class == CodeUsageLimit }
+
+// ResponseError is a failure the API described. Its class is what p's row says
+// the code means.
+func ResponseError(p Provider, status int, typ, code string) *Error {
+	return &Error{ProviderID: p.ID, Status: status, Type: typ, Code: code, Class: p.Codes[code]}
 }
 
 // TransportError is a failure with no response at all — a connection refused, a
@@ -68,6 +85,16 @@ func ResponseError(providerID string, status int, typ, code string) *Error {
 func TransportError(providerID string, err error) *Error {
 	slog.Error("provider transport failure", "provider", providerID, "err", err)
 	return &Error{ProviderID: providerID, Kind: kindOf(err), cause: err}
+}
+
+// SignError is a Signer that could not sign: nothing was sent. Its cause is
+// logged here, where it is read, unless it is ErrSignedOut, which says it all.
+func SignError(providerID string, err error) *Error {
+	if errors.Is(err, ErrSignedOut) {
+		return &Error{ProviderID: providerID, Kind: "signed out", cause: err}
+	}
+	slog.Error("provider credential unavailable", "provider", providerID, "err", err)
+	return &Error{ProviderID: providerID, Kind: "credential unavailable", cause: err}
 }
 
 // ReadError is a reply that could not be read: a body that is not the API's error

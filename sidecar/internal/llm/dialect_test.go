@@ -17,6 +17,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -31,6 +32,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1013,5 +1015,131 @@ func TestEveryDialectReportsTheModelServed(t *testing.T) {
 		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(Chunk) {})
 		require.NoError(t, err)
 		assert.Equal(t, w.served, resp.Model)
+	})
+}
+
+// A provider whose credential is a signer has each request signed, and no key
+// goes beside it.
+func TestEveryDialectSignsARequestUnderASigner(t *testing.T) {
+	eachWire(t, func(t *testing.T, w wire) {
+		p, rec := w.replay(t, w.text)
+
+		_, err := w.stream(t.Context(), w.req(signedBy(p, &fakeSigner{token: "signed"})), testutil.Timeout, wallClock, func(Chunk) {})
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Bearer signed"}, rec.header.Values("Authorization"))
+		assert.Empty(t, rec.header.Values("X-Api-Key"))
+	})
+}
+
+// A 401 tells the signer which request was refused, and fails the call: a turn
+// is never retried.
+func TestEveryDialectTellsTheSignerOfARefusal(t *testing.T) {
+	eachWire(t, func(t *testing.T, w wire) {
+		var calls atomic.Int64
+		p := w.serve(t, func(rw http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			rw.Header().Set("Content-Type", "application/json")
+			rw.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprint(rw, `{"type":"error","error":{"type":"authentication_error","message":"expired"}}`)
+		})
+		s := &fakeSigner{token: "stale"}
+
+		_, err := w.stream(t.Context(), w.req(signedBy(p, s)), testutil.Timeout, wallClock, func(Chunk) {})
+
+		var llmErr *Error
+		require.ErrorAs(t, err, &llmErr)
+		assert.Equal(t, http.StatusUnauthorized, llmErr.Status)
+		assert.Equal(t, []string{"Bearer stale"}, s.refusals())
+		assert.Equal(t, int64(1), calls.Load())
+	})
+}
+
+// A keyed provider's 401 fails the call as any other status does.
+func TestEveryDialectRendersAKeyedRefusal(t *testing.T) {
+	eachWire(t, func(t *testing.T, w wire) {
+		p := w.serve(t, func(rw http.ResponseWriter, r *http.Request) {
+			rw.Header().Set("Content-Type", "application/json")
+			rw.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprint(rw, `{"type":"error","error":{"type":"authentication_error","message":"revoked"}}`)
+		})
+
+		_, err := w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(Chunk) {})
+
+		var llmErr *Error
+		require.ErrorAs(t, err, &llmErr)
+		assert.Equal(t, http.StatusUnauthorized, llmErr.Status)
+	})
+}
+
+// A signer that cannot sign sends nothing, and the failure says which kind it
+// was without its cause's text.
+func TestEveryDialectSendsNothingASignerCouldNotSign(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		kind string
+	}{
+		{ErrSignedOut, "signed out"},
+		{errors.New("the keyring is locked"), "credential unavailable"},
+	} {
+		t.Run(c.kind, func(t *testing.T) {
+			eachWire(t, func(t *testing.T, w wire) {
+				p, rec := w.replay(t, w.text)
+
+				_, err := w.stream(t.Context(), w.req(signedBy(p, &fakeSigner{err: c.err})), testutil.Timeout, wallClock, func(Chunk) {})
+
+				var llmErr *Error
+				require.ErrorAs(t, err, &llmErr)
+				assert.Equal(t, c.kind, llmErr.Kind)
+				assert.Zero(t, llmErr.Status)
+				assert.ErrorIs(t, err, c.err)
+				assert.NotContains(t, err.Error(), "keyring")
+				assert.Zero(t, rec.calls.Load())
+			})
+		})
+	}
+}
+
+// No request follows a redirect, to another host or the same one, whatever its
+// credential: Go would resend an Authorization to a target on the same domain,
+// and a key in any other header to any target. The redirect fails the call as
+// any other status does.
+func TestEveryDialectFollowsNoRedirect(t *testing.T) {
+	eachWire(t, func(t *testing.T, w wire) {
+		var elsewhere atomic.Int64
+		target := newServer(t, func(http.ResponseWriter, *http.Request) { elsewhere.Add(1) })
+		for _, code := range []int{http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+			keyed := w.serve(t, func(rw http.ResponseWriter, r *http.Request) {
+				http.Redirect(rw, r, target+r.URL.Path, code)
+			})
+			named := keyed
+			named.KeyHeader = "api-key"
+
+			for _, p := range []Provider{keyed, named, signedBy(keyed, &fakeSigner{token: "signed"})} {
+				_, err := w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(Chunk) {})
+
+				var llmErr *Error
+				require.ErrorAs(t, err, &llmErr)
+				assert.Equal(t, code, llmErr.Status)
+			}
+		}
+		assert.Zero(t, elsewhere.Load())
+	})
+}
+
+// A signed request that reaches nothing is a transport failure, as an unsigned
+// one is.
+func TestEveryDialectRendersASignedFailureWithNoResponse(t *testing.T) {
+	eachWire(t, func(t *testing.T, w wire) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		addr := ln.Addr().String()
+		require.NoError(t, ln.Close())
+
+		_, err = w.stream(t.Context(), w.req(signedBy(w.at("http://"+addr), &fakeSigner{token: "t"})), testutil.Timeout, wallClock, func(Chunk) {})
+
+		var llmErr *Error
+		require.ErrorAs(t, err, &llmErr)
+		assert.Equal(t, "connection failed", llmErr.Kind)
 	})
 }

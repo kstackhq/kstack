@@ -16,10 +16,14 @@ package llm
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // New holds the providers it is given, in the order given, and resolves a send
@@ -182,7 +186,7 @@ func TestStreamSendsEachDialectOnItsOwnWire(t *testing.T) {
 // A model overriding its provider's dialect and base URL is sent on its
 // override; a model of the same provider overriding nothing is sent on the
 // provider's defaults. Each target carries the dialect it was sent on, which is
-// what its run records.
+// what its run records, and the provider's one key goes in that dialect's header.
 func TestResolveAppliesAModelsOverrides(t *testing.T) {
 	ws := wires()
 	home, away := ws[0], ws[1]
@@ -201,9 +205,10 @@ func TestResolveAppliesAModelsOverrides(t *testing.T) {
 		dialect Dialect
 		baseURL string
 		rec     *recorded
+		ownKey  func(http.Header) []string
 	}{
-		{"plain", p.Dialect, p.BaseURL, homeRec},
-		{"own", q.Dialect, q.BaseURL, awayRec},
+		{"plain", p.Dialect, p.BaseURL, homeRec, home.ownKey},
+		{"own", q.Dialect, q.BaseURL, awayRec, away.ownKey},
 	} {
 		target, err := s.Resolve(p.ID, c.model, "")
 		require.NoError(t, err, c.model)
@@ -216,6 +221,9 @@ func TestResolveAppliesAModelsOverrides(t *testing.T) {
 		require.NoError(t, err, c.model)
 		assert.Equal(t, int64(1), c.rec.calls.Load(), c.model)
 		assert.Equal(t, c.model, c.rec.body["model"], c.model)
+		key := c.ownKey(c.rec.header)
+		require.Len(t, key, 1, c.model)
+		assert.Contains(t, key[0], p.Key, c.model)
 	}
 }
 
@@ -522,4 +530,131 @@ func TestStreamRefusesANameSpelledTwice(t *testing.T) {
 			assert.Zero(t, f.Asked())
 		})
 	}
+}
+
+// A row's credential is a key or a signer, never both.
+func TestNewPanicsOnAProviderWithAKeyAndASigner(t *testing.T) {
+	assert.Panics(t, func() {
+		New(Provider{ID: "plan", Dialect: DialectResponses, Key: "sk", Signer: &fakeSigner{}})
+	})
+}
+
+// sessionSigner is a SessionSigner whose Bind hands out a signer naming the
+// session it was made under.
+type sessionSigner struct {
+	fakeSigner
+	session int
+	binds   int
+}
+
+func (s *sessionSigner) Bind() Signer {
+	s.binds++
+	return &fakeSigner{token: fmt.Sprintf("session-%d", s.session)}
+}
+
+func planService(s Signer) *Service {
+	return New(
+		Provider{ID: "plan", Dialect: DialectResponses, Signer: s, Catalog: []Model{{ID: "m"}, {ID: "n"}}},
+		Provider{ID: "other", Dialect: DialectResponses, Signer: &sessionSigner{session: 9}, Catalog: []Model{{ID: "o"}}},
+	)
+}
+
+// A target holds the signer bound to the session it was resolved under, never
+// the row's, so a session that ends after the resolve still ends the target's.
+func TestResolveBindsASessionSigner(t *testing.T) {
+	s := &sessionSigner{session: 1}
+	svc := planService(s)
+
+	target, err := svc.Resolve("plan", "m", "")
+	require.NoError(t, err)
+	s.session = 2
+
+	assert.Equal(t, "session-1", target.Provider.Signer.(*fakeSigner).token)
+	assert.Equal(t, 1, s.binds)
+}
+
+// A signer that is not a session's is the target's as it is.
+func TestResolveKeepsAPlainSigner(t *testing.T) {
+	s := &fakeSigner{token: "t"}
+
+	target, err := planService(s).Resolve("plan", "m", "")
+
+	require.NoError(t, err)
+	assert.Same(t, s, target.Provider.Signer)
+}
+
+// A subagent on its parent's provider keeps the parent's binding.
+func TestResolveUnderKeepsTheParentsBindingOnItsProvider(t *testing.T) {
+	s := &sessionSigner{session: 1}
+	svc := planService(s)
+	parent, err := svc.Resolve("plan", "m", "")
+	require.NoError(t, err)
+	s.session = 2
+
+	child, err := svc.ResolveUnder(parent, "n", "")
+	require.NoError(t, err)
+	assert.Same(t, parent.Provider.Signer, child.Provider.Signer)
+	assert.Equal(t, "n", child.Model.ID)
+	assert.Equal(t, 1, s.binds)
+
+	_, err = svc.ResolveUnder(parent, "gone", "")
+	assert.ErrorIs(t, err, ErrUnknownModel)
+}
+
+// SetCatalog replaces one held provider's models: a send resolves against the
+// new list, and the provider stays held with none.
+func TestSetCatalogReplacesAProvidersModels(t *testing.T) {
+	svc := planService(&fakeSigner{})
+
+	svc.SetCatalog("plan", []Model{{ID: "fresh"}})
+
+	_, err := svc.Resolve("plan", "m", "")
+	assert.ErrorIs(t, err, ErrUnknownModel)
+	target, err := svc.Resolve("plan", "fresh", "")
+	require.NoError(t, err)
+	assert.Equal(t, "fresh", target.Model.ID)
+	assert.Equal(t, []string{"plan", "other"}, providerIDs(svc.Providers()))
+
+	// An empty catalog is held as none, so it equals the nil it replaces.
+	svc.SetCatalog("plan", []Model{})
+	p, ok := svc.Provider("plan")
+	require.True(t, ok)
+	assert.Nil(t, p.Catalog)
+
+	svc.SetCatalog("nobody", []Model{{ID: "x"}})
+	assert.Equal(t, []string{"plan", "other"}, providerIDs(svc.Providers()))
+}
+
+// Subscribe is a gauge of the providers: the current list on subscribe, then
+// the list after each SetCatalog.
+func TestSubscribeSendsTheProvidersOnEachCatalogChange(t *testing.T) {
+	svc := planService(&fakeSigner{})
+	frames, cancel := svc.Subscribe()
+	defer cancel()
+
+	first := testutil.Recv(t, frames, "a providers frame")
+	assert.Len(t, first[0].Catalog, 2)
+
+	svc.SetCatalog("plan", []Model{{ID: "fresh"}})
+	next := testutil.Recv(t, frames, "the frame after SetCatalog")
+	assert.Equal(t, []Model{{ID: "fresh"}}, next[0].Catalog)
+
+	// The same catalog again sends nothing; the change after it is the next frame.
+	svc.SetCatalog("plan", []Model{{ID: "fresh"}})
+	svc.SetCatalog("plan", nil)
+	assert.Empty(t, testutil.Recv(t, frames, "the emptied catalog")[0].Catalog)
+}
+
+// The service keeps its own copy: a caller writing into the slice it passed
+// changes no held catalog.
+func TestSetCatalogCopiesTheModels(t *testing.T) {
+	svc := planService(&fakeSigner{})
+	models := []Model{{ID: "fresh"}}
+
+	svc.SetCatalog("plan", models)
+	models[0].ID = "changed"
+
+	p, ok := svc.Provider("plan")
+	require.True(t, ok)
+	assert.Equal(t, "fresh", p.Catalog[0].ID)
 }

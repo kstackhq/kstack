@@ -139,8 +139,9 @@ func (t *turn) subagentTarget(model string) (llm.Target, error) {
 	}
 	for _, m := range t.target.Provider.Catalog {
 		if m.ID == model && m.Tools {
-			// Resolved afresh: the parent's provider carries the parent model's overrides.
-			return t.s.llmSvc.Resolve(t.target.Provider.ID, m.ID, m.DefaultEffort)
+			// Resolved afresh: the parent's provider carries the parent model's
+			// overrides. Under the parent, so it signs under the parent's session.
+			return t.s.llmSvc.ResolveUnder(t.target, m.ID, m.DefaultEffort)
 		}
 	}
 	return llm.Target{}, tools.ErrUnknownModel

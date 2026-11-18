@@ -269,7 +269,7 @@ func TestTheProvidersOverflowSettlesWithOneSentence(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	fakeOf(s).FailAfter(0, llm.ResponseError("fake", 400, "invalid_request_error", llm.CodeContextLengthExceeded))
+	fakeOf(s).FailAfter(0, llm.ResponseError(llm.Provider{ID: "fake"}, 400, "invalid_request_error", llm.CodeContextLengthExceeded))
 	msg := send(t, s, nil, "1", "hi")
 
 	got := awaitSettled(t, s, msg.ChatID, msg.ID)
@@ -280,6 +280,24 @@ func TestTheProvidersOverflowSettlesWithOneSentence(t *testing.T) {
 	require.NoError(t, s.db.Read.QueryRow(`SELECT error FROM agent_runs WHERE id = ?`, string(msg.RunID)).Scan(&runErr))
 	assert.Equal(t, contextFullText, runErr)
 	assert.Equal(t, "fake: 400 invalid_request_error context_length_exceeded", llmCallOf(t, s.db, msg.RunID).err)
+}
+
+// A plan's usage limit settles the answer in the transcript's own words, the
+// call's row keeping the provider's code. Nothing retries.
+func TestAUsageLimitSettlesWithOneSentence(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	plan := llm.Provider{ID: "fake", Codes: map[string]llm.CodeClass{"subscription_sharing_usage_limit_exceeded": llm.CodeUsageLimit}}
+	fakeOf(s).FailAfter(0, llm.ResponseError(plan, 429, "", "subscription_sharing_usage_limit_exceeded"))
+	msg := send(t, s, nil, "1", "hi")
+
+	got := awaitSettled(t, s, msg.ChatID, msg.ID)
+
+	assert.Equal(t, StatusFailed, got.Status)
+	assert.Equal(t, usageLimitText, got.Error)
+	assert.Equal(t, "fake: 429 subscription_sharing_usage_limit_exceeded", llmCallOf(t, s.db, msg.RunID).err)
+	assert.Equal(t, 1, fakeOf(s).Asked())
 }
 
 // A row that does not parse is left as it stands: a reader is owed its content,

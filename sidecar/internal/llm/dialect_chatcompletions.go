@@ -122,7 +122,7 @@ func streamChatCompletions(ctx context.Context, req Request, idle time.Duration,
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return Response{}, openAIFailure(ctx, req.Provider.ID, err)
+		return Response{}, openAIFailure(ctx, req.Provider, err)
 	}
 	if finish == "" {
 		// [DONE] and a body that ends alike end the stream clean, so only a finish

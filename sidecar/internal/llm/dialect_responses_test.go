@@ -694,6 +694,45 @@ func calledWithPayload() Block {
 	return b
 }
 
+// A row whose Extra asks for the reasoning gets it with no effort named: both
+// requests of a tool round ask for the encrypted item and a summary, and the
+// second replays the first's reasoning item whole.
+func TestResponsesRunsAToolRoundOnAModelWithNoEfforts(t *testing.T) {
+	asksForTheReasoning := func(rec *recorded) {
+		t.Helper()
+		assert.Equal(t, []any{"reasoning.encrypted_content"}, rec.body["include"])
+		assert.Equal(t, map[string]any{"summary": "auto"}, rec.body["reasoning"])
+		assert.NotContains(t, rec.body, "max_output_tokens")
+	}
+	planRow := func(p Provider) Provider {
+		p.Extra = map[string]any{"include": []string{"reasoning.encrypted_content"}, "reasoning.summary": "auto"}
+		p.Omit = []string{"max_output_tokens"}
+		return p
+	}
+	p, rec := responsesReplay(t, responsesToolStream)
+	ask := Message{Role: "user", Blocks: []Block{TextBlock("how many?")}}
+	req := responsesRequest(planRow(p), ask)
+	req.Tools = []ToolDefinition{listObjects}
+
+	_, first, err := askResponses(t, req)
+
+	require.NoError(t, err)
+	asksForTheReasoning(rec)
+
+	p, rec = responsesReplay(t, responsesStream)
+	round := append(first.Blocks, ToolResultBlock("call_1", "2 pods", false))
+	req = responsesRequest(planRow(p), ask, Message{Role: "assistant", Blocks: round, ProviderID: "openai", Dialect: DialectResponses})
+	req.Tools = []ToolDefinition{listObjects}
+
+	_, _, err = askResponses(t, req)
+
+	require.NoError(t, err)
+	asksForTheReasoning(rec)
+	item, err := json.Marshal(rec.body["input"].([]any)[1])
+	require.NoError(t, err)
+	assert.JSONEq(t, reasoningItem("rs_1", "I should list them."), string(item))
+}
+
 // A row with rounds replays as the items the API wrote, each verbatim, and the
 // answer to a call as a function_call_output that pairs on its id.
 func TestResponsesReplaysAToolRoundAsItems(t *testing.T) {
@@ -882,4 +921,51 @@ func TestResponsesRefusesAnItemThatIsNotAnObject(t *testing.T) {
 	assert.Nil(t, blocks)
 	assert.False(t, refused)
 	assert.Equal(t, ReadError("openai"), err)
+}
+
+// limitCodes is a row's own codes: one usage limit, one other.
+var limitCodes = map[string]CodeClass{
+	"subscription_sharing_usage_limit_exceeded": CodeUsageLimit,
+	"chatpass_v2_scope_not_authorized":          CodeOther,
+}
+
+// A code the row defines is kept with its class, on an HTTP error and on a
+// failed response alike; a code no one defines is still dropped.
+func TestResponsesKeepsTheCodesItsRowDefines(t *testing.T) {
+	refuse := func(code string) Provider {
+		p := openAIAt(newServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			fmt.Fprintf(w, `{"error":{"type":"rate_limit_error","code":%q,"message":"MARKER"}}`, code)
+		}))
+		p.Codes = limitCodes
+		return p
+	}
+
+	_, _, err := askResponses(t, responsesRequest(refuse("subscription_sharing_usage_limit_exceeded")))
+	var llmErr *Error
+	require.ErrorAs(t, err, &llmErr)
+	assert.True(t, llmErr.UsageLimit())
+	assert.EqualError(t, err, "openai: 429 rate_limit_error subscription_sharing_usage_limit_exceeded")
+
+	_, _, err = askResponses(t, responsesRequest(refuse("chatpass_v2_scope_not_authorized")))
+	require.ErrorAs(t, err, &llmErr)
+	assert.False(t, llmErr.UsageLimit())
+	assert.Equal(t, "chatpass_v2_scope_not_authorized", llmErr.Code)
+
+	_, _, err = askResponses(t, responsesRequest(refuse("something_else")))
+	require.ErrorAs(t, err, &llmErr)
+	assert.Empty(t, llmErr.Code)
+
+	p, _ := responsesReplay(t, []event{{"response.failed", `{"type":"response.failed","sequence_number":9,"response":{"id":"resp_1","status":"failed","error":{"code":"subscription_sharing_usage_limit_exceeded","message":"MARKER"},"output":[]}}`}})
+	p.Codes = limitCodes
+	_, _, err = askResponses(t, responsesRequest(p))
+	require.ErrorAs(t, err, &llmErr)
+	assert.True(t, llmErr.UsageLimit())
+
+	p, _ = responsesReplay(t, []event{{"error", `{"type":"error","sequence_number":1,"code":"subscription_sharing_usage_limit_exceeded","message":"MARKER","param":null}`}})
+	p.Codes = limitCodes
+	_, _, err = askResponses(t, responsesRequest(p))
+	require.ErrorAs(t, err, &llmErr)
+	assert.True(t, llmErr.UsageLimit())
 }

@@ -1270,3 +1270,19 @@ func TestChatCompletionsMintsASpentIDInsideItsPayload(t *testing.T) {
 	assert.Contains(t, second, "extra_content", "the vendor's key goes with the entry")
 	assert.Equal(t, "call00001", msgs[6].(map[string]any)["tool_call_id"])
 }
+
+// A code the row defines is kept on this wire too.
+func TestChatCompletionsKeepsTheCodesItsRowDefines(t *testing.T) {
+	p := groqAt(newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, `{"error":{"type":"rate_limit_error","code":"subscription_sharing_usage_limit_exceeded","message":"MARKER"}}`)
+	}))
+	p.Codes = map[string]CodeClass{"subscription_sharing_usage_limit_exceeded": CodeUsageLimit}
+
+	_, err := streamChatCompletions(t.Context(), chatRequest(p), testutil.Timeout, wallClock, func(Chunk) {})
+
+	var llmErr *Error
+	require.ErrorAs(t, err, &llmErr)
+	assert.True(t, llmErr.UsageLimit())
+}

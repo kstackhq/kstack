@@ -14,6 +14,11 @@
 
 package llm
 
+import (
+	"errors"
+	"net/http"
+)
+
 // Provider is one entry of the catalog: who serves models, on which wire, and which.
 type Provider struct {
 	// ID is what a send and a stored message name: "anthropic", "fake".
@@ -25,8 +30,12 @@ type Provider struct {
 	// default is off.
 	Dialect Dialect
 	BaseURL string
-	// Key is the credential. Empty for a provider that needs none.
+	// Key is the credential. Empty for a provider that needs none, or whose
+	// credential is a Signer.
 	Key string
+	// Signer authorizes each request of a provider whose credential is not a
+	// fixed key. Set it or Key, never both.
+	Signer Signer
 	// Catalog is the models this provider offers, in picker order.
 	Catalog []Model
 	// Extra is this provider's own request parameters, each keyed by its JSON path
@@ -45,6 +54,9 @@ type Provider struct {
 	// AffinityRoute is where Request.AffinityKey goes, for a vendor that routes a
 	// conversation to the machine holding its cached prefix by a key.
 	AffinityRoute AffinityRoute
+	// Codes is the error codes this provider's endpoint defines, and what each
+	// means. The OpenAI wires keep these beside their own.
+	Codes map[string]CodeClass
 
 	// fake is the Fake a provider on DialectFake answers from: the one provider
 	// whose code is a value, since a test steers it. Nil on every other dialect.
@@ -74,3 +86,22 @@ type AffinityRoute struct {
 // Fake is the fake a provider on DialectFake answers from, for a test to steer;
 // nil on every other dialect.
 func (p Provider) Fake() *Fake { return p.fake }
+
+// Signer authorizes the requests of a provider whose credential is not a fixed key.
+type Signer interface {
+	// Sign sets r's authorization. r's context bounds any wait.
+	Sign(r *http.Request) error
+	// Refused is told the API answered 401 to a request Sign signed.
+	Refused(r *http.Request)
+}
+
+// SessionSigner is a Signer whose credential belongs to a session that can end.
+type SessionSigner interface {
+	Signer
+	// Bind is a Signer for the current session alone: once that session ends it
+	// fails with ErrSignedOut, whatever session has replaced it.
+	Bind() Signer
+}
+
+// ErrSignedOut is a Signer with no session to sign under.
+var ErrSignedOut = errors.New("llm: signed out")

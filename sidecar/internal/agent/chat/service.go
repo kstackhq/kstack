@@ -46,6 +46,10 @@ import (
 // chat, in the one spelling the transcript draws for it.
 const contextFullText = "chat is longer than the model can read"
 
+// usageLimitText is a failed answer's error when the provider refused the request
+// at a plan's usage limit.
+const usageLimitText = "usage limit reached"
+
 var (
 	// ErrBadRequest is a request key or a deleted chat's id that is not a UUID,
 	// an empty message, a mode that is neither constant, a model the llm service

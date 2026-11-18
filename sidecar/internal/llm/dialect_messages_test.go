@@ -1534,7 +1534,7 @@ func TestMessagesMintsARepeatedForeignID(t *testing.T) {
 // A reply block whose item is not a JSON object is unreadable: the record never
 // holds an item the API would refuse on replay.
 func TestMessagesRefusesABlockWhoseItemIsNotAnObject(t *testing.T) {
-	blocks, err := messagesWire{providerID: "anthropic"}.answer([]anthropic.ContentBlockUnion{{Type: "thinking"}}, messagesToolInputs{}, false)
+	blocks, err := messagesWire{provider: Provider{ID: "anthropic"}}.answer([]anthropic.ContentBlockUnion{{Type: "thinking"}}, messagesToolInputs{}, false)
 
 	assert.Nil(t, blocks)
 	assert.Equal(t, ReadError("anthropic"), err)

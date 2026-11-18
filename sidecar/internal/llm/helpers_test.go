@@ -80,21 +80,21 @@ func TestIdleGuardCountsBytesOffTheWire(t *testing.T) {
 // response is the transport's, and anything else is unreadable.
 func TestOpenAIFailureKeepsTheStatusTypeAndCode(t *testing.T) {
 	full := &openai.Error{StatusCode: 400, Type: "invalid_request_error", Code: "context_length_exceeded", Message: "MARKER"}
-	assert.Equal(t, ResponseError("openai", 400, "invalid_request_error", CodeContextLengthExceeded), openAIFailure(t.Context(), "openai", full))
+	assert.Equal(t, ResponseError(Provider{ID: "openai"}, 400, "invalid_request_error", CodeContextLengthExceeded), openAIFailure(t.Context(), Provider{ID: "openai"}, full))
 
 	vendors := &openai.Error{StatusCode: 503, Type: "model_not_ready", Code: "MARKER", Message: "MARKER"}
-	assert.Equal(t, ResponseError("openai", 503, "", ""), openAIFailure(t.Context(), "openai", vendors))
+	assert.Equal(t, ResponseError(Provider{ID: "openai"}, 503, "", ""), openAIFailure(t.Context(), Provider{ID: "openai"}, vendors))
 
 	ctx, cancel := context.WithCancelCause(t.Context())
 	cancel(ErrStreamIdle)
-	assert.Equal(t, ErrStreamIdle, openAIFailure(ctx, "openai", full))
+	assert.Equal(t, ErrStreamIdle, openAIFailure(ctx, Provider{ID: "openai"}, full))
 
 	dial := &url.Error{Op: "Post", URL: "http://127.0.0.1:1/v1", Err: &net.OpError{Op: "dial", Err: errors.New("refused")}}
 	var llmErr *Error
-	require.ErrorAs(t, openAIFailure(t.Context(), "openai", dial), &llmErr)
+	require.ErrorAs(t, openAIFailure(t.Context(), Provider{ID: "openai"}, dial), &llmErr)
 	assert.Equal(t, "connection failed", llmErr.Kind)
 
-	assert.Equal(t, ReadError("openai"), openAIFailure(t.Context(), "openai", errors.New("MARKER")))
+	assert.Equal(t, ReadError("openai"), openAIFailure(t.Context(), Provider{ID: "openai"}, errors.New("MARKER")))
 }
 
 // A type the API defines is kept; a compatible vendor's own spelling is not.
@@ -105,11 +105,15 @@ func TestOpenAIErrorTypeKeepsTheAPIsListAlone(t *testing.T) {
 	assert.Empty(t, openAIErrorType(""))
 }
 
-// One code is ours to name; every other is the body's text.
+// One code is ours to name, and a row names its own; every other is the
+// body's text.
 func TestOpenAICodeNamesTheCodeWeName(t *testing.T) {
-	assert.Equal(t, CodeContextLengthExceeded, openAICode("context_length_exceeded"))
-	assert.Empty(t, openAICode("invalid_api_key"))
-	assert.Empty(t, openAICode(""))
+	plan := Provider{ID: "plan", Codes: limitCodes}
+	assert.Equal(t, CodeContextLengthExceeded, openAICode(Provider{}, "context_length_exceeded"))
+	assert.Equal(t, "subscription_sharing_usage_limit_exceeded", openAICode(plan, "subscription_sharing_usage_limit_exceeded"))
+	assert.Empty(t, openAICode(Provider{}, "subscription_sharing_usage_limit_exceeded"))
+	assert.Empty(t, openAICode(plan, "invalid_api_key"))
+	assert.Empty(t, openAICode(plan, ""))
 }
 
 // Two providers on one dialect are two clients, each built from its own entry: a
@@ -156,23 +160,18 @@ func TestTwoProvidersOnOneDialect(t *testing.T) {
 	})
 }
 
-// A provider's lines come out in one order on every run: its key header, its
-// query and its extras each sorted, and its omits last, so a path an extra set
-// can still be deleted. With no key there is no header to send.
+// A provider's lines come out in one order on every run: its query and its
+// extras each sorted, and its omits last, so a path an extra set can still be
+// deleted.
 func TestProviderOptionsSortsWhatAMapHolds(t *testing.T) {
 	p := Provider{
-		Key:       "sk-test",
-		KeyHeader: "api-key",
-		Query:     map[string]string{"b": "2", "a": "1"},
-		Extra:     map[string]any{"y": 1, "x": 2},
-		Omit:      []string{"store", "x"},
+		Query: map[string]string{"b": "2", "a": "1"},
+		Extra: map[string]any{"y": 1, "x": 2},
+		Omit:  []string{"store", "x"},
 	}
 	assert.Equal(t, []string{
-		"header api-key=sk-test", "query a=1", "query b=2", "set x=2", "set y=1", "del store", "del x",
+		"query a=1", "query b=2", "set x=2", "set y=1", "del store", "del x",
 	}, stringOptions(p, nil))
-
-	p.Key = ""
-	assert.NotContains(t, stringOptions(p, nil), "header api-key=")
 }
 
 // The wire's own options go after the provider's extras and before its omits, so
@@ -187,7 +186,6 @@ func TestProviderOptionsPutsTheWiresOwnBeforeTheOmits(t *testing.T) {
 // stringOptions is providerOptions spelled as strings, one per option.
 func stringOptions(p Provider, wire []string) []string {
 	return providerOptions(p, wire,
-		func(k, v string) string { return "header " + k + "=" + v },
 		func(k, v string) string { return "query " + k + "=" + v },
 		func(path string, v any) string { return fmt.Sprintf("set %s=%v", path, v) },
 		func(path string) string { return "del " + path })

@@ -18,9 +18,13 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+
+	"github.com/amorey/gochan/watch"
 )
 
 // The named errors of a lookup.
@@ -38,28 +42,75 @@ var (
 	ErrToolsUnsupported = errors.New("llm: this target does not carry these tools")
 )
 
-// Service is the providers the app holds.
+// Service is the providers the app holds. The list is fixed, in picker order;
+// a provider's catalog can change (SetCatalog).
 type Service struct {
+	mu        sync.Mutex
 	providers []Provider
-	byID      map[string]Provider
+	hub       *watch.Hub[[]Provider]
+	tx        *watch.Sender[[]Provider]
 }
 
-// New holds the providers in the order given, which is the picker's.
+// New holds the providers in the order given, which is the picker's. A row
+// with both a key and a signer is a programming error.
 func New(providers ...Provider) *Service {
-	s := &Service{providers: providers, byID: map[string]Provider{}}
 	for _, p := range providers {
-		s.byID[p.ID] = p
+		if p.Key != "" && p.Signer != nil {
+			panic("llm: provider " + p.ID + " has both a key and a signer")
+		}
 	}
-	return s
+	hub := watch.New(providers)
+	return &Service{providers: providers, hub: hub, tx: hub.Sender()}
 }
 
-// Providers is every provider, in the order given.
-func (s *Service) Providers() []Provider { return s.providers }
+// Providers is every provider, in the order given. The slice is replaced on
+// every change, never written in place, so a caller may keep what it was handed.
+func (s *Service) Providers() []Provider {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.providers
+}
 
 // Provider is the provider under id.
 func (s *Service) Provider(id string) (Provider, bool) {
-	p, ok := s.byID[id]
-	return p, ok
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.indexLocked(id)
+	if i < 0 {
+		return Provider{}, false
+	}
+	return s.providers[i], true
+}
+
+func (s *Service) indexLocked(id string) int {
+	return slices.IndexFunc(s.providers, func(p Provider) bool { return p.ID == id })
+}
+
+// SetCatalog replaces the models of the provider under id, which stays held
+// with none. An id the service does not hold, or a catalog that has not
+// changed, sends nothing. The service keeps its own copy, so the caller's
+// slice is never shared.
+func (s *Service) SetCatalog(id string, models []Model) {
+	if len(models) == 0 {
+		models = nil
+	}
+	models = slices.Clone(models)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.indexLocked(id)
+	if i < 0 || reflect.DeepEqual(s.providers[i].Catalog, models) {
+		return
+	}
+	s.providers = slices.Clone(s.providers)
+	s.providers[i].Catalog = models
+	s.tx.Send(s.providers) //nolint:errcheck // Send never blocks, and the hub is never closed
+}
+
+// Subscribe is a gauge of the providers: the current list, then the list after
+// each SetCatalog.
+func (s *Service) Subscribe() (<-chan []Provider, func()) {
+	rx := s.hub.Receiver()
+	return rx.Chan(), rx.Close
 }
 
 // Target is what a send is aimed at: the provider and one model of its catalog.
@@ -236,8 +287,33 @@ func spoken(p Provider) bool {
 // Resolve is what a send runs on, once the model is in the provider's catalog and
 // the effort is one the model lists. The target's provider carries the model's
 // overrides (Provider.ForModel). A model on a dialect nothing speaks cannot run.
+//
+// A target on a SessionSigner's provider holds the signer bound to the current
+// session, so it never signs under a session that replaced its own.
 func (s *Service) Resolve(providerID, modelID, effort string) (Target, error) {
-	p, ok := s.byID[providerID]
+	t, err := s.resolve(providerID, modelID, effort)
+	if err != nil {
+		return Target{}, err
+	}
+	if ss, ok := t.Provider.Signer.(SessionSigner); ok {
+		t.Provider.Signer = ss.Bind()
+	}
+	return t, nil
+}
+
+// ResolveUnder is Resolve for a subagent of parent, on parent's provider: it
+// keeps parent's bound signer, so a subagent signs under its parent's session.
+func (s *Service) ResolveUnder(parent Target, modelID, effort string) (Target, error) {
+	t, err := s.resolve(parent.Provider.ID, modelID, effort)
+	if err != nil {
+		return Target{}, err
+	}
+	t.Provider.Signer = parent.Provider.Signer
+	return t, nil
+}
+
+func (s *Service) resolve(providerID, modelID, effort string) (Target, error) {
+	p, ok := s.Provider(providerID)
 	if !ok {
 		return Target{}, ErrUnknownModel
 	}

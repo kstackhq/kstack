@@ -109,15 +109,15 @@ func streamResponses(ctx context.Context, req Request, idle time.Duration, clock
 		case "response.completed", "response.incomplete":
 			final = &event.Response
 		case "response.failed":
-			return Response{}, ResponseError(req.Provider.ID, 0, "failed", openAICode(string(event.Response.Error.Code)))
+			return Response{}, ResponseError(req.Provider, 0, "failed", openAICode(req.Provider, string(event.Response.Error.Code)))
 		case "error":
 			// The event's type is its discriminator, so it is the error's type
 			// too; the code is classified like the API's own.
-			return Response{}, ResponseError(req.Provider.ID, 0, "error", openAICode(event.Code))
+			return Response{}, ResponseError(req.Provider, 0, "error", openAICode(req.Provider, event.Code))
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return Response{}, openAIFailure(ctx, req.Provider.ID, err)
+		return Response{}, openAIFailure(ctx, req.Provider, err)
 	}
 	if final == nil {
 		// A connection that dropped is not an answer that finished.

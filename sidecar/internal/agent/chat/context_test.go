@@ -245,7 +245,7 @@ func TestAFailedTurnsCallsDoNotCount(t *testing.T) {
 
 // overflow is the provider refusing to read the request.
 func overflow() error {
-	return llm.ResponseError("fake", 400, "invalid_request_error", llm.CodeContextLengthExceeded)
+	return llm.ResponseError(llm.Provider{ID: "fake"}, 400, "invalid_request_error", llm.CodeContextLengthExceeded)
 }
 
 // After the provider refused to read the chat on a turn's first request, a send

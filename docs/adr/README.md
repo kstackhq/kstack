@@ -197,7 +197,7 @@ usually just documentation in the wrong place.
 | 2026-10-17 | [A log cursor is a position, and a container's instance is its id](2026-10-17-a-log-cursor-is-a-position.md) | sidecar | Superseded by [2026-10-23-a-log-read-is-a-window-over-a-range](2026-10-23-a-log-read-is-a-window-over-a-range.md) |
 | 2026-10-17 | [A head read never links, and a line carries the hole before it](2026-10-17-a-head-read-never-links.md) | sidecar | Accepted |
 | 2026-10-17 | [Record a bash stop as the runner's act, and kill at once on a cancel](2026-10-17-a-bash-stop-is-the-runners-record.md) | sidecar | Accepted |
-| 2026-10-17 | [A cloud platform is how a vendor's wire is authenticated, never a dialect](2026-10-17-a-cloud-platform-is-auth-on-a-vendors-wire.md) | sidecar | Accepted |
+| 2026-10-17 | [A cloud platform is how a vendor's wire is authenticated, never a dialect](2026-10-17-a-cloud-platform-is-auth-on-a-vendors-wire.md) | sidecar | Superseded by [2026-11-18-a-providers-credential-is-a-key-or-a-signer](2026-11-18-a-providers-credential-is-a-key-or-a-signer.md) |
 | 2026-10-17 | [A discovered model is listed only on its catalog's word](2026-10-17-a-discovered-model-is-listed-on-its-catalogs-word.md) | sidecar | Accepted |
 | 2026-10-17 | [Bound a model stream by wire silence, per dialect](2026-10-17-a-model-stream-is-bounded-by-wire-silence.md) | sidecar | Accepted |
 | 2026-10-17 | [Reclaim a gone sidecar's run directories by its lock, not its pid](2026-10-17-a-run-directory-is-reclaimed-by-its-sidecars-lock.md) | sidecar | Accepted |
@@ -266,3 +266,4 @@ usually just documentation in the wrong place.
 | 2026-11-18 | [Every cloud platform is on until the user turns it off](2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md) | sidecar | Accepted |
 | 2026-11-18 | [Accept picomatch's ReDoS advisory in dev tooling](2026-11-18-accept-picomatchs-redos-advisory-in-dev-tooling.md) | repo | Accepted |
 | 2026-11-18 | [A run's AWS identity follows its chat's cluster](2026-11-18-a-runs-aws-identity-follows-its-chats-cluster.md) | sidecar | Accepted |
+| 2026-11-18 | [A provider's credential is a key or a signer](2026-11-18-a-providers-credential-is-a-key-or-a-signer.md) | sidecar | Accepted |

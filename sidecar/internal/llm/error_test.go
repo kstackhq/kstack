@@ -47,10 +47,10 @@ func (timeoutErr) Temporary() bool { return true }
 var _ net.Error = timeoutErr{}
 
 func TestErrorRendersWhatTheAPIGave(t *testing.T) {
-	err := ResponseError("anthropic", 429, "rate_limit_error", "")
+	err := ResponseError(Provider{ID: "anthropic"}, 429, "rate_limit_error", "")
 	assert.EqualError(t, err, "anthropic: 429 rate_limit_error")
 
-	full := ResponseError("anthropic", 400, "invalid_request_error", CodeContextLengthExceeded)
+	full := ResponseError(Provider{ID: "anthropic"}, 400, "invalid_request_error", CodeContextLengthExceeded)
 	assert.EqualError(t, full, "anthropic: 400 invalid_request_error context_length_exceeded")
 	assert.True(t, full.ContextFull())
 	assert.False(t, err.ContextFull())
