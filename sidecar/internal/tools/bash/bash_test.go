@@ -1343,3 +1343,15 @@ func TestTheSandboxPromptSaysWhatIsAWSsOwn(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "`aws eks get-token`, `aws sts assume-role`, ECR logins and uploading a file to S3 do not work")
 	assert.Contains(t, sandboxPrompt, "A service the proxy does not reach is refused by name")
 }
+
+// GitHub's paragraph says only what is GitHub's, after the one every cloud
+// platform shares.
+func TestTheSandboxPromptSaysWhenToReadGitHub(t *testing.T) {
+	t.Parallel()
+	assert.Contains(t, sandboxPrompt, "Where `cloud` names `github`, `git` and `gh` reach `github.com`, and a push is a change.")
+	assert.Contains(t, sandboxPrompt, "Name a repository to `gh` as `-R owner/repo`, never by URL, which goes past the proxy.")
+	assert.Contains(t, sandboxPrompt, "Logs, artifacts, archives and release assets ask first, then need the network; "+
+		"`gh release download` and `gh run download` do not work.")
+	shared := strings.Index(sandboxPrompt, "Where the context's `cloud` names a cloud platform")
+	assert.Less(t, shared, strings.Index(sandboxPrompt, "Where `cloud` names `github`"))
+}

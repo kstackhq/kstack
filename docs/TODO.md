@@ -1023,14 +1023,13 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   sandbox starts somewhere no unasked write reaches unless the user names the workspace, or the
   request says when the directory holds config a tool would run.
 
-- **Let a sandboxed command reach the user's GitHub and Google Cloud accounts without holding a
-  credential.** AWS ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md))
+- **Let a sandboxed command reach the user's Google Cloud account without holding a credential.**
+  AWS ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md)), GitHub
+  ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-github-over-plain-http-at-ghs-own-host-name.md))
   and Azure Resource Manager are built. A sandboxed run reaches no other cloud API:
-  `~/.config/gcloud` and `~/.config/gh` are denied always and no credential variable passes, so an
-  agent cannot read the Google Cloud account around a cluster or the repository behind a deploy.
-  Specified in `docs/specs/cloud-proxies/` on
+  `~/.config/gcloud` is denied always and no credential variable passes, so an agent cannot read
+  the Google Cloud account around a cluster. Specified in `docs/specs/cloud-proxies/` on
   [#940](https://github.com/kstackhq/kstack/pull/940), for [#935](https://github.com/kstackhq/kstack/issues/935) and
-  [#932](https://github.com/kstackhq/kstack/issues/932) and
   [#933](https://github.com/kstackhq/kstack/issues/933): a proxy per cloud platform in the sidecar
   behind the run's one relay, a switch per cloud platform that is off by default, and a gate that
   asks for anything but a read.
@@ -1055,6 +1054,24 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   login without `s3:ListAllMyBuckets` is asked for every bucket read. Wanted: uploads to a
   bucket the user names in Settings, and buckets named there as the login's own.
 
+- **Let a sandboxed `gh` follow GitHub's download links.** Workflow logs, artifacts, archives and
+  release assets answer with a signed link to another host, which a run with network off cannot
+  reach, and `gh release download` and `gh run download` dial `api.github.com` themselves
+  ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-github-over-plain-http-at-ghs-own-host-name.md)).
+  Following a short list of GitHub's download hosts from the sidecar would make them work, and
+  make the proxy a path to those hosts.
+
+- **Git LFS through GitHub's proxy.** Its batch request is a `POST` that only reads, and its
+  objects live on another host; the proxy refuses it.
+
+- **Serve a user with no `gh` through `git credential fill`.** GitHub's token comes from
+  `gh auth token` alone; the alternative runs the user's credential helper outside the sandbox.
+
+- **Find `gh` where the user's shell finds it, on Linux.** `githubauth` looks `gh` up on the
+  sidecar's own `PATH`, which on Linux is not the login shell's: a desktop launch misses a `gh` in
+  `~/.local/bin` or linuxbrew, and the log says `gh not found`. Deciding which `PATH` to trust for a
+  program run outside the sandbox is the work.
+
 - **Rules, modes and durations for a cloud platform's actions.** Every change a sandboxed command
   sends to a cloud platform asks, Once or Deny: no rule, mode or duration reaches one
   ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md)).
@@ -1066,8 +1083,8 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   panel. Each turns on behind a confirm naming the cloud platform and what of its stored data is
   read unasked (step 1 of [the cloud
   proxies](specs/cloud-proxies/1-shared-pieces.md#6-the-consent-switch)). AWS's line: *An object's
-  contents ask first.* Azure's line: *Stored data is not reached; an app's settings and a
-  deployment's parameters ask first.*
+  contents ask first.* GitHub's line: *Private repositories are read without asking.* Azure's
+  line: *Stored data is not reached; an app's settings and a deployment's parameters ask first.*
 
 - **Azure's data plane.** A sandboxed `az` reaches Resource Manager alone: `az storage blob`,
   `az keyvault secret` and `az acr login` fail with the proxy's message

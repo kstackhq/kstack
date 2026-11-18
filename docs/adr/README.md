@@ -261,3 +261,4 @@ usually just documentation in the wrong place.
 | 2026-11-17 | [A sandboxed command reaches a cloud platform through a proxy on its run's one relay](2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md) | sidecar | Accepted |
 | 2026-11-17 | [A sandboxed command reaches AWS through a re-signing proxy](2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md) | sidecar | Accepted |
 | 2026-11-17 | [A sandboxed command reaches Azure through a token-injecting proxy](2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md) | sidecar | Accepted |
+| 2026-11-17 | [A sandboxed command reaches GitHub over plain HTTP at gh's own host name](2026-11-17-a-sandboxed-command-reaches-github-over-plain-http-at-ghs-own-host-name.md) | sidecar | Accepted |

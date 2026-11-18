@@ -300,3 +300,42 @@ func TestUpgradesReadsTheConnectionList(t *testing.T) {
 		assert.True(t, Upgrades(h), h)
 	}
 }
+
+// A body a cloud platform streams itself holds one of the grant's body slots, and
+// End interrupts its stalled read as it does Body's: the slot comes free and
+// Wait returns with the upload still open.
+func TestABodySlotIsCappedAndEndsWithTheGrant(t *testing.T) {
+	limits := testLimits
+	limits.Bodies = 1
+	g := newTestGrant(t, nil, limits)
+	reading := testutil.NewSignal()
+	errs := make(chan error, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r, done, ok := g.Enter(r)
+		require.True(t, ok)
+		defer done()
+		release, status := g.BodySlot(w, r)
+		require.Zero(t, status)
+		defer release()
+		reading.Fire()
+		_, err := io.ReadAll(r.Body)
+		errs <- err
+	}))
+	t.Cleanup(srv.Close)
+
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	_, err = fmt.Fprintf(conn, "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\nhalf")
+	require.NoError(t, err)
+	reading.Wait(t, "the stream's read to start")
+
+	release, status := g.BodySlot(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/", nil))
+	assert.Equal(t, http.StatusTooManyRequests, status, "every body slot is held")
+	release()
+
+	g.End()
+	assert.Error(t, testutil.Recv(t, errs, "the stalled read's end"))
+	testutil.WaitReturn(t, g.Wait, "Wait, with the upload still open")
+	assert.True(t, g.bodies.TryAcquire(1), "the body slot came free")
+}

@@ -2,7 +2,7 @@
 
 Answers [#935](https://github.com/kstackhq/kstack/issues/935). Step 1 of
 [the cloud proxies](README.md), on `wip/cloud-proxies`. The four cloud platform steps of wave 2
-([2A](../../adr/2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md) AWS, [2B](2b-github.md) GitHub, [2C](2c-gcp.md) Google Cloud,
+([2A](../../adr/2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md) AWS, [2B](../../adr/2026-11-17-a-sandboxed-command-reaches-github-over-plain-http-at-ghs-own-host-name.md) GitHub, [2C](2c-gcp.md) Google Cloud,
 [2D](../../adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md) Azure) build on it and restate none of it.
 
 This step changes a security boundary: what a run's one relay leads to, what the permissions
@@ -870,7 +870,7 @@ When this step is complete on `wip/cloud-proxies`:
 
 ## What each cloud platform step owes
 
-The four drafts were rewritten on this step as [2A](../../adr/2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md), [2B](2b-github.md),
+The four drafts were rewritten on this step as [2A](../../adr/2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md), [2B](../../adr/2026-11-17-a-sandboxed-command-reaches-github-over-plain-http-at-ghs-own-host-name.md),
 [2C](2c-gcp.md) and [2D](../../adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md). Each restates none of it, and each states:
 
 - its routes, and why its hosts are the ones they are;

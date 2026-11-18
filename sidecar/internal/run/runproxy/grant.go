@@ -177,16 +177,9 @@ func (g *Grant) Body(w http.ResponseWriter, r *http.Request) (body []byte, relea
 	if r.Header.Get("Content-Encoding") != "" {
 		return nil, release, http.StatusForbidden
 	}
-	if !g.bodies.TryAcquire(1) {
-		return nil, release, http.StatusTooManyRequests
+	if release, status = g.BodySlot(w, r); status != 0 {
+		return nil, release, status
 	}
-	release = func() { g.bodies.Release(1) }
-	// r's context ends with the grant, but that does not wake a read blocked
-	// on the socket; a read deadline in the past does.
-	stop := context.AfterFunc(r.Context(), func() {
-		_ = http.NewResponseController(w).SetReadDeadline(time.Now())
-	})
-	defer stop()
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
 	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		return nil, release, http.StatusRequestEntityTooLarge
@@ -197,6 +190,31 @@ func (g *Grant) Body(w http.ResponseWriter, r *http.Request) (body []byte, relea
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength, r.TransferEncoding = int64(len(body)), nil
 	return body, release, 0
+}
+
+// BodySlot takes one of the grant's body slots for a body the cloud platform reads
+// itself, held until release is called, and cuts a read of r's body short
+// once r's context ends, as it does with the grant. A non-zero status is 429
+// with no slot free. release is always safe to call.
+func (g *Grant) BodySlot(w http.ResponseWriter, r *http.Request) (release func(), status int) {
+	if !g.bodies.TryAcquire(1) {
+		return func() {}, http.StatusTooManyRequests
+	}
+	stop := CutReadsOnEnd(w, r)
+	return func() {
+		stop()
+		g.bodies.Release(1)
+	}, 0
+}
+
+// CutReadsOnEnd cuts every later read of r's body short once r's context
+// ends, as it does with the grant, until stop is called. A read blocked on
+// the socket is not woken by the context; a read deadline in the past does.
+func CutReadsOnEnd(w http.ResponseWriter, r *http.Request) (stop func()) {
+	after := context.AfterFunc(r.Context(), func() {
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now())
+	})
+	return func() { after() }
 }
 
 // Slot takes one of the grant's open-request slots, then waits on its
