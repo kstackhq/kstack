@@ -50,7 +50,7 @@ tauri = { version = "2", features = ["test"] }
 # `Monitor` has no public constructor.
 tauri-runtime = "2"
 # Reads the updater key's id off `tauri.conf.json`'s `pubkey` (`updater` tests).
-base64 = "0.22"
+base64 = "0.23"
 
 [features]
 # Compiles the webview inspector (devtools) into an otherwise-release build so
