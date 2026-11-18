@@ -234,6 +234,15 @@ longer than `helperWaitDelay`. A role assumed from a source profile's process is
 the SDK runs that one with the sidecar's own. The package is built for Unix alone
 (`awsauth_unix.go`): Windows has no sandbox to reach AWS from.
 
+## Google Cloud token (`internal/services/gcpauth`)
+
+**The user's Google access token, for `run/gcpproxy`.** `Source` runs `gcloud config config-helper`
+off the sidecar's `PATH`, as `gke-gcloud-auth-plugin` does: no earlier than a run's mount with
+`sandbox.gcp` on. It holds the token until a minute before expiry and a failure for 30 s, shares one
+run among callers, and registers the token with `safe` until it expires. The read after a `Drop`
+forces gcloud to refresh, which otherwise answers its own cached token. Its stderr is never read.
+→ [ADR](../docs/adr/2026-11-17-google-cloud-is-reached-with-the-active-gcloud-accounts-token.md).
+
 ## Resync broadcaster (`internal/services/poke`)
 
 A leaf: wall-clock gap detector (15s tick, 2× factor) plus a `gochan/broadcast` hub. `Poke(src)` never blocks. A poke is a fan-out, never a cascade through spec counters or conditions. → [ADR: poke resync fan-out](../docs/adr/2026-08-09-poke-resync-fanout.md).

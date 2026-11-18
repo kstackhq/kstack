@@ -241,13 +241,17 @@ func newTestApp(t *testing.T) (*App, string) {
 }
 
 // withDirs gives a config the directories it leaves empty, each a temp
-// directory of its own.
+// directory of its own, and no cloud platform unless it brings one, so no
+// test runs the machine's own gcloud.
 func withDirs(t *testing.T, cfg Config) Config {
 	t.Helper()
 	for _, dir := range []*string{&cfg.DataDir, &cfg.CacheDir, &cfg.RuntimeDir} {
 		if *dir == "" {
 			*dir = t.TempDir()
 		}
+	}
+	if cfg.cloudPlatforms == nil {
+		cfg.cloudPlatforms = []bash.CloudPlatform{}
 	}
 	return cfg
 }

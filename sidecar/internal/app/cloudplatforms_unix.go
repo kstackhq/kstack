@@ -22,6 +22,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/githubproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/services/awsauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/azureauth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/gcpauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/githubauth"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -32,6 +33,7 @@ func builtCloudPlatforms() []bash.CloudPlatform {
 	return []bash.CloudPlatform{
 		bash.NewAWS(awsauth.New(), nil),
 		bash.NewGitHub(githubauth.New(), githubproxy.GitHub()),
+		bash.NewGCP(gcpauth.New(nil), nil),
 		bash.NewAzure(azureauth.New(), http.DefaultTransport),
 	}
 }

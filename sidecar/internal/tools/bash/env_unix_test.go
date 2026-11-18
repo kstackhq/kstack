@@ -62,6 +62,7 @@ func TestTheSandboxedEnvironmentIsFixed(t *testing.T) {
 		"GOCACHE=/data/th/go/build",
 		"GOMODCACHE=/data/th/go/mod",
 		"CARGO_HOME=/data/th/cargo",
+		"CLOUDSDK_CONFIG=/data/th/gcloud",
 		"NVM_DIR=/home/ana/.nvm",
 		"ASDF_NODEJS_VERSION=20.1.0",
 		"KSTACK=1",

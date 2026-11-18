@@ -17,6 +17,7 @@
 package bash
 
 import (
+	"encoding/base64"
 	"io"
 	"io/fs"
 	"net/http"
@@ -36,6 +37,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/githubproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
+	"github.com/kstackhq/kstack/sidecar/internal/services/gcpauth"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -176,12 +178,17 @@ func TestARunWithoutGitHubHasNoneOfIt(t *testing.T) {
 }
 
 // GitHub's HTTP_PROXY brings NO_PROXY for the loopback, so in a run that
-// mounts AWS and Azure too, a client that reads both reaches their loopback
-// endpoints directly and GitHub's hosts through the door; no variable is set
-// two ways.
+// mounts AWS, Google Cloud and Azure too, a client that reads both reaches
+// AWS's and Azure's loopback endpoints directly and GitHub's hosts through the
+// door; no variable is set two ways. Google's hosts are not the loopback: its
+// own proxy setting and HTTP_PROXY name the same door, which routes by host,
+// so a request carrying GitHub's proxy credentials still reaches Google's
+// route.
 func TestGitHubsProxyVariableLeavesTheLoopbackDirect(t *testing.T) {
+	google := newFakeGoogle(t)
 	r, _ := githubRun(t,
 		NewAWS(fakeAWSLogin{"eu-west-1"}, nil),
+		NewGCP(gcpauth.New(helperAnswering("users-google-token", "proj-1")), google),
 		NewAzure(fakeLogin{account: azureAccount("Pay-As-You-Go"), ok: true}, nil))
 	env := map[string]string{}
 	for _, kv := range r.run.Env {
@@ -205,6 +212,23 @@ func TestGitHubsProxyVariableLeavesTheLoopbackDirect(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, via)
 	assert.Equal(t, "127.0.0.1", via.Hostname())
+
+	logging, err := url.Parse(env["CLOUDSDK_API_ENDPOINT_OVERRIDES_LOGGING"])
+	require.NoError(t, err)
+	via, err = proxyFor(logging)
+	require.NoError(t, err)
+	require.NotNil(t, via, "Google's hosts are not the loopback")
+	assert.Equal(t, env["CLOUDSDK_PROXY_ADDRESS"]+":"+env["CLOUDSDK_PROXY_PORT"], via.Host, "both proxies are the door")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, logging.JoinPath("v2/projects/proj-1/logs").String(), nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+env["CLOUDSDK_AUTH_ACCESS_TOKEN"])
+	password, _ := via.User.Password()
+	req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(via.User.Username()+":"+password)))
+	resp, err := overSocket(r).Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "Bearer users-google-token", testutil.Recv(t, google.auths, "Google's request"))
 }
 
 // GitHub's files are owner-only from birth.

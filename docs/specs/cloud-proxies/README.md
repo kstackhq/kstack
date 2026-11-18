@@ -5,12 +5,11 @@ the sidecar that adds the credential, so the sandbox holds none. One sequence, o
 `wip/cloud-proxies`.
 
 Step 1 builds what the four cloud platforms share, and is built. Wave 2 builds one cloud platform
-per step; its steps need step 1 alone and can be built at the same time.
+per step, and its four steps are built. What remains is [the sequence's gate](#the-sequences-gate).
 
 | Step | Spec | Builds | Answers | Needs |
 | --- | --- | --- | --- | --- |
 | 1 | [`1-shared-pieces.md`](1-shared-pieces.md) | Built: the run's door, the per-grant token, the gate, the request's shape, the consent switch | [#935](https://github.com/kstackhq/kstack/issues/935) | — |
-| 2C | [`2c-gcp.md`](2c-gcp.md) | The token-injecting proxy for Google Cloud | [#933](https://github.com/kstackhq/kstack/issues/933) | 1 |
 
 The sequence lands once, when its last step is built.
 
