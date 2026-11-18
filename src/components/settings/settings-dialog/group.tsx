@@ -16,6 +16,7 @@
 // optional info control beside it and an action at its right.
 import { Button } from '@kubetail/ui/elements/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
+import { cn } from '@kubetail/ui/lib/utils';
 import { Info } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
 
@@ -59,7 +60,16 @@ export function NoteRow({ label, children }: { label: string; children: ReactNod
 }
 
 // The info icon beside a group's heading, opening a note.
-export function InfoPopover({ label, children }: { label: string; children: ReactNode }) {
+export function InfoPopover({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  /** Classes for the note's popup. */
+  className?: string;
+  children: ReactNode;
+}) {
   return (
     <Popover>
       <PopoverTrigger
@@ -68,7 +78,10 @@ export function InfoPopover({ label, children }: { label: string; children: Reac
       >
         <Info aria-hidden />
       </PopoverTrigger>
-      <PopoverContent align="start" className="flex max-h-(--available-height) w-96 flex-col gap-3 text-xs">
+      <PopoverContent
+        align="start"
+        className={cn('flex max-h-(--available-height) w-96 flex-col gap-3 text-xs', className)}
+      >
         {children}
       </PopoverContent>
     </Popover>

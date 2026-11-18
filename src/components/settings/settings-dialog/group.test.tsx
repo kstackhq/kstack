@@ -51,6 +51,11 @@ describe('Group', () => {
     expect(screen.getByRole('listitem')).toHaveTextContent('Your clustersThrough Kstack.');
   });
 
+  it('draws a title alone', () => {
+    render(<Group title="Appearance">body</Group>);
+    expect(screen.getByRole('group', { name: 'Appearance' }).querySelector('p')).toBeNull();
+  });
+
   it('opens its note from the info icon', async () => {
     render(<InfoPopover label="About folders">Some stay closed.</InfoPopover>);
     expect(screen.queryByText('Some stay closed.')).toBeNull();

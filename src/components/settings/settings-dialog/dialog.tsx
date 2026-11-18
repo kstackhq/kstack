@@ -36,6 +36,7 @@ import { type AppDialogProps } from '@/lib/dialog';
 
 import { ClustersSettings } from './clusters';
 import { GeneralSettings } from './general';
+import { PermissionSettings } from './permissions';
 import { SandboxSettings } from './sandbox';
 
 // A tab with no `content` says "Coming soon". A hidden tab's pane unmounts, so
@@ -47,7 +48,7 @@ export const TABS: { label: string; icon: LucideIcon; content?: ComponentType }[
   { label: 'Providers', icon: Sparkles },
   { label: 'Memory', icon: Brain },
   { label: 'Sandbox', icon: Container, content: SandboxSettings },
-  { label: 'Permissions', icon: ShieldCheck },
+  { label: 'Permissions', icon: ShieldCheck, content: PermissionSettings },
 ];
 
 export function SettingsDialog({ open, onOpenChange }: AppDialogProps) {

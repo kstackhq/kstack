@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The Settings dialog's Permissions section: the approval modes and the rules a
+// The Settings dialog's Permissions pane: the approval modes and the rules a
 // sandboxed command's cluster writes are decided by. Drawn only on a machine
 // with a sandbox, since without one every command asks and nothing here
 // applies. Every context, pattern and rule line is user or cluster text, drawn
@@ -20,17 +20,19 @@
 import { Button } from '@kubetail/ui/elements/button';
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
 import { useId, useState } from 'react';
-import type { ReactNode, SubmitEvent } from 'react';
 
 import { Dialog } from '@/components/primitives/dialog';
-import { Input } from '@/components/primitives/text-entry';
 import { VisibleText } from '@/components/primitives/visible-text';
-import type { PermissionClass, PermissionEffect, PermissionMode, PermissionModeSource } from '@/gql/graphql';
+import type { PermissionMode, PermissionModeSource } from '@/gql/graphql';
 import { usePermissionSettings } from '@/lib/permission-settings';
-import type { PermissionSettings as Permissions, Refusal, RuleInput } from '@/lib/permission-settings';
+import type { PermissionSettings as Permissions, Refusal } from '@/lib/permission-settings';
 import { useSandbox } from '@/lib/sandbox';
 
-const SELECT = 'h-9 rounded-md border bg-transparent px-3 text-sm';
+import { Select } from './field';
+import { Group } from './group';
+import { ChatGrants, RanWithoutAsking } from './permission-activity';
+import { PermissionModeInfo } from './permission-mode-info';
+import { PermissionRules } from './permission-rules';
 
 // Each mode with what it asks, in the picker's order.
 const MODES: { value: PermissionMode; label: string; line: string }[] = [
@@ -47,19 +49,12 @@ const MODES: { value: PermissionMode; label: string; line: string }[] = [
   },
 ];
 
-// Where a mode comes from; an entry's is drawn as its pattern.
+// Where a mode comes from; an entry's is drawn as its pattern, or as the
+// context's own.
 const SOURCES: Record<Exclude<PermissionModeSource, 'Entry'>, string> = {
-  Default: 'the default mode',
+  Default: 'Default mode',
   Refused: 'read-only until the file is fixed',
 };
-
-// The classes a rule may name. A destructive write is never allowed by a
-// rule, so Allow does not offer it.
-const CLASSES: { value: PermissionClass; label: string }[] = [
-  { value: 'UpstreamWrite', label: 'Cluster writes' },
-  { value: 'Destructive', label: 'Destructive cluster writes' },
-  { value: 'SecretRead', label: 'Secret reads' },
-];
 
 // What Kstack does while a field it cannot read is held.
 const HELD: Record<'modes' | 'rules', { title: string; meanwhile: string }> = {
@@ -75,27 +70,37 @@ const HELD: Record<'modes' | 'rules', { title: string; meanwhile: string }> = {
 
 export function PermissionSettings() {
   const { available } = useSandbox();
+  if (available === false) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        This machine has no sandbox, so every command asks before it runs. Modes and rules apply only to sandboxed
+        commands.
+      </p>
+    );
+  }
   if (available !== true) return null;
-  return <PermissionSection />;
+  return <PermissionPane />;
 }
 
-function PermissionSection() {
+function PermissionPane() {
   const permissions = usePermissionSettings();
   const { settings, refused, error, held } = permissions;
   if (!settings) return null;
+  const contexts = settings.contexts.map((c) => c.context);
 
   return (
-    <section aria-label="Permissions" className="flex flex-col gap-4 text-sm">
-      <h3 className="font-medium">Permissions</h3>
-      <p className="text-muted-foreground">
-        Modes and rules decide what sandboxed commands may change. A chat switched outside the sandbox asks for every
-        command.
-      </p>
-      {error && (
-        <p role="alert" className="text-destructive">
-          {error}
+    <>
+      <div className="flex flex-col gap-1 text-sm">
+        <p className="text-muted-foreground">
+          Modes and rules decide what sandboxed commands may change. A chat switched outside the sandbox asks for every
+          command.
         </p>
-      )}
+        {error && (
+          <p role="alert" className="text-destructive">
+            {error}
+          </p>
+        )}
+      </div>
 
       <DefaultModePicker permissions={permissions} />
 
@@ -109,97 +114,62 @@ function PermissionSection() {
         onClear={permissions.clearMode}
       />
 
+      <ShowingFilter contexts={contexts} />
+
       {held('rules') && (
         <HeldField field="rules" refused={refused} onDiscard={() => permissions.discardRefused('rules')} />
       )}
-      <RuleList title="Rules" empty="No rules yet.">
-        {settings.rules.map((rule) => (
-          <li key={rule.id} className="flex items-center justify-between gap-2">
-            <span className="break-all">
-              <VisibleText text={rule.line} />
-            </span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              disabled={held('rules')}
-              onClick={() => permissions.removeRule(rule.id)}
-            >
-              Remove
-            </Button>
-          </li>
-        ))}
-      </RuleList>
-      <RuleForm disabled={held('rules')} onAdd={permissions.addRule} />
-      <RuleList title="Always asks" note="In every mode, and refused in a read-only one.">
-        {settings.destructive.map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-      </RuleList>
-    </section>
+      <PermissionRules
+        rules={settings.rules}
+        contexts={contexts}
+        disabled={held('rules')}
+        onAdd={permissions.addRule}
+        onRemove={permissions.removeRule}
+      />
+
+      <ChatGrants />
+      <RanWithoutAsking />
+    </>
   );
 }
 
-// The default mode: a refused one the file holds, the picker, and what each
-// mode does.
+// The default mode: a refused one the file holds, then the current mode and
+// its picker.
 function DefaultModePicker({ permissions }: { permissions: Permissions }) {
   const { settings, refused, held, setDefaultMode } = permissions;
   if (!settings) return null;
-  const defaultRefusal = held('defaultMode') ? refused.find((r) => r.field === 'defaultMode') : undefined;
+  const defaultHeld = held('defaultMode');
+  const defaultRefusal = defaultHeld ? refused.find((r) => r.field === 'defaultMode') : undefined;
+  // While held no mode is current, so picking read-only still sends it.
+  const current = defaultHeld ? undefined : MODES.find((m) => m.value === settings.defaultMode);
   return (
-    <div className="flex flex-col gap-2">
-      <span className="font-medium">Default mode</span>
+    <Group title="Default mode" info={<PermissionModeInfo destructive={settings.destructive} />}>
       {defaultRefusal && (
-        <p className="text-destructive">
+        <p className="text-sm text-destructive">
           The file&apos;s default mode, <VisibleText text={defaultRefusal.value} />, {defaultRefusal.reason}: Kstack
           reads it as read-only until you pick one.
         </p>
       )}
-      {/* While held no tab is selected, so picking read-only still sends it. */}
-      <Tabs
-        value={held('defaultMode') ? '' : settings.defaultMode}
-        onValueChange={(mode) => setDefaultMode(mode as PermissionMode)}
-      >
-        <TabsList aria-label="Default mode">
-          {MODES.map(({ value, label }) => (
-            <TabsTrigger key={value} value={value}>
-              {label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-      <ul className="text-muted-foreground">
-        {MODES.map(({ value, label, line }) => (
-          <li key={value}>
-            {label}: {line}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function RuleList({
-  title,
-  note,
-  empty,
-  children,
-}: {
-  title: string;
-  note?: string;
-  empty?: string;
-  children: ReactNode[];
-}) {
-  return (
-    <section aria-label={title} className="flex flex-col gap-1">
-      <h4 className="font-medium">{title}</h4>
-      {note && <p className="text-muted-foreground">{note}</p>}
-      {children.length > 0 ? (
-        <ul className="flex flex-col gap-1">{children}</ul>
-      ) : (
-        <p className="text-muted-foreground">{empty}</p>
-      )}
-    </section>
+      <div className="flex items-center gap-3 rounded-lg border px-4 py-3 text-sm">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          {current && (
+            <>
+              <span>{current.label}</span>
+              <span className="text-xs text-muted-foreground">{current.line}</span>
+            </>
+          )}
+        </div>
+        <Tabs value={current?.value ?? ''} onValueChange={(mode) => setDefaultMode(mode as PermissionMode)}>
+          <TabsList aria-label="Default mode">
+            {MODES.map(({ value, label }) => (
+              <TabsTrigger key={value} value={value}>
+                {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </div>
+    </Group>
   );
 }
 
@@ -210,6 +180,16 @@ type ContextMode = {
   pattern: string;
   own: boolean;
 };
+
+function sourceOf(c: ContextMode) {
+  if (c.source !== 'Entry') return SOURCES[c.source];
+  if (c.own) return 'Set for this context';
+  return (
+    <>
+      From pattern <VisibleText text={c.pattern} />
+    </>
+  );
+}
 
 // One row per known context: its mode, where the mode comes from, and a picker
 // that sets the context's own. Clear removes the context's own entry, never a
@@ -226,195 +206,52 @@ function ContextModes({
   onClear: (context: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="font-medium">Contexts</span>
-      <table className="w-full">
-        <tbody>
-          {contexts.map((c) => (
-            <tr key={c.context} aria-label={c.context}>
-              <td className="py-1 font-mono break-all">
+    <Group title="Contexts" lede="A context follows the default mode unless a pattern or its own entry sets one.">
+      <ul className="divide-y rounded-lg border text-sm">
+        {contexts.map((c) => (
+          <li key={c.context} aria-label={c.context} className="flex items-center gap-3 px-4 py-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5 break-all">
+              <span className="font-mono">
                 <VisibleText text={c.context} />
-              </td>
-              <td className="py-1">
-                <select
-                  className={SELECT}
-                  aria-label={`Mode of ${c.context}`}
-                  value={c.mode}
-                  disabled={disabled}
-                  onChange={(e) => onSet(c.context, e.target.value as PermissionMode)}
-                >
-                  {MODES.map(({ value, label }) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td className="py-1 text-muted-foreground">
-                {c.source === 'Entry' ? (
-                  <span className="font-mono break-all">
-                    <VisibleText text={c.pattern} />
-                  </span>
-                ) : (
-                  SOURCES[c.source]
-                )}
-              </td>
-              <td className="py-1">
-                {c.own && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    disabled={disabled}
-                    onClick={() => onClear(c.context)}
-                  >
-                    Clear
-                  </Button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+              </span>
+              <span className="text-xs text-muted-foreground">{sourceOf(c)}</span>
+            </div>
+            {c.own && (
+              <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => onClear(c.context)}>
+                Clear
+              </Button>
+            )}
+            <Select
+              className="w-36"
+              aria-label={`Mode of ${c.context}`}
+              options={MODES}
+              value={c.mode}
+              disabled={disabled}
+              onChange={(mode) => onSet(c.context, mode)}
+            />
+          </li>
+        ))}
+      </ul>
+    </Group>
   );
 }
 
-// The namespace that is cluster-scoped objects alone: permissions.ClusterScope.
-const CLUSTER_SCOPE = '[cluster]';
-
-const EMPTY_RULE: RuleInput = {
-  effect: 'Allow',
-  class: 'UpstreamWrite',
-  context: '',
-  namespace: '',
-  verb: '',
-  group: '',
-  kind: '',
-};
-
-// The form a cluster rule is added by: its effect and class, then its scope
-// and target, each optional and empty for anything.
-function RuleForm({ disabled, onAdd }: { disabled: boolean; onAdd: (input: RuleInput) => void }) {
+// Placeholder: awaits a sidecar query for what applies to one context;
+// filtering by pattern here would reimplement the engine. Held on All clusters.
+function ShowingFilter({ contexts }: { contexts: string[] }) {
   const id = useId();
-  const [draft, setDraft] = useState(EMPTY_RULE);
-  const set = (over: Partial<RuleInput>) => setDraft((d) => ({ ...d, ...over }));
-  const classes = CLASSES.filter((c) => !(draft.effect === 'Allow' && c.value === 'Destructive'));
-  // A class the effect no longer offers falls back to the first.
-  const klass = classes.some((c) => c.value === draft.class) ? draft.class : classes[0].value;
-
-  // A Secret read rule names a context and a namespace alone, and every Secret
-  // is in a namespace, so picking it clears the fields it draws none of.
-  const secretRead = klass === 'SecretRead';
-  const pickClass = (value: PermissionClass) =>
-    value === 'SecretRead'
-      ? set({
-          class: value,
-          verb: '',
-          group: '',
-          kind: '',
-          namespace: draft.namespace === CLUSTER_SCOPE ? '' : draft.namespace,
-        })
-      : set({ class: value });
-
-  const submit = (e: SubmitEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    onAdd({ ...draft, class: klass });
-  };
-
-  const field = (name: string, label: string, control: ReactNode) => (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={`${id}-${name}`}>{label}</label>
-      {control}
-    </div>
-  );
-  const text = (name: Exclude<keyof RuleInput, 'effect' | 'class'>, label: string) =>
-    field(
-      name,
-      label,
-      <Input id={`${id}-${name}`} value={draft[name]} onChange={(e) => set({ [name]: e.target.value })} />,
-    );
-  // The namespace is a pattern over namespaced objects, or the one word for
-  // cluster-scoped ones; the checkbox holds the word and shuts the pattern.
-  const clusterScoped = draft.namespace === CLUSTER_SCOPE;
-  const namespace = field(
-    'namespace',
-    'Namespace',
-    <>
-      <Input
-        id={`${id}-namespace`}
-        value={clusterScoped ? '' : draft.namespace}
-        disabled={clusterScoped}
-        onChange={(e) => set({ namespace: e.target.value })}
-      />
-      {!secretRead && (
-        <label htmlFor={`${id}-cluster-scoped`} className="flex items-center gap-1">
-          <input
-            id={`${id}-cluster-scoped`}
-            type="checkbox"
-            checked={clusterScoped}
-            onChange={(e) => set({ namespace: e.target.checked ? CLUSTER_SCOPE : '' })}
-          />
-          Cluster-scoped
-        </label>
-      )}
-    </>,
-  );
-
   return (
-    <form aria-label="Add a rule" className="flex flex-col gap-2" onSubmit={submit}>
-      <span className="font-medium">Add a rule</span>
-      <div className="grid grid-cols-3 gap-2">
-        {field(
-          'effect',
-          'Effect',
-          <select
-            id={`${id}-effect`}
-            className={SELECT}
-            value={draft.effect}
-            onChange={(e) => set({ effect: e.target.value as PermissionEffect })}
-          >
-            <option value="Allow">Allow</option>
-            <option value="Deny">Deny</option>
-            <option value="Ask">Ask</option>
-          </select>,
-        )}
-        {field(
-          'class',
-          'Class',
-          <select
-            id={`${id}-class`}
-            className={SELECT}
-            value={klass}
-            onChange={(e) => pickClass(e.target.value as PermissionClass)}
-          >
-            {classes.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>,
-        )}
-        {text('context', 'Context')}
-        {namespace}
-        {!secretRead && (
-          <>
-            {text('verb', 'Verb')}
-            {text('group', 'API group')}
-            {text('kind', 'Resource')}
-          </>
-        )}
-      </div>
-      <p className="text-muted-foreground">
-        Each field matches anything when empty. Every field but the API group is a pattern: * matches any run of
-        characters. A namespace pattern matches objects in a namespace alone; Cluster-scoped matches the rest.
-      </p>
-      <div>
-        <Button type="submit" size="sm" disabled={disabled}>
-          Add
-        </Button>
-      </div>
-    </form>
+    <div className="flex items-center gap-2 text-sm">
+      <label htmlFor={id} className="text-muted-foreground">
+        Showing
+      </label>
+      <Select
+        id={id}
+        className="w-52"
+        options={[{ value: '', label: 'All clusters' }, ...contexts.map((c) => ({ value: c, label: c }))]}
+        disabled
+      />
+    </div>
   );
 }
 
@@ -433,7 +270,7 @@ function HeldField({
   const { title, meanwhile } = HELD[field];
   const values = refused.filter((r) => r.field === field);
   return (
-    <section aria-label={title} className="flex flex-col gap-1 rounded-md border border-destructive/50 p-2">
+    <section aria-label={title} className="flex flex-col gap-1 rounded-md border border-destructive/50 p-2 text-sm">
       <h4 className="font-medium">{title}</h4>
       <ul>
         {values.map((r) => (

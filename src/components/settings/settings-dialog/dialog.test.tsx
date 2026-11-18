@@ -36,6 +36,18 @@ vi.mock('./clusters', () => ({
 
 vi.mock('./sandbox', () => ({ SandboxSettings: () => <p>The sandbox</p> }));
 
+// The Permissions pane draws over these two hooks; its own test covers the rest.
+const { sandboxAvailable } = vi.hoisted(() => ({ sandboxAvailable: { current: true } }));
+vi.mock('@/lib/sandbox', () => ({ useSandbox: () => ({ available: sandboxAvailable.current }) }));
+vi.mock('@/lib/permission-settings', () => ({
+  usePermissionSettings: () => ({
+    settings: { defaultMode: 'Ask', contexts: [], rules: [], destructive: [], held: [] },
+    refused: [],
+    error: null,
+    held: () => false,
+  }),
+}));
+
 const { ThemeProvider } = await import('@/lib/theme');
 const { SettingsDialog, TABS } = await import('./dialog');
 
@@ -51,6 +63,7 @@ function renderDialog(onOpenChange = vi.fn()) {
 const NAMES = ['General', 'Clusters', 'Connectors', 'Providers', 'Memory', 'Sandbox', 'Permissions'];
 
 beforeEach(() => {
+  sandboxAvailable.current = true;
   invokeMock.mockReset();
   invokeMock.mockResolvedValue(undefined);
 });
@@ -88,6 +101,28 @@ describe('SettingsDialog', () => {
     await user.click(await screen.findByRole('tab', { name: 'Sandbox' }));
     expect(screen.getByRole('heading', { name: 'Sandbox' })).toBeInTheDocument();
     expect(screen.getByRole('tabpanel')).toHaveTextContent('The sandbox');
+  });
+
+  it('draws the Permissions pane under its one heading', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole('tab', { name: 'Permissions' }));
+    expect(screen.getAllByRole('heading', { name: 'Permissions' })).toHaveLength(1);
+    expect(screen.getByRole('tabpanel')).toHaveTextContent(
+      'Modes and rules decide what sandboxed commands may change.',
+    );
+  });
+
+  it('says why Permissions has nothing to set on a machine with no sandbox', async () => {
+    const user = userEvent.setup();
+    sandboxAvailable.current = false;
+    renderDialog();
+
+    await user.click(await screen.findByRole('tab', { name: 'Permissions' }));
+    expect(screen.getByRole('tabpanel')).toHaveTextContent(
+      'This machine has no sandbox, so every command asks before it runs. Modes and rules apply only to sandboxed commands.',
+    );
   });
 
   // Each row's cache size is a live watch; it must not run behind another tab.

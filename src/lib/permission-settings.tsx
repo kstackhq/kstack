@@ -36,6 +36,13 @@ const PermissionSettingsDocument = graphql(`
       }
       rules {
         id
+        effect
+        class
+        context
+        namespace
+        verb
+        group
+        kind
         line
       }
       destructive
@@ -135,7 +142,8 @@ export type PermissionSettings = {
   setDefaultMode: (mode: PermissionMode) => void;
   setMode: (context: string, mode: PermissionMode) => void;
   clearMode: (context: string) => void;
-  addRule: (input: RuleInput) => void;
+  /** Resolves to whether the sidecar took the rule. */
+  addRule: (input: RuleInput) => Promise<boolean>;
   removeRule: (id: string) => void;
   discardRefused: (field: PermissionField) => void;
 };
@@ -165,7 +173,9 @@ export function usePermissionSettings(): PermissionSettings {
     // Every mutation answers the settings it left, so urql's cache asks the
     // query again; a refusal is drawn until the next mutation.
     const run = async (mutation: Promise<{ error?: CombinedError }>) => {
-      setError(refusalOf((await mutation).error));
+      const refusal = refusalOf((await mutation).error);
+      setError(refusal);
+      return refusal === null;
     };
     // The query lists every refused value of the file; only the permission
     // group's are drawn here, each by its field's short name.

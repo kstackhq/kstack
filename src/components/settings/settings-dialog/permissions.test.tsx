@@ -16,8 +16,6 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { expectCodeText } from '@/test-utils';
-
 // Two seams: the sandbox query and urql, whose queries answer from state and
 // whose mutations are one mock, told apart by the operation they send.
 const { sandboxState, settingsState, refusedState, mutateMock, queryArgs, reexecuteMock } = vi.hoisted(() => {
@@ -55,7 +53,17 @@ vi.mock('urql', () => ({
 
 const { PermissionSettings } = await import('./permissions');
 
-const allow = { id: 'r1', line: 'Allow cluster writes in dev-eks / team-a' };
+const allow = {
+  id: 'r1',
+  line: 'Allow cluster writes in dev-eks / team-a',
+  effect: 'Allow',
+  class: 'UpstreamWrite',
+  context: 'dev-eks',
+  namespace: 'team-a',
+  verb: '',
+  group: '',
+  kind: '',
+};
 
 function settings(over: Record<string, unknown> = {}) {
   return {
@@ -73,7 +81,9 @@ function settings(over: Record<string, unknown> = {}) {
   };
 }
 
-const row = (context: string) => screen.getByRole('row', { name: context });
+const row = (context: string) => screen.getByRole('listitem', { name: context });
+const rules = () => screen.getByRole('group', { name: 'Rules' });
+const actions = () => within(rules()).getByRole('button', { name: `Actions for ${allow.line}` });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -85,8 +95,19 @@ beforeEach(() => {
 });
 
 describe('PermissionSettings', () => {
-  it('draws nothing on a machine with no sandbox', () => {
+  it('says why nothing applies on a machine with no sandbox', () => {
     sandboxState.current = { available: false };
+    render(<PermissionSettings />);
+    expect(
+      screen.getByText(
+        'This machine has no sandbox, so every command asks before it runs. Modes and rules apply only to sandboxed commands.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('group')).toBeNull();
+  });
+
+  it('draws nothing until the sandbox query answers', () => {
+    sandboxState.current = { available: undefined };
     const { container } = render(<PermissionSettings />);
     expect(container).toBeEmptyDOMElement();
   });
@@ -112,15 +133,22 @@ describe('PermissionSettings', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Ask', selected: true })).toBeInTheDocument();
+    const card = screen.getByRole('group', { name: 'Default mode' });
+    expect(card).toHaveTextContent('Every change to the cluster, and showing Secret data, asks you first.');
+    expect(card).not.toHaveTextContent('Every change to the cluster is refused.');
     await user.click(screen.getByRole('tab', { name: 'Auto' }));
     expect(mutateMock).toHaveBeenCalledWith('permissionDefaultModeSet', { mode: 'Auto' });
   });
 
   it("draws each context's mode and where it comes from", () => {
     render(<PermissionSettings />);
-    expect(row('dev-eks')).toHaveTextContent('the default mode');
+    expect(screen.getByRole('group', { name: 'Contexts' })).toHaveTextContent(
+      'A context follows the default mode unless a pattern or its own entry sets one.',
+    );
+    expect(row('dev-eks')).toHaveTextContent('Default mode');
     expect(row('prod-eu')).toHaveTextContent('read-only until the file is fixed');
-    expect(row('staging')).toHaveTextContent('stag*');
+    expect(row('qa')).toHaveTextContent('Set for this context');
+    expect(row('staging')).toHaveTextContent('From pattern stag*');
     expect(within(row('staging')).getByRole('combobox')).toHaveValue('Auto');
   });
 
@@ -141,137 +169,107 @@ describe('PermissionSettings', () => {
     expect(within(row('dev-eks')).queryByRole('button', { name: 'Clear' })).toBeNull();
   });
 
-  it('spells the context out', () => {
+  it('spells the context and its pattern out', () => {
     settingsState.current = settings({
-      contexts: [{ context: 'prod\u202Eue', mode: 'Ask', source: 'Default', pattern: '', own: false }],
+      contexts: [{ context: 'prod\u202Eue', mode: 'Ask', source: 'Entry', pattern: 'prod\u202E*', own: false }],
     });
     render(<PermissionSettings />);
 
-    expect(screen.getByRole('row').querySelector('mark')).toHaveTextContent('\\u{202E}');
+    const marks = row('prod\u202Eue').querySelectorAll('mark');
+    expect(marks).toHaveLength(2);
+    marks.forEach((mark) => expect(mark).toHaveTextContent('\\u{202E}'));
   });
 
-  it('draws the rules, and the class 5 list without Remove', async () => {
+  // Placeholder: no query yet says what applies to one context.
+  it('draws the Showing filter held on All clusters, listing each context', () => {
+    render(<PermissionSettings />);
+    const showing = screen.getByRole('combobox', { name: 'Showing' });
+    expect(showing).toBeDisabled();
+    expect(showing).toHaveValue('');
+    expect(
+      within(showing)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['All clusters', 'dev-eks', 'prod-eu', 'qa', 'staging']);
+  });
+
+  it('lists what always asks behind the Default mode info', async () => {
+    const user = userEvent.setup();
+    render(<PermissionSettings />);
+    await user.click(screen.getByRole('button', { name: 'What modes and rules cannot change' }));
+    const popup = await screen.findByRole('dialog');
+    expect(popup).toHaveTextContent('Deleting a namespace');
+    expect(popup).toHaveTextContent('Any change to roles');
+  });
+
+  it('draws the chat grants and what ran without asking as coming soon', () => {
+    render(<PermissionSettings />);
+    expect(screen.getByRole('group', { name: 'Chat grants' })).toHaveTextContent('Coming soon');
+    expect(screen.getByRole('group', { name: 'Ran without asking' })).toHaveTextContent('Coming soon');
+  });
+
+  it('draws the rules, and removes one from its menu', async () => {
     const user = userEvent.setup();
     render(<PermissionSettings />);
 
-    const mine = screen.getByRole('region', { name: 'Rules' });
-    expect(mine).toHaveTextContent('Allow cluster writes in dev-eks / team-a');
-    const asks = screen.getByRole('region', { name: 'Always asks' });
-    expect(asks).toHaveTextContent('Deleting a namespace');
-    expect(within(asks).queryByRole('button')).toBeNull();
-
-    await user.click(within(mine).getByRole('button', { name: 'Remove' }));
+    expect(rules()).toHaveTextContent('Allow cluster writes in dev-eks / team-a');
+    await user.click(actions());
+    await user.click(await screen.findByRole('menuitem', { name: 'Remove' }));
     expect(mutateMock).toHaveBeenCalledWith('permissionRuleRemove', { id: 'r1' });
   });
 
-  it("turns off the webview's suggestions in every field of a rule", () => {
-    render(<PermissionSettings />);
-    const form = screen.getByRole('form', { name: 'Add a rule' });
-    within(form)
-      .getAllByRole('textbox')
-      .forEach((box) => expectCodeText(box));
-  });
-
-  it('adds a cluster rule with its fields', async () => {
+  it('adds a rule', async () => {
     const user = userEvent.setup();
     render(<PermissionSettings />);
-    const form = screen.getByRole('form', { name: 'Add a rule' });
 
-    expect(within(form).getByLabelText('Verb')).toBeInTheDocument();
-    expect(within(form).getByLabelText('API group')).toBeInTheDocument();
-    expect(within(form).getByLabelText('Resource')).toBeInTheDocument();
-
-    await user.selectOptions(within(form).getByLabelText('Effect'), 'Deny');
-    await user.type(within(form).getByLabelText('Context'), 'prod-*');
-    await user.type(within(form).getByLabelText('Resource'), 'deployments');
-    await user.click(within(form).getByRole('button', { name: 'Add' }));
+    await user.click(screen.getByRole('button', { name: 'Add rule' }));
+    await user.type(screen.getByLabelText('Resource'), 'deployments');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
     expect(mutateMock).toHaveBeenCalledWith('permissionRuleAdd', {
-      input: {
-        effect: 'Deny',
-        class: 'UpstreamWrite',
-        context: 'prod-*',
-        namespace: '',
-        verb: '',
-        group: '',
-        kind: 'deployments',
-      },
+      input: expect.objectContaining({ effect: 'Allow', class: 'UpstreamWrite', kind: 'deployments' }),
     });
   });
 
-  it('sends the cluster-scope word for a Cluster-scoped rule and shuts the pattern', async () => {
+  // urql's cache gives each rule a __typename, which the rule input refuses.
+  it('edits a rule by adding the edit, then removing the original', async () => {
     const user = userEvent.setup();
+    settingsState.current = settings({ rules: [{ __typename: 'PermissionRule', ...allow }] });
     render(<PermissionSettings />);
-    const form = screen.getByRole('form', { name: 'Add a rule' });
 
-    await user.type(within(form).getByLabelText('Namespace'), 'team-*');
-    await user.click(within(form).getByLabelText('Cluster-scoped'));
-    expect(within(form).getByLabelText('Namespace')).toBeDisabled();
-    expect(within(form).getByLabelText('Namespace')).toHaveValue('');
-    await user.click(within(form).getByRole('button', { name: 'Add' }));
-    expect(mutateMock).toHaveBeenCalledWith('permissionRuleAdd', {
-      input: expect.objectContaining({ namespace: '[cluster]' }),
-    });
-
-    await user.click(within(form).getByLabelText('Cluster-scoped'));
-    expect(within(form).getByLabelText('Namespace')).toBeEnabled();
-    expect(within(form).getByLabelText('Namespace')).toHaveValue('');
+    await user.click(actions());
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+    await user.type(screen.getByLabelText('Verb'), 'patch');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(mutateMock.mock.calls).toEqual([
+      [
+        'permissionRuleAdd',
+        {
+          input: {
+            effect: 'Allow',
+            class: 'UpstreamWrite',
+            context: 'dev-eks',
+            namespace: 'team-a',
+            verb: 'patch',
+            group: '',
+            kind: '',
+          },
+        },
+      ],
+      ['permissionRuleRemove', { id: 'r1' }],
+    ]);
   });
 
-  // A Secret read rule names a context and a namespace and nothing else, so
-  // the form draws those alone and sends the rest empty, whatever was typed.
-  it('adds a Secret read rule by its context and namespace alone', async () => {
+  it('removes nothing when an edit is refused, and says why', async () => {
     const user = userEvent.setup();
+    mutateMock.mockResolvedValue({ error: { graphQLErrors: [{ message: 'rules: a destructive rule cannot allow' }] } });
     render(<PermissionSettings />);
-    const form = screen.getByRole('form', { name: 'Add a rule' });
 
-    await user.type(within(form).getByLabelText('Verb'), 'delete');
-    await user.click(within(form).getByLabelText('Cluster-scoped'));
-    await user.selectOptions(within(form).getByLabelText('Class'), 'Secret reads');
-    ['Verb', 'API group', 'Resource', 'Cluster-scoped'].forEach((label) => {
-      expect(within(form).queryByLabelText(label)).toBeNull();
-    });
-    await user.type(within(form).getByLabelText('Context'), 'dev-*');
-    await user.type(within(form).getByLabelText('Namespace'), 'team-a');
-    await user.click(within(form).getByRole('button', { name: 'Add' }));
-    expect(mutateMock).toHaveBeenCalledWith('permissionRuleAdd', {
-      input: {
-        effect: 'Allow',
-        class: 'SecretRead',
-        context: 'dev-*',
-        namespace: 'team-a',
-        verb: '',
-        group: '',
-        kind: '',
-      },
-    });
-  });
-
-  it.each(['Allow', 'Deny', 'Ask'])('offers Secret reads to %s', async (effect) => {
-    const user = userEvent.setup();
-    render(<PermissionSettings />);
-    const form = screen.getByRole('form', { name: 'Add a rule' });
-    await user.selectOptions(within(form).getByLabelText('Effect'), effect);
-    expect(within(form).getByRole('option', { name: 'Secret reads' })).toBeInTheDocument();
-  });
-
-  it('says what each mode does with Secret data', () => {
-    render(<PermissionSettings />);
-    [
-      'Read-only: Every change to the cluster is refused. Showing Secret data asks you first.',
-      'Ask: Every change to the cluster, and showing Secret data, asks you first.',
-      'Auto: Changes run and Secret data is shown without asking, except what always asks.',
-    ].forEach((line) => expect(screen.getByText(line)).toBeInTheDocument());
-  });
-
-  it('offers no destructive class to an Allow', async () => {
-    const user = userEvent.setup();
-    render(<PermissionSettings />);
-    const form = screen.getByRole('form', { name: 'Add a rule' });
-    const destructive = () => within(form).queryByRole('option', { name: 'Destructive cluster writes' });
-
-    expect(destructive()).toBeNull();
-    await user.selectOptions(within(form).getByLabelText('Effect'), 'Deny');
-    expect(destructive()).toBeInTheDocument();
+    await user.click(actions());
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+    await user.type(screen.getByLabelText('Verb'), 'patch');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('rules: a destructive rule cannot allow');
+    expect(mutateMock).not.toHaveBeenCalledWith('permissionRuleRemove', expect.anything());
   });
 
   it('says why a mutation was refused', async () => {
@@ -281,7 +279,8 @@ describe('PermissionSettings', () => {
     });
     render(<PermissionSettings />);
 
-    await user.click(within(screen.getByRole('form', { name: 'Add a rule' })).getByRole('button', { name: 'Add' }));
+    await user.click(screen.getByRole('button', { name: 'Add rule' }));
+    await user.click(screen.getByRole('button', { name: 'Add' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('rules: names a class its provider does not have');
   });
 
@@ -301,12 +300,8 @@ describe('PermissionSettings', () => {
       'Every cluster write is refused, and Secret data stays redacted, until the file is fixed.',
     );
     expect(screen.queryByText('not held, so not drawn')).toBeNull();
-    expect(
-      within(screen.getByRole('region', { name: 'Rules' })).getByRole('button', { name: 'Remove' }),
-    ).toBeDisabled();
-    expect(
-      within(screen.getByRole('form', { name: 'Add a rule' })).getByRole('button', { name: 'Add' }),
-    ).toBeDisabled();
+    expect(actions()).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add rule' })).toBeDisabled();
 
     await user.click(within(held).getByRole('button', { name: 'Discard what Kstack cannot read' }));
     expect(mutateMock).not.toHaveBeenCalled();
