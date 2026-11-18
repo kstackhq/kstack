@@ -15,6 +15,8 @@
 package runproxy
 
 import (
+	"crypto/tls"
+	"net"
 	"net/http"
 	"time"
 )
@@ -25,21 +27,44 @@ const (
 	maxHeaderBytes    = 64 << 10
 )
 
-// NewServer is the server a run serves its door h on, HTTP/1.1 alone. Any
-// local process can reach a forwarder's port, so a connection that never sends
-// its headers, or sits idle between requests, is closed rather than held for
-// the run's life.
-// It sets no read or write timeout, which would cut a watch; a watch is not
-// idle while it streams.
-func NewServer(h http.Handler) *http.Server {
-	return newServer(h, readHeaderTimeout, idleTimeout)
+// Server is the server a run serves its door on: HTTP/1.1 alone, plain or,
+// with a certificate, over TLS on the same listener (IsTLS).
+type Server struct {
+	*http.Server
+	tls *tls.Config
 }
 
-func newServer(h http.Handler, readHeader, idle time.Duration) *http.Server {
-	return &http.Server{
+// NewServer is the server a run serves its door h on, with cert for its TLS
+// connections; with none, a connection that opens a handshake is closed. Any
+// local process can reach a forwarder's port, so a connection that never sends
+// its headers, or sits idle between requests, is closed rather than held for
+// the run's life. The first byte and a handshake are read under the header
+// bound too.
+// It sets no read or write timeout, which would cut a watch; a watch is not
+// idle while it streams.
+func NewServer(h http.Handler, cert *Certificate) *Server {
+	return newServer(h, cert, readHeaderTimeout, idleTimeout)
+}
+
+func newServer(h http.Handler, cert *Certificate, readHeader, idle time.Duration) *Server {
+	s := &Server{Server: &http.Server{
 		Handler:           h,
 		ReadHeaderTimeout: readHeader,
 		IdleTimeout:       idle,
 		MaxHeaderBytes:    maxHeaderBytes,
+		ConnContext:       connContext,
+	}}
+	if cert != nil {
+		s.tls = &tls.Config{
+			Certificates: []tls.Certificate{cert.TLS},
+			NextProtos:   []string{"http/1.1"},
+			MinVersion:   tls.VersionTLS12,
+		}
 	}
+	return s
+}
+
+// Serve serves ln, each connection's transport read from its first byte.
+func (s *Server) Serve(ln net.Listener) error {
+	return s.Server.Serve(&sniffListener{Listener: ln, config: s.tls})
 }

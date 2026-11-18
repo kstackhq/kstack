@@ -279,7 +279,7 @@ replace its own paths](../../../docs/security/2026-09-30-a-run-cannot-replace-it
   socket or kubeconfig path fails that step of the setup.
 
 **A run with a cluster or a cloud platform serves its door on its socket** (`proxy.go`): one server
-routing by `Host` to the cluster's grant (`upstream.go`) and each cloud platform's, anything else
+routing by transport and `Host` to the cluster's grant (`upstream.go`) and each cloud platform's, anything else
 the cluster grant's 401. The door authenticates nothing; a cloud platform's route reads its switch
 on every request and refuses an upgrade. The claim watches the record and revokes on disable, mark or delete. A claim that
 cannot be made still runs the command, answering each request not connectable. A background
@@ -303,6 +303,14 @@ lives in a service under `services/`, resolved no earlier than a mount with the 
 under `safe.AddSecret` until `safe.ForgetSecret`. →
 [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md),
 [the run's door](../../../docs/security/2026-11-17-the-runs-door.md).
+
+**A `Route` with `TLS` is served over the door's TLS** on the same listener. When a mount returns
+one, the run gets a `runproxy.Certificate` and its bundle at `CloudRun.CAFile` (`ca.pem` in the run
+directory). **Azure** (`azure.go`, over `run/azureproxy` and `services/azureauth`) mounts a TLS route
+at the loopback authority, and, with an account, `az`'s `clouds.config`, `config` and
+`azureProfile.json` under `TMPDIR/azure`, signing each subscription in as a managed identity whose
+endpoint is the door. A mount waits `azureMountWait` for the login, then mounts with none. →
+[ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md).
 
 **The executable probe** (`executableprobe.go`) runs each executable in the sandbox, **never through
 a shell**, with no cluster and no network. **Every disk read outside Kstack's directories is bounded**

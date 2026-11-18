@@ -16,10 +16,17 @@
 
 package app
 
-import "github.com/kstackhq/kstack/sidecar/internal/tools/bash"
+import (
+	"net/http"
+
+	"github.com/kstackhq/kstack/sidecar/internal/services/azureauth"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
+)
 
 // builtCloudPlatforms are the cloud platforms this build reaches, in
 // Settings' order.
 func builtCloudPlatforms() []bash.CloudPlatform {
-	return nil
+	return []bash.CloudPlatform{
+		bash.NewAzure(azureauth.New(), http.DefaultTransport),
+	}
 }

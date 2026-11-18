@@ -32,7 +32,7 @@ import (
 
 // The server keeps the production bounds.
 func TestNewServerSetsTheBounds(t *testing.T) {
-	srv := NewServer(http.NotFoundHandler())
+	srv := NewServer(http.NotFoundHandler(), nil)
 	assert.Equal(t, 10*time.Second, srv.ReadHeaderTimeout)
 	assert.Equal(t, 60*time.Second, srv.IdleTimeout)
 	assert.Equal(t, 64<<10, srv.MaxHeaderBytes)
@@ -59,7 +59,7 @@ func TestTheServerBoundsItsConnections(t *testing.T) {
 		case <-r.Context().Done():
 		}
 	})
-	srv := newServer(handler, bound, bound)
+	srv := newServer(handler, nil, bound, bound)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	go func() { _ = srv.Serve(ln) }()
@@ -92,7 +92,7 @@ func TestTheServerBoundsItsConnections(t *testing.T) {
 
 	// Its own server with no header deadline: reading 80KiB can outlast the
 	// shrunk bound on a loaded runner, and a timed-out read closes unanswered.
-	sizeOnly := newServer(handler, 0, bound)
+	sizeOnly := newServer(handler, nil, 0, bound)
 	pipes := newPipeListener()
 	go func() { _ = sizeOnly.Serve(pipes) }()
 	t.Cleanup(func() { _ = sizeOnly.Close() })

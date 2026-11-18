@@ -101,6 +101,9 @@ func (d *runDir) kubeconfig() string { return filepath.Join(d.path, "kubeconfig"
 
 func (d *runDir) socket() string { return filepath.Join(d.path, socketName) }
 
+// caFile is the run's certificate bundle, for a run with a TLS route.
+func (d *runDir) caFile() string { return filepath.Join(d.path, "ca.pem") }
+
 // resolver is the run's resolv.conf, for a run with the internet.
 func (d *runDir) resolver() string { return filepath.Join(d.path, "resolv.conf") }
 
