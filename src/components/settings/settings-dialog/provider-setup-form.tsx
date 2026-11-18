@@ -75,7 +75,7 @@ function SourceFields({ source }: { source: CredentialSource }) {
     case 'access-key':
       return <AccessKeyFields />;
     case 'google-connector':
-      return <PickField label="Connector" options={CONNECTORS} />;
+      return <ConnectorField />;
     case 'api-key':
       return <KeyField label="API key" secret />;
   }
@@ -84,8 +84,8 @@ function SourceFields({ source }: { source: CredentialSource }) {
 function AwsConnectorFields() {
   return (
     <div className="flex gap-3">
-      <PickField label="Connector" options={CONNECTORS} />
-      <PickField label="Region" options={REGIONS} initial={REGIONS[0]} />
+      <ConnectorField />
+      <RegionField />
     </div>
   );
 }
@@ -95,7 +95,7 @@ function AccessKeyFields() {
     <div className="flex flex-col gap-4">
       <KeyField label="Access key ID" />
       <KeyField label="Secret access key" secret />
-      <PickField label="Region" options={REGIONS} initial={REGIONS[0]} />
+      <RegionField />
     </div>
   );
 }
@@ -111,6 +111,14 @@ function KeyField({ label, secret = false }: { label: string; secret?: boolean }
       {secret && <FieldDescription>Kstack keeps the key in your system keychain.</FieldDescription>}
     </Field>
   );
+}
+
+function ConnectorField() {
+  return <PickField label="Connector" options={CONNECTORS} />;
+}
+
+function RegionField() {
+  return <PickField label="Region" options={REGIONS} initial={REGIONS[0]} />;
 }
 
 function PickField({ label, options, initial }: { label: string; options: string[]; initial?: string }) {

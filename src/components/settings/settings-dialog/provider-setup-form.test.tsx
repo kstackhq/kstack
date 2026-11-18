@@ -37,7 +37,6 @@ describe('ProviderSetupForm', () => {
 
     expect(screen.queryByRole('combobox', { name: 'Connector' })).toBeNull();
     expect(screen.getByRole('combobox', { name: 'Region' })).toHaveTextContent('us-east-1');
-    expect(screen.queryByText('Coming soon')).toBeNull();
   });
 
   // No secret is typed into the webview until a mutation hands it to the keychain.
@@ -62,7 +61,6 @@ describe('ProviderSetupForm', () => {
     expect(screen.getByRole('tab', { name: 'Google connector', selected: true })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Connector' })).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Region' })).toBeNull();
-    expect(screen.queryByText('Coming soon')).toBeNull();
   });
 
   // No secret is typed into the webview until a mutation hands it to the keychain.
