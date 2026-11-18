@@ -56,6 +56,7 @@ import {
   waitingRequestsOf,
 } from '@/lib/chats';
 import type { ChatMessage, ChatSandboxAction, ChatToolCall, Source, TaskNotice, TaskNoticeOf } from '@/lib/chats';
+import { CHATGPT_ID, useOpenChatGPTUsage } from '@/lib/connectors';
 import { SMALL_ICON_STROKE } from '@/lib/control-style';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useHeldStill } from '@/lib/held-still';
@@ -1543,6 +1544,9 @@ function Message({
         {message.status === 'Failed' && (
           <p className="mt-1 text-xs text-destructive">{message.error || 'The answer failed.'}</p>
         )}
+        {message.status === 'Failed' && message.provider?.id === CHATGPT_ID && (
+          <PlanFailure limit={message.error === USAGE_LIMIT_TEXT} />
+        )}
       </div>
       <TurnActions mine={mine} text={text} createdAt={message.createdAt} last={last} working={working} />
       {onAskAgain && (
@@ -1551,6 +1555,23 @@ function Message({
         </Button>
       )}
     </article>
+  );
+}
+
+// USAGE_LIMIT_TEXT is the sidecar's one spelling of a plan's usage limit.
+const USAGE_LIMIT_TEXT = 'usage limit reached';
+
+// PlanFailure is the way out under a failed answer on the ChatGPT plan: its usage
+// settings, and at a limit whose limit it may be.
+function PlanFailure({ limit }: { limit: boolean }) {
+  const openUsage = useOpenChatGPTUsage();
+  return (
+    <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+      {limit && <span>The limit may be your plan&apos;s or the one set for Kstack.</span>}
+      <Button type="button" variant="outline" size="xs" onClick={openUsage}>
+        Manage usage
+      </Button>
+    </div>
   );
 }
 

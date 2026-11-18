@@ -12,18 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// What the sidecar can answer with. A query, not a watch: the set is fixed for the
-// sidecar's life while keys come from the environment the host holds. The one reader
-// of it, since the next feature's picker reads it too.
-import { useCallback, useMemo } from 'react';
-import { useQuery } from 'urql';
+// What the sidecar can answer with: a gauge, since the ChatGPT plan's models come
+// and go with its connection, and every window's picker follows them. The one reader
+// of it.
+import { useMemo } from 'react';
 
 import { graphql } from '@/gql';
-import type { ModelsQuery } from '@/gql/graphql';
+import type { ModelsWatchSubscription } from '@/gql/graphql';
+import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
 
-const ModelsDocument = graphql(`
-  query Models {
-    models {
+const ModelsWatchDocument = graphql(`
+  subscription ModelsWatch {
+    modelsWatch {
       provider {
         id
         label
@@ -36,30 +36,29 @@ const ModelsDocument = graphql(`
   }
 `);
 
-export type Model = ModelsQuery['models'][number];
+export type Model = ModelsWatchSubscription['modelsWatch'][number];
 
 /** One model, as a send names it: the provider's id and its own. */
 export type ModelRef = { providerID: string; id: string };
 
 /**
- * The catalog. `loaded` is a sidecar that answered — with nothing, when it has no
- * key, which disables Send with a placeholder. `failed` is one that could not be
- * reached: nothing was answered, and `retry` is the only way back, since a query
- * re-runs for nobody.
+ * The catalog. `loaded` is the watch's first frame: before it nothing has been
+ * answered; after it an empty catalog is a sidecar with no provider, which disables
+ * Send with a placeholder.
  */
-export type Catalog = { models: Model[]; loaded: boolean; failed: boolean; retry: () => void };
+export type Catalog = { models: Model[]; loaded: boolean };
 
 const NONE: Model[] = [];
 
 export function useModels(): Catalog {
-  const [{ data, error, fetching }, reexecute] = useQuery({ query: ModelsDocument });
-  const models = data?.models;
-  // Past the cache: what failed is what we are asking again for.
-  const retry = useCallback(() => reexecute({ requestPolicy: 'network-only' }), [reexecute]);
-  return useMemo(
-    () => ({ models: models ?? NONE, loaded: !fetching && !error, failed: !fetching && error !== undefined, retry }),
-    [models, error, fetching, retry],
+  // Unshared: a gauge's first frame is its snapshot, and a consumer mounting into
+  // a running stream would never see one.
+  const { data } = useWatchSubscription<ModelsWatchSubscription, Model[]>(
+    { query: ModelsWatchDocument },
+    perFrame((_prev, next) => next.modelsWatch),
+    { unshared: true },
   );
+  return useMemo(() => ({ models: data ?? NONE, loaded: data !== undefined }), [data]);
 }
 
 /** What a send runs on: a model the catalog holds, and one of its effort levels. */
@@ -67,16 +66,21 @@ export type ModelPick = { model: ModelRef; effort: string };
 
 /**
  * What a chat's composer starts on: the chat's last answer, or the catalog's first
- * model when there is none or the catalog no longer offers it. Undefined for an
- * empty catalog, which is nothing to pick from.
+ * model when there is none or the catalog no longer offers it. A last answer whose
+ * provider lists nothing now (the ChatGPT plan, disconnected) is kept, unavailable,
+ * so the chat never moves to another provider unasked. Undefined for an empty
+ * catalog, which is nothing to pick from.
  */
 export function seedPick(models: Model[], lastAnswer: (ModelRef & { effort: string }) | null): ModelPick | undefined {
+  if (models.length === 0) return undefined;
+  if (lastAnswer && !models.some((m) => m.provider.id === lastAnswer.providerID)) {
+    return { model: { providerID: lastAnswer.providerID, id: lastAnswer.id }, effort: lastAnswer.effort };
+  }
   // The effort belongs to the model that ran it: another model spelling the same
   // level is not the same level, and carrying it over would quietly change what a
   // turn costs.
   const answered = modelOf(models, lastAnswer);
   const model = answered ?? models[0];
-  if (!model) return undefined;
   const effort =
     answered && model.efforts.includes(lastAnswer?.effort ?? '') ? lastAnswer!.effort : model.defaultEffort;
   return { model: { providerID: model.provider.id, id: model.id }, effort };

@@ -26,16 +26,26 @@ import { expectProseText, fakeLogWindows } from '@/test-utils';
 
 // One seam: urql's hooks. The outbox is the real one, since what the composer draws
 // is its entry, and so is the catalog it picks from.
-const { sendMock, cancelMock, catalog, reexecute } = vi.hoisted(() => ({
+const { sendMock, cancelMock, catalog, reexecute, openUsage } = vi.hoisted(() => ({
   sendMock: vi.fn(),
   cancelMock: vi.fn(),
   reexecute: vi.fn(),
+  openUsage: vi.fn(),
   catalog: { current: {} },
 }));
 
 vi.mock('urql', () => ({
   useMutation: (doc: { kind?: string }) => [{}, doc.kind === 'cancel' ? cancelMock : sendMock],
   useQuery: () => [catalog.current, reexecute],
+}));
+vi.mock('@/lib/connectors', () => ({ CHATGPT_ID: 'chatgpt', useOpenChatGPTUsage: () => openUsage }));
+vi.mock('@/lib/models', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/models')>()),
+  // The catalog's watch, as the stub's last frame: none until it holds models.
+  useModels: () => {
+    const { data } = catalog.current as { data?: { models: import('@/lib/models').Model[] } };
+    return { models: data?.models ?? [], loaded: data !== undefined };
+  },
 }));
 vi.mock('@/gql', () => ({
   graphql: (source: string) => ({ kind: source.includes('chatCancel') ? 'cancel' : 'send' }),
@@ -789,58 +799,99 @@ describe('ChatComposer', () => {
     renderComposer();
 
     const textarea = screen.getByRole('textbox');
-    expect(textarea).toHaveAttribute('placeholder', 'Set an API key, then restart Kstack');
+    expect(textarea).toHaveAttribute('placeholder', 'Connect ChatGPT, or set an API key and restart Kstack');
     fireEvent.change(textarea, { target: { value: 'hello' } });
     expect(button('Send')).toBeDisabled();
     expect(screen.queryByRole('button', { name: /^Model:/ })).toBeNull();
   });
+});
 
-  // A catalog that fails after the watch is already live — or one that had failed
-  // before this composer mounted — is the same predicament, and gets the same one ask.
-  it('asks once for a catalog that failed with the watch already live', () => {
-    catalog.current = { fetching: false, error: new Error('refused') };
-    const view = renderComposer({ phase: 'live' });
-    expect(reexecute).toHaveBeenCalledTimes(1);
+// A pick on the ChatGPT plan says so beside the closed selector, with the way to
+// its usage settings; any other pick says nothing.
+describe('the ChatGPT plan', () => {
+  const sol = {
+    provider: { id: 'chatgpt', label: 'ChatGPT plan' },
+    id: 'gpt-6.1-sol',
+    label: 'GPT-6.1 Sol',
+    efforts: [],
+    defaultEffort: '',
+  };
 
-    catalog.current = { fetching: true };
-    view.rerender({ phase: 'live' });
-    catalog.current = { fetching: false, error: new Error('refused') };
-    view.rerender({ phase: 'live' });
-    expect(reexecute).toHaveBeenCalledTimes(1);
+  it('is said beside the selector while its model is picked', async () => {
+    catalog.current = { fetching: false, data: { models: [sol, fake] } };
+    renderComposer();
 
-    // The watch going live again is the evidence the sidecar is answering, so the
-    // chance comes back with it.
-    view.rerender({ phase: 'reconnecting' });
-    view.rerender({ phase: 'live' });
-    expect(reexecute).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Using ChatGPT plan')).toBeInTheDocument();
+    await userEvent.setup().click(button('Manage usage'));
+    expect(openUsage).toHaveBeenCalledOnce();
   });
 
-  // The catalog is a query, so nothing re-runs it when the sidecar comes back — and
-  // without one there is no pick and nothing can be sent. The watch this composer
-  // already waits on is the signal that the sidecar is answering again.
-  it('asks for the catalog again when its watch reconnects', async () => {
-    catalog.current = { fetching: false, error: new Error('unreachable') };
-    const view = renderComposer({ phase: 'reconnecting' });
-    type('hello');
+  it('says nothing on another provider', () => {
+    catalog.current = { fetching: false, data: { models: [fake, sol] } };
+    renderComposer();
+
+    expect(screen.queryByText('Using ChatGPT plan')).toBeNull();
+  });
+
+  // Disconnected, the plan lists no models: the pick stays, so a send never moves
+  // to another provider unasked, and it is the pick again once the plan returns.
+  const pickSol = async (user: ReturnType<typeof userEvent.setup>) => {
+    const popup = await openPicker(user);
+    await user.click(within(popup).getByRole('button', { name: 'ChatGPT plan' }));
+    await user.click(
+      within(screen.getByRole('radiogroup', { name: 'Model' })).getByRole('radio', { name: 'GPT-6.1 Sol' }),
+    );
+    await user.keyboard('{Escape}');
+  };
+
+  it('keeps its pick while the plan lists nothing, and Send shut', async () => {
+    catalog.current = { fetching: false, data: { models: [fake, sol] } };
+    const view = renderComposer();
+    await pickSol(userEvent.setup());
+
+    catalog.current = { fetching: false, data: { models: [fake] } };
+    view.rerender({ replaced: true });
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'hello' } });
+
+    expect(screen.getByTestId('pick')).toHaveTextContent('gpt-6.1-sol');
+    expect(picker()).toHaveAccessibleName('Model: gpt-6.1-sol, unavailable');
     expect(button('Send')).toBeDisabled();
-    expect(reexecute).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox')).toHaveAttribute(
+      'placeholder',
+      'ChatGPT isn’t connected. Connect it in Settings, or pick another model',
+    );
 
-    // The failure stands until the query is answered again, so the reconnection is
-    // what asks, and the answer is what enables Send.
-    view.rerender({ phase: 'live' });
-    expect(reexecute).toHaveBeenCalledTimes(1);
-
-    // A failure the sidecar answered with is not a reason to ask again: the ask
-    // clears it and the answer sets it, which is a request loop.
-    catalog.current = { fetching: true };
-    view.rerender({ phase: 'live' });
-    catalog.current = { fetching: false, error: new Error('refused') };
-    view.rerender({ phase: 'live' });
-    expect(reexecute).toHaveBeenCalledTimes(1);
-
-    catalog.current = answered;
-    view.rerender({ phase: 'live' });
+    catalog.current = { fetching: false, data: { models: [fake, sol] } };
+    view.rerender({ replaced: true });
+    expect(picker()).toHaveAccessibleName('Model: GPT-6.1 Sol');
     expect(button('Send')).toBeEnabled();
+  });
+
+  it('lets another model be picked while the plan lists nothing', async () => {
+    const user = userEvent.setup();
+    catalog.current = { fetching: false, data: { models: [fake, sol] } };
+    const view = renderComposer();
+    await pickSol(user);
+    catalog.current = { fetching: false, data: { models: [fake] } };
+    view.rerender({ replaced: true });
+
+    await pickOption(user, 'Model', 'Fake model');
+
+    expect(screen.getByTestId('pick')).toHaveTextContent('fake');
+  });
+
+  it('says only that the model is unavailable for another provider', async () => {
+    catalog.current = { fetching: false, data: { models: [fake, opus] } };
+    const view = renderComposer();
+    const user = userEvent.setup();
+    const popup = await openPicker(user);
+    await user.click(within(popup).getByRole('button', { name: 'Anthropic' }));
+    await user.click(within(screen.getByRole('radiogroup', { name: 'Model' })).getByRole('radio', { name: 'Opus 5' }));
+    await user.keyboard('{Escape}');
+    catalog.current = { fetching: false, data: { models: [fake] } };
+    view.rerender({ replaced: true });
+
+    expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'This model is unavailable. Pick another model');
   });
 });
 

@@ -23,8 +23,9 @@ import { fakeLogWindows } from '@/test-utils';
 // The seams: urql's hooks, and the client a view's window reads through, which reads
 // nothing and says what it was asked. The outbox is the real one, since Ask again is its
 // operation, and so is the catalog the label reads.
-const { sendMock, catalog, fetched, markdownRenders } = vi.hoisted(() => ({
+const { sendMock, catalog, fetched, markdownRenders, openUsage } = vi.hoisted(() => ({
   sendMock: vi.fn(),
+  openUsage: vi.fn(),
   catalog: { current: {} },
   fetched: [] as FetchQuery[],
   markdownRenders: [] as string[],
@@ -33,6 +34,15 @@ vi.mock('urql', () => ({
   useMutation: () => [{}, sendMock],
   useQuery: () => [catalog.current, vi.fn()],
   useClient: () => ({}),
+}));
+vi.mock('@/lib/connectors', () => ({ CHATGPT_ID: 'chatgpt', useOpenChatGPTUsage: () => openUsage }));
+vi.mock('@/lib/models', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/models')>()),
+  // The catalog's watch, as the stub's last frame: none until it holds models.
+  useModels: () => {
+    const { data } = catalog.current as { data?: { models: import('@/lib/models').Model[] } };
+    return { models: data?.models ?? [], loaded: data !== undefined };
+  },
 }));
 // The real Markdown, under a spy that notes the text of each render.
 vi.mock('@/components/primitives/markdown', async (importOriginal) => {
@@ -550,6 +560,28 @@ describe('ChatTranscript', () => {
   it('draws an empty failed answer for its error alone', () => {
     draw([msg({ status: 'Failed', content: [], error: 'context window exceeded' })]);
     expect(screen.getByText('context window exceeded')).toBeInTheDocument();
+  });
+
+  // An answer that failed on the ChatGPT plan offers its usage settings; at a
+  // limit it says whose the limit may be.
+  it('offers Manage usage under an answer that failed on the ChatGPT plan', () => {
+    const plan = { id: 'chatgpt', label: 'ChatGPT plan' };
+    draw([msg({ status: 'Failed', content: [], error: 'usage limit reached', provider: plan })]);
+
+    expect(screen.getByText("The limit may be your plan's or the one set for Kstack.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Manage usage' }));
+    expect(openUsage).toHaveBeenCalledOnce();
+  });
+
+  it('says nothing of a limit under another failure on the plan, nor on another provider', () => {
+    const plan = { id: 'chatgpt', label: 'ChatGPT plan' };
+    draw([
+      msg({ id: 'a', status: 'Failed', content: [], error: 'chatgpt: 503', provider: plan }),
+      msg({ id: 'b', seq: 2, status: 'Failed', content: [], error: 'usage limit reached' }),
+    ]);
+
+    expect(screen.getAllByRole('button', { name: 'Manage usage' })).toHaveLength(1);
+    expect(screen.queryByText("The limit may be your plan's or the one set for Kstack.")).toBeNull();
   });
 
   it('marks a cancelled answer as stopped, keeping the partial text', () => {

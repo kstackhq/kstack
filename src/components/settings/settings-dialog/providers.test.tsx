@@ -32,7 +32,7 @@ function model(providerID: string, label: string, id: string): Model {
 }
 
 function serve(models: Model[], state: Partial<Catalog> = {}) {
-  catalog.current = { models, loaded: true, failed: false, retry: vi.fn(), ...state };
+  catalog.current = { models, loaded: true, ...state };
 }
 
 const list = () => screen.getByRole('list');
@@ -174,17 +174,6 @@ describe('ProvidersSettings', () => {
     render(<ProvidersSettings />);
 
     expect(screen.queryByRole('list')).toBeNull();
-  });
-
-  it('offers Retry alone when the catalog failed, and asks again on a press', async () => {
-    const user = userEvent.setup();
-    const retry = vi.fn();
-    serve([], { loaded: false, failed: true, retry });
-    render(<ProvidersSettings />);
-
-    expect(screen.queryByRole('list')).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(retry).toHaveBeenCalledOnce();
   });
 
   it("opens a provider's form in a dialog from Set up, which Cancel closes", async () => {

@@ -47,7 +47,7 @@ const opus: Model = {
 // The picker holds no pick of its own, so the harness keeps it as the outbox would.
 function Harness({ models, effort = 'high' }: { models: Model[]; effort?: string }) {
   const [pick, setPick] = useState<ModelPick>({ model: { providerID: 'fake', id: 'fake' }, effort });
-  return <ModelPicker models={models} pick={pick} picked={modelOf(models, pick.model)!} onPick={setPick} />;
+  return <ModelPicker models={models} pick={pick} picked={modelOf(models, pick.model)} onPick={setPick} />;
 }
 
 const trigger = () => screen.getByRole('button', { name: /^Model:/ });

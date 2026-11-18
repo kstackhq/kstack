@@ -12,13 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Model } from './models';
 
-const { state, reexecute } = vi.hoisted(() => ({ state: { current: {} }, reexecute: vi.fn() }));
-vi.mock('urql', () => ({ useQuery: () => [state.current, reexecute] }));
+// The watch's seam: the frames it has delivered, folded by the hook's own
+// reducer, and the options it was opened with.
+const { watch } = vi.hoisted(() => ({
+  watch: {} as { frames?: unknown[]; options?: unknown },
+}));
+vi.mock('@/lib/graphql/use-watch-subscription', () => ({
+  perFrame:
+    <D, R>(step: (prev: R | undefined, frame: D) => R) =>
+    (prev: R | undefined, frames: D[]) =>
+      frames.reduce<R | undefined>(step, prev),
+  useWatchSubscription: (_args: unknown, reduce: (prev: unknown, frames: unknown[]) => unknown, options: unknown) => {
+    watch.options = options;
+    return { data: watch.frames ? reduce(undefined, watch.frames) : undefined, connected: true };
+  },
+}));
 vi.mock('@/gql', () => ({ graphql: () => ({}) }));
 
 const { modelOf, providersOf, seedPick, useModels } = await import('./models');
@@ -39,47 +52,42 @@ const fake: Model = {
 };
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  state.current = { fetching: true };
+  watch.frames = undefined;
 });
 
 describe('useModels', () => {
-  it('has answered nothing while the query is in flight', () => {
+  it('has answered nothing before the first frame', () => {
     const { result } = renderHook(() => useModels());
-    expect(result.current).toMatchObject({ models: [], loaded: false, failed: false });
+    expect(result.current).toEqual({ models: [], loaded: false });
   });
 
   it('serves the catalog in the order the sidecar sent it', () => {
-    state.current = { fetching: false, data: { models: [opus, fake] } };
+    watch.frames = [{ modelsWatch: [opus, fake] }];
     const { result } = renderHook(() => useModels());
     expect(result.current.loaded).toBe(true);
     expect(result.current.models.map((m) => m.id)).toEqual(['claude-opus-5', 'fake']);
   });
 
-  // A sidecar with no key answers with nothing, which is a different thing from not
-  // having answered: one disables Send with a placeholder, the other waits.
+  // A sidecar with no provider answers with nothing, which is a different thing
+  // from not having answered: one disables Send with a placeholder, the other waits.
   it('has answered an empty catalog', () => {
-    state.current = { fetching: false, data: { models: [] } };
+    watch.frames = [{ modelsWatch: [] }];
     const { result } = renderHook(() => useModels());
-    expect(result.current).toMatchObject({ models: [], loaded: true, failed: false });
+    expect(result.current).toEqual({ models: [], loaded: true });
   });
 
-  // A sidecar that could not be reached has answered nothing, so it must not read as
-  // an empty catalog: that would leave the composer saying there is no key, with
-  // nothing to run it again.
-  it('is failed, not loaded, when the query could not be answered', () => {
-    state.current = { fetching: false, error: new Error('unreachable') };
+  // A connection that comes or goes changes the list: the latest frame is the
+  // catalog.
+  it('follows the latest frame', () => {
+    watch.frames = [{ modelsWatch: [opus] }, { modelsWatch: [opus, fake] }];
     const { result } = renderHook(() => useModels());
-    expect(result.current).toMatchObject({ models: [], loaded: false, failed: true });
+    expect(result.current.models).toEqual([opus, fake]);
   });
 
-  it('asks the sidecar again on retry, past whatever the last answer was', () => {
-    state.current = { fetching: false, error: new Error('unreachable') };
-    const { result } = renderHook(() => useModels());
-
-    act(() => result.current.retry());
-
-    expect(reexecute).toHaveBeenCalledWith({ requestPolicy: 'network-only' });
+  // A gauge's first frame is its snapshot, so each reader opens its own stream.
+  it('opens a stream of its own', () => {
+    renderHook(() => useModels());
+    expect(watch.options).toEqual({ unshared: true });
   });
 });
 
@@ -102,9 +110,18 @@ describe('seedPick', () => {
   // not the same level — and inheriting it would quietly change what a turn costs.
   it("takes the fallback model's own default when the answer's model is gone", () => {
     const cheap = { ...opus, id: 'claude-sonnet-5', defaultEffort: 'low' };
-    expect(seedPick([cheap], { providerID: 'fake', id: 'fake', effort: 'high' })).toEqual({
+    expect(seedPick([cheap, fake], { providerID: 'anthropic', id: 'claude-opus-5', effort: 'high' })).toEqual({
       model: { providerID: 'anthropic', id: 'claude-sonnet-5' },
       effort: 'low',
+    });
+  });
+
+  // A disconnected ChatGPT plan lists nothing: the chat stays on it, unavailable,
+  // rather than moving to another provider unasked.
+  it('keeps the answer whose provider lists nothing', () => {
+    expect(seedPick([opus], { providerID: 'chatgpt', id: 'gpt-6.1-sol', effort: 'medium' })).toEqual({
+      model: { providerID: 'chatgpt', id: 'gpt-6.1-sol' },
+      effort: 'medium',
     });
   });
 

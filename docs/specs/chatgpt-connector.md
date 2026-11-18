@@ -164,7 +164,11 @@ type SessionSigner interface {
 
 `dialect_test.go`'s conformance table runs every case under a signer as well as under a key.
 
-### 2. Sign-in: `services/connectors/chatgptauth`
+### 2. Sign-in: `services/connectors/oauthconn` and `services/connectors/chatgptauth`
+
+`oauthconn` is the sign-in for any provider: the flow, the generations, the stores. `chatgptauth`
+is ChatGPT's `oauthconn.Provider`: its endpoints, scopes, authorize parameters and error codes.
+What follows names the two together.
 
 A flat package with a section in `sidecar/CLAUDE.md`. It owns the registration, the session and
 the tokens, and implements `llm.Signer`.
@@ -227,7 +231,7 @@ value. A code exchange, a refresh and a revocation each remember the generation 
 under.
 
 **A completion applies only to its own generation.** Whatever finishes takes the lock, compares,
-and only then writes the keyring, the file, memory and the state. The compare and the writes are
+and only then writes the keyring, the row, memory and the state. The compare and the writes are
 one critical section, so nothing publishes between them.
 
 | What overlaps | What happens |
@@ -254,7 +258,7 @@ exchange finishes on a service goroutine under a five-minute bound.
 | --- | --- | --- |
 | Verified, plan permission granted | `Connected` | tokens, `client_id`, `sub`, email |
 | `error=access_denied` | `Failed`, `Declined` | the `client_id`, if one was issued |
-| No `chatgpt.tokens.use.direct` in the granted scopes | `Failed`, `PlanUsageNotGranted` | the `client_id`. The tokens are revoked, and the next `Connect` sends `prompt=consent` |
+| No `chatgpt.tokens.use.direct` in the granted scopes | `Failed`, `ScopeNotGranted` (`PlanUsageNotGranted` on the wire) | the `client_id`. The tokens are revoked, and the next `Connect` sends `prompt=consent` |
 | A saved `sub` and a different verified `sub` | `Failed`, `AccountMismatch` | the saved registration. The new tokens are revoked |
 | Five minutes pass | `Failed`, `TimedOut` | the `client_id`, if one was issued |
 | Discovery, the exchange or the JWKS cannot be reached | `Failed`, `Unavailable` | the `client_id`, if one was issued |
@@ -296,35 +300,34 @@ The access token lasts an hour and the refresh token thirty days, renewed by eac
 
 | What | Where | Holds |
 | --- | --- | --- |
-| Registration | `<data>/chatgpt.json`, the package's own store (`registration.go`), `schemaVersion` 1 | `hostID`, `clientID`, `subject`, `email`, `connected`. No token |
-| Refresh token | OS keyring, service `Config.KeychainService`, account `chatgpt-refresh-token` | the token, bare |
+| Registration | `app.db`, the `chatgpt` row of `oauth_connections` (`registration.go`) | `client_id`, `subject`, `email`, `session_id`, and the host id in `provider_data`. No token |
+| Refresh token | OS keyring, service `Config.KeychainService`, account `chatgpt-refresh-token` | `{"v":1,"token":…,"session":…}` |
 
 The access token is kept in memory alone. It lasts an hour and a refresh replaces it, so storing
-it buys one request per launch. `app/paths.go` names the file, and `New` takes it and the keyring
-service as arguments.
+it buys one request per launch. `New` takes the app's `*appdb.DB` and the keyring service as
+arguments.
 
-**Every write of the file is unconditional and synced.** Neither existing writer does that:
-`atomicjson.Save` renames without syncing, and `jsonsettings.Update` skips a write whose value
-equals the one it holds in memory, which is the very case a failed write leaves behind.
+**`oauth_connections` holds one row per provider signed in to with OAuth**, keyed by the
+catalog's provider id, so the next such provider adds a row, not a table. `client_id`, `subject`,
+`email` and `session_id` are every provider's; `provider_data` is a JSON object in one provider's
+own shape, which for ChatGPT is `{"hostID": …}`. The table is migration `0002`.
 
-- **`lib/atomicjson` gains `SaveSynced`**: `Save`, with the temporary file synced before the
-  rename and, on Unix, the directory synced after it. The directory sync is in a
-  platform-named file, and its test beside it. `Save` and `SaveIndent` are unchanged.
-- **`registration.go` writes through `SaveSynced` on every call**, with no comparison against
-  memory. Memory changes only after the write returns.
-- It reads the file as a preference: a newer `schemaVersion` is read, and a write keeps the keys
-  this build does not know and the stamp it found.
+**A session exists only when the row and the keyring's entry name the same sign-in.** Each
+sign-in mints a random session id, written to the entry beside the refresh token and to the row's
+`session_id`; a NULL `session_id` is signed out. A row and an entry cannot be written as one, and
+`app.db` commits with `synchronous=NORMAL`, so a power loss can drop its last commits. The match
+makes every such half-written pair read as signed out: an entry left by a failed delete, a
+sign-in whose row never landed, a sign-out whose commit was lost after its entry was deleted, and
+either store restored from a backup.
+
+- **`registration.go` writes the row on every call**, with no comparison against memory. Memory
+  changes only after the write returns.
 - The writer is a field on the store, so a test fails a chosen write.
+- The entry carries a version, `v`. An entry this build cannot read names no session.
 
-**`connected` in the file says whether a session exists; the keyring only holds it.** A sign-out
-writes `connected: false` first. So a keyring entry left behind by a failed delete is never a
-session.
-
-**A sign-in starts by writing `connected: false`.** `Connect` writes it before it binds the
-listener, whatever the file is believed to hold, and the write is synced to disk. If it fails,
-`Connect` fails with `NotSaved` and no browser opens. A sign-out whose own write failed can leave
-`connected: true` on disk; without this write, a crash after the new tokens were saved would restore
-them at launch as a session, under the previous sign-in's `subject` and `email`.
+**A sign-in starts by writing a NULL `session_id`.** `Connect` writes the row before it binds the
+listener, whatever the row is believed to hold. If the write fails, `Connect` fails with
+`NotSaved` and no browser opens.
 
 **It then checks the keyring.** `Connect` writes and deletes a throwaway entry,
 `chatgpt-keyring-check`, and fails with `NotSaved` if either does. A machine with no keyring (Linux
@@ -335,43 +338,45 @@ critical section under its generation:
 
 | Step | If it fails |
 | --- | --- |
-| 1. Write the refresh token's entry | `Failed`, `NotSaved`. The new tokens are revoked |
-| 2. Write the file: `subject`, `email`, `connected: true` | `Failed`, `NotSaved`. The entry is deleted and the new tokens are revoked |
+| 1. Write the refresh token's entry, under a new session id | `Failed`, `NotSaved`. The new tokens are revoked |
+| 2. Write the row: `subject`, `email`, `session_id` | `Failed`, `NotSaved`. The entry is deleted and the new tokens are revoked |
 | 3. Take the tokens into memory and publish `Connected` | — |
 
 - **`Connected` is published only after step 2 lands.** No `Sign` answers before it.
 - **A failed sign-in is not retried from what it holds.** The tokens are revoked, and the user
   presses *Continue with ChatGPT* again. The issued `client_id` stays saved.
-- **A cleanup that fails too leaves no session.** An entry beside `connected: false` is never
-  read as one, and the next launch deletes it. The revocation is attempted as `Disconnect`'s
+- **A cleanup that fails too leaves no session.** An entry whose session the row does not name
+  is never read as one, and the next launch deletes it. The revocation is attempted as `Disconnect`'s
   is. If it also fails, the tokens stay live at OpenAI until they expire, and the state carries
   `RevocationUnconfirmed`.
-- A crash between steps 1 and 2 is the same case: the file says `connected: false`, and `New`
+- A crash between steps 1 and 2 is the same case: the row names no session, and `New`
   deletes the entry. Nothing revokes those tokens; the refresh token expires in thirty days.
 
 **A refresh that the issuer answered has spent the old refresh token.** From that moment:
 
 1. Memory holds the replacement and never the old token again, whatever the writes do.
-2. The refresh token's entry is written. **Until it lands, `Sign` hands out no access token**: it
+2. The refresh token's entry is written, under the session's id. **Until it lands, `Sign` hands out no access token**: it
    fails `credential unavailable`, and each later `Sign` retries the write, never the refresh. A
    session whose replacement never lands is lost with the process, and the next launch ends it
    (`refresh_token_reused`, `SessionEnded`).
 3. `Sign` answers.
 
 **Clearing a session**, on `Disconnect` or a session's end, in this order: memory and the
-generation, `connected: false`, the refresh token's entry. Each step runs whatever the one before
-did. `Disconnect` returns an error when the file write failed and the refresh token's entry is still
-there: that session would return at the next launch.
+generation, the row's NULL `session_id`, the refresh token's entry. Each step runs whatever the one
+before did. `Disconnect` returns an error when the row's write failed and the refresh token's entry
+is still there: that session would return at the next launch, until its revocation lands.
 
 **`New` reads both stores and reaches no network:**
 
 | What it finds | What it does |
 | --- | --- |
-| `connected`, a `clientID` and a refresh token | `Connected`. The first `Sign` refreshes |
-| `connected` and no refresh token | `SignedOut`. Writes `connected: false` |
-| A refresh token and `connected: false` | `SignedOut`. Deletes it: a sign-in that crashed before its last write, or a delete that failed |
-| A refresh token and no `clientID` | `SignedOut`. Deletes it: a refresh token is useless without its client |
-| A file it cannot read | `SignedOut`, logged. The entry is left for the next launch that can read it |
+| A `session_id`, a `client_id` and an entry naming that session | `Connected`. The first `Sign` refreshes |
+| A `session_id` and no entry | `SignedOut`. Writes a NULL `session_id` |
+| An entry naming another session, or none the row names | `SignedOut`. Deletes it and writes a NULL `session_id`: a sign-in that crashed before its last write, a delete that failed, a lost commit or a restored backup |
+| An entry it cannot read, or of another version | `SignedOut`. Deletes it |
+| A matching entry and no `client_id` | `SignedOut`. Deletes it: a refresh token is useless without its client |
+| A row it cannot read | `SignedOut`, logged. The entry is left for the next launch that can read it |
+| A keyring it cannot read | `SignedOut`, logged. Nothing is written |
 
 **`Disconnect`** clears the session, publishes `SignedOut`, then revokes the refresh token under
 a ten-second bound, once more on a network failure or a `5xx`. The revocation runs on a service
@@ -468,7 +473,7 @@ follows no redirect:
   and tried again at a paced interval while the session lasts. The interval is a parameter.
 - **Any other phase empties the catalog.**
 
-`app/chatgptcatalog.go` is the loop, and **the catalog's only writer**. It takes the service's
+`services/connectors/catalogsync` is the loop, and **the catalog's only writer**. It takes the service's
 states in order on one goroutine. A read runs under a context the next state cancels, and its
 result is set only if `State.Session` is still the one it began under. So a list read for one
 account never outlives a frame for the next.
@@ -547,14 +552,15 @@ entry and returns its actions. The other entries stay placeholders.
 
 **The email goes through `VisibleText`.** It is OpenAI's text.
 
-**The first connection is confirmed once, in the window that started it.** The Connectors tab
-that sent `chatGPTConnect` remembers that it did. When its phase becomes `Connected`, it reads
-the key `chatgpt-plan-confirmed` from `localStorage` at that moment. If it is unset, it sets it
-and shows a dialog: *You're using your ChatGPT plan. Requests Kstack sends on ChatGPT models use
-your plan. You can manage usage in ChatGPT's settings.* with **Got it**. The read is direct,
-through `storageKey`, not `usePersistedFlag`: that hook keeps the value it read at mount, and
-another window may have set the key since. No other window shows the dialog, so nothing needs
-live sync. A window closed before the sign-in finishes shows nothing, and the next first
+**The first connection is confirmed once, in the window that started it.** The window whose
+Connectors tab sent `chatGPTConnect` remembers that it did, in `sessionStorage`, until the attempt
+ends or the dialog is dismissed. When its phase becomes `Connected`, it reads the key
+`chatgpt-plan-confirmed` from `localStorage` at that moment. If it is unset, it shows a dialog:
+*You're using your ChatGPT plan. Requests Kstack sends on ChatGPT models use your plan. You can
+manage usage in ChatGPT's settings.* with **Got it**, which sets the key, as dismissing it does. The
+read is direct, through `storageKey`, not `usePersistedFlag`: that hook keeps the value it read at
+mount, and another window may have set the key since. No other window shows the dialog, so nothing
+needs live sync. A window closed before the sign-in finishes shows nothing, and the next first
 connection does.
 
 **The composer says when the plan is in use, without opening anything.** While the picked
@@ -582,7 +588,7 @@ connect or a disconnect. `loaded` is the first frame.
    So the ID token is not stored at all.
 3. **A sign-in without plan permission keeps no tokens.** OpenAI's docs suggest keeping the
    sign-in and marking plan usage off. Kstack has no other use for the sign-in.
-4. **One keyring entry, and the file says whether it is a session.** The registration is not a
+4. **One keyring entry, and the row says whether it is a session.** The registration is not a
    credential and must outlive a sign-out. The keyring holds the refresh token alone: a stored
    access token saves one refresh per launch and costs a second entry that can disagree with the
    first. Probe 6 is the one answer that would bring it back.
@@ -608,14 +614,14 @@ they changed.
 
 | # | Task | Status | PR |
 | --- | --- | --- | --- |
-| 1 | The probe (§0): the seven answers, and this spec amended by them | Planned | — |
-| 2 | The security record, the ADRs and the `docs/security-model.md` rows (*When it lands*), written before the code and corrected as the work moves | Planned | — |
-| 3 | `llm.Signer`, `SessionSigner` and `ResolveUnder`, `Provider.Codes`, the middleware and the no-redirect client (§1, §3); the conformance table under a signer; the tool encoding, if the probe changed it | Planned | — |
-| 4 | `services/auth/browser` and the `auth/oauth` additions (§2), with `services/auth` moved onto them and behaving as before | Planned | — |
-| 5 | `atomicjson.SaveSynced`; `services/connectors/chatgptauth` (§2): registration, flow, generations, grant, storage, `Disconnect`; a fake issuer in its `testutil_test.go` | Planned | — |
-| 6 | The `chatgpt` row, the model decoder, `SetCatalog`, the catalog loop, the usage-limit text and the runtime wiring (§3, §4) | Planned | — |
-| 7 | The GraphQL surface (§5) | Planned | — |
-| 8 | The webview (§6) | Planned | — |
+| 1 | The probe (§0): the seven answers, and this spec amended by them | Planned: tasks 2 to 8 are built on its expected answers | — |
+| 2 | The security record, the ADRs and the `docs/security-model.md` rows (*When it lands*), written before the code and corrected as the work moves | Built | — |
+| 3 | `llm.Signer`, `SessionSigner` and `ResolveUnder`, `Provider.Codes`, the middleware and the no-redirect client (§1, §3); the conformance table under a signer; the tool encoding, if the probe changed it | Built | — |
+| 4 | `services/auth/browser` and the `auth/oauth` additions (§2), with `services/auth` moved onto them and behaving as before | Built | — |
+| 5 | `oauth_connections` (migration `0002`); `services/connectors/oauthconn` and `services/connectors/chatgptauth` (§2): registration, flow, generations, grant, storage, `Disconnect`; a fake issuer in its `testutil_test.go` | Built | — |
+| 6 | The `chatgpt` row, the model decoder, `SetCatalog`, the catalog loop, the usage-limit text and the runtime wiring (§3, §4) | Built | — |
+| 7 | The GraphQL surface (§5) | Built | — |
+| 8 | The webview (§6) | Built | — |
 
 **Tests.** A fake issuer serves discovery, the authorize redirect, the token endpoint with
 rotation, the JWKS and revocation. The browser opener is a parameter, and the fake's "browser"
@@ -630,11 +636,11 @@ issuer's answer on a channel, never by sleeping.
   a later `Sign`, and the old token is never sent again; the delete fails; and every row of
   `New`'s table.
 - **Storage faults on a sign-in**, one test each: the keyring check, the refresh entry's write
-  and the file's write. A failed check opens no browser. Each asserts the state, what the
-  stores hold, what was revoked, and that `Connected` was never published before the file landed.
+  and the row's write. A failed check opens no browser. Each asserts the state, what the
+  stores hold, what was revoked, and that `Connected` was never published before the row landed.
 - **The registration's writes.** A write of a value equal to the one in memory still reaches
-  the writer. `SaveSynced` syncs the file before the rename, pinned through its sync seam.
-- **A sign-out that could not write.** `Disconnect`'s file write fails and its deletes land. A
+  the writer. Another provider's row is neither read nor written.
+- **A sign-out that could not write.** `Disconnect`'s row write fails and its deletes land. A
   `Connect` whose first write also fails is refused and opens no browser. One whose first write
   lands, then crashes after step 1: a service built over the same stores is `SignedOut` and
   holds no entry.
@@ -650,16 +656,16 @@ issuer's answer on a channel, never by sleeping.
   The same for a subagent on `chatgpt`, a notice turn and a monitor's run.
 - **Overlaps**, one test each: `Disconnect` during a refresh; `Cancel` and `Disconnect` during an
   exchange; `Connect(fresh)` while a late exchange finishes; a catalog read that finishes after a
-  `Disconnect`, and after a connect to a second account. Each asserts the keyring, the file, the
+  `Disconnect`, and after a connect to a second account. Each asserts the keyring, the row, the
   state and the catalog hold nothing of the stale session, and that the stale tokens were revoked.
 - **Refusals.** `Connect` during an attempt and while connected.
 - **Sign-out.** `Disconnect` revokes, clears the session, and a later `Connect` sends the same
   `client_id` and host id. A revocation the fake refuses twice sets `revocationUnconfirmed`.
-- **Confinement** (`TestTheChatGPTBearerGoesNowhereElse`). `Sign` refuses each near-miss URL of
+- **Confinement** (`TestTheBearerGoesNowhereElse`). `Sign` refuses each near-miss URL of
   §2. The fake API answers `302`, `307` and `308` to another host and to a subdomain, and no
   request reaches either. The fake issuer's token and revocation endpoints answer `307` and
   `308`, and no form is sent twice.
-- **No leak** (`TestNoChatGPTTokenLeavesTheKeyring`). After a sign-in, a refresh and a turn, no
+- **No leak** (`TestNoTokenLeavesTheKeyring`). After a sign-in, a refresh and a turn, no
   token is in any log line, any GraphQL response, `app.db` or any file under the three
   directories.
 - **A turn.** One with a tool call and its replay runs on `chatgpt` with no `OPENAI_API_KEY`.
@@ -673,7 +679,7 @@ issuer's answer on a channel, never by sleeping.
   spends the user's plan, kept by the sidecar. Where the tokens live, that they are registered
   with `safe` and never logged or projected, that the bearer goes only to `api.openai.com` and
   follows no redirect, that the webview never holds one, the new egress to `auth.openai.com`,
-  `chatgpt`'s tool list, the email at rest in `chatgpt.json`, the sidecar opening one constant
+  `chatgpt`'s tool list, the email at rest in `app.db`, the sidecar opening one constant
   address for the webview, and that the keyring entry is as reachable as the sign-in token's.
 - **`docs/security-model.md`**: the tokens join *Assets*; `auth.openai.com` joins the sidecar's
   egress boundary; one **Enforced** row per pinning test above.
@@ -689,10 +695,10 @@ issuer's answer on a channel, never by sleeping.
     runs once; `visibility == "list"` is taken as this catalog's word that a model can chat; and a
     listed model with no metadata of its own is admitted on the fallback, `Tools: true` included,
     where that ADR says absent metadata admits none.
-- **`docs/persisted-data.md`**: a row for `chatgpt.json` (preference, `schemaVersion` 1, written
-  synced), a row for the keyring entry (disposable: sign in again), the keyring line under *Where
+- **`docs/persisted-data.md`**: a row for `oauth_connections` and its `provider_data`
+  column, a row for the keyring entry (disposable: sign in again), the keyring line under *Where
   it lives*, and `kstack:chatgpt-plan-confirmed` on the pane-state row.
-- **Guides**: `sidecar/CLAUDE.md` (a `chatgptauth` section, `auth/browser`, the `paths` tree);
+- **Guides**: `sidecar/CLAUDE.md` (the `oauthconn` guide, `auth/browser`, the `paths` tree);
   `llm/CLAUDE.md` (the signer and its binding, `Codes`, `SetCatalog`, the provider count, *Decided,
   not built*); `agent/CLAUDE.md` (the row, the decoder, the list, the usage-limit text);
   `src/components/settings/CLAUDE.md` (Connectors); `src/CLAUDE.md` and the chat guide for

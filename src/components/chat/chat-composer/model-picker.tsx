@@ -56,17 +56,20 @@ type ModelPickerProps = {
   /** The catalog. */
   models: Model[];
   pick: ModelPick;
-  /** The catalog's entry for `pick`. */
-  picked: Model;
+  /** The catalog's entry for `pick`, or null while its provider lists nothing. */
+  picked: Model | null;
   onPick: (next: ModelPick) => void;
 };
 
 export function ModelPicker({ models, pick, picked, onPick }: ModelPickerProps) {
   // The tab shown, apart from the pick: browsing another provider changes nothing
   // until a model is picked there.
-  const [tab, setTab] = useState(picked.provider.id);
   const providers = providersOf(models);
-  const hasEffort = picked.efforts.length > 0;
+  const firstTab = picked?.provider.id ?? providers[0]?.id;
+  const [tab, setTab] = useState(firstTab);
+  const hasEffort = picked !== null && picked.efforts.length > 0;
+  let name = `Model: ${pick.model.id}, unavailable`;
+  if (picked) name = hasEffort ? `Model: ${picked.label}, effort: ${pick.effort}` : `Model: ${picked.label}`;
 
   // Another model may not have the level this one is at, so the pick moves to the
   // new model's default rather than to a name it happens to share. The group calls
@@ -79,7 +82,7 @@ export function ModelPicker({ models, pick, picked, onPick }: ModelPickerProps) 
   };
 
   return (
-    <Popover onOpenChange={(open) => open && setTab(picked.provider.id)}>
+    <Popover onOpenChange={(open) => open && setTab(firstTab)}>
       <PopoverTrigger
         render={
           <Button
@@ -89,11 +92,20 @@ export function ModelPicker({ models, pick, picked, onPick }: ModelPickerProps) 
             className="min-w-0 shrink gap-1.5 px-1.5 text-sm font-normal text-muted-foreground"
           />
         }
-        aria-label={hasEffort ? `Model: ${picked.label}, effort: ${pick.effort}` : `Model: ${picked.label}`}
+        aria-label={name}
       >
-        <ProviderMark id={picked.provider.id} label={picked.provider.label} />
-        <span className="truncate">{picked.label}</span>
-        {hasEffort && <span className="shrink-0 capitalize">{pick.effort}</span>}
+        {picked ? (
+          <>
+            <ProviderMark id={picked.provider.id} label={picked.provider.label} />
+            <span className="truncate">{picked.label}</span>
+            {hasEffort && <span className="shrink-0 capitalize">{pick.effort}</span>}
+          </>
+        ) : (
+          <>
+            <span className="truncate">{pick.model.id}</span>
+            <span className="shrink-0">unavailable</span>
+          </>
+        )}
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -157,7 +169,7 @@ export function ModelPicker({ models, pick, picked, onPick }: ModelPickerProps) 
                 value={pick.effort}
                 onValueChange={(effort: string) => onPick({ model: pick.model, effort })}
               >
-                {picked.efforts.map((e) => (
+                {picked?.efforts.map((e) => (
                   <Radio.Root key={e} value={e} className={`${SEGMENT} capitalize`}>
                     {e}
                   </Radio.Root>

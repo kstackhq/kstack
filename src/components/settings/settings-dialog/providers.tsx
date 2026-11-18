@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from '@kubetail/ui/elements/dropdown-menu';
 import { cn } from '@kubetail/ui/lib/utils';
-import { MoreHorizontal, RotateCw } from 'lucide-react';
+import { MoreHorizontal } from 'lucide-react';
 import { useState } from 'react';
 
 import { Dialog } from '@/components/primitives/dialog';
@@ -107,22 +107,12 @@ export function ProvidersSettings() {
   );
 }
 
-function ProviderList({ catalog: { models, loaded, failed, retry } }: { catalog: Catalog }) {
+function ProviderList({ catalog: { models, loaded } }: { catalog: Catalog }) {
   // The provider whose dialog was last opened. It outlives `open` so the dialog
   // keeps its content while it animates closed.
   const [target, setTarget] = useState<Provider | null>(null);
   const [open, setOpen] = useState(false);
-  if (failed) {
-    return (
-      <div>
-        <Button type="button" variant="outline" size="sm" onClick={retry}>
-          <RotateCw className="size-3.5" aria-hidden />
-          Retry
-        </Button>
-      </div>
-    );
-  }
-  // Nothing before the query answers: until then, every provider would read as not set up.
+  // Nothing before the watch's first frame: until then, every provider would read as not set up.
   if (!loaded) return null;
   return (
     <>

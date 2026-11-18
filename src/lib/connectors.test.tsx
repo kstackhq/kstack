@@ -13,15 +13,53 @@
 // limitations under the License.
 
 import { renderHook } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { useConnectors } from './connectors';
+import type { ChatGPTConnection } from './connectors';
+
+// The seams: the watch's frames, folded by the hook's own reducer, and each
+// mutation, by the operation its document names.
+const { watch, mutations } = vi.hoisted(() => ({
+  watch: {} as { frames?: unknown[]; options?: unknown },
+  mutations: {} as Record<string, ReturnType<typeof vi.fn>>,
+}));
+vi.mock('@/lib/graphql/use-watch-subscription', () => ({
+  perFrame:
+    <D, R>(step: (prev: R | undefined, frame: D) => R) =>
+    (prev: R | undefined, frames: D[]) =>
+      frames.reduce<R | undefined>(step, prev),
+  useWatchSubscription: (_args: unknown, reduce: (prev: unknown, frames: unknown[]) => unknown, options: unknown) => {
+    watch.options = options;
+    return { data: watch.frames ? reduce(undefined, watch.frames) : undefined, connected: true };
+  },
+}));
+vi.mock('@/gql', () => ({
+  graphql: (source: string) => ({ name: /(?:mutation|subscription) (\w+)/.exec(source)![1] }),
+}));
+vi.mock('urql', () => ({
+  useMutation: (doc: { name: string }) => {
+    mutations[doc.name] ??= vi.fn();
+    return [{}, mutations[doc.name]];
+  },
+}));
+
+const { useConnectors, useOpenChatGPTUsage } = await import('./connectors');
+
+function connection(c: Partial<ChatGPTConnection>): ChatGPTConnection {
+  return { phase: 'SignedOut', email: null, failure: null, registered: false, revocationUnconfirmed: false, ...c };
+}
+
+beforeEach(() => {
+  watch.frames = undefined;
+  for (const k of Object.keys(mutations)) delete mutations[k];
+});
 
 describe('useConnectors', () => {
-  it('serves the planned connectors, none connected', () => {
+  it('lists the planned connectors and has not loaded before the first frame', () => {
     const { result } = renderHook(() => useConnectors());
 
-    expect(result.current).toEqual([
+    expect(result.current.loaded).toBe(false);
+    expect(result.current.connectors).toEqual([
       { id: 'github', name: 'GitHub', detail: 'Code resources and Copilot models', connected: false },
       { id: 'aws', name: 'AWS', detail: 'Cloud resources and Bedrock models', connected: false },
       { id: 'google', name: 'Google', detail: 'Cloud resources and Gemini models', connected: false },
@@ -29,5 +67,65 @@ describe('useConnectors', () => {
       { id: 'chatgpt', name: 'ChatGPT', detail: 'OpenAI models on your ChatGPT plan', connected: false },
       { id: 'openrouter', name: 'OpenRouter', detail: 'Many providers on one account', connected: false },
     ]);
+    expect(watch.options).toEqual({ unshared: true });
+  });
+
+  it('folds the watch into the ChatGPT entry alone, the account as its detail once connected', () => {
+    const live = connection({ phase: 'Connected', email: 'ada@example.com', registered: true });
+    watch.frames = [{ chatGPTConnectionWatch: connection({}) }, { chatGPTConnectionWatch: live }];
+
+    const { result } = renderHook(() => useConnectors());
+
+    expect(result.current.loaded).toBe(true);
+    const chatgpt = result.current.connectors.find((c) => c.id === 'chatgpt')!;
+    expect(chatgpt).toMatchObject({ connected: true, detail: 'ada@example.com' });
+    expect(chatgpt.chatgpt?.connection).toBe(live);
+    expect(result.current.connectors.filter((c) => c.chatgpt)).toHaveLength(1);
+  });
+
+  it("keeps the entry's own detail for a connection whose email is unknown", () => {
+    watch.frames = [{ chatGPTConnectionWatch: connection({ phase: 'Connected' }) }];
+
+    const { result } = renderHook(() => useConnectors());
+
+    expect(result.current.connectors.find((c) => c.id === 'chatgpt')).toMatchObject({
+      connected: true,
+      detail: 'OpenAI models on your ChatGPT plan',
+    });
+  });
+
+  it("keeps the entry's own detail while not connected", () => {
+    watch.frames = [{ chatGPTConnectionWatch: connection({ phase: 'Failed', failure: 'Declined' }) }];
+
+    const { result } = renderHook(() => useConnectors());
+
+    const chatgpt = result.current.connectors.find((c) => c.id === 'chatgpt')!;
+    expect(chatgpt).toMatchObject({ connected: false, detail: 'OpenAI models on your ChatGPT plan' });
+  });
+
+  it('runs each action as its mutation', () => {
+    watch.frames = [{ chatGPTConnectionWatch: connection({}) }];
+    const { result } = renderHook(() => useConnectors());
+    const actions = result.current.connectors.find((c) => c.chatgpt)!.chatgpt!.actions;
+
+    actions.connect(true);
+    actions.cancel();
+    actions.disconnect();
+    actions.openUsage();
+
+    expect(mutations.ChatGPTConnect).toHaveBeenCalledWith({ fresh: true });
+    expect(mutations.ChatGPTConnectCancel).toHaveBeenCalledWith({});
+    expect(mutations.ChatGPTDisconnect).toHaveBeenCalledWith({});
+    expect(mutations.ChatGPTUsageOpen).toHaveBeenCalledWith({});
+  });
+});
+
+describe('useOpenChatGPTUsage', () => {
+  it("asks the sidecar to open ChatGPT's usage settings", () => {
+    const { result } = renderHook(() => useOpenChatGPTUsage());
+
+    result.current();
+
+    expect(mutations.ChatGPTUsageOpen).toHaveBeenCalledWith({});
   });
 });

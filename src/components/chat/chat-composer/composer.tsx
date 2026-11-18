@@ -24,11 +24,11 @@ import { useMutation } from 'urql';
 import { PROSE_TEXT } from '@/components/primitives/text-entry';
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
-import { useAskAgainWhenLive } from '@/lib/ask-again-when-live';
 import type { Created } from '@/lib/chat-outbox';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import { inFlight } from '@/lib/chats';
 import type { ChatMessage } from '@/lib/chats';
+import { CHATGPT_ID, useOpenChatGPTUsage } from '@/lib/connectors';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import type { LogViewportHandle, SelectedLine } from '@/lib/log-viewport';
 import { useLogWindows } from '@/lib/log-windows';
@@ -132,9 +132,8 @@ export function ChatComposer({
   switching = false,
   onSwitchNetwork = noop,
 }: ChatComposerProps) {
-  const { models, loaded, failed, retry: askAgainForModels } = useModels();
-  // Without a catalog there is no pick and nothing can be sent.
-  useAskAgainWhenLive(failed, phase === 'live', askAgainForModels);
+  const { models, loaded } = useModels();
+  const openUsage = useOpenChatGPTUsage();
   // Seeded only once both things it depends on have answered: before the messages
   // watch's Bookmark the last answer is whichever row arrived first, and before the
   // catalog there is nothing to check a pick against.
@@ -154,11 +153,14 @@ export function ChatComposer({
     seed,
   );
   const picked = modelOf(models, pick?.model ?? null);
-  // A stored pick the catalog lacks is moved to the seed: a model can leave the
-  // catalog, and the outbox outlives the composer. With nothing to seed it leaves
-  // the pick alone, and Send stays shut on `picked`.
+  // A pick whose provider still lists models, but not this one, moves to the seed:
+  // a model can leave the catalog, and the outbox outlives the composer. A pick
+  // whose provider lists none (the ChatGPT plan, disconnected) stays, so a send
+  // never moves to another provider unasked and the pick returns with its
+  // provider. Either way, without `picked` Send stays shut.
+  const providerGone = pick != null && !models.some((m) => m.provider.id === pick.model.providerID);
   useEffect(() => {
-    if (pick && !picked && seed) setPick(seed);
+    if (pick && !picked && seed && !providerGone) setPick(seed);
   });
   const [, chatCancel] = useMutation(ChatCancelMutation);
 
@@ -240,7 +242,12 @@ export function ChatComposer({
   // All only once the watch they wait on has answered: a window at startup has not
   // failed to pick anything, and a catalog still in flight is not an empty one.
   let placeholder = 'Ask about your cluster…';
-  if (loaded && models.length === 0) placeholder = 'Set an API key, then restart Kstack';
+  if (loaded && models.length === 0) placeholder = 'Connect ChatGPT, or set an API key and restart Kstack';
+  else if (loaded && providerGone)
+    placeholder =
+      pick.model.providerID === CHATGPT_ID
+        ? 'ChatGPT isn’t connected. Connect it in Settings, or pick another model'
+        : 'This model is unavailable. Pick another model';
   else if (clusterID === undefined && phase !== 'connecting') placeholder = 'Pick a cluster to start a chat';
 
   const follow = async (outcome: Promise<Created | null>) => {
@@ -382,8 +389,18 @@ export function ChatComposer({
             )}
             {chatID !== null && <ChatGrants chatID={chatID} />}
           </div>
-          <div className="ml-auto min-w-0">
-            {pick && picked && <ModelPicker models={models} pick={pick} picked={picked} onPick={setPick} />}
+          <div className="ml-auto flex min-w-0 items-center gap-1">
+            {/* The plan is in use whenever the pick is ChatGPT's: said beside the
+                closed selector, so nothing has to be opened to see it. */}
+            {picked?.provider.id === CHATGPT_ID && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                Using ChatGPT plan
+                <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={openUsage}>
+                  Manage usage
+                </Button>
+              </span>
+            )}
+            {pick && models.length > 0 && <ModelPicker models={models} pick={pick} picked={picked} onPick={setPick} />}
           </div>
         </div>
       </div>

@@ -89,7 +89,7 @@ cluster no longer has.
 | Sign-in token | OS keyring, service `Kstack` | `services/auth` | disposable (sign in again) | none | a renamed entry deletes the old one | unknown fields ignored | — |
 | OAuth connections | `app.db` `oauth_connections`, a row per provider signed in to with OAuth: issued client id, subject, email, the session id its keyring entry must name; `provider_data` is one provider's own JSON (ChatGPT: `{"hostID"}`); no token | `internal/appdb` (migration `0002`), `services/connectors/oauthconn/registration.go` | durable | rides `app.db`'s | an `app.db` migration | with `app.db` | `TestMigration0002AddsTheOAuthConnections`, `TestARegistrationRoundTrips`, `TestARegistrationLeavesOtherProvidersAlone` |
 | ChatGPT refresh token | OS keyring, service `Kstack`, account `<provider>-refresh-token` (`chatgpt-refresh-token`): `{"v":1,"token","session"}` | `services/connectors/oauthconn/keyring.go` | disposable (sign in again) | `v` 1 | a renamed entry deletes the old one | read as no session and deleted | `TestNewRestoresWhatTheStoresHold` |
-| Pane state | `localStorage` `kstack:sidebar-open`, `kstack:sidebar-width`, the right sidebar's per-mode open and width, `kstack:log-viewer-wrap`, the dashboard nav's `kstack:dashboard-nav-open:<section>/<group>` | `src/lib/persisted-flag.ts`, `persisted-width.ts` | disposable | none | a bad value reads as the default | — | `persisted-*.test.ts` |
+| Pane state | `localStorage` `kstack:sidebar-open`, `kstack:sidebar-width`, the right sidebar's per-mode open and width, `kstack:log-viewer-wrap`, the dashboard nav's `kstack:dashboard-nav-open:<section>/<group>`, `kstack:chatgpt-plan-confirmed` (the ChatGPT plan's first confirmation was seen) | `src/lib/persisted-flag.ts`, `persisted-width.ts`, `settings-dialog/connectors.tsx` | disposable | none | a bad value reads as the default | — | `persisted-*.test.ts`, `connectors.test.tsx` |
 | Log-viewer columns | `localStorage` `kstack:log-viewer-columns` | `log-viewer/columns.ts` | disposable | none | unknown names dropped, bad JSON reads as the default | — | `columns.test.ts` |
 | Table columns | `localStorage` `kstack:table-columns:<apiVersion>/<resource>`, one per kind: `shown` (column key → shown) and `order` (column keys) | `src/lib/table-columns.ts` | disposable | none | a part of the wrong shape reads as no choices; an unknown key is ignored | — | `table-columns.test.tsx` |
 
@@ -100,7 +100,8 @@ Kept on disk but never read back as a format, or not kept across a restart:
 - **Logs**: the host's and the sidecar's text logs. Appended, never parsed.
 - **`<cache>/kubectl/`**: kubectl's own cache, in kubectl's format.
 - **`<cache>/tmp/`, `<runtime>/`**: a run's scratch, swept at start.
-- **`sessionStorage`** `kstack:history-forward-ceiling`: one window session.
+- **`sessionStorage`** `kstack:history-forward-ceiling`, `kstack:chatgpt-plan-pending` (a sign-in
+  this window started awaits the plan's confirmation): one window session.
 - **Provider API keys**: passed in at launch (`cfg.LLMKeys`), never written.
 - **Provider payloads** inside the message blocks: a cache the provider may invalidate. A payload
   replays only to the provider and dialect its run recorded; any other target is sent Kstack's
