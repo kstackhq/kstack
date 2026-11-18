@@ -264,17 +264,20 @@ func appendContents(file string) string {
 	return "PATH=\"$PATH:/read-$(cat \"" + file + "\" 2>/dev/null)\"\n"
 }
 
-// launchOutput launches /bin/sh -l through start with env and answers what it
-// printed before END.
+// launchOutput launches /bin/sh as an interactive login shell through start
+// with env, as the snapshot does, and answers what command printed between
+// the markers. The machine's own profile may print first.
 func launchOutput(t *testing.T, start Start, env []string, command string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), testDeadline)
 	defer cancel()
-	out, f := Launch(ctx, start, "/bin/sh", []string{"-l", "-c", command + "; echo END"}, env, maxOutputBytes, func(buf []byte, _ int) bool {
-		return bytes.Contains(buf, []byte("END\n"))
+	const begin, end = "KSTACK_BEGIN\n", "KSTACK_END\n"
+	out, f := Launch(ctx, start, "/bin/sh", InteractiveLogin("echo KSTACK_BEGIN; "+command+"; echo KSTACK_END"), env, maxOutputBytes, func(buf []byte, _ int) bool {
+		return bytes.Contains(buf, []byte(end))
 	})
 	require.Nil(t, f)
-	text, _, _ := strings.Cut(string(out), "END\n")
+	_, text, _ := strings.Cut(string(out), begin)
+	text, _, _ = strings.Cut(text, end)
 	return text
 }
 
@@ -398,6 +401,21 @@ func TestTheLoginShellCannotWriteTheHome(t *testing.T) {
 
 	assert.Contains(t, path, "/marker")
 	assert.NoFileExists(t, written)
+}
+
+// A profile line that redirects into the read-only home does not end the
+// login shell, which a POSIX sh does to a non-interactive one: the shell runs
+// interactive, so the resolution keeps what the profile set before it. A POSIX
+// sh still abandons the rest of the file, so nothing after it is asserted.
+func TestAProfileThatWritesTheHomeStillResolves(t *testing.T) {
+	sb := confining(t)
+	f := newFixture(t)
+	f.profile(t, "PATH=\"$PATH:/before\"\n: > \"$HOME/.local/state/marker\" 2>/dev/null || true\n")
+
+	path := resolvedPath(t, f.start(sb, nil))
+
+	assert.Contains(t, path, "/before")
+	assert.NoDirExists(t, filepath.Join(f.home, ".local"))
 }
 
 // The login shell cannot reach a listener on the machine's loopback.
