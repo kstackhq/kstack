@@ -26,39 +26,49 @@ import (
 
 var platforms = []permissions.Target{permissions.AWS, permissions.GitHub, permissions.GCP, permissions.Azure}
 
-func TestEachCloudPlatformIsOffWhenUnset(t *testing.T) {
+func TestEachCloudPlatformIsOnWhenUnset(t *testing.T) {
 	s, _ := openFile(t, "")
 	for _, target := range platforms {
-		assert.False(t, s.CloudOn(target), target)
+		assert.True(t, s.CloudOn(target), target)
 	}
 }
 
-// A value that is not a boolean is refused and reads as off: each field only
-// grants.
-func TestARefusedSwitchIsOff(t *testing.T) {
-	s, _ := openFile(t, `{"sandbox": {"aws": "yes", "github": 1, "gcp": null, "azure": true}}`)
-	assert.False(t, s.CloudOn(permissions.AWS))
+func TestASwitchTheFileTurnsOffIsOff(t *testing.T) {
+	s, _ := openFile(t, `{"sandbox": {"github": false}}`)
 	assert.False(t, s.CloudOn(permissions.GitHub))
-	assert.False(t, s.CloudOn(permissions.GCP))
-	assert.True(t, s.CloudOn(permissions.Azure))
+	assert.True(t, s.CloudOn(permissions.AWS))
+}
+
+// A value that is not a boolean is refused and reads as off, since it may
+// have been the user's off, and the store keeps it until a SetCloud names it.
+func TestARefusedSwitchIsOff(t *testing.T) {
+	s, file := openFile(t, `{"sandbox": {"aws": "yes", "github": 1, "gcp": null, "azure": []}}`)
 	var fields []string
 	for _, r := range s.Refused() {
 		fields = append(fields, r.Field)
 	}
-	assert.ElementsMatch(t, []string{FieldAWS, FieldGitHub, FieldGCP}, fields)
+	assert.ElementsMatch(t, []string{FieldAWS, FieldGitHub, FieldGCP, FieldAzure}, fields)
+	for _, target := range platforms {
+		assert.False(t, s.CloudOn(target), target)
+	}
+
+	require.NoError(t, s.SetCloud(permissions.GitHub, true))
+	assert.True(t, s.CloudOn(permissions.GitHub))
+	assert.False(t, s.CloudOn(permissions.AWS), "another switch's write keeps the hold")
+	assert.Contains(t, readFile(t, file), `"aws": "yes"`)
 }
 
 func TestSetCloudWritesItsField(t *testing.T) {
 	s, file := openFile(t, "")
 	for _, target := range platforms {
-		require.NoError(t, s.SetCloud(target, true))
-		assert.True(t, s.CloudOn(target))
+		require.NoError(t, s.SetCloud(target, false))
+		assert.False(t, s.CloudOn(target))
 		_, field := cloudSwitch(&Settings{}, target)
-		assert.Contains(t, readFile(t, file), `"`+strings.TrimPrefix(field, "sandbox.")+`": true`)
+		assert.Contains(t, readFile(t, file), `"`+strings.TrimPrefix(field, "sandbox.")+`": false`)
 	}
-	require.NoError(t, s.SetCloud(permissions.GitHub, false))
-	assert.False(t, s.CloudOn(permissions.GitHub))
-	assert.True(t, s.CloudOn(permissions.AWS), "one switch leaves the others")
+	require.NoError(t, s.SetCloud(permissions.GitHub, true))
+	assert.True(t, s.CloudOn(permissions.GitHub))
+	assert.False(t, s.CloudOn(permissions.AWS), "one switch leaves the others")
 }
 
 func TestTheClusterHasNoSwitch(t *testing.T) {

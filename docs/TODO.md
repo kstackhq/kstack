@@ -1069,14 +1069,15 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
 
 - **Draw each cloud platform's switch in Settings.** `sandboxCloudAccess` and
   `sandboxCloudAccessSet` are served, and nothing draws them: the switches wait for the new settings
-  panel ([ADR](adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md)).
-  Each turns on behind a confirm, as the chat's network switch does. For the named cloud platform
-  it says: sandboxed commands read your account without asking; what they read is sent to the
-  model's provider; with network on a command can send it anywhere; a change asks first; nothing
-  that answers a credential works. Then one line of the cloud platform's own, held by the webview
-  beside its name. AWS's line: *An object's contents ask first.* GitHub's line: *Private repositories are read without asking.* Google's
-  line: *Log entries are read without asking; an object's contents ask first.* Azure's line:
-  *Stored data is not reached; an app's settings and a deployment's parameters ask first.*
+  panel. Each is on until the user turns it off
+  ([ADR](adr/2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md)), so today off is
+  a hand edit of `settings.json`. Each row says, for the named cloud platform: sandboxed commands
+  read your account without asking; what they read is sent to the model's provider; with network on
+  a command can send it anywhere; a change asks first; nothing that answers a credential works.
+  Then one line of the cloud platform's own, held by the webview beside its name. AWS's line: *An
+  object's contents ask first.* GitHub's line: *Private repositories are read without asking.*
+  Google's line: *Log entries are read without asking; an object's contents ask first.* Azure's
+  line: *Stored data is not reached; an app's settings and a deployment's parameters ask first.*
 
 - **A narrower Google identity.** A sandboxed `gcloud` acts as the user's active account. Issue
   [#933](https://github.com/kstackhq/kstack/issues/933) asks to consider impersonating a service

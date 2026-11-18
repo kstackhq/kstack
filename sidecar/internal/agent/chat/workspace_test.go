@@ -215,14 +215,18 @@ func TestTheSandboxSectionNamesTheCloudPlatformsOn(t *testing.T) {
 	s.cloudTargets = []permissions.Target{permissions.AWS, permissions.GCP}
 
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
-	assert.Contains(t, newestContextOf(t, s, first.ChatID), "## Sandbox\n\n```json\n{\"commands\":\"sandboxed\",\"network\":\"off\"}\n```")
+	assert.Contains(t, newestContextOf(t, s, first.ChatID),
+		"## Sandbox\n\n```json\n{\"cloud\":[\"aws\",\"gcp\"],\"commands\":\"sandboxed\",\"network\":\"off\"}\n```",
+		"a switch the build has no cloud platform for is not named")
 
-	require.NoError(t, s.settings.SetCloud(permissions.GCP, true))
-	require.NoError(t, s.settings.SetCloud(permissions.GitHub, true))
+	require.NoError(t, s.settings.SetCloud(permissions.AWS, false))
 	sendAndSettle(t, s, &first.ChatID, "1", "2", "two")
 	assert.Contains(t, newestContextOf(t, s, first.ChatID),
-		"## Sandbox\n\n```json\n{\"cloud\":[\"gcp\"],\"commands\":\"sandboxed\",\"network\":\"off\"}\n```",
-		"a switch the build has no cloud platform for is not named")
+		"## Sandbox\n\n```json\n{\"cloud\":[\"gcp\"],\"commands\":\"sandboxed\",\"network\":\"off\"}\n```")
+
+	require.NoError(t, s.settings.SetCloud(permissions.GCP, false))
+	sendAndSettle(t, s, &first.ChatID, "1", "3", "three")
+	assert.Contains(t, newestContextOf(t, s, first.ChatID), "## Sandbox\n\n```json\n{\"commands\":\"sandboxed\",\"network\":\"off\"}\n```")
 
 	off := sandboxState{}
 	on := sandboxState{cloudTargetsOn: []string{"gcp"}}

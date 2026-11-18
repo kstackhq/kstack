@@ -44,4 +44,9 @@ var strictest = map[string]func(*Settings){
 	FieldDefaultMode: func(v *Settings) { v.Permissions.DefaultMode = permissions.ReadOnly },
 	FieldModes:       func(*Settings) {},
 	FieldRules:       func(*Settings) {},
+	// Off, since a refused value may have been the user's off.
+	FieldAWS:    func(v *Settings) { v.Sandbox.AWS = new(false) },
+	FieldGitHub: func(v *Settings) { v.Sandbox.GitHub = new(false) },
+	FieldGCP:    func(v *Settings) { v.Sandbox.GCP = new(false) },
+	FieldAzure:  func(v *Settings) { v.Sandbox.Azure = new(false) },
 }

@@ -957,11 +957,13 @@ func TestASandboxedGCPChangeAsks(t *testing.T) {
 	e.bashCall(t, "succeeded")
 }
 
-// With the switch off, a run mounts nothing: the route is the door's 401,
-// and gcloud's helper never runs.
+// With the switch turned off, a run mounts nothing: the route is the door's
+// 401, and gcloud's helper never runs.
 func TestGCPOffServesNothing(t *testing.T) {
 	g := newFakeGoogle(t)
 	e := startE2E(t, func(c *Config) { c.cloudPlatforms = []bash.CloudPlatform{g.cloudPlatform()} })
+	raw := graphql(t, e.url, `mutation { sandboxCloudAccessSet(target: GCP, on: false) { target on } }`)
+	require.Contains(t, raw, `{"target":"GCP","on":false}`, raw)
 
 	// The door's port is the run's own, read from its kubeconfig.
 	e.ask(t, "list the clusters", llm.StagedCall("Bash", bashInput(

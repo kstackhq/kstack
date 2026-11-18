@@ -3,6 +3,7 @@ title: A sandboxed command reaches a cloud platform through a proxy on its run's
 date: 2026-11-17
 scope: sidecar
 status: Accepted
+amended_by: [Every cloud platform is on until the user turns it off](2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md)
 ---
 
 # A sandboxed command reaches a cloud platform through a proxy on its run's one relay

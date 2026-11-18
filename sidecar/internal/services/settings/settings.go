@@ -40,12 +40,12 @@ type SandboxSettings struct {
 	// cleared by the next sync, which it makes file every new entry pending:
 	// the entry the store could not read may have been a removal.
 	PathStrict bool `json:"pathStrict,omitempty"`
-	// AWS, GitHub, GCP and Azure are each cloud platform's consent switch: on,
-	// a sandboxed command reaches it as the user (cloud.go).
-	AWS    bool `json:"aws,omitempty"`
-	GitHub bool `json:"github,omitempty"`
-	GCP    bool `json:"gcp,omitempty"`
-	Azure  bool `json:"azure,omitempty"`
+	// AWS, GitHub, GCP and Azure are each cloud platform's switch: on, a
+	// sandboxed command reaches it as the user (cloud.go). Unset is on.
+	AWS    *bool `json:"aws,omitempty"`
+	GitHub *bool `json:"github,omitempty"`
+	GCP    *bool `json:"gcp,omitempty"`
+	Azure  *bool `json:"azure,omitempty"`
 }
 
 // PermissionSettings is the permissions group: the approval modes and the

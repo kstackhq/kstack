@@ -20,8 +20,9 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-// The consent switches, one per cloud platform a sandboxed command may reach.
-// Each only grants, so a refused value reads as off.
+// The switches, one per cloud platform a sandboxed command may reach. Each is
+// on until the user turns it off, and restricts when off, so a refused value
+// reads as off (strictest).
 const (
 	FieldAWS    = "sandbox.aws"
 	FieldGitHub = "sandbox.github"
@@ -34,7 +35,7 @@ var ErrNoCloudSwitch = errors.New("settings: no switch for this target")
 
 // cloudSwitch is target's switch in v and the field it is stored under; nil
 // for a target with none.
-func cloudSwitch(v *Settings, target permissions.Target) (*bool, string) {
+func cloudSwitch(v *Settings, target permissions.Target) (**bool, string) {
 	switch target {
 	case permissions.AWS:
 		return &v.Sandbox.AWS, FieldAWS
@@ -48,12 +49,11 @@ func cloudSwitch(v *Settings, target permissions.Target) (*bool, string) {
 	return nil, ""
 }
 
-// CloudOn is whether the user turned target's switch on. Off by default: a
-// login on the machine is not consent.
+// CloudOn is whether target's switch is on: unless the user turned it off.
 func (s *Store) CloudOn(target permissions.Target) bool {
 	v := s.Get()
 	sw, _ := cloudSwitch(&v, target)
-	return sw != nil && *sw
+	return sw != nil && (*sw == nil || **sw)
 }
 
 // SetCloud turns target's switch on or off, naming the field it writes.
@@ -64,7 +64,7 @@ func (s *Store) SetCloud(target permissions.Target, on bool) error {
 	}
 	return s.Update(func(v *Settings) error {
 		sw, _ := cloudSwitch(v, target)
-		*sw = on
+		*sw = &on
 		return nil
 	}, field)
 }

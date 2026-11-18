@@ -3623,24 +3623,24 @@ func newCloudServer(t *testing.T, targets ...permissions.Target) (*httptest.Serv
 	return srv, cfg
 }
 
-// sandboxCloudAccess lists only the cloud platforms the build has, each off
-// until turned on; sandboxCloudAccessSet writes its cloud platform's field and
+// sandboxCloudAccess lists only the cloud platforms the build has, each on
+// until turned off; sandboxCloudAccessSet writes its cloud platform's field and
 // answers the list.
 func TestSandboxCloudAccessListsTheBuildsCloudPlatforms(t *testing.T) {
 	srv, cfg := newCloudServer(t, permissions.AWS, permissions.GCP)
 	data := mutate(t, srv, `{ sandboxCloudAccess { target on } }`)
 	assert.Equal(t, []any{
-		map[string]any{"target": "AWS", "on": false},
-		map[string]any{"target": "GCP", "on": false},
+		map[string]any{"target": "AWS", "on": true},
+		map[string]any{"target": "GCP", "on": true},
 	}, data["sandboxCloudAccess"])
 
-	data = mutate(t, srv, `mutation { sandboxCloudAccessSet(target: GCP, on: true) { target on } }`)
+	data = mutate(t, srv, `mutation { sandboxCloudAccessSet(target: GCP, on: false) { target on } }`)
 	assert.Equal(t, []any{
-		map[string]any{"target": "AWS", "on": false},
-		map[string]any{"target": "GCP", "on": true},
+		map[string]any{"target": "AWS", "on": true},
+		map[string]any{"target": "GCP", "on": false},
 	}, data["sandboxCloudAccessSet"])
-	assert.True(t, cfg.CloudOn(permissions.GCP))
-	assert.False(t, cfg.CloudOn(permissions.AWS))
+	assert.False(t, cfg.CloudOn(permissions.GCP))
+	assert.True(t, cfg.CloudOn(permissions.AWS))
 
 	empty, _ := newCloudServer(t)
 	assert.Equal(t, []any{}, mutate(t, empty, `{ sandboxCloudAccess { target on } }`)["sandboxCloudAccess"])
@@ -3651,9 +3651,9 @@ func TestSandboxCloudAccessListsTheBuildsCloudPlatforms(t *testing.T) {
 func TestSandboxCloudAccessSetRefusesWhatHasNoSwitch(t *testing.T) {
 	srv, cfg := newCloudServer(t, permissions.AWS)
 	for _, target := range []string{"Cluster", "GitHub"} {
-		message, code := refusalOf(t, srv, `mutation { sandboxCloudAccessSet(target: `+target+`, on: true) { target } }`)
+		message, code := refusalOf(t, srv, `mutation { sandboxCloudAccessSet(target: `+target+`, on: false) { target } }`)
 		assert.Equal(t, "KSTACK_VALIDATION_ERROR", code, target)
 		assert.Equal(t, "This build has no switch for that target.", message, target)
 	}
-	assert.False(t, cfg.CloudOn(permissions.GitHub), "nothing was written")
+	assert.True(t, cfg.CloudOn(permissions.GitHub), "nothing was written")
 }

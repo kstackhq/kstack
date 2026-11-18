@@ -76,7 +76,8 @@ record](../../../../docs/security/2026-10-04-path-grants.md).
 executable only widens what is probed, so the read-back drops a refused one and holds nothing.
 
 **`sandbox.aws`, `sandbox.github`, `sandbox.gcp` and `sandbox.azure` are each cloud platform's
-consent switch** (`cloud.go`, `cloudSwitch`): off by default, and each only grants, so a refused
-value reads off and `strictest` holds none. `CloudOn` reads one; `SetCloud` writes one, naming its
+switch** (`cloud.go`, `cloudSwitch`), a `*bool`: unset is on, `false` off. Off restricts, so
+`strictest` holds a refused value as `false`. →
+[ADR](../../../../docs/adr/2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md). `CloudOn` reads one; `SetCloud` writes one, naming its
 field, and refuses `Cluster` (`ErrNoCloudSwitch`). A switch whose cloud platform the build lacks is
 read by nothing.
