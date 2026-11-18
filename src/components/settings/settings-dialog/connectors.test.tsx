@@ -75,13 +75,13 @@ describe('ConnectorsSettings', () => {
     for (const raw of ['\u001b', '\u202e']) expect(row.textContent).not.toContain(raw);
   });
 
-  it('offers a disabled Connect on an available service alone', () => {
+  it('offers a disabled Coming soon on an available service alone', () => {
     render(<ConnectorsSettings />);
 
-    const connect = within(screen.getByRole('group', { name: 'Available' })).getByRole('button', { name: 'Connect' });
-    expect(connect).toBeDisabled();
+    const available = within(screen.getByRole('group', { name: 'Available' }));
+    expect(available.getByRole('button', { name: 'Coming soon' })).toBeDisabled();
     expect(
-      within(screen.getByRole('group', { name: 'Connected' })).queryByRole('button', { name: 'Connect' }),
+      within(screen.getByRole('group', { name: 'Connected' })).queryByRole('button', { name: 'Coming soon' }),
     ).toBeNull();
   });
 

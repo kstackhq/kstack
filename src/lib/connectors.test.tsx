@@ -18,21 +18,16 @@ import { describe, expect, it } from 'vitest';
 import { useConnectors } from './connectors';
 
 describe('useConnectors', () => {
-  it('serves the connected services, then the available ones', () => {
+  it('serves the planned connectors, none connected', () => {
     const { result } = renderHook(() => useConnectors());
 
     expect(result.current).toEqual([
-      { id: 'github', name: 'GitHub', detail: 'Signed in as octo-dev', connected: true },
-      {
-        id: 'claude',
-        name: 'Claude',
-        detail: 'Signed in as dev@acme.io',
-        connected: true,
-        manageLabel: 'Manage on Claude',
-      },
-      { id: 'aws', name: 'AWS', detail: 'Profile prod-admin · eu-west-1', connected: true },
-      { id: 'google', name: 'Google', detail: 'Gemini models', connected: false },
-      { id: 'chatgpt', name: 'ChatGPT', detail: 'OpenAI models', connected: false },
+      { id: 'github', name: 'GitHub', detail: 'Code resources and Copilot models', connected: false },
+      { id: 'aws', name: 'AWS', detail: 'Cloud resources and Bedrock models', connected: false },
+      { id: 'google', name: 'Google', detail: 'Cloud resources and Gemini models', connected: false },
+      { id: 'azure', name: 'Azure', detail: 'Cloud resources and Foundry models', connected: false },
+      { id: 'chatgpt', name: 'ChatGPT', detail: 'OpenAI models on your ChatGPT plan', connected: false },
+      { id: 'openrouter', name: 'OpenRouter', detail: 'Many providers on one account', connected: false },
     ]);
   });
 });

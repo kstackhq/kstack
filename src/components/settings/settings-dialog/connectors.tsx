@@ -76,7 +76,7 @@ function ConnectorRow({ connector }: { connector: Connector }) {
         <RowMenu connector={connector} />
       ) : (
         <Button variant="outline" size="sm" disabled>
-          Connect
+          Coming soon
         </Button>
       )}
     </li>

@@ -24,19 +24,15 @@ export type Connector = {
   manageLabel?: string;
 };
 
-// Placeholder: no connector backend yet.
+// The connectors Kstack plans to ship. Placeholder: none is connected until a
+// connector backend exists.
 const CONNECTORS: Connector[] = [
-  { id: 'github', name: 'GitHub', detail: 'Signed in as octo-dev', connected: true },
-  {
-    id: 'claude',
-    name: 'Claude',
-    detail: 'Signed in as dev@acme.io',
-    connected: true,
-    manageLabel: 'Manage on Claude',
-  },
-  { id: 'aws', name: 'AWS', detail: 'Profile prod-admin · eu-west-1', connected: true },
-  { id: 'google', name: 'Google', detail: 'Gemini models', connected: false },
-  { id: 'chatgpt', name: 'ChatGPT', detail: 'OpenAI models', connected: false },
+  { id: 'github', name: 'GitHub', detail: 'Code resources and Copilot models', connected: false },
+  { id: 'aws', name: 'AWS', detail: 'Cloud resources and Bedrock models', connected: false },
+  { id: 'google', name: 'Google', detail: 'Cloud resources and Gemini models', connected: false },
+  { id: 'azure', name: 'Azure', detail: 'Cloud resources and Foundry models', connected: false },
+  { id: 'chatgpt', name: 'ChatGPT', detail: 'OpenAI models on your ChatGPT plan', connected: false },
+  { id: 'openrouter', name: 'OpenRouter', detail: 'Many providers on one account', connected: false },
 ];
 
 export function useConnectors(): Connector[] {

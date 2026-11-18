@@ -6,7 +6,7 @@ The settings dialog and the folder-grant form. Also owns `src/lib/`'s `sandbox-*
 
 **Clusters** (`clusters.tsx`) lists `useClusters()`'s kubeconfig clusters, then the archived ones (no longer in the kubeconfig), hidden when there are none; nothing draws before the `Bookmark`. Every string from a cluster goes through `VisibleText`. Its actions are `ClusterSyncPanel`'s mutations (`src/lib/cluster-mutations.ts`), with no confirm; each row redraws from the watch.
 
-**Connectors** (`connectors.tsx`) groups `useConnectors()`'s services (`src/lib/connectors.tsx`) into Connected and Available, drawing no empty group. It has no backend: the hook alone holds placeholder data, and every action is disabled. Names and details go through `VisibleText`.
+**Connectors** (`connectors.tsx`) groups `useConnectors()`'s services (`src/lib/connectors.tsx`) into Connected and Available, drawing no empty group. It has no backend: the hook lists the planned connectors, none connected, so only Available draws, each row with a disabled *Coming soon*; the Connected group and its menu wait for the backend. Names and details go through `VisibleText`.
 
 **Providers** (`providers.tsx`) lists `useModels()`'s providers under *Set up*, then `AVAILABLE`'s under *Available*, whose *Set up* opens `provider-setup-form.tsx` in its row. Only the *Set up* list is real; each placeholder (row detail, menu, `AVAILABLE`, connectors, regions, the disabled key box and submit) carries a comment naming what it awaits. Nothing sends or stores a credential.
 
