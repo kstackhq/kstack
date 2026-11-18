@@ -167,7 +167,7 @@ describe('LogViewerRow', () => {
   it('draws a message with its colours', () => {
     render(<Row of={line({ message: '\x1b[31merror\x1b[0m: disk' })} />);
     expect(cellOf('Message')).toHaveTextContent('error: disk');
-    expect(cellOf('Message')!.querySelector('span[style]')).toHaveStyle({ color: 'var(--ansi-red, #cc0000)' });
+    expect(cellOf('Message')!.querySelector<HTMLElement>('span[style]')?.style.color).toBe('var(--ansi-red, #cc0000)');
   });
 
   it('puts the date before a time from another day', () => {

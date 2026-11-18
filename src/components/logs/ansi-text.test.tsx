@@ -86,7 +86,7 @@ describe('AnsiText', () => {
     // oxlint-disable-next-line react/jsx-curly-brace-presence -- a JSX attribute string reads no escapes
     const { container } = render(<AnsiText text={'a\x1b[32mb'} />);
     expect(container).toHaveTextContent('ab');
-    expect(container.querySelector('span[style]')).toHaveStyle({ color: 'var(--ansi-green, #4e9a06)' });
+    expect(container.querySelector<HTMLElement>('span[style]')?.style.color).toBe('var(--ansi-green, #4e9a06)');
   });
 
   it('spells out what cluster text could hide inside a colour', () => {
