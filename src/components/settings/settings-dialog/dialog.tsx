@@ -38,6 +38,7 @@ import { ClustersSettings } from './clusters';
 import { ConnectorsSettings } from './connectors';
 import { GeneralSettings } from './general';
 import { PermissionSettings } from './permissions';
+import { ProvidersSettings } from './providers';
 import { SandboxSettings } from './sandbox';
 
 // A tab with no `content` says "Coming soon". A hidden tab's pane unmounts, so
@@ -46,7 +47,7 @@ export const TABS: { label: string; icon: LucideIcon; content?: ComponentType }[
   { label: 'General', icon: SlidersHorizontal, content: GeneralSettings },
   { label: 'Clusters', icon: Server, content: ClustersSettings },
   { label: 'Connectors', icon: Plug, content: ConnectorsSettings },
-  { label: 'Providers', icon: Sparkles },
+  { label: 'Providers', icon: Sparkles, content: ProvidersSettings },
   { label: 'Memory', icon: Brain },
   { label: 'Sandbox', icon: Container, content: SandboxSettings },
   { label: 'Permissions', icon: ShieldCheck, content: PermissionSettings },

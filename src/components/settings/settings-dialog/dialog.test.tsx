@@ -50,6 +50,8 @@ vi.mock('@/lib/permission-settings', () => ({
 
 vi.mock('./connectors', () => ({ ConnectorsSettings: () => <p>The connectors</p> }));
 
+vi.mock('./providers', () => ({ ProvidersSettings: () => <p>The providers</p> }));
+
 const { ThemeProvider } = await import('@/lib/theme');
 const { SettingsDialog, TABS } = await import('./dialog');
 
@@ -135,6 +137,16 @@ describe('SettingsDialog', () => {
 
     const panel = screen.getByRole('tabpanel');
     expect(panel).toHaveTextContent('The connectors');
+  });
+
+  it('draws the Providers tab', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole('tab', { name: 'Providers' }));
+
+    const panel = screen.getByRole('tabpanel');
+    expect(panel).toHaveTextContent('The providers');
     expect(panel).not.toHaveTextContent('Coming soon');
   });
 
