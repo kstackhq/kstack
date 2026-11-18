@@ -2,15 +2,11 @@ package auth
 
 import (
 	"context"
-	"fmt"
-	"net"
-	"net/http"
 	"net/url"
-	"os/exec"
-	"runtime"
-	"time"
 
 	"golang.org/x/oauth2"
+
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth/browser"
 )
 
 // generateVerifier returns a PKCE code verifier; the protocol layer treats it as
@@ -20,30 +16,10 @@ func generateVerifier() string { return oauth2.GenerateVerifier() }
 // generateState returns the CSRF state the loopback callback must echo back.
 func generateState() string { return oauth2.GenerateVerifier() }
 
-// browserCommand is the per-OS opener for rawURL. Split from the exec so the mapping can
-// be checked for every platform from any one of them.
-func browserCommand(goos, rawURL string) (string, []string) {
-	switch goos {
-	case "darwin":
-		return "open", []string{rawURL}
-	case "windows":
-		return "rundll32", []string{"url.dll,FileProtocolHandler", rawURL}
-	default: // linux, *bsd, etc.
-		return "xdg-open", []string{rawURL}
-	}
-}
-
-// defaultOpenBrowser opens rawURL in the default browser. The sidecar inherits the host's
-// GUI session env, so the per-OS opener behaves as it would from the host.
-func defaultOpenBrowser(rawURL string) error { // coverage:ignore it opens the real browser, which no test may do
-	name, args := browserCommand(runtime.GOOS, rawURL)
-	return exec.Command(name, args...).Start()
-}
-
 // OAuthFlow is the subset of the oauth client the login flow drives; tests fake it to
 // exercise the flow without Hydra.
 type OAuthFlow interface {
-	AuthCodeURL(state, verifier, redirect string) string
+	AuthCodeURL(state, verifier, redirect string, extra url.Values) string
 	Exchange(ctx context.Context, code, verifier, redirect string) (Token, error)
 	Verify(ctx context.Context, rawIDToken string) (Identity, error)
 }
@@ -91,7 +67,7 @@ func (f *loginFlow) start(_ context.Context) (pendingLogin, error) {
 	}
 	redirect := lb.RedirectURL()
 
-	if err := f.openBrowser(f.oauth.AuthCodeURL(state, verifier, redirect)); err != nil {
+	if err := f.openBrowser(f.oauth.AuthCodeURL(state, verifier, redirect, nil)); err != nil {
 		lb.Close()
 		return nil, err
 	}
@@ -115,129 +91,26 @@ func (f *loginFlow) start(_ context.Context) (pendingLogin, error) {
 	}, nil
 }
 
-// loopbackServer is the 127.0.0.1 listener catching the redirect and surfacing the
-// authorization code. Bind it before building AuthCodeURL so the redirect_uri matches.
-type loopbackServer struct {
-	ln    net.Listener
-	srv   *http.Server
-	state string // the redirect must echo this back
+// callbackPath is where Hydra's redirect lands on the loopback listener.
+const callbackPath = "/oauth/callback"
 
-	codeCh chan string
-	errCh  chan error
+// codeLoopback is a browser.Listener read for the code alone.
+type codeLoopback struct{ *browser.Listener }
+
+// Wait answers the redirect's code.
+func (l codeLoopback) Wait(ctx context.Context) (string, error) {
+	q, err := l.Listener.Wait(ctx)
+	if err != nil {
+		return "", err
+	}
+	return q.Get("code"), nil
 }
 
-const (
-	loopbackReadTimeout = 10 * time.Second
-	loopbackIdleTimeout = 30 * time.Second
-)
-
-// newLoopbackServer binds an ephemeral port and serves /oauth/callback. state must match
-// what the caller passed to AuthCodeURL, so a stray local request can't satisfy the
-// one-shot callback.
-func newLoopbackServer(state string) (*loopbackServer, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+// defaultNewLoopback binds the loopback listener behind the Loopback seam.
+func defaultNewLoopback(state string) (Loopback, error) {
+	l, err := browser.Listen(state, callbackPath)
 	if err != nil { // coverage:ignore binding an ephemeral loopback port does not fail
 		return nil, err
 	}
-	lb := &loopbackServer{
-		ln:     ln,
-		state:  state,
-		codeCh: make(chan string, 1),
-		errCh:  make(chan error, 1),
-	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/oauth/callback", lb.handleCallback)
-	// The port is reachable by any local process, so a stalled peer must lose its slot
-	// rather than hold one for the login's lifetime. The browser's redirect is a single
-	// small GET; these are generous for it and short against the five-minute flow.
-	lb.srv = &http.Server{
-		Handler:           mux,
-		ReadHeaderTimeout: loopbackReadTimeout,
-		ReadTimeout:       loopbackReadTimeout,
-		IdleTimeout:       loopbackIdleTimeout,
-	}
-	go func() {
-		if err := lb.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			lb.fail(err)
-		}
-	}()
-	return lb, nil
-}
-
-// callbackHTML is the page the browser lands on after a successful redirect.
-const callbackHTML = "<!doctype html>" +
-	"<html lang=en>" +
-	"<head>" +
-	"<meta charset=utf-8>" +
-	"<title>kstack — signed in</title>" +
-	"<style>body{font:16px system-ui,sans-serif;text-align:center;padding:4em;color:#222}h1{font-weight:600;margin:0 0 .25em}p{color:#666}</style>" +
-	"</head>" +
-	"<body>" +
-	"<h1>Signed in</h1>" +
-	"<p>You can close this tab and return to the app.</p>" +
-	"</body>" +
-	"</html>"
-
-func (lb *loopbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	// State first, before consuming an error or a code: a stray local request must not
-	// be able to abort (via ?error=) or consume the one-shot flow.
-	if q.Get("state") != lb.state {
-		http.Error(w, "invalid state", http.StatusBadRequest)
-		return
-	}
-	if e := q.Get("error"); e != "" {
-		lb.fail(fmt.Errorf("oauth: authorization failed: %s", e))
-		http.Error(w, e, http.StatusBadRequest)
-		return
-	}
-	code := q.Get("code")
-	if code == "" {
-		http.Error(w, "missing code", http.StatusBadRequest)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html")
-	_, _ = w.Write([]byte(callbackHTML))
-	select {
-	case lb.codeCh <- code:
-	default:
-	}
-}
-
-// fail records the first error to reach the flow and drops the rest. Wait consumes at
-// most one and nothing drains the channel behind it, so neither sender may block: a
-// repeated callback would otherwise park its handler goroutine for good.
-func (lb *loopbackServer) fail(err error) {
-	select {
-	case lb.errCh <- err:
-	default:
-	}
-}
-
-// RedirectURL is the redirect_uri to register with the authorize request.
-func (lb *loopbackServer) RedirectURL() string {
-	return (&url.URL{Scheme: "http", Host: lb.ln.Addr().String(), Path: "/oauth/callback"}).String()
-}
-
-// Wait blocks until the redirect delivers a code, the flow errors, or ctx is
-// cancelled.
-func (lb *loopbackServer) Wait(ctx context.Context) (string, error) {
-	select {
-	case code := <-lb.codeCh:
-		return code, nil
-	case err := <-lb.errCh:
-		return "", err
-	case <-ctx.Done():
-		return "", ctx.Err()
-	}
-}
-
-// Close shuts down the loopback server.
-func (lb *loopbackServer) Close() error {
-	return lb.srv.Close()
-}
-
-// defaultNewLoopback adapts newLoopbackServer to the Loopback seam.
-func defaultNewLoopback(state string) (Loopback, error) {
-	return newLoopbackServer(state)
+	return codeLoopback{l}, nil
 }

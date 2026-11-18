@@ -7,7 +7,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,6 +18,8 @@ import (
 
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testVerifier is a sample PKCE code verifier. The protocol layer treats the
@@ -43,7 +47,7 @@ func TestAuthCodeURL(t *testing.T) {
 		Scopes:   []string{"openid", "offline_access"},
 	})
 	redirect := "http://127.0.0.1:49217/oauth/callback"
-	raw := c.AuthCodeURL("xyz-state", testVerifier, redirect)
+	raw := c.AuthCodeURL("xyz-state", testVerifier, redirect, nil)
 
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -419,10 +423,283 @@ func TestRefreshKeepsAStaticRefreshToken(t *testing.T) {
 	}
 }
 
+// expires_in may arrive as a string, and a huge one is capped rather than
+// overflowing into an expiry in the past.
+func TestRefreshReadsExpiresIn(t *testing.T) {
+	for _, tc := range []struct {
+		name, expiresIn string
+		want            time.Duration
+	}{
+		{"a number", "3600", time.Hour},
+		{"a string", `"3600"`, time.Hour},
+		{"huge", "99999999999", math.MaxInt32 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"access_token":"a","token_type":"bearer","expires_in":`+tc.expiresIn+`}`)
+			}))
+			defer ts.Close()
+
+			before := time.Now()
+			tok, err := NewClient(Config{ClientID: "kstack-desktop", TokenURL: ts.URL}).Refresh(context.Background(), "r")
+			require.NoError(t, err)
+			assert.WithinRange(t, tok.Expiry, before.Add(tc.want), time.Now().Add(tc.want))
+		})
+	}
+}
+
 // A revocation URL that cannot become a request fails before any network call.
 func TestRevokeRejectsAnUnusableEndpoint(t *testing.T) {
 	c := NewClient(Config{ClientID: "x", RevocationURL: "://bad"})
 	if err := c.Revoke(context.Background(), "t"); err == nil {
 		t.Fatal("want an error for an unusable revocation endpoint")
 	}
+}
+
+// The resource (RFC 8707) and a caller's own parameters ride the authorize URL
+// beside the standard ones.
+func TestAuthCodeURLSendsTheResourceAndExtraParameters(t *testing.T) {
+	c := NewClient(Config{
+		ClientID: "dynamic_agent_client",
+		AuthURL:  "https://issuer.test/oauth/authorize",
+		Scopes:   []string{"openid", "offline_access"},
+		Resource: "https://api.test/v1",
+	})
+
+	raw := c.AuthCodeURL("st", testVerifier, "http://127.0.0.1:1/auth/callback", url.Values{"nonce": {"n-1"}, "agent_name_hint": {"Kstack"}})
+
+	u, err := url.Parse(raw)
+	require.NoError(t, err)
+	q := u.Query()
+	assert.Equal(t, "https://api.test/v1", q.Get("resource"))
+	assert.Equal(t, "n-1", q.Get("nonce"))
+	assert.Equal(t, "Kstack", q.Get("agent_name_hint"))
+	assert.Equal(t, "openid offline_access", q.Get("scope"))
+	assert.Equal(t, "dynamic_agent_client", q.Get("client_id"))
+}
+
+// tokenForm serves a token endpoint that records each form it is posted and
+// answers body.
+func tokenForm(t *testing.T, body string) (*httptest.Server, *[]url.Values) {
+	t.Helper()
+	var forms []url.Values
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseForm())
+		forms = append(forms, r.PostForm)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(ts.Close)
+	return ts, &forms
+}
+
+// The exchange sends the resource and keeps the scopes the issuer granted.
+func TestExchangeSendsTheResourceAndKeepsTheGrantedScopes(t *testing.T) {
+	ts, forms := tokenForm(t, `{"access_token":"a","refresh_token":"r","id_token":"i","token_type":"bearer","expires_in":3600,"scope":"openid chatgpt.tokens.use.direct"}`)
+	c := NewClient(Config{ClientID: "issued", TokenURL: ts.URL, Resource: "https://api.test/v1"})
+
+	tok, err := c.Exchange(context.Background(), "the-code", testVerifier, "http://127.0.0.1:1/cb")
+
+	require.NoError(t, err)
+	assert.Equal(t, "openid chatgpt.tokens.use.direct", tok.Scope)
+	require.Len(t, *forms, 1)
+	assert.Equal(t, "https://api.test/v1", (*forms)[0].Get("resource"))
+	assert.Equal(t, "issued", (*forms)[0].Get("client_id"))
+}
+
+// A refresh posts its own form, with the resource and no scope, and keeps the
+// replacement refresh token a rotating issuer sends.
+func TestRefreshPostsTheResourceAndKeepsTheRotation(t *testing.T) {
+	ts, forms := tokenForm(t, `{"access_token":"a2","refresh_token":"r2","id_token":"i2","token_type":"bearer","expires_in":3600,"scope":"openid"}`)
+	c := NewClient(Config{ClientID: "issued", TokenURL: ts.URL, Resource: "https://api.test/v1", Scopes: []string{"openid"}})
+
+	before := time.Now()
+	tok, err := c.Refresh(context.Background(), "r1")
+
+	require.NoError(t, err)
+	assert.Equal(t, Token{AccessToken: "a2", RefreshToken: "r2", IDToken: "i2", Expiry: tok.Expiry, Scope: "openid"}, tok)
+	assert.WithinDuration(t, before.Add(time.Hour), tok.Expiry, time.Minute)
+	require.Len(t, *forms, 1)
+	assert.Equal(t, url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {"r1"},
+		"client_id":     {"issued"},
+		"resource":      {"https://api.test/v1"},
+	}, (*forms)[0])
+}
+
+// A grant the issuer refuses is a TokenError carrying its code, on the exchange
+// and on a refresh; a body with no code still carries the status.
+func TestARefusedGrantIsATokenError(t *testing.T) {
+	refusing := func(status int, body string) *Client {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, body)
+		}))
+		t.Cleanup(ts.Close)
+		return NewClient(Config{ClientID: "issued", TokenURL: ts.URL})
+	}
+
+	_, err := refusing(http.StatusBadRequest, `{"error":"invalid_grant"}`).Refresh(context.Background(), "r1")
+	tokErr, ok := errors.AsType[*TokenError](err)
+	require.True(t, ok, "err = %v", err)
+	assert.Equal(t, TokenError{Status: http.StatusBadRequest, Code: "invalid_grant"}, *tokErr)
+
+	_, err = refusing(http.StatusUnauthorized, `{"error":"invalid_client"}`).Exchange(context.Background(), "code", testVerifier, "")
+	tokErr, ok = errors.AsType[*TokenError](err)
+	require.True(t, ok, "err = %v", err)
+	assert.Equal(t, "invalid_client", tokErr.Code)
+
+	_, err = refusing(http.StatusBadGateway, `<html>`).Refresh(context.Background(), "r1")
+	tokErr, ok = errors.AsType[*TokenError](err)
+	require.True(t, ok, "err = %v", err)
+	assert.Equal(t, TokenError{Status: http.StatusBadGateway}, *tokErr)
+
+	_, err = refusing(http.StatusOK, `{"token_type":"bearer"}`).Refresh(context.Background(), "r1")
+	assert.Error(t, err, "a reply with no access token is no token")
+	assert.Equal(t, "oauth: token endpoint refused the grant: 400 invalid_grant", (&TokenError{Status: 400, Code: "invalid_grant"}).Error())
+
+	_, err = NewClient(Config{ClientID: "issued", TokenURL: "://bad"}).Refresh(context.Background(), "r1")
+	assert.Error(t, err, "an endpoint that is no URL")
+	_, err = NewClient(Config{ClientID: "issued", TokenURL: "http://127.0.0.1:1"}).Refresh(context.Background(), "r1")
+	assert.Error(t, err, "an endpoint nothing answers")
+}
+
+// A revocation says what it revokes.
+func TestRevokeSendsTheTokenTypeHint(t *testing.T) {
+	ts, forms := tokenForm(t, `{}`)
+	c := NewClient(Config{ClientID: "issued", RevocationURL: ts.URL})
+
+	require.NoError(t, c.Revoke(context.Background(), "r1"))
+
+	require.Len(t, *forms, 1)
+	assert.Equal(t, "refresh_token", (*forms)[0].Get("token_type_hint"))
+}
+
+// Verify checks the nonce the authorize request sent.
+func TestVerifyChecksTheNonce(t *testing.T) {
+	its := newIDTokenServer(t)
+	defer its.srv.Close()
+	c := NewClient(Config{ClientID: "kstack-desktop", Issuer: its.issuer, JWKSURL: its.srv.URL + "/jwks"})
+	raw := its.sign(t, its.signKey, "kstack-desktop", map[string]any{"nonce": "n-1"})
+
+	_, err := c.VerifyNonce(context.Background(), raw, "n-1")
+	require.NoError(t, err)
+	_, err = c.VerifyNonce(context.Background(), raw, "n-2")
+	assert.Error(t, err)
+	_, err = c.VerifyNonce(context.Background(), its.sign(t, its.signKey, "kstack-desktop", nil), "n-1")
+	assert.Error(t, err, "a token with no nonce")
+	_, err = c.VerifyNonce(context.Background(), its.sign(t, its.otherKey, "kstack-desktop", map[string]any{"nonce": "n-1"}), "n-1")
+	assert.Error(t, err, "a token another key signed")
+	_, err = c.VerifyNonce(context.Background(), its.sign(t, its.signKey, "kstack-desktop", nil), "")
+	assert.Error(t, err, "no nonce expected")
+}
+
+// The issuer's client follows no redirect: a 307 or 308 would resend a form
+// holding a code or a refresh token to wherever it points.
+func TestTheIssuersClientFollowsNoRedirect(t *testing.T) {
+	var elsewhere int
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { elsewhere++ }))
+	defer target.Close()
+	for _, code := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, target.URL, code)
+		}))
+		c := NewClient(Config{ClientID: "issued", TokenURL: ts.URL, RevocationURL: ts.URL})
+
+		_, err := c.Exchange(context.Background(), "code", testVerifier, "")
+		assert.Error(t, err)
+		_, err = c.Refresh(context.Background(), "r1")
+		assert.Error(t, err)
+		assert.Error(t, c.Revoke(context.Background(), "r1"))
+		ts.Close()
+	}
+	assert.Zero(t, elsewhere)
+}
+
+// discoveryServer serves an OpenID configuration doc builds from its own URL.
+func discoveryServer(t *testing.T, doc func(base string) map[string]any) string {
+	t.Helper()
+	var base string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/openid-configuration" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(doc(base))
+	}))
+	t.Cleanup(ts.Close)
+	base = ts.URL
+	return base
+}
+
+func goodDoc(base string) map[string]any {
+	return map[string]any{
+		"issuer":                 base,
+		"authorization_endpoint": base + "/oauth/authorize",
+		"token_endpoint":         base + "/oauth/token",
+		"jwks_uri":               base + "/.well-known/jwks.json",
+		"revocation_endpoint":    base + "/oauth/revoke",
+	}
+}
+
+// Discover reads the endpoints off the issuer's own document.
+func TestDiscoverReadsTheEndpoints(t *testing.T) {
+	base := discoveryServer(t, goodDoc)
+
+	got, err := Discover(context.Background(), base)
+
+	require.NoError(t, err)
+	assert.Equal(t, Endpoints{
+		Issuer:        base,
+		AuthURL:       base + "/oauth/authorize",
+		TokenURL:      base + "/oauth/token",
+		JWKSURL:       base + "/.well-known/jwks.json",
+		RevocationURL: base + "/oauth/revoke",
+	}, got)
+}
+
+// A document naming another issuer, or an endpoint off the issuer's origin, is
+// refused; so is one missing an endpoint the flow needs, and a redirect.
+func TestDiscoverRefusesADocumentItCannotTrust(t *testing.T) {
+	for name, edit := range map[string]func(base string, doc map[string]any){
+		"another issuer":             func(_ string, doc map[string]any) { doc["issuer"] = "https://evil.test" },
+		"an endpoint elsewhere":      func(_ string, doc map[string]any) { doc["token_endpoint"] = "https://evil.test/token" },
+		"an endpoint on plain http":  func(base string, doc map[string]any) { doc["jwks_uri"] = "ftp" + base[4:] + "/jwks" },
+		"a revocation elsewhere":     func(_ string, doc map[string]any) { doc["revocation_endpoint"] = "https://evil.test/revoke" },
+		"no token endpoint":          func(_ string, doc map[string]any) { delete(doc, "token_endpoint") },
+		"an endpoint that is no URL": func(_ string, doc map[string]any) { doc["authorization_endpoint"] = "://bad" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			base := discoveryServer(t, func(base string) map[string]any {
+				doc := goodDoc(base)
+				edit(base, doc)
+				return doc
+			})
+
+			_, err := Discover(context.Background(), base)
+
+			assert.Error(t, err)
+		})
+	}
+
+	redirecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, discoveryServer(t, goodDoc)+r.URL.Path, http.StatusFound)
+	}))
+	defer redirecting.Close()
+	_, err := Discover(context.Background(), redirecting.URL)
+	assert.Error(t, err)
+
+	notJSON := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "<html>") }))
+	defer notJSON.Close()
+	_, err = Discover(context.Background(), notJSON.URL)
+	assert.Error(t, err)
+
+	_, err = Discover(context.Background(), "http://127.0.0.1:1")
+	assert.Error(t, err)
+	_, err = Discover(context.Background(), "://bad")
+	assert.Error(t, err)
 }

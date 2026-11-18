@@ -20,6 +20,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth/browser"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
 )
 
@@ -158,7 +159,7 @@ func newWithOptions(cfg Config, opts ...option) (Service, error) {
 
 	oc := oauth.NewClient(oauthCfg)
 
-	start := (&loginFlow{oauth: oc, newLoopback: defaultNewLoopback, openBrowser: defaultOpenBrowser}).start
+	start := (&loginFlow{oauth: oc, newLoopback: defaultNewLoopback, openBrowser: browser.Open}).start
 	if o.start != nil {
 		start = o.start
 	}
