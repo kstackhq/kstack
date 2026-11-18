@@ -87,3 +87,12 @@ export function modelOf(models: Model[], ref: ModelRef | null): Model | null {
   if (!ref) return null;
   return models.find((m) => m.provider.id === ref.providerID && m.id === ref.id) ?? null;
 }
+
+/** The catalog's providers, in the order their first model comes. */
+export function providersOf(models: Model[]): Model['provider'][] {
+  const seen = new Map<string, Model['provider']>();
+  models.forEach((m) => {
+    if (!seen.has(m.provider.id)) seen.set(m.provider.id, m.provider);
+  });
+  return [...seen.values()];
+}

@@ -33,6 +33,7 @@ vi.mock('./clusters', () => ({
     return <p>The clusters</p>;
   },
 }));
+vi.mock('./providers', () => ({ ProvidersSettings: () => <p>The providers</p> }));
 
 const { ThemeProvider } = await import('@/lib/theme');
 const { SettingsDialog } = await import('./dialog');
@@ -66,7 +67,18 @@ describe('SettingsDialog', () => {
     expect(screen.getByRole('group', { name: 'Appearance' })).toBeInTheDocument();
   });
 
-  it.each(TABS.slice(2))('shows %s by its name, and Coming soon', async (name) => {
+  it('draws the Providers tab', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole('tab', { name: 'Providers' }));
+
+    const panel = screen.getByRole('tabpanel');
+    expect(panel).toHaveTextContent('The providers');
+    expect(panel).not.toHaveTextContent('Coming soon');
+  });
+
+  it.each(['Connectors', 'Memory', 'Sandbox', 'Permissions'])('shows %s by its name, and Coming soon', async (name) => {
     const user = userEvent.setup();
     renderDialog();
 

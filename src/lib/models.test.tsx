@@ -21,7 +21,7 @@ const { state, reexecute } = vi.hoisted(() => ({ state: { current: {} }, reexecu
 vi.mock('urql', () => ({ useQuery: () => [state.current, reexecute] }));
 vi.mock('@/gql', () => ({ graphql: () => ({}) }));
 
-const { modelOf, seedPick, useModels } = await import('./models');
+const { modelOf, providersOf, seedPick, useModels } = await import('./models');
 
 const opus: Model = {
   provider: { id: 'anthropic', label: 'Anthropic' },
@@ -125,5 +125,13 @@ describe('modelOf', () => {
   it('is null for a model the catalog no longer offers', () => {
     expect(modelOf([opus], { providerID: 'fake', id: 'fake' })).toBeNull();
     expect(modelOf([opus], null)).toBeNull();
+  });
+});
+
+describe('providersOf', () => {
+  it('lists each provider once, in the order its first model comes', () => {
+    const haiku = { ...opus, id: 'claude-haiku-5' };
+    expect(providersOf([opus, fake, haiku])).toEqual([opus.provider, fake.provider]);
+    expect(providersOf([])).toEqual([]);
   });
 });

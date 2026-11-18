@@ -36,6 +36,7 @@ import { type AppDialogProps } from '@/lib/dialog';
 
 import { ClustersSettings } from './clusters';
 import { GeneralSettings } from './general';
+import { ProvidersSettings } from './providers';
 
 // A tab with no `content` says "Coming soon". A hidden tab's pane unmounts, so
 // its watches run only while it is selected.
@@ -43,7 +44,7 @@ const TABS: { label: string; icon: LucideIcon; content?: ComponentType }[] = [
   { label: 'General', icon: SlidersHorizontal, content: GeneralSettings },
   { label: 'Clusters', icon: Server, content: ClustersSettings },
   { label: 'Connectors', icon: Plug },
-  { label: 'Providers', icon: Sparkles },
+  { label: 'Providers', icon: Sparkles, content: ProvidersSettings },
   { label: 'Memory', icon: Brain },
   { label: 'Sandbox', icon: Container },
   { label: 'Permissions', icon: ShieldCheck },

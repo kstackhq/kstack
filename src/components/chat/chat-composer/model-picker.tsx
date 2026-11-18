@@ -22,7 +22,7 @@ import { Check } from 'lucide-react';
 import { useState } from 'react';
 
 import { SectionHeading } from '@/components/primitives/section-heading';
-import type { Model, ModelPick } from '@/lib/models';
+import { type Model, type ModelPick, providersOf } from '@/lib/models';
 
 // The segmented control ModeNav draws, for the provider tabs and the effort levels.
 const TRACK = 'flex w-full items-center rounded-lg bg-muted p-[3px] text-muted-foreground';
@@ -51,15 +51,6 @@ function ProviderMark({ id, label }: { id: string; label: string }) {
 // A model's value in the radio group: the id alone is not one, two providers being
 // free to name a model the same.
 const keyOf = (providerID: string, id: string) => `${providerID}/${id}`;
-
-// The catalog's providers, in the order their first model comes.
-function providersOf(models: Model[]): Model['provider'][] {
-  const seen = new Map<string, Model['provider']>();
-  models.forEach((m) => {
-    if (!seen.has(m.provider.id)) seen.set(m.provider.id, m.provider);
-  });
-  return [...seen.values()];
-}
 
 type ModelPickerProps = {
   /** The catalog. */

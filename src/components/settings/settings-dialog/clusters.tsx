@@ -26,7 +26,7 @@ import {
 } from '@kubetail/ui/elements/dropdown-menu';
 import { cn } from '@kubetail/ui/lib/utils';
 import { Ellipsis, Trash2 } from 'lucide-react';
-import { type ReactNode, useId } from 'react';
+import type { ReactNode } from 'react';
 import { useMutation } from 'urql';
 
 import { VisibleText } from '@/components/primitives/visible-text';
@@ -39,6 +39,8 @@ import {
 } from '@/lib/cluster-mutations';
 import { type Cluster, formatBytes, useClusters } from '@/lib/clusters';
 import { visibleTitle } from '@/lib/visible-text';
+
+import { Group } from './group';
 
 export function ClustersSettings() {
   const { clusters } = useClusters();
@@ -64,21 +66,6 @@ export function ClustersSettings() {
         </Group>
       )}
     </>
-  );
-}
-
-function Group({ title, lede, children }: { title: string; lede: string; children: ReactNode }) {
-  const headingID = useId();
-  return (
-    <div role="group" aria-labelledby={headingID} className="flex flex-col gap-2">
-      <div className="flex flex-col gap-0.5">
-        <h4 id={headingID} className="text-sm font-medium text-popover-foreground">
-          {title}
-        </h4>
-        <p className="text-xs text-muted-foreground">{lede}</p>
-      </div>
-      {children}
-    </div>
   );
 }
 
