@@ -35,7 +35,7 @@ vi.mock('./clusters', () => ({
 }));
 
 const { ThemeProvider } = await import('@/lib/theme');
-const { SettingsDialog } = await import('./dialog');
+const { SettingsDialog, TABS } = await import('./dialog');
 
 function renderDialog(onOpenChange = vi.fn()) {
   render(
@@ -46,7 +46,7 @@ function renderDialog(onOpenChange = vi.fn()) {
   return onOpenChange;
 }
 
-const TABS = ['General', 'Clusters', 'Connectors', 'Providers', 'Memory', 'Sandbox', 'Permissions'];
+const NAMES = ['General', 'Clusters', 'Connectors', 'Providers', 'Memory', 'Sandbox', 'Permissions'];
 
 beforeEach(() => {
   invokeMock.mockReset();
@@ -60,13 +60,15 @@ describe('SettingsDialog', () => {
 
     const list = screen.getByRole('tablist');
     expect(list).toHaveAttribute('aria-orientation', 'vertical');
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(TABS);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(NAMES);
     expect(screen.getByRole('tab', { name: 'General', selected: true })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Appearance' })).toBeInTheDocument();
   });
 
-  it.each(TABS.slice(2))('shows %s by its name, and Coming soon', async (name) => {
+  const comingSoon = TABS.filter((t) => !t.content).map((t) => t.label);
+
+  it.each(comingSoon)('shows %s by its name, and Coming soon', async (name) => {
     const user = userEvent.setup();
     renderDialog();
 

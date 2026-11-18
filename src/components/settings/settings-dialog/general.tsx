@@ -13,17 +13,12 @@
 // limitations under the License.
 
 // The Settings dialog's General tab.
-import { useId } from 'react';
-
 import { ColorSchemePicker } from './color-scheme-picker';
+import { Group } from './group';
 
 export function GeneralSettings() {
-  const headingID = useId();
   return (
-    <div role="group" aria-labelledby={headingID} className="flex flex-col gap-2">
-      <h4 id={headingID} className="text-sm font-medium text-popover-foreground">
-        Appearance
-      </h4>
+    <Group title="Appearance">
       {/* The row stacks while the card is too narrow for the text beside the
           picker's 264px, as at the window's minimum width. */}
       <div className="@container rounded-lg border">
@@ -35,6 +30,6 @@ export function GeneralSettings() {
           <ColorSchemePicker />
         </div>
       </div>
-    </div>
+    </Group>
   );
 }

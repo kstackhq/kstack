@@ -2,7 +2,7 @@
 
 The settings dialog and the folder-grant form. Also owns `src/lib/`'s `sandbox-*.tsx` and `permission-settings.tsx`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md), which also covers the color-scheme picker (*Theming & storage*).
 
-**The Settings dialog** is `components/settings/settings-dialog/`, exporting `SettingsDialog` alone: a `PanelDialog` (`primitives/dialog.tsx`) with vertical tabs beside its pane. It opens on General (`general.tsx`), which holds the Mode picker (`color-scheme-picker.tsx`); a tab with no `content` says *Coming soon*. A hidden tab's pane unmounts, so its watches run only while it is selected.
+**The Settings dialog** is `components/settings/settings-dialog/`, exporting `SettingsDialog` alone: a `PanelDialog` (`primitives/dialog.tsx`) with vertical tabs beside its pane. It opens on General (`general.tsx`), which holds the Mode picker (`color-scheme-picker.tsx`); a tab with no `content` says *Coming soon*. A pane is a column of `Group`s (`group.tsx`): a heading, optional lede, info control (`InfoPopover`) and action, over its body. A hidden tab's pane unmounts, so its watches run only while it is selected.
 
 **Clusters** (`clusters.tsx`) lists `useClusters()`'s kubeconfig clusters, then the archived ones (no longer in the kubeconfig), hidden when there are none; nothing draws before the `Bookmark`. Every string from a cluster goes through `VisibleText`. Its actions are `ClusterSyncPanel`'s mutations (`src/lib/cluster-mutations.ts`), with no confirm; each row redraws from the watch.
 
