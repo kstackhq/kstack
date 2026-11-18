@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/amorey/gobus"
 	"github.com/stretchr/testify/assert"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitepool"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
@@ -28,10 +31,10 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	require.FileExists(t, path)
 
-	// Migrations ran: the schema_migrations sequence is at version 1.
+	// Migrations ran: the schema_migrations sequence is at version 2.
 	var v int
 	require.NoError(t, db.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 1, v)
+	require.Equal(t, 2, v)
 	requireTables(t, db.Write.DB)
 	require.NoError(t, db.Close())
 
@@ -40,7 +43,7 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db2.Close() })
 	require.NoError(t, db2.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 1, v)
+	require.Equal(t, 2, v)
 	requireTables(t, db2.Write.DB)
 }
 
@@ -121,8 +124,8 @@ func TestMessagesAndRunsAreKeyedForOneTurn(t *testing.T) {
 	require.ErrorContains(t, err, "UNIQUE")
 }
 
-// requireTables asserts the schema the initial migration creates: exactly the
-// seven application tables (schema_migrations is the migrator's), each STRICT,
+// requireTables asserts the schema the migrations create: exactly the
+// application tables (schema_migrations is the migrator's), each STRICT,
 // the small-row ones WITHOUT ROWID, and the named indexes as declared — partial
 // WHEREs and column order included.
 func requireTables(t *testing.T, db *sql.DB) {
@@ -149,6 +152,7 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"llm_calls wr=0 strict=1",
 		"memories wr=0 strict=1",
 		"messages wr=0 strict=1",
+		"oauth_connections wr=1 strict=1",
 		"tool_calls wr=0 strict=1",
 	}, tables)
 
@@ -397,11 +401,39 @@ func TestOpenRefusesANewerFile(t *testing.T) {
 // line in the PR that writes it. Once a desktop release carries a migration, every
 // installed app.db has run it, so its line never changes again.
 var shippedMigrations = map[string]string{
-	"0001_init.sql": "5bce01af11e58cea4359e82f58d5c5719c9077646fb71c0b4a3055e8a0489944", // desktop/v0.0.1
+	"0001_init.sql":              "5bce01af11e58cea4359e82f58d5c5719c9077646fb71c0b4a3055e8a0489944", // desktop/v0.0.1
+	"0002_oauth_connections.sql": "a0f97ef3bdd26e882187424cf23f7a73b35747d09e85eef705f7f4d72fc03fea",
 }
 
 func TestAShippedMigrationIsNeverEdited(t *testing.T) {
 	assert.Equal(t, shippedMigrations, sqlitemigratetest.Checksums(t, migrationsFS, "migrations"))
+}
+
+// A file 0001 built keeps its rows across 0002, and gains the connections table.
+func TestMigration0002AddsTheOAuthConnections(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "app.db")
+	frozen, err := fs.ReadFile(migrationsFS, "migrations/0001_init.sql")
+	require.NoError(t, err)
+	pool, err := sqlitepool.OpenWriter(path)
+	require.NoError(t, err)
+	_, err = sqlitemigrate.Apply(ctx, pool.DB, fstest.MapFS{"migrations/0001_init.sql": {Data: frozen}}, "migrations")
+	require.NoError(t, err)
+	_, err = pool.ExecContext(ctx, `INSERT INTO clusters (id, source, created_at, updated_at) VALUES ('c', 'cloud', 0, 0)`)
+	require.NoError(t, err)
+	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
+
+	db, err := Open(path, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	var id string
+	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT id FROM clusters`).Scan(&id))
+	assert.Equal(t, "c", id)
+	_, err = db.Write.ExecContext(ctx, `INSERT INTO oauth_connections (provider, created_at, updated_at) VALUES ('chatgpt', 0, 0)`)
+	require.NoError(t, err)
+	_, err = db.Write.ExecContext(ctx, `INSERT INTO oauth_connections (provider, created_at, updated_at) VALUES ('chatgpt', 0, 0)`)
+	assert.Error(t, err, "one row per provider")
 }
 
 // A subscriber hears the keys it asked for and nothing else, and a burst on one key

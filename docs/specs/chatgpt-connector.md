@@ -164,7 +164,7 @@ type SessionSigner interface {
 
 `dialect_test.go`'s conformance table runs every case under a signer as well as under a key.
 
-### 2. Sign-in: `services/chatgptauth`
+### 2. Sign-in: `services/connectors/chatgptauth`
 
 A flat package with a section in `sidecar/CLAUDE.md`. It owns the registration, the session and
 the tokens, and implements `llm.Signer`.
@@ -206,7 +206,7 @@ have it:
 | Registration | The issued `client_id` is saved before the code exchange, so a failed exchange does not register a second client |
 | Exchange | `grant_type=authorization_code` with the issued `client_id`, the code, the verifier, the same `redirect_uri` and `resource` |
 | ID token | Verified against the JWKS: signature, issuer, audience (the issued `client_id`), expiry and nonce. Its `sub` is the account |
-| Plan permission | The token response's `scope` must hold `chatgpt.tokens.use.direct`. Identity alone grants no plan usage |
+| Plan permission | The token response's `scope` must hold `chatgpt.tokens.use.direct`; a response with no `scope` granted what was asked. Identity alone grants no plan usage |
 | Refresh | `grant_type=refresh_token` with the saved `client_id`, the refresh token and `resource`, no `scope`. Every refresh returns a replacement refresh token |
 | Sign-out | `POST` the revocation endpoint with the refresh token, `token_type_hint=refresh_token` and the `client_id`. The registration is kept |
 
@@ -612,7 +612,7 @@ they changed.
 | 2 | The security record, the ADRs and the `docs/security-model.md` rows (*When it lands*), written before the code and corrected as the work moves | Planned | — |
 | 3 | `llm.Signer`, `SessionSigner` and `ResolveUnder`, `Provider.Codes`, the middleware and the no-redirect client (§1, §3); the conformance table under a signer; the tool encoding, if the probe changed it | Planned | — |
 | 4 | `services/auth/browser` and the `auth/oauth` additions (§2), with `services/auth` moved onto them and behaving as before | Planned | — |
-| 5 | `atomicjson.SaveSynced`; `services/chatgptauth` (§2): registration, flow, generations, grant, storage, `Disconnect`; a fake issuer in its `testutil_test.go` | Planned | — |
+| 5 | `atomicjson.SaveSynced`; `services/connectors/chatgptauth` (§2): registration, flow, generations, grant, storage, `Disconnect`; a fake issuer in its `testutil_test.go` | Planned | — |
 | 6 | The `chatgpt` row, the model decoder, `SetCatalog`, the catalog loop, the usage-limit text and the runtime wiring (§3, §4) | Planned | — |
 | 7 | The GraphQL surface (§5) | Planned | — |
 | 8 | The webview (§6) | Planned | — |

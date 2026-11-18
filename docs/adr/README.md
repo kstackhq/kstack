@@ -267,3 +267,4 @@ usually just documentation in the wrong place.
 | 2026-11-18 | [Accept picomatch's ReDoS advisory in dev tooling](2026-11-18-accept-picomatchs-redos-advisory-in-dev-tooling.md) | repo | Accepted |
 | 2026-11-18 | [A run's AWS identity follows its chat's cluster](2026-11-18-a-runs-aws-identity-follows-its-chats-cluster.md) | sidecar | Accepted |
 | 2026-11-18 | [A provider's credential is a key or a signer](2026-11-18-a-providers-credential-is-a-key-or-a-signer.md) | sidecar | Accepted |
+| 2026-11-18 | [The ChatGPT connector signs in with ChatGPT's dynamic registration](2026-11-18-the-chatgpt-connector-signs-in-with-chatgpts-dynamic-registration.md) | cross-cutting | Accepted |

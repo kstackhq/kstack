@@ -1,0 +1,253 @@
+// Copyright 2026 The Kstack Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package oauthconn
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
+)
+
+// session is a signed-in account's tokens. The access token is memory's alone:
+// a launch refreshes at its first Sign.
+type session struct {
+	// id names the sign-in, in the row and in the keyring's entry.
+	id       string
+	clientID string
+	refresh  string
+	access   oauth.Token
+	// unsaved is a rotated refresh token not yet in the keyring. Until it lands
+	// Sign hands out no access token: the old refresh token is spent, and a crash
+	// would lose the session without a sign.
+	unsaved bool
+}
+
+// refresh is one refresh under way for the session of gen, which every caller
+// of that session that arrives during it waits for. token and err are its
+// answer, set before done closes.
+type refresh struct {
+	gen   uint64
+	done  chan struct{}
+	token string
+	err   error
+}
+
+// anySession is the generation the service itself signs under: whichever
+// session is current. A session's own generation is never 0.
+const anySession = 0
+
+// errOffResource is a request outside the one resource the tokens are for.
+var errOffResource = errors.New("oauthconn: the request is not for the API this credential is for")
+
+// Sign sets r's bearer to the current session's access token, refreshing it
+// first when it has expired. It signs only the API base and what is under it.
+func (s *Service) Sign(r *http.Request) error { return s.sign(r, anySession) }
+
+// Refused drops the access token r carried, if it is still the current one, so
+// the next Sign refreshes.
+func (s *Service) Refused(r *http.Request) { s.refused(r, anySession) }
+
+// Bind is a signer for the current session alone. With no session, during a
+// sign-in included, it is dead for good: an attempt's generation becomes its
+// session's, so a binding made during one would come alive later.
+func (s *Service) Bind() llm.Signer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Phase != Connected {
+		return deadSigner{}
+	}
+	return boundSigner{s: s, gen: s.gen}
+}
+
+// boundSigner signs under one generation, and fails signed out once it has
+// moved.
+type boundSigner struct {
+	s   *Service
+	gen uint64
+}
+
+func (b boundSigner) Sign(r *http.Request) error { return b.s.sign(r, b.gen) }
+func (b boundSigner) Refused(r *http.Request)    { b.s.refused(r, b.gen) }
+
+// deadSigner is a binding made with no session.
+type deadSigner struct{}
+
+func (deadSigner) Sign(*http.Request) error { return llm.ErrSignedOut }
+func (deadSigner) Refused(*http.Request)    {}
+
+// sessionLocked is the session gen names, nil when it has ended (s.mu held).
+func (s *Service) sessionLocked(gen uint64) *session {
+	if gen != anySession && gen != s.gen {
+		return nil
+	}
+	return s.session
+}
+
+func (s *Service) sign(r *http.Request, gen uint64) error {
+	if !s.covers(r.URL) {
+		return errOffResource
+	}
+	tok, ref, err := s.accessToken(gen)
+	if ref != nil {
+		// The wait is the caller's to end; the refresh is not.
+		select {
+		case <-ref.done:
+			tok, err = ref.token, ref.err
+		case <-r.Context().Done():
+			return r.Context().Err()
+		}
+	}
+	if err != nil {
+		return err
+	}
+	r.Header.Set("Authorization", "Bearer "+tok)
+	return nil
+}
+
+func (s *Service) refused(r *http.Request, gen uint64) {
+	tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess := s.sessionLocked(gen); sess != nil && sess.access.AccessToken == tok {
+		safe.ForgetSecret(tok)
+		sess.access = oauth.Token{}
+	}
+}
+
+// covers reports whether u is the API base or under it: the same scheme, the
+// host without case, the same effective port, and a path that is the base's or
+// continues it after a slash.
+func (s *Service) covers(u *url.URL) bool {
+	b := s.base
+	if u.Scheme != b.Scheme || !strings.EqualFold(u.Hostname(), b.Hostname()) || effectivePort(u) != effectivePort(b) {
+		return false
+	}
+	path := strings.TrimSuffix(b.Path, "/")
+	return u.Path == path || strings.HasPrefix(u.Path, path+"/")
+}
+
+func effectivePort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	if u.Scheme == "https" {
+		return "443"
+	}
+	return "80"
+}
+
+// accessToken is the access token of the session gen names while it is valid.
+// Otherwise it answers the refresh to wait for, starting one when none is
+// under way.
+func (s *Service) accessToken(gen uint64) (string, *refresh, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess := s.sessionLocked(gen)
+	if sess == nil {
+		return "", nil, llm.ErrSignedOut
+	}
+	if sess.unsaved {
+		// The write is retried, never the refresh: the token it would spend is
+		// the one in memory now.
+		if err := saveEntry(s.keyring, s.refreshAccount(), sess.id, sess.refresh); err != nil {
+			return "", nil, fmt.Errorf("oauthconn: save the rotated refresh token: %w", err)
+		}
+		sess.unsaved = false
+	}
+	if sess.access.Valid(time.Now()) {
+		return sess.access.AccessToken, nil, nil
+	}
+	// An ended session's refresh may still be under way; it answers that
+	// session alone.
+	if s.refreshing == nil || s.refreshing.gen != s.gen {
+		ref := &refresh{gen: s.gen, done: make(chan struct{})}
+		s.refreshing = ref
+		clientID, token := sess.clientID, sess.refresh
+		s.wg.Go(func() { s.runRefresh(ref, clientID, token) })
+	}
+	return "", s.refreshing, nil
+}
+
+// runRefresh renews ref's session, under the service's own bound: a caller's
+// cancel must not drop a token the issuer has already rotated.
+func (s *Service) runRefresh(ref *refresh, clientID, refreshToken string) {
+	ctx, cancel := context.WithTimeout(s.ctx, issuerTimeout)
+	defer cancel()
+	client, err := s.clientFor(ctx, clientID)
+	var tok oauth.Token
+	if err == nil {
+		tok, err = client.Refresh(ctx, refreshToken)
+	}
+	if err == nil {
+		safe.AddSecret(tok.AccessToken)
+		safe.AddSecret(tok.RefreshToken)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer close(ref.done)
+	if s.refreshing == ref {
+		s.refreshing = nil
+	}
+	if ref.gen != s.gen {
+		if err == nil {
+			s.revokeLocked(ref.gen, clientID, tok)
+		}
+		ref.err = llm.ErrSignedOut
+		return
+	}
+	if err != nil {
+		ref.err = s.refreshFailedLocked(err)
+		return
+	}
+	// The old refresh token is spent: memory holds the replacement from here,
+	// whatever the keyring's write does.
+	sess := s.session
+	safe.ForgetSecret(sess.refresh)
+	safe.ForgetSecret(sess.access.AccessToken)
+	sess.refresh, sess.access, sess.unsaved = tok.RefreshToken, tok, true
+	if err := saveEntry(s.keyring, s.refreshAccount(), sess.id, tok.RefreshToken); err != nil {
+		slog.Error("oauth: could not save the rotated refresh token", "provider", s.p.ID, "err", err)
+		ref.err = fmt.Errorf("oauthconn: save the rotated refresh token: %w", err)
+		return
+	}
+	sess.unsaved = false
+	ref.token = tok.AccessToken
+}
+
+// refreshFailedLocked is what a failed refresh answers its waiters. One the
+// issuer refused ends the session; one that never reached it clears nothing,
+// and the next Sign tries again (s.mu held).
+func (s *Service) refreshFailedLocked(err error) error {
+	tokErr, ok := errors.AsType[*oauth.TokenError](err)
+	if !ok || !slices.Contains(s.p.SessionEnders, tokErr.Code) {
+		slog.Warn("oauth: refresh failed", "provider", s.p.ID, "err", err)
+		return fmt.Errorf("oauthconn: refresh: %w", err)
+	}
+	slog.Warn("oauth: the issuer ended the session", "provider", s.p.ID, "code", tokErr.Code)
+	s.clearLocked(tokErr.Code == s.p.ClientGone)
+	s.publishLocked(State{Phase: Failed, Failure: SessionEnded})
+	return llm.ErrSignedOut
+}

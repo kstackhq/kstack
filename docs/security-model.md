@@ -21,6 +21,9 @@ protection. Platform checks and advisory-scan limitations are listed in the revi
 - **The IPC socket** — a credential-free path to those caches and to every mutation.
 - **The OAuth token set** in the OS keyring (access, refresh and ID tokens). The client supports
   retained or rotated refresh tokens; production issuer rotation policy is outside this repository.
+- **The ChatGPT plan's refresh token** in the OS keyring, which spends the user's plan on
+  `api.openai.com`, and its hour-long access token in the sidecar's memory
+  ([the ChatGPT connector](security/2026-11-18-the-chatgpt-connector.md)).
 - **Cluster availability** — the app holds standing watches on every mirrored kind.
 - **The user's AWS credentials**, per profile, resolved by `services/awsauth` once a sandboxed
   request needs them and held in memory, blanked in every log.
@@ -29,7 +32,7 @@ protection. Platform checks and advisory-scan limitations are listed in the revi
 
 ## Boundaries
 
-Six boundaries, in the order an attacker meets them:
+Seven boundaries, in the order an attacker meets them:
 
 1. **Webview → host.** The host exposes Tauri commands; no filesystem or shell plugin permission
    is granted to the page. Production CSP restricts script loads and connection APIs to local
@@ -75,6 +78,11 @@ Six boundaries, in the order an attacker meets them:
    `github.com` and `api.github.com` through the run's door, over HTTPS with the user's token, which
    the sidecar adds; the sandbox holds none. A read passes, and a change, a push and a read of
    stored data wait on the user. → [a sandboxed command reaches GitHub](security/2026-11-17-a-sandboxed-command-reaches-github.md).
+7. **Sidecar → OpenAI's sign-in.** With the ChatGPT connector connected, the sidecar reaches
+   `auth.openai.com` for discovery, the JWKS, the token and revocation endpoints, and sends a
+   chat's transcript to `api.openai.com` under the plan's bearer, as boundary 5 says of any
+   provider. Sign-in is OAuth with PKCE through the system browser and a loopback redirect; the
+   webview holds no token. → [the ChatGPT connector](security/2026-11-18-the-chatgpt-connector.md).
 
 ## Protections
 
@@ -96,6 +104,11 @@ and is not back yet; the row keeps the status it had and states what the rebuild
 | Loopback callback checks `state` before consuming a code or an error | `sidecar/internal/services/auth/browser/browser.go` | **Enforced** — `TestListenerRejectsInvalidCallbackWithoutConsuming` |
 | A login completing after sign-out cannot restore the session, and its token is revoked | `sidecar/internal/services/auth/grant.go`, `auth.go` | **Enforced** — `TestLogoutBeatsAPendingLogin`, `TestSupersededLoginRevokesItsToken`, `TestASecondLoginSupersedesTheFirst`; the epoch check shares `set`'s lock with the write it guards |
 | The loopback callback bounds its reads, and a repeated error cannot park its handler | `sidecar/internal/services/auth/browser/browser.go` | **Enforced** — `TestListenerBoundsItsReads`, `TestListenerSurvivesRepeatedAuthorizationErrors` |
+| The ChatGPT plan's tokens never leave the keyring and memory: no log line, file or `app.db` row holds one | `sidecar/internal/services/connectors/chatgptauth` | **Enforced** — `TestNoChatGPTTokenLeavesTheKeyring` reads the raw log and every file under the data directory after a sign-in, a refresh and a refused refresh; `chatgptauth.State` holds no token ([the ChatGPT connector](security/2026-11-18-the-chatgpt-connector.md)) |
+| The ChatGPT plan's bearer reaches `api.openai.com/v1` alone, redirects included, and the issuer's forms are never resent | `sidecar/internal/services/connectors/chatgptauth/sign.go`, `sidecar/internal/llm/helpers.go`, `services/auth/oauth/oauth.go` | **Enforced** — `TestTheChatGPTBearerGoesNowhereElse`, `TestEveryDialectFollowsNoRedirect`, `TestTheIssuersClientFollowsNoRedirect`, `TestDiscoverRefusesADocumentItCannotTrust` |
+| Sign in with ChatGPT verifies the ID token's nonce and audience, and keeps no token without plan permission | `sidecar/internal/services/connectors/chatgptauth/connect.go`, `services/auth/oauth/oauth.go` | **Enforced** — `TestVerifyChecksTheNonce`, `TestASignInWithoutPlanPermissionKeepsNoTokens`, `TestAFirstSignInWithoutAnIssuedClientIsRefused` |
+| A turn never signs under a ChatGPT session it did not start in, and a late exchange or refresh is revoked, never saved | `sidecar/internal/services/connectors/chatgptauth`, `sidecar/internal/llm/service.go` | **Enforced** — `TestABindingEndsWithItsSession`, `TestABindingWithNoSessionIsDead`, `TestResolveBindsASessionSigner`, `TestResolveUnderKeepsTheParentsBindingOnItsProvider`, `TestAnExchangeThatFinishesLateIsRevoked`, `TestDisconnectDuringARefresh` |
+| A rotated ChatGPT refresh token is in the keyring before its access token is used | `sidecar/internal/services/connectors/chatgptauth/sign.go` | **Enforced** — `TestSignRefreshesAnExpiredToken`, `TestARotatedTokenSurvivesACrash`, `TestAnUnsavedRotationHoldsTheAccessTokenBack` |
 | A webview's subscriptions are torn down by the host on reload and close | `src-tauri/src/lib.rs` | **Enforced** — `cancel_webview_drops_only_that_webviews_subscriptions` |
 | The sidecar writes one record per line, control characters escaped by the JSON encoder, so cluster-controlled text cannot forge a line in its log | `sidecar/internal/lib/logging/logging.go` | **Enforced** — `TestInitWritesOneLinePerRecord` |
 | A line off the sidecar's pipes is sanitized onto one line before it is emitted, under `target: "sidecar"`; a debug build keeps it out of `main.log`, which `sidecar.log` already holds. The host decodes each record's JSON to build that line, so the message's control characters are real again by the time it is written | `src-tauri/src/services/sidecar/logs.rs`, `src-tauri/src/logging.rs` | **Enforced** — `a_forwarded_message_stays_on_one_line`, `a_forwarded_sidecar_line_reaches_main_log_only_in_a_release_build` |

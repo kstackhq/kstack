@@ -49,6 +49,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | `internal/run/CLAUDE.md` | the login shell, the session, the sandbox, permissions, the cluster proxy |
 | `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, LogsWatch, web search), `fileguard`, `logsinput` |
 | `internal/agent/CLAUDE.md` | the catalog, the loop, the chat service (turn, rows, approvals, tasks, the wire errors) |
+| `internal/services/connectors/oauthconn/CLAUDE.md` | signing in to a model provider with OAuth; `chatgptauth` is ChatGPT's provider |
 
 ## Layout
 
@@ -191,7 +192,7 @@ may have signed in as someone else. Every failure is `ErrNoToken`. →
 
 Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + PKCE, loopback redirect), verification via go-oidc, refresh token in the OS keyring. Signed-in ⇔ refresh token present; works offline; degrades to signed-out when unconfigured. → [ADR: local-first auth](../docs/adr/2026-08-09-local-first-auth-settings.md).
 
-- Flat root package by file: `auth.go`, `grant.go` (token set as source of truth, lazy refresh with burst-dedup, persist-before-cache), `login.go`, `keyring.go`. `auth/oauth` is a leaf that must not import `auth`; it is vendor-neutral. `auth/browser` (loopback, opener) is shared by every browser sign-in.
+- Flat root package by file: `auth.go`, `grant.go` (token set as source of truth, lazy refresh with burst-dedup, persist-before-cache), `login.go`, `keyring.go`. `auth/oauth` is a leaf that must not import `auth`; it is vendor-neutral. `auth/browser` (loopback, opener) is shared with `chatgptauth`.
 - `Config` carries production knobs only; test seams are unexported options on `newWithOptions`. `Logout` clears locally first, revokes fire-and-forget.
 - `TokenSource(ctx)` is nil when degraded; consumers read `AccessToken` only. The GraphQL projection drops tokens.
 

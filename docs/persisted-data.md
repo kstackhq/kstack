@@ -65,7 +65,7 @@ Adding the mechanism is in [`TODO.md`](TODO.md), *Sidecar (Go)*.
 | `<data>` | `paths.rs` `app_data_dir`: `local_data_dir`/`Kstack` (`Kstack-dev` in debug) | what a user would lose |
 | `<cache>` | `paths.rs` `app_cache_dir` (`<data>/cache` on Windows) | the cluster and log caches |
 | `<config>` | Tauri `app_config_dir`, keyed by bundle id `sh.kstack.desktop` | `host.json` |
-| OS keyring | service `Kstack` | the sign-in token |
+| OS keyring | service `Kstack` | the sign-in token, the ChatGPT plan's refresh token |
 | Webview storage | the webview's profile, keyed by bundle id | `localStorage` under `kstack:*` |
 
 `<config>` and the webview profile hang off the bundle id, not the `Kstack-dev` leaf, so a dev
@@ -87,6 +87,8 @@ cluster no longer has.
 | Sidecar settings | `<data>/settings.json` | `lib/jsonsettings`, `services/settings` | preference | `schemaVersion` 1 | upgrade in `Open` (none written yet) | read; a write keeps its unknown keys and its version | `TestAWriteStampsTheVersion`, `TestAWriteKeepsTheKeysNoFieldNames` |
 | Host file | `<config>/host.json` | `src-tauri/src/host_file.rs` | preference | `schemaVersion` 1 | none | read; a write drops unknown fields and stamps 1 (accepted gap, ADR; #824) | `update_stamps_current_version` |
 | Sign-in token | OS keyring, service `Kstack` | `services/auth` | disposable (sign in again) | none | a renamed entry deletes the old one | unknown fields ignored | — |
+| OAuth connections | `app.db` `oauth_connections`, a row per provider signed in to with OAuth: issued client id, subject, email, the session id its keyring entry must name; `provider_data` is one provider's own JSON (ChatGPT: `{"hostID"}`); no token | `internal/appdb` (migration `0002`), `services/connectors/oauthconn/registration.go` | durable | rides `app.db`'s | an `app.db` migration | with `app.db` | `TestMigration0002AddsTheOAuthConnections`, `TestARegistrationRoundTrips`, `TestARegistrationLeavesOtherProvidersAlone` |
+| ChatGPT refresh token | OS keyring, service `Kstack`, account `<provider>-refresh-token` (`chatgpt-refresh-token`): `{"v":1,"token","session"}` | `services/connectors/oauthconn/keyring.go` | disposable (sign in again) | `v` 1 | a renamed entry deletes the old one | read as no session and deleted | `TestNewRestoresWhatTheStoresHold` |
 | Pane state | `localStorage` `kstack:sidebar-open`, `kstack:sidebar-width`, the right sidebar's per-mode open and width, `kstack:log-viewer-wrap`, the dashboard nav's `kstack:dashboard-nav-open:<section>/<group>` | `src/lib/persisted-flag.ts`, `persisted-width.ts` | disposable | none | a bad value reads as the default | — | `persisted-*.test.ts` |
 | Log-viewer columns | `localStorage` `kstack:log-viewer-columns` | `log-viewer/columns.ts` | disposable | none | unknown names dropped, bad JSON reads as the default | — | `columns.test.ts` |
 | Table columns | `localStorage` `kstack:table-columns:<apiVersion>/<resource>`, one per kind: `shown` (column key → shown) and `order` (column keys) | `src/lib/table-columns.ts` | disposable | none | a part of the wrong shape reads as no choices; an unknown key is ignored | — | `table-columns.test.tsx` |
