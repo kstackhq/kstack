@@ -227,6 +227,16 @@ fn window_focused<R: Runtime>(app: &AppHandle<R>, label: &str) {
     }
 }
 
+/// A second launch forwarded here: surface the main window. One that arrives
+/// before `setup` manages the state is dropped, since `setup` shows the window.
+#[cfg(desktop)]
+fn second_instance_launched<R: Runtime>(app: &AppHandle<R>) -> error::Result<()> {
+    match app.try_state::<AppState>() {
+        Some(state) => state.window_manager.show_main_window(app),
+        None => Ok(()),
+    }
+}
+
 /// Every command the webview may invoke. `build.rs`'s `COMMANDS` names the
 /// same set, so each has a permission a capability can grant.
 fn invoke_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'static {
@@ -505,6 +515,27 @@ mod tests {
         forget_webview_log(app.handle(), "main");
 
         assert!(out.contains("window=\"main\""), "got: {out}");
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn a_second_launch_before_setup_is_ignored() {
+        let app = tauri::test::mock_app();
+
+        second_instance_launched(app.handle()).unwrap();
+
+        assert!(app.get_webview_window("main").is_none());
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn a_second_launch_surfaces_the_main_window() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+
+        second_instance_launched(app.handle()).unwrap();
+
+        assert!(app.get_webview_window("main").is_some());
     }
 
     /// Registering takes the signals over first, so the one sent here reaches

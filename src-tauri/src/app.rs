@@ -31,8 +31,8 @@ use crate::services::sidecar::SidecarService;
 use crate::state::AppState;
 use crate::window_manager::Monitors;
 use crate::{
-    cloud, exit_requested, exited, invoke_handler, logging, page_started, tray, wake,
-    window_destroyed, window_focused,
+    cloud, exit_requested, exited, invoke_handler, logging, page_started, second_instance_launched,
+    tray, wake, window_destroyed, window_focused,
 };
 
 // coverage:ignore-start AppHandle::exit is unimplemented on the mock runtime
@@ -240,11 +240,7 @@ pub fn run() {
             // thread until the window exists).
             let app = app.clone();
             tauri::async_runtime::spawn_blocking(move || {
-                if let Err(err) = app
-                    .state::<AppState>()
-                    .window_manager
-                    .show_main_window(&app)
-                {
+                if let Err(err) = second_instance_launched(&app) {
                     tracing::error!(%err, "failed to show main window on second-instance launch")
                 }
             });
