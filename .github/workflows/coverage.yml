@@ -109,7 +109,7 @@ jobs:
       # Codecov's upload authenticates with an OIDC token.
       id-token: write
     steps:
-      # The whole history, for the same reason as ci.yml's Go · Build and Test.
+      # The whole history, for the same reason as ci.yml's Build and Test · Go.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -352,7 +352,7 @@ jobs:
   # As ci.yml's: leaves one copy of each cache on the ref. It runs after the
   # Rust jobs because rust-cache saves in a post step.
   cache-prune:
-    name: Caches · Prune
+    name: Prune · Caches
     needs:
       - changes
       - go

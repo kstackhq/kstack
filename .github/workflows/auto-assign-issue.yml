@@ -10,6 +10,7 @@ on:
 
 jobs:
   execute:
+    name: Assign · Issue
     if: github.repository == 'kstackhq/kstack'
     runs-on: ubuntu-slim
     steps:

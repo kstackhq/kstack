@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs go vet and go fix over the Go packages the working tree's changes touch
 # (scripts/changed.sh), in sidecar/, cli/ and tools/, on this machine's
-# platform, untagged. CI's Go · Vet and Go · Staticcheck run make vet-go's
+# platform, untagged. CI's Vet · Go and Staticcheck run make vet-go's
 # checks over every package, platform and tag.
 #
 #   go vet         the changed packages and the packages importing them, so a

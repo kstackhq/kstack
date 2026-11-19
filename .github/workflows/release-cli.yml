@@ -23,7 +23,7 @@ on:
 # from. So no step here passes setup-environment a go-cache-key.
 jobs:
   config:
-    name: Configure workflow
+    name: Plan
     if: github.repository == 'kstackhq/kstack'
     permissions:
       contents: read
@@ -66,7 +66,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build
+    name: Build · Binaries
     needs: [config]
     permissions:
       contents: read
@@ -156,7 +156,7 @@ jobs:
   # Checks out nothing and installs nothing, so the signing key and the token
   # that publishes never share a runner with the build's dependencies.
   release:
-    name: Create GitHub release
+    name: Release · GitHub
     needs: [config, build]
     environment: production
     permissions:

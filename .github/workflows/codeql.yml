@@ -222,7 +222,7 @@ jobs:
   # Leaves one copy of each cache on main, the newest. It runs after the Rust
   # jobs because rust-cache saves in a post step.
   cache-prune:
-    name: Caches · Prune
+    name: Prune · Caches
     needs:
       - changes
       - go
@@ -250,7 +250,7 @@ jobs:
   # The name leaves out the matrix so a skipped job, whose matrix GitHub never
   # expands, shows plain text; GitHub appends each entry's values to it.
   reuse-base:
-    name: Reuse base
+    name: Reuse · Base analysis
     needs:
       - changes
       - go

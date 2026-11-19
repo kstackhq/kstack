@@ -40,7 +40,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # Rust · Audit borrows ci.yml's Rust · Vet cache, and rust-cache keys on
+  # The Rust job borrows ci.yml's Vet · Rust cache, and rust-cache keys on
   # CARGO_* variables, so this matches ci.yml's.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
@@ -59,7 +59,7 @@ jobs:
       - run: "true"
 
   go-audit:
-    name: Go · Audit
+    name: Go
     needs: fork-gate
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
@@ -70,7 +70,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-go: "true"
-          # Go · Vet's cache holds sidecar's, cli's and tools' modules, so a run
+          # Vet · Go's cache holds sidecar's, cli's and tools' modules, so a run
           # downloads only what landed since, and a module proxy blip
           # rarely reaches it.
           go-cache-key: go-vet-ubuntu-24.04
@@ -82,7 +82,7 @@ jobs:
           go tool govulncheck -C ../cli ./...
 
   rust-audit:
-    name: Rust · Audit
+    name: Rust
     needs: fork-gate
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
@@ -93,7 +93,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-rust: "true"
-          # Nothing here compiles worth saving, so it borrows Rust · Vet's
+          # Nothing here compiles worth saving, so it borrows Vet · Rust's
           # registry and index.
           rust-cache-key: rust-vet-ubuntu-24.04
       # The action's release fixes cargo-audit's version and checksums, so
@@ -107,7 +107,7 @@ jobs:
         run: cargo audit --deny unsound --deny unmaintained
 
   typescript-audit:
-    name: TypeScript · Audit
+    name: TypeScript
     needs: fork-gate
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
@@ -123,12 +123,12 @@ jobs:
         run: pnpm audit --audit-level moderate
 
   dependency-review:
-    name: Go + Rust · Dependency review
+    name: Review dependencies · Go + Rust
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       # Compares the base and head dependency graphs, which hold the Go and
-      # Cargo packages; npm is TypeScript · Dependency review's. Every scope
+      # Cargo packages; npm is Review dependencies · TypeScript's. Every scope
       # counts, as in the audits.
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
@@ -138,7 +138,7 @@ jobs:
   # A fork's token cannot submit to the dependency graph, so npm compares
   # pnpm audit on the base and on the head instead.
   typescript-dependency-review:
-    name: TypeScript · Dependency review
+    name: Review dependencies · TypeScript
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
@@ -166,7 +166,7 @@ jobs:
   # which pins pnpm itself, and Dependabot's alerts and security updates read
   # the graph.
   typescript-submit:
-    name: TypeScript · Submit dependencies
+    name: Submit dependencies · TypeScript
     needs: fork-gate
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -193,7 +193,7 @@ jobs:
   # A failed audit on main opens an issue, or comments on the one still open,
   # so it reaches a maintainer without anyone watching the Actions tab.
   report:
-    name: Report failure
+    name: Report · Failures
     needs:
       - go-audit
       - rust-audit

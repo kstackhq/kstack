@@ -34,7 +34,7 @@ on:
 # rust-cache-key.
 jobs:
   config:
-    name: Configure workflow
+    name: Plan
     if: github.repository == 'kstackhq/kstack'
     runs-on: ubuntu-slim
     outputs:
@@ -79,7 +79,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   build-sidecar:
-    name: Build sidecar (${{ matrix.os }}, ${{ matrix.arch }})
+    name: Build · Sidecar (${{ matrix.os }}, ${{ matrix.arch }})
     needs: [config]
     strategy:
       fail-fast: false
@@ -151,7 +151,7 @@ jobs:
           name: assets-sidecar-${{ matrix.os }}-${{ matrix.arch }}
 
   build-bundle-linux:
-    name: Build bundle · Linux (${{ matrix.arch }})
+    name: Build · Bundle (linux, ${{ matrix.arch }})
     needs: [config, build-sidecar]
     strategy:
       fail-fast: false
@@ -258,7 +258,7 @@ jobs:
   # bwrap and pasta run what the sandbox asks: the whole chain, as the probe
   # runs it.
   check-bundle-linux:
-    name: Check bundle · Linux (${{ matrix.arch }})
+    name: Check · Bundle (linux, ${{ matrix.arch }})
     needs: [config, build-bundle-linux]
     strategy:
       fail-fast: false
@@ -300,7 +300,7 @@ jobs:
         run: scripts/check-sandbox-chain.sh
 
   build-bundle-macos:
-    name: Build bundle · macOS
+    name: Build · Bundle (macos)
     needs: [config, build-sidecar]
     environment: production
     runs-on: macos-26
@@ -404,7 +404,7 @@ jobs:
           path: updater/*
 
   build-bundle-windows:
-    name: Build bundle · Windows (${{ matrix.arch }})
+    name: Build · Bundle (windows, ${{ matrix.arch }})
     needs: [config, build-sidecar]
     strategy:
       fail-fast: false
@@ -467,7 +467,7 @@ jobs:
   # node_modules or anything a dependency's install or build script left.
   # This job checks out nothing and installs nothing.
   sign-bundle-windows:
-    name: Sign bundle · Windows (${{ matrix.arch }})
+    name: Sign · Bundle (windows, ${{ matrix.arch }})
     needs: [config, build-bundle-windows]
     environment: production
     permissions:
@@ -536,7 +536,7 @@ jobs:
   # runs the repo's own script and the pinned cargo-tauri it fetches, nothing
   # else. → docs/adr/2026-11-08-the-updater-trusts-a-current-and-a-standby-key.md
   sign-updater:
-    name: Sign updater artifacts
+    name: Sign · Updater artifacts
     needs: [config, build-bundle-macos, sign-bundle-windows]
     environment: production
     permissions:
@@ -586,7 +586,7 @@ jobs:
           path: updater/*
 
   release:
-    name: Create GitHub release
+    name: Release · GitHub
     needs:
       - config
       - build-bundle-linux

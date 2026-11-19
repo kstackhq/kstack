@@ -29,9 +29,8 @@ env:
 
 jobs:
   stress:
-    # The report job reads the id back out of the name: STRESS_ID with ", "
-    # for "-".
-    name: Go · Stress (${{ matrix.os }}, ${{ matrix.arch }}, ${{ matrix.race && 'race' || 'norace' }}, cpu${{ matrix.cpu }})
+    # The report job rebuilds STRESS_ID from the name.
+    name: Test (${{ matrix.os }}, ${{ matrix.arch }}, ${{ matrix.race && 'race' || 'norace' }}, cpu ${{ matrix.cpu }})
     if: >-
       github.repository == 'kstackhq/kstack'
       || github.event_name == 'pull_request'
@@ -104,7 +103,7 @@ jobs:
         with:
           setup-go: "true"
           setup-sandbox: "true"
-          # Go · Build and Test's cache, restored to skip compiling what that
+          # Build and Test · Go's cache, restored to skip compiling what that
           # job built. This job never saves one: its flags differ from a PR's.
           go-cache-key: go-test-${{ matrix.runner }}
       # -timeout sits under timeout-minutes, so a hang fails the test binary
@@ -142,7 +141,7 @@ jobs:
   # Checks out nothing, so no repo code runs with a write token. Artifact text
   # reaches gh through --body-file and quoted variables, never the command line.
   report:
-    name: Report failures
+    name: Report · Failures
     needs: stress
     if: failure()
     runs-on: ubuntu-24.04
@@ -184,12 +183,14 @@ jobs:
             fi
           }
 
-          # Every stress job that did not pass, by the id in its name, with how
-          # it ended. A test step that never concluded means the runner was lost.
+          # Every stress job that did not pass, by the STRESS_ID its name
+          # carries, with how it ended. A test step that never concluded means
+          # the runner was lost.
           gh api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs" \
-            --jq '.jobs[] | select(.name | startswith("Go · Stress"))
+            --jq '.jobs[] | select(.name | startswith("Test ("))
                   | select(.conclusion != "success" and .conclusion != "skipped")
-                  | [(.name | capture("\\((?<id>[^)]+)\\)$").id | gsub(", "; "-")),
+                  | [(.name | capture("\\((?<os>[^,]+), (?<arch>[^,]+), (?<race>[^,]+), cpu (?<cpu>[^)]+)\\)$")
+                      | "\(.os)-\(.arch)-\(.race)-cpu\(.cpu)"),
                      (if .conclusion == "cancelled" then "cancelled"
                       elif any(.steps[]; .name == "Run tests under stress" and .conclusion == null) then "lost"
                       else "failed" end)]

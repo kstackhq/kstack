@@ -35,14 +35,14 @@ concurrency:
 env:
   # use, update or rebuild: the one place that decides whether a run saves a
   # Go or Rust cache. An update or a rebuild saves a new Go cache per job and
-  # runner, and Caches · Prune deletes the one it replaces. Rust saves when its
+  # runner, and Prune · Caches deletes the one it replaces. Rust saves when its
   # Cargo.lock key misses, so it has nothing to update or rebuild. A dispatch
   # takes its input; a push to main updates; a PR carries no inputs, so it
   # uses, since a PR saving its own copy pushes the repo past its cache limit.
   CACHE_MODE: ${{ inputs.cache-mode || github.ref == 'refs/heads/main' && 'update' || 'use' }}
   # Full debug info swells the Rust caches and slows linking; line tables keep
   # file:line in test backtraces. Workflow-wide, since rust-cache keys on CARGO_*
-  # variables and audit.yml's Rust · Audit borrows Rust · Vet's cache.
+  # variables and audit.yml's Rust job borrows Vet · Rust's cache.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
@@ -114,7 +114,7 @@ jobs:
   ##############################
 
   go-lint:
-    name: Go · Lint
+    name: Lint · Go
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
@@ -132,7 +132,7 @@ jobs:
         run: sh scripts/check-coverage-markers.sh
 
   go-vet:
-    name: Go · Vet
+    name: Vet · Go
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
@@ -187,7 +187,7 @@ jobs:
           key: ${{ steps.setup.outputs.go-cache-key }}
 
   go-staticcheck:
-    name: Go · Staticcheck
+    name: Staticcheck
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
@@ -232,7 +232,7 @@ jobs:
           key: staticcheck-ubuntu-24.04-run-${{ github.run_id }}
 
   rust-lint:
-    name: Rust · Lint
+    name: Lint · Rust
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
@@ -254,7 +254,7 @@ jobs:
   # on the architecture or the macOS release, so one runner per OS sees every
   # lint.
   rust-vet:
-    name: Rust · Vet (${{ matrix.os }}, ${{ matrix.arch }})
+    name: Vet · Rust (${{ matrix.os }}, ${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     strategy:
@@ -279,7 +279,7 @@ jobs:
         run: cargo clippy --all --all-targets -- -D warnings
 
   shell-lint:
-    name: Shell · Lint
+    name: Lint · Shell
     needs: changes
     if: needs.changes.outputs.shell == 'true'
     runs-on: ubuntu-24.04
@@ -292,7 +292,7 @@ jobs:
         run: make lint-sh
 
   yaml-lint:
-    name: YAML · Lint
+    name: Lint · YAML
     needs: changes
     if: needs.changes.outputs.yaml == 'true'
     runs-on: ubuntu-24.04
@@ -316,7 +316,7 @@ jobs:
 
   # Runs on every PR: one that moves a file a doc links to may touch no Markdown.
   markdown-lint:
-    name: Markdown · Lint
+    name: Lint · Markdown
     needs: changes
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -336,7 +336,7 @@ jobs:
             --files-from '${{ runner.temp }}/markdown-files'
 
   claude-md-lint:
-    name: CLAUDE.md · Lint
+    name: Lint · CLAUDE.md
     needs: changes
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -348,7 +348,7 @@ jobs:
         run: make lint-claude-md
 
   design-lint:
-    name: Design · Lint
+    name: Lint · Design
     needs: changes
     if: needs.changes.outputs.design == 'true'
     runs-on: ubuntu-24.04
@@ -365,7 +365,7 @@ jobs:
         run: go run ./designsync check
 
   typescript-lint:
-    name: TypeScript · Lint
+    name: Lint · TypeScript
     needs: changes
     if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
@@ -391,10 +391,10 @@ jobs:
   # Test jobs
   ###########################
 
-  # Go · Vet type-checks the build; this links the real binary, then runs the
+  # Vet · Go type-checks the build; this links the real binary, then runs the
   # tests.
   go-test:
-    name: Go · Build and Test (${{ matrix.os }}, ${{ matrix.arch }})
+    name: Build and Test · Go (${{ matrix.os }}, ${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.go == 'true'
     strategy:
@@ -470,7 +470,7 @@ jobs:
   # the .deb's postinst on a stock 24.04, where user namespaces are restricted,
   # and runs the sandbox's chains through them as an ordinary user.
   sandbox-apparmor:
-    name: Sandbox · Check AppArmor profiles (${{ matrix.os }}, ${{ matrix.arch }})
+    name: Check · AppArmor profiles (${{ matrix.os }}, ${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.go == 'true'
     strategy:
@@ -500,7 +500,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y meson ninja-build libcap-dev
       # The sidecar's seccomp filter is per architecture, and a pull request's
-      # Go · Build and Test runs on amd64 alone. TestTheFilter* read the
+      # Build and Test · Go runs on amd64 alone. TestTheFilter* read the
       # filter's verdicts; TestTheShell* install it and ask the kernel.
       - name: Test the seccomp filter
         working-directory: ./sidecar
@@ -523,10 +523,10 @@ jobs:
       - name: Run the sandbox's chains
         run: scripts/check-sandbox-chain.sh
 
-  # Rust · Vet's clippy type-checks the build; this links the real binary,
+  # Vet · Rust's clippy type-checks the build; this links the real binary,
   # then runs the tests.
   rust-test:
-    name: Rust · Build and Test (${{ matrix.os }}, ${{ matrix.arch }})
+    name: Build and Test · Rust (${{ matrix.os }}, ${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     strategy:
@@ -561,7 +561,7 @@ jobs:
   # dispatch only, since a release build is slow.
   # → docs/adr/2026-11-10-main-builds-and-tests-the-release-profile.md
   rust-test-release:
-    name: Rust · Release Build and Test (${{ matrix.os }}, ${{ matrix.arch }})
+    name: Build and Test · Rust release (${{ matrix.os }}, ${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.rust == 'true' && github.event_name != 'pull_request'
     strategy:
@@ -598,7 +598,7 @@ jobs:
         run: cargo test --release
 
   typescript-test:
-    name: TypeScript · Test
+    name: Test · TypeScript
     needs: changes
     if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
@@ -621,7 +621,7 @@ jobs:
   ###########################
 
   typescript-build:
-    name: TypeScript · Build
+    name: Build · TypeScript
     needs: changes
     if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
@@ -648,7 +648,7 @@ jobs:
   # rust-cache and setup-node save in post steps, which no later step in their
   # own job can follow.
   cache-prune:
-    name: Caches · Prune
+    name: Prune · Caches
     needs:
       - changes
       - go-vet

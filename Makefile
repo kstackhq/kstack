@@ -127,7 +127,7 @@ design-record: ## Record the entries in IDS as in sync: their code's blobs and, 
 
 vet: vet-go vet-rust ## Run go vet, staticcheck and clippy
 
-# Every GOOS, both Linux architectures and each build tag, as CI's Go · Vet
+# Every GOOS, both Linux architectures and each build tag, as CI's Vet · Go
 # does. The live checks are behind tags no other target builds; vetting them
 # here keeps them compiling. scripts/staticcheck.sh runs once per GOOS and tag,
 # merged.
