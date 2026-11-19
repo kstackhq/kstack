@@ -36,6 +36,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
@@ -388,7 +389,7 @@ func (k *fakeKeyring) Get(account string) (string, error) {
 	}
 	v, ok := k.entries[account]
 	if !ok {
-		return "", errNoEntry
+		return "", oskeyring.ErrNoEntry
 	}
 	return v, nil
 }

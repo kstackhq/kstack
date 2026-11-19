@@ -27,6 +27,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth/browser"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 )
 
@@ -92,7 +93,7 @@ func (s *Service) begin(fresh bool) (*attempt, error) {
 	reg.SessionID = ""
 	err := s.reg.save(reg)
 	if err == nil {
-		err = checkKeyring(s.keyring, s.checkAccount())
+		err = oskeyring.Check(s.keyring, s.checkAccount())
 	}
 	if err != nil {
 		slog.Error("oauth: the stores cannot hold a sign-in", "provider", s.p.ID, "err", err)

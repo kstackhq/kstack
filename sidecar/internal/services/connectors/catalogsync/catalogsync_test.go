@@ -21,26 +21,22 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
-// catalogRig drives the loop: the test sends states and pokes, answers each
-// read, sees each wait the loop schedules and fires its clock, and sees each
-// catalog set.
+// catalogRig drives the loop: the test sends connected sessions and pokes,
+// answers each read, sees each wait the loop schedules and fires its clock, and
+// sees each catalog set.
 type catalogRig struct {
-	states chan oauthconn.State
-	pokes  chan poke.Signal
-	reads  chan catalogCall
-	waits  chan time.Duration
-	clock  chan time.Time
-	sets   chan []llm.Model
+	connected chan uint64
+	pokes     chan poke.Signal
+	reads     chan catalogCall
+	waits     chan time.Duration
+	clock     chan time.Time
+	sets      chan []llm.Model
 }
 
 // catalogCall is one read under way: the context it runs under, and where its answer
@@ -58,13 +54,13 @@ type readResult struct {
 func startCatalogLoop(t *testing.T) *catalogRig {
 	t.Helper()
 	r := &catalogRig{
-		states: make(chan oauthconn.State), pokes: make(chan poke.Signal),
+		connected: make(chan uint64), pokes: make(chan poke.Signal),
 		reads: make(chan catalogCall), waits: make(chan time.Duration, 8), clock: make(chan time.Time),
 		sets: make(chan []llm.Model, 8),
 	}
 	l := loop{
-		states: r.states,
-		pokes:  r.pokes,
+		connected: r.connected,
+		pokes:     r.pokes,
 		read: func(ctx context.Context) ([]llm.Model, error) {
 			rd := catalogCall{ctx: ctx, answer: make(chan readResult, 1)}
 			select {
@@ -98,33 +94,29 @@ func startCatalogLoop(t *testing.T) *catalogRig {
 	return r
 }
 
-func connected(session uint64) oauthconn.State {
-	return oauthconn.State{Phase: oauthconn.Connected, Session: session}
-}
-
 var model = []llm.Model{{ID: "m"}}
 
-// A connection reads the account's list and sets it; any other phase empties
-// the catalog.
+// A connection reads the account's list and sets it; no session empties the
+// catalog.
 func TestAConnectionSetsTheAccountsCatalog(t *testing.T) {
 	r := startCatalogLoop(t)
 
-	r.states <- connected(1)
+	r.connected <- 1
 	testutil.Recv(t, r.reads, "the read").answer <- readResult{models: model}
 	assert.Equal(t, model, testutil.Recv(t, r.sets, "the catalog"))
 
-	r.states <- oauthconn.State{Phase: oauthconn.SignedOut, Session: 2}
+	r.connected <- 0
 	assert.Empty(t, testutil.Recv(t, r.sets, "the emptied catalog"))
 }
 
-// A read for one session never outlives a frame for the next: the next state
+// A read for one session never outlives a frame for the next: the next session
 // cancels it, and an answer that lands anyway is dropped.
 func TestAReadForAnEndedSessionIsDropped(t *testing.T) {
 	r := startCatalogLoop(t)
-	r.states <- connected(1)
+	r.connected <- 1
 	first := testutil.Recv(t, r.reads, "the first read")
 
-	r.states <- connected(2)
+	r.connected <- 2
 	testutil.WaitClosed(t, first.ctx.Done(), "the first read to be cancelled")
 	second := testutil.Recv(t, r.reads, "the second read")
 	first.answer <- readResult{models: []llm.Model{{ID: "stale"}}}
@@ -134,15 +126,15 @@ func TestAReadForAnEndedSessionIsDropped(t *testing.T) {
 	assert.Equal(t, model, testutil.Recv(t, r.sets, "the second session's catalog"))
 }
 
-// A session that follows another with no state between empties the last
-// account's catalog before its read, so a failed read leaves nothing to pick.
+// A session that follows another with no 0 between empties the last account's
+// catalog before its read, so a failed read leaves nothing to pick.
 func TestANewSessionEmptiesTheLastAccountsCatalog(t *testing.T) {
 	r := startCatalogLoop(t)
-	r.states <- connected(1)
+	r.connected <- 1
 	testutil.Recv(t, r.reads, "the first read").answer <- readResult{models: model}
 	assert.Equal(t, model, testutil.Recv(t, r.sets, "the first account's catalog"))
 
-	r.states <- connected(2)
+	r.connected <- 2
 
 	assert.Empty(t, testutil.Recv(t, r.sets, "the emptied catalog"))
 	testutil.Recv(t, r.reads, "the second read").answer <- readResult{err: errors.New("unreachable")}
@@ -151,7 +143,7 @@ func TestANewSessionEmptiesTheLastAccountsCatalog(t *testing.T) {
 // A read runs under a deadline, so a stalled server fails it into the retry.
 func TestAReadHasADeadline(t *testing.T) {
 	r := startCatalogLoop(t)
-	r.states <- connected(1)
+	r.connected <- 1
 
 	rd := testutil.Recv(t, r.reads, "the read")
 
@@ -160,14 +152,14 @@ func TestAReadHasADeadline(t *testing.T) {
 	assert.WithinDuration(t, time.Now().Add(readTimeout), deadline, readTimeout)
 }
 
-// A poke reads the catalog again; a state of the same session does not.
+// A poke reads the catalog again; the same session again does not.
 func TestAPokeReadsTheCatalogAgain(t *testing.T) {
 	r := startCatalogLoop(t)
-	r.states <- connected(1)
+	r.connected <- 1
 	testutil.Recv(t, r.reads, "the read").answer <- readResult{models: model}
 	testutil.Recv(t, r.sets, "the catalog")
 
-	r.states <- connected(1)
+	r.connected <- 1
 	r.pokes <- poke.Signal{}
 
 	testutil.Recv(t, r.reads, "the poke's read").answer <- readResult{models: model}
@@ -178,7 +170,7 @@ func TestAPokeReadsTheCatalogAgain(t *testing.T) {
 // and not after it.
 func TestAFailedReadIsRetried(t *testing.T) {
 	r := startCatalogLoop(t)
-	r.states <- connected(1)
+	r.connected <- 1
 	testutil.Recv(t, r.reads, "the read").answer <- readResult{err: errors.New("unreachable")}
 	assert.Equal(t, retryDelay, testutil.Recv(t, r.waits, "the retry's wait"))
 
@@ -192,7 +184,7 @@ func TestAFailedReadIsRetried(t *testing.T) {
 // lasts.
 func TestTheCatalogIsReadAgainOnItsInterval(t *testing.T) {
 	r := startCatalogLoop(t)
-	r.states <- connected(1)
+	r.connected <- 1
 	testutil.Recv(t, r.reads, "the read").answer <- readResult{models: model}
 	testutil.Recv(t, r.sets, "the catalog")
 	assert.Equal(t, refreshInterval, testutil.Recv(t, r.waits, "the refresh's wait"))
@@ -207,32 +199,35 @@ func TestTheCatalogIsReadAgainOnItsInterval(t *testing.T) {
 // A poke while signed out reads nothing.
 func TestAPokeWhileSignedOutReadsNothing(t *testing.T) {
 	r := startCatalogLoop(t)
-	r.states <- oauthconn.State{Phase: oauthconn.SignedOut}
+	r.connected <- 0
 	testutil.Recv(t, r.sets, "the empty catalog")
 
 	r.pokes <- poke.Signal{}
-	r.states <- connected(1)
+	r.connected <- 1
 
 	testutil.Recv(t, r.reads, "the connection's read")
 }
 
-// The production loop runs over the connector and the resync pokes, and its
-// stop waits for it: a signed-out launch leaves the catalog empty.
+// The production loop runs over the connected session and the resync pokes,
+// and its stop waits for it and unsubscribes: a signed-out launch leaves the
+// catalog empty.
 func TestStartRunsUntilStopped(t *testing.T) {
-	svc, err := oauthconn.New(oauthconn.Config{Provider: chatgptauth.Provider(), DB: appdbtest.Open(t), KeychainService: "Kstack-test-none"})
-	require.NoError(t, err)
-	t.Cleanup(svc.Close)
+	signedOut := make(chan uint64, 1)
+	signedOut <- 0
+	unsubscribed := make(chan struct{})
+	subscribe := func() (<-chan uint64, func()) { return signedOut, func() { close(unsubscribed) } }
 	pokes := poke.New()
 	llmSvc := llm.New(llm.Provider{ID: "chatgpt", Dialect: llm.DialectResponses, Catalog: []llm.Model{{ID: "stale"}}})
 	frames, cancel := llmSvc.Subscribe()
 	defer cancel()
 	testutil.Recv(t, frames, "the first frame")
 
-	stop := Start(chatgptauth.ID, svc, pokes, llmSvc, func(context.Context, llm.Provider) ([]llm.Model, error) {
+	stop := Start("chatgpt", subscribe, pokes, llmSvc, func(context.Context, llm.Provider) ([]llm.Model, error) {
 		return nil, errors.New("signed out: never read")
 	})
 	assert.Empty(t, testutil.Recv(t, frames, "the emptied catalog")[0].Catalog)
 	pokes.Poke(poke.Source("test"))
 
 	stop()
+	testutil.WaitClosed(t, unsubscribed, "the unsubscribe")
 }
