@@ -201,8 +201,8 @@ Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + P
 
 **`Start` keeps one signed-in provider's model catalog the account's**, as its only writer: read
 per connected session, on a poke and every six hours, emptied otherwise. It subscribes to the
-connected session's id, `0` for none: `oauthconn`'s `WatchSession`. Its read lives in
-`agent/catalog`.
+connected session's id, `0` for none: `oauthconn`'s or `openrouterkey`'s `WatchSession`. Its
+read lives in `agent/catalog`; OpenRouter's answers the row's written catalog, reaching no network.
 
 ## GitHub's token (`internal/services/githubauth`)
 

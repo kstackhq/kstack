@@ -24,6 +24,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
 )
 
 // config is everything the command line decides: the app's own configuration
@@ -145,5 +146,8 @@ func applyEnvOverrides(cfg *config, getenv func(string) string) {
 		}
 	}
 	setEach(&cfg.App.LLMBaseURLs, catalog.BaseURLVars())
-	setEach(&cfg.App.ConnectorAuthURLs, map[string]string{chatgptauth.ID: chatgptauth.IssuerURLVar})
+	setEach(&cfg.App.ConnectorAuthURLs, map[string]string{
+		chatgptauth.ID:   chatgptauth.IssuerURLVar,
+		openrouterkey.ID: openrouterkey.AuthURLVar,
+	})
 }

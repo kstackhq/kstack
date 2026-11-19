@@ -418,3 +418,22 @@ func TestEveryWrittenWindowHoldsTheCap(t *testing.T) {
 		}
 	}
 }
+
+// The connector's key signs as a bearer, which is right only on the row's one
+// dialect: no OpenRouter model states a dialect or base URL of its own.
+func TestNoOpenRouterModelLeavesTheRowsDialect(t *testing.T) {
+	for _, m := range newOpenRouterProvider().Catalog {
+		assert.Empty(t, m.Dialect, m.ID)
+		assert.Empty(t, m.BaseURL, m.ID)
+	}
+	assert.Empty(t, newOpenRouterProvider().KeyHeader)
+}
+
+// A connected OpenRouter's catalog is the row's written one, read without a
+// request.
+func TestReadOpenRouterModelsAnswersTheWrittenCatalog(t *testing.T) {
+	models, err := ReadOpenRouterModels(t.Context(), llm.Provider{ID: "openrouter", BaseURL: "http://127.0.0.1:1"})
+
+	require.NoError(t, err)
+	assert.Equal(t, newOpenRouterProvider().Catalog, models)
+}
