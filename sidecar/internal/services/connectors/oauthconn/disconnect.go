@@ -19,8 +19,8 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
 )
 
 // Disconnect signs out on this machine, then asks the provider to revoke the refresh

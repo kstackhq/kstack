@@ -25,9 +25,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
 )
 
 // session is a signed-in account's tokens. The access token is memory's alone:

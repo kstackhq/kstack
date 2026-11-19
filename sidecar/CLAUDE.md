@@ -87,7 +87,7 @@ files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 - `internal/` → [ADR: services, lib and the
   rest](../docs/adr/2026-10-06-sidecar-packages-group-into-services-lib-and-the-rest.md):
   `services/` (state outliving a request, reached from `graph/`/`grpc/`), `lib/` (no Kstack
-  domain; `lib` is never a package name), `llm/`, `run/` (what confines one run), `agent/`
+  domain; `lib` is never a package name; `oauth` is the OAuth client), `llm/`, `run/` (what confines one run), `agent/`
   (above `tools`), and `app`, `appdb` at the top. `sqlitepool` is the one home of the SQLite open
   contract: every pool is a `Pool`, whose close returns once its connections have closed, so
   a store deletes its file straight after closing; a file closes all its pools under one
@@ -192,7 +192,7 @@ may have signed in as someone else. Every failure is `ErrNoToken`. →
 
 Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + PKCE, loopback redirect), verification via go-oidc, refresh token in the OS keyring. Signed-in ⇔ refresh token present; works offline; degrades to signed-out when unconfigured. → [ADR: local-first auth](../docs/adr/2026-08-09-local-first-auth-settings.md).
 
-- Flat root package by file: `auth.go`, `grant.go` (token set as source of truth, lazy refresh with burst-dedup, persist-before-cache), `login.go`, `keyring.go`. `auth/oauth` is a leaf that must not import `auth`; it is vendor-neutral. `auth/browser` (loopback, opener) is shared with `chatgptauth`.
+- Flat root package by file: `auth.go`, `grant.go` (token set as source of truth, lazy refresh with burst-dedup, persist-before-cache), `login.go`, `keyring.go`. `lib/oauth` is a vendor-neutral leaf importing neither `auth` nor the connectors; `lib/oauth/browser` (loopback, opener) is shared with `oauthconn`.
 - `Config` carries production knobs only; test seams are unexported options on `newWithOptions`. `Logout` clears locally first, revokes fire-and-forget.
 - `TokenSource(ctx)` is nil when degraded; consumers read `AccessToken` only. The GraphQL projection drops tokens.
 

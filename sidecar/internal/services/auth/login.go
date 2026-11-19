@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/browser"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth/browser"
 )
 
 // generateVerifier returns a PKCE code verifier; the protocol layer treats it as

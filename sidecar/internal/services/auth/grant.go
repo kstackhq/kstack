@@ -10,7 +10,7 @@ import (
 	"github.com/amorey/gochan/watch"
 	"golang.org/x/oauth2"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 )
 
 // ErrSignedOut means there's no usable credential — nothing to refresh, so callers fail

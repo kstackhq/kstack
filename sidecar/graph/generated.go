@@ -20,12 +20,12 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
@@ -7911,7 +7911,7 @@ func (ec *executionContext) _AuthState_identity(ctx context.Context, field graph
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *oauth.Identity) graphql.Marshaler {
-			return ec.marshalOIdentity2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋauthᚋoauthᚐIdentity(ctx, selections, v)
+			return ec.marshalOIdentity2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋoauthᚐIdentity(ctx, selections, v)
 		},
 		true,
 		false,
@@ -33555,7 +33555,7 @@ func (ec *executionContext) marshalOFetchAction2ᚖgithubᚗcomᚋkstackhqᚋkst
 	return ec._FetchAction(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOIdentity2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋauthᚋoauthᚐIdentity(ctx context.Context, sel ast.SelectionSet, v *oauth.Identity) graphql.Marshaler {
+func (ec *executionContext) marshalOIdentity2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋoauthᚐIdentity(ctx context.Context, sel ast.SelectionSet, v *oauth.Identity) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}

@@ -5,7 +5,7 @@
 // One flat package by file: this one (Service, State/TokenSet, Config, composition
 // owner), grant.go (the credential state machine + oauth2.TokenSource adapter), login.go
 // (the interactive flow + loopback listener), keyring.go (OS-keyring persistence). The
-// one sub-package is auth/oauth, the OAuth2/OIDC protocol layer, whose Token/Identity are
+// OAuth2/OIDC protocol layer is lib/oauth, whose Token/Identity are
 // re-exported below. Degrades to permanently signed-out with no credentials store.
 // See docs/adr/2026-08-09-local-first-auth-settings.md.
 package auth
@@ -20,8 +20,8 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/browser"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth/browser"
 )
 
 // loginTimeout bounds the async tail of a browser sign-in (the post-browser
@@ -39,7 +39,7 @@ type State struct {
 }
 
 // Token (stored credential) and Identity (verified ID-token claims) are TRUE aliases of
-// auth/oauth's types — the leaf owns them, and aliasing avoids the import cycle while
+// lib/oauth's types — the leaf owns them, and aliasing avoids the import cycle while
 // letting consumers say auth.Token / auth.Identity.
 type (
 	Token    = oauth.Token
@@ -176,7 +176,7 @@ func newWithOptions(cfg Config, opts ...option) (Service, error) {
 // (identity claims).
 var defaultScopes = []string{"openid", "offline_access", "email", "profile"}
 
-// newHydraOAuthConfig derives Hydra's endpoint layout from the issuer base (auth/oauth
+// newHydraOAuthConfig derives Hydra's endpoint layout from the issuer base (lib/oauth
 // itself stays Hydra-agnostic). The trailing slash is trimmed before paths are appended
 // but KEPT on the expected "iss": Hydra's ID tokens carry it, so dropping it fails
 // verification with a spurious provider mismatch.

@@ -1,10 +1,11 @@
-// Package oauth is the OAuth2/OIDC protocol layer for the sign-in flow: PKCE (S256), the
+// Package oauth is an OAuth2/OIDC client: PKCE (S256), the
 // code→token exchange, refresh, RFC 7009 revocation, ID-token verification. A LEAF —
-// it must not import the parent auth package, so it owns the value types the protocol
-// produces (Token, Identity), which the parent re-exports as aliases.
+// it must not import the auth package or the connectors, so it owns the value types the
+// protocol produces (Token, Identity), which auth re-exports as aliases.
 //
 // The Client takes resolved endpoint URLs and is Hydra-agnostic. The loopback listener
-// and the verifier/state generation live in the parent — not protocol concerns.
+// lives in oauth/browser and the verifier/state generation in the callers — not protocol
+// concerns.
 package oauth
 
 import (

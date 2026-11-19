@@ -12,8 +12,8 @@ import (
 
 	"github.com/zalando/go-keyring"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
 )
 
 // memStore is an in-memory CredentialsStore (host keychain stand-in).

@@ -23,7 +23,7 @@ import (
 )
 
 // testVerifier is a sample PKCE code verifier. The protocol layer treats the
-// verifier as caller-supplied (the parent auth package generates the real one),
+// verifier as caller-supplied (the auth package generates the real one),
 // so these tests just need any non-empty value.
 const testVerifier = "test-verifier-1234567890"
 

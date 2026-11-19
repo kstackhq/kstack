@@ -34,10 +34,10 @@ import (
 	"github.com/amorey/gochan/watch"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth/browser"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/browser"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
 )
 
 const (

@@ -25,9 +25,9 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth/browser"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/browser"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
 )
 
 // attempt is one sign-in under way.
