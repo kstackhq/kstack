@@ -199,8 +199,9 @@ Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + P
 ## A signed-in provider's models (`services/connectors/catalogsync`)
 
 **`Start` keeps one signed-in provider's model catalog the account's**, as its only writer: read
-when its `oauthconn` connection connects, on a poke and every six hours, emptied otherwise. Its
-read lives in `agent/catalog`.
+per connected session, on a poke and every six hours, emptied otherwise. It subscribes to the
+connected session's id, `0` for none: `oauthconn`'s `WatchSession`. Its read lives in
+`agent/catalog`.
 
 ## GitHub's token (`internal/services/githubauth`)
 
