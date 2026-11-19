@@ -40,8 +40,8 @@ type Resolver struct {
 	// SandboxStatus answers the sandbox query: whether this machine offers
 	// sandboxed Bash.
 	SandboxStatus sandbox.Status
-	// Auth is the Kstack connector, which backs the authState query and watch and
-	// the login and logout mutations: *kstack.Service, or a test's fake.
+	// Auth is the Kstack Cloud connector, which backs the authState query and watch and
+	// the login and logout mutations: *kstackcloud.Service, or a test's fake.
 	Auth AuthConnector
 	// Settings is the user's settings file, and the frozen PATH kept in it.
 	Settings *settings.Service
@@ -63,7 +63,7 @@ type Resolver struct {
 	OpenURL func(url string) error
 }
 
-// AuthConnector is the Kstack connector as the wire drives it.
+// AuthConnector is the Kstack Cloud connector as the wire drives it.
 type AuthConnector interface {
 	State() connectors.State
 	Subscribe() (<-chan connectors.State, func())

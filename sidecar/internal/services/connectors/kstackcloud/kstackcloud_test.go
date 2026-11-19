@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package kstack
+package kstackcloud
 
 import (
 	"context"
@@ -27,13 +27,13 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
-// The provider is the Kstack account under the configured fixed client, and
+// The provider is the Kstack Cloud account under the configured fixed client, and
 // signs nothing.
-func TestTheProviderIsTheKstackSignIn(t *testing.T) {
+func TestTheProviderIsTheKstackCloudSignIn(t *testing.T) {
 	t.Parallel()
 	p := provider(Config{Issuer: "https://issuer.test", ClientID: "kstack-desktop"})
 
-	assert.Equal(t, "kstack", p.ID)
+	assert.Equal(t, "kstack-cloud", p.ID)
 	assert.Equal(t, "https://issuer.test", p.Issuer)
 	assert.Equal(t, "kstack-desktop", p.ClientID)
 	assert.Equal(t, []string{"openid", "offline_access", "email", "profile"}, p.Scopes)
@@ -51,13 +51,13 @@ func TestTheProviderIsTheKstackSignIn(t *testing.T) {
 // the keyring is touched.
 func TestNewDeletesTheOldEntry(t *testing.T) {
 	t.Parallel()
-	k := &fakeKeyring{entries: map[string]string{"auth-token": `{"refresh_token":"r"}`, "kstack-refresh-token": "kept"}}
+	k := &fakeKeyring{entries: map[string]string{"auth-token": `{"refresh_token":"r"}`, "kstack-cloud-refresh-token": "kept"}}
 
 	newTestService(t, newFakeEngine(), k)
 
 	_, err := k.Get("auth-token")
 	require.ErrorIs(t, err, oskeyring.ErrNoEntry)
-	v, err := k.Get("kstack-refresh-token")
+	v, err := k.Get("kstack-cloud-refresh-token")
 	require.NoError(t, err)
 	assert.Equal(t, "kept", v)
 }

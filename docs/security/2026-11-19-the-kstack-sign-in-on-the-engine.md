@@ -1,23 +1,23 @@
 # Security record — the Kstack sign-in on the engine, 19 November 2026
 
 **Subject:** the sidecar's sign-in to Kstack cloud moves from `services/auth` onto the OAuth
-engine (`services/connectors/internal/oauthconn`), as the connector `services/connectors/kstack`.
+engine (`services/connectors/internal/oauthconn`), as the connector `services/connectors/kstackcloud`.
 Written before the code, as the design is
 [the Kstack sign-in is a connector on the OAuth engine](../adr/2026-11-19-the-kstack-sign-in-is-a-connector-on-the-oauth-engine.md);
-the plan is [the Kstack connector spec](../specs/kstack-connector.md). The living model is
+the plan was the Kstack Cloud connector spec (#1057). The living model is
 [security-model.md](../security-model.md).
 
 ## What changes
 
-- The Kstack refresh token moves to a new keyring account, `kstack-refresh-token`. The old
+- The Kstack refresh token moves to a new keyring account, `kstack-cloud-refresh-token`. The old
   account, `auth-token`, is deleted at every launch.
-- The account's subject, email and name are kept in `app.db`'s `oauth_connections` row `kstack`,
+- The account's subject, email and name are kept in `app.db`'s `oauth_connections` row `kstack-cloud`,
   beside a session id. No token is in the row.
 - The engine's `Provider` takes a fixed client id, and an engine with no API base signs nothing.
 
 ## What holds
 
-- **The keyring holds the refresh token alone**, account `kstack-refresh-token`, as
+- **The keyring holds the refresh token alone**, account `kstack-cloud-refresh-token`, as
   `{"v":1,"token","session"}`. The access and ID tokens are memory's. Before, all three were in
   the entry.
 - **The ID token's nonce is checked.** Before, it was not sent.

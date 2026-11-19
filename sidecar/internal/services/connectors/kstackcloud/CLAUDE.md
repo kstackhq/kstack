@@ -1,6 +1,6 @@
-# internal/services/connectors/kstack — the Kstack connector
+# internal/services/connectors/kstackcloud — the Kstack Cloud connector
 
-**The Kstack account, signed in to by the OAuth engine under a fixed client.** It backs the
+**The Kstack Cloud account, signed in to by the OAuth engine under a fixed client.** It backs the
 wire's `authState`, `authLoginStart`, `authLogout` and the gRPC `AuthService`, and signs no
 request: the engine is an unexported field, and the provider has no API base.
 → [ADR](../../../../../docs/adr/2026-11-19-the-kstack-sign-in-is-a-connector-on-the-oauth-engine.md),

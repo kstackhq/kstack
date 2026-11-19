@@ -24,7 +24,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/kstack"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/kstackcloud"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
@@ -47,8 +47,8 @@ type Runtime struct {
 	// Logs reads views' lines through the cluster service and owns each cluster
 	// cache's log file, which the cluster service clears and removes with the cache.
 	Logs *logs.Service
-	// Kstack is the Kstack account's sign-in, which signs nothing.
-	Kstack *kstack.Service
+	// KstackCloud is the Kstack Cloud account's sign-in, which signs nothing.
+	KstackCloud *kstackcloud.Service
 	// ChatGPT is Sign in with ChatGPT, which signs the chatgpt provider.
 	ChatGPT *chatgpt.Service
 	// OpenRouter is the OpenRouter connector, which signs the openrouter row
@@ -169,7 +169,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	if keychainService == "" {
 		keychainService = defaultKeychainService
 	}
-	rt.Kstack, err = kstack.New(kstack.Config{
+	rt.KstackCloud, err = kstackcloud.New(kstackcloud.Config{
 		DB:              db,
 		KeychainService: keychainService,
 		Issuer:          cfg.OAuthIssuerURL,
@@ -178,7 +178,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	if err != nil { // coverage:ignore the statements prepare on the schema app.db was just migrated to
 		return fail(err)
 	}
-	rt.add("kstack service", lifecycle.CloseFunc(func() error { rt.Kstack.Close(); return nil }))
+	rt.add("kstack cloud service", lifecycle.CloseFunc(func() error { rt.KstackCloud.Close(); return nil }))
 
 	rt.ChatGPT, err = chatgpt.New(chatgpt.Config{
 		DB:              db,
@@ -300,7 +300,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		MemorySvc:     rt.Memory,
 		LLMSvc:        rt.LLM,
 		SandboxStatus: rt.SandboxStatus,
-		Auth:          rt.Kstack,
+		Auth:          rt.KstackCloud,
 		ChatGPT:       rt.ChatGPT,
 		OpenRouter:    rt.OpenRouter,
 		OpenURL:       browser.Open,

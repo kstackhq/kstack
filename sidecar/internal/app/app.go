@@ -138,7 +138,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// Outlives every request: it ends the long-lived streams, at shutdown.
 	streamsCtx, cancelStreams := context.WithCancel(context.Background())
 	graphqlServer := graph.NewServer(streamsCtx, rt.resolver())
-	grpcServer := grpcserver.NewServer(streamsCtx, rt.Kstack, rt.Poke)
+	grpcServer := grpcserver.NewServer(streamsCtx, rt.KstackCloud, rt.Poke)
 
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlServer)

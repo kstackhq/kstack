@@ -22,7 +22,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
-// fakeAuth is the Kstack connector as the resolvers use it: State and
+// fakeAuth is the Kstack Cloud connector as the resolvers use it: State and
 // Subscribe over a latest-value hub, Connect signing in as loginAs, and
 // Disconnect signing out.
 type fakeAuth struct {
