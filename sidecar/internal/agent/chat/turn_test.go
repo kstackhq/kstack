@@ -276,14 +276,15 @@ func TestTheProvidersOverflowSettlesWithOneSentence(t *testing.T) {
 
 	assert.Equal(t, StatusFailed, got.Status)
 	assert.Equal(t, contextFullText, got.Error)
+	assert.Equal(t, new(FailureContextFull), got.Failure())
 	var runErr string
 	require.NoError(t, s.db.Read.QueryRow(`SELECT error FROM agent_runs WHERE id = ?`, string(msg.RunID)).Scan(&runErr))
 	assert.Equal(t, contextFullText, runErr)
 	assert.Equal(t, "fake: 400 invalid_request_error context_length_exceeded", llmCallOf(t, s.db, msg.RunID).err)
 }
 
-// A plan's usage limit settles the answer in the transcript's own words, the
-// call's row keeping the provider's code. Nothing retries.
+// A plan's usage limit settles the answer in the transcript's own words and with
+// its kind, the call's row keeping the provider's code. Nothing retries.
 func TestAUsageLimitSettlesWithOneSentence(t *testing.T) {
 	t.Parallel()
 
@@ -296,6 +297,7 @@ func TestAUsageLimitSettlesWithOneSentence(t *testing.T) {
 
 	assert.Equal(t, StatusFailed, got.Status)
 	assert.Equal(t, usageLimitText, got.Error)
+	assert.Equal(t, new(FailureUsageLimit), got.Failure())
 	assert.Equal(t, "fake: 429 subscription_sharing_usage_limit_exceeded", llmCallOf(t, s.db, msg.RunID).err)
 	assert.Equal(t, 1, fakeOf(s).Asked())
 }

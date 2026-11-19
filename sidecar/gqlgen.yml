@@ -586,6 +586,16 @@ models:
       Cancelled:
         value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.StatusCancelled
 
+  AnswerFailure:
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.AnswerFailure
+    enum_values:
+      UsageLimit:
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.FailureUsageLimit
+      ContextFull:
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.FailureContextFull
+      Other:
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.FailureOther
+
   ChatWatchFrame:
     model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ChatWatchFrame
 

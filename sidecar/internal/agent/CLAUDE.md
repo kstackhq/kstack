@@ -96,7 +96,7 @@ with nothing written. The box is `s.tools.For(target, s.lists.ToolsFor(target))`
 the chat id. `prompts/system.md` states only what is true now and has every cluster command name
 the card's `cluster.context` (the app's cluster need not be the kubeconfig's current one). **A
 row's tool blocks enter the history only when it settled `Complete`**; an answer that failed empty
-is left out. A context-full refusal settles with `contextFullText`, a plan's usage limit (`llm.Error.UsageLimit`) with `usageLimitText`. A subagent's model resolves under its parent (`ResolveUnder`), so it signs under the parent's session. `clusterID`, the sandbox switch
+is left out. A context-full refusal settles with `contextFullText`, a plan's usage limit (`llm.Error.UsageLimit`) with `usageLimitText`; `ChatMessage.Failure` reads each back as the wire's `failure`, which the webview branches on, never `error`. A subagent's model resolves under its parent (`ResolveUnder`), so it signs under the parent's session. `clusterID`, the sandbox switch
 and the network toggle are read once per turn, so a mid-turn flip changes the next turn; subagents
 and tasks inherit them.
 

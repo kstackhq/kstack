@@ -1007,6 +1007,16 @@ enum ChatMessageStatus {
   Cancelled
 }
 
+"The kind of failure a `Failed` answer met."
+enum AnswerFailure {
+  "The provider refused the request at a plan's usage limit."
+  UsageLimit
+  "The provider refused to read the chat: it is longer than the model can read."
+  ContextFull
+  "Anything else."
+  Other
+}
+
 """
 Which of the app's two modes a chat belongs to. Set when the chat is created and never
 changed. Each mode lists only its own chats.
@@ -1077,8 +1087,10 @@ type ChatMessage {
   request is live.
   """
   awaitingApproval: Boolean!
-  "Why the turn failed; empty otherwise. Never a raw provider error."
+  "Why the turn failed, as text to draw; empty otherwise. Never a raw provider error."
   error: String!
+  "The failure's kind, to branch on; null unless `status` is `Failed`."
+  failure: AnswerFailure
 
   "The model this send asked for — the catalog id it named, not what the provider answered as. Empty on a user message."
   model: String!

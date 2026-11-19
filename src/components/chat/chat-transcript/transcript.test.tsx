@@ -173,6 +173,7 @@ function msg(over: Partial<ChatMessage> = {}): ChatMessage {
     // agent waiting under a settled answer sets it.
     awaitingApproval: over.status === 'WaitingApproval',
     error: '',
+    failure: null,
     finishReason: 'end_turn',
     model: 'fake',
     provider: { id: 'fake', label: 'Fake' },
@@ -566,7 +567,7 @@ describe('ChatTranscript', () => {
   // limit it says whose the limit may be.
   it('offers Manage usage under an answer that failed on the ChatGPT plan', () => {
     const plan = { id: 'chatgpt', label: 'ChatGPT plan' };
-    draw([msg({ status: 'Failed', content: [], error: 'usage limit reached', provider: plan })]);
+    draw([msg({ status: 'Failed', content: [], error: 'usage limit reached', failure: 'UsageLimit', provider: plan })]);
 
     expect(screen.getByText("The limit may be your plan's or the one set for Kstack.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Manage usage' }));
@@ -576,8 +577,8 @@ describe('ChatTranscript', () => {
   it('says nothing of a limit under another failure on the plan, nor on another provider', () => {
     const plan = { id: 'chatgpt', label: 'ChatGPT plan' };
     draw([
-      msg({ id: 'a', status: 'Failed', content: [], error: 'chatgpt: 503', provider: plan }),
-      msg({ id: 'b', seq: 2, status: 'Failed', content: [], error: 'usage limit reached' }),
+      msg({ id: 'a', status: 'Failed', content: [], error: 'usage limit reached', failure: 'Other', provider: plan }),
+      msg({ id: 'b', seq: 2, status: 'Failed', content: [], error: 'usage limit reached', failure: 'UsageLimit' }),
     ]);
 
     expect(screen.getAllByRole('button', { name: 'Manage usage' })).toHaveLength(1);

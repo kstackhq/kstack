@@ -2699,6 +2699,28 @@ func TestMemoriesWatchOpensWithASnapshot(t *testing.T) {
 	assert.Equal(t, "Bookmark", firstChatFrameType(t, events))
 }
 
+// A plan's usage limit reaches the wire as its kind, which the transcript branches
+// on; error is the text it draws.
+func TestAUsageLimitArrivesWithItsKind(t *testing.T) {
+	srv, _, fake := newChatServerOver(t)
+	plan := llm.Provider{ID: "fake", Codes: map[string]llm.CodeClass{"usage_limit_reached": llm.CodeUsageLimit}}
+	fake.FailAfter(0, llm.ResponseError(plan, 429, "", "usage_limit_reached"))
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
+		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
+	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
+
+	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+chatID+`") { message { seq status error failure } } }`)
+	defer resp.Body.Close()
+	frame := awaitChatFrame(t, events, func(f map[string]any) bool {
+		msg, ok := f["message"].(map[string]any)
+		return ok && msg["seq"] == float64(1) && msg["status"] == "Failed"
+	})
+
+	msg := frame["message"].(map[string]any)
+	assert.Equal(t, "UsageLimit", msg["failure"])
+	assert.NotEmpty(t, msg["error"])
+}
+
 // An agent's task serves its status and report, and an answer and its chat say
 // when a run under them waits on the user.
 func TestAnAgentsTaskAndWaitAreServed(t *testing.T) {

@@ -59,6 +59,7 @@ const ChatMessagesWatchSubscription = graphql(`
         status
         awaitingApproval
         error
+        failure
         model
         provider {
           id

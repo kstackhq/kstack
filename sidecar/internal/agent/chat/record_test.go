@@ -81,6 +81,16 @@ func TestCitationListRefusesAStringThatIsNotJSON(t *testing.T) {
 	assert.ErrorContains(t, err, "citations")
 }
 
+// Only a failed answer has a kind, and an error runOutcome did not name is Other.
+func TestFailureIsAFailedAnswersKind(t *testing.T) {
+	t.Parallel()
+
+	assert.Nil(t, ChatMessage{Status: StatusComplete}.Failure())
+	assert.Nil(t, ChatMessage{Status: StatusCancelled, Error: usageLimitText}.Failure())
+	assert.Equal(t, new(FailureOther), ChatMessage{Status: StatusFailed, Error: "fake: 503"}.Failure())
+	assert.Equal(t, new(FailureOther), ChatMessage{Status: StatusFailed}.Failure())
+}
+
 // A block whose Input is not JSON fails loudly rather than writing a row the read
 // cannot parse. llm.ToolUseBlock is what keeps it from happening.
 func TestContentOfABlockWithBrokenInputPanics(t *testing.T) {

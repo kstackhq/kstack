@@ -106,6 +106,7 @@ type ComplexityRoot struct {
 		CreatedAt        func(childComplexity int) int
 		Effort           func(childComplexity int) int
 		Error            func(childComplexity int) int
+		Failure          func(childComplexity int) int
 		FinishReason     func(childComplexity int) int
 		FinishedAt       func(childComplexity int) int
 		ID               func(childComplexity int) int
@@ -1260,6 +1261,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ChatMessage.Error(childComplexity), true
+	case "ChatMessage.failure":
+		if e.ComplexityRoot.ChatMessage.Failure == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChatMessage.Failure(childComplexity), true
 	case "ChatMessage.finishReason":
 		if e.ComplexityRoot.ChatMessage.FinishReason == nil {
 			break
@@ -5085,6 +5092,8 @@ func (ec *executionContext) childFields_ChatMessage(ctx context.Context, field g
 		return ec.fieldContext_ChatMessage_awaitingApproval(ctx, field)
 	case "error":
 		return ec.fieldContext_ChatMessage_error(ctx, field)
+	case "failure":
+		return ec.fieldContext_ChatMessage_failure(ctx, field)
 	case "model":
 		return ec.fieldContext_ChatMessage_model(ctx, field)
 	case "provider":
@@ -8613,6 +8622,29 @@ func (ec *executionContext) _ChatMessage_error(ctx context.Context, field graphq
 }
 func (ec *executionContext) fieldContext_ChatMessage_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, "String")
+}
+
+func (ec *executionContext) _ChatMessage_failure(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ChatMessage_failure(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Failure(), nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.AnswerFailure) graphql.Marshaler {
+			return ec.marshalOAnswerFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐAnswerFailure(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ChatMessage_failure(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ChatMessage", field, true, false, "AnswerFailure")
 }
 
 func (ec *executionContext) _ChatMessage_model(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
@@ -25333,6 +25365,11 @@ func (ec *executionContext) _ChatMessage(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "failure":
+			out.Values[i] = ec._ChatMessage_failure(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "model":
 			out.Values[i] = ec._ChatMessage_model(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -33291,6 +33328,38 @@ func (ec *executionContext) marshalN__TypeKind2string(ctx context.Context, sel a
 	}
 	return res
 }
+
+func (ec *executionContext) unmarshalOAnswerFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐAnswerFailure(ctx context.Context, v any) (*chat.AnswerFailure, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalOAnswerFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐAnswerFailure[tmp]
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOAnswerFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐAnswerFailure(ctx context.Context, sel ast.SelectionSet, v *chat.AnswerFailure) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(marshalOAnswerFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐAnswerFailure[*v])
+	return res
+}
+
+var (
+	unmarshalOAnswerFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐAnswerFailure = map[string]chat.AnswerFailure{
+		"UsageLimit":  chat.FailureUsageLimit,
+		"ContextFull": chat.FailureContextFull,
+		"Other":       chat.FailureOther,
+	}
+	marshalOAnswerFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐAnswerFailure = map[chat.AnswerFailure]string{
+		chat.FailureUsageLimit:  "UsageLimit",
+		chat.FailureContextFull: "ContextFull",
+		chat.FailureOther:       "Other",
+	}
+)
 
 func (ec *executionContext) unmarshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐDuration(ctx context.Context, v any) (*permissions.Duration, error) {
 	if v == nil {

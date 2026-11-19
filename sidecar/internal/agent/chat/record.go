@@ -112,6 +112,16 @@ func (s MessageStatus) inFlight() bool {
 	return s == StatusStreaming || s == StatusWaitingApproval
 }
 
+// AnswerFailure is the kind of failure a failed answer met. A named type because
+// the GraphQL enum binds onto it value by value.
+type AnswerFailure string
+
+const (
+	FailureUsageLimit  AnswerFailure = "usage_limit"
+	FailureContextFull AnswerFailure = "context_full"
+	FailureOther       AnswerFailure = "other"
+)
+
 // Mode is which of the app's two modes a chat belongs to, fixed at creation. A named
 // type because the GraphQL enum binds onto it value by value.
 type Mode string
@@ -185,6 +195,21 @@ type ChatMessage struct {
 	// dialect is the run's, which reads the payloads' citations; "" on a user
 	// message, which has no run.
 	dialect llm.Dialect
+}
+
+// Failure is a failed answer's kind, nil on any other. runOutcome stores each
+// kind it names in one spelling, so the error is the kind.
+func (m ChatMessage) Failure() *AnswerFailure {
+	if m.Status != StatusFailed {
+		return nil
+	}
+	switch m.Error {
+	case usageLimitText:
+		return new(FailureUsageLimit)
+	case contextFullText:
+		return new(FailureContextFull)
+	}
+	return new(FailureOther)
 }
 
 // CitationList is the message's citations, parsed from the string it carries.

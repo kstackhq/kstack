@@ -1545,7 +1545,7 @@ function Message({
           <p className="mt-1 text-xs text-destructive">{message.error || 'The answer failed.'}</p>
         )}
         {message.status === 'Failed' && message.provider?.id === CHATGPT_ID && (
-          <PlanFailure limit={message.error === USAGE_LIMIT_TEXT} />
+          <PlanFailure limit={message.failure === 'UsageLimit'} />
         )}
       </div>
       <TurnActions mine={mine} text={text} createdAt={message.createdAt} last={last} working={working} />
@@ -1557,9 +1557,6 @@ function Message({
     </article>
   );
 }
-
-// USAGE_LIMIT_TEXT is the sidecar's one spelling of a plan's usage limit.
-const USAGE_LIMIT_TEXT = 'usage limit reached';
 
 // PlanFailure is the way out under a failed answer on the ChatGPT plan: its usage
 // settings, and at a limit whose limit it may be.
