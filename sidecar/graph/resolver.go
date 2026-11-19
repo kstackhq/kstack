@@ -16,6 +16,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
@@ -56,6 +57,9 @@ type Resolver struct {
 	CloudTargets []permissions.Target
 	// ChatGPT is the ChatGPT connector: *oauthconn.Service, or a test's fake.
 	ChatGPT ChatGPTConnector
+	// OpenRouter is the OpenRouter connector: *openrouterkey.Service, or a
+	// test's fake.
+	OpenRouter OpenRouterConnector
 	// OpenURL opens one of the sidecar's own addresses in the browser:
 	// browser.Open, or a test's fake. No caller hands it an address.
 	OpenURL func(url string) error
@@ -68,6 +72,15 @@ type ChatGPTConnector interface {
 	Connect(ctx context.Context, fresh bool) error
 	Cancel()
 	Disconnect(ctx context.Context) error
+}
+
+// OpenRouterConnector is the OpenRouter connector as the wire drives it.
+type OpenRouterConnector interface {
+	State() openrouterkey.State
+	Subscribe() (<-chan openrouterkey.State, func())
+	Connect(ctx context.Context) error
+	Cancel()
+	Disconnect() error
 }
 
 // LogsService pages and follows a scope's lines: *logs.Service, or a test's fake.

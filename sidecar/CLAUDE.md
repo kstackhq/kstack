@@ -50,6 +50,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, LogsWatch, web search), `fileguard`, `logsinput` |
 | `internal/agent/CLAUDE.md` | the catalog, the loop, the chat service (turn, rows, approvals, tasks, the wire errors) |
 | `internal/services/connectors/oauthconn/CLAUDE.md` | signing in to a model provider with OAuth; `chatgptauth` is ChatGPT's provider |
+| `internal/services/connectors/openrouterkey/CLAUDE.md` | the OpenRouter connector: a sign-in that grants a key, kept in the keyring |
 
 ## Layout
 
@@ -200,8 +201,8 @@ Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + P
 
 **`Start` keeps one signed-in provider's model catalog the account's**, as its only writer: read
 per connected session, on a poke and every six hours, emptied otherwise. It subscribes to the
-connected session's id, `0` for none: `oauthconn`'s `WatchSession`. Its read lives in
-`agent/catalog`.
+connected session's id, `0` for none: `oauthconn`'s or `openrouterkey`'s `WatchSession`. Its
+read lives in `agent/catalog`; OpenRouter's answers the row's written catalog, reaching no network.
 
 ## GitHub's token (`internal/services/githubauth`)
 

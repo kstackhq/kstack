@@ -82,9 +82,10 @@ type Config struct {
 	// LLMBaseURLs moves a listed provider's base URL, by provider id. Only a
 	// debug build sets it.
 	LLMBaseURLs map[string]string
-	// ConnectorIssuerURLs moves a connector's OAuth issuer, by its provider id.
+	// ConnectorAuthURLs moves where a connector signs in, by its provider id:
+	// an OAuth issuer, or OpenRouter's auth origin.
 	// Only a debug build sets it.
-	ConnectorIssuerURLs map[string]string
+	ConnectorAuthURLs map[string]string
 	// AddFake adds the fake to the catalog, last, so a dev run answers with no
 	// key. Debug builds only.
 	AddFake bool

@@ -24,6 +24,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -485,6 +486,44 @@ func (r *mutationResolver) ChatGPTUsageOpen(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// OpenRouterConnect is the resolver for the openRouterConnect field.
+func (r *mutationResolver) OpenRouterConnect(ctx context.Context) (bool, error) {
+	if err := r.OpenRouter.Connect(ctx); err != nil {
+		return false, openRouterErr(err)
+	}
+	return true, nil
+}
+
+// OpenRouterConnectCancel is the resolver for the openRouterConnectCancel field.
+func (r *mutationResolver) OpenRouterConnectCancel(ctx context.Context) (bool, error) {
+	r.OpenRouter.Cancel()
+	return true, nil
+}
+
+// OpenRouterDisconnect is the resolver for the openRouterDisconnect field.
+func (r *mutationResolver) OpenRouterDisconnect(ctx context.Context) (bool, error) {
+	if err := r.OpenRouter.Disconnect(); err != nil {
+		return false, openRouterErr(err)
+	}
+	return true, nil
+}
+
+// OpenRouterKeysOpen is the resolver for the openRouterKeysOpen field.
+func (r *mutationResolver) OpenRouterKeysOpen(ctx context.Context) (bool, error) {
+	if err := r.OpenURL(openrouterkey.KeysURL); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Failure is the resolver for the failure field.
+func (r *openRouterConnectionResolver) Failure(ctx context.Context, obj *openrouterkey.State) (*openrouterkey.Failure, error) {
+	if obj.Phase != openrouterkey.Failed {
+		return nil, nil
+	}
+	return &obj.Failure, nil
+}
+
 // Models is the resolver for the models field.
 func (r *queryResolver) Models(ctx context.Context) ([]*model.Model, error) {
 	return modelsOf(r.LLMSvc.Providers()), nil
@@ -628,6 +667,12 @@ func (r *queryResolver) AuthState(ctx context.Context) (*auth.State, error) {
 // ChatGPTConnection is the resolver for the chatGPTConnection field.
 func (r *queryResolver) ChatGPTConnection(ctx context.Context) (*oauthconn.State, error) {
 	st := r.ChatGPT.State()
+	return &st, nil
+}
+
+// OpenRouterConnection is the resolver for the openRouterConnection field.
+func (r *queryResolver) OpenRouterConnection(ctx context.Context) (*openrouterkey.State, error) {
+	st := r.OpenRouter.State()
 	return &st, nil
 }
 
@@ -873,6 +918,12 @@ func (r *subscriptionResolver) ChatGPTConnectionWatch(ctx context.Context) (<-ch
 	return mapStream(ctx, states, cancel, func(s oauthconn.State) *oauthconn.State { return &s }), nil
 }
 
+// OpenRouterConnectionWatch is the resolver for the openRouterConnectionWatch field.
+func (r *subscriptionResolver) OpenRouterConnectionWatch(ctx context.Context) (<-chan *openrouterkey.State, error) {
+	states, cancel := r.OpenRouter.Subscribe()
+	return mapStream(ctx, states, cancel, func(s openrouterkey.State) *openrouterkey.State { return &s }), nil
+}
+
 // ModelsWatch is the resolver for the modelsWatch field.
 func (r *subscriptionResolver) ModelsWatch(ctx context.Context) (<-chan []*model.Model, error) {
 	frames, cancel := r.LLMSvc.Subscribe()
@@ -918,6 +969,11 @@ func (r *Resolver) ClusterPrincipal() ClusterPrincipalResolver { return &cluster
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
+// OpenRouterConnection returns OpenRouterConnectionResolver implementation.
+func (r *Resolver) OpenRouterConnection() OpenRouterConnectionResolver {
+	return &openRouterConnectionResolver{r}
+}
+
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
@@ -936,6 +992,7 @@ type (
 	clusterCachedKindSpecResolver struct{ *Resolver }
 	clusterPrincipalResolver      struct{ *Resolver }
 	mutationResolver              struct{ *Resolver }
+	openRouterConnectionResolver  struct{ *Resolver }
 	queryResolver                 struct{ *Resolver }
 	subscriptionResolver          struct{ *Resolver }
 	toolCallResolver              struct{ *Resolver }

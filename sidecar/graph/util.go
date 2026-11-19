@@ -19,6 +19,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/iso8601"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
@@ -162,6 +163,18 @@ func memoryErr(err error) error {
 func chatGPTErr(err error) error {
 	if errors.Is(err, oauthconn.ErrSigningIn) || errors.Is(err, oauthconn.ErrConnected) {
 		return gqlerrors.Clone(gqlerrors.ErrValidationError)
+	}
+	return err
+}
+
+// openRouterErr is a refused Connect or Disconnect as the wire codes it: during
+// an attempt, while connected, while the environment holds a key, or while a
+// key the keyring would not delete is still there.
+func openRouterErr(err error) error {
+	for _, refusal := range []error{openrouterkey.ErrSigningIn, openrouterkey.ErrConnected, openrouterkey.ErrFromEnvironment, openrouterkey.ErrNotDeleted} {
+		if errors.Is(err, refusal) {
+			return gqlerrors.Clone(gqlerrors.ErrValidationError)
+		}
 	}
 	return err
 }

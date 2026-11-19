@@ -20,12 +20,17 @@ import (
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
 )
 
 // keyedProvider is a provider and the environment variable that keys it.
 type keyedProvider struct {
 	provider llm.Provider
 	keyVar   string
+	// connector marks a row a connector can sign when no key is given: its
+	// signer is Config.Signers[the row's id], and its catalog is set while
+	// connected.
+	connector bool
 }
 
 // keyedProviders is every keyed provider, in picker order. The fake is not here:
@@ -35,17 +40,17 @@ type keyedProvider struct {
 // owed that check by whoever holds a key.
 func keyedProviders() []keyedProvider {
 	return []keyedProvider{
-		{newAnthropicProvider(), "ANTHROPIC_API_KEY"},
-		{newOpenAIProvider(), "OPENAI_API_KEY"},
-		{newGeminiProvider(), "GEMINI_API_KEY"},
-		{newGroqProvider(), "GROQ_API_KEY"},
-		{newMistralProvider(), "MISTRAL_API_KEY"},
-		{newDeepSeekProvider(), "DEEPSEEK_API_KEY"},
-		{newXAIProvider(), "XAI_API_KEY"},
-		{newOpenRouterProvider(), "OPENROUTER_API_KEY"},
-		{newTogetherProvider(), "TOGETHER_API_KEY"},
-		{newFireworksProvider(), "FIREWORKS_API_KEY"},
-		{newOpenCodeGoProvider(), "OPENCODE_GO_API_KEY"},
+		{provider: newAnthropicProvider(), keyVar: "ANTHROPIC_API_KEY"},
+		{provider: newOpenAIProvider(), keyVar: "OPENAI_API_KEY"},
+		{provider: newGeminiProvider(), keyVar: "GEMINI_API_KEY"},
+		{provider: newGroqProvider(), keyVar: "GROQ_API_KEY"},
+		{provider: newMistralProvider(), keyVar: "MISTRAL_API_KEY"},
+		{provider: newDeepSeekProvider(), keyVar: "DEEPSEEK_API_KEY"},
+		{provider: newXAIProvider(), keyVar: "XAI_API_KEY"},
+		{provider: newOpenRouterProvider(), keyVar: "OPENROUTER_API_KEY", connector: true},
+		{provider: newTogetherProvider(), keyVar: "TOGETHER_API_KEY"},
+		{provider: newFireworksProvider(), keyVar: "FIREWORKS_API_KEY"},
+		{provider: newOpenCodeGoProvider(), keyVar: "OPENCODE_GO_API_KEY"},
 	}
 }
 
@@ -250,7 +255,7 @@ func newXAIProvider() llm.Provider {
 func newOpenRouterProvider() llm.Provider {
 	return llm.Provider{
 		ID: "openrouter", Label: "OpenRouter", Dialect: llm.DialectChatCompletions,
-		BaseURL: "https://openrouter.ai/api/v1",
+		BaseURL: openrouterkey.APIBaseURL,
 		Catalog: []llm.Model{
 			{ID: "openrouter/auto", Label: "Auto", Cache: llm.CacheAuto},
 			{ID: "openai/gpt-5.6", Label: "GPT-5.6 Sol", Tools: true, Cache: llm.CacheAuto},
@@ -260,6 +265,12 @@ func newOpenRouterProvider() llm.Provider {
 		// Sticky routing: a session's requests go to the provider holding its cache.
 		AffinityRoute: llm.AffinityRoute{Field: "session_id"},
 	}
+}
+
+// ReadOpenRouterModels is the openrouter row's catalog while its connector is
+// connected: the written one, read without a request.
+func ReadOpenRouterModels(context.Context, llm.Provider) ([]llm.Model, error) {
+	return newOpenRouterProvider().Catalog, nil
 }
 
 // newTogetherProvider is Together's inference endpoint: open-weight models by
