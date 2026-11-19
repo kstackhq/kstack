@@ -843,6 +843,16 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   the sidecar beside the watch's own diff, and a second subscription while the dialog is open.
   **Trigger:** `ScopeBudget` or `BodyMax` growing enough that the stream's size shows.
 
+- **Consider holding the window's watches in Jotai atoms.** `ClustersProvider` (`src/lib/clusters.tsx`)
+  and `ModelsProvider` (`src/lib/models.tsx`) each hold watches for the whole window in a provider
+  mounted in `__root.tsx`, and each window-wide watch adds another provider to that stack. Each
+  provider's value is one context, so a reader re-renders on any change to that value. **Explore:**
+  one atom per watch, opened the first time something reads it, with derived atoms for the joins
+  (caches onto clusters, the health gauge onto caches) so a reader re-renders only for what it reads.
+  **Weigh:** a new dependency, and fitting `useWatchSubscription`'s generation gate and batching into
+  an atom's lifecycle. A late reader must still get the snapshot, which a provider guarantees today.
+  Tests that mock `useClusters` or `useModels` would need a store instead.
+
 - **Nothing checks that the Figma designs keep up with the code.** [`design/components.json`](../design/components.json) records each component's source blobs at its last sync ([`design/CLAUDE.md`](../design/CLAUDE.md#drift)), and `make design-status` lists the designs behind their code. Nobody is made to run it. Given `FIGMA_TOKEN`, it reads the design side over Figma's REST API. **Shape:** `tools/designsync` reports the components a pull request's changes left behind. It runs on a pull request touching `src/components/` or `src/index.css`, report-only, like `coverage / Gate`. **Needs:** a Figma access token as a CI secret, read-only.
 
 ## CLI
