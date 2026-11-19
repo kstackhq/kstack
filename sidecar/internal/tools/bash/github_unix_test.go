@@ -132,6 +132,36 @@ func TestASandboxedGhReadsTheAPI(t *testing.T) {
 	assert.Equal(t, "GET /user Bearer "+usersToken, testutil.Recv(t, seen, "gh's read"))
 }
 
+// gh reads the files GitHub's mount writes as they are: a gh that migrated
+// them would write in the run's directory, which macOS's sandbox refuses.
+func TestGhRunsOnGitHubsFilesUnchanged(t *testing.T) {
+	t.Parallel()
+	bin, err := exec.LookPath("gh")
+	if err != nil {
+		t.Skip("no gh on PATH")
+	}
+	dir := t.TempDir()
+	m, err := newTestGitHub(githubproxy.GitHub()).Mount(t.Context(), CloudRun{Port: 6443, Dir: dir, Session: session.Session{Kind: session.Chat}})
+	require.NoError(t, err)
+	t.Cleanup(m.Grant.End)
+	files := []string{filepath.Join(dir, "gh", "hosts.yml"), filepath.Join(dir, "gh", "config.yml")}
+	before := map[string]string{}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		require.NoError(t, err)
+		before[f] = string(b)
+	}
+
+	cmd := exec.Command(bin, "auth", "token")
+	cmd.Env = append([]string{"HOME=" + t.TempDir(), "PATH=" + os.Getenv("PATH"), "GH_NO_UPDATE_NOTIFIER=1"}, m.Env...)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	assert.Equal(t, "kstack-placeholder\n", string(out))
+	for _, f := range files {
+		assertFile(t, f, before[f])
+	}
+}
+
 // githubRun is a chat's run with GitHub's cloud platform over usersToken switched
 // on, beside others, and its runtime.
 func githubRun(t *testing.T, others ...CloudPlatform) (*sandboxedRun, tools.Runtime) {
@@ -241,9 +271,10 @@ func TestGitHubsFilesAreOwnerOnly(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(m.Grant.End)
 	for path, mode := range map[string]os.FileMode{
-		filepath.Join(dir, "gitconfig"):       0o600,
-		filepath.Join(dir, "gh"):              0o700,
-		filepath.Join(dir, "gh", "hosts.yml"): 0o600,
+		filepath.Join(dir, "gitconfig"):        0o600,
+		filepath.Join(dir, "gh"):               0o700,
+		filepath.Join(dir, "gh", "hosts.yml"):  0o600,
+		filepath.Join(dir, "gh", "config.yml"): 0o600,
 	} {
 		info, err := os.Stat(path)
 		require.NoError(t, err)

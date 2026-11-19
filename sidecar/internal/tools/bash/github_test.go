@@ -76,7 +76,15 @@ func TestGitHubsMountWritesItsFilesAndVariables(t *testing.T) {
 [credential "http://github.localhost"]
 	helper =
 `)
-	assertFile(t, hosts, "github.localhost:\n    oauth_token: kstack-placeholder\n    git_protocol: https\n")
+	assertFile(t, filepath.Join(dir, "gh", "config.yml"), "version: \"1\"\n")
+	assertFile(t, hosts, `github.localhost:
+    users:
+        kstack:
+            oauth_token: kstack-placeholder
+    git_protocol: https
+    oauth_token: kstack-placeholder
+    user: kstack
+`)
 }
 
 func assertFile(t *testing.T, path, want string) {

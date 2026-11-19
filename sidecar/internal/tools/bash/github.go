@@ -76,6 +76,10 @@ func (g gitHubPlatform) Mount(_ context.Context, run CloudRun) (CloudMount, erro
 // remote, SSH ones included, to the door, and gh's hosts.yml, whose login is
 // a placeholder: gh refuses to run with none, and the proxy never forwards it.
 //
+// hosts.yml is in gh's multi-account shape and config.yml stamps it version 1,
+// so no gh migrates them: a gh from 2.40 to 2.100 rewrites an unstamped config
+// on every run, a write the sandbox refuses on macOS.
+//
 // The gitconfig clears every credential helper for the door and the route, so
 // no helper, the keychain's included, is handed the grant's token to store.
 func writeGitHubFiles(gitconfig, ghDir, door, proxy string) error {
@@ -98,5 +102,15 @@ func writeGitHubFiles(gitconfig, ghDir, door, proxy string) error {
 	if err := os.Mkdir(ghDir, 0o700); err != nil {
 		return err
 	}
-	return writeNew(filepath.Join(ghDir, "hosts.yml"), []byte(githubproxy.GitHost+":\n    oauth_token: kstack-placeholder\n    git_protocol: https\n"))
+	if err := writeNew(filepath.Join(ghDir, "config.yml"), []byte("version: \"1\"\n")); err != nil { // coverage:ignore gh was made empty above, so only a failing disk fails this write
+		return err
+	}
+	return writeNew(filepath.Join(ghDir, "hosts.yml"), []byte(githubproxy.GitHost+`:
+    users:
+        kstack:
+            oauth_token: kstack-placeholder
+    git_protocol: https
+    oauth_token: kstack-placeholder
+    user: kstack
+`))
 }
