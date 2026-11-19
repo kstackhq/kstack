@@ -19,6 +19,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -460,7 +461,11 @@ func proofKey(proof, url string) (string, bool) {
 	if err != nil || claims.Method != http.MethodPost || claims.URL != url || claims.ID == "" {
 		return "", false
 	}
-	return pub.X.String() + "." + pub.Y.String(), true
+	point, err := pub.Bytes()
+	if err != nil {
+		return "", false
+	}
+	return hex.EncodeToString(point), true
 }
 
 // unsignedJWT is a JWT carrying claims, its signature a placeholder: the
