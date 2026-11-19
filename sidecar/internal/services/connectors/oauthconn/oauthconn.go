@@ -36,6 +36,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth/browser"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 )
@@ -111,7 +112,7 @@ type Config struct {
 type Service struct {
 	p              Provider
 	base           *url.URL
-	keyring        Keyring
+	keyring        oskeyring.Keyring
 	reg            *registrationStore
 	open           func(url string) error
 	attemptTimeout time.Duration
@@ -124,6 +125,8 @@ type Service struct {
 
 	hub *watch.Hub[State]
 	tx  *watch.Sender[State]
+	// sessions holds the generation while Connected, 0 otherwise.
+	sessions *watch.Hub[uint64]
 
 	mu         sync.Mutex
 	gen        uint64
@@ -140,7 +143,7 @@ type Service struct {
 // option is an unexported build seam, so only in-package tests pass one.
 type option func(*Service)
 
-func withKeyring(k Keyring) option { return func(s *Service) { s.keyring = k } }
+func withKeyring(k oskeyring.Keyring) option { return func(s *Service) { s.keyring = k } }
 
 func withBrowser(open func(string) error) option { return func(s *Service) { s.open = open } }
 
@@ -171,13 +174,14 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 	s := &Service{
 		p:              cfg.Provider,
 		base:           base,
-		keyring:        osKeyring{service: cfg.KeychainService},
+		keyring:        oskeyring.New(cfg.KeychainService),
 		reg:            reg,
 		open:           browser.Open,
 		attemptTimeout: attemptTimeout,
 		ctx:            ctx,
 		stop:           stop,
 		hub:            watch.New(State{}),
+		sessions:       watch.New[uint64](0),
 	}
 	s.tx = s.hub.Sender()
 	for _, opt := range opts {
@@ -239,6 +243,13 @@ func (s *Service) Subscribe() (<-chan State, func()) {
 	return rx.Chan(), rx.Close
 }
 
+// WatchSession streams the connected session: its generation while Connected,
+// 0 otherwise. Current on subscribe, then each change.
+func (s *Service) WatchSession() (<-chan uint64, func()) {
+	rx := s.sessions.Receiver()
+	return rx.Chan(), rx.Close
+}
+
 // Close ends every goroutine the service started, waits for them, and closes
 // its statements.
 func (s *Service) Close() {
@@ -256,6 +267,11 @@ func (s *Service) publishLocked(st State) {
 	st.Registered = s.reg.get().ClientID != ""
 	s.state = st
 	s.tx.Send(st) //nolint:errcheck // Send never blocks, and the hub is never closed
+	var session uint64
+	if st.Phase == Connected {
+		session = s.gen
+	}
+	s.sessions.Sender().Send(session) //nolint:errcheck // as above
 }
 
 // clearLocked ends the session in memory, then in the stores: the generation,

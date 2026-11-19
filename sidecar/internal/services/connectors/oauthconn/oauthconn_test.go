@@ -28,6 +28,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // A first launch is signed out, with no registration.
@@ -205,4 +206,27 @@ func TestAStaleEntryNewCannotDelete(t *testing.T) {
 	assert.Equal(t, SignedOut, s.State().Phase)
 	_, ok := storedRefresh(t, r)
 	assert.True(t, ok)
+}
+
+// WatchSession streams the session's generation while Connected and 0 in every
+// other phase, current on subscribe.
+func TestWatchSessionStreamsTheConnectedSession(t *testing.T) {
+	r := newRig(t)
+	sessions, cancel := r.svc.WatchSession()
+	defer cancel()
+	assert.Zero(t, testutil.Recv(t, sessions, "the signed-out launch"))
+
+	st := connect(t, r.svc)
+	recvSession(t, sessions, st.Session)
+
+	require.NoError(t, r.svc.Disconnect(t.Context()))
+	recvSession(t, sessions, 0)
+}
+
+// recvSession waits for sessions to carry want. A latest-value watch may skip
+// the frames before it.
+func recvSession(t *testing.T, sessions <-chan uint64, want uint64) {
+	t.Helper()
+	for testutil.Recv(t, sessions, "a session") != want {
+	}
 }

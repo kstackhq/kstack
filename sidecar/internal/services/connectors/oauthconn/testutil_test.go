@@ -36,6 +36,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
@@ -388,7 +389,7 @@ func (k *fakeKeyring) Get(account string) (string, error) {
 	}
 	v, ok := k.entries[account]
 	if !ok {
-		return "", errNoEntry
+		return "", oskeyring.ErrNoEntry
 	}
 	return v, nil
 }
@@ -411,13 +412,6 @@ func (k *fakeKeyring) Delete(account string) error {
 	}
 	delete(k.entries, account)
 	return nil
-}
-
-func (k *fakeKeyring) entry(account string) (string, bool) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	v, ok := k.entries[account]
-	return v, ok
 }
 
 func (k *fakeKeyring) failSet(account string, err error) {

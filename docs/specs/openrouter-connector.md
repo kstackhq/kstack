@@ -81,22 +81,21 @@ stands: its one engine runs every OAuth sign-in.
 **What both kinds use moves out of `oauthconn` first**, in a change of its own that alters no
 behaviour (tasks 2 and 3):
 
-- `services/connectors/oskeyring`: the `Keyring` interface, its OS implementation, `ErrNoEntry` and
-  the write-and-delete check, from `oauthconn/keyring.go`. `oauthconn` keeps its accounts and its
+- `lib/oskeyring`: the `Keyring` interface, its OS implementation, `ErrNoEntry` and the
+  write-and-delete check, from `oauthconn/keyring.go`. `oauthconn` keeps its accounts and its
   entry format.
-- `lib/apibase`: `Covers(base, u *url.URL) bool`, the check that a request is for
-  the API base or under it, from `oauthconn/sign.go`, with its tests.
-- `catalogsync.Start` takes a stream of the connected session, not an `*oauthconn.Service` (§5).
+- `catalogsync.Start` takes a subscription to the connected session (`oauthconn`'s
+  `WatchSession`), not an `*oauthconn.Service` (§5).
 
 Nothing outside `oauthconn`, `chatgptauth`, the ChatGPT wiring in `app/runtime.go` and the ChatGPT
 resolvers then imports `oauthconn`. Its guide says so: a new **OAuth** provider is a `Provider`
 value; a provider whose sign-in grants a key is a service beside `openrouterkey`.
 
-`openrouterkey` uses `lib/oauth/browser` (the loopback listener and the opener),
-`connectors/oskeyring` and `lib/apibase`. It does not import `lib/oauth`: it has no token
-endpoint, and the PKCE verifier and challenge are `x/oauth2`'s `GenerateVerifier` and
-`S256ChallengeFromVerifier`, as `oauthconn` mints its own. It has its own `CLAUDE.md` and
-`AGENTS.md`, listed in `sidecar/CLAUDE.md`'s *Guides*.
+`openrouterkey` uses `lib/oauth/browser` (the loopback listener and the opener) and
+`lib/oskeyring`. It does not import `lib/oauth`: it has no token endpoint, and the PKCE verifier
+and challenge are `x/oauth2`'s `GenerateVerifier` and `S256ChallengeFromVerifier`, as `oauthconn`
+mints its own. It has its own `CLAUDE.md` and `AGENTS.md`, listed in `sidecar/CLAUDE.md`'s
+*Guides*.
 
 Its surface has the shape of `oauthconn.Service`'s, so the wiring and the resolvers read alike.
 The types are its own:
@@ -231,7 +230,8 @@ dialect (Chat Completions, a bearer), and no entry overrides it, so `Sign` sets
 `Authorization: Bearer <key>` and is correct. `catalog_test.go` pins that no OpenRouter entry
 states a dialect or base URL of its own. The new ADR records the exception. `Sign`:
 
-- refuses a URL `apibase.Covers` does not hold under the API base (`TestTheKeyGoesNowhereElse`);
+- refuses a URL that is not the API base or under it, a check of its own beside `oauthconn`'s
+  `covers` (`TestTheKeyGoesNowhereElse`);
 - fails `llm.ErrSignedOut` outside `Connected`.
 
 `Bind` is a signer for the current generation, dead once it ends, so a turn never sends a key it
@@ -391,7 +391,7 @@ updates the guides and registers its own code changes, in the same change.
 | PR | # | Task | Status |
 | --- | --- | --- | --- |
 | — | 0 | §0's live checks, every row answered. Blocks tasks 4 to 7 | Planned |
-| A | 2 | `connectors/oskeyring` and `lib/apibase` out of `oauthconn`, with their tests | Planned |
+| A | 2 | `lib/oskeyring` out of `oauthconn`, with its tests | Planned |
 | A | 3 | `catalogsync` takes a session stream; ChatGPT maps onto it unchanged | Planned |
 | B | 1 | Security record; the ADR (two kinds of connector, the key as a session signer, one store); `docs/TODO.md` line | Planned |
 | B | 4 | `openrouterkey`: state, keyring, `Connect`/`Cancel`/`Disconnect`, `Sign`/`Bind`/`Refused` and the key check, against a fake auth page and exchange; `browser.Listen`'s state-in-path check if §0 needs it | Planned |

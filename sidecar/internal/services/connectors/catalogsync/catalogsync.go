@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
@@ -43,38 +42,40 @@ const (
 type Reader func(ctx context.Context, p llm.Provider) ([]llm.Model, error)
 
 // loop keeps a signed-in provider's catalog the account's, and is its only
-// writer. It takes the connection's states in order on one goroutine: each
-// Connected session's list is read, and a poke or refreshInterval reads it
-// again; any other phase empties it, and so does a new session, before its
-// read. Only the latest read's result is set, and the next state cancels it, so
-// a list read for one account never outlives a frame for the next.
+// writer. It takes the connected session's changes in order on one goroutine:
+// each session's list is read, and a poke or refreshInterval reads it again; 0
+// empties it, and so does a new session, before its read. Only the latest
+// read's result is set, and the next change cancels it, so a list read for one
+// account never outlives a frame for the next.
 type loop struct {
 	// id is the provider's.
-	id     string
-	states <-chan oauthconn.State
-	pokes  <-chan poke.Signal
-	read   func(context.Context) ([]llm.Model, error)
-	set    func([]llm.Model)
+	id string
+	// connected is the connected session's id, 0 while there is none.
+	connected <-chan uint64
+	pokes     <-chan poke.Signal
+	read      func(context.Context) ([]llm.Model, error)
+	set       func([]llm.Model)
 	// after paces the next read, a retry or a refresh; time.After in production.
 	after func(time.Duration) <-chan time.Time
 }
 
-// Start runs the loop for the provider id over its connection's states and the
+// Start runs the loop for the provider id over its connected session and the
 // resync pokes, setting what read answers on models, until the stop it returns,
-// which waits for it.
-func Start(id string, conn *oauthconn.Service, pokes *poke.Service, models *llm.Service, read Reader) (stop func()) {
+// which waits for it. subscribe streams the connected session's id, 0 while
+// there is none: current on subscribe, then each change.
+func Start(id string, subscribe func() (<-chan uint64, func()), pokes *poke.Service, models *llm.Service, read Reader) (stop func()) {
 	p, _ := models.Provider(id)
-	states, unsubscribe := conn.Subscribe()
+	connected, unsubscribe := subscribe()
 	signals, unpoke := pokes.Subscribe()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	l := loop{
-		id:     id,
-		states: states,
-		pokes:  signals,
-		read:   func(ctx context.Context) ([]llm.Model, error) { return read(ctx, p) }, // coverage:ignore it reads only for a signed-in account, which no test here has; the loop's tests cover a read
-		set:    func(list []llm.Model) { models.SetCatalog(id, list) },
-		after:  time.After,
+		id:        id,
+		connected: connected,
+		pokes:     signals,
+		read:      func(ctx context.Context) ([]llm.Model, error) { return read(ctx, p) }, // coverage:ignore it reads only for a signed-in account, which no test here has; the loop's tests cover a read
+		set:       func(list []llm.Model) { models.SetCatalog(id, list) },
+		after:     time.After,
 	}
 	go func() {
 		defer close(done)
@@ -94,7 +95,7 @@ func (c loop) run(ctx context.Context) {
 		err    error
 	}
 	var (
-		session uint64           // the Connected session the catalog is read for; 0 for none
+		session uint64           // the session the catalog is read for; 0 for none
 		pending <-chan result    // the latest read's answer; nil while none is under way
 		cancel  = func() {}      // ends the latest read
 		next    <-chan time.Time // the next read's clock: a retry, or a refresh
@@ -120,19 +121,19 @@ func (c loop) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case st := <-c.states:
+		case id := <-c.connected:
 			switch {
-			case st.Phase != oauthconn.Connected:
+			case id == 0:
 				stop()
 				session = 0
 				c.set(nil)
-			case st.Session != session:
-				// The states are a latest-value watch, so one session can follow
-				// another with nothing between: the last account's list goes first.
+			case id != session:
+				// A latest-value watch can skip the 0 between two sessions: the
+				// last account's list goes first.
 				if session != 0 {
 					c.set(nil)
 				}
-				session = st.Session
+				session = id
 				start()
 			}
 		case <-c.pokes:

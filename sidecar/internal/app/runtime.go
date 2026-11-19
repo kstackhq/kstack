@@ -187,7 +187,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.Catalog = newCatalog(cfg, map[string]llm.SessionSigner{chatgptauth.ID: rt.ChatGPT})
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
 	rt.add("chatgpt catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
-		stop := catalogsync.Start(chatgptauth.ID, rt.ChatGPT, rt.Poke, rt.LLM, catalog.ReadSignedModels)
+		stop := catalogsync.Start(chatgptauth.ID, rt.ChatGPT.WatchSession, rt.Poke, rt.LLM, catalog.ReadSignedModels)
 		return func(context.Context) error { stop(); return nil }, nil
 	}))
 
