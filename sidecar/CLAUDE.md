@@ -50,6 +50,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, LogsWatch, web search), `fileguard`, `logsinput` |
 | `internal/agent/CLAUDE.md` | the catalog, the loop, the chat service (turn, rows, approvals, tasks, the wire errors) |
 | `internal/services/connectors/oauthconn/CLAUDE.md` | signing in to a model provider with OAuth; `chatgptauth` is ChatGPT's provider |
+| `internal/services/connectors/openrouterkey/CLAUDE.md` | the OpenRouter connector: a sign-in that grants a key, kept in the keyring |
 
 ## Layout
 

@@ -4,7 +4,7 @@
 (`llm.SessionSigner`). The engine names no provider: what one has of its own is its `Provider`
 (`provider.go`), and `services/connectors/chatgptauth` is ChatGPT's. **It runs every OAuth
 session** (a refresh token under a client); a sign-in that grants a key that never expires is a
-service of its own. The keyring is `lib/oskeyring`.
+service of its own (`openrouterkey`). The keyring is `lib/oskeyring`.
 → [ADR: the engine and its stores](../../../../../docs/adr/2026-11-18-an-oauth-connection-is-a-row-matched-to-its-keyring-entry.md),
 [ADR: ChatGPT](../../../../../docs/adr/2026-11-18-the-chatgpt-connector-signs-in-with-chatgpts-dynamic-registration.md),
 [security record](../../../../../docs/security/2026-11-18-the-chatgpt-connector.md).
