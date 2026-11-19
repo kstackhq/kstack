@@ -137,7 +137,7 @@ func openAIOptions(p Provider, wire ...option.RequestOption) []option.RequestOpt
 	opts := []option.RequestOption{
 		option.WithBaseURL(p.BaseURL),
 		option.WithMaxRetries(0),
-		option.WithHTTPClient(noRedirectClient),
+		option.WithHTTPClient(NoRedirectClient),
 		option.WithMiddleware(func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {
 			return send(p, r, next)
 		}),
@@ -163,7 +163,7 @@ func authorize(p Provider, r *http.Request) error {
 }
 
 // send is every wire's middleware: authorize, send, and tell a signer of a
-// 401. A redirect fails here, since noRedirectClient follows none and the SDKs
+// 401. A redirect fails here, since NoRedirectClient follows none and the SDKs
 // read a 3xx as an answer.
 func send(p Provider, r *http.Request, next func(*http.Request) (*http.Response, error)) (*http.Response, error) {
 	if err := authorize(p, r); err != nil {
@@ -188,13 +188,13 @@ func send(p Provider, r *http.Request, next func(*http.Request) (*http.Response,
 // SignedDo sends req as every wire sends a request of p: authorized, following
 // no redirect, a signer told of a 401.
 func SignedDo(p Provider, req *http.Request) (*http.Response, error) {
-	return send(p, req, noRedirectClient.Do)
+	return send(p, req, NoRedirectClient.Do)
 }
 
-// noRedirectClient is every request's client. It follows no redirect: Go
+// NoRedirectClient is every request's client. It follows no redirect: Go
 // resends Authorization to a target on the same domain or a subdomain, and any
 // other header to any target, and a credential is for its endpoint alone.
-var noRedirectClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+var NoRedirectClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
 // providerOptions is a provider's own lines as one SDK's request options: its
 // query parameters, its extra body fields, the wire's own options, and last the
