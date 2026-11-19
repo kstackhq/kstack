@@ -30,7 +30,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -822,26 +821,46 @@ func TestAReadPastTheOpenCapIs429(t *testing.T) {
 func TestAStalledPushHoldsABodySlotUntilTheGrantEnds(t *testing.T) {
 	t.Parallel()
 	h := newHarnessWith(t, nil, runproxy.Limits{QPS: 1000, Burst: 1000, Open: 8, Bodies: 1, Challenges: true})
-	conn, err := net.Dial("tcp", h.front.Listener.Addr().String())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	credentials := base64.StdEncoding.EncodeToString([]byte("kstack:" + h.grant.Token()))
-	_, err = fmt.Fprintf(conn, "POST %s/o/r/git-receive-pack HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: Basic %s\r\nContent-Length: 1000\r\n\r\n%s",
-		gitURL, GitHost, credentials, pkt(idA + " " + idB + " refs/heads/main\x00report-status\n")[:20])
-	require.NoError(t, err)
+	// Two stalled pushes race for the one slot: the one that takes it holds
+	// it, so the other is answered at once, and only the holder stays open.
+	answered := make(chan int, 2)
+	for range 2 {
+		conn := stalledPush(t, h)
+		go func() {
+			resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			if err != nil {
+				answered <- 0
+				return
+			}
+			_ = resp.Body.Close()
+			answered <- resp.StatusCode
+		}()
+	}
+	assert.Equal(t, http.StatusTooManyRequests, testutil.Recv(t, answered, "the push that found the slot held"))
 
 	push := pushBody(nil, "report-status", []string{idA + " " + idB + " refs/heads/main"}, nil)
-	var body string
-	require.Eventually(t, func() bool {
-		var resp *http.Response
-		resp, body = h.do(t, http.MethodPost, gitURL+"/o/r/git-receive-pack", push, nil)
-		return resp.StatusCode == http.StatusTooManyRequests
-	}, testutil.Timeout, 10*time.Millisecond, "the stalled push to hold the body slot")
+	resp, body := h.do(t, http.MethodPost, gitURL+"/o/r/git-receive-pack", push, nil)
+	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 	assert.Equal(t, runproxy.BodyRefusal(http.StatusTooManyRequests)+"\n", body)
 
 	h.grant.End()
 	testutil.WaitReturn(t, h.grant.Wait, "Wait, with the upload still open")
 	assert.Empty(t, h.git.seen)
+}
+
+// stalledPush opens a push through the proxy whose body stops partway
+// through its opening. Its length is past the 256 KiB net/http drains from
+// an unread body before it answers, so a refusal is answered at once.
+func stalledPush(t *testing.T, h *harness) net.Conn {
+	t.Helper()
+	conn, err := net.Dial("tcp", h.front.Listener.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	credentials := base64.StdEncoding.EncodeToString([]byte("kstack:" + h.grant.Token()))
+	_, err = fmt.Fprintf(conn, "POST %s/o/r/git-receive-pack HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: Basic %s\r\nContent-Length: %d\r\n\r\n%s",
+		gitURL, GitHost, credentials, 1<<20, pkt(idA + " " + idB + " refs/heads/main\x00report-status\n")[:20])
+	require.NoError(t, err)
+	return conn
 }
 
 // A fetch's body streams to GitHub unread, and the grant's end cuts a
