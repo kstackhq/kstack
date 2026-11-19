@@ -21,6 +21,7 @@ import { expectCodeText, mockTauriCore } from '@/test-utils';
 const { invokeMock, factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
 
+const { SelectSettingsTab } = await import('@/lib/settings-tab');
 const { ProviderSetupForm } = await import('./provider-setup-form');
 
 describe('ProviderSetupForm', () => {
@@ -113,6 +114,29 @@ describe('ProviderSetupForm', () => {
     expect(screen.getByRole('radio', { name: 'Saved key' })).toHaveAccessibleDescription(
       'A key Kstack keeps in your system keychain, used over OPENAI_API_KEY.',
     );
+  });
+
+  it('sends the OpenRouter connector to the Connectors tab, closing the form', async () => {
+    const user = userEvent.setup();
+    const selectTab = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <SelectSettingsTab value={selectTab}>
+        <ProviderSetupForm sources={['environment', 'openrouter-connector']} onCancel={onCancel} />
+      </SelectSettingsTab>,
+    );
+
+    const source = screen.getByRole('radio', { name: 'OpenRouter connector' });
+    expect(source).toHaveAccessibleDescription('Sign in with your OpenRouter account.');
+    expect(screen.queryByText('Coming soon')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open Connectors' })).toBeNull();
+
+    await user.click(source);
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Open Connectors' }));
+
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(selectTab).toHaveBeenCalledExactlyOnceWith('Connectors');
   });
 
   it('collapses on Cancel', async () => {

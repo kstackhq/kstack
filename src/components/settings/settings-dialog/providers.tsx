@@ -28,6 +28,7 @@ import { useState } from 'react';
 
 import { Dialog } from '@/components/primitives/dialog';
 import { VisibleText } from '@/components/primitives/visible-text';
+import { type Connector, type Connectors, OPENROUTER_ID, useConnectors } from '@/lib/connectors';
 import { type Catalog, providersOf, useModels } from '@/lib/models';
 import { useSelectSettingsTab } from '@/lib/settings-tab';
 
@@ -44,9 +45,11 @@ type Provider = {
   missing?: string;
   /** Whether the catalog serves it. */
   configured: boolean;
+  /** Whether the OpenRouter connector's key signs it, not its key variable. */
+  connected: boolean;
 };
 
-type Entry = Omit<Provider, 'configured'>;
+type Entry = Omit<Provider, 'configured' | 'connected'>;
 
 const keyed = (id: string, label: string, keyVar: string, ...connectors: CredentialSource[]): Entry => ({
   id,
@@ -67,7 +70,7 @@ const PROVIDERS: Entry[] = [
   keyed('mistral', 'Mistral', 'MISTRAL_API_KEY'),
   keyed('deepseek', 'DeepSeek', 'DEEPSEEK_API_KEY'),
   keyed('xai', 'xAI', 'XAI_API_KEY'),
-  keyed('openrouter', 'OpenRouter', 'OPENROUTER_API_KEY'),
+  keyed(OPENROUTER_ID, 'OpenRouter', 'OPENROUTER_API_KEY', 'openrouter-connector'),
   keyed('together', 'Together', 'TOGETHER_API_KEY'),
   keyed('fireworks', 'Fireworks', 'FIREWORKS_API_KEY'),
   keyed('opencode-go', 'OpenCode Go', 'OPENCODE_GO_API_KEY'),
@@ -82,42 +85,51 @@ const CONNECTOR_SOURCES = new Set<CredentialSource>([
   'google-connector',
   'azure-connector',
   'chatgpt-connector',
+  'openrouter-connector',
 ]);
 
 // Every provider, by name: the ones the catalog serves, under its labels, then
 // the rest of PROVIDERS. A served provider PROVIDERS does not list has no sources.
-function providersFrom(models: Catalog['models']): Provider[] {
+// OpenRouter, served while its connector is connected, is signed by the connector.
+function providersFrom(models: Catalog['models'], connectors: Connector[]): Provider[] {
   const served = providersOf(models);
+  const openRouterConnected = connectors.some((c) => c.id === OPENROUTER_ID && c.connected);
   const configured = served.map(({ id, label }) => ({
     sources: [],
     ...PROVIDERS.find((p) => p.id === id),
     id,
     label,
     configured: true,
+    connected: id === OPENROUTER_ID && openRouterConnected,
   }));
-  const rest = PROVIDERS.filter((p) => !served.some((s) => s.id === p.id)).map((p) => ({ ...p, configured: false }));
+  const rest = PROVIDERS.filter((p) => !served.some((s) => s.id === p.id)).map((p) => ({
+    ...p,
+    configured: false,
+    connected: false,
+  }));
   return [...configured, ...rest].toSorted((a, b) => a.label.localeCompare(b.label));
 }
 
 export function ProvidersSettings() {
   return (
     <Intro lede="Configure your chats' models. Enable model providers with connectors or API keys.">
-      <ProviderList catalog={useModels()} />
+      <ProviderList catalog={useModels()} connectors={useConnectors()} />
     </Intro>
   );
 }
 
-function ProviderList({ catalog: { models, loaded } }: { catalog: Catalog }) {
+function ProviderList({ catalog: { models, loaded }, connectors }: { catalog: Catalog; connectors: Connectors }) {
   // The provider whose dialog was last opened. It outlives `open` so the dialog
   // keeps its content while it animates closed.
   const [target, setTarget] = useState<Provider | null>(null);
   const [open, setOpen] = useState(false);
-  // Nothing before the watch's first frame: until then, every provider would read as not set up.
-  if (!loaded) return null;
+  // Nothing before the watches' first frames: until then, every provider would
+  // read as not set up, and a connected one as found in the environment.
+  if (!loaded || !connectors.loaded) return null;
   return (
     <>
       <ul className="divide-y rounded-lg border">
-        {providersFrom(models).map((p) => (
+        {providersFrom(models, connectors.connectors).map((p) => (
           <ProviderRow
             key={p.id}
             provider={p}
@@ -142,8 +154,9 @@ function ProviderList({ catalog: { models, loaded } }: { catalog: Catalog }) {
             key={target.id}
             sources={target.sources}
             // Placeholder: awaits a Provider field saying how its credentials
-            // resolve. Until then a served provider's key variable counts as set.
-            keyVar={target.keyVar ? { name: target.keyVar, set: target.configured } : undefined}
+            // resolve. Until then a served provider's key variable counts as
+            // set, unless a connector signs it.
+            keyVar={target.keyVar ? { name: target.keyVar, set: target.configured && !target.connected } : undefined}
             onCancel={() => setOpen(false)}
           />
         </Dialog>
@@ -185,9 +198,11 @@ function ProviderRow({ provider, onConfigure }: { provider: Provider; onConfigur
 }
 
 // Placeholder for a configured provider: awaits a Provider field saying how its
-// credentials resolve. Until then a served provider's key variable counts as found.
-function Detail({ provider: { configured, keyVar, missing } }: { provider: Provider }) {
+// credentials resolve. Until then a served provider's key variable counts as
+// found, unless a connector signs it.
+function Detail({ provider: { configured, connected, keyVar, missing } }: { provider: Provider }) {
   if (!configured) return missing ?? 'No API key found';
+  if (connected) return 'Connected on the Connectors tab';
   if (!keyVar) return 'Configured';
   return (
     <>

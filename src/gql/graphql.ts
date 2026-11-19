@@ -310,6 +310,32 @@ export type MemorySaveInput = {
   name: string;
 };
 
+/** Why the last OpenRouter sign-in or key ended. */
+export type OpenRouterConnectionFailure =
+  /** OpenRouter no longer honours the key; connect again. */
+  | 'KeyRejected'
+  /** The keyring would not delete the key, which may be one OpenRouter rejected. It is used again after a restart until a Disconnect deletes it. */
+  | 'NotDeleted'
+  /** This machine's keyring could not save the key. */
+  | 'NotSaved'
+  /** The sign-in could not finish: OpenRouter refused it, the browser could not open, or the callback was malformed. */
+  | 'Refused'
+  /** Nobody finished the sign-in in time. */
+  | 'TimedOut'
+  /** OpenRouter could not be reached. */
+  | 'Unavailable';
+
+/** Where the OpenRouter connector is. */
+export type OpenRouterConnectionPhase =
+  | 'Connected'
+  /** The last attempt or key ended; `failure` says why. */
+  | 'Failed'
+  /** OPENROUTER_API_KEY from the environment signs the openrouter models; the connector is unused. */
+  | 'FromEnvironment'
+  | 'SignedOut'
+  /** The browser is open on OpenRouter's sign-in. */
+  | 'SigningIn';
+
 /** How much an action can do, as the permissions engine numbers its classes 1 to 6. A rule may name `UpstreamWrite` or `Destructive`. */
 export type PermissionClass =
   | 'Destructive'
@@ -685,6 +711,31 @@ export type ChatGptUsageOpenMutationVariables = Exact<{ [key: string]: never; }>
 
 export type ChatGptUsageOpenMutation = { chatGPTUsageOpen: boolean };
 
+export type OpenRouterConnectionWatchSubscriptionVariables = Exact<{ [key: string]: never; }>;
+
+
+export type OpenRouterConnectionWatchSubscription = { openRouterConnectionWatch: { phase: OpenRouterConnectionPhase, failure: OpenRouterConnectionFailure | null } };
+
+export type OpenRouterConnectMutationVariables = Exact<{ [key: string]: never; }>;
+
+
+export type OpenRouterConnectMutation = { openRouterConnect: boolean };
+
+export type OpenRouterConnectCancelMutationVariables = Exact<{ [key: string]: never; }>;
+
+
+export type OpenRouterConnectCancelMutation = { openRouterConnectCancel: boolean };
+
+export type OpenRouterDisconnectMutationVariables = Exact<{ [key: string]: never; }>;
+
+
+export type OpenRouterDisconnectMutation = { openRouterDisconnect: boolean };
+
+export type OpenRouterKeysOpenMutationVariables = Exact<{ [key: string]: never; }>;
+
+
+export type OpenRouterKeysOpenMutation = { openRouterKeysOpen: boolean };
+
 export type LogsFetchQueryVariables = Exact<{
   id: string;
   request: LogsFetchInput;
@@ -919,6 +970,11 @@ export const ChatGptConnectDocument = {"kind":"Document","definitions":[{"kind":
 export const ChatGptConnectCancelDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ChatGPTConnectCancel"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"chatGPTConnectCancel"}}]}}]} as unknown as DocumentNode<ChatGptConnectCancelMutation, ChatGptConnectCancelMutationVariables>;
 export const ChatGptDisconnectDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ChatGPTDisconnect"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"chatGPTDisconnect"}}]}}]} as unknown as DocumentNode<ChatGptDisconnectMutation, ChatGptDisconnectMutationVariables>;
 export const ChatGptUsageOpenDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ChatGPTUsageOpen"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"chatGPTUsageOpen"}}]}}]} as unknown as DocumentNode<ChatGptUsageOpenMutation, ChatGptUsageOpenMutationVariables>;
+export const OpenRouterConnectionWatchDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"OpenRouterConnectionWatch"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"openRouterConnectionWatch"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"phase"}},{"kind":"Field","name":{"kind":"Name","value":"failure"}}]}}]}}]} as unknown as DocumentNode<OpenRouterConnectionWatchSubscription, OpenRouterConnectionWatchSubscriptionVariables>;
+export const OpenRouterConnectDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"OpenRouterConnect"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"openRouterConnect"}}]}}]} as unknown as DocumentNode<OpenRouterConnectMutation, OpenRouterConnectMutationVariables>;
+export const OpenRouterConnectCancelDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"OpenRouterConnectCancel"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"openRouterConnectCancel"}}]}}]} as unknown as DocumentNode<OpenRouterConnectCancelMutation, OpenRouterConnectCancelMutationVariables>;
+export const OpenRouterDisconnectDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"OpenRouterDisconnect"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"openRouterDisconnect"}}]}}]} as unknown as DocumentNode<OpenRouterDisconnectMutation, OpenRouterDisconnectMutationVariables>;
+export const OpenRouterKeysOpenDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"OpenRouterKeysOpen"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"openRouterKeysOpen"}}]}}]} as unknown as DocumentNode<OpenRouterKeysOpenMutation, OpenRouterKeysOpenMutationVariables>;
 export const LogsFetchDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"LogsFetch"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ClusterID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"request"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"LogsFetchInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"logsFetch"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}},{"kind":"Argument","name":{"kind":"Name","value":"request"},"value":{"kind":"Variable","name":{"kind":"Name","value":"request"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"records"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"timestamp"}},{"kind":"Field","name":{"kind":"Name","value":"message"}},{"kind":"Field","name":{"kind":"Name","value":"truncatedBytes"}},{"kind":"Field","name":{"kind":"Name","value":"cursor"}},{"kind":"Field","name":{"kind":"Name","value":"stream"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"namespace"}},{"kind":"Field","name":{"kind":"Name","value":"pod"}},{"kind":"Field","name":{"kind":"Name","value":"container"}},{"kind":"Field","name":{"kind":"Name","value":"previous"}}]}},{"kind":"Field","name":{"kind":"Name","value":"place"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"node"}},{"kind":"Field","name":{"kind":"Name","value":"region"}},{"kind":"Field","name":{"kind":"Name","value":"zone"}},{"kind":"Field","name":{"kind":"Name","value":"os"}},{"kind":"Field","name":{"kind":"Name","value":"arch"}}]}},{"kind":"Field","name":{"kind":"Name","value":"gap"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"after"}},{"kind":"Field","name":{"kind":"Name","value":"before"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"page"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"prev"}},{"kind":"Field","name":{"kind":"Name","value":"next"}},{"kind":"Field","name":{"kind":"Name","value":"follow"}}]}},{"kind":"Field","name":{"kind":"Name","value":"notices"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"code"}},{"kind":"Field","name":{"kind":"Name","value":"message"}}]}}]}}]}}]} as unknown as DocumentNode<LogsFetchQuery, LogsFetchQueryVariables>;
 export const LogsFollowDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"LogsFollow"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ClusterID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"request"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"LogsFollowInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"logsFollow"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}},{"kind":"Argument","name":{"kind":"Name","value":"request"},"value":{"kind":"Variable","name":{"kind":"Name","value":"request"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"record"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"timestamp"}},{"kind":"Field","name":{"kind":"Name","value":"message"}},{"kind":"Field","name":{"kind":"Name","value":"truncatedBytes"}},{"kind":"Field","name":{"kind":"Name","value":"cursor"}},{"kind":"Field","name":{"kind":"Name","value":"stream"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"namespace"}},{"kind":"Field","name":{"kind":"Name","value":"pod"}},{"kind":"Field","name":{"kind":"Name","value":"container"}},{"kind":"Field","name":{"kind":"Name","value":"previous"}}]}},{"kind":"Field","name":{"kind":"Name","value":"place"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"node"}},{"kind":"Field","name":{"kind":"Name","value":"region"}},{"kind":"Field","name":{"kind":"Name","value":"zone"}},{"kind":"Field","name":{"kind":"Name","value":"os"}},{"kind":"Field","name":{"kind":"Name","value":"arch"}}]}},{"kind":"Field","name":{"kind":"Name","value":"gap"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"after"}},{"kind":"Field","name":{"kind":"Name","value":"before"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"notice"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"code"}},{"kind":"Field","name":{"kind":"Name","value":"message"}}]}},{"kind":"Field","name":{"kind":"Name","value":"ended"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"code"}},{"kind":"Field","name":{"kind":"Name","value":"message"}}]}}]}}]}}]} as unknown as DocumentNode<LogsFollowSubscription, LogsFollowSubscriptionVariables>;
 export const MemoriesWatchDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"MemoriesWatch"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"clusterID"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ClusterID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"memoriesWatch"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"clusterID"},"value":{"kind":"Variable","name":{"kind":"Name","value":"clusterID"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"memory"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"clusterID"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"body"}},{"kind":"Field","name":{"kind":"Name","value":"writtenBy"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}}]}}]}}]}}]} as unknown as DocumentNode<MemoriesWatchSubscription, MemoriesWatchSubscriptionVariables>;

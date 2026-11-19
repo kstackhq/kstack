@@ -397,7 +397,7 @@ updates the guides and registers its own code changes, in the same change.
 | B | 4 | `openrouterkey`: state, keyring, `Connect`/`Cancel`/`Disconnect`, `Sign`/`Bind`/`Refused` and the key check, against a fake auth page and exchange; `browser.Listen`'s state-in-path check if §0 needs it | Done, on §0's assumptions |
 | B | 5 | `catalog`: the connector signer on OpenRouter's keyed row; `runtime.go` wiring; `config.go`'s debug variable | Done, on §0's assumptions |
 | B | 6 | GraphQL schema, resolvers and tests; `pnpm codegen` | Done, on §0's assumptions |
-| C | 7 | The webview: hook, row, setup source, the Providers tab's detail, tests | Planned |
+| C | 7 | The webview: hook, row, setup source, the Providers tab's detail, tests | Done, on §0's assumptions |
 
 - **A, the shared parts.** Changes no behaviour and needs no §0 answer, so it can land first.
   Guides: `oauthconn`'s states its kind; `sidecar/CLAUDE.md`'s *catalogsync* section.

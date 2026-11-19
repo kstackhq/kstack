@@ -23,11 +23,18 @@ import {
   DropdownMenuTrigger,
 } from '@kubetail/ui/elements/dropdown-menu';
 import { Ellipsis, ExternalLink } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 
 import { Dialog } from '@/components/primitives/dialog';
 import { VisibleText } from '@/components/primitives/visible-text';
-import { type ChatGPTActions, type ChatGPTConnection, type Connector, useConnectors } from '@/lib/connectors';
+import {
+  type ChatGPTActions,
+  type ChatGPTConnection,
+  type Connector,
+  type OpenRouterActions,
+  type OpenRouterConnection,
+  useConnectors,
+} from '@/lib/connectors';
 import { storageKey } from '@/lib/storage-key';
 
 import { Intro } from './group';
@@ -41,13 +48,11 @@ export function ConnectorsSettings() {
       <ul className="divide-y rounded-lg border">
         {connectors
           .toSorted((a, b) => a.name.localeCompare(b.name))
-          .map((c) =>
-            c.chatgpt ? (
-              <ChatGPTRow key={c.id} connector={c} {...c.chatgpt} onConnect={confirm.sent} />
-            ) : (
-              <ConnectorRow key={c.id} connector={c} />
-            ),
-          )}
+          .map((c) => {
+            if (c.chatgpt) return <ChatGPTRow key={c.id} connector={c} {...c.chatgpt} onConnect={confirm.sent} />;
+            if (c.openrouter) return <OpenRouterRow key={c.id} connector={c} {...c.openrouter} />;
+            return <ConnectorRow key={c.id} connector={c} />;
+          })}
       </ul>
       <Dialog
         open={confirm.open}
@@ -120,14 +125,15 @@ function useFirstConnectionConfirm(connection: ChatGPTConnection | undefined) {
   };
 }
 
-function RowText({ name, detail }: { name: string; detail: string }) {
+// A string detail may be an account's, so it is spelled out; an element is the pane's own.
+function RowText({ name, detail }: { name: string; detail: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
       <span className="truncate text-sm text-popover-foreground">
         <VisibleText text={name} />
       </span>
       <span className="truncate text-xs text-muted-foreground">
-        <VisibleText text={detail} />
+        {typeof detail === 'string' ? <VisibleText text={detail} /> : detail}
       </span>
     </div>
   );
@@ -270,6 +276,130 @@ function ChatGPTMenu({
         ) : (
           <DropdownMenuItem onClick={onFresh}>Use a different account</DropdownMenuItem>
         )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// openRouterFailureText is one line saying why the last attempt or key ended.
+// NotDeleted has a line and buttons of its own.
+const openRouterFailureText: Record<Exclude<NonNullable<OpenRouterConnection['failure']>, 'NotDeleted'>, string> = {
+  TimedOut: 'The sign-in timed out.',
+  Unavailable: 'OpenRouter could not be reached.',
+  Refused: 'OpenRouter refused the sign-in.',
+  NotSaved: 'This computer could not save the key.',
+  KeyRejected: 'OpenRouter no longer accepts the key. Connect again.',
+};
+
+function openRouterDetail({ phase, failure }: OpenRouterConnection, offer: string): ReactNode {
+  switch (phase) {
+    case 'SignedOut':
+      return offer;
+    case 'SigningIn':
+      return 'Waiting for the browser…';
+    case 'Connected':
+      return 'Key "Kstack"';
+    case 'FromEnvironment':
+      return (
+        <>
+          Using <code>OPENROUTER_API_KEY</code>
+        </>
+      );
+    case 'Failed':
+      return failure && failure !== 'NotDeleted' ? openRouterFailureText[failure] : offer;
+  }
+}
+
+function OpenRouterRow({
+  connector,
+  connection,
+  actions,
+}: {
+  connector: Connector;
+  connection: OpenRouterConnection;
+  actions: OpenRouterActions;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const { phase } = connection;
+  // The key is still in the keyring: only another Disconnect moves on, so no Connect.
+  const notDeleted = phase === 'Failed' && connection.failure === 'NotDeleted';
+  return (
+    <li className="flex flex-col gap-2 px-4 py-2.5">
+      <div className="flex items-center gap-3">
+        <RowText name={connector.name} detail={openRouterDetail(connection, connector.detail)} />
+        {phase === 'SigningIn' && (
+          <Button variant="outline" size="sm" onClick={actions.cancel}>
+            Cancel
+          </Button>
+        )}
+        {(phase === 'SignedOut' || (phase === 'Failed' && !notDeleted)) && (
+          <Button variant="outline" size="sm" onClick={actions.connect}>
+            Connect
+          </Button>
+        )}
+        {phase === 'Connected' && <OpenRouterMenu actions={actions} onDisconnect={() => setConfirming(true)} />}
+      </div>
+      {notDeleted && (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <p className="flex-1">
+            Kstack could not remove the key from this machine. It will be used again after a restart. Retry, or delete
+            the key labelled &quot;Kstack&quot; on OpenRouter.
+          </p>
+          <Button variant="outline" size="xs" onClick={actions.openKeys}>
+            Open OpenRouter settings
+          </Button>
+          <Button variant="outline" size="xs" onClick={actions.disconnect}>
+            Retry
+          </Button>
+        </div>
+      )}
+      <Dialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Disconnect OpenRouter?"
+        description='Kstack will forget this key. It stays active on OpenRouter until you delete the key labelled "Kstack" in your OpenRouter settings.'
+      >
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" className="mr-auto" onClick={actions.openKeys}>
+            Open OpenRouter settings
+          </Button>
+          <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => {
+              setConfirming(false);
+              actions.disconnect();
+            }}
+          >
+            Disconnect
+          </Button>
+        </div>
+      </Dialog>
+    </li>
+  );
+}
+
+function OpenRouterMenu({ actions, onDisconnect }: { actions: OpenRouterActions; onDisconnect: () => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button variant="ghost" size="icon" className="size-7 rounded-md" />}
+        aria-label="Actions for OpenRouter"
+      >
+        <Ellipsis className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={actions.openKeys}>
+          Open OpenRouter settings
+          <ExternalLink className="ml-auto" />
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={onDisconnect}>
+          Disconnect
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
