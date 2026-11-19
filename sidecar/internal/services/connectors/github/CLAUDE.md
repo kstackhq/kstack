@@ -17,7 +17,8 @@ provider: it is a granted key, like `openrouter`, and shares `lib/oskeyring` wit
   GitHub's `interval`, `access_denied` is `Declined`, `expired_token` and the code's lifetime are
   `TimedOut`. `pace` turns GitHub's seconds into a duration; tests pass milliseconds.
 - **A granted token is kept only once `/user` names its login**, and only for the generation it
-  began under. The device code is registered with `safe` while it polls.
+  began under. The device code is registered with `safe` while it polls, and forgotten before the
+  outcome is published.
 - **`Tokens(fallback)` is the proxy's source**: the connector's token while connected, `gh`'s
   otherwise. `Refused` checks `/user` once at a time; only its own `401` drops the token
   (`KeyRejected`).

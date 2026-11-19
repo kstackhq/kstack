@@ -74,8 +74,6 @@ func (s *Service) Connect(context.Context) error {
 		return nil
 	}
 	s.wg.Go(func() {
-		defer a.forget()
-		defer a.listener.Close()
 		ctx, cancel := context.WithTimeout(a.ctx, s.attemptTimeout)
 		defer cancel()
 		s.finish(ctx, a)
@@ -185,32 +183,41 @@ func (s *Service) endAttempt(gen uint64, f connectors.Failure) {
 	}
 }
 
-// finish waits for the callback, then exchanges its code and saves the key.
-// The wait answers Cancel; the exchange does not, since the code is spent, and
-// a key that arrives after the attempt ended is dropped.
+// finish sees the attempt through to its outcome. The attempt's secrets are
+// forgotten before the outcome is published, so no reader of the state finds
+// them registered. A key that arrives after the attempt ended is dropped.
 func (s *Service) finish(ctx context.Context, a *attempt) {
+	key, failure := s.authorize(ctx, a)
+	a.listener.Close()
+	a.forget()
+	switch {
+	case key != "":
+		s.complete(a.gen, key)
+	case failure != "":
+		s.endAttempt(a.gen, failure)
+	}
+}
+
+// authorize waits for the callback, then exchanges its code for the key. The
+// wait answers Cancel, with neither a key nor a failure; the exchange does
+// not, since the code is spent.
+func (s *Service) authorize(ctx context.Context, a *attempt) (string, connectors.Failure) {
 	q, err := a.listener.Wait(ctx)
 	if err != nil {
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
-			s.endAttempt(a.gen, connectors.TimedOut)
+			return "", connectors.TimedOut
 		case errors.Is(err, context.Canceled):
 			// Whoever cancelled the wait has ended the attempt.
+			return "", ""
 		default:
-			s.endAttempt(a.gen, connectors.Refused)
+			return "", connectors.Refused
 		}
-		return
 	}
 	if len(q["code"]) != 1 {
-		s.endAttempt(a.gen, connectors.Refused)
-		return
+		return "", connectors.Refused
 	}
-	key, failure := s.exchange(q.Get("code"), a.verifier)
-	if failure != "" {
-		s.endAttempt(a.gen, failure)
-		return
-	}
-	s.complete(a.gen, key)
+	return s.exchange(q.Get("code"), a.verifier)
 }
 
 // exchange trades code for the key. Only a 200 whose JSON names a non-empty

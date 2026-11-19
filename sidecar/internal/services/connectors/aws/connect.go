@@ -70,8 +70,6 @@ func (s *Service) Connect(context.Context) error {
 		if s.attemptEnded != nil {
 			defer s.attemptEnded()
 		}
-		defer a.forget()
-		defer a.listener.Close()
 		ctx, cancel := context.WithTimeout(a.ctx, s.attemptTimeout)
 		defer cancel()
 		s.finish(ctx, a)
@@ -176,35 +174,44 @@ func (s *Service) endAttempt(gen uint64, f connectors.Failure) {
 	}
 }
 
-// finish waits for the redirect, then exchanges its code and saves the
-// session. The wait answers Cancel; the exchange does not, since the
-// code is spent, and tokens that arrive after the attempt ended are dropped.
+// finish sees the attempt through to its outcome. The attempt's secrets are
+// forgotten before the outcome is published, so no reader of the state finds
+// them registered. Tokens that arrive after the attempt ended are dropped.
 func (s *Service) finish(ctx context.Context, a *attempt) {
+	sess, failure := s.authorize(ctx, a)
+	a.listener.Close()
+	a.forget()
+	switch {
+	case sess != nil:
+		s.complete(a.gen, sess)
+	case failure != "":
+		s.endAttempt(a.gen, failure)
+	}
+}
+
+// authorize waits for the redirect, then exchanges its code for a session. The
+// wait answers Cancel, with neither a session nor a failure; the exchange does
+// not, since the code is spent.
+func (s *Service) authorize(ctx context.Context, a *attempt) (*session, connectors.Failure) {
 	q, err := a.listener.Wait(ctx)
 	if err != nil {
 		authErr, declined := errors.AsType[*browser.AuthorizationError](err)
 		switch {
 		case declined && authErr.Code == "access_denied":
-			s.endAttempt(a.gen, connectors.Declined)
+			return nil, connectors.Declined
 		case errors.Is(err, context.DeadlineExceeded):
-			s.endAttempt(a.gen, connectors.TimedOut)
+			return nil, connectors.TimedOut
 		case errors.Is(err, context.Canceled):
 			// Whoever cancelled the wait has ended the attempt.
+			return nil, ""
 		default:
-			s.endAttempt(a.gen, connectors.Refused)
+			return nil, connectors.Refused
 		}
-		return
 	}
 	if len(q["code"]) != 1 {
-		s.endAttempt(a.gen, connectors.Refused)
-		return
+		return nil, connectors.Refused
 	}
-	sess, failure := s.exchange(a, q.Get("code"))
-	if failure != "" {
-		s.endAttempt(a.gen, failure)
-		return
-	}
-	s.complete(a.gen, sess)
+	return s.exchange(a, q.Get("code"))
 }
 
 // exchange trades code for a session under a new key. An answer of AWS's own

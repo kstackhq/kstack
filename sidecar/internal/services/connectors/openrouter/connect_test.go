@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
@@ -337,4 +338,22 @@ func TestAKeyThatCannotBeSavedIsNotKept(t *testing.T) {
 	await(t, r.svc, "NotSaved", failedWith(connectors.NotSaved))
 	_, err := r.signedKey(r.svc)
 	assert.ErrorIs(t, err, llm.ErrSignedOut)
+}
+
+// A sign-in forgets its state, verifier and challenge before it publishes
+// Connected. The key's write is the last step before that.
+func TestASignInForgetsItsSecretsBeforeItConnects(t *testing.T) {
+	r := newRig(t)
+	r.keyring.onSet(func(account string) {
+		if account != keyAccount {
+			return
+		}
+		auth := r.openRouter.authQueries()[0]
+		callback, err := url.Parse(auth.Get("callback_url"))
+		assert.NoError(t, err)
+		assert.False(t, safe.HasSecret(callback.Query().Get("state")), "the state")
+		assert.False(t, safe.HasSecret(auth.Get("code_challenge")), "the challenge")
+		assert.False(t, safe.HasSecret(r.openRouter.exchangeBodies()[0]["code_verifier"]), "the verifier")
+	})
+	connect(t, r.svc)
 }

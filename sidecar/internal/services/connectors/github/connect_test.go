@@ -263,4 +263,15 @@ func TestCancelWithNoSignInChangesNothing(t *testing.T) {
 	assert.Equal(t, before, r.svc.State())
 }
 
-// An answer that does not parse is Unavailable; a token that is not one is
+// A sign-in forgets its device code before it publishes Connected. The
+// token's write is the last step before that.
+func TestASignInForgetsItsDeviceCodeBeforeItConnects(t *testing.T) {
+	r := newRig(t)
+	r.keyring.onSet(func(account string) {
+		if account != tokenAccount {
+			return
+		}
+		assert.False(t, safe.HasSecret(r.github.pollRequests()[0].Get("device_code")))
+	})
+	connect(t, r.svc)
+}

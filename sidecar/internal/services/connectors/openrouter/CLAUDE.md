@@ -26,6 +26,6 @@ the `openrouter` row with it (`llm.SessionSigner`). It shares `lib/oskeyring` an
   deletes nothing. A refused delete is `Failed{NotDeleted}` and returns the error; a restart then
   reconnects, and a retry deletes.
 - Every key, code verifier and challenge is registered with `safe.AddSecret` and forgotten when
-  cleared. Test seams are unexported options; tests run against a fake OpenRouter
+  cleared, a sign-in's before its outcome is published. Tests run against a fake OpenRouter
   (`testutil_test.go`).
 - **Not yet checked against OpenRouter**: the assumptions `docs/TODO.md` lists.

@@ -51,6 +51,8 @@ type fakeKeyring struct {
 	setErr    map[string]error
 	deleteErr map[string]error
 	getErr    error
+	// beforeSet, when set, is told the account of each write before it lands.
+	beforeSet func(account string)
 }
 
 func newFakeKeyring() *fakeKeyring {
@@ -73,6 +75,9 @@ func (k *fakeKeyring) Get(account string) (string, error) {
 func (k *fakeKeyring) Set(account, value string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	if k.beforeSet != nil {
+		k.beforeSet(account)
+	}
 	if err := k.setErr[account]; err != nil {
 		return err
 	}
@@ -107,6 +112,12 @@ func (k *fakeKeyring) failSet(account string, err error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.setErr[account] = err
+}
+
+func (k *fakeKeyring) onSet(fn func(account string)) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.beforeSet = fn
 }
 
 func (k *fakeKeyring) failDelete(account string, err error) {

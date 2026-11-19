@@ -52,10 +52,7 @@ func (s *Service) Connect(context.Context) error {
 		safe.ForgetSecret(code.DeviceCode)
 		return nil
 	}
-	s.wg.Go(func() {
-		defer safe.ForgetSecret(code.DeviceCode)
-		s.finish(a, code)
-	})
+	s.wg.Go(func() { s.finish(a, code) })
 	return nil
 }
 
@@ -82,6 +79,9 @@ func (s *Service) finish(a *attempt, code deviceCode) {
 	ctx, cancel := context.WithTimeout(a.ctx, lifetime)
 	defer cancel()
 	token, failure := s.poll(ctx, code)
+	// Forgotten before the outcome is published, so no reader of the state
+	// finds it registered.
+	safe.ForgetSecret(code.DeviceCode)
 	if token == "" {
 		if failure != "" {
 			s.endAttempt(a.gen, failure)

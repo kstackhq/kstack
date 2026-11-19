@@ -24,6 +24,7 @@ neither it nor `lib/oauth`.
 - **`Disconnect` forgets memory first**, then deletes the entry, and revokes nothing. A refused
   delete is `Failed{NotDeleted}` and returns the error.
 - Every token, code verifier and state is registered with `safe.AddSecret` and forgotten when
-  cleared, `Close` included. Tests run against a fake AWS sign-in that checks each proof and binds
-  each refresh token to its key (`testutil_test.go`).
+  cleared, `Close` included; a sign-in's state and verifier before its outcome is published.
+  Tests run against a fake AWS sign-in that checks each proof and binds each refresh token to its
+  key (`testutil_test.go`).
 - **Not yet checked against AWS**: the assumptions `docs/TODO.md` lists.

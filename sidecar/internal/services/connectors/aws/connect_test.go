@@ -21,9 +21,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
@@ -263,4 +265,18 @@ func TestPrincipalOfReadsAnARNNamingAnAccount(t *testing.T) {
 		_, err := principalOf(token)
 		require.Error(t, err, name)
 	}
+}
+
+// A sign-in forgets its state and verifier before it publishes Connected. The
+// session's write is the last step before that.
+func TestASignInForgetsItsSecretsBeforeItConnects(t *testing.T) {
+	r := newRig(t)
+	r.keyring.onSet(func(account string) {
+		if account != sessionAccount {
+			return
+		}
+		assert.False(t, safe.HasSecret(r.signin.authorizeQueries()[0].Get("state")), "the state")
+		assert.False(t, safe.HasSecret(r.signin.tokenBodies()[0]["codeVerifier"]), "the verifier")
+	})
+	connect(t, r.svc)
 }
