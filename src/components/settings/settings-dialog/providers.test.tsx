@@ -16,12 +16,20 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { Connectors, OpenRouterConnection } from '@/lib/connectors';
 import type { Catalog, Model } from '@/lib/models';
 
-const { catalog } = vi.hoisted(() => ({ catalog: { current: undefined as unknown as Catalog } }));
+const { catalog, connectors } = vi.hoisted(() => ({
+  catalog: { current: undefined as unknown as Catalog },
+  connectors: { current: undefined as unknown as Connectors },
+}));
 vi.mock('@/lib/models', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/models')>()),
   useModels: () => catalog.current,
+}));
+vi.mock('@/lib/connectors', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/connectors')>()),
+  useConnectors: () => connectors.current,
 }));
 
 const { SelectSettingsTab } = await import('@/lib/settings-tab');
@@ -67,7 +75,27 @@ const MISSING: Record<string, string> = {
   Ollama: 'No host set',
 };
 
-beforeEach(() => serve([]));
+// The connectors as the hook answers them: OpenRouter's alone matters here.
+function openRouter(phase: OpenRouterConnection['phase'], loaded = true) {
+  const actions = { connect: vi.fn(), cancel: vi.fn(), disconnect: vi.fn(), openKeys: vi.fn() };
+  connectors.current = {
+    loaded,
+    connectors: [
+      {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        detail: '',
+        connected: phase === 'Connected',
+        openrouter: { connection: { phase, failure: null }, actions },
+      },
+    ],
+  };
+}
+
+beforeEach(() => {
+  serve([]);
+  openRouter('SignedOut');
+});
 
 describe('ProvidersSettings', () => {
   it('lists the catalog providers once each beside the ones that could be set up, by name', () => {
@@ -167,6 +195,44 @@ describe('ProvidersSettings', () => {
     expect(status('OpenAI')).toHaveAttribute('data-set-up', 'true');
     expect(status('Groq')).toHaveAttribute('data-set-up', 'false');
     expect(status('OpenAI')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('says a provider the OpenRouter connector serves is connected there, not found in the environment', async () => {
+    const user = userEvent.setup();
+    serve([model('openrouter', 'OpenRouter', 'auto')]);
+    openRouter('Connected');
+    render(<ProvidersSettings />);
+
+    expect(row('OpenRouter')).toHaveTextContent('Connected on the Connectors tab');
+    await user.click(screen.getByRole('button', { name: 'OpenRouter actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Configure…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Configure OpenRouter' });
+    expect(dialog).toHaveTextContent('OPENROUTER_API_KEY is not set.');
+  });
+
+  it('keeps the key variable as the detail when the environment signs OpenRouter', () => {
+    serve([model('openrouter', 'OpenRouter', 'auto')]);
+    openRouter('FromEnvironment');
+    render(<ProvidersSettings />);
+
+    expect(row('OpenRouter')).toHaveTextContent('Found OPENROUTER_API_KEY');
+  });
+
+  it("offers the OpenRouter connector in OpenRouter's form", async () => {
+    const user = userEvent.setup();
+    render(<ProvidersSettings />);
+
+    await user.click(within(row('OpenRouter')).getByRole('button', { name: 'Set up' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Set up OpenRouter' });
+    expect(within(dialog).getByRole('radio', { name: 'OpenRouter connector' })).toBeInTheDocument();
+  });
+
+  it('draws nothing before the connectors answer', () => {
+    openRouter('Connected', false);
+    render(<ProvidersSettings />);
+
+    expect(screen.queryByRole('list')).toBeNull();
   });
 
   it('draws nothing before the catalog answers', () => {

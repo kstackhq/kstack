@@ -52,6 +52,11 @@ type Documents = {
     "\n  mutation ChatGPTConnectCancel {\n    chatGPTConnectCancel\n  }\n": typeof types.ChatGptConnectCancelDocument,
     "\n  mutation ChatGPTDisconnect {\n    chatGPTDisconnect\n  }\n": typeof types.ChatGptDisconnectDocument,
     "\n  mutation ChatGPTUsageOpen {\n    chatGPTUsageOpen\n  }\n": typeof types.ChatGptUsageOpenDocument,
+    "\n  subscription OpenRouterConnectionWatch {\n    openRouterConnectionWatch {\n      phase\n      failure\n    }\n  }\n": typeof types.OpenRouterConnectionWatchDocument,
+    "\n  mutation OpenRouterConnect {\n    openRouterConnect\n  }\n": typeof types.OpenRouterConnectDocument,
+    "\n  mutation OpenRouterConnectCancel {\n    openRouterConnectCancel\n  }\n": typeof types.OpenRouterConnectCancelDocument,
+    "\n  mutation OpenRouterDisconnect {\n    openRouterDisconnect\n  }\n": typeof types.OpenRouterDisconnectDocument,
+    "\n  mutation OpenRouterKeysOpen {\n    openRouterKeysOpen\n  }\n": typeof types.OpenRouterKeysOpenDocument,
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": typeof types.LogsFetchDocument,
     "\n  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {\n    logsFollow(id: $id, request: $request) {\n      type\n      record {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      notice {\n        code\n        message\n      }\n      ended {\n        code\n        message\n      }\n    }\n  }\n": typeof types.LogsFollowDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": typeof types.MemoriesWatchDocument,
@@ -121,6 +126,11 @@ const documents: Documents = {
     "\n  mutation ChatGPTConnectCancel {\n    chatGPTConnectCancel\n  }\n": types.ChatGptConnectCancelDocument,
     "\n  mutation ChatGPTDisconnect {\n    chatGPTDisconnect\n  }\n": types.ChatGptDisconnectDocument,
     "\n  mutation ChatGPTUsageOpen {\n    chatGPTUsageOpen\n  }\n": types.ChatGptUsageOpenDocument,
+    "\n  subscription OpenRouterConnectionWatch {\n    openRouterConnectionWatch {\n      phase\n      failure\n    }\n  }\n": types.OpenRouterConnectionWatchDocument,
+    "\n  mutation OpenRouterConnect {\n    openRouterConnect\n  }\n": types.OpenRouterConnectDocument,
+    "\n  mutation OpenRouterConnectCancel {\n    openRouterConnectCancel\n  }\n": types.OpenRouterConnectCancelDocument,
+    "\n  mutation OpenRouterDisconnect {\n    openRouterDisconnect\n  }\n": types.OpenRouterDisconnectDocument,
+    "\n  mutation OpenRouterKeysOpen {\n    openRouterKeysOpen\n  }\n": types.OpenRouterKeysOpenDocument,
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": types.LogsFetchDocument,
     "\n  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {\n    logsFollow(id: $id, request: $request) {\n      type\n      record {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      notice {\n        code\n        message\n      }\n      ended {\n        code\n        message\n      }\n    }\n  }\n": types.LogsFollowDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": types.MemoriesWatchDocument,
@@ -318,6 +328,26 @@ export function graphql(source: "\n  mutation ChatGPTDisconnect {\n    chatGPTDi
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  mutation ChatGPTUsageOpen {\n    chatGPTUsageOpen\n  }\n"): (typeof documents)["\n  mutation ChatGPTUsageOpen {\n    chatGPTUsageOpen\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  subscription OpenRouterConnectionWatch {\n    openRouterConnectionWatch {\n      phase\n      failure\n    }\n  }\n"): (typeof documents)["\n  subscription OpenRouterConnectionWatch {\n    openRouterConnectionWatch {\n      phase\n      failure\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation OpenRouterConnect {\n    openRouterConnect\n  }\n"): (typeof documents)["\n  mutation OpenRouterConnect {\n    openRouterConnect\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation OpenRouterConnectCancel {\n    openRouterConnectCancel\n  }\n"): (typeof documents)["\n  mutation OpenRouterConnectCancel {\n    openRouterConnectCancel\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation OpenRouterDisconnect {\n    openRouterDisconnect\n  }\n"): (typeof documents)["\n  mutation OpenRouterDisconnect {\n    openRouterDisconnect\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation OpenRouterKeysOpen {\n    openRouterKeysOpen\n  }\n"): (typeof documents)["\n  mutation OpenRouterKeysOpen {\n    openRouterKeysOpen\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

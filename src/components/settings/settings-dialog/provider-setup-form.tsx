@@ -13,8 +13,9 @@
 // limitations under the License.
 
 // The form a provider is configured from, drawn in its dialog: a choice of
-// where its credentials come from, then that source's fields. Placeholder
-// throughout: nothing here sends or stores a credential.
+// where its credentials come from, then that source's fields. Nothing here
+// sends or stores a credential: a real connector source sends the user to the
+// Connectors tab, and the rest are placeholders.
 import { Radio } from '@base-ui/react/radio';
 import { RadioGroup } from '@base-ui/react/radio-group';
 import { Button } from '@kubetail/ui/elements/button';
@@ -23,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useId, useState } from 'react';
 
 import { Input } from '@/components/primitives/text-entry';
+import { useSelectSettingsTab } from '@/lib/settings-tab';
 
 /** Where a provider's credentials can come from. */
 export type CredentialSource =
@@ -32,6 +34,7 @@ export type CredentialSource =
   | 'google-connector'
   | 'azure-connector'
   | 'chatgpt-connector'
+  | 'openrouter-connector'
   | 'api-key'
   | 'host';
 
@@ -44,6 +47,7 @@ const SOURCES: Record<CredentialSource, { label: string; note?: string; soon?: t
   'google-connector': { label: 'Google connector', note: 'Sign in with your Google account.', soon: true },
   'azure-connector': { label: 'Azure connector', note: 'Sign in with your Azure account.', soon: true },
   'chatgpt-connector': { label: 'ChatGPT connector', note: 'Sign in with your ChatGPT account.', soon: true },
+  'openrouter-connector': { label: 'OpenRouter connector', note: 'Sign in with your OpenRouter account.' },
   'api-key': { label: 'Saved key', note: 'A key Kstack keeps in your system keychain.' },
   host: { label: 'Host', note: 'The address of the server that runs the models.', soon: true },
 };
@@ -68,6 +72,7 @@ export function ProviderSetupForm({
   onCancel: () => void;
 }) {
   const [source, setSource] = useState(sources[0]);
+  const selectTab = useSelectSettingsTab();
   return (
     <div className="flex flex-col gap-4">
       <RadioGroup
@@ -86,10 +91,23 @@ export function ProviderSetupForm({
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           Cancel
         </Button>
-        {/* Placeholder: awaits a mutation choosing the provider's credential source. */}
-        <Button type="button" size="sm" disabled>
-          Save
-        </Button>
+        {source === 'openrouter-connector' ? (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              onCancel();
+              selectTab('Connectors');
+            }}
+          >
+            Open Connectors
+          </Button>
+        ) : (
+          // Placeholder: awaits a mutation choosing the provider's credential source.
+          <Button type="button" size="sm" disabled>
+            Save
+          </Button>
+        )}
       </div>
     </div>
   );
