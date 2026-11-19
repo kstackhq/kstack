@@ -13,7 +13,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
@@ -41,9 +40,9 @@ type Resolver struct {
 	// SandboxStatus answers the sandbox query: whether this machine offers
 	// sandboxed Bash.
 	SandboxStatus sandbox.Status
-	// Auth backs the authState query/watch and the login/logout mutations; it degrades
-	// internally when no cloud account is configured.
-	Auth auth.Service
+	// Auth is the Kstack connector, which backs the authState query and watch and
+	// the login and logout mutations: *kstack.Service, or a test's fake.
+	Auth AuthConnector
 	// Settings is the user's settings file, and the frozen PATH kept in it.
 	Settings *settings.Service
 	// Executables probes the executables sandboxed commands run: the Bash tool, nil where
@@ -62,6 +61,14 @@ type Resolver struct {
 	// OpenURL opens one of the sidecar's own addresses in the browser:
 	// browser.Open, or a test's fake. No caller hands it an address.
 	OpenURL func(url string) error
+}
+
+// AuthConnector is the Kstack connector as the wire drives it.
+type AuthConnector interface {
+	State() connectors.State
+	Subscribe() (<-chan connectors.State, func())
+	Connect(ctx context.Context) error
+	Disconnect(ctx context.Context) error
 }
 
 // ChatGPTConnector is the ChatGPT connector as the wire drives it.

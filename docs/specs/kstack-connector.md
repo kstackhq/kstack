@@ -292,8 +292,8 @@ and registers for its own change.
 | A | 1 | The security record; the ADR (§1's definition, the Kstack sign-in as a connector, the old entry dropped); the `docs/TODO.md` entry points here | Done |
 | A | 2 | `Provider.ClientID` and the one method that resolves the client; `Start`; `signer.Covers` refuses a base with no host; the flow's tests under a fixed-client provider | Done |
 | A | 3 | Migration `0003`, its test and its `shippedMigrations` line; the row's `name`; `connectors.State`'s `Subject` and `Name` | Done |
-| B | 4 | `connectors/kstack`: the provider, `Connect`, `Subscribe`'s filter, the old entry's delete, against a faked engine and keyring | Planned |
-| B | 5 | `runtime.go` wiring; `gqlgen.yml`, the resolvers and `grpc/auth_server.go` onto the connector; `services/auth` deleted; the issuer's default and the host's `OAUTH_ISSUER`, if §0 moves them | Planned |
+| B | 4 | `connectors/kstack`: the provider, `Connect`, `Subscribe`'s filter, the old entry's delete, against a faked engine and keyring | Done |
+| B | 5 | `runtime.go` wiring; `gqlgen.yml`, the resolvers and `grpc/auth_server.go` onto the connector; `services/auth` deleted; the issuer's default and the host's `OAUTH_ISSUER`, if §0 moves them | Done |
 | C | 6 | §6's leftovers in `lib/oauth`; the docs listed under *When it lands* | Planned |
 
 - **A, the engine.** Changes nothing a user sees: ChatGPT runs as before, with a name in its row.

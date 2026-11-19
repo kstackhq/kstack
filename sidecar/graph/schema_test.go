@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// The auth projection is the whole distance between the stored credential and the webview, and
-// it is one schema edit wide: AuthState binds onto auth.State, which holds the token set, so a
-// `tokens` field declared here would be served with no Go code written to review. Pinning both
-// types' fields is what makes that edit fail rather than ship.
+// The auth projection is the whole distance between the Kstack account and the webview, and it
+// is one schema edit wide: AuthState binds onto connectors.State and Identity onto oauth.Identity,
+// so a field declared here may be served with no Go code written to review. Pinning both types'
+// fields is what makes that edit fail rather than ship.
 func TestAuthProjectionCarriesNoTokens(t *testing.T) {
 	for _, tc := range []struct {
 		typeName string
@@ -27,7 +27,7 @@ func TestAuthProjectionCarriesNoTokens(t *testing.T) {
 		}
 		slices.Sort(got)
 		if !slices.Equal(got, tc.want) {
-			t.Fatalf("%s fields = %v, want %v — a field added here is served straight off auth.State; if it carries no credential, add it to this list", tc.typeName, got, tc.want)
+			t.Fatalf("%s fields = %v, want %v — a field added here may be served straight off its Go type; if it carries no credential, add it to this list", tc.typeName, got, tc.want)
 		}
 	}
 }

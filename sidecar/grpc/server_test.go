@@ -11,8 +11,8 @@ import (
 
 	grpcserver "github.com/kstackhq/kstack/sidecar/grpc"
 	"github.com/kstackhq/kstack/sidecar/grpc/authpb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 )
 
 // IsGRPCRequest is the gRPC half of the socket's routing rule: HTTP/2 *and* the
@@ -45,7 +45,7 @@ func TestIsGRPCRequest(t *testing.T) {
 // Stop waits for a method handler still running after its client reset the stream.
 // ServeHTTP has returned by then, so Stop is the only join on that handler.
 func TestStopWaitsForAResetStreamsHandler(t *testing.T) {
-	svc := signedInFakeAuthSvc(auth.Identity{})
+	svc := signedInFakeAuthSvc(oauth.Identity{})
 	svc.logoutEntered = make(chan struct{})
 	svc.logoutGate = make(chan struct{})
 	release := sync.OnceFunc(func() { close(svc.logoutGate) })

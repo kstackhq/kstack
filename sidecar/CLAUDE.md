@@ -51,6 +51,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | `internal/agent/CLAUDE.md` | the catalog, the loop, the chat service (turn, rows, approvals, tasks, the wire errors) |
 | `internal/services/connectors/internal/oauthconn/CLAUDE.md` | the OAuth engine; `connectors/chatgpt` runs it under ChatGPT's provider |
 | `internal/services/connectors/openrouter/CLAUDE.md` | the OpenRouter connector: a sign-in that grants a key, kept in the keyring |
+| `internal/services/connectors/kstack/CLAUDE.md` | the Kstack connector: the Kstack account on the engine, behind `authState` and the tray |
 
 ## Layout
 
@@ -189,18 +190,12 @@ discovery drops every held token**, and a token `az` gave while one completed is
 may have signed in as someone else. Every failure is `ErrNoToken`. →
 [ADR](../docs/adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md).
 
-## Auth / identity (`internal/services/auth`)
-
-Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + PKCE, loopback redirect), verification via go-oidc, refresh token in the OS keyring. Signed-in ⇔ refresh token present; works offline; degrades to signed-out when unconfigured. → [ADR: local-first auth](../docs/adr/2026-08-09-local-first-auth-settings.md).
-
-- Flat root package by file: `auth.go`, `grant.go` (token set as source of truth, lazy refresh with burst-dedup, persist-before-cache), `login.go`, `keyring.go`. `lib/oauth` is a vendor-neutral leaf importing neither `auth` nor the connectors; `lib/oauth/browser` (loopback, opener) is shared with the connectors, whose engine `auth` cannot import.
-- `Config` carries production knobs only; test seams are unexported options on `newWithOptions`. `Logout` clears locally first, revokes fire-and-forget.
-- `TokenSource(ctx)` is nil when degraded; consumers read `AccessToken` only. The GraphQL projection drops tokens.
-
 ## Connectors (`internal/services/connectors`)
 
-**A connector is one package with one surface**: `chatgpt`, `openrouter`. The root package is
-their vocabulary; what they share (`oauthconn`, `catalogsync`, `signer`) is in `internal/`. → [ADR](../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md).
+**A connector is an account on a service that Kstack signs in to, and whose requests it may then
+sign**, one package each: `chatgpt`, `openrouter`, and `kstack`, the Kstack account, which signs
+nothing. Each has `New`, `State`, `Subscribe`, `Connect`, `Disconnect` and `Close`; a model
+provider adds a catalog and a signer. The root package is their vocabulary; what they share (`oauthconn`, `catalogsync`, `signer`) is in `internal/`. → [ADR](../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md).
 
 **`catalogsync` keeps a signed-in provider's catalog the account's**, its only writer: read per
 connected session, on a poke and every six hours, emptied otherwise. A connector's `SyncCatalog`

@@ -208,8 +208,8 @@ func (*AuthStateWatchRequest) Descriptor() ([]byte, []int) {
 	return file_auth_proto_rawDescGZIP(), []int{4}
 }
 
-// AuthState mirrors auth.State's tokenless projection: identity is unset while
-// signed out, so the host can't render stale claims.
+// AuthState projects the Kstack connector's tokenless state: identity is unset
+// while signed out, so the host can't render stale claims.
 type AuthState struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Authenticated bool                   `protobuf:"varint,1,opt,name=authenticated,proto3" json:"authenticated,omitempty"`

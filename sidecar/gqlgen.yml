@@ -693,13 +693,16 @@ models:
   PermissionContextMode:
     model: github.com/kstackhq/kstack/sidecar/internal/services/settings.ContextModeState
 
-  # --- Auth ---
-  # Bind the GraphQL auth types straight to the auth domain types so the
-  # resolvers need no field-by-field mapper. Only schema fields are exposed —
-  # State.Tokens never reaches the wire — and Identity's `sub` claim maps onto
-  # the domain's UserID field.
+  # --- Kstack account ---
+  # The state binds to connectors.State, which holds no token; both fields are
+  # derived from its phase, so each has a resolver.
   AuthState:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/auth.State
+    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors.State
+    fields:
+      authenticated:
+        resolver: true
+      identity:
+        resolver: true
 
   # --- Connectors ---
   # Every value maps to the Go constant of its name
@@ -762,7 +765,7 @@ models:
         resolver: true
 
   Identity:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/auth.Identity
+    model: github.com/kstackhq/kstack/sidecar/internal/lib/oauth.Identity
     fields:
       sub:
         fieldName: UserID

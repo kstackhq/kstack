@@ -14,7 +14,6 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/grpc/authpb"
 	"github.com/kstackhq/kstack/sidecar/grpc/pokepb"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
@@ -35,7 +34,7 @@ func IsGRPCRequest(r *http.Request) bool {
 // net/http owns the connection, so grpc-go's keepalive options would not apply. An open
 // AuthStateWatch keeps its connection out of the HTTP server's IdleTimeout, which counts
 // only a connection with no stream open.
-func NewServer(streamsCtx context.Context, authSvc auth.Service, pokeSvc *poke.Service) *grpc.Server {
+func NewServer(streamsCtx context.Context, authSvc AuthConnector, pokeSvc *poke.Service) *grpc.Server {
 	srv := grpc.NewServer(grpc.WaitForHandlers(true))
 	authpb.RegisterAuthServiceServer(srv, &authServer{
 		auth:       authSvc,

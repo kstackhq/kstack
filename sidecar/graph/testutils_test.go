@@ -13,104 +13,82 @@ import (
 
 	"github.com/amorey/gochan/watch"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
-// fakeAuth is a hand-written auth.Service for the resolver tests. The resolver
-// depends on the auth.Service interface, so its tests fake that interface rather
-// than standing up the real service (whose own package owns the real Login /
-// persist / refresh coverage). It models only what the resolver uses:
-// Current/Subscribe snapshots, and Login/Logout flipping the session and
-// publishing the resulting State — mirroring the real service's derived state
-// (Authenticated + Identity present only while signed in) and its latest-value,
-// current-on-subscribe session stream.
+// fakeAuth is the Kstack connector as the resolvers use it: State and
+// Subscribe over a latest-value hub, Connect signing in as loginAs, and
+// Disconnect signing out.
 type fakeAuth struct {
-	mu       sync.Mutex
-	signedIn bool
-	identity auth.Identity // current identity (set while signed in)
-	loginAs  auth.Identity // who a Login signs in as
+	mu      sync.Mutex
+	loginAs oauth.Identity
 
-	loginErr error // when set, Login fails synchronously (setup error) without signing in
+	connectErr error // when set, Connect fails without signing in
 
-	hub *watch.Hub[auth.State]
-	tx  *watch.Sender[auth.State]
+	hub *watch.Hub[connectors.State]
+	tx  *watch.Sender[connectors.State]
+	st  connectors.State
 }
 
-// newFakeAuth returns a signed-out fake whose Login signs in as loginAs (the
-// resolver's login flow).
-func newFakeAuth(loginAs auth.Identity) *fakeAuth {
-	return newFakeAuthState(false, auth.Identity{}, loginAs)
+// newFakeAuth returns a signed-out fake whose Connect signs in as loginAs.
+func newFakeAuth(loginAs oauth.Identity) *fakeAuth {
+	return newFakeAuthState(connectors.State{Phase: connectors.SignedOut}, loginAs)
 }
 
 // signedInFakeAuth returns a fake already signed in as id.
-func signedInFakeAuth(id auth.Identity) *fakeAuth {
-	return newFakeAuthState(true, id, id)
+func signedInFakeAuth(id oauth.Identity) *fakeAuth {
+	return newFakeAuthState(connectedAs(id), id)
 }
 
-func newFakeAuthState(signedIn bool, identity, loginAs auth.Identity) *fakeAuth {
-	f := &fakeAuth{signedIn: signedIn, identity: identity, loginAs: loginAs}
-	f.hub = watch.New(f.stateLocked())
+func newFakeAuthState(st connectors.State, loginAs oauth.Identity) *fakeAuth {
+	f := &fakeAuth{st: st, loginAs: loginAs, hub: watch.New(st)}
 	f.tx = f.hub.Sender()
 	return f
 }
 
-func (f *fakeAuth) Current(context.Context) (auth.State, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.stateLocked(), nil
+// connectedAs is the state of a session signed in as id.
+func connectedAs(id oauth.Identity) connectors.State {
+	return connectors.State{Phase: connectors.Connected, Subject: id.UserID, Email: id.Email, Name: id.Name}
 }
 
-func (f *fakeAuth) StartLogin(context.Context) error {
+func (f *fakeAuth) State() connectors.State {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.loginErr != nil {
-		return f.loginErr // synchronous setup failure: no sign-in, no publish
+	return f.st
+}
+
+func (f *fakeAuth) Connect(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.connectErr != nil {
+		return f.connectErr
 	}
-	f.signedIn = true
-	f.identity = f.loginAs
-	f.publishLocked()
+	f.publishLocked(connectedAs(f.loginAs))
 	return nil
 }
 
-func (f *fakeAuth) Logout(context.Context) error {
+func (f *fakeAuth) Disconnect(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.signedIn = false
-	f.identity = auth.Identity{}
-	f.publishLocked()
+	f.publishLocked(connectors.State{Phase: connectors.SignedOut})
 	return nil
 }
 
-// TokenSource is unused by the graph resolvers, so the fake returns nil.
-func (f *fakeAuth) TokenSource(context.Context) oauth2.TokenSource { return nil }
-
-// Subscribe streams session State (current-on-subscribe, then changes) plus a
-// cancel func — the same watch hub the real service publishes through.
-func (f *fakeAuth) Subscribe() (<-chan auth.State, func()) {
+func (f *fakeAuth) Subscribe() (<-chan connectors.State, func()) {
 	rx := f.hub.Receiver()
 	return rx.Chan(), rx.Close
 }
 
-// stateLocked derives the public State from the session, mirroring the real
-// grant: Identity is present only while signed in. Caller holds f.mu.
-func (f *fakeAuth) stateLocked() auth.State {
-	st := auth.State{Authenticated: f.signedIn}
-	if f.signedIn {
-		id := f.identity
-		st.Identity = &id
-	}
-	return st
-}
-
-// publishLocked publishes the current State to subscribers. Caller holds f.mu.
-func (f *fakeAuth) publishLocked() {
-	f.tx.Send(f.stateLocked()) //nolint:errcheck // Send never blocks; a closed hub is a no-op
+// publishLocked makes st the state (f.mu held).
+func (f *fakeAuth) publishLocked(st connectors.State) {
+	f.st = st
+	f.tx.Send(st) //nolint:errcheck // Send never blocks; a closed hub is a no-op
 }
 
 // gqlError is the half of a GraphQL error a client may branch on: never the

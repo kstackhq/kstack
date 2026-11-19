@@ -39,19 +39,20 @@ const (
 // session. It rides the same socket as GraphQL (h2c multiplexing) but is
 // consumed only by the native host (the tray), never the webview — the webview
 // keeps using the GraphQL authState/login/logout/authStateWatch surface. Both
-// transports share the one auth.Service, so a sign-in via either is observed by
-// both.
+// transports share the one Kstack connector, so a sign-in via either is
+// observed by both.
 type AuthServiceClient interface {
-	// StartLogin runs the synchronous setup phase (loopback bind + browser open)
-	// and returns its result. The async sign-in tail — redirect exchange, verify,
-	// persist — runs in the background; its completion is observed via
-	// AuthStateWatch. Mirrors the GraphQL `login` mutation shape.
+	// StartLogin ends a sign-in under way and starts a fresh one, returning once
+	// the browser opens; it errs when the sign-in could not start (no issuer, no
+	// keyring, no browser). The rest of the sign-in runs in the background; its
+	// completion is observed via AuthStateWatch. Mirrors the GraphQL
+	// `authLoginStart` mutation.
 	StartLogin(ctx context.Context, in *StartLoginRequest, opts ...grpc.CallOption) (*StartLoginResponse, error)
-	// Logout clears local credentials and revokes the refresh token
-	// (fire-and-forget revocation). Mirrors the GraphQL `logout` mutation.
+	// Logout clears local credentials, then revokes the refresh token in the
+	// background. Mirrors the GraphQL `authLogout` mutation.
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error)
 	// AuthStateWatch streams the current AuthState immediately (latest-value:
-	// current-on-subscribe), then a fresh snapshot on every session change.
+	// current-on-subscribe), then a fresh snapshot on every change of account.
 	// Long-lived; ends on client cancel or sidecar shutdown.
 	AuthStateWatch(ctx context.Context, in *AuthStateWatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[AuthState], error)
 }
@@ -111,19 +112,20 @@ type AuthService_AuthStateWatchClient = grpc.ServerStreamingClient[AuthState]
 // session. It rides the same socket as GraphQL (h2c multiplexing) but is
 // consumed only by the native host (the tray), never the webview — the webview
 // keeps using the GraphQL authState/login/logout/authStateWatch surface. Both
-// transports share the one auth.Service, so a sign-in via either is observed by
-// both.
+// transports share the one Kstack connector, so a sign-in via either is
+// observed by both.
 type AuthServiceServer interface {
-	// StartLogin runs the synchronous setup phase (loopback bind + browser open)
-	// and returns its result. The async sign-in tail — redirect exchange, verify,
-	// persist — runs in the background; its completion is observed via
-	// AuthStateWatch. Mirrors the GraphQL `login` mutation shape.
+	// StartLogin ends a sign-in under way and starts a fresh one, returning once
+	// the browser opens; it errs when the sign-in could not start (no issuer, no
+	// keyring, no browser). The rest of the sign-in runs in the background; its
+	// completion is observed via AuthStateWatch. Mirrors the GraphQL
+	// `authLoginStart` mutation.
 	StartLogin(context.Context, *StartLoginRequest) (*StartLoginResponse, error)
-	// Logout clears local credentials and revokes the refresh token
-	// (fire-and-forget revocation). Mirrors the GraphQL `logout` mutation.
+	// Logout clears local credentials, then revokes the refresh token in the
+	// background. Mirrors the GraphQL `authLogout` mutation.
 	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
 	// AuthStateWatch streams the current AuthState immediately (latest-value:
-	// current-on-subscribe), then a fresh snapshot on every session change.
+	// current-on-subscribe), then a fresh snapshot on every change of account.
 	// Long-lived; ends on client cancel or sidecar shutdown.
 	AuthStateWatch(*AuthStateWatchRequest, grpc.ServerStreamingServer[AuthState]) error
 	mustEmbedUnimplementedAuthServiceServer()

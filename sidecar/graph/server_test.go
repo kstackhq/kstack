@@ -32,15 +32,16 @@ import (
 	"github.com/kstackhq/kstack/sidecar/graph"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/logging"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
 // TestAuthStateQuery is the canary: a fresh server (signed-out fake auth)
 // should answer `{ authState { authenticated } }` with the signed-out state.
 // If this passes, the gqlgen wiring (schema -> resolver -> handler) is intact.
 func TestAuthStateQuery(t *testing.T) {
-	h := graph.NewServer(context.Background(), &graph.Resolver{Auth: newFakeAuth(auth.Identity{})})
+	h := graph.NewServer(context.Background(), &graph.Resolver{Auth: newFakeAuth(oauth.Identity{})})
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -180,8 +181,8 @@ func TestErrorLogNamesTheCause(t *testing.T) {
 			var buf bytes.Buffer
 			slog.SetDefault(logging.Init(&buf, slog.LevelInfo))
 
-			svc := newFakeAuth(auth.Identity{})
-			svc.loginErr = c.err
+			svc := newFakeAuth(oauth.Identity{})
+			svc.connectErr = c.err
 			ts := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 			defer ts.Close()
 			postGQL(t, ts.URL, `{"query":"mutation { authLoginStart }"}`)
@@ -203,7 +204,7 @@ func TestGracefulShutdownEndsSSEStream(t *testing.T) {
 	// snapshot on subscribe, then keeps the stream open until shutdown.
 	streams, endStreams := context.WithCancel(context.Background())
 	defer endStreams()
-	srv := graph.NewServer(streams, &graph.Resolver{Auth: newFakeAuth(auth.Identity{})})
+	srv := graph.NewServer(streams, &graph.Resolver{Auth: newFakeAuth(oauth.Identity{})})
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -232,15 +233,17 @@ func TestGracefulShutdownEndsSSEStream(t *testing.T) {
 	}
 }
 
-// ctxAuth fails Current once its context has ended, so a query shows whether it
-// ran under the streams context.
-type ctxAuth struct{ *fakeAuth }
+// ctxClusters lists no cluster, and fails once its context has ended, so a
+// query shows whether it ran under the streams context.
+type (
+	ctxClusterService struct{ cluster.Service }
+	ctxClusters       struct{ cluster.Clusters }
+)
 
-func (a ctxAuth) Current(ctx context.Context) (auth.State, error) {
-	if err := ctx.Err(); err != nil {
-		return auth.State{}, err
-	}
-	return a.fakeAuth.Current(ctx)
+func (ctxClusterService) Clusters() cluster.Clusters { return ctxClusters{} }
+
+func (ctxClusters) List(ctx context.Context) ([]*cluster.Cluster, error) {
+	return nil, ctx.Err()
 }
 
 // Ending the streams leaves a query alone: only an SSE request runs under that
@@ -248,18 +251,18 @@ func (a ctxAuth) Current(ctx context.Context) (auth.State, error) {
 func TestEndingTheStreamsLeavesAQuery(t *testing.T) {
 	streams, endStreams := context.WithCancel(context.Background())
 	endStreams()
-	ts := httptest.NewServer(graph.NewServer(streams, &graph.Resolver{Auth: ctxAuth{newFakeAuth(auth.Identity{})}}))
+	ts := httptest.NewServer(graph.NewServer(streams, &graph.Resolver{ClusterSvc: ctxClusterService{}}))
 	defer ts.Close()
 
 	resp, err := http.Post(ts.URL+"/graphql", "application/json",
-		strings.NewReader(`{"query":"{ authState { authenticated } }"}`))
+		strings.NewReader(`{"query":"{ clusters { id } }"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(raw), `"authenticated":false`) || strings.Contains(string(raw), `"errors"`) {
-		t.Fatalf("query after the streams ended = %s, want the signed-out state", raw)
+	if !strings.Contains(string(raw), `"clusters":[]`) || strings.Contains(string(raw), `"errors"`) {
+		t.Fatalf("query after the streams ended = %s, want no clusters", raw)
 	}
 }
 

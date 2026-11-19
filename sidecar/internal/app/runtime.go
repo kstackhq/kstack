@@ -20,11 +20,11 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/kstack"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
@@ -47,7 +47,8 @@ type Runtime struct {
 	// Logs reads views' lines through the cluster service and owns each cluster
 	// cache's log file, which the cluster service clears and removes with the cache.
 	Logs *logs.Service
-	Auth auth.Service
+	// Kstack is the Kstack account's sign-in, which signs nothing.
+	Kstack *kstack.Service
 	// ChatGPT is Sign in with ChatGPT, which signs the chatgpt provider.
 	ChatGPT *chatgpt.Service
 	// OpenRouter is the OpenRouter connector, which signs the openrouter row
@@ -168,14 +169,16 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	if keychainService == "" {
 		keychainService = defaultKeychainService
 	}
-	rt.Auth, err = auth.New(auth.Config{
-		IssuerURL:       cfg.OAuthIssuerURL,
-		ClientID:        cfg.OAuthClientID,
+	rt.Kstack, err = kstack.New(kstack.Config{
+		DB:              db,
 		KeychainService: keychainService,
+		Issuer:          cfg.OAuthIssuerURL,
+		ClientID:        cfg.OAuthClientID,
 	})
-	if err != nil { // coverage:ignore auth.New never returns an error
+	if err != nil { // coverage:ignore the statements prepare on the schema app.db was just migrated to
 		return fail(err)
 	}
+	rt.add("kstack service", lifecycle.CloseFunc(func() error { rt.Kstack.Close(); return nil }))
 
 	rt.ChatGPT, err = chatgpt.New(chatgpt.Config{
 		DB:              db,
@@ -297,7 +300,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		MemorySvc:     rt.Memory,
 		LLMSvc:        rt.LLM,
 		SandboxStatus: rt.SandboxStatus,
-		Auth:          rt.Auth,
+		Auth:          rt.Kstack,
 		ChatGPT:       rt.ChatGPT,
 		OpenRouter:    rt.OpenRouter,
 		OpenURL:       browser.Open,
