@@ -1832,20 +1832,29 @@ func TestTheClusterLookupIsMemoisedAcrossTheFold(t *testing.T) {
 // the fold read the cache a moment before its cluster went, and the record is on its way
 // out with it.
 func TestTheClusterLookupAnswersACollectedClusterAsNone(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	d, _ := newRunningRegisteredDeps(t, beehive.WithGCInterval(time.Millisecond))
+	// The cluster is collected only after its cache, and the cache's deletion pass waits
+	// behind its live one. With no file, that pass builds no store.
+	kubestoreFake(d).noFile = true
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
 	cacheObj, err := d.cacheClient.Get(ctx, cache.ID, beehive.LoadOwner())
 	require.NoError(t, err)
 	a := cachesAPI{serviceOver(t, d)}
+	watch, err := d.clusterClient.Watch(ctx, cluster.ID)
+	require.NoError(t, err)
 
 	require.NoError(t, d.clusterClient.Delete(ctx, cluster.ID))
+	for {
+		if change := testutil.Recv(t, watch.Changes, "the cluster to be collected"); change.Type == beehive.Deleted {
+			break
+		}
+	}
 
-	require.Eventually(t, func() bool {
-		got, err := a.clusterFor(ctx, cacheObj, map[beehive.ObjectID]*beehive.Object[ClusterRuntimeSpec, ClusterStatus]{})
-		return err == nil && got == nil
-	}, 5*time.Second, time.Millisecond, "the cluster to be collected out from under the fold")
+	got, err := a.clusterFor(ctx, cacheObj, map[beehive.ObjectID]*beehive.Object[ClusterRuntimeSpec, ClusterStatus]{})
+	require.NoError(t, err)
+	assert.Nil(t, got)
 }
 
 // A cache with no cluster cannot be armed: every switch the pass reads lives on the
