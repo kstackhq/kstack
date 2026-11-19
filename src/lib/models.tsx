@@ -14,8 +14,8 @@
 
 // What the sidecar can answer with: a gauge, since the ChatGPT plan's models come
 // and go with its connection, and every window's picker follows them. The one reader
-// of it.
-import { useMemo } from 'react';
+// of it is `ModelsProvider`, mounted once per window at the root.
+import { createContext, useContext, useMemo } from 'react';
 
 import { graphql } from '@/gql';
 import type { ModelsWatchSubscription } from '@/gql/graphql';
@@ -50,15 +50,26 @@ export type Catalog = { models: Model[]; loaded: boolean };
 
 const NONE: Model[] = [];
 
-export function useModels(): Catalog {
-  // Unshared: a gauge's first frame is its snapshot, and a consumer mounting into
-  // a running stream would never see one.
+const ModelsContext = createContext<Catalog | null>(null);
+
+/**
+ * Holds the window's one `modelsWatch`. A gauge's first frame is its snapshot, so
+ * a reader mounting into a running stream would never see one; holding it here,
+ * above every reader, hands a late reader the catalog the window already has.
+ */
+export function ModelsProvider({ children }: { children: React.ReactNode }) {
   const { data } = useWatchSubscription<ModelsWatchSubscription, Model[]>(
     { query: ModelsWatchDocument },
     perFrame((_prev, next) => next.modelsWatch),
-    { unshared: true },
   );
-  return useMemo(() => ({ models: data ?? NONE, loaded: data !== undefined }), [data]);
+  const value = useMemo(() => ({ models: data ?? NONE, loaded: data !== undefined }), [data]);
+  return <ModelsContext.Provider value={value}>{children}</ModelsContext.Provider>;
+}
+
+export function useModels(): Catalog {
+  const ctx = useContext(ModelsContext);
+  if (!ctx) throw new Error('useModels must be used inside <ModelsProvider>');
+  return ctx;
 }
 
 /** What a send runs on: a model the catalog holds, and one of its effort levels. */

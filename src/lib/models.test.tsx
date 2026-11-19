@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { renderHook } from '@testing-library/react';
+import { fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { type ReactNode, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Model } from './models';
 
-// The watch's seam: the frames it has delivered, folded by the hook's own
-// reducer, and the options it was opened with.
+// The watch's seam: the frames it has delivered, folded by the provider's own
+// reducer, and how many times a component ran it.
 const { watch } = vi.hoisted(() => ({
-  watch: {} as { frames?: unknown[]; options?: unknown },
+  watch: {} as { frames?: unknown[]; options?: unknown; opened: number },
 }));
 vi.mock('@/lib/graphql/use-watch-subscription', () => ({
   perFrame:
@@ -29,12 +30,15 @@ vi.mock('@/lib/graphql/use-watch-subscription', () => ({
       frames.reduce<R | undefined>(step, prev),
   useWatchSubscription: (_args: unknown, reduce: (prev: unknown, frames: unknown[]) => unknown, options: unknown) => {
     watch.options = options;
+    watch.opened += 1;
     return { data: watch.frames ? reduce(undefined, watch.frames) : undefined, connected: true };
   },
 }));
 vi.mock('@/gql', () => ({ graphql: () => ({}) }));
 
-const { modelOf, providersOf, seedPick, useModels } = await import('./models');
+const { ModelsProvider, modelOf, providersOf, seedPick, useModels } = await import('./models');
+
+const wrapper = ({ children }: { children: ReactNode }) => <ModelsProvider>{children}</ModelsProvider>;
 
 const opus: Model = {
   provider: { id: 'anthropic', label: 'Anthropic' },
@@ -53,17 +57,19 @@ const fake: Model = {
 
 beforeEach(() => {
   watch.frames = undefined;
+  watch.options = undefined;
+  watch.opened = 0;
 });
 
 describe('useModels', () => {
   it('has answered nothing before the first frame', () => {
-    const { result } = renderHook(() => useModels());
+    const { result } = renderHook(() => useModels(), { wrapper });
     expect(result.current).toEqual({ models: [], loaded: false });
   });
 
   it('serves the catalog in the order the sidecar sent it', () => {
     watch.frames = [{ modelsWatch: [opus, fake] }];
-    const { result } = renderHook(() => useModels());
+    const { result } = renderHook(() => useModels(), { wrapper });
     expect(result.current.loaded).toBe(true);
     expect(result.current.models.map((m) => m.id)).toEqual(['claude-opus-5', 'fake']);
   });
@@ -72,7 +78,7 @@ describe('useModels', () => {
   // from not having answered: one disables Send with a placeholder, the other waits.
   it('has answered an empty catalog', () => {
     watch.frames = [{ modelsWatch: [] }];
-    const { result } = renderHook(() => useModels());
+    const { result } = renderHook(() => useModels(), { wrapper });
     expect(result.current).toEqual({ models: [], loaded: true });
   });
 
@@ -80,14 +86,44 @@ describe('useModels', () => {
   // catalog.
   it('follows the latest frame', () => {
     watch.frames = [{ modelsWatch: [opus] }, { modelsWatch: [opus, fake] }];
-    const { result } = renderHook(() => useModels());
+    const { result } = renderHook(() => useModels(), { wrapper });
     expect(result.current.models).toEqual([opus, fake]);
   });
 
-  // A gauge's first frame is its snapshot, so each reader opens its own stream.
-  it('opens a stream of its own', () => {
-    renderHook(() => useModels());
-    expect(watch.options).toEqual({ unshared: true });
+  // The provider holds the window's one stream, shared by every reader.
+  it('opens one shared stream however many read it', () => {
+    renderHook(() => [useModels(), useModels(), useModels()], { wrapper });
+    expect(watch.opened).toBe(1);
+    expect(watch.options).toBeUndefined();
+  });
+
+  // A gauge's first frame is its snapshot: a reader mounting after it reads the
+  // provider's catalog rather than waiting on a frame that never comes again.
+  it('serves the catalog to a reader that mounts after the first frame', async () => {
+    watch.frames = [{ modelsWatch: [opus] }];
+    function Reader() {
+      return <p>{useModels().models.map((m) => m.label)}</p>;
+    }
+    function Pane() {
+      const [open, setOpen] = useState(false);
+      return open ? (
+        <Reader />
+      ) : (
+        <button type="button" onClick={() => setOpen(true)}>
+          Open
+        </button>
+      );
+    }
+    render(<Pane />, { wrapper });
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(await screen.findByText('Opus 5')).toBeInTheDocument();
+    expect(watch.opened).toBe(1);
+  });
+
+  it('refuses a reader outside the provider', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => renderHook(() => useModels())).toThrow('useModels must be used inside <ModelsProvider>');
+    spy.mockRestore();
   });
 });
 

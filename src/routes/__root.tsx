@@ -24,6 +24,7 @@ import { AuthProvider } from '@/lib/auth';
 import { ClustersProvider } from '@/lib/clusters';
 import { createGraphqlClient } from '@/lib/graphql/client';
 import { KubeConfigProvider } from '@/lib/kube-config';
+import { ModelsProvider } from '@/lib/models';
 import { ThemeProvider } from '@/lib/theme';
 
 const TanStackRouterDevtools =
@@ -69,12 +70,14 @@ function RootComponent() {
               <UrqlProvider value={gqlClient}>
                 <AuthProvider>
                   <ClustersProvider>
-                    <KubeConfigProvider>
-                      <Outlet />
-                      <Suspense>
-                        <TanStackRouterDevtools />
-                      </Suspense>
-                    </KubeConfigProvider>
+                    <ModelsProvider>
+                      <KubeConfigProvider>
+                        <Outlet />
+                        <Suspense>
+                          <TanStackRouterDevtools />
+                        </Suspense>
+                      </KubeConfigProvider>
+                    </ModelsProvider>
                   </ClustersProvider>
                 </AuthProvider>
               </UrqlProvider>
