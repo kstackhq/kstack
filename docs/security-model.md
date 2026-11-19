@@ -19,8 +19,9 @@ protection. Platform checks and advisory-scan limitations are listed in the revi
 - **The cluster caches** — one SQLite file per cache holding full object bodies for every synced
   kind.
 - **The IPC socket** — a credential-free path to those caches and to every mutation.
-- **The OAuth token set** in the OS keyring (access, refresh and ID tokens). The client supports
-  retained or rotated refresh tokens; production issuer rotation policy is outside this repository.
+- **The Kstack account's refresh token** in the OS keyring, and its access and ID tokens in the
+  sidecar's memory. No request is signed with them
+  ([the Kstack sign-in on the engine](security/2026-11-19-the-kstack-sign-in-on-the-engine.md)).
 - **The ChatGPT plan's refresh token** in the OS keyring, which spends the user's plan on
   `api.openai.com`, and its hour-long access token in the sidecar's memory
   ([the ChatGPT connector](security/2026-11-18-the-chatgpt-connector.md)).
@@ -56,12 +57,13 @@ Seven boundaries, in the order an attacker meets them:
    pipe namespace is flat, so there the DACL and the peer check are the whole policy.
 3. **Sidecar → clusters.** Credentials and TLS policy both come from the user's kubeconfig. Everything
    a watch returns is attacker-controlled if the cluster is.
-4. **Sidecar → cloud.** OIDC sign-in through the system browser and a loopback redirect, the only
-   path to the cloud. OAuth transmits protocol credentials and identifiers, and the issuer sees
+4. **Sidecar → cloud.** OIDC sign-in through the system browser and a loopback redirect, run by
+   the Kstack connector (`services/connectors/kstack`) on the OAuth engine, the only path to the
+   cloud. OAuth transmits protocol credentials and identifiers, and the issuer sees
    normal connection metadata. There is no implemented cluster-to-cloud data path. Cloud sign-out does not
    revoke Kubernetes credentials, stop cluster access, or erase caches, and revoking its own
-   grant is best-effort: the local credential is cleared first and the revoke is fired detached,
-   so an unreachable issuer or a quit leaves the grant live at the issuer.
+   grant is best-effort: the local credential is cleared first and the revoke is tried twice while
+   the app runs, so an unreachable issuer or a quit leaves the grant live at the issuer.
 
 5. **Sidecar → model providers.** A chat turn sends that chat's whole transcript — everything the
    user typed, every answer — to the provider the send named, over HTTPS with a key read from the
@@ -108,7 +110,7 @@ and is not back yet; the row keeps the status it had and states what the rebuild
 | Secret values redacted at write time, keyed off the body's own group and kind | `kubestore/objects.go` | **Enforced** — `TestProjectRedactsSecretValues`, `TestProjectRedactsOnlyCoreSecrets` |
 | `managedFields` and the last-applied annotation stripped before storage | `kubestore/objects.go` | **Enforced** — `TestProjectStripsServerNoise` |
 | Loopback callback checks `state` before consuming a code or an error | `sidecar/internal/lib/oauth/browser/browser.go` | **Enforced** — `TestListenerRejectsInvalidCallbackWithoutConsuming` |
-| A login completing after sign-out cannot restore the session, and its token is revoked | `sidecar/internal/services/auth/grant.go`, `auth.go` | **Enforced** — `TestLogoutBeatsAPendingLogin`, `TestSupersededLoginRevokesItsToken`, `TestASecondLoginSupersedesTheFirst`; the epoch check shares `set`'s lock with the write it guards |
+| A Kstack sign-in completing after a sign-out or a newer sign-in cannot restore the session, and its token is revoked | `sidecar/internal/services/connectors/internal/oauthconn/connect.go`, `services/connectors/kstack/connect.go` | **Enforced** — `TestDisconnectDuringAnAttempt`, `TestAnExchangeThatFinishesLateIsRevoked`, `TestALateExchangeDoesNotDisturbTheNextAttempt`, `TestConnectSupersedesAnAttempt`; every change runs under one lock against one generation |
 | The loopback callback bounds its reads, and a repeated error cannot park its handler | `sidecar/internal/lib/oauth/browser/browser.go` | **Enforced** — `TestListenerBoundsItsReads`, `TestListenerSurvivesRepeatedAuthorizationErrors` |
 | The ChatGPT plan's tokens never leave the keyring and memory: no log line, file, `app.db` row or GraphQL field holds one | `sidecar/internal/services/connectors/internal/oauthconn`, `graph/` | **Enforced** — `TestNoTokenLeavesTheKeyring` reads the raw log and every file under the data directory after a sign-in, a refresh and a refused refresh; `ChatGPTConnection` binds to `connectors.State`, which holds no token ([the ChatGPT connector](security/2026-11-18-the-chatgpt-connector.md)) |
 | The ChatGPT plan's bearer reaches `api.openai.com/v1` alone, redirects included, and the issuer's forms are never resent | `sidecar/internal/services/connectors/internal/oauthconn/sign.go`, `connectors/internal/signer`, `sidecar/internal/llm/helpers.go`, `lib/oauth/oauth.go` | **Enforced** — `TestTheBearerGoesNowhereElse`, `TestCovers`, `TestEveryDialectFollowsNoRedirect`, `TestReadChatGPTModelsFails`, `TestTheIssuersClientFollowsNoRedirect`, `TestDiscoverRefusesADocumentItCannotTrust` |
@@ -310,7 +312,7 @@ and is not back yet; the row keeps the status it had and states what the rebuild
 | The host forwards only operations the app ships | — | **By decision, not built** — [no GraphQL operation allowlist](adr/2026-09-03-no-graphql-operation-allowlist.md); CSP reduces injection risk but does not restrict the authority of permitted bundled code. What the schema's breadth costs is S-9's other half, [TODO](TODO.md#security) |
 | The app tells the user a newer release exists | — | **Not built** — no spec yet; [TODO](TODO.md#security). Nothing checks, so a user can sit on a version with a known bug indefinitely |
 | Signed in-app updates on macOS and Windows: the app installs only an artifact signed by one of the two keys it was built with, current or standby, for the version the manifest names | `src-tauri/src/updater/`, `src-tauri/tauri.conf.json` (`plugins.updater`), `scripts/sign-updater.sh` | **Built, not yet checked end to end** — [the updater trusts a current and a standby key](adr/2026-11-08-the-updater-trusts-a-current-and-a-standby-key.md), [record](security/2026-11-08-in-app-updater.md). The plugin verifies before it writes, `requireSignedVersion` binds each signature to its version, each key has its own manifest on `updates.kstack.sh`, a rotation promotes the standby so a lost or stolen current key strands no app, `the_updater_pins_its_keys_manifests_and_signed_version` holds each endpoint to its key's id, and the release fails on a current key that is not the committed one or a standby that is unset ([the updater key](updater-key.md)). Linux applies no update. Nothing publishes the manifests to `updates.kstack.sh` yet, and the manual check (an update installs, a different key is refused) waits on the real key; [TODO](TODO.md#security) |
-| Sign-out clears the local credential, and nothing is revoked before it | `sidecar/internal/services/auth/auth.go` | **Enforced** — `TestLogoutRevokesAfterClearingAndIgnoresRevokeFailure` holds the clear open and fails on a revoke that arrives during it; `TestLogoutKeepsSessionWhenCredentialClearFails` pins the failed clear staying signed in. The server-side revoke beside it is **not a promise**: it is fire-and-forget, so a failed revoke, or a quit before it finishes, leaves the grant live while the app reports signed out |
+| Sign-out clears the local credential, and nothing is revoked before it | `sidecar/internal/services/connectors/internal/oauthconn/disconnect.go` | **Enforced** — `TestDisconnectRevokesAndClears`; the revoke starts after the clear, under the lock the clear ran under. `TestADisconnectThatCannotWrite` pins a sign-out that holds when one store's write fails, and errs only when the row's and the entry's both do. The server-side revoke beside it is **not a promise**: it is tried twice (`TestAnUnconfirmedRevocationSaysSo`) and cancelled by a quit (`TestCloseEndsASignInAndARevocation`), so a failed revoke, or a quit before it finishes, leaves the grant live while the app reports signed out |
 | Top-level navigation restricted to the app origin | `src-tauri/src/window_manager.rs` | **Enforced** — `build_window` installs `on_navigation` and `on_new_window`, both default-deny, pinned by `build_window_installs_the_navigation_policy`; the allowlist is `is_app_origin` (`the_bundled_app_origins_are_admitted`, `everything_that_is_not_the_app_is_refused`, `the_dev_server_is_admitted_only_by_a_debug_build`). CSP does not govern navigation. Per-engine firing is verified by hand, not by a test |
 | The host refuses any IPC peer that is not the sidecar it spawned | `src-tauri/src/services/sidecar/{ipc,peer}.rs` | **Enforced** — `connect_refuses_a_peer_that_is_not_the_expected_process` binds a hostile listener in the test process and asserts the dial is refused; `query_refuses_a_server_that_is_not_the_sidecar` pins that the check is wired into the transport, not merely available. `connect_refuses_when_no_sidecar_is_running` covers the exited child, whose PID the OS may have reassigned. The Windows arm compiles from the same code but is exercised only by a native run |
 | Query cost, concurrency, fan-out and total-disk budgets | — | **Not built** — no spec yet; [TODO](TODO.md#security). The outer request-size and timeout bounds above are not budgets on the work an operation causes |

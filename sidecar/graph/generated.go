@@ -25,7 +25,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
@@ -47,6 +46,7 @@ func NewExecutableSchema(cfg Config) graphql.ExecutableSchema {
 type Config = graphql.Config[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
 type ResolverRoot interface {
+	AuthState() AuthStateResolver
 	ChatGPTConnection() ChatGPTConnectionResolver
 	ChatMessage() ChatMessageResolver
 	Cluster() ClusterResolver
@@ -956,6 +956,10 @@ type ComplexityRoot struct {
 
 // region    ************************** generated!.gotpl **************************
 
+type AuthStateResolver interface {
+	Authenticated(ctx context.Context, obj *connectors.State) (bool, error)
+	Identity(ctx context.Context, obj *connectors.State) (*oauth.Identity, error)
+}
 type ChatGPTConnectionResolver interface {
 	Email(ctx context.Context, obj *connectors.State) (*string, error)
 	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
@@ -1054,7 +1058,7 @@ type QueryResolver interface {
 	SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error)
 	ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
 	LogsFetch(ctx context.Context, id apimeta.ClusterID, request model.LogsFetchInput) (*model.LogRecordsPage, error)
-	AuthState(ctx context.Context) (*auth.State, error)
+	AuthState(ctx context.Context) (*connectors.State, error)
 	ChatGPTConnection(ctx context.Context) (*connectors.State, error)
 	OpenRouterConnection(ctx context.Context) (*connectors.State, error)
 }
@@ -1077,7 +1081,7 @@ type SubscriptionResolver interface {
 	MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memory.MemoryWatchFrame, error)
 	LogsFollow(ctx context.Context, id apimeta.ClusterID, request model.LogsFollowInput) (<-chan *model.LogsFollowFrame, error)
 	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
-	AuthStateWatch(ctx context.Context) (<-chan *auth.State, error)
+	AuthStateWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ChatGPTConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	OpenRouterConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ModelsWatch(ctx context.Context) (<-chan []*model.Model, error)
@@ -7964,7 +7968,7 @@ func (ec *executionContext) field___Type_inputFields_args(ctx context.Context, r
 
 // region    **************************** field.gotpl *****************************
 
-func (ec *executionContext) _AuthState_authenticated(ctx context.Context, field graphql.CollectedField, obj *auth.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _AuthState_authenticated(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7973,7 +7977,7 @@ func (ec *executionContext) _AuthState_authenticated(ctx context.Context, field 
 			return ec.fieldContext_AuthState_authenticated(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return obj.Authenticated, nil
+			return ec.Resolvers.AuthState().Authenticated(ctx, obj)
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
@@ -7984,10 +7988,10 @@ func (ec *executionContext) _AuthState_authenticated(ctx context.Context, field 
 	)
 }
 func (ec *executionContext) fieldContext_AuthState_authenticated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("AuthState", field, false, false, "Boolean")
+	return graphql.NewScalarFieldContext("AuthState", field, true, true, "Boolean")
 }
 
-func (ec *executionContext) _AuthState_identity(ctx context.Context, field graphql.CollectedField, obj *auth.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _AuthState_identity(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7996,7 +8000,7 @@ func (ec *executionContext) _AuthState_identity(ctx context.Context, field graph
 			return ec.fieldContext_AuthState_identity(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return obj.Identity, nil
+			return ec.Resolvers.AuthState().Identity(ctx, obj)
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *oauth.Identity) graphql.Marshaler {
@@ -8010,8 +8014,8 @@ func (ec *executionContext) fieldContext_AuthState_identity(_ context.Context, f
 	fc = &graphql.FieldContext{
 		Object:     "AuthState",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_Identity(ctx, field)
 		},
@@ -20317,8 +20321,8 @@ func (ec *executionContext) _Query_authState(ctx context.Context, field graphql.
 			return ec.Resolvers.Query().AuthState(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *auth.State) graphql.Marshaler {
-			return ec.marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋauthᚐState(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
 		},
 		true,
 		true,
@@ -22393,8 +22397,8 @@ func (ec *executionContext) _Subscription_authStateWatch(ctx context.Context, fi
 			return ec.Resolvers.Subscription().AuthStateWatch(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *auth.State) graphql.Marshaler {
-			return ec.marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋauthᚐState(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
 		},
 		true,
 		true,
@@ -25368,7 +25372,7 @@ func (ec *executionContext) _SandboxRequest(ctx context.Context, sel ast.Selecti
 
 var authStateImplementors = []string{"AuthState"}
 
-func (ec *executionContext) _AuthState(ctx context.Context, sel ast.SelectionSet, obj *auth.State) graphql.Marshaler {
+func (ec *executionContext) _AuthState(ctx context.Context, sel ast.SelectionSet, obj *connectors.State) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, authStateImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -25378,15 +25382,17 @@ func (ec *executionContext) _AuthState(ctx context.Context, sel ast.SelectionSet
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("AuthState")
 		case "authenticated":
-			out.Values[i] = ec._AuthState_authenticated(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._AuthState_authenticated(ctx, field, obj)
+				})
 		case "identity":
-			out.Values[i] = ec._AuthState_identity(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
-			}
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._AuthState_identity(ctx, field, obj)
+				})
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -31669,7 +31675,7 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋauthᚐState(ctx context.Context, sel ast.SelectionSet, v *auth.State) graphql.Marshaler {
+func (ec *executionContext) marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx context.Context, sel ast.SelectionSet, v *connectors.State) graphql.Marshaler {
 	if v == nil {
 		graphql.AddInvalidNullError(ctx, "AuthState!")
 		return graphql.Null

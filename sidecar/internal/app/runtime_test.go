@@ -29,7 +29,7 @@ func TestNewKeepsTheRuntime(t *testing.T) {
 	rt := a.rt
 	for name, svc := range map[string]any{
 		"DB": rt.DB, "Poke": rt.Poke, "Kubeconfig": rt.Kubeconfig, "Cluster": rt.Cluster,
-		"Auth": rt.Auth, "LLM": rt.LLM, "Security": rt.Settings,
+		"Kstack": rt.Kstack, "LLM": rt.LLM, "Security": rt.Settings,
 		"Memory": rt.Memory, "Chat": rt.Chat, "ChatGPT": rt.ChatGPT, "OpenRouter": rt.OpenRouter,
 	} {
 		assert.NotNil(t, svc, name)
@@ -72,7 +72,7 @@ func TestANewerAppDBFailsTheBuildNamingTheVersions(t *testing.T) {
 
 	_, err = build(t.Context(), withDirs(t, Config{DataDir: dir}))
 
-	assert.EqualError(t, err, "app.db was written by a newer Kstack (schema 999; this build reads up to 2)")
+	assert.EqualError(t, err, "app.db was written by a newer Kstack (schema 999; this build reads up to 3)")
 	requireUnlocked(t, dir)
 }
 

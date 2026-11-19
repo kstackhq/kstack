@@ -64,9 +64,9 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/write"
 
 	"github.com/kstackhq/kstack/sidecar/graph"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
@@ -143,7 +143,7 @@ func TestClusterEventsResolver(t *testing.T) {
 		Reason: "ProbeFailed", Message: "boom", Count: 3, FirstAt: now, LastAt: now,
 	}}
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
+		ClusterSvc: svc, Auth: newFakeAuth(oauth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
 
@@ -340,7 +340,7 @@ func TestClusterDeleteReportsARecordThatWouldNotDelete(t *testing.T) {
 	cs.deleteErr = errors.New("store unavailable")
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: cs,
-		Auth:       newFakeAuth(auth.Identity{}),
+		Auth:       newFakeAuth(oauth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
 
@@ -654,7 +654,7 @@ func TestCacheEventTimelineResolvers(t *testing.T) {
 			ev.ID = id
 			tt.seed(svc, fix[0].id, ev)
 			srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-				ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
+				ClusterSvc: svc, Auth: newFakeAuth(oauth.Identity{}),
 			}))
 			t.Cleanup(srv.Close)
 
@@ -910,7 +910,7 @@ func TestClusterCachedDataKindsResolverPassesTheNamespace(t *testing.T) {
 	fix := clusterFixtures()
 	svc := newFakeClusterService(fix)
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
+		ClusterSvc: svc, Auth: newFakeAuth(oauth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
 
@@ -941,7 +941,7 @@ func TestClusterCachedDataKindsResolver(t *testing.T) {
 		},
 	}
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
+		ClusterSvc: svc, Auth: newFakeAuth(oauth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
 
@@ -1008,7 +1008,7 @@ func TestClusterCachedDataObjectsWatchOpensWithoutError(t *testing.T) {
 	svc := newFakeClusterService(fix)
 	id := fix[0].id
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
+		ClusterSvc: svc, Auth: newFakeAuth(oauth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
 
@@ -1045,7 +1045,7 @@ func TestClusterCachedDataObjectsWatchServesNativeBody(t *testing.T) {
 		}},
 	}
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
+		ClusterSvc: svc, Auth: newFakeAuth(oauth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
 
@@ -1106,7 +1106,7 @@ func TestClusterCachedDataKindsWatchNamesItsNamespace(t *testing.T) {
 	svc.kinds = map[cluster.ClusterID][]cluster.ClusterCachedDataKind{
 		"1": {{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: "Namespaced"}},
 	}
-	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{})}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(oauth.Identity{})}))
 	t.Cleanup(srv.Close)
 
 	for name, tc := range map[string]struct{ arg, want string }{
@@ -1139,7 +1139,7 @@ func TestClusterCachedDataKindsWatchEmitsSnapshotAndStaysOpen(t *testing.T) {
 		},
 	}
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
+		ClusterSvc: svc, Auth: newFakeAuth(oauth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
 
@@ -1222,7 +1222,7 @@ func postGQL(t *testing.T, url, body string) []byte {
 
 // The authState query reflects a signed-out auth service (no stale identity).
 func TestAuthStateQuerySignedOut(t *testing.T) {
-	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: newFakeAuth(auth.Identity{})}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: newFakeAuth(oauth.Identity{})}))
 	defer srv.Close()
 
 	raw := string(postGQL(t, srv.URL, `{"query":"{ authState { authenticated identity { sub } } }"}`))
@@ -1234,30 +1234,15 @@ func TestAuthStateQuerySignedOut(t *testing.T) {
 	}
 }
 
-// signedInAuth returns a fake auth.Service already signed in as the given
-// identity. The resolver depends on the auth.Service interface, so the tests fake
-// it (see fakeAuth) rather than constructing the real service.
-func signedInAuth(t *testing.T, id auth.Identity) auth.Service {
-	t.Helper()
-	return signedInFakeAuth(id)
-}
-
-// configuredAuth returns a signed-out fake auth.Service that signs in as id when
-// Login runs (the resolver's login flow).
-func configuredAuth(t *testing.T, id auth.Identity) auth.Service {
-	t.Helper()
-	return newFakeAuth(id)
-}
-
 // The authState query reflects the current signed-in identity.
 func TestAuthStateQuerySignedIn(t *testing.T) {
-	svc := signedInAuth(t, auth.Identity{UserID: "u1", Email: "a@x.com", Name: "Ada"})
+	svc := signedInFakeAuth(oauth.Identity{UserID: "u1", Email: "a@x.com", Name: "Ada"})
 
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 	defer srv.Close()
 
 	raw := string(postGQL(t, srv.URL, `{"query":"{ authState { authenticated identity { sub email name } } }"}`))
-	if !strings.Contains(raw, `"email":"a@x.com"`) {
+	if !strings.Contains(raw, `"identity":{"sub":"u1","email":"a@x.com","name":"Ada"}`) {
 		t.Fatalf("want signed-in identity, got: %s", raw)
 	}
 	if !strings.Contains(raw, `"authenticated":true`) {
@@ -1267,7 +1252,7 @@ func TestAuthStateQuerySignedIn(t *testing.T) {
 
 // authStateWatch emits the current snapshot first, then a fresh snapshot on change.
 func TestAuthStateWatchSnapshotThenDelta(t *testing.T) {
-	svc := configuredAuth(t, auth.Identity{Email: "a@x.com"})
+	svc := newFakeAuth(oauth.Identity{Email: "a@x.com"})
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 	defer srv.Close()
 
@@ -1280,8 +1265,8 @@ func TestAuthStateWatchSnapshotThenDelta(t *testing.T) {
 		t.Fatalf("first frame: event=%q data=%s", ev.event, ev.data)
 	}
 
-	if err := svc.StartLogin(context.Background()); err != nil {
-		t.Fatalf("Login: %v", err)
+	if err := svc.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect: %v", err)
 	}
 
 	if ev := nextSSE(t, events); ev.event != "next" || !strings.Contains(ev.data, `"email":"a@x.com"`) {
@@ -1291,7 +1276,7 @@ func TestAuthStateWatchSnapshotThenDelta(t *testing.T) {
 
 // logout delegates to the account: returns true and flips the session signed-out.
 func TestLogoutMutation(t *testing.T) {
-	svc := signedInFakeAuth(auth.Identity{})
+	svc := signedInFakeAuth(oauth.Identity{})
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 	defer srv.Close()
 
@@ -1299,7 +1284,7 @@ func TestLogoutMutation(t *testing.T) {
 	if !strings.Contains(raw, `"authLogout":true`) {
 		t.Fatalf("want authLogout true, got: %s", raw)
 	}
-	if cur, _ := svc.Current(context.Background()); cur.Authenticated {
+	if svc.State().Phase == connectors.Connected {
 		t.Fatal("session still signed in after logout")
 	}
 }
@@ -1308,11 +1293,11 @@ func TestLogoutMutation(t *testing.T) {
 // session arrives asynchronously (observed here via the auth-state watch), proving
 // the mutation kicked off the flow without blocking on the browser round-trip.
 func TestLoginMutationKicksOffFlow(t *testing.T) {
-	svc := newFakeAuth(auth.Identity{Email: "a@x.com"})
+	svc := newFakeAuth(oauth.Identity{Email: "a@x.com"})
 
 	// The auth-state stream is latest-value (current-on-subscribe): the first State
-	// is the signed-out baseline, and the signed-in flow surfaces as a later State
-	// with Authenticated true. The loop skips the baseline and waits for sign-in.
+	// is the signed-out baseline, and the sign-in surfaces as a later Connected
+	// State. The loop skips the baseline and waits for sign-in.
 	states, cancel := svc.Subscribe()
 	defer cancel()
 
@@ -1327,9 +1312,9 @@ func TestLoginMutationKicksOffFlow(t *testing.T) {
 	for {
 		select {
 		case st := <-states:
-			if st.Authenticated {
-				if st.Identity == nil || st.Identity.Email != "a@x.com" {
-					t.Fatalf("signed-in identity = %+v", st.Identity)
+			if st.Phase == connectors.Connected {
+				if st.Email != "a@x.com" {
+					t.Fatalf("signed-in state = %+v", st)
 				}
 				return
 			}
@@ -1339,12 +1324,11 @@ func TestLoginMutationKicksOffFlow(t *testing.T) {
 	}
 }
 
-// A synchronous setup failure (loopback bind / browser launch) surfaces as a
-// GraphQL error rather than a silent login:true — the whole point of running the
-// flow's setup phase synchronously.
+// A sign-in that could not start (no issuer, no keyring, no browser) surfaces
+// as a GraphQL error rather than a silent login:true.
 func TestLoginMutationSurfacesSetupError(t *testing.T) {
-	svc := newFakeAuth(auth.Identity{Email: "a@x.com"})
-	svc.loginErr = errors.New("loopback bind failed")
+	svc := newFakeAuth(oauth.Identity{Email: "a@x.com"})
+	svc.connectErr = errors.New("kstack: the sign-in could not start: Refused")
 
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 	defer srv.Close()
@@ -1419,7 +1403,7 @@ func TestPrinterColumnsReachTheWire(t *testing.T) {
 			},
 		}},
 	}
-	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{})}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(oauth.Identity{})}))
 	t.Cleanup(srv.Close)
 
 	resp := openSSESubscription(t, srv.URL, "",
@@ -1442,7 +1426,7 @@ func TestAnAbsentTimestampSerializesAsNull(t *testing.T) {
 	svc.dataEvents = map[cluster.ClusterID][]cluster.ClusterCachedDataEvent{
 		"1": {{UID: "e-1", LastSeen: seen}},
 	}
-	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{})}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(oauth.Identity{})}))
 	t.Cleanup(srv.Close)
 
 	resp := openSSESubscription(t, srv.URL, "",
@@ -1471,7 +1455,7 @@ func TestClusterRefusalsCarryTheirCode(t *testing.T) {
 	} {
 		t.Run(tc.code, func(t *testing.T) {
 			srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-				ClusterSvc: errClusterService{err: tc.err}, Auth: newFakeAuth(auth.Identity{}),
+				ClusterSvc: errClusterService{err: tc.err}, Auth: newFakeAuth(oauth.Identity{}),
 			}))
 			t.Cleanup(srv.Close)
 
@@ -1528,7 +1512,6 @@ func TestResolverErrorsReachTheCaller(t *testing.T) {
 		"Query.clusterCachedKind":            func() error { _, err := r.Query().ClusterCachedKind(ctx, objID); return err },
 		"Query.clusterCachedKinds":           func() error { _, err := r.Query().ClusterCachedKinds(ctx, nil); return err },
 		"Query.clusterCachedKinds(scoped)":   func() error { _, err := r.Query().ClusterCachedKinds(ctx, &objID); return err },
-		"Query.authState":                    func() error { _, err := r.Query().AuthState(ctx); return err },
 		"Mutation.clusterEnabledSet":         func() error { _, err := r.Mutation().ClusterEnabledSet(ctx, id, true); return err },
 		"Mutation.clusterSyncEnabledSet":     func() error { _, err := r.Mutation().ClusterSyncEnabledSet(ctx, id, true); return err },
 		"Mutation.clusterMonitoringSet":      func() error { _, err := r.Mutation().ClusterMonitoringEnabledSet(ctx, id, true); return err },
@@ -1564,12 +1547,12 @@ func TestResolverErrorsReachTheCaller(t *testing.T) {
 	}
 }
 
-// authLoginStart's setup failure is the mutation's own arm, and the only one
-// fakeAuth models separately from the login flow it kicks off.
-func TestAuthLoginStartSurfacesSetupErrorToTheResolver(t *testing.T) {
-	wantErr := errors.New("loopback bind failed")
-	fake := newFakeAuth(auth.Identity{})
-	fake.loginErr = wantErr
+// authLoginStart answers the error of a sign-in that could not start, and
+// a sign-in while connected as a validation error.
+func TestAuthLoginStartSurfacesTheConnectorsError(t *testing.T) {
+	wantErr := errors.New("kstack: the sign-in could not start: Unavailable")
+	fake := newFakeAuth(oauth.Identity{})
+	fake.connectErr = wantErr
 	r := &graph.Resolver{Auth: fake}
 
 	ok, err := r.Mutation().AuthLoginStart(context.Background())
@@ -1577,7 +1560,18 @@ func TestAuthLoginStartSurfacesSetupErrorToTheResolver(t *testing.T) {
 		t.Fatalf("err = %v, want %v", err, wantErr)
 	}
 	if ok {
-		t.Error("authLoginStart = true on a setup failure, want false")
+		t.Error("authLoginStart = true on a failed start, want false")
+	}
+
+	fake.connectErr = fmt.Errorf("refused: %w", connectors.ErrConnected)
+	srv := httptest.NewServer(graph.NewServer(context.Background(), r))
+	defer srv.Close()
+	var got struct{ Errors []gqlError }
+	if err := json.Unmarshal(postGQL(t, srv.URL, `{"query":"mutation { authLoginStart }"}`), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Errors) != 1 || got.Errors[0].Extensions["code"] != "KSTACK_VALIDATION_ERROR" {
+		t.Fatalf("errors = %+v, want one KSTACK_VALIDATION_ERROR", got.Errors)
 	}
 }
 
@@ -1711,7 +1705,7 @@ func newChatServerOn(t *testing.T, status sandbox.Status, svc *settings.Service)
 		require.NoError(t, chatSvc.Close())
 	})
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-		ClusterSvc: newFakeClusterService(nil), ChatSvc: chatSvc, LLMSvc: llmSvc, Auth: newFakeAuth(auth.Identity{}),
+		ClusterSvc: newFakeClusterService(nil), ChatSvc: chatSvc, LLMSvc: llmSvc, Auth: newFakeAuth(oauth.Identity{}),
 		SandboxStatus: status, Settings: svc,
 	}))
 	t.Cleanup(srv.Close)

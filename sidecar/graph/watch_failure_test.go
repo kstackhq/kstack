@@ -29,8 +29,8 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/graph"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 )
 
 const clustersWatchQuery = `subscription { clustersWatch { type cluster { id } } }`
@@ -43,7 +43,7 @@ func newFailingWatchServer(t *testing.T, err error) *httptest.Server {
 	svc.watchFail = err
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: svc,
-		Auth:       newFakeAuth(auth.Identity{}),
+		Auth:       newFakeAuth(oauth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
 	return srv

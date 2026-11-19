@@ -13,7 +13,7 @@ Posture and the tests that pin it:
 
 `app.New` runs the user's login shell once per launch and on Refresh PATH, **in the sandbox**
 (macOS and Linux; never on Windows). `Resolve` answers `Path` (for the settings sync), `Env` (the
-allowlisted environment, set process-wide on macOS, so `services/auth`'s browser opener resolves
+allowlisted environment, set process-wide on macOS, so the connectors' browser opener (`lib/oauth/browser`) resolves
 `open` against it too) and `Keys` (provider keys, never set on the
 process). The shell is the account record's (`accountShell`), never `$SHELL`. The environment is
 scrubbed and `PATH` starts at `DefaultPath`. **`loginshell.In`** (`sandboxed.go`) is the one place

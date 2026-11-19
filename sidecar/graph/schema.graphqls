@@ -1984,17 +1984,16 @@ input PermissionRuleInput {
 }
 
 # --- Cloud account ---
-# The sidecar-owned sign-in and display identity. Tokens never appear here.
-# Login verifies claims; startup restores display claims without re-verification.
+# The Kstack connector's sign-in and display identity. Tokens never appear here.
 
-"Display identity from OIDC ID-token claims. Verified at login, restored without verification at startup; never an authorization input."
+"Display identity from the ID token verified at sign-in, restored from app.db at startup; never an authorization input."
 type Identity {
   sub: String!
   email: String!
   name: String!
 }
 
-"Local session state. `authenticated` means a refresh token is stored, not that the server has just validated it. `identity` is display-only and non-null only when authenticated."
+"Local session state. `authenticated` means a session is stored, not that the server has just validated it. `identity` is display-only and non-null only when authenticated."
 type AuthState {
   authenticated: Boolean!
   identity: Identity
@@ -2244,7 +2243,7 @@ type Query {
   logsFetch(id: ClusterID!, request: LogsFetchInput!): LogRecordsPage!
 
   # --- Cloud account ---
-  "Current authentication state. Signed-out when no cloud account is configured; live updates via authStateWatch."
+  "Current authentication state; live updates via authStateWatch."
   authState: AuthState!
 
   # --- ChatGPT connector ---
@@ -2362,10 +2361,10 @@ type Mutation {
   folderRevoke(id: String!): SandboxFolders!
 
   # --- Cloud account ---
-  "Start the sidecar-owned browser sign-in (OAuth). Setup (loopback bind + browser open) runs synchronously, so a setup failure — or no cloud account — returns an error. Returns true once the browser opens; the token exchange then completes in the background, with the signed-in state delivered via authStateWatch."
+  "Start the sidecar-owned browser sign-in (OAuth), ending one under way. Returns true once the browser opens, and an error when the sign-in could not start (no issuer, no keyring, no browser); a sign-in while signed in is `KSTACK_VALIDATION_ERROR`. The token exchange completes in the background, with the signed-in state delivered via authStateWatch."
   authLoginStart: Boolean!
 
-  "Sign out: clear local credentials, broadcast signed-out, and revoke the token server-side (best-effort). Returns true; no-op without a cloud account."
+  "Sign out: clear local credentials, broadcast signed-out, and revoke the token server-side (best-effort). Errors only when the sign-out could not be recorded and the credential is still stored."
   authLogout: Boolean!
 
   # --- ChatGPT connector ---
@@ -2483,7 +2482,7 @@ type Subscription {
   sandboxExecutablesWatch: SandboxExecutablesReport!
 
   # --- Cloud account ---
-  "Authentication state as a gauge: a fresh snapshot on every sign-in, sign-out, and refresh failure."
+  "Authentication state as a gauge: a fresh snapshot on every change of account (sign-in, sign-out, a session that ended)."
   authStateWatch: AuthState!
 
   # --- ChatGPT connector ---

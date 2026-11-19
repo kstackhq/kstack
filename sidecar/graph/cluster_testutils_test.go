@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/graph"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
@@ -825,7 +825,7 @@ func newTestServer(t *testing.T, fixtures []clusterFixture) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: newFakeClusterService(fixtures),
-		Auth:       newFakeAuth(auth.Identity{}),
+		Auth:       newFakeAuth(oauth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -1074,12 +1074,11 @@ func (e errCachedData) ReadOwn(context.Context, cluster.ClusterID, cluster.Clust
 	return false, e.err
 }
 
-// errAuth fails Current and Logout; the login flow's own failure arm is covered
-// by fakeAuth.loginErr.
+// errAuth fails Disconnect; Connect's failure arm is covered by
+// fakeAuth.connectErr.
 type errAuth struct {
-	auth.Service
+	graph.AuthConnector
 	err error
 }
 
-func (e errAuth) Current(context.Context) (auth.State, error) { return auth.State{}, e.err }
-func (e errAuth) Logout(context.Context) error                { return e.err }
+func (e errAuth) Disconnect(context.Context) error { return e.err }

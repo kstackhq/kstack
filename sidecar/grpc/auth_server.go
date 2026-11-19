@@ -7,20 +7,27 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/kstackhq/kstack/sidecar/grpc/authpb"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
+
+// AuthConnector is the Kstack connector as the tray drives it.
+type AuthConnector interface {
+	Subscribe() (<-chan connectors.State, func())
+	Connect(ctx context.Context) error
+	Disconnect(ctx context.Context) error
+}
 
 // authServer implements authpb.AuthServiceServer; a nil auth degrades safely
 // (Unavailable / empty stream).
 type authServer struct {
 	authpb.UnimplementedAuthServiceServer
-	auth auth.Service
+	auth AuthConnector
 	// streamsCtx ends at shutdown, ending every watch cleanly.
 	streamsCtx context.Context
 }
 
-// AuthStateWatch streams the AuthState current-on-subscribe, then on every session
-// change, returning when the client cancels or the sidecar shuts down.
+// AuthStateWatch streams the AuthState current-on-subscribe, then on every change
+// of account, returning when the client cancels or the sidecar shuts down.
 func (s *authServer) AuthStateWatch(_ *authpb.AuthStateWatchRequest, stream authpb.AuthService_AuthStateWatchServer) error {
 	if s.auth == nil {
 		return nil // clean OK
@@ -47,39 +54,39 @@ func (s *authServer) AuthStateWatch(_ *authpb.AuthStateWatchRequest, stream auth
 	}
 }
 
-// StartLogin runs the synchronous login setup; the sign-in tail completes in the
-// background and is delivered via AuthStateWatch.
+// StartLogin returns once the browser opens, and errs when the sign-in could not
+// start; the sign-in completes in the background and is delivered via
+// AuthStateWatch.
 func (s *authServer) StartLogin(ctx context.Context, _ *authpb.StartLoginRequest) (*authpb.StartLoginResponse, error) {
 	if s.auth == nil {
 		return nil, status.Error(codes.Unavailable, "no auth service")
 	}
-	if err := s.auth.StartLogin(ctx); err != nil {
+	if err := s.auth.Connect(ctx); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return &authpb.StartLoginResponse{}, nil
 }
 
-// Logout clears local credentials and revokes fire-and-forget; errors only on a keychain
-// write failure.
+// Logout clears local credentials and revokes on a goroutine; it errs only when the
+// sign-out could not be recorded and the credential is still stored.
 func (s *authServer) Logout(ctx context.Context, _ *authpb.LogoutRequest) (*authpb.LogoutResponse, error) {
 	if s.auth == nil {
 		return nil, status.Error(codes.Unavailable, "no auth service")
 	}
-	if err := s.auth.Logout(ctx); err != nil {
+	if err := s.auth.Disconnect(ctx); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return &authpb.LogoutResponse{}, nil
 }
 
-// toAuthState projects an auth.State to the wire; Identity is set only while signed in.
-func toAuthState(s auth.State) *authpb.AuthState {
-	out := &authpb.AuthState{Authenticated: s.Authenticated}
-	if s.Identity != nil {
-		out.Identity = &authpb.Identity{
-			UserId: s.Identity.UserID,
-			Email:  s.Identity.Email,
-			Name:   s.Identity.Name,
-		}
+// toAuthState projects the connector's state to the wire; Identity is set only
+// while signed in.
+func toAuthState(s connectors.State) *authpb.AuthState {
+	if s.Phase != connectors.Connected {
+		return &authpb.AuthState{}
 	}
-	return out
+	return &authpb.AuthState{
+		Authenticated: true,
+		Identity:      &authpb.Identity{UserId: s.Subject, Email: s.Email, Name: s.Name},
+	}
 }

@@ -66,12 +66,12 @@ type Config struct {
 	// LogDir is where the host logs, which is Kstack's own too: a grant of the
 	// home must not open it. Empty when the sidecar logs to stderr alone.
 	LogDir string
-	// OAuthIssuerURL is the Hydra OAuth issuer base URL; auth derives every
-	// endpoint from it via Hydra's standard path layout.
+	// OAuthIssuerURL is Kstack's OAuth issuer, whose discovery document names
+	// the endpoints.
 	OAuthIssuerURL string
-	// OAuthClientID is the public (PKCE/loopback) OAuth client id.
+	// OAuthClientID is the app's public (PKCE/loopback) client there.
 	OAuthClientID string
-	// KeychainService is the OS-keychain service name for the auth token. Empty
+	// KeychainService is the OS-keychain service name for the connectors' tokens. Empty
 	// uses defaultKeychainService; dev runs set a distinct name so dev and
 	// release don't share a keychain entry.
 	KeychainService string
@@ -138,7 +138,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// Outlives every request: it ends the long-lived streams, at shutdown.
 	streamsCtx, cancelStreams := context.WithCancel(context.Background())
 	graphqlServer := graph.NewServer(streamsCtx, rt.resolver())
-	grpcServer := grpcserver.NewServer(streamsCtx, rt.Auth, rt.Poke)
+	grpcServer := grpcserver.NewServer(streamsCtx, rt.Kstack, rt.Poke)
 
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlServer)

@@ -17,10 +17,10 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
@@ -28,6 +28,19 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
+
+// Authenticated is the resolver for the authenticated field.
+func (r *authStateResolver) Authenticated(ctx context.Context, obj *connectors.State) (bool, error) {
+	return obj.Phase == connectors.Connected, nil
+}
+
+// Identity is the resolver for the identity field.
+func (r *authStateResolver) Identity(ctx context.Context, obj *connectors.State) (*oauth.Identity, error) {
+	if obj.Phase != connectors.Connected {
+		return nil, nil
+	}
+	return &oauth.Identity{UserID: obj.Subject, Email: obj.Email, Name: obj.Name}, nil
+}
 
 // Email is the resolver for the email field.
 func (r *chatGPTConnectionResolver) Email(ctx context.Context, obj *connectors.State) (*string, error) {
@@ -437,12 +450,11 @@ func (r *mutationResolver) FolderRevoke(ctx context.Context, id string) (*model.
 	return r.sandboxFolders(ctx, "")
 }
 
-// AuthLoginStart is the resolver for the authLoginStart field: setup runs synchronously
-// (its error surfaces here), the browser round-trip in the background, with the signed-in
-// state arriving via authStateWatch.
+// AuthLoginStart is the resolver for the authLoginStart field: it returns once the
+// browser opens, with the signed-in state arriving via authStateWatch.
 func (r *mutationResolver) AuthLoginStart(ctx context.Context) (bool, error) {
-	if err := r.Auth.StartLogin(ctx); err != nil {
-		return false, err
+	if err := r.Auth.Connect(ctx); err != nil {
+		return false, connectorErr(err)
 	}
 	return true, nil
 }
@@ -450,8 +462,8 @@ func (r *mutationResolver) AuthLoginStart(ctx context.Context) (bool, error) {
 // AuthLogout is the resolver for the authLogout field: clear locally, broadcast
 // signed-out, revoke best-effort.
 func (r *mutationResolver) AuthLogout(ctx context.Context) (bool, error) {
-	if err := r.Auth.Logout(ctx); err != nil {
-		return false, err
+	if err := r.Auth.Disconnect(ctx); err != nil {
+		return false, connectorErr(err)
 	}
 	return true, nil
 }
@@ -654,13 +666,9 @@ func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, req
 	return pageOf(resp), nil
 }
 
-// AuthState is the resolver for the authState field. auth.State binds directly to the
-// GraphQL type, so only schema fields are exposed — State.Tokens never reaches the wire.
-func (r *queryResolver) AuthState(ctx context.Context) (*auth.State, error) {
-	state, err := r.Auth.Current(ctx)
-	if err != nil {
-		return nil, err
-	}
+// AuthState is the resolver for the authState field.
+func (r *queryResolver) AuthState(ctx context.Context) (*connectors.State, error) {
+	state := r.Auth.State()
 	return &state, nil
 }
 
@@ -907,9 +915,9 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 
 // AuthStateWatch is the resolver for the authStateWatch field; the stream is
 // current-on-subscribe, so its first value IS the snapshot.
-func (r *subscriptionResolver) AuthStateWatch(ctx context.Context) (<-chan *auth.State, error) {
+func (r *subscriptionResolver) AuthStateWatch(ctx context.Context) (<-chan *connectors.State, error) {
 	states, cancel := r.Auth.Subscribe()
-	return mapStream(ctx, states, cancel, func(s auth.State) *auth.State { return &s }), nil
+	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
 // ChatGPTConnectionWatch is the resolver for the chatGPTConnectionWatch field.
@@ -938,6 +946,9 @@ func (r *toolCallResolver) Status(ctx context.Context, obj *chat.ToolCall) (*cha
 	}
 	return &obj.Status, nil
 }
+
+// AuthState returns AuthStateResolver implementation.
+func (r *Resolver) AuthState() AuthStateResolver { return &authStateResolver{r} }
 
 // ChatGPTConnection returns ChatGPTConnectionResolver implementation.
 func (r *Resolver) ChatGPTConnection() ChatGPTConnectionResolver {
@@ -984,6 +995,7 @@ func (r *Resolver) Subscription() SubscriptionResolver { return &subscriptionRes
 func (r *Resolver) ToolCall() ToolCallResolver { return &toolCallResolver{r} }
 
 type (
+	authStateResolver             struct{ *Resolver }
 	chatGPTConnectionResolver     struct{ *Resolver }
 	chatMessageResolver           struct{ *Resolver }
 	clusterResolver               struct{ *Resolver }
