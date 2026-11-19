@@ -27,4 +27,4 @@ the `openrouter` row with it (`llm.SessionSigner`). It shares `lib/oskeyring` an
 - Every key, code verifier and challenge is registered with `safe.AddSecret` and forgotten when
   cleared. Test seams are unexported options; tests run against a fake OpenRouter
   (`testutil_test.go`).
-- **Not yet checked against OpenRouter**: the spec's §0 assumptions (`docs/TODO.md`).
+- **Not yet checked against OpenRouter**: the assumptions `docs/TODO.md` lists.
