@@ -329,8 +329,9 @@ go test -race -cpu 1 -shuffle=<seed> -count=3 ./internal/agent/chat
 ```
 
 **Coverage is measured in `coverage / Go (<os>)`**, one runner per OS, beside the tests: the suite
-untagged and with `-tags debug` (the only build with the environment overrides and
-`KSTACK_FAULTS`; a test only that build can pass carries `//go:build debug`), both with
+untagged and, on Linux alone, with `-tags debug` (the only build with the environment overrides and
+`KSTACK_FAULTS`; a test only that build can pass carries `//go:build debug`; no debug-tagged file is
+OS-specific, so Linux's pass reaches all of them), both with
 `-coverpkg=./...` and `CGO_ENABLED=0`, as the release is built.
 `tools/coverignore` merges the two profiles and drops every block a marker exempts: the statement
 or function whose first line ends in `// coverage:ignore <reason>`, body included, and the lines

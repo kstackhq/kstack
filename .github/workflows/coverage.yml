@@ -144,7 +144,11 @@ jobs:
           go test -timeout 30m -covermode=atomic -coverpkg=./...
           -coverprofile="$RUNNER_TEMP/untagged.out" ./...
       # -tags debug compiles the environment overrides, which no other build has.
+      # Linux alone runs it: no debug-tagged file in sidecar/ is OS-specific, so
+      # the Linux pass reaches every line the tag adds. A debug-tagged file that
+      # gains an OS constraint needs that OS here too.
       - name: Measure coverage (-tags debug)
+        if: matrix.os == 'linux'
         working-directory: ./sidecar
         shell: bash
         env:
@@ -162,11 +166,17 @@ jobs:
         run: >-
           go test -covermode=atomic -coverpkg=./...
           -coverprofile="$RUNNER_TEMP/cli.out" ./...
+      # debug.out exists on Linux alone.
       - name: Merge the profiles and drop marked lines
         working-directory: ./tools
+        shell: bash
         run: |
-          go run ./coverignore -dir ../sidecar -o ${{ runner.temp }}/coverage-${{ matrix.os }}.out ${{ runner.temp }}/untagged.out ${{ runner.temp }}/debug.out
-          go run ./coverignore -dir ../cli -o ${{ runner.temp }}/coverage-cli-${{ matrix.os }}.out ${{ runner.temp }}/cli.out
+          profiles=("$RUNNER_TEMP/untagged.out")
+          if [ -f "$RUNNER_TEMP/debug.out" ]; then
+            profiles+=("$RUNNER_TEMP/debug.out")
+          fi
+          go run ./coverignore -dir ../sidecar -o "$RUNNER_TEMP/coverage-${{ matrix.os }}.out" "${profiles[@]}"
+          go run ./coverignore -dir ../cli -o "$RUNNER_TEMP/coverage-cli-${{ matrix.os }}.out" "$RUNNER_TEMP/cli.out"
       # A fork's PR cannot mint the OIDC token; the action then uploads
       # tokenless, which Codecov accepts for a public repository.
       - name: Upload to Codecov
