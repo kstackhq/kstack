@@ -83,6 +83,28 @@ describe('useConnectors', () => {
       { id: 'azure', name: 'Azure', detail: 'Cloud resources and Foundry models', connected: false },
       { id: 'chatgpt', name: 'ChatGPT', detail: 'OpenAI models on your ChatGPT plan', connected: false },
       { id: 'openrouter', name: 'OpenRouter', detail: 'Many providers on one account', connected: false },
+      { id: 'gitlab', name: 'GitLab', detail: 'Code, pipelines and the container registry', connected: false },
+      {
+        id: 'atlassian',
+        name: 'Atlassian',
+        detail: 'Jira issues, Confluence pages and Opsgenie alerts',
+        connected: false,
+      },
+      { id: 'linear', name: 'Linear', detail: 'Issues and projects', connected: false },
+      { id: 'datadog', name: 'Datadog', detail: 'Metrics, logs, traces and monitors', connected: false },
+      { id: 'grafana', name: 'Grafana', detail: 'Dashboards, alerts, Loki logs and Mimir metrics', connected: false },
+      { id: 'victoriametrics', name: 'VictoriaMetrics', detail: 'Metrics and logs', connected: false },
+      { id: 'clickhouse', name: 'ClickHouse', detail: 'Queries over your ClickHouse Cloud data', connected: false },
+      { id: 'newrelic', name: 'New Relic', detail: 'Metrics, logs, traces and alerts', connected: false },
+      { id: 'honeycomb', name: 'Honeycomb', detail: 'Traces and events', connected: false },
+      { id: 'elastic', name: 'Elastic', detail: 'Logs and search over Elastic Cloud', connected: false },
+      { id: 'splunk', name: 'Splunk', detail: 'Logs and Observability Cloud', connected: false },
+      { id: 'sentry', name: 'Sentry', detail: 'Errors and releases', connected: false },
+      { id: 'pagerduty', name: 'PagerDuty', detail: 'Incidents and on-call schedules', connected: false },
+      { id: 'slack', name: 'Slack', detail: 'Channels and incident threads', connected: false },
+      { id: 'cloudflare', name: 'Cloudflare', detail: 'DNS, tunnels and edge config', connected: false },
+      { id: 'digitalocean', name: 'DigitalOcean', detail: 'Cloud resources and DOKS clusters', connected: false },
+      { id: 'dockerhub', name: 'Docker Hub', detail: 'Images and tags', connected: false },
     ]);
     expect(watch.options).toEqual({ unshared: true });
   });
