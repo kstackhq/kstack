@@ -414,13 +414,6 @@ func (k *fakeKeyring) Delete(account string) error {
 	return nil
 }
 
-func (k *fakeKeyring) entry(account string) (string, bool) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	v, ok := k.entries[account]
-	return v, ok
-}
-
 func (k *fakeKeyring) failSet(account string, err error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
