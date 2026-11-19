@@ -144,3 +144,37 @@ func providerIDs(providers []llm.Provider) []string {
 	}
 	return ids
 }
+
+// With no key but its connector's signer, OpenRouter is listed in its keyed
+// place, signed, with an empty catalog for catalogsync to fill; a debug base
+// URL moves it as it moves a keyed row. A key wins over the signer.
+func TestAConnectorSignsItsKeyedRowInItsPlace(t *testing.T) {
+	signers := map[string]llm.SessionSigner{"openrouter": planSigner{}}
+	providers := New(Config{
+		APIKeys:  map[string]string{"anthropic": "sk-ant", "together": "tg"},
+		Signers:  signers,
+		BaseURLs: map[string]string{"openrouter": "http://127.0.0.1:1/api/v1"},
+	}).Providers()
+
+	assert.Equal(t, []string{"anthropic", "openrouter", "together"}, providerIDs(providers))
+	p := providers[1]
+	assert.Empty(t, p.Key)
+	assert.Equal(t, planSigner{}, p.Signer)
+	assert.Empty(t, p.Catalog)
+	assert.Equal(t, "http://127.0.0.1:1/api/v1", p.BaseURL)
+	assert.Equal(t, newOpenRouterProvider().Extra, p.Extra)
+	llm.New(providers...) // a row holds a key or a signer, never both
+
+	keyed := New(Config{APIKeys: map[string]string{"openrouter": "sk-or-env"}, Signers: signers}).Providers()
+	require.Len(t, keyed, 1)
+	assert.Equal(t, "sk-or-env", keyed[0].Key)
+	assert.Nil(t, keyed[0].Signer)
+	assert.NotEmpty(t, keyed[0].Catalog)
+}
+
+// A signer for a keyed row with no connector lists nothing.
+func TestOnlyAConnectorsRowTakesASigner(t *testing.T) {
+	providers := New(Config{Signers: map[string]llm.SessionSigner{"openai": planSigner{}}}).Providers()
+
+	assert.Empty(t, providers)
+}

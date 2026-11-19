@@ -24,6 +24,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
 )
 
 // config is everything the command line decides: the app's own configuration
@@ -133,17 +134,20 @@ func applyEnvOverrides(cfg *config, getenv func(string) string) {
 	set(&cfg.App.RuntimeDir, "KSTACK_RUNTIME_DIR")
 	set(&cfg.App.KeychainService, "KSTACK_KEYCHAIN_SERVICE")
 	set(&cfg.App.Faults, "KSTACK_FAULTS")
-	for id, name := range catalog.BaseURLVars() {
-		url := getenv(name)
-		if url == "" {
-			continue
+	// setEach is set for a map: each variable that is set moves its id's entry.
+	setEach := func(dst *map[string]string, vars map[string]string) {
+		for id, name := range vars {
+			if v := getenv(name); v != "" {
+				if *dst == nil {
+					*dst = map[string]string{}
+				}
+				(*dst)[id] = v
+			}
 		}
-		if cfg.App.LLMBaseURLs == nil {
-			cfg.App.LLMBaseURLs = map[string]string{}
-		}
-		cfg.App.LLMBaseURLs[id] = url
 	}
-	if url := getenv(chatgptauth.IssuerURLVar); url != "" {
-		cfg.App.ConnectorIssuerURLs = map[string]string{chatgptauth.ID: url}
-	}
+	setEach(&cfg.App.LLMBaseURLs, catalog.BaseURLVars())
+	setEach(&cfg.App.ConnectorAuthURLs, map[string]string{
+		chatgptauth.ID:   chatgptauth.IssuerURLVar,
+		openrouterkey.ID: openrouterkey.AuthURLVar,
+	})
 }

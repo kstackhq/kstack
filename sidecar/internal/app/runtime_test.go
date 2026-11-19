@@ -11,8 +11,10 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
+	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -27,7 +29,7 @@ func TestNewKeepsTheRuntime(t *testing.T) {
 	for name, svc := range map[string]any{
 		"DB": rt.DB, "Poke": rt.Poke, "Kubeconfig": rt.Kubeconfig, "Cluster": rt.Cluster,
 		"Auth": rt.Auth, "LLM": rt.LLM, "Security": rt.Settings,
-		"Memory": rt.Memory, "Chat": rt.Chat,
+		"Memory": rt.Memory, "Chat": rt.Chat, "ChatGPT": rt.ChatGPT, "OpenRouter": rt.OpenRouter,
 	} {
 		assert.NotNil(t, svc, name)
 	}
@@ -108,4 +110,46 @@ func (p targetOnly) Target() permissions.Target { return permissions.Target(p) }
 
 func (targetOnly) Mount(context.Context, bash.CloudRun) (bash.CloudMount, error) {
 	return bash.CloudMount{}, nil
+}
+
+// With no OPENROUTER_API_KEY the connector signs the openrouter row; with one,
+// the key does, and the connector says so.
+func TestTheOpenRouterRowFollowsTheEnvironmentKey(t *testing.T) {
+	row := func(rt *Runtime) llm.Provider {
+		t.Helper()
+		p, ok := rt.LLM.Provider(openrouterkey.ID)
+		require.True(t, ok)
+		return p
+	}
+
+	rt, err := build(t.Context(), withDirs(t, Config{}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, rt.Close()) })
+	assert.NotEqual(t, openrouterkey.FromEnvironment, rt.OpenRouter.State().Phase)
+	assert.Equal(t, rt.OpenRouter, row(rt).Signer)
+	assert.Empty(t, row(rt).Key)
+
+	keyed, err := build(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouterkey.ID: "sk-or-env"}}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, keyed.Close()) })
+	assert.Equal(t, openrouterkey.FromEnvironment, keyed.OpenRouter.State().Phase)
+	assert.Equal(t, "sk-or-env", row(keyed).Key)
+	assert.Nil(t, row(keyed).Signer)
+}
+
+// A debug build's OpenRouter base that does not parse fails the build.
+func TestABadOpenRouterBaseFailsTheBuild(t *testing.T) {
+	_, err := build(t.Context(), withDirs(t, Config{LLMBaseURLs: map[string]string{openrouterkey.ID: "http://[::1"}}))
+
+	assert.ErrorContains(t, err, "http://[::1")
+}
+
+// The wire reaches the app's OpenRouter connector.
+func TestTheWireReachesTheOpenRouterConnector(t *testing.T) {
+	a, err := New(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouterkey.ID: "sk-or-env"}}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	ts := serveApp(t, a)
+
+	assert.JSONEq(t, `{"data":{"openRouterConnection":{"phase":"FromEnvironment"}}}`, graphql(t, ts.URL, `{ openRouterConnection { phase } }`))
 }

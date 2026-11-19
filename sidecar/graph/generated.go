@@ -28,6 +28,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
@@ -55,6 +56,7 @@ type ResolverRoot interface {
 	ClusterCachedKindSpec() ClusterCachedKindSpecResolver
 	ClusterPrincipal() ClusterPrincipalResolver
 	Mutation() MutationResolver
+	OpenRouterConnection() OpenRouterConnectionResolver
 	Query() QueryResolver
 	Subscription() SubscriptionResolver
 	ToolCall() ToolCallResolver
@@ -671,6 +673,10 @@ type ComplexityRoot struct {
 		FolderRevoke                    func(childComplexity int, id string) int
 		MemoryDelete                    func(childComplexity int, id memory.MemoryID) int
 		MemorySave                      func(childComplexity int, input model.MemorySaveInput) int
+		OpenRouterConnect               func(childComplexity int) int
+		OpenRouterConnectCancel         func(childComplexity int) int
+		OpenRouterDisconnect            func(childComplexity int) int
+		OpenRouterKeysOpen              func(childComplexity int) int
 		PermissionDefaultModeSet        func(childComplexity int, mode permissions.Mode) int
 		PermissionDiscardRefused        func(childComplexity int, field string) int
 		PermissionModeClear             func(childComplexity int, context string) int
@@ -694,6 +700,11 @@ type ComplexityRoot struct {
 	ObjectRef struct {
 		ID   func(childComplexity int) int
 		Kind func(childComplexity int) int
+	}
+
+	OpenRouterConnection struct {
+		Failure func(childComplexity int) int
+		Phase   func(childComplexity int) int
 	}
 
 	PermissionAction struct {
@@ -753,26 +764,27 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		AuthState           func(childComplexity int) int
-		ChatGPTConnection   func(childComplexity int) int
-		ChatGrants          func(childComplexity int, chatID apimeta.ChatID) int
-		Cluster             func(childComplexity int, id apimeta.ClusterID) int
-		ClusterCache        func(childComplexity int, id apimeta.ObjectID) int
-		ClusterCachedKind   func(childComplexity int, id apimeta.ObjectID) int
-		ClusterCachedKinds  func(childComplexity int, cacheID *apimeta.ObjectID) int
-		ClusterCaches       func(childComplexity int, clusterID *apimeta.ClusterID) int
-		Clusters            func(childComplexity int) int
-		LogsFetch           func(childComplexity int, id apimeta.ClusterID, request model.LogsFetchInput) int
-		Models              func(childComplexity int) int
-		PermissionSettings  func(childComplexity int) int
-		Sandbox             func(childComplexity int) int
-		SandboxCloudAccess  func(childComplexity int) int
-		SandboxExecutables  func(childComplexity int) int
-		SandboxFolders      func(childComplexity int, chatID *apimeta.ChatID) int
-		SandboxPath         func(childComplexity int) int
-		SandboxPathFault    func(childComplexity int) int
-		SandboxPathResolved func(childComplexity int) int
-		SettingsRefused     func(childComplexity int) int
+		AuthState            func(childComplexity int) int
+		ChatGPTConnection    func(childComplexity int) int
+		ChatGrants           func(childComplexity int, chatID apimeta.ChatID) int
+		Cluster              func(childComplexity int, id apimeta.ClusterID) int
+		ClusterCache         func(childComplexity int, id apimeta.ObjectID) int
+		ClusterCachedKind    func(childComplexity int, id apimeta.ObjectID) int
+		ClusterCachedKinds   func(childComplexity int, cacheID *apimeta.ObjectID) int
+		ClusterCaches        func(childComplexity int, clusterID *apimeta.ClusterID) int
+		Clusters             func(childComplexity int) int
+		LogsFetch            func(childComplexity int, id apimeta.ClusterID, request model.LogsFetchInput) int
+		Models               func(childComplexity int) int
+		OpenRouterConnection func(childComplexity int) int
+		PermissionSettings   func(childComplexity int) int
+		Sandbox              func(childComplexity int) int
+		SandboxCloudAccess   func(childComplexity int) int
+		SandboxExecutables   func(childComplexity int) int
+		SandboxFolders       func(childComplexity int, chatID *apimeta.ChatID) int
+		SandboxPath          func(childComplexity int) int
+		SandboxPathFault     func(childComplexity int) int
+		SandboxPathResolved  func(childComplexity int) int
+		SettingsRefused      func(childComplexity int) int
 	}
 
 	ReadAction struct {
@@ -884,6 +896,7 @@ type ComplexityRoot struct {
 		LogsFollow                    func(childComplexity int, id apimeta.ClusterID, request model.LogsFollowInput) int
 		MemoriesWatch                 func(childComplexity int, clusterID apimeta.ClusterID) int
 		ModelsWatch                   func(childComplexity int) int
+		OpenRouterConnectionWatch     func(childComplexity int) int
 		SandboxExecutablesWatch       func(childComplexity int) int
 	}
 
@@ -1015,6 +1028,13 @@ type MutationResolver interface {
 	ChatGPTConnectCancel(ctx context.Context) (bool, error)
 	ChatGPTDisconnect(ctx context.Context) (bool, error)
 	ChatGPTUsageOpen(ctx context.Context) (bool, error)
+	OpenRouterConnect(ctx context.Context) (bool, error)
+	OpenRouterConnectCancel(ctx context.Context) (bool, error)
+	OpenRouterDisconnect(ctx context.Context) (bool, error)
+	OpenRouterKeysOpen(ctx context.Context) (bool, error)
+}
+type OpenRouterConnectionResolver interface {
+	Failure(ctx context.Context, obj *openrouterkey.State) (*openrouterkey.Failure, error)
 }
 type QueryResolver interface {
 	Models(ctx context.Context) ([]*model.Model, error)
@@ -1037,6 +1057,7 @@ type QueryResolver interface {
 	LogsFetch(ctx context.Context, id apimeta.ClusterID, request model.LogsFetchInput) (*model.LogRecordsPage, error)
 	AuthState(ctx context.Context) (*auth.State, error)
 	ChatGPTConnection(ctx context.Context) (*oauthconn.State, error)
+	OpenRouterConnection(ctx context.Context) (*openrouterkey.State, error)
 }
 type SubscriptionResolver interface {
 	EventsWatch(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *cluster.EventWatchFrame, error)
@@ -1059,6 +1080,7 @@ type SubscriptionResolver interface {
 	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
 	AuthStateWatch(ctx context.Context) (<-chan *auth.State, error)
 	ChatGPTConnectionWatch(ctx context.Context) (<-chan *oauthconn.State, error)
+	OpenRouterConnectionWatch(ctx context.Context) (<-chan *openrouterkey.State, error)
 	ModelsWatch(ctx context.Context) (<-chan []*model.Model, error)
 }
 type ToolCallResolver interface {
@@ -3591,6 +3613,30 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.MemorySave(childComplexity, args["input"].(model.MemorySaveInput)), true
+	case "Mutation.openRouterConnect":
+		if e.ComplexityRoot.Mutation.OpenRouterConnect == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.OpenRouterConnect(childComplexity), true
+	case "Mutation.openRouterConnectCancel":
+		if e.ComplexityRoot.Mutation.OpenRouterConnectCancel == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.OpenRouterConnectCancel(childComplexity), true
+	case "Mutation.openRouterDisconnect":
+		if e.ComplexityRoot.Mutation.OpenRouterDisconnect == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.OpenRouterDisconnect(childComplexity), true
+	case "Mutation.openRouterKeysOpen":
+		if e.ComplexityRoot.Mutation.OpenRouterKeysOpen == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.OpenRouterKeysOpen(childComplexity), true
 	case "Mutation.permissionDefaultModeSet":
 		if e.ComplexityRoot.Mutation.PermissionDefaultModeSet == nil {
 			break
@@ -3750,6 +3796,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ObjectRef.Kind(childComplexity), true
+
+	case "OpenRouterConnection.failure":
+		if e.ComplexityRoot.OpenRouterConnection.Failure == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OpenRouterConnection.Failure(childComplexity), true
+	case "OpenRouterConnection.phase":
+		if e.ComplexityRoot.OpenRouterConnection.Phase == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OpenRouterConnection.Phase(childComplexity), true
 
 	case "PermissionAction.chatRule":
 		if e.ComplexityRoot.PermissionAction.ChatRule == nil {
@@ -4087,6 +4146,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Models(childComplexity), true
+	case "Query.openRouterConnection":
+		if e.ComplexityRoot.Query.OpenRouterConnection == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.OpenRouterConnection(childComplexity), true
 	case "Query.permissionSettings":
 		if e.ComplexityRoot.Query.PermissionSettings == nil {
 			break
@@ -4639,6 +4704,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.ModelsWatch(childComplexity), true
+	case "Subscription.openRouterConnectionWatch":
+		if e.ComplexityRoot.Subscription.OpenRouterConnectionWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.OpenRouterConnectionWatch(childComplexity), true
 	case "Subscription.sandboxExecutablesWatch":
 		if e.ComplexityRoot.Subscription.SandboxExecutablesWatch == nil {
 			break
@@ -6138,6 +6209,16 @@ func (ec *executionContext) childFields_ObjectRef(ctx context.Context, field gra
 		return ec.fieldContext_ObjectRef_kind(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ObjectRef", field.Name)
+}
+
+func (ec *executionContext) childFields_OpenRouterConnection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "phase":
+		return ec.fieldContext_OpenRouterConnection_phase(ctx, field)
+	case "failure":
+		return ec.fieldContext_OpenRouterConnection_failure(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type OpenRouterConnection", field.Name)
 }
 
 func (ec *executionContext) childFields_PermissionAction(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -18449,6 +18530,98 @@ func (ec *executionContext) fieldContext_Mutation_chatGPTUsageOpen(_ context.Con
 	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
 }
 
+func (ec *executionContext) _Mutation_openRouterConnect(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_openRouterConnect(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().OpenRouterConnect(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_openRouterConnect(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
+func (ec *executionContext) _Mutation_openRouterConnectCancel(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_openRouterConnectCancel(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().OpenRouterConnectCancel(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_openRouterConnectCancel(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
+func (ec *executionContext) _Mutation_openRouterDisconnect(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_openRouterDisconnect(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().OpenRouterDisconnect(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_openRouterDisconnect(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
+func (ec *executionContext) _Mutation_openRouterKeysOpen(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_openRouterKeysOpen(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().OpenRouterKeysOpen(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_openRouterKeysOpen(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
 func (ec *executionContext) _NonResourceRule_verbs(ctx context.Context, field graphql.CollectedField, obj *model.NonResourceRule) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -18539,6 +18712,52 @@ func (ec *executionContext) _ObjectRef_kind(ctx context.Context, field graphql.C
 }
 func (ec *executionContext) fieldContext_ObjectRef_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ObjectRef", field, false, false, "String")
+}
+
+func (ec *executionContext) _OpenRouterConnection_phase(ctx context.Context, field graphql.CollectedField, obj *openrouterkey.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OpenRouterConnection_phase(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Phase, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v openrouterkey.Phase) graphql.Marshaler {
+			return ec.marshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OpenRouterConnection_phase(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OpenRouterConnection", field, false, false, "OpenRouterConnectionPhase")
+}
+
+func (ec *executionContext) _OpenRouterConnection_failure(ctx context.Context, field graphql.CollectedField, obj *openrouterkey.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OpenRouterConnection_failure(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.OpenRouterConnection().Failure(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *openrouterkey.Failure) graphql.Marshaler {
+			return ec.marshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_OpenRouterConnection_failure(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OpenRouterConnection", field, true, true, "OpenRouterConnectionFailure")
 }
 
 func (ec *executionContext) _PermissionAction_target(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
@@ -20146,6 +20365,38 @@ func (ec *executionContext) fieldContext_Query_chatGPTConnection(_ context.Conte
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_ChatGPTConnection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_openRouterConnection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_openRouterConnection(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().OpenRouterConnection(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *openrouterkey.State) graphql.Marshaler {
+			return ec.marshalNOpenRouterConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐState(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_openRouterConnection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_OpenRouterConnection(ctx, field)
 		},
 	}
 	return fc, nil
@@ -22190,6 +22441,38 @@ func (ec *executionContext) fieldContext_Subscription_chatGPTConnectionWatch(_ c
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_ChatGPTConnection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_openRouterConnectionWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_openRouterConnectionWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().OpenRouterConnectionWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *openrouterkey.State) graphql.Marshaler {
+			return ec.marshalNOpenRouterConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐState(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_openRouterConnectionWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_OpenRouterConnection(ctx, field)
 		},
 	}
 	return fc, nil
@@ -29253,6 +29536,34 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "openRouterConnect":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_openRouterConnect(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "openRouterConnectCancel":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_openRouterConnectCancel(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "openRouterDisconnect":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_openRouterDisconnect(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "openRouterKeysOpen":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_openRouterKeysOpen(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -29329,6 +29640,45 @@ func (ec *executionContext) _ObjectRef(ctx context.Context, sel ast.SelectionSet
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var openRouterConnectionImplementors = []string{"OpenRouterConnection"}
+
+func (ec *executionContext) _OpenRouterConnection(ctx context.Context, sel ast.SelectionSet, obj *openrouterkey.State) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, openRouterConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("OpenRouterConnection")
+		case "phase":
+			out.Values[i] = ec._OpenRouterConnection_phase(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "failure":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._OpenRouterConnection_failure(ctx, field, obj)
+				})
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -29842,6 +30192,12 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_chatGPTConnection(ctx, field)
+				})
+		case "openRouterConnection":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_openRouterConnection(ctx, field)
 				})
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
@@ -30536,6 +30892,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_authStateWatch(ctx, fields[0])
 	case "chatGPTConnectionWatch":
 		return ec._Subscription_chatGPTConnectionWatch(ctx, fields[0])
+	case "openRouterConnectionWatch":
+		return ec._Subscription_openRouterConnectionWatch(ctx, fields[0])
 	case "modelsWatch":
 		return ec._Subscription_modelsWatch(ctx, fields[0])
 	default:
@@ -32590,6 +32948,46 @@ func (ec *executionContext) marshalNObjectRef2githubᚗcomᚋkstackhqᚋkstack�
 	return ec._ObjectRef(ctx, sel, &v)
 }
 
+func (ec *executionContext) marshalNOpenRouterConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐState(ctx context.Context, sel ast.SelectionSet, v *openrouterkey.State) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "OpenRouterConnection!")
+		return graphql.Null
+	}
+	return ec._OpenRouterConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase(ctx context.Context, v any) (openrouterkey.Phase, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase[tmp]
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase(ctx context.Context, sel ast.SelectionSet, v openrouterkey.Phase) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(marshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase[v])
+	if res == graphql.Null {
+		graphql.AddInvalidNullFromMarshaler(ctx, "OpenRouterConnectionPhase!")
+	}
+	return res
+}
+
+var (
+	unmarshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase = map[string]openrouterkey.Phase{
+		"SignedOut":       openrouterkey.SignedOut,
+		"SigningIn":       openrouterkey.SigningIn,
+		"Connected":       openrouterkey.Connected,
+		"FromEnvironment": openrouterkey.FromEnvironment,
+		"Failed":          openrouterkey.Failed,
+	}
+	marshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase = map[openrouterkey.Phase]string{
+		openrouterkey.SignedOut:       "SignedOut",
+		openrouterkey.SigningIn:       "SigningIn",
+		openrouterkey.Connected:       "Connected",
+		openrouterkey.FromEnvironment: "FromEnvironment",
+		openrouterkey.Failed:          "Failed",
+	}
+)
+
 func (ec *executionContext) unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass(ctx context.Context, v any) (permissions.Class, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass[tmp]
@@ -33844,6 +34242,44 @@ func (ec *executionContext) marshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	}
 	return v
 }
+
+func (ec *executionContext) unmarshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure(ctx context.Context, v any) (*openrouterkey.Failure, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure[tmp]
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure(ctx context.Context, sel ast.SelectionSet, v *openrouterkey.Failure) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(marshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure[*v])
+	return res
+}
+
+var (
+	unmarshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure = map[string]openrouterkey.Failure{
+		"TimedOut":    openrouterkey.TimedOut,
+		"Unavailable": openrouterkey.Unavailable,
+		"Refused":     openrouterkey.Refused,
+		"NotSaved":    openrouterkey.NotSaved,
+		"NotDeleted":  openrouterkey.NotDeleted,
+		"KeyRejected": openrouterkey.KeyRejected,
+	}
+	marshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure = map[openrouterkey.Failure]string{
+		openrouterkey.TimedOut:    "TimedOut",
+		openrouterkey.Unavailable: "Unavailable",
+		openrouterkey.Refused:     "Refused",
+		openrouterkey.NotSaved:    "NotSaved",
+		openrouterkey.NotDeleted:  "NotDeleted",
+		openrouterkey.KeyRejected: "KeyRejected",
+	}
+)
 
 func (ec *executionContext) marshalOPermissionAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐPermissionAction(ctx context.Context, sel ast.SelectionSet, v *chat.PermissionAction) graphql.Marshaler {
 	if v == nil {

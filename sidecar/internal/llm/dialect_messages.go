@@ -84,7 +84,7 @@ func streamMessages(ctx context.Context, req Request, idle time.Duration, clock 
 	if req.Provider.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(req.Provider.BaseURL))
 	}
-	opts = append(opts, option.WithHTTPClient(noRedirectClient), option.WithMiddleware(func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+	opts = append(opts, option.WithHTTPClient(NoRedirectClient), option.WithMiddleware(func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {
 		return send(req.Provider, r, next)
 	}))
 	opts = append(opts, providerOptions(req.Provider, nil, option.WithQueryAdd, option.WithJSONSet, option.WithJSONDel)...)

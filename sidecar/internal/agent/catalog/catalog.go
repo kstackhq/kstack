@@ -51,24 +51,32 @@ type Config struct {
 	BaseURLs map[string]string
 	// Signers is each signed-in provider's signer, by provider id. A provider
 	// with no signer here is left out. They are listed after the keyed providers
-	// and before the fake.
+	// and before the fake, but for a keyed provider's connector, whose row keeps
+	// its keyed place when no key is given.
 	Signers map[string]llm.SessionSigner
 	// Fake, when non-nil, is listed last: a run with no key still has a model to
 	// answer on.
 	Fake *llm.Fake
 }
 
-// New is every keyed provider whose key cfg holds, in picker order, at the base
-// URL cfg moves it to, then each signed-in provider cfg holds a signer for, then
-// the fake.
+// New is every keyed provider whose key cfg holds, or whose connector's signer
+// it holds, in picker order, at the base URL cfg moves it to, then each
+// signed-in provider cfg holds a signer for, then the fake. A key wins over a
+// connector.
 func New(cfg Config) Catalog {
 	var c Catalog
 	for _, kp := range keyedProviders() {
-		key, ok := cfg.APIKeys[kp.provider.ID]
-		if !ok {
+		key, keyed := cfg.APIKeys[kp.provider.ID]
+		signer, signed := cfg.Signers[kp.provider.ID]
+		switch {
+		case keyed:
+			kp.provider.Key = key
+		case kp.connector && signed:
+			// catalogsync sets the catalog while the connector is connected.
+			kp.provider.Signer, kp.provider.Catalog = signer, nil
+		default:
 			continue
 		}
-		kp.provider.Key = key
 		if url, ok := cfg.BaseURLs[kp.provider.ID]; ok {
 			// Each model's override goes too, so one stub answers the whole row.
 			kp.provider.BaseURL = url
