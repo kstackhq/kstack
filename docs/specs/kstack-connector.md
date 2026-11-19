@@ -294,7 +294,7 @@ and registers for its own change.
 | A | 3 | Migration `0003`, its test and its `shippedMigrations` line; the row's `name`; `connectors.State`'s `Subject` and `Name` | Done |
 | B | 4 | `connectors/kstack`: the provider, `Connect`, `Subscribe`'s filter, the old entry's delete, against a faked engine and keyring | Done |
 | B | 5 | `runtime.go` wiring; `gqlgen.yml`, the resolvers and `grpc/auth_server.go` onto the connector; `services/auth` deleted; the issuer's default and the host's `OAUTH_ISSUER`, if §0 moves them | Done |
-| C | 6 | §6's leftovers in `lib/oauth`; the docs listed under *When it lands* | Planned |
+| C | 6 | §6's leftovers in `lib/oauth`; the docs listed under *When it lands* | Done |
 
 - **A, the engine.** Changes nothing a user sees: ChatGPT runs as before, with a name in its row.
 - **B, the cutover.** One pull request, because the wire is served by one sign-in or the other.

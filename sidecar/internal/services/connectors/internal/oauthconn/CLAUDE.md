@@ -1,18 +1,18 @@
 # internal/services/connectors/internal/oauthconn — the OAuth engine
 
-**A `Service` is one provider's OAuth sign-in, and signs that provider's requests**
-(`llm.SessionSigner`). The engine names no provider: what one has of its own is its `Provider`
-(`provider.go`); `connectors/chatgpt` runs it under ChatGPT's. **It runs every OAuth
-session**; a granted key is a connector of its own (`openrouter`).
+**A `Service` is one provider's OAuth sign-in, and signs the requests to its API
+base** (`llm.SessionSigner`). The engine names no provider: what one has of its own is its
+`Provider` (`provider.go`); `connectors/chatgpt` and `connectors/kstack` run it under theirs.
+**It runs every OAuth session**; a granted key is a connector of its own (`openrouter`).
 → [ADR: one package](../../../../../../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md),
 [ADR: the engine](../../../../../../docs/adr/2026-11-18-an-oauth-connection-is-a-row-matched-to-its-keyring-entry.md),
 [ADR: ChatGPT](../../../../../../docs/adr/2026-11-18-the-chatgpt-connector-signs-in-with-chatgpts-dynamic-registration.md),
 [security record](../../../../../../docs/security/2026-11-18-the-chatgpt-connector.md).
 
 - **A new OAuth connector is a package beside `chatgpt`**: a `Provider` and a `Service` over the
-  engine, a signer in `catalog.Config.Signers`, a row in `signedProviders`. Widen `Provider` only
-  by what its flow needs. The row's key and the keyring's accounts come from `Provider.ID`.
-  A fixed `Provider.ClientID` registers none.
+  engine; a model provider adds a signer in `catalog.Config.Signers` and a row in
+  `signedProviders`. Widen `Provider` only by what its flow needs. `Provider.ID` keys the row and
+  the keyring accounts. A fixed `Provider.ClientID` registers no client.
 - **A session exists only when the row's `session_id` and the keyring entry's `session` match.**
   A sign-in mints the id and writes the entry, then the row, on every save. `New` reads both and
   reaches no network; any other entry is deleted. The access token is memory's alone.

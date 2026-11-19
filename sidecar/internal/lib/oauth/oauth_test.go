@@ -185,27 +185,6 @@ func TestRevokeNoEndpoint(t *testing.T) {
 	}
 }
 
-// ParseIdentityUnverified decodes claims from an ID token's payload without
-// checking the signature (used to restore display identity at startup).
-func TestParseIdentityUnverified(t *testing.T) {
-	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"u1","email":"a@x.com","name":"Ada"}`))
-	raw := "header." + payload + ".sig"
-	id, err := ParseIdentityUnverified(raw)
-	if err != nil {
-		t.Fatalf("ParseIdentityUnverified: %v", err)
-	}
-	if id.UserID != "u1" || id.Email != "a@x.com" || id.Name != "Ada" {
-		t.Fatalf("identity: %+v", id)
-	}
-}
-
-// A token that isn't a three-segment JWT is rejected.
-func TestParseIdentityUnverifiedMalformed(t *testing.T) {
-	if _, err := ParseIdentityUnverified("not-a-jwt"); err == nil {
-		t.Fatal("want error for a malformed ID token")
-	}
-}
-
 // --- ID-token verification helpers ---
 
 type idTokenServer struct {
@@ -256,7 +235,7 @@ func (its *idTokenServer) sign(t *testing.T, key *rsa.PrivateKey, aud string, ex
 	return raw
 }
 
-// Verify decodes sub/email/name from a properly signed token.
+// VerifyNonce decodes sub/email/name from a properly signed token.
 func TestVerifyValidToken(t *testing.T) {
 	its := newIDTokenServer(t)
 	defer its.srv.Close()
@@ -267,11 +246,11 @@ func TestVerifyValidToken(t *testing.T) {
 		JWKSURL:  its.srv.URL + "/jwks",
 	})
 	raw := its.sign(t, its.signKey, "kstack-desktop", map[string]any{
-		"email": "a@example.com", "name": "Ada",
+		"email": "a@example.com", "name": "Ada", "nonce": "n-1",
 	})
-	id, err := c.Verify(context.Background(), raw)
+	id, err := c.VerifyNonce(context.Background(), raw, "n-1")
 	if err != nil {
-		t.Fatalf("Verify: %v", err)
+		t.Fatalf("VerifyNonce: %v", err)
 	}
 	if id.UserID != "user-1" || id.Email != "a@example.com" || id.Name != "Ada" {
 		t.Fatalf("identity: %+v", id)
@@ -329,7 +308,7 @@ func TestTokenValid(t *testing.T) {
 	}
 }
 
-// Verify rejects a token signed by a key absent from the JWKS.
+// VerifyNonce rejects a token signed by a key absent from the JWKS.
 func TestVerifyBadSignature(t *testing.T) {
 	its := newIDTokenServer(t)
 	defer its.srv.Close()
@@ -339,8 +318,8 @@ func TestVerifyBadSignature(t *testing.T) {
 		Issuer:   its.issuer,
 		JWKSURL:  its.srv.URL + "/jwks",
 	})
-	raw := its.sign(t, its.otherKey, "kstack-desktop", nil) // wrong key
-	if _, err := c.Verify(context.Background(), raw); err == nil {
+	raw := its.sign(t, its.otherKey, "kstack-desktop", map[string]any{"nonce": "n-1"}) // wrong key
+	if _, err := c.VerifyNonce(context.Background(), raw, "n-1"); err == nil {
 		t.Fatal("expected verification to fail for a bad signature")
 	}
 }
@@ -356,32 +335,17 @@ func TestVerifyRefusesAClaimOfTheWrongType(t *testing.T) {
 		Issuer:   its.issuer,
 		JWKSURL:  its.srv.URL + "/jwks",
 	})
-	raw := its.sign(t, its.signKey, "kstack-desktop", map[string]any{"email": 42})
-	if _, err := c.Verify(context.Background(), raw); err == nil {
-		t.Fatal("expected Verify to refuse a numeric email claim")
+	raw := its.sign(t, its.signKey, "kstack-desktop", map[string]any{"email": 42, "nonce": "n-1"})
+	if _, err := c.VerifyNonce(context.Background(), raw, "n-1"); err == nil {
+		t.Fatal("expected VerifyNonce to refuse a numeric email claim")
 	}
 }
 
-// A payload that isn't base64, and one that isn't the claims JSON, are both
-// rejected — the unverified path still has to be a real parse.
-func TestParseIdentityUnverifiedRejectsBadPayloads(t *testing.T) {
-	for name, raw := range map[string]string{
-		"payload is not base64": "header.!!!.sig",
-		"claims are not JSON":   "header." + base64.RawURLEncoding.EncodeToString([]byte("nope")) + ".sig",
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := ParseIdentityUnverified(raw); err == nil {
-				t.Fatal("want an error")
-			}
-		})
-	}
-}
-
-// Verify without a JWKS URL has no keys to check against, so it refuses rather
+// VerifyNonce without a JWKS URL has no keys to check against, so it refuses rather
 // than accepting the token unverified.
 func TestVerifyWithoutAVerifierRefuses(t *testing.T) {
 	c := NewClient(Config{ClientID: "x"})
-	if _, err := c.Verify(context.Background(), "any.token.here"); err == nil {
+	if _, err := c.VerifyNonce(context.Background(), "any.token.here", "n-1"); err == nil {
 		t.Fatal("want an error when no verifier is configured")
 	}
 }
@@ -578,7 +542,7 @@ func TestRevokeSendsTheTokenTypeHint(t *testing.T) {
 	assert.Equal(t, "refresh_token", (*forms)[0].Get("token_type_hint"))
 }
 
-// Verify checks the nonce the authorize request sent.
+// VerifyNonce checks the nonce the authorize request sent.
 func TestVerifyChecksTheNonce(t *testing.T) {
 	its := newIDTokenServer(t)
 	defer its.srv.Close()
