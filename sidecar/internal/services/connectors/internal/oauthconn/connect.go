@@ -51,14 +51,26 @@ type attempt struct {
 // arrives on the state. fresh forgets the saved client and account first,
 // keeping the host id: it is the one way to change accounts. It is refused
 // during an attempt and while connected; every other failure is the state's.
-func (s *Service) Connect(_ context.Context, fresh bool) error {
-	a, err := s.begin(fresh)
+func (s *Service) Connect(ctx context.Context, fresh bool) error {
+	_, err := s.Start(ctx, fresh)
+	return err
+}
+
+// Start is Connect, also answering the failure of a sign-in that could not
+// start: the stores' check, discovery, the loopback or the browser. It answers
+// a failure only when it made the state Failed with it. Its steps run under the
+// service's context, not ctx.
+func (s *Service) Start(_ context.Context, fresh bool) (connectors.Failure, error) {
+	a, failure, err := s.begin(fresh)
 	if a == nil {
-		return err
+		return failure, err
 	}
-	if failure := s.openBrowser(a); failure != "" {
-		s.endAttempt(a.gen, failure)
-		return nil
+	if failure = s.openBrowser(a); failure != "" {
+		// A step that a Close or a Disconnect cancelled is no failed sign-in.
+		if s.ctx.Err() != nil || !s.endAttempt(a.gen, failure) {
+			failure = ""
+		}
+		return failure, nil
 	}
 	s.wg.Go(func() {
 		defer a.listener.Close()
@@ -66,20 +78,20 @@ func (s *Service) Connect(_ context.Context, fresh bool) error {
 		defer cancel()
 		s.finish(ctx, a)
 	})
-	return nil
+	return "", nil
 }
 
 // begin starts an attempt under a new generation, once both stores are known
-// to take a write. When one does not it answers no attempt and no error: the
-// state says NotSaved, and no browser opens.
-func (s *Service) begin(fresh bool) (*attempt, error) {
+// to take a write. When one does not it answers no attempt and NotSaved, which
+// the state says too, and no browser opens.
+func (s *Service) begin(fresh bool) (*attempt, connectors.Failure, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch s.state.Phase {
 	case connectors.SigningIn:
-		return nil, connectors.ErrSigningIn
+		return nil, "", connectors.ErrSigningIn
 	case connectors.Connected:
-		return nil, connectors.ErrConnected
+		return nil, "", connectors.ErrConnected
 	}
 	s.gen++
 	reg := s.reg.get()
@@ -99,7 +111,7 @@ func (s *Service) begin(fresh bool) (*attempt, error) {
 	if err != nil {
 		slog.Error("oauth: the stores cannot hold a sign-in", "provider", s.p.ID, "err", err)
 		s.publishLocked(connectors.State{Phase: connectors.Failed, Failure: connectors.NotSaved})
-		return nil, nil
+		return nil, connectors.NotSaved, nil
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
 	s.attempt = &attempt{
@@ -107,7 +119,7 @@ func (s *Service) begin(fresh bool) (*attempt, error) {
 		state: oauth2.GenerateVerifier(), verifier: oauth2.GenerateVerifier(), nonce: oauth2.GenerateVerifier(),
 	}
 	s.publishLocked(connectors.State{Phase: connectors.SigningIn})
-	return s.attempt, nil
+	return s.attempt, "", nil
 }
 
 // openBrowser binds the loopback, then opens the browser on the authorize
@@ -135,11 +147,11 @@ func (s *Service) openBrowser(a *attempt) connectors.Failure {
 	return ""
 }
 
-// authorizeURL is the authorize request: a first sign-in registers a client,
-// a later one runs under the saved one and hints the saved account. The
+// authorizeURL is the authorize request: a sign-in with no client registers
+// one, any other runs under its client and hints the saved account. The
 // provider adds its own parameters.
 func (s *Service) authorizeURL(a *attempt) string {
-	clientID := a.reg.ClientID
+	clientID := s.clientID(a.reg)
 	registering := clientID == ""
 	extra := url.Values{}
 	if s.p.Authorize != nil {
@@ -184,17 +196,20 @@ func (s *Service) failLocked(f connectors.Failure) {
 	s.publishLocked(connectors.State{Phase: connectors.Failed, Failure: f})
 }
 
-// endAttempt fails the attempt of gen, if it is still the one under way.
-func (s *Service) endAttempt(gen uint64, f connectors.Failure) {
+// endAttempt fails the attempt of gen, if it is still the one under way, and
+// reports whether it did.
+func (s *Service) endAttempt(gen uint64, f connectors.Failure) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.endAttemptLocked(gen, f)
+	return s.endAttemptLocked(gen, f)
 }
 
-func (s *Service) endAttemptLocked(gen uint64, f connectors.Failure) {
-	if gen == s.gen && s.state.Phase == connectors.SigningIn {
-		s.failLocked(f)
+func (s *Service) endAttemptLocked(gen uint64, f connectors.Failure) bool {
+	if gen != s.gen || s.state.Phase != connectors.SigningIn {
+		return false
 	}
+	s.failLocked(f)
+	return true
 }
 
 // finish waits for the redirect, then exchanges the code, verifies the
@@ -217,14 +232,15 @@ func (s *Service) finish(ctx context.Context, a *attempt) {
 		}
 		return
 	}
-	clientID, ok := s.issuedClient(q.Get("client_id"), a.reg.ClientID)
+	known := s.clientID(a.reg)
+	clientID, ok := s.issuedClient(q.Get("client_id"), known)
 	if !ok || len(q["code"]) != 1 {
 		s.endAttempt(a.gen, connectors.Refused)
 		return
 	}
 	// Saved before the exchange, so a failed exchange does not register a second
 	// client, and kept whatever the attempt comes to.
-	if a.reg.ClientID == "" && !s.saveClientID(a.gen, clientID) {
+	if known == "" && !s.saveClientID(a.gen, clientID) {
 		return
 	}
 
@@ -271,13 +287,13 @@ func issuerFailure(err error) connectors.Failure {
 	return connectors.Refused
 }
 
-// issuedClient is the client a redirect names: a first sign-in must name a
-// client of its own; a later one may name none, or the saved one.
-func (s *Service) issuedClient(issued, saved string) (string, bool) {
-	if saved == "" {
+// issuedClient is the client a redirect names: a sign-in that registers must
+// name a client of its own; one under a known client may name none, or that one.
+func (s *Service) issuedClient(issued, known string) (string, bool) {
+	if known == "" {
 		return issued, issued != "" && issued != s.p.FirstClientID
 	}
-	return saved, issued == "" || issued == saved
+	return known, issued == "" || issued == known
 }
 
 // saveClientID records a newly issued client for the attempt of gen, failing
@@ -318,7 +334,7 @@ func (s *Service) complete(gen uint64, clientID string, tok oauth.Token, id oaut
 	}
 	s.stopAttemptLocked()
 	s.session = &session{id: sessionID, clientID: clientID, refresh: tok.RefreshToken, access: tok}
-	s.publishLocked(connectors.State{Phase: connectors.Connected, Email: id.Email})
+	s.publishLocked(connectors.State{Phase: connectors.Connected, Subject: id.UserID, Email: id.Email, Name: id.Name})
 }
 
 // saveSessionLocked checks what the sign-in granted and to whom, then writes
@@ -342,7 +358,7 @@ func (s *Service) saveSessionLocked(tok oauth.Token, id oauth.Identity) (string,
 		slog.Error("oauth: could not save the refresh token", "provider", s.p.ID, "err", err)
 		return "", connectors.NotSaved
 	}
-	reg.Subject, reg.Email, reg.SessionID = id.UserID, id.Email, sessionID
+	reg.Subject, reg.Email, reg.Name, reg.SessionID = id.UserID, id.Email, id.Name, sessionID
 	if err := s.reg.save(reg); err != nil {
 		slog.Error("oauth: could not record the session", "provider", s.p.ID, "err", err)
 		if err := s.keyring.Delete(s.refreshAccount()); err != nil {

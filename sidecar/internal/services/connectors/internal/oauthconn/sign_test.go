@@ -319,3 +319,16 @@ func TestADeadBindingRefusesNothing(t *testing.T) {
 
 	assert.ErrorIs(t, dead.Sign(req), llm.ErrSignedOut)
 }
+
+// An engine with no API base signs no request, absolute or relative.
+func TestNoAPIBaseSignsNothing(t *testing.T) {
+	r := newFixedRig(t)
+	connect(t, r.svc)
+
+	for _, raw := range []string{"/anything", apiBase + "/responses", r.issuer.url() + "/userinfo"} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, raw, nil)
+		require.NoError(t, err)
+		assert.ErrorIs(t, r.svc.Sign(req), errOffResource, raw)
+		assert.Empty(t, req.Header.Get("Authorization"), raw)
+	}
+}

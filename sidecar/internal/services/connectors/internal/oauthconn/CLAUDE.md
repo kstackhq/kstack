@@ -3,8 +3,7 @@
 **A `Service` is one provider's OAuth sign-in, and signs that provider's requests**
 (`llm.SessionSigner`). The engine names no provider: what one has of its own is its `Provider`
 (`provider.go`); `connectors/chatgpt` runs it under ChatGPT's. **It runs every OAuth
-session** (a refresh token under a client); a granted key is a connector of its own
-(`openrouter`). It speaks `connectors`' vocabulary; the keyring is `lib/oskeyring`.
+session**; a granted key is a connector of its own (`openrouter`).
 → [ADR: one package](../../../../../../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md),
 [ADR: the engine](../../../../../../docs/adr/2026-11-18-an-oauth-connection-is-a-row-matched-to-its-keyring-entry.md),
 [ADR: ChatGPT](../../../../../../docs/adr/2026-11-18-the-chatgpt-connector-signs-in-with-chatgpts-dynamic-registration.md),
@@ -13,6 +12,7 @@ session** (a refresh token under a client); a granted key is a connector of its 
 - **A new OAuth connector is a package beside `chatgpt`**: a `Provider` and a `Service` over the
   engine, a signer in `catalog.Config.Signers`, a row in `signedProviders`. Widen `Provider` only
   by what its flow needs. The row's key and the keyring's accounts come from `Provider.ID`.
+  A fixed `Provider.ClientID` registers none.
 - **A session exists only when the row's `session_id` and the keyring entry's `session` match.**
   A sign-in mints the id and writes the entry, then the row, on every save. `New` reads both and
   reaches no network; any other entry is deleted. The access token is memory's alone.
@@ -22,10 +22,10 @@ session** (a refresh token under a client); a granted key is a connector of its 
 - **`Connect` writes a NULL `session_id` and checks the keyring before any browser opens**, and is
   refused during an attempt or while connected. The client id the callback issues is saved
   before the code exchange.
-- **`Sign` signs the API base alone**, one refresh at a time under the service's own bound. A
-  rotated refresh token is in the keyring before any access token is handed out. A refused
-  refresh ends the session; an unreachable issuer clears nothing.
+- **`Sign` signs the API base alone**, none if it is empty, one refresh at a time under the
+  service's own bound. A rotated refresh token is in the keyring before any access token is
+  handed out. A refused refresh ends the session; an unreachable issuer clears nothing.
 - **`Bind` is a signer for the current session**, dead outside `Connected`. `Disconnect` clears,
   then revokes on a goroutine.
 - Every token is registered with `safe.AddSecret`. Test seams are unexported options; tests run
-  a test provider against a fake issuer (`testutil_test.go`).
+  test providers against a fake issuer (`testutil_test.go`).

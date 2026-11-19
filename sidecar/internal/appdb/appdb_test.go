@@ -31,10 +31,10 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	require.FileExists(t, path)
 
-	// Migrations ran: the schema_migrations sequence is at version 2.
+	// Migrations ran: the schema_migrations sequence is at version 3.
 	var v int
 	require.NoError(t, db.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 2, v)
+	require.Equal(t, 3, v)
 	requireTables(t, db.Write.DB)
 	require.NoError(t, db.Close())
 
@@ -43,7 +43,7 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db2.Close() })
 	require.NoError(t, db2.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 2, v)
+	require.Equal(t, 3, v)
 	requireTables(t, db2.Write.DB)
 }
 
@@ -401,8 +401,9 @@ func TestOpenRefusesANewerFile(t *testing.T) {
 // line in the PR that writes it. Once a desktop release carries a migration, every
 // installed app.db has run it, so its line never changes again.
 var shippedMigrations = map[string]string{
-	"0001_init.sql":              "5bce01af11e58cea4359e82f58d5c5719c9077646fb71c0b4a3055e8a0489944", // desktop/v0.0.1
-	"0002_oauth_connections.sql": "a0f97ef3bdd26e882187424cf23f7a73b35747d09e85eef705f7f4d72fc03fea",
+	"0001_init.sql":                   "5bce01af11e58cea4359e82f58d5c5719c9077646fb71c0b4a3055e8a0489944", // desktop/v0.0.1
+	"0002_oauth_connections.sql":      "a0f97ef3bdd26e882187424cf23f7a73b35747d09e85eef705f7f4d72fc03fea",
+	"0003_oauth_connections_name.sql": "e734c075633be2f4a9dc8e43a460185a422d962116f7b7038ea5977773df1808",
 }
 
 func TestAShippedMigrationIsNeverEdited(t *testing.T) {
@@ -434,6 +435,40 @@ func TestMigration0002AddsTheOAuthConnections(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.Write.ExecContext(ctx, `INSERT INTO oauth_connections (provider, created_at, updated_at) VALUES ('chatgpt', 0, 0)`)
 	assert.Error(t, err, "one row per provider")
+}
+
+// A file 0002 built keeps its oauth_connections rows across 0003, and gains
+// name.
+func TestMigration0003AddsTheName(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "app.db")
+	frozen := fstest.MapFS{}
+	for _, name := range []string{"0001_init.sql", "0002_oauth_connections.sql"} {
+		data, err := fs.ReadFile(migrationsFS, "migrations/"+name)
+		require.NoError(t, err)
+		frozen["migrations/"+name] = &fstest.MapFile{Data: data}
+	}
+	pool, err := sqlitepool.OpenWriter(path)
+	require.NoError(t, err)
+	_, err = sqlitemigrate.Apply(ctx, pool.DB, frozen, "migrations")
+	require.NoError(t, err)
+	_, err = pool.ExecContext(ctx, `INSERT INTO oauth_connections (provider, client_id, subject, email, session_id, created_at, updated_at)
+		VALUES ('chatgpt', 'c', 'user-1', 'ada@example.com', 's1', 0, 0)`)
+	require.NoError(t, err)
+	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
+
+	db, err := Open(path, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	var clientID, subject, email, session string
+	var name *string
+	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT client_id, subject, email, session_id, name FROM oauth_connections`).
+		Scan(&clientID, &subject, &email, &session, &name))
+	assert.Equal(t, []string{"c", "user-1", "ada@example.com", "s1"}, []string{clientID, subject, email, session})
+	assert.Nil(t, name, "a row 0002 wrote has no name")
+	_, err = db.Write.ExecContext(ctx, `UPDATE oauth_connections SET name = 'Ada' WHERE provider = 'chatgpt'`)
+	require.NoError(t, err)
 }
 
 // A subscriber hears the keys it asked for and nothing else, and a burst on one key
