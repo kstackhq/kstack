@@ -220,7 +220,7 @@ when nothing is connected yet.
 **The row keeps its place among the keyed providers.** `catalog.Config` gains the OpenRouter
 connector's signer. In `catalog.New`, a keyed provider whose key is absent but whose connector
 signer is given is listed in its place with the signer and an empty catalog. So `keyedProvider`
-gains an optional connector id, set on OpenRouter's entry alone. The picker order does not move
+gains a connector flag, set on OpenRouter's entry alone. The picker order does not move
 between the two sources.
 
 **The key signs as a session signer.** The
@@ -366,7 +366,7 @@ code. It states:
   `TestNoKeyLeavesTheKeyring` reads the raw log and every file under the data directory after a
   sign-in, a turn and a disconnect.
 - **The key goes to `openrouter.ai/api/v1` alone, and follows no redirect** (`Sign`'s check, the
-  wires' `noRedirectClient`, the exchange's client).
+  wires' `NoRedirectClient`, the exchange's client).
 - **The callback is checked**: our `state` before anything else, exactly one `code`, on the
   listener this sign-in started, bound to `127.0.0.1`.
 - **The webview holds no key and opens no URL.** The sidecar opens the auth page it built and the
@@ -393,10 +393,10 @@ updates the guides and registers its own code changes, in the same change.
 | — | 0 | §0's live checks, every row answered. Blocks tasks 4 to 7 | Planned |
 | A | 2 | `lib/oskeyring` out of `oauthconn`, with its tests | Planned |
 | A | 3 | `catalogsync` takes a session stream; ChatGPT maps onto it unchanged | Planned |
-| B | 1 | Security record; the ADR (two kinds of connector, the key as a session signer, one store); `docs/TODO.md` line | Planned |
-| B | 4 | `openrouterkey`: state, keyring, `Connect`/`Cancel`/`Disconnect`, `Sign`/`Bind`/`Refused` and the key check, against a fake auth page and exchange; `browser.Listen`'s state-in-path check if §0 needs it | Planned |
-| B | 5 | `catalog`: the connector signer on OpenRouter's keyed row; `runtime.go` wiring; `config.go`'s debug variable | Planned |
-| B | 6 | GraphQL schema, resolvers and tests; `pnpm codegen` | Planned |
+| B | 1 | Security record; the ADR (two kinds of connector, the key as a session signer, one store); `docs/TODO.md` line | Done, on §0's assumptions |
+| B | 4 | `openrouterkey`: state, keyring, `Connect`/`Cancel`/`Disconnect`, `Sign`/`Bind`/`Refused` and the key check, against a fake auth page and exchange; `browser.Listen`'s state-in-path check if §0 needs it | Done, on §0's assumptions |
+| B | 5 | `catalog`: the connector signer on OpenRouter's keyed row; `runtime.go` wiring; `config.go`'s debug variable | Done, on §0's assumptions |
+| B | 6 | GraphQL schema, resolvers and tests; `pnpm codegen` | Done, on §0's assumptions |
 | C | 7 | The webview: hook, row, setup source, the Providers tab's detail, tests | Planned |
 
 - **A, the shared parts.** Changes no behaviour and needs no §0 answer, so it can land first.
