@@ -1,7 +1,6 @@
 // Package oauth is an OAuth2/OIDC client: PKCE (S256), the
-// code→token exchange, refresh, RFC 7009 revocation, ID-token verification. A LEAF —
-// it must not import the auth package or the connectors, so it owns the value types the
-// protocol produces (Token, Identity), which auth re-exports as aliases.
+// code→token exchange, refresh, RFC 7009 revocation, ID-token verification. A leaf:
+// it owns the value types the protocol produces (Token, Identity).
 //
 // The Client takes resolved endpoint URLs and is Hydra-agnostic. The loopback listener
 // lives in oauth/browser and the verifier/state generation in the callers — not protocol
@@ -10,7 +9,6 @@ package oauth
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,16 +29,14 @@ const expiryLeeway = 30 * time.Second
 
 // Token is a grant's credential. Access and id tokens are short-lived and renewed via
 // Refresh; an issuer that rotates refresh tokens hands a replacement back with each one.
-// It keeps the id token, which the auth service needs to restore display identity at
-// startup.
 type Token struct {
-	AccessToken  string    `json:"accessToken"`
-	RefreshToken string    `json:"refreshToken"`
-	IDToken      string    `json:"idToken"`
-	Expiry       time.Time `json:"expiry"`
+	AccessToken  string
+	RefreshToken string
+	IDToken      string
+	Expiry       time.Time
 	// Scope is the scopes the issuer granted, space-separated, as its response
-	// said them. Never stored.
-	Scope string `json:"-"`
+	// said them.
+	Scope string
 }
 
 // Valid reports an access token present and outside the leeway window of expiry.
@@ -48,27 +44,12 @@ func (t Token) Valid(now time.Time) bool {
 	return t.AccessToken != "" && now.Before(t.Expiry.Add(-expiryLeeway))
 }
 
-// Identity is the ID-token claims the app cares about, from a token whose signature Verify
+// Identity is the ID-token claims the app cares about, from a token VerifyNonce
 // checked. The JSON tags decode straight from the OIDC claims.
 type Identity struct {
 	UserID string `json:"sub"`
 	Email  string `json:"email"`
 	Name   string `json:"name"`
-}
-
-// UnverifiedIdentity is the same claims from a token nobody checked. A separate type so the
-// compiler keeps an unchecked claim out of everywhere a verified one is expected; DisplayOnly
-// is the only way across, and it is named for the one thing such a value may be used for.
-type UnverifiedIdentity struct {
-	UserID string `json:"sub"`
-	Email  string `json:"email"`
-	Name   string `json:"name"`
-}
-
-// DisplayOnly hands the claims over to be shown. Nothing gates on them — the cloud re-verifies
-// the access token per request.
-func (u UnverifiedIdentity) DisplayOnly() Identity {
-	return Identity(u)
 }
 
 // Config is the OAuth client's static configuration. Its endpoints are given, written out
@@ -104,7 +85,7 @@ func newHTTPClient() *http.Client {
 	}
 }
 
-// NewClient does no network I/O — the JWKS fetch is lazy, on first Verify. That fetch
+// NewClient does no network I/O — the JWKS fetch is lazy, on first VerifyNonce. That fetch
 // reuses the 15s-timeout HTTP client, because go-oidc ignores context cancellation for
 // the key set, so only the client timeout bounds it.
 func NewClient(cfg Config) *Client {
@@ -271,56 +252,22 @@ func (c *Client) Refresh(ctx context.Context, refreshToken string) (Token, error
 	return tok, nil
 }
 
-// Verify validates an ID token against the JWKS (signature, issuer, audience, expiry) and
-// returns its identity claims.
-func (c *Client) Verify(ctx context.Context, rawIDToken string) (Identity, error) {
-	id, _, err := c.verify(ctx, rawIDToken)
-	return id, err
-}
-
-// VerifyNonce is Verify, also checking the token carries the nonce the authorize
-// request sent.
+// VerifyNonce validates an ID token against the JWKS (signature, issuer, audience,
+// expiry) and the nonce the authorize request sent, and returns its identity claims.
 func (c *Client) VerifyNonce(ctx context.Context, rawIDToken, nonce string) (Identity, error) {
-	id, idt, err := c.verify(ctx, rawIDToken)
+	if c.verifier == nil {
+		return Identity{}, fmt.Errorf("oauth: no verifier configured (missing JWKSURL)")
+	}
+	idt, err := c.verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		return Identity{}, err
 	}
 	if nonce == "" || idt.Nonce != nonce {
 		return Identity{}, fmt.Errorf("oauth: the ID token's nonce does not match")
 	}
-	return id, nil
-}
-
-func (c *Client) verify(ctx context.Context, rawIDToken string) (Identity, *oidc.IDToken, error) {
-	if c.verifier == nil {
-		return Identity{}, nil, fmt.Errorf("oauth: no verifier configured (missing JWKSURL)")
-	}
-	idt, err := c.verifier.Verify(ctx, rawIDToken)
-	if err != nil {
-		return Identity{}, nil, err
-	}
 	var id Identity
 	if err := idt.Claims(&id); err != nil {
-		return Identity{}, nil, err
-	}
-	return id, idt, nil
-}
-
-// ParseIdentityUnverified decodes an ID token's claims WITHOUT checking its signature — only
-// to restore display identity at startup from our own keychain. An authorization decision
-// takes Verify, and the return type is what holds that line.
-func ParseIdentityUnverified(rawIDToken string) (UnverifiedIdentity, error) {
-	parts := strings.Split(rawIDToken, ".")
-	if len(parts) != 3 {
-		return UnverifiedIdentity{}, fmt.Errorf("oauth: malformed ID token")
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return UnverifiedIdentity{}, fmt.Errorf("oauth: decode ID token payload: %w", err)
-	}
-	var id UnverifiedIdentity
-	if err := json.Unmarshal(payload, &id); err != nil {
-		return UnverifiedIdentity{}, fmt.Errorf("oauth: unmarshal ID token claims: %w", err)
+		return Identity{}, err
 	}
 	return id, nil
 }

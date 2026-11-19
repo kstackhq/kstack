@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package oauthconn is a sign-in to a model provider with OAuth: the client the
-// provider issues this installation, the session, and its tokens. A Service is
-// one provider's connection and signs that provider's requests
-// (llm.SessionSigner); what the provider has of its own is its Provider.
+// Package oauthconn is a sign-in to a service with OAuth: the client, issued
+// to this installation or fixed, the session, and its tokens. A Service is one
+// provider's connection and signs the requests to its API base
+// (llm.SessionSigner), none when it has no base. What the provider has of its
+// own is its Provider, whose ID keys its row and its keyring accounts.
 //
 // Files: this one (Service, New, the session's end), provider.go (the
 // provider's own part), registration.go (the provider's row in app.db),

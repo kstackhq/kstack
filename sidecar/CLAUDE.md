@@ -49,7 +49,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | `internal/run/CLAUDE.md` | the login shell, the session, the sandbox, permissions, the cluster proxy |
 | `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, LogsWatch, web search), `fileguard`, `logsinput` |
 | `internal/agent/CLAUDE.md` | the catalog, the loop, the chat service (turn, rows, approvals, tasks, the wire errors) |
-| `internal/services/connectors/internal/oauthconn/CLAUDE.md` | the OAuth engine; `connectors/chatgpt` runs it under ChatGPT's provider |
+| `internal/services/connectors/internal/oauthconn/CLAUDE.md` | the OAuth engine, which `connectors/chatgpt` and `connectors/kstack` run under their providers |
 | `internal/services/connectors/openrouter/CLAUDE.md` | the OpenRouter connector: a sign-in that grants a key, kept in the keyring |
 | `internal/services/connectors/kstack/CLAUDE.md` | the Kstack connector: the Kstack account on the engine, behind `authState` and the tray |
 
@@ -160,7 +160,8 @@ Full picture: [`docs/security-model.md`](../docs/security-model.md).
   `slog.Error("…", "err", err)` is correct; a non-string, non-error value logs as its type. A
   persisted message is rendered where it is recorded (`supervisor.Fail`). Auth projections omit
   tokens.
-- **Restored identity is display-only.** Keep `UnverifiedIdentity` and `Authenticated` out of
+- **A restored account is display-only.** The engine verifies the ID token and its nonce at
+  sign-in; at launch the account is read back from the `oauth_connections` row. Keep it out of
   authorization.
 - **The sidecar runs the user's `az`** (`services/azureauth`), off `PATH`, with fixed arguments but
   for a tenant the account holds; its output is never logged or kept, and a token it gives is held
