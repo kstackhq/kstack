@@ -3,6 +3,8 @@ title: An OAuth connection is a row in app.db matched to its keyring entry
 date: 2026-11-18
 scope: sidecar
 status: Accepted
+amended_by:
+  - [The Kstack sign-in is a connector on the OAuth engine](2026-11-19-the-kstack-sign-in-is-a-connector-on-the-oauth-engine.md)
 ---
 
 # An OAuth connection is a row in app.db matched to its keyring entry

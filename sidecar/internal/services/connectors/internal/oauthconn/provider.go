@@ -17,16 +17,20 @@ package oauthconn
 import "net/url"
 
 // Provider is what one provider's sign-in has of its own: authorization code
-// with PKCE on a loopback redirect, under a client the provider registers for
-// this installation during its first sign-in.
+// with PKCE on a loopback redirect, under a client fixed in code or one the
+// provider registers for this installation during its first sign-in.
 type Provider struct {
-	// ID is the catalog's provider id: the row's key in oauth_connections and the
-	// prefix of the keyring's accounts.
+	// ID is the row's key in oauth_connections and the prefix of the keyring's
+	// accounts. For a model provider it is also the catalog's provider id.
 	ID string
 	// Issuer is the provider's auth server, whose discovery document names the
 	// endpoints.
 	Issuer string
+	// ClientID is a client fixed in code. Set, the provider registers none:
+	// FirstClientID and ClientGone are unused and the row's client_id stays NULL.
+	ClientID string
 	// APIBaseURL is the one resource the tokens are for, and all Sign signs.
+	// Empty signs nothing.
 	APIBaseURL string
 	// Scopes is what a sign-in asks for.
 	Scopes []string

@@ -5,6 +5,7 @@ scope: sidecar
 status: Accepted
 amended_by:
   - [Remove cloud settings sync until settings have a design](2026-10-06-remove-cloud-settings-sync.md)
+  - [The Kstack sign-in is a connector on the OAuth engine](2026-11-19-the-kstack-sign-in-is-a-connector-on-the-oauth-engine.md)
 ---
 
 # Sidecar-owned local-first auth; cloud settings sync depends on auth, not the reverse

@@ -46,7 +46,7 @@ func TestARegistrationWithNoRowIsEmpty(t *testing.T) {
 func TestARegistrationRoundTrips(t *testing.T) {
 	db := appdbtest.Open(t)
 	store := openStore(t, db)
-	want := registration{Data: hostData("urn:uuid:x"), ClientID: "c", Subject: "s", Email: "e", SessionID: "s1"}
+	want := registration{Data: hostData("urn:uuid:x"), ClientID: "c", Subject: "s", Email: "e", Name: "n", SessionID: "s1"}
 
 	require.NoError(t, store.save(want))
 
@@ -61,7 +61,7 @@ func TestARegistrationRoundTrips(t *testing.T) {
 	assert.Equal(t, registration{Data: hostData("urn:uuid:x")}, openStore(t, db).get())
 	var signedOut bool
 	require.NoError(t, db.Read.QueryRowContext(t.Context(), `SELECT client_id IS NULL AND subject IS NULL
-		AND email IS NULL AND session_id IS NULL FROM oauth_connections`).Scan(&signedOut))
+		AND email IS NULL AND name IS NULL AND session_id IS NULL FROM oauth_connections`).Scan(&signedOut))
 	assert.True(t, signedOut, "an empty value is stored NULL")
 }
 

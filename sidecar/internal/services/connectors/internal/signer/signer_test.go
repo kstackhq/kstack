@@ -76,6 +76,17 @@ func TestCoversANamedPort(t *testing.T) {
 	}
 }
 
+// A base with no host covers nothing, a relative URL included.
+func TestCoversRefusesABaseWithNoHost(t *testing.T) {
+	base, err := url.Parse("")
+	require.NoError(t, err)
+	for _, raw := range []string{"/anything", "", "https://api.test/v1"} {
+		u, err := url.Parse(raw)
+		require.NoError(t, err)
+		assert.False(t, Covers(base, u), raw)
+	}
+}
+
 // A dead binding fails every Sign signed out, sets no header, and its Refused
 // is a no-op.
 func TestDeadSignsNothing(t *testing.T) {

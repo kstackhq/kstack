@@ -34,6 +34,8 @@ type registration struct {
 	ClientID string
 	Subject  string
 	Email    string
+	// Name is the account's display name; empty when the ID token named none.
+	Name string
 	// SessionID names the sign-in whose refresh token the keyring holds; empty
 	// is signed out. A session exists only when the keyring's entry names it too.
 	SessionID string
@@ -54,12 +56,12 @@ const (
 
 var statements = []sqlstmt.Statement{
 	stmtSelect: sqlstmt.OnReader(`SELECT ifnull(client_id, ''), ifnull(subject, ''), ifnull(email, ''),
-		ifnull(session_id, ''), provider_data FROM oauth_connections WHERE provider = ?`),
+		ifnull(name, ''), ifnull(session_id, ''), provider_data FROM oauth_connections WHERE provider = ?`),
 	stmtUpsert: sqlstmt.OnWriter(`INSERT INTO oauth_connections
-		(provider, client_id, subject, email, session_id, provider_data, created_at, updated_at)
-		VALUES (?1, nullif(?2, ''), nullif(?3, ''), nullif(?4, ''), nullif(?5, ''), ?6, ?7, ?7)
+		(provider, client_id, subject, email, name, session_id, provider_data, created_at, updated_at)
+		VALUES (?1, nullif(?2, ''), nullif(?3, ''), nullif(?4, ''), nullif(?5, ''), nullif(?6, ''), ?7, ?8, ?8)
 		ON CONFLICT (provider) DO UPDATE SET client_id = excluded.client_id, subject = excluded.subject,
-			email = excluded.email, session_id = excluded.session_id,
+			email = excluded.email, name = excluded.name, session_id = excluded.session_id,
 			provider_data = excluded.provider_data, updated_at = excluded.updated_at`),
 }
 
@@ -94,7 +96,7 @@ func (s *registrationStore) load() error {
 	var reg registration
 	var data sql.NullString
 	err := s.stmts.Stmts().QueryRow(context.Background(), stmtSelect, s.provider).
-		Scan(&reg.ClientID, &reg.Subject, &reg.Email, &reg.SessionID, &data)
+		Scan(&reg.ClientID, &reg.Subject, &reg.Email, &reg.Name, &reg.SessionID, &data)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -117,7 +119,7 @@ func (s *registrationStore) upsert(reg registration) error {
 		data = sql.NullString{String: string(encoded), Valid: true}
 	}
 	_, err := s.stmts.Stmts().Exec(context.Background(), stmtUpsert,
-		s.provider, reg.ClientID, reg.Subject, reg.Email, reg.SessionID, data, time.Now().UnixMilli())
+		s.provider, reg.ClientID, reg.Subject, reg.Email, reg.Name, reg.SessionID, data, time.Now().UnixMilli())
 	return err
 }
 

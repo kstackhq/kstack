@@ -25,8 +25,11 @@ import (
 
 // Covers reports whether u is base or under it: the same scheme, the host
 // without case, the same effective port, and a path that is base's or
-// continues it after a slash.
+// continues it after a slash. A base with no host covers nothing.
 func Covers(base, u *url.URL) bool {
+	if base.Host == "" {
+		return false
+	}
 	if u.Scheme != base.Scheme || !strings.EqualFold(u.Hostname(), base.Hostname()) || effectivePort(u) != effectivePort(base) {
 		return false
 	}

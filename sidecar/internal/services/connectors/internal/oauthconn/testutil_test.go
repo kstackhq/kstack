@@ -75,6 +75,27 @@ func testProvider(issuer string) Provider {
 	}
 }
 
+// fixedClientID is the fixed-client provider's client.
+const fixedClientID = "fixed-client"
+
+// fixedProvider is a provider whose client is fixed in code and that signs no
+// API, as the Kstack sign-in is. It shares the test provider's ID, so the rig's
+// accounts and row are the same.
+func fixedProvider(issuer string) Provider {
+	return Provider{
+		ID: providerID, Issuer: issuer, ClientID: fixedClientID,
+		Scopes:        []string{"openid", "offline_access", "email", "profile"},
+		CallbackPath:  "/oauth/callback",
+		SessionEnders: []string{"invalid_grant"},
+	}
+}
+
+// newFixedRig is a rig under the fixed-client provider.
+func newFixedRig(t *testing.T, opts ...option) *rig {
+	t.Helper()
+	return newRigWith(t, fixedProvider, opts...)
+}
+
 // hostData is the test provider's provider_data.
 func hostData(id string) map[string]string { return map[string]string{"hostID": id} }
 
@@ -89,8 +110,8 @@ type fakeIssuer struct {
 	mu sync.Mutex
 	// issued is the client id a first sign-in registers.
 	issued string
-	// subject and email are the account the next sign-in verifies as.
-	subject, email string
+	// subject, email and name are the account the next sign-in verifies as.
+	subject, email, name string
 	// scope is what the token endpoint grants.
 	scope string
 	// accessTTL is each access token's lifetime.
@@ -118,6 +139,10 @@ type fakeIssuer struct {
 	hold chan struct{}
 	// arrived is signalled each time a token request is parked on hold.
 	arrived *testutil.Probe[url.Values]
+	// holdDiscovery and holdRevoke, when set, park those requests until closed
+	// or until the request ends; discovering and revoking signal each arrival.
+	holdDiscovery, holdRevoke chan struct{}
+	discovering, revoking     *testutil.Probe[struct{}]
 
 	minted     int
 	nonces     map[string]string // code → nonce
@@ -135,11 +160,13 @@ func newFakeIssuer(t *testing.T) *fakeIssuer {
 	require.NoError(t, err)
 	f := &fakeIssuer{
 		t: t, key: key,
-		issued: "client-issued", subject: "user-1", email: "ada@example.com",
+		issued: "client-issued", subject: "user-1", email: "ada@example.com", name: "Ada Lovelace",
 		scope:     strings.Join(scopes, " "),
 		accessTTL: time.Hour,
 		nonces:    map[string]string{}, clientOf: map[string]string{}, live: map[string]bool{},
-		arrived: testutil.NewProbe[url.Values](8),
+		arrived:     testutil.NewProbe[url.Values](8),
+		discovering: testutil.NewProbe[struct{}](8),
+		revoking:    testutil.NewProbe[struct{}](8),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", f.discovery)
@@ -154,7 +181,28 @@ func newFakeIssuer(t *testing.T) *fakeIssuer {
 
 func (f *fakeIssuer) url() string { return f.srv.URL }
 
-func (f *fakeIssuer) discovery(w http.ResponseWriter, _ *http.Request) {
+// park holds r until hold closes, signalling arrived first, and reports whether
+// r outlived the wait. A nil hold parks nothing.
+func park(r *http.Request, hold chan struct{}, arrived *testutil.Probe[struct{}]) bool {
+	if hold == nil {
+		return true
+	}
+	arrived.Fire(struct{}{})
+	select {
+	case <-hold:
+		return true
+	case <-r.Context().Done():
+		return false
+	}
+}
+
+func (f *fakeIssuer) discovery(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	hold := f.holdDiscovery
+	f.mu.Unlock()
+	if !park(r, hold, f.discovering) {
+		return
+	}
 	base := f.srv.URL
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{
@@ -288,7 +336,7 @@ func (f *fakeIssuer) idToken(aud, nonce string) string {
 	raw, err := jwt.Signed(signer).Claims(jwt.Claims{
 		Issuer: f.srv.URL, Subject: f.subject, Audience: jwt.Audience{aud},
 		Expiry: jwt.NewNumericDate(time.Now().Add(time.Hour)), IssuedAt: jwt.NewNumericDate(time.Now()),
-	}).Claims(map[string]any{"email": f.email, "nonce": nonce}).Serialize()
+	}).Claims(map[string]any{"email": f.email, "name": f.name, "nonce": nonce}).Serialize()
 	require.NoError(f.t, err)
 	return raw
 }
@@ -300,6 +348,12 @@ func (f *fakeIssuer) jwks(w http.ResponseWriter, _ *http.Request) {
 
 func (f *fakeIssuer) revoke(w http.ResponseWriter, r *http.Request) {
 	require.NoError(f.t, r.ParseForm())
+	f.mu.Lock()
+	hold := f.holdRevoke
+	f.mu.Unlock()
+	if !park(r, hold, f.revoking) {
+		return
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.revoked = append(f.revoked, r.PostForm)
@@ -468,15 +522,22 @@ type rig struct {
 	issuer  *fakeIssuer
 	keyring *fakeKeyring
 	// dir holds app.db.
-	dir  string
-	db   *appdb.DB
-	opts []option
-	svc  *Service
+	dir      string
+	db       *appdb.DB
+	provider func(issuer string) Provider
+	opts     []option
+	svc      *Service
 }
 
 func newRig(t *testing.T, opts ...option) *rig {
 	t.Helper()
-	r := &rig{t: t, issuer: newFakeIssuer(t), keyring: newFakeKeyring(), dir: t.TempDir(), opts: opts}
+	return newRigWith(t, testProvider, opts...)
+}
+
+// newRigWith is a rig whose service runs under the provider p builds.
+func newRigWith(t *testing.T, p func(issuer string) Provider, opts ...option) *rig {
+	t.Helper()
+	r := &rig{t: t, issuer: newFakeIssuer(t), keyring: newFakeKeyring(), dir: t.TempDir(), provider: p, opts: opts}
 	r.db = appdbtest.OpenIn(t, r.dir)
 	r.svc = r.build()
 	return r
@@ -485,7 +546,7 @@ func newRig(t *testing.T, opts ...option) *rig {
 func (r *rig) build() *Service {
 	r.t.Helper()
 	opts := append([]option{withKeyring(r.keyring), withBrowser(following)}, r.opts...)
-	return newService(r.t, Config{Provider: testProvider(r.issuer.url()), DB: r.db}, opts...)
+	return newService(r.t, Config{Provider: r.provider(r.issuer.url()), DB: r.db}, opts...)
 }
 
 // newService is a service closed when the test ends.

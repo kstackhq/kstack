@@ -24,6 +24,7 @@
 package oauthconn
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
 	"net/url"
@@ -164,11 +165,12 @@ func (s *Service) restore() connectors.State {
 		slog.Warn("oauth: could not read the keyring; treating as signed out", "provider", s.p.ID, "err", err)
 		return connectors.State{Phase: connectors.SignedOut}
 	}
-	if reg.SessionID != "" && e.Session == reg.SessionID && reg.ClientID != "" && e.Token != "" {
+	clientID := s.clientID(reg)
+	if reg.SessionID != "" && e.Session == reg.SessionID && clientID != "" && e.Token != "" {
 		safe.AddSecret(e.Token)
 		s.gen++
-		s.session = &session{id: reg.SessionID, clientID: reg.ClientID, refresh: e.Token}
-		return connectors.State{Phase: connectors.Connected, Email: reg.Email}
+		s.session = &session{id: reg.SessionID, clientID: clientID, refresh: e.Token}
+		return connectors.State{Phase: connectors.Connected, Subject: reg.Subject, Email: reg.Email, Name: reg.Name}
 	}
 	if reg.SessionID != "" {
 		reg.SessionID = ""
@@ -251,6 +253,12 @@ func (s *Service) clearLocked(forget bool) (rowErr, keyErr error) {
 		slog.Error("oauth: could not delete the refresh token", "provider", s.p.ID, "err", keyErr)
 	}
 	return rowErr, keyErr
+}
+
+// clientID is the client a registration runs under: the provider's fixed one,
+// else the one the row saved. Empty is a sign-in that registers one.
+func (s *Service) clientID(reg registration) string {
+	return cmp.Or(s.p.ClientID, reg.ClientID)
 }
 
 // discover reads the issuer's endpoints, once per launch.

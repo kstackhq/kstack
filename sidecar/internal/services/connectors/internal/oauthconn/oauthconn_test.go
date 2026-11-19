@@ -43,46 +43,69 @@ func TestAFirstLaunchIsSignedOut(t *testing.T) {
 // row and the keyring's entry name the same sign-in; anything else is signed
 // out, with the row's session cleared and the entry deleted.
 func TestNewRestoresWhatTheStoresHold(t *testing.T) {
-	registered := registration{Data: hostData("h"), ClientID: "c", Email: "ada@example.com"}
-	signedIn := registered
-	signedIn.SessionID = "s1"
-	for name, c := range map[string]struct {
-		row *registration
-		// entry is the account's raw value; empty is no entry.
-		entry       string
-		want        connectors.Phase
-		wantSession string // the row's session afterwards
-		wantEntry   bool   // the entry still there
+	for name, p := range map[string]struct {
+		newRig   func(*testing.T, ...option) *rig
+		clientID string // the row's
 	}{
-		"a session":                        {row: &signedIn, entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: connectors.Connected, wantSession: "s1", wantEntry: true},
-		"a session and no entry":           {row: &signedIn, want: connectors.SignedOut},
-		"an entry beside a signed-out row": {row: &registered, entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: connectors.SignedOut},
-		"an entry of another sign-in":      {row: &signedIn, entry: `{"v":1,"token":"refresh-stored","session":"s2"}`, want: connectors.SignedOut},
-		"an entry naming no session":       {row: &registered, entry: `{"v":1,"token":"refresh-stored","session":""}`, want: connectors.SignedOut},
-		"an entry with no token":           {row: &signedIn, entry: `{"v":1,"token":"","session":"s1"}`, want: connectors.SignedOut},
-		"an entry of another version":      {row: &signedIn, entry: `{"v":2,"token":"refresh-stored","session":"s1"}`, want: connectors.SignedOut},
-		"an entry that is no object":       {row: &signedIn, entry: `refresh-stored`, want: connectors.SignedOut},
-		"an entry and no client id":        {row: &registration{Data: hostData("h"), SessionID: "s1"}, entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: connectors.SignedOut},
-		"an entry and no row":              {entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: connectors.SignedOut},
+		"a registered client": {newRig, "c"},
+		"a fixed client":      {newFixedRig, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			r := newRig(t)
-			if c.row != nil {
-				r.seed(*c.row, "", "")
-			}
-			if c.entry != "" {
-				r.keyring.entries[refreshAccount] = c.entry
-			}
+			registered := registration{Data: hostData("h"), ClientID: p.clientID, Email: "ada@example.com"}
+			signedIn := registered
+			signedIn.SessionID = "s1"
+			for name, c := range map[string]struct {
+				row *registration
+				// entry is the account's raw value; empty is no entry.
+				entry       string
+				want        connectors.Phase
+				wantSession string // the row's session afterwards
+				wantEntry   bool   // the entry still there
+			}{
+				"a session":                        {row: &signedIn, entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: connectors.Connected, wantSession: "s1", wantEntry: true},
+				"a session and no entry":           {row: &signedIn, want: connectors.SignedOut},
+				"an entry beside a signed-out row": {row: &registered, entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: connectors.SignedOut},
+				"an entry of another sign-in":      {row: &signedIn, entry: `{"v":1,"token":"refresh-stored","session":"s2"}`, want: connectors.SignedOut},
+				"an entry naming no session":       {row: &registered, entry: `{"v":1,"token":"refresh-stored","session":""}`, want: connectors.SignedOut},
+				"an entry with no token":           {row: &signedIn, entry: `{"v":1,"token":"","session":"s1"}`, want: connectors.SignedOut},
+				"an entry of another version":      {row: &signedIn, entry: `{"v":2,"token":"refresh-stored","session":"s1"}`, want: connectors.SignedOut},
+				"an entry that is no object":       {row: &signedIn, entry: `refresh-stored`, want: connectors.SignedOut},
+				"an entry and no row":              {entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: connectors.SignedOut},
+			} {
+				t.Run(name, func(t *testing.T) {
+					r := p.newRig(t)
+					if c.row != nil {
+						r.seed(*c.row, "", "")
+					}
+					if c.entry != "" {
+						r.keyring.entries[refreshAccount] = c.entry
+					}
 
-			s := r.restart()
+					s := r.restart()
 
-			assert.Equal(t, c.want, s.State().Phase)
-			assert.Equal(t, c.wantSession, savedRegistration(t, r).SessionID)
-			_, ok := storedRefresh(t, r)
-			assert.Equal(t, c.wantEntry, ok)
-			assert.Empty(t, r.issuer.forms("refresh_token"), "New reaches no network")
+					assert.Equal(t, c.want, s.State().Phase)
+					assert.Equal(t, c.wantSession, savedRegistration(t, r).SessionID)
+					_, ok := storedRefresh(t, r)
+					assert.Equal(t, c.wantEntry, ok)
+					assert.Empty(t, r.issuer.forms("refresh_token"), "New reaches no network")
+				})
+			}
 		})
 	}
+}
+
+// A session needs a client. A provider that registers one has no session
+// under a row that names none.
+func TestASessionWithNoClientIsSignedOut(t *testing.T) {
+	r := newRig(t)
+	r.seed(registration{Data: hostData("h"), SessionID: "s1"}, "refresh-stored", "s1")
+
+	s := r.restart()
+
+	assert.Equal(t, connectors.SignedOut, s.State().Phase)
+	assert.Empty(t, savedRegistration(t, r).SessionID)
+	_, ok := storedRefresh(t, r)
+	assert.False(t, ok)
 }
 
 // A restored session shows the account it was signed in as, and that it is
@@ -156,44 +179,86 @@ func TestNewFailsOnAClosedDatabase(t *testing.T) {
 }
 
 // No token leaves the keyring: after a sign-in, a refresh and a refresh the
-// issuer refused, no token is in a log line or in any file under the data
-// directory, app.db included. The log is read raw, before redaction: the service logs none.
+// issuer refused, or a sign-in, a restart and a sign-out, no token is in a log
+// line or in any file under the data directory, app.db included. The log is
+// read raw, before redaction: the service logs none.
 func TestNoTokenLeavesTheKeyring(t *testing.T) {
-	var logs bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	for name, c := range map[string]struct {
+		newRig func(*testing.T, ...option) *rig
+		// exercise runs the session through what mints and drops tokens.
+		exercise func(t *testing.T, r *rig)
+	}{
+		"a registered client": {newRig, func(t *testing.T, r *rig) {
+			r.issuer.set(func(f *fakeIssuer) { f.accessTTL = 0 })
+			connect(t, r.svc)
+			_, err := signedToken(t, r.svc) // the access token is spent: this refreshes
+			require.NoError(t, err)
+			r.issuer.set(func(f *fakeIssuer) { f.refreshCode = "invalid_grant" })
+			_, err = signedToken(t, r.svc)
+			require.Error(t, err)
+		}},
+		"a fixed client": {newFixedRig, func(t *testing.T, r *rig) {
+			connect(t, r.svc)
+			r.restart()
+			require.NoError(t, r.svc.Disconnect(t.Context()))
+			r.issuer.awaitRevoked(t, r.issuer.mintedTokens()[0])
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var logs bytes.Buffer
+			prev := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+			t.Cleanup(func() { slog.SetDefault(prev) })
 
-	r := newRig(t)
-	r.issuer.set(func(f *fakeIssuer) { f.accessTTL = 0 })
-	connect(t, r.svc)
-	_, err := signedToken(t, r.svc) // the access token is spent: this refreshes
-	require.NoError(t, err)
-	r.issuer.set(func(f *fakeIssuer) { f.refreshCode = "invalid_grant" })
-	_, err = signedToken(t, r.svc)
-	require.Error(t, err)
+			r := c.newRig(t)
+			c.exercise(t, r)
 
-	tokens := r.issuer.mintedTokens()
-	require.NotEmpty(t, tokens)
-	held, ok := storedRefresh(t, r)
-	if ok {
-		assert.True(t, safe.HasSecret(held), "a held token is registered with the redactor")
+			tokens := r.issuer.mintedTokens()
+			require.NotEmpty(t, tokens)
+			held, ok := storedRefresh(t, r)
+			if ok {
+				assert.True(t, safe.HasSecret(held), "a held token is registered with the redactor")
+			}
+			require.NoError(t, filepath.WalkDir(r.dir, func(path string, d fs.DirEntry, err error) error {
+				require.NoError(t, err)
+				if d.IsDir() {
+					return nil
+				}
+				data, err := os.ReadFile(path)
+				require.NoError(t, err)
+				for _, tok := range tokens {
+					assert.NotContains(t, string(data), tok, path)
+				}
+				return nil
+			}))
+			for _, tok := range tokens {
+				assert.False(t, strings.Contains(logs.String(), tok), "a log line holds a token")
+			}
+		})
 	}
-	require.NoError(t, filepath.WalkDir(r.dir, func(path string, d fs.DirEntry, err error) error {
-		require.NoError(t, err)
-		if d.IsDir() {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		require.NoError(t, err)
-		for _, tok := range tokens {
-			assert.NotContains(t, string(data), tok, path)
-		}
-		return nil
-	}))
-	for _, tok := range tokens {
-		assert.False(t, strings.Contains(logs.String(), tok), "a log line holds a token")
-	}
+}
+
+// Close cancels a sign-in and a revocation under way and returns once their
+// goroutines have ended, without waiting for the revocation to succeed.
+func TestCloseEndsASignInAndARevocation(t *testing.T) {
+	t.Run("a sign-in", func(t *testing.T) {
+		r := newFixedRig(t, withBrowser((&parked{}).open))
+		require.NoError(t, r.svc.Connect(t.Context(), true))
+
+		testutil.WaitReturn(t, r.svc.Close, "Close")
+	})
+	t.Run("a revocation", func(t *testing.T) {
+		r := newFixedRig(t)
+		connect(t, r.svc)
+		hold := make(chan struct{})
+		t.Cleanup(func() { close(hold) })
+		r.issuer.set(func(f *fakeIssuer) { f.holdRevoke = hold })
+		require.NoError(t, r.svc.Disconnect(t.Context()))
+		r.issuer.revoking.Await(t, "a revocation")
+
+		testutil.WaitReturn(t, r.svc.Close, "Close")
+		assert.False(t, r.svc.State().RevocationUnconfirmed, "a quit is no failed revocation")
+	})
 }
 
 // A stale entry New cannot delete is left for the next launch, signed out.

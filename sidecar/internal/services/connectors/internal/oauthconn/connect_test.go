@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
@@ -65,7 +66,8 @@ func TestAFirstSignInRegistersAndConnects(t *testing.T) {
 	reg := savedRegistration(t, r)
 	require.NotEmpty(t, reg.SessionID)
 	assert.Equal(t, registration{
-		Data: hostData(q.Get("host")), ClientID: "client-issued", Subject: "user-1", Email: "ada@example.com", SessionID: reg.SessionID,
+		Data: hostData(q.Get("host")), ClientID: "client-issued", Subject: "user-1", Email: "ada@example.com", Name: "Ada Lovelace",
+		SessionID: reg.SessionID,
 	}, reg)
 	e, found, err := loadEntry(r.keyring, refreshAccount)
 	require.NoError(t, err)
@@ -618,4 +620,133 @@ func TestCancelOutsideASignIn(t *testing.T) {
 	r.svc.Cancel()
 
 	assert.Equal(t, before, r.svc.State())
+}
+
+// A fixed client registers nothing: the authorize names it, the row's client_id
+// stays empty, and a redirect may name it or no client. One naming another
+// client is refused.
+func TestAFixedClientRegistersNothing(t *testing.T) {
+	t.Run("a sign-in", func(t *testing.T) {
+		r := newFixedRig(t)
+
+		st := connect(t, r.svc)
+
+		q := r.issuer.authorizeQueries()
+		require.Len(t, q, 1)
+		assert.Equal(t, fixedClientID, q[0].Get("client_id"))
+		assert.False(t, q[0].Has("resource"), "no API base, no resource")
+		assert.Empty(t, savedRegistration(t, r).ClientID)
+		assert.False(t, st.Registered)
+		exchanges := r.issuer.forms("authorization_code")
+		require.Len(t, exchanges, 1)
+		assert.Equal(t, fixedClientID, exchanges[0].Get("client_id"))
+	})
+	t.Run("a redirect naming no client", func(t *testing.T) {
+		r := newFixedRig(t)
+		none := ""
+		r.issuer.set(func(f *fakeIssuer) { f.callbackClientID = &none })
+
+		connect(t, r.svc)
+	})
+	t.Run("a redirect naming another client", func(t *testing.T) {
+		r := newFixedRig(t)
+		other := "other-client"
+		r.issuer.set(func(f *fakeIssuer) { f.callbackClientID = &other })
+
+		require.NoError(t, r.svc.Connect(t.Context(), false))
+
+		await(t, r.svc, "Refused", failedWith(connectors.Refused))
+		assert.Empty(t, savedRegistration(t, r).ClientID)
+	})
+}
+
+// Start answers why a sign-in could not start, leaving the state Failed with
+// it and no browser open. Connect leaves the same state and answers nil.
+func TestStartAnswersWhyItCouldNotStart(t *testing.T) {
+	for name, c := range map[string]struct {
+		fail func(r *rig)
+		want connectors.Failure
+	}{
+		"discovery fails":            {func(r *rig) { r.issuer.srv.Close() }, connectors.Unavailable},
+		"the keyring refuses writes": {func(r *rig) { r.keyring.failSet(checkAccount, errBoom) }, connectors.NotSaved},
+		"the browser will not open":  {func(r *rig) { r.svc.open = func(string) error { return errBoom } }, connectors.Refused},
+	} {
+		t.Run(name, func(t *testing.T) {
+			browser := &parked{}
+			r := newFixedRig(t, withBrowser(browser.open))
+			c.fail(r)
+
+			failure, err := r.svc.Start(t.Context(), true)
+
+			require.NoError(t, err)
+			assert.Equal(t, c.want, failure)
+			assert.True(t, failedWith(c.want)(r.svc.State()))
+
+			require.NoError(t, r.svc.Connect(t.Context(), true))
+
+			assert.True(t, failedWith(c.want)(r.svc.State()))
+			assert.Zero(t, browser.opened())
+		})
+	}
+}
+
+// startHeld runs Start against an issuer that holds discovery, and answers
+// once the request has arrived. The channel carries Start's failure.
+func startHeld(t *testing.T) (*rig, <-chan connectors.Failure) {
+	t.Helper()
+	r := newFixedRig(t)
+	hold := make(chan struct{})
+	t.Cleanup(func() { close(hold) })
+	r.issuer.set(func(f *fakeIssuer) { f.holdDiscovery = hold })
+	done := make(chan connectors.Failure, 1)
+	go func() {
+		failure, err := r.svc.Start(t.Context(), true)
+		assert.NoError(t, err)
+		done <- failure
+	}()
+	r.issuer.discovering.Await(t, "discovery")
+	return r, done
+}
+
+// A Disconnect during Start's discovery ends the attempt first: the state is
+// SignedOut, and Start answers no failure, since the state says what happened.
+func TestASignOutDuringAStartIsNotAFailure(t *testing.T) {
+	r, done := startHeld(t)
+
+	require.NoError(t, r.svc.Disconnect(t.Context()))
+
+	assert.Empty(t, testutil.Recv(t, done, "Start's answer"))
+	assert.Equal(t, connectors.SignedOut, r.svc.State().Phase)
+	assert.Empty(t, r.issuer.authorizeQueries(), "no browser opened")
+}
+
+// A Close during Start's discovery is no failed sign-in either.
+func TestACloseDuringAStartIsNotAFailure(t *testing.T) {
+	r, done := startHeld(t)
+
+	r.svc.Close()
+
+	assert.Empty(t, testutil.Recv(t, done, "Start's answer"))
+	assert.NotEqual(t, connectors.Failed, r.svc.State().Phase)
+}
+
+// A fresh sign-in may be another account: it connects, with that account's
+// subject, email and name in the row and on the state, and a restart restores
+// them.
+func TestAFreshSignInTakesAnotherAccount(t *testing.T) {
+	r := newFixedRig(t)
+	first := connect(t, r.svc)
+	assert.Equal(t, []string{"user-1", "ada@example.com", "Ada Lovelace"}, []string{first.Subject, first.Email, first.Name})
+	require.NoError(t, r.svc.Disconnect(t.Context()))
+	r.issuer.set(func(f *fakeIssuer) { f.subject, f.email, f.name = "user-2", "grace@example.com", "Grace Hopper" })
+
+	require.NoError(t, r.svc.Connect(t.Context(), true))
+
+	st := await(t, r.svc, "Connected", inPhase(connectors.Connected))
+	want := []string{"user-2", "grace@example.com", "Grace Hopper"}
+	assert.Equal(t, want, []string{st.Subject, st.Email, st.Name})
+	reg := savedRegistration(t, r)
+	assert.Equal(t, want, []string{reg.Subject, reg.Email, reg.Name})
+	restored := r.restart().State()
+	assert.Equal(t, want, []string{restored.Subject, restored.Email, restored.Name})
 }

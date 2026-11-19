@@ -3,6 +3,8 @@ title: A connector is one package, and its machinery is internal
 date: 2026-11-19
 scope: cross-cutting
 status: Accepted
+amended_by:
+  - [The Kstack sign-in is a connector on the OAuth engine](2026-11-19-the-kstack-sign-in-is-a-connector-on-the-oauth-engine.md)
 ---
 
 # A connector is one package, and its machinery is internal
