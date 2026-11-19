@@ -134,15 +134,35 @@ jobs:
       # bash: PowerShell splits -coverpkg=./... at its dot, which empties
       # -coverpkg and hands ./... to the test binary, turning off the test cache.
       # scripts/cover-changed.sh measures as this job does; change both together.
+      #
+      # Linux runs every package. macOS and Windows run only the packages whose
+      # Go files differ from Linux's, listed at run time so a new split joins
+      # on its own; the rest would repeat Linux's run. A test elsewhere that
+      # reaches into a split package's platform code no longer counts for it.
+      # Every event filters alike, so a PR and its base compare like runs.
       - name: Measure coverage
         working-directory: ./sidecar
         shell: bash
         env:
           CGO_ENABLED: "0"
           SSH_AUTH_SOCK: ""
-        run: >-
-          go test -timeout 30m -covermode=atomic -coverpkg=./...
-          -coverprofile="$RUNNER_TEMP/untagged.out" ./...
+        run: |
+          pkgs=./...
+          if [ "$RUNNER_OS" != Linux ]; then
+            files='{{.ImportPath}} {{.GoFiles}}'
+            linux=$(GOOS=linux go list -f "$files" ./... | sort)
+            native=$(go list -f "$files" ./... | sort)
+            pkgs=$(comm -13 <(echo "$linux") <(echo "$native") | cut -d' ' -f1)
+            if [ -z "$pkgs" ]; then
+              echo "::error::no sidecar package splits by OS on $RUNNER_OS"
+              exit 1
+            fi
+            echo "Packages split by OS:"
+            echo "$pkgs"
+          fi
+          # shellcheck disable=SC2086 # one import path per word
+          go test -timeout 30m -covermode=atomic -coverpkg=./... \
+            -coverprofile="$RUNNER_TEMP/untagged.out" $pkgs
       # -tags debug compiles the environment overrides, which no other build has.
       # Linux alone runs it: no debug-tagged file in sidecar/ is OS-specific, so
       # the Linux pass reaches every line the tag adds. A debug-tagged file that
@@ -158,6 +178,8 @@ jobs:
           go test -tags debug -timeout 30m -covermode=atomic -coverpkg=./...
           -coverprofile="$RUNNER_TEMP/debug.out" ./...
       # CGO_ENABLED=0 as release-cli.yml builds it; ci.yml's -race tests need cgo.
+      # Every OS runs it whole: the CLI has no file split by OS, and the run
+      # takes seconds.
       - name: Measure CLI coverage
         working-directory: ./cli
         shell: bash
