@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package kstack is the Kstack connector: the Kstack account, signed in to by
+// Package kstackcloud is the Kstack Cloud connector: the Kstack Cloud account, signed in to by
 // the OAuth engine under a fixed client. It signs no request.
-package kstack
+package kstackcloud
 
 import (
 	"context"
@@ -29,7 +29,7 @@ import (
 
 const (
 	// ID is the row's key and the keyring accounts' prefix.
-	ID = "kstack"
+	ID = "kstack-cloud"
 	// oldAccount is where desktop/v0.0.1 kept the whole token. Nothing reads it:
 	// its user signs in again.
 	oldAccount = "auth-token"
@@ -41,7 +41,7 @@ type Config struct {
 	DB *appdb.DB
 	// KeychainService is the OS-keyring service the refresh token is kept under.
 	KeychainService string
-	// Issuer and ClientID are Kstack's auth server and the app's client there.
+	// Issuer and ClientID are Kstack Cloud's auth server and the app's client there.
 	Issuer   string
 	ClientID string
 }
@@ -56,7 +56,7 @@ type engine interface {
 	Close()
 }
 
-// Service is the Kstack connector. The engine stays unexported, so nothing
+// Service is the Kstack Cloud connector. The engine stays unexported, so nothing
 // outside this package can sign with the account.
 type Service struct {
 	engine engine
@@ -101,7 +101,7 @@ func (s *Service) Disconnect(ctx context.Context) error { return s.engine.Discon
 // waits for them.
 func (s *Service) Close() { s.engine.Close() }
 
-// provider is the Kstack sign-in at cfg's issuer.
+// provider is the Kstack Cloud sign-in at cfg's issuer.
 func provider(cfg Config) oauthconn.Provider {
 	return oauthconn.Provider{
 		ID:            ID,

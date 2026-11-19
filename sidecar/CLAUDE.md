@@ -49,9 +49,9 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | `internal/run/CLAUDE.md` | the login shell, the session, the sandbox, permissions, the cluster proxy |
 | `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, LogsWatch, web search), `fileguard`, `logsinput` |
 | `internal/agent/CLAUDE.md` | the catalog, the loop, the chat service (turn, rows, approvals, tasks, the wire errors) |
-| `internal/services/connectors/internal/oauthconn/CLAUDE.md` | the OAuth engine, which `connectors/chatgpt` and `connectors/kstack` run under their providers |
+| `internal/services/connectors/internal/oauthconn/CLAUDE.md` | the OAuth engine, which `connectors/chatgpt` and `connectors/kstackcloud` run under their providers |
 | `internal/services/connectors/openrouter/CLAUDE.md` | the OpenRouter connector: a sign-in that grants a key, kept in the keyring |
-| `internal/services/connectors/kstack/CLAUDE.md` | the Kstack connector: the Kstack account on the engine, behind `authState` and the tray |
+| `internal/services/connectors/kstackcloud/CLAUDE.md` | the Kstack Cloud connector: the Kstack Cloud account on the engine, behind `authState` and the tray |
 
 ## Layout
 
@@ -194,7 +194,7 @@ may have signed in as someone else. Every failure is `ErrNoToken`. →
 ## Connectors (`internal/services/connectors`)
 
 **A connector is an account on a service that Kstack signs in to, and whose requests it may then
-sign**, one package each: `chatgpt`, `openrouter`, and `kstack`, the Kstack account, which signs
+sign**, one package each: `chatgpt`, `openrouter`, and `kstackcloud`, the Kstack Cloud account, which signs
 nothing. Each has `New`, `State`, `Subscribe`, `Connect`, `Disconnect` and `Close`; a model
 provider adds a catalog and a signer. The root package is their vocabulary; what they share (`oauthconn`, `catalogsync`, `signer`) is in `internal/`. → [ADR](../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md).
 

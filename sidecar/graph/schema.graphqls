@@ -1984,7 +1984,7 @@ input PermissionRuleInput {
 }
 
 # --- Cloud account ---
-# The Kstack connector's sign-in and display identity. Tokens never appear here.
+# The Kstack Cloud connector's sign-in and display identity. Tokens never appear here.
 
 "Display identity from the ID token verified at sign-in, restored from app.db at startup; never an authorization input."
 type Identity {

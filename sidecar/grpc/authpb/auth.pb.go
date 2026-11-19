@@ -208,7 +208,7 @@ func (*AuthStateWatchRequest) Descriptor() ([]byte, []int) {
 	return file_auth_proto_rawDescGZIP(), []int{4}
 }
 
-// AuthState projects the Kstack connector's tokenless state: identity is unset
+// AuthState projects the Kstack Cloud connector's tokenless state: identity is unset
 // while signed out, so the host can't render stale claims.
 type AuthState struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`

@@ -10,7 +10,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
-// AuthConnector is the Kstack connector as the tray drives it.
+// AuthConnector is the Kstack Cloud connector as the tray drives it.
 type AuthConnector interface {
 	Subscribe() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error

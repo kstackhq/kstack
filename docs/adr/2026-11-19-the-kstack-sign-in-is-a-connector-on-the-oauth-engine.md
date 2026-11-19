@@ -20,8 +20,8 @@ keyring check before the browser opens, goroutines joined on `Close`, and a fail
 carries. It assumed a client the provider registers at the first sign-in, a provider whose service
 is a model provider, and one API base to sign. The Kstack sign-in has a fixed client id, is no
 model provider, and nothing reads its token yet. An installed Kstack (`desktop/v0.0.1`) keeps the
-whole token as JSON under the keyring account `auth-token`. The design is
-[the Kstack connector spec](../specs/kstack-connector.md), answering #1046.
+whole token as JSON under the keyring account `auth-token`. The design was the Kstack Cloud
+connector spec (#1057), answering #1046.
 
 ## Decision
 
@@ -32,7 +32,8 @@ connector has is `New`, `State`, `Subscribe`, `Connect`, `Disconnect` and `Close
 `connectors`' vocabulary; `Cancel`, `SyncCatalog` and `llm.SessionSigner` belong to the connectors
 that need them.
 
-**The Kstack sign-in is a connector, `services/connectors/kstack`, run by the engine.**
+**The Kstack sign-in is a connector, `services/connectors/kstackcloud` (`Provider.ID`
+`kstack-cloud`), run by the engine.**
 `services/auth` is deleted. The engine's `Provider` gains `ClientID`, a client fixed in code, for
 which it registers none and leaves the row's `client_id` NULL. `Provider.ID` is the row's key in
 `oauth_connections` and the keyring accounts' prefix; for a model provider it is also the catalog's
@@ -40,7 +41,7 @@ provider id. The connector has no API base and exports no signer, and an engine 
 signs no request. The wire (`authState`, `authLoginStart`, `authLogout`, the gRPC `AuthService`)
 stays, mapped from the connector's state.
 
-**The old entry is dropped, not converted.** `kstack.New` deletes `auth-token` at every launch and
+**The old entry is dropped, not converted.** `kstackcloud.New` deletes `auth-token` at every launch and
 does not revoke its refresh token. The user signs in once more after the update.
 
 This amends:

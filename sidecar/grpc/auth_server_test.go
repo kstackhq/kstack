@@ -26,7 +26,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
-// fakeAuthSvc is the Kstack connector as the gRPC server uses it: signed out
+// fakeAuthSvc is the Kstack Cloud connector as the gRPC server uses it: signed out
 // by default; Connect signs in and publishes, Disconnect signs out and
 // publishes, Subscribe is latest-value (current-on-subscribe, then changes).
 type fakeAuthSvc struct {

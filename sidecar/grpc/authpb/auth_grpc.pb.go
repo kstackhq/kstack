@@ -39,7 +39,7 @@ const (
 // session. It rides the same socket as GraphQL (h2c multiplexing) but is
 // consumed only by the native host (the tray), never the webview — the webview
 // keeps using the GraphQL authState/login/logout/authStateWatch surface. Both
-// transports share the one Kstack connector, so a sign-in via either is
+// transports share the one Kstack Cloud connector, so a sign-in via either is
 // observed by both.
 type AuthServiceClient interface {
 	// StartLogin ends a sign-in under way and starts a fresh one, returning once
@@ -112,7 +112,7 @@ type AuthService_AuthStateWatchClient = grpc.ServerStreamingClient[AuthState]
 // session. It rides the same socket as GraphQL (h2c multiplexing) but is
 // consumed only by the native host (the tray), never the webview — the webview
 // keeps using the GraphQL authState/login/logout/authStateWatch surface. Both
-// transports share the one Kstack connector, so a sign-in via either is
+// transports share the one Kstack Cloud connector, so a sign-in via either is
 // observed by both.
 type AuthServiceServer interface {
 	// StartLogin ends a sign-in under way and starts a fresh one, returning once

@@ -464,14 +464,14 @@ func TestAppAddsTheLogsServiceAfterTheClusterService(t *testing.T) {
 	assert.Greater(t, partIndex(t, a, "logs service"), partIndex(t, a, "cluster service"))
 }
 
-// The Kstack connector holds app.db's statements and a revocation's goroutine,
+// The Kstack Cloud connector holds app.db's statements and a revocation's goroutine,
 // so it is a part that closes before app.db does.
-func TestAppClosesTheKstackConnectorBeforeAppDB(t *testing.T) {
+func TestAppClosesTheKstackCloudConnectorBeforeAppDB(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
-	assert.Greater(t, partIndex(t, a, "kstack service"), partIndex(t, a, "app.db"))
+	assert.Greater(t, partIndex(t, a, "kstack cloud service"), partIndex(t, a, "app.db"))
 }
 
 // The chat service is a part like the others: built by New, started and stopped
