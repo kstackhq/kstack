@@ -23,6 +23,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/app"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 )
@@ -149,5 +150,6 @@ func applyEnvOverrides(cfg *config, getenv func(string) string) {
 	setEach(&cfg.App.ConnectorAuthURLs, map[string]string{
 		chatgpt.ID:    chatgpt.IssuerURLVar,
 		openrouter.ID: openrouter.AuthURLVar,
+		aws.ID:        aws.SigninURLVar,
 	})
 }

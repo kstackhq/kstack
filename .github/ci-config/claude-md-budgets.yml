@@ -9,6 +9,7 @@ sidecar/CLAUDE.md: 27648
 sidecar/internal/agent/CLAUDE.md: 25600
 sidecar/internal/llm/CLAUDE.md: 16896
 sidecar/internal/run/CLAUDE.md: 26624
+sidecar/internal/services/connectors/aws/CLAUDE.md: 2560
 sidecar/internal/services/connectors/internal/oauthconn/CLAUDE.md: 2560
 sidecar/internal/services/connectors/kstackcloud/CLAUDE.md: 1536
 sidecar/internal/services/connectors/openrouter/CLAUDE.md: 2560

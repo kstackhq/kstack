@@ -36,6 +36,7 @@ These work only in a sidecar built with `-tags debug`, which `tauri dev` and `ma
 | `KSTACK_<PROVIDER>_BASE_URL` | Move a model provider's base URL, the provider id upper-cased with `-` as `_` (`baseURLVar` in `sidecar/internal/agent/catalog/providers.go`). `KSTACK_CHATGPT_BASE_URL` also moves the resource the ChatGPT connector signs for, and `KSTACK_OPENROUTER_BASE_URL` what the OpenRouter connector's key signs and its key check. |
 | `KSTACK_CHATGPT_ISSUER_URL` | Point Sign in with ChatGPT at another OAuth issuer; its discovery document must name that URL as its issuer. |
 | `KSTACK_OPENROUTER_AUTH_URL` | Move the OpenRouter connector's auth origin: its sign-in page is `<origin>/auth` and its exchange `<origin>/api/v1/auth/keys`. |
+| `KSTACK_AWS_SIGNIN_URL` | Move the AWS connector's sign-in origin: its authorize page is `<origin>/v1/authorize` and its token endpoint `<origin>/v1/token`. |
 | `KSTACK_FAULTS` | Fail cluster requests inside every connection, so the failure states draw from real data. See [Injected faults](#injected-faults). |
 
 A debug sidecar also adds a fake model to the catalog, so a dev run can chat without an API key.

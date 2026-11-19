@@ -273,3 +273,4 @@ usually just documentation in the wrong place.
 | 2026-11-19 | [A connector is an OAuth session or a granted key](2026-11-19-a-connector-is-an-oauth-session-or-a-granted-key.md) | sidecar | Accepted |
 | 2026-11-19 | [A connector is one package, and its machinery is internal](2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md) | cross-cutting | Accepted |
 | 2026-11-19 | [The Kstack sign-in is a connector on the OAuth engine](2026-11-19-the-kstack-sign-in-is-a-connector-on-the-oauth-engine.md) | sidecar | Accepted |
+| 2026-11-19 | [The AWS connector is AWS login with a DPoP-bound session](2026-11-19-the-aws-connector-is-aws-login-with-a-dpop-bound-session.md) | sidecar | Accepted |

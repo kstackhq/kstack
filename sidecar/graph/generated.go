@@ -46,6 +46,7 @@ func NewExecutableSchema(cfg Config) graphql.ExecutableSchema {
 type Config = graphql.Config[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
 type ResolverRoot interface {
+	AWSConnection() AWSConnectionResolver
 	AuthState() AuthStateResolver
 	ChatGPTConnection() ChatGPTConnectionResolver
 	ChatMessage() ChatMessageResolver
@@ -65,6 +66,12 @@ type DirectiveRoot struct {
 }
 
 type ComplexityRoot struct {
+	AWSConnection struct {
+		Arn     func(childComplexity int) int
+		Failure func(childComplexity int) int
+		Phase   func(childComplexity int) int
+	}
+
 	AuthState struct {
 		Authenticated func(childComplexity int) int
 		Identity      func(childComplexity int) int
@@ -646,6 +653,9 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
+		AWSConnect                      func(childComplexity int) int
+		AWSConnectCancel                func(childComplexity int) int
+		AWSDisconnect                   func(childComplexity int) int
 		ApprovalDecide                  func(childComplexity int, id chat.ApprovalID, decision chat.ApprovalDecision) int
 		AuthLoginStart                  func(childComplexity int) int
 		AuthLogout                      func(childComplexity int) int
@@ -763,6 +773,7 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
+		AWSConnection        func(childComplexity int) int
 		AuthState            func(childComplexity int) int
 		ChatGPTConnection    func(childComplexity int) int
 		ChatGrants           func(childComplexity int, chatID apimeta.ChatID) int
@@ -875,6 +886,7 @@ type ComplexityRoot struct {
 	}
 
 	Subscription struct {
+		AWSConnectionWatch            func(childComplexity int) int
 		AuthStateWatch                func(childComplexity int) int
 		ChatGPTConnectionWatch        func(childComplexity int) int
 		ChatMessagesWatch             func(childComplexity int, chatID apimeta.ChatID) int
@@ -956,6 +968,10 @@ type ComplexityRoot struct {
 
 // region    ************************** generated!.gotpl **************************
 
+type AWSConnectionResolver interface {
+	Arn(ctx context.Context, obj *connectors.State) (*string, error)
+	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
+}
 type AuthStateResolver interface {
 	Authenticated(ctx context.Context, obj *connectors.State) (bool, error)
 	Identity(ctx context.Context, obj *connectors.State) (*oauth.Identity, error)
@@ -1035,6 +1051,9 @@ type MutationResolver interface {
 	OpenRouterConnectCancel(ctx context.Context) (bool, error)
 	OpenRouterDisconnect(ctx context.Context) (bool, error)
 	OpenRouterKeysOpen(ctx context.Context) (bool, error)
+	AWSConnect(ctx context.Context) (bool, error)
+	AWSConnectCancel(ctx context.Context) (bool, error)
+	AWSDisconnect(ctx context.Context) (bool, error)
 }
 type OpenRouterConnectionResolver interface {
 	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
@@ -1061,6 +1080,7 @@ type QueryResolver interface {
 	AuthState(ctx context.Context) (*connectors.State, error)
 	ChatGPTConnection(ctx context.Context) (*connectors.State, error)
 	OpenRouterConnection(ctx context.Context) (*connectors.State, error)
+	AWSConnection(ctx context.Context) (*connectors.State, error)
 }
 type SubscriptionResolver interface {
 	EventsWatch(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *cluster.EventWatchFrame, error)
@@ -1084,6 +1104,7 @@ type SubscriptionResolver interface {
 	AuthStateWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ChatGPTConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	OpenRouterConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
+	AWSConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ModelsWatch(ctx context.Context) (<-chan []*model.Model, error)
 }
 type ToolCallResolver interface {
@@ -1107,6 +1128,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	ec := newExecutionContext(nil, e, nil)
 	_ = ec
 	switch typeName + "." + field {
+
+	case "AWSConnection.arn":
+		if e.ComplexityRoot.AWSConnection.Arn == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AWSConnection.Arn(childComplexity), true
+	case "AWSConnection.failure":
+		if e.ComplexityRoot.AWSConnection.Failure == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AWSConnection.Failure(childComplexity), true
+	case "AWSConnection.phase":
+		if e.ComplexityRoot.AWSConnection.Phase == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AWSConnection.Phase(childComplexity), true
 
 	case "AuthState.authenticated":
 		if e.ComplexityRoot.AuthState.Authenticated == nil {
@@ -3355,6 +3395,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Model.Provider(childComplexity), true
 
+	case "Mutation.awsConnect":
+		if e.ComplexityRoot.Mutation.AWSConnect == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.AWSConnect(childComplexity), true
+	case "Mutation.awsConnectCancel":
+		if e.ComplexityRoot.Mutation.AWSConnectCancel == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.AWSConnectCancel(childComplexity), true
+	case "Mutation.awsDisconnect":
+		if e.ComplexityRoot.Mutation.AWSDisconnect == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.AWSDisconnect(childComplexity), true
 	case "Mutation.approvalDecide":
 		if e.ComplexityRoot.Mutation.ApprovalDecide == nil {
 			break
@@ -4047,6 +4105,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Provider.LlmDialect(childComplexity), true
 
+	case "Query.awsConnection":
+		if e.ComplexityRoot.Query.AWSConnection == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.AWSConnection(childComplexity), true
 	case "Query.authState":
 		if e.ComplexityRoot.Query.AuthState == nil {
 			break
@@ -4522,6 +4586,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SettingsRefusal.Value(childComplexity), true
 
+	case "Subscription.awsConnectionWatch":
+		if e.ComplexityRoot.Subscription.AWSConnectionWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.AWSConnectionWatch(childComplexity), true
 	case "Subscription.authStateWatch":
 		if e.ComplexityRoot.Subscription.AuthStateWatch == nil {
 			break
@@ -5077,6 +5147,18 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 // childFields_* functions provide shared child field context lookups.
 // Each function is generated once per unique object type, deduplicating the
 // switch statements that were previously inlined in every fieldContext_* function.
+
+func (ec *executionContext) childFields_AWSConnection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "phase":
+		return ec.fieldContext_AWSConnection_phase(ctx, field)
+	case "arn":
+		return ec.fieldContext_AWSConnection_arn(ctx, field)
+	case "failure":
+		return ec.fieldContext_AWSConnection_failure(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type AWSConnection", field.Name)
+}
 
 func (ec *executionContext) childFields_AuthState(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
@@ -7967,6 +8049,75 @@ func (ec *executionContext) field___Type_inputFields_args(ctx context.Context, r
 // endregion ***************************** args.gotpl *****************************
 
 // region    **************************** field.gotpl *****************************
+
+func (ec *executionContext) _AWSConnection_phase(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AWSConnection_phase(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Phase, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v connectors.Phase) graphql.Marshaler {
+			return ec.marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AWSConnection_phase(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AWSConnection", field, false, false, "ConnectorPhase")
+}
+
+func (ec *executionContext) _AWSConnection_arn(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AWSConnection_arn(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.AWSConnection().Arn(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_AWSConnection_arn(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AWSConnection", field, true, true, "String")
+}
+
+func (ec *executionContext) _AWSConnection_failure(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AWSConnection_failure(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.AWSConnection().Failure(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.Failure) graphql.Marshaler {
+			return ec.marshalOConnectorFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐFailure(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_AWSConnection_failure(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AWSConnection", field, true, true, "ConnectorFailure")
+}
 
 func (ec *executionContext) _AuthState_authenticated(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
@@ -18625,6 +18776,75 @@ func (ec *executionContext) fieldContext_Mutation_openRouterKeysOpen(_ context.C
 	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
 }
 
+func (ec *executionContext) _Mutation_awsConnect(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_awsConnect(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().AWSConnect(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_awsConnect(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
+func (ec *executionContext) _Mutation_awsConnectCancel(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_awsConnectCancel(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().AWSConnectCancel(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_awsConnectCancel(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
+func (ec *executionContext) _Mutation_awsDisconnect(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_awsDisconnect(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().AWSDisconnect(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_awsDisconnect(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
 func (ec *executionContext) _NonResourceRule_verbs(ctx context.Context, field graphql.CollectedField, obj *model.NonResourceRule) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -20400,6 +20620,38 @@ func (ec *executionContext) fieldContext_Query_openRouterConnection(_ context.Co
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_OpenRouterConnection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_awsConnection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_awsConnection(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().AWSConnection(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNAWSConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_awsConnection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_AWSConnection(ctx, field)
 		},
 	}
 	return fc, nil
@@ -22476,6 +22728,38 @@ func (ec *executionContext) fieldContext_Subscription_openRouterConnectionWatch(
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_OpenRouterConnection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_awsConnectionWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_awsConnectionWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().AWSConnectionWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNAWSConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_awsConnectionWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_AWSConnection(ctx, field)
 		},
 	}
 	return fc, nil
@@ -25369,6 +25653,51 @@ func (ec *executionContext) _SandboxRequest(ctx context.Context, sel ast.Selecti
 // endregion ************************** interface.gotpl ***************************
 
 // region    **************************** object.gotpl ****************************
+
+var aWSConnectionImplementors = []string{"AWSConnection"}
+
+func (ec *executionContext) _AWSConnection(ctx context.Context, sel ast.SelectionSet, obj *connectors.State) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, aWSConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("AWSConnection")
+		case "phase":
+			out.Values[i] = ec._AWSConnection_phase(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "arn":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._AWSConnection_arn(ctx, field, obj)
+				})
+		case "failure":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._AWSConnection_failure(ctx, field, obj)
+				})
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
 
 var authStateImplementors = []string{"AuthState"}
 
@@ -29569,6 +29898,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "awsConnect":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_awsConnect(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "awsConnectCancel":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_awsConnectCancel(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "awsDisconnect":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_awsDisconnect(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -30203,6 +30553,12 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_openRouterConnection(ctx, field)
+				})
+		case "awsConnection":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_awsConnection(ctx, field)
 				})
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
@@ -30899,6 +31255,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_chatGPTConnectionWatch(ctx, fields[0])
 	case "openRouterConnectionWatch":
 		return ec._Subscription_openRouterConnectionWatch(ctx, fields[0])
+	case "awsConnectionWatch":
+		return ec._Subscription_awsConnectionWatch(ctx, fields[0])
 	case "modelsWatch":
 		return ec._Subscription_modelsWatch(ctx, fields[0])
 	default:
@@ -31593,6 +31951,14 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 // endregion **************************** object.gotpl ****************************
 
 // region    ***************************** type.gotpl *****************************
+
+func (ec *executionContext) marshalNAWSConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx context.Context, sel ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "AWSConnection!")
+		return graphql.Null
+	}
+	return ec._AWSConnection(ctx, sel, v)
+}
 
 func (ec *executionContext) unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalDecision(ctx context.Context, v any) (chat.ApprovalDecision, error) {
 	tmp, err := graphql.UnmarshalString(v)

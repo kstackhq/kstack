@@ -51,6 +51,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | `internal/agent/CLAUDE.md` | the catalog, the loop, the chat service (turn, rows, approvals, tasks, the wire errors) |
 | `internal/services/connectors/internal/oauthconn/CLAUDE.md` | the OAuth engine, which `connectors/chatgpt` and `connectors/kstackcloud` run under their providers |
 | `internal/services/connectors/openrouter/CLAUDE.md` | the OpenRouter connector: a sign-in that grants a key, kept in the keyring |
+| `internal/services/connectors/aws/CLAUDE.md` | the AWS connector: `aws login`'s sign-in, a DPoP-bound session in the keyring, an `aws.CredentialsProvider` |
 | `internal/services/connectors/kstackcloud/CLAUDE.md` | the Kstack Cloud connector: the Kstack Cloud account on the engine, behind `authState` and the tray |
 
 ## Layout
@@ -194,8 +195,8 @@ may have signed in as someone else. Every failure is `ErrNoToken`. →
 ## Connectors (`internal/services/connectors`)
 
 **A connector is an account on a service that Kstack signs in to, and whose requests it may then
-sign**, one package each: `chatgpt`, `openrouter`, and `kstackcloud`, the Kstack Cloud account, which signs
-nothing. Each has `New`, `State`, `Subscribe`, `Connect`, `Disconnect` and `Close`; a model
+sign**, one package each: `chatgpt`, `openrouter`, `aws`, whose credentials nothing uses yet, and
+`kstackcloud`, the Kstack Cloud account, which signs nothing. Each has `New`, `State`, `Subscribe`, `Connect`, `Disconnect` and `Close`; a model
 provider adds a catalog and a signer. The root package is their vocabulary; what they share (`oauthconn`, `catalogsync`, `signer`) is in `internal/`. → [ADR](../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md).
 
 **`catalogsync` keeps a signed-in provider's catalog the account's**, its only writer: read per

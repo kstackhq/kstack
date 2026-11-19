@@ -57,6 +57,10 @@ type Documents = {
     "\n  mutation OpenRouterConnectCancel {\n    openRouterConnectCancel\n  }\n": typeof types.OpenRouterConnectCancelDocument,
     "\n  mutation OpenRouterDisconnect {\n    openRouterDisconnect\n  }\n": typeof types.OpenRouterDisconnectDocument,
     "\n  mutation OpenRouterKeysOpen {\n    openRouterKeysOpen\n  }\n": typeof types.OpenRouterKeysOpenDocument,
+    "\n  subscription AWSConnectionWatch {\n    awsConnectionWatch {\n      phase\n      arn\n      failure\n    }\n  }\n": typeof types.AwsConnectionWatchDocument,
+    "\n  mutation AWSConnect {\n    awsConnect\n  }\n": typeof types.AwsConnectDocument,
+    "\n  mutation AWSConnectCancel {\n    awsConnectCancel\n  }\n": typeof types.AwsConnectCancelDocument,
+    "\n  mutation AWSDisconnect {\n    awsDisconnect\n  }\n": typeof types.AwsDisconnectDocument,
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": typeof types.LogsFetchDocument,
     "\n  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {\n    logsFollow(id: $id, request: $request) {\n      type\n      record {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      notice {\n        code\n        message\n      }\n      ended {\n        code\n        message\n      }\n    }\n  }\n": typeof types.LogsFollowDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": typeof types.MemoriesWatchDocument,
@@ -131,6 +135,10 @@ const documents: Documents = {
     "\n  mutation OpenRouterConnectCancel {\n    openRouterConnectCancel\n  }\n": types.OpenRouterConnectCancelDocument,
     "\n  mutation OpenRouterDisconnect {\n    openRouterDisconnect\n  }\n": types.OpenRouterDisconnectDocument,
     "\n  mutation OpenRouterKeysOpen {\n    openRouterKeysOpen\n  }\n": types.OpenRouterKeysOpenDocument,
+    "\n  subscription AWSConnectionWatch {\n    awsConnectionWatch {\n      phase\n      arn\n      failure\n    }\n  }\n": types.AwsConnectionWatchDocument,
+    "\n  mutation AWSConnect {\n    awsConnect\n  }\n": types.AwsConnectDocument,
+    "\n  mutation AWSConnectCancel {\n    awsConnectCancel\n  }\n": types.AwsConnectCancelDocument,
+    "\n  mutation AWSDisconnect {\n    awsDisconnect\n  }\n": types.AwsDisconnectDocument,
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": types.LogsFetchDocument,
     "\n  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {\n    logsFollow(id: $id, request: $request) {\n      type\n      record {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      notice {\n        code\n        message\n      }\n      ended {\n        code\n        message\n      }\n    }\n  }\n": types.LogsFollowDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": types.MemoriesWatchDocument,
@@ -348,6 +356,22 @@ export function graphql(source: "\n  mutation OpenRouterDisconnect {\n    openRo
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  mutation OpenRouterKeysOpen {\n    openRouterKeysOpen\n  }\n"): (typeof documents)["\n  mutation OpenRouterKeysOpen {\n    openRouterKeysOpen\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  subscription AWSConnectionWatch {\n    awsConnectionWatch {\n      phase\n      arn\n      failure\n    }\n  }\n"): (typeof documents)["\n  subscription AWSConnectionWatch {\n    awsConnectionWatch {\n      phase\n      arn\n      failure\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation AWSConnect {\n    awsConnect\n  }\n"): (typeof documents)["\n  mutation AWSConnect {\n    awsConnect\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation AWSConnectCancel {\n    awsConnectCancel\n  }\n"): (typeof documents)["\n  mutation AWSConnectCancel {\n    awsConnectCancel\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation AWSDisconnect {\n    awsDisconnect\n  }\n"): (typeof documents)["\n  mutation AWSDisconnect {\n    awsDisconnect\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

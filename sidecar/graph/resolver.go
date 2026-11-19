@@ -58,6 +58,8 @@ type Resolver struct {
 	// OpenRouter is the OpenRouter connector: *openrouter.Service, or a
 	// test's fake.
 	OpenRouter OpenRouterConnector
+	// AWS is the AWS connector: *aws.Service, or a test's fake.
+	AWS AWSConnector
 	// OpenURL opens one of the sidecar's own addresses in the browser:
 	// browser.Open, or a test's fake. No caller hands it an address.
 	OpenURL func(url string) error
@@ -82,6 +84,15 @@ type ChatGPTConnector interface {
 
 // OpenRouterConnector is the OpenRouter connector as the wire drives it.
 type OpenRouterConnector interface {
+	State() connectors.State
+	Subscribe() (<-chan connectors.State, func())
+	Connect(ctx context.Context) error
+	Cancel()
+	Disconnect() error
+}
+
+// AWSConnector is the AWS connector as the wire drives it.
+type AWSConnector interface {
 	State() connectors.State
 	Subscribe() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error

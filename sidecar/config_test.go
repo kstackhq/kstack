@@ -79,6 +79,7 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 		"KSTACK_CHATGPT_ISSUER_URL":  "http://127.0.0.1:1",
 		"KSTACK_CHATGPT_BASE_URL":    "http://127.0.0.1:2/v1",
 		"KSTACK_OPENROUTER_AUTH_URL": "http://127.0.0.1:3",
+		"KSTACK_AWS_SIGNIN_URL":      "http://127.0.0.1:4",
 	}
 
 	want := productionConfig
@@ -90,7 +91,9 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 		want.App.CacheDir = "/tmp/override-cache"
 		want.App.RuntimeDir = "/tmp/override-run"
 		want.App.KeychainService = "Kstack-override"
-		want.App.ConnectorAuthURLs = map[string]string{"chatgpt": "http://127.0.0.1:1", "openrouter": "http://127.0.0.1:3"}
+		want.App.ConnectorAuthURLs = map[string]string{
+			"chatgpt": "http://127.0.0.1:1", "openrouter": "http://127.0.0.1:3", "aws": "http://127.0.0.1:4",
+		}
 		want.App.LLMBaseURLs = map[string]string{"chatgpt": "http://127.0.0.1:2/v1"}
 	}
 	assertConfig(t, want, mustConfigFromArgs(t, nil, e))

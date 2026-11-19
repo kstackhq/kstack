@@ -13,8 +13,8 @@
 // limitations under the License.
 
 // Package connectors is the vocabulary every connector speaks. A connector is
-// one package beside this one (chatgpt, openrouter, kstack); what they share is
-// under internal/.
+// one package beside this one (chatgpt, openrouter, aws, kstackcloud); what
+// they share is under internal/.
 package connectors
 
 import "errors"

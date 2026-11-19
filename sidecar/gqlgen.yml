@@ -764,6 +764,18 @@ models:
       failure:
         resolver: true
 
+  # --- AWS connector ---
+  # The state binds to connectors.State, which holds no credential. The ARN is
+  # the Subject, and it and the failure are null outside their phases, so each
+  # has a resolver.
+  AWSConnection:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors.State
+    fields:
+      arn:
+        resolver: true
+      failure:
+        resolver: true
+
   Identity:
     model: github.com/kstackhq/kstack/sidecar/internal/lib/oauth.Identity
     fields:

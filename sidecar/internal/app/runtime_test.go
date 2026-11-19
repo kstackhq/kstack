@@ -15,6 +15,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -31,6 +32,7 @@ func TestNewKeepsTheRuntime(t *testing.T) {
 		"DB": rt.DB, "Poke": rt.Poke, "Kubeconfig": rt.Kubeconfig, "Cluster": rt.Cluster,
 		"KstackCloud": rt.KstackCloud, "LLM": rt.LLM, "Security": rt.Settings,
 		"Memory": rt.Memory, "Chat": rt.Chat, "ChatGPT": rt.ChatGPT, "OpenRouter": rt.OpenRouter,
+		"AWS": rt.AWS,
 	} {
 		assert.NotNil(t, svc, name)
 	}
@@ -145,6 +147,13 @@ func TestABadOpenRouterBaseFailsTheBuild(t *testing.T) {
 	assert.ErrorContains(t, err, "http://[::1")
 }
 
+// A debug build's AWS sign-in URL that does not parse fails the build.
+func TestABadAWSSigninURLFailsTheBuild(t *testing.T) {
+	_, err := build(t.Context(), withDirs(t, Config{ConnectorAuthURLs: map[string]string{aws.ID: "http://[::1"}}))
+
+	assert.ErrorContains(t, err, "http://[::1")
+}
+
 // The wire reaches the app's OpenRouter connector.
 func TestTheWireReachesTheOpenRouterConnector(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouter.ID: "sk-or-env"}}))
@@ -153,4 +162,14 @@ func TestTheWireReachesTheOpenRouterConnector(t *testing.T) {
 	ts := serveApp(t, a)
 
 	assert.JSONEq(t, `{"data":{"openRouterConnection":{"phase":"FromEnvironment"}}}`, graphql(t, ts.URL, `{ openRouterConnection { phase } }`))
+}
+
+// The wire reaches the app's AWS connector.
+func TestTheWireReachesTheAWSConnector(t *testing.T) {
+	a, err := New(t.Context(), withDirs(t, Config{}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	ts := serveApp(t, a)
+
+	assert.JSONEq(t, `{"data":{"awsConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ awsConnection { phase } }`))
 }

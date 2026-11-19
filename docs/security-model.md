@@ -28,6 +28,10 @@ protection. Platform checks and advisory-scan limitations are listed in the revi
 - **The OpenRouter connector's API key** in the OS keyring, which spends the credits on the
   user's OpenRouter account and does not expire
   ([the OpenRouter connector](security/2026-11-19-the-openrouter-connector.md)).
+- **The AWS connector's session** in the OS keyring, a refresh token and the key it is bound to,
+  which yield credentials with the signed-in principal's whole permission, and those fifteen-minute
+  credentials in the sidecar's memory. Nothing uses them yet
+  ([the AWS connector](security/2026-11-19-the-aws-connector.md)).
 - **Cluster availability** — the app holds standing watches on every mirrored kind.
 - **The user's AWS credentials**, per profile, resolved by `services/awsauth` once a sandboxed
   request needs them and held in memory, blanked in every log.
@@ -91,6 +95,9 @@ Seven boundaries, in the order an attacker meets them:
    With the OpenRouter connector, the sidecar posts a sign-in's code and PKCE verifier to
    `openrouter.ai/api/v1/auth/keys` and checks a refused key at `openrouter.ai/api/v1/key`.
    → [the OpenRouter connector](security/2026-11-19-the-openrouter-connector.md).
+   With the AWS connector, the sidecar posts a sign-in's code and PKCE verifier, then its refresh
+   token, to `us-east-1.signin.aws.amazon.com/v1/token`, each under a DPoP proof.
+   → [the AWS connector](security/2026-11-19-the-aws-connector.md).
 
 ## Protections
 
@@ -119,6 +126,8 @@ and is not back yet; the row keeps the status it had and states what the rebuild
 | A rotated ChatGPT refresh token is in the keyring before its access token is used | `sidecar/internal/services/connectors/internal/oauthconn/sign.go` | **Enforced** — `TestSignRefreshesAnExpiredToken`, `TestARotatedTokenSurvivesACrash`, `TestAnUnsavedRotationHoldsTheAccessTokenBack` |
 | The webview opens no URL for the ChatGPT connector: the sidecar opens the authorize URL it built and one constant address | `graph/schema.resolvers.go`, `services/connectors/internal/oauthconn/connect.go` | **Enforced** — `TestChatGPTMutations`; no mutation takes an address |
 | The OpenRouter connector's key stays in the keyring and memory, signs `openrouter.ai/api/v1` alone, is dropped only once OpenRouter confirms it dead, and is never read while `OPENROUTER_API_KEY` is set | `sidecar/internal/services/connectors/openrouter`, `graph/` | **Built, not yet checked end to end** — `TestNoKeyLeavesTheKeyring`, `TestTheKeyGoesNowhereElse`, `TestCovers`, `TestTheCallbackTable`, `TestTheExchangeTable`, `TestARejectedKeyIsConfirmedFirst`, `TestABindingEndsWithItsSession`, `TestAFailedDeleteIsNotASignOut`, `TestTheEnvironmentKeyWins`, `TestNoBrowserOpensWithoutAKeyring`, `TestOpenRouterMutations`; Enforced once the OpenRouter live checks in [`TODO.md`](TODO.md) pass ([the OpenRouter connector](security/2026-11-19-the-openrouter-connector.md)) |
+| The AWS connector's session stays in the keyring and memory, every token request carries a proof under its key, a rotated refresh token is saved before credentials are handed out, and tokens that arrive after a Cancel or Disconnect are dropped | `sidecar/internal/services/connectors/aws`, `graph/` | **Built, not yet checked end to end** — `TestNoCredentialReachesTheLog`, `TestAProofNamesTheRequestAndVerifiesUnderItsKey`, `TestARotatedTokenIsSavedBeforeCredentialsAreHandedOut`, `TestTokensThatArriveAfterACancelAreDropped`, `TestARefreshThatEndsAfterADisconnectIsDropped`, `TestADeleteTheKeyringRefusesIsNotDeletedUntilARetry`, `TestAKeyringThatCannotHoldASessionOpensNoBrowser`, `TestAWSMutations`; Enforced once the AWS live checks in [`TODO.md`](TODO.md) pass ([the AWS connector](security/2026-11-19-the-aws-connector.md)) |
+| A disconnected AWS session is not revoked, and the ID token's signature is not checked | `sidecar/internal/services/connectors/aws` | **By decision** — [the AWS connector is AWS login with a DPoP-bound session](adr/2026-11-19-the-aws-connector-is-aws-login-with-a-dpop-bound-session.md): AWS's revocation is an IAM-signed call outside the flow, so the session stays valid at AWS until it expires, and the confirm says so; the ID token is the token endpoint's own answer over TLS, and its ARN is display only |
 | A webview's subscriptions are torn down by the host on reload and close | `src-tauri/src/lib.rs` | **Enforced** — `cancel_webview_drops_only_that_webviews_subscriptions` |
 | The sidecar writes one record per line, control characters escaped by the JSON encoder, so cluster-controlled text cannot forge a line in its log | `sidecar/internal/lib/logging/logging.go` | **Enforced** — `TestInitWritesOneLinePerRecord` |
 | A line off the sidecar's pipes is sanitized onto one line before it is emitted, under `target: "sidecar"`; a debug build keeps it out of `main.log`, which `sidecar.log` already holds. The host decodes each record's JSON to build that line, so the message's control characters are real again by the time it is written | `src-tauri/src/services/sidecar/logs.rs`, `src-tauri/src/logging.rs` | **Enforced** — `a_forwarded_message_stays_on_one_line`, `a_forwarded_sidecar_line_reaches_main_log_only_in_a_release_build` |

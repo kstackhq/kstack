@@ -15,7 +15,7 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ChatGPTConnection, OpenRouterConnection } from './connectors';
+import type { AWSConnection, ChatGPTConnection, OpenRouterConnection } from './connectors';
 
 // The seams: each watch's frames by the subscription its document names, folded
 // by the hook's own reducer, and each mutation, by the operation its document names.
@@ -58,11 +58,20 @@ function openRouter(c: Partial<OpenRouterConnection> = {}): OpenRouterConnection
   return { phase: 'SignedOut', failure: null, ...c };
 }
 
-// Serves both watches' frames: ChatGPT's, then OpenRouter's, which defaults to signed out.
-function serve(chatgpt: ChatGPTConnection[], openrouter: OpenRouterConnection[] = [openRouter()]) {
+function aws(c: Partial<AWSConnection> = {}): AWSConnection {
+  return { phase: 'SignedOut', arn: null, failure: null, ...c };
+}
+
+// Serves every watch's frames: ChatGPT's, then OpenRouter's and AWS's, which default to signed out.
+function serve(
+  chatgpt: ChatGPTConnection[],
+  openrouter: OpenRouterConnection[] = [openRouter()],
+  awsFrames: AWSConnection[] = [aws()],
+) {
   watch.frames = {
     ChatGPTConnectionWatch: chatgpt.map((c) => ({ chatGPTConnectionWatch: c })),
     OpenRouterConnectionWatch: openrouter.map((c) => ({ openRouterConnectionWatch: c })),
+    AWSConnectionWatch: awsFrames.map((c) => ({ awsConnectionWatch: c })),
   };
 }
 
@@ -158,13 +167,20 @@ describe('useConnectors', () => {
     expect(mutations.ChatGPTUsageOpen).toHaveBeenCalledWith({});
   });
 
-  it('has not loaded until both watches have their first frame', () => {
+  it('has not loaded until every watch has its first frame', () => {
     watch.frames = { ChatGPTConnectionWatch: [{ chatGPTConnectionWatch: connection({}) }] };
     const { result, rerender } = renderHook(() => useConnectors());
     expect(result.current.loaded).toBe(false);
     expect(result.current.connectors.some((c) => c.chatgpt ?? c.openrouter)).toBe(false);
 
     watch.frames = { OpenRouterConnectionWatch: [{ openRouterConnectionWatch: openRouter() }] };
+    rerender();
+    expect(result.current.loaded).toBe(false);
+
+    watch.frames = {
+      ChatGPTConnectionWatch: [{ chatGPTConnectionWatch: connection({}) }],
+      OpenRouterConnectionWatch: [{ openRouterConnectionWatch: openRouter() }],
+    };
     rerender();
     expect(result.current.loaded).toBe(false);
   });
@@ -206,6 +222,45 @@ describe('useConnectors', () => {
     expect(mutations.OpenRouterConnectCancel).toHaveBeenCalledWith({});
     expect(mutations.OpenRouterDisconnect).toHaveBeenCalledWith({});
     expect(mutations.OpenRouterKeysOpen).toHaveBeenCalledWith({});
+  });
+});
+
+describe('the AWS entry', () => {
+  it('folds the AWS watch into its entry alone, the principal as its detail once connected', () => {
+    const live = aws({ phase: 'Connected', arn: 'arn:aws:iam::123456789012:user/alice' });
+    serve([connection({})], [openRouter()], [aws({ phase: 'SigningIn' }), live]);
+
+    const { result } = renderHook(() => useConnectors());
+
+    const entry = result.current.connectors.find((c) => c.id === 'aws')!;
+    expect(entry).toMatchObject({ connected: true, detail: 'arn:aws:iam::123456789012:user/alice' });
+    expect(entry.aws?.connection).toBe(live);
+    expect(result.current.connectors.filter((c) => c.aws)).toHaveLength(1);
+  });
+
+  it("keeps the entry's own detail while not connected", () => {
+    serve([connection({})], [openRouter()], [aws({ phase: 'Failed', failure: 'Declined' })]);
+
+    const { result } = renderHook(() => useConnectors());
+
+    expect(result.current.connectors.find((c) => c.id === 'aws')).toMatchObject({
+      connected: false,
+      detail: 'Cloud resources and Bedrock models',
+    });
+  });
+
+  it('runs each AWS action as its mutation', () => {
+    serve([connection({})]);
+    const { result } = renderHook(() => useConnectors());
+    const actions = result.current.connectors.find((c) => c.aws)!.aws!.actions;
+
+    actions.connect();
+    actions.cancel();
+    actions.disconnect();
+
+    expect(mutations.AWSConnect).toHaveBeenCalledWith({});
+    expect(mutations.AWSConnectCancel).toHaveBeenCalledWith({});
+    expect(mutations.AWSDisconnect).toHaveBeenCalledWith({});
   });
 });
 

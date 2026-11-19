@@ -17,6 +17,8 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
+  AWSActions,
+  AWSConnection,
   ChatGPTActions,
   ChatGPTConnection,
   Connector,
@@ -491,5 +493,128 @@ describe('the OpenRouter row', () => {
     expect(actions.disconnect).toHaveBeenCalledOnce();
     await user.click(within(row()).getByRole('button', { name: 'Open OpenRouter settings' }));
     expect(actions.openKeys).toHaveBeenCalledOnce();
+  });
+});
+
+describe('the AWS row', () => {
+  const actions: AWSActions = { connect: vi.fn(), cancel: vi.fn(), disconnect: vi.fn() };
+  const arn = 'arn:aws:iam::123456789012:user/alice';
+
+  function aws(connection: Partial<AWSConnection>): Connector {
+    const c: AWSConnection = { phase: 'SignedOut', arn: null, failure: null, ...connection };
+    const connected = c.phase === 'Connected';
+    return {
+      id: 'aws',
+      name: 'AWS',
+      detail: (connected && c.arn) || 'Cloud resources and Bedrock models',
+      connected,
+      aws: { connection: c, actions },
+    };
+  }
+
+  const row = () => screen.getByRole('listitem');
+  const menuButton = () => screen.queryByRole('button', { name: 'Actions for AWS' });
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('offers Connect while signed out, with no menu', async () => {
+    state.connectors = [aws({})];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Cloud resources and Bedrock models');
+    await userEvent.setup().click(within(row()).getByRole('button', { name: 'Connect' }));
+    expect(actions.connect).toHaveBeenCalledOnce();
+    expect(menuButton()).toBeNull();
+  });
+
+  it('waits for the browser while signing in, and cancels on a press', async () => {
+    state.connectors = [aws({ phase: 'SigningIn' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Waiting for the browser…');
+    await userEvent.setup().click(within(row()).getByRole('button', { name: 'Cancel' }));
+    expect(actions.cancel).toHaveBeenCalledOnce();
+    expect(within(row()).queryByRole('button', { name: 'Connect' })).toBeNull();
+  });
+
+  it('names the principal once connected, spelling out what is hidden in it', () => {
+    state.connectors = [aws({ phase: 'Connected', arn: `${arn}\u202e` })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent(arn);
+    expect(within(row()).getByTitle('An invisible character')).toBeInTheDocument();
+    expect(within(row()).queryByRole('button', { name: 'Connect' })).toBeNull();
+  });
+
+  describe('Disconnect', () => {
+    const confirm = () => screen.queryByRole('dialog', { name: 'Disconnect AWS?' });
+
+    async function openConfirm() {
+      const user = userEvent.setup();
+      state.connectors = [aws({ phase: 'Connected', arn })];
+      render(<ConnectorsSettings />);
+      await user.click(menuButton()!);
+      const items = within(await screen.findByRole('menu')).getAllByRole('menuitem');
+      expect(items.map((i) => i.textContent)).toEqual(['Disconnect']);
+      expect(items[0]).toHaveAttribute('data-variant', 'destructive');
+      await user.click(items[0]);
+      return { user, dialog: await screen.findByRole('dialog', { name: 'Disconnect AWS?' }) };
+    }
+
+    it('says the session stays valid at AWS, and disconnects only once confirmed', async () => {
+      const { user, dialog } = await openConfirm();
+
+      expect(dialog).toHaveTextContent(
+        'Kstack will forget this sign-in. AWS keeps the session valid until it expires.',
+      );
+      expect(actions.disconnect).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
+
+      expect(actions.disconnect).toHaveBeenCalledOnce();
+      await waitFor(() => expect(confirm()).toBeNull());
+    });
+
+    it('sends nothing on Cancel', async () => {
+      const { user, dialog } = await openConfirm();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => expect(confirm()).toBeNull());
+      expect(actions.disconnect).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
+    ['Declined', 'You declined on AWS’s page.'],
+    ['TimedOut', 'The sign-in timed out.'],
+    ['Unavailable', 'AWS could not be reached.'],
+    ['Refused', 'AWS refused the sign-in.'],
+    ['NotSaved', 'This computer could not save the sign-in.'],
+    ['SessionEnded', 'AWS ended the session. Connect again.'],
+  ] as const)('says why it failed (%s), and offers Connect again', async (failure, text) => {
+    state.connectors = [aws({ phase: 'Failed', failure })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent(text);
+    await userEvent.setup().click(within(row()).getByRole('button', { name: 'Connect' }));
+    expect(actions.connect).toHaveBeenCalledOnce();
+  });
+
+  it('offers Connect after a failure with no reason, and draws the offer', () => {
+    state.connectors = [aws({ phase: 'Failed' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Cloud resources and Bedrock models');
+    expect(within(row()).getByRole('button', { name: 'Connect' })).toBeEnabled();
+  });
+
+  it('says a session the keyring kept returns on restart, and offers Retry alone', async () => {
+    state.connectors = [aws({ phase: 'Failed', failure: 'NotDeleted' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('It will be used again after a restart.');
+    expect(within(row()).queryByRole('button', { name: 'Connect' })).toBeNull();
+    await userEvent.setup().click(within(row()).getByRole('button', { name: 'Retry' }));
+    expect(actions.disconnect).toHaveBeenCalledOnce();
   });
 });

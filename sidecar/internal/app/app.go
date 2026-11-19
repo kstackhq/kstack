@@ -83,7 +83,7 @@ type Config struct {
 	// debug build sets it.
 	LLMBaseURLs map[string]string
 	// ConnectorAuthURLs moves where a connector signs in, by its provider id:
-	// an OAuth issuer, or OpenRouter's auth origin.
+	// an OAuth issuer, OpenRouter's auth origin, or AWS's sign-in.
 	// Only a debug build sets it.
 	ConnectorAuthURLs map[string]string
 	// AddFake adds the fake to the catalog, last, so a dev run answers with no

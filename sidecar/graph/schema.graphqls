@@ -2067,6 +2067,20 @@ type OpenRouterConnection {
   failure: ConnectorFailure
 }
 
+# --- AWS connector ---
+# AWS's sign-in for developer tools, the flow `aws login` runs. The sidecar keeps the
+# session in the OS keyring and opens the browser on a URL it built; no mutation carries a
+# URL. No credential is here.
+
+"The AWS connector's state. No credential is ever here."
+type AWSConnection {
+  phase: ConnectorPhase!
+  "The signed-in principal's ARN, from the ID token AWS's token endpoint answered at sign-in. Display only. Null unless Connected."
+  arn: String
+  "Why the last attempt or session ended. Null unless Failed."
+  failure: ConnectorFailure
+}
+
 "What the sandbox does with one folder of the user's PATH."
 enum SandboxPathState {
   "On the sandbox's PATH and readable in it."
@@ -2252,6 +2266,10 @@ type Query {
   # --- OpenRouter connector ---
   "The OpenRouter connector's state; live updates via openRouterConnectionWatch."
   openRouterConnection: OpenRouterConnection!
+
+  # --- AWS connector ---
+  "The AWS connector's state; live updates via awsConnectionWatch."
+  awsConnection: AWSConnection!
 }
 
 type Mutation {
@@ -2385,6 +2403,14 @@ type Mutation {
   openRouterDisconnect: Boolean!
   "Open OpenRouter's key settings in the browser. The address is the sidecar's constant."
   openRouterKeysOpen: Boolean!
+
+  # --- AWS connector ---
+  "Open the browser on AWS's sign-in. Returns once the attempt starts or fails; the outcome, a browser that could not open or a keyring that cannot keep the session included, arrives on awsConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) during an attempt, while connected, and while a session the keyring would not delete is still there."
+  awsConnect: Boolean!
+  "End a sign-in under way. A no-op otherwise."
+  awsConnectCancel: Boolean!
+  "Delete the session on this machine. AWS is not asked to revoke it, so its refresh token stays valid at AWS until the session expires. Errors when the keyring would not delete it; the state is then Failed with NotDeleted, and calling again retries."
+  awsDisconnect: Boolean!
 }
 
 type Subscription {
@@ -2491,6 +2517,10 @@ type Subscription {
   # --- OpenRouter connector ---
   "GAUGE. The OpenRouter connector's state, a fresh value on every change."
   openRouterConnectionWatch: OpenRouterConnection!
+
+  # --- AWS connector ---
+  "GAUGE. The AWS connector's state, a fresh value on every change."
+  awsConnectionWatch: AWSConnection!
 
   # --- Model ---
   "GAUGE. Every model the sidecar can answer with, as the models query lists them, a fresh list each time a provider's catalog changes."

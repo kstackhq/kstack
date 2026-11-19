@@ -28,6 +28,8 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { Dialog } from '@/components/primitives/dialog';
 import { VisibleText } from '@/components/primitives/visible-text';
 import {
+  type AWSActions,
+  type AWSConnection,
   type ChatGPTActions,
   type ChatGPTConnection,
   type Connector,
@@ -52,6 +54,7 @@ export function ConnectorsSettings() {
           .map((c) => {
             if (c.chatgpt) return <ChatGPTRow key={c.id} connector={c} {...c.chatgpt} onConnect={confirm.sent} />;
             if (c.openrouter) return <OpenRouterRow key={c.id} connector={c} {...c.openrouter} />;
+            if (c.aws) return <AWSRow key={c.id} connector={c} {...c.aws} />;
             return <ConnectorRow key={c.id} connector={c} />;
           })}
       </ul>
@@ -395,5 +398,97 @@ function OpenRouterMenu({ actions, onDisconnect }: { actions: OpenRouterActions;
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function awsDetail({ phase, failure }: AWSConnection, { name, detail }: Connector): string {
+  switch (phase) {
+    case 'SigningIn':
+      return 'Waiting for the browser…';
+    case 'Failed':
+      return failure ? failureText[failure](name) : detail;
+    case 'SignedOut':
+    case 'Connected':
+    case 'FromEnvironment':
+      return detail;
+  }
+}
+
+// The connector's detail is the principal's ARN once connected, an account's
+// string that RowText spells out.
+function AWSRow({
+  connector,
+  connection,
+  actions,
+}: {
+  connector: Connector;
+  connection: AWSConnection;
+  actions: AWSActions;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const { phase } = connection;
+  // The session is still in the keyring: only another Disconnect moves on, so no Connect.
+  const notDeleted = phase === 'Failed' && connection.failure === 'NotDeleted';
+  return (
+    <li className="flex flex-col gap-2 px-4 py-2.5">
+      <div className="flex items-center gap-3">
+        <RowText name={connector.name} detail={awsDetail(connection, connector)} />
+        {phase === 'SigningIn' && (
+          <Button variant="outline" size="sm" onClick={actions.cancel}>
+            Cancel
+          </Button>
+        )}
+        {(phase === 'SignedOut' || (phase === 'Failed' && !notDeleted)) && (
+          <Button variant="outline" size="sm" onClick={actions.connect}>
+            Connect
+          </Button>
+        )}
+        {phase === 'Connected' && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon" className="size-7 rounded-md" />}
+              aria-label="Actions for AWS"
+            >
+              <Ellipsis className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem variant="destructive" onClick={() => setConfirming(true)}>
+                Disconnect
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+      {notDeleted && (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <p className="flex-1">It will be used again after a restart.</p>
+          <Button variant="outline" size="xs" onClick={actions.disconnect}>
+            Retry
+          </Button>
+        </div>
+      )}
+      <Dialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Disconnect AWS?"
+        description="Kstack will forget this sign-in. AWS keeps the session valid until it expires."
+      >
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => {
+              setConfirming(false);
+              actions.disconnect();
+            }}
+          >
+            Disconnect
+          </Button>
+        </div>
+      </Dialog>
+    </li>
   );
 }

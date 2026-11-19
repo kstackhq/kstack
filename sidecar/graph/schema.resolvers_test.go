@@ -3997,6 +3997,78 @@ func TestOpenRouterMutationsFail(t *testing.T) {
 	}
 }
 
+// The AWS connector's wire is OpenRouter's but for its ARN, so one fake drives both.
+func awsServer(t *testing.T, f *fakeOpenRouter) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
+		AWS:     f,
+		OpenURL: func(string) error { return nil },
+		LLMSvc:  llm.New(),
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// The connection projects the state: the ARN only while connected, the failure
+// only while failed, and no credential.
+func TestAWSConnectionProjectsTheState(t *testing.T) {
+	const arn = "arn:aws:iam::123456789012:user/alice"
+	f := newFakeOpenRouter(connectors.State{Phase: connectors.Connected, Subject: arn, Failure: connectors.Refused})
+	srv := awsServer(t, f)
+
+	data, errs := mutation(t, srv.URL, `query { awsConnection { phase arn failure } }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"phase": "Connected", "arn": arn, "failure": nil}, data["awsConnection"])
+
+	f.publish(connectors.State{Phase: connectors.Failed, Failure: connectors.SessionEnded, Subject: arn})
+	data, errs = mutation(t, srv.URL, `query { awsConnection { phase arn failure } }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"phase": "Failed", "arn": nil, "failure": "SessionEnded"}, data["awsConnection"])
+}
+
+// The watch is a gauge: the current state, then each change.
+func TestAWSConnectionWatchIsAGauge(t *testing.T) {
+	f := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
+	srv := awsServer(t, f)
+
+	resp := openSSESubscription(t, srv.URL, "", `subscription { awsConnectionWatch { phase } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
+
+	f.publish(connectors.State{Phase: connectors.SigningIn})
+
+	assert.Contains(t, nextSSE(t, events).data, `"phase":"SigningIn"`)
+}
+
+// The mutations drive the connector; a refusal is a validation error, and any
+// other failure an error with no code.
+func TestAWSMutations(t *testing.T) {
+	f := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
+	srv := awsServer(t, f)
+
+	data, errs := mutation(t, srv.URL, `mutation { awsConnect awsConnectCancel awsDisconnect }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"awsConnect": true, "awsConnectCancel": true, "awsDisconnect": true}, data)
+	assert.Equal(t, 1, f.connects)
+	assert.Equal(t, 1, f.cancels)
+	assert.Equal(t, 1, f.disconnects)
+
+	f.connectErr, f.disconnectErr = connectors.ErrNotDeleted, connectors.ErrNotDeleted
+	for _, op := range []string{`mutation { awsConnect }`, `mutation { awsDisconnect }`} {
+		_, errs := mutation(t, srv.URL, op)
+		require.Len(t, errs, 1, op)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"], op)
+	}
+
+	f.connectErr, f.disconnectErr = errors.New("boom"), errors.New("the keyring refused")
+	for _, op := range []string{`mutation { awsConnect }`, `mutation { awsDisconnect }`} {
+		_, errs := mutation(t, srv.URL, op)
+		require.Len(t, errs, 1, op)
+		assert.Nil(t, errs[0].Extensions["code"], op)
+	}
+}
+
 // Every refusal of either connector's Connect or Disconnect reaches the wire as
 // a validation error.
 func TestAConnectorRefusalIsAValidationError(t *testing.T) {

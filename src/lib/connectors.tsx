@@ -13,14 +13,18 @@
 // limitations under the License.
 
 // The services Kstack signs in to, whose credentials providers and tools use.
-// ChatGPT and OpenRouter are real: each entry folds its connection's watch, and
+// ChatGPT, OpenRouter and AWS are real: each entry folds its connection's watch, and
 // the sidecar runs the sign-in and opens the browser itself. The rest are
 // placeholders.
 import { useCallback, useMemo } from 'react';
 import { useMutation } from 'urql';
 
 import { graphql } from '@/gql';
-import type { ChatGptConnectionWatchSubscription, OpenRouterConnectionWatchSubscription } from '@/gql/graphql';
+import type {
+  AwsConnectionWatchSubscription,
+  ChatGptConnectionWatchSubscription,
+  OpenRouterConnectionWatchSubscription,
+} from '@/gql/graphql';
 import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
 
 /** Why a connector's last attempt, session or key ended: one enum for every connector. */
@@ -52,6 +56,18 @@ export type OpenRouterActions = {
   openKeys: () => void;
 };
 
+/** The AWS connector's id. */
+export const AWS_ID = 'aws';
+
+export type AWSConnection = AwsConnectionWatchSubscription['awsConnectionWatch'];
+
+/** What the AWS entry can do. Each outcome arrives on the watch. */
+export type AWSActions = {
+  connect: () => void;
+  cancel: () => void;
+  disconnect: () => void;
+};
+
 export type Connector = {
   id: string;
   name: string;
@@ -63,19 +79,20 @@ export type Connector = {
   // A real connector's own: its connection and actions. Absent on every other entry.
   chatgpt?: { connection: ChatGPTConnection; actions: ChatGPTActions };
   openrouter?: { connection: OpenRouterConnection; actions: OpenRouterActions };
+  aws?: { connection: AWSConnection; actions: AWSActions };
 };
 
 export type Connectors = {
   connectors: Connector[];
-  // Both watches' first frames have landed; nothing draws before them.
+  // Every watch's first frame has landed; nothing draws before them.
   loaded: boolean;
 };
 
-// The connectors Kstack plans to ship; the tab sorts them by name. Each but ChatGPT and
-// OpenRouter is a placeholder until its backend exists.
+// The connectors Kstack plans to ship; the tab sorts them by name. Each but ChatGPT,
+// OpenRouter and AWS is a placeholder until its backend exists.
 const PLANNED: Connector[] = [
   { id: 'github', name: 'GitHub', detail: 'Code resources and Copilot models', connected: false },
-  { id: 'aws', name: 'AWS', detail: 'Cloud resources and Bedrock models', connected: false },
+  { id: AWS_ID, name: 'AWS', detail: 'Cloud resources and Bedrock models', connected: false },
   { id: 'google', name: 'Google', detail: 'Cloud resources and Gemini models', connected: false },
   { id: 'azure', name: 'Azure', detail: 'Cloud resources and Foundry models', connected: false },
   { id: CHATGPT_ID, name: 'ChatGPT', detail: 'OpenAI models on your ChatGPT plan', connected: false },
@@ -168,6 +185,34 @@ const OpenRouterKeysOpenDocument = graphql(`
   }
 `);
 
+const AWSConnectionWatchDocument = graphql(`
+  subscription AWSConnectionWatch {
+    awsConnectionWatch {
+      phase
+      arn
+      failure
+    }
+  }
+`);
+
+const AWSConnectDocument = graphql(`
+  mutation AWSConnect {
+    awsConnect
+  }
+`);
+
+const AWSConnectCancelDocument = graphql(`
+  mutation AWSConnectCancel {
+    awsConnectCancel
+  }
+`);
+
+const AWSDisconnectDocument = graphql(`
+  mutation AWSDisconnect {
+    awsDisconnect
+  }
+`);
+
 /** Opens ChatGPT's usage settings in the browser, at the sidecar's own address. */
 export function useOpenChatGPTUsage(): () => void {
   const [, run] = useMutation(ChatGPTUsageOpenDocument);
@@ -187,10 +232,16 @@ export function useConnectors(): Connectors {
     perFrame((_prev, next) => next.openRouterConnectionWatch),
     { unshared: true },
   );
+  const { data: aws } = useWatchSubscription<AwsConnectionWatchSubscription, AWSConnection>(
+    { query: AWSConnectionWatchDocument },
+    perFrame((_prev, next) => next.awsConnectionWatch),
+    { unshared: true },
+  );
   const chatGPTActions = useChatGPTActions();
   const openRouterActions = useOpenRouterActions();
+  const awsActions = useAWSActions();
   return useMemo(() => {
-    if (!chatGPT || !openRouter) return { connectors: PLANNED, loaded: false };
+    if (!chatGPT || !openRouter || !aws) return { connectors: PLANNED, loaded: false };
     const connectors = PLANNED.map((c): Connector => {
       switch (c.id) {
         case CHATGPT_ID: {
@@ -208,12 +259,21 @@ export function useConnectors(): Connectors {
             connected: openRouter.phase === 'Connected',
             openrouter: { connection: openRouter, actions: openRouterActions },
           };
+        case AWS_ID: {
+          const connected = aws.phase === 'Connected';
+          return {
+            ...c,
+            connected,
+            detail: (connected && aws.arn) || c.detail,
+            aws: { connection: aws, actions: awsActions },
+          };
+        }
         default:
           return c;
       }
     });
     return { connectors, loaded: true };
-  }, [chatGPT, chatGPTActions, openRouter, openRouterActions]);
+  }, [chatGPT, chatGPTActions, openRouter, openRouterActions, aws, awsActions]);
 }
 
 // A mutation's error reaches the error bus; its outcome is the watch's.
@@ -246,5 +306,19 @@ function useOpenRouterActions(): OpenRouterActions {
       openKeys: () => void openKeys({}),
     }),
     [connect, cancel, disconnect, openKeys],
+  );
+}
+
+function useAWSActions(): AWSActions {
+  const [, connect] = useMutation(AWSConnectDocument);
+  const [, cancel] = useMutation(AWSConnectCancelDocument);
+  const [, disconnect] = useMutation(AWSDisconnectDocument);
+  return useMemo(
+    () => ({
+      connect: () => void connect({}),
+      cancel: () => void cancel({}),
+      disconnect: () => void disconnect({}),
+    }),
+    [connect, cancel, disconnect],
   );
 }

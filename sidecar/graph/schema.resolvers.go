@@ -29,6 +29,22 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
+// Arn is the resolver for the arn field.
+func (r *aWSConnectionResolver) Arn(ctx context.Context, obj *connectors.State) (*string, error) {
+	if obj.Phase != connectors.Connected {
+		return nil, nil
+	}
+	return &obj.Subject, nil
+}
+
+// Failure is the resolver for the failure field.
+func (r *aWSConnectionResolver) Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error) {
+	if obj.Phase != connectors.Failed {
+		return nil, nil
+	}
+	return &obj.Failure, nil
+}
+
 // Authenticated is the resolver for the authenticated field.
 func (r *authStateResolver) Authenticated(ctx context.Context, obj *connectors.State) (bool, error) {
 	return obj.Phase == connectors.Connected, nil
@@ -528,6 +544,28 @@ func (r *mutationResolver) OpenRouterKeysOpen(ctx context.Context) (bool, error)
 	return true, nil
 }
 
+// AWSConnect is the resolver for the awsConnect field.
+func (r *mutationResolver) AWSConnect(ctx context.Context) (bool, error) {
+	if err := r.AWS.Connect(ctx); err != nil {
+		return false, connectorErr(err)
+	}
+	return true, nil
+}
+
+// AWSConnectCancel is the resolver for the awsConnectCancel field.
+func (r *mutationResolver) AWSConnectCancel(ctx context.Context) (bool, error) {
+	r.AWS.Cancel()
+	return true, nil
+}
+
+// AWSDisconnect is the resolver for the awsDisconnect field.
+func (r *mutationResolver) AWSDisconnect(ctx context.Context) (bool, error) {
+	if err := r.AWS.Disconnect(); err != nil {
+		return false, connectorErr(err)
+	}
+	return true, nil
+}
+
 // Failure is the resolver for the failure field.
 func (r *openRouterConnectionResolver) Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error) {
 	if obj.Phase != connectors.Failed {
@@ -681,6 +719,12 @@ func (r *queryResolver) ChatGPTConnection(ctx context.Context) (*connectors.Stat
 // OpenRouterConnection is the resolver for the openRouterConnection field.
 func (r *queryResolver) OpenRouterConnection(ctx context.Context) (*connectors.State, error) {
 	st := r.OpenRouter.State()
+	return &st, nil
+}
+
+// AWSConnection is the resolver for the awsConnection field.
+func (r *queryResolver) AWSConnection(ctx context.Context) (*connectors.State, error) {
+	st := r.AWS.State()
 	return &st, nil
 }
 
@@ -932,6 +976,12 @@ func (r *subscriptionResolver) OpenRouterConnectionWatch(ctx context.Context) (<
 	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
+// AWSConnectionWatch is the resolver for the awsConnectionWatch field.
+func (r *subscriptionResolver) AWSConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
+	states, cancel := r.AWS.Subscribe()
+	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
+}
+
 // ModelsWatch is the resolver for the modelsWatch field.
 func (r *subscriptionResolver) ModelsWatch(ctx context.Context) (<-chan []*model.Model, error) {
 	frames, cancel := r.LLMSvc.Subscribe()
@@ -946,6 +996,9 @@ func (r *toolCallResolver) Status(ctx context.Context, obj *chat.ToolCall) (*cha
 	}
 	return &obj.Status, nil
 }
+
+// AWSConnection returns AWSConnectionResolver implementation.
+func (r *Resolver) AWSConnection() AWSConnectionResolver { return &aWSConnectionResolver{r} }
 
 // AuthState returns AuthStateResolver implementation.
 func (r *Resolver) AuthState() AuthStateResolver { return &authStateResolver{r} }
@@ -995,6 +1048,7 @@ func (r *Resolver) Subscription() SubscriptionResolver { return &subscriptionRes
 func (r *Resolver) ToolCall() ToolCallResolver { return &toolCallResolver{r} }
 
 type (
+	aWSConnectionResolver         struct{ *Resolver }
 	authStateResolver             struct{ *Resolver }
 	chatGPTConnectionResolver     struct{ *Resolver }
 	chatMessageResolver           struct{ *Resolver }

@@ -23,6 +23,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/kstackcloud"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
@@ -54,8 +55,10 @@ type Runtime struct {
 	// OpenRouter is the OpenRouter connector, which signs the openrouter row
 	// when the environment holds no key.
 	OpenRouter *openrouter.Service
-	Catalog    catalog.Catalog
-	LLM        *llm.Service
+	// AWS is the AWS connector, whose credentials nothing uses yet.
+	AWS     *aws.Service
+	Catalog catalog.Catalog
+	LLM     *llm.Service
 	// Shell is nil on a machine with no shell.
 	Shell         *bash.Tool
 	SandboxStatus sandbox.Status
@@ -203,6 +206,15 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.add("openrouter service", lifecycle.CloseFunc(func() error { rt.OpenRouter.Close(); return nil }))
 
+	rt.AWS, err = aws.New(aws.Config{
+		KeychainService: keychainService,
+		SigninURL:       cmp.Or(cfg.ConnectorAuthURLs[aws.ID], aws.SigninURL),
+	})
+	if err != nil {
+		return fail(err)
+	}
+	rt.add("aws service", lifecycle.CloseFunc(func() error { rt.AWS.Close(); return nil }))
+
 	rt.Catalog = newCatalog(cfg, map[string]llm.SessionSigner{chatgpt.ID: rt.ChatGPT, openrouter.ID: rt.OpenRouter})
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
 	rt.add("chatgpt catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
@@ -303,6 +315,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		Auth:          rt.KstackCloud,
 		ChatGPT:       rt.ChatGPT,
 		OpenRouter:    rt.OpenRouter,
+		AWS:           rt.AWS,
 		OpenURL:       browser.Open,
 		Settings:      rt.Settings,
 		Executables:   prober,
