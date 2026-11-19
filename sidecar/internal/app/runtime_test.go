@@ -143,3 +143,13 @@ func TestABadOpenRouterBaseFailsTheBuild(t *testing.T) {
 
 	assert.ErrorContains(t, err, "http://[::1")
 }
+
+// The wire reaches the app's OpenRouter connector.
+func TestTheWireReachesTheOpenRouterConnector(t *testing.T) {
+	a, err := New(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouterkey.ID: "sk-or-env"}}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	ts := serveApp(t, a)
+
+	assert.JSONEq(t, `{"data":{"openRouterConnection":{"phase":"FromEnvironment"}}}`, graphql(t, ts.URL, `{ openRouterConnection { phase } }`))
+}

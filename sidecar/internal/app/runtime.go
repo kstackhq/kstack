@@ -299,6 +299,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		SandboxStatus: rt.SandboxStatus,
 		Auth:          rt.Auth,
 		ChatGPT:       rt.ChatGPT,
+		OpenRouter:    rt.OpenRouter,
 		OpenURL:       browser.Open,
 		Settings:      rt.Settings,
 		Executables:   prober,

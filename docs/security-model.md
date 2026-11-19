@@ -24,6 +24,9 @@ protection. Platform checks and advisory-scan limitations are listed in the revi
 - **The ChatGPT plan's refresh token** in the OS keyring, which spends the user's plan on
   `api.openai.com`, and its hour-long access token in the sidecar's memory
   ([the ChatGPT connector](security/2026-11-18-the-chatgpt-connector.md)).
+- **The OpenRouter connector's API key** in the OS keyring, which spends the credits on the
+  user's OpenRouter account and does not expire
+  ([the OpenRouter connector](security/2026-11-19-the-openrouter-connector.md)).
 - **Cluster availability** — the app holds standing watches on every mirrored kind.
 - **The user's AWS credentials**, per profile, resolved by `services/awsauth` once a sandboxed
   request needs them and held in memory, blanked in every log.
@@ -78,11 +81,14 @@ Seven boundaries, in the order an attacker meets them:
    `github.com` and `api.github.com` through the run's door, over HTTPS with the user's token, which
    the sidecar adds; the sandbox holds none. A read passes, and a change, a push and a read of
    stored data wait on the user. → [a sandboxed command reaches GitHub](security/2026-11-17-a-sandboxed-command-reaches-github.md).
-7. **Sidecar → OpenAI's sign-in.** With the ChatGPT connector connected, the sidecar reaches
+7. **Sidecar → a connector's sign-in.** With the ChatGPT connector connected, the sidecar reaches
    `auth.openai.com` for discovery, the JWKS, the token and revocation endpoints, and sends a
    chat's transcript to `api.openai.com` under the plan's bearer, as boundary 5 says of any
    provider. Sign-in is OAuth with PKCE through the system browser and a loopback redirect; the
    webview holds no token. → [the ChatGPT connector](security/2026-11-18-the-chatgpt-connector.md).
+   With the OpenRouter connector, the sidecar posts a sign-in's code and PKCE verifier to
+   `openrouter.ai/api/v1/auth/keys` and checks a refused key at `openrouter.ai/api/v1/key`.
+   → [the OpenRouter connector](security/2026-11-19-the-openrouter-connector.md).
 
 ## Protections
 
@@ -110,6 +116,7 @@ and is not back yet; the row keeps the status it had and states what the rebuild
 | A turn never signs under a ChatGPT session it did not start in, and a late exchange or refresh is revoked, never saved | `sidecar/internal/services/connectors/oauthconn`, `sidecar/internal/llm/service.go` | **Enforced** — `TestABindingEndsWithItsSession`, `TestABindingWithNoSessionIsDead`, `TestResolveBindsASessionSigner`, `TestResolveUnderKeepsTheParentsBindingOnItsProvider`, `TestAnExchangeThatFinishesLateIsRevoked`, `TestDisconnectDuringARefresh` |
 | A rotated ChatGPT refresh token is in the keyring before its access token is used | `sidecar/internal/services/connectors/oauthconn/sign.go` | **Enforced** — `TestSignRefreshesAnExpiredToken`, `TestARotatedTokenSurvivesACrash`, `TestAnUnsavedRotationHoldsTheAccessTokenBack` |
 | The webview opens no URL for the ChatGPT connector: the sidecar opens the authorize URL it built and one constant address | `graph/schema.resolvers.go`, `services/connectors/oauthconn/connect.go` | **Enforced** — `TestChatGPTMutations`; no mutation takes an address |
+| The OpenRouter connector's key stays in the keyring and memory, signs `openrouter.ai/api/v1` alone, is dropped only once OpenRouter confirms it dead, and is never read while `OPENROUTER_API_KEY` is set | `sidecar/internal/services/connectors/openrouterkey`, `graph/` | **Built, not yet checked end to end** — `TestNoKeyLeavesTheKeyring`, `TestTheKeyGoesNowhereElse`, `TestTheCallbackTable`, `TestTheExchangeTable`, `TestARejectedKeyIsConfirmedFirst`, `TestABindingEndsWithItsSession`, `TestAFailedDeleteIsNotASignOut`, `TestTheEnvironmentKeyWins`, `TestNoBrowserOpensWithoutAKeyring`, `TestOpenRouterMutations`; Enforced once §0 of the spec is checked against OpenRouter ([the OpenRouter connector](security/2026-11-19-the-openrouter-connector.md)) |
 | A webview's subscriptions are torn down by the host on reload and close | `src-tauri/src/lib.rs` | **Enforced** — `cancel_webview_drops_only_that_webviews_subscriptions` |
 | The sidecar writes one record per line, control characters escaped by the JSON encoder, so cluster-controlled text cannot forge a line in its log | `sidecar/internal/lib/logging/logging.go` | **Enforced** — `TestInitWritesOneLinePerRecord` |
 | A line off the sidecar's pipes is sanitized onto one line before it is emitted, under `target: "sidecar"`; a debug build keeps it out of `main.log`, which `sidecar.log` already holds. The host decodes each record's JSON to build that line, so the message's control characters are real again by the time it is written | `src-tauri/src/services/sidecar/logs.rs`, `src-tauri/src/logging.rs` | **Enforced** — `a_forwarded_message_stays_on_one_line`, `a_forwarded_sidecar_line_reaches_main_log_only_in_a_release_build` |

@@ -38,6 +38,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
@@ -3858,5 +3859,161 @@ func TestChatGPTMutationsFail(t *testing.T) {
 	for _, op := range []string{`mutation { chatGPTDisconnect }`, `mutation { chatGPTUsageOpen }`} {
 		_, errs := mutation(t, srv.URL, op)
 		assert.Len(t, errs, 1, op)
+	}
+}
+
+// fakeOpenRouter is the OpenRouter connector as the wire sees it: a state the
+// test sets, and a record of what was asked of it.
+type fakeOpenRouter struct {
+	mu            sync.Mutex
+	state         openrouterkey.State
+	connectErr    error
+	disconnectErr error
+	connects      int
+	cancels       int
+	disconnects   int
+	hub           *watch.Hub[openrouterkey.State]
+	tx            *watch.Sender[openrouterkey.State]
+}
+
+func newFakeOpenRouter(st openrouterkey.State) *fakeOpenRouter {
+	hub := watch.New(st)
+	return &fakeOpenRouter{state: st, hub: hub, tx: hub.Sender()}
+}
+
+func (f *fakeOpenRouter) State() openrouterkey.State {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.state
+}
+
+func (f *fakeOpenRouter) Subscribe() (<-chan openrouterkey.State, func()) {
+	rx := f.hub.Receiver()
+	return rx.Chan(), rx.Close
+}
+
+func (f *fakeOpenRouter) Connect(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.connects++
+	return f.connectErr
+}
+
+func (f *fakeOpenRouter) Cancel() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cancels++
+}
+
+func (f *fakeOpenRouter) Disconnect() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.disconnects++
+	return f.disconnectErr
+}
+
+func (f *fakeOpenRouter) publish(st openrouterkey.State) {
+	f.mu.Lock()
+	f.state = st
+	f.mu.Unlock()
+	_ = f.tx.Send(st)
+}
+
+func openRouterServer(t *testing.T, f *fakeOpenRouter, open func(string) error) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
+		OpenRouter: f,
+		OpenURL:    open,
+		LLMSvc:     llm.New(),
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// The connection projects the state: the failure only while failed, and
+// nothing a key could ride.
+func TestOpenRouterConnectionProjectsTheState(t *testing.T) {
+	f := newFakeOpenRouter(openrouterkey.State{Phase: openrouterkey.Connected, Failure: openrouterkey.Refused, Session: 3})
+	srv := openRouterServer(t, f, func(string) error { return nil })
+
+	data, errs := mutation(t, srv.URL, `query { openRouterConnection { phase failure } }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"phase": "Connected", "failure": nil}, data["openRouterConnection"])
+
+	for _, st := range []openrouterkey.State{
+		{Phase: openrouterkey.Failed, Failure: openrouterkey.NotDeleted},
+		{Phase: openrouterkey.Failed, Failure: openrouterkey.KeyRejected},
+		{Phase: openrouterkey.FromEnvironment},
+	} {
+		f.publish(st)
+		data, errs = mutation(t, srv.URL, `query { openRouterConnection { phase failure } }`)
+		require.Empty(t, errs)
+		var failure any
+		if st.Failure != "" {
+			failure = string(st.Failure)
+		}
+		assert.Equal(t, map[string]any{"phase": string(st.Phase), "failure": failure}, data["openRouterConnection"])
+	}
+}
+
+// The watch is a gauge: the current state, then each change.
+func TestOpenRouterConnectionWatchIsAGauge(t *testing.T) {
+	f := newFakeOpenRouter(openrouterkey.State{Phase: openrouterkey.SignedOut})
+	srv := openRouterServer(t, f, func(string) error { return nil })
+
+	resp := openSSESubscription(t, srv.URL, "", `subscription { openRouterConnectionWatch { phase } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
+
+	f.publish(openrouterkey.State{Phase: openrouterkey.SigningIn})
+
+	assert.Contains(t, nextSSE(t, events).data, `"phase":"SigningIn"`)
+}
+
+// The mutations drive the connector; a refused Connect or Disconnect is a
+// validation error, and the key settings page is the sidecar's constant.
+func TestOpenRouterMutations(t *testing.T) {
+	f := newFakeOpenRouter(openrouterkey.State{Phase: openrouterkey.SignedOut})
+	var opened []string
+	srv := openRouterServer(t, f, func(u string) error { opened = append(opened, u); return nil })
+
+	data, errs := mutation(t, srv.URL, `mutation { openRouterConnect }`)
+	require.Empty(t, errs)
+	assert.Equal(t, true, data["openRouterConnect"])
+	assert.Equal(t, 1, f.connects)
+
+	for _, refusal := range []error{openrouterkey.ErrSigningIn, openrouterkey.ErrConnected, openrouterkey.ErrFromEnvironment, openrouterkey.ErrNotDeleted} {
+		f.connectErr = refusal
+		_, errs = mutation(t, srv.URL, `mutation { openRouterConnect }`)
+		require.Len(t, errs, 1)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"], refusal)
+	}
+
+	data, errs = mutation(t, srv.URL, `mutation { openRouterConnectCancel openRouterDisconnect openRouterKeysOpen }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"openRouterConnectCancel": true, "openRouterDisconnect": true, "openRouterKeysOpen": true}, data)
+	assert.Equal(t, 1, f.cancels)
+	assert.Equal(t, 1, f.disconnects)
+	assert.Equal(t, []string{openrouterkey.KeysURL}, opened)
+
+	f.disconnectErr = openrouterkey.ErrFromEnvironment
+	_, errs = mutation(t, srv.URL, `mutation { openRouterDisconnect }`)
+	require.Len(t, errs, 1)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"])
+}
+
+// A delete the keyring refused, a browser that cannot open, and a Connect that
+// fails for another reason are errors on the wire, with no validation code.
+func TestOpenRouterMutationsFail(t *testing.T) {
+	f := newFakeOpenRouter(openrouterkey.State{Phase: openrouterkey.Connected})
+	f.disconnectErr = errors.New("the keyring refused")
+	f.connectErr = errors.New("boom")
+	srv := openRouterServer(t, f, func(string) error { return errors.New("no browser") })
+
+	for _, op := range []string{`mutation { openRouterDisconnect }`, `mutation { openRouterKeysOpen }`, `mutation { openRouterConnect }`} {
+		_, errs := mutation(t, srv.URL, op)
+		require.Len(t, errs, 1, op)
+		assert.Nil(t, errs[0].Extensions["code"], op)
 	}
 }
