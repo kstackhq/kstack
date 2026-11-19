@@ -308,7 +308,7 @@ func cloudTargets(platforms []bash.CloudPlatform) []permissions.Target {
 
 // movedProvider is p at the issuer and the base URL a debug build moved it to.
 func movedProvider(p oauthconn.Provider, cfg Config) oauthconn.Provider {
-	p.Issuer = cmp.Or(cfg.ConnectorIssuerURLs[p.ID], p.Issuer)
+	p.Issuer = cmp.Or(cfg.ConnectorAuthURLs[p.ID], p.Issuer)
 	p.APIBaseURL = cmp.Or(cfg.LLMBaseURLs[p.ID], p.APIBaseURL)
 	return p
 }

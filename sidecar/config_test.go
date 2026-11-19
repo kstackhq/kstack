@@ -89,7 +89,7 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 		want.App.CacheDir = "/tmp/override-cache"
 		want.App.RuntimeDir = "/tmp/override-run"
 		want.App.KeychainService = "Kstack-override"
-		want.App.ConnectorIssuerURLs = map[string]string{"chatgpt": "http://127.0.0.1:1"}
+		want.App.ConnectorAuthURLs = map[string]string{"chatgpt": "http://127.0.0.1:1"}
 		want.App.LLMBaseURLs = map[string]string{"chatgpt": "http://127.0.0.1:2/v1"}
 	}
 	assertConfig(t, want, mustConfigFromArgs(t, nil, e))
