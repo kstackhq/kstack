@@ -22,6 +22,8 @@ import type {
   ChatGPTActions,
   ChatGPTConnection,
   Connector,
+  GitHubActions,
+  GitHubConnection,
   OpenRouterActions,
   OpenRouterConnection,
 } from '@/lib/connectors';
@@ -616,5 +618,151 @@ describe('the AWS row', () => {
     expect(within(row()).queryByRole('button', { name: 'Connect' })).toBeNull();
     await userEvent.setup().click(within(row()).getByRole('button', { name: 'Retry' }));
     expect(actions.disconnect).toHaveBeenCalledOnce();
+  });
+});
+
+describe('the GitHub row', () => {
+  const actions: GitHubActions = { connect: vi.fn(), cancel: vi.fn(), disconnect: vi.fn(), openSettings: vi.fn() };
+
+  function gitHub(connection: Partial<GitHubConnection>): Connector {
+    const c: GitHubConnection = { phase: 'SignedOut', login: null, userCode: null, failure: null, ...connection };
+    const connected = c.phase === 'Connected';
+    return {
+      id: 'github',
+      name: 'GitHub',
+      detail: (connected && c.login) || 'Repositories for git and gh in the sandbox',
+      connected,
+      github: { connection: c, actions },
+    };
+  }
+
+  const row = () => screen.getByRole('listitem');
+  const menuButton = () => screen.queryByRole('button', { name: 'Actions for GitHub' });
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('offers Connect while signed out, with no menu', async () => {
+    state.connectors = [gitHub({})];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Repositories for git and gh in the sandbox');
+    expect(menuButton()).toBeNull();
+    await userEvent.setup().click(within(row()).getByRole('button', { name: 'Connect' }));
+    expect(actions.connect).toHaveBeenCalledOnce();
+  });
+
+  it('offers Connect after a failure with no reason, and draws the offer', () => {
+    state.connectors = [gitHub({ phase: 'Failed' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Repositories for git and gh in the sandbox');
+    expect(within(row()).getByRole('button', { name: 'Connect' })).toBeEnabled();
+  });
+
+  it('asks GitHub for a code, then shows it to enter on GitHub, and cancels on a press', async () => {
+    state.connectors = [gitHub({ phase: 'SigningIn' })];
+    const { rerender } = render(<ConnectorsSettings />);
+    expect(row()).toHaveTextContent('Asking GitHub for a code…');
+
+    state.connectors = [gitHub({ phase: 'SigningIn', userCode: 'WDJB-MJHT' })];
+    rerender(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Enter WDJB-MJHT on GitHub’s page');
+    expect(within(row()).getByText('WDJB-MJHT').tagName).toBe('CODE');
+    expect(within(row()).queryByRole('button', { name: 'Connect' })).toBeNull();
+    expect(menuButton()).toBeNull();
+    await userEvent.setup().click(within(row()).getByRole('button', { name: 'Cancel' }));
+    expect(actions.cancel).toHaveBeenCalledOnce();
+  });
+
+  it('spells out control characters in the code', () => {
+    state.connectors = [gitHub({ phase: 'SigningIn', userCode: 'WDJB\u202eMJHT' })];
+    render(<ConnectorsSettings />);
+
+    expect(within(row()).getByTitle('An invisible character')).toBeInTheDocument();
+    expect(row().textContent).not.toContain('\u202e');
+  });
+
+  it('names the account once connected, and offers its settings and Disconnect', async () => {
+    const user = userEvent.setup();
+    state.connectors = [gitHub({ phase: 'Connected', login: 'octocat' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('octocat');
+    expect(within(row()).queryByRole('button', { name: 'Connect' })).toBeNull();
+    await user.click(menuButton()!);
+    const items = within(await screen.findByRole('menu')).getAllByRole('menuitem');
+    expect(items.map((i) => i.textContent)).toEqual(['Open GitHub settings', 'Disconnect']);
+    expect(items[1]).toHaveAttribute('data-variant', 'destructive');
+    await user.click(items[0]);
+    expect(actions.openSettings).toHaveBeenCalledOnce();
+  });
+
+  describe('Disconnect', () => {
+    const confirm = () => screen.queryByRole('dialog', { name: 'Disconnect GitHub?' });
+
+    async function openConfirm() {
+      const user = userEvent.setup();
+      state.connectors = [gitHub({ phase: 'Connected', login: 'octocat' })];
+      render(<ConnectorsSettings />);
+      await user.click(menuButton()!);
+      await user.click(await screen.findByRole('menuitem', { name: 'Disconnect' }));
+      return { user, dialog: await screen.findByRole('dialog', { name: 'Disconnect GitHub?' }) };
+    }
+
+    it('says where the token stays authorized, and disconnects only once confirmed', async () => {
+      const { user, dialog } = await openConfirm();
+
+      expect(dialog).toHaveTextContent(
+        'Kstack will forget this token. It stays authorized on GitHub until you revoke Kstack in your GitHub settings.',
+      );
+      expect(actions.disconnect).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
+
+      expect(actions.disconnect).toHaveBeenCalledOnce();
+      await waitFor(() => expect(confirm()).toBeNull());
+    });
+
+    it('opens the settings from the confirm, and Cancel sends nothing', async () => {
+      const { user, dialog } = await openConfirm();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Open GitHub settings' }));
+      expect(actions.openSettings).toHaveBeenCalledOnce();
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => expect(confirm()).toBeNull());
+      expect(actions.disconnect).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
+    ['Declined', 'You declined on GitHub’s page.'],
+    ['TimedOut', 'The sign-in timed out.'],
+    ['Unavailable', 'GitHub could not be reached.'],
+    ['Refused', 'GitHub refused the sign-in.'],
+    ['NotSaved', 'This computer could not save the sign-in.'],
+    ['KeyRejected', 'GitHub no longer accepts the key. Connect again.'],
+  ] as const)('says why it failed (%s), and offers Connect again', async (failure, text) => {
+    state.connectors = [gitHub({ phase: 'Failed', failure })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent(text);
+    await userEvent.setup().click(within(row()).getByRole('button', { name: 'Connect' }));
+    expect(actions.connect).toHaveBeenCalledOnce();
+  });
+
+  it('says a token the keyring kept returns on restart, and offers Retry and the settings', async () => {
+    const user = userEvent.setup();
+    state.connectors = [gitHub({ phase: 'Failed', failure: 'NotDeleted' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent(
+      'It will be used again after a restart. Retry, or revoke Kstack in your GitHub settings.',
+    );
+    expect(within(row()).queryByRole('button', { name: 'Connect' })).toBeNull();
+    await user.click(within(row()).getByRole('button', { name: 'Retry' }));
+    expect(actions.disconnect).toHaveBeenCalledOnce();
+    await user.click(within(row()).getByRole('button', { name: 'Open GitHub settings' }));
+    expect(actions.openSettings).toHaveBeenCalledOnce();
   });
 });

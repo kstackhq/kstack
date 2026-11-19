@@ -60,6 +60,8 @@ type Resolver struct {
 	OpenRouter OpenRouterConnector
 	// AWS is the AWS connector: *aws.Service, or a test's fake.
 	AWS AWSConnector
+	// GitHub is the GitHub connector: *github.Service, or a test's fake.
+	GitHub GitHubConnector
 	// OpenURL opens one of the sidecar's own addresses in the browser:
 	// browser.Open, or a test's fake. No caller hands it an address.
 	OpenURL func(url string) error
@@ -93,6 +95,15 @@ type OpenRouterConnector interface {
 
 // AWSConnector is the AWS connector as the wire drives it.
 type AWSConnector interface {
+	State() connectors.State
+	Subscribe() (<-chan connectors.State, func())
+	Connect(ctx context.Context) error
+	Cancel()
+	Disconnect() error
+}
+
+// GitHubConnector is the GitHub connector as the wire drives it.
+type GitHubConnector interface {
 	State() connectors.State
 	Subscribe() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error

@@ -80,6 +80,8 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 		"KSTACK_CHATGPT_BASE_URL":    "http://127.0.0.1:2/v1",
 		"KSTACK_OPENROUTER_AUTH_URL": "http://127.0.0.1:3",
 		"KSTACK_AWS_SIGNIN_URL":      "http://127.0.0.1:4",
+		"KSTACK_GITHUB_AUTH_URL":     "http://127.0.0.1:5",
+		"KSTACK_GITHUB_CLIENT_ID":    "Ov23liOverride",
 	}
 
 	want := productionConfig
@@ -91,8 +93,9 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 		want.App.CacheDir = "/tmp/override-cache"
 		want.App.RuntimeDir = "/tmp/override-run"
 		want.App.KeychainService = "Kstack-override"
+		want.App.GitHubClientID = "Ov23liOverride"
 		want.App.ConnectorAuthURLs = map[string]string{
-			"chatgpt": "http://127.0.0.1:1", "openrouter": "http://127.0.0.1:3", "aws": "http://127.0.0.1:4",
+			"chatgpt": "http://127.0.0.1:1", "openrouter": "http://127.0.0.1:3", "aws": "http://127.0.0.1:4", "github": "http://127.0.0.1:5",
 		}
 		want.App.LLMBaseURLs = map[string]string{"chatgpt": "http://127.0.0.1:2/v1"}
 	}
@@ -108,6 +111,7 @@ func TestConfigFromArgsReadsFlags(t *testing.T) {
 			RuntimeDir:      "/tmp/run",
 			OAuthIssuerURL:  "https://issuer.example",
 			OAuthClientID:   "other",
+			GitHubClientID:  "Ov23liFlag",
 			KeychainService: "Kstack-dev",
 			AddFake:         debugBuild,
 			HostPID:         42,
@@ -127,6 +131,7 @@ func TestConfigFromArgsReadsFlags(t *testing.T) {
 		"--runtime-dir", "/tmp/run",
 		"--oauth-issuer", "https://issuer.example",
 		"--oauth-client-id", "other",
+		"--github-client-id", "Ov23liFlag",
 		"--keychain-service", "Kstack-dev",
 		"--log-file", "/tmp/logs/sidecar.log",
 		"--log-stderr",

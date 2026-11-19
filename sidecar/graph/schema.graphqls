@@ -2081,6 +2081,22 @@ type AWSConnection {
   failure: ConnectorFailure
 }
 
+# --- GitHub connector ---
+# GitHub's device flow under Kstack's OAuth App. The sidecar asks GitHub for a code, opens
+# the browser on GitHub's page, and the user enters the code shown here. The token it grants
+# is kept in the OS keyring and sent by the sandbox's GitHub proxy. No token is here.
+
+"The GitHub connector's state. No token is ever here."
+type GitHubConnection {
+  phase: ConnectorPhase!
+  "The account's GitHub login. Display only. Null unless Connected."
+  login: String
+  "The code the user enters on GitHub's page. Null unless SigningIn, and until GitHub issued it."
+  userCode: String
+  "Why the last attempt or token ended. Null unless Failed."
+  failure: ConnectorFailure
+}
+
 "What the sandbox does with one folder of the user's PATH."
 enum SandboxPathState {
   "On the sandbox's PATH and readable in it."
@@ -2270,6 +2286,10 @@ type Query {
   # --- AWS connector ---
   "The AWS connector's state; live updates via awsConnectionWatch."
   awsConnection: AWSConnection!
+
+  # --- GitHub connector ---
+  "The GitHub connector's state; live updates via gitHubConnectionWatch."
+  gitHubConnection: GitHubConnection!
 }
 
 type Mutation {
@@ -2411,6 +2431,16 @@ type Mutation {
   awsConnectCancel: Boolean!
   "Delete the session on this machine. AWS is not asked to revoke it, so its refresh token stays valid at AWS until the session expires. Errors when the keyring would not delete it; the state is then Failed with NotDeleted, and calling again retries."
   awsDisconnect: Boolean!
+
+  # --- GitHub connector ---
+  "Ask GitHub for a code, then open the browser on GitHub's page. Returns once the browser opens or the attempt fails; the code and the outcome arrive on gitHubConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) in a build with no GitHub OAuth App, during an attempt, while connected, and while a token the keyring would not delete is still there."
+  gitHubConnect: Boolean!
+  "End the sign-in under way, if any. A token GitHub grants after it is dropped."
+  gitHubConnectCancel: Boolean!
+  "Delete the token on this machine. It stays authorized on GitHub until the user revokes Kstack there. Errors when the token could not be deleted; the state is then Failed with NotDeleted, and calling again retries."
+  gitHubDisconnect: Boolean!
+  "Open GitHub's authorized OAuth Apps settings in the browser. The address is the sidecar's constant."
+  gitHubSettingsOpen: Boolean!
 }
 
 type Subscription {
@@ -2517,6 +2547,9 @@ type Subscription {
   # --- OpenRouter connector ---
   "GAUGE. The OpenRouter connector's state, a fresh value on every change."
   openRouterConnectionWatch: OpenRouterConnection!
+  # --- GitHub connector ---
+  "GAUGE. The GitHub connector's state, a fresh value on every change."
+  gitHubConnectionWatch: GitHubConnection!
 
   # --- AWS connector ---
   "GAUGE. The AWS connector's state, a fresh value on every change."

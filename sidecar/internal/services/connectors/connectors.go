@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package connectors is the vocabulary every connector speaks. A connector is
-// one package beside this one (chatgpt, openrouter, aws, kstackcloud); what
+// one package beside this one (chatgpt, openrouter, aws, github, kstackcloud); what
 // they share is under internal/.
 package connectors
 
@@ -64,6 +64,9 @@ type State struct {
 	Subject string
 	Email   string
 	Name    string
+	// UserCode is the code a device sign-in asks the user to enter on the
+	// provider's page; set while SigningIn, once the provider issued it.
+	UserCode string
 	// Registered is a saved client id.
 	Registered bool
 	// RevocationUnconfirmed is a revocation the provider did not confirm, of a
@@ -78,4 +81,6 @@ var (
 	ErrConnected       = errors.New("connectors: already connected")
 	ErrFromEnvironment = errors.New("connectors: the environment's key is in use")
 	ErrNotDeleted      = errors.New("connectors: a key the keyring would not delete is still there")
+	// ErrNoClient is a build that names no OAuth client to sign in under.
+	ErrNoClient = errors.New("connectors: no OAuth client is configured")
 )

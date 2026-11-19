@@ -16,6 +16,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -31,6 +32,7 @@ func TestNewKeepsTheRuntime(t *testing.T) {
 	for name, svc := range map[string]any{
 		"DB": rt.DB, "Poke": rt.Poke, "Kubeconfig": rt.Kubeconfig, "Cluster": rt.Cluster,
 		"KstackCloud": rt.KstackCloud, "LLM": rt.LLM, "Security": rt.Settings,
+		"GitHub": rt.GitHub,
 		"Memory": rt.Memory, "Chat": rt.Chat, "ChatGPT": rt.ChatGPT, "OpenRouter": rt.OpenRouter,
 		"AWS": rt.AWS,
 	} {
@@ -100,10 +102,10 @@ func TestCloudTargetsKeepTheBuildsOrder(t *testing.T) {
 func TestCloudPlatformsNeedASandbox(t *testing.T) {
 	sandboxed := sandbox.Status{Available: true}
 	configured := []bash.CloudPlatform{targetOnly(permissions.AWS)}
-	assert.Equal(t, cloudTargets(builtCloudPlatforms(nil)), cloudTargets(cloudPlatformsFor(sandboxed, nil, nil)))
-	assert.Equal(t, []permissions.Target{permissions.AWS}, cloudTargets(cloudPlatformsFor(sandboxed, configured, nil)))
-	assert.Empty(t, cloudPlatformsFor(sandbox.Status{Reason: "no bwrap"}, nil, nil))
-	assert.Empty(t, cloudPlatformsFor(sandbox.Status{}, configured, nil))
+	assert.Equal(t, cloudTargets(builtCloudPlatforms(nil, nil)), cloudTargets(cloudPlatformsFor(sandboxed, nil, nil, nil)))
+	assert.Equal(t, []permissions.Target{permissions.AWS}, cloudTargets(cloudPlatformsFor(sandboxed, configured, nil, nil)))
+	assert.Empty(t, cloudPlatformsFor(sandbox.Status{Reason: "no bwrap"}, nil, nil, nil))
+	assert.Empty(t, cloudPlatformsFor(sandbox.Status{}, configured, nil, nil))
 }
 
 // targetOnly is a cloud platform that names its target and mounts nothing.
@@ -154,6 +156,13 @@ func TestABadAWSSigninURLFailsTheBuild(t *testing.T) {
 	assert.ErrorContains(t, err, "http://[::1")
 }
 
+// A debug build's GitHub origin that does not parse fails the build.
+func TestABadGitHubAuthURLFailsTheBuild(t *testing.T) {
+	_, err := build(t.Context(), withDirs(t, Config{ConnectorAuthURLs: map[string]string{github.ID: "http://[::1"}}))
+
+	assert.ErrorContains(t, err, "http://[::1")
+}
+
 // The wire reaches the app's OpenRouter connector.
 func TestTheWireReachesTheOpenRouterConnector(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouter.ID: "sk-or-env"}}))
@@ -172,4 +181,14 @@ func TestTheWireReachesTheAWSConnector(t *testing.T) {
 	ts := serveApp(t, a)
 
 	assert.JSONEq(t, `{"data":{"awsConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ awsConnection { phase } }`))
+}
+
+// The wire reaches the app's GitHub connector.
+func TestTheWireReachesTheGitHubConnector(t *testing.T) {
+	a, err := New(t.Context(), withDirs(t, Config{}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	ts := serveApp(t, a)
+
+	assert.JSONEq(t, `{"data":{"gitHubConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ gitHubConnection { phase } }`))
 }

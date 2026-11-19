@@ -34,6 +34,8 @@ import {
   type ChatGPTConnection,
   type Connector,
   type ConnectorFailure,
+  type GitHubActions,
+  type GitHubConnection,
   type OpenRouterActions,
   type OpenRouterConnection,
   useConnectors,
@@ -54,6 +56,7 @@ export function ConnectorsSettings() {
           .map((c) => {
             if (c.chatgpt) return <ChatGPTRow key={c.id} connector={c} {...c.chatgpt} onConnect={confirm.sent} />;
             if (c.openrouter) return <OpenRouterRow key={c.id} connector={c} {...c.openrouter} />;
+            if (c.github) return <GitHubRow key={c.id} connector={c} {...c.github} />;
             if (c.aws) return <AWSRow key={c.id} connector={c} {...c.aws} />;
             return <ConnectorRow key={c.id} connector={c} />;
           })}
@@ -316,14 +319,96 @@ function OpenRouterRow({
   connection: OpenRouterConnection;
   actions: OpenRouterActions;
 }) {
+  return (
+    <GrantRow
+      connector={connector}
+      connection={connection}
+      detail={openRouterDetail(connection, connector)}
+      actions={actions}
+      grant="key"
+      onOpenSettings={actions.openKeys}
+      retryHelp='Retry, or delete the key labelled "Kstack" on OpenRouter.'
+      disconnectHelp='It stays active on OpenRouter until you delete the key labelled "Kstack" in your OpenRouter settings.'
+    />
+  );
+}
+
+function gitHubDetail({ phase, userCode, failure }: GitHubConnection, { name, detail }: Connector): ReactNode {
+  switch (phase) {
+    case 'SignedOut':
+    case 'Connected':
+    case 'FromEnvironment':
+      return detail;
+    case 'SigningIn':
+      // The code is GitHub's: drawn spelled out, as the user types what they see.
+      return userCode ? (
+        <>
+          Enter{' '}
+          <code>
+            <VisibleText text={userCode} />
+          </code>{' '}
+          on GitHub&rsquo;s page
+        </>
+      ) : (
+        'Asking GitHub for a code…'
+      );
+    case 'Failed':
+      return failure ? failureText[failure](name) : detail;
+  }
+}
+
+function GitHubRow({
+  connector,
+  connection,
+  actions,
+}: {
+  connector: Connector;
+  connection: GitHubConnection;
+  actions: GitHubActions;
+}) {
+  return (
+    <GrantRow
+      connector={connector}
+      connection={connection}
+      detail={gitHubDetail(connection, connector)}
+      actions={actions}
+      grant="token"
+      onOpenSettings={actions.openSettings}
+      retryHelp="Retry, or revoke Kstack in your GitHub settings."
+      disconnectHelp="It stays authorized on GitHub until you revoke Kstack in your GitHub settings."
+    />
+  );
+}
+
+// GrantRow is a connector whose sign-in grants a key or token Kstack keeps but
+// cannot revoke: Disconnect forgets it here, and the provider's settings end it.
+function GrantRow({
+  connector: { name },
+  connection: { phase, failure },
+  detail,
+  actions,
+  grant,
+  onOpenSettings,
+  retryHelp,
+  disconnectHelp,
+}: {
+  connector: Connector;
+  connection: Pick<OpenRouterConnection, 'phase' | 'failure'>;
+  detail: ReactNode;
+  actions: { connect: () => void; cancel: () => void; disconnect: () => void };
+  grant: 'key' | 'token';
+  onOpenSettings: () => void;
+  retryHelp: string;
+  disconnectHelp: string;
+}) {
   const [confirming, setConfirming] = useState(false);
-  const { phase } = connection;
-  // The key is still in the keyring: only another Disconnect moves on, so no Connect.
-  const notDeleted = phase === 'Failed' && connection.failure === 'NotDeleted';
+  // It is still in the keyring: only another Disconnect moves on, so no Connect.
+  const notDeleted = phase === 'Failed' && failure === 'NotDeleted';
+  const openSettings = `Open ${name} settings`;
   return (
     <li className="flex flex-col gap-2 px-4 py-2.5">
       <div className="flex items-center gap-3">
-        <RowText name={connector.name} detail={openRouterDetail(connection, connector)} />
+        <RowText name={name} detail={detail} />
         {phase === 'SigningIn' && (
           <Button variant="outline" size="sm" onClick={actions.cancel}>
             Cancel
@@ -334,15 +419,32 @@ function OpenRouterRow({
             Connect
           </Button>
         )}
-        {phase === 'Connected' && <OpenRouterMenu actions={actions} onDisconnect={() => setConfirming(true)} />}
+        {phase === 'Connected' && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon" className="size-7 rounded-md" />}
+              aria-label={`Actions for ${name}`}
+            >
+              <Ellipsis className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onOpenSettings}>
+                {openSettings}
+                <ExternalLink className="ml-auto" />
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={() => setConfirming(true)}>
+                Disconnect
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
       {notDeleted && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          <p className="flex-1">
-            It will be used again after a restart. Retry, or delete the key labelled &quot;Kstack&quot; on OpenRouter.
-          </p>
-          <Button variant="outline" size="xs" onClick={actions.openKeys}>
-            Open OpenRouter settings
+          <p className="flex-1">It will be used again after a restart. {retryHelp}</p>
+          <Button variant="outline" size="xs" onClick={onOpenSettings}>
+            {openSettings}
           </Button>
           <Button variant="outline" size="xs" onClick={actions.disconnect}>
             Retry
@@ -352,12 +454,12 @@ function OpenRouterRow({
       <Dialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Disconnect OpenRouter?"
-        description='Kstack will forget this key. It stays active on OpenRouter until you delete the key labelled "Kstack" in your OpenRouter settings.'
+        title={`Disconnect ${name}?`}
+        description={`Kstack will forget this ${grant}. ${disconnectHelp}`}
       >
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" className="mr-auto" onClick={actions.openKeys}>
-            Open OpenRouter settings
+          <Button type="button" variant="outline" className="mr-auto" onClick={onOpenSettings}>
+            {openSettings}
           </Button>
           <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
             Cancel
@@ -375,29 +477,6 @@ function OpenRouterRow({
         </div>
       </Dialog>
     </li>
-  );
-}
-
-function OpenRouterMenu({ actions, onDisconnect }: { actions: OpenRouterActions; onDisconnect: () => void }) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon" className="size-7 rounded-md" />}
-        aria-label="Actions for OpenRouter"
-      >
-        <Ellipsis className="size-4" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={actions.openKeys}>
-          Open OpenRouter settings
-          <ExternalLink className="ml-auto" />
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={onDisconnect}>
-          Disconnect
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

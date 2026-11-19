@@ -22,6 +22,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/githubproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/services/awsauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/azureauth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/gcpauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/githubauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
@@ -29,11 +30,12 @@ import (
 )
 
 // builtCloudPlatforms are the cloud platforms this build reaches, in
-// Settings' order. AWS reads each kube-context's profile through kc.
-func builtCloudPlatforms(kc *kubeconfig.Service) []bash.CloudPlatform {
+// Settings' order. AWS reads each kube-context's profile through kc; GitHub
+// sends the connector gh's token while it is connected, and gh's otherwise.
+func builtCloudPlatforms(kc *kubeconfig.Service, gh *github.Service) []bash.CloudPlatform {
 	return []bash.CloudPlatform{
 		bash.NewAWS(kc.AWSProfile, newAWSLogin, nil),
-		bash.NewGitHub(githubauth.New(), githubproxy.GitHub()),
+		bash.NewGitHub(gh.Tokens(githubauth.New()), githubproxy.GitHub()),
 		bash.NewGCP(gcpauth.New(nil), nil),
 		bash.NewAzure(azureauth.New(), http.DefaultTransport),
 	}

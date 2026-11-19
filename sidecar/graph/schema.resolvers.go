@@ -24,6 +24,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -176,6 +177,30 @@ func (r *clusterCachedKindSpecResolver) SyncEnabled(ctx context.Context, obj *cl
 // TODO: run a SelfSubjectRulesReview; errors until implemented.
 func (r *clusterPrincipalResolver) Permissions(ctx context.Context, obj *cluster.ClusterPrincipal, namespace string) (*model.ClusterPermissions, error) {
 	return nil, fmt.Errorf("not implemented: permissions")
+}
+
+// Login is the resolver for the login field.
+func (r *gitHubConnectionResolver) Login(ctx context.Context, obj *connectors.State) (*string, error) {
+	if obj.Phase != connectors.Connected {
+		return nil, nil
+	}
+	return &obj.Name, nil
+}
+
+// UserCode is the resolver for the userCode field.
+func (r *gitHubConnectionResolver) UserCode(ctx context.Context, obj *connectors.State) (*string, error) {
+	if obj.Phase != connectors.SigningIn || obj.UserCode == "" {
+		return nil, nil
+	}
+	return &obj.UserCode, nil
+}
+
+// Failure is the resolver for the failure field.
+func (r *gitHubConnectionResolver) Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error) {
+	if obj.Phase != connectors.Failed {
+		return nil, nil
+	}
+	return &obj.Failure, nil
 }
 
 // ClusterEnabledSet is the resolver for the clusterEnabledSet field. The change
@@ -566,6 +591,36 @@ func (r *mutationResolver) AWSDisconnect(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// GitHubConnect is the resolver for the gitHubConnect field.
+func (r *mutationResolver) GitHubConnect(ctx context.Context) (bool, error) {
+	if err := r.GitHub.Connect(ctx); err != nil {
+		return false, connectorErr(err)
+	}
+	return true, nil
+}
+
+// GitHubConnectCancel is the resolver for the gitHubConnectCancel field.
+func (r *mutationResolver) GitHubConnectCancel(ctx context.Context) (bool, error) {
+	r.GitHub.Cancel()
+	return true, nil
+}
+
+// GitHubDisconnect is the resolver for the gitHubDisconnect field.
+func (r *mutationResolver) GitHubDisconnect(ctx context.Context) (bool, error) {
+	if err := r.GitHub.Disconnect(); err != nil {
+		return false, connectorErr(err)
+	}
+	return true, nil
+}
+
+// GitHubSettingsOpen is the resolver for the gitHubSettingsOpen field.
+func (r *mutationResolver) GitHubSettingsOpen(ctx context.Context) (bool, error) {
+	if err := r.OpenURL(github.SettingsURL); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Failure is the resolver for the failure field.
 func (r *openRouterConnectionResolver) Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error) {
 	if obj.Phase != connectors.Failed {
@@ -725,6 +780,12 @@ func (r *queryResolver) OpenRouterConnection(ctx context.Context) (*connectors.S
 // AWSConnection is the resolver for the awsConnection field.
 func (r *queryResolver) AWSConnection(ctx context.Context) (*connectors.State, error) {
 	st := r.AWS.State()
+	return &st, nil
+}
+
+// GitHubConnection is the resolver for the gitHubConnection field.
+func (r *queryResolver) GitHubConnection(ctx context.Context) (*connectors.State, error) {
+	st := r.GitHub.State()
 	return &st, nil
 }
 
@@ -976,6 +1037,12 @@ func (r *subscriptionResolver) OpenRouterConnectionWatch(ctx context.Context) (<
 	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
+// GitHubConnectionWatch is the resolver for the gitHubConnectionWatch field.
+func (r *subscriptionResolver) GitHubConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
+	states, cancel := r.GitHub.Subscribe()
+	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
+}
+
 // AWSConnectionWatch is the resolver for the awsConnectionWatch field.
 func (r *subscriptionResolver) AWSConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
 	states, cancel := r.AWS.Subscribe()
@@ -1030,6 +1097,9 @@ func (r *Resolver) ClusterCachedKindSpec() ClusterCachedKindSpecResolver {
 // ClusterPrincipal returns ClusterPrincipalResolver implementation.
 func (r *Resolver) ClusterPrincipal() ClusterPrincipalResolver { return &clusterPrincipalResolver{r} }
 
+// GitHubConnection returns GitHubConnectionResolver implementation.
+func (r *Resolver) GitHubConnection() GitHubConnectionResolver { return &gitHubConnectionResolver{r} }
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
@@ -1057,6 +1127,7 @@ type (
 	clusterCachedKindResolver     struct{ *Resolver }
 	clusterCachedKindSpecResolver struct{ *Resolver }
 	clusterPrincipalResolver      struct{ *Resolver }
+	gitHubConnectionResolver      struct{ *Resolver }
 	mutationResolver              struct{ *Resolver }
 	openRouterConnectionResolver  struct{ *Resolver }
 	queryResolver                 struct{ *Resolver }

@@ -17,9 +17,10 @@
 package app
 
 import (
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
 // builtCloudPlatforms are none: only Unix has a sandbox.
-func builtCloudPlatforms(*kubeconfig.Service) []bash.CloudPlatform { return nil }
+func builtCloudPlatforms(*kubeconfig.Service, *github.Service) []bash.CloudPlatform { return nil }

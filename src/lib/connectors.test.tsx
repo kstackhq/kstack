@@ -15,7 +15,7 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AWSConnection, ChatGPTConnection, OpenRouterConnection } from './connectors';
+import type { AWSConnection, ChatGPTConnection, GitHubConnection, OpenRouterConnection } from './connectors';
 
 // The seams: each watch's frames by the subscription its document names, folded
 // by the hook's own reducer, and each mutation, by the operation its document names.
@@ -62,16 +62,23 @@ function aws(c: Partial<AWSConnection> = {}): AWSConnection {
   return { phase: 'SignedOut', arn: null, failure: null, ...c };
 }
 
-// Serves every watch's frames: ChatGPT's, then OpenRouter's and AWS's, which default to signed out.
+function gitHub(c: Partial<GitHubConnection> = {}): GitHubConnection {
+  return { phase: 'SignedOut', login: null, userCode: null, failure: null, ...c };
+}
+
+// Serves every watch's frames: ChatGPT's, then OpenRouter's, AWS's and GitHub's,
+// which default to signed out.
 function serve(
   chatgpt: ChatGPTConnection[],
   openrouter: OpenRouterConnection[] = [openRouter()],
   awsFrames: AWSConnection[] = [aws()],
+  github: GitHubConnection[] = [gitHub()],
 ) {
   watch.frames = {
     ChatGPTConnectionWatch: chatgpt.map((c) => ({ chatGPTConnectionWatch: c })),
     OpenRouterConnectionWatch: openrouter.map((c) => ({ openRouterConnectionWatch: c })),
     AWSConnectionWatch: awsFrames.map((c) => ({ awsConnectionWatch: c })),
+    GitHubConnectionWatch: github.map((c) => ({ gitHubConnectionWatch: c })),
   };
 }
 
@@ -86,7 +93,7 @@ describe('useConnectors', () => {
 
     expect(result.current.loaded).toBe(false);
     expect(result.current.connectors).toEqual([
-      { id: 'github', name: 'GitHub', detail: 'Code resources and Copilot models', connected: false },
+      { id: 'github', name: 'GitHub', detail: 'Repositories for git and gh in the sandbox', connected: false },
       { id: 'aws', name: 'AWS', detail: 'Cloud resources and Bedrock models', connected: false },
       { id: 'google', name: 'Google', detail: 'Cloud resources and Gemini models', connected: false },
       { id: 'azure', name: 'Azure', detail: 'Cloud resources and Foundry models', connected: false },
@@ -168,21 +175,19 @@ describe('useConnectors', () => {
   });
 
   it('has not loaded until every watch has its first frame', () => {
-    watch.frames = { ChatGPTConnectionWatch: [{ chatGPTConnectionWatch: connection({}) }] };
     const { result, rerender } = renderHook(() => useConnectors());
-    expect(result.current.loaded).toBe(false);
-    expect(result.current.connectors.some((c) => c.chatgpt ?? c.openrouter)).toBe(false);
-
-    watch.frames = { OpenRouterConnectionWatch: [{ openRouterConnectionWatch: openRouter() }] };
-    rerender();
-    expect(result.current.loaded).toBe(false);
-
-    watch.frames = {
-      ChatGPTConnectionWatch: [{ chatGPTConnectionWatch: connection({}) }],
-      OpenRouterConnectionWatch: [{ openRouterConnectionWatch: openRouter() }],
-    };
-    rerender();
-    expect(result.current.loaded).toBe(false);
+    for (const missing of [
+      'ChatGPTConnectionWatch',
+      'OpenRouterConnectionWatch',
+      'AWSConnectionWatch',
+      'GitHubConnectionWatch',
+    ]) {
+      serve([connection({})]);
+      delete watch.frames[missing];
+      rerender();
+      expect(result.current.loaded, missing).toBe(false);
+      expect(result.current.connectors.some((c) => c.chatgpt ?? c.openrouter ?? c.aws ?? c.github)).toBe(false);
+    }
   });
 
   it('folds the OpenRouter watch into its entry alone, connected in the Connected phase', () => {
@@ -261,6 +266,47 @@ describe('the AWS entry', () => {
     expect(mutations.AWSConnect).toHaveBeenCalledWith({});
     expect(mutations.AWSConnectCancel).toHaveBeenCalledWith({});
     expect(mutations.AWSDisconnect).toHaveBeenCalledWith({});
+  });
+});
+
+describe('useConnectors: GitHub', () => {
+  it('folds the GitHub watch into its entry alone, the login as its detail once connected', () => {
+    const live = gitHub({ phase: 'Connected', login: 'octocat' });
+    serve([connection({})], undefined, undefined, [gitHub({ phase: 'SigningIn', userCode: 'WDJB-MJHT' }), live]);
+
+    const { result } = renderHook(() => useConnectors());
+
+    const entry = result.current.connectors.find((c) => c.id === 'github')!;
+    expect(entry).toMatchObject({ connected: true, detail: 'octocat' });
+    expect(entry.github?.connection).toBe(live);
+    expect(result.current.connectors.filter((c) => c.github)).toHaveLength(1);
+  });
+
+  it.each(['SignedOut', 'SigningIn', 'Failed'] as const)("keeps the entry's own detail while %s", (phase) => {
+    serve([connection({})], undefined, undefined, [gitHub({ phase, login: 'octocat' })]);
+
+    const { result } = renderHook(() => useConnectors());
+
+    expect(result.current.connectors.find((c) => c.id === 'github')).toMatchObject({
+      connected: false,
+      detail: 'Repositories for git and gh in the sandbox',
+    });
+  });
+
+  it('runs each GitHub action as its mutation', () => {
+    serve([connection({})]);
+    const { result } = renderHook(() => useConnectors());
+    const actions = result.current.connectors.find((c) => c.github)!.github!.actions;
+
+    actions.connect();
+    actions.cancel();
+    actions.disconnect();
+    actions.openSettings();
+
+    expect(mutations.GitHubConnect).toHaveBeenCalledWith({});
+    expect(mutations.GitHubConnectCancel).toHaveBeenCalledWith({});
+    expect(mutations.GitHubDisconnect).toHaveBeenCalledWith({});
+    expect(mutations.GitHubSettingsOpen).toHaveBeenCalledWith({});
   });
 });
 

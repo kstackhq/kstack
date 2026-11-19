@@ -25,6 +25,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/kstackcloud"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
@@ -56,7 +57,10 @@ type Runtime struct {
 	// when the environment holds no key.
 	OpenRouter *openrouter.Service
 	// AWS is the AWS connector, whose credentials nothing uses yet.
-	AWS     *aws.Service
+	AWS *aws.Service
+	// GitHub is the GitHub connector, whose token the sandbox's GitHub proxy
+	// sends while it is connected.
+	GitHub  *github.Service
 	Catalog catalog.Catalog
 	LLM     *llm.Service
 	// Shell is nil on a machine with no shell.
@@ -215,6 +219,17 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.add("aws service", lifecycle.CloseFunc(func() error { rt.AWS.Close(); return nil }))
 
+	rt.GitHub, err = github.New(github.Config{
+		KeychainService: keychainService,
+		ClientID:        cfg.GitHubClientID,
+		AuthURL:         cmp.Or(cfg.ConnectorAuthURLs[github.ID], github.AuthURL),
+		APIURL:          github.APIURL,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	rt.add("github service", lifecycle.CloseFunc(func() error { rt.GitHub.Close(); return nil }))
+
 	rt.Catalog = newCatalog(cfg, map[string]llm.SessionSigner{chatgpt.ID: rt.ChatGPT, openrouter.ID: rt.OpenRouter})
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
 	rt.add("chatgpt catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
@@ -230,7 +245,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 
 	pathList := func() settings.RunPath { return settingsStore.Get().RunPath() }
-	platforms := cloudPlatformsFor(probed, cfg.cloudPlatforms, rt.Kubeconfig)
+	platforms := cloudPlatformsFor(probed, cfg.cloudPlatforms, rt.Kubeconfig, rt.GitHub)
 	shell, found := bash.New(p.Bash, cfg.HostPID, sb, rt.Cluster, pathList, bash.Cloud{Platforms: platforms, On: settingsStore.CloudOn})
 	if found && cfg.callDeadline != nil {
 		shell.SetCallDeadline(cfg.callDeadline)
@@ -316,6 +331,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		ChatGPT:       rt.ChatGPT,
 		OpenRouter:    rt.OpenRouter,
 		AWS:           rt.AWS,
+		GitHub:        rt.GitHub,
 		OpenURL:       browser.Open,
 		Settings:      rt.Settings,
 		Executables:   prober,
@@ -325,16 +341,16 @@ func (rt *Runtime) resolver() *graph.Resolver {
 }
 
 // cloudPlatformsFor is the cloud platforms a sandboxed run may reach: the
-// build's, over kc, or a test's in their place. A machine with no sandbox has
-// none, so it offers no switch.
-func cloudPlatformsFor(status sandbox.Status, configured []bash.CloudPlatform, kc *kubeconfig.Service) []bash.CloudPlatform {
+// build's, over kc and the GitHub connector gh, or a test's in their place. A
+// machine with no sandbox has none, so it offers no switch.
+func cloudPlatformsFor(status sandbox.Status, configured []bash.CloudPlatform, kc *kubeconfig.Service, gh *github.Service) []bash.CloudPlatform {
 	switch {
 	case !status.Available:
 		return nil
 	case configured != nil:
 		return configured
 	}
-	return builtCloudPlatforms(kc)
+	return builtCloudPlatforms(kc, gh)
 }
 
 // cloudTargets is each cloud platform's target, in the build's order.

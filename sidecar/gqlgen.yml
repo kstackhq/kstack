@@ -776,6 +776,19 @@ models:
       failure:
         resolver: true
 
+  # --- GitHub connector ---
+  # The state binds to connectors.State, which holds no token. Each field but
+  # the phase is null outside its own phase, so each has a resolver.
+  GitHubConnection:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors.State
+    fields:
+      login:
+        resolver: true
+      userCode:
+        resolver: true
+      failure:
+        resolver: true
+
   Identity:
     model: github.com/kstackhq/kstack/sidecar/internal/lib/oauth.Identity
     fields:

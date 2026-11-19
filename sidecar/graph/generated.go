@@ -55,6 +55,7 @@ type ResolverRoot interface {
 	ClusterCachedKind() ClusterCachedKindResolver
 	ClusterCachedKindSpec() ClusterCachedKindSpecResolver
 	ClusterPrincipal() ClusterPrincipalResolver
+	GitHubConnection() GitHubConnectionResolver
 	Mutation() MutationResolver
 	OpenRouterConnection() OpenRouterConnectionResolver
 	Query() QueryResolver
@@ -469,6 +470,13 @@ type ComplexityRoot struct {
 		URL  func(childComplexity int) int
 	}
 
+	GitHubConnection struct {
+		Failure  func(childComplexity int) int
+		Login    func(childComplexity int) int
+		Phase    func(childComplexity int) int
+		UserCode func(childComplexity int) int
+	}
+
 	Identity struct {
 		Email  func(childComplexity int) int
 		Name   func(childComplexity int) int
@@ -680,6 +688,10 @@ type ComplexityRoot struct {
 		ClusterSyncEnabledSet           func(childComplexity int, id apimeta.ClusterID, syncEnabled bool) int
 		FolderGrant                     func(childComplexity int, chatID *apimeta.ChatID, path string, write bool, duration model.GrantDuration) int
 		FolderRevoke                    func(childComplexity int, id string) int
+		GitHubConnect                   func(childComplexity int) int
+		GitHubConnectCancel             func(childComplexity int) int
+		GitHubDisconnect                func(childComplexity int) int
+		GitHubSettingsOpen              func(childComplexity int) int
 		MemoryDelete                    func(childComplexity int, id memory.MemoryID) int
 		MemorySave                      func(childComplexity int, input model.MemorySaveInput) int
 		OpenRouterConnect               func(childComplexity int) int
@@ -783,6 +795,7 @@ type ComplexityRoot struct {
 		ClusterCachedKinds   func(childComplexity int, cacheID *apimeta.ObjectID) int
 		ClusterCaches        func(childComplexity int, clusterID *apimeta.ClusterID) int
 		Clusters             func(childComplexity int) int
+		GitHubConnection     func(childComplexity int) int
 		LogsFetch            func(childComplexity int, id apimeta.ClusterID, request model.LogsFetchInput) int
 		Models               func(childComplexity int) int
 		OpenRouterConnection func(childComplexity int) int
@@ -904,6 +917,7 @@ type ComplexityRoot struct {
 		ClusterScheduleWatch          func(childComplexity int, id apimeta.ClusterID) int
 		ClustersWatch                 func(childComplexity int) int
 		EventsWatch                   func(childComplexity int, id apimeta.ObjectID, category *string) int
+		GitHubConnectionWatch         func(childComplexity int) int
 		LogsFollow                    func(childComplexity int, id apimeta.ClusterID, request model.LogsFollowInput) int
 		MemoriesWatch                 func(childComplexity int, clusterID apimeta.ClusterID) int
 		ModelsWatch                   func(childComplexity int) int
@@ -1007,6 +1021,11 @@ type ClusterCachedKindSpecResolver interface {
 type ClusterPrincipalResolver interface {
 	Permissions(ctx context.Context, obj *cluster.ClusterPrincipal, namespace string) (*model.ClusterPermissions, error)
 }
+type GitHubConnectionResolver interface {
+	Login(ctx context.Context, obj *connectors.State) (*string, error)
+	UserCode(ctx context.Context, obj *connectors.State) (*string, error)
+	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
+}
 type MutationResolver interface {
 	ClusterEnabledSet(ctx context.Context, id apimeta.ClusterID, enabled bool) (*cluster.Cluster, error)
 	ClusterSyncEnabledSet(ctx context.Context, id apimeta.ClusterID, syncEnabled bool) (*cluster.Cluster, error)
@@ -1054,6 +1073,10 @@ type MutationResolver interface {
 	AWSConnect(ctx context.Context) (bool, error)
 	AWSConnectCancel(ctx context.Context) (bool, error)
 	AWSDisconnect(ctx context.Context) (bool, error)
+	GitHubConnect(ctx context.Context) (bool, error)
+	GitHubConnectCancel(ctx context.Context) (bool, error)
+	GitHubDisconnect(ctx context.Context) (bool, error)
+	GitHubSettingsOpen(ctx context.Context) (bool, error)
 }
 type OpenRouterConnectionResolver interface {
 	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
@@ -1081,6 +1104,7 @@ type QueryResolver interface {
 	ChatGPTConnection(ctx context.Context) (*connectors.State, error)
 	OpenRouterConnection(ctx context.Context) (*connectors.State, error)
 	AWSConnection(ctx context.Context) (*connectors.State, error)
+	GitHubConnection(ctx context.Context) (*connectors.State, error)
 }
 type SubscriptionResolver interface {
 	EventsWatch(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *cluster.EventWatchFrame, error)
@@ -1104,6 +1128,7 @@ type SubscriptionResolver interface {
 	AuthStateWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ChatGPTConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	OpenRouterConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
+	GitHubConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	AWSConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ModelsWatch(ctx context.Context) (<-chan []*model.Model, error)
 }
@@ -2688,6 +2713,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.FetchAction.URL(childComplexity), true
 
+	case "GitHubConnection.failure":
+		if e.ComplexityRoot.GitHubConnection.Failure == nil {
+			break
+		}
+
+		return e.ComplexityRoot.GitHubConnection.Failure(childComplexity), true
+	case "GitHubConnection.login":
+		if e.ComplexityRoot.GitHubConnection.Login == nil {
+			break
+		}
+
+		return e.ComplexityRoot.GitHubConnection.Login(childComplexity), true
+	case "GitHubConnection.phase":
+		if e.ComplexityRoot.GitHubConnection.Phase == nil {
+			break
+		}
+
+		return e.ComplexityRoot.GitHubConnection.Phase(childComplexity), true
+	case "GitHubConnection.userCode":
+		if e.ComplexityRoot.GitHubConnection.UserCode == nil {
+			break
+		}
+
+		return e.ComplexityRoot.GitHubConnection.UserCode(childComplexity), true
+
 	case "Identity.email":
 		if e.ComplexityRoot.Identity.Email == nil {
 			break
@@ -3652,6 +3702,30 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.FolderRevoke(childComplexity, args["id"].(string)), true
+	case "Mutation.gitHubConnect":
+		if e.ComplexityRoot.Mutation.GitHubConnect == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.GitHubConnect(childComplexity), true
+	case "Mutation.gitHubConnectCancel":
+		if e.ComplexityRoot.Mutation.GitHubConnectCancel == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.GitHubConnectCancel(childComplexity), true
+	case "Mutation.gitHubDisconnect":
+		if e.ComplexityRoot.Mutation.GitHubDisconnect == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.GitHubDisconnect(childComplexity), true
+	case "Mutation.gitHubSettingsOpen":
+		if e.ComplexityRoot.Mutation.GitHubSettingsOpen == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.GitHubSettingsOpen(childComplexity), true
 	case "Mutation.memoryDelete":
 		if e.ComplexityRoot.Mutation.MemoryDelete == nil {
 			break
@@ -4195,6 +4269,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Clusters(childComplexity), true
+	case "Query.gitHubConnection":
+		if e.ComplexityRoot.Query.GitHubConnection == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.GitHubConnection(childComplexity), true
 
 	case "Query.logsFetch":
 		if e.ComplexityRoot.Query.LogsFetch == nil {
@@ -4749,6 +4829,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.EventsWatch(childComplexity, args["id"].(apimeta.ObjectID), args["category"].(*string)), true
+	case "Subscription.gitHubConnectionWatch":
+		if e.ComplexityRoot.Subscription.GitHubConnectionWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.GitHubConnectionWatch(childComplexity), true
 	case "Subscription.logsFollow":
 		if e.ComplexityRoot.Subscription.LogsFollow == nil {
 			break
@@ -5908,6 +5994,20 @@ func (ec *executionContext) childFields_FetchAction(ctx context.Context, field g
 		return ec.fieldContext_FetchAction_host(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type FetchAction", field.Name)
+}
+
+func (ec *executionContext) childFields_GitHubConnection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "phase":
+		return ec.fieldContext_GitHubConnection_phase(ctx, field)
+	case "login":
+		return ec.fieldContext_GitHubConnection_login(ctx, field)
+	case "userCode":
+		return ec.fieldContext_GitHubConnection_userCode(ctx, field)
+	case "failure":
+		return ec.fieldContext_GitHubConnection_failure(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type GitHubConnection", field.Name)
 }
 
 func (ec *executionContext) childFields_Identity(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -14214,6 +14314,98 @@ func (ec *executionContext) fieldContext_FetchAction_host(_ context.Context, fie
 	return graphql.NewScalarFieldContext("FetchAction", field, false, false, "String")
 }
 
+func (ec *executionContext) _GitHubConnection_phase(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_GitHubConnection_phase(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Phase, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v connectors.Phase) graphql.Marshaler {
+			return ec.marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_GitHubConnection_phase(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("GitHubConnection", field, false, false, "ConnectorPhase")
+}
+
+func (ec *executionContext) _GitHubConnection_login(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_GitHubConnection_login(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.GitHubConnection().Login(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_GitHubConnection_login(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("GitHubConnection", field, true, true, "String")
+}
+
+func (ec *executionContext) _GitHubConnection_userCode(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_GitHubConnection_userCode(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.GitHubConnection().UserCode(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_GitHubConnection_userCode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("GitHubConnection", field, true, true, "String")
+}
+
+func (ec *executionContext) _GitHubConnection_failure(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_GitHubConnection_failure(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.GitHubConnection().Failure(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.Failure) graphql.Marshaler {
+			return ec.marshalOConnectorFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐFailure(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_GitHubConnection_failure(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("GitHubConnection", field, true, true, "ConnectorFailure")
+}
+
 func (ec *executionContext) _Identity_sub(ctx context.Context, field graphql.CollectedField, obj *oauth.Identity) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -18845,6 +19037,98 @@ func (ec *executionContext) fieldContext_Mutation_awsDisconnect(_ context.Contex
 	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
 }
 
+func (ec *executionContext) _Mutation_gitHubConnect(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_gitHubConnect(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().GitHubConnect(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_gitHubConnect(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
+func (ec *executionContext) _Mutation_gitHubConnectCancel(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_gitHubConnectCancel(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().GitHubConnectCancel(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_gitHubConnectCancel(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
+func (ec *executionContext) _Mutation_gitHubDisconnect(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_gitHubDisconnect(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().GitHubDisconnect(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_gitHubDisconnect(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
+func (ec *executionContext) _Mutation_gitHubSettingsOpen(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_gitHubSettingsOpen(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().GitHubSettingsOpen(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_gitHubSettingsOpen(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
 func (ec *executionContext) _NonResourceRule_verbs(ctx context.Context, field graphql.CollectedField, obj *model.NonResourceRule) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -20652,6 +20936,38 @@ func (ec *executionContext) fieldContext_Query_awsConnection(_ context.Context, 
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_AWSConnection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_gitHubConnection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_gitHubConnection(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().GitHubConnection(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNGitHubConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_gitHubConnection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_GitHubConnection(ctx, field)
 		},
 	}
 	return fc, nil
@@ -22728,6 +23044,38 @@ func (ec *executionContext) fieldContext_Subscription_openRouterConnectionWatch(
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_OpenRouterConnection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_gitHubConnectionWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_gitHubConnectionWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().GitHubConnectionWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNGitHubConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_gitHubConnectionWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_GitHubConnection(ctx, field)
 		},
 	}
 	return fc, nil
@@ -28364,6 +28712,57 @@ func (ec *executionContext) _FetchAction(ctx context.Context, sel ast.SelectionS
 	return out
 }
 
+var gitHubConnectionImplementors = []string{"GitHubConnection"}
+
+func (ec *executionContext) _GitHubConnection(ctx context.Context, sel ast.SelectionSet, obj *connectors.State) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, gitHubConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("GitHubConnection")
+		case "phase":
+			out.Values[i] = ec._GitHubConnection_phase(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "login":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._GitHubConnection_login(ctx, field, obj)
+				})
+		case "userCode":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._GitHubConnection_userCode(ctx, field, obj)
+				})
+		case "failure":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._GitHubConnection_failure(ctx, field, obj)
+				})
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
 var identityImplementors = []string{"Identity"}
 
 func (ec *executionContext) _Identity(ctx context.Context, sel ast.SelectionSet, obj *oauth.Identity) graphql.Marshaler {
@@ -29919,6 +30318,34 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "gitHubConnect":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_gitHubConnect(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "gitHubConnectCancel":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_gitHubConnectCancel(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "gitHubDisconnect":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_gitHubDisconnect(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "gitHubSettingsOpen":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_gitHubSettingsOpen(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -30559,6 +30986,12 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_awsConnection(ctx, field)
+				})
+		case "gitHubConnection":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_gitHubConnection(ctx, field)
 				})
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
@@ -31255,6 +31688,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_chatGPTConnectionWatch(ctx, fields[0])
 	case "openRouterConnectionWatch":
 		return ec._Subscription_openRouterConnectionWatch(ctx, fields[0])
+	case "gitHubConnectionWatch":
+		return ec._Subscription_gitHubConnectionWatch(ctx, fields[0])
 	case "awsConnectionWatch":
 		return ec._Subscription_awsConnectionWatch(ctx, fields[0])
 	case "modelsWatch":
@@ -32727,6 +33162,14 @@ func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.S
 		graphql.AddInvalidNullFromMarshaler(ctx, "Float!")
 	}
 	return graphql.WrapContextMarshaler(ctx, res)
+}
+
+func (ec *executionContext) marshalNGitHubConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx context.Context, sel ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "GitHubConnection!")
+		return graphql.Null
+	}
+	return ec._GitHubConnection(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNGrantDuration2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐGrantDuration(ctx context.Context, v any) (model.GrantDuration, error) {

@@ -41,6 +41,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
@@ -4066,6 +4067,107 @@ func TestAWSMutations(t *testing.T) {
 		_, errs := mutation(t, srv.URL, op)
 		require.Len(t, errs, 1, op)
 		assert.Nil(t, errs[0].Extensions["code"], op)
+	}
+}
+
+// fakeGitHub is the GitHub connector as the wire sees it, which drives it as it
+// drives OpenRouter's.
+type fakeGitHub = fakeOpenRouter
+
+func gitHubServer(t *testing.T, f *fakeGitHub, open func(string) error) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
+		GitHub:  f,
+		OpenURL: open,
+		LLMSvc:  llm.New(),
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// The connection projects the state: the login only while connected, the
+// code only while signing in, the failure only while failed, and nothing a
+// token could ride.
+func TestGitHubConnectionProjectsTheState(t *testing.T) {
+	f := newFakeOpenRouter(connectors.State{Phase: connectors.Connected, Name: "octocat", UserCode: "WDJB-MJHT", Failure: connectors.Refused})
+	srv := gitHubServer(t, f, func(string) error { return nil })
+	const query = `query { gitHubConnection { phase login userCode failure } }`
+
+	for _, c := range []struct {
+		st   connectors.State
+		want map[string]any
+	}{
+		{f.State(), map[string]any{"phase": "Connected", "login": "octocat", "userCode": nil, "failure": nil}},
+		{
+			connectors.State{Phase: connectors.SigningIn, Name: "octocat", UserCode: "WDJB-MJHT"},
+			map[string]any{"phase": "SigningIn", "login": nil, "userCode": "WDJB-MJHT", "failure": nil},
+		},
+		{connectors.State{Phase: connectors.SigningIn}, map[string]any{"phase": "SigningIn", "login": nil, "userCode": nil, "failure": nil}},
+		{
+			connectors.State{Phase: connectors.Failed, Failure: connectors.KeyRejected, Name: "octocat"},
+			map[string]any{"phase": "Failed", "login": nil, "userCode": nil, "failure": "KeyRejected"},
+		},
+	} {
+		f.publish(c.st)
+		data, errs := mutation(t, srv.URL, query)
+		require.Empty(t, errs)
+		assert.Equal(t, c.want, data["gitHubConnection"], c.st)
+	}
+}
+
+// The watch is a gauge: the current state, then each change.
+func TestGitHubConnectionWatchIsAGauge(t *testing.T) {
+	f := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
+	srv := gitHubServer(t, f, func(string) error { return nil })
+
+	resp := openSSESubscription(t, srv.URL, "", `subscription { gitHubConnectionWatch { phase userCode } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
+
+	f.publish(connectors.State{Phase: connectors.SigningIn, UserCode: "WDJB-MJHT"})
+
+	assert.Contains(t, nextSSE(t, events).data, `"userCode":"WDJB-MJHT"`)
+}
+
+// The mutations drive the connector, and GitHub's settings page is the
+// sidecar's constant.
+func TestGitHubMutations(t *testing.T) {
+	f := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
+	var opened []string
+	srv := gitHubServer(t, f, func(u string) error { opened = append(opened, u); return nil })
+
+	data, errs := mutation(t, srv.URL, `mutation { gitHubConnect gitHubConnectCancel gitHubDisconnect gitHubSettingsOpen }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"gitHubConnect": true, "gitHubConnectCancel": true, "gitHubDisconnect": true, "gitHubSettingsOpen": true}, data)
+	assert.Equal(t, 1, f.connects)
+	assert.Equal(t, 1, f.cancels)
+	assert.Equal(t, 1, f.disconnects)
+	assert.Equal(t, []string{github.SettingsURL}, opened)
+}
+
+// A delete the keyring refused, a browser that cannot open, and a Connect that
+// fails for another reason are errors on the wire, with no validation code;
+// a refusal, a build with no OAuth App included, is a validation error.
+func TestGitHubMutationsFail(t *testing.T) {
+	f := newFakeOpenRouter(connectors.State{Phase: connectors.Connected})
+	f.disconnectErr = errors.New("the keyring refused")
+	f.connectErr = errors.New("boom")
+	srv := gitHubServer(t, f, func(string) error { return errors.New("no browser") })
+
+	for _, op := range []string{`mutation { gitHubDisconnect }`, `mutation { gitHubSettingsOpen }`, `mutation { gitHubConnect }`} {
+		_, errs := mutation(t, srv.URL, op)
+		require.Len(t, errs, 1, op)
+		assert.Nil(t, errs[0].Extensions["code"], op)
+	}
+
+	for _, refusal := range []error{connectors.ErrNoClient, connectors.ErrSigningIn, connectors.ErrConnected, connectors.ErrNotDeleted} {
+		f.connectErr, f.disconnectErr = refusal, refusal
+		for _, op := range []string{`mutation { gitHubConnect }`, `mutation { gitHubDisconnect }`} {
+			_, errs := mutation(t, srv.URL, op)
+			require.Len(t, errs, 1, op)
+			assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"], "%s: %v", op, refusal)
+		}
 	}
 }
 

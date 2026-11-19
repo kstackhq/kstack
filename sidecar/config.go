@@ -25,6 +25,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 )
 
@@ -64,6 +65,8 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 	// production defaults into the binary leaks nothing.
 	fs.StringVar(&cfg.App.OAuthIssuerURL, "oauth-issuer", "https://oauth.kstack.sh", "OAuth issuer URL")
 	fs.StringVar(&cfg.App.OAuthClientID, "oauth-client-id", "kstack-desktop", "OAuth client id")
+	// GitHub's device flow runs under a public client too; empty refuses its sign-in.
+	fs.StringVar(&cfg.App.GitHubClientID, "github-client-id", "", "GitHub OAuth App client id")
 	// The host passes its install's name, so a dev run and an installed
 	// release never share one keychain entry.
 	fs.StringVar(&cfg.App.KeychainService, "keychain-service", "", "keyring service name; empty is the Kstack default")
@@ -130,6 +133,7 @@ func applyEnvOverrides(cfg *config, getenv func(string) string) {
 	}
 	set(&cfg.App.OAuthIssuerURL, "KSTACK_OAUTH_ISSUER")
 	set(&cfg.App.OAuthClientID, "KSTACK_OAUTH_CLIENT_ID")
+	set(&cfg.App.GitHubClientID, github.ClientIDVar)
 	set(&cfg.App.DataDir, "KSTACK_DATA_DIR")
 	set(&cfg.App.CacheDir, "KSTACK_CACHE_DIR")
 	set(&cfg.App.RuntimeDir, "KSTACK_RUNTIME_DIR")
@@ -151,5 +155,6 @@ func applyEnvOverrides(cfg *config, getenv func(string) string) {
 		chatgpt.ID:    chatgpt.IssuerURLVar,
 		openrouter.ID: openrouter.AuthURLVar,
 		aws.ID:        aws.SigninURLVar,
+		github.ID:     github.AuthURLVar,
 	})
 }

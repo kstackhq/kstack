@@ -71,6 +71,9 @@ type Config struct {
 	OAuthIssuerURL string
 	// OAuthClientID is the app's public (PKCE/loopback) client there.
 	OAuthClientID string
+	// GitHubClientID is Kstack's GitHub OAuth App, a public client the device
+	// flow signs in under. Empty refuses the GitHub connector's Connect.
+	GitHubClientID string
 	// KeychainService is the OS-keychain service name for the connectors' tokens. Empty
 	// uses defaultKeychainService; dev runs set a distinct name so dev and
 	// release don't share a keychain entry.
@@ -83,7 +86,7 @@ type Config struct {
 	// debug build sets it.
 	LLMBaseURLs map[string]string
 	// ConnectorAuthURLs moves where a connector signs in, by its provider id:
-	// an OAuth issuer, OpenRouter's auth origin, or AWS's sign-in.
+	// an OAuth issuer, OpenRouter's or GitHub's auth origin, or AWS's sign-in.
 	// Only a debug build sets it.
 	ConnectorAuthURLs map[string]string
 	// AddFake adds the fake to the catalog, last, so a dev run answers with no
