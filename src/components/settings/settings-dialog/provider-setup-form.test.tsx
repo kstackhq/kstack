@@ -59,7 +59,6 @@ describe('ProviderSetupForm', () => {
   });
 
   it.each([
-    ['google-connector', 'Google connector', 'Sign in with your Google account.'],
     ['azure-connector', 'Azure connector', 'Sign in with your Azure account.'],
     ['host', 'Host', 'The address of the server that runs the models.'],
   ] as const)('describes %s, and draws no fields for it', (source, name, description) => {
@@ -116,18 +115,21 @@ describe('ProviderSetupForm', () => {
     );
   });
 
-  it('sends the OpenRouter connector to the Connectors tab, closing the form', async () => {
+  it.each([
+    ['openrouter-connector', 'OpenRouter connector', 'Sign in with your OpenRouter account.'],
+    ['google-connector', 'Google connector', 'Sign in with your Google account.'],
+  ] as const)('sends %s to the Connectors tab, closing the form', async (connector, name, description) => {
     const user = userEvent.setup();
     const selectTab = vi.fn();
     const onCancel = vi.fn();
     render(
       <SelectSettingsTab value={selectTab}>
-        <ProviderSetupForm sources={['environment', 'openrouter-connector']} onCancel={onCancel} />
+        <ProviderSetupForm sources={['environment', connector]} onCancel={onCancel} />
       </SelectSettingsTab>,
     );
 
-    const source = screen.getByRole('radio', { name: 'OpenRouter connector' });
-    expect(source).toHaveAccessibleDescription('Sign in with your OpenRouter account.');
+    const source = screen.getByRole('radio', { name });
+    expect(source).toHaveAccessibleDescription(description);
     expect(screen.queryByText('Coming soon')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Open Connectors' })).toBeNull();
 

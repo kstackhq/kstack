@@ -26,6 +26,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/google"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/kstackcloud"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
@@ -60,7 +61,9 @@ type Runtime struct {
 	AWS *aws.Service
 	// GitHub is the GitHub connector, whose token the sandbox's GitHub proxy
 	// sends while it is connected.
-	GitHub  *github.Service
+	GitHub *github.Service
+	// Google is the Google connector, which signs the google row.
+	Google  *google.Service
 	Catalog catalog.Catalog
 	LLM     *llm.Service
 	// Shell is nil on a machine with no shell.
@@ -125,6 +128,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		login = launchShell(ctx, boxer, p.Bash.DeniedDirs, p.Bash.TmpDir)
 		cfg.LLMKeys = withShellKeys(cfg.LLMKeys, login.keys)
 	}
+	cfg.googleProject, cfg.vertexBaseURL = findGoogleProject(cfg.Getenv)
 
 	// The settings hold no handle, so a failure leaves the sandbox and the lock to close.
 	settingsStore, err := settings.Open(p.SettingsFile)
@@ -230,7 +234,20 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.add("github service", lifecycle.CloseFunc(func() error { rt.GitHub.Close(); return nil }))
 
-	rt.Catalog = newCatalog(cfg, map[string]llm.SessionSigner{chatgpt.ID: rt.ChatGPT, openrouter.ID: rt.OpenRouter})
+	rt.Google, err = google.New(google.Config{
+		DB:              db,
+		KeychainService: keychainService,
+		ClientID:        cfg.GoogleClientID,
+		ClientSecret:    cfg.GoogleClientSecret,
+		APIBaseURL:      cmp.Or(cfg.LLMBaseURLs[google.ID], cfg.vertexBaseURL),
+		Project:         cfg.googleProject,
+	})
+	if err != nil { // coverage:ignore the statements prepare on the schema app.db was just migrated to
+		return fail(err)
+	}
+	rt.add("google service", lifecycle.CloseFunc(func() error { rt.Google.Close(); return nil }))
+
+	rt.Catalog = newCatalog(cfg, map[string]llm.SessionSigner{chatgpt.ID: rt.ChatGPT, openrouter.ID: rt.OpenRouter, google.ID: rt.Google})
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
 	rt.add("chatgpt catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
 		stop := rt.ChatGPT.SyncCatalog(rt.Poke, rt.LLM, catalog.ReadSignedModels)
@@ -240,6 +257,13 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	if rt.OpenRouter.State().Phase != connectors.FromEnvironment {
 		rt.add("openrouter catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
 			stop := rt.OpenRouter.SyncCatalog(rt.Poke, rt.LLM, catalog.ReadOpenRouterModels)
+			return func(context.Context) error { stop(); return nil }, nil
+		}))
+	}
+	// With no project, or GEMINI_API_KEY, there is no row to fill.
+	if _, listed := rt.LLM.Provider(google.ID); listed {
+		rt.add("google catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
+			stop := rt.Google.SyncCatalog(rt.Poke, rt.LLM, catalog.ReadSignedModels)
 			return func(context.Context) error { stop(); return nil }, nil
 		}))
 	}
@@ -332,6 +356,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		OpenRouter:    rt.OpenRouter,
 		AWS:           rt.AWS,
 		GitHub:        rt.GitHub,
+		Google:        rt.Google,
 		OpenURL:       browser.Open,
 		Settings:      rt.Settings,
 		Executables:   prober,
@@ -360,4 +385,18 @@ func cloudTargets(platforms []bash.CloudPlatform) []permissions.Target {
 		targets = append(targets, p.Target())
 	}
 	return targets
+}
+
+// findGoogleProject is the Google Cloud project getenv names and its Vertex AI
+// endpoint. Both are empty when getenv is nil or names none, and when the
+// project builds no endpoint, so the row never shows a project it cannot sign.
+func findGoogleProject(getenv func(string) string) (project, vertexBaseURL string) {
+	if getenv == nil {
+		return "", ""
+	}
+	project, location := google.FindProject(getenv)
+	if base := google.BaseURL(project, location); base != "" {
+		return project, base
+	}
+	return "", ""
 }

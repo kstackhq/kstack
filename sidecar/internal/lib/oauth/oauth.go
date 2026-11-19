@@ -55,7 +55,11 @@ type Identity struct {
 // Config is the OAuth client's static configuration. Its endpoints are given, written out
 // or read by Discover, so tests can point them at httptest servers.
 type Config struct {
-	ClientID      string
+	ClientID string
+	// ClientSecret is an installed app's secret, which its provider requires on
+	// the token endpoint though the app cannot keep it confidential. Empty for a
+	// public client.
+	ClientSecret  string
 	AuthURL       string
 	TokenURL      string
 	JWKSURL       string
@@ -90,9 +94,10 @@ func newHTTPClient() *http.Client {
 // the key set, so only the client timeout bounds it.
 func NewClient(cfg Config) *Client {
 	oc := &oauth2.Config{
-		ClientID: cfg.ClientID,
-		Scopes:   cfg.Scopes,
-		// A public client: client_id goes in the form, never as Basic auth.
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+		Scopes:       cfg.Scopes,
+		// client_id, and a secret if any, go in the form, never as Basic auth.
 		Endpoint: oauth2.Endpoint{
 			AuthURL:   cfg.AuthURL,
 			TokenURL:  cfg.TokenURL,
@@ -207,6 +212,9 @@ func (c *Client) Refresh(ctx context.Context, refreshToken string) (Token, error
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
 		"client_id":     {c.oc.ClientID},
+	}
+	if c.oc.ClientSecret != "" {
+		form.Set("client_secret", c.oc.ClientSecret)
 	}
 	if c.resource != "" {
 		form.Set("resource", c.resource)

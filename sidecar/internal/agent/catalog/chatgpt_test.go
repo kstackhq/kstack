@@ -167,7 +167,7 @@ func TestReadChatGPTModelsFails(t *testing.T) {
 
 // planRow is the chatgpt row at baseURL, signed by s.
 func planRow(s llm.Signer, baseURL string) llm.Provider {
-	p := newChatGPTProvider(s)
+	p := newChatGPTProvider(Config{}, s)
 	p.BaseURL = baseURL
 	return p
 }

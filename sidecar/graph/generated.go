@@ -56,6 +56,7 @@ type ResolverRoot interface {
 	ClusterCachedKindSpec() ClusterCachedKindSpecResolver
 	ClusterPrincipal() ClusterPrincipalResolver
 	GitHubConnection() GitHubConnectionResolver
+	GoogleConnection() GoogleConnectionResolver
 	Mutation() MutationResolver
 	OpenRouterConnection() OpenRouterConnectionResolver
 	Query() QueryResolver
@@ -477,6 +478,14 @@ type ComplexityRoot struct {
 		UserCode func(childComplexity int) int
 	}
 
+	GoogleConnection struct {
+		Email                 func(childComplexity int) int
+		Failure               func(childComplexity int) int
+		Phase                 func(childComplexity int) int
+		Project               func(childComplexity int) int
+		RevocationUnconfirmed func(childComplexity int) int
+	}
+
 	Identity struct {
 		Email  func(childComplexity int) int
 		Name   func(childComplexity int) int
@@ -692,6 +701,9 @@ type ComplexityRoot struct {
 		GitHubConnectCancel             func(childComplexity int) int
 		GitHubDisconnect                func(childComplexity int) int
 		GitHubSettingsOpen              func(childComplexity int) int
+		GoogleConnect                   func(childComplexity int, fresh bool) int
+		GoogleConnectCancel             func(childComplexity int) int
+		GoogleDisconnect                func(childComplexity int) int
 		MemoryDelete                    func(childComplexity int, id memory.MemoryID) int
 		MemorySave                      func(childComplexity int, input model.MemorySaveInput) int
 		OpenRouterConnect               func(childComplexity int) int
@@ -796,6 +808,7 @@ type ComplexityRoot struct {
 		ClusterCaches        func(childComplexity int, clusterID *apimeta.ClusterID) int
 		Clusters             func(childComplexity int) int
 		GitHubConnection     func(childComplexity int) int
+		GoogleConnection     func(childComplexity int) int
 		LogsFetch            func(childComplexity int, id apimeta.ClusterID, request model.LogsFetchInput) int
 		Models               func(childComplexity int) int
 		OpenRouterConnection func(childComplexity int) int
@@ -918,6 +931,7 @@ type ComplexityRoot struct {
 		ClustersWatch                 func(childComplexity int) int
 		EventsWatch                   func(childComplexity int, id apimeta.ObjectID, category *string) int
 		GitHubConnectionWatch         func(childComplexity int) int
+		GoogleConnectionWatch         func(childComplexity int) int
 		LogsFollow                    func(childComplexity int, id apimeta.ClusterID, request model.LogsFollowInput) int
 		MemoriesWatch                 func(childComplexity int, clusterID apimeta.ClusterID) int
 		ModelsWatch                   func(childComplexity int) int
@@ -1026,6 +1040,11 @@ type GitHubConnectionResolver interface {
 	UserCode(ctx context.Context, obj *connectors.State) (*string, error)
 	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
 }
+type GoogleConnectionResolver interface {
+	Email(ctx context.Context, obj *connectors.State) (*string, error)
+	Project(ctx context.Context, obj *connectors.State) (*string, error)
+	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
+}
 type MutationResolver interface {
 	ClusterEnabledSet(ctx context.Context, id apimeta.ClusterID, enabled bool) (*cluster.Cluster, error)
 	ClusterSyncEnabledSet(ctx context.Context, id apimeta.ClusterID, syncEnabled bool) (*cluster.Cluster, error)
@@ -1077,6 +1096,9 @@ type MutationResolver interface {
 	GitHubConnectCancel(ctx context.Context) (bool, error)
 	GitHubDisconnect(ctx context.Context) (bool, error)
 	GitHubSettingsOpen(ctx context.Context) (bool, error)
+	GoogleConnect(ctx context.Context, fresh bool) (bool, error)
+	GoogleConnectCancel(ctx context.Context) (bool, error)
+	GoogleDisconnect(ctx context.Context) (bool, error)
 }
 type OpenRouterConnectionResolver interface {
 	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
@@ -1105,6 +1127,7 @@ type QueryResolver interface {
 	OpenRouterConnection(ctx context.Context) (*connectors.State, error)
 	AWSConnection(ctx context.Context) (*connectors.State, error)
 	GitHubConnection(ctx context.Context) (*connectors.State, error)
+	GoogleConnection(ctx context.Context) (*connectors.State, error)
 }
 type SubscriptionResolver interface {
 	EventsWatch(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *cluster.EventWatchFrame, error)
@@ -1129,6 +1152,7 @@ type SubscriptionResolver interface {
 	ChatGPTConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	OpenRouterConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	GitHubConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
+	GoogleConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	AWSConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ModelsWatch(ctx context.Context) (<-chan []*model.Model, error)
 }
@@ -2738,6 +2762,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.GitHubConnection.UserCode(childComplexity), true
 
+	case "GoogleConnection.email":
+		if e.ComplexityRoot.GoogleConnection.Email == nil {
+			break
+		}
+
+		return e.ComplexityRoot.GoogleConnection.Email(childComplexity), true
+	case "GoogleConnection.failure":
+		if e.ComplexityRoot.GoogleConnection.Failure == nil {
+			break
+		}
+
+		return e.ComplexityRoot.GoogleConnection.Failure(childComplexity), true
+	case "GoogleConnection.phase":
+		if e.ComplexityRoot.GoogleConnection.Phase == nil {
+			break
+		}
+
+		return e.ComplexityRoot.GoogleConnection.Phase(childComplexity), true
+	case "GoogleConnection.project":
+		if e.ComplexityRoot.GoogleConnection.Project == nil {
+			break
+		}
+
+		return e.ComplexityRoot.GoogleConnection.Project(childComplexity), true
+	case "GoogleConnection.revocationUnconfirmed":
+		if e.ComplexityRoot.GoogleConnection.RevocationUnconfirmed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.GoogleConnection.RevocationUnconfirmed(childComplexity), true
+
 	case "Identity.email":
 		if e.ComplexityRoot.Identity.Email == nil {
 			break
@@ -3726,6 +3781,29 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.GitHubSettingsOpen(childComplexity), true
+	case "Mutation.googleConnect":
+		if e.ComplexityRoot.Mutation.GoogleConnect == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_googleConnect_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.GoogleConnect(childComplexity, args["fresh"].(bool)), true
+	case "Mutation.googleConnectCancel":
+		if e.ComplexityRoot.Mutation.GoogleConnectCancel == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.GoogleConnectCancel(childComplexity), true
+	case "Mutation.googleDisconnect":
+		if e.ComplexityRoot.Mutation.GoogleDisconnect == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.GoogleDisconnect(childComplexity), true
 	case "Mutation.memoryDelete":
 		if e.ComplexityRoot.Mutation.MemoryDelete == nil {
 			break
@@ -4275,6 +4353,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.GitHubConnection(childComplexity), true
+	case "Query.googleConnection":
+		if e.ComplexityRoot.Query.GoogleConnection == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.GoogleConnection(childComplexity), true
 
 	case "Query.logsFetch":
 		if e.ComplexityRoot.Query.LogsFetch == nil {
@@ -4835,6 +4919,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.GitHubConnectionWatch(childComplexity), true
+	case "Subscription.googleConnectionWatch":
+		if e.ComplexityRoot.Subscription.GoogleConnectionWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.GoogleConnectionWatch(childComplexity), true
 	case "Subscription.logsFollow":
 		if e.ComplexityRoot.Subscription.LogsFollow == nil {
 			break
@@ -6008,6 +6098,22 @@ func (ec *executionContext) childFields_GitHubConnection(ctx context.Context, fi
 		return ec.fieldContext_GitHubConnection_failure(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type GitHubConnection", field.Name)
+}
+
+func (ec *executionContext) childFields_GoogleConnection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "phase":
+		return ec.fieldContext_GoogleConnection_phase(ctx, field)
+	case "email":
+		return ec.fieldContext_GoogleConnection_email(ctx, field)
+	case "project":
+		return ec.fieldContext_GoogleConnection_project(ctx, field)
+	case "failure":
+		return ec.fieldContext_GoogleConnection_failure(ctx, field)
+	case "revocationUnconfirmed":
+		return ec.fieldContext_GoogleConnection_revocationUnconfirmed(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type GoogleConnection", field.Name)
 }
 
 func (ec *executionContext) childFields_Identity(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -7455,6 +7561,20 @@ func (ec *executionContext) field_Mutation_folderRevoke_args(ctx context.Context
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_googleConnect_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "fresh",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["fresh"] = arg0
 	return args, nil
 }
 
@@ -14406,6 +14526,121 @@ func (ec *executionContext) fieldContext_GitHubConnection_failure(_ context.Cont
 	return graphql.NewScalarFieldContext("GitHubConnection", field, true, true, "ConnectorFailure")
 }
 
+func (ec *executionContext) _GoogleConnection_phase(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_GoogleConnection_phase(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Phase, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v connectors.Phase) graphql.Marshaler {
+			return ec.marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_GoogleConnection_phase(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("GoogleConnection", field, false, false, "ConnectorPhase")
+}
+
+func (ec *executionContext) _GoogleConnection_email(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_GoogleConnection_email(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.GoogleConnection().Email(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_GoogleConnection_email(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("GoogleConnection", field, true, true, "String")
+}
+
+func (ec *executionContext) _GoogleConnection_project(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_GoogleConnection_project(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.GoogleConnection().Project(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_GoogleConnection_project(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("GoogleConnection", field, true, true, "String")
+}
+
+func (ec *executionContext) _GoogleConnection_failure(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_GoogleConnection_failure(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.GoogleConnection().Failure(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.Failure) graphql.Marshaler {
+			return ec.marshalOConnectorFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐFailure(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_GoogleConnection_failure(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("GoogleConnection", field, true, true, "ConnectorFailure")
+}
+
+func (ec *executionContext) _GoogleConnection_revocationUnconfirmed(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_GoogleConnection_revocationUnconfirmed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RevocationUnconfirmed, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_GoogleConnection_revocationUnconfirmed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("GoogleConnection", field, false, false, "Boolean")
+}
+
 func (ec *executionContext) _Identity_sub(ctx context.Context, field graphql.CollectedField, obj *oauth.Identity) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -19129,6 +19364,96 @@ func (ec *executionContext) fieldContext_Mutation_gitHubSettingsOpen(_ context.C
 	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
 }
 
+func (ec *executionContext) _Mutation_googleConnect(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_googleConnect(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().GoogleConnect(ctx, fc.Args["fresh"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_googleConnect(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_googleConnect_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_googleConnectCancel(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_googleConnectCancel(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().GoogleConnectCancel(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_googleConnectCancel(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
+func (ec *executionContext) _Mutation_googleDisconnect(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_googleDisconnect(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().GoogleDisconnect(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_googleDisconnect(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Mutation", field, true, true, "Boolean")
+}
+
 func (ec *executionContext) _NonResourceRule_verbs(ctx context.Context, field graphql.CollectedField, obj *model.NonResourceRule) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -20968,6 +21293,38 @@ func (ec *executionContext) fieldContext_Query_gitHubConnection(_ context.Contex
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_GitHubConnection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_googleConnection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_googleConnection(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().GoogleConnection(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNGoogleConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_googleConnection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_GoogleConnection(ctx, field)
 		},
 	}
 	return fc, nil
@@ -23076,6 +23433,38 @@ func (ec *executionContext) fieldContext_Subscription_gitHubConnectionWatch(_ co
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_GitHubConnection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_googleConnectionWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_googleConnectionWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().GoogleConnectionWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNGoogleConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_googleConnectionWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_GoogleConnection(ctx, field)
 		},
 	}
 	return fc, nil
@@ -28763,6 +29152,62 @@ func (ec *executionContext) _GitHubConnection(ctx context.Context, sel ast.Selec
 	return out
 }
 
+var googleConnectionImplementors = []string{"GoogleConnection"}
+
+func (ec *executionContext) _GoogleConnection(ctx context.Context, sel ast.SelectionSet, obj *connectors.State) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, googleConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("GoogleConnection")
+		case "phase":
+			out.Values[i] = ec._GoogleConnection_phase(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "email":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._GoogleConnection_email(ctx, field, obj)
+				})
+		case "project":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._GoogleConnection_project(ctx, field, obj)
+				})
+		case "failure":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._GoogleConnection_failure(ctx, field, obj)
+				})
+		case "revocationUnconfirmed":
+			out.Values[i] = ec._GoogleConnection_revocationUnconfirmed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
 var identityImplementors = []string{"Identity"}
 
 func (ec *executionContext) _Identity(ctx context.Context, sel ast.SelectionSet, obj *oauth.Identity) graphql.Marshaler {
@@ -30346,6 +30791,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "googleConnect":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_googleConnect(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "googleConnectCancel":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_googleConnectCancel(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "googleDisconnect":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_googleDisconnect(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -30992,6 +31458,12 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_gitHubConnection(ctx, field)
+				})
+		case "googleConnection":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_googleConnection(ctx, field)
 				})
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
@@ -31690,6 +32162,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_openRouterConnectionWatch(ctx, fields[0])
 	case "gitHubConnectionWatch":
 		return ec._Subscription_gitHubConnectionWatch(ctx, fields[0])
+	case "googleConnectionWatch":
+		return ec._Subscription_googleConnectionWatch(ctx, fields[0])
 	case "awsConnectionWatch":
 		return ec._Subscription_awsConnectionWatch(ctx, fields[0])
 	case "modelsWatch":
@@ -33170,6 +33644,14 @@ func (ec *executionContext) marshalNGitHubConnection2ᚖgithubᚗcomᚋkstackhq�
 		return graphql.Null
 	}
 	return ec._GitHubConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNGoogleConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx context.Context, sel ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "GoogleConnection!")
+		return graphql.Null
+	}
+	return ec._GoogleConnection(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNGrantDuration2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐGrantDuration(ctx context.Context, v any) (model.GrantDuration, error) {

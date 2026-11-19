@@ -66,6 +66,10 @@ type Documents = {
     "\n  mutation GitHubConnectCancel {\n    gitHubConnectCancel\n  }\n": typeof types.GitHubConnectCancelDocument,
     "\n  mutation GitHubDisconnect {\n    gitHubDisconnect\n  }\n": typeof types.GitHubDisconnectDocument,
     "\n  mutation GitHubSettingsOpen {\n    gitHubSettingsOpen\n  }\n": typeof types.GitHubSettingsOpenDocument,
+    "\n  subscription GoogleConnectionWatch {\n    googleConnectionWatch {\n      phase\n      email\n      project\n      failure\n      revocationUnconfirmed\n    }\n  }\n": typeof types.GoogleConnectionWatchDocument,
+    "\n  mutation GoogleConnect($fresh: Boolean!) {\n    googleConnect(fresh: $fresh)\n  }\n": typeof types.GoogleConnectDocument,
+    "\n  mutation GoogleConnectCancel {\n    googleConnectCancel\n  }\n": typeof types.GoogleConnectCancelDocument,
+    "\n  mutation GoogleDisconnect {\n    googleDisconnect\n  }\n": typeof types.GoogleDisconnectDocument,
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": typeof types.LogsFetchDocument,
     "\n  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {\n    logsFollow(id: $id, request: $request) {\n      type\n      record {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      notice {\n        code\n        message\n      }\n      ended {\n        code\n        message\n      }\n    }\n  }\n": typeof types.LogsFollowDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": typeof types.MemoriesWatchDocument,
@@ -149,6 +153,10 @@ const documents: Documents = {
     "\n  mutation GitHubConnectCancel {\n    gitHubConnectCancel\n  }\n": types.GitHubConnectCancelDocument,
     "\n  mutation GitHubDisconnect {\n    gitHubDisconnect\n  }\n": types.GitHubDisconnectDocument,
     "\n  mutation GitHubSettingsOpen {\n    gitHubSettingsOpen\n  }\n": types.GitHubSettingsOpenDocument,
+    "\n  subscription GoogleConnectionWatch {\n    googleConnectionWatch {\n      phase\n      email\n      project\n      failure\n      revocationUnconfirmed\n    }\n  }\n": types.GoogleConnectionWatchDocument,
+    "\n  mutation GoogleConnect($fresh: Boolean!) {\n    googleConnect(fresh: $fresh)\n  }\n": types.GoogleConnectDocument,
+    "\n  mutation GoogleConnectCancel {\n    googleConnectCancel\n  }\n": types.GoogleConnectCancelDocument,
+    "\n  mutation GoogleDisconnect {\n    googleDisconnect\n  }\n": types.GoogleDisconnectDocument,
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": types.LogsFetchDocument,
     "\n  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {\n    logsFollow(id: $id, request: $request) {\n      type\n      record {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      notice {\n        code\n        message\n      }\n      ended {\n        code\n        message\n      }\n    }\n  }\n": types.LogsFollowDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": types.MemoriesWatchDocument,
@@ -402,6 +410,22 @@ export function graphql(source: "\n  mutation GitHubDisconnect {\n    gitHubDisc
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  mutation GitHubSettingsOpen {\n    gitHubSettingsOpen\n  }\n"): (typeof documents)["\n  mutation GitHubSettingsOpen {\n    gitHubSettingsOpen\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  subscription GoogleConnectionWatch {\n    googleConnectionWatch {\n      phase\n      email\n      project\n      failure\n      revocationUnconfirmed\n    }\n  }\n"): (typeof documents)["\n  subscription GoogleConnectionWatch {\n    googleConnectionWatch {\n      phase\n      email\n      project\n      failure\n      revocationUnconfirmed\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation GoogleConnect($fresh: Boolean!) {\n    googleConnect(fresh: $fresh)\n  }\n"): (typeof documents)["\n  mutation GoogleConnect($fresh: Boolean!) {\n    googleConnect(fresh: $fresh)\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation GoogleConnectCancel {\n    googleConnectCancel\n  }\n"): (typeof documents)["\n  mutation GoogleConnectCancel {\n    googleConnectCancel\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation GoogleDisconnect {\n    googleDisconnect\n  }\n"): (typeof documents)["\n  mutation GoogleDisconnect {\n    googleDisconnect\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

@@ -138,6 +138,7 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 		stop:           stop,
 		hub:            watch.New(connectors.State{}),
 		sessions:       watch.New[uint64](0),
+		endpoints:      cfg.Provider.Endpoints,
 	}
 	s.tx = s.hub.Sender()
 	for _, opt := range opts {
@@ -262,7 +263,8 @@ func (s *Service) clientID(reg registration) string {
 	return cmp.Or(s.p.ClientID, reg.ClientID)
 }
 
-// discover reads the issuer's endpoints, once per launch.
+// discover reads the issuer's endpoints, once per launch, unless the provider
+// wrote them out.
 func (s *Service) discover(ctx context.Context) (oauth.Endpoints, error) {
 	s.mu.Lock()
 	known := s.endpoints
@@ -290,10 +292,14 @@ func (s *Service) clientFor(ctx context.Context, clientID string) (*oauth.Client
 }
 
 func (s *Service) newClient(e oauth.Endpoints, clientID string) *oauth.Client {
+	resource := s.base.String()
+	if s.p.NoResource {
+		resource = ""
+	}
 	return oauth.NewClient(oauth.Config{
-		ClientID: clientID, Issuer: e.Issuer,
+		ClientID: clientID, ClientSecret: s.p.ClientSecret, Issuer: e.Issuer,
 		AuthURL: e.AuthURL, TokenURL: e.TokenURL, JWKSURL: e.JWKSURL, RevocationURL: e.RevocationURL,
-		Scopes: s.p.Scopes, Resource: s.base.String(),
+		Scopes: s.p.Scopes, Resource: resource,
 	})
 }
 

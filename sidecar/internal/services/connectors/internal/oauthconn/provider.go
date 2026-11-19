@@ -14,7 +14,11 @@
 
 package oauthconn
 
-import "net/url"
+import (
+	"net/url"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
+)
 
 // Provider is what one provider's sign-in has of its own: authorization code
 // with PKCE on a loopback redirect, under a client fixed in code or one the
@@ -26,12 +30,21 @@ type Provider struct {
 	// Issuer is the provider's auth server, whose discovery document names the
 	// endpoints.
 	Issuer string
+	// Endpoints, set, are the provider's endpoints written out: Issuer is unused
+	// and nothing is discovered.
+	Endpoints *oauth.Endpoints
 	// ClientID is a client fixed in code. Set, the provider registers none:
 	// FirstClientID and ClientGone are unused and the row's client_id stays NULL.
 	ClientID string
+	// ClientSecret is the fixed client's secret, which an installed app's
+	// provider may require though the app cannot keep it confidential.
+	ClientSecret string
 	// APIBaseURL is the one resource the tokens are for, and all Sign signs.
 	// Empty signs nothing.
 	APIBaseURL string
+	// NoResource leaves the RFC 8707 resource, APIBaseURL, out of every request
+	// to the issuer, for one that takes none.
+	NoResource bool
 	// Scopes is what a sign-in asks for.
 	Scopes []string
 	// RequiredScope is the scope a sign-in is kept for: one granted without it

@@ -26,6 +26,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/google"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 )
 
@@ -67,6 +68,10 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 	fs.StringVar(&cfg.App.OAuthClientID, "oauth-client-id", "kstack-desktop", "OAuth client id")
 	// GitHub's device flow runs under a public client too; empty refuses its sign-in.
 	fs.StringVar(&cfg.App.GitHubClientID, "github-client-id", "", "GitHub OAuth App client id")
+	// Google's installed-app client carries a secret that is not confidential;
+	// an empty id refuses its sign-in.
+	fs.StringVar(&cfg.App.GoogleClientID, "google-client-id", "", "Google OAuth client id")
+	fs.StringVar(&cfg.App.GoogleClientSecret, "google-client-secret", "", "Google OAuth client secret")
 	// The host passes its install's name, so a dev run and an installed
 	// release never share one keychain entry.
 	fs.StringVar(&cfg.App.KeychainService, "keychain-service", "", "keyring service name; empty is the Kstack default")
@@ -134,6 +139,8 @@ func applyEnvOverrides(cfg *config, getenv func(string) string) {
 	set(&cfg.App.OAuthIssuerURL, "KSTACK_OAUTH_ISSUER")
 	set(&cfg.App.OAuthClientID, "KSTACK_OAUTH_CLIENT_ID")
 	set(&cfg.App.GitHubClientID, github.ClientIDVar)
+	set(&cfg.App.GoogleClientID, google.ClientIDVar)
+	set(&cfg.App.GoogleClientSecret, google.ClientSecretVar)
 	set(&cfg.App.DataDir, "KSTACK_DATA_DIR")
 	set(&cfg.App.CacheDir, "KSTACK_CACHE_DIR")
 	set(&cfg.App.RuntimeDir, "KSTACK_RUNTIME_DIR")

@@ -51,7 +51,7 @@ var chatGPTCodes = map[string]llm.CodeClass{
 // with an effort, and a model listed with none still reasons, so Extra asks on
 // every request: under store: false the encrypted copy is the only one a tool
 // round can replay, and the summary is the thinking the transcript shows.
-func newChatGPTProvider(signer llm.Signer) llm.Provider {
+func newChatGPTProvider(_ Config, signer llm.Signer) llm.Provider {
 	return llm.Provider{
 		ID: ChatGPTID, Label: "ChatGPT plan", Dialect: llm.DialectResponses,
 		BaseURL: chatgpt.APIBaseURL,

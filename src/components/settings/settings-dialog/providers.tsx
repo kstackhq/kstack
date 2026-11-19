@@ -28,7 +28,7 @@ import { useState } from 'react';
 
 import { Dialog } from '@/components/primitives/dialog';
 import { VisibleText } from '@/components/primitives/visible-text';
-import { type Connector, type Connectors, OPENROUTER_ID, useConnectors } from '@/lib/connectors';
+import { type Connector, type Connectors, GOOGLE_ID, OPENROUTER_ID, useConnectors } from '@/lib/connectors';
 import { type Catalog, providersOf, useModels } from '@/lib/models';
 import { useSelectSettingsTab } from '@/lib/settings-tab';
 
@@ -75,7 +75,7 @@ const PROVIDERS: Entry[] = [
   keyed('fireworks', 'Fireworks', 'FIREWORKS_API_KEY'),
   keyed('opencode-go', 'OpenCode Go', 'OPENCODE_GO_API_KEY'),
   { id: 'bedrock', label: 'Amazon Bedrock', sources: ['aws-connector', 'access-key'], missing: 'Needs credentials' },
-  { id: 'vertex', label: 'Google Vertex AI', sources: ['google-connector'], missing: 'Needs a Google connector' },
+  { id: GOOGLE_ID, label: 'Vertex AI', sources: ['google-connector'], missing: 'Needs a Google connector' },
   { id: 'foundry', label: 'Microsoft Foundry', sources: ['azure-connector', 'api-key'], missing: 'Needs credentials' },
   { id: 'ollama', label: 'Ollama', sources: ['host'], missing: 'No host set' },
 ];

@@ -2097,6 +2097,24 @@ type GitHubConnection {
   failure: ConnectorFailure
 }
 
+# --- Google connector ---
+# Google's sign-in for installed apps, under Kstack's client, whose tokens run the Gemini
+# models on Vertex AI in the user's Google Cloud project. The sidecar opens the browser on a
+# URL it built; no mutation carries a URL. No token is here.
+
+"The Google connector's state. No token is ever here."
+type GoogleConnection {
+  phase: ConnectorPhase!
+  "The account's email, from the ID token verified at sign-in. Display only. Null unless Connected, and when the ID token named none."
+  email: String
+  "The Google Cloud project the models run in, from GOOGLE_CLOUD_PROJECT or gcloud's active configuration at launch. Null when none was found: the connector signs in, but lists no models."
+  project: String
+  "Why the last attempt or session ended. Null unless Failed."
+  failure: ConnectorFailure
+  "Tokens this machine dropped, at a sign-out or a sign-in that could not be saved, which Google did not confirm it revoked. False again at the next connect."
+  revocationUnconfirmed: Boolean!
+}
+
 "What the sandbox does with one folder of the user's PATH."
 enum SandboxPathState {
   "On the sandbox's PATH and readable in it."
@@ -2290,6 +2308,10 @@ type Query {
   # --- GitHub connector ---
   "The GitHub connector's state; live updates via gitHubConnectionWatch."
   gitHubConnection: GitHubConnection!
+
+  # --- Google connector ---
+  "The Google connector's state; live updates via googleConnectionWatch."
+  googleConnection: GoogleConnection!
 }
 
 type Mutation {
@@ -2441,6 +2463,14 @@ type Mutation {
   gitHubDisconnect: Boolean!
   "Open GitHub's authorized OAuth Apps settings in the browser. The address is the sidecar's constant."
   gitHubSettingsOpen: Boolean!
+
+  # --- Google connector ---
+  "Open the browser on Google's sign-in. Returns once it opens; the outcome arrives on googleConnectionWatch. `fresh` forgets the saved account first. Refused (KSTACK_VALIDATION_ERROR) in a build with no Google client, during an attempt and while connected."
+  googleConnect(fresh: Boolean!): Boolean!
+  "End the sign-in under way, if any. Tokens Google grants after it are revoked."
+  googleConnectCancel: Boolean!
+  "Sign out on this machine, then ask Google to revoke the grant. Returns once this machine is signed out; an unconfirmed revocation arrives on googleConnectionWatch."
+  googleDisconnect: Boolean!
 }
 
 type Subscription {
@@ -2550,6 +2580,9 @@ type Subscription {
   # --- GitHub connector ---
   "GAUGE. The GitHub connector's state, a fresh value on every change."
   gitHubConnectionWatch: GitHubConnection!
+  # --- Google connector ---
+  "GAUGE. The Google connector's state, a fresh value on every change."
+  googleConnectionWatch: GoogleConnection!
 
   # --- AWS connector ---
   "GAUGE. The AWS connector's state, a fresh value on every change."

@@ -203,6 +203,31 @@ func (r *gitHubConnectionResolver) Failure(ctx context.Context, obj *connectors.
 	return &obj.Failure, nil
 }
 
+// Email is the resolver for the email field.
+func (r *googleConnectionResolver) Email(ctx context.Context, obj *connectors.State) (*string, error) {
+	if obj.Phase != connectors.Connected || obj.Email == "" {
+		return nil, nil
+	}
+	return &obj.Email, nil
+}
+
+// Project is the resolver for the project field.
+func (r *googleConnectionResolver) Project(ctx context.Context, obj *connectors.State) (*string, error) {
+	project := r.Google.Project()
+	if project == "" {
+		return nil, nil
+	}
+	return &project, nil
+}
+
+// Failure is the resolver for the failure field.
+func (r *googleConnectionResolver) Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error) {
+	if obj.Phase != connectors.Failed {
+		return nil, nil
+	}
+	return &obj.Failure, nil
+}
+
 // ClusterEnabledSet is the resolver for the clusterEnabledSet field. The change
 // reaches the webview through the cluster watch.
 func (r *mutationResolver) ClusterEnabledSet(ctx context.Context, id apimeta.ClusterID, enabled bool) (*cluster.Cluster, error) {
@@ -621,6 +646,28 @@ func (r *mutationResolver) GitHubSettingsOpen(ctx context.Context) (bool, error)
 	return true, nil
 }
 
+// GoogleConnect is the resolver for the googleConnect field.
+func (r *mutationResolver) GoogleConnect(ctx context.Context, fresh bool) (bool, error) {
+	if err := r.Google.Connect(ctx, fresh); err != nil {
+		return false, connectorErr(err)
+	}
+	return true, nil
+}
+
+// GoogleConnectCancel is the resolver for the googleConnectCancel field.
+func (r *mutationResolver) GoogleConnectCancel(ctx context.Context) (bool, error) {
+	r.Google.Cancel()
+	return true, nil
+}
+
+// GoogleDisconnect is the resolver for the googleDisconnect field.
+func (r *mutationResolver) GoogleDisconnect(ctx context.Context) (bool, error) {
+	if err := r.Google.Disconnect(ctx); err != nil {
+		return false, connectorErr(err)
+	}
+	return true, nil
+}
+
 // Failure is the resolver for the failure field.
 func (r *openRouterConnectionResolver) Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error) {
 	if obj.Phase != connectors.Failed {
@@ -786,6 +833,12 @@ func (r *queryResolver) AWSConnection(ctx context.Context) (*connectors.State, e
 // GitHubConnection is the resolver for the gitHubConnection field.
 func (r *queryResolver) GitHubConnection(ctx context.Context) (*connectors.State, error) {
 	st := r.GitHub.State()
+	return &st, nil
+}
+
+// GoogleConnection is the resolver for the googleConnection field.
+func (r *queryResolver) GoogleConnection(ctx context.Context) (*connectors.State, error) {
+	st := r.Google.State()
 	return &st, nil
 }
 
@@ -1043,6 +1096,12 @@ func (r *subscriptionResolver) GitHubConnectionWatch(ctx context.Context) (<-cha
 	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
+// GoogleConnectionWatch is the resolver for the googleConnectionWatch field.
+func (r *subscriptionResolver) GoogleConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
+	states, cancel := r.Google.Subscribe()
+	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
+}
+
 // AWSConnectionWatch is the resolver for the awsConnectionWatch field.
 func (r *subscriptionResolver) AWSConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
 	states, cancel := r.AWS.Subscribe()
@@ -1100,6 +1159,9 @@ func (r *Resolver) ClusterPrincipal() ClusterPrincipalResolver { return &cluster
 // GitHubConnection returns GitHubConnectionResolver implementation.
 func (r *Resolver) GitHubConnection() GitHubConnectionResolver { return &gitHubConnectionResolver{r} }
 
+// GoogleConnection returns GoogleConnectionResolver implementation.
+func (r *Resolver) GoogleConnection() GoogleConnectionResolver { return &googleConnectionResolver{r} }
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
@@ -1128,6 +1190,7 @@ type (
 	clusterCachedKindSpecResolver struct{ *Resolver }
 	clusterPrincipalResolver      struct{ *Resolver }
 	gitHubConnectionResolver      struct{ *Resolver }
+	googleConnectionResolver      struct{ *Resolver }
 	mutationResolver              struct{ *Resolver }
 	openRouterConnectionResolver  struct{ *Resolver }
 	queryResolver                 struct{ *Resolver }

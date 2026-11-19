@@ -36,6 +36,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
@@ -96,6 +97,25 @@ func newFixedRig(t *testing.T, opts ...option) *rig {
 	return newRigWith(t, fixedProvider, opts...)
 }
 
+// installedSecret is the installed-app provider's client secret.
+const installedSecret = "not-confidential"
+
+// installedProvider is a provider whose endpoints are written out, whose fixed
+// client carries a secret, and whose tokens sign an API that takes no RFC 8707
+// resource, as Google's are. Its issuer serves no discovery.
+func installedProvider(issuer string) Provider {
+	return Provider{
+		ID: providerID, ClientID: fixedClientID, ClientSecret: installedSecret,
+		Endpoints: &oauth.Endpoints{
+			Issuer: issuer, AuthURL: issuer + "/oauth/authorize", TokenURL: issuer + "/oauth/token",
+			JWKSURL: issuer + "/jwks", RevocationURL: issuer + "/oauth/revoke",
+		},
+		APIBaseURL: apiBase, NoResource: true,
+		Scopes: scopes, RequiredScope: planScope,
+		CallbackPath: "/callback", SessionEnders: []string{"invalid_grant"},
+	}
+}
+
 // hostData is the test provider's provider_data.
 func hostData(id string) map[string]string { return map[string]string{"hostID": id} }
 
@@ -143,6 +163,8 @@ type fakeIssuer struct {
 	// or until the request ends; discovering and revoking signal each arrival.
 	holdDiscovery, holdRevoke chan struct{}
 	discovering, revoking     *testutil.Probe[struct{}]
+	// discoveries counts the discovery requests.
+	discoveries int
 
 	minted     int
 	nonces     map[string]string // code → nonce
@@ -199,6 +221,7 @@ func park(r *http.Request, hold chan struct{}, arrived *testutil.Probe[struct{}]
 func (f *fakeIssuer) discovery(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	hold := f.holdDiscovery
+	f.discoveries++
 	f.mu.Unlock()
 	if !park(r, hold, f.discovering) {
 		return

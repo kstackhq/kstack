@@ -789,6 +789,20 @@ models:
       failure:
         resolver: true
 
+  # --- Google connector ---
+  # The state binds to connectors.State, which holds no token. Email and failure
+  # are null outside their phases, and the project is the connector's, so each
+  # has a resolver.
+  GoogleConnection:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors.State
+    fields:
+      email:
+        resolver: true
+      project:
+        resolver: true
+      failure:
+        resolver: true
+
   Identity:
     model: github.com/kstackhq/kstack/sidecar/internal/lib/oauth.Identity
     fields:

@@ -97,6 +97,7 @@ func main() {
 	// Here, not in run, which tests call: a test's app never spawns a
 	// developer's real login shell.
 	cfg.App.RunLoginShell = true
+	cfg.App.Getenv = os.Getenv
 
 	code := run(ctx, cfg, os.Stdin, os.Stdout)
 	stop()

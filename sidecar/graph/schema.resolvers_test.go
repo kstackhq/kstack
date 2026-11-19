@@ -3822,6 +3822,98 @@ func TestChatGPTMutations(t *testing.T) {
 	assert.Equal(t, []string{chatgpt.UsageURL}, opened)
 }
 
+// fakeGoogle is the Google connector as the wire sees it, which drives it as it
+// drives ChatGPT's, and the project its models run in.
+type fakeGoogle struct {
+	*fakeChatGPT
+	project string
+}
+
+func (f fakeGoogle) Project() string { return f.project }
+
+func googleServer(t *testing.T, f fakeGoogle) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
+		Google: f,
+		LLMSvc: llm.New(),
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+const googleFields = `phase email project failure revocationUnconfirmed`
+
+// The connection projects the state: the email only while connected and known,
+// the project whenever one was found, the failure only while failed, and
+// nothing a token could ride.
+func TestGoogleConnectionProjectsTheState(t *testing.T) {
+	f := fakeGoogle{newFakeChatGPT(connectors.State{Phase: connectors.Connected, Email: "ada@example.com", Failure: connectors.Refused}), "my-project"}
+	srv := googleServer(t, f)
+
+	for _, c := range []struct {
+		st   connectors.State
+		want map[string]any
+	}{
+		{f.State(), map[string]any{"phase": "Connected", "email": "ada@example.com", "project": "my-project", "failure": nil, "revocationUnconfirmed": false}},
+		{connectors.State{Phase: connectors.Connected}, map[string]any{"phase": "Connected", "email": nil, "project": "my-project", "failure": nil, "revocationUnconfirmed": false}},
+		{
+			connectors.State{Phase: connectors.Failed, Email: "ada@example.com", Failure: connectors.ScopeNotGranted, RevocationUnconfirmed: true},
+			map[string]any{"phase": "Failed", "email": nil, "project": "my-project", "failure": "ScopeNotGranted", "revocationUnconfirmed": true},
+		},
+	} {
+		f.publish(c.st)
+		data, errs := mutation(t, srv.URL, `query { googleConnection { `+googleFields+` } }`)
+		require.Empty(t, errs)
+		assert.Equal(t, c.want, data["googleConnection"], c.st)
+	}
+
+	none := googleServer(t, fakeGoogle{newFakeChatGPT(connectors.State{Phase: connectors.SignedOut}), ""})
+	data, errs := mutation(t, none.URL, `query { googleConnection { project } }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"project": nil}, data["googleConnection"], "no project is null, never empty")
+}
+
+// The watch is a gauge: the current state, then each change.
+func TestGoogleConnectionWatchIsAGauge(t *testing.T) {
+	f := fakeGoogle{newFakeChatGPT(connectors.State{Phase: connectors.SignedOut}), "my-project"}
+	srv := googleServer(t, f)
+
+	resp := openSSESubscription(t, srv.URL, "", `subscription { googleConnectionWatch { phase project } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
+
+	f.publish(connectors.State{Phase: connectors.SigningIn})
+
+	assert.Contains(t, nextSSE(t, events).data, `"phase":"SigningIn"`)
+}
+
+// The mutations drive the connector; a refusal, a build with no client
+// included, is a validation error, and any other failure an error with no code.
+func TestGoogleMutations(t *testing.T) {
+	f := fakeGoogle{newFakeChatGPT(connectors.State{Phase: connectors.SignedOut}), ""}
+	srv := googleServer(t, f)
+
+	data, errs := mutation(t, srv.URL, `mutation { googleConnect(fresh: true) googleConnectCancel googleDisconnect }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"googleConnect": true, "googleConnectCancel": true, "googleDisconnect": true}, data)
+	assert.Equal(t, []bool{true}, f.connects)
+	assert.Equal(t, 1, f.cancels)
+	assert.Equal(t, 1, f.disconnect)
+
+	f.connectErr, f.disconnectErr = errors.New("boom"), errors.New("boom")
+	for _, op := range []string{`mutation { googleConnect(fresh: false) }`, `mutation { googleDisconnect }`} {
+		_, errs = mutation(t, srv.URL, op)
+		require.Len(t, errs, 1, op)
+		assert.Nil(t, errs[0].Extensions["code"], op)
+	}
+
+	f.connectErr = connectors.ErrNoClient
+	_, errs = mutation(t, srv.URL, `mutation { googleConnect(fresh: false) }`)
+	require.Len(t, errs, 1)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"])
+}
+
 // modelsWatch is a gauge of the catalog: the models now, then the list after a
 // provider's catalog changes.
 func TestModelsWatchFollowsTheCatalog(t *testing.T) {

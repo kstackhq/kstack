@@ -13,9 +13,9 @@
 // limitations under the License.
 
 // The services Kstack signs in to, whose credentials providers and tools use.
-// ChatGPT, OpenRouter, AWS and GitHub are real: each entry folds its connection's
-// watch, and the sidecar runs the sign-in and opens the browser itself. The rest
-// are placeholders.
+// ChatGPT, OpenRouter, AWS, GitHub and Google are real: each entry folds its
+// connection's watch, and the sidecar runs the sign-in and opens the browser
+// itself. The rest are placeholders.
 import { useCallback, useMemo } from 'react';
 import { useMutation } from 'urql';
 
@@ -24,6 +24,7 @@ import type {
   AwsConnectionWatchSubscription,
   ChatGptConnectionWatchSubscription,
   GitHubConnectionWatchSubscription,
+  GoogleConnectionWatchSubscription,
   OpenRouterConnectionWatchSubscription,
 } from '@/gql/graphql';
 import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
@@ -82,6 +83,18 @@ export type GitHubActions = {
   openSettings: () => void;
 };
 
+/** The Google connector's id, and its provider's: the sidecar's `google` row. */
+export const GOOGLE_ID = 'google';
+
+export type GoogleConnection = GoogleConnectionWatchSubscription['googleConnectionWatch'];
+
+/** What the Google entry can do. Each outcome arrives on the watch. */
+export type GoogleActions = {
+  connect: (fresh: boolean) => void;
+  cancel: () => void;
+  disconnect: () => void;
+};
+
 export type Connector = {
   id: string;
   name: string;
@@ -95,6 +108,7 @@ export type Connector = {
   openrouter?: { connection: OpenRouterConnection; actions: OpenRouterActions };
   aws?: { connection: AWSConnection; actions: AWSActions };
   github?: { connection: GitHubConnection; actions: GitHubActions };
+  google?: { connection: GoogleConnection; actions: GoogleActions };
 };
 
 export type Connectors = {
@@ -104,11 +118,11 @@ export type Connectors = {
 };
 
 // The connectors Kstack plans to ship; the tab sorts them by name. Each but ChatGPT,
-// OpenRouter, AWS and GitHub is a placeholder until its backend exists.
+// OpenRouter, AWS, GitHub and Google is a placeholder until its backend exists.
 const PLANNED: Connector[] = [
   { id: GITHUB_ID, name: 'GitHub', detail: 'Repositories for git and gh in the sandbox', connected: false },
   { id: AWS_ID, name: 'AWS', detail: 'Cloud resources and Bedrock models', connected: false },
-  { id: 'google', name: 'Google', detail: 'Cloud resources and Gemini models', connected: false },
+  { id: GOOGLE_ID, name: 'Google', detail: 'Gemini models on Vertex AI', connected: false },
   { id: 'azure', name: 'Azure', detail: 'Cloud resources and Foundry models', connected: false },
   { id: CHATGPT_ID, name: 'ChatGPT', detail: 'OpenAI models on your ChatGPT plan', connected: false },
   { id: OPENROUTER_ID, name: 'OpenRouter', detail: 'Many providers on one account', connected: false },
@@ -263,6 +277,36 @@ const GitHubSettingsOpenDocument = graphql(`
   }
 `);
 
+const GoogleConnectionWatchDocument = graphql(`
+  subscription GoogleConnectionWatch {
+    googleConnectionWatch {
+      phase
+      email
+      project
+      failure
+      revocationUnconfirmed
+    }
+  }
+`);
+
+const GoogleConnectDocument = graphql(`
+  mutation GoogleConnect($fresh: Boolean!) {
+    googleConnect(fresh: $fresh)
+  }
+`);
+
+const GoogleConnectCancelDocument = graphql(`
+  mutation GoogleConnectCancel {
+    googleConnectCancel
+  }
+`);
+
+const GoogleDisconnectDocument = graphql(`
+  mutation GoogleDisconnect {
+    googleDisconnect
+  }
+`);
+
 /** Opens ChatGPT's usage settings in the browser, at the sidecar's own address. */
 export function useOpenChatGPTUsage(): () => void {
   const [, run] = useMutation(ChatGPTUsageOpenDocument);
@@ -292,12 +336,18 @@ export function useConnectors(): Connectors {
     perFrame((_prev, next) => next.gitHubConnectionWatch),
     { unshared: true },
   );
+  const { data: google } = useWatchSubscription<GoogleConnectionWatchSubscription, GoogleConnection>(
+    { query: GoogleConnectionWatchDocument },
+    perFrame((_prev, next) => next.googleConnectionWatch),
+    { unshared: true },
+  );
   const chatGPTActions = useChatGPTActions();
   const openRouterActions = useOpenRouterActions();
   const awsActions = useAWSActions();
   const gitHubActions = useGitHubActions();
+  const googleActions = useGoogleActions();
   return useMemo(() => {
-    if (!chatGPT || !openRouter || !aws || !gitHub) return { connectors: PLANNED, loaded: false };
+    if (!chatGPT || !openRouter || !aws || !gitHub || !google) return { connectors: PLANNED, loaded: false };
     const connectors = PLANNED.map((c): Connector => {
       switch (c.id) {
         case CHATGPT_ID: {
@@ -333,12 +383,32 @@ export function useConnectors(): Connectors {
             github: { connection: gitHub, actions: gitHubActions },
           };
         }
+        case GOOGLE_ID: {
+          const connected = google.phase === 'Connected';
+          return {
+            ...c,
+            connected,
+            detail: (connected && google.email) || c.detail,
+            google: { connection: google, actions: googleActions },
+          };
+        }
         default:
           return c;
       }
     });
     return { connectors, loaded: true };
-  }, [chatGPT, chatGPTActions, openRouter, openRouterActions, aws, awsActions, gitHub, gitHubActions]);
+  }, [
+    chatGPT,
+    chatGPTActions,
+    openRouter,
+    openRouterActions,
+    aws,
+    awsActions,
+    gitHub,
+    gitHubActions,
+    google,
+    googleActions,
+  ]);
 }
 
 // A mutation's error reaches the error bus; its outcome is the watch's.
@@ -401,5 +471,19 @@ function useGitHubActions(): GitHubActions {
       openSettings: () => void openSettings({}),
     }),
     [connect, cancel, disconnect, openSettings],
+  );
+}
+
+function useGoogleActions(): GoogleActions {
+  const [, connect] = useMutation(GoogleConnectDocument);
+  const [, cancel] = useMutation(GoogleConnectCancelDocument);
+  const [, disconnect] = useMutation(GoogleDisconnectDocument);
+  return useMemo(
+    () => ({
+      connect: (fresh: boolean) => void connect({ fresh }),
+      cancel: () => void cancel({}),
+      disconnect: () => void disconnect({}),
+    }),
+    [connect, cancel, disconnect],
   );
 }

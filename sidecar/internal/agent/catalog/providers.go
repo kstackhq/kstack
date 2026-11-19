@@ -88,14 +88,18 @@ func idVar(id, suffix string) string {
 // sign-in's signer, and how its account's catalog is read off that row.
 type signedProvider struct {
 	id     string
-	row    func(llm.Signer) llm.Provider
+	row    func(Config, llm.Signer) llm.Provider
 	models func(context.Context, llm.Provider) ([]llm.Model, error)
+	// keyedBy is the keyed provider whose key, when given, serves the same
+	// models in this row's place. Empty for none.
+	keyedBy string
 }
 
 // signedProviders is every signed-in provider, in picker order.
 func signedProviders() []signedProvider {
 	return []signedProvider{
 		{id: ChatGPTID, row: newChatGPTProvider, models: ReadChatGPTModels},
+		{id: GoogleID, row: newGoogleProvider, models: ReadGoogleModels, keyedBy: "gemini"},
 	}
 }
 

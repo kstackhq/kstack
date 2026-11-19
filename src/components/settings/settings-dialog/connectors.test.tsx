@@ -24,6 +24,8 @@ import type {
   Connector,
   GitHubActions,
   GitHubConnection,
+  GoogleActions,
+  GoogleConnection,
   OpenRouterActions,
   OpenRouterConnection,
 } from '@/lib/connectors';
@@ -764,5 +766,117 @@ describe('the GitHub row', () => {
     expect(actions.disconnect).toHaveBeenCalledOnce();
     await user.click(within(row()).getByRole('button', { name: 'Open GitHub settings' }));
     expect(actions.openSettings).toHaveBeenCalledOnce();
+  });
+});
+
+describe('the Google row', () => {
+  const actions: GoogleActions = { connect: vi.fn(), cancel: vi.fn(), disconnect: vi.fn() };
+  const offer = 'Gemini models on Vertex AI';
+
+  function google(connection: Partial<GoogleConnection>): Connector {
+    const c: GoogleConnection = {
+      phase: 'SignedOut',
+      email: null,
+      project: 'my-project',
+      failure: null,
+      revocationUnconfirmed: false,
+      ...connection,
+    };
+    const connected = c.phase === 'Connected';
+    return {
+      id: 'google',
+      name: 'Google',
+      detail: (connected && c.email) || offer,
+      connected,
+      google: { connection: c, actions },
+    };
+  }
+
+  const row = () => screen.getByRole('listitem');
+  const menuButton = () => screen.queryByRole('button', { name: 'Actions for Google' });
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('offers Connect while signed out, with no menu', async () => {
+    state.connectors = [google({})];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent(offer);
+    await userEvent.setup().click(within(row()).getByRole('button', { name: 'Connect' }));
+    expect(actions.connect).toHaveBeenCalledWith(false);
+    expect(menuButton()).toBeNull();
+  });
+
+  it('waits for the browser while signing in, and cancels on a press', async () => {
+    state.connectors = [google({ phase: 'SigningIn' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Waiting for the browser…');
+    await userEvent.setup().click(within(row()).getByRole('button', { name: 'Cancel' }));
+    expect(actions.cancel).toHaveBeenCalledOnce();
+    expect(within(row()).queryByRole('button', { name: 'Connect' })).toBeNull();
+  });
+
+  it('shows the account and the project once connected, and offers Disconnect', async () => {
+    const user = userEvent.setup();
+    state.connectors = [google({ phase: 'Connected', email: 'ada@example.com' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('ada@example.com · my-project');
+    expect(within(row()).queryByRole('button', { name: 'Connect' })).toBeNull();
+    await user.click(menuButton()!);
+    const items = within(await screen.findByRole('menu')).getAllByRole('menuitem');
+    expect(items.map((i) => i.textContent)).toEqual(['Disconnect']);
+    await user.click(items[0]);
+    expect(actions.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('says where to set a project when none was found', () => {
+    state.connectors = [google({ phase: 'Connected', email: 'ada@example.com', project: null })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('ada@example.com');
+    expect(row()).toHaveTextContent(
+      'No Google Cloud project. Set GOOGLE_CLOUD_PROJECT or gcloud’s default project, then restart Kstack.',
+    );
+  });
+
+  it.each([
+    ['Declined', 'You declined on Google’s page.'],
+    ['ScopeNotGranted', 'The sign-in did not allow access to Google Cloud.'],
+    ['SessionEnded', 'Google ended the session. Connect again.'],
+    ['NotSaved', 'This computer could not save the sign-in.'],
+  ] as const)('says why it failed (%s), and offers Connect again', async (failure, text) => {
+    state.connectors = [google({ phase: 'Failed', failure })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent(text);
+    await userEvent.setup().click(within(row()).getByRole('button', { name: 'Connect' }));
+    expect(actions.connect).toHaveBeenCalledWith(false);
+  });
+
+  it('offers Connect after a failure with no reason, and draws the offer', () => {
+    state.connectors = [google({ phase: 'Failed' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent(offer);
+    expect(within(row()).getByRole('button', { name: 'Connect' })).toBeEnabled();
+  });
+
+  it('offers Use a different account after another account signed in', async () => {
+    state.connectors = [google({ phase: 'Failed', failure: 'AccountMismatch' })];
+    render(<ConnectorsSettings />);
+
+    await userEvent.setup().click(within(row()).getByRole('button', { name: 'Use a different account' }));
+    expect(actions.connect).toHaveBeenCalledWith(true);
+  });
+
+  it('says when Google did not confirm a sign-out', () => {
+    state.connectors = [google({ revocationUnconfirmed: true })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent(
+      'Signed out on this computer. Google did not confirm it. To be sure, remove Kstack in your Google Account’s third-party connections.',
+    );
   });
 });

@@ -17,6 +17,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/google"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -34,7 +35,7 @@ func TestNewKeepsTheRuntime(t *testing.T) {
 		"KstackCloud": rt.KstackCloud, "LLM": rt.LLM, "Security": rt.Settings,
 		"GitHub": rt.GitHub,
 		"Memory": rt.Memory, "Chat": rt.Chat, "ChatGPT": rt.ChatGPT, "OpenRouter": rt.OpenRouter,
-		"AWS": rt.AWS,
+		"AWS": rt.AWS, "Google": rt.Google,
 	} {
 		assert.NotNil(t, svc, name)
 	}
@@ -142,6 +143,33 @@ func TestTheOpenRouterRowFollowsTheEnvironmentKey(t *testing.T) {
 	assert.Nil(t, row(keyed).Signer)
 }
 
+// The Google connector signs the google row at the project's Vertex AI
+// endpoint. With no project there is no row; with GEMINI_API_KEY the gemini row
+// serves the models and there is none either.
+func TestTheGoogleRowFollowsTheProject(t *testing.T) {
+	vertexBase := google.BaseURL("my-project", "global")
+	rows := func(cfg Config) (*Runtime, llm.Provider, bool) {
+		t.Helper()
+		rt, err := build(t.Context(), withDirs(t, cfg))
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, rt.Close()) })
+		p, ok := rt.LLM.Provider(google.ID)
+		return rt, p, ok
+	}
+
+	rt, p, ok := rows(Config{Getenv: googleEnv("my-project")})
+	require.True(t, ok)
+	assert.Equal(t, rt.Google, p.Signer)
+	assert.Equal(t, vertexBase, p.BaseURL)
+	assert.Equal(t, "my-project", rt.Google.Project())
+
+	_, _, ok = rows(Config{})
+	assert.False(t, ok, "no project")
+
+	_, _, ok = rows(Config{Getenv: googleEnv("my-project"), LLMKeys: map[string]string{"gemini": "key"}})
+	assert.False(t, ok, "GEMINI_API_KEY")
+}
+
 // A debug build's OpenRouter base that does not parse fails the build.
 func TestABadOpenRouterBaseFailsTheBuild(t *testing.T) {
 	_, err := build(t.Context(), withDirs(t, Config{LLMBaseURLs: map[string]string{openrouter.ID: "http://[::1"}}))
@@ -191,4 +219,44 @@ func TestTheWireReachesTheGitHubConnector(t *testing.T) {
 	ts := serveApp(t, a)
 
 	assert.JSONEq(t, `{"data":{"gitHubConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ gitHubConnection { phase } }`))
+}
+
+// The wire reaches the app's Google connector, whose catalog starts with the
+// app.
+func TestTheWireReachesTheGoogleConnector(t *testing.T) {
+	a, err := New(t.Context(), withDirs(t, Config{Getenv: googleEnv("my-project")}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	require.GreaterOrEqual(t, partIndex(t, a, "google catalog"), 0)
+	startApp(t, a)
+	ts := serveApp(t, a)
+
+	assert.JSONEq(t, `{"data":{"googleConnection":{"phase":"SignedOut","project":"my-project"}}}`, graphql(t, ts.URL, `{ googleConnection { phase project } }`))
+}
+
+// googleEnv is an environment naming project as GOOGLE_CLOUD_PROJECT.
+func googleEnv(project string) func(string) string {
+	return func(name string) string {
+		if name == "GOOGLE_CLOUD_PROJECT" {
+			return project
+		}
+		return ""
+	}
+}
+
+// The project is read through Getenv as Google's own tools read it, and one
+// that builds no endpoint is none, so the row says to set one.
+func TestFindGoogleProject(t *testing.T) {
+	env := map[string]string{"GOOGLE_CLOUD_PROJECT": "my-project", "GOOGLE_CLOUD_LOCATION": "us-east5"}
+	project, base := findGoogleProject(func(name string) string { return env[name] })
+	assert.Equal(t, "my-project", project)
+	assert.Equal(t, "https://us-east5-aiplatform.googleapis.com/v1/projects/my-project/locations/us-east5/endpoints/openapi", base)
+
+	project, base = findGoogleProject(googleEnv("My-Project"))
+	assert.Empty(t, project, "malformed")
+	assert.Empty(t, base, "malformed")
+
+	project, base = findGoogleProject(nil)
+	assert.Empty(t, project, "no Getenv")
+	assert.Empty(t, base, "no Getenv")
 }

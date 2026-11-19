@@ -54,6 +54,9 @@ type Config struct {
 	// and before the fake, but for a keyed provider's connector, whose row keeps
 	// its keyed place when no key is given.
 	Signers map[string]llm.SessionSigner
+	// VertexBaseURL is Vertex AI's endpoint in the user's project, which the
+	// google row signs. Empty leaves the row out.
+	VertexBaseURL string
 	// Fake, when non-nil, is listed last: a run with no key still has a model to
 	// answer on.
 	Fake *llm.Fake
@@ -61,8 +64,8 @@ type Config struct {
 
 // New is every keyed provider whose key cfg holds, or whose connector's signer
 // it holds, in picker order, at the base URL cfg moves it to, then each
-// signed-in provider cfg holds a signer for, then the fake. A key wins over a
-// connector.
+// signed-in provider cfg holds a signer and a base URL for, then the fake. A key
+// wins over a connector, and over a signed-in provider serving its models.
 func New(cfg Config) Catalog {
 	var c Catalog
 	for _, kp := range keyedProviders() {
@@ -88,12 +91,16 @@ func New(cfg Config) Catalog {
 	}
 	for _, sp := range signedProviders() {
 		signer, ok := cfg.Signers[sp.id]
-		if !ok {
+		_, keyed := cfg.APIKeys[sp.keyedBy]
+		if !ok || keyed {
 			continue
 		}
-		p := sp.row(signer)
+		p := sp.row(cfg, signer)
 		if url, ok := cfg.BaseURLs[sp.id]; ok {
 			p.BaseURL = url
+		}
+		if p.BaseURL == "" {
+			continue
 		}
 		c.providers = append(c.providers, p)
 	}
@@ -136,5 +143,6 @@ var lists = map[string][]string{
 	"fireworks":   ours,
 	"opencode-go": ours,
 	ChatGPTID:     ours,
+	GoogleID:      ours,
 	"fake":        withSearch,
 }

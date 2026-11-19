@@ -74,6 +74,20 @@ type Config struct {
 	// GitHubClientID is Kstack's GitHub OAuth App, a public client the device
 	// flow signs in under. Empty refuses the GitHub connector's Connect.
 	GitHubClientID string
+	// GoogleClientID and GoogleClientSecret are Kstack's Google client for
+	// installed apps, whose secret Google requires and no installed app can keep
+	// confidential. An empty id refuses the Google connector's Connect.
+	GoogleClientID     string
+	GoogleClientSecret string
+	// Getenv reads the process environment once New has imported the login
+	// shell's, for the Google Cloud project the Google connector's models run
+	// in. main alone sets it (os.Getenv); nil reads nothing, so a test's app
+	// sees none of the developer's project.
+	Getenv func(string) string
+	// googleProject is the project Getenv names and vertexBaseURL its Vertex AI
+	// endpoint; build sets both, empty when there is none.
+	googleProject string
+	vertexBaseURL string
 	// KeychainService is the OS-keychain service name for the connectors' tokens. Empty
 	// uses defaultKeychainService; dev runs set a distinct name so dev and
 	// release don't share a keychain entry.
@@ -260,7 +274,10 @@ func newCatalog(cfg Config, signers map[string]llm.SessionSigner) catalog.Catalo
 	if fake == nil && cfg.AddFake {
 		fake = llm.NewFake(llm.FakeChunkDelay)
 	}
-	return catalog.New(catalog.Config{APIKeys: cfg.LLMKeys, BaseURLs: cfg.LLMBaseURLs, Signers: signers, Fake: fake})
+	return catalog.New(catalog.Config{
+		APIKeys: cfg.LLMKeys, BaseURLs: cfg.LLMBaseURLs, Signers: signers,
+		VertexBaseURL: cfg.vertexBaseURL, Fake: fake,
+	})
 }
 
 // probeSandbox is sandbox.Probe, which a test replaces to count its calls.

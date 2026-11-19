@@ -80,6 +80,9 @@ var imported = []variable{
 	{"AWS_SDK_LOAD_CONFIG", plain},           // whether the profile file is read at all
 	{"CLOUDSDK_CONFIG", path},                // gcloud's config, holding the active account
 	{"CLOUDSDK_CORE_PROJECT", plain},         // which project gke-gcloud-auth-plugin targets
+	{"CLOUDSDK_ACTIVE_CONFIG_NAME", plain},   // which gcloud configuration is active
+	{"GOOGLE_CLOUD_PROJECT", plain},          // which project Vertex AI is signed in
+	{"GOOGLE_CLOUD_LOCATION", plain},         // which Vertex AI location serves it
 	{"GOOGLE_APPLICATION_CREDENTIALS", path}, // a service-account key
 	{"AZURE_CONFIG_DIR", path},               // the Azure CLI's token cache
 	{"HTTP_PROXY", plain},                    // reaching the API server from a corporate network

@@ -55,7 +55,6 @@ const ALL = [
   'DeepSeek',
   'Fireworks',
   'Gemini',
-  'Google Vertex AI',
   'Groq',
   'Microsoft Foundry',
   'Mistral',
@@ -64,13 +63,14 @@ const ALL = [
   'OpenCode Go',
   'OpenRouter',
   'Together',
+  'Vertex AI',
   'xAI',
 ];
 
 // What each provider no key variable sets up lacks.
 const MISSING: Record<string, string> = {
   'Amazon Bedrock': 'Needs credentials',
-  'Google Vertex AI': 'Needs a Google connector',
+  'Vertex AI': 'Needs a Google connector',
   'Microsoft Foundry': 'Needs credentials',
   Ollama: 'No host set',
 };
@@ -156,7 +156,7 @@ describe('ProvidersSettings', () => {
     render(<ProvidersSettings />);
 
     expect(names()).toEqual(ALL);
-    for (const name of ALL.filter((n) => n !== 'Google Vertex AI')) {
+    for (const name of ALL.filter((n) => n !== 'Vertex AI')) {
       expect(row(name)).toHaveTextContent(MISSING[name] ?? 'No API key found');
       expect(within(row(name)).getByRole('button', { name: 'Set up' })).toBeInTheDocument();
     }
@@ -171,7 +171,7 @@ describe('ProvidersSettings', () => {
       </SelectSettingsTab>,
     );
 
-    const vertex = row('Google Vertex AI');
+    const vertex = row('Vertex AI');
     expect(vertex).toHaveTextContent('Needs a Google connector');
     expect(within(vertex).queryByRole('button', { name: 'Set up' })).toBeNull();
     await user.click(within(vertex).getByRole('button', { name: 'Connect' }));
@@ -185,6 +185,20 @@ describe('ProvidersSettings', () => {
 
     expect(names()).toEqual(ALL);
     expect(within(row('Gemini')).getByRole('button', { name: 'Gemini actions' })).toBeInTheDocument();
+  });
+
+  it("draws the Google connector's row once, configurable from its connector", async () => {
+    const user = userEvent.setup();
+    serve([model('google', 'Vertex AI', 'google/gemini-flash')]);
+    render(<ProvidersSettings />);
+
+    expect(names()).toEqual(ALL);
+    expect(row('Vertex AI')).toHaveTextContent('Configured');
+    await user.click(screen.getByRole('button', { name: 'Vertex AI actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Configure…' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Configure Vertex AI' });
+    expect(within(dialog).getByRole('radio', { name: 'Google connector' })).toBeChecked();
   });
 
   it('marks each row set up or not with its status dot', () => {

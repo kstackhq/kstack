@@ -2,7 +2,7 @@
 
 **A `Service` is one provider's OAuth sign-in, and signs the requests to its API
 base** (`llm.SessionSigner`). The engine names no provider: what one has of its own is its
-`Provider` (`provider.go`); `chatgpt` and `kstackcloud` run it under theirs.
+`Provider` (`provider.go`); `chatgpt`, `google` and `kstackcloud` run it.
 **It runs every OAuth session**; a granted key is a connector of its own (`openrouter`, `github`).
 → [ADR: one package](../../../../../../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md),
 [ADR: the engine](../../../../../../docs/adr/2026-11-18-an-oauth-connection-is-a-row-matched-to-its-keyring-entry.md),

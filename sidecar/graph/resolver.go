@@ -62,6 +62,8 @@ type Resolver struct {
 	AWS AWSConnector
 	// GitHub is the GitHub connector: *github.Service, or a test's fake.
 	GitHub GitHubConnector
+	// Google is the Google connector: *google.Service, or a test's fake.
+	Google GoogleConnector
 	// OpenURL opens one of the sidecar's own addresses in the browser:
 	// browser.Open, or a test's fake. No caller hands it an address.
 	OpenURL func(url string) error
@@ -109,6 +111,17 @@ type GitHubConnector interface {
 	Connect(ctx context.Context) error
 	Cancel()
 	Disconnect() error
+}
+
+// GoogleConnector is the Google connector as the wire drives it.
+type GoogleConnector interface {
+	State() connectors.State
+	Subscribe() (<-chan connectors.State, func())
+	Connect(ctx context.Context, fresh bool) error
+	Cancel()
+	Disconnect(ctx context.Context) error
+	// Project is the Google Cloud project the models run in, empty for none.
+	Project() string
 }
 
 // LogsService pages and follows a scope's lines: *logs.Service, or a test's fake.

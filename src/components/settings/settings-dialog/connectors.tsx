@@ -36,6 +36,8 @@ import {
   type ConnectorFailure,
   type GitHubActions,
   type GitHubConnection,
+  type GoogleActions,
+  type GoogleConnection,
   type OpenRouterActions,
   type OpenRouterConnection,
   useConnectors,
@@ -58,6 +60,7 @@ export function ConnectorsSettings() {
             if (c.openrouter) return <OpenRouterRow key={c.id} connector={c} {...c.openrouter} />;
             if (c.github) return <GitHubRow key={c.id} connector={c} {...c.github} />;
             if (c.aws) return <AWSRow key={c.id} connector={c} {...c.aws} />;
+            if (c.google) return <GoogleRow key={c.id} connector={c} {...c.google} />;
             return <ConnectorRow key={c.id} connector={c} />;
           })}
       </ul>
@@ -568,6 +571,84 @@ function AWSRow({
           </Button>
         </div>
       </Dialog>
+    </li>
+  );
+}
+
+function googleDetail({ phase, project, failure }: GoogleConnection, { name, detail }: Connector): string {
+  switch (phase) {
+    case 'SigningIn':
+      return 'Waiting for the browser…';
+    case 'Connected':
+      return project ? `${detail} · ${project}` : detail;
+    case 'Failed':
+      if (failure === 'ScopeNotGranted') return 'The sign-in did not allow access to Google Cloud.';
+      return failure ? failureText[failure](name) : detail;
+    case 'SignedOut':
+    case 'FromEnvironment':
+      return detail;
+  }
+}
+
+// The connector's detail is the account's email once connected, and the project
+// its models run in, both strings RowText spells out.
+function GoogleRow({
+  connector,
+  connection,
+  actions,
+}: {
+  connector: Connector;
+  connection: GoogleConnection;
+  actions: GoogleActions;
+}) {
+  const { phase, failure } = connection;
+  return (
+    <li className="flex flex-col gap-2 px-4 py-2.5">
+      <div className="flex items-center gap-3">
+        <RowText name={connector.name} detail={googleDetail(connection, connector)} />
+        {phase === 'SigningIn' && (
+          <Button variant="outline" size="sm" onClick={actions.cancel}>
+            Cancel
+          </Button>
+        )}
+        {phase === 'Failed' && failure === 'AccountMismatch' && (
+          <Button variant="outline" size="sm" onClick={() => actions.connect(true)}>
+            Use a different account
+          </Button>
+        )}
+        {(phase === 'SignedOut' || phase === 'Failed') && (
+          <Button variant="outline" size="sm" onClick={() => actions.connect(false)}>
+            Connect
+          </Button>
+        )}
+        {phase === 'Connected' && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon" className="size-7 rounded-md" />}
+              aria-label="Actions for Google"
+            >
+              <Ellipsis className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem variant="destructive" onClick={actions.disconnect}>
+                Disconnect
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+      {phase === 'Connected' && !connection.project && (
+        <p className="text-xs text-muted-foreground">
+          No Google Cloud project. Set <code>GOOGLE_CLOUD_PROJECT</code> or gcloud&rsquo;s default project, then restart
+          Kstack.
+        </p>
+      )}
+      {connection.revocationUnconfirmed && (
+        <p className="text-xs text-muted-foreground">
+          Signed out on this computer. Google did not confirm it. To be sure, remove Kstack in your Google
+          Account&rsquo;s third-party connections.
+        </p>
+      )}
     </li>
   );
 }

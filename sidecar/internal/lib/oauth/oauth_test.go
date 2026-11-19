@@ -667,3 +667,26 @@ func TestDiscoverRefusesADocumentItCannotTrust(t *testing.T) {
 	_, err = Discover(context.Background(), "://bad")
 	assert.Error(t, err)
 }
+
+// A client with a secret sends it on the exchange and on a refresh, as a
+// provider whose installed-app clients carry one requires; a client without
+// one sends none.
+func TestAClientSecretGoesOnTheExchangeAndTheRefresh(t *testing.T) {
+	ts, forms := tokenForm(t, `{"access_token":"a","refresh_token":"r","id_token":"i","token_type":"bearer","expires_in":3600}`)
+	c := NewClient(Config{ClientID: "fixed", ClientSecret: "not-confidential", TokenURL: ts.URL})
+
+	_, err := c.Exchange(context.Background(), "the-code", testVerifier, "http://127.0.0.1:1/cb")
+	require.NoError(t, err)
+	_, err = c.Refresh(context.Background(), "r")
+	require.NoError(t, err)
+
+	require.Len(t, *forms, 2)
+	for _, form := range *forms {
+		assert.Equal(t, "not-confidential", form.Get("client_secret"))
+	}
+
+	public := NewClient(Config{ClientID: "public", TokenURL: ts.URL})
+	_, err = public.Refresh(context.Background(), "r")
+	require.NoError(t, err)
+	assert.NotContains(t, (*forms)[2], "client_secret")
+}

@@ -660,6 +660,30 @@ func TestAFixedClientRegistersNothing(t *testing.T) {
 	})
 }
 
+// A provider with written endpoints discovers nothing; its client's secret goes
+// on the exchange and the refresh, and no resource goes anywhere.
+func TestAnInstalledAppSignsInUnderItsWrittenEndpoints(t *testing.T) {
+	r := newRigWith(t, installedProvider)
+
+	connect(t, r.svc)
+	req := apiRequest(t, "/chat/completions")
+	require.NoError(t, r.svc.Sign(req))
+	r.svc.Refused(req)
+	_, err := signedToken(t, r.svc)
+	require.NoError(t, err)
+
+	r.issuer.set(func(f *fakeIssuer) { assert.Zero(t, f.discoveries) })
+	q := r.issuer.authorizeQueries()
+	require.Len(t, q, 1)
+	assert.False(t, q[0].Has("resource"))
+	for _, grant := range []string{"authorization_code", "refresh_token"} {
+		forms := r.issuer.forms(grant)
+		require.Len(t, forms, 1, grant)
+		assert.Equal(t, installedSecret, forms[0].Get("client_secret"), grant)
+		assert.False(t, forms[0].Has("resource"), grant)
+	}
+}
+
 // Start answers why a sign-in could not start, leaving the state Failed with
 // it and no browser open. Connect leaves the same state and answers nil.
 func TestStartAnswersWhyItCouldNotStart(t *testing.T) {

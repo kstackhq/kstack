@@ -69,19 +69,21 @@ func TestConfigFromArgsDefaultsToProduction(t *testing.T) {
 // asserts the override a `make build-sidecar-dev` build honours.
 func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 	e := env{
-		"KSTACK_OAUTH_ISSUER":        "https://issuer.override",
-		"KSTACK_OAUTH_CLIENT_ID":     "override",
-		"KSTACK_DATA_DIR":            "/tmp/override",
-		"KSTACK_CACHE_DIR":           "/tmp/override-cache",
-		"KSTACK_RUNTIME_DIR":         "/tmp/override-run",
-		"KSTACK_KEYCHAIN_SERVICE":    "Kstack-override",
-		"KSTACK_FAULTS":              "get api=refused",
-		"KSTACK_CHATGPT_ISSUER_URL":  "http://127.0.0.1:1",
-		"KSTACK_CHATGPT_BASE_URL":    "http://127.0.0.1:2/v1",
-		"KSTACK_OPENROUTER_AUTH_URL": "http://127.0.0.1:3",
-		"KSTACK_AWS_SIGNIN_URL":      "http://127.0.0.1:4",
-		"KSTACK_GITHUB_AUTH_URL":     "http://127.0.0.1:5",
-		"KSTACK_GITHUB_CLIENT_ID":    "Ov23liOverride",
+		"KSTACK_OAUTH_ISSUER":         "https://issuer.override",
+		"KSTACK_OAUTH_CLIENT_ID":      "override",
+		"KSTACK_DATA_DIR":             "/tmp/override",
+		"KSTACK_CACHE_DIR":            "/tmp/override-cache",
+		"KSTACK_RUNTIME_DIR":          "/tmp/override-run",
+		"KSTACK_KEYCHAIN_SERVICE":     "Kstack-override",
+		"KSTACK_FAULTS":               "get api=refused",
+		"KSTACK_CHATGPT_ISSUER_URL":   "http://127.0.0.1:1",
+		"KSTACK_CHATGPT_BASE_URL":     "http://127.0.0.1:2/v1",
+		"KSTACK_OPENROUTER_AUTH_URL":  "http://127.0.0.1:3",
+		"KSTACK_AWS_SIGNIN_URL":       "http://127.0.0.1:4",
+		"KSTACK_GITHUB_AUTH_URL":      "http://127.0.0.1:5",
+		"KSTACK_GITHUB_CLIENT_ID":     "Ov23liOverride",
+		"KSTACK_GOOGLE_CLIENT_ID":     "google-override",
+		"KSTACK_GOOGLE_CLIENT_SECRET": "google-secret-override",
 	}
 
 	want := productionConfig
@@ -94,6 +96,8 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 		want.App.RuntimeDir = "/tmp/override-run"
 		want.App.KeychainService = "Kstack-override"
 		want.App.GitHubClientID = "Ov23liOverride"
+		want.App.GoogleClientID = "google-override"
+		want.App.GoogleClientSecret = "google-secret-override"
 		want.App.ConnectorAuthURLs = map[string]string{
 			"chatgpt": "http://127.0.0.1:1", "openrouter": "http://127.0.0.1:3", "aws": "http://127.0.0.1:4", "github": "http://127.0.0.1:5",
 		}
@@ -105,17 +109,19 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 func TestConfigFromArgsReadsFlags(t *testing.T) {
 	want := config{
 		App: app.Config{
-			KubeconfigPath:  "/tmp/kubeconfig",
-			DataDir:         "/tmp/data",
-			CacheDir:        "/tmp/cache",
-			RuntimeDir:      "/tmp/run",
-			OAuthIssuerURL:  "https://issuer.example",
-			OAuthClientID:   "other",
-			GitHubClientID:  "Ov23liFlag",
-			KeychainService: "Kstack-dev",
-			AddFake:         debugBuild,
-			HostPID:         42,
-			LogDir:          filepath.Dir("/tmp/logs/sidecar.log"),
+			KubeconfigPath:     "/tmp/kubeconfig",
+			DataDir:            "/tmp/data",
+			CacheDir:           "/tmp/cache",
+			RuntimeDir:         "/tmp/run",
+			OAuthIssuerURL:     "https://issuer.example",
+			OAuthClientID:      "other",
+			GitHubClientID:     "Ov23liFlag",
+			GoogleClientID:     "google-flag",
+			GoogleClientSecret: "google-secret-flag",
+			KeychainService:    "Kstack-dev",
+			AddFake:            debugBuild,
+			HostPID:            42,
+			LogDir:             filepath.Dir("/tmp/logs/sidecar.log"),
 		},
 		Socket:    "/tmp/sock",
 		HostPID:   42,
@@ -132,6 +138,8 @@ func TestConfigFromArgsReadsFlags(t *testing.T) {
 		"--oauth-issuer", "https://issuer.example",
 		"--oauth-client-id", "other",
 		"--github-client-id", "Ov23liFlag",
+		"--google-client-id", "google-flag",
+		"--google-client-secret", "google-secret-flag",
 		"--keychain-service", "Kstack-dev",
 		"--log-file", "/tmp/logs/sidecar.log",
 		"--log-stderr",

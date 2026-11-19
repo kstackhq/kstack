@@ -297,6 +297,7 @@ func TestBaseURLVarsNamesEachProvidersOverride(t *testing.T) {
 		"fireworks":   "KSTACK_FIREWORKS_BASE_URL",
 		"opencode-go": "KSTACK_OPENCODE_GO_BASE_URL",
 		"chatgpt":     "KSTACK_CHATGPT_BASE_URL",
+		"google":      "KSTACK_GOOGLE_BASE_URL",
 	}, BaseURLVars())
 	assert.Equal(t, "KSTACK_BEDROCK_GPT_BASE_URL", idVar("bedrock-gpt", "BASE_URL"))
 }

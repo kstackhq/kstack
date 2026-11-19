@@ -44,13 +44,16 @@ const SOURCES: Record<CredentialSource, { label: string; note?: string; soon?: t
   environment: { label: 'Environment variable' },
   'aws-connector': { label: 'AWS connector', note: 'Sign in through an AWS connector.' },
   'access-key': { label: 'Access key', note: 'An AWS access key ID and secret.', soon: true },
-  'google-connector': { label: 'Google connector', note: 'Sign in with your Google account.', soon: true },
+  'google-connector': { label: 'Google connector', note: 'Sign in with your Google account.' },
   'azure-connector': { label: 'Azure connector', note: 'Sign in with your Azure account.', soon: true },
   'chatgpt-connector': { label: 'ChatGPT connector', note: 'Sign in with your ChatGPT account.', soon: true },
   'openrouter-connector': { label: 'OpenRouter connector', note: 'Sign in with your OpenRouter account.' },
   'api-key': { label: 'Saved key', note: 'A key Kstack keeps in your system keychain.' },
   host: { label: 'Host', note: 'The address of the server that runs the models.', soon: true },
 };
+
+// The sources the Connectors tab sets up: the form sends the user there.
+const ON_CONNECTORS_TAB = new Set<CredentialSource>(['google-connector', 'openrouter-connector']);
 
 // Placeholder: awaits connectors.
 const CONNECTORS = ['Example connector'];
@@ -91,7 +94,7 @@ export function ProviderSetupForm({
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           Cancel
         </Button>
-        {source === 'openrouter-connector' ? (
+        {ON_CONNECTORS_TAB.has(source) ? (
           <Button
             type="button"
             size="sm"

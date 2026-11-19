@@ -15,7 +15,13 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AWSConnection, ChatGPTConnection, GitHubConnection, OpenRouterConnection } from './connectors';
+import type {
+  AWSConnection,
+  ChatGPTConnection,
+  GitHubConnection,
+  GoogleConnection,
+  OpenRouterConnection,
+} from './connectors';
 
 // The seams: each watch's frames by the subscription its document names, folded
 // by the hook's own reducer, and each mutation, by the operation its document names.
@@ -66,19 +72,25 @@ function gitHub(c: Partial<GitHubConnection> = {}): GitHubConnection {
   return { phase: 'SignedOut', login: null, userCode: null, failure: null, ...c };
 }
 
-// Serves every watch's frames: ChatGPT's, then OpenRouter's, AWS's and GitHub's,
-// which default to signed out.
+function google(c: Partial<GoogleConnection> = {}): GoogleConnection {
+  return { phase: 'SignedOut', email: null, project: null, failure: null, revocationUnconfirmed: false, ...c };
+}
+
+// Serves every watch's frames: ChatGPT's, then OpenRouter's, AWS's, GitHub's and
+// Google's, which default to signed out.
 function serve(
   chatgpt: ChatGPTConnection[],
   openrouter: OpenRouterConnection[] = [openRouter()],
   awsFrames: AWSConnection[] = [aws()],
   github: GitHubConnection[] = [gitHub()],
+  googleFrames: GoogleConnection[] = [google()],
 ) {
   watch.frames = {
     ChatGPTConnectionWatch: chatgpt.map((c) => ({ chatGPTConnectionWatch: c })),
     OpenRouterConnectionWatch: openrouter.map((c) => ({ openRouterConnectionWatch: c })),
     AWSConnectionWatch: awsFrames.map((c) => ({ awsConnectionWatch: c })),
     GitHubConnectionWatch: github.map((c) => ({ gitHubConnectionWatch: c })),
+    GoogleConnectionWatch: googleFrames.map((c) => ({ googleConnectionWatch: c })),
   };
 }
 
@@ -95,7 +107,7 @@ describe('useConnectors', () => {
     expect(result.current.connectors).toEqual([
       { id: 'github', name: 'GitHub', detail: 'Repositories for git and gh in the sandbox', connected: false },
       { id: 'aws', name: 'AWS', detail: 'Cloud resources and Bedrock models', connected: false },
-      { id: 'google', name: 'Google', detail: 'Cloud resources and Gemini models', connected: false },
+      { id: 'google', name: 'Google', detail: 'Gemini models on Vertex AI', connected: false },
       { id: 'azure', name: 'Azure', detail: 'Cloud resources and Foundry models', connected: false },
       { id: 'chatgpt', name: 'ChatGPT', detail: 'OpenAI models on your ChatGPT plan', connected: false },
       { id: 'openrouter', name: 'OpenRouter', detail: 'Many providers on one account', connected: false },
@@ -181,12 +193,15 @@ describe('useConnectors', () => {
       'OpenRouterConnectionWatch',
       'AWSConnectionWatch',
       'GitHubConnectionWatch',
+      'GoogleConnectionWatch',
     ]) {
       serve([connection({})]);
       delete watch.frames[missing];
       rerender();
       expect(result.current.loaded, missing).toBe(false);
-      expect(result.current.connectors.some((c) => c.chatgpt ?? c.openrouter ?? c.aws ?? c.github)).toBe(false);
+      expect(result.current.connectors.some((c) => c.chatgpt ?? c.openrouter ?? c.aws ?? c.github ?? c.google)).toBe(
+        false,
+      );
     }
   });
 
@@ -307,6 +322,45 @@ describe('useConnectors: GitHub', () => {
     expect(mutations.GitHubConnectCancel).toHaveBeenCalledWith({});
     expect(mutations.GitHubDisconnect).toHaveBeenCalledWith({});
     expect(mutations.GitHubSettingsOpen).toHaveBeenCalledWith({});
+  });
+});
+
+describe('useConnectors: Google', () => {
+  it('folds the Google watch into its entry alone, the account as its detail once connected', () => {
+    const live = google({ phase: 'Connected', email: 'ada@example.com', project: 'my-project' });
+    serve([connection({})], undefined, undefined, undefined, [google({ phase: 'SigningIn' }), live]);
+
+    const { result } = renderHook(() => useConnectors());
+
+    const entry = result.current.connectors.find((c) => c.id === 'google')!;
+    expect(entry).toMatchObject({ connected: true, detail: 'ada@example.com' });
+    expect(entry.google?.connection).toBe(live);
+    expect(result.current.connectors.filter((c) => c.google)).toHaveLength(1);
+  });
+
+  it("keeps the entry's own detail while connected with no email", () => {
+    serve([connection({})], undefined, undefined, undefined, [google({ phase: 'Connected' })]);
+
+    const { result } = renderHook(() => useConnectors());
+
+    expect(result.current.connectors.find((c) => c.id === 'google')).toMatchObject({
+      connected: true,
+      detail: 'Gemini models on Vertex AI',
+    });
+  });
+
+  it('runs each Google action as its mutation', () => {
+    serve([connection({})]);
+    const { result } = renderHook(() => useConnectors());
+    const actions = result.current.connectors.find((c) => c.google)!.google!.actions;
+
+    actions.connect(true);
+    actions.cancel();
+    actions.disconnect();
+
+    expect(mutations.GoogleConnect).toHaveBeenCalledWith({ fresh: true });
+    expect(mutations.GoogleConnectCancel).toHaveBeenCalledWith({});
+    expect(mutations.GoogleDisconnect).toHaveBeenCalledWith({});
   });
 });
 
