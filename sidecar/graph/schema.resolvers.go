@@ -22,24 +22,24 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
 // Email is the resolver for the email field.
-func (r *chatGPTConnectionResolver) Email(ctx context.Context, obj *oauthconn.State) (*string, error) {
-	if obj.Phase != oauthconn.Connected || obj.Email == "" {
+func (r *chatGPTConnectionResolver) Email(ctx context.Context, obj *connectors.State) (*string, error) {
+	if obj.Phase != connectors.Connected || obj.Email == "" {
 		return nil, nil
 	}
 	return &obj.Email, nil
 }
 
 // Failure is the resolver for the failure field.
-func (r *chatGPTConnectionResolver) Failure(ctx context.Context, obj *oauthconn.State) (*oauthconn.Failure, error) {
-	if obj.Phase != oauthconn.Failed {
+func (r *chatGPTConnectionResolver) Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error) {
+	if obj.Phase != connectors.Failed {
 		return nil, nil
 	}
 	return &obj.Failure, nil
@@ -459,7 +459,7 @@ func (r *mutationResolver) AuthLogout(ctx context.Context) (bool, error) {
 // ChatGPTConnect is the resolver for the chatGPTConnect field.
 func (r *mutationResolver) ChatGPTConnect(ctx context.Context, fresh bool) (bool, error) {
 	if err := r.ChatGPT.Connect(ctx, fresh); err != nil {
-		return false, chatGPTErr(err)
+		return false, connectorErr(err)
 	}
 	return true, nil
 }
@@ -473,14 +473,14 @@ func (r *mutationResolver) ChatGPTConnectCancel(ctx context.Context) (bool, erro
 // ChatGPTDisconnect is the resolver for the chatGPTDisconnect field.
 func (r *mutationResolver) ChatGPTDisconnect(ctx context.Context) (bool, error) {
 	if err := r.ChatGPT.Disconnect(ctx); err != nil {
-		return false, err
+		return false, connectorErr(err)
 	}
 	return true, nil
 }
 
 // ChatGPTUsageOpen is the resolver for the chatGPTUsageOpen field.
 func (r *mutationResolver) ChatGPTUsageOpen(ctx context.Context) (bool, error) {
-	if err := r.OpenURL(chatgptauth.UsageURL); err != nil {
+	if err := r.OpenURL(chatgpt.UsageURL); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -489,7 +489,7 @@ func (r *mutationResolver) ChatGPTUsageOpen(ctx context.Context) (bool, error) {
 // OpenRouterConnect is the resolver for the openRouterConnect field.
 func (r *mutationResolver) OpenRouterConnect(ctx context.Context) (bool, error) {
 	if err := r.OpenRouter.Connect(ctx); err != nil {
-		return false, openRouterErr(err)
+		return false, connectorErr(err)
 	}
 	return true, nil
 }
@@ -503,22 +503,22 @@ func (r *mutationResolver) OpenRouterConnectCancel(ctx context.Context) (bool, e
 // OpenRouterDisconnect is the resolver for the openRouterDisconnect field.
 func (r *mutationResolver) OpenRouterDisconnect(ctx context.Context) (bool, error) {
 	if err := r.OpenRouter.Disconnect(); err != nil {
-		return false, openRouterErr(err)
+		return false, connectorErr(err)
 	}
 	return true, nil
 }
 
 // OpenRouterKeysOpen is the resolver for the openRouterKeysOpen field.
 func (r *mutationResolver) OpenRouterKeysOpen(ctx context.Context) (bool, error) {
-	if err := r.OpenURL(openrouterkey.KeysURL); err != nil {
+	if err := r.OpenURL(openrouter.KeysURL); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
 // Failure is the resolver for the failure field.
-func (r *openRouterConnectionResolver) Failure(ctx context.Context, obj *openrouterkey.State) (*openrouterkey.Failure, error) {
-	if obj.Phase != openrouterkey.Failed {
+func (r *openRouterConnectionResolver) Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error) {
+	if obj.Phase != connectors.Failed {
 		return nil, nil
 	}
 	return &obj.Failure, nil
@@ -665,13 +665,13 @@ func (r *queryResolver) AuthState(ctx context.Context) (*auth.State, error) {
 }
 
 // ChatGPTConnection is the resolver for the chatGPTConnection field.
-func (r *queryResolver) ChatGPTConnection(ctx context.Context) (*oauthconn.State, error) {
+func (r *queryResolver) ChatGPTConnection(ctx context.Context) (*connectors.State, error) {
 	st := r.ChatGPT.State()
 	return &st, nil
 }
 
 // OpenRouterConnection is the resolver for the openRouterConnection field.
-func (r *queryResolver) OpenRouterConnection(ctx context.Context) (*openrouterkey.State, error) {
+func (r *queryResolver) OpenRouterConnection(ctx context.Context) (*connectors.State, error) {
 	st := r.OpenRouter.State()
 	return &st, nil
 }
@@ -913,15 +913,15 @@ func (r *subscriptionResolver) AuthStateWatch(ctx context.Context) (<-chan *auth
 }
 
 // ChatGPTConnectionWatch is the resolver for the chatGPTConnectionWatch field.
-func (r *subscriptionResolver) ChatGPTConnectionWatch(ctx context.Context) (<-chan *oauthconn.State, error) {
+func (r *subscriptionResolver) ChatGPTConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
 	states, cancel := r.ChatGPT.Subscribe()
-	return mapStream(ctx, states, cancel, func(s oauthconn.State) *oauthconn.State { return &s }), nil
+	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
 // OpenRouterConnectionWatch is the resolver for the openRouterConnectionWatch field.
-func (r *subscriptionResolver) OpenRouterConnectionWatch(ctx context.Context) (<-chan *openrouterkey.State, error) {
+func (r *subscriptionResolver) OpenRouterConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
 	states, cancel := r.OpenRouter.Subscribe()
-	return mapStream(ctx, states, cancel, func(s openrouterkey.State) *openrouterkey.State { return &s }), nil
+	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
 // ModelsWatch is the resolver for the modelsWatch field.

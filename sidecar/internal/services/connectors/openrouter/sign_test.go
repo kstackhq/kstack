@@ -12,49 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openrouterkey
+package openrouter
 
 import (
 	"net/http"
-	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
-// Sign signs only the API base: the same scheme, host and port, and a path
-// that is the base's or continues it after a slash. A near miss is refused
-// unsigned.
+// Sign signs only the API base: a request off it is refused unsigned.
+// signer.Covers holds the rule.
 func TestTheKeyGoesNowhereElse(t *testing.T) {
 	keyring := newFakeKeyring()
 	keyring.put(keyAccount, `{"v":1,"key":"stored-openrouter-key-0001"}`)
 	s := newService(t, Config{APIBaseURL: "https://openrouter.test/api/v1"}, withKeyring(keyring))
-	require.Equal(t, Connected, s.State().Phase)
-	for _, raw := range []string{
-		"https://openrouter.test/api/v1x",
-		"https://openrouter.test.example/api/v1/chat/completions",
-		"http://openrouter.test/api/v1/chat/completions",
-		"https://openrouter.test:8443/api/v1/chat/completions",
-		"https://openrouter.test/api/v2/chat/completions",
-		"https://openrouter.test/auth",
-		"https://openrouter.test/",
-	} {
-		req, err := http.NewRequest(http.MethodPost, raw, nil)
-		require.NoError(t, err)
+	require.Equal(t, connectors.Connected, s.State().Phase)
+	req, err := http.NewRequest(http.MethodPost, "https://openrouter.test/auth", nil)
+	require.NoError(t, err)
 
-		assert.Error(t, s.Sign(req), raw)
-		assert.Empty(t, req.Header.Get("Authorization"), raw)
-	}
-	for _, raw := range []string{"https://OPENROUTER.test/api/v1", "https://openrouter.test:443/api/v1/models", "https://openrouter.test/api/v1/chat/completions"} {
-		req, err := http.NewRequest(http.MethodPost, raw, nil)
-		require.NoError(t, err)
-
-		assert.NoError(t, s.Sign(req), raw)
-		assert.Equal(t, "Bearer stored-openrouter-key-0001", req.Header.Get("Authorization"), raw)
-	}
+	assert.Error(t, s.Sign(req))
+	assert.Empty(t, req.Header.Get("Authorization"))
 }
 
 // Outside Connected there is nothing to sign with.
@@ -137,7 +119,7 @@ func TestARejectedKeyIsConfirmedFirst(t *testing.T) {
 			for _, c := range checks {
 				assert.Equal(t, key, c)
 			}
-			assert.Equal(t, Connected, r.svc.State().Phase)
+			assert.Equal(t, connectors.Connected, r.svc.State().Phase)
 			_, ok := r.keyring.entry(keyAccount)
 			assert.True(t, ok)
 		})
@@ -151,7 +133,7 @@ func TestARejectedKeyIsConfirmedFirst(t *testing.T) {
 
 		r.refusedWith(bound)
 
-		await(t, r.svc, "KeyRejected", failedWith(KeyRejected))
+		await(t, r.svc, "KeyRejected", failedWith(connectors.KeyRejected))
 		_, ok := r.keyring.entry(keyAccount)
 		assert.False(t, ok)
 		_, err := r.signedKey(bound)
@@ -167,7 +149,7 @@ func TestARejectedKeyIsConfirmedFirst(t *testing.T) {
 
 		r.refusedWith(r.svc)
 
-		await(t, r.svc, "NotDeleted", failedWith(NotDeleted))
+		await(t, r.svc, "NotDeleted", failedWith(connectors.NotDeleted))
 	})
 }
 
@@ -213,19 +195,5 @@ func TestAStaleRefusalChecksNothing(t *testing.T) {
 	close(release)
 
 	r.checkEnded.Await(t, "the check")
-	assert.Equal(t, Connected, r.svc.State().Phase)
-}
-
-// A plain-HTTP base, as a debug build may point at, covers port 80 alone.
-func TestAnHTTPBaseCoversPort80(t *testing.T) {
-	s := newService(t, Config{APIBaseURL: "http://openrouter.test/api/v1"}, withKeyring(newFakeKeyring()))
-
-	for raw, want := range map[string]bool{
-		"http://openrouter.test:80/api/v1/models": true,
-		"http://openrouter.test:81/api/v1/models": false,
-	} {
-		u, err := url.Parse(raw)
-		require.NoError(t, err)
-		assert.Equal(t, want, s.covers(u), raw)
-	}
+	assert.Equal(t, connectors.Connected, r.svc.State().Phase)
 }

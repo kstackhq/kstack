@@ -2000,47 +2000,56 @@ type AuthState {
   identity: Identity
 }
 
-# --- ChatGPT connector ---
-# Sign in with ChatGPT, which runs the agent on the user's ChatGPT plan. The sidecar
-# opens the browser on a URL it built; no mutation carries a URL. No token is here.
+# --- Connectors ---
+# What every connector's state speaks. Each connector has its own type, watch and mutations.
 
-"Where the ChatGPT connector is."
-enum ChatGPTConnectionPhase {
+"Where a connector is."
+enum ConnectorPhase {
   SignedOut
-  "The browser is open on OpenAI's sign-in."
+  "The browser is open on the provider's sign-in."
   SigningIn
   Connected
-  "The last attempt or session ended; `failure` says why."
+  "The provider's key from the environment signs in the connector's place; the connector is unused."
+  FromEnvironment
+  "The last attempt, session or key ended; `failure` says why."
   Failed
 }
 
-"Why the last ChatGPT sign-in or session ended."
-enum ChatGPTConnectionFailure {
-  "The user declined on OpenAI's page."
+"Why a connector's last attempt, session or key ended. A connector answers only the ones it can reach."
+enum ConnectorFailure {
+  "The user declined on the provider's page."
   Declined
-  "The sign-in did not grant use of the plan."
-  PlanUsageNotGranted
+  "The sign-in did not grant the scope the connector needs: for ChatGPT, use of the plan."
+  ScopeNotGranted
   "The account is not the one this installation registered; Use a different account changes it."
   AccountMismatch
   "Nobody finished the sign-in in time."
   TimedOut
-  "OpenAI could not be reached."
+  "The provider could not be reached."
   Unavailable
+  "The sign-in could not finish: the provider refused it, the browser could not open, or the callback was malformed."
+  Refused
   "This machine could not save the sign-in: its keyring or its data directory refused."
   NotSaved
-  "OpenAI ended the session; sign in again."
+  "The keyring would not delete the key, which may be one the provider rejected. It is used again after a restart until a Disconnect deletes it."
+  NotDeleted
+  "The provider ended the session; sign in again."
   SessionEnded
-  "OpenAI refused the sign-in."
-  Refused
+  "The provider no longer honours the key; connect again."
+  KeyRejected
 }
+
+# --- ChatGPT connector ---
+# Sign in with ChatGPT, which runs the agent on the user's ChatGPT plan. The sidecar
+# opens the browser on a URL it built; no mutation carries a URL. No token is here.
 
 "The ChatGPT connector's state. No token is ever here."
 type ChatGPTConnection {
-  phase: ChatGPTConnectionPhase!
+  phase: ConnectorPhase!
   "The account's email, from the ID token verified at sign-in. Display only. Null unless Connected, and when the ID token named none."
   email: String
   "Why the last attempt or session ended. Null unless Failed."
-  failure: ChatGPTConnectionFailure
+  failure: ConnectorFailure
   "Whether OpenAI has registered this installation, so Connect reuses its client."
   registered: Boolean!
   "Tokens this machine dropped, at a sign-out or a sign-in that could not be saved, which OpenAI did not confirm it revoked. False again at the next connect."
@@ -2052,39 +2061,11 @@ type ChatGPTConnection {
 # the OS keyring. The sidecar opens the browser on a URL it built; no mutation carries a URL.
 # No key is here.
 
-"Where the OpenRouter connector is."
-enum OpenRouterConnectionPhase {
-  SignedOut
-  "The browser is open on OpenRouter's sign-in."
-  SigningIn
-  Connected
-  "OPENROUTER_API_KEY from the environment signs the openrouter models; the connector is unused."
-  FromEnvironment
-  "The last attempt or key ended; `failure` says why."
-  Failed
-}
-
-"Why the last OpenRouter sign-in or key ended."
-enum OpenRouterConnectionFailure {
-  "Nobody finished the sign-in in time."
-  TimedOut
-  "OpenRouter could not be reached."
-  Unavailable
-  "The sign-in could not finish: OpenRouter refused it, the browser could not open, or the callback was malformed."
-  Refused
-  "This machine's keyring could not save the key."
-  NotSaved
-  "The keyring would not delete the key, which may be one OpenRouter rejected. It is used again after a restart until a Disconnect deletes it."
-  NotDeleted
-  "OpenRouter no longer honours the key; connect again."
-  KeyRejected
-}
-
 "The OpenRouter connector's state. No key is ever here."
 type OpenRouterConnection {
-  phase: OpenRouterConnectionPhase!
+  phase: ConnectorPhase!
   "Why the last attempt or key ended. Null unless Failed."
-  failure: OpenRouterConnectionFailure
+  failure: ConnectorFailure
 }
 
 "What the sandbox does with one folder of the user's PATH."

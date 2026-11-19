@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openrouterkey
+package openrouter
 
 import (
 	"encoding/json"
@@ -21,6 +21,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // The keyring's accounts under the service's name.
@@ -51,14 +52,14 @@ func saveKey(k oskeyring.Keyring, key string) error {
 // signed out: a newer version's is left for the Kstack that wrote it, and one
 // that does not parse is deleted. A keyring that cannot be read is no proof of
 // a sign-out, so nothing is written.
-func (s *Service) restore() State {
+func (s *Service) restore() connectors.State {
 	v, err := s.keyring.Get(keyAccount)
 	if errors.Is(err, oskeyring.ErrNoEntry) {
-		return State{Phase: SignedOut}
+		return connectors.State{Phase: connectors.SignedOut}
 	}
 	if err != nil {
 		slog.Warn("openrouter: could not read the keyring; treating as signed out", "err", err)
-		return State{Phase: SignedOut}
+		return connectors.State{Phase: connectors.SignedOut}
 	}
 	// The stamp is read alone, so a newer shape is recognised before it fails
 	// to decode as this one.
@@ -67,17 +68,17 @@ func (s *Service) restore() State {
 	}
 	if json.Unmarshal([]byte(v), &stamp) == nil && stamp.V > entryVersion {
 		slog.Warn("openrouter: the key's entry is a newer Kstack's; leaving it", "v", stamp.V)
-		return State{Phase: SignedOut}
+		return connectors.State{Phase: connectors.SignedOut}
 	}
 	var e entry
 	if json.Unmarshal([]byte(v), &e) != nil || e.V != entryVersion || e.Key == "" {
 		if err := s.keyring.Delete(keyAccount); err != nil {
 			slog.Warn("openrouter: could not delete an unreadable keyring entry", "err", err)
 		}
-		return State{Phase: SignedOut}
+		return connectors.State{Phase: connectors.SignedOut}
 	}
 	safe.AddSecret(e.Key)
 	s.gen++
 	s.key = e.Key
-	return State{Phase: Connected}
+	return connectors.State{Phase: connectors.Connected}
 }

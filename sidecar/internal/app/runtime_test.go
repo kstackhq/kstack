@@ -14,7 +14,8 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -117,7 +118,7 @@ func (targetOnly) Mount(context.Context, bash.CloudRun) (bash.CloudMount, error)
 func TestTheOpenRouterRowFollowsTheEnvironmentKey(t *testing.T) {
 	row := func(rt *Runtime) llm.Provider {
 		t.Helper()
-		p, ok := rt.LLM.Provider(openrouterkey.ID)
+		p, ok := rt.LLM.Provider(openrouter.ID)
 		require.True(t, ok)
 		return p
 	}
@@ -125,28 +126,28 @@ func TestTheOpenRouterRowFollowsTheEnvironmentKey(t *testing.T) {
 	rt, err := build(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, rt.Close()) })
-	assert.NotEqual(t, openrouterkey.FromEnvironment, rt.OpenRouter.State().Phase)
+	assert.NotEqual(t, connectors.FromEnvironment, rt.OpenRouter.State().Phase)
 	assert.Equal(t, rt.OpenRouter, row(rt).Signer)
 	assert.Empty(t, row(rt).Key)
 
-	keyed, err := build(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouterkey.ID: "sk-or-env"}}))
+	keyed, err := build(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouter.ID: "sk-or-env"}}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, keyed.Close()) })
-	assert.Equal(t, openrouterkey.FromEnvironment, keyed.OpenRouter.State().Phase)
+	assert.Equal(t, connectors.FromEnvironment, keyed.OpenRouter.State().Phase)
 	assert.Equal(t, "sk-or-env", row(keyed).Key)
 	assert.Nil(t, row(keyed).Signer)
 }
 
 // A debug build's OpenRouter base that does not parse fails the build.
 func TestABadOpenRouterBaseFailsTheBuild(t *testing.T) {
-	_, err := build(t.Context(), withDirs(t, Config{LLMBaseURLs: map[string]string{openrouterkey.ID: "http://[::1"}}))
+	_, err := build(t.Context(), withDirs(t, Config{LLMBaseURLs: map[string]string{openrouter.ID: "http://[::1"}}))
 
 	assert.ErrorContains(t, err, "http://[::1")
 }
 
 // The wire reaches the app's OpenRouter connector.
 func TestTheWireReachesTheOpenRouterConnector(t *testing.T) {
-	a, err := New(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouterkey.ID: "sk-or-env"}}))
+	a, err := New(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouter.ID: "sk-or-env"}}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	ts := serveApp(t, a)

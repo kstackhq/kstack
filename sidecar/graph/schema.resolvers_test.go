@@ -9,6 +9,9 @@ import (
 
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -36,9 +39,9 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
@@ -3687,28 +3690,28 @@ func TestSandboxCloudAccessSetRefusesWhatHasNoSwitch(t *testing.T) {
 // sets, and a record of what was asked of it.
 type fakeChatGPT struct {
 	mu            sync.Mutex
-	state         oauthconn.State
+	state         connectors.State
 	connectErr    error
 	disconnectErr error
 	connects      []bool
 	cancels       int
 	disconnect    int
-	hub           *watch.Hub[oauthconn.State]
-	tx            *watch.Sender[oauthconn.State]
+	hub           *watch.Hub[connectors.State]
+	tx            *watch.Sender[connectors.State]
 }
 
-func newFakeChatGPT(st oauthconn.State) *fakeChatGPT {
+func newFakeChatGPT(st connectors.State) *fakeChatGPT {
 	hub := watch.New(st)
 	return &fakeChatGPT{state: st, hub: hub, tx: hub.Sender()}
 }
 
-func (f *fakeChatGPT) State() oauthconn.State {
+func (f *fakeChatGPT) State() connectors.State {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.state
 }
 
-func (f *fakeChatGPT) Subscribe() (<-chan oauthconn.State, func()) {
+func (f *fakeChatGPT) Subscribe() (<-chan connectors.State, func()) {
 	rx := f.hub.Receiver()
 	return rx.Chan(), rx.Close
 }
@@ -3733,7 +3736,7 @@ func (f *fakeChatGPT) Disconnect(context.Context) error {
 	return f.disconnectErr
 }
 
-func (f *fakeChatGPT) publish(st oauthconn.State) {
+func (f *fakeChatGPT) publish(st connectors.State) {
 	f.mu.Lock()
 	f.state = st
 	f.mu.Unlock()
@@ -3761,7 +3764,7 @@ const chatGPTFields = `phase email failure registered revocationUnconfirmed`
 // The connection projects the state: the email only while connected and known, the
 // failure only while failed, and nothing a token could ride.
 func TestChatGPTConnectionProjectsTheState(t *testing.T) {
-	f := newFakeChatGPT(oauthconn.State{Phase: oauthconn.Connected, Email: "ada@example.com", Failure: oauthconn.Refused, Registered: true})
+	f := newFakeChatGPT(connectors.State{Phase: connectors.Connected, Email: "ada@example.com", Failure: connectors.Refused, Registered: true})
 	var opened []string
 	srv := chatGPTServer(t, f, &opened)
 
@@ -3771,12 +3774,12 @@ func TestChatGPTConnectionProjectsTheState(t *testing.T) {
 		"phase": "Connected", "email": "ada@example.com", "failure": nil, "registered": true, "revocationUnconfirmed": false,
 	}, data["chatGPTConnection"])
 
-	f.publish(oauthconn.State{Phase: oauthconn.Connected})
+	f.publish(connectors.State{Phase: connectors.Connected})
 	data, errs = mutation(t, srv.URL, `query { chatGPTConnection { email } }`)
 	require.Empty(t, errs)
 	assert.Equal(t, map[string]any{"email": nil}, data["chatGPTConnection"], "no email is null, never empty")
 
-	f.publish(oauthconn.State{Phase: oauthconn.Failed, Email: "ada@example.com", Failure: oauthconn.SessionEnded, RevocationUnconfirmed: true})
+	f.publish(connectors.State{Phase: connectors.Failed, Email: "ada@example.com", Failure: connectors.SessionEnded, RevocationUnconfirmed: true})
 	data, errs = mutation(t, srv.URL, `query { chatGPTConnection { `+chatGPTFields+` } }`)
 	require.Empty(t, errs)
 	assert.Equal(t, map[string]any{
@@ -3786,7 +3789,7 @@ func TestChatGPTConnectionProjectsTheState(t *testing.T) {
 
 // The watch is a gauge: the current state, then each change.
 func TestChatGPTConnectionWatchIsAGauge(t *testing.T) {
-	f := newFakeChatGPT(oauthconn.State{Phase: oauthconn.SignedOut})
+	f := newFakeChatGPT(connectors.State{Phase: connectors.SignedOut})
 	var opened []string
 	srv := chatGPTServer(t, f, &opened)
 
@@ -3795,14 +3798,14 @@ func TestChatGPTConnectionWatchIsAGauge(t *testing.T) {
 	events := sseEvents(t, resp)
 	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
 
-	f.publish(oauthconn.State{Phase: oauthconn.SigningIn})
+	f.publish(connectors.State{Phase: connectors.SigningIn})
 
 	assert.Contains(t, nextSSE(t, events).data, `"phase":"SigningIn"`)
 }
 
-// The mutations drive the connector; a refused Connect is a validation error.
+// The mutations drive the connector.
 func TestChatGPTMutations(t *testing.T) {
-	f := newFakeChatGPT(oauthconn.State{Phase: oauthconn.SignedOut})
+	f := newFakeChatGPT(connectors.State{Phase: connectors.SignedOut})
 	var opened []string
 	srv := chatGPTServer(t, f, &opened)
 
@@ -3811,12 +3814,6 @@ func TestChatGPTMutations(t *testing.T) {
 	assert.Equal(t, true, data["chatGPTConnect"])
 	assert.Equal(t, []bool{true}, f.connects)
 
-	for _, refusal := range []error{oauthconn.ErrSigningIn, oauthconn.ErrConnected} {
-		f.connectErr = refusal
-		_, errs = mutation(t, srv.URL, `mutation { chatGPTConnect(fresh: false) }`)
-		require.Len(t, errs, 1)
-		assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"])
-	}
 	f.connectErr = errors.New("boom")
 	_, errs = mutation(t, srv.URL, `mutation { chatGPTConnect(fresh: false) }`)
 	require.Len(t, errs, 1)
@@ -3827,7 +3824,7 @@ func TestChatGPTMutations(t *testing.T) {
 	assert.Equal(t, map[string]any{"chatGPTConnectCancel": true, "chatGPTDisconnect": true, "chatGPTUsageOpen": true}, data)
 	assert.Equal(t, 1, f.cancels)
 	assert.Equal(t, 1, f.disconnect)
-	assert.Equal(t, []string{chatgptauth.UsageURL}, opened)
+	assert.Equal(t, []string{chatgpt.UsageURL}, opened)
 }
 
 // modelsWatch is a gauge of the catalog: the models now, then the list after a
@@ -3852,7 +3849,7 @@ func TestModelsWatchFollowsTheCatalog(t *testing.T) {
 // A sign-out that could not be recorded, and a browser that cannot open, are
 // errors on the wire.
 func TestChatGPTMutationsFail(t *testing.T) {
-	f := newFakeChatGPT(oauthconn.State{Phase: oauthconn.Connected})
+	f := newFakeChatGPT(connectors.State{Phase: connectors.Connected})
 	f.disconnectErr = errors.New("the keyring refused")
 	srv := chatGPTServerOpening(t, f, func(string) error { return errors.New("no browser") })
 
@@ -3866,28 +3863,28 @@ func TestChatGPTMutationsFail(t *testing.T) {
 // test sets, and a record of what was asked of it.
 type fakeOpenRouter struct {
 	mu            sync.Mutex
-	state         openrouterkey.State
+	state         connectors.State
 	connectErr    error
 	disconnectErr error
 	connects      int
 	cancels       int
 	disconnects   int
-	hub           *watch.Hub[openrouterkey.State]
-	tx            *watch.Sender[openrouterkey.State]
+	hub           *watch.Hub[connectors.State]
+	tx            *watch.Sender[connectors.State]
 }
 
-func newFakeOpenRouter(st openrouterkey.State) *fakeOpenRouter {
+func newFakeOpenRouter(st connectors.State) *fakeOpenRouter {
 	hub := watch.New(st)
 	return &fakeOpenRouter{state: st, hub: hub, tx: hub.Sender()}
 }
 
-func (f *fakeOpenRouter) State() openrouterkey.State {
+func (f *fakeOpenRouter) State() connectors.State {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.state
 }
 
-func (f *fakeOpenRouter) Subscribe() (<-chan openrouterkey.State, func()) {
+func (f *fakeOpenRouter) Subscribe() (<-chan connectors.State, func()) {
 	rx := f.hub.Receiver()
 	return rx.Chan(), rx.Close
 }
@@ -3912,7 +3909,7 @@ func (f *fakeOpenRouter) Disconnect() error {
 	return f.disconnectErr
 }
 
-func (f *fakeOpenRouter) publish(st openrouterkey.State) {
+func (f *fakeOpenRouter) publish(st connectors.State) {
 	f.mu.Lock()
 	f.state = st
 	f.mu.Unlock()
@@ -3933,17 +3930,17 @@ func openRouterServer(t *testing.T, f *fakeOpenRouter, open func(string) error) 
 // The connection projects the state: the failure only while failed, and
 // nothing a key could ride.
 func TestOpenRouterConnectionProjectsTheState(t *testing.T) {
-	f := newFakeOpenRouter(openrouterkey.State{Phase: openrouterkey.Connected, Failure: openrouterkey.Refused, Session: 3})
+	f := newFakeOpenRouter(connectors.State{Phase: connectors.Connected, Failure: connectors.Refused, Session: 3})
 	srv := openRouterServer(t, f, func(string) error { return nil })
 
 	data, errs := mutation(t, srv.URL, `query { openRouterConnection { phase failure } }`)
 	require.Empty(t, errs)
 	assert.Equal(t, map[string]any{"phase": "Connected", "failure": nil}, data["openRouterConnection"])
 
-	for _, st := range []openrouterkey.State{
-		{Phase: openrouterkey.Failed, Failure: openrouterkey.NotDeleted},
-		{Phase: openrouterkey.Failed, Failure: openrouterkey.KeyRejected},
-		{Phase: openrouterkey.FromEnvironment},
+	for _, st := range []connectors.State{
+		{Phase: connectors.Failed, Failure: connectors.NotDeleted},
+		{Phase: connectors.Failed, Failure: connectors.KeyRejected},
+		{Phase: connectors.FromEnvironment},
 	} {
 		f.publish(st)
 		data, errs = mutation(t, srv.URL, `query { openRouterConnection { phase failure } }`)
@@ -3958,7 +3955,7 @@ func TestOpenRouterConnectionProjectsTheState(t *testing.T) {
 
 // The watch is a gauge: the current state, then each change.
 func TestOpenRouterConnectionWatchIsAGauge(t *testing.T) {
-	f := newFakeOpenRouter(openrouterkey.State{Phase: openrouterkey.SignedOut})
+	f := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
 	srv := openRouterServer(t, f, func(string) error { return nil })
 
 	resp := openSSESubscription(t, srv.URL, "", `subscription { openRouterConnectionWatch { phase } }`)
@@ -3966,15 +3963,15 @@ func TestOpenRouterConnectionWatchIsAGauge(t *testing.T) {
 	events := sseEvents(t, resp)
 	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
 
-	f.publish(openrouterkey.State{Phase: openrouterkey.SigningIn})
+	f.publish(connectors.State{Phase: connectors.SigningIn})
 
 	assert.Contains(t, nextSSE(t, events).data, `"phase":"SigningIn"`)
 }
 
-// The mutations drive the connector; a refused Connect or Disconnect is a
-// validation error, and the key settings page is the sidecar's constant.
+// The mutations drive the connector, and the key settings page is the sidecar's
+// constant.
 func TestOpenRouterMutations(t *testing.T) {
-	f := newFakeOpenRouter(openrouterkey.State{Phase: openrouterkey.SignedOut})
+	f := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
 	var opened []string
 	srv := openRouterServer(t, f, func(u string) error { opened = append(opened, u); return nil })
 
@@ -3983,30 +3980,18 @@ func TestOpenRouterMutations(t *testing.T) {
 	assert.Equal(t, true, data["openRouterConnect"])
 	assert.Equal(t, 1, f.connects)
 
-	for _, refusal := range []error{openrouterkey.ErrSigningIn, openrouterkey.ErrConnected, openrouterkey.ErrFromEnvironment, openrouterkey.ErrNotDeleted} {
-		f.connectErr = refusal
-		_, errs = mutation(t, srv.URL, `mutation { openRouterConnect }`)
-		require.Len(t, errs, 1)
-		assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"], refusal)
-	}
-
 	data, errs = mutation(t, srv.URL, `mutation { openRouterConnectCancel openRouterDisconnect openRouterKeysOpen }`)
 	require.Empty(t, errs)
 	assert.Equal(t, map[string]any{"openRouterConnectCancel": true, "openRouterDisconnect": true, "openRouterKeysOpen": true}, data)
 	assert.Equal(t, 1, f.cancels)
 	assert.Equal(t, 1, f.disconnects)
-	assert.Equal(t, []string{openrouterkey.KeysURL}, opened)
-
-	f.disconnectErr = openrouterkey.ErrFromEnvironment
-	_, errs = mutation(t, srv.URL, `mutation { openRouterDisconnect }`)
-	require.Len(t, errs, 1)
-	assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"])
+	assert.Equal(t, []string{openrouter.KeysURL}, opened)
 }
 
 // A delete the keyring refused, a browser that cannot open, and a Connect that
 // fails for another reason are errors on the wire, with no validation code.
 func TestOpenRouterMutationsFail(t *testing.T) {
-	f := newFakeOpenRouter(openrouterkey.State{Phase: openrouterkey.Connected})
+	f := newFakeOpenRouter(connectors.State{Phase: connectors.Connected})
 	f.disconnectErr = errors.New("the keyring refused")
 	f.connectErr = errors.New("boom")
 	srv := openRouterServer(t, f, func(string) error { return errors.New("no browser") })
@@ -4016,4 +4001,82 @@ func TestOpenRouterMutationsFail(t *testing.T) {
 		require.Len(t, errs, 1, op)
 		assert.Nil(t, errs[0].Extensions["code"], op)
 	}
+}
+
+// Every refusal of either connector's Connect or Disconnect reaches the wire as
+// a validation error.
+func TestAConnectorRefusalIsAValidationError(t *testing.T) {
+	chatGPT := newFakeChatGPT(connectors.State{Phase: connectors.SignedOut})
+	chatGPTSrv := chatGPTServer(t, chatGPT, new([]string))
+	openRouter := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
+	openRouterSrv := openRouterServer(t, openRouter, func(string) error { return nil })
+
+	for _, refusal := range []error{connectors.ErrSigningIn, connectors.ErrConnected, connectors.ErrFromEnvironment, connectors.ErrNotDeleted} {
+		chatGPT.connectErr, chatGPT.disconnectErr = refusal, refusal
+		openRouter.connectErr, openRouter.disconnectErr = refusal, refusal
+		for _, c := range []struct{ url, op string }{
+			{chatGPTSrv.URL, `mutation { chatGPTConnect(fresh: false) }`},
+			{chatGPTSrv.URL, `mutation { chatGPTDisconnect }`},
+			{openRouterSrv.URL, `mutation { openRouterConnect }`},
+			{openRouterSrv.URL, `mutation { openRouterDisconnect }`},
+		} {
+			_, errs := mutation(t, c.url, c.op)
+			require.Len(t, errs, 1, c.op)
+			assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"], "%s: %v", c.op, refusal)
+		}
+	}
+}
+
+// Every Phase and Failure connectors.go declares reaches the wire as the value
+// of its name. The constants are read from the source, so one added without a
+// gqlgen.yml value fails here.
+func TestEveryConnectorValueIsOnTheWire(t *testing.T) {
+	phases, failures := connectorConstants(t)
+	require.NotEmpty(t, phases)
+	require.NotEmpty(t, failures)
+	f := newFakeOpenRouter(connectors.State{})
+	srv := openRouterServer(t, f, func(string) error { return nil })
+
+	for _, p := range phases {
+		f.publish(connectors.State{Phase: connectors.Phase(p)})
+		data, errs := mutation(t, srv.URL, `query { openRouterConnection { phase } }`)
+		require.Empty(t, errs, p)
+		assert.Equal(t, map[string]any{"phase": p}, data["openRouterConnection"], p)
+	}
+	for _, fl := range failures {
+		f.publish(connectors.State{Phase: connectors.Failed, Failure: connectors.Failure(fl)})
+		data, errs := mutation(t, srv.URL, `query { openRouterConnection { failure } }`)
+		require.Empty(t, errs, fl)
+		assert.Equal(t, map[string]any{"failure": fl}, data["openRouterConnection"], fl)
+	}
+}
+
+// connectorConstants is the value of every constant connectors.go declares of
+// type Phase and of type Failure.
+func connectorConstants(t *testing.T) (phases, failures []string) {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), filepath.Join("..", "internal", "services", "connectors", "connectors.go"), nil, 0)
+	require.NoError(t, err)
+	for _, decl := range f.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs := spec.(*ast.ValueSpec)
+			typ, ok := vs.Type.(*ast.Ident)
+			require.True(t, ok, "%s has no named type", vs.Names[0])
+			for _, v := range vs.Values {
+				value, err := strconv.Unquote(v.(*ast.BasicLit).Value)
+				require.NoError(t, err)
+				switch typ.Name {
+				case "Phase":
+					phases = append(phases, value)
+				case "Failure":
+					failures = append(failures, value)
+				}
+			}
+		}
+	}
+	return phases, failures
 }

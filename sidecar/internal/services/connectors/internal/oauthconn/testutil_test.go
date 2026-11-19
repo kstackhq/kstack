@@ -38,6 +38,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // apiBase is the resource every test's service signs for.
@@ -537,7 +538,7 @@ func (r *rig) restart() *Service {
 }
 
 // await waits for the service to publish a state matching ok, and answers it.
-func await(t *testing.T, s *Service, what string, ok func(State) bool) State {
+func await(t *testing.T, s *Service, what string, ok func(connectors.State) bool) connectors.State {
 	t.Helper()
 	states, cancel := s.Subscribe()
 	defer cancel()
@@ -554,17 +555,19 @@ func await(t *testing.T, s *Service, what string, ok func(State) bool) State {
 	}
 }
 
-func inPhase(p Phase) func(State) bool { return func(s State) bool { return s.Phase == p } }
+func inPhase(p connectors.Phase) func(connectors.State) bool {
+	return func(s connectors.State) bool { return s.Phase == p }
+}
 
-func failedWith(f Failure) func(State) bool {
-	return func(s State) bool { return s.Phase == Failed && s.Failure == f }
+func failedWith(f connectors.Failure) func(connectors.State) bool {
+	return func(s connectors.State) bool { return s.Phase == connectors.Failed && s.Failure == f }
 }
 
 // connect signs in through the following browser and waits for Connected.
-func connect(t *testing.T, s *Service) State {
+func connect(t *testing.T, s *Service) connectors.State {
 	t.Helper()
 	require.NoError(t, s.Connect(t.Context(), false))
-	return await(t, s, "Connected", inPhase(Connected))
+	return await(t, s, "Connected", inPhase(connectors.Connected))
 }
 
 // apiRequest is a request to the resource the service signs for.

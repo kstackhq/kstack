@@ -12,17 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package chatgptauth is Sign in with ChatGPT as oauthconn runs it: OpenAI's
-// endpoints, scopes and codes, and what its authorize request adds. Its tokens
-// spend the user's ChatGPT plan.
-package chatgptauth
+// Package chatgpt is the ChatGPT connector: Sign in with ChatGPT, run by the
+// OAuth engine under OpenAI's endpoints, scopes and codes. Its tokens spend the
+// user's ChatGPT plan.
+package chatgpt
 
 import (
+	"context"
 	"net/url"
 
 	"github.com/google/uuid"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/internal/catalogsync"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/internal/oauthconn"
+	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
 const (
@@ -47,12 +52,48 @@ const (
 	clientGone = "invalid_client"
 )
 
-// Provider is Sign in with ChatGPT.
-func Provider() oauthconn.Provider {
+// Config is the connector's production knobs.
+type Config struct {
+	// DB is app.db, which holds the registration.
+	DB *appdb.DB
+	// KeychainService is the OS-keyring service the refresh token is kept under.
+	KeychainService string
+	// Issuer and APIBaseURL are the constants, each moved only by a debug build.
+	Issuer     string
+	APIBaseURL string
+}
+
+// Service is the ChatGPT connector: the OAuth engine under ChatGPT's provider.
+type Service struct {
+	*oauthconn.Service
+}
+
+// New is the connector, signed in if app.db and the keyring hold a session. It
+// reaches no network.
+func New(cfg Config) (*Service, error) {
+	engine, err := oauthconn.New(oauthconn.Config{
+		Provider:        provider(cfg),
+		DB:              cfg.DB,
+		KeychainService: cfg.KeychainService,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Service{engine}, nil
+}
+
+// SyncCatalog keeps the chatgpt row's catalog the account's until the stop it
+// returns.
+func (s *Service) SyncCatalog(pokes *poke.Service, models *llm.Service, read func(context.Context, llm.Provider) ([]llm.Model, error)) (stop func()) {
+	return catalogsync.Start(ID, s.WatchSession, pokes, models, read)
+}
+
+// provider is Sign in with ChatGPT at cfg's endpoints.
+func provider(cfg Config) oauthconn.Provider {
 	return oauthconn.Provider{
 		ID:            ID,
-		Issuer:        Issuer,
-		APIBaseURL:    APIBaseURL,
+		Issuer:        cfg.Issuer,
+		APIBaseURL:    cfg.APIBaseURL,
 		Scopes:        []string{"openid", "profile", "email", "offline_access", "resource.invoke", planScope},
 		RequiredScope: planScope,
 		CallbackPath:  "/auth/callback",

@@ -31,10 +31,10 @@ and to the row.** A session exists only when the two match, and a NULL `session_
 out. An entry that names no session the row holds is ignored and deleted at launch. The entry is
 a versioned JSON object, `{"v":1,"token":…,"session":…}`.
 
-**One engine runs every such sign-in.** `services/connectors/oauthconn` holds the flow, the generations and
+**One engine runs every such sign-in.** `services/connectors/internal/oauthconn` holds the flow, the generations and
 both stores, with no provider's name in it. A provider is a `Provider` value: its issuer, API
 base, scopes, the scope a sign-in is kept for, its own authorize parameters and data, and the
-token-endpoint codes that end a session. `services/connectors/chatgptauth` is ChatGPT's. `Provider` holds
+token-endpoint codes that end a session. `services/connectors/chatgpt` is ChatGPT's. `Provider` holds
 only what ChatGPT's flow needs, a client registered at the first sign-in on a loopback redirect;
 a provider with another flow widens it then.
 

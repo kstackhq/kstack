@@ -17,7 +17,7 @@
 // one provider's connection and signs that provider's requests
 // (llm.SessionSigner); what the provider has of its own is its Provider.
 //
-// Files: this one (Service, State, New, the session's end), provider.go (the
+// Files: this one (Service, New, the session's end), provider.go (the
 // provider's own part), registration.go (the provider's row in app.db),
 // keyring.go (the refresh token's entry), connect.go (the sign-in), sign.go
 // (Sign, Bind, the refresh), disconnect.go (sign-out and revocation).
@@ -25,7 +25,6 @@ package oauthconn
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/url"
 	"sync"
@@ -39,6 +38,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 const (
@@ -47,52 +47,6 @@ const (
 	// exchange with its verification, a refresh.
 	issuerTimeout = 30 * time.Second
 	revokeTimeout = 10 * time.Second
-)
-
-// Phase is where the connector is.
-type Phase string
-
-const (
-	SignedOut Phase = "SignedOut"
-	SigningIn Phase = "SigningIn"
-	Connected Phase = "Connected"
-	Failed    Phase = "Failed"
-)
-
-// Failure is why the last attempt or session ended.
-type Failure string
-
-const (
-	Declined        Failure = "Declined"
-	ScopeNotGranted Failure = "ScopeNotGranted"
-	AccountMismatch Failure = "AccountMismatch"
-	TimedOut        Failure = "TimedOut"
-	Unavailable     Failure = "Unavailable"
-	NotSaved        Failure = "NotSaved"
-	SessionEnded    Failure = "SessionEnded"
-	Refused         Failure = "Refused"
-)
-
-// State is the connector as every window draws it. It holds no token.
-type State struct {
-	Phase Phase
-	// Session is the generation this state belongs to.
-	Session uint64
-	// Email is the account's, display only; set when Connected.
-	Email string
-	// Failure is why, when Failed.
-	Failure Failure
-	// Registered is a saved client id.
-	Registered bool
-	// RevocationUnconfirmed is a revocation the provider did not confirm, of a sign-out
-	// or of a sign-in that could not be saved. Cleared by the next Connect.
-	RevocationUnconfirmed bool
-}
-
-// The refusals of Connect.
-var (
-	ErrSigningIn = errors.New("oauthconn: a sign-in is under way")
-	ErrConnected = errors.New("oauthconn: already connected")
 )
 
 // Config is the service's production knobs.
@@ -123,14 +77,14 @@ type Service struct {
 	stop context.CancelFunc
 	wg   sync.WaitGroup
 
-	hub *watch.Hub[State]
-	tx  *watch.Sender[State]
+	hub *watch.Hub[connectors.State]
+	tx  *watch.Sender[connectors.State]
 	// sessions holds the generation while Connected, 0 otherwise.
 	sessions *watch.Hub[uint64]
 
 	mu         sync.Mutex
 	gen        uint64
-	state      State
+	state      connectors.State
 	session    *session
 	attempt    *attempt
 	refreshing *refresh
@@ -180,7 +134,7 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 		attemptTimeout: attemptTimeout,
 		ctx:            ctx,
 		stop:           stop,
-		hub:            watch.New(State{}),
+		hub:            watch.New(connectors.State{}),
 		sessions:       watch.New[uint64](0),
 	}
 	s.tx = s.hub.Sender()
@@ -191,7 +145,7 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 		// The entry is left for a launch that can read the row, unless a Connect
 		// rewrites the row first, which ends that session.
 		slog.Warn("oauth: could not read the registration; treating as signed out", "provider", s.p.ID, "err", readErr)
-		s.publishLocked(State{Phase: SignedOut})
+		s.publishLocked(connectors.State{Phase: connectors.SignedOut})
 		return s, nil
 	}
 	s.publishLocked(s.restore())
@@ -202,19 +156,19 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 // keyring's entry name the same sign-in. Anything else is a sign-in or a
 // sign-out that a crash, a lost commit or a failed delete left half done, or a
 // store restored from a backup: the row is signed out and the entry deleted.
-func (s *Service) restore() State {
+func (s *Service) restore() connectors.State {
 	reg := s.reg.get()
 	e, found, err := loadEntry(s.keyring, s.refreshAccount())
 	if err != nil {
 		// A locked keyring is no proof of a sign-out: write nothing.
 		slog.Warn("oauth: could not read the keyring; treating as signed out", "provider", s.p.ID, "err", err)
-		return State{Phase: SignedOut}
+		return connectors.State{Phase: connectors.SignedOut}
 	}
 	if reg.SessionID != "" && e.Session == reg.SessionID && reg.ClientID != "" && e.Token != "" {
 		safe.AddSecret(e.Token)
 		s.gen++
 		s.session = &session{id: reg.SessionID, clientID: reg.ClientID, refresh: e.Token}
-		return State{Phase: Connected, Email: reg.Email}
+		return connectors.State{Phase: connectors.Connected, Email: reg.Email}
 	}
 	if reg.SessionID != "" {
 		reg.SessionID = ""
@@ -227,18 +181,18 @@ func (s *Service) restore() State {
 			slog.Warn("oauth: could not delete a stale keyring entry", "provider", s.p.ID, "err", err)
 		}
 	}
-	return State{Phase: SignedOut}
+	return connectors.State{Phase: connectors.SignedOut}
 }
 
 // State is the connector's current state.
-func (s *Service) State() State {
+func (s *Service) State() connectors.State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.state
 }
 
 // Subscribe streams the state: current on subscribe, then each change.
-func (s *Service) Subscribe() (<-chan State, func()) {
+func (s *Service) Subscribe() (<-chan connectors.State, func()) {
 	rx := s.hub.Receiver()
 	return rx.Chan(), rx.Close
 }
@@ -262,13 +216,13 @@ func (s *Service) Close() {
 
 // publishLocked makes st the state, stamped with the generation and whether a
 // client is registered (s.mu held).
-func (s *Service) publishLocked(st State) {
+func (s *Service) publishLocked(st connectors.State) {
 	st.Session = s.gen
 	st.Registered = s.reg.get().ClientID != ""
 	s.state = st
 	s.tx.Send(st) //nolint:errcheck // Send never blocks, and the hub is never closed
 	var session uint64
-	if st.Phase == Connected {
+	if st.Phase == connectors.Connected {
 		session = s.gen
 	}
 	s.sessions.Sender().Send(session) //nolint:errcheck // as above

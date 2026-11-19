@@ -31,6 +31,7 @@ import {
   type ChatGPTActions,
   type ChatGPTConnection,
   type Connector,
+  type ConnectorFailure,
   type OpenRouterActions,
   type OpenRouterConnection,
   useConnectors,
@@ -181,16 +182,19 @@ function RowMenu({ connector }: { connector: Connector }) {
   );
 }
 
-// failureText is one line saying why the last attempt or session ended.
-const failureText: Record<NonNullable<ChatGPTConnection['failure']>, string> = {
-  Declined: 'You declined on ChatGPT’s page.',
-  PlanUsageNotGranted: 'The sign-in did not allow use of your plan.',
-  AccountMismatch: 'That is not the account this computer connected. Use a different account to change it.',
-  TimedOut: 'The sign-in timed out.',
-  Unavailable: 'ChatGPT could not be reached.',
-  NotSaved: 'This computer could not save the sign-in.',
-  SessionEnded: 'ChatGPT ended the session. Connect again.',
-  Refused: 'ChatGPT refused the sign-in.',
+// failureText is one line saying why a connector's last attempt, session or key
+// ended. name is the service's.
+const failureText: Record<ConnectorFailure, (name: string) => string> = {
+  Declined: (name) => `You declined on ${name}’s page.`,
+  ScopeNotGranted: () => 'The sign-in did not allow use of your plan.',
+  AccountMismatch: () => 'That is not the account this computer connected. Use a different account to change it.',
+  TimedOut: () => 'The sign-in timed out.',
+  Unavailable: (name) => `${name} could not be reached.`,
+  Refused: (name) => `${name} refused the sign-in.`,
+  NotSaved: () => 'This computer could not save the sign-in.',
+  NotDeleted: () => 'Kstack could not remove the key from this machine.',
+  SessionEnded: (name) => `${name} ended the session. Connect again.`,
+  KeyRejected: (name) => `${name} no longer accepts the key. Connect again.`,
 };
 
 function ChatGPTRow({
@@ -210,7 +214,7 @@ function ChatGPTRow({
   };
   let detail = connector.detail;
   if (connection.phase === 'SigningIn') detail = 'Waiting for your browser…';
-  if (connection.phase === 'Failed' && connection.failure) detail = failureText[connection.failure];
+  if (connection.phase === 'Failed' && connection.failure) detail = failureText[connection.failure](connector.name);
   return (
     <li className="flex flex-col gap-2 px-4 py-2.5">
       <div className="flex items-center gap-3">
@@ -281,17 +285,7 @@ function ChatGPTMenu({
   );
 }
 
-// openRouterFailureText is one line saying why the last attempt or key ended.
-// NotDeleted has a line and buttons of its own.
-const openRouterFailureText: Record<Exclude<NonNullable<OpenRouterConnection['failure']>, 'NotDeleted'>, string> = {
-  TimedOut: 'The sign-in timed out.',
-  Unavailable: 'OpenRouter could not be reached.',
-  Refused: 'OpenRouter refused the sign-in.',
-  NotSaved: 'This computer could not save the key.',
-  KeyRejected: 'OpenRouter no longer accepts the key. Connect again.',
-};
-
-function openRouterDetail({ phase, failure }: OpenRouterConnection, offer: string): ReactNode {
+function openRouterDetail({ phase, failure }: OpenRouterConnection, { name, detail: offer }: Connector): ReactNode {
   switch (phase) {
     case 'SignedOut':
       return offer;
@@ -306,7 +300,7 @@ function openRouterDetail({ phase, failure }: OpenRouterConnection, offer: strin
         </>
       );
     case 'Failed':
-      return failure && failure !== 'NotDeleted' ? openRouterFailureText[failure] : offer;
+      return failure ? failureText[failure](name) : offer;
   }
 }
 
@@ -326,7 +320,7 @@ function OpenRouterRow({
   return (
     <li className="flex flex-col gap-2 px-4 py-2.5">
       <div className="flex items-center gap-3">
-        <RowText name={connector.name} detail={openRouterDetail(connection, connector.detail)} />
+        <RowText name={connector.name} detail={openRouterDetail(connection, connector)} />
         {phase === 'SigningIn' && (
           <Button variant="outline" size="sm" onClick={actions.cancel}>
             Cancel
@@ -342,8 +336,7 @@ function OpenRouterRow({
       {notDeleted && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <p className="flex-1">
-            Kstack could not remove the key from this machine. It will be used again after a restart. Retry, or delete
-            the key labelled &quot;Kstack&quot; on OpenRouter.
+            It will be used again after a restart. Retry, or delete the key labelled &quot;Kstack&quot; on OpenRouter.
           </p>
           <Button variant="outline" size="xs" onClick={actions.openKeys}>
             Open OpenRouter settings

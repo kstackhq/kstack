@@ -177,6 +177,7 @@ describe('the ChatGPT row', () => {
   it.each([
     ['Declined', 'You declined on ChatGPT’s page.'],
     ['SessionEnded', 'ChatGPT ended the session. Connect again.'],
+    ['ScopeNotGranted', 'The sign-in did not allow use of your plan.'],
     ['NotSaved', 'This computer could not save the sign-in.'],
   ] as const)('says why it failed (%s), and offers the button again', (failure, text) => {
     state.connectors = [chatgpt({ phase: 'Failed', failure })];
@@ -372,6 +373,14 @@ describe('the OpenRouter row', () => {
     expect(menuButton()).toBeNull();
   });
 
+  it('offers Connect after a failure with no reason, and draws the offer', () => {
+    state.connectors = [openRouter({ phase: 'Failed' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Many providers on one account');
+    expect(within(row()).getByRole('button', { name: 'Connect' })).toBeEnabled();
+  });
+
   it('waits for the browser while signing in, and cancels on a press', async () => {
     state.connectors = [openRouter({ phase: 'SigningIn' })];
     render(<ConnectorsSettings />);
@@ -457,7 +466,7 @@ describe('the OpenRouter row', () => {
     ['TimedOut', 'The sign-in timed out.'],
     ['Unavailable', 'OpenRouter could not be reached.'],
     ['Refused', 'OpenRouter refused the sign-in.'],
-    ['NotSaved', 'This computer could not save the key.'],
+    ['NotSaved', 'This computer could not save the sign-in.'],
     ['KeyRejected', 'OpenRouter no longer accepts the key. Connect again.'],
   ] as const)('says why it failed (%s), and offers Connect again', async (failure, text) => {
     state.connectors = [openRouter({ phase: 'Failed', failure })];
@@ -473,8 +482,9 @@ describe('the OpenRouter row', () => {
     state.connectors = [openRouter({ phase: 'Failed', failure: 'NotDeleted' })];
     render(<ConnectorsSettings />);
 
+    expect(within(row()).getByText('Kstack could not remove the key from this machine.')).toBeInTheDocument();
     expect(row()).toHaveTextContent(
-      'Kstack could not remove the key from this machine. It will be used again after a restart. Retry, or delete the key labelled "Kstack" on OpenRouter.',
+      'It will be used again after a restart. Retry, or delete the key labelled "Kstack" on OpenRouter.',
     );
     expect(within(row()).queryByRole('button', { name: 'Connect' })).toBeNull();
     await user.click(within(row()).getByRole('button', { name: 'Retry' }));

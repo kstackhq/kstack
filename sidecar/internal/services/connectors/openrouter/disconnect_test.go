@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openrouterkey
+package openrouter
 
 import (
 	"testing"
@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // Disconnect deletes the entry and signs out; the key is used no more.
@@ -30,12 +31,12 @@ func TestDisconnectDeletesTheKey(t *testing.T) {
 
 	require.NoError(t, r.svc.Disconnect())
 
-	assert.Equal(t, SignedOut, r.svc.State().Phase)
+	assert.Equal(t, connectors.SignedOut, r.svc.State().Phase)
 	_, ok := r.keyring.entry(keyAccount)
 	assert.False(t, ok)
 	_, err := r.signedKey(r.svc)
 	assert.ErrorIs(t, err, llm.ErrSignedOut)
-	assert.Equal(t, SignedOut, r.restart().State().Phase)
+	assert.Equal(t, connectors.SignedOut, r.restart().State().Phase)
 }
 
 // Disconnect during a sign-in ends it, and its callback finds no listener.
@@ -46,7 +47,7 @@ func TestDisconnectDuringAnAttempt(t *testing.T) {
 
 	require.NoError(t, r.svc.Disconnect())
 
-	assert.Equal(t, SignedOut, r.svc.State().Phase)
+	assert.Equal(t, connectors.SignedOut, r.svc.State().Phase)
 	require.NoError(t, r.svc.Connect(t.Context()))
 }
 
@@ -62,21 +63,21 @@ func TestAFailedDeleteIsNotASignOut(t *testing.T) {
 	err := r.svc.Disconnect()
 
 	assert.ErrorIs(t, err, errBoom)
-	assert.Equal(t, Failed, r.svc.State().Phase)
-	assert.Equal(t, NotDeleted, r.svc.State().Failure)
+	assert.Equal(t, connectors.Failed, r.svc.State().Phase)
+	assert.Equal(t, connectors.NotDeleted, r.svc.State().Failure)
 	_, err = r.signedKey(bound)
 	assert.ErrorIs(t, err, llm.ErrSignedOut)
 	_, err = r.signedKey(r.svc)
 	assert.ErrorIs(t, err, llm.ErrSignedOut)
-	assert.ErrorIs(t, r.svc.Connect(t.Context()), ErrNotDeleted)
+	assert.ErrorIs(t, r.svc.Connect(t.Context()), connectors.ErrNotDeleted)
 
 	assert.ErrorIs(t, r.svc.Disconnect(), errBoom, "a retry tries the delete again")
 
 	r.restart()
-	assert.Equal(t, Connected, r.svc.State().Phase, "the key returns on restart, as the row says")
+	assert.Equal(t, connectors.Connected, r.svc.State().Phase, "the key returns on restart, as the row says")
 	r.keyring.failDelete(keyAccount, nil)
 	require.NoError(t, r.svc.Disconnect())
-	assert.Equal(t, SignedOut, r.svc.State().Phase)
+	assert.Equal(t, connectors.SignedOut, r.svc.State().Phase)
 	_, ok := r.keyring.entry(keyAccount)
 	assert.False(t, ok)
 }
@@ -92,7 +93,7 @@ func TestDisconnectWithNoKeyDeletesNothing(t *testing.T) {
 
 	require.NoError(t, r.svc.Disconnect())
 
-	assert.Equal(t, SignedOut, r.svc.State().Phase)
+	assert.Equal(t, connectors.SignedOut, r.svc.State().Phase)
 	require.NoError(t, r.svc.Connect(t.Context()))
 
 	r.keyring.failDelete(keyAccount, nil)

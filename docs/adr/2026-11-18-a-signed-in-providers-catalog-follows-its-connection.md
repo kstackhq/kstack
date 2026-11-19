@@ -21,7 +21,7 @@ This replaces three parts of that ADR, for a signed-in provider:
 
 - **The catalog is read when the connection changes**, not once: on each `Connected` session, at
   a launch that finds one, on a poke, and six hours after the last read, since a machine that
-  never sleeps is never poked. Any other phase empties it. `services/connectors/catalogsync` is
+  never sleeps is never poked. Any other phase empties it. `services/connectors/internal/catalogsync` is
   its only writer, and a read's result is set only while its session stands.
 - **`visibility == "list"` is the catalog's word that a model can chat.** The route serves chat
   models alone.

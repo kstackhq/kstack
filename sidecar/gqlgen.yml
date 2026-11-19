@@ -701,83 +701,65 @@ models:
   AuthState:
     model: github.com/kstackhq/kstack/sidecar/internal/services/auth.State
 
+  # --- Connectors ---
+  # Every value maps to the Go constant of its name
+  # (TestEveryConnectorValueIsOnTheWire).
+  ConnectorPhase:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Phase
+    enum_values:
+      SignedOut:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.SignedOut
+      SigningIn:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.SigningIn
+      Connected:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Connected
+      FromEnvironment:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.FromEnvironment
+      Failed:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Failed
+  ConnectorFailure:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Failure
+    enum_values:
+      Declined:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Declined
+      ScopeNotGranted:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.ScopeNotGranted
+      AccountMismatch:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.AccountMismatch
+      TimedOut:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.TimedOut
+      Unavailable:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Unavailable
+      Refused:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Refused
+      NotSaved:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.NotSaved
+      NotDeleted:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.NotDeleted
+      SessionEnded:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.SessionEnded
+      KeyRejected:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.KeyRejected
+
   # --- ChatGPT connector ---
-  # The state binds to the connector's own, which holds no token. Email and failure
+  # The state binds to connectors.State, which holds no token. Email and failure
   # are null outside their phases, so each has a resolver.
   ChatGPTConnection:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.State
+    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors.State
     fields:
       email:
         resolver: true
       failure:
         resolver: true
-  ChatGPTConnectionPhase:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Phase
-    enum_values:
-      SignedOut:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.SignedOut
-      SigningIn:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.SigningIn
-      Connected:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Connected
-      Failed:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Failed
-  ChatGPTConnectionFailure:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Failure
-    enum_values:
-      Declined:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Declined
-      PlanUsageNotGranted:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.ScopeNotGranted
-      AccountMismatch:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.AccountMismatch
-      TimedOut:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.TimedOut
-      Unavailable:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Unavailable
-      NotSaved:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.NotSaved
-      SessionEnded:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.SessionEnded
-      Refused:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn.Refused
 
   # --- OpenRouter connector ---
-  # The state binds to the connector's own, which holds no key. Failure is null
+  # The state binds to connectors.State, which holds no key. Failure is null
   # outside Failed, so it has a resolver.
   OpenRouterConnection:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.State
+    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors.State
     fields:
       failure:
         resolver: true
-  OpenRouterConnectionPhase:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.Phase
-    enum_values:
-      SignedOut:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.SignedOut
-      SigningIn:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.SigningIn
-      Connected:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.Connected
-      FromEnvironment:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.FromEnvironment
-      Failed:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.Failed
-  OpenRouterConnectionFailure:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.Failure
-    enum_values:
-      TimedOut:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.TimedOut
-      Unavailable:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.Unavailable
-      Refused:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.Refused
-      NotSaved:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.NotSaved
-      NotDeleted:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.NotDeleted
-      KeyRejected:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey.KeyRejected
 
   Identity:
     model: github.com/kstackhq/kstack/sidecar/internal/services/auth.Identity

@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openrouterkey
+package openrouter
 
 import (
 	"log/slog"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // Disconnect forgets the key on this machine. The key stays live on OpenRouter
@@ -26,31 +27,31 @@ import (
 func (s *Service) Disconnect() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Phase == FromEnvironment {
-		return ErrFromEnvironment
+	if s.state.Phase == connectors.FromEnvironment {
+		return connectors.ErrFromEnvironment
 	}
 	s.stopAttemptLocked()
 	// Only a held key, or one a refused delete left, is in the keyring; any
 	// other entry is a newer Kstack's.
-	if s.key == "" && !(s.state.Phase == Failed && s.state.Failure == NotDeleted) {
+	if s.key == "" && !(s.state.Phase == connectors.Failed && s.state.Failure == connectors.NotDeleted) {
 		s.gen++
-		s.publishLocked(State{Phase: SignedOut})
+		s.publishLocked(connectors.State{Phase: connectors.SignedOut})
 		return nil
 	}
-	return s.forgetKeyLocked(State{Phase: SignedOut})
+	return s.forgetKeyLocked(connectors.State{Phase: connectors.SignedOut})
 }
 
 // forgetKeyLocked ends the key in memory, then in the keyring, and publishes
 // next. Memory goes first: the generation moves on, so every binding is dead
 // whatever the keyring answers. A refused delete publishes Failed with
 // NotDeleted and is returned (s.mu held).
-func (s *Service) forgetKeyLocked(next State) error {
+func (s *Service) forgetKeyLocked(next connectors.State) error {
 	safe.ForgetSecret(s.key)
 	s.key = ""
 	s.gen++
 	if err := s.keyring.Delete(keyAccount); err != nil {
 		slog.Error("openrouter: could not delete the key", "err", err)
-		s.publishLocked(State{Phase: Failed, Failure: NotDeleted})
+		s.publishLocked(connectors.State{Phase: connectors.Failed, Failure: connectors.NotDeleted})
 		return err
 	}
 	s.publishLocked(next)

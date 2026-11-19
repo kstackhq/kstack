@@ -60,34 +60,6 @@ export type BackgroundTaskStatus =
   | 'Running'
   | 'Stopped';
 
-/** Why the last ChatGPT sign-in or session ended. */
-export type ChatGptConnectionFailure =
-  /** The account is not the one this installation registered; Use a different account changes it. */
-  | 'AccountMismatch'
-  /** The user declined on OpenAI's page. */
-  | 'Declined'
-  /** This machine could not save the sign-in: its keyring or its data directory refused. */
-  | 'NotSaved'
-  /** The sign-in did not grant use of the plan. */
-  | 'PlanUsageNotGranted'
-  /** OpenAI refused the sign-in. */
-  | 'Refused'
-  /** OpenAI ended the session; sign in again. */
-  | 'SessionEnded'
-  /** Nobody finished the sign-in in time. */
-  | 'TimedOut'
-  /** OpenAI could not be reached. */
-  | 'Unavailable';
-
-/** Where the ChatGPT connector is. */
-export type ChatGptConnectionPhase =
-  | 'Connected'
-  /** The last attempt or session ended; `failure` says why. */
-  | 'Failed'
-  | 'SignedOut'
-  /** The browser is open on OpenAI's sign-in. */
-  | 'SigningIn';
-
 /**
  * Who produced a message, matching the Messages API wire vocabulary. Not a display hint:
  * a `User` message carrying only tool results is machinery, not something a person typed.
@@ -125,6 +97,40 @@ export type ConditionStatus =
   | 'True'
   /** The condition cannot currently be assessed. */
   | 'Unknown';
+
+/** Why a connector's last attempt, session or key ended. A connector answers only the ones it can reach. */
+export type ConnectorFailure =
+  /** The account is not the one this installation registered; Use a different account changes it. */
+  | 'AccountMismatch'
+  /** The user declined on the provider's page. */
+  | 'Declined'
+  /** The provider no longer honours the key; connect again. */
+  | 'KeyRejected'
+  /** The keyring would not delete the key, which may be one the provider rejected. It is used again after a restart until a Disconnect deletes it. */
+  | 'NotDeleted'
+  /** This machine could not save the sign-in: its keyring or its data directory refused. */
+  | 'NotSaved'
+  /** The sign-in could not finish: the provider refused it, the browser could not open, or the callback was malformed. */
+  | 'Refused'
+  /** The sign-in did not grant the scope the connector needs: for ChatGPT, use of the plan. */
+  | 'ScopeNotGranted'
+  /** The provider ended the session; sign in again. */
+  | 'SessionEnded'
+  /** Nobody finished the sign-in in time. */
+  | 'TimedOut'
+  /** The provider could not be reached. */
+  | 'Unavailable';
+
+/** Where a connector is. */
+export type ConnectorPhase =
+  | 'Connected'
+  /** The last attempt, session or key ended; `failure` says why. */
+  | 'Failed'
+  /** The provider's key from the environment signs in the connector's place; the connector is unused. */
+  | 'FromEnvironment'
+  | 'SignedOut'
+  /** The browser is open on the provider's sign-in. */
+  | 'SigningIn';
 
 /**
  * Classifies one frame on a delta watch, mirroring a Kubernetes watch event. On
@@ -309,32 +315,6 @@ export type MemorySaveInput = {
   id?: string | null | undefined;
   name: string;
 };
-
-/** Why the last OpenRouter sign-in or key ended. */
-export type OpenRouterConnectionFailure =
-  /** OpenRouter no longer honours the key; connect again. */
-  | 'KeyRejected'
-  /** The keyring would not delete the key, which may be one OpenRouter rejected. It is used again after a restart until a Disconnect deletes it. */
-  | 'NotDeleted'
-  /** This machine's keyring could not save the key. */
-  | 'NotSaved'
-  /** The sign-in could not finish: OpenRouter refused it, the browser could not open, or the callback was malformed. */
-  | 'Refused'
-  /** Nobody finished the sign-in in time. */
-  | 'TimedOut'
-  /** OpenRouter could not be reached. */
-  | 'Unavailable';
-
-/** Where the OpenRouter connector is. */
-export type OpenRouterConnectionPhase =
-  | 'Connected'
-  /** The last attempt or key ended; `failure` says why. */
-  | 'Failed'
-  /** OPENROUTER_API_KEY from the environment signs the openrouter models; the connector is unused. */
-  | 'FromEnvironment'
-  | 'SignedOut'
-  /** The browser is open on OpenRouter's sign-in. */
-  | 'SigningIn';
 
 /** How much an action can do, as the permissions engine numbers its classes 1 to 6. A rule may name `UpstreamWrite` or `Destructive`. */
 export type PermissionClass =
@@ -687,7 +667,7 @@ export type ClusterCacheHealthWatchSubscription = { clusterCacheHealthWatch: { c
 export type ChatGptConnectionWatchSubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 
-export type ChatGptConnectionWatchSubscription = { chatGPTConnectionWatch: { phase: ChatGptConnectionPhase, email: string | null, failure: ChatGptConnectionFailure | null, registered: boolean, revocationUnconfirmed: boolean } };
+export type ChatGptConnectionWatchSubscription = { chatGPTConnectionWatch: { phase: ConnectorPhase, email: string | null, failure: ConnectorFailure | null, registered: boolean, revocationUnconfirmed: boolean } };
 
 export type ChatGptConnectMutationVariables = Exact<{
   fresh: boolean;
@@ -714,7 +694,7 @@ export type ChatGptUsageOpenMutation = { chatGPTUsageOpen: boolean };
 export type OpenRouterConnectionWatchSubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 
-export type OpenRouterConnectionWatchSubscription = { openRouterConnectionWatch: { phase: OpenRouterConnectionPhase, failure: OpenRouterConnectionFailure | null } };
+export type OpenRouterConnectionWatchSubscription = { openRouterConnectionWatch: { phase: ConnectorPhase, failure: ConnectorFailure | null } };
 
 export type OpenRouterConnectMutationVariables = Exact<{ [key: string]: never; }>;
 

@@ -3,13 +3,14 @@ title: A connector is an OAuth session or a granted key
 date: 2026-11-19
 scope: sidecar
 status: Accepted
+amended_by: [A connector is one package, and its machinery is internal](2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md)
 ---
 
 # A connector is an OAuth session or a granted key
 
 ## Context
 
-`services/connectors/oauthconn` runs Sign in with ChatGPT: a client registered at the first
+`services/connectors/internal/oauthconn` runs Sign in with ChatGPT: a client registered at the first
 sign-in, discovery, a refresh token that rotates, an ID token, revocation, and a row in `app.db`
 matched to a keyring entry ([an OAuth connection is a row matched to its keyring
 entry](2026-11-18-an-oauth-connection-is-a-row-matched-to-its-keyring-entry.md)).
@@ -25,9 +26,9 @@ refused a key as one more `Signer`, because a key's header follows the model's d
 
 **A connector is one of two kinds, and its package says which.** An OAuth session is an
 `oauthconn.Provider` value. A sign-in that grants a key is a service of its own beside
-`services/connectors/openrouterkey`, sharing `lib/oskeyring` and `lib/oauth/browser`.
+`services/connectors/openrouter`, sharing `lib/oskeyring` and `lib/oauth/browser`.
 
-**The granted key is a session signer.** `openrouterkey.Service` implements `llm.SessionSigner`:
+**The granted key is a session signer.** `openrouter.Service` implements `llm.SessionSigner`:
 `Sign` sets `Authorization: Bearer <key>` on the API base alone, and `Bind` is dead once the
 generation it began under ends. This is correct only because the `openrouter` row is one dialect
 and no entry overrides it, which `catalog_test.go` pins.
@@ -55,7 +56,7 @@ other answer keeps it.
 
 ## Consequences
 
-- The next provider that grants a key adds a service like `openrouterkey`, not an `oauthconn`
+- The next provider that grants a key adds a service like `openrouter`, not an `oauthconn`
   provider.
 - A connector-signed keyed row must stay on one dialect with a bearer. A model entry that states
   its own dialect or base URL breaks the signer's header.

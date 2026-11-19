@@ -12,17 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openrouterkey
+package openrouter
 
 import (
 	"context"
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/internal/signer"
 )
 
 // anySession is the generation the service itself signs under: whichever key
@@ -30,7 +31,7 @@ import (
 const anySession = 0
 
 // errOffBase is a request outside the API base the key is for.
-var errOffBase = errors.New("openrouterkey: the request is not for OpenRouter's API")
+var errOffBase = errors.New("openrouter: the request is not for OpenRouter's API")
 
 // Sign sets r's bearer to the key. It signs only the API base and what is
 // under it, and only while connected.
@@ -46,8 +47,8 @@ func (s *Service) Refused(r *http.Request) { s.refused(r, anySession) }
 func (s *Service) Bind() llm.Signer {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Phase != Connected {
-		return deadSigner{}
+	if s.state.Phase != connectors.Connected {
+		return signer.Dead{}
 	}
 	return boundSigner{s: s, gen: s.gen}
 }
@@ -62,22 +63,16 @@ type boundSigner struct {
 func (b boundSigner) Sign(r *http.Request) error { return b.s.sign(r, b.gen) }
 func (b boundSigner) Refused(r *http.Request)    { b.s.refused(r, b.gen) }
 
-// deadSigner is a binding made with no key.
-type deadSigner struct{}
-
-func (deadSigner) Sign(*http.Request) error { return llm.ErrSignedOut }
-func (deadSigner) Refused(*http.Request)    {}
-
 // keyLocked is the key gen names, "" when it has ended (s.mu held).
 func (s *Service) keyLocked(gen uint64) string {
-	if (gen != anySession && gen != s.gen) || s.state.Phase != Connected {
+	if (gen != anySession && gen != s.gen) || s.state.Phase != connectors.Connected {
 		return ""
 	}
 	return s.key
 }
 
 func (s *Service) sign(r *http.Request, gen uint64) error {
-	if !s.covers(r.URL) {
+	if !signer.Covers(s.base, r.URL) {
 		return errOffBase
 	}
 	s.mu.Lock()
@@ -125,7 +120,7 @@ func (s *Service) check(gen uint64, key string) {
 		return
 	}
 	slog.Warn("openrouter: OpenRouter no longer honours the key")
-	s.forgetKeyLocked(State{Phase: Failed, Failure: KeyRejected}) //nolint:errcheck // a refused delete is the state's NotDeleted
+	s.forgetKeyLocked(connectors.State{Phase: connectors.Failed, Failure: connectors.KeyRejected}) //nolint:errcheck // a refused delete is the state's NotDeleted
 }
 
 // keyStatus is the status GET <base>/key answers under key.
@@ -143,26 +138,4 @@ func (s *Service) keyStatus(key string) (int, error) {
 	}
 	resp.Body.Close()
 	return resp.StatusCode, nil
-}
-
-// covers reports whether u is the API base or under it: the same scheme, the
-// host without case, the same effective port, and a path that is the base's or
-// continues it after a slash.
-func (s *Service) covers(u *url.URL) bool {
-	b := s.base
-	if u.Scheme != b.Scheme || !strings.EqualFold(u.Hostname(), b.Hostname()) || effectivePort(u) != effectivePort(b) {
-		return false
-	}
-	path := strings.TrimSuffix(b.Path, "/")
-	return u.Path == path || strings.HasPrefix(u.Path, path+"/")
-}
-
-func effectivePort(u *url.URL) string {
-	if p := u.Port(); p != "" {
-		return p
-	}
-	if u.Scheme == "https" {
-		return "443"
-	}
-	return "80"
 }

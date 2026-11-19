@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -28,6 +27,8 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/internal/signer"
 )
 
 // session is a signed-in account's tokens. The access token is memory's alone:
@@ -75,8 +76,8 @@ func (s *Service) Refused(r *http.Request) { s.refused(r, anySession) }
 func (s *Service) Bind() llm.Signer {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Phase != Connected {
-		return deadSigner{}
+	if s.state.Phase != connectors.Connected {
+		return signer.Dead{}
 	}
 	return boundSigner{s: s, gen: s.gen}
 }
@@ -91,12 +92,6 @@ type boundSigner struct {
 func (b boundSigner) Sign(r *http.Request) error { return b.s.sign(r, b.gen) }
 func (b boundSigner) Refused(r *http.Request)    { b.s.refused(r, b.gen) }
 
-// deadSigner is a binding made with no session.
-type deadSigner struct{}
-
-func (deadSigner) Sign(*http.Request) error { return llm.ErrSignedOut }
-func (deadSigner) Refused(*http.Request)    {}
-
 // sessionLocked is the session gen names, nil when it has ended (s.mu held).
 func (s *Service) sessionLocked(gen uint64) *session {
 	if gen != anySession && gen != s.gen {
@@ -106,7 +101,7 @@ func (s *Service) sessionLocked(gen uint64) *session {
 }
 
 func (s *Service) sign(r *http.Request, gen uint64) error {
-	if !s.covers(r.URL) {
+	if !signer.Covers(s.base, r.URL) {
 		return errOffResource
 	}
 	tok, ref, err := s.accessToken(gen)
@@ -134,28 +129,6 @@ func (s *Service) refused(r *http.Request, gen uint64) {
 		safe.ForgetSecret(tok)
 		sess.access = oauth.Token{}
 	}
-}
-
-// covers reports whether u is the API base or under it: the same scheme, the
-// host without case, the same effective port, and a path that is the base's or
-// continues it after a slash.
-func (s *Service) covers(u *url.URL) bool {
-	b := s.base
-	if u.Scheme != b.Scheme || !strings.EqualFold(u.Hostname(), b.Hostname()) || effectivePort(u) != effectivePort(b) {
-		return false
-	}
-	path := strings.TrimSuffix(b.Path, "/")
-	return u.Path == path || strings.HasPrefix(u.Path, path+"/")
-}
-
-func effectivePort(u *url.URL) string {
-	if p := u.Port(); p != "" {
-		return p
-	}
-	if u.Scheme == "https" {
-		return "443"
-	}
-	return "80"
 }
 
 // accessToken is the access token of the session gen names while it is valid.
@@ -248,6 +221,6 @@ func (s *Service) refreshFailedLocked(err error) error {
 	}
 	slog.Warn("oauth: the issuer ended the session", "provider", s.p.ID, "code", tokErr.Code)
 	s.clearLocked(tokErr.Code == s.p.ClientGone)
-	s.publishLocked(State{Phase: Failed, Failure: SessionEnded})
+	s.publishLocked(connectors.State{Phase: connectors.Failed, Failure: connectors.SessionEnded})
 	return llm.ErrSignedOut
 }

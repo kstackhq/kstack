@@ -28,6 +28,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // Disconnect signs out on this machine, then revokes the refresh token with
@@ -40,7 +41,7 @@ func TestDisconnectRevokesAndClears(t *testing.T) {
 	require.NoError(t, r.svc.Disconnect(t.Context()))
 
 	st := r.svc.State()
-	assert.Equal(t, SignedOut, st.Phase)
+	assert.Equal(t, connectors.SignedOut, st.Phase)
 	assert.True(t, st.Registered)
 	_, ok := storedRefresh(t, r)
 	assert.False(t, ok)
@@ -76,8 +77,8 @@ func TestAnUnconfirmedRevocationSaysSo(t *testing.T) {
 
 	require.NoError(t, r.svc.Disconnect(t.Context()))
 
-	st := await(t, r.svc, "an unconfirmed revocation", func(s State) bool { return s.RevocationUnconfirmed })
-	assert.Equal(t, SignedOut, st.Phase)
+	st := await(t, r.svc, "an unconfirmed revocation", func(s connectors.State) bool { return s.RevocationUnconfirmed })
+	assert.Equal(t, connectors.SignedOut, st.Phase)
 	assert.Len(t, r.issuer.revokedTokens(), 2)
 
 	r.issuer.set(func(f *fakeIssuer) { f.revokeStatus = 0 })
@@ -100,7 +101,7 @@ func TestADisconnectThatCannotWrite(t *testing.T) {
 
 		_, ok := storedRefresh(t, r)
 		assert.False(t, ok)
-		assert.Equal(t, SignedOut, r.restart().State().Phase)
+		assert.Equal(t, connectors.SignedOut, r.restart().State().Phase)
 	})
 	t.Run("the row and the entry", func(t *testing.T) {
 		fail, _ := failingWrites(0, errBoom)
@@ -189,8 +190,8 @@ func TestALateRefreshThatCannotBeRevokedSaysSo(t *testing.T) {
 	close(release)
 
 	assert.ErrorIs(t, testutil.Recv(t, done, "the refresh's answer"), llm.ErrSignedOut)
-	st := await(t, r.svc, "an unconfirmed revocation", func(s State) bool { return s.RevocationUnconfirmed })
-	assert.Equal(t, SignedOut, st.Phase)
+	st := await(t, r.svc, "an unconfirmed revocation", func(s connectors.State) bool { return s.RevocationUnconfirmed })
+	assert.Equal(t, connectors.SignedOut, st.Phase)
 }
 
 // Disconnect during an attempt ends the attempt.
@@ -200,7 +201,7 @@ func TestDisconnectDuringAnAttempt(t *testing.T) {
 
 	require.NoError(t, r.svc.Disconnect(t.Context()))
 
-	assert.Equal(t, SignedOut, r.svc.State().Phase)
+	assert.Equal(t, connectors.SignedOut, r.svc.State().Phase)
 	assert.NoError(t, r.svc.Connect(t.Context(), false), "a new attempt may start")
 }
 
@@ -238,7 +239,7 @@ func TestAFailedRevocationLogsNoToken(t *testing.T) {
 
 	require.NoError(t, r.svc.Disconnect(t.Context()))
 
-	await(t, r.svc, "an unconfirmed revocation", func(s State) bool { return s.RevocationUnconfirmed })
+	await(t, r.svc, "an unconfirmed revocation", func(s connectors.State) bool { return s.RevocationUnconfirmed })
 	assert.Contains(t, logs.String(), "cannot revoke")
 	assert.NotContains(t, logs.String(), refresh)
 }

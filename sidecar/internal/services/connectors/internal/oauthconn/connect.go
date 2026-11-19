@@ -29,6 +29,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth/browser"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // attempt is one sign-in under way.
@@ -75,10 +76,10 @@ func (s *Service) begin(fresh bool) (*attempt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch s.state.Phase {
-	case SigningIn:
-		return nil, ErrSigningIn
-	case Connected:
-		return nil, ErrConnected
+	case connectors.SigningIn:
+		return nil, connectors.ErrSigningIn
+	case connectors.Connected:
+		return nil, connectors.ErrConnected
 	}
 	s.gen++
 	reg := s.reg.get()
@@ -97,7 +98,7 @@ func (s *Service) begin(fresh bool) (*attempt, error) {
 	}
 	if err != nil {
 		slog.Error("oauth: the stores cannot hold a sign-in", "provider", s.p.ID, "err", err)
-		s.publishLocked(State{Phase: Failed, Failure: NotSaved})
+		s.publishLocked(connectors.State{Phase: connectors.Failed, Failure: connectors.NotSaved})
 		return nil, nil
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
@@ -105,31 +106,31 @@ func (s *Service) begin(fresh bool) (*attempt, error) {
 		gen: s.gen, ctx: ctx, cancel: cancel, reg: reg, consent: s.consent,
 		state: oauth2.GenerateVerifier(), verifier: oauth2.GenerateVerifier(), nonce: oauth2.GenerateVerifier(),
 	}
-	s.publishLocked(State{Phase: SigningIn})
+	s.publishLocked(connectors.State{Phase: connectors.SigningIn})
 	return s.attempt, nil
 }
 
 // openBrowser binds the loopback, then opens the browser on the authorize
 // URL that names it. It answers why it could not.
-func (s *Service) openBrowser(a *attempt) Failure {
+func (s *Service) openBrowser(a *attempt) connectors.Failure {
 	ctx, cancel := context.WithTimeout(a.ctx, issuerTimeout)
 	defer cancel()
 	var err error
 	if a.endpoints, err = s.discover(ctx); err != nil {
 		slog.Warn("oauth: discovery failed", "provider", s.p.ID, "err", err)
-		return Unavailable
+		return connectors.Unavailable
 	}
 	if a.listener, err = browser.Listen(a.state, s.p.CallbackPath); err != nil { // coverage:ignore binding an ephemeral loopback port does not fail
-		return Refused
+		return connectors.Refused
 	}
 	if a.ctx.Err() != nil { // coverage:ignore a Cancel landing between discovery and here; no test can time it
 		a.listener.Close()
-		return Refused
+		return connectors.Refused
 	}
 	if err := s.open(s.authorizeURL(a)); err != nil {
 		slog.Warn("oauth: could not open the browser", "provider", s.p.ID, "err", err)
 		a.listener.Close()
-		return Refused
+		return connectors.Refused
 	}
 	return ""
 }
@@ -161,12 +162,12 @@ func (s *Service) authorizeURL(a *attempt) string {
 func (s *Service) Cancel() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Phase != SigningIn {
+	if s.state.Phase != connectors.SigningIn {
 		return
 	}
 	s.stopAttemptLocked()
 	s.gen++
-	s.publishLocked(State{Phase: SignedOut})
+	s.publishLocked(connectors.State{Phase: connectors.SignedOut})
 }
 
 // stopAttemptLocked ends the attempt's wait for the redirect (s.mu held).
@@ -178,20 +179,20 @@ func (s *Service) stopAttemptLocked() {
 }
 
 // failLocked ends the attempt as failed (s.mu held).
-func (s *Service) failLocked(f Failure) {
+func (s *Service) failLocked(f connectors.Failure) {
 	s.stopAttemptLocked()
-	s.publishLocked(State{Phase: Failed, Failure: f})
+	s.publishLocked(connectors.State{Phase: connectors.Failed, Failure: f})
 }
 
 // endAttempt fails the attempt of gen, if it is still the one under way.
-func (s *Service) endAttempt(gen uint64, f Failure) {
+func (s *Service) endAttempt(gen uint64, f connectors.Failure) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.endAttemptLocked(gen, f)
 }
 
-func (s *Service) endAttemptLocked(gen uint64, f Failure) {
-	if gen == s.gen && s.state.Phase == SigningIn {
+func (s *Service) endAttemptLocked(gen uint64, f connectors.Failure) {
+	if gen == s.gen && s.state.Phase == connectors.SigningIn {
 		s.failLocked(f)
 	}
 }
@@ -206,19 +207,19 @@ func (s *Service) finish(ctx context.Context, a *attempt) {
 		authErr, declined := errors.AsType[*browser.AuthorizationError](err)
 		switch {
 		case declined && authErr.Code == "access_denied":
-			s.endAttempt(a.gen, Declined)
+			s.endAttempt(a.gen, connectors.Declined)
 		case errors.Is(err, context.DeadlineExceeded):
-			s.endAttempt(a.gen, TimedOut)
+			s.endAttempt(a.gen, connectors.TimedOut)
 		case errors.Is(err, context.Canceled):
 			// Whoever cancelled the wait has ended the attempt.
 		default:
-			s.endAttempt(a.gen, Refused)
+			s.endAttempt(a.gen, connectors.Refused)
 		}
 		return
 	}
 	clientID, ok := s.issuedClient(q.Get("client_id"), a.reg.ClientID)
 	if !ok || len(q["code"]) != 1 {
-		s.endAttempt(a.gen, Refused)
+		s.endAttempt(a.gen, connectors.Refused)
 		return
 	}
 	// Saved before the exchange, so a failed exchange does not register a second
@@ -240,7 +241,7 @@ func (s *Service) finish(ctx context.Context, a *attempt) {
 	// revoked on Disconnect.
 	if tok.RefreshToken == "" {
 		slog.Warn("oauth: the code exchange answered no refresh token", "provider", s.p.ID)
-		s.endAttempt(a.gen, Refused)
+		s.endAttempt(a.gen, connectors.Refused)
 		return
 	}
 	for _, t := range []string{tok.AccessToken, tok.RefreshToken, tok.IDToken} {
@@ -263,11 +264,11 @@ func (s *Service) finish(ctx context.Context, a *attempt) {
 
 // issuerFailure is what a failed exchange or verification says: one that
 // never reached the issuer is Unavailable, anything else Refused.
-func issuerFailure(err error) Failure {
+func issuerFailure(err error) connectors.Failure {
 	if _, ok := errors.AsType[*url.Error](err); ok {
-		return Unavailable
+		return connectors.Unavailable
 	}
-	return Refused
+	return connectors.Refused
 }
 
 // issuedClient is the client a redirect names: a first sign-in must name a
@@ -285,14 +286,14 @@ func (s *Service) issuedClient(issued, saved string) (string, bool) {
 func (s *Service) saveClientID(gen uint64, clientID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if gen != s.gen || s.state.Phase != SigningIn {
+	if gen != s.gen || s.state.Phase != connectors.SigningIn {
 		return false
 	}
 	reg := s.reg.get()
 	reg.ClientID = clientID
 	if err := s.reg.save(reg); err != nil {
 		slog.Error("oauth: could not record the registration", "provider", s.p.ID, "err", err)
-		s.failLocked(NotSaved)
+		s.failLocked(connectors.NotSaved)
 		return false
 	}
 	return true
@@ -317,29 +318,29 @@ func (s *Service) complete(gen uint64, clientID string, tok oauth.Token, id oaut
 	}
 	s.stopAttemptLocked()
 	s.session = &session{id: sessionID, clientID: clientID, refresh: tok.RefreshToken, access: tok}
-	s.publishLocked(State{Phase: Connected, Email: id.Email})
+	s.publishLocked(connectors.State{Phase: connectors.Connected, Email: id.Email})
 }
 
 // saveSessionLocked checks what the sign-in granted and to whom, then writes
 // the refresh token's entry and the row, both under a session id minted here.
 // It answers the id, or why the sign-in is not kept, and leaves no entry behind
 // then (s.mu held).
-func (s *Service) saveSessionLocked(tok oauth.Token, id oauth.Identity) (string, Failure) {
+func (s *Service) saveSessionLocked(tok oauth.Token, id oauth.Identity) (string, connectors.Failure) {
 	// A sign-in without the required scope is not kept, and the next authorize
 	// asks again. A response with no scope granted what was asked (RFC 6749 §5.1).
 	s.consent = s.p.RequiredScope != "" && tok.Scope != "" &&
 		!slices.Contains(strings.Fields(tok.Scope), s.p.RequiredScope)
 	if s.consent {
-		return "", ScopeNotGranted
+		return "", connectors.ScopeNotGranted
 	}
 	reg := s.reg.get()
 	if reg.Subject != "" && reg.Subject != id.UserID {
-		return "", AccountMismatch
+		return "", connectors.AccountMismatch
 	}
 	sessionID := uuid.NewString()
 	if err := saveEntry(s.keyring, s.refreshAccount(), sessionID, tok.RefreshToken); err != nil {
 		slog.Error("oauth: could not save the refresh token", "provider", s.p.ID, "err", err)
-		return "", NotSaved
+		return "", connectors.NotSaved
 	}
 	reg.Subject, reg.Email, reg.SessionID = id.UserID, id.Email, sessionID
 	if err := s.reg.save(reg); err != nil {
@@ -347,7 +348,7 @@ func (s *Service) saveSessionLocked(tok oauth.Token, id oauth.Identity) (string,
 		if err := s.keyring.Delete(s.refreshAccount()); err != nil {
 			slog.Error("oauth: could not delete the refresh token", "provider", s.p.ID, "err", err)
 		}
-		return "", NotSaved
+		return "", connectors.NotSaved
 	}
 	return sessionID, ""
 }

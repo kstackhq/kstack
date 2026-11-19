@@ -17,8 +17,8 @@ tokens rotate on every refresh.
 
 ## Decision
 
-`services/connectors/oauthconn` runs Sign in with ChatGPT's own flow, under the `Provider` that
-`services/connectors/chatgptauth` describes. The first sign-in names
+`services/connectors/internal/oauthconn` runs Sign in with ChatGPT's own flow, under the `Provider` that
+`services/connectors/chatgpt` describes. The first sign-in names
 `dynamic_agent_client` and saves the client id the callback returns before exchanging the code;
 every later sign-in, refresh and revocation uses it. Each installation sends a stable host id.
 The refresh token is in the OS keyring; the provider's row in `app.db` holds the registration

@@ -23,10 +23,9 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/catalogsync"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
@@ -50,10 +49,10 @@ type Runtime struct {
 	Logs *logs.Service
 	Auth auth.Service
 	// ChatGPT is Sign in with ChatGPT, which signs the chatgpt provider.
-	ChatGPT *oauthconn.Service
+	ChatGPT *chatgpt.Service
 	// OpenRouter is the OpenRouter connector, which signs the openrouter row
 	// when the environment holds no key.
-	OpenRouter *openrouterkey.Service
+	OpenRouter *openrouter.Service
 	Catalog    catalog.Catalog
 	LLM        *llm.Service
 	// Shell is nil on a machine with no shell.
@@ -178,21 +177,22 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return fail(err)
 	}
 
-	rt.ChatGPT, err = oauthconn.New(oauthconn.Config{
-		Provider:        movedProvider(chatgptauth.Provider(), cfg),
+	rt.ChatGPT, err = chatgpt.New(chatgpt.Config{
 		DB:              db,
 		KeychainService: keychainService,
+		Issuer:          cmp.Or(cfg.ConnectorAuthURLs[chatgpt.ID], chatgpt.Issuer),
+		APIBaseURL:      cmp.Or(cfg.LLMBaseURLs[chatgpt.ID], chatgpt.APIBaseURL),
 	})
 	if err != nil { // coverage:ignore the statements prepare on the schema app.db was just migrated to
 		return fail(err)
 	}
 	rt.add("chatgpt service", lifecycle.CloseFunc(func() error { rt.ChatGPT.Close(); return nil }))
 
-	_, openRouterKeyed := cfg.LLMKeys[openrouterkey.ID]
-	rt.OpenRouter, err = openrouterkey.New(openrouterkey.Config{
+	_, openRouterKeyed := cfg.LLMKeys[openrouter.ID]
+	rt.OpenRouter, err = openrouter.New(openrouter.Config{
 		KeychainService: keychainService,
-		AuthURL:         cmp.Or(cfg.ConnectorAuthURLs[openrouterkey.ID], openrouterkey.AuthURL),
-		APIBaseURL:      cmp.Or(cfg.LLMBaseURLs[openrouterkey.ID], openrouterkey.APIBaseURL),
+		AuthURL:         cmp.Or(cfg.ConnectorAuthURLs[openrouter.ID], openrouter.AuthURL),
+		APIBaseURL:      cmp.Or(cfg.LLMBaseURLs[openrouter.ID], openrouter.APIBaseURL),
 		FromEnvironment: openRouterKeyed,
 	})
 	if err != nil {
@@ -200,16 +200,16 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.add("openrouter service", lifecycle.CloseFunc(func() error { rt.OpenRouter.Close(); return nil }))
 
-	rt.Catalog = newCatalog(cfg, map[string]llm.SessionSigner{chatgptauth.ID: rt.ChatGPT, openrouterkey.ID: rt.OpenRouter})
+	rt.Catalog = newCatalog(cfg, map[string]llm.SessionSigner{chatgpt.ID: rt.ChatGPT, openrouter.ID: rt.OpenRouter})
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
 	rt.add("chatgpt catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
-		stop := catalogsync.Start(chatgptauth.ID, rt.ChatGPT.WatchSession, rt.Poke, rt.LLM, catalog.ReadSignedModels)
+		stop := rt.ChatGPT.SyncCatalog(rt.Poke, rt.LLM, catalog.ReadSignedModels)
 		return func(context.Context) error { stop(); return nil }, nil
 	}))
 	// With an environment key the row keeps its written catalog.
-	if rt.OpenRouter.State().Phase != openrouterkey.FromEnvironment {
+	if rt.OpenRouter.State().Phase != connectors.FromEnvironment {
 		rt.add("openrouter catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
-			stop := catalogsync.Start(openrouterkey.ID, rt.OpenRouter.WatchSession, rt.Poke, rt.LLM, catalog.ReadOpenRouterModels)
+			stop := rt.OpenRouter.SyncCatalog(rt.Poke, rt.LLM, catalog.ReadOpenRouterModels)
 			return func(context.Context) error { stop(); return nil }, nil
 		}))
 	}
@@ -328,11 +328,4 @@ func cloudTargets(platforms []bash.CloudPlatform) []permissions.Target {
 		targets = append(targets, p.Target())
 	}
 	return targets
-}
-
-// movedProvider is p at the issuer and the base URL a debug build moved it to.
-func movedProvider(p oauthconn.Provider, cfg Config) oauthconn.Provider {
-	p.Issuer = cmp.Or(cfg.ConnectorAuthURLs[p.ID], p.Issuer)
-	p.APIBaseURL = cmp.Or(cfg.LLMBaseURLs[p.ID], p.APIBaseURL)
-	return p
 }

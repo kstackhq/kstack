@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 )
 
 // keyedProvider is a provider and the environment variable that keys it.
@@ -255,7 +255,7 @@ func newXAIProvider() llm.Provider {
 func newOpenRouterProvider() llm.Provider {
 	return llm.Provider{
 		ID: "openrouter", Label: "OpenRouter", Dialect: llm.DialectChatCompletions,
-		BaseURL: openrouterkey.APIBaseURL,
+		BaseURL: openrouter.APIBaseURL,
 		Catalog: []llm.Model{
 			{ID: "openrouter/auto", Label: "Auto", Cache: llm.CacheAuto},
 			{ID: "openai/gpt-5.6", Label: "GPT-5.6 Sol", Tools: true, Cache: llm.CacheAuto},

@@ -27,8 +27,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
@@ -958,8 +957,8 @@ type ComplexityRoot struct {
 // region    ************************** generated!.gotpl **************************
 
 type ChatGPTConnectionResolver interface {
-	Email(ctx context.Context, obj *oauthconn.State) (*string, error)
-	Failure(ctx context.Context, obj *oauthconn.State) (*oauthconn.Failure, error)
+	Email(ctx context.Context, obj *connectors.State) (*string, error)
+	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
 }
 type ChatMessageResolver interface {
 	Thinking(ctx context.Context, obj *chat.ChatMessage) (string, error)
@@ -1034,7 +1033,7 @@ type MutationResolver interface {
 	OpenRouterKeysOpen(ctx context.Context) (bool, error)
 }
 type OpenRouterConnectionResolver interface {
-	Failure(ctx context.Context, obj *openrouterkey.State) (*openrouterkey.Failure, error)
+	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
 }
 type QueryResolver interface {
 	Models(ctx context.Context) ([]*model.Model, error)
@@ -1056,8 +1055,8 @@ type QueryResolver interface {
 	ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
 	LogsFetch(ctx context.Context, id apimeta.ClusterID, request model.LogsFetchInput) (*model.LogRecordsPage, error)
 	AuthState(ctx context.Context) (*auth.State, error)
-	ChatGPTConnection(ctx context.Context) (*oauthconn.State, error)
-	OpenRouterConnection(ctx context.Context) (*openrouterkey.State, error)
+	ChatGPTConnection(ctx context.Context) (*connectors.State, error)
+	OpenRouterConnection(ctx context.Context) (*connectors.State, error)
 }
 type SubscriptionResolver interface {
 	EventsWatch(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *cluster.EventWatchFrame, error)
@@ -1079,8 +1078,8 @@ type SubscriptionResolver interface {
 	LogsFollow(ctx context.Context, id apimeta.ClusterID, request model.LogsFollowInput) (<-chan *model.LogsFollowFrame, error)
 	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
 	AuthStateWatch(ctx context.Context) (<-chan *auth.State, error)
-	ChatGPTConnectionWatch(ctx context.Context) (<-chan *oauthconn.State, error)
-	OpenRouterConnectionWatch(ctx context.Context) (<-chan *openrouterkey.State, error)
+	ChatGPTConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
+	OpenRouterConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ModelsWatch(ctx context.Context) (<-chan []*model.Model, error)
 }
 type ToolCallResolver interface {
@@ -8383,7 +8382,7 @@ func (ec *executionContext) fieldContext_Chat_networkEnabled(_ context.Context, 
 	return graphql.NewScalarFieldContext("Chat", field, false, false, "Boolean")
 }
 
-func (ec *executionContext) _ChatGPTConnection_phase(ctx context.Context, field graphql.CollectedField, obj *oauthconn.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatGPTConnection_phase(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8395,18 +8394,18 @@ func (ec *executionContext) _ChatGPTConnection_phase(ctx context.Context, field 
 			return obj.Phase, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v oauthconn.Phase) graphql.Marshaler {
-			return ec.marshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v connectors.Phase) graphql.Marshaler {
+			return ec.marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase(ctx, selections, v)
 		},
 		true,
 		true,
 	)
 }
 func (ec *executionContext) fieldContext_ChatGPTConnection_phase(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("ChatGPTConnection", field, false, false, "ChatGPTConnectionPhase")
+	return graphql.NewScalarFieldContext("ChatGPTConnection", field, false, false, "ConnectorPhase")
 }
 
-func (ec *executionContext) _ChatGPTConnection_email(ctx context.Context, field graphql.CollectedField, obj *oauthconn.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatGPTConnection_email(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8429,7 +8428,7 @@ func (ec *executionContext) fieldContext_ChatGPTConnection_email(_ context.Conte
 	return graphql.NewScalarFieldContext("ChatGPTConnection", field, true, true, "String")
 }
 
-func (ec *executionContext) _ChatGPTConnection_failure(ctx context.Context, field graphql.CollectedField, obj *oauthconn.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatGPTConnection_failure(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8441,18 +8440,18 @@ func (ec *executionContext) _ChatGPTConnection_failure(ctx context.Context, fiel
 			return ec.Resolvers.ChatGPTConnection().Failure(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *oauthconn.Failure) graphql.Marshaler {
-			return ec.marshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.Failure) graphql.Marshaler {
+			return ec.marshalOConnectorFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐFailure(ctx, selections, v)
 		},
 		true,
 		false,
 	)
 }
 func (ec *executionContext) fieldContext_ChatGPTConnection_failure(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("ChatGPTConnection", field, true, true, "ChatGPTConnectionFailure")
+	return graphql.NewScalarFieldContext("ChatGPTConnection", field, true, true, "ConnectorFailure")
 }
 
-func (ec *executionContext) _ChatGPTConnection_registered(ctx context.Context, field graphql.CollectedField, obj *oauthconn.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatGPTConnection_registered(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8475,7 +8474,7 @@ func (ec *executionContext) fieldContext_ChatGPTConnection_registered(_ context.
 	return graphql.NewScalarFieldContext("ChatGPTConnection", field, false, false, "Boolean")
 }
 
-func (ec *executionContext) _ChatGPTConnection_revocationUnconfirmed(ctx context.Context, field graphql.CollectedField, obj *oauthconn.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatGPTConnection_revocationUnconfirmed(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -18714,7 +18713,7 @@ func (ec *executionContext) fieldContext_ObjectRef_kind(_ context.Context, field
 	return graphql.NewScalarFieldContext("ObjectRef", field, false, false, "String")
 }
 
-func (ec *executionContext) _OpenRouterConnection_phase(ctx context.Context, field graphql.CollectedField, obj *openrouterkey.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _OpenRouterConnection_phase(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -18726,18 +18725,18 @@ func (ec *executionContext) _OpenRouterConnection_phase(ctx context.Context, fie
 			return obj.Phase, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v openrouterkey.Phase) graphql.Marshaler {
-			return ec.marshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v connectors.Phase) graphql.Marshaler {
+			return ec.marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase(ctx, selections, v)
 		},
 		true,
 		true,
 	)
 }
 func (ec *executionContext) fieldContext_OpenRouterConnection_phase(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("OpenRouterConnection", field, false, false, "OpenRouterConnectionPhase")
+	return graphql.NewScalarFieldContext("OpenRouterConnection", field, false, false, "ConnectorPhase")
 }
 
-func (ec *executionContext) _OpenRouterConnection_failure(ctx context.Context, field graphql.CollectedField, obj *openrouterkey.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _OpenRouterConnection_failure(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -18749,15 +18748,15 @@ func (ec *executionContext) _OpenRouterConnection_failure(ctx context.Context, f
 			return ec.Resolvers.OpenRouterConnection().Failure(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *openrouterkey.Failure) graphql.Marshaler {
-			return ec.marshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.Failure) graphql.Marshaler {
+			return ec.marshalOConnectorFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐFailure(ctx, selections, v)
 		},
 		true,
 		false,
 	)
 }
 func (ec *executionContext) fieldContext_OpenRouterConnection_failure(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("OpenRouterConnection", field, true, true, "OpenRouterConnectionFailure")
+	return graphql.NewScalarFieldContext("OpenRouterConnection", field, true, true, "ConnectorFailure")
 }
 
 func (ec *executionContext) _PermissionAction_target(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
@@ -20350,8 +20349,8 @@ func (ec *executionContext) _Query_chatGPTConnection(ctx context.Context, field 
 			return ec.Resolvers.Query().ChatGPTConnection(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *oauthconn.State) graphql.Marshaler {
-			return ec.marshalNChatGPTConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐState(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNChatGPTConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
 		},
 		true,
 		true,
@@ -20382,8 +20381,8 @@ func (ec *executionContext) _Query_openRouterConnection(ctx context.Context, fie
 			return ec.Resolvers.Query().OpenRouterConnection(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *openrouterkey.State) graphql.Marshaler {
-			return ec.marshalNOpenRouterConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐState(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNOpenRouterConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
 		},
 		true,
 		true,
@@ -22426,8 +22425,8 @@ func (ec *executionContext) _Subscription_chatGPTConnectionWatch(ctx context.Con
 			return ec.Resolvers.Subscription().ChatGPTConnectionWatch(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *oauthconn.State) graphql.Marshaler {
-			return ec.marshalNChatGPTConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐState(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNChatGPTConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
 		},
 		true,
 		true,
@@ -22458,8 +22457,8 @@ func (ec *executionContext) _Subscription_openRouterConnectionWatch(ctx context.
 			return ec.Resolvers.Subscription().OpenRouterConnectionWatch(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *openrouterkey.State) graphql.Marshaler {
-			return ec.marshalNOpenRouterConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐState(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
+			return ec.marshalNOpenRouterConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
 		},
 		true,
 		true,
@@ -25538,7 +25537,7 @@ func (ec *executionContext) _Chat(ctx context.Context, sel ast.SelectionSet, obj
 
 var chatGPTConnectionImplementors = []string{"ChatGPTConnection"}
 
-func (ec *executionContext) _ChatGPTConnection(ctx context.Context, sel ast.SelectionSet, obj *oauthconn.State) graphql.Marshaler {
+func (ec *executionContext) _ChatGPTConnection(ctx context.Context, sel ast.SelectionSet, obj *connectors.State) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, chatGPTConnectionImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -29659,7 +29658,7 @@ func (ec *executionContext) _ObjectRef(ctx context.Context, sel ast.SelectionSet
 
 var openRouterConnectionImplementors = []string{"OpenRouterConnection"}
 
-func (ec *executionContext) _OpenRouterConnection(ctx context.Context, sel ast.SelectionSet, obj *openrouterkey.State) graphql.Marshaler {
+func (ec *executionContext) _OpenRouterConnection(ctx context.Context, sel ast.SelectionSet, obj *connectors.State) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, openRouterConnectionImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -31738,43 +31737,13 @@ func (ec *executionContext) marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋs
 	return ec._Chat(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNChatGPTConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐState(ctx context.Context, sel ast.SelectionSet, v *oauthconn.State) graphql.Marshaler {
+func (ec *executionContext) marshalNChatGPTConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx context.Context, sel ast.SelectionSet, v *connectors.State) graphql.Marshaler {
 	if v == nil {
 		graphql.AddInvalidNullError(ctx, "ChatGPTConnection!")
 		return graphql.Null
 	}
 	return ec._ChatGPTConnection(ctx, sel, v)
 }
-
-func (ec *executionContext) unmarshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase(ctx context.Context, v any) (oauthconn.Phase, error) {
-	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase[tmp]
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase(ctx context.Context, sel ast.SelectionSet, v oauthconn.Phase) graphql.Marshaler {
-	_ = sel
-	res := graphql.MarshalString(marshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase[v])
-	if res == graphql.Null {
-		graphql.AddInvalidNullFromMarshaler(ctx, "ChatGPTConnectionPhase!")
-	}
-	return res
-}
-
-var (
-	unmarshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase = map[string]oauthconn.Phase{
-		"SignedOut": oauthconn.SignedOut,
-		"SigningIn": oauthconn.SigningIn,
-		"Connected": oauthconn.Connected,
-		"Failed":    oauthconn.Failed,
-	}
-	marshalNChatGPTConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐPhase = map[oauthconn.Phase]string{
-		oauthconn.SignedOut: "SignedOut",
-		oauthconn.SigningIn: "SigningIn",
-		oauthconn.Connected: "Connected",
-		oauthconn.Failed:    "Failed",
-	}
-)
 
 func (ec *executionContext) unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx context.Context, v any) (apimeta.ChatID, error) {
 	tmp, err := graphql.UnmarshalString(v)
@@ -32264,6 +32233,38 @@ func (ec *executionContext) marshalNConditionStatus2githubᚗcomᚋamoreyᚋbeeh
 	}
 	return res
 }
+
+func (ec *executionContext) unmarshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase(ctx context.Context, v any) (connectors.Phase, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase[tmp]
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase(ctx context.Context, sel ast.SelectionSet, v connectors.Phase) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase[v])
+	if res == graphql.Null {
+		graphql.AddInvalidNullFromMarshaler(ctx, "ConnectorPhase!")
+	}
+	return res
+}
+
+var (
+	unmarshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase = map[string]connectors.Phase{
+		"SignedOut":       connectors.SignedOut,
+		"SigningIn":       connectors.SigningIn,
+		"Connected":       connectors.Connected,
+		"FromEnvironment": connectors.FromEnvironment,
+		"Failed":          connectors.Failed,
+	}
+	marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase = map[connectors.Phase]string{
+		connectors.SignedOut:       "SignedOut",
+		connectors.SigningIn:       "SigningIn",
+		connectors.Connected:       "Connected",
+		connectors.FromEnvironment: "FromEnvironment",
+		connectors.Failed:          "Failed",
+	}
+)
 
 func (ec *executionContext) unmarshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx context.Context, v any) (apimeta.DeltaFrameType, error) {
 	tmp, err := graphql.UnmarshalString(v)
@@ -32948,45 +32949,13 @@ func (ec *executionContext) marshalNObjectRef2githubᚗcomᚋkstackhqᚋkstack�
 	return ec._ObjectRef(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNOpenRouterConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐState(ctx context.Context, sel ast.SelectionSet, v *openrouterkey.State) graphql.Marshaler {
+func (ec *executionContext) marshalNOpenRouterConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx context.Context, sel ast.SelectionSet, v *connectors.State) graphql.Marshaler {
 	if v == nil {
 		graphql.AddInvalidNullError(ctx, "OpenRouterConnection!")
 		return graphql.Null
 	}
 	return ec._OpenRouterConnection(ctx, sel, v)
 }
-
-func (ec *executionContext) unmarshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase(ctx context.Context, v any) (openrouterkey.Phase, error) {
-	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase[tmp]
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase(ctx context.Context, sel ast.SelectionSet, v openrouterkey.Phase) graphql.Marshaler {
-	_ = sel
-	res := graphql.MarshalString(marshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase[v])
-	if res == graphql.Null {
-		graphql.AddInvalidNullFromMarshaler(ctx, "OpenRouterConnectionPhase!")
-	}
-	return res
-}
-
-var (
-	unmarshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase = map[string]openrouterkey.Phase{
-		"SignedOut":       openrouterkey.SignedOut,
-		"SigningIn":       openrouterkey.SigningIn,
-		"Connected":       openrouterkey.Connected,
-		"FromEnvironment": openrouterkey.FromEnvironment,
-		"Failed":          openrouterkey.Failed,
-	}
-	marshalNOpenRouterConnectionPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐPhase = map[openrouterkey.Phase]string{
-		openrouterkey.SignedOut:       "SignedOut",
-		openrouterkey.SigningIn:       "SigningIn",
-		openrouterkey.Connected:       "Connected",
-		openrouterkey.FromEnvironment: "FromEnvironment",
-		openrouterkey.Failed:          "Failed",
-	}
-)
 
 func (ec *executionContext) unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass(ctx context.Context, v any) (permissions.Class, error) {
 	tmp, err := graphql.UnmarshalString(v)
@@ -33837,48 +33806,6 @@ func (ec *executionContext) marshalOChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋs
 	return ec._Chat(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure(ctx context.Context, v any) (*oauthconn.Failure, error) {
-	if v == nil {
-		return nil, nil
-	}
-	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure[tmp]
-	return &res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure(ctx context.Context, sel ast.SelectionSet, v *oauthconn.Failure) graphql.Marshaler {
-	if v == nil {
-		return graphql.Null
-	}
-	_ = sel
-	_ = ctx
-	res := graphql.MarshalString(marshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure[*v])
-	return res
-}
-
-var (
-	unmarshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure = map[string]oauthconn.Failure{
-		"Declined":            oauthconn.Declined,
-		"PlanUsageNotGranted": oauthconn.ScopeNotGranted,
-		"AccountMismatch":     oauthconn.AccountMismatch,
-		"TimedOut":            oauthconn.TimedOut,
-		"Unavailable":         oauthconn.Unavailable,
-		"NotSaved":            oauthconn.NotSaved,
-		"SessionEnded":        oauthconn.SessionEnded,
-		"Refused":             oauthconn.Refused,
-	}
-	marshalOChatGPTConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋoauthconnᚐFailure = map[oauthconn.Failure]string{
-		oauthconn.Declined:        "Declined",
-		oauthconn.ScopeNotGranted: "PlanUsageNotGranted",
-		oauthconn.AccountMismatch: "AccountMismatch",
-		oauthconn.TimedOut:        "TimedOut",
-		oauthconn.Unavailable:     "Unavailable",
-		oauthconn.NotSaved:        "NotSaved",
-		oauthconn.SessionEnded:    "SessionEnded",
-		oauthconn.Refused:         "Refused",
-	}
-)
-
 func (ec *executionContext) unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx context.Context, v any) (*apimeta.ChatID, error) {
 	if v == nil {
 		return nil, nil
@@ -33993,6 +33920,52 @@ func (ec *executionContext) marshalOCommandAction2ᚖgithubᚗcomᚋkstackhqᚋk
 	}
 	return ec._CommandAction(ctx, sel, v)
 }
+
+func (ec *executionContext) unmarshalOConnectorFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐFailure(ctx context.Context, v any) (*connectors.Failure, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalOConnectorFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐFailure[tmp]
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOConnectorFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐFailure(ctx context.Context, sel ast.SelectionSet, v *connectors.Failure) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(marshalOConnectorFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐFailure[*v])
+	return res
+}
+
+var (
+	unmarshalOConnectorFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐFailure = map[string]connectors.Failure{
+		"Declined":        connectors.Declined,
+		"ScopeNotGranted": connectors.ScopeNotGranted,
+		"AccountMismatch": connectors.AccountMismatch,
+		"TimedOut":        connectors.TimedOut,
+		"Unavailable":     connectors.Unavailable,
+		"Refused":         connectors.Refused,
+		"NotSaved":        connectors.NotSaved,
+		"NotDeleted":      connectors.NotDeleted,
+		"SessionEnded":    connectors.SessionEnded,
+		"KeyRejected":     connectors.KeyRejected,
+	}
+	marshalOConnectorFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐFailure = map[connectors.Failure]string{
+		connectors.Declined:        "Declined",
+		connectors.ScopeNotGranted: "ScopeNotGranted",
+		connectors.AccountMismatch: "AccountMismatch",
+		connectors.TimedOut:        "TimedOut",
+		connectors.Unavailable:     "Unavailable",
+		connectors.Refused:         "Refused",
+		connectors.NotSaved:        "NotSaved",
+		connectors.NotDeleted:      "NotDeleted",
+		connectors.SessionEnded:    "SessionEnded",
+		connectors.KeyRejected:     "KeyRejected",
+	}
+)
 
 func (ec *executionContext) marshalODelegateAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐDelegateAction(ctx context.Context, sel ast.SelectionSet, v *tools.DelegateAction) graphql.Marshaler {
 	if v == nil {
@@ -34242,44 +34215,6 @@ func (ec *executionContext) marshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	}
 	return v
 }
-
-func (ec *executionContext) unmarshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure(ctx context.Context, v any) (*openrouterkey.Failure, error) {
-	if v == nil {
-		return nil, nil
-	}
-	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure[tmp]
-	return &res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure(ctx context.Context, sel ast.SelectionSet, v *openrouterkey.Failure) graphql.Marshaler {
-	if v == nil {
-		return graphql.Null
-	}
-	_ = sel
-	_ = ctx
-	res := graphql.MarshalString(marshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure[*v])
-	return res
-}
-
-var (
-	unmarshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure = map[string]openrouterkey.Failure{
-		"TimedOut":    openrouterkey.TimedOut,
-		"Unavailable": openrouterkey.Unavailable,
-		"Refused":     openrouterkey.Refused,
-		"NotSaved":    openrouterkey.NotSaved,
-		"NotDeleted":  openrouterkey.NotDeleted,
-		"KeyRejected": openrouterkey.KeyRejected,
-	}
-	marshalOOpenRouterConnectionFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚋopenrouterkeyᚐFailure = map[openrouterkey.Failure]string{
-		openrouterkey.TimedOut:    "TimedOut",
-		openrouterkey.Unavailable: "Unavailable",
-		openrouterkey.Refused:     "Refused",
-		openrouterkey.NotSaved:    "NotSaved",
-		openrouterkey.NotDeleted:  "NotDeleted",
-		openrouterkey.KeyRejected: "KeyRejected",
-	}
-)
 
 func (ec *executionContext) marshalOPermissionAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐPermissionAction(ctx context.Context, sel ast.SelectionSet, v *chat.PermissionAction) graphql.Marshaler {
 	if v == nil {

@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package openrouterkey is the OpenRouter connector: a sign-in with PKCE whose
+// Package openrouter is the OpenRouter connector: a sign-in with PKCE whose
 // exchange grants an ordinary API key, kept in the OS keyring. The key signs
 // the openrouter row's requests (llm.SessionSigner) while it is connected.
 //
-// Files: this one (Service, State, New), keyring.go (the key's entry),
+// Files: this one (Service, New, the catalog sync), keyring.go (the key's entry),
 // connect.go (the sign-in), sign.go (Sign, Bind, the key check),
 // disconnect.go.
-package openrouterkey
+package openrouter
 
 import (
 	"context"
-	"errors"
 	"net/url"
 	"sync"
 	"time"
@@ -33,6 +32,9 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth/browser"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/internal/catalogsync"
+	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
 const (
@@ -53,51 +55,6 @@ const (
 	attemptTimeout = 5 * time.Minute
 	// issuerTimeout bounds one answer of OpenRouter's: the exchange, a key check.
 	issuerTimeout = 30 * time.Second
-)
-
-// Phase is where the connector is.
-type Phase string
-
-const (
-	SignedOut Phase = "SignedOut"
-	SigningIn Phase = "SigningIn"
-	Connected Phase = "Connected"
-	// FromEnvironment is a launch whose environment holds OPENROUTER_API_KEY,
-	// which signs the row in the connector's place.
-	FromEnvironment Phase = "FromEnvironment"
-	Failed          Phase = "Failed"
-)
-
-// Failure is why the last attempt or key ended.
-type Failure string
-
-const (
-	TimedOut    Failure = "TimedOut"
-	Unavailable Failure = "Unavailable"
-	Refused     Failure = "Refused"
-	NotSaved    Failure = "NotSaved"
-	// NotDeleted is a Disconnect whose keyring delete failed: the key is out of
-	// memory but still in the keyring, and returns at the next launch.
-	NotDeleted Failure = "NotDeleted"
-	// KeyRejected is a key OpenRouter confirmed it no longer honours.
-	KeyRejected Failure = "KeyRejected"
-)
-
-// State is the connector as every window draws it. It holds no key.
-type State struct {
-	Phase Phase
-	// Session is the generation this state belongs to.
-	Session uint64
-	// Failure is why, when Failed.
-	Failure Failure
-}
-
-// The refusals of Connect and Disconnect.
-var (
-	ErrSigningIn       = errors.New("openrouterkey: a sign-in is under way")
-	ErrConnected       = errors.New("openrouterkey: already connected")
-	ErrFromEnvironment = errors.New("openrouterkey: the environment's OPENROUTER_API_KEY is in use")
-	ErrNotDeleted      = errors.New("openrouterkey: a key the keyring would not delete is still there")
 )
 
 // Config is the service's production knobs.
@@ -132,14 +89,14 @@ type Service struct {
 	stop context.CancelFunc
 	wg   sync.WaitGroup
 
-	hub *watch.Hub[State]
-	tx  *watch.Sender[State]
+	hub *watch.Hub[connectors.State]
+	tx  *watch.Sender[connectors.State]
 	// sessions holds the generation while Connected, 0 otherwise.
 	sessions *watch.Hub[uint64]
 
 	mu      sync.Mutex
 	gen     uint64
-	state   State
+	state   connectors.State
 	key     string
 	attempt *attempt
 	// checking is a key check under way.
@@ -183,7 +140,7 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 		issuerTimeout:  issuerTimeout,
 		ctx:            ctx,
 		stop:           stop,
-		hub:            watch.New(State{}),
+		hub:            watch.New(connectors.State{}),
 		sessions:       watch.New[uint64](0),
 	}
 	s.tx = s.hub.Sender()
@@ -191,7 +148,7 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 		opt(s)
 	}
 	if cfg.FromEnvironment {
-		s.publishLocked(State{Phase: FromEnvironment})
+		s.publishLocked(connectors.State{Phase: connectors.FromEnvironment})
 		return s, nil
 	}
 	s.publishLocked(s.restore())
@@ -199,14 +156,14 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 }
 
 // State is the connector's current state.
-func (s *Service) State() State {
+func (s *Service) State() connectors.State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.state
 }
 
 // Subscribe streams the state: current on subscribe, then each change.
-func (s *Service) Subscribe() (<-chan State, func()) {
+func (s *Service) Subscribe() (<-chan connectors.State, func()) {
 	rx := s.hub.Receiver()
 	return rx.Chan(), rx.Close
 }
@@ -218,6 +175,12 @@ func (s *Service) WatchSession() (<-chan uint64, func()) {
 	return rx.Chan(), rx.Close
 }
 
+// SyncCatalog keeps the openrouter row's catalog the account's until the stop
+// it returns.
+func (s *Service) SyncCatalog(pokes *poke.Service, models *llm.Service, read func(context.Context, llm.Provider) ([]llm.Model, error)) (stop func()) {
+	return catalogsync.Start(ID, s.WatchSession, pokes, models, read)
+}
+
 // Close ends every goroutine the service started and waits for them.
 func (s *Service) Close() {
 	s.stop()
@@ -225,12 +188,12 @@ func (s *Service) Close() {
 }
 
 // publishLocked makes st the state, stamped with the generation (s.mu held).
-func (s *Service) publishLocked(st State) {
+func (s *Service) publishLocked(st connectors.State) {
 	st.Session = s.gen
 	s.state = st
 	s.tx.Send(st) //nolint:errcheck // Send never blocks, and the hub is never closed
 	var session uint64
-	if st.Phase == Connected {
+	if st.Phase == connectors.Connected {
 		session = s.gen
 	}
 	s.sessions.Sender().Send(session) //nolint:errcheck // as above

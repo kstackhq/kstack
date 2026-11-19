@@ -23,12 +23,12 @@ import (
 	"net/http"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgptauth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
 )
 
 // ChatGPTID is the ChatGPT plan's provider id: a provider of its own, apart from
 // openai, since a payload replays only to the provider that wrote it.
-const ChatGPTID = chatgptauth.ID
+const ChatGPTID = chatgpt.ID
 
 // chatGPTCodes is the codes of OpenAI's errors-and-recovery page for Sign in
 // with ChatGPT, kept on a failure so the chat can say what happened.
@@ -54,7 +54,7 @@ var chatGPTCodes = map[string]llm.CodeClass{
 func newChatGPTProvider(signer llm.Signer) llm.Provider {
 	return llm.Provider{
 		ID: ChatGPTID, Label: "ChatGPT plan", Dialect: llm.DialectResponses,
-		BaseURL: chatgptauth.APIBaseURL,
+		BaseURL: chatgpt.APIBaseURL,
 		Signer:  signer,
 		Extra: map[string]any{
 			"include":           []string{"reasoning.encrypted_content"},

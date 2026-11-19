@@ -21,6 +21,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // Disconnect signs out on this machine, then asks the provider to revoke the refresh
@@ -42,7 +43,7 @@ func (s *Service) Disconnect(context.Context) error {
 		safe.AddSecret(refresh)
 	}
 	rowErr, keyErr := s.clearLocked(false)
-	s.publishLocked(State{Phase: SignedOut})
+	s.publishLocked(connectors.State{Phase: connectors.SignedOut})
 	if refresh != "" {
 		s.revokeLocked(s.gen, clientID, oauth.Token{RefreshToken: refresh})
 	}

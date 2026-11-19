@@ -9,7 +9,7 @@ is each tool; `internal/llm/CLAUDE.md` is the wires.
 ## Catalog (`internal/agent/catalog`)
 
 The providers the app holds and, for each provider, every tool its turns are offered, by tool
-name. It imports `llm`, each tool's package and `openrouterkey` (its API base); only `config.go`
+name. It imports `llm`, each tool's package, and the connectors `chatgpt` and `openrouter` (their ids and API bases); only `config.go`
 and `app` import it.
 
 - `catalog.go`: `New(Config)` is every provider whose key `Config.APIKeys` holds, in picker order,
@@ -28,7 +28,7 @@ and `app` import it.
   window). The route is a preview: a field it refuses goes in the row's `Omit`.
   A signed-in provider is a row of `signedProviders` (`providers.go`), listed when `Config.Signers`
   holds its signer; with no key, `openrouter` is signed by its connector.
-  `services/connectors/catalogsync` is its catalog's only writer: a read per `Connected` session, per
+  The connector's `SyncCatalog` is its catalog's only writer: a read per `Connected` session, per
   poke and every six hours, none kept past its session, empty in any other phase.
   → [ADR: a signed-in provider's catalog follows its connection](../../../docs/adr/2026-11-18-a-signed-in-providers-catalog-follows-its-connection.md).
 - **A list is policy.** `lists` is static data by provider id: `ours` for every provider, plus the

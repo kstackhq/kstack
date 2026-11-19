@@ -18,8 +18,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/oauthconn"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouterkey"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/iso8601"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
@@ -158,20 +157,11 @@ func memoryErr(err error) error {
 	return err
 }
 
-// chatGPTErr is a refused Connect as the wire codes it: during an attempt, or
-// while connected.
-func chatGPTErr(err error) error {
-	if errors.Is(err, oauthconn.ErrSigningIn) || errors.Is(err, oauthconn.ErrConnected) {
-		return gqlerrors.Clone(gqlerrors.ErrValidationError)
-	}
-	return err
-}
-
-// openRouterErr is a refused Connect or Disconnect as the wire codes it: during
+// connectorErr is a refused Connect or Disconnect as the wire codes it: during
 // an attempt, while connected, while the environment holds a key, or while a
 // key the keyring would not delete is still there.
-func openRouterErr(err error) error {
-	for _, refusal := range []error{openrouterkey.ErrSigningIn, openrouterkey.ErrConnected, openrouterkey.ErrFromEnvironment, openrouterkey.ErrNotDeleted} {
+func connectorErr(err error) error {
+	for _, refusal := range []error{connectors.ErrSigningIn, connectors.ErrConnected, connectors.ErrFromEnvironment, connectors.ErrNotDeleted} {
 		if errors.Is(err, refusal) {
 			return gqlerrors.Clone(gqlerrors.ErrValidationError)
 		}

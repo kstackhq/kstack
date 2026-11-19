@@ -271,3 +271,4 @@ usually just documentation in the wrong place.
 | 2026-11-18 | [A provider's credential is a key or a signer](2026-11-18-a-providers-credential-is-a-key-or-a-signer.md) | sidecar | Accepted |
 | 2026-11-18 | [A signed-in provider's catalog follows its connection](2026-11-18-a-signed-in-providers-catalog-follows-its-connection.md) | sidecar | Accepted |
 | 2026-11-19 | [A connector is an OAuth session or a granted key](2026-11-19-a-connector-is-an-oauth-session-or-a-granted-key.md) | sidecar | Accepted |
+| 2026-11-19 | [A connector is one package, and its machinery is internal](2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md) | cross-cutting | Accepted |

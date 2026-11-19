@@ -17,7 +17,6 @@ package oauthconn
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // Sign answers the access token the sign-in minted while it is valid.
@@ -95,32 +95,16 @@ func TestALaunchRefreshesAtItsFirstSign(t *testing.T) {
 	assert.Len(t, r.issuer.forms("refresh_token"), 1)
 }
 
-// Sign signs only its resource: the same scheme, host and port, and a path
-// that is the base's or continues it after a slash. A near miss is refused
-// unsigned.
+// Sign signs only its resource: a request off the API base is refused
+// unsigned. signer.Covers holds the rule.
 func TestTheBearerGoesNowhereElse(t *testing.T) {
 	r := newRig(t)
 	connect(t, r.svc)
-	for _, raw := range []string{
-		"https://api.test/v1x",
-		"https://api.test.example/v1/responses",
-		"http://api.test/v1/responses",
-		"https://api.test:8443/v1/responses",
-		"https://api.test/v2/responses",
-		"https://api.test/",
-	} {
-		req, err := http.NewRequest(http.MethodGet, raw, nil)
-		require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodGet, "https://api.test/v2/responses", nil)
+	require.NoError(t, err)
 
-		assert.Error(t, r.svc.Sign(req), raw)
-		assert.Empty(t, req.Header.Get("Authorization"), raw)
-	}
-	for _, raw := range []string{"https://API.test/v1", "https://api.test:443/v1/models", "https://api.test/v1/responses"} {
-		req, err := http.NewRequest(http.MethodGet, raw, nil)
-		require.NoError(t, err)
-
-		assert.NoError(t, r.svc.Sign(req), raw)
-	}
+	assert.Error(t, r.svc.Sign(req))
+	assert.Empty(t, req.Header.Get("Authorization"))
 }
 
 // Callers that arrive during a refresh wait for its result: one refresh.
@@ -199,7 +183,7 @@ func TestAnUnsavedRotationHoldsTheAccessTokenBack(t *testing.T) {
 	assert.Len(t, r.issuer.forms("refresh_token"), 1)
 	stored, _ := storedRefresh(t, r)
 	assert.Equal(t, "refresh-token-0003", stored)
-	assert.Equal(t, Connected, r.svc.State().Phase)
+	assert.Equal(t, connectors.Connected, r.svc.State().Phase)
 }
 
 // A refresh the issuer refuses ends the session; invalid_client also forgets
@@ -216,8 +200,8 @@ func TestARefusedRefreshEndsTheSession(t *testing.T) {
 
 			assert.ErrorIs(t, err, llm.ErrSignedOut)
 			st := r.svc.State()
-			assert.Equal(t, Failed, st.Phase)
-			assert.Equal(t, SessionEnded, st.Failure)
+			assert.Equal(t, connectors.Failed, st.Phase)
+			assert.Equal(t, connectors.SessionEnded, st.Failure)
 			_, ok := storedRefresh(t, r)
 			assert.False(t, ok)
 			reg := savedRegistration(t, r)
@@ -240,7 +224,7 @@ func TestAnUnreachableIssuerClearsNothing(t *testing.T) {
 
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, llm.ErrSignedOut)
-	assert.Equal(t, Connected, r.svc.State().Phase)
+	assert.Equal(t, connectors.Connected, r.svc.State().Phase)
 	_, ok := storedRefresh(t, r)
 	assert.True(t, ok)
 }
@@ -278,7 +262,7 @@ func TestABindingWithNoSessionIsDead(t *testing.T) {
 	r.issuer.arrived.Await(t, "the code exchange")
 	signingIn := r.svc.Bind()
 	close(release)
-	await(t, r.svc, "Connected", inPhase(Connected))
+	await(t, r.svc, "Connected", inPhase(connectors.Connected))
 
 	for _, b := range []llm.Signer{signedOut, signingIn} {
 		_, err := signedToken(t, b)
@@ -334,13 +318,4 @@ func TestADeadBindingRefusesNothing(t *testing.T) {
 	dead.Refused(req)
 
 	assert.ErrorIs(t, dead.Sign(req), llm.ErrSignedOut)
-}
-
-// A URL's port is its scheme's when it names none.
-func TestEffectivePort(t *testing.T) {
-	for raw, want := range map[string]string{"https://a.test/v1": "443", "http://a.test/v1": "80", "http://a.test:8080/v1": "8080"} {
-		u, err := url.Parse(raw)
-		require.NoError(t, err)
-		assert.Equal(t, want, effectivePort(u), raw)
-	}
 }

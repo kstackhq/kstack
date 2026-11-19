@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openrouterkey
+package openrouter
 
 import (
 	"bytes"
@@ -30,6 +30,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 const (
@@ -69,7 +70,7 @@ func (s *Service) Connect(context.Context) error {
 	if err := s.openBrowser(a); err != nil {
 		slog.Warn("openrouter: could not open the browser", "err", err)
 		a.forget()
-		s.endAttempt(a.gen, Refused)
+		s.endAttempt(a.gen, connectors.Refused)
 		return nil
 	}
 	s.wg.Go(func() {
@@ -89,21 +90,21 @@ func (s *Service) begin() (*attempt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch s.state.Phase {
-	case FromEnvironment:
-		return nil, ErrFromEnvironment
-	case SigningIn:
-		return nil, ErrSigningIn
-	case Connected:
-		return nil, ErrConnected
-	case Failed:
-		if s.state.Failure == NotDeleted {
-			return nil, ErrNotDeleted
+	case connectors.FromEnvironment:
+		return nil, connectors.ErrFromEnvironment
+	case connectors.SigningIn:
+		return nil, connectors.ErrSigningIn
+	case connectors.Connected:
+		return nil, connectors.ErrConnected
+	case connectors.Failed:
+		if s.state.Failure == connectors.NotDeleted {
+			return nil, connectors.ErrNotDeleted
 		}
 	}
 	s.gen++
 	if err := oskeyring.Check(s.keyring, checkAccount); err != nil {
 		slog.Error("openrouter: the keyring cannot hold a key", "err", err)
-		s.publishLocked(State{Phase: Failed, Failure: NotSaved})
+		s.publishLocked(connectors.State{Phase: connectors.Failed, Failure: connectors.NotSaved})
 		return nil, nil
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
@@ -116,7 +117,7 @@ func (s *Service) begin() (*attempt, error) {
 	safe.AddSecret(a.verifier)
 	safe.AddSecret(a.challenge)
 	s.attempt = a
-	s.publishLocked(State{Phase: SigningIn})
+	s.publishLocked(connectors.State{Phase: connectors.SigningIn})
 	return a, nil
 }
 
@@ -153,12 +154,12 @@ func (s *Service) authPageURL(a *attempt) string {
 func (s *Service) Cancel() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Phase != SigningIn {
+	if s.state.Phase != connectors.SigningIn {
 		return
 	}
 	s.stopAttemptLocked()
 	s.gen++
-	s.publishLocked(State{Phase: SignedOut})
+	s.publishLocked(connectors.State{Phase: connectors.SignedOut})
 }
 
 // stopAttemptLocked ends the attempt's wait for the callback (s.mu held).
@@ -170,16 +171,16 @@ func (s *Service) stopAttemptLocked() {
 }
 
 // failLocked ends the attempt as failed (s.mu held).
-func (s *Service) failLocked(f Failure) {
+func (s *Service) failLocked(f connectors.Failure) {
 	s.stopAttemptLocked()
-	s.publishLocked(State{Phase: Failed, Failure: f})
+	s.publishLocked(connectors.State{Phase: connectors.Failed, Failure: f})
 }
 
 // endAttempt fails the attempt of gen, if it is still the one under way.
-func (s *Service) endAttempt(gen uint64, f Failure) {
+func (s *Service) endAttempt(gen uint64, f connectors.Failure) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if gen == s.gen && s.state.Phase == SigningIn {
+	if gen == s.gen && s.state.Phase == connectors.SigningIn {
 		s.failLocked(f)
 	}
 }
@@ -192,16 +193,16 @@ func (s *Service) finish(ctx context.Context, a *attempt) {
 	if err != nil {
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
-			s.endAttempt(a.gen, TimedOut)
+			s.endAttempt(a.gen, connectors.TimedOut)
 		case errors.Is(err, context.Canceled):
 			// Whoever cancelled the wait has ended the attempt.
 		default:
-			s.endAttempt(a.gen, Refused)
+			s.endAttempt(a.gen, connectors.Refused)
 		}
 		return
 	}
 	if len(q["code"]) != 1 {
-		s.endAttempt(a.gen, Refused)
+		s.endAttempt(a.gen, connectors.Refused)
 		return
 	}
 	key, failure := s.exchange(q.Get("code"), a.verifier)
@@ -214,28 +215,28 @@ func (s *Service) finish(ctx context.Context, a *attempt) {
 
 // exchange trades code for the key. Only a 200 whose JSON names a non-empty
 // key is one; a 4xx is OpenRouter's refusal, and anything else Unavailable.
-func (s *Service) exchange(code, verifier string) (string, Failure) {
+func (s *Service) exchange(code, verifier string) (string, connectors.Failure) {
 	ctx, cancel := context.WithTimeout(s.ctx, s.issuerTimeout)
 	defer cancel()
 	body, _ := json.Marshal(map[string]string{"code": code, "code_verifier": verifier, "code_challenge_method": "S256"}) // a map of strings encodes
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.auth.JoinPath("api/v1/auth/keys").String(), bytes.NewReader(body))
 	if err != nil { // coverage:ignore the origin parsed in New, and the method is a constant
-		return "", Unavailable
+		return "", connectors.Unavailable
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := llm.NoRedirectClient.Do(req)
 	if err != nil {
 		slog.Warn("openrouter: the exchange failed", "err", err)
-		return "", Unavailable
+		return "", connectors.Unavailable
 	}
 	defer resp.Body.Close()
 	switch {
 	case resp.StatusCode >= 400 && resp.StatusCode < 500:
 		slog.Warn("openrouter: the exchange was refused", "status", resp.StatusCode)
-		return "", Refused
+		return "", connectors.Refused
 	case resp.StatusCode != http.StatusOK:
 		slog.Warn("openrouter: the exchange answered", "status", resp.StatusCode)
-		return "", Unavailable
+		return "", connectors.Unavailable
 	}
 	var answer struct {
 		Key string `json:"key"`
@@ -243,7 +244,7 @@ func (s *Service) exchange(code, verifier string) (string, Failure) {
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxExchangeBody))
 	if err != nil || json.Unmarshal(data, &answer) != nil || answer.Key == "" {
 		slog.Warn("openrouter: the exchange answered no key")
-		return "", Unavailable
+		return "", connectors.Unavailable
 	}
 	safe.AddSecret(answer.Key)
 	return answer.Key, ""
@@ -261,10 +262,10 @@ func (s *Service) complete(gen uint64, key string) {
 	if err := saveKey(s.keyring, key); err != nil {
 		slog.Error("openrouter: could not save the key", "err", err)
 		safe.ForgetSecret(key)
-		s.failLocked(NotSaved)
+		s.failLocked(connectors.NotSaved)
 		return
 	}
 	s.stopAttemptLocked()
 	s.key = key
-	s.publishLocked(State{Phase: Connected})
+	s.publishLocked(connectors.State{Phase: connectors.Connected})
 }

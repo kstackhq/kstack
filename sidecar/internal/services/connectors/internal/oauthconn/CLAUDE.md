@@ -1,18 +1,18 @@
-# internal/services/connectors/oauthconn — signing in to a model provider
+# internal/services/connectors/internal/oauthconn — the OAuth engine
 
 **A `Service` is one provider's OAuth sign-in, and signs that provider's requests**
 (`llm.SessionSigner`). The engine names no provider: what one has of its own is its `Provider`
-(`provider.go`), and `services/connectors/chatgptauth` is ChatGPT's. **It runs every OAuth
-session** (a refresh token under a client); a sign-in that grants a key that never expires is a
-service of its own (`openrouterkey`). The keyring is `lib/oskeyring`.
-→ [ADR: the engine and its stores](../../../../../docs/adr/2026-11-18-an-oauth-connection-is-a-row-matched-to-its-keyring-entry.md),
-[ADR: ChatGPT](../../../../../docs/adr/2026-11-18-the-chatgpt-connector-signs-in-with-chatgpts-dynamic-registration.md),
-[security record](../../../../../docs/security/2026-11-18-the-chatgpt-connector.md).
+(`provider.go`); `connectors/chatgpt` runs it under ChatGPT's. **It runs every OAuth
+session** (a refresh token under a client); a granted key is a connector of its own
+(`openrouter`). It speaks `connectors`' vocabulary; the keyring is `lib/oskeyring`.
+→ [ADR: one package](../../../../../../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md),
+[ADR: the engine](../../../../../../docs/adr/2026-11-18-an-oauth-connection-is-a-row-matched-to-its-keyring-entry.md),
+[ADR: ChatGPT](../../../../../../docs/adr/2026-11-18-the-chatgpt-connector-signs-in-with-chatgpts-dynamic-registration.md),
+[security record](../../../../../../docs/security/2026-11-18-the-chatgpt-connector.md).
 
-- **A new provider is a `Provider` value**, a signer in `catalog.Config.Signers`, a row in
-  `catalog`'s `signedProviders`, and a `catalogsync.Start` over `WatchSession`. Widen `Provider`
-  only by what that provider's flow needs. The row's key and the keyring's accounts come from
-  `Provider.ID`.
+- **A new OAuth connector is a package beside `chatgpt`**: a `Provider` and a `Service` over the
+  engine, a signer in `catalog.Config.Signers`, a row in `signedProviders`. Widen `Provider` only
+  by what its flow needs. The row's key and the keyring's accounts come from `Provider.ID`.
 - **A session exists only when the row's `session_id` and the keyring entry's `session` match.**
   A sign-in mints the id and writes the entry, then the row, on every save. `New` reads both and
   reaches no network; any other entry is deleted. The access token is memory's alone.

@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // A first sign-in registers a client with the provider and connects: the authorize
@@ -85,7 +86,7 @@ func TestTheClientIDIsSavedBeforeTheExchange(t *testing.T) {
 
 	assert.Equal(t, "client-issued", savedRegistration(t, r).ClientID)
 	close(release)
-	await(t, r.svc, "Connected", inPhase(Connected))
+	await(t, r.svc, "Connected", inPhase(connectors.Connected))
 }
 
 // A later sign-in runs under the saved client, hints the saved account, and
@@ -122,7 +123,7 @@ func TestALaterSignInRefusesAnotherClient(t *testing.T) {
 	other := "client-other"
 	r.issuer.set(func(f *fakeIssuer) { f.callbackClientID = &other })
 	require.NoError(t, r.svc.Connect(t.Context(), false))
-	await(t, r.svc, "Refused", failedWith(Refused))
+	await(t, r.svc, "Refused", failedWith(connectors.Refused))
 	assert.Equal(t, "client-issued", savedRegistration(t, r).ClientID)
 }
 
@@ -135,7 +136,7 @@ func TestAFirstSignInWithoutAnIssuedClientIsRefused(t *testing.T) {
 
 			require.NoError(t, r.svc.Connect(t.Context(), false))
 
-			await(t, r.svc, "Refused", failedWith(Refused))
+			await(t, r.svc, "Refused", failedWith(connectors.Refused))
 			assert.Empty(t, savedRegistration(t, r).ClientID)
 			assert.Empty(t, r.issuer.forms("authorization_code"))
 		})
@@ -149,7 +150,7 @@ func TestADeclinedSignIn(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	await(t, r.svc, "Declined", failedWith(Declined))
+	await(t, r.svc, "Declined", failedWith(connectors.Declined))
 }
 
 // Signing in proves identity alone: without the required scope the
@@ -160,7 +161,7 @@ func TestASignInWithoutTheRequiredScopeKeepsNoTokens(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	await(t, r.svc, "ScopeNotGranted", failedWith(ScopeNotGranted))
+	await(t, r.svc, "ScopeNotGranted", failedWith(connectors.ScopeNotGranted))
 	r.issuer.awaitRevoked(t, "refresh-token-0002")
 	_, ok := storedRefresh(t, r)
 	assert.False(t, ok)
@@ -196,7 +197,7 @@ func TestAnotherAccountIsAMismatch(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	await(t, r.svc, "AccountMismatch", failedWith(AccountMismatch))
+	await(t, r.svc, "AccountMismatch", failedWith(connectors.AccountMismatch))
 	minted := r.issuer.mintedTokens()
 	r.issuer.awaitRevoked(t, minted[len(minted)-3])
 	reg := savedRegistration(t, r)
@@ -211,7 +212,7 @@ func TestASignInTimesOut(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	await(t, r.svc, "TimedOut", failedWith(TimedOut))
+	await(t, r.svc, "TimedOut", failedWith(connectors.TimedOut))
 }
 
 // An issuer that cannot be reached fails the attempt before any browser opens.
@@ -226,7 +227,7 @@ func TestAnUnreachableIssuerIsUnavailable(t *testing.T) {
 
 	require.NoError(t, s.Connect(t.Context(), false))
 
-	await(t, s, "Unavailable", failedWith(Unavailable))
+	await(t, s, "Unavailable", failedWith(connectors.Unavailable))
 	assert.Zero(t, browser.opened())
 }
 
@@ -242,7 +243,7 @@ func TestAnUntrustedDiscoveryIsUnavailable(t *testing.T) {
 
 	require.NoError(t, s.Connect(t.Context(), false))
 
-	await(t, s, "Unavailable", failedWith(Unavailable))
+	await(t, s, "Unavailable", failedWith(connectors.Unavailable))
 }
 
 // Connect is refused while an attempt runs, and while connected.
@@ -250,13 +251,13 @@ func TestConnectIsRefusedDuringAnAttemptAndWhileConnected(t *testing.T) {
 	r := newRig(t, withBrowser((&parked{}).open))
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	assert.ErrorIs(t, r.svc.Connect(t.Context(), false), ErrSigningIn)
-	assert.ErrorIs(t, r.svc.Connect(t.Context(), true), ErrSigningIn)
+	assert.ErrorIs(t, r.svc.Connect(t.Context(), false), connectors.ErrSigningIn)
+	assert.ErrorIs(t, r.svc.Connect(t.Context(), true), connectors.ErrSigningIn)
 
 	r2 := newRig(t)
 	connect(t, r2.svc)
-	assert.ErrorIs(t, r2.svc.Connect(t.Context(), false), ErrConnected)
-	assert.ErrorIs(t, r2.svc.Connect(t.Context(), true), ErrConnected)
+	assert.ErrorIs(t, r2.svc.Connect(t.Context(), false), connectors.ErrConnected)
+	assert.ErrorIs(t, r2.svc.Connect(t.Context(), true), connectors.ErrConnected)
 }
 
 // failingWrites makes every registration write after the first n fail.
@@ -282,7 +283,7 @@ func TestASignInThatCannotBeRecordedOpensNoBrowser(t *testing.T) {
 
 		require.NoError(t, r.svc.Connect(t.Context(), false))
 
-		await(t, r.svc, "NotSaved", failedWith(NotSaved))
+		await(t, r.svc, "NotSaved", failedWith(connectors.NotSaved))
 		assert.Zero(t, browser.opened())
 	})
 	t.Run("the keyring check", func(t *testing.T) {
@@ -292,7 +293,7 @@ func TestASignInThatCannotBeRecordedOpensNoBrowser(t *testing.T) {
 
 		require.NoError(t, r.svc.Connect(t.Context(), false))
 
-		await(t, r.svc, "NotSaved", failedWith(NotSaved))
+		await(t, r.svc, "NotSaved", failedWith(connectors.NotSaved))
 		assert.Zero(t, browser.opened())
 	})
 }
@@ -308,7 +309,7 @@ func TestASignInThatCannotBeSavedKeepsNothing(t *testing.T) {
 
 		require.NoError(t, r.svc.Connect(t.Context(), false))
 
-		await(t, r.svc, "NotSaved", failedWith(NotSaved))
+		await(t, r.svc, "NotSaved", failedWith(connectors.NotSaved))
 		r.issuer.awaitRevoked(t, "refresh-token-0002")
 		assert.Equal(t, registration{Data: savedRegistration(t, r).Data, ClientID: "client-issued"}, savedRegistration(t, r))
 		assertNeverConnected(t, states)
@@ -322,7 +323,7 @@ func TestASignInThatCannotBeSavedKeepsNothing(t *testing.T) {
 
 		require.NoError(t, r.svc.Connect(t.Context(), false))
 
-		await(t, r.svc, "NotSaved", failedWith(NotSaved))
+		await(t, r.svc, "NotSaved", failedWith(connectors.NotSaved))
 		r.issuer.awaitRevoked(t, "refresh-token-0002")
 		_, ok := storedRefresh(t, r)
 		assert.False(t, ok, "the entry is deleted")
@@ -332,12 +333,12 @@ func TestASignInThatCannotBeSavedKeepsNothing(t *testing.T) {
 
 // assertNeverConnected reads every state published so far and finds no
 // Connected among them.
-func assertNeverConnected(t *testing.T, states <-chan State) {
+func assertNeverConnected(t *testing.T, states <-chan connectors.State) {
 	t.Helper()
 	for {
 		select {
 		case st := <-states:
-			assert.NotEqual(t, Connected, st.Phase)
+			assert.NotEqual(t, connectors.Connected, st.Phase)
 		default:
 			return
 		}
@@ -351,7 +352,7 @@ func TestACrashBeforeTheRowLandsRestoresNoSession(t *testing.T) {
 	r := newRig(t, fail)
 	r.keyring.failDelete(refreshAccount, errBoom)
 	require.NoError(t, r.svc.Connect(t.Context(), false))
-	await(t, r.svc, "NotSaved", failedWith(NotSaved))
+	await(t, r.svc, "NotSaved", failedWith(connectors.NotSaved))
 	_, ok := storedRefresh(t, r)
 	require.True(t, ok, "the failed delete left the entry")
 	r.keyring.failDelete(refreshAccount, nil)
@@ -359,7 +360,7 @@ func TestACrashBeforeTheRowLandsRestoresNoSession(t *testing.T) {
 
 	s := r.restart()
 
-	assert.Equal(t, SignedOut, s.State().Phase)
+	assert.Equal(t, connectors.SignedOut, s.State().Phase)
 	_, ok = storedRefresh(t, r)
 	assert.False(t, ok)
 }
@@ -372,8 +373,8 @@ func TestAnUnsavedSignInThatCannotBeRevokedSaysSo(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	st := await(t, r.svc, "an unconfirmed revocation", func(s State) bool { return s.RevocationUnconfirmed })
-	assert.Equal(t, NotSaved, st.Failure)
+	st := await(t, r.svc, "an unconfirmed revocation", func(s connectors.State) bool { return s.RevocationUnconfirmed })
+	assert.Equal(t, connectors.NotSaved, st.Failure)
 }
 
 // Cancel before the redirect closes the listener and exchanges nothing.
@@ -381,11 +382,11 @@ func TestCancelBeforeTheCallback(t *testing.T) {
 	browser := &parked{}
 	r := newRig(t, withBrowser(browser.open))
 	require.NoError(t, r.svc.Connect(t.Context(), false))
-	await(t, r.svc, "SigningIn", inPhase(SigningIn))
+	await(t, r.svc, "SigningIn", inPhase(connectors.SigningIn))
 
 	r.svc.Cancel()
 
-	assert.Equal(t, SignedOut, r.svc.State().Phase)
+	assert.Equal(t, connectors.SignedOut, r.svc.State().Phase)
 	u, err := url.Parse(browser.urls[0])
 	require.NoError(t, err)
 	_, err = http.Get(u.Query().Get("redirect_uri"))
@@ -412,7 +413,7 @@ func TestAnExchangeThatFinishesLateIsRevoked(t *testing.T) {
 			close(release)
 
 			r.issuer.awaitRevoked(t, "refresh-token-0002")
-			assert.Equal(t, SignedOut, r.svc.State().Phase)
+			assert.Equal(t, connectors.SignedOut, r.svc.State().Phase)
 			_, ok := storedRefresh(t, r)
 			assert.False(t, ok)
 			assert.Equal(t, "client-issued", savedRegistration(t, r).ClientID)
@@ -428,8 +429,8 @@ func TestAnExchangeThatFinishesLateIsRevoked(t *testing.T) {
 			end(r.svc)
 			close(release)
 
-			st := await(t, r.svc, "an unconfirmed revocation", func(s State) bool { return s.RevocationUnconfirmed })
-			assert.Equal(t, SignedOut, st.Phase)
+			st := await(t, r.svc, "an unconfirmed revocation", func(s connectors.State) bool { return s.RevocationUnconfirmed })
+			assert.Equal(t, connectors.SignedOut, st.Phase)
 		})
 	}
 }
@@ -450,7 +451,7 @@ func TestALateExchangeDoesNotDisturbTheNextAttempt(t *testing.T) {
 	close(release)
 
 	r.issuer.awaitRevoked(t, "refresh-token-0002")
-	assert.Equal(t, SigningIn, r.svc.State().Phase)
+	assert.Equal(t, connectors.SigningIn, r.svc.State().Phase)
 	revoked := r.issuer.revoked[0]
 	assert.Equal(t, "client-issued", revoked.Get("client_id"))
 }
@@ -464,7 +465,7 @@ func TestAFreshConnectRegistersAnew(t *testing.T) {
 	r.issuer.set(func(f *fakeIssuer) { f.issued, f.subject, f.email = "client-second", "user-2", "bob@example.com" })
 
 	require.NoError(t, r.svc.Connect(t.Context(), true))
-	st := await(t, r.svc, "Connected", inPhase(Connected))
+	st := await(t, r.svc, "Connected", inPhase(connectors.Connected))
 
 	assert.Equal(t, "bob@example.com", st.Email)
 	queries := r.issuer.authorizeQueries()
@@ -493,7 +494,7 @@ func TestAnotherAuthorizationErrorIsRefused(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	await(t, r.svc, "Refused", failedWith(Refused))
+	await(t, r.svc, "Refused", failedWith(connectors.Refused))
 }
 
 // A browser that cannot open fails the attempt at once.
@@ -502,7 +503,7 @@ func TestABrowserThatCannotOpenIsRefused(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	assert.Equal(t, Refused, r.svc.State().Failure)
+	assert.Equal(t, connectors.Refused, r.svc.State().Failure)
 }
 
 // A code the issuer refuses, or an exchange that never answers, fails the
@@ -514,7 +515,7 @@ func TestAFailedExchange(t *testing.T) {
 
 		require.NoError(t, r.svc.Connect(t.Context(), false))
 
-		await(t, r.svc, "Refused", failedWith(Refused))
+		await(t, r.svc, "Refused", failedWith(connectors.Refused))
 	})
 	t.Run("unreachable", func(t *testing.T) {
 		r := newRig(t)
@@ -525,7 +526,7 @@ func TestAFailedExchange(t *testing.T) {
 
 		r.issuer.srv.CloseClientConnections()
 
-		await(t, r.svc, "Unavailable", failedWith(Unavailable))
+		await(t, r.svc, "Unavailable", failedWith(connectors.Unavailable))
 		close(release)
 	})
 	t.Run("after a cancel", func(t *testing.T) {
@@ -540,7 +541,7 @@ func TestAFailedExchange(t *testing.T) {
 		close(release)
 		r.svc.Close() // joins the attempt's goroutine
 
-		assert.Equal(t, SignedOut, r.svc.State().Phase, "a stale failure changes nothing")
+		assert.Equal(t, connectors.SignedOut, r.svc.State().Phase, "a stale failure changes nothing")
 	})
 }
 
@@ -552,7 +553,7 @@ func TestAWrongNonceIsRefused(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	await(t, r.svc, "Refused", failedWith(Refused))
+	await(t, r.svc, "Refused", failedWith(connectors.Refused))
 	r.issuer.awaitRevoked(t, "refresh-token-0002")
 }
 
@@ -564,9 +565,9 @@ func TestAWrongNonceThatCannotBeRevokedSaysSo(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	st := await(t, r.svc, "an unconfirmed revocation", func(s State) bool { return s.RevocationUnconfirmed })
-	assert.Equal(t, Failed, st.Phase)
-	assert.Equal(t, Refused, st.Failure)
+	st := await(t, r.svc, "an unconfirmed revocation", func(s connectors.State) bool { return s.RevocationUnconfirmed })
+	assert.Equal(t, connectors.Failed, st.Phase)
+	assert.Equal(t, connectors.Refused, st.Failure)
 }
 
 // A first sign-in whose client id cannot be recorded stops before the exchange.
@@ -576,7 +577,7 @@ func TestAClientIDThatCannotBeSavedStops(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	await(t, r.svc, "NotSaved", failedWith(NotSaved))
+	await(t, r.svc, "NotSaved", failedWith(connectors.NotSaved))
 	assert.Empty(t, r.issuer.forms("authorization_code"))
 }
 
@@ -593,7 +594,7 @@ func TestAnEndedAttemptRecordsNoClient(t *testing.T) {
 	assert.False(t, r.svc.saveClientID(stale, "client-stale"))
 
 	assert.Empty(t, savedRegistration(t, r).ClientID)
-	assert.Equal(t, SigningIn, r.svc.State().Phase)
+	assert.Equal(t, connectors.SigningIn, r.svc.State().Phase)
 }
 
 // A sign-in that grants no refresh token is refused, and keeps nothing.
@@ -603,7 +604,7 @@ func TestASignInWithoutARefreshTokenKeepsNothing(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context(), false))
 
-	await(t, r.svc, "Refused", failedWith(Refused))
+	await(t, r.svc, "Refused", failedWith(connectors.Refused))
 	_, ok := storedRefresh(t, r)
 	assert.False(t, ok)
 	assert.Empty(t, savedRegistration(t, r).SessionID)

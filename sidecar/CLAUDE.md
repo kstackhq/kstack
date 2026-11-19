@@ -49,8 +49,8 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | `internal/run/CLAUDE.md` | the login shell, the session, the sandbox, permissions, the cluster proxy |
 | `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, LogsWatch, web search), `fileguard`, `logsinput` |
 | `internal/agent/CLAUDE.md` | the catalog, the loop, the chat service (turn, rows, approvals, tasks, the wire errors) |
-| `internal/services/connectors/oauthconn/CLAUDE.md` | signing in to a model provider with OAuth; `chatgptauth` is ChatGPT's provider |
-| `internal/services/connectors/openrouterkey/CLAUDE.md` | the OpenRouter connector: a sign-in that grants a key, kept in the keyring |
+| `internal/services/connectors/internal/oauthconn/CLAUDE.md` | the OAuth engine; `connectors/chatgpt` runs it under ChatGPT's provider |
+| `internal/services/connectors/openrouter/CLAUDE.md` | the OpenRouter connector: a sign-in that grants a key, kept in the keyring |
 
 ## Layout
 
@@ -193,16 +193,18 @@ may have signed in as someone else. Every failure is `ErrNoToken`. →
 
 Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + PKCE, loopback redirect), verification via go-oidc, refresh token in the OS keyring. Signed-in ⇔ refresh token present; works offline; degrades to signed-out when unconfigured. → [ADR: local-first auth](../docs/adr/2026-08-09-local-first-auth-settings.md).
 
-- Flat root package by file: `auth.go`, `grant.go` (token set as source of truth, lazy refresh with burst-dedup, persist-before-cache), `login.go`, `keyring.go`. `lib/oauth` is a vendor-neutral leaf importing neither `auth` nor the connectors; `lib/oauth/browser` (loopback, opener) is shared with `oauthconn`.
+- Flat root package by file: `auth.go`, `grant.go` (token set as source of truth, lazy refresh with burst-dedup, persist-before-cache), `login.go`, `keyring.go`. `lib/oauth` is a vendor-neutral leaf importing neither `auth` nor the connectors; `lib/oauth/browser` (loopback, opener) is shared with the connectors, whose engine `auth` cannot import.
 - `Config` carries production knobs only; test seams are unexported options on `newWithOptions`. `Logout` clears locally first, revokes fire-and-forget.
 - `TokenSource(ctx)` is nil when degraded; consumers read `AccessToken` only. The GraphQL projection drops tokens.
 
-## A signed-in provider's models (`services/connectors/catalogsync`)
+## Connectors (`internal/services/connectors`)
 
-**`Start` keeps one signed-in provider's model catalog the account's**, as its only writer: read
-per connected session, on a poke and every six hours, emptied otherwise. It subscribes to the
-connected session's id, `0` for none: `oauthconn`'s or `openrouterkey`'s `WatchSession`. Its
-read lives in `agent/catalog`; OpenRouter's answers the row's written catalog, reaching no network.
+**A connector is one package with one surface**: `chatgpt`, `openrouter`. The root package is
+their vocabulary; what they share (`oauthconn`, `catalogsync`, `signer`) is in `internal/`. → [ADR](../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md).
+
+**`catalogsync` keeps a signed-in provider's catalog the account's**, its only writer: read per
+connected session, on a poke and every six hours, emptied otherwise. A connector's `SyncCatalog`
+starts it; `app` passes the read, from `agent/catalog`.
 
 ## GitHub's token (`internal/services/githubauth`)
 

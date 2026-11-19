@@ -23,6 +23,9 @@ import { graphql } from '@/gql';
 import type { ChatGptConnectionWatchSubscription, OpenRouterConnectionWatchSubscription } from '@/gql/graphql';
 import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
 
+/** Why a connector's last attempt, session or key ended: one enum for every connector. */
+export type { ConnectorFailure } from '@/gql/graphql';
+
 /** The ChatGPT plan's provider id, and its connector's: the sidecar's `catalog.ChatGPTID`. */
 export const CHATGPT_ID = 'chatgpt';
 

@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openrouterkey
+package openrouter
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"testing"
@@ -26,13 +28,15 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
 // A first launch holds no key: signed out, and the keyring untouched.
 func TestAFirstLaunchIsSignedOut(t *testing.T) {
 	r := newRig(t)
 
-	assert.Equal(t, SignedOut, r.svc.State().Phase)
+	assert.Equal(t, connectors.SignedOut, r.svc.State().Phase)
 	assert.Zero(t, r.keyring.sets)
 }
 
@@ -45,7 +49,7 @@ func TestNewRestoresWhatTheKeyringHolds(t *testing.T) {
 
 	s := r.restart()
 
-	assert.Equal(t, Connected, s.State().Phase)
+	assert.Equal(t, connectors.Connected, s.State().Phase)
 	assert.NotZero(t, s.State().Session)
 	assert.True(t, safe.HasSecret("stored-openrouter-key-0001"))
 	tok, err := r.signedKey(s)
@@ -58,7 +62,7 @@ func TestNewRestoresWhatTheKeyringHolds(t *testing.T) {
 
 		s = r.restart()
 
-		assert.Equal(t, SignedOut, s.State().Phase, bad)
+		assert.Equal(t, connectors.SignedOut, s.State().Phase, bad)
 		_, ok := r.keyring.entry(keyAccount)
 		assert.False(t, ok, "%s is deleted", bad)
 	}
@@ -77,7 +81,7 @@ func TestANewerEntryIsLeft(t *testing.T) {
 
 		s := r.restart()
 
-		assert.Equal(t, SignedOut, s.State().Phase, newer)
+		assert.Equal(t, connectors.SignedOut, s.State().Phase, newer)
 		v, ok := r.keyring.entry(keyAccount)
 		assert.True(t, ok, newer)
 		assert.Equal(t, newer, v)
@@ -93,7 +97,7 @@ func TestAnUnreadableKeyringWritesNothing(t *testing.T) {
 
 	s := r.restart()
 
-	assert.Equal(t, SignedOut, s.State().Phase)
+	assert.Equal(t, connectors.SignedOut, s.State().Phase)
 	_, ok := r.keyring.entry(keyAccount)
 	assert.True(t, ok)
 }
@@ -107,7 +111,7 @@ func TestAnUnreadableEntryNewCannotDelete(t *testing.T) {
 
 	s := r.restart()
 
-	assert.Equal(t, SignedOut, s.State().Phase)
+	assert.Equal(t, connectors.SignedOut, s.State().Phase)
 	_, ok := r.keyring.entry(keyAccount)
 	assert.True(t, ok)
 }
@@ -123,9 +127,9 @@ func TestTheEnvironmentKeyWins(t *testing.T) {
 
 	s := r.restart()
 
-	assert.Equal(t, FromEnvironment, s.State().Phase)
-	assert.ErrorIs(t, s.Connect(t.Context()), ErrFromEnvironment)
-	assert.ErrorIs(t, s.Disconnect(), ErrFromEnvironment)
+	assert.Equal(t, connectors.FromEnvironment, s.State().Phase)
+	assert.ErrorIs(t, s.Connect(t.Context()), connectors.ErrFromEnvironment)
+	assert.ErrorIs(t, s.Disconnect(), connectors.ErrFromEnvironment)
 	assert.Empty(t, browser.opened())
 	_, err := r.signedKey(s)
 	assert.ErrorIs(t, err, llm.ErrSignedOut)
@@ -183,7 +187,7 @@ func TestNoKeyLeavesTheKeyring(t *testing.T) {
 	require.NoError(t, err)
 	r.openRouter.set(func(f *fakeOpenRouter) { f.checkStatus = http.StatusUnauthorized })
 	r.refusedWith(r.svc)
-	await(t, r.svc, "KeyRejected", failedWith(KeyRejected))
+	await(t, r.svc, "KeyRejected", failedWith(connectors.KeyRejected))
 	connect(t, r.svc)
 	require.NoError(t, r.svc.Disconnect())
 
@@ -197,4 +201,21 @@ func TestNoKeyLeavesTheKeyring(t *testing.T) {
 		assert.NotContains(t, logs.String(), body["code_verifier"])
 		assert.NotContains(t, logs.String(), `"`+body["code"]+`"`)
 	}
+}
+
+// SyncCatalog keeps the openrouter row's catalog the account's until its stop:
+// signed out, it empties it.
+func TestSyncCatalogEmptiesASignedOutCatalog(t *testing.T) {
+	r := newRig(t)
+	models := llm.New(llm.Provider{ID: ID, Dialect: llm.DialectChatCompletions, Catalog: []llm.Model{{ID: "stale"}}})
+	frames, cancel := models.Subscribe()
+	defer cancel()
+	testutil.Recv(t, frames, "the first frame")
+
+	stop := r.svc.SyncCatalog(poke.New(), models, func(context.Context, llm.Provider) ([]llm.Model, error) {
+		return nil, errors.New("signed out: never read")
+	})
+	defer stop()
+
+	assert.Empty(t, testutil.Recv(t, frames, "the emptied catalog")[0].Catalog)
 }

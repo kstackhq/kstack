@@ -1,10 +1,11 @@
-# internal/services/connectors/openrouterkey — the OpenRouter connector
+# internal/services/connectors/openrouter — the OpenRouter connector
 
 **A sign-in that grants a key, not an OAuth session.** OpenRouter's flow is PKCE alone; its
 exchange answers an API key that does not expire. `Service` keeps it in the OS keyring and signs
 the `openrouter` row with it (`llm.SessionSigner`). It shares `lib/oskeyring` and
-`lib/oauth/browser` with `oauthconn`, and imports neither `oauthconn` nor `lib/oauth`.
-→ [ADR: a connector is an OAuth session or a granted key](../../../../../docs/adr/2026-11-19-a-connector-is-an-oauth-session-or-a-granted-key.md),
+`lib/oauth/browser` with the OAuth engine, and imports neither it nor `lib/oauth`.
+→ [ADR: one package](../../../../../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md),
+[ADR: a connector is an OAuth session or a granted key](../../../../../docs/adr/2026-11-19-a-connector-is-an-oauth-session-or-a-granted-key.md),
 [security record](../../../../../docs/security/2026-11-19-the-openrouter-connector.md).
 
 - **One store: an entry present is connected.** Account `openrouter-api-key`, `{"v":1,"key"}`.

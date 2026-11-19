@@ -29,13 +29,14 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // A first launch is signed out, with no registration.
 func TestAFirstLaunchIsSignedOut(t *testing.T) {
 	r := newRig(t)
 
-	assert.Equal(t, State{Phase: SignedOut}, r.svc.State())
+	assert.Equal(t, connectors.State{Phase: connectors.SignedOut}, r.svc.State())
 }
 
 // New reads both stores and reaches no network. A session exists only when the
@@ -49,20 +50,20 @@ func TestNewRestoresWhatTheStoresHold(t *testing.T) {
 		row *registration
 		// entry is the account's raw value; empty is no entry.
 		entry       string
-		want        Phase
+		want        connectors.Phase
 		wantSession string // the row's session afterwards
 		wantEntry   bool   // the entry still there
 	}{
-		"a session":                        {row: &signedIn, entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: Connected, wantSession: "s1", wantEntry: true},
-		"a session and no entry":           {row: &signedIn, want: SignedOut},
-		"an entry beside a signed-out row": {row: &registered, entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: SignedOut},
-		"an entry of another sign-in":      {row: &signedIn, entry: `{"v":1,"token":"refresh-stored","session":"s2"}`, want: SignedOut},
-		"an entry naming no session":       {row: &registered, entry: `{"v":1,"token":"refresh-stored","session":""}`, want: SignedOut},
-		"an entry with no token":           {row: &signedIn, entry: `{"v":1,"token":"","session":"s1"}`, want: SignedOut},
-		"an entry of another version":      {row: &signedIn, entry: `{"v":2,"token":"refresh-stored","session":"s1"}`, want: SignedOut},
-		"an entry that is no object":       {row: &signedIn, entry: `refresh-stored`, want: SignedOut},
-		"an entry and no client id":        {row: &registration{Data: hostData("h"), SessionID: "s1"}, entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: SignedOut},
-		"an entry and no row":              {entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: SignedOut},
+		"a session":                        {row: &signedIn, entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: connectors.Connected, wantSession: "s1", wantEntry: true},
+		"a session and no entry":           {row: &signedIn, want: connectors.SignedOut},
+		"an entry beside a signed-out row": {row: &registered, entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: connectors.SignedOut},
+		"an entry of another sign-in":      {row: &signedIn, entry: `{"v":1,"token":"refresh-stored","session":"s2"}`, want: connectors.SignedOut},
+		"an entry naming no session":       {row: &registered, entry: `{"v":1,"token":"refresh-stored","session":""}`, want: connectors.SignedOut},
+		"an entry with no token":           {row: &signedIn, entry: `{"v":1,"token":"","session":"s1"}`, want: connectors.SignedOut},
+		"an entry of another version":      {row: &signedIn, entry: `{"v":2,"token":"refresh-stored","session":"s1"}`, want: connectors.SignedOut},
+		"an entry that is no object":       {row: &signedIn, entry: `refresh-stored`, want: connectors.SignedOut},
+		"an entry and no client id":        {row: &registration{Data: hostData("h"), SessionID: "s1"}, entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: connectors.SignedOut},
+		"an entry and no row":              {entry: `{"v":1,"token":"refresh-stored","session":"s1"}`, want: connectors.SignedOut},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t)
@@ -110,7 +111,7 @@ func TestARotatedTokenStaysUnderItsSession(t *testing.T) {
 
 	s := r.restart()
 
-	assert.Equal(t, Connected, s.State().Phase)
+	assert.Equal(t, connectors.Connected, s.State().Phase)
 	_, err = signedToken(t, s)
 	assert.NoError(t, err)
 }
@@ -126,7 +127,7 @@ func TestAnUnreadableRowLeavesTheEntry(t *testing.T) {
 
 	s := r.restart()
 
-	assert.Equal(t, SignedOut, s.State().Phase)
+	assert.Equal(t, connectors.SignedOut, s.State().Phase)
 	_, ok := storedRefresh(t, r)
 	assert.True(t, ok)
 }
@@ -139,7 +140,7 @@ func TestAnUnreadableKeyringWritesNothing(t *testing.T) {
 
 	s := r.restart()
 
-	assert.Equal(t, SignedOut, s.State().Phase)
+	assert.Equal(t, connectors.SignedOut, s.State().Phase)
 	assert.Equal(t, "s1", savedRegistration(t, r).SessionID)
 }
 
@@ -203,7 +204,7 @@ func TestAStaleEntryNewCannotDelete(t *testing.T) {
 
 	s := r.restart()
 
-	assert.Equal(t, SignedOut, s.State().Phase)
+	assert.Equal(t, connectors.SignedOut, s.State().Phase)
 	_, ok := storedRefresh(t, r)
 	assert.True(t, ok)
 }

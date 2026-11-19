@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openrouterkey
+package openrouter
 
 import (
 	"net/http"
@@ -26,6 +26,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // A keyring that cannot take a write fails the sign-in NotSaved before any
@@ -37,7 +38,7 @@ func TestNoBrowserOpensWithoutAKeyring(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context()))
 
-	assert.Equal(t, State{Phase: Failed, Failure: NotSaved, Session: r.svc.State().Session}, r.svc.State())
+	assert.Equal(t, connectors.State{Phase: connectors.Failed, Failure: connectors.NotSaved, Session: r.svc.State().Session}, r.svc.State())
 	assert.Empty(t, browser.opened())
 }
 
@@ -87,7 +88,7 @@ func TestAKeySurvivesARestart(t *testing.T) {
 
 	s := r.restart()
 
-	assert.Equal(t, Connected, s.State().Phase)
+	assert.Equal(t, connectors.Connected, s.State().Phase)
 	signed, err := r.signedKey(s)
 	require.NoError(t, err)
 	assert.Equal(t, key, signed)
@@ -99,14 +100,14 @@ func TestConnectIsRefusedDuringAnAttemptAndWhileConnected(t *testing.T) {
 	browser := &parked{}
 	r := newRig(t, withBrowser(browser.open))
 	require.NoError(t, r.svc.Connect(t.Context()))
-	require.Equal(t, SigningIn, r.svc.State().Phase)
+	require.Equal(t, connectors.SigningIn, r.svc.State().Phase)
 
-	assert.ErrorIs(t, r.svc.Connect(t.Context()), ErrSigningIn)
+	assert.ErrorIs(t, r.svc.Connect(t.Context()), connectors.ErrSigningIn)
 	assert.Len(t, browser.opened(), 1)
 
 	r.keyring.put(keyAccount, `{"v":1,"key":"stored-openrouter-key-0001"}`)
 	s := r.restart()
-	assert.ErrorIs(t, s.Connect(t.Context()), ErrConnected)
+	assert.ErrorIs(t, s.Connect(t.Context()), connectors.ErrConnected)
 	assert.Len(t, browser.opened(), 1)
 }
 
@@ -144,15 +145,15 @@ func TestTheCallbackTable(t *testing.T) {
 		q    func(state string) url.Values
 		// ended is the state that follows, nil while the attempt stays pending.
 		// An attempt that ends closes its listener, which may cut the answer.
-		ended func(State) bool
+		ended func(connectors.State) bool
 	}{
 		{"wrong state", func(string) url.Values { return url.Values{"state": {"nope"}, "code": {"c"}} }, nil},
 		{"no state", func(string) url.Values { return url.Values{"code": {"c"}} }, nil},
 		{"wrong state with an error", func(string) url.Values { return url.Values{"state": {"nope"}, "error": {"x"}} }, nil},
 		{"no code", func(s string) url.Values { return url.Values{"state": {s}} }, nil},
 		{"an empty code", func(s string) url.Values { return url.Values{"state": {s}, "code": {""}} }, nil},
-		{"an error", func(s string) url.Values { return url.Values{"state": {s}, "error": {"access_denied"}} }, failedWith(Refused)},
-		{"two codes", func(s string) url.Values { return url.Values{"state": {s}, "code": {"code-1", "code-2"}} }, failedWith(Refused)},
+		{"an error", func(s string) url.Values { return url.Values{"state": {s}, "error": {"access_denied"}} }, failedWith(connectors.Refused)},
+		{"two codes", func(s string) url.Values { return url.Values{"state": {s}, "code": {"code-1", "code-2"}} }, failedWith(connectors.Refused)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			browser := &parked{}
@@ -165,7 +166,7 @@ func TestTheCallbackTable(t *testing.T) {
 
 			if tc.ended == nil {
 				assert.Equal(t, http.StatusBadRequest, status)
-				assert.Equal(t, SigningIn, r.svc.State().Phase)
+				assert.Equal(t, connectors.SigningIn, r.svc.State().Phase)
 				assert.Empty(t, r.openRouter.exchangeBodies())
 				return
 			}
@@ -189,7 +190,7 @@ func TestTheCallbackAnswersOnce(t *testing.T) {
 	resp.Body.Close()
 
 	hit(t, callback, url.Values{"state": {state}, "code": {"code-1"}})
-	await(t, r.svc, "Connected", inPhase(Connected))
+	await(t, r.svc, "Connected", inPhase(connectors.Connected))
 
 	assert.NotEqual(t, http.StatusOK, hit(t, callback, url.Values{"state": {state}, "code": {"code-1"}}))
 	assert.Len(t, r.openRouter.exchangeBodies(), 1)
@@ -202,20 +203,20 @@ func TestTheExchangeTable(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		answer http.HandlerFunc
-		want   Failure
+		want   connectors.Failure
 	}{
-		{"a 400", status(http.StatusBadRequest, `{"error":"bad"}`), Refused},
-		{"a 403", status(http.StatusForbidden, ``), Refused},
-		{"a 500", status(http.StatusInternalServerError, ``), Unavailable},
-		{"a 503", status(http.StatusServiceUnavailable, `{"key":"sk-or-v1-from-a-503"}`), Unavailable},
+		{"a 400", status(http.StatusBadRequest, `{"error":"bad"}`), connectors.Refused},
+		{"a 403", status(http.StatusForbidden, ``), connectors.Refused},
+		{"a 500", status(http.StatusInternalServerError, ``), connectors.Unavailable},
+		{"a 503", status(http.StatusServiceUnavailable, `{"key":"sk-or-v1-from-a-503"}`), connectors.Unavailable},
 		{"a redirect", func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/elsewhere", http.StatusTemporaryRedirect)
-		}, Unavailable},
-		{"not JSON", status(http.StatusOK, `sk-or-v1-plain`), Unavailable},
-		{"no key", status(http.StatusOK, `{"user_id":"u"}`), Unavailable},
-		{"an empty key", status(http.StatusOK, `{"key":""}`), Unavailable},
-		{"a key that is no string", status(http.StatusOK, `{"key":42}`), Unavailable},
-		{"JSON with trailing bytes", status(http.StatusOK, `{"key":"sk-or-v1-trailing"} junk`), Unavailable},
+		}, connectors.Unavailable},
+		{"not JSON", status(http.StatusOK, `sk-or-v1-plain`), connectors.Unavailable},
+		{"no key", status(http.StatusOK, `{"user_id":"u"}`), connectors.Unavailable},
+		{"an empty key", status(http.StatusOK, `{"key":""}`), connectors.Unavailable},
+		{"a key that is no string", status(http.StatusOK, `{"key":42}`), connectors.Unavailable},
+		{"JSON with trailing bytes", status(http.StatusOK, `{"key":"sk-or-v1-trailing"} junk`), connectors.Unavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newRig(t)
@@ -246,7 +247,7 @@ func TestAStalledExchangeIsUnavailable(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context()))
 
-	await(t, r.svc, "Unavailable", failedWith(Unavailable))
+	await(t, r.svc, "Unavailable", failedWith(connectors.Unavailable))
 }
 
 // An exchange that cannot reach OpenRouter is Unavailable.
@@ -262,7 +263,7 @@ func TestAnUnreachableExchangeIsUnavailable(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context()))
 
-	await(t, r.svc, "Unavailable", failedWith(Unavailable))
+	await(t, r.svc, "Unavailable", failedWith(connectors.Unavailable))
 }
 
 // Nobody finishing the sign-in in time is TimedOut.
@@ -272,7 +273,7 @@ func TestASignInTimesOut(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context()))
 
-	await(t, r.svc, "TimedOut", failedWith(TimedOut))
+	await(t, r.svc, "TimedOut", failedWith(connectors.TimedOut))
 }
 
 // A browser that cannot open fails the attempt Refused.
@@ -281,8 +282,8 @@ func TestABrowserThatCannotOpenIsRefused(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context()))
 
-	assert.Equal(t, Failed, r.svc.State().Phase)
-	assert.Equal(t, Refused, r.svc.State().Failure)
+	assert.Equal(t, connectors.Failed, r.svc.State().Phase)
+	assert.Equal(t, connectors.Refused, r.svc.State().Failure)
 }
 
 // Cancel before the callback signs out, and Cancel outside a sign-in does
@@ -291,14 +292,14 @@ func TestCancel(t *testing.T) {
 	browser := &parked{}
 	r := newRig(t, withBrowser(browser.open))
 	r.svc.Cancel()
-	assert.Equal(t, SignedOut, r.svc.State().Phase)
+	assert.Equal(t, connectors.SignedOut, r.svc.State().Phase)
 	require.NoError(t, r.svc.Connect(t.Context()))
 	before := r.svc.State().Session
 
 	r.svc.Cancel()
 
 	st := r.svc.State()
-	assert.Equal(t, SignedOut, st.Phase)
+	assert.Equal(t, connectors.SignedOut, st.Phase)
 	assert.Greater(t, st.Session, before)
 	callback := callbackOf(t, browser.opened()[0])
 	assert.NotEqual(t, http.StatusOK, hit(t, callback, url.Values{"state": {callback.Query().Get("state")}, "code": {"c"}}))
@@ -333,7 +334,7 @@ func TestAKeyThatCannotBeSavedIsNotKept(t *testing.T) {
 
 	require.NoError(t, r.svc.Connect(t.Context()))
 
-	await(t, r.svc, "NotSaved", failedWith(NotSaved))
+	await(t, r.svc, "NotSaved", failedWith(connectors.NotSaved))
 	_, err := r.signedKey(r.svc)
 	assert.ErrorIs(t, err, llm.ErrSignedOut)
 }
