@@ -78,7 +78,7 @@ function renderDialog(onOpenChange = vi.fn()) {
   return onOpenChange;
 }
 
-const NAMES = ['General', 'Clusters', 'Connectors', 'Providers', 'Memory', 'Sandbox', 'Permissions'];
+const NAMES = ['General', 'Clusters', 'Connectors', 'Providers', 'Memory', 'Monitoring', 'Sandbox', 'Permissions'];
 
 beforeEach(() => {
   sandboxAvailable.current = true;
@@ -168,6 +168,16 @@ describe('SettingsDialog', () => {
 
     const panel = screen.getByRole('tabpanel');
     expect(panel).toHaveTextContent('The memory');
+  });
+
+  it('draws the Monitoring tab', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole('tab', { name: 'Monitoring' }));
+
+    expect(screen.getByRole('heading', { name: 'Monitoring' })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('Coming soon');
   });
 
   // Each row's cache size is a live watch; it must not run behind another tab.

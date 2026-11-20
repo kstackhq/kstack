@@ -924,6 +924,10 @@
         {
           "path": "src/components/settings/settings-dialog/memory.tsx",
           "blob": "c23afb1381f1a90b624eecf99bb9b1e3dfd54936"
+        },
+        {
+          "path": "src/components/settings/settings-dialog/monitoring.tsx",
+          "blob": "f444c5da6ed00482d44a9eb059c6e9d20a811d18"
         }
       ],
       "security": true,
