@@ -2646,6 +2646,8 @@ type Subscription {
   # --- Sandbox ---
   "GAUGE. The executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables."
   sandboxExecutablesWatch: SandboxExecutablesReport!
+  "GAUGE. The folders granted, as `sandboxFolders` answers them, a fresh value on each change to the always rules and, with a chat, on each write or revoke of the chat's grants. A folder changing on disk sends nothing."
+  sandboxFoldersWatch(chatID: ChatID): SandboxFolders!
 
   # --- Cloud account ---
   "Authentication state as a gauge: a fresh snapshot on every change of account (sign-in, sign-out, a session that ended)."

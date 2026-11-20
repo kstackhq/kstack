@@ -145,6 +145,65 @@ func TestAChatsFolderGrantIsListedAndRemoved(t *testing.T) {
 	assert.Empty(t, got["sandboxFolders"].(map[string]any)["always"], "and never widens to every chat")
 }
 
+// foldersFrame is the first sandboxFoldersWatch frame on events whose always
+// and chat lists hold always and chat grants: a gauge over two sources can say
+// one thing twice, so a frame is never counted.
+func foldersFrame(t *testing.T, events <-chan sseEvent, always, chat int) map[string]any {
+	t.Helper()
+	for {
+		ev := testutil.Recv(t, events, "a sandboxFoldersWatch frame")
+		var payload struct {
+			Data struct {
+				Folders map[string]any `json:"sandboxFoldersWatch"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(ev.data), &payload), ev.data)
+		folders := payload.Data.Folders
+		if len(folders["always"].([]any)) == always && len(folders["chat"].([]any)) == chat {
+			return folders
+		}
+	}
+}
+
+// The watch answers the folders on subscribe, and again after an always grant
+// or revoke and after a write or revoke of the chat's own; one naming no chat
+// follows the always grants alone.
+func TestSandboxFoldersWatchFollowsEveryGrant(t *testing.T) {
+	srv, home := newFolderServer(t)
+	code := filepath.Join(home, "code")
+	chatID := newChatOn(t, srv)
+
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersWatch(chatID: "`+chatID+`") `+foldersFields+` }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	first := foldersFrame(t, events, 0, 0)
+	assert.Equal(t, []any{filepath.Join(home, ".ssh")}, first["never"])
+	assert.Contains(t, first["wide"], home)
+	assert.Equal(t, false, first["rulesHeld"])
+
+	unscoped := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersWatch `+foldersFields+` }`)
+	defer unscoped.Body.Close()
+	alone := sseEvents(t, unscoped)
+	foldersFrame(t, alone, 0, 0)
+
+	got := mutate(t, srv, `mutation { folderGrant(path: "`+code+`", write: false, duration: Always) { always { id } } }`)
+	alwaysID := got["folderGrant"].(map[string]any)["always"].([]any)[0].(map[string]any)["id"].(string)
+	foldersFrame(t, events, 1, 0)
+	foldersFrame(t, alone, 1, 0)
+
+	got = mutate(t, srv, `mutation { folderGrant(chatID: "`+chatID+`", path: "`+code+`", write: true, duration: Chat) { chat { id } } }`)
+	chatGrantID := got["folderGrant"].(map[string]any)["chat"].([]any)[0].(map[string]any)["id"].(string)
+	granted := foldersFrame(t, events, 1, 1)
+	assert.Equal(t, true, granted["chat"].([]any)[0].(map[string]any)["write"])
+
+	mutate(t, srv, `mutation { chatGrantRemove(chatID: "`+chatID+`", id: "`+chatGrantID+`") { id } }`)
+	foldersFrame(t, events, 1, 0)
+
+	mutate(t, srv, `mutation { folderRevoke(id: "`+alwaysID+`") { wide } }`)
+	foldersFrame(t, events, 0, 0)
+	foldersFrame(t, alone, 0, 0)
+}
+
 func TestAFolderRefusalCarriesItsReason(t *testing.T) {
 	srv, home := newFolderServer(t)
 	link := filepath.Join(home, "link")

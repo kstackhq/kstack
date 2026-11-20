@@ -26,6 +26,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/amorey/gobus/conflate"
+
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/drain"
@@ -119,6 +121,12 @@ const chatsKey = appdb.KeyChats
 
 func messagesKey(id ChatID) string { return appdb.MessagesKey(string(id)) }
 
+func grantsKey(id ChatID) string { return appdb.GrantsKey(string(id)) }
+
+// GrantsNews pings after each write or revoke of a chat's rules commits,
+// coalesced. The key is the whole news: re-read on each. Close it when done.
+type GrantsNews = *conflate.Receiver[string, struct{}]
+
 // ClusterCards renders the cluster card: what the model is told about a chat's
 // cluster, the one section of a question's context block today. The text is what
 // goes on the wire: equal text on consecutive questions is one card.
@@ -200,6 +208,8 @@ type Service interface {
 	// RemoveChatGrant removes one of the chat's rules by id and answers the
 	// rules left: ErrChatGone or ErrGrantGone for a chat or an id gone.
 	RemoveChatGrant(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error)
+	// WatchGrants pings on the chat's rules. Watch before the first read.
+	WatchGrants(chatID ChatID) GrantsNews
 
 	// RunMonitor takes one monitor run on the cluster: a run of target over
 	// brief in the monitor's session, settled when it returns.

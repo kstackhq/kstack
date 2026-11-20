@@ -470,7 +470,7 @@ func folderErr(err error) error {
 
 // sandboxFolders is the folders granted, always and for chatID ("" for no
 // chat), with what no grant opens, as Settings and the composer draw them.
-func (r *Resolver) sandboxFolders(ctx context.Context, chatID apimeta.ChatID) (*model.SandboxFolders, error) {
+func (r *Resolver) sandboxFolders(ctx context.Context, chatID apimeta.ChatID) *model.SandboxFolders {
 	always, chat := r.ChatSvc.FolderGrants(ctx, chatID)
 	out := &model.SandboxFolders{
 		Always: sandboxFoldersOf(always), Chat: sandboxFoldersOf(chat),
@@ -481,7 +481,7 @@ func (r *Resolver) sandboxFolders(ctx context.Context, chatID apimeta.ChatID) (*
 		out.Never = append(out.Never, r.Settings.NeverReadable(ctx)...)
 		out.Wide = append(out.Wide, r.Settings.WideFolders(ctx)...)
 	}
-	return out, nil
+	return out
 }
 
 // sandboxFoldersOf is grants on the wire, in order.

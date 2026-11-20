@@ -967,6 +967,7 @@ type ComplexityRoot struct {
 		OpenRouterConnectionWatch     func(childComplexity int) int
 		ProviderCredentialsWatch      func(childComplexity int) int
 		SandboxExecutablesWatch       func(childComplexity int) int
+		SandboxFoldersWatch           func(childComplexity int, chatID *apimeta.ChatID) int
 	}
 
 	ToolAction struct {
@@ -1194,6 +1195,7 @@ type SubscriptionResolver interface {
 	MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memory.MemoryWatchFrame, error)
 	LogsFollow(ctx context.Context, id apimeta.ClusterID, request model.LogsFollowInput) (<-chan *model.LogsFollowFrame, error)
 	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
+	SandboxFoldersWatch(ctx context.Context, chatID *apimeta.ChatID) (<-chan *model.SandboxFolders, error)
 	AuthStateWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ChatGPTConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	OpenRouterConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
@@ -5159,6 +5161,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.SandboxExecutablesWatch(childComplexity), true
+	case "Subscription.sandboxFoldersWatch":
+		if e.ComplexityRoot.Subscription.SandboxFoldersWatch == nil {
+			break
+		}
+
+		args, err := ec.field_Subscription_sandboxFoldersWatch_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Subscription.SandboxFoldersWatch(childComplexity, args["chatID"].(*apimeta.ChatID)), true
 
 	case "ToolAction.command":
 		if e.ComplexityRoot.ToolAction.Command == nil {
@@ -8535,6 +8548,20 @@ func (ec *executionContext) field_Subscription_memoriesWatch_args(ctx context.Co
 		return nil, err
 	}
 	args["clusterID"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Subscription_sandboxFoldersWatch_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
+		func(ctx context.Context, v any) (*apimeta.ChatID, error) {
+			return ec.unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["chatID"] = arg0
 	return args, nil
 }
 
@@ -24203,6 +24230,50 @@ func (ec *executionContext) fieldContext_Subscription_sandboxExecutablesWatch(_ 
 	return fc, nil
 }
 
+func (ec *executionContext) _Subscription_sandboxFoldersWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_sandboxFoldersWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Subscription().SandboxFoldersWatch(ctx, fc.Args["chatID"].(*apimeta.ChatID))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxFolders) graphql.Marshaler {
+			return ec.marshalNSandboxFolders2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolders(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_sandboxFoldersWatch(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxFolders(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Subscription_sandboxFoldersWatch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Subscription_authStateWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
 	return graphql.ResolveFieldStream(
 		ctx,
@@ -33244,6 +33315,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_logsFollow(ctx, fields[0])
 	case "sandboxExecutablesWatch":
 		return ec._Subscription_sandboxExecutablesWatch(ctx, fields[0])
+	case "sandboxFoldersWatch":
+		return ec._Subscription_sandboxFoldersWatch(ctx, fields[0])
 	case "authStateWatch":
 		return ec._Subscription_authStateWatch(ctx, fields[0])
 	case "chatGPTConnectionWatch":

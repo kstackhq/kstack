@@ -211,7 +211,8 @@ and an action whose `Grantable` is false, take `Once` and `Deny` alone. A `Chat`
 written **before the decision is delivered**, outside `turnsMu`; a failed write puts the waiter
 back. `Always` while settings hold unreadable rules is `settings.ErrHeld`
 (`KSTACK_VALIDATION_ERROR`). A chat's rules are `chat_grants` rows (`grants.go`), read on every
-decision, never cached. **`foldersFor` is the one builder of a session's folders**, re-checking
+decision, never cached; each write or revoke pings `grants/<chatID>` after its commit
+(`WatchGrants`), which `sandboxFoldersWatch` re-reads on. **`foldersFor` is the one builder of a session's folders**, re-checking
 each; `FoldersFor(ctx, "")` is the always folders alone, for a run with no chat. `GrantFolder`,
 `RevokeFolder`, `FolderGrants` and `RulesHeldReason` are the wire's. → [ADR: a prompt names the action and offers a
 duration](../../../docs/adr/2026-10-04-a-prompt-names-the-action-and-offers-a-duration.md), [ADR: a folder

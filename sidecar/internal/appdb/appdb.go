@@ -128,6 +128,10 @@ const (
 // MessagesKey: the chat's message rows changed. Re-read and diff.
 func MessagesKey(chatID string) string { return "messages/" + chatID }
 
+// GrantsKey: the chat's chat_grants rows changed: a grant written or revoked. A
+// cascade from a chat's delete notifies nothing here.
+func GrantsKey(chatID string) string { return "grants/" + chatID }
+
 // Notify wakes every subscriber of key. Call it after a commit, never inside the
 // transaction, or a subscriber re-reads the old rows. It never blocks.
 func (db *DB) Notify(key string) {

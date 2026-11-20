@@ -559,7 +559,7 @@ func (r *mutationResolver) FolderGrant(ctx context.Context, chatID *apimeta.Chat
 	if err := r.ChatSvc.GrantFolder(ctx, chat, path, write); err != nil {
 		return nil, folderErr(err)
 	}
-	return r.sandboxFolders(ctx, chat)
+	return r.sandboxFolders(ctx, chat), nil
 }
 
 // FolderRevoke is the resolver for the folderRevoke field.
@@ -567,7 +567,7 @@ func (r *mutationResolver) FolderRevoke(ctx context.Context, id string) (*model.
 	if err := r.ChatSvc.RevokeFolder(id); err != nil {
 		return nil, folderErr(err)
 	}
-	return r.sandboxFolders(ctx, "")
+	return r.sandboxFolders(ctx, ""), nil
 }
 
 // AuthLoginStart is the resolver for the authLoginStart field: it returns once the
@@ -857,11 +857,7 @@ func (r *queryResolver) PermissionSettings(ctx context.Context) (*model.Permissi
 
 // SandboxFolders is the resolver for the sandboxFolders field.
 func (r *queryResolver) SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error) {
-	var chat apimeta.ChatID
-	if chatID != nil {
-		chat = *chatID
-	}
-	return r.sandboxFolders(ctx, chat)
+	return r.sandboxFolders(ctx, valueOf(chatID)), nil
 }
 
 // ChatGrants is the resolver for the chatGrants field.
@@ -1144,6 +1140,42 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 			}
 			report := &model.SandboxExecutablesReport{Probing: state.Probing, Probes: state.Probes, Executables: sandboxExecutablesOf(bash.ReportOver(state.Last, registered))}
 			if !send(report) { // coverage:ignore only the subscriber leaving while a report is in flight
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
+// SandboxFoldersWatch is the resolver for the sandboxFoldersWatch field: the
+// folders, read again on each settings value and each ping of the chat's
+// grants. The settings receiver is current-on-subscribe, so its first value
+// sends the first frame. With no chat, nothing pings the grants.
+func (r *subscriptionResolver) SandboxFoldersWatch(ctx context.Context, chatID *apimeta.ChatID) (<-chan *model.SandboxFolders, error) {
+	chat := valueOf(chatID)
+	settings, grants := r.Settings.Subscribe(), r.ChatSvc.WatchGrants(chat)
+	out := make(chan *model.SandboxFolders)
+	go func() {
+		defer close(out)
+		defer settings.Close()
+		defer grants.Close()
+		settingsC, grantsC := settings.Chan(), grants.Chan()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-settingsC:
+				if !ok { // coverage:ignore the settings store never closes its hub
+					return
+				}
+			case _, ok := <-grantsC:
+				if !ok { // coverage:ignore only the database closing under a subscriber
+					return
+				}
+			}
+			select {
+			case out <- r.sandboxFolders(ctx, chat):
+			case <-ctx.Done(): // coverage:ignore only the subscriber leaving while a value is in flight
 				return
 			}
 		}

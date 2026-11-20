@@ -38,6 +38,11 @@ vi.mock('urql', () => ({
   useMutation: (doc: { kind?: string }) => [{}, doc.kind === 'cancel' ? cancelMock : sendMock],
   useQuery: () => [catalog.current, reexecute],
 }));
+// The chat's folders arrive on a watch, which answers nothing here.
+vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
+  useWatchSubscription: () => ({ data: undefined, connected: true }),
+}));
 vi.mock('@/lib/connectors', () => ({ CHATGPT_ID: 'chatgpt', useOpenChatGPTUsage: () => openUsage }));
 vi.mock('@/lib/models', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/models')>()),

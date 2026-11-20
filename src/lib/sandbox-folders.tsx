@@ -14,23 +14,22 @@
 
 // The folders sandboxed commands may read, and read and write: the always
 // grants, a chat's own, and what no grant opens. The one reader of the
-// sandboxFolders query and the folderGrant and folderRevoke mutations. After
-// each change the query is asked again, since each folder's refused reason is
-// the query's alone. A grant runs under `chatGrantsContext`, since a chat grant
-// is a chat rule and the composer's list of them must ask again too. Another
-// window can change the grants and each window caches its own, so the query is
-// also asked again whenever the window takes focus.
-import { useCallback, useEffect, useState } from 'react';
-import { useMutation, useQuery } from 'urql';
+// sandboxFoldersWatch gauge and the folderGrant and folderRevoke mutations.
+// The watch sends the whole list again on each change from any window, so
+// nothing is asked again. A grant runs under `chatGrantsContext`, since a chat
+// grant is a chat rule and the composer's list of them must ask again too.
+import { useCallback, useState } from 'react';
+import { useMutation } from 'urql';
 import type { CombinedError } from 'urql';
 
 import { graphql } from '@/gql';
-import type { GrantDuration, SandboxFoldersQuery } from '@/gql/graphql';
+import type { GrantDuration, SandboxFoldersWatchSubscription } from '@/gql/graphql';
 import { chatGrantsContext } from '@/lib/chat-grants';
+import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
 
-const SandboxFoldersDocument = graphql(`
-  query SandboxFolders($chatID: ChatID) {
-    sandboxFolders(chatID: $chatID) {
+const SandboxFoldersWatchDocument = graphql(`
+  subscription SandboxFoldersWatch($chatID: ChatID) {
+    sandboxFoldersWatch(chatID: $chatID) {
       always {
         id
         path
@@ -66,7 +65,11 @@ const FolderRevokeMutation = graphql(`
   }
 `);
 
-export type SandboxFolder = SandboxFoldersQuery['sandboxFolders']['always'][number];
+type Folders = SandboxFoldersWatchSubscription['sandboxFoldersWatch'];
+export type SandboxFolder = Folders['always'][number];
+
+// A gauge: the last frame is the whole state.
+const lastFolders = perFrame<SandboxFoldersWatchSubscription, Folders>((_, data) => data.sandboxFoldersWatch);
 
 /** A refused grant: the sidecar's reason, and the folder to grant instead when it names one (a link's target, or the disk's spelling). */
 export type GrantRefusal = { message: string; target: string | null };
@@ -100,23 +103,19 @@ export type SandboxFolders = {
 
 export function useSandboxFolders(chatID?: string): SandboxFolders {
   const chat = chatID ?? null;
-  const [{ data }, reexecute] = useQuery({
-    query: SandboxFoldersDocument,
-    variables: { chatID: chat },
-    requestPolicy: 'cache-and-network',
-  });
+  // Unshared: a form mounting beside a list already open (the transcript's
+  // offer under the composer's grants) would otherwise wait for the next change.
+  const { data: folders } = useWatchSubscription(
+    { query: SandboxFoldersWatchDocument, variables: { chatID: chat } },
+    lastFolders,
+    { unshared: true },
+  );
   const [, grantMutation] = useMutation(FolderGrantMutation);
   const [, revokeMutation] = useMutation(FolderRevokeMutation);
   const [granting, setGranting] = useState(false);
   const [revoking, setRevoking] = useState<ReadonlySet<string>>(new Set());
   const [grantError, setGrantError] = useState<GrantRefusal | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
-
-  const askAgain = useCallback(() => reexecute({ requestPolicy: 'network-only' }), [reexecute]);
-  useEffect(() => {
-    window.addEventListener('focus', askAgain);
-    return () => window.removeEventListener('focus', askAgain);
-  }, [askAgain]);
 
   const grant = useCallback(
     async (path: string, write: boolean, duration: GrantDuration) => {
@@ -125,10 +124,9 @@ export function useSandboxFolders(chatID?: string): SandboxFolders {
       const { error } = await grantMutation({ chatID: chat, path, write, duration }, chatGrantsContext);
       setGranting(false);
       if (error) setGrantError(refusalOf(error));
-      askAgain();
       return !error;
     },
-    [grantMutation, chat, askAgain],
+    [grantMutation, chat],
   );
 
   const revoke = useCallback(
@@ -143,12 +141,10 @@ export function useSandboxFolders(chatID?: string): SandboxFolders {
         return next;
       });
       if (error) setRevokeError(error.graphQLErrors[0]?.message ?? error.message);
-      askAgain();
     },
-    [revokeMutation, askAgain],
+    [revokeMutation],
   );
 
-  const folders = data?.sandboxFolders;
   return {
     always: folders?.always,
     chat: folders?.chat,

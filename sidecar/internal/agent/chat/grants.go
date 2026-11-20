@@ -106,6 +106,7 @@ func (s *service) addGrant(ctx context.Context, chatID ChatID, rule permissions.
 	if err != nil {
 		return permissions.Rule{}, err
 	}
+	s.notify(grantsKey(chatID))
 	return rule, nil
 }
 
@@ -156,7 +157,16 @@ func (s *service) RemoveChatGrant(ctx context.Context, chatID ChatID, id string)
 		left, _, err = readGrants(ctx, st, chatID)
 		return err
 	})
-	return left, err
+	if err != nil {
+		return nil, err
+	}
+	s.notify(grantsKey(chatID))
+	return left, nil
+}
+
+// WatchGrants is a ping receiver on chatID's rules.
+func (s *service) WatchGrants(chatID ChatID) GrantsNews {
+	return s.db.Subscribe(grantsKey(chatID))
 }
 
 // sameRule is whether a and b are one rule but for their ids.
@@ -278,7 +288,7 @@ func (s *service) GrantFolder(ctx context.Context, chatID ChatID, path string, w
 		rule.ID = appdb.NewID()
 		return s.settings.PutRule(rule, grantsPath)
 	}
-	return s.store.InTx(ctx, func(st stmts) error {
+	err := s.store.InTx(ctx, func(st stmts) error {
 		held, _, err := readGrants(ctx, st, chatID)
 		if err != nil {
 			return err
@@ -289,6 +299,11 @@ func (s *service) GrantFolder(ctx context.Context, chatID ChatID, path string, w
 		_, err = s.putGrant(ctx, st, chatID, rule)
 		return err
 	})
+	if err != nil {
+		return err
+	}
+	s.notify(grantsKey(chatID))
+	return nil
 }
 
 // RevokeFolder removes an always folder grant by id.

@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/amorey/gobus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -187,6 +188,52 @@ func TestAChatsGrantsAreListedAndRemoved(t *testing.T) {
 	assert.ErrorIs(t, err, ErrChatGone)
 	_, err = s.addGrant(ctx, c.ID, rule)
 	assert.ErrorIs(t, err, ErrChatGone)
+}
+
+// Each write or revoke of a chat's rules pings its grants key once it commits,
+// and a refused one pings nothing, so a watch of the chat's folders re-reads.
+func TestAChatsGrantWritesPingItsKey(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	ctx := t.Context()
+	home := grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	other := seedChat(t, s.db, aChat("1", time.Now()))
+	rx := s.WatchGrants(c.ID)
+	t.Cleanup(rx.Close)
+	pinged := func(what string) {
+		t.Helper()
+		_, err := rx.TryRecv()
+		require.NoError(t, err, what)
+	}
+	quiet := func(what string) {
+		t.Helper()
+		_, err := rx.TryRecv()
+		require.ErrorIs(t, err, gobus.ErrEmpty, what)
+	}
+
+	require.NoError(t, s.GrantFolder(ctx, c.ID, filepath.Join(home, "code"), false))
+	pinged("a folder grant")
+	added, err := s.addGrant(ctx, c.ID, permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite})
+	require.NoError(t, err)
+	pinged("a rule an approval wrote")
+	_, err = s.RemoveChatGrant(ctx, c.ID, added.ID)
+	require.NoError(t, err)
+	pinged("a revoke")
+
+	_, err = s.RemoveChatGrant(ctx, c.ID, added.ID)
+	require.ErrorIs(t, err, ErrGrantGone)
+	quiet("a refused revoke")
+	require.Error(t, s.GrantFolder(ctx, c.ID, filepath.Join(home, "missing"), false))
+	quiet("a refused folder grant")
+	require.ErrorIs(t, s.GrantFolder(ctx, ChatID(appdb.NewID()), filepath.Join(home, "code"), false), ErrChatGone)
+	quiet("a grant for a chat that is gone")
+	_, err = s.addGrant(ctx, c.ID, permissions.Rule{ID: appdb.NewID(), Effect: permissions.Allow, Class: permissions.UpstreamWrite})
+	require.ErrorIs(t, err, ErrGrantGone)
+	quiet("a refused rule")
+	require.NoError(t, s.GrantFolder(ctx, other.ID, filepath.Join(home, "code"), false))
+	quiet("another chat's grant")
 }
 
 // The chat's network switch is read at each command, so one turned on or off

@@ -15,37 +15,42 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
-const { useQueryMock, useMutationMock, reexecute, mutations } = vi.hoisted(() => ({
-  useQueryMock: vi.fn(),
+// The seams: the watch's frames, folded by the hook's own reducer, and each
+// mutation by name.
+const { useWatchSubscriptionMock, useMutationMock, watch, mutations } = vi.hoisted(() => ({
+  useWatchSubscriptionMock: vi.fn(),
   useMutationMock: vi.fn(),
-  reexecute: vi.fn(),
+  watch: {} as { frames?: unknown[] },
   mutations: {} as Record<string, Mock<(variables: unknown) => Promise<unknown>>>,
 }));
-vi.mock('urql', () => ({ useQuery: useQueryMock, useMutation: useMutationMock }));
+vi.mock('urql', () => ({ useMutation: useMutationMock }));
+vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
+  useWatchSubscription: useWatchSubscriptionMock,
+}));
 // Each document is its name, so the mock can tell the mutations apart.
-vi.mock('@/gql', () => ({ graphql: (source: string) => /(?:query|mutation) (\w+)/.exec(source)![1] }));
+vi.mock('@/gql', () => ({ graphql: (source: string) => /(?:query|subscription|mutation) (\w+)/.exec(source)![1] }));
 
 const { chatGrantsContext } = await import('./chat-grants');
 const { useSandboxFolders } = await import('./sandbox-folders');
 
 const code = { id: 'a', path: '/Users/ren/code', write: false, refused: null };
 const gone = { id: 'b', path: '/Users/ren/gone', write: true, refused: 'This folder does not exist.' };
-const queried = {
-  fetching: false,
-  data: {
-    sandboxFolders: {
-      always: [code],
-      chat: [gone],
-      never: ['/Users/ren/.ssh'],
-      wide: ['/Users/ren', '/Users'],
-      rulesHeld: true,
-    },
-  },
+const folders = {
+  always: [code],
+  chat: [gone],
+  never: ['/Users/ren/.ssh'],
+  wide: ['/Users/ren', '/Users'],
+  rulesHeld: true,
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useQueryMock.mockImplementation(() => [queried, reexecute]);
+  watch.frames = undefined;
+  useWatchSubscriptionMock.mockImplementation((_args, reduce) => ({
+    data: watch.frames && reduce(undefined, watch.frames),
+    connected: true,
+  }));
   useMutationMock.mockImplementation((doc: string) => {
     mutations[doc] ??= vi.fn();
     return [{}, mutations[doc]];
@@ -53,24 +58,45 @@ beforeEach(() => {
 });
 
 describe('useSandboxFolders', () => {
-  it('reads the grants, the never-readable list and the wide folders', () => {
+  it('is undefined until the watch answers', () => {
     const { result } = renderHook(() => useSandboxFolders('c1'));
-    expect(useQueryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ variables: { chatID: 'c1' }, requestPolicy: 'cache-and-network' }),
+    expect(result.current.always).toBeUndefined();
+    expect(result.current.chat).toBeUndefined();
+    expect(result.current.rulesHeld).toBe(false);
+  });
+
+  it('follows the watch: the grants, the never-readable list and the wide folders', () => {
+    const { result, rerender } = renderHook(() => useSandboxFolders('c1'));
+    expect(useWatchSubscriptionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ variables: { chatID: 'c1' } }),
+      expect.any(Function),
+      { unshared: true },
     );
+    watch.frames = [{ sandboxFoldersWatch: folders }];
+    rerender();
     expect(result.current.always).toEqual([code]);
     expect(result.current.chat).toEqual([gone]);
     expect(result.current.never).toEqual(['/Users/ren/.ssh']);
     expect(result.current.wide).toEqual(['/Users/ren', '/Users']);
     expect(result.current.rulesHeld).toBe(true);
+
+    // A grant or Remove made anywhere arrives as the next whole frame.
+    watch.frames.push({ sandboxFoldersWatch: { ...folders, always: [], chat: [gone, code] } });
+    rerender();
+    expect(result.current.always).toEqual([]);
+    expect(result.current.chat).toEqual([gone, code]);
   });
 
-  it('asks with no chat when none is named', () => {
+  it('watches with no chat when none is named', () => {
     renderHook(() => useSandboxFolders());
-    expect(useQueryMock).toHaveBeenCalledWith(expect.objectContaining({ variables: { chatID: null } }));
+    expect(useWatchSubscriptionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ variables: { chatID: null } }),
+      expect.any(Function),
+      { unshared: true },
+    );
   });
 
-  it('grants a folder, in flight until it answers, then asks again', async () => {
+  it('grants a folder, in flight until it answers', async () => {
     let answer!: (value: unknown) => void;
     mutations.FolderGrant.mockImplementation(
       () =>
@@ -93,7 +119,6 @@ describe('useSandboxFolders', () => {
     await act(async () => answer({ data: { folderGrant: {} } }));
     await expect(granted).resolves.toBe(true);
     expect(result.current.granting).toBe(false);
-    expect(reexecute).toHaveBeenCalledWith({ requestPolicy: 'network-only' });
   });
 
   // A chat grant is a chat rule, so the chat's list of them is asked again.
@@ -147,12 +172,5 @@ describe('useSandboxFolders', () => {
     expect(mutations.FolderRevoke).toHaveBeenCalledWith({ id: 'a' });
     expect(result.current.revokeError).toBe('Record not found');
     expect(result.current.revoking).toEqual(new Set());
-    expect(reexecute).toHaveBeenCalledWith({ requestPolicy: 'network-only' });
-  });
-
-  it('asks again whenever the window takes focus', () => {
-    renderHook(() => useSandboxFolders());
-    window.dispatchEvent(new Event('focus'));
-    expect(reexecute).toHaveBeenCalledWith({ requestPolicy: 'network-only' });
   });
 });
