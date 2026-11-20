@@ -200,7 +200,10 @@ may have signed in as someone else. Every failure is `ErrNoToken`. →
 **A connector is an account on a service that Kstack signs in to, and whose requests it may then
 sign**, one package each: `chatgpt`, `openrouter`, `aws`, whose credentials nothing uses yet,
 `github`, whose token GitHub's proxy sends, `google`, which signs Vertex AI, and `kstackcloud`, the Kstack Cloud account, which signs nothing. Each has `New`, `State`, `Subscribe`, `Connect`, `Disconnect` and `Close`; a model
-provider adds a catalog and a signer. The root package is their vocabulary; `oauthconn` is in `connectors/internal/`; `catalogsync` and `signer`, `providerkeys`' too, in `services/internal/`. → [ADR](../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md).
+provider adds a catalog and a signer. **Each `New` is `Restoring` and makes no keyring call**: it
+reads on a goroutine, `Restored()` closes once it has published, a credential asked for meanwhile
+waits, and a change answers `ErrRestoring`. → [ADR](../docs/adr/2026-11-20-a-launch-restores-keyring-credentials-in-the-background.md).
+The root package is their vocabulary; `oauthconn` is in `connectors/internal/`; `catalogsync` and `signer`, `providerkeys`' too, in `services/internal/`. → [ADR](../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md).
 
 **`catalogsync` keeps a provider's catalog**, its only writer: read per connected session, on a
 poke and every six hours, emptied otherwise. A connector's `SyncCatalog` or `providerkeys`'

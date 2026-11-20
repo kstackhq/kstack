@@ -1,7 +1,7 @@
 ---
 title: The services restore in the background
 scope: sidecar, host, webview
-status: Planned
+status: In progress
 ---
 
 # The services restore in the background
@@ -331,22 +331,22 @@ header.
   `HasCredential`, which values leave `keyGen`); `internal/llm` (the idle clock stops while a
   request is signed).
 - `docs/TODO.md`: the `auth-token` line names the goroutine in place of `kstackcloud.New`.
-- `docs/persisted-data.md` is unchanged. A pinning test it names keeps its name.
+- `docs/persisted-data.md`: the `auth-token` row names
+  `TestTheOldEntryIsDeletedOnlyFromAKeyringThatOpened` in place of the two tests it joins.
 
 ## Tasks
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | The ADR; `connectors.Restoring` and `ErrRestoring`; `oauthconn`'s restore, waits and refusals | Planned |
-| 2 | `openrouter`, `github`, `aws`: the same | Planned |
-| 3 | `kstackcloud`: the old entry's delete, `Subscribe`; `proto/auth.proto`, `toAuthState`; the host's literals | Planned |
-| 4 | `providerkeys`: `SourceRestoring`, `HasCredential`, the followers, the pending binding; `catalog.New` | Planned |
-| 5 | `llm`: the guard in the context, `pause` and `resume` around `authorize` | Planned |
-| 6 | GraphQL schema, `gqlgen.yml`, the two error maps, resolver tests; `pnpm codegen`; the webview's cases; `app`'s launch tests | Planned |
+| 1 | The ADR; `connectors.Restoring` and `ErrRestoring`; `oauthconn`'s restore, waits and refusals | Built (#1102) |
+| 2 | `openrouter`, `github`, `aws`: the same | Built (#1102) |
+| 3 | `kstackcloud`: the old entry's delete, `Subscribe`; `proto/auth.proto`, `toAuthState`; the host's literals | Built (#1102) |
+| 4 | `providerkeys`: `SourceRestoring`, `HasCredential`, the followers, the pending binding; `catalog.New` | Built (#1102) |
+| 5 | `llm`: the guard in the context, `pause` and `resume` around `authorize` | Built (#1102) |
+| 6 | GraphQL schema, `gqlgen.yml`, the two error maps, resolver tests; `pnpm codegen`; the webview's cases; `app`'s launch tests | Built (#1102) |
 | 7 | macOS: serialize the restores' reads, only if step 1's manual check finds a dialog per read | Waits on step 1's manual check |
 
-Tasks 1–6 do not depend on the macOS check and can start now. Task 7 is dropped if the check
-finds one dialog.
+Task 7 is dropped if step 1's manual check finds one dialog.
 
 Verification is `docs/specs/README.md`'s *Verification commands*: `make test-changed` while
 working, `make check-changed` before the pull request, the wire checks, and `make generate-proto`
@@ -389,9 +389,9 @@ Every test uses `oskeyringtest`, waits on `Restored()` or a watch, and never sle
   - closed before the release, `Close` returns, nothing is published, and `Restored()` stays open;
     the test releases the delete in its cleanup (`TestCloseLeavesACleanupThatNeverAnswers`).
 - `oauthconn` restores by its table: each of its rows, with an entry of a newer `v` deleted
-  and the row signed out (`TestTheRestoreTable`). With a row it cannot read it stays `Restoring`
-  while the keyring holds the read, then is `SignedOut` with both stores as they were
-  (`TestAnUnreadableRowWaitsForTheKeyring`).
+  and the row signed out (`TestNewRestoresWhatTheStoresHold`, the name `persisted-data.md` pins).
+  With a row it cannot read it stays `Restoring` while the keyring holds the read, then is
+  `SignedOut` with both stores as they were (`TestAnUnreadableRowWaitsForTheKeyring`).
 - **One bad entry, through a whole launch.** `app.New` over a gated fake with `FailGet` set for one
   connector's account: that connector is `SignedOut`, and every other service restores what
   the keyring holds (`TestABadEntrySignsOutItsOwnServiceAlone` in `app`).
