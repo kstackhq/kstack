@@ -12,8 +12,8 @@ The providers the app holds and, for each provider, every tool its turns are off
 name. It imports `llm`, each tool's package, `providercredentials`, and the connectors `chatgpt`, `google` and `openrouter` (their ids and API bases); only `config.go`
 and `app` import it.
 
-- `catalog.go`: `New(Config)` is every row of the table, in picker order, each signed by
-  `Config.Credentials` (`services/providercredentials`) and listing its catalog only while it has a
+- `catalog.go`: `New(Config)` is every row `Config.Credentials` holds, in picker order, each
+  signed by it (`services/providercredentials`) and listing its catalog only while it has a
   credential, then `Config.Fake`; with no `Credentials`, the fake alone. `ToolsFor(target)` feeds
   `Box.For`.
 - `providers.go`: **one table, `rows`**: each provider, its key variable (`""` when only its

@@ -84,6 +84,18 @@ func TestNewListsEveryRowAndAddsTheFake(t *testing.T) {
 	assert.Equal(t, 1, f.Asked(), "the fake given is the one a send runs on")
 }
 
+// New lists only the rows the service signs: one it does not hold is left
+// out, never listed unsigned.
+func TestNewLeavesOutARowTheServiceDoesNotHold(t *testing.T) {
+	creds := newCredentials(t, credentials{})
+	providers := New(Config{Credentials: creds, VertexBaseURL: vertexBase}).Providers()
+
+	assert.NotContains(t, providerIDs(providers), GoogleID)
+	for _, p := range providers {
+		assert.NotNil(t, p.Signer, p.ID)
+	}
+}
+
 // A debug build's base URL moves the provider it names and nothing else.
 func TestNewAppliesADebugBaseURLToItsRowAlone(t *testing.T) {
 	baseURLs := map[string]string{"anthropic": "http://127.0.0.1:1", "nobody": "http://127.0.0.1:3"}

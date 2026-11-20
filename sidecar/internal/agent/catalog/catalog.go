@@ -57,16 +57,20 @@ type Config struct {
 	Fake *llm.Fake
 }
 
-// New is every row of the table in picker order, at the base URL cfg moves it
-// to, then the fake. A provider with no credential lists no model until it
-// has one.
+// New is every row of the table the service holds, in picker order, at the
+// base URL cfg moves it to, then the fake. A provider with no credential lists
+// no model until it has one.
 func New(cfg Config) Catalog {
 	var c Catalog
 	if cfg.Credentials != nil {
 		for _, r := range rowsAt(cfg.BaseURLs, cfg.VertexBaseURL) {
 			p := r.provider
+			st, ok := cfg.Credentials.State(p.ID)
+			if !ok {
+				continue
+			}
 			p.Signer = cfg.Credentials.Signer(p.ID)
-			if st, _ := cfg.Credentials.State(p.ID); st.Source == providercredentials.SourceNone {
+			if st.Source == providercredentials.SourceNone {
 				// SyncCatalogs lists it once the provider has a credential.
 				p.Catalog = nil
 			}

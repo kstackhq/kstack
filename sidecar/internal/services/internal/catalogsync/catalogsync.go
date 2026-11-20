@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package catalogsync keeps a signed-in provider's model catalog the
-// account's: read when its connection connects and every six hours, emptied
-// when it does not.
+// Package catalogsync keeps a provider's model catalog current: read when its
+// credential changes and every six hours, emptied while it has none.
 package catalogsync
 
 import (
@@ -38,19 +37,19 @@ const (
 	readTimeout = 30 * time.Second
 )
 
-// Reader reads the account's catalog off p, the provider's row.
+// Reader reads the provider's catalog off p, its row.
 type Reader func(ctx context.Context, p llm.Provider) ([]llm.Model, error)
 
-// loop keeps a signed-in provider's catalog the account's, and is its only
-// writer. It takes the connected session's changes in order on one goroutine:
-// each session's list is read, and a poke or refreshInterval reads it again; 0
-// empties it, and so does a new session, before its read. Only the latest
+// loop keeps a provider's catalog current, and is its only writer. It takes
+// the credential's changes in order on one goroutine: each value's list is
+// read, and a poke or refreshInterval reads it again; 0 empties it, and so
+// does a new value, before its read. Only the latest
 // read's result is set, and the next change cancels it, so a list read for one
 // account never outlives a frame for the next.
 type loop struct {
 	// id is the provider's.
 	id string
-	// connected is the connected session's id, 0 while there is none.
+	// connected is the credential's value, 0 while there is none.
 	connected <-chan uint64
 	pokes     <-chan poke.Signal
 	read      func(context.Context) ([]llm.Model, error)
@@ -59,10 +58,10 @@ type loop struct {
 	after func(time.Duration) <-chan time.Time
 }
 
-// Start runs the loop for the provider id over its connected session and the
-// resync pokes, setting what read answers on models, until the stop it returns,
-// which waits for it. subscribe streams the connected session's id, 0 while
-// there is none: current on subscribe, then each change.
+// Start runs the loop for the provider id over its credential and the resync
+// pokes, setting what read answers on models, until the stop it returns, which
+// waits for it. subscribe streams the credential's value, 0 while there is
+// none: current on subscribe, then each change.
 func Start(id string, subscribe func() (<-chan uint64, func()), pokes *poke.Service, models *llm.Service, read Reader) (stop func()) {
 	p, _ := models.Provider(id)
 	connected, unsubscribe := subscribe()
@@ -73,7 +72,7 @@ func Start(id string, subscribe func() (<-chan uint64, func()), pokes *poke.Serv
 		id:        id,
 		connected: connected,
 		pokes:     signals,
-		read:      func(ctx context.Context) ([]llm.Model, error) { return read(ctx, p) }, // coverage:ignore it reads only for a signed-in account, which no test here has; the loop's tests cover a read
+		read:      func(ctx context.Context) ([]llm.Model, error) { return read(ctx, p) },
 		set:       func(list []llm.Model) { models.SetCatalog(id, list) },
 		after:     time.After,
 	}
@@ -145,7 +144,7 @@ func (c loop) run(ctx context.Context) {
 		case r := <-pending:
 			pending = nil
 			if r.err != nil {
-				slog.Warn("could not read the account's catalog", "provider", c.id, "err", r.err)
+				slog.Warn("could not read the provider's catalog", "provider", c.id, "err", r.err)
 				next = c.after(retryDelay)
 			} else {
 				c.set(r.models)

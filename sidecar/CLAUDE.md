@@ -213,8 +213,8 @@ sign**, one package each: `chatgpt`, `openrouter`, `aws`, whose credentials noth
 `github`, whose token GitHub's proxy sends, `google`, which signs Vertex AI, and `kstackcloud`, the Kstack Cloud account, which signs nothing. Each has `New`, `State`, `Subscribe`, `Connect`, `Disconnect` and `Close`; a model
 provider's connector is also its `providercredentials.Connector`, which signs its rows. The root package is their vocabulary; `oauthconn` is in `connectors/internal/`; `catalogsync` and `signer`, `providercredentials`' too, in `services/internal/`. → [ADR](../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md).
 
-**`catalogsync` keeps a provider's catalog**, its only writer: read per connected session, on a
-poke and every six hours, emptied otherwise. `providercredentials`' `SyncCatalogs` starts it for
+**`catalogsync` keeps a provider's catalog**, its only writer: read when its credential changes,
+on a poke and every six hours, emptied while it has none. `providercredentials`' `SyncCatalogs` starts it for
 every provider; `app` passes the read, `catalog.Models`.
 
 ## GitHub's token (`internal/services/githubauth`)
