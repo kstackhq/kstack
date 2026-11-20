@@ -317,6 +317,7 @@ func TestEveryServiceReadsTheOneKeyring(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{Keyring: k}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	awaitRestored(t, a.rt)
 
 	read := map[string]bool{}
 	for _, c := range k.Calls() {
@@ -329,5 +330,16 @@ func TestEveryServiceReadsTheOneKeyring(t *testing.T) {
 		"openrouter-api-key", "github-token", "aws-session", "openrouter-saved-api-key",
 	} {
 		assert.True(t, read[account], "%s is read from the one keyring", account)
+	}
+}
+
+// awaitRestored waits for every service that reads the keyring to publish
+// what it read.
+func awaitRestored(t *testing.T, rt *Runtime) {
+	t.Helper()
+	for name, restored := range map[string]<-chan struct{}{
+		"kstack cloud": rt.KstackCloud.Restored(), "chatgpt": rt.ChatGPT.Restored(), "google": rt.Google.Restored(),
+	} {
+		testutil.Wait(t, restored, name+"'s restore")
 	}
 }

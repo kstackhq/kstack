@@ -38,6 +38,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
@@ -544,6 +545,8 @@ type rig struct {
 	t       *testing.T
 	issuer  *fakeIssuer
 	keyring *fakeKeyring
+	// calls is keyring as the service reaches it: recorded, and held on request.
+	calls *oskeyringtest.Keyring
 	// dir holds app.db.
 	dir      string
 	db       *appdb.DB
@@ -561,6 +564,7 @@ func newRig(t *testing.T, opts ...option) *rig {
 func newRigWith(t *testing.T, p func(issuer string) Provider, opts ...option) *rig {
 	t.Helper()
 	r := &rig{t: t, issuer: newFakeIssuer(t), keyring: newFakeKeyring(), dir: t.TempDir(), provider: p, opts: opts}
+	r.calls = oskeyringtest.Wrap(r.keyring)
 	r.db = appdbtest.OpenIn(t, r.dir)
 	r.svc = r.build()
 	return r
@@ -568,17 +572,39 @@ func newRigWith(t *testing.T, p func(issuer string) Provider, opts ...option) *r
 
 func (r *rig) build() *Service {
 	r.t.Helper()
-	opts := append([]option{withBrowser(following)}, r.opts...)
-	return newService(r.t, Config{Provider: r.provider(r.issuer.url()), DB: r.db, Keyring: r.keyring}, opts...)
+	s := r.start()
+	awaitRestored(r.t, s)
+	return s
 }
 
-// newService is a service closed when the test ends.
+// start is build without the wait for the restore.
+func (r *rig) start() *Service {
+	r.t.Helper()
+	opts := append([]option{withBrowser(following)}, r.opts...)
+	return startService(r.t, Config{Provider: r.provider(r.issuer.url()), DB: r.db, Keyring: r.calls}, opts...)
+}
+
+// newService is a service that has restored, closed when the test ends.
 func newService(t *testing.T, cfg Config, opts ...option) *Service {
+	t.Helper()
+	s := startService(t, cfg, opts...)
+	awaitRestored(t, s)
+	return s
+}
+
+// startService is newService without the wait for the restore.
+func startService(t *testing.T, cfg Config, opts ...option) *Service {
 	t.Helper()
 	s, err := newWithOptions(cfg, opts...)
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 	return s
+}
+
+// awaitRestored waits for s to publish what the keyring held.
+func awaitRestored(t *testing.T, s *Service) {
+	t.Helper()
+	testutil.Wait(t, s.Restored(), "the restore")
 }
 
 // seed writes the row and the keyring's entry a launch finds. An empty refresh
@@ -608,7 +634,7 @@ func savedRegistration(t *testing.T, r *rig) registration {
 // account holds anything.
 func storedRefresh(t *testing.T, r *rig) (string, bool) {
 	t.Helper()
-	e, found, err := loadEntry(r.keyring, refreshAccount)
+	e, found, err := parseEntry(r.keyring.Get(refreshAccount))
 	require.NoError(t, err)
 	return e.Token, found
 }
@@ -619,6 +645,23 @@ func (r *rig) restart() *Service {
 	r.svc.Close()
 	r.svc = r.build()
 	return r.svc
+}
+
+// relaunchHeld relaunches with the keyring's calls of kinds held until the
+// release it answers, which the test's end calls too.
+func (r *rig) relaunchHeld(kinds ...oskeyringtest.Kind) (*Service, func()) {
+	r.t.Helper()
+	release := r.calls.Hold(kinds...)
+	r.t.Cleanup(release)
+	r.svc.Close()
+	r.svc = r.start()
+	return r.svc, release
+}
+
+// awaitCall waits for the service to make c.
+func (r *rig) awaitCall(c oskeyringtest.Call) {
+	r.t.Helper()
+	require.Eventually(r.t, func() bool { return slices.Contains(r.calls.Calls(), c) }, testutil.Timeout, time.Millisecond, "%v", c)
 }
 
 // await waits for the service to publish a state matching ok, and answers it.

@@ -22,7 +22,7 @@ import (
 // Connect ends an attempt under way, then signs in fresh, since this sign-in
 // is how a user changes accounts. It returns once the browser opens and errs
 // when it could not; a later failure is the state's. It is refused while
-// connected.
+// Restoring and while connected.
 func (s *Service) Connect(ctx context.Context) error {
 	s.connecting.Lock()
 	defer s.connecting.Unlock()

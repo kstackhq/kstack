@@ -17,8 +17,11 @@ package oauthconn
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 // The keyring's accounts under the service's name, each prefixed with the
@@ -49,10 +52,9 @@ func saveEntry(k oskeyring.Keyring, account, sessionID, token string) error {
 	return k.Set(account, string(data))
 }
 
-// loadEntry reads account's entry. found says the account holds something; a
-// value this build cannot read is found and names no session.
-func loadEntry(k oskeyring.Keyring, account string) (e entry, found bool, err error) {
-	v, err := k.Get(account)
+// parseEntry is the entry a read answered. found says the account holds
+// something; a value this build cannot read is found and names no session.
+func parseEntry(v string, err error) (e entry, found bool, _ error) {
 	if errors.Is(err, oskeyring.ErrNoEntry) {
 		return entry{}, false, nil
 	}
@@ -63,4 +65,88 @@ func loadEntry(k oskeyring.Keyring, account string) (e entry, found bool, err er
 		return entry{}, true, nil
 	}
 	return e, true, nil
+}
+
+// restoration is what the restore makes of the stores: the state to publish,
+// the session it carries, and what is left to clean up.
+type restoration struct {
+	state    connectors.State
+	session  *session
+	clearRow bool
+	// deleteEntry is an entry no session can use.
+	deleteEntry bool
+}
+
+// restore reads the refresh token's entry, deletes one no session can use,
+// then publishes what it read. No keyring call runs under s.mu, and each ends
+// with s.ctx: a Close during either publishes nothing.
+func (s *Service) restore(rowErr error) {
+	v, err := oskeyring.Read(s.ctx, s.keyring, s.refreshAccount(), oskeyring.SlowAfter)
+	if s.ctx.Err() != nil {
+		return
+	}
+	r := s.judge(rowErr, v, err)
+	if r.deleteEntry {
+		err := oskeyring.Delete(s.ctx, s.keyring, s.refreshAccount())
+		if s.ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			slog.Warn("oauth: could not delete a stale keyring entry", "provider", s.p.ID, "err", err)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.applyRestoreLocked(r)
+	close(s.restored)
+}
+
+// judge is what the read makes of the stores. A session exists only when the
+// row and the keyring's entry name the same sign-in. Anything else is a
+// sign-in or a sign-out that a crash, a lost commit or a failed delete left
+// half done, or a store restored from a backup: the row is signed out and the
+// entry deleted. A row or a keyring that cannot be read is no proof of a
+// sign-out: nothing is written.
+func (s *Service) judge(rowErr error, v string, readErr error) restoration {
+	signedOut := restoration{state: connectors.State{Phase: connectors.SignedOut}}
+	if rowErr != nil {
+		// The entry is left for a launch that can read the row, unless a Connect
+		// rewrites the row first, which ends that session.
+		slog.Warn("oauth: could not read the registration; treating as signed out", "provider", s.p.ID, "err", rowErr)
+		return signedOut
+	}
+	e, found, err := parseEntry(v, readErr)
+	if err != nil {
+		slog.Warn("oauth: could not read the keyring; treating as signed out", "provider", s.p.ID, "err", err)
+		return signedOut
+	}
+	reg := s.reg.get()
+	clientID := s.clientID(reg)
+	if reg.SessionID != "" && e.Session == reg.SessionID && clientID != "" && e.Token != "" {
+		return restoration{
+			state:   connectors.State{Phase: connectors.Connected, Subject: reg.Subject, Email: reg.Email, Name: reg.Name},
+			session: &session{id: reg.SessionID, clientID: clientID, refresh: e.Token},
+		}
+	}
+	signedOut.clearRow = reg.SessionID != ""
+	signedOut.deleteEntry = found
+	return signedOut
+}
+
+// applyRestoreLocked writes the row r clears and publishes r (s.mu held).
+func (s *Service) applyRestoreLocked(r restoration) {
+	if r.clearRow {
+		reg := s.reg.get()
+		reg.SessionID = ""
+		if err := s.reg.save(reg); err != nil {
+			slog.Warn("oauth: could not record the sign-out", "provider", s.p.ID, "err", err)
+		}
+	}
+	if r.session != nil {
+		safe.AddSecret(r.session.refresh)
+		s.gen++
+		s.session = r.session
+		s.restoredGen = s.gen
+	}
+	s.publishLocked(r.state)
 }

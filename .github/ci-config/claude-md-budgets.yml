@@ -12,7 +12,7 @@ sidecar/internal/run/CLAUDE.md: 26624
 sidecar/internal/services/connectors/aws/CLAUDE.md: 2560
 sidecar/internal/services/connectors/github/CLAUDE.md: 2304
 sidecar/internal/services/connectors/google/CLAUDE.md: 1792
-sidecar/internal/services/connectors/internal/oauthconn/CLAUDE.md: 2560
+sidecar/internal/services/connectors/internal/oauthconn/CLAUDE.md: 3072
 sidecar/internal/services/connectors/kstackcloud/CLAUDE.md: 1536
 sidecar/internal/services/connectors/openrouter/CLAUDE.md: 2560
 sidecar/internal/services/cluster/CLAUDE.md: 18432

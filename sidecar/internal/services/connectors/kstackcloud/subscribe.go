@@ -21,8 +21,9 @@ import (
 )
 
 // Subscribe streams the state: current on subscribe, then each change of
-// account. The engine also publishes a sign-in under way, failed or cancelled,
-// each of which the wire draws as signed out.
+// account, the end of the restore included. The engine also publishes a
+// sign-in under way, failed or cancelled, each of which the wire draws as
+// signed out.
 func (s *Service) Subscribe() (<-chan connectors.State, func()) {
 	in, unsubscribe := s.engine.Subscribe()
 	out := make(chan connectors.State)
@@ -51,10 +52,10 @@ func (s *Service) Subscribe() (<-chan connectors.State, func()) {
 
 // account is what a subscriber is told of.
 type account struct {
-	connected            bool
+	restoring, connected bool
 	subject, email, name string
 }
 
 func accountOf(st connectors.State) account {
-	return account{st.Phase == connectors.Connected, st.Subject, st.Email, st.Name}
+	return account{st.Phase == connectors.Restoring, st.Phase == connectors.Connected, st.Subject, st.Email, st.Name}
 }

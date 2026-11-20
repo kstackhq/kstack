@@ -44,6 +44,7 @@ func newService(t *testing.T, cfg Config) *Service {
 	s, err := New(cfg)
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
+	testutil.Wait(t, s.Restored(), "the restore")
 	return s
 }
 
@@ -99,6 +100,7 @@ func TestConnectWithAClientRunsTheEngine(t *testing.T) {
 	s, err := New(Config{DB: db, Keyring: oskeyringtest.New(), ClientID: "client", APIBaseURL: testBase})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
+	testutil.Wait(t, s.Restored(), "the restore")
 	require.NoError(t, db.Close())
 
 	require.NoError(t, s.Connect(t.Context(), false))

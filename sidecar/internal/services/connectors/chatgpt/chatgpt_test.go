@@ -40,6 +40,7 @@ func newService(t *testing.T, apiBaseURL string) *Service {
 	s, err := New(Config{DB: appdbtest.Open(t), Keyring: oskeyringtest.New(), Issuer: Issuer, APIBaseURL: apiBaseURL})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
+	testutil.Wait(t, s.Restored(), "the restore")
 	return s
 }
 

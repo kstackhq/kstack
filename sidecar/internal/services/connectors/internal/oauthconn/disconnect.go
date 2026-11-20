@@ -28,10 +28,14 @@ import (
 // token, on a goroutine of the service's. A revocation the provider never confirms
 // arrives on the state. The registration stays. It errs only when
 // the sign-out could not be recorded and the refresh token's entry is still
-// there: that session would return at the next launch.
+// there: that session would return at the next launch. It is refused while
+// Restoring.
 func (s *Service) Disconnect(context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.state.Phase == connectors.Restoring {
+		return connectors.ErrRestoring
+	}
 	var clientID, refresh string
 	if s.session != nil {
 		clientID, refresh = s.session.clientID, s.session.refresh
