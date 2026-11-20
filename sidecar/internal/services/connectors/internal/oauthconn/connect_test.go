@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -391,8 +392,17 @@ func TestCancelBeforeTheCallback(t *testing.T) {
 	assert.Equal(t, connectors.SignedOut, r.svc.State().Phase)
 	u, err := url.Parse(browser.urls[0])
 	require.NoError(t, err)
-	_, err = http.Get(u.Query().Get("redirect_uri"))
-	assert.Error(t, err, "the listener is closed")
+	// The attempt's goroutine closes the listener once its wait sees the cancel,
+	// after Cancel returns.
+	redirect := u.Query().Get("redirect_uri")
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(redirect)
+		if err != nil {
+			return true
+		}
+		resp.Body.Close()
+		return false
+	}, testutil.Timeout, time.Millisecond, "the listener closes")
 	assert.Empty(t, r.issuer.forms("authorization_code"))
 }
 
