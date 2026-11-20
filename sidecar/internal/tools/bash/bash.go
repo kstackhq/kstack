@@ -26,6 +26,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -40,6 +41,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
@@ -160,6 +162,9 @@ type Tool struct {
 	// was never resolved: the platform's login default, or a test's folders.
 	pathList     func() settings.RunPath
 	fallbackPath []string
+	// userEnv is the user's variables; nil for none. A sandboxed run reads
+	// them at its start.
+	userEnv UserEnv
 
 	// The profile snapshot every command outside the sandbox sources: its
 	// path, "" while there is none, and ready, closed once it is written or
@@ -228,8 +233,8 @@ type Paths struct {
 // service, which a sandboxed run reads the chat's cluster through. pathList is the
 // user's stored PATH list, which a sandboxed run reads at its start and searches
 // the adopted entries of, since a sync, Include or Remove changes it while the
-// tool lives; nil for none.
-func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Service, pathList func() settings.RunPath, cloud Cloud) (t *Tool, ok bool) {
+// tool lives; nil for none. userEnv is the user's variables; nil for none.
+func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Service, pathList func() settings.RunPath, userEnv UserEnv, cloud Cloud) (t *Tool, ok bool) {
 	shell, kind, found := findShell()
 	if !found {
 		return nil, false
@@ -262,6 +267,7 @@ func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Se
 		kubectlDir:   paths.KubectlDir,
 		denied:       paths.DeniedDirs,
 		pathList:     pathList,
+		userEnv:      userEnv,
 		fallbackPath: filepath.SplitList(defaultPath),
 		snapTimeout:  snapshotTimeout,
 		snapLimit:    snapshotLimit,
@@ -619,6 +625,18 @@ func makeWorkspace(dir tools.ChatDir) error {
 	return root.Close()
 }
 
+// UserEnv is the user's variables for a command of a chat on cluster, on its
+// side of the sandbox, NAME=value (envvars.Service.For).
+type UserEnv func(ctx context.Context, cluster apimeta.ClusterID, sandboxed bool) ([]string, error)
+
+// userEnvFor is the user's variables for a call of rt's chat.
+func (t *Tool) userEnvFor(ctx context.Context, rt tools.Runtime, sandboxed bool) ([]string, error) {
+	if t.userEnv == nil {
+		return nil, nil
+	}
+	return t.userEnv(ctx, rt.ClusterID, sandboxed)
+}
+
 // sandboxerFor is the sandboxer a call of rt's chat runs through: the tool's,
 // unless the user switched the chat outside it; nil for none.
 func (t *Tool) sandboxerFor(rt tools.Runtime) sandboxer {
@@ -780,10 +798,15 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		limits.CPUSeconds = int(limitCPU/time.Second) * runtime.NumCPU()
 		limits.Processes = base + processMargin(runtime.NumCPU())
 	}
+	// Read before anything is made: a run without the user's variables would
+	// not be the run the user configured.
+	user, err := t.userEnvFor(ctx, rt, true)
+	if err != nil {
+		return nil, fmt.Errorf("read the user's environment variables: %w", err)
+	}
 	r := &sandboxedRun{boxer: boxer}
 	var cluster *target
 	var port int
-	var err error
 	platforms := t.cloud.platformsFor(rt)
 	if rt.ClusterID != "" {
 		tg, err := t.target(ctx, rt.ClusterID)
@@ -879,7 +902,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		if sys.Asdf {
 			toolchain = slices.Concat(sys.Env, toolVersions(t.home))
 		}
-		env := sandboxedRunEnv(os.Environ(), t.env, joinPath(folders), ws, cwd, r.dir, cluster, toolHome, toolchain, cloudVars)
+		env := sandboxedRunEnv(os.Environ(), t.env, joinPath(folders), ws, cwd, r.dir, cluster, toolHome, user, toolchain, cloudVars)
 		files := sys.Files.WithSearch(pathReads)
 		grants := t.grantRules(rt.Session.GrantedFolders(ctx), sys.Files, never, list.Entries)
 		built <- sandbox.Run{Env: env, Policy: t.workspacePolicy(files, grants, never, reads, writes, net, limits)}

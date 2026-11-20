@@ -60,6 +60,7 @@ func TestGitHubsMountWritesItsFilesAndVariables(t *testing.T) {
 		"GH_CONFIG_DIR=" + filepath.Join(dir, "gh"), "GH_HOST=github.localhost", "GH_PROMPT_DISABLED=1",
 		"HTTP_PROXY=" + proxy,
 	}, m.Env)
+	assertNoUserCanSet(t, m.Env)
 	assert.Equal(t, []string{"github.localhost", "api.github.localhost"}, []string{m.Routes[0].Host, m.Routes[1].Host})
 
 	assertFile(t, gitconfig, `[url "http://github.localhost/"]

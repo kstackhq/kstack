@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -31,6 +32,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
+	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -198,6 +200,11 @@ func TestAProxyVariableBringsNoProxy(t *testing.T) {
 	env, err = cloudEnv([]CloudMount{{Env: []string{"HTTPS_PROXY=http://127.0.0.1:6443"}}})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"HTTPS_PROXY=http://127.0.0.1:6443", "NO_PROXY=127.0.0.1", "no_proxy=127.0.0.1"}, env)
+	var proxies []string
+	for name := range proxyVars {
+		proxies = append(proxies, name+"=")
+	}
+	assertNoUserCanSet(t, append(proxies, env...))
 
 	_, err = cloudEnv([]CloudMount{{Env: []string{"HTTPS_PROXY=http://127.0.0.1:6443", "NO_PROXY=example.com"}}})
 	assert.ErrorContains(t, err, "NO_PROXY", "a cloud platform's own NO_PROXY clashes with the loopback's")
@@ -265,4 +272,14 @@ func TestAMountWithNoGrantFailsTheRun(t *testing.T) {
 	require.EqualError(t, err, "the AWS mount names no grant")
 	assert.Empty(t, p.mounts)
 	p.end()
+}
+
+// assertNoUserCanSet checks that no variable of the user's for a sandboxed
+// command can name anything env sets, so a mount's variables stay Kstack's.
+func assertNoUserCanSet(t *testing.T, env []string) {
+	t.Helper()
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		assert.Error(t, envvars.Check(name, "", envvars.Sandbox), "the user could set %s", name)
+	}
 }

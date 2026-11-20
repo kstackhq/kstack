@@ -279,3 +279,4 @@ usually just documentation in the wrong place.
 | 2026-11-19 | [The Google connector signs Vertex AI in the user's project](2026-11-19-the-google-connector-signs-vertex-ai-in-the-users-project.md) | sidecar | Accepted |
 | 2026-11-20 | [A provider's credential follows one order](2026-11-20-a-providers-credential-follows-one-order.md) | cross-cutting | Accepted |
 | 2026-11-20 | [Keep a setting with a cluster scope as rows in app.db](2026-11-20-a-setting-with-scopes-is-rows.md) | sidecar | Accepted |
+| 2026-11-20 | [The user's variables reach commands on either side of the sandbox](2026-11-20-the-users-variables-reach-commands-on-either-side-of-the-sandbox.md) | sidecar, webview | Accepted |

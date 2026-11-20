@@ -464,7 +464,7 @@ func tool(t *testing.T) *Tool {
 	t.Helper()
 	t.Setenv("SHELL", "")
 	k := kstackDirs(t)
-	tl, ok := New(Paths{ShellDir: filepath.Join(k.runtime, "shell")}, 0, nil, nil, nil, Cloud{})
+	tl, ok := New(Paths{ShellDir: filepath.Join(k.runtime, "shell")}, 0, nil, nil, nil, nil, Cloud{})
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
@@ -631,14 +631,14 @@ func (f *fakeSandboxer) seen() []sandbox.Run {
 // through a nil pointer: Bash is offered as it is on a machine with none.
 func TestNewTakesNoSandboxAsNone(t *testing.T) {
 	t.Setenv("SHELL", "")
-	none, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
+	none, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, nil, Cloud{})
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
 	assert.Nil(t, none.sandboxer)
 	assert.JSONEq(t, string(unsandboxedSchema), string(none.Definition().InputSchema))
 
-	some, ok := New(Paths{ShellDir: t.TempDir()}, 0, &sandbox.Sandbox{}, nil, nil, Cloud{})
+	some, ok := New(Paths{ShellDir: t.TempDir()}, 0, &sandbox.Sandbox{}, nil, nil, nil, Cloud{})
 	require.True(t, ok)
 	assert.NotNil(t, some.sandboxer)
 	assert.JSONEq(t, string(inputSchema), string(some.Definition().InputSchema))
@@ -679,7 +679,7 @@ func TestTheToolsHomeIsTheUsers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
+	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, nil, Cloud{})
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
@@ -692,7 +692,7 @@ func TestNewSweepsWhatACrashLeft(t *testing.T) {
 	left := filepath.Join(shell, "cmd-left-behind")
 	require.NoError(t, os.MkdirAll(shell, 0o700))
 	require.NoError(t, os.WriteFile(left, []byte("x"), 0o400))
-	if _, ok := New(Paths{ShellDir: shell}, 0, nil, nil, nil, Cloud{}); !ok {
+	if _, ok := New(Paths{ShellDir: shell}, 0, nil, nil, nil, nil, Cloud{}); !ok {
 		t.Skip("no bash found on this machine")
 	}
 	_, err := os.Stat(left)

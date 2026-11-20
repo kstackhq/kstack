@@ -164,7 +164,7 @@ func startSandboxRig(t *testing.T) sandboxRig {
 		ShellDir: filepath.Join(runtime, "shell"), RunsDir: filepath.Join(runtime, "runs"),
 		TmpDir: filepath.Join(cache, "tmp"), KubectlDir: filepath.Join(cache, "kubectl"),
 		DeniedDirs: []string{data, cache, runtime},
-	}, 0, sb, clusterService{api: api}, nil, bash.Cloud{})
+	}, 0, sb, clusterService{api: api}, nil, nil, bash.Cloud{})
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}

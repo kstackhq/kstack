@@ -57,16 +57,17 @@ func lastOfEachName(env []string, key func(entry string) string) []string {
 
 // sandboxedRunEnv is a sandboxed run's environment, built from one table so
 // nothing of the sidecar's rides in but LANG and TZ: PATH the run's own, the
-// folders it froze at its start; HOME the workspace
-// and PWD the start directory; TMPDIR the run's own, in the cache; ZDOTDIR
-// the run's directory, made for the run and so holding no startup file, so
-// zsh -c never sources a .zshenv a command left in the workspace; KUBECONFIG
-// and KUBECACHEDIR for a run with a cluster (cluster not nil); LANG the
-// sidecar's or the platform's default; TERM=dumb; then the variables that
-// point each tool into toolHome; then toolchain, each found location's
-// variables and asdf's versions; then cloud, each mounted cloud platform's
-// variables (cloudEnv); then what Kstack adds.
-func sandboxedRunEnv(environ, kstack []string, path, workspace, dir string, rd *runDir, cluster *target, toolHome string, toolchain, cloud []string) []string {
+// folders it froze at its start; HOME the workspace and PWD the start
+// directory; TMPDIR the run's own, in the cache; ZDOTDIR the run's directory,
+// made for the run and so holding no startup file, so zsh -c never sources a
+// .zshenv a command left in the workspace; KUBECONFIG and KUBECACHEDIR for a
+// run with a cluster (cluster not nil); LANG the sidecar's or the platform's
+// default, and its TZ; then user, the user's variables, which may repeat LANG
+// or TZ to replace it but name nothing else of the table (envvars.Check);
+// TERM=dumb; then the variables that point each tool into toolHome; then
+// toolchain, each found location's variables and asdf's versions; then cloud,
+// each mounted cloud platform's variables (cloudEnv); then what Kstack adds.
+func sandboxedRunEnv(environ, kstack []string, path, workspace, dir string, rd *runDir, cluster *target, toolHome string, user, toolchain, cloud []string) []string {
 	var lang, tz string
 	for _, kv := range environ {
 		name, value, _ := strings.Cut(kv, "=")
@@ -89,6 +90,7 @@ func sandboxedRunEnv(environ, kstack []string, path, workspace, dir string, rd *
 	if tz != "" {
 		env = append(env, "TZ="+tz)
 	}
+	env = append(env, user...)
 	env = append(env, "TERM=dumb")
 	env = append(env, toolHomeEnv(toolHome)...)
 	env = append(env, toolchain...)

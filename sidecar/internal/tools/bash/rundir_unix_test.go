@@ -348,7 +348,7 @@ func TestNewSweepsADeadSidecarsRunDirectories(t *testing.T) {
 		require.NoError(t, os.Mkdir(filepath.Join(dir, name), 0o700))
 	}
 
-	if _, ok := New(Paths{ShellDir: t.TempDir(), RunsDir: runs, TmpDir: tmpDir}, 0, nil, nil, nil, Cloud{}); !ok {
+	if _, ok := New(Paths{ShellDir: t.TempDir(), RunsDir: runs, TmpDir: tmpDir}, 0, nil, nil, nil, nil, Cloud{}); !ok {
 		t.Skip("no bash found on this machine")
 	}
 

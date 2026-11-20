@@ -106,6 +106,7 @@ func TestAnAzureMountWritesItsFilesAndVariables(t *testing.T) {
 		"IDENTITY_HEADER=" + m.Grant.Token(),
 		"REQUESTS_CA_BUNDLE=" + run.CAFile,
 	}, m.Env)
+	assertNoUserCanSet(t, m.Env)
 
 	clouds, err := os.ReadFile(filepath.Join(dir, "clouds.config"))
 	require.NoError(t, err)

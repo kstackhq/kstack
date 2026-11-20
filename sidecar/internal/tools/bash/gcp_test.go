@@ -78,6 +78,7 @@ func TestTheSandboxedEnvironmentNamesGcloud(t *testing.T) {
 		"CLOUDSDK_CORE_DISABLE_USAGE_REPORTING=true",
 		"CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK=true",
 	}, m.Env)
+	assertNoUserCanSet(t, m.Env)
 	assert.NotContains(t, strings.Join(m.Env, "\n"), "users-token")
 }
 

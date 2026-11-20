@@ -28,7 +28,8 @@ import (
 
 // A sandboxed run's environment is the table and nothing else: with the
 // sidecar's holding every name NeverEnv matches and every LC_*, none of them
-// passes, and nothing in it is a name no run may hold.
+// passes, and nothing in it is a name no run may hold. The user's variables
+// follow LANG and TZ, and every name but those is one the user cannot set.
 func TestTheSandboxedEnvironmentIsFixed(t *testing.T) {
 	rd := &runDir{path: "/run/kstack/runs/10-1", tmp: "/cache/tmp/10-2"}
 	cluster := &target{context: "prod", cacheDir: "/cache/kubectl/7/abc"}
@@ -38,7 +39,9 @@ func TestTheSandboxedEnvironmentIsFixed(t *testing.T) {
 	}
 	toolchain := []string{"NVM_DIR=/home/ana/.nvm", "ASDF_NODEJS_VERSION=20.1.0"}
 
-	got := sandboxedRunEnv(environ, kstackVars, "/opt/bin:/usr/bin", "/data/ws", "/data/ws/sub", rd, cluster, "/data/th", toolchain, nil)
+	user := []string{"HELM_NAMESPACE=apps", "EDITOR=vi"}
+
+	got := sandboxedRunEnv(environ, kstackVars, "/opt/bin:/usr/bin", "/data/ws", "/data/ws/sub", rd, cluster, "/data/th", user, toolchain, nil)
 
 	assert.Equal(t, []string{
 		"PATH=/opt/bin:/usr/bin",
@@ -50,6 +53,8 @@ func TestTheSandboxedEnvironmentIsFixed(t *testing.T) {
 		"KUBECACHEDIR=/cache/kubectl/7/abc",
 		"LANG=en_US.UTF-8",
 		"TZ=Europe/Paris",
+		"HELM_NAMESPACE=apps",
+		"EDITOR=vi",
 		"TERM=dumb",
 		"XDG_CACHE_HOME=/data/th/xdg/cache",
 		"XDG_CONFIG_HOME=/data/th/xdg/config",
@@ -72,5 +77,8 @@ func TestTheSandboxedEnvironmentIsFixed(t *testing.T) {
 	for _, kv := range got {
 		name, _, _ := strings.Cut(kv, "=")
 		assert.False(t, sandbox.Unpassable(name), name)
+		if !slices.Contains([]string{"LANG", "TZ", "HELM_NAMESPACE", "EDITOR"}, name) {
+			assert.True(t, sandbox.KstackSets(name), "%s is the table's, so the user cannot set it", name)
+		}
 	}
 }

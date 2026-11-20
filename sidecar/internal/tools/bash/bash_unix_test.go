@@ -55,17 +55,17 @@ func TestNewFindsBashOrDeclines(t *testing.T) {
 	require.NoError(t, os.Symlink(bash, filepath.Join(bin, "bash")))
 	t.Setenv("SHELL", "")
 	t.Setenv("PATH", bin)
-	_, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
+	_, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, nil, Cloud{})
 	assert.True(t, ok)
 
 	t.Setenv("PATH", "")
-	_, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
+	_, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, nil, Cloud{})
 	assert.False(t, ok)
 
 	// A bash with no home to start in is no tool either.
 	t.Setenv("PATH", bin)
 	t.Setenv("HOME", "")
-	_, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
+	_, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, nil, Cloud{})
 	assert.False(t, ok)
 }
 
@@ -93,7 +93,7 @@ func TestTheShellIsTheLoginShellWhenItIsZshOrBash(t *testing.T) {
 		"":                           {onPath, "bash"},
 	} {
 		t.Setenv("SHELL", shell)
-		tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
+		tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, nil, Cloud{})
 		require.True(t, ok, shell)
 		assert.Equal(t, want.path, tl.shell, shell)
 		assert.Equal(t, want.kind, tl.kind, shell)
@@ -102,7 +102,7 @@ func TestTheShellIsTheLoginShellWhenItIsZshOrBash(t *testing.T) {
 	notExecutable := filepath.Join(t.TempDir(), "zsh")
 	require.NoError(t, os.WriteFile(notExecutable, nil, 0o644))
 	t.Setenv("SHELL", notExecutable)
-	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
+	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, nil, Cloud{})
 	require.True(t, ok)
 	assert.Equal(t, onPath, tl.shell)
 }
@@ -119,7 +119,7 @@ func TestNewReadsTheBashVersion(t *testing.T) {
 		bin := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(bin, "bash"), []byte("#!/bin/sh\n"+script+"\n"), 0o755))
 		t.Setenv("PATH", bin)
-		tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
+		tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, nil, Cloud{})
 		require.True(t, ok, script)
 		assert.Equal(t, want, tl.version, script)
 	}
@@ -301,12 +301,12 @@ func TestACommandsEnvironmentIsTheProcessOwn(t *testing.T) {
 func TestACommandSeesKstacksOwnVariables(t *testing.T) {
 	t.Setenv("SHELL", "")
 	line := `echo "$KSTACK/$KSTACK_SIDECAR_PID/${KSTACK_HOST_PID-unset}"`
-	tl, ok := New(Paths{ShellDir: t.TempDir()}, 4242, nil, nil, nil, Cloud{})
+	tl, ok := New(Paths{ShellDir: t.TempDir()}, 4242, nil, nil, nil, nil, Cloud{})
 	require.True(t, ok)
 	r := run(t.Context(), tl.spec(line, 1024))
 	assert.Equal(t, "1/"+strconv.Itoa(os.Getpid())+"/4242\n", r.Output)
 
-	tl, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, Cloud{})
+	tl, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, nil, Cloud{})
 	require.True(t, ok)
 	r = run(t.Context(), tl.spec(line, 1024))
 	assert.Equal(t, "1/"+strconv.Itoa(os.Getpid())+"/unset\n", r.Output)
@@ -746,7 +746,8 @@ func TestATaskWhoseSandboxHangsIsRefusedWhenTheCallEnds(t *testing.T) {
 // the Workspace policy: the sandbox's System less what lies in Kstack's
 // directories, the Never paths and Kstack's directories denied, and the run's
 // own paths inside them — its run's directory read, the workspace, the tool
-// home and its TMPDIR written. With no cluster it has no relay.
+// home and its TMPDIR written. With no cluster it has no relay. The user's
+// variables are read as the run starts.
 func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 	rt := testRuntime(t)
 	tl := tool(t)
@@ -760,6 +761,12 @@ func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 	}
 	tl.sandboxer = fake
 	tl.pathList, tl.fallbackPath = nil, nil
+	user := []string{"HELM_NAMESPACE=apps"}
+	tl.userEnv = func(_ context.Context, cluster apimeta.ClusterID, sandboxed bool) ([]string, error) {
+		assert.Equal(t, rt.ClusterID, cluster)
+		assert.True(t, sandboxed)
+		return user, nil
+	}
 
 	text, isError := tl.Run(t.Context(), rt, command(`echo "$ZDOTDIR"; echo "$TMPDIR"`))
 	require.False(t, isError, text)
@@ -772,7 +779,7 @@ func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 	tmp := lines[1]
 	rd := &runDir{path: lines[0], tmp: tmp}
 	ws := tools.WorkspacePath(rt.Dir)
-	assert.Equal(t, sandboxedRunEnv(os.Environ(), tl.env, emptyPath, ws, ws, rd, nil, tools.ToolHomePath(rt.Dir), fake.system.Env, nil), r.Env)
+	assert.Equal(t, sandboxedRunEnv(os.Environ(), tl.env, emptyPath, ws, ws, rd, nil, tools.ToolHomePath(rt.Dir), user, fake.system.Env, nil), r.Env)
 	assert.Equal(t, sandbox.Policy{
 		Files: sandbox.FilePolicy{Read: []string{"/usr"}, Deny: []string{"/usr/var"}},
 		Always: sandbox.AlwaysPolicy{
@@ -784,6 +791,26 @@ func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 		Limits: r.Policy.Limits,
 	}, r.Policy)
 	assert.NoError(t, r.Policy.Check())
+}
+
+// A run that cannot read the user's variables does not run without them: a
+// missing HELM_NAMESPACE changes what a command touches. It fails with the
+// read's error before anything is made.
+func TestARunThatCannotReadTheUsersVariablesFails(t *testing.T) {
+	rt := testRuntime(t)
+	tl := tool(t)
+	fake := &fakeSandboxer{}
+	tl.sandboxer = fake
+	unread := errors.New("app.db is closed")
+	tl.userEnv = func(context.Context, apimeta.ClusterID, bool) ([]string, error) { return nil, unread }
+	made := false
+	tl.onRunDir = func(string) { made = true }
+
+	_, err := tl.sandboxedRunFor(t.Context(), fake, rt, tools.WorkspacePath(rt.Dir), false, session.NoNetwork)
+
+	assert.ErrorIs(t, err, unread)
+	assert.False(t, made, "no run directory was made")
+	assert.Empty(t, fake.seen())
 }
 
 // workspaceLimits is a run's limits over a base of 37, in the foreground or

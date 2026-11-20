@@ -46,7 +46,7 @@ var kstackVars = []string{"KSTACK=1", "KSTACK_SIDECAR_PID=10", "KSTACK_HOST_PID=
 
 // A run with no cluster has no kubeconfig and no kubectl cache to name.
 func TestWithNoClusterTheEnvironmentNamesNoKubeconfig(t *testing.T) {
-	got := sandboxedRunEnv(processEnv, kstackVars, "/usr/bin", "/data/ws", "/data/ws", &runDir{path: "/tmp/r"}, nil, "/th", nil, nil)
+	got := sandboxedRunEnv(processEnv, kstackVars, "/usr/bin", "/data/ws", "/data/ws", &runDir{path: "/tmp/r"}, nil, "/th", nil, nil, nil)
 
 	for _, kv := range got {
 		assert.NotRegexp(t, `^KUBE`, kv)
@@ -56,7 +56,7 @@ func TestWithNoClusterTheEnvironmentNamesNoKubeconfig(t *testing.T) {
 // The run's PATH is the one it is handed, never the process's.
 func TestThePathIsTheRunsOwn(t *testing.T) {
 	rd := &runDir{path: "/run/r", tmp: "/cache/t"}
-	got := sandboxedRunEnv([]string{"PATH=/sidecar/bin", "LANG=C"}, nil, "/opt/bin:/usr/bin", "/ws", "/ws", rd, nil, "/th", nil, nil)
+	got := sandboxedRunEnv([]string{"PATH=/sidecar/bin", "LANG=C"}, nil, "/opt/bin:/usr/bin", "/ws", "/ws", rd, nil, "/th", nil, nil, nil)
 
 	assert.Equal(t, []string{"PATH=/opt/bin:/usr/bin", "HOME=/ws", "PWD=/ws", "TMPDIR=/cache/t", "ZDOTDIR=/run/r", "LANG=C", "TERM=dumb"}, got[:7])
 	assert.NotContains(t, strings.Join(got, "\n"), "/sidecar/bin")
@@ -74,8 +74,8 @@ func TestAnOutsideRunKeepsItsEnvironment(t *testing.T) {
 // en_US.UTF-8, on Linux C.UTF-8 where the system has that locale, else C.
 func TestTheLocale(t *testing.T) {
 	rd := &runDir{path: "/run/r", tmp: "/cache/t"}
-	assert.Contains(t, sandboxedRunEnv([]string{"LANG=de_DE.UTF-8"}, nil, "/usr/bin", "/ws", "/ws", rd, nil, "/th", nil, nil), "LANG=de_DE.UTF-8")
-	assert.Contains(t, sandboxedRunEnv(nil, nil, "/usr/bin", "/ws", "/ws", rd, nil, "/th", nil, nil), "LANG="+defaultLang(runtime.GOOS, fileExists))
+	assert.Contains(t, sandboxedRunEnv([]string{"LANG=de_DE.UTF-8"}, nil, "/usr/bin", "/ws", "/ws", rd, nil, "/th", nil, nil, nil), "LANG=de_DE.UTF-8")
+	assert.Contains(t, sandboxedRunEnv(nil, nil, "/usr/bin", "/ws", "/ws", rd, nil, "/th", nil, nil, nil), "LANG="+defaultLang(runtime.GOOS, fileExists))
 
 	none := func(string) bool { return false }
 	assert.Equal(t, "en_US.UTF-8", defaultLang("darwin", none))
@@ -90,7 +90,7 @@ func TestTheToolchainsVariablesRideTheEnvironment(t *testing.T) {
 	rd := &runDir{path: "/run/r", tmp: "/cache/t"}
 	toolchain := []string{"NVM_DIR=/home/ana/.nvm", "ASDF_NODEJS_VERSION=20.1.0"}
 
-	got := sandboxedRunEnv([]string{"LANG=C"}, kstackVars, "/usr/bin", "/ws", "/ws", rd, nil, "/th", toolchain, nil)
+	got := sandboxedRunEnv([]string{"LANG=C"}, kstackVars, "/usr/bin", "/ws", "/ws", rd, nil, "/th", nil, toolchain, nil)
 
 	home := toolHomeEnv("/th")
 	i := slices.Index(got, home[len(home)-1])
@@ -103,7 +103,7 @@ func TestTheCloudPlatformsVariablesRideTheEnvironment(t *testing.T) {
 	rd := &runDir{path: "/run/r", tmp: "/cache/t"}
 	toolchain, cloud := []string{"NVM_DIR=/home/ana/.nvm"}, []string{"GH_HOST=github.localhost"}
 
-	got := sandboxedRunEnv(nil, kstackVars, "/usr/bin", "/ws", "/ws", rd, nil, "/th", toolchain, cloud)
+	got := sandboxedRunEnv(nil, kstackVars, "/usr/bin", "/ws", "/ws", rd, nil, "/th", nil, toolchain, cloud)
 
 	i := slices.Index(got, "NVM_DIR=/home/ana/.nvm")
 	assert.Equal(t, cloud, got[i+1:i+2])

@@ -76,6 +76,7 @@ func TestTheAWSMountSetsExactlyItsVariables(t *testing.T) {
 		"AWS_REGION=eu-west-1",
 		"AWS_DEFAULT_REGION=eu-west-1",
 	}, m.Env)
+	assertNoUserCanSet(t, m.Env)
 	assert.Equal(t, permissions.AWS, m.Grant.Target())
 	require.Len(t, m.Routes, 1)
 	assert.Equal(t, "127.0.0.1:"+strconv.Itoa(run.Port), m.Routes[0].Host)

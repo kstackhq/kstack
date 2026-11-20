@@ -266,7 +266,11 @@ replace its own paths](../../../docs/security/2026-09-30-a-run-cannot-replace-it
 - **`PATH` is frozen at start** (`path.go`); with no entry it is `/nonexistent`, never empty (that
   searches the working directory). → [ADR](../../../docs/adr/2026-10-02-path-is-the-login-shells-filtered-and-frozen.md).
 - **The environment is one table** (`env.go`); nothing else of the process's passes. `ZDOTDIR` is
-  the run directory, so `zsh -c` never sources a workspace `.zshenv`.
+  the run directory, so `zsh -c` never sources a workspace `.zshenv`. The user's variables
+  (`userEnv`, read before the run makes anything; a failed read fails it) follow `LANG` and `TZ`. A name the table sets joins
+  `sandbox.KstackSets` (`run/sandbox/env.go`), so Settings refuses it: else a user's value would
+  replace the table's before it, or be silently replaced after. A mount's test checks its variables
+  with `assertNoUserCanSet`.
 - **Whatever can hang on a network mount is built on a goroutine abandoned when the context ends.**
 - The cluster's kubectl cache is keyed by `serverKey(uid)`; the kubeconfig names a fixed server →
   [ADR](../../../docs/adr/2026-10-17-a-sandboxed-kubeconfig-names-a-fixed-server.md).

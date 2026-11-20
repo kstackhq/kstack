@@ -82,7 +82,7 @@ func TestBashIsOfferedWithTheSandbox(t *testing.T) {
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
-	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, sb, nil, nil, bash.Cloud{})
+	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, sb, nil, nil, nil, bash.Cloud{})
 	require.True(t, found)
 
 	var schema struct {
@@ -101,7 +101,7 @@ func TestBashIsOfferedWhenItIsFound(t *testing.T) {
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
-	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, bash.Cloud{})
+	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, nil, bash.Cloud{})
 	require.True(t, found)
 	box, err := chatTools(toolDeps{shell: shell, fenced: []string{t.TempDir()}, umask: 0o022})
 	require.NoError(t, err)
@@ -119,7 +119,7 @@ func TestEveryGatedToolCanBeShown(t *testing.T) {
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
-	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, bash.Cloud{})
+	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil, nil, bash.Cloud{})
 	require.True(t, found)
 
 	box, err := chatTools(toolDeps{shell: shell, fenced: []string{t.TempDir()}, umask: 0o022})
@@ -193,6 +193,20 @@ func TestASandboxedReadRunsUnasked(t *testing.T) {
 	assert.True(t, row.sandboxed)
 	assert.Empty(t, row.approvalID)
 	assert.Contains(t, e.cluster.requests(), "GET /api/v1/namespaces/default/pods", "kubectl reached the cluster")
+}
+
+// A variable the user set in Settings reaches a sandboxed command.
+func TestAStoredVariableReachesASandboxedCommand(t *testing.T) {
+	e := startE2E(t)
+	raw := graphql(t, e.url, `mutation { envVarSet(name: "HELM_NAMESPACE", value: "apps", target: Sandbox) { name } }`)
+	require.Contains(t, raw, `"name":"HELM_NAMESPACE"`, raw)
+
+	e.ask(t, "which namespace", llm.StagedCall("Bash", bashInput(`echo "ns=$HELM_NAMESPACE"`)))
+
+	row := e.bashCall(t, "succeeded", "failed", "awaiting_approval")
+	assert.Equal(t, "succeeded", row.status, row.result)
+	assert.Equal(t, "ns=apps", firstLine(row.result))
+	assert.True(t, row.sandboxed)
 }
 
 // A delete from the sandbox waits for the user on one request showing the
