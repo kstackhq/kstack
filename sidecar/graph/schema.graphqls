@@ -2239,6 +2239,28 @@ type SandboxExecutable {
   error: String!
 }
 
+"The commands a variable reaches."
+enum EnvVarTarget {
+  "Commands in the sandbox."
+  Sandbox
+  "Commands outside the sandbox, each of which the user approves, shown this variable."
+  Outside
+  Both
+}
+
+"A variable the user gives their commands. Not a secret: any command can print it."
+type EnvVar {
+  "The cluster whose chats' commands get it; null for every cluster's."
+  clusterID: ClusterID
+  "The variable's name. User text: draw it through VisibleText."
+  name: String!
+  "The variable's value. User text: draw it through VisibleText."
+  value: String!
+  target: EnvVarTarget!
+  "Why no command gets it, in the user's words; null when its target's commands do. A variable is checked each time it is read, so one Kstack kept and now refuses is listed with its reason until the user removes it. User-visible text: draw it through VisibleText."
+  refusal: String
+}
+
 "The executable probe as a watcher sees it."
 type SandboxExecutablesReport {
   "A probe is running; its reports land in `executables` when it ends."
@@ -2313,6 +2335,9 @@ type Query {
 
   "Every executable the sandbox probe checks, the curated ones then the user's, as the last probe found each. Empty on a machine with no sandbox."
   sandboxExecutables: [SandboxExecutable!]!
+
+  "One scope's variables in the order added, a refused one with its refusal: a cluster's, or with no `clusterID` every cluster's. A command gets every cluster's, its chat's cluster's value in place of one of the same name, of the targets that reach it."
+  envVars(clusterID: ClusterID): [EnvVar!]!
 
   "The permission modes and rules, as Settings shows them."
   permissionSettings: PermissionSettings!
@@ -2431,6 +2456,12 @@ type Mutation {
 
   "Remove a registered executable. Refused KSTACK_VALIDATION_ERROR for a name not registered. Returns the whole report."
   sandboxExecutableRemove(name: String!): [SandboxExecutable!]!
+
+  "Set a variable in one scope, from the next command that starts: a new name joins the scope's end, a listed one changes in place. Refused KSTACK_VALIDATION_ERROR, with the reason, for a name or value its target's commands may not have or a new name when the scope is full, and KSTACK_RECORD_NOT_FOUND for a missing cluster. Returns the scope's list as it stands now."
+  envVarSet(clusterID: ClusterID, name: String!, value: String!, target: EnvVarTarget!): [EnvVar!]!
+
+  "Remove a scope's variable, a refused one too. Refused KSTACK_VALIDATION_ERROR, with the reason, for a name not set. Returns the scope's list as it stands now."
+  envVarRemove(clusterID: ClusterID, name: String!): [EnvVar!]!
 
   # --- Memory ---
   "Create a memory, or rewrite one by `id`; a rewrite can rename it and move it between one cluster and every cluster. Written by the user. Refused `KSTACK_MEMORY_NAME_TAKEN` for a name the target scope holds, `KSTACK_MEMORY_FULL` for a scope with no room for the memory, `KSTACK_MEMORY_SECRET` for a credential, `KSTACK_VALIDATION_ERROR` for a note out of shape, and `KSTACK_RECORD_NOT_FOUND` for an unknown id or a missing cluster."

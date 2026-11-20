@@ -26,6 +26,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
+	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -178,6 +179,23 @@ func (r *clusterCachedKindSpecResolver) SyncEnabled(ctx context.Context, obj *cl
 // TODO: run a SelfSubjectRulesReview; errors until implemented.
 func (r *clusterPrincipalResolver) Permissions(ctx context.Context, obj *cluster.ClusterPrincipal, namespace string) (*model.ClusterPermissions, error) {
 	return nil, fmt.Errorf("not implemented: permissions")
+}
+
+// ClusterID is the resolver for the clusterID field: null for every cluster.
+func (r *envVarResolver) ClusterID(ctx context.Context, obj *envvars.Var) (*apimeta.ClusterID, error) {
+	if obj.ClusterID == "" {
+		return nil, nil
+	}
+	return &obj.ClusterID, nil
+}
+
+// Refusal is the resolver for the refusal field: null for a variable its
+// target's commands get.
+func (r *envVarResolver) Refusal(ctx context.Context, obj *envvars.Var) (*string, error) {
+	if obj.Refusal == "" {
+		return nil, nil
+	}
+	return &obj.Refusal, nil
 }
 
 // Login is the resolver for the login field.
@@ -433,6 +451,25 @@ func (r *mutationResolver) SandboxExecutableRemove(ctx context.Context, name str
 		return []*model.SandboxExecutable{}, nil
 	}
 	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+}
+
+// EnvVarSet is the resolver for the envVarSet field. Its answer is read after
+// the write, so it may hold another window's change too; Settings asks again
+// on focus either way.
+func (r *mutationResolver) EnvVarSet(ctx context.Context, clusterID *apimeta.ClusterID, name string, value string, target envvars.Target) ([]*envvars.Var, error) {
+	v := envvars.Var{ClusterID: scopeOf(clusterID), Name: name, Value: value, Target: target}
+	if err := r.EnvVars.Set(ctx, v); err != nil {
+		return nil, envVarErr(err)
+	}
+	return r.envVars(ctx, v.ClusterID)
+}
+
+// EnvVarRemove is the resolver for the envVarRemove field.
+func (r *mutationResolver) EnvVarRemove(ctx context.Context, clusterID *apimeta.ClusterID, name string) ([]*envvars.Var, error) {
+	if err := r.EnvVars.Remove(ctx, scopeOf(clusterID), name); err != nil {
+		return nil, envVarErr(err)
+	}
+	return r.envVars(ctx, scopeOf(clusterID))
 }
 
 // MemorySave is the resolver for the memorySave field: an update with an id, a
@@ -798,6 +835,11 @@ func (r *queryResolver) SandboxExecutables(ctx context.Context) ([]*model.Sandbo
 		return []*model.SandboxExecutable{}, nil
 	}
 	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+}
+
+// EnvVars is the resolver for the envVars field.
+func (r *queryResolver) EnvVars(ctx context.Context, clusterID *apimeta.ClusterID) ([]*envvars.Var, error) {
+	return r.envVars(ctx, scopeOf(clusterID))
 }
 
 // PermissionSettings is the resolver for the permissionSettings field.
@@ -1192,6 +1234,9 @@ func (r *Resolver) ClusterCachedKindSpec() ClusterCachedKindSpecResolver {
 // ClusterPrincipal returns ClusterPrincipalResolver implementation.
 func (r *Resolver) ClusterPrincipal() ClusterPrincipalResolver { return &clusterPrincipalResolver{r} }
 
+// EnvVar returns EnvVarResolver implementation.
+func (r *Resolver) EnvVar() EnvVarResolver { return &envVarResolver{r} }
+
 // GitHubConnection returns GitHubConnectionResolver implementation.
 func (r *Resolver) GitHubConnection() GitHubConnectionResolver { return &gitHubConnectionResolver{r} }
 
@@ -1230,6 +1275,7 @@ type (
 	clusterCachedKindResolver       struct{ *Resolver }
 	clusterCachedKindSpecResolver   struct{ *Resolver }
 	clusterPrincipalResolver        struct{ *Resolver }
+	envVarResolver                  struct{ *Resolver }
 	gitHubConnectionResolver        struct{ *Resolver }
 	googleConnectionResolver        struct{ *Resolver }
 	mutationResolver                struct{ *Resolver }

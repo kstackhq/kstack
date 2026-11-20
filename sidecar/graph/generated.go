@@ -27,6 +27,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
@@ -56,6 +57,7 @@ type ResolverRoot interface {
 	ClusterCachedKind() ClusterCachedKindResolver
 	ClusterCachedKindSpec() ClusterCachedKindSpecResolver
 	ClusterPrincipal() ClusterPrincipalResolver
+	EnvVar() EnvVarResolver
 	GitHubConnection() GitHubConnectionResolver
 	GoogleConnection() GoogleConnectionResolver
 	Mutation() MutationResolver
@@ -452,6 +454,14 @@ type ComplexityRoot struct {
 		ReplaceAll func(childComplexity int) int
 	}
 
+	EnvVar struct {
+		ClusterID func(childComplexity int) int
+		Name      func(childComplexity int) int
+		Refusal   func(childComplexity int) int
+		Target    func(childComplexity int) int
+		Value     func(childComplexity int) int
+	}
+
 	Event struct {
 		Category func(childComplexity int) int
 		Count    func(childComplexity int) int
@@ -697,6 +707,8 @@ type ComplexityRoot struct {
 		ClusterEnabledSet               func(childComplexity int, id apimeta.ClusterID, enabled bool) int
 		ClusterMonitoringEnabledSet     func(childComplexity int, id apimeta.ClusterID, monitoringEnabled bool) int
 		ClusterSyncEnabledSet           func(childComplexity int, id apimeta.ClusterID, syncEnabled bool) int
+		EnvVarRemove                    func(childComplexity int, clusterID *apimeta.ClusterID, name string) int
+		EnvVarSet                       func(childComplexity int, clusterID *apimeta.ClusterID, name string, value string, target envvars.Target) int
 		FolderGrant                     func(childComplexity int, chatID *apimeta.ChatID, path string, write bool, duration model.GrantDuration) int
 		FolderRevoke                    func(childComplexity int, id string) int
 		GitHubConnect                   func(childComplexity int) int
@@ -821,6 +833,7 @@ type ComplexityRoot struct {
 		ClusterCachedKinds   func(childComplexity int, cacheID *apimeta.ObjectID) int
 		ClusterCaches        func(childComplexity int, clusterID *apimeta.ClusterID) int
 		Clusters             func(childComplexity int) int
+		EnvVars              func(childComplexity int, clusterID *apimeta.ClusterID) int
 		GitHubConnection     func(childComplexity int) int
 		GoogleConnection     func(childComplexity int) int
 		LogsFetch            func(childComplexity int, id apimeta.ClusterID, request model.LogsFetchInput) int
@@ -1051,6 +1064,11 @@ type ClusterCachedKindSpecResolver interface {
 type ClusterPrincipalResolver interface {
 	Permissions(ctx context.Context, obj *cluster.ClusterPrincipal, namespace string) (*model.ClusterPermissions, error)
 }
+type EnvVarResolver interface {
+	ClusterID(ctx context.Context, obj *envvars.Var) (*apimeta.ClusterID, error)
+
+	Refusal(ctx context.Context, obj *envvars.Var) (*string, error)
+}
 type GitHubConnectionResolver interface {
 	Login(ctx context.Context, obj *connectors.State) (*string, error)
 	UserCode(ctx context.Context, obj *connectors.State) (*string, error)
@@ -1086,6 +1104,8 @@ type MutationResolver interface {
 	SandboxExecutablesProbe(ctx context.Context) ([]*model.SandboxExecutable, error)
 	SandboxExecutableRegister(ctx context.Context, name string, invocation *string) ([]*model.SandboxExecutable, error)
 	SandboxExecutableRemove(ctx context.Context, name string) ([]*model.SandboxExecutable, error)
+	EnvVarSet(ctx context.Context, clusterID *apimeta.ClusterID, name string, value string, target envvars.Target) ([]*envvars.Var, error)
+	EnvVarRemove(ctx context.Context, clusterID *apimeta.ClusterID, name string) ([]*envvars.Var, error)
 	MemorySave(ctx context.Context, input model.MemorySaveInput) (*memory.Memory, error)
 	MemoryDelete(ctx context.Context, id memory.MemoryID) (bool, error)
 	PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error)
@@ -1140,6 +1160,7 @@ type QueryResolver interface {
 	SandboxPathFault(ctx context.Context) (*string, error)
 	SandboxPathResolved(ctx context.Context) (bool, error)
 	SandboxExecutables(ctx context.Context) ([]*model.SandboxExecutable, error)
+	EnvVars(ctx context.Context, clusterID *apimeta.ClusterID) ([]*envvars.Var, error)
 	PermissionSettings(ctx context.Context) (*model.PermissionSettings, error)
 	SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error)
 	ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
@@ -2685,6 +2706,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.EditAction.ReplaceAll(childComplexity), true
 
+	case "EnvVar.clusterID":
+		if e.ComplexityRoot.EnvVar.ClusterID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EnvVar.ClusterID(childComplexity), true
+	case "EnvVar.name":
+		if e.ComplexityRoot.EnvVar.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EnvVar.Name(childComplexity), true
+	case "EnvVar.refusal":
+		if e.ComplexityRoot.EnvVar.Refusal == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EnvVar.Refusal(childComplexity), true
+	case "EnvVar.target":
+		if e.ComplexityRoot.EnvVar.Target == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EnvVar.Target(childComplexity), true
+	case "EnvVar.value":
+		if e.ComplexityRoot.EnvVar.Value == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EnvVar.Value(childComplexity), true
+
 	case "Event.category":
 		if e.ComplexityRoot.Event.Category == nil {
 			break
@@ -3758,6 +3810,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ClusterSyncEnabledSet(childComplexity, args["id"].(apimeta.ClusterID), args["syncEnabled"].(bool)), true
+	case "Mutation.envVarRemove":
+		if e.ComplexityRoot.Mutation.EnvVarRemove == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_envVarRemove_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.EnvVarRemove(childComplexity, args["clusterID"].(*apimeta.ClusterID), args["name"].(string)), true
+	case "Mutation.envVarSet":
+		if e.ComplexityRoot.Mutation.EnvVarSet == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_envVarSet_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.EnvVarSet(childComplexity, args["clusterID"].(*apimeta.ClusterID), args["name"].(string), args["value"].(string), args["target"].(envvars.Target)), true
 	case "Mutation.folderGrant":
 		if e.ComplexityRoot.Mutation.FolderGrant == nil {
 			break
@@ -4435,6 +4509,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Clusters(childComplexity), true
+	case "Query.envVars":
+		if e.ComplexityRoot.Query.EnvVars == nil {
+			break
+		}
+
+		args, err := ec.field_Query_envVars_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.EnvVars(childComplexity, args["clusterID"].(*apimeta.ClusterID)), true
 	case "Query.gitHubConnection":
 		if e.ComplexityRoot.Query.GitHubConnection == nil {
 			break
@@ -6144,6 +6229,22 @@ func (ec *executionContext) childFields_EditAction(ctx context.Context, field gr
 	return nil, fmt.Errorf("no field named %q was found under type EditAction", field.Name)
 }
 
+func (ec *executionContext) childFields_EnvVar(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "clusterID":
+		return ec.fieldContext_EnvVar_clusterID(ctx, field)
+	case "name":
+		return ec.fieldContext_EnvVar_name(ctx, field)
+	case "value":
+		return ec.fieldContext_EnvVar_value(ctx, field)
+	case "target":
+		return ec.fieldContext_EnvVar_target(ctx, field)
+	case "refusal":
+		return ec.fieldContext_EnvVar_refusal(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type EnvVar", field.Name)
+}
+
 func (ec *executionContext) childFields_Event(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -7632,6 +7733,66 @@ func (ec *executionContext) field_Mutation_clusterSyncEnabledSet_args(ctx contex
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_envVarRemove_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "clusterID",
+		func(ctx context.Context, v any) (*apimeta.ClusterID, error) {
+			return ec.unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["clusterID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_envVarSet_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "clusterID",
+		func(ctx context.Context, v any) (*apimeta.ClusterID, error) {
+			return ec.unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["clusterID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "value",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["value"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "target",
+		func(ctx context.Context, v any) (envvars.Target, error) {
+			return ec.unmarshalNEnvVarTarget2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐTarget(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["target"] = arg3
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_folderGrant_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -8043,6 +8204,20 @@ func (ec *executionContext) field_Query_cluster_args(ctx context.Context, rawArg
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_envVars_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "clusterID",
+		func(ctx context.Context, v any) (*apimeta.ClusterID, error) {
+			return ec.unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["clusterID"] = arg0
 	return args, nil
 }
 
@@ -14305,6 +14480,121 @@ func (ec *executionContext) fieldContext_EditAction_replaceAll(_ context.Context
 	return graphql.NewScalarFieldContext("EditAction", field, false, false, "Boolean")
 }
 
+func (ec *executionContext) _EnvVar_clusterID(ctx context.Context, field graphql.CollectedField, obj *envvars.Var) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EnvVar_clusterID(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.EnvVar().ClusterID(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *apimeta.ClusterID) graphql.Marshaler {
+			return ec.marshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_EnvVar_clusterID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EnvVar", field, true, true, "ClusterID")
+}
+
+func (ec *executionContext) _EnvVar_name(ctx context.Context, field graphql.CollectedField, obj *envvars.Var) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EnvVar_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EnvVar_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EnvVar", field, false, false, "String")
+}
+
+func (ec *executionContext) _EnvVar_value(ctx context.Context, field graphql.CollectedField, obj *envvars.Var) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EnvVar_value(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Value, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EnvVar_value(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EnvVar", field, false, false, "String")
+}
+
+func (ec *executionContext) _EnvVar_target(ctx context.Context, field graphql.CollectedField, obj *envvars.Var) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EnvVar_target(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Target, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v envvars.Target) graphql.Marshaler {
+			return ec.marshalNEnvVarTarget2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐTarget(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EnvVar_target(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EnvVar", field, false, false, "EnvVarTarget")
+}
+
+func (ec *executionContext) _EnvVar_refusal(ctx context.Context, field graphql.CollectedField, obj *envvars.Var) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EnvVar_refusal(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.EnvVar().Refusal(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_EnvVar_refusal(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EnvVar", field, true, true, "String")
+}
+
 func (ec *executionContext) _Event_id(ctx context.Context, field graphql.CollectedField, obj *cluster.Event) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -18712,6 +19002,94 @@ func (ec *executionContext) fieldContext_Mutation_sandboxExecutableRemove(ctx co
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_envVarSet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_envVarSet(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().EnvVarSet(ctx, fc.Args["clusterID"].(*apimeta.ClusterID), fc.Args["name"].(string), fc.Args["value"].(string), fc.Args["target"].(envvars.Target))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*envvars.Var) graphql.Marshaler {
+			return ec.marshalNEnvVar2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐVarᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_envVarSet(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EnvVar(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_envVarSet_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_envVarRemove(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_envVarRemove(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().EnvVarRemove(ctx, fc.Args["clusterID"].(*apimeta.ClusterID), fc.Args["name"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*envvars.Var) graphql.Marshaler {
+			return ec.marshalNEnvVar2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐVarᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_envVarRemove(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EnvVar(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_envVarRemove_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_memorySave(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -21407,6 +21785,50 @@ func (ec *executionContext) fieldContext_Query_sandboxExecutables(_ context.Cont
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_SandboxExecutable(ctx, field)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_envVars(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_envVars(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().EnvVars(ctx, fc.Args["clusterID"].(*apimeta.ClusterID))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*envvars.Var) graphql.Marshaler {
+			return ec.marshalNEnvVar2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐVarᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_envVars(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EnvVar(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_envVars_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -29426,6 +29848,61 @@ func (ec *executionContext) _EditAction(ctx context.Context, sel ast.SelectionSe
 	return out
 }
 
+var envVarImplementors = []string{"EnvVar"}
+
+func (ec *executionContext) _EnvVar(ctx context.Context, sel ast.SelectionSet, obj *envvars.Var) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, envVarImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EnvVar")
+		case "clusterID":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._EnvVar_clusterID(ctx, field, obj)
+				})
+		case "name":
+			out.Values[i] = ec._EnvVar_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "value":
+			out.Values[i] = ec._EnvVar_value(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "target":
+			out.Values[i] = ec._EnvVar_target(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "refusal":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._EnvVar_refusal(ctx, field, obj)
+				})
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
 var eventImplementors = []string{"Event"}
 
 func (ec *executionContext) _Event(ctx context.Context, sel ast.SelectionSet, obj *cluster.Event) graphql.Marshaler {
@@ -31078,6 +31555,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "envVarSet":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_envVarSet(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "envVarRemove":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_envVarRemove(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "memorySave":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_memorySave(ctx, field)
@@ -31957,6 +32448,12 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_sandboxExecutables(ctx, field)
+				})
+		case "envVars":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_envVars(ctx, field)
 				})
 		case "permissionSettings":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
@@ -34114,6 +34611,58 @@ func (ec *executionContext) marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkst
 	}
 	return res
 }
+
+func (ec *executionContext) marshalNEnvVar2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐVarᚄ(ctx context.Context, sel ast.SelectionSet, v []*envvars.Var) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNEnvVar2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐVar(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNEnvVar2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐVar(ctx context.Context, sel ast.SelectionSet, v *envvars.Var) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "EnvVar!")
+		return graphql.Null
+	}
+	return ec._EnvVar(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNEnvVarTarget2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐTarget(ctx context.Context, v any) (envvars.Target, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalNEnvVarTarget2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐTarget[tmp]
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNEnvVarTarget2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐTarget(ctx context.Context, sel ast.SelectionSet, v envvars.Target) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(marshalNEnvVarTarget2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐTarget[v])
+	if res == graphql.Null {
+		graphql.AddInvalidNullFromMarshaler(ctx, "EnvVarTarget!")
+	}
+	return res
+}
+
+var (
+	unmarshalNEnvVarTarget2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐTarget = map[string]envvars.Target{
+		"Sandbox": envvars.Sandbox,
+		"Outside": envvars.Outside,
+		"Both":    envvars.Both,
+	}
+	marshalNEnvVarTarget2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋenvvarsᚐTarget = map[envvars.Target]string{
+		envvars.Sandbox: "Sandbox",
+		envvars.Outside: "Outside",
+		envvars.Both:    "Both",
+	}
+)
 
 func (ec *executionContext) marshalNEvent2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEventᚄ(ctx context.Context, sel ast.SelectionSet, v []*cluster.Event) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {

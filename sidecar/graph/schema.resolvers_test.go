@@ -47,6 +47,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
+	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
@@ -4452,4 +4453,88 @@ func TestProviderKeySaveReturnsAndLogsNoKey(t *testing.T) {
 		assert.NotContains(t, logs.String(), key)
 	}
 	assert.Contains(t, bodies[1], "KSTACK_PROVIDER_KEY_NOT_SAVED")
+}
+
+// envVarServer is a server whose resolver holds the variables service over an
+// app.db of the test's own, holding the cluster prod.
+func envVarServer(t *testing.T) (*httptest.Server, *appdb.DB) {
+	t.Helper()
+	db := appdbtest.Open(t)
+	_, err := db.Write.Exec(`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('prod', 'kubeconfig', 'prod', 0, 0)`)
+	require.NoError(t, err)
+	svc, err := envvars.New(db, time.Now)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, svc.Close()) })
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{EnvVars: svc}))
+	t.Cleanup(srv.Close)
+	return srv, db
+}
+
+// The user's variables are listed, set and removed by scope, each mutation
+// answering its scope's list in order; each refusal names its reason in its
+// code, and writes nothing.
+func TestEnvVarMutationsAnswerTheirScopesList(t *testing.T) {
+	srv, _ := envVarServer(t)
+
+	data, _ := mutation(t, srv.URL, `{ envVars { name } }`)
+	assert.Equal(t, []any{}, data["envVars"])
+
+	mutation(t, srv.URL, `mutation { envVarSet(name: "HELM_NAMESPACE", value: "apps", target: Both) { name } }`)
+	data, _ = mutation(t, srv.URL, `mutation { envVarSet(name: "AWS_PROFILE", value: "dev", target: Outside) { clusterID name value target refusal } }`)
+	assert.Equal(t, []any{
+		map[string]any{"clusterID": nil, "name": "HELM_NAMESPACE", "value": "apps", "target": "Both", "refusal": nil},
+		map[string]any{"clusterID": nil, "name": "AWS_PROFILE", "value": "dev", "target": "Outside", "refusal": nil},
+	}, data["envVarSet"])
+
+	data, _ = mutation(t, srv.URL, `mutation { envVarSet(clusterID: "prod", name: "HELM_NAMESPACE", value: "prod-apps", target: Sandbox) { clusterID name value target } }`)
+	prod := []any{map[string]any{"clusterID": "prod", "name": "HELM_NAMESPACE", "value": "prod-apps", "target": "Sandbox"}}
+	assert.Equal(t, prod, data["envVarSet"])
+	data, _ = mutation(t, srv.URL, `{ envVars(clusterID: "prod") { clusterID name value target } }`)
+	assert.Equal(t, prod, data["envVars"])
+
+	data, _ = mutation(t, srv.URL, `mutation { envVarRemove(name: "HELM_NAMESPACE") { name } }`)
+	assert.Equal(t, []any{map[string]any{"name": "AWS_PROFILE"}}, data["envVarRemove"])
+	data, _ = mutation(t, srv.URL, `mutation { envVarRemove(clusterID: "prod", name: "HELM_NAMESPACE") { name } }`)
+	assert.Equal(t, []any{}, data["envVarRemove"])
+
+	for query, want := range map[string][2]string{
+		`mutation { envVarSet(name: "AWS_PROFILE", value: "x", target: Both) { name } }`: {"KSTACK_VALIDATION_ERROR",
+			"AWS_PROFILE is never passed to a sandboxed command. It can reach commands outside the sandbox alone."},
+		`mutation { envVarSet(name: "LD_PRELOAD", value: "/x", target: Outside) { name } }`:       {"KSTACK_VALIDATION_ERROR", "LD_PRELOAD changes how a program starts."},
+		`mutation { envVarSet(name: "X", value: "a\u0000b", target: Both) { name } }`:             {"KSTACK_VALIDATION_ERROR", "A value holds no NUL character."},
+		`mutation { envVarRemove(name: "PAGER") { name } }`:                                       {"KSTACK_VALIDATION_ERROR", "That variable is not set."},
+		`mutation { envVarSet(clusterID: "gone", name: "X", value: "x", target: Both) { name } }`: {"KSTACK_RECORD_NOT_FOUND", "Record not found"},
+	} {
+		_, errs := mutation(t, srv.URL, query)
+		code, got := refusal(t, errs)
+		assert.Equal(t, want[0], code, query)
+		assert.Equal(t, want[1], got, query)
+	}
+	data, _ = mutation(t, srv.URL, `{ envVars { name target } }`)
+	assert.Equal(t, []any{map[string]any{"name": "AWS_PROFILE", "target": "Outside"}}, data["envVars"], "a refusal writes nothing")
+}
+
+// A stored row the check refuses is listed with its reason, and removed like
+// any other.
+func TestARefusedVariableIsListedWithItsReason(t *testing.T) {
+	srv, db := envVarServer(t)
+	_, err := db.Write.Exec(`INSERT INTO env_vars (id, name, value, target, created_at, updated_at) VALUES (?, 'PATH', '/evil', 'both', 0, 0)`, appdb.NewID())
+	require.NoError(t, err)
+
+	data, _ := mutation(t, srv.URL, `{ envVars { name value refusal } }`)
+	assert.Equal(t, []any{map[string]any{"name": "PATH", "value": "/evil", "refusal": "Kstack sets PATH itself."}}, data["envVars"])
+
+	data, errs := mutation(t, srv.URL, `mutation { envVarRemove(name: "PATH") { name } }`)
+	assert.Empty(t, errs)
+	assert.Equal(t, []any{}, data["envVarRemove"])
+}
+
+// A list the service cannot read is an error, never an empty list.
+func TestEnvVarsOverAFailedStoreIsAnError(t *testing.T) {
+	srv, db := envVarServer(t)
+	require.NoError(t, db.Close())
+
+	data, errs := mutation(t, srv.URL, `{ envVars { name } }`)
+	assert.NotEmpty(t, errs)
+	assert.Nil(t, data)
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
@@ -102,12 +103,26 @@ func TestFolderErrNamesARefusedShape(t *testing.T) {
 	}
 }
 
-// A failure that is no refusal stays opaque through the executable and permission
-// mappers: a client can do nothing with a store fault but report it.
+// A variable the service refuses is a validation error under the env-var rule,
+// carrying the refusal's words; a missing cluster is not found.
+func TestEnvVarErrNamesTheRefusal(t *testing.T) {
+	var e *gqlerror.Error
+	require.ErrorAs(t, envVarErr(envvars.ErrFull), &e)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", e.Extensions["code"])
+	assert.Equal(t, "env-var", e.Extensions["rule"])
+	assert.Equal(t, envvars.ErrFull.Error(), e.Message)
+
+	require.ErrorAs(t, envVarErr(envvars.ErrClusterGone), &e)
+	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", e.Extensions["code"])
+}
+
+// A failure that is no refusal stays opaque through the executable, variable and
+// permission mappers: a client can do nothing with a store fault but report it.
 func TestAFailureThatIsNoRefusalStaysOpaque(t *testing.T) {
 	boom := errors.New("settings file unreadable")
 
 	assert.Equal(t, boom, sandboxExecutableErr(boom))
+	assert.Equal(t, boom, envVarErr(boom))
 	got, err := (&Resolver{}).permissionsAfter(context.Background(), boom)
 	assert.Nil(t, got)
 	assert.Equal(t, boom, err)

@@ -630,6 +630,23 @@ models:
   # --- Sandbox ---
   SettingsRefusal:
     model: github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings.Refusal
+  EnvVar:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/envvars.Var
+    fields:
+      # The Go fields are "" for none; the wire's are null.
+      clusterID:
+        resolver: true
+      refusal:
+        resolver: true
+  EnvVarTarget:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/envvars.Target
+    enum_values:
+      Sandbox:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/envvars.Sandbox
+      Outside:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/envvars.Outside
+      Both:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/envvars.Both
 
   # --- Permissions ---
   PermissionClass:

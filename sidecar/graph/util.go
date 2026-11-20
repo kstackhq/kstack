@@ -19,6 +19,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/iso8601"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
@@ -414,6 +415,19 @@ func noSandboxExecutables() error {
 func sandboxExecutableErr(err error) error {
 	if refusal, ok := errors.AsType[settings.ExecutableRefusal](err); ok {
 		return gqlerrors.NewValidationError("sandbox-executable", refusal.Error())
+	}
+	return err
+}
+
+// envVarErr is what the variable resolvers return an error through: a refusal
+// in the user's words is a validation error carrying them, a missing cluster is
+// not found, and anything else stays opaque.
+func envVarErr(err error) error {
+	if refusal, ok := errors.AsType[envvars.Refusal](err); ok {
+		return gqlerrors.NewValidationError("env-var", refusal.Error())
+	}
+	if errors.Is(err, envvars.ErrClusterGone) {
+		return gqlerrors.Clone(gqlerrors.ErrRecordNotFound)
 	}
 	return err
 }

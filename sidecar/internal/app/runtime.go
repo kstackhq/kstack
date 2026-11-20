@@ -379,6 +379,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		ProviderKeys:  rt.ProviderKeys,
 		OpenURL:       browser.Open,
 		Settings:      rt.Settings,
+		EnvVars:       rt.EnvVars,
 		Executables:   prober,
 		Logs:          rt.Logs,
 		CloudTargets:  rt.CloudTargets,

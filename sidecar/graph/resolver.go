@@ -10,11 +10,13 @@ import (
 	"github.com/amorey/gochan/watch"
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
@@ -46,6 +48,8 @@ type Resolver struct {
 	Auth AuthConnector
 	// Settings is the user's settings file, and the frozen PATH kept in it.
 	Settings *settings.Service
+	// EnvVars is the user's variables for their commands.
+	EnvVars *envvars.Service
 	// Executables probes the executables sandboxed commands run: the Bash tool, nil where
 	// there is no shell.
 	Executables ExecutableProber
@@ -160,4 +164,27 @@ func (r *Resolver) probes() bool {
 // registeredExecutables is the user's registered executables, as stored.
 func (r *Resolver) registeredExecutables() []settings.Executable {
 	return r.Settings.Get().Executables
+}
+
+// scopeOf is a variable's scope off the wire: the cluster, or "" for every
+// cluster.
+func scopeOf(cluster *apimeta.ClusterID) apimeta.ClusterID {
+	if cluster == nil {
+		return ""
+	}
+	return *cluster
+}
+
+// envVars is one scope's variables on the wire, in order; empty, never nil,
+// for none.
+func (r *Resolver) envVars(ctx context.Context, cluster apimeta.ClusterID) ([]*envvars.Var, error) {
+	vars, err := r.EnvVars.List(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*envvars.Var, len(vars))
+	for i := range vars {
+		out[i] = &vars[i]
+	}
+	return out, nil
 }
