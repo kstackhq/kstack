@@ -674,6 +674,54 @@ func TestTheToolCallRowHoldsTheCwd(t *testing.T) {
 	assert.Equal(t, workdir, cwd, "the settle's rewrite keeps it")
 }
 
+// bashShownEnv is fakeBash whose approval carries the user's variables, keeping
+// the ones its run was handed.
+type bashShownEnv struct {
+	*fakeBash
+	env    []string
+	ranEnv chan []string
+}
+
+func (b bashShownEnv) Approval(ctx context.Context, rt tools.Runtime, input json.RawMessage) (tools.Approval, error) {
+	a, err := b.fakeBash.Approval(ctx, rt, input)
+	a.Env = b.env
+	return a, err
+}
+
+func (b bashShownEnv) RunApproved(ctx context.Context, rt tools.Runtime, input json.RawMessage, a tools.Approval) (string, bool) {
+	b.ranEnv <- a.Env
+	return b.Run(ctx, rt, input)
+}
+
+// The variables a command outside the sandbox gets are on its request: in the
+// tool_calls row, on the live list, handed to the run, and on the stored read
+// once the turn has settled. A call shown none reads none.
+func TestTheToolCallRowHoldsTheVariablesItWasShownWith(t *testing.T) {
+	t.Parallel()
+
+	env := []string{"HELM_NAMESPACE=apps", "NOTE=two\nlines"}
+	tool := bashShownEnv{fakeBash: &fakeBash{}, env: env, ranEnv: make(chan []string, 1)}
+	s := startServiceWithTool(t, tool)
+	fakeOf(s).SetToolCalls(bashCall("helm list"))
+
+	msg := send(t, s, nil, "1", "hi")
+	got, id := awaitRequest(t, s, msg)
+	assert.Equal(t, env, toolCallsOf(t, got)[0].Action.Command.Env)
+
+	approve(t, s, id, true)
+	assert.Equal(t, env, testutil.Recv(t, tool.ranEnv, "the run"))
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+	awaitTurnReleased(t, s, msg.ChatID)
+	msgs, err := s.readMessages(t.Context(), msg.ChatID)
+	require.NoError(t, err)
+	assert.Equal(t, env, toolCallsOf(t, msgs[1])[0].Action.Command.Env, "the settle's rewrite keeps it")
+
+	row := toolCallEntry{Name: "Bash", Contract: string(s.tools.ContractOf("Bash")), Arguments: `{"command":"ls"}`}
+	assert.Empty(t, actionOf(s.tools, row).Command.Env)
+	row.Env = "{"
+	assert.Empty(t, actionOf(s.tools, row).Command.Env, "a row whose variables do not read shows none")
+}
+
 // approvingTool is a testTool gated by a fixed approval.
 type approvingTool struct {
 	testTool

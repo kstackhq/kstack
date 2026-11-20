@@ -349,6 +349,9 @@ type toolCallEntry struct {
 	Cwd string
 	// Sandboxed is whether a sandbox confined the call, set at the gate.
 	Sandboxed bool
+	// Env is the user's variables a command outside the sandbox was shown with,
+	// a JSON array of NAME=value, set at the gate.
+	Env string
 	// Network is the network the call ran with, set when it starts running.
 	Network session.Network
 	// Shown is what the run showed, as stored, for a tools.Shown tool; "" where
@@ -613,7 +616,7 @@ func upsertToolCall(ctx context.Context, st stmts, c toolCallEntry) error {
 		runsOn = runsOnProvider
 	}
 	_, err := st.Exec(ctx, stmtUpsertToolCall,
-		string(c.ID), string(c.LLMCallID), c.Seq, runsOn, c.Name, nullString(c.Contract), nullString(c.ToolUseID), nullString(c.Arguments), c.Cwd, c.Sandboxed,
+		string(c.ID), string(c.LLMCallID), c.Seq, runsOn, c.Name, nullString(c.Contract), nullString(c.ToolUseID), nullString(c.Arguments), c.Cwd, c.Sandboxed, c.Env,
 		nullString(string(c.Network)), nullString(c.Result), nullString(c.Error), c.IsMutating, nullString(string(c.SpawnedRunID)), nullString(c.Status),
 		millis(c.CreatedAt), c.StartedAt, c.FinishedAt, nullString(c.Shown))
 	if err != nil {
@@ -680,7 +683,7 @@ func toolCallsByRun(ctx context.Context, st stmts, reads callReads, arg string) 
 			exitCode                     sql.NullInt64
 			shown, watched               sql.NullString
 		)
-		err := rows.Scan(&run, &c.ID, &runsOn, &useID, &c.Name, &contract, &args, &c.Cwd, &c.Sandboxed, &network, &result, &errText, &status, &c.StartedAt,
+		err := rows.Scan(&run, &c.ID, &runsOn, &useID, &c.Name, &contract, &args, &c.Cwd, &c.Sandboxed, &c.Env, &network, &result, &errText, &status, &c.StartedAt,
 			&spawned, &approvalID, &approvalStatus, &approvalDuration, &taskStatus, &exitCode, &report, &shown, &watched)
 		if err != nil {
 			return nil, fmt.Errorf("tool calls: %w", err)

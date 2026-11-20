@@ -17,6 +17,7 @@ package bash
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,6 +32,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
@@ -310,6 +312,55 @@ func TestApprovalKeepsTheCwd(t *testing.T) {
 	got, err = tl.Approval(t.Context(), rt, json.RawMessage(`{"command":"ls"}`))
 	require.NoError(t, err)
 	assert.Equal(t, tools.Approval{Cwd: ws}, got)
+}
+
+// A command outside the sandbox is shown the variables of its chat's cluster
+// that reach there; a sandboxed one reads its own at its start, so its approval
+// carries none. Variables that cannot be read refuse the call before any
+// request is shown.
+func TestApprovalOutsideCarriesTheUsersVariables(t *testing.T) {
+	rt := testRuntime(t)
+	rt.ClusterID = "prod"
+	ws := tools.WorkspacePath(rt.Dir)
+	tl := Tool{home: t.TempDir()}
+	tl.userEnv = func(_ context.Context, cluster apimeta.ClusterID, sandboxed bool) ([]string, error) {
+		assert.Equal(t, apimeta.ClusterID("prod"), cluster)
+		assert.False(t, sandboxed)
+		return []string{"HELM_NAMESPACE=apps"}, nil
+	}
+	got, err := tl.Approval(t.Context(), rt, command("ls"))
+	require.NoError(t, err)
+	assert.Equal(t, tools.Approval{Cwd: ws, Env: []string{"HELM_NAMESPACE=apps"}}, got)
+
+	tl.sandboxer = &fakeSandboxer{confines: true}
+	got, err = tl.Approval(t.Context(), rt, command("ls"))
+	require.NoError(t, err)
+	assert.Nil(t, got.Env)
+
+	tl.sandboxer = nil
+	tl.userEnv = func(context.Context, apimeta.ClusterID, bool) ([]string, error) { return nil, errors.New("closed") }
+	_, err = tl.Approval(t.Context(), rt, command("ls"))
+	var refusal *tools.Refusal
+	require.ErrorAs(t, err, &refusal)
+	assert.Contains(t, refusal.Result, "variables could not be read")
+}
+
+// A command outside the sandbox gets the variables its approval showed, read
+// from nowhere again: one replaces the process's own of its name, and none
+// replaces Kstack's.
+func TestAnApprovedCommandGetsTheVariablesItWasShownWith(t *testing.T) {
+	t.Setenv("BASH_ENV", "")
+	t.Setenv("KSTACK_TEST_MARK", "inherited")
+	tl := tool(t)
+	tl.userEnv = func(context.Context, apimeta.ClusterID, bool) ([]string, error) {
+		return nil, errors.New("read again at the run")
+	}
+	shown := tools.Approval{Env: []string{"HELM_NAMESPACE=apps", "KSTACK_TEST_MARK=users", "KSTACK=users"}}
+	line := `echo "$HELM_NAMESPACE/$KSTACK_TEST_MARK/$KSTACK"`
+
+	text, isError := tl.RunApproved(t.Context(), testRuntime(t), command(line), shown)
+	require.False(t, isError, text)
+	assert.Contains(t, text, "apps/users/1")
 }
 
 // ActionOf is the command byte for byte, what the model said of it beside it

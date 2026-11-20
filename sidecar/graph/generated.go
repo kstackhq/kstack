@@ -425,6 +425,7 @@ type ComplexityRoot struct {
 	CommandAction struct {
 		Background func(childComplexity int) int
 		Cwd        func(childComplexity int) int
+		Env        func(childComplexity int) int
 		Network    func(childComplexity int) int
 		Sandboxed  func(childComplexity int) int
 		Text       func(childComplexity int) int
@@ -2594,6 +2595,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.CommandAction.Cwd(childComplexity), true
+	case "CommandAction.env":
+		if e.ComplexityRoot.CommandAction.Env == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CommandAction.Env(childComplexity), true
 	case "CommandAction.network":
 		if e.ComplexityRoot.CommandAction.Network == nil {
 			break
@@ -6177,6 +6184,8 @@ func (ec *executionContext) childFields_CommandAction(ctx context.Context, field
 		return ec.fieldContext_CommandAction_sandboxed(ctx, field)
 	case "network":
 		return ec.fieldContext_CommandAction_network(ctx, field)
+	case "env":
+		return ec.fieldContext_CommandAction_env(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type CommandAction", field.Name)
 }
@@ -14133,6 +14142,29 @@ func (ec *executionContext) _CommandAction_network(ctx context.Context, field gr
 }
 func (ec *executionContext) fieldContext_CommandAction_network(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("CommandAction", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _CommandAction_env(ctx context.Context, field graphql.CollectedField, obj *tools.CommandAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CommandAction_env(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Env, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CommandAction_env(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CommandAction", field, false, false, "String")
 }
 
 func (ec *executionContext) _Condition_type(ctx context.Context, field graphql.CollectedField, obj *beehive.Condition) (ret graphql.Marshaler) {
@@ -29669,6 +29701,11 @@ func (ec *executionContext) _CommandAction(ctx context.Context, sel ast.Selectio
 			}
 		case "network":
 			out.Values[i] = ec._CommandAction_network(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "env":
+			out.Values[i] = ec._CommandAction_env(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

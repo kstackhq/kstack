@@ -1529,6 +1529,8 @@ type CommandAction {
   sandboxed: Boolean!
   "Whether the call asked for the internet (its `network` argument). Outside the sandbox it changes nothing."
   network: Boolean!
+  "The user's variables a command outside the sandbox is shown with and runs with, each `NAME=value`. Empty for a sandboxed command, which reads its own as it starts. User text: draw each through VisibleText."
+  env: [String!]!
 }
 
 "A read of a file, as the call named it."

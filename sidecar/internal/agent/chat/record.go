@@ -608,6 +608,12 @@ func actionOf(box tools.Box, r toolCallEntry) *tools.Action {
 	if !ok {
 		return nil
 	}
+	// The variables are the row's, as cwd is; '' is a call shown none.
+	if a.Command != nil && r.Env != "" {
+		if err := json.Unmarshal([]byte(r.Env), &a.Command.Env); err != nil {
+			warnRefused(r.ID, "env", err)
+		}
+	}
 	return &a
 }
 

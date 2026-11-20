@@ -94,7 +94,7 @@ const (
 	runColumns     = `id, agent_type, app_version, trigger, chat_id, trigger_message_id,
 	provider, model, effort, dialect, status, created_at`
 	llmCallColumns  = `id, run_id, seq, provider, model, effort, started_at`
-	toolCallColumns = `id, llm_call_id, seq, runs_on, tool_name, contract_name, tool_use_id, arguments, cwd, sandboxed, network, result, error,
+	toolCallColumns = `id, llm_call_id, seq, runs_on, tool_name, contract_name, tool_use_id, arguments, cwd, sandboxed, env, network, result, error,
 	is_mutating, spawned_run_id, status, created_at, started_at, finished_at, shown_action`
 	approvalColumns = `id, tool_call_id, kind, request, status, duration, reason, created_at, decided_at`
 )
@@ -106,7 +106,7 @@ const (
 // showed and a finished watch's result. The reads alias tool_calls
 // t, llm_calls c, a call's own approval a and background_tasks b; order is the model's,
 // (c.seq, t.seq).
-const toolCallReadColumns = `c.run_id, t.id, t.runs_on, t.tool_use_id, t.tool_name, t.contract_name, t.arguments, t.cwd, t.sandboxed, t.network, t.result, t.error,
+const toolCallReadColumns = `c.run_id, t.id, t.runs_on, t.tool_use_id, t.tool_name, t.contract_name, t.arguments, t.cwd, t.sandboxed, t.env, t.network, t.result, t.error,
 	t.status, t.started_at, t.spawned_run_id, a.id, a.status, COALESCE(a.duration, ''), b.status, b.exit_code,
 	CASE WHEN b.status = 'completed' THEN sr.result END, t.shown_action, b.result`
 
@@ -213,13 +213,13 @@ var statements = []sqlstmt.Statement{
 	// A tool call's row is written whole every time: the running row before the tool
 	// runs, the outcome after, and again at settlement, which heals a write that was
 	// lost. A call the loop refused without running has no earlier row, and the same
-	// statement writes its first. cwd and sandboxed are written with the first row
+	// statement writes its first. cwd, sandboxed and env are written with the first row
 	// and never after; network with the row that marks the call running, which
 	// can be the second.
 	// spawned_run_id is the entry's, which carries the link from the subagent's
 	// insert on, so every later write keeps it.
 	stmtUpsertToolCall: sqlstmt.OnWriter(`INSERT INTO tool_calls (` + toolCallColumns + `)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 	tool_name = excluded.tool_name, tool_use_id = excluded.tool_use_id, arguments = excluded.arguments, network = excluded.network,
 	result = excluded.result, error = excluded.error, is_mutating = excluded.is_mutating,

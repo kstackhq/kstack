@@ -201,6 +201,7 @@ function call(over: Partial<ChatToolCall> = {}): ChatToolCall {
         background: false,
         sandboxed: false,
         network: false,
+        env: [],
       },
       read: null,
       write: null,
@@ -235,6 +236,7 @@ const decided = (over: Partial<ChatToolCall>, approval: 'Approved' | 'Denied' = 
         background: false,
         sandboxed: false,
         network: false,
+        env: [],
       },
       read: null,
       write: null,
@@ -1234,7 +1236,7 @@ describe('ChatTranscript', () => {
               approval: { id: 'ap-2', status: 'Pending', duration: null },
               action: {
                 ...call().action!,
-                command: { text: 'second', cwd: '', background: false, sandboxed: false, network: false },
+                command: { text: 'second', cwd: '', background: false, sandboxed: false, network: false, env: [] },
               },
             }),
             call({
@@ -1243,7 +1245,7 @@ describe('ChatTranscript', () => {
               approval: { id: 'ap-1', status: 'Pending', duration: null },
               action: {
                 ...call().action!,
-                command: { text: 'first', cwd: '', background: false, sandboxed: false, network: false },
+                command: { text: 'first', cwd: '', background: false, sandboxed: false, network: false, env: [] },
               },
             }),
             agent(),
@@ -2138,6 +2140,7 @@ describe('ChatTranscript', () => {
                 background: false,
                 sandboxed: false,
                 network: false,
+                env: [],
               },
               read: null,
               write: null,
@@ -2191,6 +2194,7 @@ describe('ChatTranscript', () => {
                         background: false,
                         sandboxed: false,
                         network: false,
+                        env: [],
                       },
                       read: null,
                       write: null,
@@ -2237,6 +2241,7 @@ describe('ChatTranscript', () => {
                 background: false,
                 sandboxed: false,
                 network: false,
+                env: [],
               },
               read: null,
               write: null,
@@ -2268,7 +2273,7 @@ describe('ChatTranscript', () => {
           call({
             action: {
               description: '',
-              command: { text: long, cwd: '/Users/ana', background: false, sandboxed: false, network: false },
+              command: { text: long, cwd: '/Users/ana', background: false, sandboxed: false, network: false, env: [] },
               read: null,
               write: null,
               edit: null,
@@ -2310,6 +2315,7 @@ describe('ChatTranscript', () => {
                 background: false,
                 sandboxed: false,
                 network: false,
+                env: [],
               },
               read: null,
               write: null,
@@ -2365,7 +2371,7 @@ describe('ChatTranscript', () => {
           call({
             action: {
               description: '',
-              command: { text: long, cwd: '/Users/ana', background: false, sandboxed: false, network: false },
+              command: { text: long, cwd: '/Users/ana', background: false, sandboxed: false, network: false, env: [] },
               read: null,
               write: null,
               edit: null,
@@ -2404,6 +2410,7 @@ describe('ChatTranscript', () => {
                 background: false,
                 sandboxed: false,
                 network: false,
+                env: [],
               },
               read: null,
               write: null,
@@ -2426,13 +2433,49 @@ describe('ChatTranscript', () => {
       expect([...line.querySelectorAll('mark')].map((m) => m.textContent)).toEqual(['\\u{202E}']);
     });
 
+    it('lists every variable a command outside the sandbox gets, each spelled out and none folded', () => {
+      const env = ['HELM_NAMESPACE=apps', 'NOTE=a\u{202E}b', 'GIT_SSH_COMMAND=ssh\n  rm x\t\n'];
+      draw([
+        waiting(
+          call({
+            action: {
+              description: '',
+              command: { text: 'helm list', cwd: '/srv/app', background: false, sandboxed: false, network: false, env },
+              read: null,
+              write: null,
+              edit: null,
+              search: null,
+              fetch: null,
+              memory: null,
+              delegate: null,
+              kubeQuery: null,
+              logsView: null,
+              logsRead: null,
+              logsWatch: null,
+            },
+            approval: { id: 'ap-1', status: 'Pending', duration: null },
+          }),
+        ),
+      ]);
+      const lines = screen.getAllByText('with').map((label) => label.closest('p')!);
+      expect(lines.map((l) => l.textContent)).toEqual([
+        'withHELM_NAMESPACE=apps',
+        'withNOTE=a\\u{202E}b',
+        'withGIT_SSH_COMMAND=ssh\n  rm x\\u{9}\\u{A}',
+      ]);
+      expect(lines[1].querySelector('mark')).toHaveTextContent('\\u{202E}');
+      // The newline and indent inside the value are drawn, not collapsed.
+      expect(lines[2].querySelector('.whitespace-pre-wrap')).not.toBeNull();
+      expect([...lines[2].querySelectorAll('mark')].map((m) => m.textContent)).toEqual(['\\u{9}', '\\u{A}']);
+    });
+
     it('draws no directory line for a call that runs nowhere', () => {
       draw([
         waiting(
           call({
             action: {
               description: '',
-              command: { text: 'ls', cwd: '', background: false, sandboxed: false, network: false },
+              command: { text: 'ls', cwd: '', background: false, sandboxed: false, network: false, env: [] },
               read: null,
               write: null,
               edit: null,
@@ -2450,6 +2493,7 @@ describe('ChatTranscript', () => {
         ),
       ]);
       expect(screen.queryByText('in')).toBeNull();
+      expect(screen.queryByText('with')).toBeNull();
     });
 
     const described = (description: string, text = 'wc -l ~/.kube/config') =>
@@ -2457,7 +2501,7 @@ describe('ChatTranscript', () => {
         call({
           action: {
             description,
-            command: { text, cwd: '/Users/ana', background: false, sandboxed: false, network: false },
+            command: { text, cwd: '/Users/ana', background: false, sandboxed: false, network: false, env: [] },
             read: null,
             write: null,
             edit: null,
@@ -2530,7 +2574,14 @@ describe('ChatTranscript', () => {
               status: 'Succeeded',
               action: {
                 description: '',
-                command: { text: 'yes', cwd: '/Users/ana', background: false, sandboxed: false, network: false },
+                command: {
+                  text: 'yes',
+                  cwd: '/Users/ana',
+                  background: false,
+                  sandboxed: false,
+                  network: false,
+                  env: [],
+                },
                 read: null,
                 write: null,
                 edit: null,
@@ -2629,6 +2680,7 @@ describe('ChatTranscript', () => {
                   background: false,
                   sandboxed: false,
                   network: false,
+                  env: [],
                 },
                 read: null,
                 write: null,
@@ -2730,7 +2782,14 @@ describe('ChatTranscript', () => {
               status: 'NotRun',
               action: {
                 description: 'Clear the scratch',
-                command: { text: 'rm -rf /tmp/x', cwd: '', background: false, sandboxed: false, network: false },
+                command: {
+                  text: 'rm -rf /tmp/x',
+                  cwd: '',
+                  background: false,
+                  sandboxed: false,
+                  network: false,
+                  env: [],
+                },
                 read: null,
                 write: null,
                 edit: null,
@@ -2761,7 +2820,7 @@ describe('ChatTranscript', () => {
         output: 'Exit code 1\n',
         action: {
           description,
-          command: { text, cwd: '/Users/ana', background: false, sandboxed: false, network: false },
+          command: { text, cwd: '/Users/ana', background: false, sandboxed: false, network: false, env: [] },
           read: null,
           write: null,
           edit: null,
@@ -2916,7 +2975,7 @@ describe('ChatTranscript', () => {
               status: 'Failed',
               action: {
                 description: '',
-                command: { text: 'ls', cwd: '', background: false, sandboxed: false, network: false },
+                command: { text: 'ls', cwd: '', background: false, sandboxed: false, network: false, env: [] },
                 read: null,
                 write: null,
                 edit: null,
@@ -3903,7 +3962,14 @@ describe('ChatTranscript', () => {
       call({
         action: {
           description: '',
-          command: { text: 'make serve', cwd: '/Users/ana', background: true, sandboxed: false, network: false },
+          command: {
+            text: 'make serve',
+            cwd: '/Users/ana',
+            background: true,
+            sandboxed: false,
+            network: false,
+            env: [],
+          },
           read: null,
           write: null,
           edit: null,
@@ -3940,6 +4006,7 @@ describe('ChatTranscript', () => {
                   background: true,
                   sandboxed: false,
                   network: false,
+                  env: [],
                 },
                 read: null,
                 write: null,

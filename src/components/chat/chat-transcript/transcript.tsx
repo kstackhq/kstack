@@ -958,6 +958,22 @@ function LabelledLine({ label, text, after }: { label: string; text: string; aft
   );
 }
 
+// A variable as the command gets it, NAME=value: the value's whitespace kept,
+// and what ends a line or opens or closes it spelled, since a newline in
+// GIT_SSH_COMMAND separates commands.
+function VariableLine({ entry }: { entry: string }) {
+  const at = entry.indexOf('=') + 1;
+  return (
+    <p className="mt-1 flex min-w-0 gap-1 text-xs">
+      <span className="shrink-0 text-muted-foreground">with</span>
+      <span className="min-w-0 font-mono break-all whitespace-pre-wrap">
+        <VisibleText text={entry.slice(0, at)} />
+        <VisibleText text={entry.slice(at)} trailing="edges" />
+      </span>
+    </p>
+  );
+}
+
 type CommandAction = NonNullable<NonNullable<ChatToolCall['action']>['command']>;
 
 // What a command's request asks, off the call, never the chat's switch now: the
@@ -1189,6 +1205,10 @@ function ApprovalRequest({
         )}
         <FoldedText head={head} rest={rest} shown={shown} onShow={() => setShown(true)} className={REQUEST_TEXT} />
         {command.cwd !== '' && <LabelledLine label="in" text={command.cwd} />}
+        {/* Every variable, none folded: the request is the gate. */}
+        {command.env.map((entry) => (
+          <VariableLine key={entry} entry={entry} />
+        ))}
       </>
     );
   } else if (write) {

@@ -21,16 +21,17 @@ import (
 	"context"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
-	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
 // runTask starts a background command as the chat's task, checked as a
 // foreground one is, and answers in the reference's words once it is running.
-// It keeps the network it starts with, network, for its whole life.
-func (t *Tool) runTask(ctx context.Context, rt tools.Runtime, in input, network session.Network) (string, bool) {
+// It keeps the network and the variables its approval decided, a, for its
+// whole life.
+func (t *Tool) runTask(ctx context.Context, rt tools.Runtime, in input, a tools.Approval) (string, bool) {
 	cwd, err := t.startDir(in, rt)
 	if err != nil {
 		return `{"error":"bad-input"}`, true
@@ -47,7 +48,7 @@ func (t *Tool) runTask(ctx context.Context, rt tools.Runtime, in input, network 
 		return "could not start: " + safe.String(err.Error()), true
 	}
 	s := spec{
-		shell: t.shell, dir: cwd, scripts: t.scripts, env: t.env,
+		shell: t.shell, dir: cwd, scripts: t.scripts, env: slices.Concat(a.Env, t.env),
 		command: wrapper(t.kind, snapshot, in.Command),
 		capture: tools.TaskOutputLimit, killGrace: killGrace, pipeGrace: pipeGrace,
 	}
@@ -63,7 +64,7 @@ func (t *Tool) runTask(ctx context.Context, rt tools.Runtime, in input, network 
 			return startTask(ctx, s, out)
 		}
 		// Made here, with the process, so a start the chat refuses makes nothing.
-		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, true, network)
+		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, true, a.Network)
 		if err != nil {
 			return nil, err
 		}

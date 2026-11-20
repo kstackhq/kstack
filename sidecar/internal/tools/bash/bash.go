@@ -163,7 +163,7 @@ type Tool struct {
 	pathList     func() settings.RunPath
 	fallbackPath []string
 	// userEnv is the user's variables; nil for none. A sandboxed run reads
-	// them at its start.
+	// them at its start, a command outside the sandbox at its approval.
 	userEnv UserEnv
 
 	// The profile snapshot every command outside the sandbox sources: its
@@ -555,7 +555,8 @@ func (t *Tool) Prompt() string {
 // the network from here. A sandboxed call whose workdir leaves the workspace
 // is refused in words the model reads. A call a sandbox confines runs unasked
 // unless it asks for the internet the session does not give it; every other
-// call asks.
+// call asks. A call with no sandbox carries the user's variables, read here and
+// never again, so its request shows what it runs with.
 func (t *Tool) Approval(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (tools.Approval, error) {
 	in, err := parse(raw)
 	if err != nil {
@@ -569,8 +570,14 @@ func (t *Tool) Approval(ctx context.Context, rt tools.Runtime, raw json.RawMessa
 		return tools.Approval{}, err
 	}
 	boxer := t.sandboxerFor(rt)
-	sandboxed := boxer != nil && boxer.Confines()
-	if !sandboxed {
+	if boxer == nil {
+		env, err := t.userEnvFor(ctx, rt, false)
+		if err != nil {
+			return tools.Approval{}, &tools.Refusal{Result: "The user's environment variables could not be read."}
+		}
+		return tools.Approval{Cwd: cwd, Env: env}, nil
+	}
+	if !boxer.Confines() {
 		return tools.Approval{Cwd: cwd}, nil
 	}
 	network, err := networkFor(ctx, boxer, rt.Session.Network, in.Network)
@@ -695,19 +702,20 @@ func (t *Tool) RunApproved(ctx context.Context, rt tools.Runtime, raw json.RawMe
 		return badInput, true
 	}
 	if in.Background {
-		return t.runTask(ctx, rt, in, a.Network)
+		return t.runTask(ctx, rt, in, a)
 	}
-	return t.runCall(ctx, in, rt, a.Network)
+	return t.runCall(ctx, in, rt, a)
 }
 
 // badInput answers a call whose input parse or startDir refused. The loop
 // asks Approval first, so a gated call never gets this far with one.
 const badInput = `{"error":"bad-input"}`
 
-// runCall runs one command, with the internet when network is set, and
-// answers with its output as resultText renders it, saving it in results when
-// it is too large to come back whole.
-func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime, network session.Network) (string, bool) {
+// runCall runs one command as its approval decided, with its network and,
+// outside the sandbox, the user's variables it was shown with. It answers with
+// the output as resultText renders it, saving it in results when it is too
+// large to come back whole.
+func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime, a tools.Approval) (string, bool) {
 	dir := rt.Dir
 	cwd, err := t.startDir(in, rt)
 	if err != nil {
@@ -727,13 +735,13 @@ func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime, network 
 		return resultText(result{Error: err.Error()}, in.Timeout, nil, unconfined), true
 	}
 	s := spec{
-		shell: t.shell, dir: cwd, scripts: t.scripts, env: t.env,
+		shell: t.shell, dir: cwd, scripts: t.scripts, env: slices.Concat(a.Env, t.env),
 		command: wrapper(t.kind, snapshot, in.Command),
 		capture: tools.FileLimit, timeout: in.Timeout, killGrace: killGrace, pipeGrace: pipeGrace,
 		hooks: hooks{after: t.after},
 	}
 	if boxer != nil {
-		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, false, network)
+		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, false, a.Network)
 		if err != nil {
 			return resultText(result{Error: err.Error()}, in.Timeout, nil, unconfined), true
 		}
@@ -742,7 +750,7 @@ func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime, network 
 		s.sandboxedRun = sandboxedRun
 	}
 	r := run(ctx, s)
-	return resultText(r, in.Timeout, tools.SaveTo(dir), confinementOf(boxer, network)), r.failed()
+	return resultText(r, in.Timeout, tools.SaveTo(dir), confinementOf(boxer, a.Network)), r.failed()
 }
 
 // sandboxedRun is what a sandboxed run carries beyond an unconfined one: the

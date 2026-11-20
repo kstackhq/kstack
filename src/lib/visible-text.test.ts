@@ -65,6 +65,20 @@ describe('visibleSegments', () => {
     ]);
   });
 
+  // A value keeps its inner whitespace as it is; a newline at either edge and
+  // what ends a line are spelled.
+  it('spells the edges of a value', () => {
+    expect(visibleSegments('\nssh -i k\n  rm x \t\n', 'edges')).toEqual([
+      { text: '\\u{A}', spelled: true },
+      { text: 'ssh -i k\n  rm x', spelled: false },
+      { text: '\\u{20}', spelled: true },
+      { text: '\\u{9}', spelled: true },
+      { text: '\\u{A}', spelled: true },
+    ]);
+    expect(visibleSegments('a  b', 'edges')).toEqual([{ text: 'a  b', spelled: false }]);
+    expect(visibleSegments('', 'edges')).toEqual([]);
+  });
+
   // The command can hold the spelling's own characters; the segment kind is
   // what tells them apart, so the caller can draw them differently.
   it('leaves a literal spelling as ordinary text', () => {

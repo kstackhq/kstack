@@ -18,6 +18,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"time"
@@ -46,6 +47,10 @@ func (j *runJournal) Approve(ctx context.Context, call llm.Block, shown tools.Ap
 	w := s.await(newApprovalID(), j.chatID, nil)
 	row := j.newToolCall(call)
 	row.Status, row.IsMutating, row.Cwd, row.Sandboxed = toolAwaitingApproval, true, shown.Cwd, shown.Sandboxed
+	if len(shown.Env) > 0 {
+		env, _ := json.Marshal(shown.Env) // coverage:ignore a []string always marshals
+		row.Env = string(env)
+	}
 	a := &approval{ID: w.id, ToolCallID: row.ID, Status: ApprovalPending, CreatedAt: row.CreatedAt}
 	if err := j.writeWaiting(ctx, row, *a); err != nil {
 		s.forget(w)

@@ -271,6 +271,9 @@ replace its own paths](../../../docs/security/2026-09-30-a-run-cannot-replace-it
   `sandbox.KstackSets` (`run/sandbox/env.go`), so Settings refuses it: else a user's value would
   replace the table's before it, or be silently replaced after. A mount's test checks its variables
   with `assertNoUserCanSet`.
+- **A command outside the sandbox gets the variables its request showed**: `Approval` reads them
+  into `tools.Approval.Env`, the row keeps them, and `RunApproved` takes them from the approval,
+  never `userEnv` again. → [the user's variables](../../../docs/security/2026-11-20-the-users-variables.md).
 - **Whatever can hang on a network mount is built on a goroutine abandoned when the context ends.**
 - The cluster's kubectl cache is keyed by `serverKey(uid)`; the kubeconfig names a fixed server →
   [ADR](../../../docs/adr/2026-10-17-a-sandboxed-kubeconfig-names-a-fixed-server.md).

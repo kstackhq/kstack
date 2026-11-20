@@ -27,10 +27,10 @@ import (
 )
 
 // outsideEnv is a run's environment outside the sandbox: the process's whole,
-// then what Kstack adds, then PWD. exec sets PWD from Dir only when Env is nil;
-// without it the shell keeps the sidecar's, finds it wrong and reads the
-// physical path, so pwd would print something other than the directory the
-// approval request showed.
+// then kstack, the user's approved variables followed by what Kstack adds, then
+// PWD. exec sets PWD from Dir only when Env is nil; without it the shell keeps
+// the sidecar's, finds it wrong and reads the physical path, so pwd would print
+// something other than the directory the approval request showed.
 func outsideEnv(environ, kstack []string, dir string) []string {
 	env := make([]string, 0, len(environ)+len(kstack)+1)
 	env = append(env, environ...)

@@ -2268,7 +2268,7 @@ func TestAMessageCarriesItsToolCalls(t *testing.T) {
 
 	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+answer["chatID"].(string)+`") {
 		message { seq status toolCalls { toolUseID name arguments status
-			action { description command { text cwd background } } approval { id } output isError } } } }`)
+			action { description command { text cwd background env } } approval { id } output isError } } } }`)
 	defer resp.Body.Close()
 
 	frame := awaitChatFrame(t, events, func(f map[string]any) bool {
@@ -2279,7 +2279,7 @@ func TestAMessageCarriesItsToolCalls(t *testing.T) {
 		"toolUseID": "call-1", "name": "Bash", "arguments": map[string]any{"command": "ls", "description": "List files"}, "status": "NotRun",
 		"action": map[string]any{
 			"description": "List files",
-			"command":     map[string]any{"text": "ls", "cwd": "", "background": false},
+			"command":     map[string]any{"text": "ls", "cwd": "", "background": false, "env": []any{}},
 		},
 		"approval": nil, "output": `{"error":"unknown-tool"}`, "isError": true,
 	}}, frame["message"].(map[string]any)["toolCalls"])

@@ -18,7 +18,7 @@ import { visibleSegments } from '@/lib/visible-text';
 
 // Text the user must read as it is: every invisible or reordering character
 // spelled out, and marked so it cannot pass for the text's own.
-export function VisibleText({ text, trailing }: { text: string; trailing?: 'lines' | 'end' }) {
+export function VisibleText({ text, trailing }: { text: string; trailing?: 'lines' | 'end' | 'edges' }) {
   return visibleSegments(text, trailing).map((segment, i) =>
     segment.spelled ? (
       // oxlint-disable-next-line react/no-array-index-key -- a text's segments are cut afresh and never reorder

@@ -187,7 +187,10 @@ record](../docs/security/2026-09-24-memory.md).
 sandbox, outside it, or both. `Check` guards every write and every read against the target; a
 stored row it refuses is listed with its `Refusal` and given to no command. `For(cluster,
 sandboxed)` is what a command gets: every cluster's, the cluster's value in place of one of the
-same name. → [ADR: rows](../docs/adr/2026-11-20-a-setting-with-scopes-is-rows.md).
+same name. A sandboxed run reads it at its start; a command outside the sandbox at its approval
+(`internal/tools/CLAUDE.md`). → [ADR: rows](../docs/adr/2026-11-20-a-setting-with-scopes-is-rows.md),
+[ADR: either side of the sandbox](../docs/adr/2026-11-20-the-users-variables-reach-commands-on-either-side-of-the-sandbox.md),
+[security record](../docs/security/2026-11-20-the-users-variables.md).
 
 ## Azure (`internal/services/azureauth`)
 

@@ -52,14 +52,20 @@ export function spell(char: string): string {
 // kinds apart, since a command can also hold the six characters `\u{202E}`
 // literally. With trailing, the spaces and tabs that end a line are spelled
 // too: a file's content, where they land, rather than a command's, where the
-// shell reads past them.
-export function visibleSegments(text: string, trailing?: 'lines' | 'end'): Segment[] {
+// shell reads past them. With 'edges', as with 'end', and each newline that
+// opens or closes the text is spelled too, since wrapped text shows neither: a
+// variable's value, which a command reads whole.
+export function visibleSegments(text: string, trailing?: 'lines' | 'end' | 'edges'): Segment[] {
   if (!trailing) return spellInvisible(text);
-  return text
-    .split(TRAILING[trailing])
-    .flatMap((part, i) =>
-      i % 2 ? [...part].map((char) => ({ text: spell(char), spelled: true })) : spellInvisible(part),
-    );
+  if (trailing === 'edges') {
+    const [, open, body, close] = /^(\n*)([\s\S]*?)(\n*)$/.exec(text)!;
+    return [...spellAll(open), ...visibleSegments(body, 'end'), ...spellAll(close)];
+  }
+  return text.split(TRAILING[trailing]).flatMap((part, i) => (i % 2 ? spellAll(part) : spellInvisible(part)));
+}
+
+function spellAll(text: string): Segment[] {
+  return [...text].map((char) => ({ text: spell(char), spelled: true }));
 }
 
 function spellInvisible(text: string): Segment[] {

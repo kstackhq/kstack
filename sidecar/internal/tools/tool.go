@@ -130,6 +130,9 @@ type Approval struct {
 	// Folder is the granted folder a skip rests on, nil for any other skip and
 	// for a call that asks. A tool reaches the call's path through it alone.
 	Folder *session.Folder
+	// Env is the user's variables a command outside the sandbox is shown with
+	// and runs with, NAME=value. A sandboxed command reads its own at its start.
+	Env []string
 }
 
 // Gated is a Runner whose call runs only once the user has approved it, unless
@@ -260,6 +263,9 @@ type CommandAction struct {
 	Network    bool   `json:"network"`
 	// Sandboxed is whether a sandbox confined the command, off its row.
 	Sandboxed bool `json:"sandboxed"`
+	// Env is the user's variables a command outside the sandbox was shown
+	// with, NAME=value, off its row.
+	Env []string `json:"env,omitempty"`
 }
 
 // ReadAction is a read of the file the call named, as it named it.

@@ -59,7 +59,7 @@ the calls it asks for, answer them, ask again. The `Turn` carries the target, pr
   own bound; the rest get the turn's `DefaultToolTimeout`. A result with no error is kept whatever the clock says.
 - **Calls run one at a time; a `tools.Gated` call waits on the user.** `Approval` (before
   `ToolCallStarted`) returns a `tools.Approval` — `Cwd`, `Sandboxed`, `Skip`, `Network`,
-  `Folder` — then `Approver.Approve` decides. The zero value asks, so a tool that forgets asks. A
+  `Folder`, `Env` — then `Approver.Approve` decides. The zero value asks, so a tool that forgets asks. A
   `tools.ApprovedRunner` runs from the approval (`RunApproved`), so what runs is what the gate
   decided. One request is before the user at a time. → [ADR: the gate is the tool's
   card](../../../docs/adr/2026-09-22-the-gate-is-the-tools-card.md), [ADR: a tool call shows itself
