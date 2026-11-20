@@ -106,12 +106,13 @@ var openAIEnv = []string{
 }
 
 // fakeTimer is the idle guard's timer under a test's hand: it fires only when
-// the test says so, and reports every reset, so a test can wait for a read to
-// reach the guard before it goes on.
+// the test says so, and not while stopped, and reports every reset, so a test
+// can wait for a read to reach the guard before it goes on.
 type fakeTimer struct {
-	mu     sync.Mutex
-	fire   func()
-	resets *testutil.Probe[struct{}]
+	mu      sync.Mutex
+	fire    func()
+	stopped bool
+	resets  *testutil.Probe[struct{}]
 }
 
 func newFakeTimer() *fakeTimer {
@@ -127,17 +128,27 @@ func (f *fakeTimer) clock(_ time.Duration, fire func()) idleTimer {
 }
 
 func (f *fakeTimer) Reset(time.Duration) bool {
+	f.mu.Lock()
+	f.stopped = false
+	f.mu.Unlock()
 	f.resets.Fire(struct{}{})
 	return true
 }
 
-func (f *fakeTimer) Stop() bool { return true }
+func (f *fakeTimer) Stop() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stopped = true
+	return true
+}
 
-// trip fires the guard, as the bound passing would.
+// trip fires the guard, as the bound passing would, unless it is stopped.
 func (f *fakeTimer) trip() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.fire()
+	if !f.stopped {
+		f.fire()
+	}
 }
 
 // awaitReset waits for the next reset: a read that reached the guard.
@@ -232,3 +243,25 @@ func signedBy(p Provider, s Signer) Provider {
 	p.Key, p.Signer = "", s
 	return p
 }
+
+// heldSigner signs once released, and tells the test each time a Sign waits.
+type heldSigner struct {
+	waiting *testutil.Signal
+	release chan struct{}
+}
+
+func newHeldSigner() heldSigner {
+	return heldSigner{waiting: testutil.NewSignal(), release: make(chan struct{})}
+}
+
+func (s heldSigner) Sign(r *http.Request) error {
+	s.waiting.Fire()
+	select {
+	case <-s.release:
+		return nil
+	case <-r.Context().Done():
+		return r.Context().Err()
+	}
+}
+
+func (heldSigner) Refused(*http.Request) {}
