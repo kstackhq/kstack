@@ -65,6 +65,7 @@ vi.mock('./providers', async () => {
 });
 
 vi.mock('./memory', () => ({ MemorySettings: () => <p>The memory</p> }));
+vi.mock('./environment', () => ({ EnvironmentSettings: () => <p>The environment</p> }));
 
 const { ThemeProvider } = await import('@/lib/theme');
 const { SettingsDialog } = await import('./dialog');
@@ -78,7 +79,17 @@ function renderDialog(onOpenChange = vi.fn()) {
   return onOpenChange;
 }
 
-const NAMES = ['General', 'Clusters', 'Connectors', 'Providers', 'Memory', 'Monitoring', 'Sandbox', 'Permissions'];
+const NAMES = [
+  'General',
+  'Clusters',
+  'Connectors',
+  'Providers',
+  'Memory',
+  'Environment',
+  'Monitoring',
+  'Sandbox',
+  'Permissions',
+];
 
 beforeEach(() => {
   sandboxAvailable.current = true;

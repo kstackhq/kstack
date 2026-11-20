@@ -70,6 +70,9 @@ type Documents = {
     "\n  mutation GoogleConnect($fresh: Boolean!) {\n    googleConnect(fresh: $fresh)\n  }\n": typeof types.GoogleConnectDocument,
     "\n  mutation GoogleConnectCancel {\n    googleConnectCancel\n  }\n": typeof types.GoogleConnectCancelDocument,
     "\n  mutation GoogleDisconnect {\n    googleDisconnect\n  }\n": typeof types.GoogleDisconnectDocument,
+    "\n  query EnvVars($clusterID: ClusterID) {\n    envVars(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n": typeof types.EnvVarsDocument,
+    "\n  mutation EnvVarSet($clusterID: ClusterID, $name: String!, $value: String!, $target: EnvVarTarget!) {\n    envVarSet(clusterID: $clusterID, name: $name, value: $value, target: $target) {\n      name\n    }\n  }\n": typeof types.EnvVarSetDocument,
+    "\n  mutation EnvVarRemove($clusterID: ClusterID, $name: String!) {\n    envVarRemove(clusterID: $clusterID, name: $name) {\n      name\n    }\n  }\n": typeof types.EnvVarRemoveDocument,
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": typeof types.LogsFetchDocument,
     "\n  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {\n    logsFollow(id: $id, request: $request) {\n      type\n      record {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      notice {\n        code\n        message\n      }\n      ended {\n        code\n        message\n      }\n    }\n  }\n": typeof types.LogsFollowDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": typeof types.MemoriesWatchDocument,
@@ -160,6 +163,9 @@ const documents: Documents = {
     "\n  mutation GoogleConnect($fresh: Boolean!) {\n    googleConnect(fresh: $fresh)\n  }\n": types.GoogleConnectDocument,
     "\n  mutation GoogleConnectCancel {\n    googleConnectCancel\n  }\n": types.GoogleConnectCancelDocument,
     "\n  mutation GoogleDisconnect {\n    googleDisconnect\n  }\n": types.GoogleDisconnectDocument,
+    "\n  query EnvVars($clusterID: ClusterID) {\n    envVars(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n": types.EnvVarsDocument,
+    "\n  mutation EnvVarSet($clusterID: ClusterID, $name: String!, $value: String!, $target: EnvVarTarget!) {\n    envVarSet(clusterID: $clusterID, name: $name, value: $value, target: $target) {\n      name\n    }\n  }\n": types.EnvVarSetDocument,
+    "\n  mutation EnvVarRemove($clusterID: ClusterID, $name: String!) {\n    envVarRemove(clusterID: $clusterID, name: $name) {\n      name\n    }\n  }\n": types.EnvVarRemoveDocument,
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": types.LogsFetchDocument,
     "\n  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {\n    logsFollow(id: $id, request: $request) {\n      type\n      record {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      notice {\n        code\n        message\n      }\n      ended {\n        code\n        message\n      }\n    }\n  }\n": types.LogsFollowDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": types.MemoriesWatchDocument,
@@ -432,6 +438,18 @@ export function graphql(source: "\n  mutation GoogleConnectCancel {\n    googleC
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  mutation GoogleDisconnect {\n    googleDisconnect\n  }\n"): (typeof documents)["\n  mutation GoogleDisconnect {\n    googleDisconnect\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query EnvVars($clusterID: ClusterID) {\n    envVars(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n"): (typeof documents)["\n  query EnvVars($clusterID: ClusterID) {\n    envVars(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation EnvVarSet($clusterID: ClusterID, $name: String!, $value: String!, $target: EnvVarTarget!) {\n    envVarSet(clusterID: $clusterID, name: $name, value: $value, target: $target) {\n      name\n    }\n  }\n"): (typeof documents)["\n  mutation EnvVarSet($clusterID: ClusterID, $name: String!, $value: String!, $target: EnvVarTarget!) {\n    envVarSet(clusterID: $clusterID, name: $name, value: $value, target: $target) {\n      name\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation EnvVarRemove($clusterID: ClusterID, $name: String!) {\n    envVarRemove(clusterID: $clusterID, name: $name) {\n      name\n    }\n  }\n"): (typeof documents)["\n  mutation EnvVarRemove($clusterID: ClusterID, $name: String!) {\n    envVarRemove(clusterID: $clusterID, name: $name) {\n      name\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

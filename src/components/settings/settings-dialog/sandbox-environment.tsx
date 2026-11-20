@@ -13,11 +13,16 @@
 // limitations under the License.
 
 // The Sandbox pane's Environment: what a sandboxed command's environment holds,
-// and what never passes.
-// Placeholder: awaits a query of the run's environment table and NeverEnv, and an import mutation.
+// and what never passes. Custom is the user's variables for every cluster that
+// reach sandboxed commands, read-only here: the Environment tab edits them.
+// Each name and value is their text, drawn through VisibleText.
+// Placeholder: From your shell, Set by Kstack and Never passed await a query of
+// the run's environment table and NeverEnv, and Import from shell an import mutation.
 import { Button } from '@kubetail/ui/elements/button';
 
 import { VisibleText } from '@/components/primitives/visible-text';
+import { type EnvVar, useEnvVars } from '@/lib/env-vars';
+import { useSelectSettingsTab } from '@/lib/settings-tab';
 
 import { Group, InfoPopover, NoteRow } from './group';
 
@@ -54,7 +59,36 @@ function Names({ names }: { names: string[] }) {
   );
 }
 
+function CustomVariables({ vars, loadError }: { vars: EnvVar[] | undefined; loadError: string | null }) {
+  const sandboxed = vars?.filter((v) => v.target !== 'Outside' && !v.refusal);
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="text-xs font-medium">Custom</p>
+      {loadError && (
+        <p className="text-xs text-destructive">
+          <VisibleText text={loadError} />
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {sandboxed?.length === 0 ? 'None for every cluster.' : 'For every cluster.'} A chat&apos;s cluster may add its
+        own.
+      </p>
+      <ul className="divide-y" aria-label="Custom">
+        {sandboxed?.map((v) => (
+          <li key={v.name} className="py-1.5 font-mono text-xs break-all whitespace-pre-wrap">
+            <VisibleText text={v.name} trailing="end" />
+            <span className="text-muted-foreground">=</span>
+            <VisibleText text={v.value} trailing="edges" />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function SandboxEnvironment() {
+  const selectTab = useSelectSettingsTab();
+  const { vars, loadError } = useEnvVars(null);
   return (
     <Group
       title="Environment"
@@ -70,9 +104,14 @@ export function SandboxEnvironment() {
         </InfoPopover>
       }
       action={
-        <Button variant="outline" size="sm" disabled>
-          Import from shell
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" disabled>
+            Import from shell
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => selectTab('Environment')}>
+            Edit variables
+          </Button>
+        </div>
       }
     >
       <ul className="divide-y rounded-lg border">
@@ -84,6 +123,7 @@ export function SandboxEnvironment() {
         </NoteRow>
       </ul>
       <p className="text-xs text-muted-foreground">Coming soon</p>
+      <CustomVariables vars={vars} loadError={loadError} />
     </Group>
   );
 }

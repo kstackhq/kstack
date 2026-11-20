@@ -14,12 +14,31 @@
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { SandboxEnvironment } from './sandbox-environment';
+import type { EnvVar } from '@/lib/env-vars';
+import { SelectSettingsTab } from '@/lib/settings-tab';
 
-// Placeholder: every value here is static until the sidecar serves the run's environment.
+const { env } = vi.hoisted(() => ({
+  env: { vars: [] as EnvVar[] | undefined, loadError: null as string | null, scopes: [] as (string | null)[] },
+}));
+vi.mock('@/lib/env-vars', () => ({
+  useEnvVars: (clusterID: string | null) => {
+    env.scopes.push(clusterID);
+    return { vars: env.vars, loadError: env.loadError };
+  },
+}));
+
+const { SandboxEnvironment } = await import('./sandbox-environment');
+
+beforeEach(() => {
+  env.vars = [];
+  env.loadError = null;
+  env.scopes = [];
+});
+
 describe('SandboxEnvironment', () => {
+  // Placeholder: these rows are static until the sidecar serves the run's environment.
   it("lists the variables from the shell and Kstack's own, marked as coming soon", () => {
     render(<SandboxEnvironment />);
     const group = screen.getByRole('group', { name: 'Environment' });
@@ -34,5 +53,47 @@ describe('SandboxEnvironment', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Never passed' }));
     const list = await screen.findByRole('list', { name: 'Never passed' });
     expect(within(list).getByText('SSH_AUTH_SOCK')).toBeInTheDocument();
+  });
+
+  it("lists every cluster's variables a sandboxed command gets, with nothing to edit", () => {
+    env.vars = [
+      { name: 'HELM_NAMESPACE', value: 'apps\u200b', target: 'Both', refusal: null },
+      { name: 'PAGER', value: 'less', target: 'Sandbox', refusal: null },
+      { name: 'AWS_PROFILE', value: 'dev', target: 'Outside', refusal: null },
+      { name: 'LD_PRELOAD', value: '/x', target: 'Both', refusal: 'LD_PRELOAD changes how a program starts.' },
+    ];
+    render(<SandboxEnvironment />);
+    expect(env.scopes).toEqual([null]);
+    const rows = within(screen.getByRole('list', { name: 'Custom' })).getAllByRole('listitem');
+    expect(rows.map((r) => r.textContent)).toEqual(['HELM_NAMESPACE=apps\\u{200B}', 'PAGER=less']);
+    expect(screen.getByText(/^For every cluster\./)).toHaveTextContent("A chat's cluster may add its own.");
+    expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
+  });
+
+  it('says when there is none, and neither before the list answers', () => {
+    const { rerender } = render(<SandboxEnvironment />);
+    expect(screen.getByText(/^None for every cluster\./)).toBeInTheDocument();
+
+    env.vars = undefined;
+    rerender(<SandboxEnvironment />);
+    expect(screen.queryByText(/^None for every cluster\./)).not.toBeInTheDocument();
+  });
+
+  it('says why the variables could not be read', () => {
+    env.vars = undefined;
+    env.loadError = 'no app.db';
+    render(<SandboxEnvironment />);
+    expect(screen.getByText('no app.db')).toBeInTheDocument();
+  });
+
+  it('sends the user to the Environment tab to edit them', async () => {
+    const selectTab = vi.fn();
+    render(
+      <SelectSettingsTab value={selectTab}>
+        <SandboxEnvironment />
+      </SelectSettingsTab>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Edit variables' }));
+    expect(selectTab).toHaveBeenCalledWith('Environment');
   });
 });

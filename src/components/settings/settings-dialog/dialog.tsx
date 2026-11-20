@@ -21,14 +21,15 @@ import { Button } from '@kubetail/ui/elements/button';
 import {
   Brain,
   Container,
-  type LucideIcon,
   Plug,
   ScanEye,
   Server,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  SquareTerminal,
   X,
+  type LucideIcon,
 } from 'lucide-react';
 import { type ComponentType, useState } from 'react';
 
@@ -38,6 +39,7 @@ import { SelectSettingsTab } from '@/lib/settings-tab';
 
 import { ClustersSettings } from './clusters';
 import { ConnectorsSettings } from './connectors';
+import { EnvironmentSettings } from './environment';
 import { GeneralSettings } from './general';
 import { MemorySettings } from './memory';
 import { MonitoringSettings } from './monitoring';
@@ -52,6 +54,7 @@ const TABS: { label: string; icon: LucideIcon; content: ComponentType }[] = [
   { label: 'Connectors', icon: Plug, content: ConnectorsSettings },
   { label: 'Providers', icon: Sparkles, content: ProvidersSettings },
   { label: 'Memory', icon: Brain, content: MemorySettings },
+  { label: 'Environment', icon: SquareTerminal, content: EnvironmentSettings },
   { label: 'Monitoring', icon: ScanEye, content: MonitoringSettings },
   { label: 'Sandbox', icon: Container, content: SandboxSettings },
   { label: 'Permissions', icon: ShieldCheck, content: PermissionSettings },
