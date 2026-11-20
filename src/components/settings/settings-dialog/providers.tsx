@@ -13,7 +13,8 @@
 // limitations under the License.
 
 // The Settings dialog's Providers tab: every provider, in one alphabetical
-// list, each set up or not, and each set up or configured from a dialog.
+// list, each set up or not, and each set up or configured from a dialog. A
+// keyed provider's row follows the sidecar's credential gauge.
 import { Button } from '@kubetail/ui/elements/button';
 import {
   DropdownMenu,
@@ -24,126 +25,113 @@ import {
 } from '@kubetail/ui/elements/dropdown-menu';
 import { cn } from '@kubetail/ui/lib/utils';
 import { MoreHorizontal } from 'lucide-react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import { Dialog } from '@/components/primitives/dialog';
 import { VisibleText } from '@/components/primitives/visible-text';
-import { type Connector, type Connectors, GOOGLE_ID, OPENROUTER_ID, useConnectors } from '@/lib/connectors';
+import { GOOGLE_ID, OPENROUTER_ID } from '@/lib/connectors';
 import { type Catalog, providersOf, useModels } from '@/lib/models';
+import {
+  type ProviderCredentialState,
+  type ProviderCredentials,
+  useProviderCredentials,
+} from '@/lib/provider-credentials';
 import { useSelectSettingsTab } from '@/lib/settings-tab';
 
 import { Intro } from './group';
-import { type CredentialSource, ProviderSetupForm } from './provider-setup-form';
+import { type CredentialSource, isConnector, ProviderSetupForm } from './provider-setup-form';
 
 type Provider = {
   id: string;
   label: string;
   sources: CredentialSource[];
-  /** The environment variable its key is read from. */
-  keyVar?: string;
-  /** What a provider with no key variable lacks until it is set up. */
+  /** A keyed provider's credential, from the gauge. */
+  credential?: ProviderCredentialState;
+  /** What a provider with no key lacks until it is set up. */
   missing?: string;
-  /** Whether the catalog serves it. */
   configured: boolean;
-  /** Whether the OpenRouter connector's key signs it, not its key variable. */
-  connected: boolean;
 };
 
-type Entry = Omit<Provider, 'configured' | 'connected'>;
+type Entry = Omit<Provider, 'configured'>;
 
-const keyed = (id: string, label: string, keyVar: string, ...connectors: CredentialSource[]): Entry => ({
-  id,
-  label,
-  keyVar,
-  sources: ['environment', 'api-key', ...connectors],
-});
-
-// Placeholder: awaits a query listing every provider that can be configured.
-// The keyed rows are the sidecar's catalog (catalog/providers.go), under its
-// labels and key variables, so a row keeps its name once configured; the cloud
-// platforms, Ollama and the ChatGPT connector await the LLM rebuild.
+// The providers with no key: placeholders but for the Google connector's row.
+// Placeholder: Bedrock, Foundry and Ollama await the LLM rebuild.
 const PROVIDERS: Entry[] = [
-  keyed('anthropic', 'Anthropic', 'ANTHROPIC_API_KEY'),
-  keyed('openai', 'OpenAI', 'OPENAI_API_KEY', 'chatgpt-connector'),
-  keyed('gemini', 'Gemini', 'GEMINI_API_KEY', 'google-connector'),
-  keyed('groq', 'Groq', 'GROQ_API_KEY'),
-  keyed('mistral', 'Mistral', 'MISTRAL_API_KEY'),
-  keyed('deepseek', 'DeepSeek', 'DEEPSEEK_API_KEY'),
-  keyed('xai', 'xAI', 'XAI_API_KEY'),
-  keyed(OPENROUTER_ID, 'OpenRouter', 'OPENROUTER_API_KEY', 'openrouter-connector'),
-  keyed('together', 'Together', 'TOGETHER_API_KEY'),
-  keyed('fireworks', 'Fireworks', 'FIREWORKS_API_KEY'),
-  keyed('opencode-go', 'OpenCode Go', 'OPENCODE_GO_API_KEY'),
   { id: 'bedrock', label: 'Amazon Bedrock', sources: ['aws-connector', 'access-key'], missing: 'Needs credentials' },
   { id: GOOGLE_ID, label: 'Vertex AI', sources: ['google-connector'], missing: 'Needs a Google connector' },
   { id: 'foundry', label: 'Microsoft Foundry', sources: ['azure-connector', 'api-key'], missing: 'Needs credentials' },
   { id: 'ollama', label: 'Ollama', sources: ['host'], missing: 'No host set' },
 ];
 
-const CONNECTOR_SOURCES = new Set<CredentialSource>([
-  'aws-connector',
-  'google-connector',
-  'azure-connector',
-  'chatgpt-connector',
-  'openrouter-connector',
-]);
+// The connector that signs a keyed provider's own endpoint, by id.
+const KEYED_CONNECTORS: Record<string, CredentialSource> = {
+  openai: 'chatgpt-connector',
+  [OPENROUTER_ID]: 'openrouter-connector',
+};
 
-// Every provider, by name: the ones the catalog serves, under its labels, then
-// the rest of PROVIDERS. A served provider PROVIDERS does not list has no sources.
-// OpenRouter, served while its connector is connected, is signed by the connector.
-function providersFrom(models: Catalog['models'], connectors: Connector[]): Provider[] {
+// Every provider, by name: the keyed providers from the gauge, then PROVIDERS, set
+// up while the catalog serves them, then any other provider the catalog
+// serves, with no sources.
+function providersFrom(models: Catalog['models'], credentials: ProviderCredentialState[]): Provider[] {
   const served = providersOf(models);
-  const openRouterConnected = connectors.some((c) => c.id === OPENROUTER_ID && c.connected);
-  const configured = served.map(({ id, label }) => ({
-    sources: [],
-    ...PROVIDERS.find((p) => p.id === id),
-    id,
-    label,
-    configured: true,
-    connected: id === OPENROUTER_ID && openRouterConnected,
-  }));
-  const rest = PROVIDERS.filter((p) => !served.some((s) => s.id === p.id)).map((p) => ({
-    ...p,
-    configured: false,
-    connected: false,
-  }));
-  return [...configured, ...rest].toSorted((a, b) => a.label.localeCompare(b.label));
+  const keyed = credentials.map((c): Provider => {
+    const connector = KEYED_CONNECTORS[c.id];
+    return {
+      id: c.id,
+      label: c.label,
+      sources: connector ? ['environment', 'api-key', connector] : ['environment', 'api-key'],
+      credential: c,
+      configured: c.source !== 'None',
+    };
+  });
+  const others = PROVIDERS.map((p) => ({ ...p, configured: served.some((s) => s.id === p.id) }));
+  const known = new Set([...keyed, ...others].map((p) => p.id));
+  const unknown = served
+    .filter((s) => !known.has(s.id))
+    .map(({ id, label }) => ({ id, label, sources: [], configured: true }));
+  return [...keyed, ...others, ...unknown].toSorted((a, b) => a.label.localeCompare(b.label));
 }
 
 export function ProvidersSettings() {
   return (
     <Intro lede="Configure your chats' models. Enable model providers with connectors or API keys.">
-      <ProviderList catalog={useModels()} connectors={useConnectors()} />
+      <ProviderList catalog={useModels()} keys={useProviderCredentials()} />
     </Intro>
   );
 }
 
-function ProviderList({ catalog: { models, loaded }, connectors }: { catalog: Catalog; connectors: Connectors }) {
-  // The provider whose dialog was last opened. It outlives `open` so the dialog
-  // keeps its content while it animates closed.
-  const [target, setTarget] = useState<Provider | null>(null);
-  const [open, setOpen] = useState(false);
-  // Nothing before the watches' first frames: until then, every provider would
-  // read as not set up, and a connected one as found in the environment.
-  if (!loaded || !connectors.loaded) return null;
+function ProviderList({ catalog: { models, loaded }, keys }: { catalog: Catalog; keys: ProviderCredentials }) {
+  // The id of the provider whose dialog was last opened. It outlives `open` so
+  // the dialog keeps its content while it animates closed; the provider is read
+  // from each render's list, so an open dialog follows the gauge.
+  const [targetID, setTargetID] = useState<string | null>(null);
+  const [open, setOpen] = useState<'configure' | 'remove' | null>(null);
+  // Nothing before both first frames: until then every row would read as not set up.
+  if (!loaded || !keys.loaded) return null;
+  const providers = providersFrom(models, keys.credentials);
+  const target = providers.find((p) => p.id === targetID);
+  const show = (p: Provider, dialog: 'configure' | 'remove') => {
+    setTargetID(p.id);
+    setOpen(dialog);
+  };
+  // No trigger opens either dialog, so every change is a close.
+  const close = () => setOpen(null);
   return (
     <>
       <ul className="divide-y rounded-lg border">
-        {providersFrom(models, connectors.connectors).map((p) => (
+        {providers.map((p) => (
           <ProviderRow
             key={p.id}
             provider={p}
-            onConfigure={() => {
-              setTarget(p);
-              setOpen(true);
-            }}
+            onConfigure={() => show(p, 'configure')}
+            onRemoveKey={() => show(p, 'remove')}
           />
         ))}
       </ul>
       {target && (
         <Dialog
-          open={open}
-          onOpenChange={setOpen}
+          open={open === 'configure'}
+          onOpenChange={close}
           title={
             <>
               {target.configured ? 'Configure' : 'Set up'} <VisibleText text={target.label} />
@@ -153,21 +141,40 @@ function ProviderList({ catalog: { models, loaded }, connectors }: { catalog: Ca
           <ProviderSetupForm
             key={target.id}
             sources={target.sources}
-            // Placeholder: awaits a Provider field saying how its credentials
-            // resolve. Until then a served provider's key variable counts as
-            // set, unless a connector signs it.
-            keyVar={target.keyVar ? { name: target.keyVar, set: target.configured && !target.connected } : undefined}
-            onCancel={() => setOpen(false)}
+            credential={target.credential}
+            onSaveKey={target.credential ? (key) => keys.saveKey(target.id, key) : undefined}
+            onClose={close}
           />
         </Dialog>
+      )}
+      {target?.credential && (
+        <RemoveKeyDialog
+          open={open === 'remove'}
+          onCancel={close}
+          credential={target.credential}
+          onRemove={() => {
+            close();
+            // A failed remove shows on the row as NotDeleted.
+            void keys.deleteKey(target.id);
+          }}
+        />
       )}
     </>
   );
 }
 
 // A provider's row: a status dot, its name over one detail line, its action on the right.
-function ProviderRow({ provider, onConfigure }: { provider: Provider; onConfigure: () => void }) {
-  const { label, configured, sources } = provider;
+function ProviderRow({
+  provider,
+  onConfigure,
+  onRemoveKey,
+}: {
+  provider: Provider;
+  onConfigure: () => void;
+  onRemoveKey: () => void;
+}) {
+  const { label, configured, sources, credential } = provider;
+  const removable = credential !== undefined && (credential.hasSavedKey || credential.failure === 'NotDeleted');
   return (
     <li className="flex items-center gap-3 px-4 py-2.5">
       {/* Filled when set up, a ring when not: shape as well as color, and the detail says it in words. */}
@@ -188,8 +195,12 @@ function ProviderRow({ provider, onConfigure }: { provider: Provider; onConfigur
           <Detail provider={provider} />
         </span>
       </div>
-      {configured ? (
-        <RowMenu label={label} onConfigure={sources.length > 0 ? onConfigure : undefined} />
+      {configured || removable ? (
+        <RowMenu
+          label={label}
+          onConfigure={sources.length > 0 ? onConfigure : undefined}
+          onRemoveKey={removable ? onRemoveKey : undefined}
+        />
       ) : (
         <SetUpButton sources={sources} onSetUp={onConfigure} />
       )}
@@ -197,25 +208,53 @@ function ProviderRow({ provider, onConfigure }: { provider: Provider; onConfigur
   );
 }
 
-// Placeholder for a configured provider: awaits a Provider field saying how its
-// credentials resolve. Until then a served provider's key variable counts as
-// found, unless a connector signs it.
-function Detail({ provider: { configured, connected, keyVar, missing } }: { provider: Provider }) {
-  if (!configured) return missing ?? 'No API key found';
-  if (connected) return 'Connected on the Connectors tab';
-  if (!keyVar) return 'Configured';
-  return (
-    <>
-      Found <code>{keyVar}</code>
-    </>
-  );
+/** What is wrong with a credential's key, in words; undefined when nothing is. */
+export function keyFailureText({ failure, source, keyVariable }: ProviderCredentialState): ReactNode {
+  switch (failure) {
+    case 'NotDeleted':
+      return 'Kstack could not remove the saved key. It returns after a restart.';
+    case 'KeyRejected':
+      return source === 'SavedKey' ? (
+        'The saved key was rejected. Replace or remove it.'
+      ) : (
+        <>
+          <code>
+            <VisibleText text={keyVariable} />
+          </code>{' '}
+          was rejected.
+        </>
+      );
+    case null:
+      return undefined;
+  }
 }
 
-// Placeholder: awaits connectors. None is connected yet, so a provider only a
-// connector sets up offers Connect, to the Connectors tab, in place of Set up.
+function Detail({ provider: { configured, credential, missing } }: { provider: Provider }) {
+  if (!credential) return configured ? 'Configured' : missing;
+  const keyVariable = <VisibleText text={credential.keyVariable} />;
+  const failed = keyFailureText(credential);
+  if (failed) return failed;
+  switch (credential.source) {
+    case 'Connector':
+      return 'Connected on the Connectors tab';
+    case 'SavedKey':
+      return 'Using a saved key';
+    case 'EnvironmentKey':
+      return (
+        <>
+          Found <code>{keyVariable}</code>
+        </>
+      );
+    case 'None':
+      return 'No API key found';
+  }
+}
+
+// A provider only a connector sets up offers Connect, to the Connectors tab,
+// in place of Set up.
 function SetUpButton({ sources, onSetUp }: { sources: CredentialSource[]; onSetUp: () => void }) {
   const selectTab = useSelectSettingsTab();
-  const needsConnector = sources.every((s) => CONNECTOR_SOURCES.has(s));
+  const needsConnector = sources.every(isConnector);
   return (
     <Button variant="outline" size="sm" onClick={needsConnector ? () => selectTab('Connectors') : onSetUp}>
       {needsConnector ? 'Connect' : 'Set up'}
@@ -225,7 +264,15 @@ function SetUpButton({ sources, onSetUp }: { sources: CredentialSource[]; onSetU
 
 // Placeholder: Disable awaits its mutation, then a confirm Dialog. Configure is
 // disabled for a provider with no source to pick.
-function RowMenu({ label, onConfigure }: { label: string; onConfigure?: () => void }) {
+function RowMenu({
+  label,
+  onConfigure,
+  onRemoveKey,
+}: {
+  label: string;
+  onConfigure?: () => void;
+  onRemoveKey?: () => void;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -238,11 +285,55 @@ function RowMenu({ label, onConfigure }: { label: string; onConfigure?: () => vo
         <DropdownMenuItem disabled={!onConfigure} onClick={onConfigure}>
           Configure…
         </DropdownMenuItem>
+        {onRemoveKey && <DropdownMenuItem onClick={onRemoveKey}>Remove key…</DropdownMenuItem>}
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" disabled>
           Disable
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+// The confirm before a saved key goes, naming what signs after it.
+function RemoveKeyDialog({
+  open,
+  onCancel,
+  credential,
+  onRemove,
+}: {
+  open: boolean;
+  onCancel: () => void;
+  credential: ProviderCredentialState;
+  onRemove: () => void;
+}) {
+  const label = <VisibleText text={credential.label} />;
+  let follows;
+  if (credential.source === 'Connector') {
+    follows = <>{label} stays connected on the Connectors tab.</>;
+  } else if (credential.hasEnvironmentKey) {
+    follows = (
+      <>
+        Kstack will use{' '}
+        <code>
+          <VisibleText text={credential.keyVariable} />
+        </code>{' '}
+        from your environment.
+      </>
+    );
+  } else {
+    follows = <>{label}&apos;s models leave the picker.</>;
+  }
+  return (
+    <Dialog open={open} onOpenChange={onCancel} title={<>Remove the saved key for {label}?</>} description={follows}>
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="button" variant="destructive" onClick={onRemove}>
+          Remove
+        </Button>
+      </div>
+    </Dialog>
   );
 }

@@ -360,6 +360,23 @@ export type PermissionTarget =
   | 'GCP'
   | 'GitHub';
 
+/** Which credential signs a provider's requests. The highest one present does: Connector, then SavedKey, then EnvironmentKey. */
+export type ProviderCredentialSource =
+  /** The provider's connector, while it is connected. */
+  | 'Connector'
+  /** The key variable, from the launch or the login shell. */
+  | 'EnvironmentKey'
+  | 'None'
+  /** A key saved from the Providers pane, in the OS keyring. */
+  | 'SavedKey';
+
+/** What is wrong with a provider's key. */
+export type ProviderKeyFailure =
+  /** The provider answered 401 to the key that signs. The key is kept and still used. Never reported while NotDeleted is. */
+  | 'KeyRejected'
+  /** The keyring would not delete the saved key. It is out of use now and returns after a restart; providerKeyDelete retries. */
+  | 'NotDeleted';
+
 /** Whose decision a PATH entry's state is. */
 export type SandboxPathSource =
   /** Kstack's, when it read the login shell's PATH. */
@@ -884,6 +901,26 @@ export type PermissionDiscardRefusedMutationVariables = Exact<{
 
 export type PermissionDiscardRefusedMutation = { permissionDiscardRefused: { held: Array<string> } };
 
+export type ProviderCredentialsWatchSubscriptionVariables = Exact<{ [key: string]: never; }>;
+
+
+export type ProviderCredentialsWatchSubscription = { providerCredentialsWatch: Array<{ id: string, label: string, keyVariable: string, source: ProviderCredentialSource, hasEnvironmentKey: boolean, hasSavedKey: boolean, failure: ProviderKeyFailure | null }> };
+
+export type ProviderKeySaveMutationVariables = Exact<{
+  providerID: string;
+  key: string;
+}>;
+
+
+export type ProviderKeySaveMutation = { providerKeySave: boolean };
+
+export type ProviderKeyDeleteMutationVariables = Exact<{
+  providerID: string;
+}>;
+
+
+export type ProviderKeyDeleteMutation = { providerKeyDelete: boolean };
+
 export type SandboxCloudAccessQueryVariables = Exact<{ [key: string]: never; }>;
 
 
@@ -1048,6 +1085,9 @@ export const PermissionModeClearDocument = {"kind":"Document","definitions":[{"k
 export const PermissionRuleAddDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"PermissionRuleAdd"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"PermissionRuleInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"permissionRuleAdd"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"held"}}]}}]}}]} as unknown as DocumentNode<PermissionRuleAddMutation, PermissionRuleAddMutationVariables>;
 export const PermissionRuleRemoveDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"PermissionRuleRemove"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"permissionRuleRemove"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"held"}}]}}]}}]} as unknown as DocumentNode<PermissionRuleRemoveMutation, PermissionRuleRemoveMutationVariables>;
 export const PermissionDiscardRefusedDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"PermissionDiscardRefused"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"field"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"permissionDiscardRefused"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"field"},"value":{"kind":"Variable","name":{"kind":"Name","value":"field"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"held"}}]}}]}}]} as unknown as DocumentNode<PermissionDiscardRefusedMutation, PermissionDiscardRefusedMutationVariables>;
+export const ProviderCredentialsWatchDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"ProviderCredentialsWatch"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"providerCredentialsWatch"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"label"}},{"kind":"Field","name":{"kind":"Name","value":"keyVariable"}},{"kind":"Field","name":{"kind":"Name","value":"source"}},{"kind":"Field","name":{"kind":"Name","value":"hasEnvironmentKey"}},{"kind":"Field","name":{"kind":"Name","value":"hasSavedKey"}},{"kind":"Field","name":{"kind":"Name","value":"failure"}}]}}]}}]} as unknown as DocumentNode<ProviderCredentialsWatchSubscription, ProviderCredentialsWatchSubscriptionVariables>;
+export const ProviderKeySaveDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ProviderKeySave"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"providerID"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"key"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"providerKeySave"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"providerID"},"value":{"kind":"Variable","name":{"kind":"Name","value":"providerID"}}},{"kind":"Argument","name":{"kind":"Name","value":"key"},"value":{"kind":"Variable","name":{"kind":"Name","value":"key"}}}]}]}}]} as unknown as DocumentNode<ProviderKeySaveMutation, ProviderKeySaveMutationVariables>;
+export const ProviderKeyDeleteDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ProviderKeyDelete"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"providerID"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"providerKeyDelete"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"providerID"},"value":{"kind":"Variable","name":{"kind":"Name","value":"providerID"}}}]}]}}]} as unknown as DocumentNode<ProviderKeyDeleteMutation, ProviderKeyDeleteMutationVariables>;
 export const SandboxCloudAccessDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"SandboxCloudAccess"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sandboxCloudAccess"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"target"}},{"kind":"Field","name":{"kind":"Name","value":"on"}}]}}]}}]} as unknown as DocumentNode<SandboxCloudAccessQuery, SandboxCloudAccessQueryVariables>;
 export const SandboxExecutablesWatchDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"SandboxExecutablesWatch"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sandboxExecutablesWatch"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"probing"}},{"kind":"Field","name":{"kind":"Name","value":"probes"}},{"kind":"Field","name":{"kind":"Name","value":"executables"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"invocation"}},{"kind":"Field","name":{"kind":"Name","value":"registered"}},{"kind":"Field","name":{"kind":"Name","value":"probed"}},{"kind":"Field","name":{"kind":"Name","value":"resolved"}},{"kind":"Field","name":{"kind":"Name","value":"shim"}},{"kind":"Field","name":{"kind":"Name","value":"target"}},{"kind":"Field","name":{"kind":"Name","value":"ok"}},{"kind":"Field","name":{"kind":"Name","value":"version"}},{"kind":"Field","name":{"kind":"Name","value":"error"}}]}}]}}]}}]} as unknown as DocumentNode<SandboxExecutablesWatchSubscription, SandboxExecutablesWatchSubscriptionVariables>;
 export const SandboxExecutablesProbeDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"SandboxExecutablesProbe"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sandboxExecutablesProbe"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]}}]} as unknown as DocumentNode<SandboxExecutablesProbeMutation, SandboxExecutablesProbeMutationVariables>;

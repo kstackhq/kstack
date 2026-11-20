@@ -40,16 +40,22 @@ import {
   type GoogleConnection,
   type OpenRouterActions,
   type OpenRouterConnection,
+  OPENROUTER_ID,
   useConnectors,
 } from '@/lib/connectors';
+import { type ProviderCredentialState, useProviderCredentials } from '@/lib/provider-credentials';
 import { storageKey } from '@/lib/storage-key';
 
 import { Intro } from './group';
+import { keyFailureText } from './providers';
 
 export function ConnectorsSettings() {
   const { connectors, loaded } = useConnectors();
+  const keys = useProviderCredentials();
   const confirm = useFirstConnectionConfirm(connectors.find((c) => c.chatgpt)?.chatgpt?.connection);
-  if (!loaded) return null;
+  // OpenRouter's signed-out detail names the key that signs, so it waits for the credentials too.
+  if (!loaded || !keys.loaded) return null;
+  const openRouterKey = keys.credentials.find((c) => c.id === OPENROUTER_ID);
   return (
     <Intro lede="Accounts Kstack signs in to. Model providers and tools use their credentials.">
       <ul className="divide-y rounded-lg border">
@@ -57,7 +63,9 @@ export function ConnectorsSettings() {
           .toSorted((a, b) => a.name.localeCompare(b.name))
           .map((c) => {
             if (c.chatgpt) return <ChatGPTRow key={c.id} connector={c} {...c.chatgpt} onConnect={confirm.sent} />;
-            if (c.openrouter) return <OpenRouterRow key={c.id} connector={c} {...c.openrouter} />;
+            if (c.openrouter) {
+              return <OpenRouterRow key={c.id} connector={c} credential={openRouterKey} {...c.openrouter} />;
+            }
             if (c.github) return <GitHubRow key={c.id} connector={c} {...c.github} />;
             if (c.aws) return <AWSRow key={c.id} connector={c} {...c.aws} />;
             if (c.google) return <GoogleRow key={c.id} connector={c} {...c.google} />;
@@ -294,10 +302,30 @@ function ChatGPTMenu({
   );
 }
 
-function openRouterDetail({ phase, failure }: OpenRouterConnection, { name, detail: offer }: Connector): ReactNode {
+// Signed out, the detail names the key that signs the row in the connector's
+// place, or what is wrong with it.
+function openRouterDetail(
+  { phase, failure }: OpenRouterConnection,
+  { name, detail: offer }: Connector,
+  credential: ProviderCredentialState | undefined,
+): ReactNode {
   switch (phase) {
-    case 'SignedOut':
+    case 'SignedOut': {
+      const failed = credential && keyFailureText(credential);
+      if (failed) return failed;
+      if (credential?.source === 'SavedKey') return 'Using a saved key';
+      if (credential?.source === 'EnvironmentKey') {
+        return (
+          <>
+            Using{' '}
+            <code>
+              <VisibleText text={credential.keyVariable} />
+            </code>
+          </>
+        );
+      }
       return offer;
+    }
     case 'SigningIn':
       return 'Waiting for the browser…';
     case 'Connected':
@@ -309,10 +337,12 @@ function openRouterDetail({ phase, failure }: OpenRouterConnection, { name, deta
 
 function OpenRouterRow({
   connector,
+  credential,
   connection,
   actions,
 }: {
   connector: Connector;
+  credential: ProviderCredentialState | undefined;
   connection: OpenRouterConnection;
   actions: OpenRouterActions;
 }) {
@@ -320,7 +350,7 @@ function OpenRouterRow({
     <GrantRow
       connector={connector}
       connection={connection}
-      detail={openRouterDetail(connection, connector)}
+      detail={openRouterDetail(connection, connector, credential)}
       actions={actions}
       grant="key"
       onOpenSettings={actions.openKeys}

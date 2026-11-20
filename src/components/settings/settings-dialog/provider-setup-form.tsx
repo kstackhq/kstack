@@ -13,9 +13,9 @@
 // limitations under the License.
 
 // The form a provider is configured from, drawn in its dialog: a choice of
-// where its credentials come from, then that source's fields. Nothing here
-// sends or stores a credential: a real connector source sends the user to the
-// Connectors tab, and the rest are placeholders.
+// where its credentials come from, then that source's fields. A saved key is
+// handed to the sidecar for the keyring and kept nowhere here; a connector
+// source sends the user to the Connectors tab. The rest are placeholders.
 import { Radio } from '@base-ui/react/radio';
 import { RadioGroup } from '@base-ui/react/radio-group';
 import { Button } from '@kubetail/ui/elements/button';
@@ -24,6 +24,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useId, useState } from 'react';
 
 import { Input } from '@/components/primitives/text-entry';
+import { VisibleText } from '@/components/primitives/visible-text';
+import type { ProviderCredentialState, ProviderCredentialSource, SaveKeyResult } from '@/lib/provider-credentials';
 import { useSelectSettingsTab } from '@/lib/settings-tab';
 
 /** Where a provider's credentials can come from. */
@@ -48,12 +50,24 @@ const SOURCES: Record<CredentialSource, { label: string; note?: string; soon?: t
   'azure-connector': { label: 'Azure connector', note: 'Sign in with your Azure account.', soon: true },
   'chatgpt-connector': { label: 'ChatGPT connector', note: 'Sign in with your ChatGPT account.', soon: true },
   'openrouter-connector': { label: 'OpenRouter connector', note: 'Sign in with your OpenRouter account.' },
-  'api-key': { label: 'Saved key', note: 'A key Kstack keeps in your system keychain.' },
+  'api-key': { label: 'Saved key', note: "A key Kstack keeps in your system's password store." },
   host: { label: 'Host', note: 'The address of the server that runs the models.', soon: true },
 };
 
+/** Whether a source is a connector's sign-in. */
+export function isConnector(source: CredentialSource): boolean {
+  return source.endsWith('-connector');
+}
+
 // The sources the Connectors tab sets up: the form sends the user there.
 const ON_CONNECTORS_TAB = new Set<CredentialSource>(['google-connector', 'openrouter-connector']);
+
+// Each failed save's line under the key.
+const SAVE_FAILURES: Record<Exclude<SaveKeyResult, 'saved'>, string> = {
+  'bad-key': 'That does not look like an API key.',
+  'not-saved': "Your system's password store refused the key. Nothing was saved.",
+  failed: 'Kstack could not save the key.',
+};
 
 // Placeholder: awaits connectors.
 const CONNECTORS = ['Example connector'];
@@ -61,20 +75,22 @@ const CONNECTORS = ['Example connector'];
 // Placeholder: awaits the Bedrock provider's region list.
 const REGIONS = ['us-east-1', 'us-east-2', 'us-west-2', 'eu-central-1', 'eu-west-1', 'ap-northeast-1'];
 
-/** The environment variable a provider reads its key from, and whether Kstack found it. */
-export type KeyVar = { name: string; set: boolean };
-
-/** Opens on the first of `sources`. */
+/**
+ * Opens on the source that signs, else the first of `sources`. Without
+ * `onSaveKey` the saved key's box stays disabled.
+ */
 export function ProviderSetupForm({
   sources,
-  keyVar,
-  onCancel,
+  credential,
+  onSaveKey,
+  onClose,
 }: {
   sources: CredentialSource[];
-  keyVar?: KeyVar;
-  onCancel: () => void;
+  credential?: ProviderCredentialState;
+  onSaveKey?: (key: string) => Promise<SaveKeyResult>;
+  onClose: () => void;
 }) {
-  const [source, setSource] = useState(sources[0]);
+  const [source, setSource] = useState(() => initialSource(sources, credential));
   const selectTab = useSelectSettingsTab();
   return (
     <div className="flex flex-col gap-4">
@@ -85,39 +101,54 @@ export function ProviderSetupForm({
         onValueChange={(next: CredentialSource) => setSource(next)}
       >
         {sources.map((s) => (
-          <SourceOption key={s} source={s} keyVar={keyVar} />
+          <SourceOption key={s} source={s} credential={credential} />
         ))}
       </RadioGroup>
       {source === 'aws-connector' && <AwsConnectorFields />}
-      {source === 'api-key' && <ApiKeyField />}
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
-        {ON_CONNECTORS_TAB.has(source) ? (
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              onCancel();
-              selectTab('Connectors');
-            }}
-          >
-            Open Connectors
+      {source === 'api-key' ? (
+        <ApiKeyForm onSaveKey={onSaveKey} onClose={onClose} />
+      ) : (
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
+            Cancel
           </Button>
-        ) : (
-          // Placeholder: awaits a mutation choosing the provider's credential source.
-          <Button type="button" size="sm" disabled>
-            Save
-          </Button>
-        )}
-      </div>
+          {ON_CONNECTORS_TAB.has(source) ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                onClose();
+                selectTab('Connectors');
+              }}
+            >
+              Open Connectors
+            </Button>
+          ) : (
+            // Placeholder: awaits a mutation choosing the provider's credential source.
+            <Button type="button" size="sm" disabled>
+              Save
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
+// Whether a form's source is the one behind a credential's source.
+const SIGNS: Record<ProviderCredentialSource, (s: CredentialSource) => boolean> = {
+  None: () => false,
+  EnvironmentKey: (s) => s === 'environment',
+  SavedKey: (s) => s === 'api-key',
+  Connector: isConnector,
+};
+
+function initialSource(sources: CredentialSource[], credential?: ProviderCredentialState): CredentialSource {
+  return (credential && sources.find(SIGNS[credential.source])) ?? sources[0];
+}
+
 // One source's radio: its label, with a line saying what it means.
-function SourceOption({ source, keyVar }: { source: CredentialSource; keyVar?: KeyVar }) {
+function SourceOption({ source, credential }: { source: CredentialSource; credential?: ProviderCredentialState }) {
   const labelID = useId();
   const noteID = useId();
   const { label, soon } = SOURCES[source];
@@ -137,47 +168,97 @@ function SourceOption({ source, keyVar }: { source: CredentialSource; keyVar?: K
           {soon && <span className="text-xs text-muted-foreground">Coming soon</span>}
         </span>
         <span id={noteID} className="text-xs text-muted-foreground">
-          <SourceNote source={source} keyVar={keyVar} />
+          <SourceNote source={source} credential={credential} />
         </span>
       </div>
     </div>
   );
 }
 
-// A source's note, naming the provider's key variable where it bears on the
-// source. The sidecar reads that variable from its launch environment or the
-// login shell, once, at start.
-function SourceNote({ source, keyVar }: { source: CredentialSource; keyVar?: KeyVar }) {
-  if (source === 'environment' && keyVar) {
-    return keyVar.set ? (
-      <>
-        Kstack uses <code>{keyVar.name}</code> from your environment.
-      </>
-    ) : (
-      <>
-        <code>{keyVar.name}</code> is not set. Kstack reads it from your login shell when it starts.
-      </>
+// A source's note, from what the sidecar holds. It reads the key variable from
+// its launch environment or the login shell, once, at start.
+function SourceNote({ source, credential }: { source: CredentialSource; credential?: ProviderCredentialState }) {
+  if (source === 'environment' && credential) {
+    const name = (
+      <code>
+        <VisibleText text={credential.keyVariable} />
+      </code>
     );
-  }
-  if (source === 'api-key' && keyVar?.set) {
+    if (!credential.hasEnvironmentKey) {
+      return <>{name} is not set. Kstack reads it from your login shell when it starts.</>;
+    }
     return (
       <>
-        A key Kstack keeps in your system keychain, used over <code>{keyVar.name}</code>.
+        Kstack uses {name} from your environment.
+        {credential.source !== 'EnvironmentKey' && ' A saved key or a connector is used over it.'}
       </>
     );
   }
+  if (source === 'api-key' && credential?.hasSavedKey) return 'A key is saved. Saving another replaces it.';
   return SOURCES[source].note;
 }
 
-// Placeholder: disabled, so no secret is typed into the webview, until a
-// mutation hands the key to the sidecar for the keychain.
-function ApiKeyField() {
+// The key's box and Save. The key lives in this state alone, and goes once it
+// is saved or the form closes.
+function ApiKeyForm({
+  onSaveKey,
+  onClose,
+}: {
+  onSaveKey?: (key: string) => Promise<SaveKeyResult>;
+  onClose: () => void;
+}) {
   const id = useId();
+  const [key, setKey] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string>();
+  const save = async (saveKey: (key: string) => Promise<SaveKeyResult>) => {
+    setSaving(true);
+    setFailure(undefined);
+    const result = await saveKey(key.trim());
+    setSaving(false);
+    if (result === 'saved') {
+      setKey('');
+      onClose();
+    } else {
+      setFailure(SAVE_FAILURES[result]);
+    }
+  };
   return (
-    <Field>
-      <FieldLabel htmlFor={id}>API key</FieldLabel>
-      <Input id={id} type="password" disabled />
-    </Field>
+    <>
+      <Field>
+        <FieldLabel htmlFor={id}>API key</FieldLabel>
+        <Input
+          id={id}
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          value={key}
+          onChange={(e) => {
+            setKey(e.target.value);
+            setFailure(undefined);
+          }}
+          disabled={!onSaveKey}
+        />
+        {failure && (
+          <p role="alert" className="text-xs text-destructive">
+            {failure}
+          </p>
+        )}
+      </Field>
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={!onSaveKey || saving || key.trim() === ''}
+          onClick={onSaveKey && (() => void save(onSaveKey))}
+        >
+          Save
+        </Button>
+      </div>
+    </>
   );
 }
 

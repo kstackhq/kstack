@@ -631,15 +631,15 @@ and registers named above for the code it changes, in the same change.
 
 | PR | # | Task | Status |
 | --- | --- | --- | --- |
-| A | 1 | Move `signer` and `catalogsync` to `services/internal`; fix every import | Planned |
-| A | 2 | `lib/oskeyring/oskeyringtest`; `llm.Provider.AuthHeader`, used by `authorize`; `safe.MinSecretLen` | Planned |
-| B | 3 | The security record, with its three checks made; the ADR; the `security-model.md` row as **Pending** | Planned |
-| B | 4 | `providerkeys`: rows, keyring restore, `Save`, `Delete`, the signers, the two watches, `SyncCatalogs` | Planned |
-| B | 5 | `catalog`: `keyedRows`, `KeyRows`, `ReadKeyedModels`, `New` over `Config.Keys`; `keyedBy` deleted, so `google` is listed beside a Gemini key; every test that passed `APIKeys` | Planned |
-| B | 6 | `openrouter`: drop `FromEnvironment` and `SyncCatalog`; the `connectors` vocabulary; `runtime.go` | Planned |
-| B | 7 | GraphQL schema, `gqlgen.yml`, resolvers, errors and tests; `pnpm codegen`; the webview's `FromEnvironment` cases removed so it builds | Planned |
-| C | 8 | The webview: the hook, the form, the Providers rows and *Remove key*, the Connectors detail, tests | Planned |
-| C | 9 | The host's test that a query logs no body; the error-bus test of a failed save; `security-model.md` row to **Enforced** | Planned |
+| A | 1 | Move `signer` and `catalogsync` to `services/internal`; fix every import | Done |
+| A | 2 | `lib/oskeyring/oskeyringtest`; `llm.Provider.AuthHeader`, used by `authorize`; `safe.MinSecretLen` | Done |
+| B | 3 | The security record, with its three checks made; the ADR; the `security-model.md` row as **Pending** | Done |
+| B | 4 | `providerkeys`: rows, keyring restore, `Save`, `Delete`, the signers, the two watches, `SyncCatalogs` | Done |
+| B | 5 | `catalog`: `keyedRows`, `KeyRows`, `ReadKeyedModels`, `New` over `Config.Keys`; `keyedBy` deleted, so `google` is listed beside a Gemini key; every test that passed `APIKeys` | Done |
+| B | 6 | `openrouter`: drop `FromEnvironment` and `SyncCatalog`; the `connectors` vocabulary; `runtime.go` | Done |
+| B | 7 | GraphQL schema, `gqlgen.yml`, resolvers, errors and tests; `pnpm codegen`; the webview's `FromEnvironment` cases removed so it builds | Done |
+| C | 8 | The webview: the hook, the form, the Providers rows and *Remove key*, the Connectors detail, tests | Done |
+| C | 9 | The host's test that a query logs no body; the error-bus test of a failed save; `security-model.md` row to **Enforced** | Done |
 
 - **A** changes no behaviour and lands first.
 - **B** opens with the record and the ADR, so the review reads them before the code. After it the

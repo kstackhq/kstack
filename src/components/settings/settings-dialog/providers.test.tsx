@@ -16,21 +16,18 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Connectors, OpenRouterConnection } from '@/lib/connectors';
 import type { Catalog, Model } from '@/lib/models';
+import type { ProviderCredentialState, ProviderCredentials } from '@/lib/provider-credentials';
 
-const { catalog, connectors } = vi.hoisted(() => ({
+const { catalog, keys } = vi.hoisted(() => ({
   catalog: { current: undefined as unknown as Catalog },
-  connectors: { current: undefined as unknown as Connectors },
+  keys: { current: undefined as unknown as ProviderCredentials },
 }));
 vi.mock('@/lib/models', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/models')>()),
   useModels: () => catalog.current,
 }));
-vi.mock('@/lib/connectors', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/connectors')>()),
-  useConnectors: () => connectors.current,
-}));
+vi.mock('@/lib/provider-credentials', () => ({ useProviderCredentials: () => keys.current }));
 
 const { SelectSettingsTab } = await import('@/lib/settings-tab');
 const { ProvidersSettings } = await import('./providers');
@@ -41,6 +38,40 @@ function model(providerID: string, label: string, id: string): Model {
 
 function serve(models: Model[], state: Partial<Catalog> = {}) {
   catalog.current = { models, loaded: true, ...state };
+}
+
+// The keyed providers, as the sidecar lists them, each with no credential.
+const KEYED: [string, string, string][] = [
+  ['anthropic', 'Anthropic', 'ANTHROPIC_API_KEY'],
+  ['openai', 'OpenAI', 'OPENAI_API_KEY'],
+  ['gemini', 'Gemini', 'GEMINI_API_KEY'],
+  ['groq', 'Groq', 'GROQ_API_KEY'],
+  ['mistral', 'Mistral', 'MISTRAL_API_KEY'],
+  ['deepseek', 'DeepSeek', 'DEEPSEEK_API_KEY'],
+  ['xai', 'xAI', 'XAI_API_KEY'],
+  ['openrouter', 'OpenRouter', 'OPENROUTER_API_KEY'],
+  ['together', 'Together', 'TOGETHER_API_KEY'],
+  ['fireworks', 'Fireworks', 'FIREWORKS_API_KEY'],
+  ['opencode-go', 'OpenCode Go', 'OPENCODE_GO_API_KEY'],
+];
+
+// Serves the gauge: every keyed provider with no credential, but for changes, by id.
+function credentials(changes: Record<string, Partial<ProviderCredentialState>> = {}, loaded = true) {
+  keys.current = {
+    loaded,
+    credentials: KEYED.map(([id, label, keyVariable]) => ({
+      id,
+      label,
+      keyVariable,
+      source: 'None',
+      hasEnvironmentKey: false,
+      hasSavedKey: false,
+      failure: null,
+      ...changes[id],
+    })),
+    saveKey: vi.fn(() => Promise.resolve('saved' as const)),
+    deleteKey: vi.fn(() => Promise.resolve(true)),
+  };
 }
 
 const list = () => screen.getByRole('list');
@@ -67,7 +98,7 @@ const ALL = [
   'xAI',
 ];
 
-// What each provider no key variable sets up lacks.
+// What each provider with no key variable lacks.
 const MISSING: Record<string, string> = {
   'Amazon Bedrock': 'Needs credentials',
   'Vertex AI': 'Needs a Google connector',
@@ -75,91 +106,156 @@ const MISSING: Record<string, string> = {
   Ollama: 'No host set',
 };
 
-// The connectors as the hook answers them: OpenRouter's alone matters here.
-function openRouter(phase: OpenRouterConnection['phase'], loaded = true) {
-  const actions = { connect: vi.fn(), cancel: vi.fn(), disconnect: vi.fn(), openKeys: vi.fn() };
-  connectors.current = {
-    loaded,
-    connectors: [
-      {
-        id: 'openrouter',
-        name: 'OpenRouter',
-        detail: '',
-        connected: phase === 'Connected',
-        openrouter: { connection: { phase, failure: null }, actions },
-      },
-    ],
-  };
+async function openMenu(name: string) {
+  await userEvent.setup().click(screen.getByRole('button', { name: `${name} actions` }));
 }
 
 beforeEach(() => {
   serve([]);
-  openRouter('SignedOut');
+  credentials();
 });
 
 describe('ProvidersSettings', () => {
-  it('lists the catalog providers once each beside the ones that could be set up, by name', () => {
-    serve([
-      model('openai', 'OpenAI', 'gpt'),
-      model('anthropic', 'Anthropic', 'opus'),
-      model('openai', 'OpenAI', 'gpt-mini'),
-      model('groq', 'Gro\u200Bq', 'oss'),
-    ]);
+  it('lists every keyed provider and the other providers, by name', () => {
     render(<ProvidersSettings />);
 
     expect(
       screen.getByText("Configure your chats' models. Enable model providers with connectors or API keys."),
     ).toBeInTheDocument();
-    // The catalog's label wins over the list's.
-    expect(names()).toEqual(ALL.map((n) => (n === 'Groq' ? 'Gro\\u{200B}q' : n)));
-    expect(row('OpenAI')).toHaveTextContent('Found OPENAI_API_KEY');
-  });
-
-  it('gives a configured provider its key variable and a menu, whose Disable waits for its mutation', async () => {
-    const user = userEvent.setup();
-    serve([model('anthropic', 'Anthropic', 'opus')]);
-    render(<ProvidersSettings />);
-
-    expect(row('Anthropic')).toHaveTextContent('Found ANTHROPIC_API_KEY');
-    expect(within(row('Anthropic')).queryByRole('button', { name: 'Set up' })).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Anthropic actions' }));
-
-    expect(await screen.findByRole('menuitem', { name: 'Configure…' })).not.toHaveAttribute('aria-disabled');
-    expect(screen.getByRole('menuitem', { name: 'Disable' })).toHaveAttribute('aria-disabled', 'true');
-  });
-
-  it("opens a configured provider's form on its environment from Configure…", async () => {
-    const user = userEvent.setup();
-    serve([model('openai', 'OpenAI', 'gpt')]);
-    render(<ProvidersSettings />);
-
-    await user.click(screen.getByRole('button', { name: 'OpenAI actions' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Configure…' }));
-
-    const dialog = await screen.findByRole('dialog', { name: 'Configure OpenAI' });
-    expect(within(dialog).getByRole('radio', { name: 'Environment variable' })).toBeChecked();
-    expect(within(dialog).getByRole('radio', { name: 'ChatGPT connector' })).toBeInTheDocument();
-    expect(dialog).toHaveTextContent('Kstack uses OPENAI_API_KEY from your environment.');
-  });
-
-  it('lists a provider the catalog serves beyond the known ones, with nothing to configure', async () => {
-    const user = userEvent.setup();
-    serve([model('fake', 'Fake', 'echo')]);
-    render(<ProvidersSettings />);
-
-    expect(row('Fake')).toHaveTextContent('Configured');
-    await user.click(screen.getByRole('button', { name: 'Fake actions' }));
-    expect(await screen.findByRole('menuitem', { name: 'Configure…' })).toHaveAttribute('aria-disabled', 'true');
-  });
-
-  it('offers Set up on each provider that is not set up, and says what it lacks', () => {
-    render(<ProvidersSettings />);
-
     expect(names()).toEqual(ALL);
     for (const name of ALL.filter((n) => n !== 'Vertex AI')) {
       expect(row(name)).toHaveTextContent(MISSING[name] ?? 'No API key found');
       expect(within(row(name)).getByRole('button', { name: 'Set up' })).toBeInTheDocument();
     }
+  });
+
+  it('draws a label from the gauge through VisibleText', () => {
+    credentials({ groq: { label: 'Gro​q' } });
+    render(<ProvidersSettings />);
+    expect(names()).toContain('Gro\\u{200B}q');
+  });
+
+  it.each([
+    [
+      { failure: 'NotDeleted', source: 'EnvironmentKey' },
+      'Kstack could not remove the saved key. It returns after a restart.',
+    ],
+    [{ failure: 'KeyRejected', source: 'SavedKey' }, 'The saved key was rejected. Replace or remove it.'],
+    [{ failure: 'KeyRejected', source: 'EnvironmentKey' }, 'OPENAI_API_KEY was rejected.'],
+    [{ source: 'Connector' }, 'Connected on the Connectors tab'],
+    [{ source: 'SavedKey' }, 'Using a saved key'],
+    [{ source: 'EnvironmentKey' }, 'Found OPENAI_API_KEY'],
+    [{ source: 'None' }, 'No API key found'],
+  ] as const)('draws the detail for %o', (state, line) => {
+    credentials({ openai: state });
+    render(<ProvidersSettings />);
+    expect(row('OpenAI')).toHaveTextContent(line);
+  });
+
+  it('marks a keyed provider set up while it has a credential, with a menu', async () => {
+    credentials({ anthropic: { source: 'EnvironmentKey', hasEnvironmentKey: true } });
+    render(<ProvidersSettings />);
+
+    const status = (name: string) => row(name).querySelector('[data-slot="status"]');
+    expect(status('Anthropic')).toHaveAttribute('data-set-up', 'true');
+    expect(status('Groq')).toHaveAttribute('data-set-up', 'false');
+    expect(status('Anthropic')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(row('Anthropic')).queryByRole('button', { name: 'Set up' })).toBeNull();
+
+    await openMenu('Anthropic');
+    expect(await screen.findByRole('menuitem', { name: 'Configure…' })).not.toHaveAttribute('aria-disabled');
+    expect(screen.getByRole('menuitem', { name: 'Disable' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.queryByRole('menuitem', { name: 'Remove key…' })).toBeNull();
+  });
+
+  it("opens a keyed provider's form on the source that signs, and saves a key through the hook", async () => {
+    const user = userEvent.setup();
+    credentials({ openai: { source: 'SavedKey', hasSavedKey: true } });
+    render(<ProvidersSettings />);
+
+    await openMenu('OpenAI');
+    await user.click(await screen.findByRole('menuitem', { name: 'Configure…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Configure OpenAI' });
+    expect(within(dialog).getByRole('radio', { name: 'Saved key' })).toBeChecked();
+    expect(within(dialog).getByRole('radio', { name: 'ChatGPT connector' })).toBeInTheDocument();
+
+    await user.type(within(dialog).getByLabelText('API key', { selector: 'input' }), 'sk-new-0123456789abcdef');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(keys.current.saveKey).toHaveBeenCalledExactlyOnceWith('openai', 'sk-new-0123456789abcdef');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it.each([
+    [{ source: 'Connector', hasSavedKey: true }, 'OpenAI stays connected on the Connectors tab.'],
+    [
+      { source: 'SavedKey', hasSavedKey: true, hasEnvironmentKey: true },
+      'Kstack will use OPENAI_API_KEY from your environment.',
+    ],
+    [{ source: 'SavedKey', hasSavedKey: true }, "OpenAI's models leave the picker."],
+    [{ source: 'None', failure: 'NotDeleted' }, "OpenAI's models leave the picker."],
+  ] as const)('removes a saved key behind a confirm naming what follows, for %o', async (state, follows) => {
+    const user = userEvent.setup();
+    credentials({ openai: state });
+    render(<ProvidersSettings />);
+
+    await openMenu('OpenAI');
+    await user.click(await screen.findByRole('menuitem', { name: 'Remove key…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Remove the saved key for OpenAI?' });
+    expect(dialog).toHaveTextContent(follows);
+    expect(keys.current.deleteKey).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Remove' }));
+    expect(keys.current.deleteKey).toHaveBeenCalledExactlyOnceWith('openai');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('follows the gauge while a dialog is open', async () => {
+    const user = userEvent.setup();
+    credentials({ openai: { source: 'EnvironmentKey', hasEnvironmentKey: true } });
+    const { rerender } = render(<ProvidersSettings />);
+    await openMenu('OpenAI');
+    await user.click(await screen.findByRole('menuitem', { name: 'Configure…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Configure OpenAI' });
+    expect(within(dialog).getByRole('radio', { name: 'Saved key' })).toHaveAccessibleDescription(
+      "A key Kstack keeps in your system's password store.",
+    );
+
+    // Another window saves a key.
+    credentials({ openai: { source: 'SavedKey', hasSavedKey: true, hasEnvironmentKey: true } });
+    rerender(<ProvidersSettings />);
+    expect(within(dialog).getByRole('radio', { name: 'Saved key' })).toHaveAccessibleDescription(
+      'A key is saved. Saving another replaces it.',
+    );
+  });
+
+  it('keeps the key when the confirm is cancelled', async () => {
+    const user = userEvent.setup();
+    credentials({ openai: { source: 'SavedKey', hasSavedKey: true } });
+    render(<ProvidersSettings />);
+
+    await openMenu('OpenAI');
+    await user.click(await screen.findByRole('menuitem', { name: 'Remove key…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Remove the saved key for OpenAI?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(keys.current.deleteKey).not.toHaveBeenCalled();
+  });
+
+  it('lists a provider the catalog serves beyond the known ones, with nothing to configure', async () => {
+    serve([model('fake', 'Fake', 'echo')]);
+    render(<ProvidersSettings />);
+
+    expect(row('Fake')).toHaveTextContent('Configured');
+    await openMenu('Fake');
+    expect(await screen.findByRole('menuitem', { name: 'Configure…' })).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('draws a keyed provider the catalog serves once', () => {
+    serve([model('gemini', 'Gemini', 'flash')]);
+    render(<ProvidersSettings />);
+    expect(names()).toEqual(ALL);
   });
 
   it('sends a provider only a connector sets up to the Connectors tab', async () => {
@@ -179,14 +275,6 @@ describe('ProvidersSettings', () => {
     expect(selectTab).toHaveBeenCalledExactlyOnceWith('Connectors');
   });
 
-  it('draws a provider the catalog serves once, as configured', () => {
-    serve([model('gemini', 'Gemini', 'flash')]);
-    render(<ProvidersSettings />);
-
-    expect(names()).toEqual(ALL);
-    expect(within(row('Gemini')).getByRole('button', { name: 'Gemini actions' })).toBeInTheDocument();
-  });
-
   it("draws the Google connector's row once, configurable from its connector", async () => {
     const user = userEvent.setup();
     serve([model('google', 'Vertex AI', 'google/gemini-flash')]);
@@ -194,76 +282,51 @@ describe('ProvidersSettings', () => {
 
     expect(names()).toEqual(ALL);
     expect(row('Vertex AI')).toHaveTextContent('Configured');
-    await user.click(screen.getByRole('button', { name: 'Vertex AI actions' }));
+    await openMenu('Vertex AI');
     await user.click(await screen.findByRole('menuitem', { name: 'Configure…' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Configure Vertex AI' });
     expect(within(dialog).getByRole('radio', { name: 'Google connector' })).toBeChecked();
   });
 
-  it('marks each row set up or not with its status dot', () => {
-    serve([model('openai', 'OpenAI', 'gpt')]);
-    render(<ProvidersSettings />);
-
-    const status = (name: string) => row(name).querySelector('[data-slot="status"]');
-    expect(status('OpenAI')).toHaveAttribute('data-set-up', 'true');
-    expect(status('Groq')).toHaveAttribute('data-set-up', 'false');
-    expect(status('OpenAI')).toHaveAttribute('aria-hidden', 'true');
-  });
-
-  it('says a provider the OpenRouter connector serves is connected there, not found in the environment', async () => {
-    const user = userEvent.setup();
-    serve([model('openrouter', 'OpenRouter', 'auto')]);
-    openRouter('Connected');
-    render(<ProvidersSettings />);
-
-    expect(row('OpenRouter')).toHaveTextContent('Connected on the Connectors tab');
-    await user.click(screen.getByRole('button', { name: 'OpenRouter actions' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Configure…' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Configure OpenRouter' });
-    expect(dialog).toHaveTextContent('OPENROUTER_API_KEY is not set.');
-  });
-
-  it("offers the OpenRouter connector in OpenRouter's form", async () => {
+  it("offers the OpenRouter connector in OpenRouter's form, and no Google sign-in in Gemini's", async () => {
     const user = userEvent.setup();
     render(<ProvidersSettings />);
 
     await user.click(within(row('OpenRouter')).getByRole('button', { name: 'Set up' }));
-
-    const dialog = await screen.findByRole('dialog', { name: 'Set up OpenRouter' });
+    let dialog = await screen.findByRole('dialog', { name: 'Set up OpenRouter' });
     expect(within(dialog).getByRole('radio', { name: 'OpenRouter connector' })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    await user.click(within(row('Gemini')).getByRole('button', { name: 'Set up' }));
+    dialog = await screen.findByRole('dialog', { name: 'Set up Gemini' });
+    expect(within(dialog).getByRole('radio', { name: 'Environment variable' })).toBeChecked();
+    expect(within(dialog).queryByRole('radio', { name: 'Google connector' })).toBeNull();
+    expect(dialog).toHaveTextContent('GEMINI_API_KEY is not set.');
   });
 
-  it('draws nothing before the connectors answer', () => {
-    openRouter('Connected', false);
+  it('draws nothing before the gauge answers', () => {
+    credentials({}, false);
     render(<ProvidersSettings />);
-
     expect(screen.queryByRole('list')).toBeNull();
   });
 
   it('draws nothing before the catalog answers', () => {
     serve([], { loaded: false });
     render(<ProvidersSettings />);
-
     expect(screen.queryByRole('list')).toBeNull();
   });
 
-  it("opens a provider's form in a dialog from Set up, which Cancel closes", async () => {
+  it("opens a placeholder's form in a dialog from Set up, which Cancel closes", async () => {
     const user = userEvent.setup();
     render(<ProvidersSettings />);
 
     await user.click(within(row('Amazon Bedrock')).getByRole('button', { name: 'Set up' }));
-    let dialog = await screen.findByRole('dialog', { name: 'Set up Amazon Bedrock' });
+    const dialog = await screen.findByRole('dialog', { name: 'Set up Amazon Bedrock' });
     expect(within(dialog).getByRole('radio', { name: 'AWS connector' })).toBeChecked();
-    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled();
 
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-
-    // The next provider's form starts afresh, on its own first source.
-    await user.click(within(row('Gemini')).getByRole('button', { name: 'Set up' }));
-    dialog = await screen.findByRole('dialog', { name: 'Set up Gemini' });
-    expect(within(dialog).getByRole('radio', { name: 'Environment variable' })).toBeChecked();
-    expect(dialog).toHaveTextContent('GEMINI_API_KEY is not set.');
   });
 });

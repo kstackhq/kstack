@@ -29,9 +29,36 @@ import type {
   OpenRouterActions,
   OpenRouterConnection,
 } from '@/lib/connectors';
+import type { ProviderCredentialState, ProviderCredentialSource } from '@/lib/provider-credentials';
 
-const { state } = vi.hoisted(() => ({ state: { connectors: [] as Connector[], loaded: true } }));
-vi.mock('@/lib/connectors', () => ({ useConnectors: () => ({ connectors: state.connectors, loaded: state.loaded }) }));
+const { state } = vi.hoisted(() => {
+  const shared: {
+    connectors: Connector[];
+    loaded: boolean;
+    keysLoaded: boolean;
+    openRouterSource: ProviderCredentialSource;
+    openRouterFailure: ProviderCredentialState['failure'];
+  } = { connectors: [], loaded: true, keysLoaded: true, openRouterSource: 'None', openRouterFailure: null };
+  return { state: shared };
+});
+vi.mock('@/lib/connectors', () => ({
+  GOOGLE_ID: 'google',
+  OPENROUTER_ID: 'openrouter',
+  useConnectors: () => ({ connectors: state.connectors, loaded: state.loaded }),
+}));
+vi.mock('@/lib/provider-credentials', () => ({
+  useProviderCredentials: () => ({
+    loaded: state.keysLoaded,
+    credentials: [
+      {
+        id: 'openrouter',
+        keyVariable: 'OPENROUTER_API_KEY',
+        source: state.openRouterSource,
+        failure: state.openRouterFailure,
+      },
+    ],
+  }),
+}));
 
 const { ConnectorsSettings } = await import('./connectors');
 
@@ -42,6 +69,9 @@ function connector(name: string, connected: boolean, rest: Partial<Connector> = 
 beforeEach(() => {
   state.connectors = [connector('GitHub', true), connector('Google', false)];
   state.loaded = true;
+  state.keysLoaded = true;
+  state.openRouterSource = 'None';
+  state.openRouterFailure = null;
   localStorage.clear();
   sessionStorage.clear();
 });
@@ -459,12 +489,39 @@ describe('the OpenRouter row', () => {
     });
   });
 
-  it('offers Connect while signed out', () => {
+  it.each([
+    ['SavedKey', 'Using a saved key'],
+    ['EnvironmentKey', 'Using OPENROUTER_API_KEY'],
+    ['None', 'Many providers on one account'],
+  ] as const)('names the key that signs while signed out (%s), and offers Connect', (source, text) => {
+    state.openRouterSource = source;
     state.connectors = [openRouter({ phase: 'SignedOut' })];
     render(<ConnectorsSettings />);
 
-    expect(row()).toHaveTextContent('Many providers on one account');
+    expect(row()).toHaveTextContent(text);
     expect(within(row()).getByRole('button', { name: 'Connect' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['SavedKey', 'KeyRejected', 'The saved key was rejected. Replace or remove it.'],
+    ['EnvironmentKey', 'KeyRejected', 'OPENROUTER_API_KEY was rejected.'],
+    ['None', 'NotDeleted', 'Kstack could not remove the saved key. It returns after a restart.'],
+  ] as const)('says what is wrong with the key that signs while signed out (%s, %s)', (source, failure, text) => {
+    state.openRouterSource = source;
+    state.openRouterFailure = failure;
+    state.connectors = [openRouter({ phase: 'SignedOut' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent(text);
+  });
+
+  it('draws nothing before the credentials load, so the detail never flips', () => {
+    state.keysLoaded = false;
+    state.openRouterSource = 'SavedKey';
+    state.connectors = [openRouter({ phase: 'SignedOut' })];
+    const { container } = render(<ConnectorsSettings />);
+
+    expect(container).toBeEmptyDOMElement();
   });
 
   it.each([
