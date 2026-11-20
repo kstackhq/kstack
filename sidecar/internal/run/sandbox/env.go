@@ -34,6 +34,7 @@ type EnvRule struct {
 // AZURE_CONFIG_DIR, where az keeps its login, is the one a run may hold.
 var neverEnv = []EnvRule{
 	{Name: "SSH_AUTH_SOCK"}, {Name: "GITHUB_TOKEN"}, {Name: "GH_TOKEN"}, {Name: "DOCKER_HOST"},
+	{Name: "GITHUB_ENTERPRISE_TOKEN"}, {Name: "GH_ENTERPRISE_TOKEN"},
 	{Name: "DYLD_LIBRARY_PATH"}, {Name: "DYLD_INSERT_LIBRARIES"}, {Name: "DYLD_FRAMEWORK_PATH"},
 	{Name: "LD_LIBRARY_PATH"}, {Name: "LD_PRELOAD"}, {Name: "LD_AUDIT"},
 	{Name: "BASH_ENV"}, {Name: "ENV"}, {Name: "PROMPT_COMMAND"},

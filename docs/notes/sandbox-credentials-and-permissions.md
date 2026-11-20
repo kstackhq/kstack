@@ -178,7 +178,8 @@ app's launch environment. Pass through only: `PATH` (the resolved and filtered l
 `TMPDIR` (workspace), `KUBECONFIG` (the generated proxy kubeconfig),
 `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`, `TERM`, `LANG`, `TZ`, and the `*_HOME` redirects above.
 
-Must never pass through: `SSH_AUTH_SOCK`, `GITHUB_TOKEN`, `GH_TOKEN`, `AWS_PROFILE`, any `AWS_*`
+Must never pass through: `SSH_AUTH_SOCK`, `GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`,
+`GH_ENTERPRISE_TOKEN`, `AWS_PROFILE`, any `AWS_*`
 credential variable, `DOCKER_HOST`, `DYLD_LIBRARY_PATH`, `DYLD_INSERT_LIBRARIES`,
 `LD_LIBRARY_PATH`, `LD_PRELOAD`. The last four let the dynamic loader pull code from any readable
 path; cover them with a test so a later passthrough cannot reintroduce them.
@@ -585,7 +586,7 @@ given what had already landed when the design was adopted.
       has granted `~` or a parent directory.
 - [ ] No process in the sandbox can open an outbound socket to a non-loopback address.
 - [ ] The sandbox environment contains none of: `SSH_AUTH_SOCK`, `GITHUB_TOKEN`, `GH_TOKEN`,
-      `AWS_PROFILE`, real `AWS_*` credentials, `DOCKER_HOST`, `DYLD_*`, `LD_LIBRARY_PATH`,
+      `GITHUB_ENTERPRISE_TOKEN`, `GH_ENTERPRISE_TOKEN`, `AWS_PROFILE`, real `AWS_*` credentials, `DOCKER_HOST`, `DYLD_*`, `LD_LIBRARY_PATH`,
       `LD_PRELOAD`.
 - [ ] The generated kubeconfig contains no certificate data, token or exec plugin from the real
       kubeconfig.
