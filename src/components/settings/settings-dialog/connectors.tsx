@@ -314,7 +314,7 @@ function openRouterDetail(
       const failed = credential && keyFailureText(credential);
       if (failed) return failed;
       if (credential?.source === 'SavedKey') return 'Using a saved key';
-      if (credential?.source === 'EnvironmentKey') {
+      if (credential?.source === 'EnvironmentKey' && credential.keyVariable !== null) {
         return (
           <>
             Using{' '}

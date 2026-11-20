@@ -969,7 +969,7 @@ type Model {
 }
 
 # --- Provider credentials ---
-# Where each keyed provider's credential comes from. A key typed into the Providers pane is
+# Where each provider's credential comes from. A key typed into the Providers pane is
 # saved in the OS keyring; no key ever leaves the sidecar.
 
 "Which credential signs a provider's requests. The highest one present does: Connector, then SavedKey, then EnvironmentKey."
@@ -991,13 +991,13 @@ enum ProviderKeyFailure {
   KeyRejected
 }
 
-"A provider whose key can be set, and where its credential comes from. No key is ever here."
+"A provider and where its credential comes from. No key is ever here."
 type ProviderCredentialState {
   "The provider's id, as Provider.id."
   id: String!
   label: String!
-  "The environment variable its key is read from."
-  keyVariable: String!
+  "The environment variable its key is read from. Null for a provider that takes no key: only its connector signs it."
+  keyVariable: String
   source: ProviderCredentialSource!
   "Whether the launch held the key variable."
   hasEnvironmentKey: Boolean!
@@ -2292,7 +2292,7 @@ type Query {
   models: [Model!]!
 
   # --- Provider credentials ---
-  "Every provider whose key can be set, in picker order; live updates via providerCredentialsWatch."
+  "Every provider, in picker order; live updates via providerCredentialsWatch."
   providerCredentials: [ProviderCredentialState!]!
 
   # --- Sandbox ---
@@ -2384,9 +2384,9 @@ type Query {
 
 type Mutation {
   # --- Provider credentials ---
-  "Save a provider's API key in the OS keyring, replacing any saved one. Always true when it does not error. It signs the provider's requests from the next one, unless its connector is connected. The key is not checked against the provider. Never returns the key. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider and for a key that, once trimmed of surrounding whitespace, is under 16 or over 512 bytes or holds a space or anything but printable ASCII; KSTACK_PROVIDER_KEY_NOT_SAVED when the keyring refused, and nothing changed."
+  "Save a provider's API key in the OS keyring, replacing any saved one. Always true when it does not error. It signs the provider's requests from the next one, unless its connector is connected. The key is not checked against the provider. Never returns the key. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider, for one that takes no key, and for a key that, once trimmed of surrounding whitespace, is under 16 or over 512 bytes or holds a space or anything but printable ASCII; KSTACK_PROVIDER_KEY_NOT_SAVED when the keyring refused, and nothing changed."
   providerKeySave(providerID: String!, key: String!): Boolean!
-  "Delete a provider's saved key. Always true when it does not error, including when none was saved; an entry a newer Kstack wrote is left in the keyring. KSTACK_PROVIDER_KEY_NOT_DELETED when the keyring refused: the key is out of use, returns after a restart, and calling again retries. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider."
+  "Delete a provider's saved key. Always true when it does not error, including when none was saved; an entry a newer Kstack wrote is left in the keyring. KSTACK_PROVIDER_KEY_NOT_DELETED when the keyring refused: the key is out of use, returns after a restart, and calling again retries. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider and for one that takes no key."
   providerKeyDelete(providerID: String!): Boolean!
 
   # --- Cluster ---
@@ -2673,6 +2673,6 @@ type Subscription {
   modelsWatch: [Model!]!
 
   # --- Provider credentials ---
-  "GAUGE. Every provider whose key can be set: the latest list after each change, so changes close together arrive as one."
+  "GAUGE. Every provider: the latest list after each change, so changes close together arrive as one."
   providerCredentialsWatch: [ProviderCredentialState!]!
 }

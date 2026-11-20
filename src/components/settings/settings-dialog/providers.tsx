@@ -45,7 +45,7 @@ type Provider = {
   id: string;
   label: string;
   sources: CredentialSource[];
-  /** A keyed provider's credential, from the gauge. */
+  /** The provider's credential, from the gauge. */
   credential?: ProviderCredentialState;
   /** What a provider with no key lacks until it is set up. */
   missing?: string;
@@ -54,42 +54,42 @@ type Provider = {
 
 type Entry = Omit<Provider, 'configured'>;
 
-// The providers with no key: placeholders but for the Google connector's row.
 // Placeholder: Bedrock, Foundry and Ollama await the LLM rebuild.
 const PROVIDERS: Entry[] = [
   { id: 'bedrock', label: 'Amazon Bedrock', sources: ['aws-connector', 'access-key'], missing: 'Needs credentials' },
-  { id: GOOGLE_ID, label: 'Vertex AI', sources: ['google-connector'], missing: 'Needs a Google connector' },
   { id: 'foundry', label: 'Microsoft Foundry', sources: ['azure-connector', 'api-key'], missing: 'Needs credentials' },
   { id: 'ollama', label: 'Ollama', sources: ['host'], missing: 'No host set' },
 ];
 
-// The connector that signs a keyed provider's own endpoint, by id.
-const KEYED_CONNECTORS: Record<string, CredentialSource> = {
-  openai: 'chatgpt-connector',
+// The connector that signs a provider's own endpoint, by id.
+const CONNECTORS: Record<string, CredentialSource> = {
+  chatgpt: 'chatgpt-connector',
+  [GOOGLE_ID]: 'google-connector',
   [OPENROUTER_ID]: 'openrouter-connector',
 };
 
-// Every provider, by name: the keyed providers from the gauge, then PROVIDERS, set
-// up while the catalog serves them, then any other provider the catalog
-// serves, with no sources.
+// Every provider, by name: those from the gauge, then PROVIDERS, set up while
+// the catalog serves them, then any other provider the catalog serves, with no
+// sources.
 function providersFrom(models: Catalog['models'], credentials: ProviderCredentialState[]): Provider[] {
   const served = providersOf(models);
-  const keyed = credentials.map((c): Provider => {
-    const connector = KEYED_CONNECTORS[c.id];
+  const gauged = credentials.map((c): Provider => {
+    const keys: CredentialSource[] = c.keyVariable === null ? [] : ['environment', 'api-key'];
+    const connector = CONNECTORS[c.id];
     return {
       id: c.id,
       label: c.label,
-      sources: connector ? ['environment', 'api-key', connector] : ['environment', 'api-key'],
+      sources: connector ? [...keys, connector] : keys,
       credential: c,
       configured: c.source !== 'None',
     };
   });
   const others = PROVIDERS.map((p) => ({ ...p, configured: served.some((s) => s.id === p.id) }));
-  const known = new Set([...keyed, ...others].map((p) => p.id));
+  const known = new Set([...gauged, ...others].map((p) => p.id));
   const unknown = served
     .filter((s) => !known.has(s.id))
     .map(({ id, label }) => ({ id, label, sources: [], configured: true }));
-  return [...keyed, ...others, ...unknown].toSorted((a, b) => a.label.localeCompare(b.label));
+  return [...gauged, ...others, ...unknown].toSorted((a, b) => a.label.localeCompare(b.label));
 }
 
 export function ProvidersSettings() {
@@ -142,7 +142,7 @@ function ProviderList({ catalog: { models, loaded }, keys }: { catalog: Catalog;
             key={target.id}
             sources={target.sources}
             credential={target.credential}
-            onSaveKey={target.credential ? (key) => keys.saveKey(target.id, key) : undefined}
+            onSaveKey={target.credential?.keyVariable ? (key) => keys.saveKey(target.id, key) : undefined}
             onClose={close}
           />
         </Dialog>
@@ -174,7 +174,10 @@ function ProviderRow({
   onRemoveKey: () => void;
 }) {
   const { label, configured, sources, credential } = provider;
-  const removable = credential !== undefined && (credential.hasSavedKey || credential.failure === 'NotDeleted');
+  const removable =
+    credential !== undefined &&
+    credential.keyVariable !== null &&
+    (credential.hasSavedKey || credential.failure === 'NotDeleted');
   return (
     <li className="flex items-center gap-3 px-4 py-2.5">
       {/* Filled when set up, a ring when not: shape as well as color, and the detail says it in words. */}
@@ -210,6 +213,8 @@ function ProviderRow({
 
 /** What is wrong with a credential's key, in words; undefined when nothing is. */
 export function keyFailureText({ failure, source, keyVariable }: ProviderCredentialState): ReactNode {
+  // A failure is a key's, so a provider that takes none has none.
+  if (keyVariable === null) return undefined;
   switch (failure) {
     case 'NotDeleted':
       return 'Kstack could not remove the saved key. It returns after a restart.';
@@ -231,6 +236,9 @@ export function keyFailureText({ failure, source, keyVariable }: ProviderCredent
 
 function Detail({ provider: { configured, credential, missing } }: { provider: Provider }) {
   if (!credential) return configured ? 'Configured' : missing;
+  if (credential.keyVariable === null) {
+    return credential.source === 'Connector' ? 'Connected on the Connectors tab' : 'Not connected';
+  }
   const keyVariable = <VisibleText text={credential.keyVariable} />;
   const failed = keyFailureText(credential);
   if (failed) return failed;
@@ -311,7 +319,7 @@ function RemoveKeyDialog({
   let follows;
   if (credential.source === 'Connector') {
     follows = <>{label} stays connected on the Connectors tab.</>;
-  } else if (credential.hasEnvironmentKey) {
+  } else if (credential.hasEnvironmentKey && credential.keyVariable !== null) {
     follows = (
       <>
         Kstack will use{' '}

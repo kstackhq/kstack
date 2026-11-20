@@ -818,7 +818,7 @@ type ComplexityRoot struct {
 		HasEnvironmentKey func(childComplexity int) int
 		HasSavedKey       func(childComplexity int) int
 		ID                func(childComplexity int) int
-		KeyVar            func(childComplexity int) int
+		KeyVariable       func(childComplexity int) int
 		Label             func(childComplexity int) int
 		Source            func(childComplexity int) int
 	}
@@ -1143,6 +1143,8 @@ type OpenRouterConnectionResolver interface {
 	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
 }
 type ProviderCredentialStateResolver interface {
+	KeyVariable(ctx context.Context, obj *providercredentials.State) (*string, error)
+
 	Failure(ctx context.Context, obj *providercredentials.State) (*providercredentials.Failure, error)
 }
 type QueryResolver interface {
@@ -4408,11 +4410,11 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ProviderCredentialState.ID(childComplexity), true
 	case "ProviderCredentialState.keyVariable":
-		if e.ComplexityRoot.ProviderCredentialState.KeyVar == nil {
+		if e.ComplexityRoot.ProviderCredentialState.KeyVariable == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ProviderCredentialState.KeyVar(childComplexity), true
+		return e.ComplexityRoot.ProviderCredentialState.KeyVariable(childComplexity), true
 	case "ProviderCredentialState.label":
 		if e.ComplexityRoot.ProviderCredentialState.Label == nil {
 			break
@@ -21193,18 +21195,18 @@ func (ec *executionContext) _ProviderCredentialState_keyVariable(ctx context.Con
 			return ec.fieldContext_ProviderCredentialState_keyVariable(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return obj.KeyVar, nil
+			return ec.Resolvers.ProviderCredentialState().KeyVariable(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
 		},
 		true,
-		true,
+		false,
 	)
 }
 func (ec *executionContext) fieldContext_ProviderCredentialState_keyVariable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "String")
+	return graphql.NewScalarFieldContext("ProviderCredentialState", field, true, true, "String")
 }
 
 func (ec *executionContext) _ProviderCredentialState_source(ctx context.Context, field graphql.CollectedField, obj *providercredentials.State) (ret graphql.Marshaler) {
@@ -32335,10 +32337,11 @@ func (ec *executionContext) _ProviderCredentialState(ctx context.Context, sel as
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "keyVariable":
-			out.Values[i] = ec._ProviderCredentialState_keyVariable(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._ProviderCredentialState_keyVariable(ctx, field, obj)
+				})
 		case "source":
 			out.Values[i] = ec._ProviderCredentialState_source(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

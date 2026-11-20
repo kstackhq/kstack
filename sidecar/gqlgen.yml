@@ -726,7 +726,7 @@ models:
     model: github.com/kstackhq/kstack/sidecar/internal/services/providercredentials.State
     fields:
       keyVariable:
-        fieldName: KeyVar
+        resolver: true
       failure:
         resolver: true
   ProviderCredentialSource:

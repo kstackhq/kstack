@@ -178,7 +178,7 @@ function SourceOption({ source, credential }: { source: CredentialSource; creden
 // A source's note, from what the sidecar holds. It reads the key variable from
 // its launch environment or the login shell, once, at start.
 function SourceNote({ source, credential }: { source: CredentialSource; credential?: ProviderCredentialState }) {
-  if (source === 'environment' && credential) {
+  if (source === 'environment' && credential && credential.keyVariable !== null) {
     const name = (
       <code>
         <VisibleText text={credential.keyVariable} />

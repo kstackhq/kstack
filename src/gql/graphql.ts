@@ -937,7 +937,7 @@ export type PermissionDiscardRefusedMutation = { permissionDiscardRefused: { hel
 export type ProviderCredentialsWatchSubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 
-export type ProviderCredentialsWatchSubscription = { providerCredentialsWatch: Array<{ id: string, label: string, keyVariable: string, source: ProviderCredentialSource, hasEnvironmentKey: boolean, hasSavedKey: boolean, failure: ProviderKeyFailure | null }> };
+export type ProviderCredentialsWatchSubscription = { providerCredentialsWatch: Array<{ id: string, label: string, keyVariable: string | null, source: ProviderCredentialSource, hasEnvironmentKey: boolean, hasSavedKey: boolean, failure: ProviderKeyFailure | null }> };
 
 export type ProviderKeySaveMutationVariables = Exact<{
   providerID: string;

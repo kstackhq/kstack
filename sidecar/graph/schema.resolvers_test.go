@@ -4363,7 +4363,7 @@ func providerCredentialsServer(t *testing.T, k *oskeyringtest.Keyring) (*httptes
 }
 
 // The query lists every provider with where its credential comes from, and no
-// key.
+// key. One that takes no key has no key variable.
 func TestProviderCredentialsProjectTheState(t *testing.T) {
 	srv, _ := providerCredentialsServer(t, oskeyringtest.New())
 
@@ -4375,6 +4375,10 @@ func TestProviderCredentialsProjectTheState(t *testing.T) {
 		"id": "anthropic", "label": "Anthropic", "keyVariable": "ANTHROPIC_API_KEY",
 		"source": "EnvironmentKey", "hasEnvironmentKey": true, "hasSavedKey": false, "failure": nil,
 	}, rows[0])
+	assert.Equal(t, map[string]any{
+		"id": "chatgpt", "label": "ChatGPT plan", "keyVariable": nil,
+		"source": "None", "hasEnvironmentKey": false, "hasSavedKey": false, "failure": nil,
+	}, rows[len(rows)-1])
 }
 
 // A save and a delete drive the service; the watch is a gauge that follows

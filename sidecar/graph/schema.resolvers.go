@@ -730,6 +730,14 @@ func (r *openRouterConnectionResolver) Failure(ctx context.Context, obj *connect
 	return &obj.Failure, nil
 }
 
+// KeyVariable is the resolver for the keyVariable field.
+func (r *providerCredentialStateResolver) KeyVariable(ctx context.Context, obj *providercredentials.State) (*string, error) {
+	if obj.KeyVar == "" {
+		return nil, nil
+	}
+	return &obj.KeyVar, nil
+}
+
 // Failure is the resolver for the failure field.
 func (r *providerCredentialStateResolver) Failure(ctx context.Context, obj *providercredentials.State) (*providercredentials.Failure, error) {
 	if obj.Failure == "" {

@@ -30,7 +30,7 @@ vi.mock('@/lib/models', async (importOriginal) => ({
 vi.mock('@/lib/provider-credentials', () => ({ useProviderCredentials: () => keys.current }));
 
 const { SelectSettingsTab } = await import('@/lib/settings-tab');
-const { ProvidersSettings } = await import('./providers');
+const { keyFailureText, ProvidersSettings } = await import('./providers');
 
 function model(providerID: string, label: string, id: string): Model {
   return { provider: { id: providerID, label }, id, label: id, efforts: [], defaultEffort: '' };
@@ -40,8 +40,9 @@ function serve(models: Model[], state: Partial<Catalog> = {}) {
   catalog.current = { models, loaded: true, ...state };
 }
 
-// The keyed providers, as the sidecar lists them, each with no credential.
-const KEYED: [string, string, string][] = [
+// Every provider, as the sidecar lists them, each with no credential. The last
+// two take no key: only their connectors sign them.
+const GAUGE: [string, string, string | null][] = [
   ['anthropic', 'Anthropic', 'ANTHROPIC_API_KEY'],
   ['openai', 'OpenAI', 'OPENAI_API_KEY'],
   ['gemini', 'Gemini', 'GEMINI_API_KEY'],
@@ -53,13 +54,20 @@ const KEYED: [string, string, string][] = [
   ['together', 'Together', 'TOGETHER_API_KEY'],
   ['fireworks', 'Fireworks', 'FIREWORKS_API_KEY'],
   ['opencode-go', 'OpenCode Go', 'OPENCODE_GO_API_KEY'],
+  ['chatgpt', 'ChatGPT plan', null],
+  ['google', 'Vertex AI', null],
 ];
 
-// Serves the gauge: every keyed provider with no credential, but for changes, by id.
-function credentials(changes: Record<string, Partial<ProviderCredentialState>> = {}, loaded = true) {
+// Serves the gauge: every provider with no credential, but for changes, by id,
+// and less the ids in omit.
+function credentials(
+  changes: Record<string, Partial<ProviderCredentialState>> = {},
+  loaded = true,
+  omit: string[] = [],
+) {
   keys.current = {
     loaded,
-    credentials: KEYED.map(([id, label, keyVariable]) => ({
+    credentials: GAUGE.filter(([id]) => !omit.includes(id)).map(([id, label, keyVariable]) => ({
       id,
       label,
       keyVariable,
@@ -83,6 +91,7 @@ const row = (name: string) => within(list()).getByText(name).closest('li')!;
 const ALL = [
   'Amazon Bedrock',
   'Anthropic',
+  'ChatGPT plan',
   'DeepSeek',
   'Fireworks',
   'Gemini',
@@ -101,10 +110,14 @@ const ALL = [
 // What each provider with no key variable lacks.
 const MISSING: Record<string, string> = {
   'Amazon Bedrock': 'Needs credentials',
-  'Vertex AI': 'Needs a Google connector',
+  'ChatGPT plan': 'Not connected',
+  'Vertex AI': 'Not connected',
   'Microsoft Foundry': 'Needs credentials',
   Ollama: 'No host set',
 };
+
+// The providers only a connector sets up.
+const CONNECTOR_ONLY = ['ChatGPT plan', 'Vertex AI'];
 
 async function openMenu(name: string) {
   await userEvent.setup().click(screen.getByRole('button', { name: `${name} actions` }));
@@ -123,9 +136,10 @@ describe('ProvidersSettings', () => {
       screen.getByText("Configure your chats' models. Enable model providers with connectors or API keys."),
     ).toBeInTheDocument();
     expect(names()).toEqual(ALL);
-    for (const name of ALL.filter((n) => n !== 'Vertex AI')) {
+    for (const name of ALL) {
       expect(row(name)).toHaveTextContent(MISSING[name] ?? 'No API key found');
-      expect(within(row(name)).getByRole('button', { name: 'Set up' })).toBeInTheDocument();
+      const action = CONNECTOR_ONLY.includes(name) ? 'Connect' : 'Set up';
+      expect(within(row(name)).getByRole('button', { name: action })).toBeInTheDocument();
     }
   });
 
@@ -177,7 +191,8 @@ describe('ProvidersSettings', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Configure…' }));
     const dialog = await screen.findByRole('dialog', { name: 'Configure OpenAI' });
     expect(within(dialog).getByRole('radio', { name: 'Saved key' })).toBeChecked();
-    expect(within(dialog).getByRole('radio', { name: 'ChatGPT connector' })).toBeInTheDocument();
+    // Connecting ChatGPT never sets up the openai provider.
+    expect(within(dialog).queryByRole('radio', { name: 'ChatGPT connector' })).toBeNull();
 
     await user.type(within(dialog).getByLabelText('API key', { selector: 'input' }), 'sk-new-0123456789abcdef');
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
@@ -258,7 +273,7 @@ describe('ProvidersSettings', () => {
     expect(names()).toEqual(ALL);
   });
 
-  it('sends a provider only a connector sets up to the Connectors tab', async () => {
+  it.each(CONNECTOR_ONLY)('sends %s, which only a connector sets up, to the Connectors tab', async (name) => {
     const user = userEvent.setup();
     const selectTab = vi.fn();
     render(
@@ -267,26 +282,51 @@ describe('ProvidersSettings', () => {
       </SelectSettingsTab>,
     );
 
-    const vertex = row('Vertex AI');
-    expect(vertex).toHaveTextContent('Needs a Google connector');
-    expect(within(vertex).queryByRole('button', { name: 'Set up' })).toBeNull();
-    await user.click(within(vertex).getByRole('button', { name: 'Connect' }));
+    const r = row(name);
+    expect(r).toHaveTextContent('Not connected');
+    expect(within(r).queryByRole('button', { name: 'Set up' })).toBeNull();
+    await user.click(within(r).getByRole('button', { name: 'Connect' }));
 
     expect(selectTab).toHaveBeenCalledExactlyOnceWith('Connectors');
   });
 
-  it("draws the Google connector's row once, configurable from its connector", async () => {
+  it.each([
+    ['google', 'Vertex AI', 'Google connector'],
+    ['chatgpt', 'ChatGPT plan', 'ChatGPT connector'],
+  ])("draws %s's connected row from the gauge, with no key to set or remove", async (id, name, connector) => {
     const user = userEvent.setup();
-    serve([model('google', 'Vertex AI', 'google/gemini-flash')]);
+    credentials({ [id]: { source: 'Connector' } });
     render(<ProvidersSettings />);
 
     expect(names()).toEqual(ALL);
-    expect(row('Vertex AI')).toHaveTextContent('Configured');
-    await openMenu('Vertex AI');
+    expect(row(name)).toHaveTextContent('Connected on the Connectors tab');
+    await openMenu(name);
+    expect(screen.queryByRole('menuitem', { name: 'Remove key…' })).toBeNull();
     await user.click(await screen.findByRole('menuitem', { name: 'Configure…' }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Configure Vertex AI' });
-    expect(within(dialog).getByRole('radio', { name: 'Google connector' })).toBeChecked();
+    const dialog = await screen.findByRole('dialog', { name: `Configure ${name}` });
+    expect(within(dialog).getAllByRole('radio')).toHaveLength(1);
+    expect(within(dialog).getByRole('radio', { name: connector })).toBeChecked();
+    expect(within(dialog).queryByLabelText('API key', { selector: 'input' })).toBeNull();
+  });
+
+  it('reads no key failure on a provider that takes no key', () => {
+    const plan: ProviderCredentialState = {
+      id: 'chatgpt',
+      label: 'ChatGPT plan',
+      keyVariable: null,
+      source: 'None',
+      hasEnvironmentKey: false,
+      hasSavedKey: false,
+      failure: 'KeyRejected',
+    };
+    expect(keyFailureText(plan)).toBeUndefined();
+  });
+
+  it('draws no Vertex AI row when the gauge has none', () => {
+    credentials({}, true, ['google']);
+    render(<ProvidersSettings />);
+    expect(names()).toEqual(ALL.filter((n) => n !== 'Vertex AI'));
   });
 
   it("offers the OpenRouter connector in OpenRouter's form, and no Google sign-in in Gemini's", async () => {
