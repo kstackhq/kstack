@@ -92,7 +92,8 @@ func Gate(k Keyring, pace Pace) Keyring
 ```
 
 `oskeyring.New(service)` returns the OS keyring behind `Gate(…, DefaultPace)`. A fake has none
-unless a test wraps it.
+unless a test wraps it. `Opened(k) error` waits for `k`'s opening and answers its error, nil for a
+keyring with no gate.
 
 **The gate opens the keyring with a probe: a `Get` of `keyring-probe`, an account nothing ever
 writes.** Its answer can only be about the keyring, never about an entry, so one service's bad
