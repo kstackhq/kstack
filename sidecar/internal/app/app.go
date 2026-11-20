@@ -116,9 +116,9 @@ type Config struct {
 	fake *llm.Fake
 	// cloudPlatforms, when a test sets them, stand in place of the build's.
 	cloudPlatforms []bash.CloudPlatform
-	// keyring, when a test sets it, holds the saved provider keys in place of
-	// the OS keyring.
-	keyring oskeyring.Keyring
+	// Keyring stands in for the OS keyring in every service; nil is the OS
+	// keyring under KeychainService. A test sets it, so no test asks the real one.
+	Keyring oskeyring.Keyring
 	// HostPID is the host's process, which a command's kill is refused against;
 	// 0 when the sidecar was not told it.
 	HostPID int

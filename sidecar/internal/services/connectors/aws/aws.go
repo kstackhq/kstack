@@ -66,8 +66,8 @@ const (
 
 // Config is the service's production knobs.
 type Config struct {
-	// KeychainService is the OS-keyring service the session is kept under.
-	KeychainService string
+	// Keyring is the OS keyring the session is kept in.
+	Keyring oskeyring.Keyring
 	// SigninURL is SigninURL unless a debug build moved it.
 	SigninURL string
 }
@@ -153,8 +153,6 @@ func accountOf(principal string) (string, error) {
 // option is an unexported build seam, so only in-package tests pass one.
 type option func(*Service)
 
-func withKeyring(k oskeyring.Keyring) option { return func(s *Service) { s.keyring = k } }
-
 func withBrowser(open func(string) error) option { return func(s *Service) { s.open = open } }
 
 func withHTTPClient(c *http.Client) option { return func(s *Service) { s.httpClient = c } }
@@ -178,7 +176,7 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 	ctx, stop := context.WithCancel(context.Background())
 	s := &Service{
 		signin:         signin,
-		keyring:        oskeyring.New(cfg.KeychainService),
+		keyring:        cfg.Keyring,
 		open:           browser.Open,
 		httpClient:     llm.NoRedirectClient,
 		now:            time.Now,

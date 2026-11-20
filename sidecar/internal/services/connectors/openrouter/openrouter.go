@@ -58,8 +58,8 @@ const (
 
 // Config is the service's production knobs.
 type Config struct {
-	// KeychainService is the OS-keyring service the key is kept under.
-	KeychainService string
+	// Keyring is the OS keyring the key is kept in.
+	Keyring oskeyring.Keyring
 	// AuthURL is OpenRouter's origin, AuthURL unless a debug build moved it.
 	AuthURL string
 	// APIBaseURL is APIBaseURL unless a debug build moved it.
@@ -102,8 +102,6 @@ type Service struct {
 // option is an unexported build seam, so only in-package tests pass one.
 type option func(*Service)
 
-func withKeyring(k oskeyring.Keyring) option { return func(s *Service) { s.keyring = k } }
-
 func withBrowser(open func(string) error) option { return func(s *Service) { s.open = open } }
 
 func withAttemptTimeout(d time.Duration) option { return func(s *Service) { s.attemptTimeout = d } }
@@ -130,7 +128,7 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 	s := &Service{
 		auth:           auth,
 		base:           base,
-		keyring:        oskeyring.New(cfg.KeychainService),
+		keyring:        cfg.Keyring,
 		open:           browser.Open,
 		attemptTimeout: attemptTimeout,
 		issuerTimeout:  issuerTimeout,

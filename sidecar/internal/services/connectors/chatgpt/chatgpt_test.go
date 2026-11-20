@@ -25,15 +25,15 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
-// newService is a signed-out connector over a fresh app.db, under a keychain
-// service no real entry is kept under.
+// newService is a signed-out connector over a fresh app.db and an empty keyring.
 func newService(t *testing.T, apiBaseURL string) *Service {
 	t.Helper()
-	s, err := New(Config{DB: appdbtest.Open(t), KeychainService: "kstack-test-chatgpt", Issuer: Issuer, APIBaseURL: apiBaseURL})
+	s, err := New(Config{DB: appdbtest.Open(t), Keyring: oskeyringtest.New(), Issuer: Issuer, APIBaseURL: apiBaseURL})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 	return s

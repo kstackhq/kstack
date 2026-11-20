@@ -355,7 +355,7 @@ func newRig(t *testing.T, opts ...option) *rig {
 }
 
 func (r *rig) config() Config {
-	return Config{ClientID: r.clientID, AuthURL: r.github.authURL(), APIURL: r.github.apiURL()}
+	return Config{ClientID: r.clientID, AuthURL: r.github.authURL(), APIURL: r.github.apiURL(), Keyring: r.keyring}
 }
 
 func (r *rig) pace(seconds int) time.Duration {
@@ -376,7 +376,7 @@ func (r *rig) paced() []int {
 func (r *rig) build() *Service {
 	r.t.Helper()
 	opts := append([]option{
-		withKeyring(r.keyring), withBrowser(r.browser.open), withPace(r.pace),
+		withBrowser(r.browser.open), withPace(r.pace),
 		withCheckEnded(func() { r.checkEnded.Fire(struct{}{}) }),
 		withAttemptEnded(func() { r.attemptEnded.Fire(struct{}{}) }),
 	}, r.opts...)

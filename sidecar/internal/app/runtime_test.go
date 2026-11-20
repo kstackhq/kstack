@@ -14,6 +14,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
@@ -338,4 +339,25 @@ func TestABadKeyedBaseFailsTheBuild(t *testing.T) {
 	_, err := build(t.Context(), withDirs(t, Config{LLMBaseURLs: map[string]string{"groq": "localhost:8080"}}))
 
 	assert.ErrorContains(t, err, "groq")
+}
+
+// Every service reads its restored entry from the one keyring build makes.
+func TestEveryServiceReadsTheOneKeyring(t *testing.T) {
+	k := oskeyringtest.New()
+	a, err := New(t.Context(), withDirs(t, Config{Keyring: k}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+
+	read := map[string]bool{}
+	for _, c := range k.Calls() {
+		if c.Kind == oskeyringtest.Get {
+			read[c.Account] = true
+		}
+	}
+	for _, account := range []string{
+		"kstack-cloud-refresh-token", "chatgpt-refresh-token", "google-refresh-token",
+		"openrouter-api-key", "github-token", "aws-session", "openrouter-saved-api-key",
+	} {
+		assert.True(t, read[account], "%s is read from the one keyring", account)
+	}
 }

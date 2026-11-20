@@ -26,18 +26,21 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/filelock"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // runArgs parses a command line the way main does, so a run test still starts
 // from arguments even though run itself takes a parsed config — over an empty
-// environment, so nothing of the shell's reaches the sidecar it starts.
+// environment, so nothing of the shell's reaches the sidecar it starts, and over
+// a fake keyring, so it never asks the machine's.
 func runArgs(t *testing.T, args ...string) config {
 	t.Helper()
 	cfg, err := configFromArgs(args, noEnv.get)
 	if err != nil {
 		t.Fatalf("configFromArgs(%v): %v", args, err)
 	}
+	cfg.App.Keyring = oskeyringtest.New()
 	return cfg
 }
 

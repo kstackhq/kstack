@@ -25,18 +25,18 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
 const testBase = "https://aiplatform.googleapis.com/v1/projects/my-project/locations/global/endpoints/openapi"
 
-// newService is a signed-out connector over a fresh app.db, under a keychain
-// service no real entry is kept under.
+// newService is a signed-out connector over a fresh app.db and an empty keyring.
 func newService(t *testing.T, cfg Config) *Service {
 	t.Helper()
 	cfg.DB = appdbtest.Open(t)
-	cfg.KeychainService = "kstack-test-google"
+	cfg.Keyring = oskeyringtest.New()
 	s, err := New(cfg)
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
@@ -92,7 +92,7 @@ func TestConnectWithNoClientIsRefused(t *testing.T) {
 func TestConnectWithAClientRunsTheEngine(t *testing.T) {
 	db, err := appdb.Open(filepath.Join(t.TempDir(), "app.db"), 0)
 	require.NoError(t, err)
-	s, err := New(Config{DB: db, KeychainService: "kstack-test-google", ClientID: "client", APIBaseURL: testBase})
+	s, err := New(Config{DB: db, Keyring: oskeyringtest.New(), ClientID: "client", APIBaseURL: testBase})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 	require.NoError(t, db.Close())

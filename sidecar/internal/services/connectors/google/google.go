@@ -23,6 +23,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/internal/oauthconn"
 )
@@ -52,8 +53,8 @@ var endpoints = oauth.Endpoints{
 type Config struct {
 	// DB is app.db, which holds the account's row.
 	DB *appdb.DB
-	// KeychainService is the OS-keyring service the refresh token is kept under.
-	KeychainService string
+	// Keyring is the OS keyring the refresh token is kept in.
+	Keyring oskeyring.Keyring
 	// ClientID and ClientSecret are Kstack's installed-app client. An empty
 	// ClientID refuses Connect.
 	ClientID     string
@@ -76,9 +77,9 @@ type Service struct {
 // reaches no network.
 func New(cfg Config) (*Service, error) {
 	engine, err := oauthconn.New(oauthconn.Config{
-		Provider:        provider(cfg),
-		DB:              cfg.DB,
-		KeychainService: cfg.KeychainService,
+		Provider: provider(cfg),
+		DB:       cfg.DB,
+		Keyring:  cfg.Keyring,
 	})
 	if err != nil {
 		return nil, err
