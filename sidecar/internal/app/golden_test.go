@@ -57,7 +57,7 @@ var promptMachines = []struct {
 // is the model's view of the change. The target is Anthropic's, the one
 // provider offered a tool of its own.
 func TestWhatTheModelReadsMatchesItsGolden(t *testing.T) {
-	cat := everyCatalog()
+	cat := everyCatalog(t)
 	target := anthropicTarget(t, cat)
 	names := cat.ToolsFor(target)
 

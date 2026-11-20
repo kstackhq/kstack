@@ -15,6 +15,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/filelock"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth/browser"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
@@ -22,7 +23,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
@@ -34,6 +34,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -55,7 +56,7 @@ type Runtime struct {
 	// ChatGPT is Sign in with ChatGPT, which signs the chatgpt provider.
 	ChatGPT *chatgpt.Service
 	// OpenRouter is the OpenRouter connector, which signs the openrouter row
-	// when the environment holds no key.
+	// over its keys while it is connected.
 	OpenRouter *openrouter.Service
 	// AWS is the AWS connector, whose credentials nothing uses yet.
 	AWS *aws.Service
@@ -63,9 +64,11 @@ type Runtime struct {
 	// sends while it is connected.
 	GitHub *github.Service
 	// Google is the Google connector, which signs the google row.
-	Google  *google.Service
-	Catalog catalog.Catalog
-	LLM     *llm.Service
+	Google *google.Service
+	// ProviderKeys holds the keyed providers' keys and signs each provider.
+	ProviderKeys *providerkeys.Service
+	Catalog      catalog.Catalog
+	LLM          *llm.Service
 	// Shell is nil on a machine with no shell.
 	Shell         *bash.Tool
 	SandboxStatus sandbox.Status
@@ -202,12 +205,10 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.add("chatgpt service", lifecycle.CloseFunc(func() error { rt.ChatGPT.Close(); return nil }))
 
-	_, openRouterKeyed := cfg.LLMKeys[openrouter.ID]
 	rt.OpenRouter, err = openrouter.New(openrouter.Config{
 		KeychainService: keychainService,
 		AuthURL:         cmp.Or(cfg.ConnectorAuthURLs[openrouter.ID], openrouter.AuthURL),
 		APIBaseURL:      cmp.Or(cfg.LLMBaseURLs[openrouter.ID], openrouter.APIBaseURL),
-		FromEnvironment: openRouterKeyed,
 	})
 	if err != nil {
 		return fail(err)
@@ -247,20 +248,28 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.add("google service", lifecycle.CloseFunc(func() error { rt.Google.Close(); return nil }))
 
-	rt.Catalog = newCatalog(cfg, map[string]llm.SessionSigner{chatgpt.ID: rt.ChatGPT, openrouter.ID: rt.OpenRouter, google.ID: rt.Google})
+	rt.ProviderKeys, err = providerkeys.New(providerkeys.Config{
+		Keyring:    cmp.Or(cfg.keyring, oskeyring.New(keychainService)),
+		Providers:  catalog.KeyedProviders(cfg.LLMBaseURLs),
+		EnvKeys:    cfg.LLMKeys,
+		Connectors: map[string]providerkeys.Connector{openrouter.ID: rt.OpenRouter},
+	})
+	if err != nil {
+		return fail(err)
+	}
+	rt.add("provider keys service", lifecycle.CloseFunc(func() error { rt.ProviderKeys.Close(); return nil }))
+
+	rt.Catalog = newCatalog(cfg, rt.ProviderKeys, map[string]llm.SessionSigner{chatgpt.ID: rt.ChatGPT, google.ID: rt.Google})
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
 	rt.add("chatgpt catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
 		stop := rt.ChatGPT.SyncCatalog(rt.Poke, rt.LLM, catalog.ReadSignedModels)
 		return func(context.Context) error { stop(); return nil }, nil
 	}))
-	// With an environment key the row keeps its written catalog.
-	if rt.OpenRouter.State().Phase != connectors.FromEnvironment {
-		rt.add("openrouter catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
-			stop := rt.OpenRouter.SyncCatalog(rt.Poke, rt.LLM, catalog.ReadOpenRouterModels)
-			return func(context.Context) error { stop(); return nil }, nil
-		}))
-	}
-	// With no project, or GEMINI_API_KEY, there is no row to fill.
+	rt.add("provider catalogs", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
+		stop := rt.ProviderKeys.SyncCatalogs(rt.Poke, rt.LLM, catalog.KeyedModels(cfg.LLMBaseURLs))
+		return func(context.Context) error { stop(); return nil }, nil
+	}))
+	// With no project there is no provider to fill.
 	if _, listed := rt.LLM.Provider(google.ID); listed {
 		rt.add("google catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
 			stop := rt.Google.SyncCatalog(rt.Poke, rt.LLM, catalog.ReadSignedModels)

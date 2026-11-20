@@ -459,13 +459,12 @@ describe('the OpenRouter row', () => {
     });
   });
 
-  it('says the environment key is in use, and offers nothing', () => {
-    state.connectors = [openRouter({ phase: 'FromEnvironment' })];
+  it('offers Connect while signed out', () => {
+    state.connectors = [openRouter({ phase: 'SignedOut' })];
     render(<ConnectorsSettings />);
 
-    expect(row()).toHaveTextContent('Using OPENROUTER_API_KEY');
-    expect(within(row()).getByText('OPENROUTER_API_KEY').tagName).toBe('CODE');
-    expect(within(row()).queryByRole('button')).toBeNull();
+    expect(row()).toHaveTextContent('Many providers on one account');
+    expect(within(row()).getByRole('button', { name: 'Connect' })).toBeInTheDocument();
   });
 
   it.each([

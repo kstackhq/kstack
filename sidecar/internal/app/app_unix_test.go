@@ -449,8 +449,11 @@ func TestNewTakesTheProviderKeysTheShellSets(t *testing.T) {
 	assert.Equal(t, slices.Sorted(maps.Values(catalog.KeyVars())), asked)
 	keys := map[string]string{}
 	for _, p := range a.rt.Catalog.Providers() {
-		if p.Key != "" {
-			keys[p.ID] = p.Key
+		if st, _ := a.rt.ProviderKeys.State(p.ID); st.HasEnvironmentKey {
+			r, err := http.NewRequest(http.MethodPost, p.BaseURL+"/x", nil)
+			require.NoError(t, err)
+			require.NoError(t, p.Signer.Sign(r))
+			keys[p.ID] = r.Header.Get("X-Api-Key") + strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		}
 	}
 	assert.Equal(t, map[string]string{"anthropic": "sk-ant-shell-0123456789", "openai": "sk-openai-launch-0123456789"}, keys)

@@ -59,9 +59,9 @@ func (a *attempt) forget() {
 }
 
 // Connect starts a sign-in and returns once the browser opens; the outcome
-// arrives on the state. It is refused during an attempt, while connected,
-// while the environment holds a key, and while a key the keyring would not
-// delete is still there; every other failure is the state's.
+// arrives on the state. It is refused during an attempt, while connected, and
+// while a key the keyring would not delete is still there; every other failure
+// is the state's.
 func (s *Service) Connect(context.Context) error {
 	a, err := s.begin()
 	if a == nil {
@@ -88,8 +88,6 @@ func (s *Service) begin() (*attempt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch s.state.Phase {
-	case connectors.FromEnvironment:
-		return nil, connectors.ErrFromEnvironment
 	case connectors.SigningIn:
 		return nil, connectors.ErrSigningIn
 	case connectors.Connected:

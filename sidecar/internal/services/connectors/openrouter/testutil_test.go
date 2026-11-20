@@ -313,7 +313,6 @@ type rig struct {
 	keyring    *fakeKeyring
 	// checkEnded fires each time a key check ends.
 	checkEnded *testutil.Probe[struct{}]
-	fromEnv    bool
 	opts       []option
 	svc        *Service
 }
@@ -326,7 +325,7 @@ func newRig(t *testing.T, opts ...option) *rig {
 }
 
 func (r *rig) config() Config {
-	return Config{AuthURL: r.openRouter.authURL(), APIBaseURL: r.openRouter.apiBase(), FromEnvironment: r.fromEnv}
+	return Config{AuthURL: r.openRouter.authURL(), APIBaseURL: r.openRouter.apiBase()}
 }
 
 func (r *rig) build() *Service {

@@ -26,10 +26,7 @@ const (
 	SignedOut Phase = "SignedOut"
 	SigningIn Phase = "SigningIn"
 	Connected Phase = "Connected"
-	// FromEnvironment is a launch whose environment holds the provider's key,
-	// which signs in the connector's place.
-	FromEnvironment Phase = "FromEnvironment"
-	Failed          Phase = "Failed"
+	Failed    Phase = "Failed"
 )
 
 // Failure is why the last attempt, session or key ended.
@@ -77,10 +74,9 @@ type State struct {
 
 // The refusals of Connect and Disconnect.
 var (
-	ErrSigningIn       = errors.New("connectors: a sign-in is under way")
-	ErrConnected       = errors.New("connectors: already connected")
-	ErrFromEnvironment = errors.New("connectors: the environment's key is in use")
-	ErrNotDeleted      = errors.New("connectors: a key the keyring would not delete is still there")
+	ErrSigningIn  = errors.New("connectors: a sign-in is under way")
+	ErrConnected  = errors.New("connectors: already connected")
+	ErrNotDeleted = errors.New("connectors: a key the keyring would not delete is still there")
 	// ErrNoClient is a build that names no OAuth client to sign in under.
 	ErrNoClient = errors.New("connectors: no OAuth client is configured")
 )

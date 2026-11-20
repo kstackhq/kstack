@@ -43,10 +43,11 @@ func TestTheChatGPTRowIsListedWhenConfigured(t *testing.T) {
 	f := llm.NewFake(0)
 	signer := planSigner{token: "t"}
 
-	providers := New(Config{APIKeys: map[string]string{"anthropic": "sk-ant"}, Signers: map[string]llm.SessionSigner{ChatGPTID: signer}, Fake: f}).Providers()
+	providers := New(Config{Keys: newKeys(t, nil, nil), Signers: map[string]llm.SessionSigner{ChatGPTID: signer}, Fake: f}).Providers()
 
-	assert.Equal(t, []string{"anthropic", "chatgpt", "fake"}, providerIDs(providers))
-	p := providers[1]
+	n := len(providers)
+	assert.Equal(t, []string{"opencode-go", "chatgpt", "fake"}, providerIDs(providers[n-3:]))
+	p := providers[n-2]
 	assert.Equal(t, "ChatGPT plan", p.Label)
 	assert.Equal(t, llm.DialectResponses, p.Dialect)
 	assert.Equal(t, "https://api.openai.com/v1", p.BaseURL)

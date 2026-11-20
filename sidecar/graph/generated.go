@@ -33532,18 +33532,16 @@ func (ec *executionContext) marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkst
 
 var (
 	unmarshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase = map[string]connectors.Phase{
-		"SignedOut":       connectors.SignedOut,
-		"SigningIn":       connectors.SigningIn,
-		"Connected":       connectors.Connected,
-		"FromEnvironment": connectors.FromEnvironment,
-		"Failed":          connectors.Failed,
+		"SignedOut": connectors.SignedOut,
+		"SigningIn": connectors.SigningIn,
+		"Connected": connectors.Connected,
+		"Failed":    connectors.Failed,
 	}
 	marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase = map[connectors.Phase]string{
-		connectors.SignedOut:       "SignedOut",
-		connectors.SigningIn:       "SigningIn",
-		connectors.Connected:       "Connected",
-		connectors.FromEnvironment: "FromEnvironment",
-		connectors.Failed:          "Failed",
+		connectors.SignedOut: "SignedOut",
+		connectors.SigningIn: "SigningIn",
+		connectors.Connected: "Connected",
+		connectors.Failed:    "Failed",
 	}
 )
 

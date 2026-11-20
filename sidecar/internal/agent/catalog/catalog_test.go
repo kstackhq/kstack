@@ -43,19 +43,27 @@ func TestEveryListOffersAgent(t *testing.T) {
 	}
 }
 
-// A keyed provider is listed when its key is given, with the key on it, and
-// left out when not; the fake is listed after them when given, and is the one
-// a send on it runs on.
-func TestNewListsTheKeyedProvidersAndAddsTheFake(t *testing.T) {
-	assert.Empty(t, New(Config{}).Providers())
+// Every keyed provider is listed, in picker order, signed by its service with no
+// key on it; one with no credential lists no model until it has one. The fake
+// is listed last when given, and is the one a send on it runs on.
+func TestNewListsEveryKeyedRowAndAddsTheFake(t *testing.T) {
+	assert.Empty(t, New(Config{}).Providers(), "no service, no keyed provider")
 
 	f := llm.NewFake(0)
-	providers := New(Config{APIKeys: map[string]string{"openai": "sk-test", "anthropic": "sk-ant-test"}, Fake: f}).Providers()
+	keys := newKeys(t, map[string]string{"openai": "sk-test-0123456789abcdef", "anthropic": "sk-ant-test-0123456789abcdef"}, nil)
+	providers := New(Config{Keys: keys, Fake: f}).Providers()
 
-	require.Len(t, providers, 3)
-	assert.Equal(t, []string{"anthropic", "openai", "fake"}, providerIDs(providers), "picker order, the fake last")
-	assert.Equal(t, "sk-ant-test", providers[0].Key)
-	assert.Equal(t, "sk-test", providers[1].Key)
+	want := []string{"anthropic", "openai", "gemini", "groq", "mistral", "deepseek", "xai", "openrouter", "together", "fireworks", "opencode-go", "fake"}
+	assert.Equal(t, want, providerIDs(providers), "picker order, the fake last")
+	for _, p := range providers[:len(providers)-1] {
+		assert.Empty(t, p.Key, p.ID)
+		assert.NotNil(t, p.Signer, p.ID)
+	}
+	assert.Equal(t, newAnthropicProvider().Catalog, providers[0].Catalog)
+	assert.Equal(t, newOpenAIProvider().Catalog, providers[1].Catalog)
+	assert.Empty(t, providers[2].Catalog, "a provider with no credential lists no model")
+	llm.New(providers...) // a provider holds a key or a signer, never both
+
 	target, err := llm.New(providers...).Resolve("fake", "fake", "low")
 	require.NoError(t, err)
 	_, err = target.Stream(t.Context(), "", []llm.Message{{Role: "user", Blocks: []llm.Block{llm.TextBlock("hi")}}}, "", nil, nil, func(llm.Chunk) {})
@@ -63,19 +71,11 @@ func TestNewListsTheKeyedProvidersAndAddsTheFake(t *testing.T) {
 	assert.Equal(t, 1, f.Asked(), "the fake given is the one a send runs on")
 }
 
-// A debug build's base URL moves the listed provider it names and nothing else:
-// a URL for a provider with no key, or for an id with no row, lists nothing.
-func TestNewAppliesADebugBaseURLToAListedProviderAlone(t *testing.T) {
-	providers := New(Config{
-		APIKeys: map[string]string{"anthropic": "sk-ant-test", "openai": "sk-test"},
-		BaseURLs: map[string]string{
-			"anthropic": "http://127.0.0.1:1",
-			"groq":      "http://127.0.0.1:2",
-			"nobody":    "http://127.0.0.1:3",
-		},
-	}).Providers()
+// A debug build's base URL moves the provider it names and nothing else.
+func TestNewAppliesADebugBaseURLToItsRowAlone(t *testing.T) {
+	baseURLs := map[string]string{"anthropic": "http://127.0.0.1:1", "nobody": "http://127.0.0.1:3"}
+	providers := New(Config{Keys: newKeys(t, nil, baseURLs), BaseURLs: baseURLs}).Providers()
 
-	assert.Equal(t, []string{"anthropic", "openai"}, providerIDs(providers))
 	assert.Equal(t, "http://127.0.0.1:1", providers[0].BaseURL)
 	assert.Equal(t, newOpenAIProvider().BaseURL, providers[1].BaseURL)
 }
@@ -83,13 +83,13 @@ func TestNewAppliesADebugBaseURLToAListedProviderAlone(t *testing.T) {
 // A debug base URL clears each model's base URL override too, so one stub
 // answers the whole row, and each model keeps its dialect override.
 func TestADebugBaseURLMovesEveryModelOfTheRow(t *testing.T) {
-	providers := New(Config{
-		APIKeys:  map[string]string{"opencode-go": "oc-test"},
-		BaseURLs: map[string]string{"opencode-go": "http://127.0.0.1:1"},
-	}).Providers()
+	baseURLs := map[string]string{"opencode-go": "http://127.0.0.1:1"}
+	keys := newKeys(t, map[string]string{"opencode-go": "oc-test-0123456789abcdef"}, baseURLs)
+	providers := New(Config{Keys: keys, BaseURLs: baseURLs}).Providers()
 
-	require.Len(t, providers, 1)
-	p, row := providers[0], newOpenCodeGoProvider()
+	p, row := providers[len(providers)-1], newOpenCodeGoProvider()
+	require.Equal(t, "opencode-go", p.ID)
+	require.NotEmpty(t, p.Catalog)
 	for i, m := range p.Catalog {
 		assert.Equal(t, "http://127.0.0.1:1", p.ForModel(m).BaseURL, m.ID)
 		assert.Equal(t, row.Catalog[i].Dialect, m.Dialect, m.ID)
@@ -99,7 +99,7 @@ func TestADebugBaseURLMovesEveryModelOfTheRow(t *testing.T) {
 // Every model of every keyed provider is on a dialect Stream speaks, so a key
 // is all that stands between it and a send.
 func TestEveryKeyedProviderResolves(t *testing.T) {
-	svc := llm.New(everyProvider()...)
+	svc := llm.New(everyProvider(t)...)
 
 	for _, p := range svc.Providers() {
 		for _, m := range p.Catalog {
@@ -112,28 +112,38 @@ func TestEveryKeyedProviderResolves(t *testing.T) {
 // Every provider the catalog can list has a list, so none is offered nothing
 // by omission.
 func TestEveryProviderHasAList(t *testing.T) {
-	for _, p := range everyProvider() {
+	for _, p := range everyProvider(t) {
 		assert.Contains(t, lists, p.ID)
 	}
 }
 
-// No two providers share an id: llm.New would list both and resolve the id to
-// the last, so a picker entry would send to the other row.
+// No two providers share an id, keyed and signed-in alike: llm.New would list
+// both and resolve the id to the first, so a picker entry would send to the
+// other row.
 func TestNoTwoProvidersShareAnID(t *testing.T) {
+	providers := everyProvider(t)
+	require.Len(t, providers, len(keyedProviders())+len(signedProviders())+1, "every row is listed")
 	seen := map[string]bool{}
-	for _, p := range everyProvider() {
+	for _, p := range providers {
 		assert.False(t, seen[p.ID], "%s is listed twice", p.ID)
 		seen[p.ID] = true
 	}
 }
 
-// everyProvider is every provider New can list, each keyed, and the fake.
-func everyProvider() []llm.Provider {
+// everyProvider is every provider New can list: each keyed one with a key, each
+// signed-in one with a signer, and the fake.
+func everyProvider(t *testing.T) []llm.Provider {
 	keys := map[string]string{}
 	for id := range KeyVars() {
-		keys[id] = "key"
+		keys[id] = "key-0123456789abcdef"
 	}
-	return New(Config{APIKeys: keys, Fake: llm.NewFake(0)}).Providers()
+	signers := map[string]llm.SessionSigner{}
+	for _, sp := range signedProviders() {
+		signers[sp.id] = planSigner{}
+	}
+	return New(Config{
+		Keys: newKeys(t, keys, nil), Signers: signers, VertexBaseURL: vertexBase, Fake: llm.NewFake(0),
+	}).Providers()
 }
 
 // providerIDs is providers' ids, in order.
@@ -145,35 +155,9 @@ func providerIDs(providers []llm.Provider) []string {
 	return ids
 }
 
-// With no key but its connector's signer, OpenRouter is listed in its keyed
-// place, signed, with an empty catalog for catalogsync to fill; a debug base
-// URL moves it as it moves a keyed row. A key wins over the signer.
-func TestAConnectorSignsItsKeyedRowInItsPlace(t *testing.T) {
-	signers := map[string]llm.SessionSigner{"openrouter": planSigner{}}
-	providers := New(Config{
-		APIKeys:  map[string]string{"anthropic": "sk-ant", "together": "tg"},
-		Signers:  signers,
-		BaseURLs: map[string]string{"openrouter": "http://127.0.0.1:1/api/v1"},
-	}).Providers()
-
-	assert.Equal(t, []string{"anthropic", "openrouter", "together"}, providerIDs(providers))
-	p := providers[1]
-	assert.Empty(t, p.Key)
-	assert.Equal(t, planSigner{}, p.Signer)
-	assert.Empty(t, p.Catalog)
-	assert.Equal(t, "http://127.0.0.1:1/api/v1", p.BaseURL)
-	assert.Equal(t, newOpenRouterProvider().Extra, p.Extra)
-	llm.New(providers...) // a row holds a key or a signer, never both
-
-	keyed := New(Config{APIKeys: map[string]string{"openrouter": "sk-or-env"}, Signers: signers}).Providers()
-	require.Len(t, keyed, 1)
-	assert.Equal(t, "sk-or-env", keyed[0].Key)
-	assert.Nil(t, keyed[0].Signer)
-	assert.NotEmpty(t, keyed[0].Catalog)
-}
-
-// A signer for a keyed row with no connector lists nothing.
-func TestOnlyAConnectorsRowTakesASigner(t *testing.T) {
+// Signers holds the signed-in providers alone: a signer for a keyed provider lists
+// nothing.
+func TestAKeyedRowTakesNoSigner(t *testing.T) {
 	providers := New(Config{Signers: map[string]llm.SessionSigner{"openai": planSigner{}}}).Providers()
 
 	assert.Empty(t, providers)

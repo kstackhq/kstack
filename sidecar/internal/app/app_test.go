@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -31,6 +32,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/filelock"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
@@ -95,7 +97,7 @@ func TestEveryCatalogTargetTakesItsBox(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	box := everyTool(t)
-	lists := everyCatalog()
+	lists := everyCatalog(t)
 
 	for _, p := range lists.Providers() {
 		p.BaseURL = srv.URL
@@ -111,12 +113,22 @@ func TestEveryCatalogTargetTakesItsBox(t *testing.T) {
 }
 
 // everyCatalog is the catalog with every provider it can list, each keyed.
-func everyCatalog() catalog.Catalog {
+func everyCatalog(t *testing.T) catalog.Catalog {
 	keys := map[string]string{}
 	for id := range catalog.KeyVars() {
-		keys[id] = "key"
+		keys[id] = "key-0123456789abcdef"
 	}
-	return catalog.New(catalog.Config{APIKeys: keys, Fake: llm.NewFake(0)})
+	return catalog.New(catalog.Config{Keys: newProviderKeys(t, keys, nil), Fake: llm.NewFake(0)})
+}
+
+// newProviderKeys is the keyed providers' service over an empty keyring, holding
+// keys as the environment's.
+func newProviderKeys(t *testing.T, keys, baseURLs map[string]string) *providerkeys.Service {
+	t.Helper()
+	s, err := providerkeys.New(providerkeys.Config{Keyring: oskeyringtest.New(), Providers: catalog.KeyedProviders(baseURLs), EnvKeys: keys})
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+	return s
 }
 
 // everyToolTarget is every target of cat whose model takes tools.
@@ -154,7 +166,7 @@ func offerNames(box tools.Box) []string {
 // builds, and each listed vendor tool rides that target's wire.
 func TestEachTargetIsOfferedItsList(t *testing.T) {
 	box := everyTool(t)
-	lists := everyCatalog()
+	lists := everyCatalog(t)
 
 	for _, target := range everyToolTarget(lists) {
 		turn := box.For(target, lists.ToolsFor(target))
@@ -166,7 +178,7 @@ func TestEachTargetIsOfferedItsList(t *testing.T) {
 // tools cover.
 func TestEachListIsOneToolOfEachKind(t *testing.T) {
 	box := everyTool(t)
-	lists := everyCatalog()
+	lists := everyCatalog(t)
 	defs, _ := box.Offer()
 	var ours []tools.ActionKind
 	for _, name := range definitionNames(defs) {
@@ -191,7 +203,7 @@ func TestEachListIsOneToolOfEachKind(t *testing.T) {
 // Every tool the app builds is on a list, so a new tool left off every list
 // fails here rather than never being offered.
 func TestEveryToolIsOnAList(t *testing.T) {
-	lists := everyCatalog()
+	lists := everyCatalog(t)
 	listed := map[string]bool{}
 	for _, target := range everyToolTarget(lists) {
 		for _, name := range lists.ToolsFor(target) {
@@ -252,6 +264,9 @@ func withDirs(t *testing.T, cfg Config) Config {
 	}
 	if cfg.cloudPlatforms == nil {
 		cfg.cloudPlatforms = []bash.CloudPlatform{}
+	}
+	if cfg.keyring == nil {
+		cfg.keyring = oskeyringtest.New()
 	}
 	return cfg
 }
@@ -703,16 +718,17 @@ func TestABadSettingsFileFailsNew(t *testing.T) {
 // The catalog is the config's: each keyed provider at the base URL a debug build
 // moved it to, then the fake when asked for.
 func TestTheCatalogIsTheConfigs(t *testing.T) {
-	providers := newCatalog(Config{
-		LLMKeys:     map[string]string{"anthropic": "sk-ant-test"},
+	cfg := Config{
 		LLMBaseURLs: map[string]string{"anthropic": "http://127.0.0.1:1"},
 		AddFake:     true,
-	}, nil).Providers()
+	}
+	keys := newProviderKeys(t, map[string]string{"anthropic": "sk-ant-test-0123456789abcdef"}, cfg.LLMBaseURLs)
+	providers := newCatalog(cfg, keys, nil).Providers()
 
-	require.Len(t, providers, 2)
-	assert.Equal(t, "sk-ant-test", providers[0].Key)
+	require.Len(t, providers, len(catalog.KeyVars())+1)
+	assert.Equal(t, keys.Signer("anthropic"), providers[0].Signer)
 	assert.Equal(t, "http://127.0.0.1:1", providers[0].BaseURL)
-	assert.Equal(t, "fake", providers[1].ID)
+	assert.Equal(t, "fake", providers[len(providers)-1].ID)
 }
 
 // The fake is a debug build's alone, and last: a release-shaped config lists only

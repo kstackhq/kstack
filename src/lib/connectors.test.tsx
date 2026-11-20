@@ -217,7 +217,7 @@ describe('useConnectors', () => {
     expect(result.current.connectors.filter((c) => c.openrouter)).toHaveLength(1);
   });
 
-  it.each(['SignedOut', 'SigningIn', 'FromEnvironment', 'Failed'] as const)(
+  it.each(['SignedOut', 'SigningIn', 'Failed'] as const)(
     'leaves the OpenRouter entry unconnected while %s',
     (phase) => {
       serve([connection({})], [openRouter({ phase })]);

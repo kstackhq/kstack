@@ -20,6 +20,7 @@ import (
 	"slices"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -43,16 +44,14 @@ type Catalog struct {
 
 // Config is what New builds the providers from.
 type Config struct {
-	// APIKeys is each keyed provider's API key, by provider id. A provider with
-	// no key here is left out.
-	APIKeys map[string]string
+	// Keys signs every keyed provider. Nil leaves them out.
+	Keys *providerkeys.Service
 	// BaseURLs replaces a listed provider's base URL, by provider id. Set only by
 	// a debug build: a release never takes an endpoint from the environment.
 	BaseURLs map[string]string
 	// Signers is each signed-in provider's signer, by provider id. A provider
 	// with no signer here is left out. They are listed after the keyed providers
-	// and before the fake, but for a keyed provider's connector, whose row keeps
-	// its keyed place when no key is given.
+	// and before the fake.
 	Signers map[string]llm.SessionSigner
 	// VertexBaseURL is Vertex AI's endpoint in the user's project, which the
 	// google row signs. Empty leaves the row out.
@@ -62,37 +61,26 @@ type Config struct {
 	Fake *llm.Fake
 }
 
-// New is every keyed provider whose key cfg holds, or whose connector's signer
-// it holds, in picker order, at the base URL cfg moves it to, then each
-// signed-in provider cfg holds a signer and a base URL for, then the fake. A key
-// wins over a connector, and over a signed-in provider serving its models.
+// New is every keyed provider in picker order, at the base URL cfg moves it
+// to, then each signed-in provider cfg holds a signer and a base URL for, then
+// the fake. A keyed provider with no credential lists no model until it has
+// one.
 func New(cfg Config) Catalog {
 	var c Catalog
-	for _, kp := range keyedProviders() {
-		key, keyed := cfg.APIKeys[kp.provider.ID]
-		signer, signed := cfg.Signers[kp.provider.ID]
-		switch {
-		case keyed:
-			kp.provider.Key = key
-		case kp.connector && signed:
-			// catalogsync sets the catalog while the connector is connected.
-			kp.provider.Signer, kp.provider.Catalog = signer, nil
-		default:
-			continue
-		}
-		if url, ok := cfg.BaseURLs[kp.provider.ID]; ok {
-			// Each model's override goes too, so one stub answers the whole row.
-			kp.provider.BaseURL = url
-			for i := range kp.provider.Catalog {
-				kp.provider.Catalog[i].BaseURL = ""
+	if cfg.Keys != nil {
+		for _, kp := range keyedProvidersAt(cfg.BaseURLs) {
+			p := kp.provider
+			p.Signer = cfg.Keys.Signer(p.ID)
+			if st, _ := cfg.Keys.State(p.ID); st.Source == providerkeys.SourceNone {
+				// SyncCatalogs lists it once the provider has a credential.
+				p.Catalog = nil
 			}
+			c.providers = append(c.providers, p)
 		}
-		c.providers = append(c.providers, kp.provider)
 	}
 	for _, sp := range signedProviders() {
 		signer, ok := cfg.Signers[sp.id]
-		_, keyed := cfg.APIKeys[sp.keyedBy]
-		if !ok || keyed {
+		if !ok {
 			continue
 		}
 		p := sp.row(cfg, signer)

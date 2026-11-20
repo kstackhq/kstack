@@ -716,8 +716,6 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.SigningIn
       Connected:
         value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Connected
-      FromEnvironment:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.FromEnvironment
       Failed:
         value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Failed
   ConnectorFailure:

@@ -26,11 +26,13 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
@@ -94,7 +96,7 @@ type Config struct {
 	KeychainService string
 	// LLMKeys is the model-provider key per provider id, for the keys the config
 	// found set; with RunLoginShell, New adds each key the login shell sets that
-	// is missing here. A provider with no key is not listed.
+	// is missing here. A saved key or a connector signs over it.
 	LLMKeys map[string]string
 	// LLMBaseURLs moves a listed provider's base URL, by provider id. Only a
 	// debug build sets it.
@@ -114,6 +116,9 @@ type Config struct {
 	fake *llm.Fake
 	// cloudPlatforms, when a test sets them, stand in place of the build's.
 	cloudPlatforms []bash.CloudPlatform
+	// keyring, when a test sets it, holds the saved provider keys in place of
+	// the OS keyring.
+	keyring oskeyring.Keyring
 	// HostPID is the host's process, which a command's kill is refused against;
 	// 0 when the sidecar was not told it.
 	HostPID int
@@ -269,13 +274,13 @@ func (u serverUIDLookup) ServerUID(ctx context.Context, id apimeta.ClusterID) st
 // newCatalog is the providers cfg lists: each keyed one at the base URL a debug
 // build moved it to, then each signed-in one signers holds, then the fake when
 // asked for.
-func newCatalog(cfg Config, signers map[string]llm.SessionSigner) catalog.Catalog {
+func newCatalog(cfg Config, keys *providerkeys.Service, signers map[string]llm.SessionSigner) catalog.Catalog {
 	fake := cfg.fake
 	if fake == nil && cfg.AddFake {
 		fake = llm.NewFake(llm.FakeChunkDelay)
 	}
 	return catalog.New(catalog.Config{
-		APIKeys: cfg.LLMKeys, BaseURLs: cfg.LLMBaseURLs, Signers: signers,
+		Keys: keys, BaseURLs: cfg.LLMBaseURLs, Signers: signers,
 		VertexBaseURL: cfg.vertexBaseURL, Fake: fake,
 	})
 }

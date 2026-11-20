@@ -35,6 +35,8 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 )
 
 // The test binary is started as a sidecar by the tests that need one of its
@@ -51,9 +53,9 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// scrubChild runs the re-exec as main does, prints the providers the catalog
-// lists from the keys the config read, then waits for its stdin to close so the
-// test can read its launch strings while it lives.
+// scrubChild runs the re-exec as main does, prints the providers whose
+// environment key it holds, then waits for its stdin to close so the test can
+// read its launch strings while it lives.
 func scrubChild() int {
 	args, getenv, err := scrubExecEnvironment()
 	if err != nil {
@@ -64,9 +66,16 @@ func scrubChild() int {
 	if err != nil {
 		return 2
 	}
+	keys, err := providerkeys.New(providerkeys.Config{Keyring: oskeyringtest.New(), Providers: catalog.KeyedProviders(nil), EnvKeys: cfg.App.LLMKeys})
+	if err != nil {
+		return 2
+	}
+	defer keys.Close()
 	var ids []string
-	for _, p := range catalog.New(catalog.Config{APIKeys: cfg.App.LLMKeys}).Providers() {
-		ids = append(ids, p.ID)
+	for _, st := range keys.States() {
+		if st.Source == providerkeys.SourceEnvironmentKey {
+			ids = append(ids, st.ID)
+		}
 	}
 	fmt.Println(strings.Join(ids, " "))
 	_, _ = io.Copy(io.Discard, os.Stdin)
@@ -76,7 +85,7 @@ func scrubChild() int {
 const fakeKey = "sk-ant-test-0123456789abcdef"
 
 // The re-exec'd sidecar carries no key in the strings the kernel kept from the
-// launch, and still holds the key: the catalog lists its provider.
+// launch, and still holds the key as its provider's environment key.
 func TestTheReexecKeepsTheKeyOutOfTheLaunchStrings(t *testing.T) {
 	exe, err := os.Executable()
 	require.NoError(t, err)
@@ -98,7 +107,7 @@ func TestTheReexecKeepsTheKeyOutOfTheLaunchStrings(t *testing.T) {
 	// TestMain reads childEnv to get there.
 	line, err := bufio.NewReader(stdout).ReadString('\n')
 	require.NoError(t, err)
-	assert.Contains(t, strings.Fields(line), "anthropic", "the catalog lists the provider")
+	assert.Contains(t, strings.Fields(line), "anthropic", "the provider is keyed from the environment")
 
 	launch := launchStrings(t, cmd.Process.Pid)
 	assert.NotContains(t, launch, fakeKey, "the value is out of the launch strings")

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,12 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/google"
@@ -118,34 +121,71 @@ func (targetOnly) Mount(context.Context, bash.CloudRun) (bash.CloudMount, error)
 	return bash.CloudMount{}, nil
 }
 
-// With no OPENROUTER_API_KEY the connector signs the openrouter row; with one,
-// the key does, and the connector says so.
-func TestTheOpenRouterRowFollowsTheEnvironmentKey(t *testing.T) {
-	row := func(rt *Runtime) llm.Provider {
-		t.Helper()
-		p, ok := rt.LLM.Provider(openrouter.ID)
-		require.True(t, ok)
-		return p
-	}
-
+// Every keyed provider is in llm.Service from launch; one with no credential lists
+// no model, a save lists its written catalog on modelsWatch and a delete
+// empties it.
+func TestAKeyedRowListsItsModelsWhileItHasACredential(t *testing.T) {
 	rt, err := build(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, rt.Close()) })
-	assert.NotEqual(t, connectors.FromEnvironment, rt.OpenRouter.State().Phase)
-	assert.Equal(t, rt.OpenRouter, row(rt).Signer)
-	assert.Empty(t, row(rt).Key)
-
-	keyed, err := build(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouter.ID: "sk-or-env"}}))
+	stop, err := lifecycle.StartAll(t.Context(), rt.parts)
 	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, keyed.Close()) })
-	assert.Equal(t, connectors.FromEnvironment, keyed.OpenRouter.State().Phase)
-	assert.Equal(t, "sk-or-env", row(keyed).Key)
-	assert.Nil(t, row(keyed).Signer)
+	t.Cleanup(func() { assert.NoError(t, stop(context.Background())) })
+	for id := range catalog.KeyVars() {
+		_, ok := rt.LLM.Provider(id)
+		assert.True(t, ok, "%s is listed from launch", id)
+	}
+
+	frames, cancel := rt.LLM.Subscribe()
+	defer cancel()
+	listed := func() bool {
+		p, _ := rt.LLM.Provider("groq")
+		return len(p.Catalog) > 0
+	}
+	assert.False(t, listed(), "no credential, no model")
+	require.NoError(t, rt.ProviderKeys.Save("groq", "gsk-saved-0123456789abcdef"))
+	for !listed() {
+		testutil.Recv(t, frames, "groq's models")
+	}
+	require.NoError(t, rt.ProviderKeys.Delete("groq"))
+	for listed() {
+		testutil.Recv(t, frames, "groq's models leave")
+	}
+}
+
+// With OPENROUTER_API_KEY set the connector still connects and disconnects,
+// and the provider signs with the saved key, then the environment key.
+func TestOpenRouterFallsBackAfterADisconnect(t *testing.T) {
+	const envKey, savedKey = "sk-or-env-0123456789abcdef", "sk-or-saved-0123456789abcdef"
+	rt, err := build(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouter.ID: envKey}}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, rt.Close()) })
+	require.NoError(t, rt.OpenRouter.Disconnect(), "the environment key no longer refuses it")
+
+	p, ok := rt.LLM.Provider(openrouter.ID)
+	require.True(t, ok)
+	assert.Equal(t, rt.ProviderKeys.Signer(openrouter.ID), p.Signer)
+	assert.Empty(t, p.Key)
+	assert.NotEmpty(t, p.Catalog)
+
+	bearer := func() string {
+		t.Helper()
+		target, err := rt.LLM.Resolve(openrouter.ID, p.Catalog[0].ID, p.Catalog[0].DefaultEffort)
+		require.NoError(t, err)
+		r, err := http.NewRequest(http.MethodPost, openrouter.APIBaseURL+"/chat/completions", nil)
+		require.NoError(t, err)
+		require.NoError(t, target.Provider.Signer.Sign(r))
+		return r.Header.Get("Authorization")
+	}
+	assert.Equal(t, "Bearer "+envKey, bearer())
+	require.NoError(t, rt.ProviderKeys.Save(openrouter.ID, savedKey))
+	assert.Equal(t, "Bearer "+savedKey, bearer())
+	require.NoError(t, rt.ProviderKeys.Delete(openrouter.ID))
+	assert.Equal(t, "Bearer "+envKey, bearer())
 }
 
 // The Google connector signs the google row at the project's Vertex AI
-// endpoint. With no project there is no row; with GEMINI_API_KEY the gemini row
-// serves the models and there is none either.
+// endpoint whenever the launch found a project, a Gemini key or not.
 func TestTheGoogleRowFollowsTheProject(t *testing.T) {
 	vertexBase := google.BaseURL("my-project", "global")
 	rows := func(cfg Config) (*Runtime, llm.Provider, bool) {
@@ -166,8 +206,8 @@ func TestTheGoogleRowFollowsTheProject(t *testing.T) {
 	_, _, ok = rows(Config{})
 	assert.False(t, ok, "no project")
 
-	_, _, ok = rows(Config{Getenv: googleEnv("my-project"), LLMKeys: map[string]string{"gemini": "key"}})
-	assert.False(t, ok, "GEMINI_API_KEY")
+	_, _, ok = rows(Config{Getenv: googleEnv("my-project"), LLMKeys: map[string]string{"gemini": "gm-0123456789abcdef"}})
+	assert.True(t, ok, "a Gemini key does not hide Vertex AI")
 }
 
 // A debug build's OpenRouter base that does not parse fails the build.
@@ -191,14 +231,15 @@ func TestABadGitHubAuthURLFailsTheBuild(t *testing.T) {
 	assert.ErrorContains(t, err, "http://[::1")
 }
 
-// The wire reaches the app's OpenRouter connector.
+// The wire reaches the app's OpenRouter connector, whatever key the
+// environment holds.
 func TestTheWireReachesTheOpenRouterConnector(t *testing.T) {
-	a, err := New(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouter.ID: "sk-or-env"}}))
+	a, err := New(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouter.ID: "sk-or-env-0123456789abcdef"}}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	ts := serveApp(t, a)
 
-	assert.JSONEq(t, `{"data":{"openRouterConnection":{"phase":"FromEnvironment"}}}`, graphql(t, ts.URL, `{ openRouterConnection { phase } }`))
+	assert.JSONEq(t, `{"data":{"openRouterConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ openRouterConnection { phase } }`))
 }
 
 // The wire reaches the app's AWS connector.
@@ -259,4 +300,11 @@ func TestFindGoogleProject(t *testing.T) {
 	project, base = findGoogleProject(nil)
 	assert.Empty(t, project, "no Getenv")
 	assert.Empty(t, base, "no Getenv")
+}
+
+// A debug build's keyed base with no host fails the build, naming the provider.
+func TestABadKeyedBaseFailsTheBuild(t *testing.T) {
+	_, err := build(t.Context(), withDirs(t, Config{LLMBaseURLs: map[string]string{"groq": "localhost:8080"}}))
+
+	assert.ErrorContains(t, err, "groq")
 }

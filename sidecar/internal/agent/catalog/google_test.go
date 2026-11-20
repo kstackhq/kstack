@@ -47,18 +47,22 @@ func TestTheGoogleRowIsListedWhenConfigured(t *testing.T) {
 	assert.Empty(t, p.Catalog)
 }
 
-// With no project there is no endpoint to sign, and with GEMINI_API_KEY the
-// key's row serves Gemini: either way the Google row is left out.
+// With no project there is no endpoint to sign: the Google provider is left out.
 func TestTheGoogleRowIsLeftOut(t *testing.T) {
-	signers := map[string]llm.SessionSigner{GoogleID: planSigner{}}
-
-	assert.Empty(t, New(Config{Signers: signers}).Providers())
-
-	keyed := New(Config{APIKeys: map[string]string{"gemini": "key"}, Signers: signers, VertexBaseURL: vertexBase}).Providers()
-	assert.Equal(t, []string{"gemini"}, providerIDs(keyed))
+	assert.Empty(t, New(Config{Signers: map[string]llm.SessionSigner{GoogleID: planSigner{}}}).Providers())
 }
 
-// A debug build moves the row as it moves a keyed one.
+// gemini and google are two providers: a Gemini key does not hide Vertex AI.
+func TestTheGoogleRowIsListedBesideAGeminiKey(t *testing.T) {
+	providers := New(Config{
+		Keys:          newKeys(t, map[string]string{"gemini": "gm-0123456789abcdef"}, nil),
+		Signers:       map[string]llm.SessionSigner{GoogleID: planSigner{}},
+		VertexBaseURL: vertexBase,
+	}).Providers()
+	assert.Contains(t, providerIDs(providers), "gemini")
+	assert.Contains(t, providerIDs(providers), GoogleID)
+}
+
 func TestADebugBuildMovesTheGoogleRow(t *testing.T) {
 	providers := New(Config{
 		Signers:       map[string]llm.SessionSigner{GoogleID: planSigner{}},

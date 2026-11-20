@@ -927,7 +927,7 @@ type ClusterCachedDataObjectWatchFrame {
 }
 
 # --- Models ---
-# What the sidecar can answer with. The catalog is whatever had a key at startup; a
+# What the sidecar can answer with. A keyed provider lists its models while it has a credential; a
 # feature that calls a model names one of these per call. A provider is named by its
 # id, a string rather than an enum: a provider is data, and one added at runtime has
 # no member.
@@ -2008,8 +2008,6 @@ enum ConnectorPhase {
   "The browser is open on the provider's sign-in."
   SigningIn
   Connected
-  "The provider's key from the environment signs in the connector's place; the connector is unused."
-  FromEnvironment
   "The last attempt, session or key ended; `failure` says why."
   Failed
 }
@@ -2437,11 +2435,11 @@ type Mutation {
   "Open ChatGPT's usage settings in the browser. The address is the sidecar's constant."
   chatGPTUsageOpen: Boolean!
   # --- OpenRouter connector ---
-  "Open the browser on OpenRouter's sign-in. Returns once the attempt starts or fails; the outcome, a browser that could not open or a keyring that cannot keep the key included, arrives on openRouterConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) during an attempt, while connected, while the environment holds a key, and while a key the keyring would not delete is still there."
+  "Open the browser on OpenRouter's sign-in. Returns once the attempt starts or fails; the outcome, a browser that could not open or a keyring that cannot keep the key included, arrives on openRouterConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) during an attempt, while connected, and while a key the keyring would not delete is still there."
   openRouterConnect: Boolean!
   "End a sign-in under way. Returns true; a no-op otherwise."
   openRouterConnectCancel: Boolean!
-  "Delete the key on this machine. The key stays live on OpenRouter until the user deletes it there. Errors when the key could not be deleted; the state is then Failed with NotDeleted, and calling again retries. Refused (KSTACK_VALIDATION_ERROR) while the environment holds a key."
+  "Delete the key on this machine. The key stays live on OpenRouter until the user deletes it there. Errors when the key could not be deleted; the state is then Failed with NotDeleted, and calling again retries. The provider's saved key, then its environment key, signs in its place."
   openRouterDisconnect: Boolean!
   "Open OpenRouter's key settings in the browser. The address is the sidecar's constant."
   openRouterKeysOpen: Boolean!

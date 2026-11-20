@@ -23,6 +23,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
+	"github.com/kstackhq/kstack/sidecar/internal/services/internal/signer"
 )
 
 // Sign signs only the API base: a request off it is refused unsigned.
@@ -68,9 +69,9 @@ func TestABindingEndsWithItsSession(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// A binding made with no key is dead for good, even once a sign-in under way
-// connects.
-func TestABindingWithNoSessionIsDead(t *testing.T) {
+// A binding made with no key has ended for good, even once a sign-in under
+// way connects.
+func TestABindingWithNoSessionHasEnded(t *testing.T) {
 	browser := &parked{}
 	r := newRig(t, withBrowser(browser.open))
 	require.NoError(t, r.svc.Connect(t.Context()))
@@ -196,4 +197,15 @@ func TestAStaleRefusalChecksNothing(t *testing.T) {
 
 	r.checkEnded.Await(t, "the check")
 	assert.Equal(t, connectors.Connected, r.svc.State().Phase)
+}
+
+// Bind answers signer.Ended{} with no session, a sign-in under way included:
+// providerkeys reads that value as the cue to bind a key.
+func TestBindIsDeadWithNoSession(t *testing.T) {
+	r := newRig(t)
+	assert.Equal(t, llm.Signer(signer.Ended{}), r.svc.Bind())
+	connect(t, r.svc)
+	assert.NotEqual(t, llm.Signer(signer.Ended{}), r.svc.Bind())
+	require.NoError(t, r.svc.Disconnect())
+	assert.Equal(t, llm.Signer(signer.Ended{}), r.svc.Bind())
 }

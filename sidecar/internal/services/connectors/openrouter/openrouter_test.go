@@ -16,8 +16,6 @@ package openrouter
 
 import (
 	"bytes"
-	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"testing"
@@ -27,9 +25,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
-	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
-	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
 // A first launch holds no key: signed out, and the keyring untouched.
@@ -116,27 +112,6 @@ func TestAnUnreadableEntryNewCannotDelete(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// With OPENROUTER_API_KEY in the environment, the service reads no entry,
-// says so, and refuses Connect and Disconnect; the stored key stays.
-func TestTheEnvironmentKeyWins(t *testing.T) {
-	r := newRig(t)
-	r.keyring.put(keyAccount, `{"v":1,"key":"stored-openrouter-key-0001"}`)
-	r.fromEnv = true
-	browser := &parked{}
-	r.opts = []option{withBrowser(browser.open)}
-
-	s := r.restart()
-
-	assert.Equal(t, connectors.FromEnvironment, s.State().Phase)
-	assert.ErrorIs(t, s.Connect(t.Context()), connectors.ErrFromEnvironment)
-	assert.ErrorIs(t, s.Disconnect(), connectors.ErrFromEnvironment)
-	assert.Empty(t, browser.opened())
-	_, err := r.signedKey(s)
-	assert.ErrorIs(t, err, llm.ErrSignedOut)
-	_, ok := r.keyring.entry(keyAccount)
-	assert.True(t, ok)
-}
-
 // New refuses an auth origin or an API base that does not parse.
 func TestNewRefusesABadURL(t *testing.T) {
 	_, err := New(Config{AuthURL: "http://[::1", APIBaseURL: APIBaseURL})
@@ -201,21 +176,4 @@ func TestNoKeyLeavesTheKeyring(t *testing.T) {
 		assert.NotContains(t, logs.String(), body["code_verifier"])
 		assert.NotContains(t, logs.String(), `"`+body["code"]+`"`)
 	}
-}
-
-// SyncCatalog keeps the openrouter row's catalog the account's until its stop:
-// signed out, it empties it.
-func TestSyncCatalogEmptiesASignedOutCatalog(t *testing.T) {
-	r := newRig(t)
-	models := llm.New(llm.Provider{ID: ID, Dialect: llm.DialectChatCompletions, Catalog: []llm.Model{{ID: "stale"}}})
-	frames, cancel := models.Subscribe()
-	defer cancel()
-	testutil.Recv(t, frames, "the first frame")
-
-	stop := r.svc.SyncCatalog(poke.New(), models, func(context.Context, llm.Provider) ([]llm.Model, error) {
-		return nil, errors.New("signed out: never read")
-	})
-	defer stop()
-
-	assert.Empty(t, testutil.Recv(t, frames, "the emptied catalog")[0].Catalog)
 }

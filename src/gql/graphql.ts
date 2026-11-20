@@ -126,8 +126,6 @@ export type ConnectorPhase =
   | 'Connected'
   /** The last attempt, session or key ended; `failure` says why. */
   | 'Failed'
-  /** The provider's key from the environment signs in the connector's place; the connector is unused. */
-  | 'FromEnvironment'
   | 'SignedOut'
   /** The browser is open on the provider's sign-in. */
   | 'SigningIn';

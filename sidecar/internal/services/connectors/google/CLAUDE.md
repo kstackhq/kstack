@@ -17,4 +17,4 @@ Google Cloud project.** The `google` model row lists the Gemini models under Ver
   every build, **after the login shell's import**, which carries these variables on macOS.
 - **`BaseURL` builds no endpoint from an id that is not well formed**, so the environment cannot
   move the host or the path. With no base the engine signs nothing and the catalog lists no row.
-- **`GEMINI_API_KEY` wins**: with it set, `catalog.New` leaves the `google` row out.
+- **The `google` provider is listed whenever the launch found a project**, a Gemini key or not: `gemini` (the Gemini API) and `google` (Vertex AI) are two providers. → [ADR](../../../../../docs/adr/2026-11-20-a-providers-credential-follows-one-order.md).

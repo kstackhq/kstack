@@ -14,9 +14,10 @@
 
 // Package openrouter is the OpenRouter connector: a sign-in with PKCE whose
 // exchange grants an ordinary API key, kept in the OS keyring. The key signs
-// the openrouter row's requests (llm.SessionSigner) while it is connected.
+// the openrouter provider's requests (llm.SessionSigner) while it is
+// connected, through providerkeys, which ranks it over the provider's keys.
 //
-// Files: this one (Service, New, the catalog sync), keyring.go (the key's entry),
+// Files: this one (Service, New), keyring.go (the key's entry),
 // connect.go (the sign-in), sign.go (Sign, Bind, the key check),
 // disconnect.go.
 package openrouter
@@ -33,8 +34,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
-	"github.com/kstackhq/kstack/sidecar/internal/services/internal/catalogsync"
-	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
 const (
@@ -65,9 +64,6 @@ type Config struct {
 	AuthURL string
 	// APIBaseURL is APIBaseURL unless a debug build moved it.
 	APIBaseURL string
-	// FromEnvironment is a launch whose environment holds a key. The service
-	// then reads no entry and refuses Connect and Disconnect.
-	FromEnvironment bool
 }
 
 // Service is the OpenRouter connector. Every change happens under mu, against
@@ -147,10 +143,6 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 	for _, opt := range opts {
 		opt(s)
 	}
-	if cfg.FromEnvironment {
-		s.publishLocked(connectors.State{Phase: connectors.FromEnvironment})
-		return s, nil
-	}
 	s.publishLocked(s.restore())
 	return s, nil
 }
@@ -173,12 +165,6 @@ func (s *Service) Subscribe() (<-chan connectors.State, func()) {
 func (s *Service) WatchSession() (<-chan uint64, func()) {
 	rx := s.sessions.Receiver()
 	return rx.Chan(), rx.Close
-}
-
-// SyncCatalog keeps the openrouter row's catalog the account's until the stop
-// it returns.
-func (s *Service) SyncCatalog(pokes *poke.Service, models *llm.Service, read func(context.Context, llm.Provider) ([]llm.Model, error)) (stop func()) {
-	return catalogsync.Start(ID, s.WatchSession, pokes, models, read)
 }
 
 // Close ends every goroutine the service started and waits for them.

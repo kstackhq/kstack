@@ -4027,7 +4027,6 @@ func TestOpenRouterConnectionProjectsTheState(t *testing.T) {
 	for _, st := range []connectors.State{
 		{Phase: connectors.Failed, Failure: connectors.NotDeleted},
 		{Phase: connectors.Failed, Failure: connectors.KeyRejected},
-		{Phase: connectors.FromEnvironment},
 	} {
 		f.publish(st)
 		data, errs = mutation(t, srv.URL, `query { openRouterConnection { phase failure } }`)
@@ -4271,7 +4270,7 @@ func TestAConnectorRefusalIsAValidationError(t *testing.T) {
 	openRouter := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
 	openRouterSrv := openRouterServer(t, openRouter, func(string) error { return nil })
 
-	for _, refusal := range []error{connectors.ErrSigningIn, connectors.ErrConnected, connectors.ErrFromEnvironment, connectors.ErrNotDeleted} {
+	for _, refusal := range []error{connectors.ErrSigningIn, connectors.ErrConnected, connectors.ErrNotDeleted} {
 		chatGPT.connectErr, chatGPT.disconnectErr = refusal, refusal
 		openRouter.connectErr, openRouter.disconnectErr = refusal, refusal
 		for _, c := range []struct{ url, op string }{

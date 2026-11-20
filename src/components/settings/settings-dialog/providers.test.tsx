@@ -224,14 +224,6 @@ describe('ProvidersSettings', () => {
     expect(dialog).toHaveTextContent('OPENROUTER_API_KEY is not set.');
   });
 
-  it('keeps the key variable as the detail when the environment signs OpenRouter', () => {
-    serve([model('openrouter', 'OpenRouter', 'auto')]);
-    openRouter('FromEnvironment');
-    render(<ProvidersSettings />);
-
-    expect(row('OpenRouter')).toHaveTextContent('Found OPENROUTER_API_KEY');
-  });
-
   it("offers the OpenRouter connector in OpenRouter's form", async () => {
     const user = userEvent.setup();
     render(<ProvidersSettings />);

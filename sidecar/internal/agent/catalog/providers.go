@@ -17,20 +17,18 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 )
 
 // keyedProvider is a provider and the environment variable that keys it.
 type keyedProvider struct {
 	provider llm.Provider
 	keyVar   string
-	// connector marks a row a connector can sign when no key is given: its
-	// signer is Config.Signers[the row's id], and its catalog is set while
-	// connected.
-	connector bool
 }
 
 // keyedProviders is every keyed provider, in picker order. The fake is not here:
@@ -47,10 +45,61 @@ func keyedProviders() []keyedProvider {
 		{provider: newMistralProvider(), keyVar: "MISTRAL_API_KEY"},
 		{provider: newDeepSeekProvider(), keyVar: "DEEPSEEK_API_KEY"},
 		{provider: newXAIProvider(), keyVar: "XAI_API_KEY"},
-		{provider: newOpenRouterProvider(), keyVar: "OPENROUTER_API_KEY", connector: true},
+		{provider: newOpenRouterProvider(), keyVar: "OPENROUTER_API_KEY"},
 		{provider: newTogetherProvider(), keyVar: "TOGETHER_API_KEY"},
 		{provider: newFireworksProvider(), keyVar: "FIREWORKS_API_KEY"},
 		{provider: newOpenCodeGoProvider(), keyVar: "OPENCODE_GO_API_KEY"},
+	}
+}
+
+// keyedProvidersAt is every keyed provider, each moved to the base URL a debug
+// build gives it, with its models' overrides cleared so one stub answers the
+// whole provider.
+func keyedProvidersAt(baseURLs map[string]string) []keyedProvider {
+	keyed := keyedProviders()
+	for i := range keyed {
+		p := &keyed[i].provider
+		if url, ok := baseURLs[p.ID]; ok {
+			p.BaseURL = url
+			for j := range p.Catalog {
+				p.Catalog[j].BaseURL = ""
+			}
+		}
+	}
+	return keyed
+}
+
+// KeyedProviders is every keyed provider as providerkeys needs it: each base
+// URL the provider and its models are sent to, with the header a key goes in
+// there.
+func KeyedProviders(baseURLs map[string]string) []providerkeys.Provider {
+	var keyed []providerkeys.Provider
+	for _, kp := range keyedProvidersAt(baseURLs) {
+		p := kp.provider
+		out := providerkeys.Provider{ID: p.ID, Label: p.Label, KeyVar: kp.keyVar}
+		for _, m := range append([]llm.Model{{}}, p.Catalog...) {
+			pm := p.ForModel(m)
+			header, prefix := pm.AuthHeader()
+			route := providerkeys.Route{BaseURL: pm.BaseURL, Header: header, Prefix: prefix}
+			if !slices.Contains(out.Routes, route) {
+				out.Routes = append(out.Routes, route)
+			}
+		}
+		keyed = append(keyed, out)
+	}
+	return keyed
+}
+
+// KeyedModels reads a keyed provider's catalog: its written one, at the base URLs
+// a debug build moved, with no request.
+func KeyedModels(baseURLs map[string]string) func(context.Context, llm.Provider) ([]llm.Model, error) {
+	return func(_ context.Context, p llm.Provider) ([]llm.Model, error) {
+		for _, kp := range keyedProvidersAt(baseURLs) {
+			if kp.provider.ID == p.ID {
+				return kp.provider.Catalog, nil
+			}
+		}
+		return nil, fmt.Errorf("catalog: %s is not a keyed provider", p.ID)
 	}
 }
 
@@ -90,16 +139,13 @@ type signedProvider struct {
 	id     string
 	row    func(Config, llm.Signer) llm.Provider
 	models func(context.Context, llm.Provider) ([]llm.Model, error)
-	// keyedBy is the keyed provider whose key, when given, serves the same
-	// models in this row's place. Empty for none.
-	keyedBy string
 }
 
 // signedProviders is every signed-in provider, in picker order.
 func signedProviders() []signedProvider {
 	return []signedProvider{
 		{id: ChatGPTID, row: newChatGPTProvider, models: ReadChatGPTModels},
-		{id: GoogleID, row: newGoogleProvider, models: ReadGoogleModels, keyedBy: "gemini"},
+		{id: GoogleID, row: newGoogleProvider, models: ReadGoogleModels},
 	}
 }
 
@@ -269,12 +315,6 @@ func newOpenRouterProvider() llm.Provider {
 		// Sticky routing: a session's requests go to the provider holding its cache.
 		AffinityRoute: llm.AffinityRoute{Field: "session_id"},
 	}
-}
-
-// ReadOpenRouterModels is the openrouter row's catalog while its connector is
-// connected: the written one, read without a request.
-func ReadOpenRouterModels(context.Context, llm.Provider) ([]llm.Model, error) {
-	return newOpenRouterProvider().Catalog, nil
 }
 
 // newTogetherProvider is Together's inference endpoint: open-weight models by

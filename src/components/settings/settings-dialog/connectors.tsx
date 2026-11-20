@@ -302,12 +302,6 @@ function openRouterDetail({ phase, failure }: OpenRouterConnection, { name, deta
       return 'Waiting for the browser…';
     case 'Connected':
       return 'Key "Kstack"';
-    case 'FromEnvironment':
-      return (
-        <>
-          Using <code>OPENROUTER_API_KEY</code>
-        </>
-      );
     case 'Failed':
       return failure ? failureText[failure](name) : offer;
   }
@@ -340,7 +334,6 @@ function gitHubDetail({ phase, userCode, failure }: GitHubConnection, { name, de
   switch (phase) {
     case 'SignedOut':
     case 'Connected':
-    case 'FromEnvironment':
       return detail;
     case 'SigningIn':
       // The code is GitHub's: drawn spelled out, as the user types what they see.
@@ -491,7 +484,6 @@ function awsDetail({ phase, failure }: AWSConnection, { name, detail }: Connecto
       return failure ? failureText[failure](name) : detail;
     case 'SignedOut':
     case 'Connected':
-    case 'FromEnvironment':
       return detail;
   }
 }
@@ -585,7 +577,6 @@ function googleDetail({ phase, project, failure }: GoogleConnection, { name, det
       if (failure === 'ScopeNotGranted') return 'The sign-in did not allow access to Google Cloud.';
       return failure ? failureText[failure](name) : detail;
     case 'SignedOut':
-    case 'FromEnvironment':
       return detail;
   }
 }

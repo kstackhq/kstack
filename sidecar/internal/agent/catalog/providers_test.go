@@ -15,12 +15,14 @@
 package catalog
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 )
 
 // Every keyed provider says everything a send needs: an id, a label, a dialect
@@ -430,11 +432,61 @@ func TestNoOpenRouterModelLeavesTheRowsDialect(t *testing.T) {
 	assert.Empty(t, newOpenRouterProvider().KeyHeader)
 }
 
-// A connected OpenRouter's catalog is the row's written one, read without a
-// request.
-func TestReadOpenRouterModelsAnswersTheWrittenCatalog(t *testing.T) {
-	models, err := ReadOpenRouterModels(t.Context(), llm.Provider{ID: "openrouter", BaseURL: "http://127.0.0.1:1"})
-
+// A keyed provider's catalog is its written one, read without a request, at the
+// base a debug build moved.
+func TestKeyedModelsAnswersTheWrittenCatalog(t *testing.T) {
+	release, err := KeyedModels(nil)(t.Context(), llm.Provider{ID: "opencode-go"})
 	require.NoError(t, err)
-	assert.Equal(t, newOpenRouterProvider().Catalog, models)
+	assert.Equal(t, newOpenCodeGoProvider().Catalog, release, "a release keeps each model's base")
+
+	moved, err := KeyedModels(map[string]string{"opencode-go": "http://127.0.0.1:1"})(t.Context(), llm.Provider{ID: "opencode-go"})
+	require.NoError(t, err)
+	require.Len(t, moved, len(newOpenCodeGoProvider().Catalog))
+	for _, m := range moved {
+		assert.Empty(t, m.BaseURL, m.ID)
+	}
+
+	_, err = KeyedModels(nil)(t.Context(), llm.Provider{ID: ChatGPTID})
+	assert.Error(t, err)
+}
+
+// Every keyed provider's routes are its bases and their headers: one in a release,
+// and opencode-go's two.
+func TestKeyedProviders(t *testing.T) {
+	rows := KeyedProviders(nil)
+	require.Len(t, rows, len(keyedProviders()))
+	for _, r := range rows {
+		assert.Equal(t, KeyVars()[r.ID], r.KeyVar, r.ID)
+		assert.NotEmpty(t, r.Label, r.ID)
+		if r.ID != "opencode-go" {
+			assert.Len(t, r.Routes, 1, r.ID)
+		}
+	}
+	assert.Equal(t, []providerkeys.Route{{BaseURL: "https://api.anthropic.com", Header: "X-Api-Key"}}, rows[0].Routes)
+	assert.Equal(t, []providerkeys.Route{{BaseURL: "https://api.openai.com/v1", Header: "Authorization", Prefix: "Bearer "}}, rows[1].Routes)
+	assert.Equal(t, []providerkeys.Route{
+		{BaseURL: "https://opencode.ai/inference/go/openai/v1", Header: "Authorization", Prefix: "Bearer "},
+		{BaseURL: "https://opencode.ai/inference/go/anthropic", Header: "X-Api-Key"},
+	}, rows[len(rows)-1].Routes)
+
+	moved := KeyedProviders(map[string]string{"opencode-go": "http://127.0.0.1:1"})
+	assert.Equal(t, []providerkeys.Route{
+		{BaseURL: "http://127.0.0.1:1", Header: "Authorization", Prefix: "Bearer "},
+		{BaseURL: "http://127.0.0.1:1", Header: "X-Api-Key"},
+	}, moved[len(moved)-1].Routes, "one stub takes both headers")
+}
+
+// A release sets one header per request: no two routes of a provider with
+// different headers have one base covering the other.
+func TestEachBaseOfAKeyedRowTakesOneHeader(t *testing.T) {
+	covers := func(base, u string) bool { return strings.HasPrefix(u+"/", strings.TrimSuffix(base, "/")+"/") }
+	for _, r := range KeyedProviders(nil) {
+		for _, a := range r.Routes {
+			for _, b := range r.Routes {
+				if a.Header != b.Header {
+					assert.False(t, covers(a.BaseURL, b.BaseURL), "%s: %s covers %s", r.ID, a.BaseURL, b.BaseURL)
+				}
+			}
+		}
+	}
 }
