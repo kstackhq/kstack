@@ -25,7 +25,8 @@ import (
 const maxKeyLen = 512
 
 // Save keeps key as id's saved key, in the keyring and in memory, replacing
-// any saved one. The key is not checked against the provider.
+// any saved one. The key is not checked against the provider. It is refused
+// while the provider is Restoring.
 func (s *Service) Save(id, key string) error {
 	p, ok := s.byID[id]
 	if !ok {
@@ -37,6 +38,9 @@ func (s *Service) Save(id, key string) error {
 	}
 	s.writes.Lock()
 	defer s.writes.Unlock()
+	if s.restoring(p) {
+		return ErrRestoring
+	}
 	safe.AddSecret(key)
 	if err := s.keyring.Set(account(id), encode(key)); err != nil {
 		// Logged while the key is registered, in case the error quotes it.
@@ -59,7 +63,8 @@ func (s *Service) Save(id, key string) error {
 // under a key ends whatever the keyring answers. It deletes the entry even with no
 // key held, since a keyring unread at launch may still hold one; only a newer
 // Kstack's entry is left. A delete the keyring refuses is reported on the
-// provider, and calling again retries it.
+// provider, and calling again retries it. It is refused while the provider is
+// Restoring.
 func (s *Service) Delete(id string) error {
 	p, ok := s.byID[id]
 	if !ok {
@@ -69,6 +74,10 @@ func (s *Service) Delete(id string) error {
 	defer s.writes.Unlock()
 
 	s.mu.Lock()
+	if p.restoringLocked() {
+		s.mu.Unlock()
+		return ErrRestoring
+	}
 	if p.newer {
 		s.mu.Unlock()
 		return nil

@@ -173,7 +173,7 @@ func connectorErr(err error) error {
 // providerKeyErr is a refused Save or Delete as the wire codes it.
 func providerKeyErr(err error) error {
 	switch {
-	case errors.Is(err, providerkeys.ErrUnknownProvider), errors.Is(err, providerkeys.ErrBadKey):
+	case errors.Is(err, providerkeys.ErrUnknownProvider), errors.Is(err, providerkeys.ErrBadKey), errors.Is(err, providerkeys.ErrRestoring):
 		return gqlerrors.Clone(gqlerrors.ErrValidationError)
 	case errors.Is(err, providerkeys.ErrNotSaved):
 		return gqlerrors.Clone(gqlerrors.ErrProviderKeyNotSaved)

@@ -17,7 +17,7 @@ sidecar/internal/services/connectors/kstackcloud/CLAUDE.md: 1536
 sidecar/internal/services/connectors/openrouter/CLAUDE.md: 2560
 sidecar/internal/services/cluster/CLAUDE.md: 18432
 sidecar/internal/services/logs/CLAUDE.md: 23552
-sidecar/internal/services/providerkeys/CLAUDE.md: 2560
+sidecar/internal/services/providerkeys/CLAUDE.md: 3072
 sidecar/internal/services/settings/CLAUDE.md: 6656
 sidecar/internal/tools/CLAUDE.md: 30208
 src-tauri/CLAUDE.md: 30720

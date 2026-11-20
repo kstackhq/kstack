@@ -137,6 +137,7 @@ export function ProviderSetupForm({
 
 // Whether a form's source is the one behind a credential's source.
 const SIGNS: Record<ProviderCredentialSource, (s: CredentialSource) => boolean> = {
+  Restoring: () => false,
   None: () => false,
   EnvironmentKey: (s) => s === 'environment',
   SavedKey: (s) => s === 'api-key',

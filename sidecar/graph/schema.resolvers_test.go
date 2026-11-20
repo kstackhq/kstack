@@ -4367,6 +4367,15 @@ func connectorConstants(t *testing.T) (phases, failures []string) {
 // provider holding an environment key.
 func providerKeysServer(t *testing.T, k *oskeyringtest.Keyring) (*httptest.Server, *providerkeys.Service) {
 	t.Helper()
+	srv, keys := startProviderKeysServer(t, k)
+	testutil.Wait(t, keys.Restored(), "the restore")
+	return srv, keys
+}
+
+// startProviderKeysServer is providerKeysServer without the wait for the
+// restore.
+func startProviderKeysServer(t *testing.T, k *oskeyringtest.Keyring) (*httptest.Server, *providerkeys.Service) {
+	t.Helper()
 	keys, err := providerkeys.New(providerkeys.Config{
 		Keyring:   k,
 		Providers: catalog.KeyedProviders(nil),
@@ -4443,6 +4452,26 @@ func TestProviderKeyRefusals(t *testing.T) {
 		_, errs := mutation(t, srv.URL, op)
 		require.Len(t, errs, 1, op)
 		assert.Equal(t, code, errs[0].Extensions["code"], op)
+	}
+}
+
+// While the keyring is unread, every provider is Restoring, one with an
+// environment key says so, and a Save or Delete is a validation error.
+func TestProviderKeysWhileRestoring(t *testing.T) {
+	k := oskeyringtest.New()
+	t.Cleanup(k.Hold(oskeyringtest.Get))
+	srv, _ := startProviderKeysServer(t, k)
+
+	data, errs := mutation(t, srv.URL, `query { providerCredentials { id source hasEnvironmentKey hasSavedKey } }`)
+	require.Empty(t, errs)
+	assert.Contains(t, data["providerCredentials"], map[string]any{"id": "anthropic", "source": "Restoring", "hasEnvironmentKey": true, "hasSavedKey": false})
+	for _, op := range []string{
+		`mutation { providerKeySave(providerID: "groq", key: "key-0123456789abcdef") }`,
+		`mutation { providerKeyDelete(providerID: "groq") }`,
+	} {
+		_, errs := mutation(t, srv.URL, op)
+		require.Len(t, errs, 1, op)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"], op)
 	}
 }
 

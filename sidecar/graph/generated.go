@@ -35104,12 +35104,14 @@ func (ec *executionContext) marshalNProviderCredentialSource2githubᚗcomᚋksta
 
 var (
 	unmarshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource = map[string]providerkeys.Source{
+		"Restoring":      providerkeys.SourceRestoring,
 		"None":           providerkeys.SourceNone,
 		"EnvironmentKey": providerkeys.SourceEnvironmentKey,
 		"SavedKey":       providerkeys.SourceSavedKey,
 		"Connector":      providerkeys.SourceConnector,
 	}
 	marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource = map[providerkeys.Source]string{
+		providerkeys.SourceRestoring:      "Restoring",
 		providerkeys.SourceNone:           "None",
 		providerkeys.SourceEnvironmentKey: "EnvironmentKey",
 		providerkeys.SourceSavedKey:       "SavedKey",

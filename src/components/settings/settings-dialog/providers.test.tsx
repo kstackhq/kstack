@@ -146,10 +146,18 @@ describe('ProvidersSettings', () => {
     [{ source: 'SavedKey' }, 'Using a saved key'],
     [{ source: 'EnvironmentKey' }, 'Found OPENAI_API_KEY'],
     [{ source: 'None' }, 'No API key found'],
+    [{ source: 'Restoring' }, 'No API key found'],
   ] as const)('draws the detail for %o', (state, line) => {
     credentials({ openai: state });
     render(<ProvidersSettings />);
     expect(row('OpenAI')).toHaveTextContent(line);
+  });
+
+  it('marks a restoring keyed provider not set up', () => {
+    credentials({ anthropic: { source: 'Restoring', hasEnvironmentKey: true } });
+    render(<ProvidersSettings />);
+
+    expect(row('Anthropic').querySelector('[data-slot="status"]')).toHaveAttribute('data-set-up', 'false');
   });
 
   it('marks a keyed provider set up while it has a credential, with a menu', async () => {

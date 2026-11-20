@@ -20,7 +20,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 )
 
@@ -69,6 +71,23 @@ func TestNewListsEveryKeyedRowAndAddsTheFake(t *testing.T) {
 	_, err = target.Stream(t.Context(), "", []llm.Message{{Role: "user", Blocks: []llm.Block{llm.TextBlock("hi")}}}, "", nil, nil, func(llm.Chunk) {})
 	require.NoError(t, err)
 	assert.Equal(t, 1, f.Asked(), "the fake given is the one a send runs on")
+}
+
+// While the keyring is unread, a provider with an environment key lists its
+// written catalog, and one whose only key may be saved lists none yet.
+func TestNewListsAnEnvironmentKeyBeforeTheKeyringAnswers(t *testing.T) {
+	k := oskeyringtest.New()
+	t.Cleanup(k.Hold(oskeyringtest.Get))
+	keys, err := providerkeys.New(providerkeys.Config{
+		Keyring: k, Providers: KeyedProviders(nil), EnvKeys: map[string]string{"openai": "sk-test-0123456789abcdef"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(keys.Close)
+
+	providers := New(Config{Keys: keys}).Providers()
+
+	assert.Equal(t, newOpenAIProvider().Catalog, providers[1].Catalog)
+	assert.Empty(t, providers[0].Catalog, "anthropic's saved key is unread")
 }
 
 // A debug build's base URL moves the provider it names and nothing else.

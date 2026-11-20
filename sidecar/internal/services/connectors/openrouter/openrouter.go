@@ -89,6 +89,8 @@ type Service struct {
 	tx  *watch.Sender[connectors.State]
 	// sessions holds the generation while Connected, 0 otherwise.
 	sessions *watch.Hub[uint64]
+	// restoredGen is the generation New restored, 0 for none.
+	restoredGen uint64
 
 	mu      sync.Mutex
 	gen     uint64
@@ -142,8 +144,20 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 		opt(s)
 	}
 	s.publishLocked(s.restore())
+	if s.state.Phase == connectors.Connected {
+		s.restoredGen = s.gen
+	}
 	return s, nil
 }
+
+// restored is closed: New restores before it returns.
+var restored = func() chan struct{} { c := make(chan struct{}); close(c); return c }()
+
+// Restored closes once the restore has published what the keyring held.
+func (s *Service) Restored() <-chan struct{} { return restored }
+
+// RestoredSession is the generation the restore published, 0 for none.
+func (s *Service) RestoredSession() uint64 { return s.restoredGen }
 
 // State is the connector's current state.
 func (s *Service) State() connectors.State {

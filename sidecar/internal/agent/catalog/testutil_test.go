@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 )
 
@@ -30,5 +31,6 @@ func newKeys(t *testing.T, keys, baseURLs map[string]string) *providerkeys.Servi
 	s, err := providerkeys.New(providerkeys.Config{Keyring: oskeyringtest.New(), Providers: KeyedProviders(baseURLs), EnvKeys: keys})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
+	testutil.Wait(t, s.Restored(), "the restore")
 	return s
 }

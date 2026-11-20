@@ -715,6 +715,8 @@ models:
   ProviderCredentialSource:
     model: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.Source
     enum_values:
+      Restoring:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.SourceRestoring
       None:
         value: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.SourceNone
       EnvironmentKey:

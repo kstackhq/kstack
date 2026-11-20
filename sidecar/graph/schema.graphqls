@@ -974,6 +974,8 @@ type Model {
 
 "Which credential signs a provider's requests. The highest one present does: Connector, then SavedKey, then EnvironmentKey."
 enum ProviderCredentialSource {
+  "The launch has not read the keyring yet, or the provider's connector has not."
+  Restoring
   None
   "The key variable, from the launch or the login shell."
   EnvironmentKey
@@ -2361,9 +2363,9 @@ type Query {
 
 type Mutation {
   # --- Provider credentials ---
-  "Save a provider's API key in the OS keyring, replacing any saved one. Always true when it does not error. It signs the provider's requests from the next one, unless its connector is connected. The key is not checked against the provider. Never returns the key. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider and for a key that, once trimmed of surrounding whitespace, is under 16 or over 512 bytes or holds a space or anything but printable ASCII; KSTACK_PROVIDER_KEY_NOT_SAVED when the keyring refused, and nothing changed."
+  "Save a provider's API key in the OS keyring, replacing any saved one. Always true when it does not error. It signs the provider's requests from the next one, unless its connector is connected. The key is not checked against the provider. Never returns the key. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider and for a key that, once trimmed of surrounding whitespace, is under 16 or over 512 bytes or holds a space or anything but printable ASCII; KSTACK_PROVIDER_KEY_NOT_SAVED when the keyring refused, and nothing changed. Refused (KSTACK_VALIDATION_ERROR) while the provider is Restoring."
   providerKeySave(providerID: String!, key: String!): Boolean!
-  "Delete a provider's saved key. Always true when it does not error, including when none was saved; an entry a newer Kstack wrote is left in the keyring. KSTACK_PROVIDER_KEY_NOT_DELETED when the keyring refused: the key is out of use, returns after a restart, and calling again retries. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider."
+  "Delete a provider's saved key. Always true when it does not error, including when none was saved; an entry a newer Kstack wrote is left in the keyring. KSTACK_PROVIDER_KEY_NOT_DELETED when the keyring refused: the key is out of use, returns after a restart, and calling again retries. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider, and while it is Restoring."
   providerKeyDelete(providerID: String!): Boolean!
 
   # --- Cluster ---

@@ -52,9 +52,31 @@ const (
 	otherKey = "other-key-0123456789abcdef"
 )
 
+// savedEntry is savedKey's entry.
+const savedEntry = `{"v":1,"key":"` + savedKey + `"}`
+
+// held is a keyring with entry under the twin's account, its calls of kinds
+// held until the test ends or calls the release it answers.
+func held(t *testing.T, entry string, kinds ...oskeyringtest.Kind) (*oskeyringtest.Keyring, func()) {
+	t.Helper()
+	k := oskeyringtest.New()
+	require.NoError(t, k.Set(account(twinID), entry))
+	release := k.Hold(kinds...)
+	t.Cleanup(release)
+	return k, release
+}
+
 // newService builds a service over cfg's keyring, or a fresh one, closed at
-// the test's end.
+// the test's end, and waits for every provider's restore.
 func newService(t *testing.T, cfg Config) *Service {
+	t.Helper()
+	s := startService(t, cfg)
+	testutil.Wait(t, s.Restored(), "the restore")
+	return s
+}
+
+// startService is newService without the wait for the restore.
+func startService(t *testing.T, cfg Config) *Service {
 	t.Helper()
 	if cfg.Keyring == nil {
 		cfg.Keyring = oskeyringtest.New()
@@ -88,6 +110,10 @@ func request(t *testing.T, url string) *http.Request {
 // a session.
 type fakeConnector struct {
 	sessions *watch.Hub[uint64]
+	// restored is Restored's channel, closed unless the connector is restoring;
+	// restoredSession is the session its restore published.
+	restored        chan struct{}
+	restoredSession uint64
 
 	mu      sync.Mutex
 	session uint64
@@ -95,7 +121,37 @@ type fakeConnector struct {
 }
 
 func newFakeConnector() *fakeConnector {
-	return &fakeConnector{sessions: watch.New[uint64](0)}
+	c := newRestoringConnector()
+	close(c.restored)
+	return c
+}
+
+// newRestoringConnector is a connector whose restore has not published.
+func newRestoringConnector() *fakeConnector {
+	return &fakeConnector{sessions: watch.New[uint64](0), restored: make(chan struct{})}
+}
+
+// restore publishes session id, 0 for none, then ends the restore.
+func (c *fakeConnector) restore(id uint64) {
+	c.publishRestore(id)
+	close(c.restored)
+}
+
+// publishRestore publishes the restore's session id and leaves the restore
+// unended, as a connector does for a moment.
+func (c *fakeConnector) publishRestore(id uint64) {
+	c.mu.Lock()
+	c.restoredSession = id
+	c.mu.Unlock()
+	c.connect(id)
+}
+
+func (c *fakeConnector) Restored() <-chan struct{} { return c.restored }
+
+func (c *fakeConnector) RestoredSession() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.restoredSession
 }
 
 // connect starts session id; 0 ends it.
@@ -123,12 +179,27 @@ func (c *fakeConnector) Refused(*http.Request) {
 }
 
 func (c *fakeConnector) Bind() llm.Signer {
+	select {
+	case <-c.restored:
+	default:
+		return signer.Pending(c.restored, nil, c.restoredBinding)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.session == 0 {
 		return signer.Ended{}
 	}
 	return connectorBinding{c: c, session: c.session}
+}
+
+// restoredBinding is the binding of the session the restore published.
+func (c *fakeConnector) restoredBinding() llm.Signer {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.restoredSession == 0 {
+		return signer.Ended{}
+	}
+	return connectorBinding{c: c, session: c.restoredSession}
 }
 
 func (c *fakeConnector) WatchSession() (<-chan uint64, func()) {

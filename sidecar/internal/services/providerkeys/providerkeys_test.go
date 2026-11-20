@@ -105,7 +105,7 @@ func TestTheSourceTable(t *testing.T) {
 	}
 }
 
-// New reads the connector's session before it returns.
+// The restore lands on the connector's session.
 func TestTheLaunchStateHasTheConnectorsSession(t *testing.T) {
 	t.Parallel()
 	c := newFakeConnector()
@@ -224,4 +224,69 @@ func TestARefusedSaveLogsNoKey(t *testing.T) {
 
 	assert.Contains(t, logs.String(), "could not save the key")
 	assert.NotContains(t, logs.String(), key)
+}
+
+// A provider stays Restoring while its connector restores, and Close returns.
+// Released, it lands on the connector's restored session, never on the 0
+// published while Restoring, and the landing moves no key generation.
+func TestAFollowerLandsOnTheRestoredSession(t *testing.T) {
+	t.Parallel()
+	t.Run("held", func(t *testing.T) {
+		t.Parallel()
+		c := newRestoringConnector()
+		s := startService(t, Config{Connectors: map[string]Connector{routerID: c}})
+		testutil.Wait(t, s.byID[twinID].restored, "the twin's restore")
+
+		assert.Equal(t, SourceRestoring, state(t, s, routerID).Source)
+		testutil.WaitReturn(t, s.Close, "Close")
+		assert.Equal(t, SourceRestoring, state(t, s, routerID).Source)
+	})
+	t.Run("released connected", func(t *testing.T) {
+		t.Parallel()
+		c := newRestoringConnector()
+		s := startService(t, Config{Connectors: map[string]Connector{routerID: c}})
+
+		c.restore(3)
+		testutil.Wait(t, s.Restored(), "the restore")
+
+		assert.Equal(t, SourceConnector, state(t, s, routerID).Source)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		assert.Zero(t, s.byID[routerID].keyGen)
+	})
+}
+
+// HasCredential is known while Restoring for an environment key alone: a
+// launch with one lists its models at once, and one with a saved key alone
+// lists them when the read answers.
+func TestHasCredentialWhileRestoring(t *testing.T) {
+	t.Parallel()
+	k, release := held(t, savedEntry, oskeyringtest.Get)
+	s := startService(t, Config{Keyring: k, EnvKeys: map[string]string{routerID: envKey}})
+	router, cancelRouter := s.WatchHasCredential(routerID)
+	defer cancelRouter()
+	twin, cancelTwin := s.WatchHasCredential(twinID)
+	defer cancelTwin()
+
+	assert.True(t, state(t, s, routerID).HasCredential())
+	assert.Equal(t, uint64(1), testutil.Recv(t, router, "the router's credential"))
+	assert.False(t, state(t, s, twinID).HasCredential())
+	assert.Zero(t, testutil.Recv(t, twin, "the twin's credential"))
+
+	release()
+	assert.Equal(t, uint64(1), testutil.Recv(t, twin, "the twin's saved key"))
+}
+
+// Nothing is reported failed while Restoring.
+func TestFailureIsNothingWhileRestoring(t *testing.T) {
+	t.Parallel()
+	assert.Empty(t, failure(true, true, SourceRestoring))
+}
+
+// A service with no provider has nothing to restore.
+func TestNoProviderIsRestoredAtOnce(t *testing.T) {
+	t.Parallel()
+	s := startService(t, Config{Providers: []Provider{}})
+
+	testutil.Wait(t, s.Restored(), "the restore")
 }

@@ -71,7 +71,7 @@ func New(cfg Config) Catalog {
 		for _, kp := range keyedProvidersAt(cfg.BaseURLs) {
 			p := kp.provider
 			p.Signer = cfg.Keys.Signer(p.ID)
-			if st, _ := cfg.Keys.State(p.ID); st.Source == providerkeys.SourceNone {
+			if st, _ := cfg.Keys.State(p.ID); !st.HasCredential() {
 				// SyncCatalogs lists it once the provider has a credential.
 				p.Catalog = nil
 			}

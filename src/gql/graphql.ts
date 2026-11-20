@@ -369,6 +369,8 @@ export type ProviderCredentialSource =
   /** The key variable, from the launch or the login shell. */
   | 'EnvironmentKey'
   | 'None'
+  /** The launch has not read the keyring yet, or the provider's connector has not. */
+  | 'Restoring'
   /** A key saved from the Providers pane, in the OS keyring. */
   | 'SavedKey';
 

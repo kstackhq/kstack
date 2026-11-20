@@ -84,6 +84,7 @@ describe('ProviderSetupForm', () => {
     ['EnvironmentKey', 'Environment variable'],
     ['Connector', 'ChatGPT connector'],
     ['None', 'Environment variable'],
+    ['Restoring', 'Environment variable'],
   ] as const)('opens on the source that signs, %s', (source, name) => {
     render(
       <ProviderSetupForm

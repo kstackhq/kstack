@@ -40,6 +40,9 @@ import (
 type Source string
 
 const (
+	// SourceRestoring is a provider whose saved key, or whose connector's
+	// session, the launch has not read yet.
+	SourceRestoring      Source = "Restoring"
 	SourceNone           Source = "None"
 	SourceEnvironmentKey Source = "EnvironmentKey"
 	SourceSavedKey       Source = "SavedKey"
@@ -63,6 +66,9 @@ var (
 	ErrBadKey          = errors.New("providerkeys: not an API key")
 	ErrNotSaved        = errors.New("providerkeys: the keyring refused the key")
 	ErrNotDeleted      = errors.New("providerkeys: the keyring refused the delete")
+	// ErrRestoring is a Save or Delete asked for before the launch read the
+	// provider's entry and its connector's session.
+	ErrRestoring = errors.New("providerkeys: the keyring has not been read yet")
 )
 
 // State is one provider as every window draws it. It holds no key.
@@ -74,6 +80,15 @@ type State struct {
 	HasSavedKey       bool
 	// Failure is "" for none.
 	Failure Failure
+}
+
+// HasCredential says a credential is known to be present: while Restoring,
+// the environment key alone.
+func (st State) HasCredential() bool {
+	if st.Source == SourceRestoring {
+		return st.HasEnvironmentKey
+	}
+	return st.Source != SourceNone
 }
 
 // Provider is a keyed provider as the service needs it.
@@ -94,14 +109,20 @@ type Route struct {
 
 // Connector is a provider's connector: it signs in the keys' place while it
 // has a session. Its Bind must answer signer.Ended{} whenever it has no
-// session, and nothing else then: that value is how the provider knows to bind
-// a key.
+// session and is not Restoring, and nothing else then: that value is how the
+// provider knows to bind a key. While Restoring it answers a signer.Pending.
 type Connector interface {
 	llm.SessionSigner
 	// WatchSession is the connected session's generation, 0 while there is
 	// none: current on subscribe, then each change. A token or key rotated
-	// within a session keeps its generation.
+	// within a session keeps its generation. The restore's session is on it
+	// before Restored closes.
 	WatchSession() (<-chan uint64, func())
+	// Restored closes once the connector's restore has published.
+	Restored() <-chan struct{}
+	// RestoredSession is the session the restore published, 0 for none. It
+	// is read once Restored has closed, and never changes after.
+	RestoredSession() uint64
 }
 
 // Config is what New builds the service from.
@@ -132,6 +153,10 @@ type Service struct {
 	writes sync.Mutex
 	mu     sync.Mutex
 	states *watch.Hub[[]State]
+	// unrestored counts the providers still Restoring; restored closes when it
+	// reaches 0.
+	unrestored int
+	restored   chan struct{}
 }
 
 // provider is one keyed provider's keys. Every field below bases is guarded by
@@ -151,14 +176,23 @@ type provider struct {
 	keyGen uint64
 	// connectorGen is the connector's session's generation, 0 for none.
 	connectorGen uint64
+	// read is the provider's own read answered, and landed the connector's
+	// restore taken, true with no connector. landedGen is the session it
+	// landed on, 0 for none; it never changes after. restored closes once both
+	// have landed.
+	read, landed bool
+	landedGen    uint64
+	restored     chan struct{}
 	// undeleted is a saved key the keyring would not delete; rejected is a 401
 	// to the key that signs; newer is an entry a newer Kstack wrote.
 	undeleted, rejected, newer bool
 }
 
-// New builds the service and restores every saved key. It reaches no network.
+// New builds the service, every provider Restoring, and restores each one's
+// saved key and its connector's session on goroutines. It reaches no network
+// and makes no keyring call.
 func New(cfg Config) (*Service, error) {
-	s := &Service{keyring: cfg.Keyring, byID: map[string]*provider{}}
+	s := &Service{keyring: cfg.Keyring, byID: map[string]*provider{}, restored: make(chan struct{})}
 	for _, in := range cfg.Providers {
 		p, err := newProvider(in)
 		if err != nil {
@@ -168,34 +202,30 @@ func New(cfg Config) (*Service, error) {
 			return nil, fmt.Errorf("providerkeys: %s is listed twice", p.ID)
 		}
 		p.env, p.connector = cfg.EnvKeys[p.ID], cfg.Connectors[p.ID]
+		p.landed = p.connector == nil
+		p.restored = make(chan struct{})
+		p.hasCredential = watch.New(p.hasCredentialLocked())
 		s.providers = append(s.providers, p)
 		s.byID[p.ID] = p
 	}
-	// Each read can start a process (macOS's security), so they run at once.
-	var restores sync.WaitGroup
-	for _, p := range s.providers {
-		restores.Go(func() { p.saved, p.newer = s.restore(p.ID) })
-	}
-	restores.Wait()
-
-	// Nothing else holds s until the followers start, so this needs no lock. Each
-	// subscribes before the hubs are built, so it misses no generation.
-	var follows []func()
-	for _, p := range s.providers {
-		if p.connector != nil {
-			gens, unsubscribe := p.connector.WatchSession()
-			p.connectorGen = <-gens
-			follows = append(follows, func() { s.follow(p, gens, unsubscribe) })
-		}
-		p.hasCredential = watch.New(p.hasCredentialLocked())
-	}
 	s.states = watch.New(s.statesLocked())
+	s.unrestored = len(s.providers)
+	if s.unrestored == 0 {
+		close(s.restored)
+	}
 	s.ctx, s.stop = context.WithCancel(context.Background())
-	for _, follow := range follows {
-		follow()
+	// Each read can start a process (macOS's security), so they run at once.
+	for _, p := range s.providers {
+		s.wg.Go(func() { s.restore(p) })
+		if p.connector != nil {
+			s.wg.Go(func() { s.follow(p) })
+		}
 	}
 	return s, nil
 }
+
+// Restored closes once every provider has left Restoring.
+func (s *Service) Restored() <-chan struct{} { return s.restored }
 
 func newProvider(in Provider) (*provider, error) {
 	if in.ID == "" {
@@ -212,27 +242,68 @@ func newProvider(in Provider) (*provider, error) {
 	return p, nil
 }
 
-// follow republishes p on each change of its connector's generation until
-// Close. A new session ends every binding made under a key.
-func (s *Service) follow(p *provider, gens <-chan uint64, unsubscribe func()) {
-	s.wg.Go(func() {
-		defer unsubscribe()
-		for {
-			select {
-			case <-s.ctx.Done():
-				return
-			case gen := <-gens:
-				s.mu.Lock()
-				if gen != 0 && gen != p.connectorGen {
-					p.keyGen++
-				}
-				p.connectorGen = gen
-				s.publishLocked(p)
-				s.mu.Unlock()
+// follow waits for p's connector to restore, lands p on the session the
+// restore published, then republishes p on each change of the connector's
+// generation until Close. A new session ends every binding made under a key;
+// the landing is no new session, since no binding under a key was made before
+// it.
+func (s *Service) follow(p *provider) {
+	select {
+	case <-p.connector.Restored():
+	case <-s.ctx.Done():
+		return
+	}
+	// The first value is the session now, which may already have moved on from
+	// the restore's.
+	restored := p.connector.RestoredSession()
+	gens, unsubscribe := p.connector.WatchSession()
+	defer unsubscribe()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case gen := <-gens:
+			s.mu.Lock()
+			landing := !p.landed
+			if landing {
+				p.landed, p.landedGen, p.connectorGen = true, restored, restored
 			}
+			if gen != 0 && gen != p.connectorGen {
+				p.keyGen++
+			}
+			p.connectorGen = gen
+			if landing {
+				s.landLocked(p)
+			} else {
+				s.publishLocked(p)
+			}
+			s.mu.Unlock()
 		}
-	})
+	}
 }
+
+// landLocked publishes p after its read or its connector has landed, and ends
+// its restore once both have (s.mu held).
+func (s *Service) landLocked(p *provider) {
+	s.publishLocked(p)
+	if p.restoringLocked() {
+		return
+	}
+	close(p.restored)
+	if s.unrestored--; s.unrestored == 0 {
+		close(s.restored)
+	}
+}
+
+// restoring says p is Restoring.
+func (s *Service) restoring(p *provider) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return p.restoringLocked()
+}
+
+// restoringLocked says p's read or its connector has not landed (s.mu held).
+func (p *provider) restoringLocked() bool { return !p.read || !p.landed }
 
 // States is every provider's state, in Providers order.
 func (s *Service) States() []State {
@@ -302,7 +373,7 @@ func (s *Service) publishLocked(p *provider) {
 }
 
 func (p *provider) stateLocked() State {
-	src := source(p.connectorGen, p.saved != "", p.env != "")
+	src := source(p.restoringLocked(), p.connectorGen, p.saved != "", p.env != "")
 	return State{
 		ID: p.ID, Label: p.Label, KeyVar: p.KeyVar,
 		Source:            src,
@@ -313,15 +384,18 @@ func (p *provider) stateLocked() State {
 }
 
 func (p *provider) hasCredentialLocked() uint64 {
-	if p.stateLocked().Source == SourceNone {
-		return 0
+	if p.stateLocked().HasCredential() {
+		return 1
 	}
-	return 1
+	return 0
 }
 
-// source is the credential that signs: the highest one present.
-func source(connectorGen uint64, saved, env bool) Source {
+// source is the credential that signs: the highest one present, once the
+// launch has read them all.
+func source(restoring bool, connectorGen uint64, saved, env bool) Source {
 	switch {
+	case restoring:
+		return SourceRestoring
 	case connectorGen != 0:
 		return SourceConnector
 	case saved:
@@ -336,6 +410,8 @@ func source(connectorGen uint64, saved, env bool) Source {
 // rejection counts only while a key signs.
 func failure(undeleted, rejected bool, src Source) Failure {
 	switch {
+	case src == SourceRestoring:
+		return ""
 	case undeleted:
 		return NotDeleted
 	case rejected && (src == SourceEnvironmentKey || src == SourceSavedKey):

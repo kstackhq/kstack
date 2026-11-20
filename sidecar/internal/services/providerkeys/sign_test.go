@@ -15,13 +15,16 @@
 package providerkeys
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/internal/signer"
 )
@@ -221,4 +224,134 @@ func TestARejectionOffTheBasesMarksNothing(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+envKey)
 	s.Signer(routerID).Bind().Refused(r)
 	assert.Empty(t, state(t, s, routerID).Failure)
+}
+
+// restoring is a service over a saved router key and c, whose reads are held
+// until the release it answers.
+func restoring(t *testing.T, c *fakeConnector) (*Service, func()) {
+	t.Helper()
+	k := oskeyringtest.New()
+	require.NoError(t, k.Set(account(routerID), savedEntry))
+	release := k.Hold(oskeyringtest.Get)
+	t.Cleanup(release)
+	return startService(t, Config{Keyring: k, Connectors: map[string]Connector{routerID: c}}), release
+}
+
+// signature is what a Sign left on a request, and its error.
+type signature struct {
+	header string
+	err    error
+}
+
+// signLater signs a request to the router with sg on a goroutine.
+func signLater(t *testing.T, sg llm.Signer) <-chan signature {
+	t.Helper()
+	got := make(chan signature, 1)
+	go func() {
+		h, err := bearer(t, sg, routerChat)
+		got <- signature{h, err}
+	}()
+	return got
+}
+
+// Nothing signs until both the saved key and the connector's session are
+// known: a request made while Restoring carries the connector's key when it
+// restores connected, and the saved key when it restores signed out. A
+// binding that resolved to the connector stays the connector's, and fails
+// after a Disconnect, never signing with the saved key.
+func TestNothingSignsBeforeBothAreKnown(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		session uint64
+		want    string
+	}{
+		"connected":  {session: 3, want: "Bearer connector"},
+		"signed out": {session: 0, want: "Bearer " + savedKey},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			conn := newRestoringConnector()
+			s, release := restoring(t, conn)
+			bound := s.Signer(routerID).Bind()
+			unbound := signLater(t, s.Signer(routerID))
+			viaBinding := signLater(t, bound)
+
+			release()
+			conn.restore(c.session)
+
+			for _, got := range []<-chan signature{unbound, viaBinding} {
+				sig := testutil.Recv(t, got, "the signature")
+				assert.NoError(t, sig.err)
+				assert.Equal(t, c.want, sig.header)
+			}
+		})
+	}
+	t.Run("connected after the landing", func(t *testing.T) {
+		t.Parallel()
+		conn := newRestoringConnector()
+		s, release := restoring(t, conn)
+		conn.restore(0)
+		require.Eventually(t, func() bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return s.byID[routerID].landed
+		}, testutil.Timeout, time.Millisecond, "the landing")
+		conn.connect(3)
+		viaBinding := signLater(t, s.Signer(routerID).Bind())
+
+		release()
+
+		sig := testutil.Recv(t, viaBinding, "the signature")
+		assert.NoError(t, sig.err)
+		assert.Equal(t, "Bearer connector", sig.header)
+	})
+	t.Run("disconnected before the follower", func(t *testing.T) {
+		t.Parallel()
+		conn := newRestoringConnector()
+		s, release := restoring(t, conn)
+		bound := s.Signer(routerID).Bind()
+		conn.publishRestore(3)
+		conn.connect(0)
+		close(conn.restored)
+		release()
+		testutil.Wait(t, s.Restored(), "the restore")
+
+		_, err := bearer(t, bound, routerChat)
+		assert.ErrorIs(t, err, llm.ErrSignedOut)
+	})
+	t.Run("disconnected after the landing", func(t *testing.T) {
+		t.Parallel()
+		conn := newRestoringConnector()
+		s, release := restoring(t, conn)
+		bound := s.Signer(routerID).Bind()
+		release()
+		conn.restore(3)
+		testutil.Wait(t, s.Restored(), "the restore")
+
+		conn.connect(0)
+		await(t, s, routerID, "the session ends", signedBy(SourceSavedKey))
+
+		_, err := bearer(t, bound, routerChat)
+		assert.ErrorIs(t, err, llm.ErrSignedOut)
+	})
+}
+
+// A wait for the restore ends with the request's context, and signed out when
+// the service closes with the read still held, bound or not.
+func TestAWaitEndsWithClose(t *testing.T) {
+	t.Parallel()
+	s, _ := restoring(t, newFakeConnector())
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	assert.ErrorIs(t, s.Signer(routerID).Sign(request(t, routerChat).WithContext(ctx)), context.Canceled)
+
+	bound := s.Signer(routerID).Bind()
+	unbound := signLater(t, s.Signer(routerID))
+	viaBinding := signLater(t, bound)
+
+	s.Close()
+
+	for _, got := range []<-chan signature{unbound, viaBinding} {
+		assert.ErrorIs(t, testutil.Recv(t, got, "the wait").err, llm.ErrSignedOut)
+	}
 }
