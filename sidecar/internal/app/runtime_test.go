@@ -340,6 +340,7 @@ func awaitRestored(t *testing.T, rt *Runtime) {
 	for name, restored := range map[string]<-chan struct{}{
 		"kstack cloud": rt.KstackCloud.Restored(), "chatgpt": rt.ChatGPT.Restored(), "google": rt.Google.Restored(),
 		"openrouter":    rt.OpenRouter.Restored(),
+		"github":        rt.GitHub.Restored(),
 		"provider keys": rt.ProviderKeys.Restored(),
 	} {
 		testutil.Wait(t, restored, name+"'s restore")

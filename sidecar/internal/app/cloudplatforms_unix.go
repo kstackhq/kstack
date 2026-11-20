@@ -31,7 +31,8 @@ import (
 
 // builtCloudPlatforms are the cloud platforms this build reaches, in
 // Settings' order. AWS reads each kube-context's profile through kc; GitHub
-// sends the connector gh's token while it is connected, and gh's otherwise.
+// sends the connector's token while it is connected, waits while it restores,
+// and sends gh's once it is signed out.
 func builtCloudPlatforms(kc *kubeconfig.Service, gh *github.Service) []bash.CloudPlatform {
 	return []bash.CloudPlatform{
 		bash.NewAWS(kc.AWSProfile, newAWSLogin, nil),

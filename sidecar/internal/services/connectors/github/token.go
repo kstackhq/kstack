@@ -26,14 +26,31 @@ import (
 // ErrSignedOut is a token asked for while the connector is not connected.
 var ErrSignedOut = errors.New("github: not connected")
 
-// Token is the connected account's token.
-func (s *Service) Token(context.Context) (string, error) {
+// Token is the connected account's token. While Restoring it waits for the
+// restore.
+func (s *Service) Token(ctx context.Context) (string, error) {
+	if err := s.awaitRestore(ctx); err != nil {
+		return "", err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state.Phase != connectors.Connected {
 		return "", ErrSignedOut
 	}
 	return s.token, nil
+}
+
+// awaitRestore waits for the restore to publish. ctx ends the wait with its
+// error, and Close with ErrSignedOut.
+func (s *Service) awaitRestore(ctx context.Context) error {
+	select {
+	case <-s.restored:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.ctx.Done():
+		return ErrSignedOut
+	}
 }
 
 // Refused is told of a 401 on token: if it is the connected one, it checks
@@ -80,7 +97,7 @@ type TokenSource interface {
 }
 
 // Tokens is the proxy's token: the connector's while connected, fallback's
-// otherwise.
+// once it is signed out.
 func (s *Service) Tokens(fallback TokenSource) TokenSource {
 	return tokens{s: s, fallback: fallback}
 }
@@ -91,10 +108,11 @@ type tokens struct {
 }
 
 func (t tokens) Token(ctx context.Context) (string, error) {
-	if token, err := t.s.Token(ctx); err == nil {
-		return token, nil
+	token, err := t.s.Token(ctx)
+	if errors.Is(err, ErrSignedOut) {
+		return t.fallback.Token(ctx)
 	}
-	return t.fallback.Token(ctx)
+	return token, err
 }
 
 // Refused tells both sources, each of which acts on its own token alone.
