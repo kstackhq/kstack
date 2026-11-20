@@ -1,6 +1,6 @@
 # src/components/settings — the settings dialog
 
-The settings dialog and the folder-grant form. Also owns `src/lib/`'s `sandbox-*.tsx`, `permission-settings.tsx`, `provider-credentials.tsx` and `settings-tab.ts`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md), which also covers the color-scheme picker (*Theming & storage*).
+The settings dialog and the folder-grant form. Also owns `src/lib/`'s `sandbox-*.tsx`, `cluster-scope.ts`, `permission-settings.tsx`, `provider-credentials.tsx` and `settings-tab.ts`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md), which also covers the color-scheme picker (*Theming & storage*).
 
 **The Settings dialog** is `components/settings/settings-dialog/`, exporting `SettingsDialog` alone: a `PanelDialog` (`primitives/dialog.tsx`) with vertical tabs beside its pane. It opens on General (`general.tsx`), which holds the Mode picker (`color-scheme-picker.tsx`). A pane is a column of `Group`s (`group.tsx`): a heading, optional lede, info control (`InfoPopover`) and action, over its body. A pane that is one list is an `Intro` instead: its lede over the list, which the pane's heading names. A hidden tab's pane unmounts, so its watches run only while it is selected. A pane selects another tab through `useSelectSettingsTab()` (`src/lib/settings-tab.ts`).
 
@@ -10,7 +10,7 @@ The settings dialog and the folder-grant form. Also owns `src/lib/`'s `sandbox-*
 
 **Providers** (`providers.tsx`) is one list: the keyed providers from `useProviderCredentials()`, set up while a credential signs, then `PROVIDERS`, set up while `useModels()` serves them; nothing draws before both. *Configure…* and *Set up* open `provider-setup-form.tsx`. **The webview's one typed secret**: the form holds the key, and the hook sends it through `client.mutation(...).toPromise()`, never `useMutation`, whose state would keep it. → [record](../../../docs/security/2026-11-20-saved-provider-keys.md).
 
-**Memory** (`memory.tsx`) shows one scope: *Every cluster* (the default) or a cluster, picked from the kubeconfig's, then the archived. It reuses the memory popover's parts (`src/components/cluster/CLAUDE.md`, *Memory*), keyed on the scope. Every cluster's notes ride on the window's cluster's watch, else the first record's. Placeholders, marked in code: local instructions, no note counts, and a disabled *Clear* awaiting `memoryClear`.
+**Memory** (`memory.tsx`) shows one scope: *Every cluster* (the default) or a cluster, picked from the kubeconfig's, then the archived, by `ScopePicker` (`scope-picker.tsx`) over `useScope`. It reuses the memory popover's parts (`src/components/cluster/CLAUDE.md`, *Memory*), keyed on the scope. Every cluster's notes ride on the window's cluster's watch, else the first record's. Placeholders, marked in code: local instructions, no note counts, and a disabled *Clear* awaiting `memoryClear`.
 
 **Monitoring** (`monitoring.tsx`) is a placeholder, *Coming soon*, until monitoring has settings of its own.
 

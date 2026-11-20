@@ -15,50 +15,33 @@
 // The Settings dialog's Memory tab: the instructions and notes of one scope,
 // every cluster or one.
 import { Button } from '@kubetail/ui/elements/button';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from '@kubetail/ui/elements/select';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { Plus } from 'lucide-react';
-import { type ReactNode, useId, useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import { MemoryInstructions } from '@/components/cluster/memory-instructions';
 import { MemoryList } from '@/components/cluster/memory-list';
 import { Dialog } from '@/components/primitives/dialog';
 import { VisibleText } from '@/components/primitives/visible-text';
 import { useActiveCluster } from '@/lib/active-cluster';
-import { type Cluster, clusterForContext, displayName, useClusters } from '@/lib/clusters';
-import { useKubeConfig } from '@/lib/kube-config';
+import { EVERY, useScope } from '@/lib/cluster-scope';
+import { displayName, useClusters } from '@/lib/clusters';
 import { type Memory, useMemories } from '@/lib/memories';
 import { useMemoryWrites } from '@/lib/memory-writes';
 
-// The picker's value for every cluster; a cluster's is its id.
-const EVERY = '';
+import { ScopePicker } from './scope-picker';
 
 // Placeholder: awaits a count field on `Cluster`, or a `memoryCounts` query.
 const noteCount = (_scope: string): number | undefined => undefined;
 
 export function MemorySettings() {
   const { clusters } = useClusters();
-  const { kubeConfig } = useKubeConfig();
   const { clusterID: activeID } = useActiveCluster();
   const [picked, setPicked] = useState(EVERY);
   const [clearing, setClearing] = useState(false);
-  const labelID = useId();
 
-  const present = (kubeConfig?.contexts ?? []).flatMap((ctx) => clusterForContext(clusters, ctx.name) ?? []);
-  const archived = (clusters ?? [])
-    .filter((c) => c.status.source.kubeconfig?.isPresent === false)
-    .toSorted((a, b) => displayName(a).localeCompare(displayName(b)));
-  // Undefined for every cluster, and once the picked record is gone.
-  const cluster = [...present, ...archived].find((c) => c.id === picked);
+  const scope = useScope(picked);
+  const { cluster } = scope;
   const name = cluster && displayName(cluster);
   const clusterID = cluster?.id ?? null;
 
@@ -77,24 +60,7 @@ export function MemorySettings() {
   return (
     <>
       <div className="flex items-end justify-between gap-3">
-        <div className="flex flex-col gap-1.5">
-          <span id={labelID} className="text-xs text-muted-foreground">
-            Applies to
-          </span>
-          <Select value={cluster?.id ?? EVERY} onValueChange={(next) => setPicked(next as string)}>
-            <SelectTrigger size="sm" aria-labelledby={labelID} className="w-50">
-              <SelectValue>
-                <VisibleText text={name ?? 'Every cluster'} />
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent alignItemWithTrigger={false}>
-              <ScopeItem value={EVERY} name="Every cluster" />
-              <SelectSeparator />
-              <ScopeGroup label="Kubeconfig" clusters={present} />
-              {archived.length > 0 && <ScopeGroup label="Archived" clusters={archived} />}
-            </SelectContent>
-          </Select>
-        </div>
+        <ScopePicker scope={scope} onPick={setPicked} count={noteCount} />
         <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setClearing(true)}>
           Clear memory
         </Button>
@@ -172,25 +138,5 @@ function ScopeMemory({
         )}
       </section>
     </>
-  );
-}
-
-function ScopeGroup({ label, clusters }: { label: string; clusters: Cluster[] }) {
-  return (
-    <SelectGroup>
-      <SelectLabel>{label}</SelectLabel>
-      {clusters.map((c) => (
-        <ScopeItem key={c.id} value={c.id} name={displayName(c)} />
-      ))}
-    </SelectGroup>
-  );
-}
-
-function ScopeItem({ value, name }: { value: string; name: string }) {
-  return (
-    <SelectItem value={value}>
-      <VisibleText text={name} />
-      <span className="ml-auto text-xs text-muted-foreground">{noteCount(value)}</span>
-    </SelectItem>
   );
 }
