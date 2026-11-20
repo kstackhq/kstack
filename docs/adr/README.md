@@ -278,3 +278,4 @@ usually just documentation in the wrong place.
 | 2026-11-19 | [Name workflow jobs verb first](2026-11-19-name-workflow-jobs-verb-first.md) | repo | Accepted |
 | 2026-11-19 | [The Google connector signs Vertex AI in the user's project](2026-11-19-the-google-connector-signs-vertex-ai-in-the-users-project.md) | sidecar | Accepted |
 | 2026-11-20 | [A provider's credential follows one order](2026-11-20-a-providers-credential-follows-one-order.md) | cross-cutting | Accepted |
+| 2026-11-20 | [A launch restores keyring credentials in the background](2026-11-20-a-launch-restores-keyring-credentials-in-the-background.md) | cross-cutting | Accepted |
