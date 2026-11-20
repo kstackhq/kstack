@@ -79,7 +79,7 @@ export function SandboxFolderGroups({ path }: { path: SandboxPath }) {
         />
       )}
       <div className="divide-y overflow-hidden rounded-lg border">
-        <FolderGroup label="Added by you" count={always?.length ?? 0} footer={revokeError}>
+        <FolderGroup label="Custom" count={always?.length ?? 0} footer={revokeError}>
           {always?.map((folder) => (
             <GrantedFolder
               key={folder.id}
@@ -91,7 +91,7 @@ export function SandboxFolderGroups({ path }: { path: SandboxPath }) {
             />
           ))}
         </FolderGroup>
-        <FolderGroup label="From your PATH" count={path.entries?.length ?? 0} readOnly footer={path.changeError}>
+        <FolderGroup label="PATH" count={path.entries?.length ?? 0} readOnly footer={path.changeError}>
           {path.entries?.map((entry) => (
             <PathFolder
               key={entry.dir}
@@ -101,12 +101,12 @@ export function SandboxFolderGroups({ path }: { path: SandboxPath }) {
             />
           ))}
         </FolderGroup>
-        <FolderGroup label="For your tools" count={TOOL_FOLDERS.length} readOnly placeholder>
+        <FolderGroup label="Tools" count={TOOL_FOLDERS.length} readOnly placeholder>
           {TOOL_FOLDERS.map(({ path: dir, on }) => (
             <Row key={dir} dir={dir} muted={!on} control={<Switch aria-label={dir} checked={on} disabled />} />
           ))}
         </FolderGroup>
-        <FolderGroup label="For shell access" count={SHELL_FOLDERS.length} readOnly placeholder>
+        <FolderGroup label="Shell" count={SHELL_FOLDERS.length} readOnly placeholder>
           {SHELL_FOLDERS.map((dir) => (
             <Row key={dir} dir={dir} />
           ))}

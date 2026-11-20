@@ -89,7 +89,7 @@ describe('SandboxFolderGroups', () => {
     });
     render(<SandboxFolderGroups path={pathOf()} />);
 
-    const mine = group(/Added by you · 2/);
+    const mine = group(/^Custom · 2$/);
     const rows = within(mine).getAllByRole('listitem');
     expect(within(rows[0]).getByTestId('folder').textContent).toBe('/Users/ren/src');
     expect(within(rows[0]).getByRole('combobox')).toHaveTextContent('Read and write');
@@ -100,7 +100,7 @@ describe('SandboxFolderGroups', () => {
   it("spells a folder's trailing whitespace", () => {
     withFolders({ always: [folder('/Users/ren/my src ')] });
     render(<SandboxFolderGroups path={pathOf()} />);
-    expect(within(group(/Added by you/)).getByTestId('folder').textContent).toBe('/Users/ren/my src\\u{20}');
+    expect(within(group(/^Custom · /)).getByTestId('folder').textContent).toBe('/Users/ren/my src\\u{20}');
   });
 
   it("changes a folder's access by granting it again, always", async () => {
@@ -122,7 +122,7 @@ describe('SandboxFolderGroups', () => {
   it('holds the controls while the rules are held or the row is being removed', () => {
     withFolders({ always: [folder('/a'), folder('/b')], revoking: new Set(['/b']) });
     const { unmount } = render(<SandboxFolderGroups path={pathOf()} />);
-    let rows = within(group(/Added by you/)).getAllByRole('listitem');
+    let rows = within(group(/^Custom · /)).getAllByRole('listitem');
     expect(within(rows[0]).getByRole('button', { name: 'Remove' })).toBeEnabled();
     expect(within(rows[1]).getByRole('button', { name: 'Remove' })).toBeDisabled();
     expect(within(rows[1]).getByRole('combobox')).toBeDisabled();
@@ -130,7 +130,7 @@ describe('SandboxFolderGroups', () => {
 
     withFolders({ always: [folder('/a')], rulesHeld: true });
     render(<SandboxFolderGroups path={pathOf()} />);
-    rows = within(group(/Added by you/)).getAllByRole('listitem');
+    rows = within(group(/^Custom · /)).getAllByRole('listitem');
     expect(within(rows[0]).getByRole('button', { name: 'Remove' })).toBeDisabled();
     expect(within(rows[0]).getByRole('combobox')).toBeDisabled();
   });
@@ -183,7 +183,7 @@ describe('SandboxFolderGroups', () => {
     });
     render(<SandboxFolderGroups path={path} />);
 
-    const rows = within(group(/From your PATH · 3/)).getAllByRole('listitem');
+    const rows = within(group(/^PATH · 3$/)).getAllByRole('listitem');
     expect(within(rows[0]).getByRole('switch')).toBeChecked();
     expect(within(rows[1]).getByRole('switch')).not.toBeChecked();
     expect(within(rows[1]).getByText('shared with its group')).toBeInTheDocument();
@@ -202,43 +202,43 @@ describe('SandboxFolderGroups', () => {
       changeError: 'moved',
     });
     const { unmount } = render(<SandboxFolderGroups path={path} />);
-    let rows = within(group(/From your PATH/)).getAllByRole('listitem');
+    let rows = within(group(/^PATH · /)).getAllByRole('listitem');
     expect(within(rows[0]).getByRole('switch')).not.toHaveAttribute('aria-disabled');
     expect(within(rows[1]).getByRole('switch')).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByText('moved')).toBeInTheDocument();
     unmount();
 
     render(<SandboxFolderGroups path={pathOf({ entries: [entry('/a', 'Adopted')], refreshing: true })} />);
-    rows = within(group(/From your PATH/)).getAllByRole('listitem');
+    rows = within(group(/^PATH · /)).getAllByRole('listitem');
     expect(within(rows[0]).getByRole('switch')).toHaveAttribute('aria-disabled', 'true');
   });
 
   // Placeholder groups: their switches change nothing.
   it('draws the toolchain, shell and system groups as disabled placeholders, System collapsed', async () => {
     render(<SandboxFolderGroups path={pathOf()} />);
-    for (const name of [/For your tools/, /For shell access/, /System/]) {
+    for (const name of [/^Tools · /, /^Shell · /, /^System · /]) {
       expect(within(group(name)).getByText('Coming soon')).toBeInTheDocument();
     }
-    within(group(/For your tools/))
+    within(group(/^Tools · /))
       .getAllByRole('switch')
       .forEach((s) => expect(s).toHaveAttribute('aria-disabled', 'true'));
-    expect(within(group(/System/)).queryAllByRole('listitem')).toHaveLength(0);
-    await userEvent.click(screen.getByRole('button', { name: /System/ }));
-    expect(within(group(/System/)).getAllByRole('listitem').length).toBeGreaterThan(0);
+    expect(within(group(/^System · /)).queryAllByRole('listitem')).toHaveLength(0);
+    await userEvent.click(screen.getByRole('button', { name: /^System · / }));
+    expect(within(group(/^System · /)).getAllByRole('listitem').length).toBeGreaterThan(0);
   });
 
   it('collapses a group from its header', async () => {
     withFolders({ always: [folder('/a')] });
     render(<SandboxFolderGroups path={pathOf()} />);
-    await userEvent.click(screen.getByRole('button', { name: /Added by you/ }));
-    expect(within(group(/Added by you/)).queryAllByRole('listitem')).toHaveLength(0);
+    await userEvent.click(screen.getByRole('button', { name: /^Custom · / }));
+    expect(within(group(/^Custom · /)).queryAllByRole('listitem')).toHaveLength(0);
   });
 
   it('draws empty groups before the sidecar answers', async () => {
     withFolders({ always: undefined, never: undefined });
     render(<SandboxFolderGroups path={pathOf({ entries: undefined })} />);
-    expect(screen.getByRole('button', { name: 'Added by you · 0' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'From your PATH · 0' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Custom · 0' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'PATH · 0' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Closed folders' }));
     const never = await screen.findByRole('list', { name: 'Never, not even a folder inside' });
     expect(within(never).queryAllByRole('listitem')).toHaveLength(0);
