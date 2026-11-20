@@ -14,7 +14,7 @@ func TestAuthProjectionCarriesNoTokens(t *testing.T) {
 		typeName string
 		want     []string
 	}{
-		{"AuthState", []string{"authenticated", "identity"}},
+		{"AuthState", []string{"authenticated", "identity", "restoring"}},
 		{"Identity", []string{"email", "name", "sub"}},
 	} {
 		def := parsedSchema.Types[tc.typeName]

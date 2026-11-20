@@ -47,6 +47,11 @@ func (r *aWSConnectionResolver) Failure(ctx context.Context, obj *connectors.Sta
 	return &obj.Failure, nil
 }
 
+// Restoring is the resolver for the restoring field.
+func (r *authStateResolver) Restoring(ctx context.Context, obj *connectors.State) (bool, error) {
+	return obj.Phase == connectors.Restoring, nil
+}
+
 // Authenticated is the resolver for the authenticated field.
 func (r *authStateResolver) Authenticated(ctx context.Context, obj *connectors.State) (bool, error) {
 	return obj.Phase == connectors.Connected, nil

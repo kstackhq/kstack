@@ -1240,6 +1240,24 @@ func TestAuthStateQuerySignedOut(t *testing.T) {
 	}
 }
 
+// A connector that has not read the keyring yet is restoring, and says
+// nothing of a session; a sign-in or sign-out then is a validation error.
+func TestAuthStateWhileRestoring(t *testing.T) {
+	svc := newFakeAuthState(connectors.State{Phase: connectors.Restoring}, oauth.Identity{})
+	svc.connectErr, svc.disconnectErr = connectors.ErrRestoring, connectors.ErrRestoring
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
+	defer srv.Close()
+
+	data, errs := mutation(t, srv.URL, `query { authState { restoring authenticated identity { sub } } }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"restoring": true, "authenticated": false, "identity": nil}, data["authState"])
+	for _, op := range []string{`mutation { authLoginStart }`, `mutation { authLogout }`} {
+		_, errs := mutation(t, srv.URL, op)
+		require.Len(t, errs, 1, op)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"], op)
+	}
+}
+
 // The authState query reflects the current signed-in identity.
 func TestAuthStateQuerySignedIn(t *testing.T) {
 	svc := signedInFakeAuth(oauth.Identity{UserID: "u1", Email: "a@x.com", Name: "Ada"})
@@ -4275,7 +4293,7 @@ func TestAConnectorRefusalIsAValidationError(t *testing.T) {
 	openRouter := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
 	openRouterSrv := openRouterServer(t, openRouter, func(string) error { return nil })
 
-	for _, refusal := range []error{connectors.ErrSigningIn, connectors.ErrConnected, connectors.ErrNotDeleted} {
+	for _, refusal := range []error{connectors.ErrRestoring, connectors.ErrSigningIn, connectors.ErrConnected, connectors.ErrNotDeleted} {
 		chatGPT.connectErr, chatGPT.disconnectErr = refusal, refusal
 		openRouter.connectErr, openRouter.disconnectErr = refusal, refusal
 		for _, c := range []struct{ url, op string }{

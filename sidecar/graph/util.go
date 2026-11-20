@@ -158,11 +158,11 @@ func memoryErr(err error) error {
 	return err
 }
 
-// connectorErr is a refused Connect or Disconnect as the wire codes it: during
-// an attempt, while connected, while a key the keyring would not delete is
-// still there, or with no OAuth client.
+// connectorErr is a refused Connect or Disconnect as the wire codes it: while
+// Restoring, during an attempt, while connected, while a key the keyring
+// would not delete is still there, or with no OAuth client.
 func connectorErr(err error) error {
-	for _, refusal := range []error{connectors.ErrSigningIn, connectors.ErrConnected, connectors.ErrNotDeleted, connectors.ErrNoClient} {
+	for _, refusal := range []error{connectors.ErrRestoring, connectors.ErrSigningIn, connectors.ErrConnected, connectors.ErrNotDeleted, connectors.ErrNoClient} {
 		if errors.Is(err, refusal) {
 			return gqlerrors.Clone(gqlerrors.ErrValidationError)
 		}

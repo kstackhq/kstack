@@ -47,6 +47,9 @@ message AuthStateWatchRequest {}
 message AuthState {
   bool authenticated = 1;
   Identity identity = 2; // unset (nil) while signed out
+  // restoring is true until the launch has read the keyring; authenticated is
+  // false then, and says nothing.
+  bool restoring = 3;
 }
 
 message Identity {

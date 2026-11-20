@@ -737,6 +737,8 @@ models:
   ConnectorPhase:
     model: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Phase
     enum_values:
+      Restoring:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Restoring
       SignedOut:
         value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.SignedOut
       SigningIn:

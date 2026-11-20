@@ -126,6 +126,8 @@ export type ConnectorPhase =
   | 'Connected'
   /** The last attempt, session or key ended; `failure` says why. */
   | 'Failed'
+  /** The launch has not read the keyring yet. Neither signed out nor connected. */
+  | 'Restoring'
   | 'SignedOut'
   /** The browser is open on the provider's sign-in. */
   | 'SigningIn';
