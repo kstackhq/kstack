@@ -57,3 +57,31 @@ func unpassable(rules []EnvRule, name string) bool {
 		return name == r.Name
 	})
 }
+
+// kstackEnv is what a sandboxed run's table sets itself, so no variable of
+// the user's may name it: the run's own paths and terminal, the variables
+// that point each tool into the tool home, each toolchain location's (Lists'
+// Env, asdf's versions included), each cloud platform's mount's, and the
+// proxy variables. AWS's, Google Cloud's and Git's config variables go by
+// prefix, since each also redirects where its tool reads its login. npm reads
+// its config variables in either case.
+var kstackEnv = []EnvRule{
+	{Name: "PATH"}, {Name: "HOME"}, {Name: "PWD"}, {Name: "TMPDIR"}, {Name: "ZDOTDIR"},
+	{Name: "KUBECONFIG"}, {Name: "KUBECACHEDIR"}, {Name: "TERM"},
+	{Prefix: "KSTACK"},
+	{Name: "XDG_CACHE_HOME"}, {Name: "XDG_CONFIG_HOME"}, {Name: "XDG_DATA_HOME"},
+	{Name: "HELM_CACHE_HOME"}, {Name: "HELM_CONFIG_HOME"}, {Name: "HELM_DATA_HOME"}, {Name: "HELM_PLUGINS"},
+	{Name: "NPM_CONFIG_CACHE"}, {Name: "npm_config_cache"}, {Name: "PIP_CACHE_DIR"}, {Name: "GOCACHE"}, {Name: "GOMODCACHE"}, {Name: "CARGO_HOME"},
+	{Prefix: "ASDF_"}, {Name: "MISE_DATA_DIR"}, {Name: "MISE_CONFIG_DIR"}, {Name: "RUSTUP_HOME"},
+	{Name: "NVM_DIR"}, {Name: "PYENV_ROOT"}, {Name: "RBENV_ROOT"}, {Name: "VOLTA_HOME"},
+	{Name: "AQUA_ROOT_DIR"}, {Name: "AQUA_GLOBAL_CONFIG"}, {Name: "KREW_ROOT"},
+	{Prefix: "AWS_"}, {Prefix: "CLOUDSDK_"},
+	{Name: "GIT_CONFIG"}, {Prefix: "GIT_CONFIG_"}, {Name: "GIT_TERMINAL_PROMPT"},
+	{Name: "GH_CONFIG_DIR"}, {Name: "GH_HOST"}, {Name: "GH_PROMPT_DISABLED"},
+	{Name: "AZURE_CONFIG_DIR"}, {Name: "IDENTITY_ENDPOINT"}, {Name: "IDENTITY_HEADER"}, {Name: "REQUESTS_CA_BUNDLE"},
+	{Name: "HTTP_PROXY"}, {Name: "HTTPS_PROXY"}, {Name: "ALL_PROXY"}, {Name: "NO_PROXY"},
+	{Name: "http_proxy"}, {Name: "https_proxy"}, {Name: "all_proxy"}, {Name: "no_proxy"},
+}
+
+// KstackSets reports whether a sandboxed run's table sets name itself.
+func KstackSets(name string) bool { return unpassable(kstackEnv, name) }

@@ -31,10 +31,10 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	require.FileExists(t, path)
 
-	// Migrations ran: the schema_migrations sequence is at version 3.
+	// Migrations ran: the schema_migrations sequence is at version 4.
 	var v int
 	require.NoError(t, db.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 3, v)
+	require.Equal(t, 4, v)
 	requireTables(t, db.Write.DB)
 	require.NoError(t, db.Close())
 
@@ -43,7 +43,7 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db2.Close() })
 	require.NoError(t, db2.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 3, v)
+	require.Equal(t, 4, v)
 	requireTables(t, db2.Write.DB)
 }
 
@@ -149,6 +149,7 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"chat_grants wr=1 strict=1",
 		"chats wr=1 strict=1",
 		"clusters wr=1 strict=1",
+		"env_vars wr=0 strict=1",
 		"llm_calls wr=0 strict=1",
 		"memories wr=0 strict=1",
 		"messages wr=0 strict=1",
@@ -177,6 +178,7 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"CREATE INDEX approvals_pending_idx ON approvals (id) WHERE status = 'pending'",
 		"CREATE INDEX background_tasks_chat_idx ON background_tasks (chat_id)",
 		"CREATE INDEX chat_grants_chat_idx ON chat_grants (chat_id)",
+		"CREATE UNIQUE INDEX env_vars_name ON env_vars (ifnull(cluster_id, ''), name)",
 		"CREATE UNIQUE INDEX llm_calls_run_idx ON llm_calls (run_id, seq)",
 		"CREATE UNIQUE INDEX memories_name ON memories (ifnull(cluster_id, ''), name)",
 		"CREATE INDEX messages_run_idx ON messages (run_id)",
@@ -404,6 +406,7 @@ var shippedMigrations = map[string]string{
 	"0001_init.sql":                   "5bce01af11e58cea4359e82f58d5c5719c9077646fb71c0b4a3055e8a0489944", // desktop/v0.0.1
 	"0002_oauth_connections.sql":      "a0f97ef3bdd26e882187424cf23f7a73b35747d09e85eef705f7f4d72fc03fea",
 	"0003_oauth_connections_name.sql": "e734c075633be2f4a9dc8e43a460185a422d962116f7b7038ea5977773df1808",
+	"0004_env_vars.sql":               "d1b78060708e5ea46b55f65d43136c935d6166eb35358b7d92c5bc72a1231d86",
 }
 
 func TestAShippedMigrationIsNeverEdited(t *testing.T) {
@@ -469,6 +472,60 @@ func TestMigration0003AddsTheName(t *testing.T) {
 	assert.Nil(t, name, "a row 0002 wrote has no name")
 	_, err = db.Write.ExecContext(ctx, `UPDATE oauth_connections SET name = 'Ada' WHERE provider = 'chatgpt'`)
 	require.NoError(t, err)
+}
+
+// A file 0003 built keeps its clusters and tool calls across 0004, and gains the
+// user's variables: one name per scope, a cluster's going with it.
+func TestMigration0004AddsTheUsersVariables(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "app.db")
+	frozen := fstest.MapFS{}
+	for _, name := range []string{"0001_init.sql", "0002_oauth_connections.sql", "0003_oauth_connections_name.sql"} {
+		data, err := fs.ReadFile(migrationsFS, "migrations/"+name)
+		require.NoError(t, err)
+		frozen["migrations/"+name] = &fstest.MapFile{Data: data}
+	}
+	pool, err := sqlitepool.OpenWriter(path)
+	require.NoError(t, err)
+	_, err = sqlitemigrate.Apply(ctx, pool.DB, frozen, "migrations")
+	require.NoError(t, err)
+	for _, seed := range []string{
+		`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('c1', 'kubeconfig', 'ctx', 0, 0)`,
+		`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('h1', 'c1', 'chat', 0, 0)`,
+		`INSERT INTO messages (id, chat_id, seq, role, content, request_key, created_at) VALUES ('m1', 'h1', 0, 'user', '[]', 'key', 0)`,
+		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, trigger_message_id, provider, model, dialect, created_at)
+		 VALUES ('r1', 'chat', 'dev', 'chat', 'h1', 'm1', 'p', 'm', 'fake', 0)`,
+		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l1', 'r1', 0, 'p', 'm', 0)`,
+		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, status, cwd, created_at) VALUES ('t1', 'l1', 0, 'Bash', 'running', '/w', 0)`,
+	} {
+		_, err = pool.ExecContext(ctx, seed)
+		require.NoError(t, err, seed)
+	}
+	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
+
+	db, err := Open(path, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	var cwd, env string
+	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT cwd, env FROM tool_calls WHERE id = 't1'`).Scan(&cwd, &env))
+	assert.Equal(t, []string{"/w", ""}, []string{cwd, env}, "a call 0003 wrote was shown no variables")
+
+	insert := func(id string, cluster any, target string) error {
+		_, err := db.Write.ExecContext(ctx, `INSERT INTO env_vars (id, cluster_id, name, value, target, created_at, updated_at)
+			VALUES (?, ?, 'HELM_NAMESPACE', 'apps', ?, 0, 0)`, id, cluster, target)
+		return err
+	}
+	require.NoError(t, insert("every", nil, "both"))
+	assert.Error(t, insert("every-again", nil, "sandbox"), "a second row of one name for every cluster")
+	require.NoError(t, insert("cluster", "c1", "outside"), "the name again, in a cluster")
+	assert.Error(t, insert("nowhere", "c1", "chat"), "a target outside the list")
+
+	_, err = db.Write.ExecContext(ctx, `DELETE FROM clusters WHERE id = 'c1'`)
+	require.NoError(t, err)
+	var ids string
+	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT group_concat(id) FROM env_vars`).Scan(&ids))
+	assert.Equal(t, "every", ids, "the cluster's row goes with it")
 }
 
 // A subscriber hears the keys it asked for and nothing else, and a burst on one key

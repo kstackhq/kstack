@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/kstackhq/kstack/sidecar/graph"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
@@ -29,6 +30,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/google"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/kstackcloud"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
+	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
@@ -69,6 +71,8 @@ type Runtime struct {
 	ProviderKeys *providerkeys.Service
 	Catalog      catalog.Catalog
 	LLM          *llm.Service
+	// EnvVars is the user's variables, which every command reads.
+	EnvVars *envvars.Service
 	// Shell is nil on a machine with no shell.
 	Shell         *bash.Tool
 	SandboxStatus sandbox.Status
@@ -276,6 +280,12 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 			return func(context.Context) error { stop(); return nil }, nil
 		}))
 	}
+
+	rt.EnvVars, err = envvars.New(db, time.Now)
+	if err != nil {
+		return fail(err)
+	}
+	rt.add("user's variables", lifecycle.CloseFunc(rt.EnvVars.Close))
 
 	pathList := func() settings.RunPath { return settingsStore.Get().RunPath() }
 	platforms := cloudPlatformsFor(probed, cfg.cloudPlatforms, rt.Kubeconfig, rt.GitHub)

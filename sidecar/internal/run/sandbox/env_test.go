@@ -59,3 +59,27 @@ func TestNeverEnvIsACopy(t *testing.T) {
 
 	assert.False(t, Unpassable("PATH"))
 }
+
+// What the run's table sets is refused by name, and the prefixes take every
+// variable of their tool's config.
+func TestKstackSetsNamesTheTablesVariables(t *testing.T) {
+	for _, name := range []string{
+		"PATH", "HOME", "PWD", "TMPDIR", "ZDOTDIR", "KUBECONFIG", "KUBECACHEDIR", "TERM",
+		"KSTACK", "KSTACK_SIDECAR_PID", "ASDF_KUBECTL_VERSION", "CLOUDSDK_CORE_PROJECT",
+		"GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "AWS_ENDPOINT_URL", "npm_config_cache", "AZURE_CONFIG_DIR", "HTTPS_PROXY", "no_proxy",
+	} {
+		assert.True(t, KstackSets(name), name)
+	}
+	for _, name := range []string{"LANG", "TZ", "HELM_NAMESPACE", "KUBECTL_EXTERNAL_DIFF", "EDITOR"} {
+		assert.False(t, KstackSets(name), name)
+	}
+}
+
+// Every variable a toolchain location sets is one the table sets.
+func TestKstackSetsEveryToolchainVariable(t *testing.T) {
+	for _, l := range sharedLists.Toolchain {
+		for name := range l.Env {
+			assert.True(t, KstackSets(name), "%s's %s", l.Name, name)
+		}
+	}
+}

@@ -181,6 +181,14 @@ information.** → [ADR: memory is
 rows](../docs/adr/2026-09-24-memory-is-rows-scoped-to-a-cluster-or-every-cluster.md), [security
 record](../docs/security/2026-09-24-memory.md).
 
+## User's variables (`internal/services/envvars`)
+
+**One row per variable** (`env_vars`), for every cluster or one, with a `Target`: commands in the
+sandbox, outside it, or both. `Check` guards every write and every read against the target; a
+stored row it refuses is listed with its `Refusal` and given to no command. `For(cluster,
+sandboxed)` is what a command gets: every cluster's, the cluster's value in place of one of the
+same name. → [ADR: rows](../docs/adr/2026-11-20-a-setting-with-scopes-is-rows.md).
+
 ## Azure (`internal/services/azureauth`)
 
 **The user's `az` login, for Azure's mount**, in `run/azureproxy`'s types. `Account` discovers it
