@@ -151,8 +151,8 @@ func newRig(t *testing.T, opts ...option) *rig {
 
 func (r *rig) build() *Service {
 	r.t.Helper()
-	opts := append([]option{withKeyring(r.keyring), withBrowser(following), withHTTPClient(r.signin.client())}, r.opts...)
-	s, err := newWithOptions(Config{SigninURL: r.signin.url()}, opts...)
+	opts := append([]option{withBrowser(following), withHTTPClient(r.signin.client())}, r.opts...)
+	s, err := newWithOptions(Config{SigninURL: r.signin.url(), Keyring: r.keyring}, opts...)
 	require.NoError(r.t, err)
 	r.t.Cleanup(s.Close)
 	return s

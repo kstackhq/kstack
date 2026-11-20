@@ -225,8 +225,8 @@ func TestAnUnreachableIssuerIsUnavailable(t *testing.T) {
 	addr := ln.Addr().String()
 	require.NoError(t, ln.Close())
 	browser := &parked{}
-	s := newService(t, Config{Provider: testProvider("http://" + addr), DB: appdbtest.Open(t)},
-		withKeyring(newFakeKeyring()), withBrowser(browser.open))
+	s := newService(t, Config{Provider: testProvider("http://" + addr), DB: appdbtest.Open(t), Keyring: newFakeKeyring()},
+		withBrowser(browser.open))
 
 	require.NoError(t, s.Connect(t.Context(), false))
 
@@ -242,7 +242,7 @@ func TestAnUntrustedDiscoveryIsUnavailable(t *testing.T) {
 	})
 	r := newRig(t)
 	ts := newServer(t, srv)
-	s := newService(t, Config{Provider: testProvider(ts), DB: r.db}, withKeyring(r.keyring), withBrowser(following))
+	s := newService(t, Config{Provider: testProvider(ts), DB: r.db, Keyring: r.keyring}, withBrowser(following))
 
 	require.NoError(t, s.Connect(t.Context(), false))
 

@@ -113,7 +113,7 @@ func TestDeleteReachesAnEntryUnreadAtLaunch(t *testing.T) {
 	t.Parallel()
 	k := oskeyringtest.New()
 	require.NoError(t, k.Set(account(twinID), encode("unread-key-0123456789abcdef")))
-	k.FailGet = errors.New("locked")
+	k.FailGet(account(twinID), errors.New("locked"))
 	s := newService(t, Config{Keyring: k})
 	require.False(t, state(t, s, twinID).HasSavedKey)
 

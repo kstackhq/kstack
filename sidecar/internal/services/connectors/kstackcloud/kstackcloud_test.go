@@ -24,6 +24,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
@@ -76,6 +77,39 @@ func TestAFailedDeleteOfTheOldEntryIsRetried(t *testing.T) {
 	assert.Equal(t, 2, k.deletes)
 }
 
+// The old entry is deleted once the keyring opens, and is never read.
+func TestTheOldEntryIsDeletedUnread(t *testing.T) {
+	t.Parallel()
+	k := oskeyringtest.New()
+	require.NoError(t, k.Set("auth-token", "old"))
+
+	_, err := newService(oskeyring.Gate(k, oskeyring.Pace{}), func() (engine, error) { return newFakeEngine(), nil })
+
+	require.NoError(t, err)
+	assert.Equal(t, []oskeyringtest.Call{
+		{Kind: oskeyringtest.Set, Account: "auth-token"},
+		{Kind: oskeyringtest.Get, Account: "keyring-probe"},
+		{Kind: oskeyringtest.Delete, Account: "auth-token"},
+	}, k.Calls())
+}
+
+// A keyring whose opening failed, a dismissed prompt included, is not asked
+// to delete the old entry: the delete would raise the prompt again.
+func TestAKeyringThatDidNotOpenKeepsTheOldEntry(t *testing.T) {
+	t.Parallel()
+	k := oskeyringtest.New()
+	require.NoError(t, k.Set("auth-token", "old"))
+	k.FailGets(1, errors.New("dismissed"))
+
+	_, err := newService(oskeyring.Gate(k, oskeyring.Pace{}), func() (engine, error) { return newFakeEngine(), nil })
+
+	require.NoError(t, err)
+	assert.Equal(t, []oskeyringtest.Call{
+		{Kind: oskeyringtest.Set, Account: "auth-token"},
+		{Kind: oskeyringtest.Get, Account: "keyring-probe"},
+	}, k.Calls())
+}
+
 // An engine that cannot be built is New's error.
 func TestNewAnswersTheEnginesError(t *testing.T) {
 	t.Parallel()
@@ -90,7 +124,7 @@ func TestNewAnswersTheEnginesError(t *testing.T) {
 // reaches no network.
 func TestNewIsSignedOutWithNoSession(t *testing.T) {
 	t.Parallel()
-	s, err := New(Config{DB: appdbtest.Open(t), KeychainService: "kstack-test-kstack", Issuer: "https://issuer.test", ClientID: "kstack-desktop"})
+	s, err := New(Config{DB: appdbtest.Open(t), Keyring: oskeyringtest.New(), Issuer: "https://issuer.test", ClientID: "kstack-desktop"})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 

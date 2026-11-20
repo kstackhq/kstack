@@ -57,8 +57,8 @@ type Config struct {
 	Provider Provider
 	// DB is app.db, which holds the registration.
 	DB *appdb.DB
-	// KeychainService is the OS-keyring service the refresh token is kept under.
-	KeychainService string
+	// Keyring is the OS keyring the refresh token is kept in.
+	Keyring oskeyring.Keyring
 }
 
 // Service is one provider's connection. Every change to the session happens under
@@ -99,8 +99,6 @@ type Service struct {
 // option is an unexported build seam, so only in-package tests pass one.
 type option func(*Service)
 
-func withKeyring(k oskeyring.Keyring) option { return func(s *Service) { s.keyring = k } }
-
 func withBrowser(open func(string) error) option { return func(s *Service) { s.open = open } }
 
 func withAttemptTimeout(d time.Duration) option { return func(s *Service) { s.attemptTimeout = d } }
@@ -130,7 +128,7 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 	s := &Service{
 		p:              cfg.Provider,
 		base:           base,
-		keyring:        oskeyring.New(cfg.KeychainService),
+		keyring:        cfg.Keyring,
 		reg:            reg,
 		open:           browser.Open,
 		attemptTimeout: attemptTimeout,

@@ -7,8 +7,9 @@ request: the engine is an unexported field, and the provider has no API base.
 [security record](../../../../../docs/security/2026-11-19-the-kstack-sign-in-on-the-engine.md).
 
 - **`New` deletes `auth-token`, then builds the engine.** That entry is the whole token
-  `desktop/v0.0.1` kept; its user signs in again. A failed delete is logged at `Info` and tried
-  again at the next launch.
+  `desktop/v0.0.1` kept; its user signs in again. The delete waits for the keyring's opening
+  (`oskeyring.Opened`) and is skipped when it failed, so a dismissed prompt is not raised again.
+  The entry is never read. A failed delete is logged at `Info` and tried again at the next launch.
 - **`Connect` cancels, then starts fresh**, so a second request opens a new tab and a sign-in may
   change accounts. A mutex runs one at a time, so overlapping requests (the avatar's, the tray's)
   run in turn and never answer `ErrSigningIn`. A failure `Start` answers is `Connect`'s error.

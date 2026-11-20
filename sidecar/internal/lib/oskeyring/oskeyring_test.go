@@ -87,3 +87,17 @@ func TestCheck(t *testing.T) {
 	k.setErr, k.deleteErr = nil, errBoom
 	assert.ErrorIs(t, Check(k, "check"), errBoom)
 }
+
+// New's keyring is gated: a failed opening is kept though the keyring recovers.
+// Serial: go-keyring's mock is process state.
+func TestNewIsGated(t *testing.T) {
+	keyring.MockInitWithError(errBoom)
+	t.Cleanup(keyring.MockInit)
+	k := New("Kstack-test")
+	_, err := k.Get("account")
+	require.ErrorIs(t, err, errBoom)
+
+	keyring.MockInit()
+	_, err = k.Get("account")
+	assert.ErrorIs(t, err, errBoom)
+}

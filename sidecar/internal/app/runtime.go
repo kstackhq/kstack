@@ -179,15 +179,14 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.add("logs service", lifecycle.CloseFunc(rt.Logs.Close))
 	rt.Cluster.SetCacheFiles(rt.Logs)
 
-	keychainService := cfg.KeychainService
-	if keychainService == "" {
-		keychainService = defaultKeychainService
-	}
+	// One keyring for every service, so they share its gate: a locked keyring
+	// asks the user once for their reads.
+	keyring := cmp.Or(cfg.Keyring, oskeyring.New(cmp.Or(cfg.KeychainService, defaultKeychainService)))
 	rt.KstackCloud, err = kstackcloud.New(kstackcloud.Config{
-		DB:              db,
-		KeychainService: keychainService,
-		Issuer:          cfg.OAuthIssuerURL,
-		ClientID:        cfg.OAuthClientID,
+		DB:       db,
+		Keyring:  keyring,
+		Issuer:   cfg.OAuthIssuerURL,
+		ClientID: cfg.OAuthClientID,
 	})
 	if err != nil { // coverage:ignore the statements prepare on the schema app.db was just migrated to
 		return fail(err)
@@ -195,10 +194,10 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.add("kstack cloud service", lifecycle.CloseFunc(func() error { rt.KstackCloud.Close(); return nil }))
 
 	rt.ChatGPT, err = chatgpt.New(chatgpt.Config{
-		DB:              db,
-		KeychainService: keychainService,
-		Issuer:          cmp.Or(cfg.ConnectorAuthURLs[chatgpt.ID], chatgpt.Issuer),
-		APIBaseURL:      cmp.Or(cfg.LLMBaseURLs[chatgpt.ID], chatgpt.APIBaseURL),
+		DB:         db,
+		Keyring:    keyring,
+		Issuer:     cmp.Or(cfg.ConnectorAuthURLs[chatgpt.ID], chatgpt.Issuer),
+		APIBaseURL: cmp.Or(cfg.LLMBaseURLs[chatgpt.ID], chatgpt.APIBaseURL),
 	})
 	if err != nil { // coverage:ignore the statements prepare on the schema app.db was just migrated to
 		return fail(err)
@@ -206,9 +205,9 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.add("chatgpt service", lifecycle.CloseFunc(func() error { rt.ChatGPT.Close(); return nil }))
 
 	rt.OpenRouter, err = openrouter.New(openrouter.Config{
-		KeychainService: keychainService,
-		AuthURL:         cmp.Or(cfg.ConnectorAuthURLs[openrouter.ID], openrouter.AuthURL),
-		APIBaseURL:      cmp.Or(cfg.LLMBaseURLs[openrouter.ID], openrouter.APIBaseURL),
+		Keyring:    keyring,
+		AuthURL:    cmp.Or(cfg.ConnectorAuthURLs[openrouter.ID], openrouter.AuthURL),
+		APIBaseURL: cmp.Or(cfg.LLMBaseURLs[openrouter.ID], openrouter.APIBaseURL),
 	})
 	if err != nil {
 		return fail(err)
@@ -216,8 +215,8 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.add("openrouter service", lifecycle.CloseFunc(func() error { rt.OpenRouter.Close(); return nil }))
 
 	rt.AWS, err = aws.New(aws.Config{
-		KeychainService: keychainService,
-		SigninURL:       cmp.Or(cfg.ConnectorAuthURLs[aws.ID], aws.SigninURL),
+		Keyring:   keyring,
+		SigninURL: cmp.Or(cfg.ConnectorAuthURLs[aws.ID], aws.SigninURL),
 	})
 	if err != nil {
 		return fail(err)
@@ -225,10 +224,10 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.add("aws service", lifecycle.CloseFunc(func() error { rt.AWS.Close(); return nil }))
 
 	rt.GitHub, err = github.New(github.Config{
-		KeychainService: keychainService,
-		ClientID:        cfg.GitHubClientID,
-		AuthURL:         cmp.Or(cfg.ConnectorAuthURLs[github.ID], github.AuthURL),
-		APIURL:          github.APIURL,
+		Keyring:  keyring,
+		ClientID: cfg.GitHubClientID,
+		AuthURL:  cmp.Or(cfg.ConnectorAuthURLs[github.ID], github.AuthURL),
+		APIURL:   github.APIURL,
 	})
 	if err != nil {
 		return fail(err)
@@ -236,12 +235,12 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.add("github service", lifecycle.CloseFunc(func() error { rt.GitHub.Close(); return nil }))
 
 	rt.Google, err = google.New(google.Config{
-		DB:              db,
-		KeychainService: keychainService,
-		ClientID:        cfg.GoogleClientID,
-		ClientSecret:    cfg.GoogleClientSecret,
-		APIBaseURL:      cmp.Or(cfg.LLMBaseURLs[google.ID], cfg.vertexBaseURL),
-		Project:         cfg.googleProject,
+		DB:           db,
+		Keyring:      keyring,
+		ClientID:     cfg.GoogleClientID,
+		ClientSecret: cfg.GoogleClientSecret,
+		APIBaseURL:   cmp.Or(cfg.LLMBaseURLs[google.ID], cfg.vertexBaseURL),
+		Project:      cfg.googleProject,
 	})
 	if err != nil { // coverage:ignore the statements prepare on the schema app.db was just migrated to
 		return fail(err)
@@ -249,7 +248,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.add("google service", lifecycle.CloseFunc(func() error { rt.Google.Close(); return nil }))
 
 	rt.ProviderKeys, err = providerkeys.New(providerkeys.Config{
-		Keyring:    cmp.Or(cfg.keyring, oskeyring.New(keychainService)),
+		Keyring:    keyring,
 		Providers:  catalog.KeyedProviders(cfg.LLMBaseURLs),
 		EnvKeys:    cfg.LLMKeys,
 		Connectors: map[string]providerkeys.Connector{openrouter.ID: rt.OpenRouter},
