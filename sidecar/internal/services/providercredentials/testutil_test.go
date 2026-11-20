@@ -22,16 +22,19 @@ import (
 	"github.com/amorey/gochan/watch"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/internal/signer"
 )
 
-// Two providers: one with a connector's place, one with two routes.
+// Two keyed providers, one with a connector's place, one with two routes, and
+// one its connector alone signs.
 const (
 	routerID  = "router"
 	twinID    = "twin"
+	planID    = "plan"
 	routerAPI = "https://router.test/api/v1"
 )
 
@@ -43,6 +46,7 @@ var (
 		{BaseURL: "https://twin.test/openai/v1", Header: "Authorization", Prefix: "Bearer "},
 		{BaseURL: "https://twin.test/anthropic", Header: "X-Api-Key"},
 	}}
+	planProvider = Provider{ID: planID, Label: "Plan"}
 )
 
 // Keys long enough for the redactor, each unique to its test.
@@ -66,6 +70,25 @@ func newService(t *testing.T, cfg Config) *Service {
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 	return s
+}
+
+// sealedKeyring fails the test on any call: no provider with no key may reach
+// the keyring.
+type sealedKeyring struct{ t *testing.T }
+
+func (k sealedKeyring) Get(account string) (string, error) {
+	k.t.Errorf("the keyring was read: %s", account)
+	return "", oskeyring.ErrNoEntry
+}
+
+func (k sealedKeyring) Set(account, _ string) error {
+	k.t.Errorf("the keyring was written: %s", account)
+	return nil
+}
+
+func (k sealedKeyring) Delete(account string) error {
+	k.t.Errorf("the keyring was deleted from: %s", account)
+	return nil
 }
 
 // state is id's state, which the test knows is there.

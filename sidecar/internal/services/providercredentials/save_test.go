@@ -46,6 +46,13 @@ func TestSaveRefusesWhatIsNotAKey(t *testing.T) {
 	assert.ErrorIs(t, s.Save("nope", savedKey), ErrUnknownProvider)
 }
 
+func TestAProviderWithNoKeyRefusesSaveAndDelete(t *testing.T) {
+	t.Parallel()
+	s := newService(t, Config{Keyring: sealedKeyring{t}, Providers: []Provider{planProvider}})
+	assert.ErrorIs(t, s.Save(planID, savedKey), ErrNoKey)
+	assert.ErrorIs(t, s.Delete(planID), ErrNoKey)
+}
+
 func TestSaveTrimsAndKeepsTheKey(t *testing.T) {
 	t.Parallel()
 	const key = "trimmed-key-0123456789abcdef"
@@ -82,7 +89,7 @@ func TestDeleteFallsBack(t *testing.T) {
 	s := newService(t, Config{Keyring: k, EnvKeys: map[string]string{twinID: envKey}})
 	require.NoError(t, s.Save(twinID, savedKey))
 	require.NoError(t, s.Save(routerID, otherKey))
-	credential, cancel := s.WatchHasCredential(routerID)
+	credential, cancel := s.WatchCredential(routerID)
 	defer cancel()
 	assert.Equal(t, uint64(1), testutil.Recv(t, credential, "the credential"))
 

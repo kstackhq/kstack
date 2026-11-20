@@ -4352,7 +4352,7 @@ func providerCredentialsServer(t *testing.T, k *oskeyringtest.Keyring) (*httptes
 	t.Helper()
 	keys, err := providercredentials.New(providercredentials.Config{
 		Keyring:   k,
-		Providers: catalog.KeyedProviders(nil),
+		Providers: append(catalog.KeyedProviders(nil), providercredentials.Provider{ID: "chatgpt", Label: "ChatGPT plan"}),
 		EnvKeys:   map[string]string{"anthropic": "sk-ant-env-0123456789abcdef"},
 	})
 	require.NoError(t, err)
@@ -4370,7 +4370,7 @@ func TestProviderCredentialsProjectTheState(t *testing.T) {
 	data, errs := mutation(t, srv.URL, `query { providerCredentials { id label keyVariable source hasEnvironmentKey hasSavedKey failure } }`)
 	require.Empty(t, errs)
 	rows := data["providerCredentials"].([]any)
-	require.Len(t, rows, len(catalog.KeyVars()))
+	require.Len(t, rows, len(catalog.KeyVars())+1)
 	assert.Equal(t, map[string]any{
 		"id": "anthropic", "label": "Anthropic", "keyVariable": "ANTHROPIC_API_KEY",
 		"source": "EnvironmentKey", "hasEnvironmentKey": true, "hasSavedKey": false, "failure": nil,
@@ -4422,6 +4422,9 @@ func TestProviderKeyRefusals(t *testing.T) {
 		`mutation { providerKeySave(providerID: "groq", key: "short") }`:                "KSTACK_VALIDATION_ERROR",
 		`mutation { providerKeySave(providerID: "groq", key: "key-0123456789abcdef") }`: "KSTACK_PROVIDER_KEY_NOT_SAVED",
 		`mutation { providerKeyDelete(providerID: "nope") }`:                            "KSTACK_VALIDATION_ERROR",
+		// A provider that takes no key.
+		`mutation { providerKeySave(providerID: "chatgpt", key: "key-0123456789abcdef") }`: "KSTACK_VALIDATION_ERROR",
+		`mutation { providerKeyDelete(providerID: "chatgpt") }`:                            "KSTACK_VALIDATION_ERROR",
 	} {
 		_, errs := mutation(t, srv.URL, op)
 		require.Len(t, errs, 1, op)

@@ -73,6 +73,25 @@ func TestAProviderWithNoCredentialBindsEnded(t *testing.T) {
 	assert.ErrorIs(t, err, llm.ErrSignedOut)
 }
 
+func TestAProviderWithNoKeyIsItsConnectors(t *testing.T) {
+	t.Parallel()
+	c := newFakeConnector()
+	s := newService(t, Config{Keyring: sealedKeyring{t}, Providers: []Provider{planProvider}, Connectors: map[string]Connector{planID: c}})
+	sg := s.Signer(planID)
+
+	c.connect(4)
+	await(t, s, planID, "the connector signs", signedBy(SourceConnector))
+	got, err := bearer(t, sg.Bind(), routerChat)
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer connector", got)
+
+	c.connect(0)
+	await(t, s, planID, "the session ends", signedBy(SourceNone))
+	assert.Equal(t, signer.Ended{}, sg.Bind())
+	_, err = bearer(t, sg, routerChat)
+	assert.ErrorIs(t, err, llm.ErrSignedOut)
+}
+
 func TestTheKeyGoesNowhereElse(t *testing.T) {
 	t.Parallel()
 	s := newService(t, Config{EnvKeys: map[string]string{twinID: envKey}})
@@ -103,7 +122,7 @@ func TestTheKeyGoesNowhereElse(t *testing.T) {
 // One stub under both bases takes both headers: a debug build's.
 func TestABaseUnderTwoRoutesTakesBothHeaders(t *testing.T) {
 	t.Parallel()
-	stub := Provider{ID: "stub", Routes: []Route{
+	stub := Provider{ID: "stub", KeyVar: "STUB_API_KEY", Routes: []Route{
 		{BaseURL: "http://127.0.0.1:9", Header: "Authorization", Prefix: "Bearer "},
 		{BaseURL: "http://127.0.0.1:9", Header: "X-Api-Key"},
 	}}

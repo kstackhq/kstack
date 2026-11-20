@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/internal/signer"
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
@@ -61,6 +63,21 @@ func TestStatesFollowTheRows(t *testing.T) {
 	_, ok := s.State("nope")
 	assert.False(t, ok)
 	assert.Nil(t, s.Signer("nope"))
+}
+
+// A provider with no key has no keyring entry to read, and takes no key from
+// the environment.
+func TestAProviderWithNoKeyHoldsNone(t *testing.T) {
+	t.Parallel()
+	s := newService(t, Config{
+		Keyring:   sealedKeyring{t},
+		Providers: []Provider{planProvider},
+		EnvKeys:   map[string]string{planID: envKey},
+	})
+	assert.Equal(t, State{ID: planID, Label: "Plan", Source: SourceNone}, state(t, s, planID))
+	assert.Equal(t, signer.Ended{}, s.Signer(planID).Bind())
+	_, err := bearer(t, s.Signer(planID), routerChat)
+	assert.ErrorIs(t, err, llm.ErrSignedOut)
 }
 
 func TestTheSourceTable(t *testing.T) {
@@ -143,6 +160,79 @@ func TestConcurrentChangesPublishTheLatestList(t *testing.T) {
 		assert.Equal(t, s.States(), testutil.Recv(t, frames, "the latest list"))
 		cancel()
 	}
+}
+
+// awaitValue reads values until one is want, failing on the timeout. Each
+// value before it must be one of passing.
+func awaitValue(t *testing.T, values <-chan uint64, want uint64, passing ...uint64) {
+	t.Helper()
+	for {
+		got := testutil.Recv(t, values, fmt.Sprint("the value ", want))
+		if got == want {
+			return
+		}
+		require.Contains(t, passing, got)
+	}
+}
+
+// A keyed provider's catalog is the same under every credential: its value
+// stays 1 while its connector connects and disconnects over a key.
+func TestWatchCredentialIsOneForAKeyedProvider(t *testing.T) {
+	t.Parallel()
+	c := newFakeConnector()
+	s := newService(t, Config{Connectors: map[string]Connector{routerID: c}})
+	values, cancel := s.WatchCredential(routerID)
+	defer cancel()
+
+	awaitValue(t, values, 0)
+	require.NoError(t, s.Save(routerID, savedKey))
+	awaitValue(t, values, 1)
+	c.connect(5)
+	await(t, s, routerID, "the connector signs", signedBy(SourceConnector))
+	c.connect(0)
+	await(t, s, routerID, "the saved key signs", signedBy(SourceSavedKey))
+	require.NoError(t, s.Delete(routerID))
+	awaitValue(t, values, 0, 1)
+
+	c.connect(5)
+	awaitValue(t, values, 1, 0)
+}
+
+// A provider with no key carries its connector's session, so a second session
+// is a new value with no 0 between.
+func TestWatchCredentialIsTheSessionForAProviderWithNoKey(t *testing.T) {
+	t.Parallel()
+	c := newFakeConnector()
+	s := newService(t, Config{Providers: []Provider{planProvider}, Connectors: map[string]Connector{planID: c}})
+	values, cancel := s.WatchCredential(planID)
+	defer cancel()
+
+	awaitValue(t, values, 0)
+	c.connect(1)
+	awaitValue(t, values, 1, 0)
+	c.connect(5)
+	awaitValue(t, values, 5, 1)
+	c.connect(0)
+	awaitValue(t, values, 0, 5)
+}
+
+// A second session reads the catalog again, though the watch never passed 0.
+func TestSyncCatalogsReadsEachSession(t *testing.T) {
+	t.Parallel()
+	models := llm.New(llm.Provider{ID: planID, Dialect: llm.DialectChatCompletions})
+	c := newFakeConnector()
+	s := newService(t, Config{Providers: []Provider{planProvider}, Connectors: map[string]Connector{planID: c}})
+	reads := make(chan struct{}, 8)
+	stop := s.SyncCatalogs(poke.New(), models, func(context.Context, llm.Provider) ([]llm.Model, error) {
+		reads <- struct{}{}
+		return []llm.Model{{ID: "m"}}, nil
+	})
+	defer stop()
+
+	c.connect(1)
+	testutil.Recv(t, reads, "the first session's read")
+	c.connect(2)
+	testutil.Recv(t, reads, "the second session's read")
 }
 
 func TestSyncCatalogsFollowsTheCredential(t *testing.T) {

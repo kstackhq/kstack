@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package providercredentials holds each keyed provider's API keys, the environment's
-// and the one saved from the Providers pane, and signs the provider's
-// requests with the highest credential present: its connector, then the saved
-// key, then the environment key.
+// Package providercredentials holds each provider's API keys, the
+// environment's and the one saved from the Providers pane, and signs the
+// provider's requests with the highest credential present: its connector, then
+// the saved key, then the environment key. A provider that takes no key is
+// signed by its connector alone.
 //
 // Files: this one (Service, New, state, the watches), keyring.go (the entry),
 // save.go (Save, Delete), sign.go (the signers).
@@ -63,6 +64,8 @@ var (
 	ErrBadKey          = errors.New("providercredentials: not an API key")
 	ErrNotSaved        = errors.New("providercredentials: the keyring refused the key")
 	ErrNotDeleted      = errors.New("providercredentials: the keyring refused the delete")
+	// ErrNoKey is a Save or Delete for a provider that takes no key.
+	ErrNoKey = errors.New("providercredentials: the provider takes no key")
 )
 
 // State is one provider as every window draws it. It holds no key.
@@ -76,10 +79,12 @@ type State struct {
 	Failure Failure
 }
 
-// Provider is a keyed provider as the service needs it.
-// catalog.KeyedProviders builds them.
+// Provider is a provider as the service needs it. catalog.KeyedProviders
+// builds them.
 type Provider struct {
-	ID, Label, KeyVar string
+	ID, Label string
+	// KeyVar is "" for a provider that takes no key.
+	KeyVar string
 	// Routes is every base URL the provider's models are sent to, each with the
 	// header its key goes in.
 	Routes []Route
@@ -107,7 +112,7 @@ type Connector interface {
 // Config is what New builds the service from.
 type Config struct {
 	Keyring oskeyring.Keyring
-	// Providers is every keyed provider, in picker order.
+	// Providers is every provider, in picker order.
 	Providers []Provider
 	// EnvKeys is the launch's key per provider id.
 	EnvKeys map[string]string
@@ -115,7 +120,7 @@ type Config struct {
 	Connectors map[string]Connector
 }
 
-// Service holds every keyed provider's keys. writes serializes Save and Delete
+// Service holds every provider's keys. writes serializes Save and Delete
 // and is the only lock held across a keyring call; mu guards every provider's
 // state, and each change is published under it, so a frame never carries one
 // provider's older state after a newer one went out. mu is never held across a call to
@@ -134,15 +139,15 @@ type Service struct {
 	states *watch.Hub[[]State]
 }
 
-// provider is one keyed provider's keys. Every field below bases is guarded by
+// provider is one provider's keys. Every field below bases is guarded by
 // mu.
 type provider struct {
 	Provider
 	bases     []*url.URL // Routes' base URLs, parsed
 	env       string
 	connector Connector
-	// hasCredential is 1 while the provider has a credential, else 0.
-	hasCredential *watch.Hub[uint64]
+	// credential is WatchCredential's value.
+	credential *watch.Hub[uint64]
 
 	saved string
 	// keyGen is the keys' generation. It moves when the saved key held in
@@ -167,13 +172,20 @@ func New(cfg Config) (*Service, error) {
 		if _, dup := s.byID[p.ID]; dup {
 			return nil, fmt.Errorf("providercredentials: %s is listed twice", p.ID)
 		}
-		p.env, p.connector = cfg.EnvKeys[p.ID], cfg.Connectors[p.ID]
+		p.connector = cfg.Connectors[p.ID]
+		if p.KeyVar != "" {
+			p.env = cfg.EnvKeys[p.ID]
+		}
 		s.providers = append(s.providers, p)
 		s.byID[p.ID] = p
 	}
-	// Each read can start a process (macOS's security), so they run at once.
+	// Each read can start a process (macOS's security), so they run at once. A
+	// provider with no key has no entry.
 	var restores sync.WaitGroup
 	for _, p := range s.providers {
+		if p.KeyVar == "" {
+			continue
+		}
 		restores.Go(func() { p.saved, p.newer = s.restore(p.ID) })
 	}
 	restores.Wait()
@@ -187,7 +199,7 @@ func New(cfg Config) (*Service, error) {
 			p.connectorGen = <-gens
 			follows = append(follows, func() { s.follow(p, gens, unsubscribe) })
 		}
-		p.hasCredential = watch.New(p.hasCredentialLocked())
+		p.credential = watch.New(p.credentialLocked())
 	}
 	s.states = watch.New(s.statesLocked())
 	s.ctx, s.stop = context.WithCancel(context.Background())
@@ -258,20 +270,23 @@ func (s *Service) Subscribe() (<-chan []State, func()) {
 	return rx.Chan(), rx.Close
 }
 
-// WatchHasCredential is 1 while id has a credential, else 0: current on
-// subscribe, then each change. A change of source keeps it at 1, since the
-// provider's catalog is the same under every credential.
-func (s *Service) WatchHasCredential(id string) (<-chan uint64, func()) {
-	rx := s.byID[id].hasCredential.Receiver()
+// WatchCredential is what id's catalog is read under: 0 with no credential, 1
+// for a provider that takes a key, whichever credential signs, and its
+// connector's session's generation for one that takes none. Current on
+// subscribe, then each change. A keyed provider's catalog is the same under
+// every credential; a keyless one's is its account's, so each new session is a
+// new value.
+func (s *Service) WatchCredential(id string) (<-chan uint64, func()) {
+	rx := s.byID[id].credential.Receiver()
 	return rx.Chan(), rx.Close
 }
 
-// SyncCatalogs keeps each provider's catalog listed while it has a credential,
-// until the stop it returns.
+// SyncCatalogs keeps each provider's catalog listed while WatchCredential is
+// not 0, read again for each new value, until the stop it returns.
 func (s *Service) SyncCatalogs(pokes *poke.Service, models *llm.Service, read func(context.Context, llm.Provider) ([]llm.Model, error)) (stop func()) {
 	var stops []func()
 	for _, p := range s.providers {
-		stops = append(stops, catalogsync.Start(p.ID, func() (<-chan uint64, func()) { return s.WatchHasCredential(p.ID) }, pokes, models, read))
+		stops = append(stops, catalogsync.Start(p.ID, func() (<-chan uint64, func()) { return s.WatchCredential(p.ID) }, pokes, models, read))
 	}
 	return func() {
 		for _, stop := range stops {
@@ -294,11 +309,10 @@ func (s *Service) statesLocked() []State {
 	return states
 }
 
-// publishLocked sends every provider's state, and whether p has a credential
-// (s.mu held).
+// publishLocked sends every provider's state, and p's credential (s.mu held).
 func (s *Service) publishLocked(p *provider) {
-	s.states.Sender().Send(s.statesLocked())               //nolint:errcheck // Send never blocks, and the hub is never closed
-	p.hasCredential.Sender().Send(p.hasCredentialLocked()) //nolint:errcheck // as above
+	s.states.Sender().Send(s.statesLocked())         //nolint:errcheck // Send never blocks, and the hub is never closed
+	p.credential.Sender().Send(p.credentialLocked()) //nolint:errcheck // as above
 }
 
 func (p *provider) stateLocked() State {
@@ -312,8 +326,11 @@ func (p *provider) stateLocked() State {
 	}
 }
 
-func (p *provider) hasCredentialLocked() uint64 {
-	if p.stateLocked().Source == SourceNone {
+func (p *provider) credentialLocked() uint64 {
+	switch {
+	case p.KeyVar == "":
+		return p.connectorGen
+	case p.stateLocked().Source == SourceNone:
 		return 0
 	}
 	return 1

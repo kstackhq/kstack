@@ -27,9 +27,9 @@ const maxKeyLen = 512
 // Save keeps key as id's saved key, in the keyring and in memory, replacing
 // any saved one. The key is not checked against the provider.
 func (s *Service) Save(id, key string) error {
-	p, ok := s.byID[id]
-	if !ok {
-		return ErrUnknownProvider
+	p, err := s.keyed(id)
+	if err != nil {
+		return err
 	}
 	key = strings.TrimSpace(key)
 	if !isKey(key) {
@@ -61,9 +61,9 @@ func (s *Service) Save(id, key string) error {
 // Kstack's entry is left. A delete the keyring refuses is reported on the
 // provider, and calling again retries it.
 func (s *Service) Delete(id string) error {
-	p, ok := s.byID[id]
-	if !ok {
-		return ErrUnknownProvider
+	p, err := s.keyed(id)
+	if err != nil {
+		return err
 	}
 	s.writes.Lock()
 	defer s.writes.Unlock()
@@ -83,7 +83,7 @@ func (s *Service) Delete(id string) error {
 	}
 	s.mu.Unlock()
 
-	err := s.keyring.Delete(account(id))
+	err = s.keyring.Delete(account(id))
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -94,6 +94,18 @@ func (s *Service) Delete(id string) error {
 		return ErrNotDeleted
 	}
 	return nil
+}
+
+// keyed is id's provider when it takes a key.
+func (s *Service) keyed(id string) (*provider, error) {
+	p, ok := s.byID[id]
+	switch {
+	case !ok:
+		return nil, ErrUnknownProvider
+	case p.KeyVar == "":
+		return nil, ErrNoKey
+	}
+	return p, nil
 }
 
 // isKey is a key the redactor can register, of printable ASCII alone.
