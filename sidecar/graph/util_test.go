@@ -272,3 +272,9 @@ func TestFrameOfEachKind(t *testing.T) {
 	assert.Equal(t, &model.LogsFollowFrame{Type: model.LogsFollowFrameTypeEnded, Ended: &tools.LogsNotice{Code: "finished", Message: "every container has stopped"}},
 		frameOf(logs.FollowFrame{Ended: &ended}))
 }
+
+// A Save or Delete error that is no refusal reaches the wire as it is.
+func TestProviderKeyErrPassesAnUnknownErrorThrough(t *testing.T) {
+	err := errors.New("boom")
+	assert.Same(t, err, providerKeyErr(err))
+}

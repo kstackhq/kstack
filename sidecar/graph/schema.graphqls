@@ -968,6 +968,45 @@ type Model {
   defaultEffort: String!
 }
 
+# --- Provider credentials ---
+# Where each keyed provider's credential comes from. A key typed into the Providers pane is
+# saved in the OS keyring; no key ever leaves the sidecar.
+
+"Which credential signs a provider's requests. The highest one present does: Connector, then SavedKey, then EnvironmentKey."
+enum ProviderCredentialSource {
+  None
+  "The key variable, from the launch or the login shell."
+  EnvironmentKey
+  "A key saved from the Providers pane, in the OS keyring."
+  SavedKey
+  "The provider's connector, while it is connected."
+  Connector
+}
+
+"What is wrong with a provider's key."
+enum ProviderKeyFailure {
+  "The keyring would not delete the saved key. It is out of use now and returns after a restart; providerKeyDelete retries."
+  NotDeleted
+  "The provider answered 401 to the key that signs. The key is kept and still used. Never reported while NotDeleted is."
+  KeyRejected
+}
+
+"A provider whose key can be set, and where its credential comes from. No key is ever here."
+type ProviderCredentialState {
+  "The provider's id, as Provider.id."
+  id: String!
+  label: String!
+  "The environment variable its key is read from."
+  keyVariable: String!
+  source: ProviderCredentialSource!
+  "Whether the launch held the key variable."
+  hasEnvironmentKey: Boolean!
+  "Whether a saved key is held."
+  hasSavedKey: Boolean!
+  "Null when nothing is wrong."
+  failure: ProviderKeyFailure
+}
+
 # --- Chat ---
 # The app's own chats, held in app.db. Sending a message is a save, not a
 # phone call: chatSend returns once the turn is accepted and the answer arrives on
@@ -2228,6 +2267,10 @@ type Query {
   "Every model the sidecar can answer with, in catalog order — the first entry is what a picker starts on. The ChatGPT plan's models come and go with its connection; modelsWatch follows them."
   models: [Model!]!
 
+  # --- Provider credentials ---
+  "Every provider whose key can be set, in picker order; live updates via providerCredentialsWatch."
+  providerCredentials: [ProviderCredentialState!]!
+
   # --- Sandbox ---
   "Whether this machine offers sandboxed Bash, and why."
   sandbox: SandboxStatus!
@@ -2313,6 +2356,12 @@ type Query {
 }
 
 type Mutation {
+  # --- Provider credentials ---
+  "Save a provider's API key in the OS keyring, replacing any saved one. Always true when it does not error. It signs the provider's requests from the next one, unless its connector is connected. The key is not checked against the provider. Never returns the key. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider and for a key that, once trimmed of surrounding whitespace, is under 16 or over 512 bytes or holds a space or anything but printable ASCII; KSTACK_PROVIDER_KEY_NOT_SAVED when the keyring refused, and nothing changed."
+  providerKeySave(providerID: String!, key: String!): Boolean!
+  "Delete a provider's saved key. Always true when it does not error, including when none was saved; an entry a newer Kstack wrote is left in the keyring. KSTACK_PROVIDER_KEY_NOT_DELETED when the keyring refused: the key is out of use, returns after a restart, and calling again retries. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider."
+  providerKeyDelete(providerID: String!): Boolean!
+
   # --- Cluster ---
   "Enable or disable a cluster in the app. Disabling keeps the record tracked but dormant (no connection, hidden from context pickers). Returns the updated cluster."
   clusterEnabledSet(id: ClusterID!, enabled: Boolean!): Cluster!
@@ -2589,4 +2638,8 @@ type Subscription {
   # --- Model ---
   "GAUGE. Every model the sidecar can answer with, as the models query lists them, a fresh list each time a provider's catalog changes."
   modelsWatch: [Model!]!
+
+  # --- Provider credentials ---
+  "GAUGE. Every provider whose key can be set: the latest list after each change, so changes close together arrive as one."
+  providerCredentialsWatch: [ProviderCredentialState!]!
 }

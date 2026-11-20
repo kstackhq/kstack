@@ -4,6 +4,7 @@ package graph_test
 // server. Fixtures and the fakeClusterService live in cluster_testutils_test.go.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 
@@ -13,6 +14,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -35,6 +37,8 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/logging"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
@@ -48,6 +52,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 	logsrefusal "github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
@@ -4338,4 +4343,113 @@ func connectorConstants(t *testing.T) (phases, failures []string) {
 		}
 	}
 	return phases, failures
+}
+
+// providerKeysServer serves a provider keys service over k, with one keyed
+// provider holding an environment key.
+func providerKeysServer(t *testing.T, k *oskeyringtest.Keyring) (*httptest.Server, *providerkeys.Service) {
+	t.Helper()
+	keys, err := providerkeys.New(providerkeys.Config{
+		Keyring:   k,
+		Providers: catalog.KeyedProviders(nil),
+		EnvKeys:   map[string]string{"anthropic": "sk-ant-env-0123456789abcdef"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(keys.Close)
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ProviderKeys: keys, LLMSvc: llm.New()}))
+	t.Cleanup(srv.Close)
+	return srv, keys
+}
+
+// The query lists every keyed provider with where its credential comes from,
+// and no key.
+func TestProviderCredentialsProjectTheState(t *testing.T) {
+	srv, _ := providerKeysServer(t, oskeyringtest.New())
+
+	data, errs := mutation(t, srv.URL, `query { providerCredentials { id label keyVariable source hasEnvironmentKey hasSavedKey failure } }`)
+	require.Empty(t, errs)
+	rows := data["providerCredentials"].([]any)
+	require.Len(t, rows, len(catalog.KeyVars()))
+	assert.Equal(t, map[string]any{
+		"id": "anthropic", "label": "Anthropic", "keyVariable": "ANTHROPIC_API_KEY",
+		"source": "EnvironmentKey", "hasEnvironmentKey": true, "hasSavedKey": false, "failure": nil,
+	}, rows[0])
+}
+
+// A save and a delete drive the service; the watch is a gauge that follows
+// each change.
+func TestProviderKeyMutationsAndWatch(t *testing.T) {
+	const key = "gsk-wire-0123456789abcdef"
+	k := oskeyringtest.New()
+	srv, keys := providerKeysServer(t, k)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { providerCredentialsWatch { id source hasSavedKey failure } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	assert.Contains(t, nextSSE(t, events).data, `{"id":"groq","source":"None","hasSavedKey":false,"failure":null}`)
+
+	data, errs := mutation(t, srv.URL, `mutation { providerKeySave(providerID: "groq", key: "`+key+`") }`)
+	require.Empty(t, errs)
+	assert.Equal(t, true, data["providerKeySave"])
+	assert.Contains(t, nextSSE(t, events).data, `{"id":"groq","source":"SavedKey","hasSavedKey":true,"failure":null}`)
+
+	k.FailDelete = errors.New("locked")
+	_, errs = mutation(t, srv.URL, `mutation { providerKeyDelete(providerID: "groq") }`)
+	require.Len(t, errs, 1)
+	assert.Equal(t, "KSTACK_PROVIDER_KEY_NOT_DELETED", errs[0].Extensions["code"])
+	// The delete publishes the cleared provider, then the failure; the gauge may send either first.
+	event := nextSSE(t, events)
+	for !strings.Contains(event.data, `"NotDeleted"`) {
+		event = nextSSE(t, events)
+	}
+	assert.Contains(t, event.data, `{"id":"groq","source":"None","hasSavedKey":false,"failure":"NotDeleted"}`)
+
+	k.FailDelete = nil
+	data, errs = mutation(t, srv.URL, `mutation { providerKeyDelete(providerID: "groq") }`)
+	require.Empty(t, errs)
+	assert.Equal(t, true, data["providerKeyDelete"])
+	st, _ := keys.State("groq")
+	assert.Empty(t, st.Failure)
+}
+
+// Each refusal reaches the wire as its code.
+func TestProviderKeyRefusals(t *testing.T) {
+	k := oskeyringtest.New()
+	srv, _ := providerKeysServer(t, k)
+	k.FailSet = errors.New("locked")
+	for op, code := range map[string]string{
+		`mutation { providerKeySave(providerID: "nope", key: "key-0123456789abcdef") }`: "KSTACK_VALIDATION_ERROR",
+		`mutation { providerKeySave(providerID: "groq", key: "short") }`:                "KSTACK_VALIDATION_ERROR",
+		`mutation { providerKeySave(providerID: "groq", key: "key-0123456789abcdef") }`: "KSTACK_PROVIDER_KEY_NOT_SAVED",
+		`mutation { providerKeyDelete(providerID: "nope") }`:                            "KSTACK_VALIDATION_ERROR",
+	} {
+		_, errs := mutation(t, srv.URL, op)
+		require.Len(t, errs, 1, op)
+		assert.Equal(t, code, errs[0].Extensions["code"], op)
+	}
+}
+
+// No saved key comes back in a response or reaches the log, on a save that
+// succeeds or fails. Serial: it swaps the default logger.
+func TestProviderKeySaveReturnsAndLogsNoKey(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	var logs bytes.Buffer
+	slog.SetDefault(logging.Init(&logs, slog.LevelDebug))
+
+	const saved, refused = "sk-wire-saved-0123456789abcdef", "sk-wire-refused-0123456789abcdef"
+	k := oskeyringtest.New()
+	srv, _ := providerKeysServer(t, k)
+	var bodies []string
+	for _, key := range []string{saved, refused} {
+		bodies = append(bodies, string(postGQL(t, srv.URL, `{"query":"mutation { providerKeySave(providerID: \"groq\", key: \"`+key+`\") }"}`)))
+		k.FailSet = errors.New("locked")
+	}
+	bodies = append(bodies, string(postGQL(t, srv.URL, `{"query":"{ providerCredentials { id source hasSavedKey } }"}`)))
+	for _, key := range []string{saved, refused} {
+		for _, body := range bodies {
+			assert.NotContains(t, body, key)
+		}
+		assert.NotContains(t, logs.String(), key)
+	}
+	assert.Contains(t, bodies[1], "KSTACK_PROVIDER_KEY_NOT_SAVED")
 }

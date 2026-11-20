@@ -363,6 +363,8 @@ pub(crate) fn capture_thread() -> (Capture, tracing::subscriber::DefaultGuard) {
     let subscriber = tracing_subscriber::fmt()
         .with_writer(move || sink.clone())
         .with_ansi(false)
+        // Every level, so a test that nothing is logged covers debug and trace lines too.
+        .with_max_level(tracing::Level::TRACE)
         .finish();
     (capture, tracing::subscriber::set_default(subscriber))
 }

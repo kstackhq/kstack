@@ -17,6 +17,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -64,9 +65,21 @@ type Resolver struct {
 	GitHub GitHubConnector
 	// Google is the Google connector: *google.Service, or a test's fake.
 	Google GoogleConnector
+	// ProviderKeys holds the keyed providers' keys: *providerkeys.Service, or
+	// a test's fake.
+	ProviderKeys ProviderKeyStore
 	// OpenURL opens one of the sidecar's own addresses in the browser:
 	// browser.Open, or a test's fake. No caller hands it an address.
 	OpenURL func(url string) error
+}
+
+// ProviderKeyStore is the keyed providers' keys as the wire drives them. No
+// method returns a key.
+type ProviderKeyStore interface {
+	States() []providerkeys.State
+	Subscribe() (<-chan []providerkeys.State, func())
+	Save(id, key string) error
+	Delete(id string) error
 }
 
 // AuthConnector is the Kstack Cloud connector as the wire drives it.

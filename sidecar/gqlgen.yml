@@ -704,6 +704,33 @@ models:
       identity:
         resolver: true
 
+  # --- Provider credentials ---
+  ProviderCredentialState:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.State
+    fields:
+      keyVariable:
+        fieldName: KeyVar
+      failure:
+        resolver: true
+  ProviderCredentialSource:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.Source
+    enum_values:
+      None:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.SourceNone
+      EnvironmentKey:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.SourceEnvironmentKey
+      SavedKey:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.SourceSavedKey
+      Connector:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.SourceConnector
+  ProviderKeyFailure:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.Failure
+    enum_values:
+      NotDeleted:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.NotDeleted
+      KeyRejected:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/providerkeys.KeyRejected
+
   # --- Connectors ---
   # Every value maps to the Go constant of its name
   # (TestEveryConnectorValueIsOnTheWire).

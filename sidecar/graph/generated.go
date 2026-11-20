@@ -30,6 +30,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	gqlparser "github.com/vektah/gqlparser/v2"
@@ -59,6 +60,7 @@ type ResolverRoot interface {
 	GoogleConnection() GoogleConnectionResolver
 	Mutation() MutationResolver
 	OpenRouterConnection() OpenRouterConnectionResolver
+	ProviderCredentialState() ProviderCredentialStateResolver
 	Query() QueryResolver
 	Subscription() SubscriptionResolver
 	ToolCall() ToolCallResolver
@@ -716,6 +718,8 @@ type ComplexityRoot struct {
 		PermissionModeSet               func(childComplexity int, context string, mode permissions.Mode) int
 		PermissionRuleAdd               func(childComplexity int, input model.PermissionRuleInput) int
 		PermissionRuleRemove            func(childComplexity int, id string) int
+		ProviderKeyDelete               func(childComplexity int, providerID string) int
+		ProviderKeySave                 func(childComplexity int, providerID string, key string) int
 		SandboxCloudAccessSet           func(childComplexity int, target permissions.Target, on bool) int
 		SandboxExecutableRegister       func(childComplexity int, name string, invocation *string) int
 		SandboxExecutableRemove         func(childComplexity int, name string) int
@@ -796,6 +800,16 @@ type ComplexityRoot struct {
 		LlmDialect func(childComplexity int) int
 	}
 
+	ProviderCredentialState struct {
+		Failure           func(childComplexity int) int
+		HasEnvironmentKey func(childComplexity int) int
+		HasSavedKey       func(childComplexity int) int
+		ID                func(childComplexity int) int
+		KeyVar            func(childComplexity int) int
+		Label             func(childComplexity int) int
+		Source            func(childComplexity int) int
+	}
+
 	Query struct {
 		AWSConnection        func(childComplexity int) int
 		AuthState            func(childComplexity int) int
@@ -813,6 +827,7 @@ type ComplexityRoot struct {
 		Models               func(childComplexity int) int
 		OpenRouterConnection func(childComplexity int) int
 		PermissionSettings   func(childComplexity int) int
+		ProviderCredentials  func(childComplexity int) int
 		Sandbox              func(childComplexity int) int
 		SandboxCloudAccess   func(childComplexity int) int
 		SandboxExecutables   func(childComplexity int) int
@@ -936,6 +951,7 @@ type ComplexityRoot struct {
 		MemoriesWatch                 func(childComplexity int, clusterID apimeta.ClusterID) int
 		ModelsWatch                   func(childComplexity int) int
 		OpenRouterConnectionWatch     func(childComplexity int) int
+		ProviderCredentialsWatch      func(childComplexity int) int
 		SandboxExecutablesWatch       func(childComplexity int) int
 	}
 
@@ -1046,6 +1062,8 @@ type GoogleConnectionResolver interface {
 	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
 }
 type MutationResolver interface {
+	ProviderKeySave(ctx context.Context, providerID string, key string) (bool, error)
+	ProviderKeyDelete(ctx context.Context, providerID string) (bool, error)
 	ClusterEnabledSet(ctx context.Context, id apimeta.ClusterID, enabled bool) (*cluster.Cluster, error)
 	ClusterSyncEnabledSet(ctx context.Context, id apimeta.ClusterID, syncEnabled bool) (*cluster.Cluster, error)
 	ClusterMonitoringEnabledSet(ctx context.Context, id apimeta.ClusterID, monitoringEnabled bool) (*cluster.Cluster, error)
@@ -1103,8 +1121,12 @@ type MutationResolver interface {
 type OpenRouterConnectionResolver interface {
 	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
 }
+type ProviderCredentialStateResolver interface {
+	Failure(ctx context.Context, obj *providerkeys.State) (*providerkeys.Failure, error)
+}
 type QueryResolver interface {
 	Models(ctx context.Context) ([]*model.Model, error)
+	ProviderCredentials(ctx context.Context) ([]*providerkeys.State, error)
 	Sandbox(ctx context.Context) (*sandbox.Status, error)
 	Cluster(ctx context.Context, id apimeta.ClusterID) (*cluster.Cluster, error)
 	Clusters(ctx context.Context) ([]*cluster.Cluster, error)
@@ -1155,6 +1177,7 @@ type SubscriptionResolver interface {
 	GoogleConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	AWSConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ModelsWatch(ctx context.Context) (<-chan []*model.Model, error)
+	ProviderCredentialsWatch(ctx context.Context) (<-chan []*providerkeys.State, error)
 }
 type ToolCallResolver interface {
 	Status(ctx context.Context, obj *chat.ToolCall) (*chat.ToolCallStatus, error)
@@ -3916,6 +3939,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.PermissionRuleRemove(childComplexity, args["id"].(string)), true
+	case "Mutation.providerKeyDelete":
+		if e.ComplexityRoot.Mutation.ProviderKeyDelete == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_providerKeyDelete_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ProviderKeyDelete(childComplexity, args["providerID"].(string)), true
+	case "Mutation.providerKeySave":
+		if e.ComplexityRoot.Mutation.ProviderKeySave == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_providerKeySave_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ProviderKeySave(childComplexity, args["providerID"].(string), args["key"].(string)), true
 	case "Mutation.sandboxCloudAccessSet":
 		if e.ComplexityRoot.Mutation.SandboxCloudAccessSet == nil {
 			break
@@ -4257,6 +4302,49 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Provider.LlmDialect(childComplexity), true
 
+	case "ProviderCredentialState.failure":
+		if e.ComplexityRoot.ProviderCredentialState.Failure == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ProviderCredentialState.Failure(childComplexity), true
+	case "ProviderCredentialState.hasEnvironmentKey":
+		if e.ComplexityRoot.ProviderCredentialState.HasEnvironmentKey == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ProviderCredentialState.HasEnvironmentKey(childComplexity), true
+	case "ProviderCredentialState.hasSavedKey":
+		if e.ComplexityRoot.ProviderCredentialState.HasSavedKey == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ProviderCredentialState.HasSavedKey(childComplexity), true
+	case "ProviderCredentialState.id":
+		if e.ComplexityRoot.ProviderCredentialState.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ProviderCredentialState.ID(childComplexity), true
+	case "ProviderCredentialState.keyVariable":
+		if e.ComplexityRoot.ProviderCredentialState.KeyVar == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ProviderCredentialState.KeyVar(childComplexity), true
+	case "ProviderCredentialState.label":
+		if e.ComplexityRoot.ProviderCredentialState.Label == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ProviderCredentialState.Label(childComplexity), true
+	case "ProviderCredentialState.source":
+		if e.ComplexityRoot.ProviderCredentialState.Source == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ProviderCredentialState.Source(childComplexity), true
+
 	case "Query.awsConnection":
 		if e.ComplexityRoot.Query.AWSConnection == nil {
 			break
@@ -4389,6 +4477,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.PermissionSettings(childComplexity), true
+	case "Query.providerCredentials":
+		if e.ComplexityRoot.Query.ProviderCredentials == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.ProviderCredentials(childComplexity), true
 	case "Query.sandbox":
 		if e.ComplexityRoot.Query.Sandbox == nil {
 			break
@@ -4959,6 +5053,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.OpenRouterConnectionWatch(childComplexity), true
+	case "Subscription.providerCredentialsWatch":
+		if e.ComplexityRoot.Subscription.ProviderCredentialsWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.ProviderCredentialsWatch(childComplexity), true
 	case "Subscription.sandboxExecutablesWatch":
 		if e.ComplexityRoot.Subscription.SandboxExecutablesWatch == nil {
 			break
@@ -6624,6 +6724,26 @@ func (ec *executionContext) childFields_Provider(ctx context.Context, field grap
 	return nil, fmt.Errorf("no field named %q was found under type Provider", field.Name)
 }
 
+func (ec *executionContext) childFields_ProviderCredentialState(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ProviderCredentialState_id(ctx, field)
+	case "label":
+		return ec.fieldContext_ProviderCredentialState_label(ctx, field)
+	case "keyVariable":
+		return ec.fieldContext_ProviderCredentialState_keyVariable(ctx, field)
+	case "source":
+		return ec.fieldContext_ProviderCredentialState_source(ctx, field)
+	case "hasEnvironmentKey":
+		return ec.fieldContext_ProviderCredentialState_hasEnvironmentKey(ctx, field)
+	case "hasSavedKey":
+		return ec.fieldContext_ProviderCredentialState_hasSavedKey(ctx, field)
+	case "failure":
+		return ec.fieldContext_ProviderCredentialState_failure(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ProviderCredentialState", field.Name)
+}
+
 func (ec *executionContext) childFields_ReadAction(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "path":
@@ -7695,6 +7815,42 @@ func (ec *executionContext) field_Mutation_permissionRuleRemove_args(ctx context
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_providerKeyDelete_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "providerID",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["providerID"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_providerKeySave_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "providerID",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["providerID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "key",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["key"] = arg1
 	return args, nil
 }
 
@@ -17524,6 +17680,94 @@ func (ec *executionContext) fieldContext_Model_defaultEffort(_ context.Context, 
 	return graphql.NewScalarFieldContext("Model", field, false, false, "String")
 }
 
+func (ec *executionContext) _Mutation_providerKeySave(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_providerKeySave(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ProviderKeySave(ctx, fc.Args["providerID"].(string), fc.Args["key"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_providerKeySave(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_providerKeySave_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_providerKeyDelete(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_providerKeyDelete(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ProviderKeyDelete(ctx, fc.Args["providerID"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_providerKeyDelete(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_providerKeyDelete_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_clusterEnabledSet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -20484,6 +20728,167 @@ func (ec *executionContext) fieldContext_Provider_llmDialect(_ context.Context, 
 	return graphql.NewScalarFieldContext("Provider", field, false, false, "LLMDialect")
 }
 
+func (ec *executionContext) _ProviderCredentialState_id(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ProviderCredentialState_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ProviderCredentialState_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "String")
+}
+
+func (ec *executionContext) _ProviderCredentialState_label(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ProviderCredentialState_label(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Label, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ProviderCredentialState_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "String")
+}
+
+func (ec *executionContext) _ProviderCredentialState_keyVariable(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ProviderCredentialState_keyVariable(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.KeyVar, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ProviderCredentialState_keyVariable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "String")
+}
+
+func (ec *executionContext) _ProviderCredentialState_source(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ProviderCredentialState_source(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Source, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v providerkeys.Source) graphql.Marshaler {
+			return ec.marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ProviderCredentialState_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "ProviderCredentialSource")
+}
+
+func (ec *executionContext) _ProviderCredentialState_hasEnvironmentKey(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ProviderCredentialState_hasEnvironmentKey(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.HasEnvironmentKey, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ProviderCredentialState_hasEnvironmentKey(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _ProviderCredentialState_hasSavedKey(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ProviderCredentialState_hasSavedKey(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.HasSavedKey, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ProviderCredentialState_hasSavedKey(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _ProviderCredentialState_failure(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ProviderCredentialState_failure(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ProviderCredentialState().Failure(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *providerkeys.Failure) graphql.Marshaler {
+			return ec.marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ProviderCredentialState_failure(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ProviderCredentialState", field, true, true, "ProviderKeyFailure")
+}
+
 func (ec *executionContext) _Query_models(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -20511,6 +20916,38 @@ func (ec *executionContext) fieldContext_Query_models(_ context.Context, field g
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_Model(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_providerCredentials(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_providerCredentials(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().ProviderCredentials(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*providerkeys.State) graphql.Marshaler {
+			return ec.marshalNProviderCredentialState2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐStateᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_providerCredentials(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ProviderCredentialState(ctx, field)
 		},
 	}
 	return fc, nil
@@ -23529,6 +23966,38 @@ func (ec *executionContext) fieldContext_Subscription_modelsWatch(_ context.Cont
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_Model(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_providerCredentialsWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_providerCredentialsWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().ProviderCredentialsWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*providerkeys.State) graphql.Marshaler {
+			return ec.marshalNProviderCredentialState2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐStateᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_providerCredentialsWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ProviderCredentialState(ctx, field)
 		},
 	}
 	return fc, nil
@@ -30441,6 +30910,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Mutation")
+		case "providerKeySave":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_providerKeySave(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "providerKeyDelete":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_providerKeyDelete(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "clusterEnabledSet":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_clusterEnabledSet(ctx, field)
@@ -31302,6 +31785,70 @@ func (ec *executionContext) _Provider(ctx context.Context, sel ast.SelectionSet,
 	return out
 }
 
+var providerCredentialStateImplementors = []string{"ProviderCredentialState"}
+
+func (ec *executionContext) _ProviderCredentialState(ctx context.Context, sel ast.SelectionSet, obj *providerkeys.State) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, providerCredentialStateImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ProviderCredentialState")
+		case "id":
+			out.Values[i] = ec._ProviderCredentialState_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "label":
+			out.Values[i] = ec._ProviderCredentialState_label(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "keyVariable":
+			out.Values[i] = ec._ProviderCredentialState_keyVariable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "source":
+			out.Values[i] = ec._ProviderCredentialState_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "hasEnvironmentKey":
+			out.Values[i] = ec._ProviderCredentialState_hasEnvironmentKey(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "hasSavedKey":
+			out.Values[i] = ec._ProviderCredentialState_hasSavedKey(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "failure":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._ProviderCredentialState_failure(ctx, field, obj)
+				})
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
 var queryImplementors = []string{"Query"}
 
 func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) graphql.Marshaler {
@@ -31326,6 +31873,12 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_models(ctx, field)
+				})
+		case "providerCredentials":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_providerCredentials(ctx, field)
 				})
 		case "sandbox":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
@@ -32168,6 +32721,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_awsConnectionWatch(ctx, fields[0])
 	case "modelsWatch":
 		return ec._Subscription_modelsWatch(ctx, fields[0])
+	case "providerCredentialsWatch":
+		return ec._Subscription_providerCredentialsWatch(ctx, fields[0])
 	default:
 		panic("unknown field " + strconv.Quote(fields[0].Name))
 	}
@@ -34491,6 +35046,60 @@ func (ec *executionContext) marshalNProvider2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	return ec._Provider(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource(ctx context.Context, v any) (providerkeys.Source, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource[tmp]
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource(ctx context.Context, sel ast.SelectionSet, v providerkeys.Source) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource[v])
+	if res == graphql.Null {
+		graphql.AddInvalidNullFromMarshaler(ctx, "ProviderCredentialSource!")
+	}
+	return res
+}
+
+var (
+	unmarshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource = map[string]providerkeys.Source{
+		"None":           providerkeys.SourceNone,
+		"EnvironmentKey": providerkeys.SourceEnvironmentKey,
+		"SavedKey":       providerkeys.SourceSavedKey,
+		"Connector":      providerkeys.SourceConnector,
+	}
+	marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource = map[providerkeys.Source]string{
+		providerkeys.SourceNone:           "None",
+		providerkeys.SourceEnvironmentKey: "EnvironmentKey",
+		providerkeys.SourceSavedKey:       "SavedKey",
+		providerkeys.SourceConnector:      "Connector",
+	}
+)
+
+func (ec *executionContext) marshalNProviderCredentialState2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐStateᚄ(ctx context.Context, sel ast.SelectionSet, v []*providerkeys.State) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNProviderCredentialState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐState(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNProviderCredentialState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐState(ctx context.Context, sel ast.SelectionSet, v *providerkeys.State) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "ProviderCredentialState!")
+		return graphql.Null
+	}
+	return ec._ProviderCredentialState(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNRequestDetail2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐDetail(ctx context.Context, sel ast.SelectionSet, v tools.Detail) graphql.Marshaler {
 	return ec._RequestDetail(ctx, sel, &v)
 }
@@ -35524,6 +36133,36 @@ func (ec *executionContext) marshalOProvider2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	}
 	return ec._Provider(ctx, sel, v)
 }
+
+func (ec *executionContext) unmarshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure(ctx context.Context, v any) (*providerkeys.Failure, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure[tmp]
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure(ctx context.Context, sel ast.SelectionSet, v *providerkeys.Failure) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure[*v])
+	return res
+}
+
+var (
+	unmarshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure = map[string]providerkeys.Failure{
+		"NotDeleted":  providerkeys.NotDeleted,
+		"KeyRejected": providerkeys.KeyRejected,
+	}
+	marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure = map[providerkeys.Failure]string{
+		providerkeys.NotDeleted:  "NotDeleted",
+		providerkeys.KeyRejected: "KeyRejected",
+	}
+)
 
 func (ec *executionContext) marshalOReadAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐReadAction(ctx context.Context, sel ast.SelectionSet, v *tools.ReadAction) graphql.Marshaler {
 	if v == nil {

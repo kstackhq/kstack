@@ -22,20 +22,25 @@ import (
 
 // Custom GraphQL errors, each carrying a stable `code` extension.
 var (
-	ErrValidationError     = NewError("KSTACK_VALIDATION_ERROR", "Validation error")
-	ErrRecordNotFound      = NewError("KSTACK_RECORD_NOT_FOUND", "Record not found")
-	ErrUnauthenticated     = NewError("KSTACK_UNAUTHENTICATED", "Authentication required")
-	ErrForbidden           = NewError("KSTACK_FORBIDDEN", "Forbidden")
-	ErrConflict            = NewError("KSTACK_CONFLICT", "Conflict")
-	ErrWatchError          = NewError("KSTACK_WATCH_ERROR", "Watch error")
-	ErrServiceUnavailable  = NewError("KSTACK_SERVICE_UNAVAILABLE", "Service unavailable")
-	ErrChatContextFull     = NewError("KSTACK_CHAT_CONTEXT_FULL", "Chat is longer than the model can read")
-	ErrChatSandboxChanged  = NewError("KSTACK_CHAT_SANDBOX_CHANGED", "Chat's sandbox switch changed")
-	ErrChatNetworkChanged  = NewError("KSTACK_CHAT_NETWORK_CHANGED", "Chat's network switch changed")
-	ErrMemoryNameTaken     = NewError("KSTACK_MEMORY_NAME_TAKEN", "Memory name taken")
-	ErrMemoryFull          = NewError("KSTACK_MEMORY_FULL", "Not enough room for this memory")
-	ErrMemorySecret        = NewError("KSTACK_MEMORY_SECRET", "Memory holds a credential")
-	ErrInternalServerError = NewError("INTERNAL_SERVER_ERROR", "Internal server error")
+	ErrValidationError    = NewError("KSTACK_VALIDATION_ERROR", "Validation error")
+	ErrRecordNotFound     = NewError("KSTACK_RECORD_NOT_FOUND", "Record not found")
+	ErrUnauthenticated    = NewError("KSTACK_UNAUTHENTICATED", "Authentication required")
+	ErrForbidden          = NewError("KSTACK_FORBIDDEN", "Forbidden")
+	ErrConflict           = NewError("KSTACK_CONFLICT", "Conflict")
+	ErrWatchError         = NewError("KSTACK_WATCH_ERROR", "Watch error")
+	ErrServiceUnavailable = NewError("KSTACK_SERVICE_UNAVAILABLE", "Service unavailable")
+	ErrChatContextFull    = NewError("KSTACK_CHAT_CONTEXT_FULL", "Chat is longer than the model can read")
+	ErrChatSandboxChanged = NewError("KSTACK_CHAT_SANDBOX_CHANGED", "Chat's sandbox switch changed")
+	ErrChatNetworkChanged = NewError("KSTACK_CHAT_NETWORK_CHANGED", "Chat's network switch changed")
+	ErrMemoryNameTaken    = NewError("KSTACK_MEMORY_NAME_TAKEN", "Memory name taken")
+	ErrMemoryFull         = NewError("KSTACK_MEMORY_FULL", "Not enough room for this memory")
+	ErrMemorySecret       = NewError("KSTACK_MEMORY_SECRET", "Memory holds a credential")
+	// ErrProviderKeyNotSaved is a key the keyring refused; nothing changed.
+	ErrProviderKeyNotSaved = NewError("KSTACK_PROVIDER_KEY_NOT_SAVED", "The keyring refused the key")
+	// ErrProviderKeyNotDeleted is a saved key the keyring would not delete. It
+	// is out of use, and returns after a restart.
+	ErrProviderKeyNotDeleted = NewError("KSTACK_PROVIDER_KEY_NOT_DELETED", "The keyring would not delete the key")
+	ErrInternalServerError   = NewError("INTERNAL_SERVER_ERROR", "Internal server error")
 )
 
 // Clone is what a resolver returns; never one of the values above. gqlgen stamps

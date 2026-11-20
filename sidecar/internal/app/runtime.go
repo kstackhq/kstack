@@ -366,6 +366,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		AWS:           rt.AWS,
 		GitHub:        rt.GitHub,
 		Google:        rt.Google,
+		ProviderKeys:  rt.ProviderKeys,
 		OpenURL:       browser.Open,
 		Settings:      rt.Settings,
 		Executables:   prober,

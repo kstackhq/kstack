@@ -27,6 +27,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -226,6 +227,22 @@ func (r *googleConnectionResolver) Failure(ctx context.Context, obj *connectors.
 		return nil, nil
 	}
 	return &obj.Failure, nil
+}
+
+// ProviderKeySave is the resolver for the providerKeySave field.
+func (r *mutationResolver) ProviderKeySave(ctx context.Context, providerID string, key string) (bool, error) {
+	if err := r.ProviderKeys.Save(providerID, key); err != nil {
+		return false, providerKeyErr(err)
+	}
+	return true, nil
+}
+
+// ProviderKeyDelete is the resolver for the providerKeyDelete field.
+func (r *mutationResolver) ProviderKeyDelete(ctx context.Context, providerID string) (bool, error) {
+	if err := r.ProviderKeys.Delete(providerID); err != nil {
+		return false, providerKeyErr(err)
+	}
+	return true, nil
 }
 
 // ClusterEnabledSet is the resolver for the clusterEnabledSet field. The change
@@ -676,9 +693,22 @@ func (r *openRouterConnectionResolver) Failure(ctx context.Context, obj *connect
 	return &obj.Failure, nil
 }
 
+// Failure is the resolver for the failure field.
+func (r *providerCredentialStateResolver) Failure(ctx context.Context, obj *providerkeys.State) (*providerkeys.Failure, error) {
+	if obj.Failure == "" {
+		return nil, nil
+	}
+	return &obj.Failure, nil
+}
+
 // Models is the resolver for the models field.
 func (r *queryResolver) Models(ctx context.Context) ([]*model.Model, error) {
 	return modelsOf(r.LLMSvc.Providers()), nil
+}
+
+// ProviderCredentials is the resolver for the providerCredentials field.
+func (r *queryResolver) ProviderCredentials(ctx context.Context) ([]*providerkeys.State, error) {
+	return ptrSlice(r.ProviderKeys.States()), nil
 }
 
 // Sandbox is the resolver for the sandbox field.
@@ -1114,6 +1144,12 @@ func (r *subscriptionResolver) ModelsWatch(ctx context.Context) (<-chan []*model
 	return mapStream(ctx, frames, cancel, modelsOf), nil
 }
 
+// ProviderCredentialsWatch is the resolver for the providerCredentialsWatch field.
+func (r *subscriptionResolver) ProviderCredentialsWatch(ctx context.Context) (<-chan []*providerkeys.State, error) {
+	states, cancel := r.ProviderKeys.Subscribe()
+	return mapStream(ctx, states, cancel, ptrSlice[providerkeys.State]), nil
+}
+
 // Status is the resolver for the status field: null for a call the provider
 // ran, which the record keeps as "".
 func (r *toolCallResolver) Status(ctx context.Context, obj *chat.ToolCall) (*chat.ToolCallStatus, error) {
@@ -1170,6 +1206,11 @@ func (r *Resolver) OpenRouterConnection() OpenRouterConnectionResolver {
 	return &openRouterConnectionResolver{r}
 }
 
+// ProviderCredentialState returns ProviderCredentialStateResolver implementation.
+func (r *Resolver) ProviderCredentialState() ProviderCredentialStateResolver {
+	return &providerCredentialStateResolver{r}
+}
+
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
@@ -1180,20 +1221,21 @@ func (r *Resolver) Subscription() SubscriptionResolver { return &subscriptionRes
 func (r *Resolver) ToolCall() ToolCallResolver { return &toolCallResolver{r} }
 
 type (
-	aWSConnectionResolver         struct{ *Resolver }
-	authStateResolver             struct{ *Resolver }
-	chatGPTConnectionResolver     struct{ *Resolver }
-	chatMessageResolver           struct{ *Resolver }
-	clusterResolver               struct{ *Resolver }
-	clusterCacheResolver          struct{ *Resolver }
-	clusterCachedKindResolver     struct{ *Resolver }
-	clusterCachedKindSpecResolver struct{ *Resolver }
-	clusterPrincipalResolver      struct{ *Resolver }
-	gitHubConnectionResolver      struct{ *Resolver }
-	googleConnectionResolver      struct{ *Resolver }
-	mutationResolver              struct{ *Resolver }
-	openRouterConnectionResolver  struct{ *Resolver }
-	queryResolver                 struct{ *Resolver }
-	subscriptionResolver          struct{ *Resolver }
-	toolCallResolver              struct{ *Resolver }
+	aWSConnectionResolver           struct{ *Resolver }
+	authStateResolver               struct{ *Resolver }
+	chatGPTConnectionResolver       struct{ *Resolver }
+	chatMessageResolver             struct{ *Resolver }
+	clusterResolver                 struct{ *Resolver }
+	clusterCacheResolver            struct{ *Resolver }
+	clusterCachedKindResolver       struct{ *Resolver }
+	clusterCachedKindSpecResolver   struct{ *Resolver }
+	clusterPrincipalResolver        struct{ *Resolver }
+	gitHubConnectionResolver        struct{ *Resolver }
+	googleConnectionResolver        struct{ *Resolver }
+	mutationResolver                struct{ *Resolver }
+	openRouterConnectionResolver    struct{ *Resolver }
+	providerCredentialStateResolver struct{ *Resolver }
+	queryResolver                   struct{ *Resolver }
+	subscriptionResolver            struct{ *Resolver }
+	toolCallResolver                struct{ *Resolver }
 )

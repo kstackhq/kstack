@@ -439,4 +439,66 @@ mod tests {
         assert_eq!(err.to_string(), "query exceeded request budget");
         let _ = std::fs::remove_file(path.as_arg());
     }
+
+    /// The body a provider key rides in: `query` forwards it unread.
+    const SECRET_BODY: &str = r#"{"query":"mutation { providerKeySave(providerID: \"groq\", key: \"gsk-host-0123456789abcdef\") }"}"#;
+
+    /// No log line holds a query's body, whether the query is answered, fails
+    /// to connect or gives the sidecar an error status.
+    #[tokio::test]
+    async fn a_query_logs_no_body() {
+        let (capture, _guard) = crate::logging::capture_thread();
+
+        let path = Endpoint::pick(&std::env::temp_dir()).expect("pick");
+        let arg = path.as_arg().to_owned();
+        spawn_oneshot_server(arg.clone(), r#"{"data":{"providerKeySave":true}}"#).await;
+        QueryClient::new(ours(path))
+            .query(SECRET_BODY.to_string())
+            .await
+            .expect("answered");
+        let _ = std::fs::remove_file(&arg);
+
+        let path = Endpoint::pick(&std::env::temp_dir()).expect("pick");
+        let arg = path.as_arg().to_owned();
+        spawn_oneshot_server_with_status(arg.clone(), "500 Internal Server Error", "{}").await;
+        QueryClient::new(ours(path))
+            .query(SECRET_BODY.to_string())
+            .await
+            .expect("a status is an answer");
+        let _ = std::fs::remove_file(&arg);
+
+        let unreachable = Endpoint::pick(&std::env::temp_dir()).expect("pick");
+        QueryClient::new(ours(unreachable))
+            .query(SECRET_BODY.to_string())
+            .await
+            .expect_err("no listener");
+
+        let logged = capture.text();
+        assert!(
+            logged.contains("query failed"),
+            "the failure is logged: {logged}"
+        );
+        assert!(!logged.contains("gsk-host"), "the body is not: {logged}");
+    }
+
+    /// Nor does a query the sidecar never answers.
+    #[tokio::test(start_paused = true)]
+    async fn a_timed_out_query_logs_no_body() {
+        let (capture, _guard) = crate::logging::capture_thread();
+        let path = Endpoint::pick(&std::env::temp_dir()).expect("pick");
+        serve_once(&path, |stream| async move {
+            let _held = stream;
+            std::future::pending::<()>().await;
+        });
+
+        QueryClient::new(ours(path.clone()))
+            .query(SECRET_BODY.to_string())
+            .await
+            .expect_err("a timeout");
+
+        let logged = capture.text();
+        assert!(logged.contains("query exceeded request budget"), "{logged}");
+        assert!(!logged.contains("gsk-host"), "{logged}");
+        let _ = std::fs::remove_file(path.as_arg());
+    }
 }

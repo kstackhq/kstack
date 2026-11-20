@@ -232,7 +232,7 @@ func TestABadGitHubAuthURLFailsTheBuild(t *testing.T) {
 }
 
 // The wire reaches the app's OpenRouter connector, whatever key the
-// environment holds.
+// environment holds, and the provider keys service.
 func TestTheWireReachesTheOpenRouterConnector(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouter.ID: "sk-or-env-0123456789abcdef"}}))
 	require.NoError(t, err)
@@ -240,6 +240,7 @@ func TestTheWireReachesTheOpenRouterConnector(t *testing.T) {
 	ts := serveApp(t, a)
 
 	assert.JSONEq(t, `{"data":{"openRouterConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ openRouterConnection { phase } }`))
+	assert.Contains(t, graphql(t, ts.URL, `{ providerCredentials { id source } }`), `{"id":"openrouter","source":"EnvironmentKey"}`)
 }
 
 // The wire reaches the app's AWS connector.
