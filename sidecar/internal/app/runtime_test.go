@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,16 +15,19 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/google"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -339,11 +344,111 @@ func awaitRestored(t *testing.T, rt *Runtime) {
 	t.Helper()
 	for name, restored := range map[string]<-chan struct{}{
 		"kstack cloud": rt.KstackCloud.Restored(), "chatgpt": rt.ChatGPT.Restored(), "google": rt.Google.Restored(),
-		"openrouter":    rt.OpenRouter.Restored(),
-		"github":        rt.GitHub.Restored(),
-		"aws":           rt.AWS.Restored(),
+		"openrouter": rt.OpenRouter.Restored(), "github": rt.GitHub.Restored(), "aws": rt.AWS.Restored(),
 		"provider keys": rt.ProviderKeys.Restored(),
 	} {
 		testutil.Wait(t, restored, name+"'s restore")
 	}
+}
+
+// connectorPhases is every connector's phase, by name.
+func connectorPhases(rt *Runtime) map[string]connectors.Phase {
+	return map[string]connectors.Phase{
+		"kstack cloud": rt.KstackCloud.State().Phase, "chatgpt": rt.ChatGPT.State().Phase, "google": rt.Google.State().Phase,
+		"openrouter": rt.OpenRouter.State().Phase, "github": rt.GitHub.State().Phase, "aws": rt.AWS.State().Phase,
+	}
+}
+
+// everyConnectorIs is connectorPhases with every connector in phase.
+func everyConnectorIs(phase connectors.Phase) map[string]connectors.Phase {
+	return map[string]connectors.Phase{
+		"kstack cloud": phase, "chatgpt": phase, "google": phase, "openrouter": phase, "github": phase, "aws": phase,
+	}
+}
+
+// savedEntry is a saved provider key's entry.
+const savedEntry = `{"v":1,"key":"sk-saved-0123456789abcdef"}`
+
+// New returns while the keyring holds every call, with every connector and
+// every keyed provider Restoring, and closes with the reads still held.
+func TestTheLaunchDoesNotWaitForTheKeyring(t *testing.T) {
+	k := oskeyringtest.New()
+	release := k.Hold()
+	t.Cleanup(release)
+
+	a, err := New(t.Context(), withDirs(t, Config{Keyring: k}))
+
+	require.NoError(t, err)
+	assert.Equal(t, everyConnectorIs(connectors.Restoring), connectorPhases(a.rt))
+	require.NotEmpty(t, a.rt.ProviderKeys.States())
+	for _, st := range a.rt.ProviderKeys.States() {
+		assert.Equal(t, providerkeys.SourceRestoring, st.Source, st.ID)
+	}
+	testutil.WaitReturn(t, func() { assert.NoError(t, a.Close()) }, "Close")
+	release()
+}
+
+// A provider with an environment key lists its models before the keyring
+// answers; one with a saved key alone lists them once it does.
+func TestAnEnvironmentKeyListsItsModelsAtOnce(t *testing.T) {
+	k := oskeyringtest.New()
+	require.NoError(t, k.Set("anthropic-api-key", savedEntry))
+	release := k.Hold(oskeyringtest.Get)
+	t.Cleanup(release)
+	a, err := New(t.Context(), withDirs(t, Config{Keyring: k, LLMKeys: map[string]string{"openai": "sk-env-0123456789abcdef"}}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	startApp(t, a)
+	listed := func(id string) bool {
+		p, _ := a.rt.LLM.Provider(id)
+		return len(p.Catalog) > 0
+	}
+
+	require.Eventually(t, func() bool { return listed("openai") }, testutil.Timeout, time.Millisecond, "the environment key's provider")
+	assert.False(t, listed("anthropic"), "the saved key is unread")
+
+	release()
+	require.Eventually(t, func() bool { return listed("anthropic") }, testutil.Timeout, time.Millisecond, "the saved key's provider")
+}
+
+// One entry the keyring fails to read signs out its own service alone.
+func TestABadEntrySignsOutItsOwnServiceAlone(t *testing.T) {
+	k := oskeyringtest.New()
+	require.NoError(t, k.Set("openrouter-api-key", `{"v":1,"key":"sk-or-0123456789abcdef"}`))
+	require.NoError(t, k.Set("github-token", `{"v":1,"token":"ghs_0123456789abcdef","login":"octocat"}`))
+	k.FailGet("github-token", errors.New("read failed"))
+	a, err := New(t.Context(), withDirs(t, Config{Keyring: oskeyring.Gate(k, oskeyring.Pace{})}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+
+	awaitRestored(t, a.rt)
+
+	assert.Equal(t, connectors.SignedOut, a.rt.GitHub.State().Phase)
+	assert.Equal(t, connectors.Connected, a.rt.OpenRouter.State().Phase)
+}
+
+// A dismissed prompt is asked once for the whole launch: every read fails with
+// no second probe, every connector is signed out, nothing is deleted, and a
+// save afterwards still reaches the keyring.
+func TestADismissedPromptIsAskedOnce(t *testing.T) {
+	k := oskeyringtest.New()
+	require.NoError(t, k.Set("auth-token", "old"))
+	require.NoError(t, k.Set("anthropic-api-key", savedEntry))
+	seeded := len(k.Calls())
+	k.FailGets(1, errors.New("dismissed"))
+	a, err := New(t.Context(), withDirs(t, Config{Keyring: oskeyring.Gate(k, oskeyring.Pace{})}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+
+	awaitRestored(t, a.rt)
+
+	assert.Equal(t, everyConnectorIs(connectors.SignedOut), connectorPhases(a.rt))
+	require.NotEmpty(t, a.rt.ProviderKeys.States())
+	for _, st := range a.rt.ProviderKeys.States() {
+		assert.False(t, st.HasSavedKey, st.ID)
+	}
+	assert.Equal(t, []oskeyringtest.Call{{Kind: oskeyringtest.Get, Account: "keyring-probe"}}, k.Calls()[seeded:])
+
+	require.NoError(t, a.rt.ProviderKeys.Save("groq", "sk-groq-0123456789abcdef"))
+	assert.Contains(t, k.Calls(), oskeyringtest.Call{Kind: oskeyringtest.Set, Account: "groq-api-key"})
 }
