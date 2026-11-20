@@ -25,8 +25,8 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/internal/catalogsync"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/internal/oauthconn"
+	"github.com/kstackhq/kstack/sidecar/internal/services/internal/catalogsync"
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 

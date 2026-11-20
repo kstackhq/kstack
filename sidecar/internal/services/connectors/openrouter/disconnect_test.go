@@ -52,7 +52,7 @@ func TestDisconnectDuringAnAttempt(t *testing.T) {
 }
 
 // A delete the keyring refuses is never reported as a sign-out: Disconnect
-// errors, the state is NotDeleted, every binding is dead at once, Connect is
+// errors, the state is NotDeleted, every binding ends at once, Connect is
 // refused, a restart finds the key again, and a retry that deletes signs out.
 func TestAFailedDeleteIsNotASignOut(t *testing.T) {
 	r := newRig(t)

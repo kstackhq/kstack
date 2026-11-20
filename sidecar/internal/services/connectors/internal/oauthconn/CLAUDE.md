@@ -25,7 +25,7 @@ base** (`llm.SessionSigner`). The engine names no provider: what one has of its 
 - **`Sign` signs the API base alone**, none if it is empty, one refresh at a time under the
   service's own bound. A rotated refresh token is in the keyring before any access token is
   handed out. A refused refresh ends the session; an unreachable issuer clears nothing.
-- **`Bind` is a signer for the current session**, dead outside `Connected`. `Disconnect` clears,
+- **`Bind` is a signer for the current session**, ended outside `Connected`. `Disconnect` clears,
   then revokes on a goroutine.
 - Every token is registered with `safe.AddSecret`. Test seams are unexported options; tests run
   test providers against a fake issuer (`testutil_test.go`).

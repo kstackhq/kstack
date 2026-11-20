@@ -3,7 +3,9 @@ title: A connector is an OAuth session or a granted key
 date: 2026-11-19
 scope: sidecar
 status: Accepted
-amended_by: [A connector is one package, and its machinery is internal](2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md)
+amended_by:
+  - [A connector is one package, and its machinery is internal](2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md)
+  - [A provider's credential follows one order](2026-11-20-a-providers-credential-follows-one-order.md)
 ---
 
 # A connector is an OAuth session or a granted key

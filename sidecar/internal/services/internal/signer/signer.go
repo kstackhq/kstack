@@ -47,8 +47,8 @@ func effectivePort(u *url.URL) string {
 	return "80"
 }
 
-// Dead is a binding made with no session: it never signs.
-type Dead struct{}
+// Ended is a binding made with no session: it never signs.
+type Ended struct{}
 
-func (Dead) Sign(*http.Request) error { return llm.ErrSignedOut }
-func (Dead) Refused(*http.Request)    {}
+func (Ended) Sign(*http.Request) error { return llm.ErrSignedOut }
+func (Ended) Refused(*http.Request)    {}

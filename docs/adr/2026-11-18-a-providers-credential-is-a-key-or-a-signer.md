@@ -3,6 +3,7 @@ title: A provider's credential is a key or a signer
 date: 2026-11-18
 scope: sidecar
 status: Accepted
+amended_by: [A provider's credential follows one order](2026-11-20-a-providers-credential-follows-one-order.md)
 ---
 
 # A provider's credential is a key or a signer

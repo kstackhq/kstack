@@ -87,14 +87,14 @@ func TestCoversRefusesABaseWithNoHost(t *testing.T) {
 	}
 }
 
-// A dead binding fails every Sign signed out, sets no header, and its Refused
-// is a no-op.
-func TestDeadSignsNothing(t *testing.T) {
+// An ended binding fails every Sign signed out, sets no header, and its
+// Refused is a no-op.
+func TestEndedSignsNothing(t *testing.T) {
 	req, err := http.NewRequest(http.MethodGet, "https://api.test/v1", nil)
 	require.NoError(t, err)
 
-	Dead{}.Refused(req)
+	Ended{}.Refused(req)
 
-	assert.ErrorIs(t, Dead{}.Sign(req), llm.ErrSignedOut)
+	assert.ErrorIs(t, Ended{}.Sign(req), llm.ErrSignedOut)
 	assert.Empty(t, req.Header.Get("Authorization"))
 }

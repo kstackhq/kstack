@@ -5,6 +5,7 @@ scope: cross-cutting
 status: Accepted
 amended_by:
   - [The Kstack sign-in is a connector on the OAuth engine](2026-11-19-the-kstack-sign-in-is-a-connector-on-the-oauth-engine.md)
+  - [A provider's credential follows one order](2026-11-20-a-providers-credential-follows-one-order.md)
 ---
 
 # A connector is one package, and its machinery is internal

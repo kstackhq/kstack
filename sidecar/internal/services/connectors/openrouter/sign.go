@@ -23,7 +23,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
-	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/internal/signer"
+	"github.com/kstackhq/kstack/sidecar/internal/services/internal/signer"
 )
 
 // anySession is the generation the service itself signs under: whichever key
@@ -41,27 +41,26 @@ func (s *Service) Sign(r *http.Request) error { return s.sign(r, anySession) }
 // before dropping it.
 func (s *Service) Refused(r *http.Request) { s.refused(r, anySession) }
 
-// Bind is a signer for the current key alone. With no key, during a sign-in
-// included, it is dead for good: an attempt's generation becomes its key's, so
-// a binding made during one would come alive later.
+// Bind is a binding for the current key alone. With no key, during a sign-in
+// included, it has ended for good: an attempt's generation becomes its key's,
+// so a binding made during one would come alive later.
 func (s *Service) Bind() llm.Signer {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state.Phase != connectors.Connected {
-		return signer.Dead{}
+		return signer.Ended{}
 	}
-	return boundSigner{s: s, gen: s.gen}
+	return sessionBinding{s: s, gen: s.gen}
 }
 
-// boundSigner signs under one generation, and fails signed out once it has
-// moved.
-type boundSigner struct {
+// sessionBinding signs under one generation, and ends once it has moved.
+type sessionBinding struct {
 	s   *Service
 	gen uint64
 }
 
-func (b boundSigner) Sign(r *http.Request) error { return b.s.sign(r, b.gen) }
-func (b boundSigner) Refused(r *http.Request)    { b.s.refused(r, b.gen) }
+func (b sessionBinding) Sign(r *http.Request) error { return b.s.sign(r, b.gen) }
+func (b sessionBinding) Refused(r *http.Request)    { b.s.refused(r, b.gen) }
 
 // keyLocked is the key gen names, "" when it has ended (s.mu held).
 func (s *Service) keyLocked(gen uint64) string {

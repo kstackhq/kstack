@@ -3,6 +3,7 @@ title: The Google connector signs Vertex AI in the user's project
 date: 2026-11-19
 scope: sidecar
 status: Accepted
+amended_by: [A provider's credential follows one order](2026-11-20-a-providers-credential-follows-one-order.md)
 ---
 
 # The Google connector signs Vertex AI in the user's project

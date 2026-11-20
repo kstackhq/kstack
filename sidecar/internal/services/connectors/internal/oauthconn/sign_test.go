@@ -251,9 +251,9 @@ func TestRefusedDropsTheCurrentAccessToken(t *testing.T) {
 	assert.Len(t, r.issuer.forms("refresh_token"), 1)
 }
 
-// A binding made with no session is dead for good, even when the sign-in under
-// way goes on to succeed.
-func TestABindingWithNoSessionIsDead(t *testing.T) {
+// A binding made with no session has ended for good, even when the sign-in
+// under way goes on to succeed.
+func TestABindingWithNoSessionHasEnded(t *testing.T) {
 	r := newRig(t)
 	signedOut := r.svc.Bind()
 	release := make(chan struct{})
@@ -310,14 +310,14 @@ func TestABoundRefusalDropsTheToken(t *testing.T) {
 }
 
 // A binding with no session fails every Sign, and its Refused is a no-op.
-func TestADeadBindingRefusesNothing(t *testing.T) {
+func TestAnEndedBindingRefusesNothing(t *testing.T) {
 	r := newRig(t)
-	dead := r.svc.Bind()
+	ended := r.svc.Bind()
 	req := apiRequest(t, "/responses")
 
-	dead.Refused(req)
+	ended.Refused(req)
 
-	assert.ErrorIs(t, dead.Sign(req), llm.ErrSignedOut)
+	assert.ErrorIs(t, ended.Sign(req), llm.ErrSignedOut)
 }
 
 // An engine with no API base signs no request, absolute or relative.
