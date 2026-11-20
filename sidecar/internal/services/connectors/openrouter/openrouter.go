@@ -89,14 +89,16 @@ type Service struct {
 	tx  *watch.Sender[connectors.State]
 	// sessions holds the generation while Connected, 0 otherwise.
 	sessions *watch.Hub[uint64]
-	// restoredGen is the generation New restored, 0 for none.
-	restoredGen uint64
+	// restored closes once the restore has published.
+	restored chan struct{}
 
-	mu      sync.Mutex
-	gen     uint64
-	state   connectors.State
-	key     string
-	attempt *attempt
+	mu    sync.Mutex
+	gen   uint64
+	state connectors.State
+	key   string
+	// restoredGen is the generation the restore published, 0 for none.
+	restoredGen uint64
+	attempt     *attempt
 	// checking is a key check under way.
 	checking bool
 }
@@ -112,7 +114,8 @@ func withIssuerTimeout(d time.Duration) option { return func(s *Service) { s.iss
 
 func withCheckEnded(fn func()) option { return func(s *Service) { s.checkEnded = fn } }
 
-// New builds the service and restores a stored key. It reaches no network.
+// New builds the service, Restoring, and restores a stored key on a goroutine.
+// It reaches no network and makes no keyring call.
 func New(cfg Config) (*Service, error) {
 	return newWithOptions(cfg)
 }
@@ -138,26 +141,26 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 		stop:           stop,
 		hub:            watch.New(connectors.State{}),
 		sessions:       watch.New[uint64](0),
+		restored:       make(chan struct{}),
 	}
 	s.tx = s.hub.Sender()
 	for _, opt := range opts {
 		opt(s)
 	}
-	s.publishLocked(s.restore())
-	if s.state.Phase == connectors.Connected {
-		s.restoredGen = s.gen
-	}
+	s.publishLocked(connectors.State{Phase: connectors.Restoring})
+	s.wg.Go(s.restore)
 	return s, nil
 }
 
-// restored is closed: New restores before it returns.
-var restored = func() chan struct{} { c := make(chan struct{}); close(c); return c }()
-
 // Restored closes once the restore has published what the keyring held.
-func (s *Service) Restored() <-chan struct{} { return restored }
+func (s *Service) Restored() <-chan struct{} { return s.restored }
 
 // RestoredSession is the generation the restore published, 0 for none.
-func (s *Service) RestoredSession() uint64 { return s.restoredGen }
+func (s *Service) RestoredSession() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.restoredGen
+}
 
 // State is the connector's current state.
 func (s *Service) State() connectors.State {
@@ -179,7 +182,8 @@ func (s *Service) WatchSession() (<-chan uint64, func()) {
 	return rx.Chan(), rx.Close
 }
 
-// Close ends every goroutine the service started and waits for them.
+// Close ends every goroutine the service started and waits for them, but
+// for a keyring call that never answers, which it leaves behind.
 func (s *Service) Close() {
 	s.stop()
 	s.wg.Wait()

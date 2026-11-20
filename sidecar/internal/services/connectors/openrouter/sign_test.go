@@ -15,12 +15,15 @@
 package openrouter
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/internal/signer"
@@ -208,4 +211,81 @@ func TestBindIsDeadWithNoSession(t *testing.T) {
 	assert.NotEqual(t, llm.Signer(signer.Ended{}), r.svc.Bind())
 	require.NoError(t, r.svc.Disconnect())
 	assert.Equal(t, llm.Signer(signer.Ended{}), r.svc.Bind())
+}
+
+// A Sign made while Restoring carries the restored key once the read answers,
+// and ends with its context when the read never does. A request off the base
+// is refused at once.
+func TestSignWaitsForTheRestore(t *testing.T) {
+	r := newRig(t)
+	r.keyring.put(keyAccount, storedEntry)
+	s, release := r.relaunchHeld(oskeyringtest.Get)
+
+	off, err := http.NewRequest(http.MethodGet, "https://elsewhere.test/v1", nil)
+	require.NoError(t, err)
+	assert.ErrorIs(t, s.Sign(off), errOffBase)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	assert.ErrorIs(t, s.Sign(r.apiRequest("/chat/completions").WithContext(ctx)), context.Canceled)
+
+	signed := make(chan string, 1)
+	go func() { key, _ := r.signedKey(s); signed <- key }()
+	release()
+	assert.Equal(t, "stored-openrouter-key-0001", testutil.Recv(t, signed, "the signature"))
+}
+
+// A wait for the restore ends signed out when the service closes with the
+// read still held, bound or not.
+func TestAWaitEndsWithClose(t *testing.T) {
+	r := newRig(t)
+	r.keyring.put(keyAccount, storedEntry)
+	s, _ := r.relaunchHeld(oskeyringtest.Get)
+	bound := s.Bind()
+	ended := make(chan error, 2)
+	go func() { _, err := r.signedKey(s); ended <- err }()
+	go func() { _, err := r.signedKey(bound); ended <- err }()
+
+	s.Close()
+
+	assert.ErrorIs(t, testutil.Recv(t, ended, "the unbound wait"), llm.ErrSignedOut)
+	assert.ErrorIs(t, testutil.Recv(t, ended, "the bound wait"), llm.ErrSignedOut)
+}
+
+// A binding made while Restoring signs with the key the restore published,
+// and never comes alive under one connected later. RestoredSession stays the
+// restore's.
+func TestABindingMadeWhileRestoringIsTheRestoredSessions(t *testing.T) {
+	t.Run("restored connected", func(t *testing.T) {
+		r := newRig(t)
+		r.keyring.put(keyAccount, storedEntry)
+		s, release := r.relaunchHeld(oskeyringtest.Get)
+		bound := s.Bind()
+		release()
+		awaitRestored(t, s)
+
+		key, err := r.signedKey(bound)
+		require.NoError(t, err)
+		assert.Equal(t, "stored-openrouter-key-0001", key)
+		restored := s.RestoredSession()
+		assert.NotZero(t, restored)
+
+		require.NoError(t, s.Disconnect())
+		connect(t, s)
+		_, err = r.signedKey(bound)
+		assert.ErrorIs(t, err, llm.ErrSignedOut)
+		assert.Equal(t, restored, s.RestoredSession())
+	})
+	t.Run("restored signed out", func(t *testing.T) {
+		r := newRig(t)
+		s, release := r.relaunchHeld(oskeyringtest.Get)
+		bound := s.Bind()
+		release()
+		awaitRestored(t, s)
+		connect(t, s)
+
+		_, err := r.signedKey(bound)
+		assert.ErrorIs(t, err, llm.ErrSignedOut)
+		assert.Zero(t, s.RestoredSession())
+	})
 }

@@ -48,18 +48,49 @@ func saveKey(k oskeyring.Keyring, key string) error {
 	return k.Set(keyAccount, string(data))
 }
 
-// restore reads the entry. A readable one is the key, connected. Any other is
-// signed out: a newer version's is left for the Kstack that wrote it, and one
-// that does not parse is deleted. A keyring that cannot be read is no proof of
-// a sign-out, so nothing is written.
-func (s *Service) restore() connectors.State {
-	v, err := s.keyring.Get(keyAccount)
+// restore reads the entry, deletes one this build cannot parse, then
+// publishes what it read: the key, connected, or signed out. No keyring call
+// runs under s.mu, and each ends with s.ctx: a Close during either publishes
+// nothing.
+func (s *Service) restore() {
+	v, err := oskeyring.Read(s.ctx, s.keyring, keyAccount, oskeyring.SlowAfter)
+	if s.ctx.Err() != nil {
+		return
+	}
+	key, unparsable := readKey(v, err)
+	if unparsable {
+		err := oskeyring.Delete(s.ctx, s.keyring, keyAccount)
+		if s.ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			slog.Warn("openrouter: could not delete an unreadable keyring entry", "err", err)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := connectors.State{Phase: connectors.SignedOut}
+	if key != "" {
+		safe.AddSecret(key)
+		s.gen++
+		s.key, s.restoredGen = key, s.gen
+		st.Phase = connectors.Connected
+	}
+	s.publishLocked(st)
+	close(s.restored)
+}
+
+// readKey is the key a read of the entry answered, "" for none. A newer
+// version's entry is left for the Kstack that wrote it; unparsable is one that
+// does not parse. A keyring that cannot be read is no proof of a sign-out, so
+// it is neither.
+func readKey(v string, err error) (key string, unparsable bool) {
 	if errors.Is(err, oskeyring.ErrNoEntry) {
-		return connectors.State{Phase: connectors.SignedOut}
+		return "", false
 	}
 	if err != nil {
 		slog.Warn("openrouter: could not read the keyring; treating as signed out", "err", err)
-		return connectors.State{Phase: connectors.SignedOut}
+		return "", false
 	}
 	// The stamp is read alone, so a newer shape is recognised before it fails
 	// to decode as this one.
@@ -68,17 +99,11 @@ func (s *Service) restore() connectors.State {
 	}
 	if json.Unmarshal([]byte(v), &stamp) == nil && stamp.V > entryVersion {
 		slog.Warn("openrouter: the key's entry is a newer Kstack's; leaving it", "v", stamp.V)
-		return connectors.State{Phase: connectors.SignedOut}
+		return "", false
 	}
 	var e entry
 	if json.Unmarshal([]byte(v), &e) != nil || e.V != entryVersion || e.Key == "" {
-		if err := s.keyring.Delete(keyAccount); err != nil {
-			slog.Warn("openrouter: could not delete an unreadable keyring entry", "err", err)
-		}
-		return connectors.State{Phase: connectors.SignedOut}
+		return "", true
 	}
-	safe.AddSecret(e.Key)
-	s.gen++
-	s.key = e.Key
-	return connectors.State{Phase: connectors.Connected}
+	return e.Key, false
 }

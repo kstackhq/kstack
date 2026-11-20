@@ -9,10 +9,13 @@ and `lib/oauth/browser` with the OAuth engine, and imports neither it nor `lib/o
 [security record](../../../../../docs/security/2026-11-19-the-openrouter-connector.md).
 
 - **One store: an entry present is connected.** Account `openrouter-api-key`, `{"v":1,"key"}`.
-  `New` reads it and reaches no network. A newer `v` is left in place; an entry that does not
-  parse is deleted; a keyring that cannot be read writes nothing.
-- **`Bind` answers `signer.Ended{}` with no session**: `providerkeys` then binds a key. The saved
-  key's entry is `providerkeys`'.
+  The restore reads it and reaches no network. A newer `v` is left in place; an entry that does
+  not parse is deleted; a keyring that cannot be read writes nothing.
+- **`New` is `Restoring` and makes no keyring call**; the restore reads on a goroutine. Until it
+  publishes, `Sign` waits, `Bind` answers a `signer.Pending` of the restored key, and every change
+  answers `ErrRestoring`. `Close` leaves a keyring call that never answers behind.
+- **Outside `Restoring`, `Bind` answers `signer.Ended{}` with no session**: `providerkeys` then
+  binds a key. The saved key's entry is `providerkeys`'.
 - **Every change runs under one lock against one generation.** `Connect`, `Cancel`, `Disconnect`
   and a rejected key bump it. A key that arrives after its attempt ended is dropped, never saved.
 - **`Connect` checks the keyring before any browser opens.** It is refused during an attempt,
