@@ -15,12 +15,19 @@
 package catalog
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 )
 
@@ -43,22 +50,28 @@ func TestEveryListOffersAgent(t *testing.T) {
 	}
 }
 
-// Every keyed provider is listed, in picker order, signed by its service with no
-// key on it; one with no credential lists no model until it has one. The fake
-// is listed last when given, and is the one a send on it runs on.
-func TestNewListsEveryKeyedRowAndAddsTheFake(t *testing.T) {
-	assert.Empty(t, New(Config{}).Providers(), "no service, no keyed provider")
-
+// Every row is listed, in picker order, signed by the service with no key on
+// it; one with no credential lists no model until it has one. The fake is
+// listed last when given, and is the one a send on it runs on.
+func TestNewListsEveryRowAndAddsTheFake(t *testing.T) {
 	f := llm.NewFake(0)
-	keys := newKeys(t, map[string]string{"openai": "sk-test-0123456789abcdef", "anthropic": "sk-ant-test-0123456789abcdef"}, nil)
-	providers := New(Config{Keys: keys, Fake: f}).Providers()
+	assert.Empty(t, New(Config{}).Providers(), "no service, no provider")
+	assert.Equal(t, []string{"fake"}, providerIDs(New(Config{Fake: f}).Providers()), "no service, the fake alone")
 
-	want := []string{"anthropic", "openai", "gemini", "groq", "mistral", "deepseek", "xai", "openrouter", "together", "fireworks", "opencode-go", "fake"}
+	creds := newCredentials(t, credentials{
+		keys:          map[string]string{"openai": "sk-test-0123456789abcdef", "anthropic": "sk-ant-test-0123456789abcdef"},
+		vertexBaseURL: vertexBase,
+	})
+	providers := New(Config{Credentials: creds, VertexBaseURL: vertexBase, Fake: f}).Providers()
+
+	want := []string{"anthropic", "openai", "gemini", "groq", "mistral", "deepseek", "xai", "openrouter", "together", "fireworks", "opencode-go", "chatgpt", "google", "fake"}
 	assert.Equal(t, want, providerIDs(providers), "picker order, the fake last")
 	for _, p := range providers[:len(providers)-1] {
 		assert.Empty(t, p.Key, p.ID)
-		assert.NotNil(t, p.Signer, p.ID)
+		assert.Equal(t, creds.Signer(p.ID), p.Signer, p.ID)
 	}
+	assert.Empty(t, providers[11].Catalog, "a provider only a connector signs lists no model while signed out")
+	assert.Empty(t, providers[12].Catalog, "a provider only a connector signs lists no model while signed out")
 	assert.Equal(t, newAnthropicProvider().Catalog, providers[0].Catalog)
 	assert.Equal(t, newOpenAIProvider().Catalog, providers[1].Catalog)
 	assert.Empty(t, providers[2].Catalog, "a provider with no credential lists no model")
@@ -74,7 +87,7 @@ func TestNewListsEveryKeyedRowAndAddsTheFake(t *testing.T) {
 // A debug build's base URL moves the provider it names and nothing else.
 func TestNewAppliesADebugBaseURLToItsRowAlone(t *testing.T) {
 	baseURLs := map[string]string{"anthropic": "http://127.0.0.1:1", "nobody": "http://127.0.0.1:3"}
-	providers := New(Config{Keys: newKeys(t, nil, baseURLs), BaseURLs: baseURLs}).Providers()
+	providers := New(Config{Credentials: newKeys(t, nil, baseURLs), BaseURLs: baseURLs}).Providers()
 
 	assert.Equal(t, "http://127.0.0.1:1", providers[0].BaseURL)
 	assert.Equal(t, newOpenAIProvider().BaseURL, providers[1].BaseURL)
@@ -85,9 +98,9 @@ func TestNewAppliesADebugBaseURLToItsRowAlone(t *testing.T) {
 func TestADebugBaseURLMovesEveryModelOfTheRow(t *testing.T) {
 	baseURLs := map[string]string{"opencode-go": "http://127.0.0.1:1"}
 	keys := newKeys(t, map[string]string{"opencode-go": "oc-test-0123456789abcdef"}, baseURLs)
-	providers := New(Config{Keys: keys, BaseURLs: baseURLs}).Providers()
+	providers := New(Config{Credentials: keys, BaseURLs: baseURLs}).Providers()
 
-	p, row := providers[len(providers)-1], newOpenCodeGoProvider()
+	p, row := providers[10], newOpenCodeGoProvider()
 	require.Equal(t, "opencode-go", p.ID)
 	require.NotEmpty(t, p.Catalog)
 	for i, m := range p.Catalog {
@@ -117,12 +130,11 @@ func TestEveryProviderHasAList(t *testing.T) {
 	}
 }
 
-// No two providers share an id, keyed and signed-in alike: llm.New would list
-// both and resolve the id to the first, so a picker entry would send to the
-// other row.
+// No two providers share an id: llm.New would list both and resolve the id to
+// the first, so a picker entry would send to the other row.
 func TestNoTwoProvidersShareAnID(t *testing.T) {
 	providers := everyProvider(t)
-	require.Len(t, providers, len(keyedProviders())+len(signedProviders())+1, "every row is listed")
+	require.Len(t, providers, len(rows(vertexBase))+1, "every row is listed")
 	seen := map[string]bool{}
 	for _, p := range providers {
 		assert.False(t, seen[p.ID], "%s is listed twice", p.ID)
@@ -130,20 +142,15 @@ func TestNoTwoProvidersShareAnID(t *testing.T) {
 	}
 }
 
-// everyProvider is every provider New can list: each keyed one with a key, each
-// signed-in one with a signer, and the fake.
+// everyProvider is every provider New can list, each with its credential: a
+// key for each keyed one, a session for each other, and the fake.
 func everyProvider(t *testing.T) []llm.Provider {
 	keys := map[string]string{}
 	for id := range KeyVars() {
 		keys[id] = "key-0123456789abcdef"
 	}
-	signers := map[string]llm.SessionSigner{}
-	for _, sp := range signedProviders() {
-		signers[sp.id] = planSigner{}
-	}
-	return New(Config{
-		Keys: newKeys(t, keys, nil), Signers: signers, VertexBaseURL: vertexBase, Fake: llm.NewFake(0),
-	}).Providers()
+	creds := newCredentials(t, credentials{keys: keys, vertexBaseURL: vertexBase, connected: []string{ChatGPTID, GoogleID}})
+	return New(Config{Credentials: creds, VertexBaseURL: vertexBase, Fake: llm.NewFake(0)}).Providers()
 }
 
 // providerIDs is providers' ids, in order.
@@ -155,10 +162,48 @@ func providerIDs(providers []llm.Provider) []string {
 	return ids
 }
 
-// Signers holds the signed-in providers alone: a signer for a keyed provider lists
-// nothing.
-func TestAKeyedRowTakesNoSigner(t *testing.T) {
-	providers := New(Config{Signers: map[string]llm.SessionSigner{"openai": planSigner{}}}).Providers()
+// The rows only a connector signs list their models on connect and drop them on
+// disconnect, with no restart. The ChatGPT catalog is read signed by the
+// connector; Vertex AI's is written.
+func TestTheConnectorRowsFollowTheirConnection(t *testing.T) {
+	var auth atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth.Store(r.Header.Get("Authorization"))
+		fmt.Fprint(w, `{"models":[{"slug":"m","display_name":"M","visibility":"list"}]}`)
+	}))
+	defer srv.Close()
+	baseURLs := map[string]string{ChatGPTID: srv.URL}
+	plan, vertex := newSwitchConnector("plan"), newSwitchConnector("vertex")
+	creds := newCredentials(t, credentials{
+		baseURLs: baseURLs, vertexBaseURL: vertexBase,
+		connectors: map[string]providercredentials.Connector{ChatGPTID: plan, GoogleID: vertex},
+	})
+	svc := llm.New(New(Config{Credentials: creds, BaseURLs: baseURLs, VertexBaseURL: vertexBase}).Providers()...)
+	stop := creds.SyncCatalogs(poke.New(), svc, Models(baseURLs, vertexBase))
+	defer stop()
+	frames, cancel := svc.Subscribe()
+	defer cancel()
+	listed := func(id string) []llm.Model {
+		p, _ := svc.Provider(id)
+		return p.Catalog
+	}
+	await := func(what string, ok func() bool) {
+		t.Helper()
+		for !ok() {
+			testutil.Recv(t, frames, what)
+		}
+	}
+	assert.Empty(t, listed(ChatGPTID))
+	assert.Empty(t, listed(GoogleID))
 
-	assert.Empty(t, providers)
+	plan.connect(1)
+	vertex.connect(1)
+	await("both rows list their models", func() bool { return len(listed(ChatGPTID)) > 0 && len(listed(GoogleID)) > 0 })
+	assert.Equal(t, "m", listed(ChatGPTID)[0].ID)
+	assert.Equal(t, "Bearer plan", auth.Load())
+	assert.Equal(t, newGoogleProvider(vertexBase).Catalog, listed(GoogleID))
+
+	plan.connect(0)
+	vertex.connect(0)
+	await("both rows drop their models", func() bool { return len(listed(ChatGPTID)) == 0 && len(listed(GoogleID)) == 0 })
 }

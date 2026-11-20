@@ -45,17 +45,16 @@ var chatGPTCodes = map[string]llm.CodeClass{
 }
 
 // newChatGPTProvider is the Responses API on the user's ChatGPT plan, signed by
-// the sign-in. Its catalog is the account's, read when the connection changes;
+// its connector. Its catalog is the account's, read when the connection changes;
 // it starts empty. The route is a preview whose field list moves: every field it
 // refuses goes in Omit, never in the wire. The wire asks for the reasoning only
 // with an effort, and a model listed with none still reasons, so Extra asks on
 // every request: under store: false the encrypted copy is the only one a tool
 // round can replay, and the summary is the thinking the transcript shows.
-func newChatGPTProvider(_ Config, signer llm.Signer) llm.Provider {
+func newChatGPTProvider() llm.Provider {
 	return llm.Provider{
 		ID: ChatGPTID, Label: "ChatGPT plan", Dialect: llm.DialectResponses,
 		BaseURL: chatgpt.APIBaseURL,
-		Signer:  signer,
 		Extra: map[string]any{
 			"include":           []string{"reasoning.encrypted_content"},
 			"reasoning.summary": "auto",

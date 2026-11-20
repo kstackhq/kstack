@@ -4352,7 +4352,7 @@ func providerCredentialsServer(t *testing.T, k *oskeyringtest.Keyring) (*httptes
 	t.Helper()
 	keys, err := providercredentials.New(providercredentials.Config{
 		Keyring:   k,
-		Providers: append(catalog.KeyedProviders(nil), providercredentials.Provider{ID: "chatgpt", Label: "ChatGPT plan"}),
+		Providers: catalog.Providers(nil, ""),
 		EnvKeys:   map[string]string{"anthropic": "sk-ant-env-0123456789abcdef"},
 	})
 	require.NoError(t, err)
@@ -4362,15 +4362,15 @@ func providerCredentialsServer(t *testing.T, k *oskeyringtest.Keyring) (*httptes
 	return srv, keys
 }
 
-// The query lists every keyed provider with where its credential comes from,
-// and no key.
+// The query lists every provider with where its credential comes from, and no
+// key.
 func TestProviderCredentialsProjectTheState(t *testing.T) {
 	srv, _ := providerCredentialsServer(t, oskeyringtest.New())
 
 	data, errs := mutation(t, srv.URL, `query { providerCredentials { id label keyVariable source hasEnvironmentKey hasSavedKey failure } }`)
 	require.Empty(t, errs)
 	rows := data["providerCredentials"].([]any)
-	require.Len(t, rows, len(catalog.KeyVars())+1)
+	require.Len(t, rows, len(catalog.Providers(nil, "")))
 	assert.Equal(t, map[string]any{
 		"id": "anthropic", "label": "Anthropic", "keyVariable": "ANTHROPIC_API_KEY",
 		"source": "EnvironmentKey", "hasEnvironmentKey": true, "hasSavedKey": false, "failure": nil,

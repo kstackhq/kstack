@@ -25,72 +25,59 @@ import (
 
 const vertexBase = "https://aiplatform.googleapis.com/v1/projects/my-project/locations/global/endpoints/openapi"
 
-// The Google row is listed after ChatGPT's and before the fake when its signer
-// and the project's endpoint are given, with no models until it connects.
+// The Google row is listed after ChatGPT's and before the fake when the
+// project's endpoint is given, signed by the service, with no models until it
+// connects.
 func TestTheGoogleRowIsListedWhenConfigured(t *testing.T) {
-	f := llm.NewFake(0)
-	signer := planSigner{token: "t"}
+	creds := newCredentials(t, credentials{vertexBaseURL: vertexBase})
 
-	providers := New(Config{
-		Signers:       map[string]llm.SessionSigner{ChatGPTID: signer, GoogleID: signer},
-		VertexBaseURL: vertexBase,
-		Fake:          f,
-	}).Providers()
+	providers := New(Config{Credentials: creds, VertexBaseURL: vertexBase, Fake: llm.NewFake(0)}).Providers()
 
-	assert.Equal(t, []string{"chatgpt", "google", "fake"}, providerIDs(providers))
-	p := providers[1]
+	n := len(providers)
+	assert.Equal(t, []string{"chatgpt", "google", "fake"}, providerIDs(providers[n-3:]))
+	p := providers[n-2]
 	assert.Equal(t, "Vertex AI", p.Label)
 	assert.Equal(t, llm.DialectChatCompletions, p.Dialect)
 	assert.Equal(t, vertexBase, p.BaseURL)
-	assert.Equal(t, signer, p.Signer)
+	assert.Equal(t, creds.Signer(GoogleID), p.Signer)
 	assert.Empty(t, p.Key)
 	assert.Empty(t, p.Catalog)
 }
 
+// Connected at launch, the row lists its written catalog at once.
+func TestAConnectedGoogleRowListsItsCatalog(t *testing.T) {
+	creds := newCredentials(t, credentials{vertexBaseURL: vertexBase, connected: []string{GoogleID}})
+
+	providers := New(Config{Credentials: creds, VertexBaseURL: vertexBase}).Providers()
+
+	assert.Equal(t, newGoogleProvider(vertexBase).Catalog, providers[len(providers)-1].Catalog)
+}
+
 // With no project there is no endpoint to sign: the Google provider is left out.
 func TestTheGoogleRowIsLeftOut(t *testing.T) {
-	assert.Empty(t, New(Config{Signers: map[string]llm.SessionSigner{GoogleID: planSigner{}}}).Providers())
+	providers := New(Config{Credentials: newKeys(t, nil, nil)}).Providers()
+	assert.NotContains(t, providerIDs(providers), GoogleID)
 }
 
 // gemini and google are two providers: a Gemini key does not hide Vertex AI.
 func TestTheGoogleRowIsListedBesideAGeminiKey(t *testing.T) {
-	providers := New(Config{
-		Keys:          newKeys(t, map[string]string{"gemini": "gm-0123456789abcdef"}, nil),
-		Signers:       map[string]llm.SessionSigner{GoogleID: planSigner{}},
-		VertexBaseURL: vertexBase,
-	}).Providers()
+	creds := newCredentials(t, credentials{keys: map[string]string{"gemini": "gm-0123456789abcdef"}, vertexBaseURL: vertexBase})
+	providers := New(Config{Credentials: creds, VertexBaseURL: vertexBase}).Providers()
 	assert.Contains(t, providerIDs(providers), "gemini")
 	assert.Contains(t, providerIDs(providers), GoogleID)
 }
 
+// A debug base lists the row with no project found.
 func TestADebugBuildMovesTheGoogleRow(t *testing.T) {
-	providers := New(Config{
-		Signers:       map[string]llm.SessionSigner{GoogleID: planSigner{}},
-		VertexBaseURL: vertexBase,
-		BaseURLs:      map[string]string{GoogleID: "http://127.0.0.1:1/v1"},
-	}).Providers()
+	baseURLs := map[string]string{GoogleID: "http://127.0.0.1:1/v1"}
+	providers := New(Config{Credentials: newKeys(t, nil, baseURLs), BaseURLs: baseURLs}).Providers()
 
-	require.Len(t, providers, 1)
-	assert.Equal(t, "http://127.0.0.1:1/v1", providers[0].BaseURL)
+	p := providers[len(providers)-1]
+	require.Equal(t, GoogleID, p.ID)
+	assert.Equal(t, "http://127.0.0.1:1/v1", p.BaseURL)
 }
 
 // The row's turns are offered our tools, and nothing of a vendor's.
 func TestTheGoogleRowIsOfferedOurTools(t *testing.T) {
 	assert.Equal(t, ours, New(Config{}).ToolsFor(llm.Target{Provider: llm.Provider{ID: GoogleID}}))
-}
-
-// A connected account's catalog is the Gemini row's models under Vertex AI's
-// publisher ids, read without a request.
-func TestReadSignedModelsAnswersTheVertexCatalog(t *testing.T) {
-	models, err := ReadSignedModels(t.Context(), llm.Provider{ID: GoogleID, BaseURL: "http://127.0.0.1:1"})
-
-	require.NoError(t, err)
-	gemini := newGeminiProvider().Catalog
-	require.Len(t, models, len(gemini))
-	for i, m := range models {
-		want := gemini[i]
-		want.ID = "google/" + want.ID
-		assert.Equal(t, want, m)
-	}
-	llm.New(llm.Provider{ID: GoogleID, Dialect: llm.DialectChatCompletions, Catalog: models}) // every model resolves
 }

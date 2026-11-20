@@ -15,8 +15,6 @@
 package catalog
 
 import (
-	"context"
-
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/google"
 )
@@ -26,23 +24,17 @@ import (
 const GoogleID = google.ID
 
 // newGoogleProvider is Vertex AI's OpenAI-compatible endpoint in the user's
-// project, signed by the Google connector. Its catalog is set while connected;
-// it starts empty.
-func newGoogleProvider(cfg Config, signer llm.Signer) llm.Provider {
-	return llm.Provider{
-		ID: GoogleID, Label: "Vertex AI", Dialect: llm.DialectChatCompletions,
-		BaseURL: cfg.VertexBaseURL,
-		Signer:  signer,
-	}
-}
-
-// ReadGoogleModels is the google row's catalog while its connector is
-// connected: the gemini row's models under Vertex AI's publisher ids, read
-// without a request. That Vertex AI serves each id and effort is UNVERIFIED.
-func ReadGoogleModels(context.Context, llm.Provider) ([]llm.Model, error) {
+// project, signed by the Google connector. Its catalog is the gemini row's
+// models under Vertex AI's publisher ids. That Vertex AI serves each id and
+// effort is UNVERIFIED.
+func newGoogleProvider(vertexBaseURL string) llm.Provider {
 	models := newGeminiProvider().Catalog
 	for i := range models {
 		models[i].ID = "google/" + models[i].ID
 	}
-	return models, nil
+	return llm.Provider{
+		ID: GoogleID, Label: "Vertex AI", Dialect: llm.DialectChatCompletions,
+		BaseURL: vertexBaseURL,
+		Catalog: models,
+	}
 }

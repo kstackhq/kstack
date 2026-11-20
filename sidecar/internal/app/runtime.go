@@ -67,7 +67,7 @@ type Runtime struct {
 	GitHub *github.Service
 	// Google is the Google connector, which signs the google row.
 	Google *google.Service
-	// ProviderCredentials holds the keyed providers' keys and signs each provider.
+	// ProviderCredentials holds each provider's keys and signs every provider.
 	ProviderCredentials *providercredentials.Service
 	Catalog             catalog.Catalog
 	LLM                 *llm.Service
@@ -254,32 +254,21 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 
 	rt.ProviderCredentials, err = providercredentials.New(providercredentials.Config{
 		Keyring:    cmp.Or(cfg.keyring, oskeyring.New(keychainService)),
-		Providers:  catalog.KeyedProviders(cfg.LLMBaseURLs),
+		Providers:  catalog.Providers(cfg.LLMBaseURLs, cfg.vertexBaseURL),
 		EnvKeys:    cfg.LLMKeys,
-		Connectors: map[string]providercredentials.Connector{openrouter.ID: rt.OpenRouter},
+		Connectors: map[string]providercredentials.Connector{openrouter.ID: rt.OpenRouter, chatgpt.ID: rt.ChatGPT, google.ID: rt.Google},
 	})
 	if err != nil {
 		return fail(err)
 	}
 	rt.add("provider credentials service", lifecycle.CloseFunc(func() error { rt.ProviderCredentials.Close(); return nil }))
 
-	rt.Catalog = newCatalog(cfg, rt.ProviderCredentials, map[string]llm.SessionSigner{chatgpt.ID: rt.ChatGPT, google.ID: rt.Google})
+	rt.Catalog = newCatalog(cfg, rt.ProviderCredentials)
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
-	rt.add("chatgpt catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
-		stop := rt.ChatGPT.SyncCatalog(rt.Poke, rt.LLM, catalog.ReadSignedModels)
-		return func(context.Context) error { stop(); return nil }, nil
-	}))
 	rt.add("provider catalogs", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
-		stop := rt.ProviderCredentials.SyncCatalogs(rt.Poke, rt.LLM, catalog.KeyedModels(cfg.LLMBaseURLs))
+		stop := rt.ProviderCredentials.SyncCatalogs(rt.Poke, rt.LLM, catalog.Models(cfg.LLMBaseURLs, cfg.vertexBaseURL))
 		return func(context.Context) error { stop(); return nil }, nil
 	}))
-	// With no project there is no provider to fill.
-	if _, listed := rt.LLM.Provider(google.ID); listed {
-		rt.add("google catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
-			stop := rt.Google.SyncCatalog(rt.Poke, rt.LLM, catalog.ReadSignedModels)
-			return func(context.Context) error { stop(); return nil }, nil
-		}))
-	}
 
 	rt.EnvVars, err = envvars.New(db, time.Now)
 	if err != nil {

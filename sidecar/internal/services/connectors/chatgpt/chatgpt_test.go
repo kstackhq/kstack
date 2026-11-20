@@ -15,8 +15,6 @@
 package chatgpt
 
 import (
-	"context"
-	"errors"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -27,10 +25,8 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
-	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
-	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
 // newService is a signed-out connector over a fresh app.db, under a keychain
@@ -102,21 +98,4 @@ func TestNewFailsOnAClosedDatabase(t *testing.T) {
 	_, err = New(Config{DB: db, Issuer: Issuer, APIBaseURL: APIBaseURL})
 
 	assert.Error(t, err)
-}
-
-// SyncCatalog keeps the chatgpt row's catalog the account's until its stop:
-// signed out, it empties it.
-func TestSyncCatalogEmptiesASignedOutCatalog(t *testing.T) {
-	s := newService(t, APIBaseURL)
-	models := llm.New(llm.Provider{ID: ID, Dialect: llm.DialectResponses, Catalog: []llm.Model{{ID: "stale"}}})
-	frames, cancel := models.Subscribe()
-	defer cancel()
-	testutil.Recv(t, frames, "the first frame")
-
-	stop := s.SyncCatalog(poke.New(), models, func(context.Context, llm.Provider) ([]llm.Model, error) {
-		return nil, errors.New("signed out: never read")
-	})
-	defer stop()
-
-	assert.Empty(t, testutil.Recv(t, frames, "the emptied catalog")[0].Catalog)
 }

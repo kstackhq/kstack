@@ -271,16 +271,15 @@ func (u serverUIDLookup) ServerUID(ctx context.Context, id apimeta.ClusterID) st
 	return *c.Status.Server.UID
 }
 
-// newCatalog is the providers cfg lists: each keyed one at the base URL a debug
-// build moved it to, then each signed-in one signers holds, then the fake when
-// asked for.
-func newCatalog(cfg Config, keys *providercredentials.Service, signers map[string]llm.SessionSigner) catalog.Catalog {
+// newCatalog is the providers cfg lists, each at the base URL a debug build
+// moved it to and signed by creds, then the fake when asked for.
+func newCatalog(cfg Config, creds *providercredentials.Service) catalog.Catalog {
 	fake := cfg.fake
 	if fake == nil && cfg.AddFake {
 		fake = llm.NewFake(llm.FakeChunkDelay)
 	}
 	return catalog.New(catalog.Config{
-		Keys: keys, BaseURLs: cfg.LLMBaseURLs, Signers: signers,
+		Credentials: creds, BaseURLs: cfg.LLMBaseURLs,
 		VertexBaseURL: cfg.vertexBaseURL, Fake: fake,
 	})
 }

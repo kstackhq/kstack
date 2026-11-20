@@ -66,7 +66,7 @@ func scrubChild() int {
 	if err != nil {
 		return 2
 	}
-	keys, err := providercredentials.New(providercredentials.Config{Keyring: oskeyringtest.New(), Providers: catalog.KeyedProviders(nil), EnvKeys: cfg.App.LLMKeys})
+	keys, err := providercredentials.New(providercredentials.Config{Keyring: oskeyringtest.New(), Providers: catalog.Providers(nil, ""), EnvKeys: cfg.App.LLMKeys})
 	if err != nil {
 		return 2
 	}

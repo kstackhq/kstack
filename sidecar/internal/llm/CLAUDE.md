@@ -49,7 +49,7 @@ internal/llm/
 - **`Provider.Key` or `Provider.Signer`, never both** (`New` panics). A `Signer` sets each
   request's authorization and hears a `401` (`Refused`). Every wire runs `send` (`helpers.go`) on
   `NoRedirectClient`, key or signer; no SDK is given a key. `authorize` puts a key where
-  `AuthHeader` says: `KeyHeader`, else the dialect's own header. Every production keyed provider is
+  `AuthHeader` says: `KeyHeader`, else the dialect's own header. Every production provider is
   signed by `services/providercredentials`, which takes each route's header from `AuthHeader` too. A failed `Sign` sends nothing: `SignError`. → [ADR: a provider's
   credential is a key or a signer](../../../docs/adr/2026-11-18-a-providers-credential-is-a-key-or-a-signer.md).
 - **A `SessionSigner` binds**: `Resolve` puts `Bind()`'s signer on the target, and
@@ -62,7 +62,9 @@ internal/llm/
 - **Eleven keyed providers**, picker order: `anthropic` (Messages), `openai` (Responses), then
   `gemini`, `groq`, `mistral`, `deepseek`, `xai`, `openrouter`, `together`, `fireworks`,
   `opencode-go` (Chat Completions), each keyed by the vendor's own variable (`catalog.KeyVars()`).
-  Then `chatgpt` (Responses), whose catalog is the account's. **Every other catalog is written.** Each provider file says whether its ids were checked; no
+  Then `chatgpt` (Responses), whose catalog is the account's, and `google` (Vertex AI, Chat
+  Completions) when a project was found; their connectors alone sign them. **Every other catalog
+  is written.** Each provider file says whether its ids were checked; no
   test reaches a vendor.
 - **A provider's `Dialect` and `BaseURL` are defaults; a model may override them**
   (`Model.Dialect`, `Model.BaseURL`, empty to keep the default). `Provider.ForModel(m)` applies

@@ -49,7 +49,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | `internal/run/CLAUDE.md` | the login shell, the session, the sandbox, permissions, the cluster proxy |
 | `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, LogsWatch, web search), `fileguard`, `logsinput` |
 | `internal/agent/CLAUDE.md` | the catalog, the loop, the chat service (turn, rows, approvals, tasks, the wire errors) |
-| `internal/services/providercredentials/CLAUDE.md` | keyed providers' saved and environment keys, and their signer |
+| `internal/services/providercredentials/CLAUDE.md` | every provider's saved and environment keys, its signer and its catalog sync |
 | `internal/services/connectors/internal/oauthconn/CLAUDE.md` | the OAuth engine, which `chatgpt`, `google` and `kstackcloud` run |
 | `internal/services/connectors/openrouter/CLAUDE.md` | the OpenRouter connector: a sign-in that grants a key, kept in the keyring |
 | `internal/services/connectors/aws/CLAUDE.md` | the AWS connector: `aws login`'s sign-in, a DPoP-bound session in the keyring, an `aws.CredentialsProvider` |
@@ -211,11 +211,11 @@ may have signed in as someone else. Every failure is `ErrNoToken`. →
 **A connector is an account on a service that Kstack signs in to, and whose requests it may then
 sign**, one package each: `chatgpt`, `openrouter`, `aws`, whose credentials nothing uses yet,
 `github`, whose token GitHub's proxy sends, `google`, which signs Vertex AI, and `kstackcloud`, the Kstack Cloud account, which signs nothing. Each has `New`, `State`, `Subscribe`, `Connect`, `Disconnect` and `Close`; a model
-provider adds a catalog and a signer. The root package is their vocabulary; `oauthconn` is in `connectors/internal/`; `catalogsync` and `signer`, `providercredentials`' too, in `services/internal/`. → [ADR](../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md).
+provider's connector is also its `providercredentials.Connector`, which signs its rows. The root package is their vocabulary; `oauthconn` is in `connectors/internal/`; `catalogsync` and `signer`, `providercredentials`' too, in `services/internal/`. → [ADR](../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md).
 
 **`catalogsync` keeps a provider's catalog**, its only writer: read per connected session, on a
-poke and every six hours, emptied otherwise. A connector's `SyncCatalog` or `providercredentials`'
-`SyncCatalogs` starts it; `app` passes the read, from `agent/catalog`.
+poke and every six hours, emptied otherwise. `providercredentials`' `SyncCatalogs` starts it for
+every provider; `app` passes the read, `catalog.Models`.
 
 ## GitHub's token (`internal/services/githubauth`)
 

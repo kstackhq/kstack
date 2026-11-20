@@ -90,11 +90,11 @@ func TestEveryStatedWindowLeavesACeiling(t *testing.T) {
 	for id := range catalog.KeyVars() {
 		keys[id] = "key-0123456789abcdef"
 	}
-	credentials, err := providercredentials.New(providercredentials.Config{Keyring: oskeyringtest.New(), Providers: catalog.KeyedProviders(nil), EnvKeys: keys})
+	credentials, err := providercredentials.New(providercredentials.Config{Keyring: oskeyringtest.New(), Providers: catalog.Providers(nil, ""), EnvKeys: keys})
 	require.NoError(t, err)
 	t.Cleanup(credentials.Close)
 	largest := turnInputAllowance(runnerAndBoth, MaxToolCalls)
-	for _, p := range catalog.New(catalog.Config{Keys: credentials, Fake: llm.NewFake(0)}).Providers() {
+	for _, p := range catalog.New(catalog.Config{Credentials: credentials, Fake: llm.NewFake(0)}).Providers() {
 		for _, m := range p.Catalog {
 			if m.ContextWindow > 0 {
 				assert.Positive(t, contextCeiling(m, largest), "%s/%s", p.ID, m.ID)

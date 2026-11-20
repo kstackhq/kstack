@@ -23,11 +23,8 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
-	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/internal/oauthconn"
-	"github.com/kstackhq/kstack/sidecar/internal/services/internal/catalogsync"
-	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
 const (
@@ -100,12 +97,6 @@ func (s *Service) Connect(ctx context.Context, fresh bool) error {
 // Project is the Google Cloud project the models run in, empty when none was
 // found.
 func (s *Service) Project() string { return s.project }
-
-// SyncCatalog keeps the google row's catalog the account's until the stop it
-// returns.
-func (s *Service) SyncCatalog(pokes *poke.Service, models *llm.Service, read func(context.Context, llm.Provider) ([]llm.Model, error)) (stop func()) {
-	return catalogsync.Start(ID, s.WatchSession, pokes, models, read)
-}
 
 // provider is Google's installed-app sign-in under cfg's client.
 func provider(cfg Config) oauthconn.Provider {

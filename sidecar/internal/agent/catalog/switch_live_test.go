@@ -44,7 +44,7 @@ const maxRounds = 3
 // that wrote it, and each must stream a reply the API accepts. A provider with no
 // key is skipped by name.
 func TestAChatSwitchesAcrossEveryDialect(t *testing.T) {
-	svc := llm.New(New(Config{Keys: newKeys(t, liveKeys(t), nil)}).Providers()...)
+	svc := llm.New(New(Config{Credentials: newKeys(t, liveKeys(t), nil)}).Providers()...)
 	walk := []string{"anthropic", "openai", chatCompletionsVendor(svc), "anthropic"}
 
 	var history []llm.Message

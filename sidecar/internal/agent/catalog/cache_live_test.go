@@ -52,7 +52,7 @@ func cachedPrefix() string {
 // Every keyed model that caches reads its second turn from the cache. The keys
 // come from the environment; a provider with none set is not checked.
 func TestEveryModelReadsItsSecondTurnFromTheCache(t *testing.T) {
-	svc := llm.New(New(Config{Keys: newKeys(t, liveKeys(t), nil)}).Providers()...)
+	svc := llm.New(New(Config{Credentials: newKeys(t, liveKeys(t), nil)}).Providers()...)
 	system := cachedPrefix()
 	msgs := []llm.Message{{Role: "user", Blocks: []llm.Block{llm.TextBlock("Are you ready?")}}}
 

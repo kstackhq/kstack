@@ -25,19 +25,24 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 )
 
-// keyedProvider is a provider and the environment variable that keys it.
-type keyedProvider struct {
+// row is a provider, the environment variable that keys it and how its
+// catalog is read.
+type row struct {
 	provider llm.Provider
-	keyVar   string
+	// keyVar is "" for a provider that takes no key: its connector alone signs it.
+	keyVar string
+	// models reads the provider's catalog off its listed row. Nil reads the
+	// written catalog, with no request.
+	models func(context.Context, llm.Provider) ([]llm.Model, error)
 }
 
-// keyedProviders is every keyed provider, in picker order. The fake is not here:
-// it needs no key, and New lists it last when it is given one. Every catalog is
-// written, and no test reaches a vendor, so each row's comment says whether its
-// ids were checked against the vendor's GET /models; one marked UNVERIFIED is
-// owed that check by whoever holds a key.
-func keyedProviders() []keyedProvider {
-	return []keyedProvider{
+// rows is every provider but the fake, in picker order. The fake needs no
+// credential, and New lists it last when it is given one. Every catalog but
+// chatgpt's is written, and no test reaches a vendor, so each row's comment
+// says whether its ids were checked against the vendor's GET /models; one
+// marked UNVERIFIED is owed that check by whoever holds a key.
+func rows(vertexBaseURL string) []row {
+	return []row{
 		{provider: newAnthropicProvider(), keyVar: "ANTHROPIC_API_KEY"},
 		{provider: newOpenAIProvider(), keyVar: "OPENAI_API_KEY"},
 		{provider: newGeminiProvider(), keyVar: "GEMINI_API_KEY"},
@@ -49,57 +54,75 @@ func keyedProviders() []keyedProvider {
 		{provider: newTogetherProvider(), keyVar: "TOGETHER_API_KEY"},
 		{provider: newFireworksProvider(), keyVar: "FIREWORKS_API_KEY"},
 		{provider: newOpenCodeGoProvider(), keyVar: "OPENCODE_GO_API_KEY"},
+		{provider: newChatGPTProvider(), models: ReadChatGPTModels},
+		{provider: newGoogleProvider(vertexBaseURL)},
 	}
 }
 
-// keyedProvidersAt is every keyed provider, each moved to the base URL a debug
-// build gives it, with its models' overrides cleared so one stub answers the
-// whole provider.
-func keyedProvidersAt(baseURLs map[string]string) []keyedProvider {
-	keyed := keyedProviders()
-	for i := range keyed {
-		p := &keyed[i].provider
+// rowsAt is rows at the base URLs a debug build moves, less any row left with
+// no base URL: Vertex AI with no project found. A moved row's models lose
+// their own base URLs, so one stub answers the whole row.
+func rowsAt(baseURLs map[string]string, vertexBaseURL string) []row {
+	var at []row
+	for _, r := range rows(vertexBaseURL) {
+		p := &r.provider
 		if url, ok := baseURLs[p.ID]; ok {
 			p.BaseURL = url
-			for j := range p.Catalog {
-				p.Catalog[j].BaseURL = ""
+			for i := range p.Catalog {
+				p.Catalog[i].BaseURL = ""
 			}
+		}
+		if p.BaseURL != "" {
+			at = append(at, r)
 		}
 	}
-	return keyed
+	return at
 }
 
-// KeyedProviders is every keyed provider as providercredentials needs it: each base
-// URL the provider and its models are sent to, with the header a key goes in
-// there.
-func KeyedProviders(baseURLs map[string]string) []providercredentials.Provider {
-	var keyed []providercredentials.Provider
-	for _, kp := range keyedProvidersAt(baseURLs) {
-		p := kp.provider
-		out := providercredentials.Provider{ID: p.ID, Label: p.Label, KeyVar: kp.keyVar}
-		for _, m := range append([]llm.Model{{}}, p.Catalog...) {
-			pm := p.ForModel(m)
-			header, prefix := pm.AuthHeader()
-			route := providercredentials.Route{BaseURL: pm.BaseURL, Header: header, Prefix: prefix}
-			if !slices.Contains(out.Routes, route) {
-				out.Routes = append(out.Routes, route)
-			}
+// Providers is every row of rowsAt as providercredentials needs it. A row with
+// no key variable has no route.
+func Providers(baseURLs map[string]string, vertexBaseURL string) []providercredentials.Provider {
+	var providers []providercredentials.Provider
+	for _, r := range rowsAt(baseURLs, vertexBaseURL) {
+		p := providercredentials.Provider{ID: r.provider.ID, Label: r.provider.Label, KeyVar: r.keyVar}
+		if r.keyVar != "" {
+			p.Routes = routes(r.provider)
 		}
-		keyed = append(keyed, out)
+		providers = append(providers, p)
 	}
-	return keyed
+	return providers
 }
 
-// KeyedModels reads a keyed provider's catalog: its written one, at the base URLs
-// a debug build moved, with no request.
-func KeyedModels(baseURLs map[string]string) func(context.Context, llm.Provider) ([]llm.Model, error) {
-	return func(_ context.Context, p llm.Provider) ([]llm.Model, error) {
-		for _, kp := range keyedProvidersAt(baseURLs) {
-			if kp.provider.ID == p.ID {
-				return kp.provider.Catalog, nil
-			}
+// routes is each base URL p and its models are sent to, with the header a key
+// goes in there.
+func routes(p llm.Provider) []providercredentials.Route {
+	var routes []providercredentials.Route
+	for _, m := range append([]llm.Model{{}}, p.Catalog...) {
+		pm := p.ForModel(m)
+		header, prefix := pm.AuthHeader()
+		route := providercredentials.Route{BaseURL: pm.BaseURL, Header: header, Prefix: prefix}
+		if !slices.Contains(routes, route) {
+			routes = append(routes, route)
 		}
-		return nil, fmt.Errorf("catalog: %s is not a keyed provider", p.ID)
+	}
+	return routes
+}
+
+// Models reads a provider's catalog: its row's reader, else the row's written
+// catalog, with no request. The reader is handed p, the provider llm.Service
+// lists: it carries the signer, and the table's own row has none.
+func Models(baseURLs map[string]string, vertexBaseURL string) func(context.Context, llm.Provider) ([]llm.Model, error) {
+	return func(ctx context.Context, p llm.Provider) ([]llm.Model, error) {
+		for _, r := range rowsAt(baseURLs, vertexBaseURL) {
+			if r.provider.ID != p.ID {
+				continue
+			}
+			if r.models != nil {
+				return r.models(ctx, p)
+			}
+			return r.provider.Catalog, nil
+		}
+		return nil, fmt.Errorf("catalog: %s is not a provider", p.ID)
 	}
 }
 
@@ -107,8 +130,10 @@ func KeyedModels(baseURLs map[string]string) func(context.Context, llm.Provider)
 // table the config reads keys from and clears out of the environment.
 func KeyVars() map[string]string {
 	vars := map[string]string{}
-	for _, kp := range keyedProviders() {
-		vars[kp.provider.ID] = kp.keyVar
+	for _, r := range rows("") {
+		if r.keyVar != "" {
+			vars[r.provider.ID] = r.keyVar
+		}
 	}
 	return vars
 }
@@ -118,11 +143,8 @@ func KeyVars() map[string]string {
 // no URL and is not in it.
 func BaseURLVars() map[string]string {
 	vars := map[string]string{}
-	for _, sp := range signedProviders() {
-		vars[sp.id] = idVar(sp.id, "BASE_URL")
-	}
-	for _, kp := range keyedProviders() {
-		vars[kp.provider.ID] = idVar(kp.provider.ID, "BASE_URL")
+	for _, r := range rows("") {
+		vars[r.provider.ID] = idVar(r.provider.ID, "BASE_URL")
 	}
 	return vars
 }
@@ -131,33 +153,6 @@ func BaseURLVars() map[string]string {
 // a shell variable's name holds no hyphen.
 func idVar(id, suffix string) string {
 	return "KSTACK_" + strings.ToUpper(strings.ReplaceAll(id, "-", "_")) + "_" + suffix
-}
-
-// signedProvider is a provider the user signs in to: its row under the
-// sign-in's signer, and how its account's catalog is read off that row.
-type signedProvider struct {
-	id     string
-	row    func(Config, llm.Signer) llm.Provider
-	models func(context.Context, llm.Provider) ([]llm.Model, error)
-}
-
-// signedProviders is every signed-in provider, in picker order.
-func signedProviders() []signedProvider {
-	return []signedProvider{
-		{id: ChatGPTID, row: newChatGPTProvider, models: ReadChatGPTModels},
-		{id: GoogleID, row: newGoogleProvider, models: ReadGoogleModels},
-	}
-}
-
-// ReadSignedModels reads the account's catalog off p, a signed-in provider's
-// row.
-func ReadSignedModels(ctx context.Context, p llm.Provider) ([]llm.Model, error) {
-	for _, sp := range signedProviders() {
-		if sp.id == p.ID {
-			return sp.models(ctx, p)
-		}
-	}
-	return nil, fmt.Errorf("catalog: %s is not a signed-in provider", p.ID)
 }
 
 // The rows, in picker order. Each is one vendor: where its requests go and the

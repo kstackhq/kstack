@@ -10,8 +10,8 @@ base** (`llm.SessionSigner`). The engine names no provider: what one has of its 
 [security record](../../../../../../docs/security/2026-11-18-the-chatgpt-connector.md).
 
 - **A new OAuth connector is a package beside `chatgpt`**: a `Provider` and a `Service` over the
-  engine; a model provider adds a signer in `catalog.Config.Signers` and a row in
-  `signedProviders`. Widen `Provider` only by what its flow needs. `Provider.ID` keys the row and
+  engine; a model provider adds a keyless `catalog` row and its connector to `app`'s
+  `providercredentials`. Widen `Provider` only by what its flow needs. `Provider.ID` keys the row and
   the keyring accounts. A fixed `Provider.ClientID` registers no client.
 - **A session exists only when the row's `session_id` and the keyring entry's `session` match.**
   A sign-in mints the id and writes the entry, then the row, on every save. `New` reads both and

@@ -36,7 +36,7 @@ restart.
 
 **A key's header is chosen by the request's base URL**, not by the model's dialect. Each provider
 lists its routes, every base its models are sent to with the header a key goes in there
-(`catalog.KeyedProviders`); a request under none of them is refused unsigned. This amends *a key as
+(`catalog.Providers`); a request under none of them is refused unsigned. This amends *a key as
 one more `Signer`* in [a provider's credential is a key or a
 signer](2026-11-18-a-providers-credential-is-a-key-or-a-signer.md): the dialect still picks the
 header, once per route, through `llm.Provider.AuthHeader`.

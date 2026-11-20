@@ -79,8 +79,8 @@ type State struct {
 	Failure Failure
 }
 
-// Provider is a provider as the service needs it. catalog.KeyedProviders
-// builds them.
+// Provider is a provider as the service needs it. catalog.Providers builds
+// them.
 type Provider struct {
 	ID, Label string
 	// KeyVar is "" for a provider that takes no key.

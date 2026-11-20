@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,6 +20,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
+	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/chatgpt"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/google"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
@@ -184,8 +186,8 @@ func TestOpenRouterFallsBackAfterADisconnect(t *testing.T) {
 	assert.Equal(t, "Bearer "+envKey, bearer())
 }
 
-// The Google connector signs the google row at the project's Vertex AI
-// endpoint whenever the launch found a project, a Gemini key or not.
+// The service signs the google row at the project's Vertex AI endpoint
+// whenever the launch found a project, a Gemini key or not.
 func TestTheGoogleRowFollowsTheProject(t *testing.T) {
 	vertexBase := google.BaseURL("my-project", "global")
 	rows := func(cfg Config) (*Runtime, llm.Provider, bool) {
@@ -199,7 +201,7 @@ func TestTheGoogleRowFollowsTheProject(t *testing.T) {
 
 	rt, p, ok := rows(Config{Getenv: googleEnv("my-project")})
 	require.True(t, ok)
-	assert.Equal(t, rt.Google, p.Signer)
+	assert.Equal(t, rt.ProviderCredentials.Signer(google.ID), p.Signer)
 	assert.Equal(t, vertexBase, p.BaseURL)
 	assert.Equal(t, "my-project", rt.Google.Project())
 
@@ -208,6 +210,36 @@ func TestTheGoogleRowFollowsTheProject(t *testing.T) {
 
 	_, _, ok = rows(Config{Getenv: googleEnv("my-project"), LLMKeys: map[string]string{"gemini": "gm-0123456789abcdef"}})
 	assert.True(t, ok, "a Gemini key does not hide Vertex AI")
+}
+
+// The gauge lists exactly the providers the catalog holds, less the fake, with
+// and without a project, and the service signs each one. One part syncs every
+// provider's catalog.
+func TestTheGaugeListsEveryProviderTheCatalogHolds(t *testing.T) {
+	for _, getenv := range []func(string) string{nil, googleEnv("my-project")} {
+		a, err := New(t.Context(), withDirs(t, Config{Getenv: getenv, AddFake: true}))
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, a.Close()) })
+		rt := a.rt
+
+		var held, gauge []string
+		for _, p := range rt.LLM.Providers() {
+			if p.ID != "fake" {
+				held = append(held, p.ID)
+				assert.Equal(t, rt.ProviderCredentials.Signer(p.ID), p.Signer, p.ID)
+			}
+		}
+		for _, st := range rt.ProviderCredentials.States() {
+			gauge = append(gauge, st.ID)
+		}
+		assert.Equal(t, held, gauge)
+		assert.Contains(t, gauge, chatgpt.ID)
+		assert.Equal(t, getenv != nil, slices.Contains(gauge, google.ID))
+		assert.GreaterOrEqual(t, partIndex(t, a, "provider catalogs"), 0)
+		for _, gone := range []string{"chatgpt catalog", "google catalog"} {
+			assert.False(t, slices.ContainsFunc(rt.parts, func(p lifecycle.Part) bool { return p.Name == gone }), gone)
+		}
+	}
 }
 
 // A debug build's OpenRouter base that does not parse fails the build.
@@ -263,13 +295,11 @@ func TestTheWireReachesTheGitHubConnector(t *testing.T) {
 	assert.JSONEq(t, `{"data":{"gitHubConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ gitHubConnection { phase } }`))
 }
 
-// The wire reaches the app's Google connector, whose catalog starts with the
-// app.
+// The wire reaches the app's Google connector.
 func TestTheWireReachesTheGoogleConnector(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{Getenv: googleEnv("my-project")}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	require.GreaterOrEqual(t, partIndex(t, a, "google catalog"), 0)
 	startApp(t, a)
 	ts := serveApp(t, a)
 

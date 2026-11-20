@@ -25,7 +25,7 @@ It is not a connector: nothing signs in.
 - **`Bind` returns the connector's binding unless it is `signer.Ended{}`**, a connector's answer
   with no session.
 - **A key goes on every route whose base covers the request, in that route's header**
-  (`catalog.KeyedProviders`), and nowhere else: a request under no base is `errOffBase`, unsigned.
+  (`catalog.Providers`), and nowhere else: a request under no base is `errOffBase`, unsigned.
 - **One `401` to the key that signs marks it rejected**; it keeps signing until a key is saved.
 - **`WatchCredential` is `0` for no credential, `1` for a keyed provider, else the session's
   generation**, so only a new account reads a catalog again. `SyncCatalogs` runs `catalogsync` over

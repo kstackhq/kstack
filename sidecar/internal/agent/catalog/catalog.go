@@ -44,53 +44,34 @@ type Catalog struct {
 
 // Config is what New builds the providers from.
 type Config struct {
-	// Keys signs every keyed provider. Nil leaves them out.
-	Keys *providercredentials.Service
+	// Credentials signs every provider. Nil lists none but the fake.
+	Credentials *providercredentials.Service
 	// BaseURLs replaces a listed provider's base URL, by provider id. Set only by
 	// a debug build: a release never takes an endpoint from the environment.
 	BaseURLs map[string]string
-	// Signers is each signed-in provider's signer, by provider id. A provider
-	// with no signer here is left out. They are listed after the keyed providers
-	// and before the fake.
-	Signers map[string]llm.SessionSigner
 	// VertexBaseURL is Vertex AI's endpoint in the user's project, which the
-	// google row signs. Empty leaves the row out.
+	// google row signs. Empty leaves the row out unless BaseURLs moves it.
 	VertexBaseURL string
 	// Fake, when non-nil, is listed last: a run with no key still has a model to
 	// answer on.
 	Fake *llm.Fake
 }
 
-// New is every keyed provider in picker order, at the base URL cfg moves it
-// to, then each signed-in provider cfg holds a signer and a base URL for, then
-// the fake. A keyed provider with no credential lists no model until it has
-// one.
+// New is every row of the table in picker order, at the base URL cfg moves it
+// to, then the fake. A provider with no credential lists no model until it
+// has one.
 func New(cfg Config) Catalog {
 	var c Catalog
-	if cfg.Keys != nil {
-		for _, kp := range keyedProvidersAt(cfg.BaseURLs) {
-			p := kp.provider
-			p.Signer = cfg.Keys.Signer(p.ID)
-			if st, _ := cfg.Keys.State(p.ID); st.Source == providercredentials.SourceNone {
+	if cfg.Credentials != nil {
+		for _, r := range rowsAt(cfg.BaseURLs, cfg.VertexBaseURL) {
+			p := r.provider
+			p.Signer = cfg.Credentials.Signer(p.ID)
+			if st, _ := cfg.Credentials.State(p.ID); st.Source == providercredentials.SourceNone {
 				// SyncCatalogs lists it once the provider has a credential.
 				p.Catalog = nil
 			}
 			c.providers = append(c.providers, p)
 		}
-	}
-	for _, sp := range signedProviders() {
-		signer, ok := cfg.Signers[sp.id]
-		if !ok {
-			continue
-		}
-		p := sp.row(cfg, signer)
-		if url, ok := cfg.BaseURLs[sp.id]; ok {
-			p.BaseURL = url
-		}
-		if p.BaseURL == "" {
-			continue
-		}
-		c.providers = append(c.providers, p)
 	}
 	if cfg.Fake != nil {
 		c.providers = append(c.providers, llm.FakeProvider(cfg.Fake))

@@ -9,31 +9,30 @@ is each tool; `internal/llm/CLAUDE.md` is the wires.
 ## Catalog (`internal/agent/catalog`)
 
 The providers the app holds and, for each provider, every tool its turns are offered, by tool
-name. It imports `llm`, each tool's package, and the connectors `chatgpt` and `openrouter` (their ids and API bases); only `config.go`
+name. It imports `llm`, each tool's package, `providercredentials`, and the connectors `chatgpt`, `google` and `openrouter` (their ids and API bases); only `config.go`
 and `app` import it.
 
-- `catalog.go`: `New(Config)` is every keyed provider, in picker order, each signed by `Config.Keys`
-  (`services/providercredentials`) and listing its written catalog only while it has a credential, then
-  the signed-in ones, then `Config.Fake`. `ToolsFor(target)` feeds `Box.For`. Only a debug build moves a base URL;
-  it clears each model's override, so one stub answers the row.
-- `providers.go`: one constructor per vendor row; a new vendor goes here, never in `llm`.
-  `KeyVars()` is what `config.go` reads keys from and clears from the environment;
-  `BaseURLVars()` is `KSTACK_<ID>_BASE_URL`. `KeyedProviders` is each keyed provider's routes for
-  `providercredentials`, from `keyedProvidersAt`, the one place a debug base is applied; `KeyedModels(baseURLs)` reads a
-  keyed provider's catalog for `SyncCatalogs`. **Every entry states its `Cache`** (and
+- `catalog.go`: `New(Config)` is every row of the table, in picker order, each signed by
+  `Config.Credentials` (`services/providercredentials`) and listing its catalog only while it has a
+  credential, then `Config.Fake`; with no `Credentials`, the fake alone. `ToolsFor(target)` feeds
+  `Box.For`.
+- `providers.go`: **one table, `rows`**: each provider, its key variable (`""` when only its
+  connector signs it) and its models reader (nil reads the written catalog). A new vendor goes here,
+  never in `llm`. `rowsAt` alone applies a debug base, clearing the moved row's model overrides, and
+  drops a row with no base URL (`google` with no project). `Providers` is `rowsAt` with each keyed
+  row's routes; `Models` hands a reader the provider `llm.Service` lists, which carries the signer. `KeyVars()` is what `config.go` reads keys from and clears from the environment;
+  `BaseURLVars()` is `KSTACK_<ID>_BASE_URL`. **Every entry states its `Cache`** (and
   `AffinityRoute` where the vendor routes by key); a new entry lands with the line
   `make test-livecache` prints for it.
-- `chatgpt.go`: the `chatgpt` row (Responses at `api.openai.com/v1`, its signer, `Extra`'s
+- `chatgpt.go`: the `chatgpt` row (Responses at `api.openai.com/v1`, `Extra`'s
   `include: reasoning.encrypted_content` and `reasoning.summary: auto` on every request, `Omit: max_output_tokens`, OpenAI's
   plan error codes) and its catalog, the account's `GET /models` (`ReadChatGPTModels`, signed,
   following no redirect): each `visibility: "list"` entry in order, the `openai` row's entry of
   the same id where it has one, else the fallback (no efforts, tools, the written cap, no context
   window). The route is a preview: a field it refuses goes in the row's `Omit`.
-  A signed-in provider is a row of `signedProviders` (`providers.go`), listed when `Config.Signers`
-  holds its signer and its provider has a base URL, whatever keys exist.
-  The connector's `SyncCatalog` is its catalog's only writer: a read per `Connected` session, per
-  poke and every six hours, none kept past its session, empty in any other phase.
-  → [ADR: a signed-in provider's catalog follows its connection](../../../docs/adr/2026-11-18-a-signed-in-providers-catalog-follows-its-connection.md).
+- `google.go`: Vertex AI, whose catalog is `gemini`'s under `google/` ids.
+  → [ADR: every provider is one row, signed by one service](../../../docs/adr/2026-11-20-every-provider-is-one-row-signed-by-one-service.md),
+  [ADR: a signed-in provider's catalog follows its connection](../../../docs/adr/2026-11-18-a-signed-in-providers-catalog-follows-its-connection.md).
 - **A list is policy.** `lists` is static data by provider id: `ours` for every provider, plus the
   Anthropic search for `anthropic` and `fake`. It decides what code runs each kind of action and
   what leaves the machine, so adding a vendor tool or leaving one of ours off is a security change.

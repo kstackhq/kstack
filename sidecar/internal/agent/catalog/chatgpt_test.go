@@ -37,13 +37,13 @@ func (s planSigner) Sign(r *http.Request) error {
 func (planSigner) Refused(*http.Request) {}
 func (s planSigner) Bind() llm.Signer    { return s }
 
-// The ChatGPT row is listed after the keyed providers and before the fake
-// whenever its signer is given, with no models until its catalog is read.
-func TestTheChatGPTRowIsListedWhenConfigured(t *testing.T) {
+// The ChatGPT row is listed after the keyed providers and before the fake,
+// signed by the service, with no models until its catalog is read.
+func TestTheChatGPTRowIsListed(t *testing.T) {
 	f := llm.NewFake(0)
-	signer := planSigner{token: "t"}
+	creds := newCredentials(t, credentials{connected: []string{ChatGPTID}})
 
-	providers := New(Config{Keys: newKeys(t, nil, nil), Signers: map[string]llm.SessionSigner{ChatGPTID: signer}, Fake: f}).Providers()
+	providers := New(Config{Credentials: creds, Fake: f}).Providers()
 
 	n := len(providers)
 	assert.Equal(t, []string{"opencode-go", "chatgpt", "fake"}, providerIDs(providers[n-3:]))
@@ -51,7 +51,7 @@ func TestTheChatGPTRowIsListedWhenConfigured(t *testing.T) {
 	assert.Equal(t, "ChatGPT plan", p.Label)
 	assert.Equal(t, llm.DialectResponses, p.Dialect)
 	assert.Equal(t, "https://api.openai.com/v1", p.BaseURL)
-	assert.Equal(t, signer, p.Signer)
+	assert.Equal(t, creds.Signer(ChatGPTID), p.Signer)
 	assert.Empty(t, p.Key)
 	assert.Empty(t, p.Catalog)
 	assert.Equal(t, []string{"max_output_tokens"}, p.Omit)
@@ -68,9 +68,11 @@ func TestTheChatGPTRowIsListedWhenConfigured(t *testing.T) {
 
 // A debug build moves the row as it moves a keyed one.
 func TestADebugBuildMovesTheChatGPTRow(t *testing.T) {
-	providers := New(Config{Signers: map[string]llm.SessionSigner{ChatGPTID: planSigner{}}, BaseURLs: map[string]string{"chatgpt": "http://127.0.0.1:1/v1"}}).Providers()
+	baseURLs := map[string]string{"chatgpt": "http://127.0.0.1:1/v1"}
+	providers := New(Config{Credentials: newKeys(t, nil, baseURLs), BaseURLs: baseURLs}).Providers()
 
-	assert.Equal(t, "http://127.0.0.1:1/v1", providers[0].BaseURL)
+	assert.Equal(t, ChatGPTID, providers[11].ID)
+	assert.Equal(t, "http://127.0.0.1:1/v1", providers[11].BaseURL)
 }
 
 // The row's turns are offered our tools, and nothing of a vendor's.
@@ -124,7 +126,8 @@ func TestChatGPTModelsOfAnotherShapeListNothing(t *testing.T) {
 }
 
 // The catalog is read from the account's GET /models, signed, through a client
-// that follows no redirect.
+// that follows no redirect. Models hands the reader the provider it was called
+// with, which carries the signer and the base; the table's own row has neither.
 func TestReadChatGPTModelsSignsTheRequest(t *testing.T) {
 	var auth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +137,7 @@ func TestReadChatGPTModelsSignsTheRequest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	models, err := ReadSignedModels(context.Background(), planRow(planSigner{token: "t"}, srv.URL+"/v1"))
+	models, err := Models(nil, "")(context.Background(), planRow(planSigner{token: "t"}, srv.URL+"/v1"))
 
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer t", auth)
@@ -168,8 +171,8 @@ func TestReadChatGPTModelsFails(t *testing.T) {
 
 // planRow is the chatgpt row at baseURL, signed by s.
 func planRow(s llm.Signer, baseURL string) llm.Provider {
-	p := newChatGPTProvider(Config{}, s)
-	p.BaseURL = baseURL
+	p := newChatGPTProvider()
+	p.BaseURL, p.Signer = baseURL, s
 	return p
 }
 

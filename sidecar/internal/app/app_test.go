@@ -118,14 +118,14 @@ func everyCatalog(t *testing.T) catalog.Catalog {
 	for id := range catalog.KeyVars() {
 		keys[id] = "key-0123456789abcdef"
 	}
-	return catalog.New(catalog.Config{Keys: newProviderCredentials(t, keys, nil), Fake: llm.NewFake(0)})
+	return catalog.New(catalog.Config{Credentials: newProviderCredentials(t, keys, nil), Fake: llm.NewFake(0)})
 }
 
-// newProviderCredentials is the keyed providers' service over an empty keyring, holding
-// keys as the environment's.
+// newProviderCredentials is every provider's credentials service over an
+// empty keyring, holding keys as the environment's.
 func newProviderCredentials(t *testing.T, keys, baseURLs map[string]string) *providercredentials.Service {
 	t.Helper()
-	s, err := providercredentials.New(providercredentials.Config{Keyring: oskeyringtest.New(), Providers: catalog.KeyedProviders(baseURLs), EnvKeys: keys})
+	s, err := providercredentials.New(providercredentials.Config{Keyring: oskeyringtest.New(), Providers: catalog.Providers(baseURLs, ""), EnvKeys: keys})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 	return s
@@ -715,7 +715,7 @@ func TestABadSettingsFileFailsNew(t *testing.T) {
 	requireUnlocked(t, dir)
 }
 
-// The catalog is the config's: each keyed provider at the base URL a debug build
+// The catalog is the config's: each provider at the base URL a debug build
 // moved it to, then the fake when asked for.
 func TestTheCatalogIsTheConfigs(t *testing.T) {
 	cfg := Config{
@@ -723,9 +723,9 @@ func TestTheCatalogIsTheConfigs(t *testing.T) {
 		AddFake:     true,
 	}
 	keys := newProviderCredentials(t, map[string]string{"anthropic": "sk-ant-test-0123456789abcdef"}, cfg.LLMBaseURLs)
-	providers := newCatalog(cfg, keys, nil).Providers()
+	providers := newCatalog(cfg, keys).Providers()
 
-	require.Len(t, providers, len(catalog.KeyVars())+1)
+	require.Len(t, providers, len(catalog.Providers(nil, ""))+1)
 	assert.Equal(t, keys.Signer("anthropic"), providers[0].Signer)
 	assert.Equal(t, "http://127.0.0.1:1", providers[0].BaseURL)
 	assert.Equal(t, "fake", providers[len(providers)-1].ID)

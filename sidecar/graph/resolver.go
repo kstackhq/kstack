@@ -69,15 +69,15 @@ type Resolver struct {
 	GitHub GitHubConnector
 	// Google is the Google connector: *google.Service, or a test's fake.
 	Google GoogleConnector
-	// ProviderCredentials holds the keyed providers' keys: *providercredentials.Service, or
-	// a test's fake.
+	// ProviderCredentials holds every provider's keys: *providercredentials.Service,
+	// or a test's fake.
 	ProviderCredentials ProviderCredentialStore
 	// OpenURL opens one of the sidecar's own addresses in the browser:
 	// browser.Open, or a test's fake. No caller hands it an address.
 	OpenURL func(url string) error
 }
 
-// ProviderCredentialStore is the keyed providers' keys as the wire drives them. No
+// ProviderCredentialStore is every provider's keys as the wire drives them. No
 // method returns a key.
 type ProviderCredentialStore interface {
 	States() []providercredentials.State

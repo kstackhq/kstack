@@ -15,6 +15,7 @@
 package catalog
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -31,7 +32,7 @@ import (
 // on the two dialects whose wire refuses a request without one, and a model's
 // default is one of its own efforts, since that is what a picker starts on.
 func TestEveryKeyedProviderIsWhole(t *testing.T) {
-	for _, kp := range keyedProviders() {
+	for _, kp := range keyedRows() {
 		p := kp.provider
 		assert.NotEmpty(t, p.ID)
 		assert.NotEmpty(t, p.Label, p.ID)
@@ -57,6 +58,84 @@ func TestEveryKeyedProviderIsWhole(t *testing.T) {
 				assert.Positive(t, m.MaxOutputTokens, m.ID)
 			}
 		}
+	}
+}
+
+// rowIDs is rows' provider ids, in order.
+func rowIDs(rows []row) []string {
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.provider.ID)
+	}
+	return ids
+}
+
+// keyedRows is every row that takes a key: each one's catalog is written.
+func keyedRows() []row {
+	var keyed []row
+	for _, r := range rows("") {
+		if r.keyVar != "" {
+			keyed = append(keyed, r)
+		}
+	}
+	return keyed
+}
+
+var keyedIDs = []string{"anthropic", "openai", "gemini", "groq", "mistral", "deepseek", "xai", "openrouter", "together", "fireworks", "opencode-go"}
+
+// Every provider is one row, in picker order: the keyed ones, then those only a
+// connector signs. Only chatgpt reads its catalog.
+func TestRowsAtListsEveryProviderOnce(t *testing.T) {
+	all := rowsAt(nil, vertexBase)
+	assert.Equal(t, append(slices.Clone(keyedIDs), "chatgpt", "google"), rowIDs(all))
+	for _, r := range all {
+		assert.Equal(t, r.provider.ID == ChatGPTID, r.models != nil, r.provider.ID)
+		assert.Equal(t, slices.Contains(keyedIDs, r.provider.ID), r.keyVar != "", r.provider.ID)
+	}
+}
+
+// With no project and no debug base, Vertex AI has no endpoint: its row alone
+// is left out.
+func TestRowsAtLeavesOutARowWithNoBaseURL(t *testing.T) {
+	assert.Equal(t, append(slices.Clone(keyedIDs), "chatgpt"), rowIDs(rowsAt(nil, "")))
+	assert.Contains(t, rowIDs(rowsAt(map[string]string{GoogleID: "http://127.0.0.1:1"}, "")), GoogleID)
+}
+
+// A debug base moves its row and clears each of its models' own bases, so one
+// stub answers the whole row; it touches no other row.
+func TestADebugBaseMovesItsRowAlone(t *testing.T) {
+	const stub = "http://127.0.0.1:1"
+	baseURLs := map[string]string{"opencode-go": stub, GoogleID: stub}
+	release := rows(vertexBase)
+	for i, r := range rowsAt(baseURLs, vertexBase) {
+		p := r.provider
+		if _, moved := baseURLs[p.ID]; !moved {
+			assert.Equal(t, release[i].provider, p, p.ID)
+			continue
+		}
+		assert.Equal(t, stub, p.BaseURL, p.ID)
+		require.NotEmpty(t, p.Catalog, p.ID)
+		for _, m := range p.Catalog {
+			assert.Empty(t, m.BaseURL, m.ID)
+		}
+	}
+}
+
+// Vertex AI's catalog is written: the Gemini row's models under Vertex AI's
+// publisher ids. That Vertex AI serves each id and effort is UNVERIFIED.
+func TestTheGoogleRowsCatalogIsGeminisUnderVertexIDs(t *testing.T) {
+	var google llm.Provider
+	for _, r := range rows(vertexBase) {
+		if r.provider.ID == GoogleID {
+			google = r.provider
+		}
+	}
+	gemini := newGeminiProvider().Catalog
+	require.Len(t, google.Catalog, len(gemini))
+	for i, m := range google.Catalog {
+		want := gemini[i]
+		want.ID = "google/" + want.ID
+		assert.Equal(t, want, m)
 	}
 }
 
@@ -233,7 +312,7 @@ func TestEachKeyedProviderIsWrittenAsItsRow(t *testing.T) {
 				"gemini-4-argon": 1_048_576, "hy4": 1_048_576,
 			}},
 	}
-	keyed := keyedProviders()
+	keyed := keyedRows()
 	require.Len(t, keyed, len(rows))
 	overridden := map[string]override{}
 	for i, want := range rows {
@@ -304,16 +383,9 @@ func TestBaseURLVarsNamesEachProvidersOverride(t *testing.T) {
 	assert.Equal(t, "KSTACK_BEDROCK_GPT_BASE_URL", idVar("bedrock-gpt", "BASE_URL"))
 }
 
-// An account's catalog is read off a signed-in provider's row alone.
-func TestReadSignedModelsRefusesAKeyedProvider(t *testing.T) {
-	_, err := ReadSignedModels(t.Context(), llm.Provider{ID: "openai"})
-
-	assert.ErrorContains(t, err, "openai is not a signed-in provider")
-}
-
 // Every model of a wire whose whole catalog takes tools says so.
 func TestEveryModelOnAWireThatCarriesToolsTakesThem(t *testing.T) {
-	for _, kp := range keyedProviders() {
+	for _, kp := range keyedRows() {
 		for _, m := range kp.provider.Catalog {
 			if d := kp.provider.ForModel(m).Dialect; d == llm.DialectMessages || d == llm.DialectResponses {
 				assert.True(t, m.Tools, m.ID)
@@ -366,7 +438,7 @@ func TestEveryModelStatesItsCaching(t *testing.T) {
 		"groq/qwen/qwen3.6-27b":                 llm.CacheNone,
 	}
 	providers := []llm.Provider{llm.FakeProvider(nil)}
-	for _, kp := range keyedProviders() {
+	for _, kp := range keyedRows() {
 		providers = append(providers, kp.provider)
 	}
 	for _, p := range providers {
@@ -385,7 +457,7 @@ func TestEveryModelStatesItsCaching(t *testing.T) {
 
 // A route puts the key in one place: a header or a body field, never both.
 func TestEveryAffinityRouteNamesOnePlace(t *testing.T) {
-	for _, kp := range keyedProviders() {
+	for _, kp := range keyedRows() {
 		r := kp.provider.AffinityRoute
 		assert.False(t, r.Header != "" && r.Field != "", kp.provider.ID)
 	}
@@ -396,7 +468,7 @@ func TestEveryAffinityRouteNamesOnePlace(t *testing.T) {
 // accounting, so the openai row sends none.
 func TestEachRowRoutesTheAffinityKeyWhereItsVendorSays(t *testing.T) {
 	routes := map[string]llm.AffinityRoute{}
-	for _, kp := range keyedProviders() {
+	for _, kp := range keyedRows() {
 		if kp.provider.AffinityRoute != (llm.AffinityRoute{}) {
 			routes[kp.provider.ID] = kp.provider.AffinityRoute
 		}
@@ -413,7 +485,7 @@ func TestEachRowRoutesTheAffinityKeyWhereItsVendorSays(t *testing.T) {
 // A stated window holds the cap every request asks for, so no request is refused
 // for its cap alone.
 func TestEveryWrittenWindowHoldsTheCap(t *testing.T) {
-	for _, kp := range keyedProviders() {
+	for _, kp := range keyedRows() {
 		for _, m := range kp.provider.Catalog {
 			if m.ContextWindow > 0 {
 				assert.Greater(t, m.ContextWindow, m.MaxOutputTokens, m.ID)
@@ -432,55 +504,66 @@ func TestNoOpenRouterModelLeavesTheRowsDialect(t *testing.T) {
 	assert.Empty(t, newOpenRouterProvider().KeyHeader)
 }
 
-// A keyed provider's catalog is its written one, read without a request, at the
-// base a debug build moved.
-func TestKeyedModelsAnswersTheWrittenCatalog(t *testing.T) {
-	release, err := KeyedModels(nil)(t.Context(), llm.Provider{ID: "opencode-go"})
+// A catalog with no reader is the row's written one, read without a request,
+// at the base a debug build moved. An id not in the table is an error.
+func TestModelsAnswersTheWrittenCatalog(t *testing.T) {
+	release, err := Models(nil, "")(t.Context(), llm.Provider{ID: "opencode-go"})
 	require.NoError(t, err)
 	assert.Equal(t, newOpenCodeGoProvider().Catalog, release, "a release keeps each model's base")
 
-	moved, err := KeyedModels(map[string]string{"opencode-go": "http://127.0.0.1:1"})(t.Context(), llm.Provider{ID: "opencode-go"})
+	moved, err := Models(map[string]string{"opencode-go": "http://127.0.0.1:1"}, "")(t.Context(), llm.Provider{ID: "opencode-go"})
 	require.NoError(t, err)
 	require.Len(t, moved, len(newOpenCodeGoProvider().Catalog))
 	for _, m := range moved {
 		assert.Empty(t, m.BaseURL, m.ID)
 	}
 
-	_, err = KeyedModels(nil)(t.Context(), llm.Provider{ID: ChatGPTID})
-	assert.Error(t, err)
+	vertex, err := Models(nil, vertexBase)(t.Context(), llm.Provider{ID: GoogleID})
+	require.NoError(t, err)
+	assert.Equal(t, newGoogleProvider(vertexBase).Catalog, vertex)
+
+	_, err = Models(nil, "")(t.Context(), llm.Provider{ID: "nope"})
+	assert.ErrorContains(t, err, "nope is not a provider")
 }
 
-// Every keyed provider's routes are its bases and their headers: one in a release,
-// and opencode-go's two.
-func TestKeyedProviders(t *testing.T) {
-	rows := KeyedProviders(nil)
-	require.Len(t, rows, len(keyedProviders()))
+// Every row is a provider for the service, in picker order. A keyed row's routes
+// are its bases and their headers: one in a release, and opencode-go's two. A
+// row with no key has neither a key variable nor a route.
+func TestProviders(t *testing.T) {
+	rows := Providers(nil, vertexBase)
+	require.Len(t, rows, len(rowsAt(nil, vertexBase)))
 	for _, r := range rows {
 		assert.Equal(t, KeyVars()[r.ID], r.KeyVar, r.ID)
 		assert.NotEmpty(t, r.Label, r.ID)
-		if r.ID != "opencode-go" {
+		switch r.ID {
+		case "opencode-go":
+		case ChatGPTID, GoogleID:
+			assert.Empty(t, r.Routes, r.ID)
+		default:
 			assert.Len(t, r.Routes, 1, r.ID)
 		}
 	}
+	assert.Equal(t, []string{ChatGPTID, GoogleID}, []string{rows[len(rows)-2].ID, rows[len(rows)-1].ID})
 	assert.Equal(t, []providercredentials.Route{{BaseURL: "https://api.anthropic.com", Header: "X-Api-Key"}}, rows[0].Routes)
 	assert.Equal(t, []providercredentials.Route{{BaseURL: "https://api.openai.com/v1", Header: "Authorization", Prefix: "Bearer "}}, rows[1].Routes)
 	assert.Equal(t, []providercredentials.Route{
 		{BaseURL: "https://opencode.ai/inference/go/openai/v1", Header: "Authorization", Prefix: "Bearer "},
 		{BaseURL: "https://opencode.ai/inference/go/anthropic", Header: "X-Api-Key"},
-	}, rows[len(rows)-1].Routes)
+	}, rows[10].Routes)
 
-	moved := KeyedProviders(map[string]string{"opencode-go": "http://127.0.0.1:1"})
+	moved := Providers(map[string]string{"opencode-go": "http://127.0.0.1:1"}, "")
 	assert.Equal(t, []providercredentials.Route{
 		{BaseURL: "http://127.0.0.1:1", Header: "Authorization", Prefix: "Bearer "},
 		{BaseURL: "http://127.0.0.1:1", Header: "X-Api-Key"},
-	}, moved[len(moved)-1].Routes, "one stub takes both headers")
+	}, moved[10].Routes, "one stub takes both headers")
+	assert.NotContains(t, rowIDs(rowsAt(nil, "")), GoogleID, "no project, no google provider")
 }
 
 // A release sets one header per request: no two routes of a provider with
 // different headers have one base covering the other.
 func TestEachBaseOfAKeyedRowTakesOneHeader(t *testing.T) {
 	covers := func(base, u string) bool { return strings.HasPrefix(u+"/", strings.TrimSuffix(base, "/")+"/") }
-	for _, r := range KeyedProviders(nil) {
+	for _, r := range Providers(nil, "") {
 		for _, a := range r.Routes {
 			for _, b := range r.Routes {
 				if a.Header != b.Header {
