@@ -77,7 +77,7 @@ func TestNewRefusesABadURL(t *testing.T) {
 
 // GitHub's intervals are seconds.
 func TestGitHubsIntervalsAreSeconds(t *testing.T) {
-	s, err := newWithOptions(Config{AuthURL: AuthURL, APIURL: APIURL}, withKeyring(newFakeKeyring()))
+	s, err := newWithOptions(Config{AuthURL: AuthURL, APIURL: APIURL, Keyring: newFakeKeyring()})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 

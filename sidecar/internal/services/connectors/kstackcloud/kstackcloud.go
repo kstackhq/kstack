@@ -39,8 +39,8 @@ const (
 type Config struct {
 	// DB is app.db, which holds the account's row.
 	DB *appdb.DB
-	// KeychainService is the OS-keyring service the refresh token is kept under.
-	KeychainService string
+	// Keyring is the OS keyring the refresh token is kept in.
+	Keyring oskeyring.Keyring
 	// Issuer and ClientID are Kstack Cloud's auth server and the app's client there.
 	Issuer   string
 	ClientID string
@@ -67,18 +67,18 @@ type Service struct {
 // New is the connector, signed in if app.db and the keyring hold a session. It
 // reaches no network.
 func New(cfg Config) (*Service, error) {
-	return newService(oskeyring.New(cfg.KeychainService), func() (engine, error) {
+	return newService(cfg.Keyring, func() (engine, error) {
 		return oauthconn.New(oauthconn.Config{
-			Provider:        provider(cfg),
-			DB:              cfg.DB,
-			KeychainService: cfg.KeychainService,
+			Provider: provider(cfg),
+			DB:       cfg.DB,
+			Keyring:  cfg.Keyring,
 		})
 	})
 }
 
 // newService deletes the old entry, then builds the engine.
 func newService(k oskeyring.Keyring, newEngine func() (engine, error)) (*Service, error) {
-	if err := k.Delete(oldAccount); err != nil {
+	if err := deleteOldEntry(k); err != nil {
 		// A machine with no keyring fails this at every launch; the next tries again.
 		slog.Info("kstack: could not delete the old sign-in's keyring entry", "err", err)
 	}
@@ -87,6 +87,15 @@ func newService(k oskeyring.Keyring, newEngine func() (engine, error)) (*Service
 		return nil, err
 	}
 	return &Service{engine: e}, nil
+}
+
+// deleteOldEntry deletes oldAccount once the keyring has opened. A keyring
+// that did not open, a dismissed prompt included, is not asked again.
+func deleteOldEntry(k oskeyring.Keyring) error {
+	if err := oskeyring.Opened(k); err != nil {
+		return err
+	}
+	return k.Delete(oldAccount)
 }
 
 // State is the connector's current state.

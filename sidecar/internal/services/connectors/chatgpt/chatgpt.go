@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/internal/oauthconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/internal/catalogsync"
@@ -56,8 +57,8 @@ const (
 type Config struct {
 	// DB is app.db, which holds the registration.
 	DB *appdb.DB
-	// KeychainService is the OS-keyring service the refresh token is kept under.
-	KeychainService string
+	// Keyring is the OS keyring the refresh token is kept in.
+	Keyring oskeyring.Keyring
 	// Issuer and APIBaseURL are the constants, each moved only by a debug build.
 	Issuer     string
 	APIBaseURL string
@@ -72,9 +73,9 @@ type Service struct {
 // reaches no network.
 func New(cfg Config) (*Service, error) {
 	engine, err := oauthconn.New(oauthconn.Config{
-		Provider:        provider(cfg),
-		DB:              cfg.DB,
-		KeychainService: cfg.KeychainService,
+		Provider: provider(cfg),
+		DB:       cfg.DB,
+		Keyring:  cfg.Keyring,
 	})
 	if err != nil {
 		return nil, err

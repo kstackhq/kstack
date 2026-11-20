@@ -62,8 +62,8 @@ var scopes = []string{"repo", "read:org", "workflow"}
 
 // Config is the service's production knobs.
 type Config struct {
-	// KeychainService is the OS-keyring service the token is kept under.
-	KeychainService string
+	// Keyring is the OS keyring the token is kept in.
+	Keyring oskeyring.Keyring
 	// ClientID is Kstack's OAuth App. Empty refuses every Connect
 	// (connectors.ErrNoClient).
 	ClientID string
@@ -111,8 +111,6 @@ type Service struct {
 // option is an unexported build seam, so only in-package tests pass one.
 type option func(*Service)
 
-func withKeyring(k oskeyring.Keyring) option { return func(s *Service) { s.keyring = k } }
-
 func withBrowser(open func(string) error) option { return func(s *Service) { s.open = open } }
 
 func withAttemptTimeout(d time.Duration) option { return func(s *Service) { s.attemptTimeout = d } }
@@ -142,7 +140,7 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 		clientID:       cfg.ClientID,
 		auth:           auth,
 		api:            api,
-		keyring:        oskeyring.New(cfg.KeychainService),
+		keyring:        cfg.Keyring,
 		open:           browser.Open,
 		attemptTimeout: attemptTimeout,
 		issuerTimeout:  issuerTimeout,

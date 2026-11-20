@@ -1,7 +1,7 @@
 ---
 title: The read that waits
 scope: sidecar
-status: Planned
+status: In progress
 ---
 
 # The read that waits
@@ -174,10 +174,10 @@ package's `withKeyring` option goes, and its rig passes its fake through `Config
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | `oskeyring`: `ErrUnavailable` and its Linux file, `Gate` and `Pace`, `Read`, `Delete`; the manual check below | Planned |
-| 2 | `oskeyringtest`: `Hold`, `FailGets`, `FailGet`, `Calls` | Planned |
-| 3 | `signer.Pending` | Planned |
-| 4 | `Config.Keyring` in every connector; one keyring in `build`; every rig and test that passed `KeychainService` or `withKeyring` | Planned |
+| 1 | `oskeyring`: `ErrUnavailable` and its Linux file, `Gate` and `Pace`, `Read`, `Delete`; the manual check below | Built; the manual check is not run |
+| 2 | `oskeyringtest`: `Hold`, `FailGets`, `FailGet`, `Calls` | Built |
+| 3 | `signer.Pending` | Built |
+| 4 | `Config.Keyring` in every connector; one keyring in `build`; every rig and test that passed `KeychainService` or `withKeyring` | Built |
 
 **Task 1's manual check**, with a throwaway program over `oskeyring.New`, its results recorded in
 the pull request and this spec corrected where they differ:

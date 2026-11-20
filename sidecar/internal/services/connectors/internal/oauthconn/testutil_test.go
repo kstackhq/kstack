@@ -568,8 +568,8 @@ func newRigWith(t *testing.T, p func(issuer string) Provider, opts ...option) *r
 
 func (r *rig) build() *Service {
 	r.t.Helper()
-	opts := append([]option{withKeyring(r.keyring), withBrowser(following)}, r.opts...)
-	return newService(r.t, Config{Provider: r.provider(r.issuer.url()), DB: r.db}, opts...)
+	opts := append([]option{withBrowser(following)}, r.opts...)
+	return newService(r.t, Config{Provider: r.provider(r.issuer.url()), DB: r.db, Keyring: r.keyring}, opts...)
 }
 
 // newService is a service closed when the test ends.
