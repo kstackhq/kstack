@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/fileguard"
@@ -35,6 +36,23 @@ func outsideEnv(environ, kstack []string, dir string) []string {
 	env = append(env, environ...)
 	env = append(env, kstack...)
 	return append(env, "PWD="+dir)
+}
+
+// lastOfEachName is env with only the last entry of each name kept, in order,
+// as exec.Cmd keeps it on Unix. Windows hands a child the whole block and the
+// child reads the first, so there the block is built through this. key is an
+// entry's name as the platform compares it.
+func lastOfEachName(env []string, key func(entry string) string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(env))
+	for _, e := range slices.Backward(env) {
+		if k := key(e); !seen[k] {
+			seen[k] = true
+			out = append(out, e)
+		}
+	}
+	slices.Reverse(out)
+	return out
 }
 
 // sandboxedRunEnv is a sandboxed run's environment, built from one table so

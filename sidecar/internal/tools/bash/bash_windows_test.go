@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -168,6 +169,26 @@ func TestEnvNameOfAnEntryWithNoSeparator(t *testing.T) {
 	assert.Equal(t, "PATH", envName("PATH"))
 	assert.Equal(t, "PATH", envName("PATH=x"))
 	assert.Equal(t, "=C:", envName(`=C:=C:\x`))
+	assert.Empty(t, envName(""))
+}
+
+// An entry of extra replaces the process's own of its name, which Windows
+// compares without case, so the child reads the one given.
+func TestAnExtraEntryReplacesTheProcesssOwn(t *testing.T) {
+	t.Setenv("KSTACK_TEST_MARK", "process")
+
+	block, err := environBlock([]string{"kstack_test_mark=extra"})
+	require.NoError(t, err)
+
+	var marks []string
+	for len(block) > 1 {
+		i := slices.Index(block, 0)
+		if e := windows.UTF16ToString(block[:i]); strings.EqualFold(envName(e), "KSTACK_TEST_MARK") {
+			marks = append(marks, e)
+		}
+		block = block[i+1:]
+	}
+	assert.Equal(t, []string{"kstack_test_mark=extra"}, marks)
 }
 
 var errInjected = errors.New("injected")

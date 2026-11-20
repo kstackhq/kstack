@@ -407,14 +407,16 @@ func startSuspended(sys *sys, bash string, args []string, dir string, extra []st
 }
 
 // environBlock is os.Environ() and extra as CreateProcess takes it: UTF-16 entries,
-// NUL-separated, double-NUL-terminated, sorted by name as Windows requires.
+// NUL-separated, double-NUL-terminated, sorted by name as Windows requires, an
+// entry of extra replacing one of its name.
 // The =C: drive-cwd entries go through — per-drive relative paths must
 // resolve in the child as in the user's own Git Bash. An entry holding a NUL
 // is refused, never silently truncating the block.
 func environBlock(extra []string) ([]uint16, error) {
-	env := append(os.Environ(), extra...)
+	name := func(e string) string { return strings.ToUpper(envName(e)) }
+	env := lastOfEachName(append(os.Environ(), extra...), name)
 	sort.SliceStable(env, func(i, j int) bool {
-		return strings.ToUpper(envName(env[i])) < strings.ToUpper(envName(env[j]))
+		return name(env[i]) < name(env[j])
 	})
 	var block []uint16
 	for _, e := range env {
@@ -433,6 +435,9 @@ func environBlock(extra []string) ([]uint16, error) {
 // envName is the entry up to its separator; a =C: entry's name starts at the
 // leading '=' and ends at the next.
 func envName(entry string) string {
+	if entry == "" {
+		return ""
+	}
 	if i := strings.IndexByte(entry[1:], '='); i >= 0 {
 		return entry[:i+1]
 	}

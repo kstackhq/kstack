@@ -144,3 +144,9 @@ func TestAsdfVersionsAreReadFromTheHome(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(big, ".tool-versions"), 0o700))
 	assert.Empty(t, toolVersions(big), "a folder")
 }
+
+func TestLastOfEachNameKeepsTheLaterEntryInOrder(t *testing.T) {
+	name := func(e string) string { return strings.ToUpper(strings.SplitN(e, "=", 2)[0]) }
+	got := lastOfEachName([]string{"Path=a", "HOME=/h", "EDITOR=vi", "PATH=b", "EDITOR=nvim"}, name)
+	assert.Equal(t, []string{"HOME=/h", "PATH=b", "EDITOR=nvim"}, got)
+}
