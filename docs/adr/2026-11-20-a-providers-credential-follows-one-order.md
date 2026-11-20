@@ -3,6 +3,7 @@ title: A provider's credential follows one order
 date: 2026-11-20
 scope: cross-cutting
 status: Accepted
+amended_by: [Every provider is one row, signed by one service](2026-11-20-every-provider-is-one-row-signed-by-one-service.md)
 ---
 
 # A provider's credential follows one order

@@ -3,6 +3,7 @@ title: A signed-in provider's catalog follows its connection
 date: 2026-11-18
 scope: sidecar
 status: Accepted
+amended_by: [Every provider is one row, signed by one service](2026-11-20-every-provider-is-one-row-signed-by-one-service.md)
 ---
 
 # A signed-in provider's catalog follows its connection
