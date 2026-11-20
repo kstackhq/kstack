@@ -83,8 +83,14 @@ func TestWebFetchRefusesABodyPastTheFileLimit(t *testing.T) {
 	assert.Equal(t, "The page is larger than 8 MiB, which WebFetch does not read.", text)
 }
 
-// hang is a server that answers nothing until the client goes away.
-func hang(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }
+// hang is a server that never answers. Its request ends when the client
+// closes the connection, which the client starts with a close_notify; a
+// response written then can still reach the client and be used, so hang
+// aborts instead.
+func hang(_ http.ResponseWriter, r *http.Request) {
+	<-r.Context().Done()
+	panic(http.ErrAbortHandler)
+}
 
 // A cancel stops a server that never answers, and answers as read does.
 func TestWebFetchStopsOnACancel(t *testing.T) {
