@@ -149,8 +149,8 @@ The only `Get`s are the restores' (step 2), and the probe.
 
 ```go
 // Pending is a binding made before the restore landed. Each Sign waits for
-// ready, then signs with what resolve answers. The wait ends with the
-// request's context, and with done, as llm.ErrSignedOut.
+// ready, then signs with what resolve answers. The request's context ends the
+// wait with its error, and done ends it with llm.ErrSignedOut.
 func Pending(ready, done <-chan struct{}, resolve func() llm.Signer) llm.Signer
 ```
 
