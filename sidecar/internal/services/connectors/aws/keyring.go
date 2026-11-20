@@ -55,11 +55,10 @@ func saveEntry(k oskeyring.Keyring, e entry) error {
 	return k.Set(sessionAccount, string(data))
 }
 
-// loadEntry reads the session's entry. found says the account holds
+// parseEntry is the entry a read answered. found says the account holds
 // something. A value that does not decode whole is answered as far as it did,
 // so a newer shape still shows its stamp, and the caller judges the rest.
-func loadEntry(k oskeyring.Keyring) (e entry, found bool, err error) {
-	v, err := k.Get(sessionAccount)
+func parseEntry(v string, err error) (e entry, found bool, _ error) {
 	if errors.Is(err, oskeyring.ErrNoEntry) {
 		return entry{}, false, nil
 	}
@@ -70,33 +69,59 @@ func loadEntry(k oskeyring.Keyring) (e entry, found bool, err error) {
 	return e, true, nil
 }
 
-// restore reads the entry. A whole one is the session, connected. Any other is
-// signed out: a newer version's is left for the Kstack that wrote it, and one
-// this build cannot use is deleted. A keyring that cannot be read is no proof
-// of a sign-out, so nothing is written.
-func (s *Service) restore() connectors.State {
-	e, found, err := loadEntry(s.keyring)
+// restore reads the entry, deletes one this build cannot use, then publishes
+// what it read: the session, connected, or signed out. No keyring call runs
+// under s.mu, and each ends with s.ctx: a Close during either publishes
+// nothing.
+func (s *Service) restore() {
+	v, err := oskeyring.Read(s.ctx, s.keyring, sessionAccount, oskeyring.SlowAfter)
+	if s.ctx.Err() != nil {
+		return
+	}
+	sess, unusable := readSession(v, err)
+	if unusable {
+		err := oskeyring.Delete(s.ctx, s.keyring, sessionAccount)
+		if s.ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			slog.Warn("aws: could not delete an unusable keyring entry", "err", err)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := connectors.State{Phase: connectors.SignedOut}
+	if sess != nil {
+		safe.AddSecret(sess.refresh)
+		s.gen++
+		s.session = sess
+		st = connectors.State{Phase: connectors.Connected, Subject: sess.arn}
+	}
+	s.publishLocked(st)
+	close(s.restored)
+}
+
+// readSession is the session a read of the entry answered, nil for none. A
+// newer version's entry is left for the Kstack that wrote it; unusable is one
+// this build cannot use. A keyring that cannot be read is no proof of a
+// sign-out, so it is neither.
+func readSession(v string, err error) (sess *session, unusable bool) {
+	e, found, err := parseEntry(v, err)
 	if err != nil {
 		slog.Warn("aws: could not read the keyring; treating as signed out", "err", err)
-		return connectors.State{Phase: connectors.SignedOut}
+		return nil, false
 	}
 	if !found {
-		return connectors.State{Phase: connectors.SignedOut}
+		return nil, false
 	}
 	if e.V > entryVersion {
 		slog.Warn("aws: the session's entry is a newer Kstack's; leaving it", "v", e.V)
-		return connectors.State{Phase: connectors.SignedOut}
+		return nil, false
 	}
 	key, keyErr := parseKey(e.DPoPKey)
 	_, arnErr := accountOf(e.ARN)
 	if e.V != entryVersion || e.Refresh == "" || keyErr != nil || arnErr != nil {
-		if err := s.keyring.Delete(sessionAccount); err != nil {
-			slog.Warn("aws: could not delete an unusable keyring entry", "err", err)
-		}
-		return connectors.State{Phase: connectors.SignedOut}
+		return nil, true
 	}
-	safe.AddSecret(e.Refresh)
-	s.gen++
-	s.session = &session{refresh: e.Refresh, key: key, arn: e.ARN}
-	return connectors.State{Phase: connectors.Connected, Subject: e.ARN}
+	return &session{refresh: e.Refresh, key: key, arn: e.ARN}, false
 }

@@ -9,8 +9,11 @@ neither it nor `lib/oauth`.
 [security record](../../../../../docs/security/2026-11-19-the-aws-connector.md).
 
 - **One store: an entry present is connected.** Account `aws-session`,
-  `{"v":1,"refresh","dpopKey","arn"}`. `New` reads it and reaches no network. A newer `v` is left;
-  one this build cannot use is deleted; a keyring that cannot be read writes nothing.
+  `{"v":1,"refresh","dpopKey","arn"}`. The restore reads it and reaches no network. A newer `v` is
+  left; one this build cannot use is deleted; a keyring that cannot be read writes nothing.
+- **`New` is `Restoring` and makes no keyring call**; the restore reads on a goroutine. Until it
+  publishes, `Retrieve` waits and every change answers `ErrRestoring`. `Close` leaves a keyring
+  call that never answers behind.
 - **Every change runs under one lock against one generation.** `Connect`, `Cancel`, `Disconnect`
   and a session's end bump it; tokens that arrive for an ended generation are dropped.
 - **`Connect` checks the keyring before any browser opens**, and is refused during an attempt,

@@ -341,6 +341,7 @@ func awaitRestored(t *testing.T, rt *Runtime) {
 		"kstack cloud": rt.KstackCloud.Restored(), "chatgpt": rt.ChatGPT.Restored(), "google": rt.Google.Restored(),
 		"openrouter":    rt.OpenRouter.Restored(),
 		"github":        rt.GitHub.Restored(),
+		"aws":           rt.AWS.Restored(),
 		"provider keys": rt.ProviderKeys.Restored(),
 	} {
 		testutil.Wait(t, restored, name+"'s restore")
