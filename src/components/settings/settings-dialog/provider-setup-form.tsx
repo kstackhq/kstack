@@ -48,7 +48,7 @@ const SOURCES: Record<CredentialSource, { label: string; note?: string; soon?: t
   'access-key': { label: 'Access key', note: 'An AWS access key ID and secret.', soon: true },
   'google-connector': { label: 'Google connector', note: 'Sign in with your Google account.' },
   'azure-connector': { label: 'Azure connector', note: 'Sign in with your Azure account.', soon: true },
-  'chatgpt-connector': { label: 'ChatGPT connector', note: 'Sign in with your ChatGPT account.', soon: true },
+  'chatgpt-connector': { label: 'ChatGPT connector', note: 'Sign in with your ChatGPT account.' },
   'openrouter-connector': { label: 'OpenRouter connector', note: 'Sign in with your OpenRouter account.' },
   'api-key': { label: 'Saved key', note: "A key Kstack keeps in your system's password store." },
   host: { label: 'Host', note: 'The address of the server that runs the models.', soon: true },
@@ -60,7 +60,7 @@ export function isConnector(source: CredentialSource): boolean {
 }
 
 // The sources the Connectors tab sets up: the form sends the user there.
-const ON_CONNECTORS_TAB = new Set<CredentialSource>(['google-connector', 'openrouter-connector']);
+const ON_CONNECTORS_TAB = new Set<CredentialSource>(['chatgpt-connector', 'google-connector', 'openrouter-connector']);
 
 // Each failed save's line under the key.
 const SAVE_FAILURES: Record<Exclude<SaveKeyResult, 'saved'>, string> = {

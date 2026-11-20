@@ -13,8 +13,8 @@
 // limitations under the License.
 
 // The Settings dialog's Providers tab: every provider, in one alphabetical
-// list, each set up or not, and each set up or configured from a dialog. A
-// keyed provider's row follows the sidecar's credential gauge.
+// list, each set up or not, and each set up or configured from a dialog. Each
+// row the sidecar's credential gauge sends follows it.
 import { Button } from '@kubetail/ui/elements/button';
 import {
   DropdownMenu,

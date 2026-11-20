@@ -60,11 +60,11 @@ describe('ProviderSetupForm', () => {
   });
 
   it('marks each source that awaits its design as coming soon', () => {
-    render(<ProviderSetupForm sources={['environment', 'api-key', 'chatgpt-connector']} onClose={vi.fn()} />);
+    render(<ProviderSetupForm sources={['environment', 'api-key', 'azure-connector']} onClose={vi.fn()} />);
 
     expect(screen.getAllByText('Coming soon')).toHaveLength(1);
-    expect(screen.getByRole('radio', { name: 'ChatGPT connector' })).toHaveAccessibleDescription(
-      'Sign in with your ChatGPT account.',
+    expect(screen.getByRole('radio', { name: 'Azure connector' })).toHaveAccessibleDescription(
+      'Sign in with your Azure account.',
     );
   });
 
@@ -82,12 +82,12 @@ describe('ProviderSetupForm', () => {
   it.each([
     ['SavedKey', 'Saved key'],
     ['EnvironmentKey', 'Environment variable'],
-    ['Connector', 'ChatGPT connector'],
+    ['Connector', 'OpenRouter connector'],
     ['None', 'Environment variable'],
   ] as const)('opens on the source that signs, %s', (source, name) => {
     render(
       <ProviderSetupForm
-        sources={['environment', 'api-key', 'chatgpt-connector']}
+        sources={['environment', 'api-key', 'openrouter-connector']}
         credential={credential({ source })}
         onClose={vi.fn()}
       />,

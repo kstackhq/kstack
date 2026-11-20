@@ -293,10 +293,15 @@ describe('ProvidersSettings', () => {
   it.each([
     ['google', 'Vertex AI', 'Google connector'],
     ['chatgpt', 'ChatGPT plan', 'ChatGPT connector'],
-  ])("draws %s's connected row from the gauge, with no key to set or remove", async (id, name, connector) => {
+  ])("draws %s's connected row from the gauge, configured on the Connectors tab", async (id, name, connector) => {
     const user = userEvent.setup();
+    const selectTab = vi.fn();
     credentials({ [id]: { source: 'Connector' } });
-    render(<ProvidersSettings />);
+    render(
+      <SelectSettingsTab value={selectTab}>
+        <ProvidersSettings />
+      </SelectSettingsTab>,
+    );
 
     expect(names()).toEqual(ALL);
     expect(row(name)).toHaveTextContent('Connected on the Connectors tab');
@@ -308,6 +313,9 @@ describe('ProvidersSettings', () => {
     expect(within(dialog).getAllByRole('radio')).toHaveLength(1);
     expect(within(dialog).getByRole('radio', { name: connector })).toBeChecked();
     expect(within(dialog).queryByLabelText('API key', { selector: 'input' })).toBeNull();
+    expect(dialog).not.toHaveTextContent('Coming soon');
+    await user.click(within(dialog).getByRole('button', { name: 'Open Connectors' }));
+    expect(selectTab).toHaveBeenCalledExactlyOnceWith('Connectors');
   });
 
   it('reads no key failure on a provider that takes no key', () => {
