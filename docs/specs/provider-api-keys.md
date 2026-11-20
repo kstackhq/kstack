@@ -220,9 +220,9 @@ is a persisted format.
 
 - `oskeyring.ErrNoEntry`: no saved key.
 - Any other read error: no saved key, a warning naming the provider id, **nothing written**.
-- A `v` above 1: no saved key, the entry **left in place**, a warning.
-- Anything that does not parse, a `v` that is not 1, or an empty `key`: no saved key, the entry
-  deleted (a failed delete is a warning).
+- A `v` above 1: no saved key, the entry **left in place** and marked a newer Kstack's, a warning.
+- Anything that does not parse, a `v` that is not 1, or a `key` `Save` would refuse (step 2
+  below): no saved key, the entry deleted (a failed delete is a warning).
 - Otherwise the key is held and registered with `safe.AddSecret`.
 
 `New` returns an error only for a `Row` it cannot use (an empty id, a duplicate id, a route whose
@@ -241,10 +241,11 @@ for a debug switch, and `docs/development-switches.md` says so.
    redactor can register), longer than 512 bytes, or holds a byte outside `0x21`–`0x7E`. Nothing
    else about its form is checked.
 3. `safe.AddSecret(key)`, before anything else touches it.
-4. `Keyring.Set(account, entry)`, with `mu` not held. A failure is `ErrNotSaved`:
-   `safe.ForgetSecret(key)`, and the row is unchanged, the previous saved key included.
+4. `Keyring.Set(account, entry)`, with `mu` not held. A failure is `ErrNotSaved`: the warning is
+   logged, then `safe.ForgetSecret(key)`, so an error that quotes the key is redacted; the row is
+   unchanged, the previous saved key included.
 5. Under `mu`: the previous saved key is forgotten (`safe.ForgetSecret`), the new one held, the
-   generation bumped, `undeleted` and `rejected` cleared, and the state published.
+   generation bumped, `undeleted`, `rejected` and the newer mark cleared, and the state published.
 
 The key is saved unchecked. Saving the key already held is a save like any other.
 
@@ -252,11 +253,11 @@ The key is saved unchecked. Saving the key already held is a save like any other
 across the keyring call:
 
 1. An id with no row is `ErrUnknownProvider`.
-2. With no saved key held and `undeleted` clear, it deletes nothing and returns nil: any entry
-   there is a newer Kstack's.
+2. With the entry marked a newer Kstack's, it deletes nothing and returns nil. With no key held
+   otherwise, the keyring delete still runs: a keyring unread at launch may hold one.
 3. Memory first, when a saved key is held: it is forgotten and dropped, `rejected` cleared (the
-   mark was that key's) and the generation bumped, so every binding made under a key (§4) is dead
-   whatever the keyring answers. With no key held, which is a retry while `undeleted`, memory is
+   mark was that key's), the generation bumped and the state published, so every binding made
+   under a key (§4) is dead, and every window says so, whatever the keyring answers. With no key held, which is a retry while `undeleted`, memory is
    left alone: the generation stays, and so does `rejected`, which is then the environment key's.
 4. `Keyring.Delete(account)`. A failure sets `undeleted`, publishes and returns `ErrNotDeleted`;
    calling again retries, whatever `rejected` has become since. Success clears `undeleted` and

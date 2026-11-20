@@ -65,7 +65,7 @@ Adding the mechanism is in [`TODO.md`](TODO.md), *Sidecar (Go)*.
 | `<data>` | `paths.rs` `app_data_dir`: `local_data_dir`/`Kstack` (`Kstack-dev` in debug) | what a user would lose |
 | `<cache>` | `paths.rs` `app_cache_dir` (`<data>/cache` on Windows) | the cluster and log caches |
 | `<config>` | Tauri `app_config_dir`, keyed by bundle id `sh.kstack.desktop` | `host.json` |
-| OS keyring | service `Kstack` | the Kstack account's, the ChatGPT plan's and the Google account's refresh tokens, the OpenRouter connector's key, the AWS connector's session |
+| OS keyring | service `Kstack` | the Kstack account's, the ChatGPT plan's and the Google account's refresh tokens, the OpenRouter connector's key, the AWS connector's session, the saved provider API keys |
 | Webview storage | the webview's profile, keyed by bundle id | `localStorage` under `kstack:*` |
 
 `<config>` and the webview profile hang off the bundle id, not the `Kstack-dev` leaf, so a dev
@@ -90,6 +90,7 @@ cluster no longer has.
 | OAuth connections | `app.db` `oauth_connections`, a row per provider signed in to with OAuth: issued client id (NULL for a fixed client), subject, email, name, the session id its keyring entry must name; `provider_data` is one provider's own JSON (ChatGPT: `{"hostID"}`); no token | `internal/appdb` (migrations `0002`, `0003`), `services/connectors/internal/oauthconn/registration.go` | durable | rides `app.db`'s | an `app.db` migration | with `app.db` | `TestMigration0002AddsTheOAuthConnections`, `TestMigration0003AddsTheName`, `TestARegistrationRoundTrips`, `TestARegistrationLeavesOtherProvidersAlone` |
 | OAuth refresh tokens | OS keyring, service `Kstack`, account `<provider>-refresh-token` (`chatgpt-refresh-token`, `kstack-cloud-refresh-token`, `google-refresh-token`): `{"v":1,"token","session"}` | `services/connectors/internal/oauthconn/keyring.go` | disposable (sign in again) | `v` 1 | a renamed entry deletes the old one | read as no session and deleted | `TestNewRestoresWhatTheStoresHold` |
 | OpenRouter key | OS keyring, service `Kstack`, account `openrouter-api-key`: `{"v":1,"key"}` | `services/connectors/openrouter/keyring.go` | disposable (connect again; the old key stays live on OpenRouter) | `v` 1 | a renamed entry deletes the old one | a newer `v` is left in place; one that does not parse is deleted | `TestNewRestoresWhatTheKeyringHolds`, `TestANewerEntryIsLeft` |
+| Saved provider keys | OS keyring, service `Kstack`, account `<id>-api-key` per keyed provider (`openrouter-saved-api-key` for OpenRouter): `{"v":1,"key"}` | `services/providerkeys/keyring.go` | disposable (save again; the key stays live at its vendor) | `v` 1 | a renamed entry deletes the old one | a newer `v` is left in place; one that does not parse is deleted | `TestTheAccountNames`, `TestNewRestoresWhatTheKeyringHolds`, `TestANewerEntryIsLeft` |
 | AWS session | OS keyring, service `Kstack`, account `aws-session`: `{"v":1,"refresh","dpopKey","arn"}` | `services/connectors/aws/keyring.go` | disposable (connect again; the old session stays valid at AWS until it expires) | `v` 1 | a renamed entry deletes the old one | a newer `v` is left in place; one this build cannot use is deleted | `TestAnEntryReadsBackAsItWasSaved`, `TestANewerKstacksEntryIsLeft`, `TestAnEntryThisBuildCannotUseIsDeleted` |
 | GitHub token | OS keyring, service `Kstack`, account `github-token`: `{"v":1,"token","login"}` | `services/connectors/github/keyring.go` | disposable (connect again; the old token stays authorized on GitHub) | `v` 1 | a renamed entry deletes the old one | a newer `v` is left in place; one that does not parse is deleted | `TestNewRestoresWhatTheKeyringHolds`, `TestANewerEntryIsLeft` |
 | Pane state | `localStorage` `kstack:sidebar-open`, `kstack:sidebar-width`, the right sidebar's per-mode open and width, `kstack:log-viewer-wrap`, the dashboard nav's `kstack:dashboard-nav-open:<section>/<group>`, `kstack:chatgpt-plan-confirmed` (the ChatGPT plan's first confirmation was seen) | `src/lib/persisted-flag.ts`, `persisted-width.ts`, `settings-dialog/connectors.tsx` | disposable | none | a bad value reads as the default | — | `persisted-*.test.ts`, `connectors.test.tsx` |
@@ -105,7 +106,8 @@ Kept on disk but never read back as a format, or not kept across a restart:
 - **`<cache>/tmp/`, `<runtime>/`**: a run's scratch, swept at start.
 - **`sessionStorage`** `kstack:history-forward-ceiling`, `kstack:chatgpt-plan-pending` (a sign-in
   this window started awaits the plan's confirmation): one window session.
-- **Provider API keys**: passed in at launch (`cfg.LLMKeys`), never written.
+- **Provider API keys from the environment**: passed in at launch (`cfg.LLMKeys`), never written.
+  A key saved from the Providers pane is the *Saved provider keys* row.
 - **Provider payloads** inside the message blocks: a cache the provider may invalidate. A payload
   replays only to the provider and dialect its run recorded; any other target is sent Kstack's
   fields alone. Kstack's own block format is what migrates.

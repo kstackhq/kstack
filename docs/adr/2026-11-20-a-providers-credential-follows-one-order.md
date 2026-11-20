@@ -51,6 +51,8 @@ stays under `connectors/internal`.
   and it keeps signing until the user replaces or removes it.
 - The OpenRouter connector loses its `FromEnvironment` phase. Connect works whatever keys exist;
   Disconnect falls back to the saved key, then the environment key.
-- A binding made under a key ends when the saved key changes, so a save mid-turn fails that turn
-  *signed out*. A connector's binding is the connector's own.
-- `llm.Provider.Key` is set by no production row; its removal is a follow-up.
+- A binding ends when the credential that signs its provider changes: a key's when the saved key
+  changes or the connector connects, a connector's when its session ends. So a save or a sign-in
+  mid-turn fails that turn *credential changed*, and a disconnect fails it *signed out*. A token or
+  key rotated within a connector's session ends nothing.
+- `llm.Provider.Key` is set by no production provider; its removal is a follow-up.

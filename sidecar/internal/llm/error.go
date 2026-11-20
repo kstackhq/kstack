@@ -88,10 +88,14 @@ func TransportError(providerID string, err error) *Error {
 }
 
 // SignError is a Signer that could not sign: nothing was sent. Its cause is
-// logged here, where it is read, unless it is ErrSignedOut, which says it all.
+// logged here, where it is read, unless it is ErrSignedOut or
+// ErrCredentialChanged, which say it all.
 func SignError(providerID string, err error) *Error {
-	if errors.Is(err, ErrSignedOut) {
+	switch {
+	case errors.Is(err, ErrSignedOut):
 		return &Error{ProviderID: providerID, Kind: "signed out", cause: err}
+	case errors.Is(err, ErrCredentialChanged):
+		return &Error{ProviderID: providerID, Kind: "credential changed", cause: err}
 	}
 	slog.Error("provider credential unavailable", "provider", providerID, "err", err)
 	return &Error{ProviderID: providerID, Kind: "credential unavailable", cause: err}

@@ -138,9 +138,9 @@ var (
 	prefixedRE = regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}|glpat-[A-Za-z0-9_\-]{20,}|xox[abprs]-[A-Za-z0-9\-]{10,}|AIza[0-9A-Za-z_\-]{35,})`)
 )
 
-// minSecretLen is the shortest value AddSecret registers. No vendor's key is under
+// MinSecretLen is the shortest value AddSecret registers. No vendor's key is under
 // it, and a short value would blank its letters out of every line.
-const minSecretLen = 16
+const MinSecretLen = 16
 
 // secrets is every value AddSecret registered, read on every render.
 var (
@@ -150,10 +150,10 @@ var (
 
 // AddSecret registers a value to blank wherever it appears in rendered text:
 // a key the config read, before anything is logged, or a credential a service
-// holds, until it calls ForgetSecret. A value under minSecretLen registers
+// holds, until it calls ForgetSecret. A value under MinSecretLen registers
 // nothing.
 func AddSecret(value string) {
-	if len(value) < minSecretLen {
+	if len(value) < MinSecretLen {
 		return
 	}
 	secretsMu.Lock()
