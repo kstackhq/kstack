@@ -151,13 +151,9 @@ func authorize(p Provider, r *http.Request) error {
 	switch {
 	case p.Signer != nil:
 		return p.Signer.Sign(r)
-	case p.Key == "":
-	case p.KeyHeader != "":
-		r.Header.Set(p.KeyHeader, p.Key)
-	case p.Dialect == DialectMessages:
-		r.Header.Set("X-Api-Key", p.Key)
-	default:
-		r.Header.Set("Authorization", "Bearer "+p.Key)
+	case p.Key != "":
+		name, prefix := p.AuthHeader()
+		r.Header.Set(name, prefix+p.Key)
 	}
 	return nil
 }

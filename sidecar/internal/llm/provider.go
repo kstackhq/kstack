@@ -76,6 +76,19 @@ func (p Provider) ForModel(m Model) Provider {
 	return p
 }
 
+// AuthHeader is the header a static key goes in, and what precedes the key
+// there: the provider's KeyHeader, else the dialect's own.
+func (p Provider) AuthHeader() (name, prefix string) {
+	switch {
+	case p.KeyHeader != "":
+		return p.KeyHeader, ""
+	case p.Dialect == DialectMessages:
+		return "X-Api-Key", ""
+	default:
+		return "Authorization", "Bearer "
+	}
+}
+
 // AffinityRoute is where Request.AffinityKey goes on a provider's endpoint: one
 // of the two, or neither to send it nowhere.
 type AffinityRoute struct {

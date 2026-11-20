@@ -48,8 +48,8 @@ internal/llm/
 
 - **`Provider.Key` or `Provider.Signer`, never both** (`New` panics). A `Signer` sets each
   request's authorization and hears a `401` (`Refused`). Every wire runs `send` (`helpers.go`) on
-  `NoRedirectClient`, key or signer; no SDK is given a key. `authorize` puts a key in `KeyHeader`,
-  else the dialect's own header. A failed `Sign` sends nothing: `SignError`. → [ADR: a provider's
+  `NoRedirectClient`, key or signer; no SDK is given a key. `authorize` puts a key where
+  `AuthHeader` says: `KeyHeader`, else the dialect's own header. A failed `Sign` sends nothing: `SignError`. → [ADR: a provider's
   credential is a key or a signer](../../../docs/adr/2026-11-18-a-providers-credential-is-a-key-or-a-signer.md).
 - **A `SessionSigner` binds**: `Resolve` puts `Bind()`'s signer on the target, and
   `ResolveUnder(parent, …)` keeps the parent's for a subagent on its provider.
