@@ -22,7 +22,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
-	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 )
 
 // keyedProvider is a provider and the environment variable that keys it.
@@ -69,18 +69,18 @@ func keyedProvidersAt(baseURLs map[string]string) []keyedProvider {
 	return keyed
 }
 
-// KeyedProviders is every keyed provider as providerkeys needs it: each base
+// KeyedProviders is every keyed provider as providercredentials needs it: each base
 // URL the provider and its models are sent to, with the header a key goes in
 // there.
-func KeyedProviders(baseURLs map[string]string) []providerkeys.Provider {
-	var keyed []providerkeys.Provider
+func KeyedProviders(baseURLs map[string]string) []providercredentials.Provider {
+	var keyed []providercredentials.Provider
 	for _, kp := range keyedProvidersAt(baseURLs) {
 		p := kp.provider
-		out := providerkeys.Provider{ID: p.ID, Label: p.Label, KeyVar: kp.keyVar}
+		out := providercredentials.Provider{ID: p.ID, Label: p.Label, KeyVar: kp.keyVar}
 		for _, m := range append([]llm.Model{{}}, p.Catalog...) {
 			pm := p.ForModel(m)
 			header, prefix := pm.AuthHeader()
-			route := providerkeys.Route{BaseURL: pm.BaseURL, Header: header, Prefix: prefix}
+			route := providercredentials.Route{BaseURL: pm.BaseURL, Header: header, Prefix: prefix}
 			if !slices.Contains(out.Routes, route) {
 				out.Routes = append(out.Routes, route)
 			}

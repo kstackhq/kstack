@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package providerkeys
+package providercredentials
 
 import (
 	"encoding/json"
@@ -59,7 +59,7 @@ func (s *Service) restore(id string) (key string, newer bool) {
 		return "", false
 	}
 	if err != nil {
-		slog.Warn("providerkeys: could not read the keyring", "provider", id, "err", err)
+		slog.Warn("providercredentials: could not read the keyring", "provider", id, "err", err)
 		return "", false
 	}
 	// The stamp is read alone, so a newer shape is recognised before it fails
@@ -68,13 +68,13 @@ func (s *Service) restore(id string) (key string, newer bool) {
 		V int `json:"v"`
 	}
 	if json.Unmarshal([]byte(v), &stamp) == nil && stamp.V > entryVersion {
-		slog.Warn("providerkeys: the saved key's entry is a newer Kstack's; leaving it", "provider", id, "v", stamp.V)
+		slog.Warn("providercredentials: the saved key's entry is a newer Kstack's; leaving it", "provider", id, "v", stamp.V)
 		return "", true
 	}
 	var e entry
 	if json.Unmarshal([]byte(v), &e) != nil || e.V != entryVersion || !isKey(e.Key) {
 		if err := s.keyring.Delete(account(id)); err != nil {
-			slog.Warn("providerkeys: could not delete an unreadable keyring entry", "provider", id, "err", err)
+			slog.Warn("providercredentials: could not delete an unreadable keyring entry", "provider", id, "err", err)
 		}
 		return "", false
 	}

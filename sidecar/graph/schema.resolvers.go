@@ -28,7 +28,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
 	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -249,7 +249,7 @@ func (r *googleConnectionResolver) Failure(ctx context.Context, obj *connectors.
 
 // ProviderKeySave is the resolver for the providerKeySave field.
 func (r *mutationResolver) ProviderKeySave(ctx context.Context, providerID string, key string) (bool, error) {
-	if err := r.ProviderKeys.Save(providerID, key); err != nil {
+	if err := r.ProviderCredentials.Save(providerID, key); err != nil {
 		return false, providerKeyErr(err)
 	}
 	return true, nil
@@ -257,7 +257,7 @@ func (r *mutationResolver) ProviderKeySave(ctx context.Context, providerID strin
 
 // ProviderKeyDelete is the resolver for the providerKeyDelete field.
 func (r *mutationResolver) ProviderKeyDelete(ctx context.Context, providerID string) (bool, error) {
-	if err := r.ProviderKeys.Delete(providerID); err != nil {
+	if err := r.ProviderCredentials.Delete(providerID); err != nil {
 		return false, providerKeyErr(err)
 	}
 	return true, nil
@@ -731,7 +731,7 @@ func (r *openRouterConnectionResolver) Failure(ctx context.Context, obj *connect
 }
 
 // Failure is the resolver for the failure field.
-func (r *providerCredentialStateResolver) Failure(ctx context.Context, obj *providerkeys.State) (*providerkeys.Failure, error) {
+func (r *providerCredentialStateResolver) Failure(ctx context.Context, obj *providercredentials.State) (*providercredentials.Failure, error) {
 	if obj.Failure == "" {
 		return nil, nil
 	}
@@ -744,8 +744,8 @@ func (r *queryResolver) Models(ctx context.Context) ([]*model.Model, error) {
 }
 
 // ProviderCredentials is the resolver for the providerCredentials field.
-func (r *queryResolver) ProviderCredentials(ctx context.Context) ([]*providerkeys.State, error) {
-	return ptrSlice(r.ProviderKeys.States()), nil
+func (r *queryResolver) ProviderCredentials(ctx context.Context) ([]*providercredentials.State, error) {
+	return ptrSlice(r.Resolver.ProviderCredentials.States()), nil
 }
 
 // Sandbox is the resolver for the sandbox field.
@@ -1187,9 +1187,9 @@ func (r *subscriptionResolver) ModelsWatch(ctx context.Context) (<-chan []*model
 }
 
 // ProviderCredentialsWatch is the resolver for the providerCredentialsWatch field.
-func (r *subscriptionResolver) ProviderCredentialsWatch(ctx context.Context) (<-chan []*providerkeys.State, error) {
-	states, cancel := r.ProviderKeys.Subscribe()
-	return mapStream(ctx, states, cancel, ptrSlice[providerkeys.State]), nil
+func (r *subscriptionResolver) ProviderCredentialsWatch(ctx context.Context) (<-chan []*providercredentials.State, error) {
+	states, cancel := r.ProviderCredentials.Subscribe()
+	return mapStream(ctx, states, cancel, ptrSlice[providercredentials.State]), nil
 }
 
 // Status is the resolver for the status field: null for a call the provider

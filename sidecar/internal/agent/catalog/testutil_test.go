@@ -20,14 +20,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
-	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 )
 
 // newKeys is the keyed providers' service over an empty keyring, holding keys as
 // the environment's, at the base URLs a debug build moves.
-func newKeys(t *testing.T, keys, baseURLs map[string]string) *providerkeys.Service {
+func newKeys(t *testing.T, keys, baseURLs map[string]string) *providercredentials.Service {
 	t.Helper()
-	s, err := providerkeys.New(providerkeys.Config{Keyring: oskeyringtest.New(), Providers: KeyedProviders(baseURLs), EnvKeys: keys})
+	s, err := providercredentials.New(providercredentials.Config{Keyring: oskeyringtest.New(), Providers: KeyedProviders(baseURLs), EnvKeys: keys})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 	return s

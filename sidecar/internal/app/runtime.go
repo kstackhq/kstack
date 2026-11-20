@@ -36,7 +36,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
-	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -67,10 +67,10 @@ type Runtime struct {
 	GitHub *github.Service
 	// Google is the Google connector, which signs the google row.
 	Google *google.Service
-	// ProviderKeys holds the keyed providers' keys and signs each provider.
-	ProviderKeys *providerkeys.Service
-	Catalog      catalog.Catalog
-	LLM          *llm.Service
+	// ProviderCredentials holds the keyed providers' keys and signs each provider.
+	ProviderCredentials *providercredentials.Service
+	Catalog             catalog.Catalog
+	LLM                 *llm.Service
 	// EnvVars is the user's variables, which every command reads.
 	EnvVars *envvars.Service
 	// Shell is nil on a machine with no shell.
@@ -252,25 +252,25 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.add("google service", lifecycle.CloseFunc(func() error { rt.Google.Close(); return nil }))
 
-	rt.ProviderKeys, err = providerkeys.New(providerkeys.Config{
+	rt.ProviderCredentials, err = providercredentials.New(providercredentials.Config{
 		Keyring:    cmp.Or(cfg.keyring, oskeyring.New(keychainService)),
 		Providers:  catalog.KeyedProviders(cfg.LLMBaseURLs),
 		EnvKeys:    cfg.LLMKeys,
-		Connectors: map[string]providerkeys.Connector{openrouter.ID: rt.OpenRouter},
+		Connectors: map[string]providercredentials.Connector{openrouter.ID: rt.OpenRouter},
 	})
 	if err != nil {
 		return fail(err)
 	}
-	rt.add("provider keys service", lifecycle.CloseFunc(func() error { rt.ProviderKeys.Close(); return nil }))
+	rt.add("provider credentials service", lifecycle.CloseFunc(func() error { rt.ProviderCredentials.Close(); return nil }))
 
-	rt.Catalog = newCatalog(cfg, rt.ProviderKeys, map[string]llm.SessionSigner{chatgpt.ID: rt.ChatGPT, google.ID: rt.Google})
+	rt.Catalog = newCatalog(cfg, rt.ProviderCredentials, map[string]llm.SessionSigner{chatgpt.ID: rt.ChatGPT, google.ID: rt.Google})
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
 	rt.add("chatgpt catalog", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
 		stop := rt.ChatGPT.SyncCatalog(rt.Poke, rt.LLM, catalog.ReadSignedModels)
 		return func(context.Context) error { stop(); return nil }, nil
 	}))
 	rt.add("provider catalogs", lifecycle.StartFunc(func(context.Context) (func(context.Context) error, error) {
-		stop := rt.ProviderKeys.SyncCatalogs(rt.Poke, rt.LLM, catalog.KeyedModels(cfg.LLMBaseURLs))
+		stop := rt.ProviderCredentials.SyncCatalogs(rt.Poke, rt.LLM, catalog.KeyedModels(cfg.LLMBaseURLs))
 		return func(context.Context) error { stop(); return nil }, nil
 	}))
 	// With no project there is no provider to fill.
@@ -365,24 +365,24 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		prober = rt.Shell
 	}
 	return &graph.Resolver{
-		ClusterSvc:    rt.Cluster,
-		ChatSvc:       rt.Chat,
-		MemorySvc:     rt.Memory,
-		LLMSvc:        rt.LLM,
-		SandboxStatus: rt.SandboxStatus,
-		Auth:          rt.KstackCloud,
-		ChatGPT:       rt.ChatGPT,
-		OpenRouter:    rt.OpenRouter,
-		AWS:           rt.AWS,
-		GitHub:        rt.GitHub,
-		Google:        rt.Google,
-		ProviderKeys:  rt.ProviderKeys,
-		OpenURL:       browser.Open,
-		Settings:      rt.Settings,
-		EnvVars:       rt.EnvVars,
-		Executables:   prober,
-		Logs:          rt.Logs,
-		CloudTargets:  rt.CloudTargets,
+		ClusterSvc:          rt.Cluster,
+		ChatSvc:             rt.Chat,
+		MemorySvc:           rt.Memory,
+		LLMSvc:              rt.LLM,
+		SandboxStatus:       rt.SandboxStatus,
+		Auth:                rt.KstackCloud,
+		ChatGPT:             rt.ChatGPT,
+		OpenRouter:          rt.OpenRouter,
+		AWS:                 rt.AWS,
+		GitHub:              rt.GitHub,
+		Google:              rt.Google,
+		ProviderCredentials: rt.ProviderCredentials,
+		OpenURL:             browser.Open,
+		Settings:            rt.Settings,
+		EnvVars:             rt.EnvVars,
+		Executables:         prober,
+		Logs:                rt.Logs,
+		CloudTargets:        rt.CloudTargets,
 	}
 }
 

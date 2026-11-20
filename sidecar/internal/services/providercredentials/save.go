@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package providerkeys
+package providercredentials
 
 import (
 	"log/slog"
@@ -40,7 +40,7 @@ func (s *Service) Save(id, key string) error {
 	safe.AddSecret(key)
 	if err := s.keyring.Set(account(id), encode(key)); err != nil {
 		// Logged while the key is registered, in case the error quotes it.
-		slog.Warn("providerkeys: could not save the key", "provider", id, "err", err)
+		slog.Warn("providercredentials: could not save the key", "provider", id, "err", err)
 		safe.ForgetSecret(key)
 		return ErrNotSaved
 	}
@@ -90,7 +90,7 @@ func (s *Service) Delete(id string) error {
 	p.undeleted = err != nil
 	s.publishLocked(p)
 	if err != nil {
-		slog.Error("providerkeys: could not delete the saved key", "provider", id, "err", err)
+		slog.Error("providercredentials: could not delete the saved key", "provider", id, "err", err)
 		return ErrNotDeleted
 	}
 	return nil

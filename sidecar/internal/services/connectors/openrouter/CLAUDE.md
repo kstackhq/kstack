@@ -2,7 +2,7 @@
 
 **A sign-in that grants a key, not an OAuth session.** OpenRouter's flow is PKCE alone; its
 exchange answers an API key that does not expire. `Service` keeps it in the OS keyring and signs
-the `openrouter` provider with it while connected, through `providerkeys`. It shares `lib/oskeyring`
+the `openrouter` provider with it while connected, through `providercredentials`. It shares `lib/oskeyring`
 and `lib/oauth/browser` with the OAuth engine, and imports neither it nor `lib/oauth`.
 → [ADR: one package](../../../../../docs/adr/2026-11-19-a-connector-is-one-package-and-its-machinery-is-internal.md),
 [ADR: a connector is an OAuth session or a granted key](../../../../../docs/adr/2026-11-19-a-connector-is-an-oauth-session-or-a-granted-key.md),
@@ -11,8 +11,8 @@ and `lib/oauth/browser` with the OAuth engine, and imports neither it nor `lib/o
 - **One store: an entry present is connected.** Account `openrouter-api-key`, `{"v":1,"key"}`.
   `New` reads it and reaches no network. A newer `v` is left in place; an entry that does not
   parse is deleted; a keyring that cannot be read writes nothing.
-- **`Bind` answers `signer.Ended{}` with no session**: `providerkeys` then binds a key. The saved
-  key's entry is `providerkeys`'.
+- **`Bind` answers `signer.Ended{}` with no session**: `providercredentials` then binds a key. The saved
+  key's entry is `providercredentials`'.
 - **Every change runs under one lock against one generation.** `Connect`, `Cancel`, `Disconnect`
   and a rejected key bump it. A key that arrives after its attempt ended is dropped, never saved.
 - **`Connect` checks the keyring before any browser opens.** It is refused during an attempt,

@@ -33,7 +33,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -90,11 +90,11 @@ func TestEveryStatedWindowLeavesACeiling(t *testing.T) {
 	for id := range catalog.KeyVars() {
 		keys[id] = "key-0123456789abcdef"
 	}
-	providerKeys, err := providerkeys.New(providerkeys.Config{Keyring: oskeyringtest.New(), Providers: catalog.KeyedProviders(nil), EnvKeys: keys})
+	credentials, err := providercredentials.New(providercredentials.Config{Keyring: oskeyringtest.New(), Providers: catalog.KeyedProviders(nil), EnvKeys: keys})
 	require.NoError(t, err)
-	t.Cleanup(providerKeys.Close)
+	t.Cleanup(credentials.Close)
 	largest := turnInputAllowance(runnerAndBoth, MaxToolCalls)
-	for _, p := range catalog.New(catalog.Config{Keys: providerKeys, Fake: llm.NewFake(0)}).Providers() {
+	for _, p := range catalog.New(catalog.Config{Keys: credentials, Fake: llm.NewFake(0)}).Providers() {
 		for _, m := range p.Catalog {
 			if m.ContextWindow > 0 {
 				assert.Positive(t, contextCeiling(m, largest), "%s/%s", p.ID, m.ID)

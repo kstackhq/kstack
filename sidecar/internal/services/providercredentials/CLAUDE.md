@@ -1,4 +1,4 @@
-# internal/services/providerkeys — keyed providers' keys
+# internal/services/providercredentials — keyed providers' keys
 
 **One service holds every keyed provider's environment key and saved key, knows its connector, and
 is its `llm.SessionSigner`.** It is not a connector: nothing signs in.

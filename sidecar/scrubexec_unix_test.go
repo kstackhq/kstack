@@ -36,7 +36,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
-	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 )
 
 // The test binary is started as a sidecar by the tests that need one of its
@@ -66,14 +66,14 @@ func scrubChild() int {
 	if err != nil {
 		return 2
 	}
-	keys, err := providerkeys.New(providerkeys.Config{Keyring: oskeyringtest.New(), Providers: catalog.KeyedProviders(nil), EnvKeys: cfg.App.LLMKeys})
+	keys, err := providercredentials.New(providercredentials.Config{Keyring: oskeyringtest.New(), Providers: catalog.KeyedProviders(nil), EnvKeys: cfg.App.LLMKeys})
 	if err != nil {
 		return 2
 	}
 	defer keys.Close()
 	var ids []string
 	for _, st := range keys.States() {
-		if st.Source == providerkeys.SourceEnvironmentKey {
+		if st.Source == providercredentials.SourceEnvironmentKey {
 			ids = append(ids, st.ID)
 		}
 	}

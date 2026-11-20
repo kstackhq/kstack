@@ -15,7 +15,7 @@
 // Package openrouter is the OpenRouter connector: a sign-in with PKCE whose
 // exchange grants an ordinary API key, kept in the OS keyring. The key signs
 // the openrouter provider's requests (llm.SessionSigner) while it is
-// connected, through providerkeys, which ranks it over the provider's keys.
+// connected, through providercredentials, which ranks it over the provider's keys.
 //
 // Files: this one (Service, New), keyring.go (the key's entry),
 // connect.go (the sign-in), sign.go (Sign, Bind, the key check),

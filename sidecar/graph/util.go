@@ -24,7 +24,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/iso8601"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -174,11 +174,11 @@ func connectorErr(err error) error {
 // providerKeyErr is a refused Save or Delete as the wire codes it.
 func providerKeyErr(err error) error {
 	switch {
-	case errors.Is(err, providerkeys.ErrUnknownProvider), errors.Is(err, providerkeys.ErrBadKey):
+	case errors.Is(err, providercredentials.ErrUnknownProvider), errors.Is(err, providercredentials.ErrBadKey):
 		return gqlerrors.Clone(gqlerrors.ErrValidationError)
-	case errors.Is(err, providerkeys.ErrNotSaved):
+	case errors.Is(err, providercredentials.ErrNotSaved):
 		return gqlerrors.Clone(gqlerrors.ErrProviderKeyNotSaved)
-	case errors.Is(err, providerkeys.ErrNotDeleted):
+	case errors.Is(err, providercredentials.ErrNotDeleted):
 		return gqlerrors.Clone(gqlerrors.ErrProviderKeyNotDeleted)
 	}
 	return err

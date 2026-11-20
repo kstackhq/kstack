@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -118,14 +118,14 @@ func everyCatalog(t *testing.T) catalog.Catalog {
 	for id := range catalog.KeyVars() {
 		keys[id] = "key-0123456789abcdef"
 	}
-	return catalog.New(catalog.Config{Keys: newProviderKeys(t, keys, nil), Fake: llm.NewFake(0)})
+	return catalog.New(catalog.Config{Keys: newProviderCredentials(t, keys, nil), Fake: llm.NewFake(0)})
 }
 
-// newProviderKeys is the keyed providers' service over an empty keyring, holding
+// newProviderCredentials is the keyed providers' service over an empty keyring, holding
 // keys as the environment's.
-func newProviderKeys(t *testing.T, keys, baseURLs map[string]string) *providerkeys.Service {
+func newProviderCredentials(t *testing.T, keys, baseURLs map[string]string) *providercredentials.Service {
 	t.Helper()
-	s, err := providerkeys.New(providerkeys.Config{Keyring: oskeyringtest.New(), Providers: catalog.KeyedProviders(baseURLs), EnvKeys: keys})
+	s, err := providercredentials.New(providercredentials.Config{Keyring: oskeyringtest.New(), Providers: catalog.KeyedProviders(baseURLs), EnvKeys: keys})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 	return s
@@ -722,7 +722,7 @@ func TestTheCatalogIsTheConfigs(t *testing.T) {
 		LLMBaseURLs: map[string]string{"anthropic": "http://127.0.0.1:1"},
 		AddFake:     true,
 	}
-	keys := newProviderKeys(t, map[string]string{"anthropic": "sk-ant-test-0123456789abcdef"}, cfg.LLMBaseURLs)
+	keys := newProviderCredentials(t, map[string]string{"anthropic": "sk-ant-test-0123456789abcdef"}, cfg.LLMBaseURLs)
 	providers := newCatalog(cfg, keys, nil).Providers()
 
 	require.Len(t, providers, len(catalog.KeyVars())+1)

@@ -50,7 +50,7 @@ internal/llm/
   request's authorization and hears a `401` (`Refused`). Every wire runs `send` (`helpers.go`) on
   `NoRedirectClient`, key or signer; no SDK is given a key. `authorize` puts a key where
   `AuthHeader` says: `KeyHeader`, else the dialect's own header. Every production keyed provider is
-  signed by `services/providerkeys`, which takes each route's header from `AuthHeader` too. A failed `Sign` sends nothing: `SignError`. → [ADR: a provider's
+  signed by `services/providercredentials`, which takes each route's header from `AuthHeader` too. A failed `Sign` sends nothing: `SignError`. → [ADR: a provider's
   credential is a key or a signer](../../../docs/adr/2026-11-18-a-providers-credential-is-a-key-or-a-signer.md).
 - **A `SessionSigner` binds**: `Resolve` puts `Bind()`'s signer on the target, and
   `ResolveUnder(parent, …)` keeps the parent's for a subagent on its provider.
@@ -79,7 +79,7 @@ internal/llm/
   sorted.
 - **OpenRouter's `Extra` is `provider.data_collection: deny`** — OpenRouter's classification, not
   ours, and not zero-data-retention.
-- **A key saved from the Providers pane needs no restart** (`services/providerkeys`). **An
+- **A key saved from the Providers pane needs no restart** (`services/providercredentials`). **An
   environment key is one variable per provider, read once per launch**, read by `configFromArgs`, registered with
   `safe.AddSecret`, cleared by `main`, and also read from the login shell (the launch's winning),
   never set on the process.

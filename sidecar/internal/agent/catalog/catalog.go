@@ -20,7 +20,7 @@ import (
 	"slices"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -45,7 +45,7 @@ type Catalog struct {
 // Config is what New builds the providers from.
 type Config struct {
 	// Keys signs every keyed provider. Nil leaves them out.
-	Keys *providerkeys.Service
+	Keys *providercredentials.Service
 	// BaseURLs replaces a listed provider's base URL, by provider id. Set only by
 	// a debug build: a release never takes an endpoint from the environment.
 	BaseURLs map[string]string
@@ -71,7 +71,7 @@ func New(cfg Config) Catalog {
 		for _, kp := range keyedProvidersAt(cfg.BaseURLs) {
 			p := kp.provider
 			p.Signer = cfg.Keys.Signer(p.ID)
-			if st, _ := cfg.Keys.State(p.ID); st.Source == providerkeys.SourceNone {
+			if st, _ := cfg.Keys.State(p.ID); st.Source == providercredentials.SourceNone {
 				// SyncCatalogs lists it once the provider has a credential.
 				p.Catalog = nil
 			}

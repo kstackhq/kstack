@@ -13,13 +13,13 @@ name. It imports `llm`, each tool's package, and the connectors `chatgpt` and `o
 and `app` import it.
 
 - `catalog.go`: `New(Config)` is every keyed provider, in picker order, each signed by `Config.Keys`
-  (`services/providerkeys`) and listing its written catalog only while it has a credential, then
+  (`services/providercredentials`) and listing its written catalog only while it has a credential, then
   the signed-in ones, then `Config.Fake`. `ToolsFor(target)` feeds `Box.For`. Only a debug build moves a base URL;
   it clears each model's override, so one stub answers the row.
 - `providers.go`: one constructor per vendor row; a new vendor goes here, never in `llm`.
   `KeyVars()` is what `config.go` reads keys from and clears from the environment;
   `BaseURLVars()` is `KSTACK_<ID>_BASE_URL`. `KeyedProviders` is each keyed provider's routes for
-  `providerkeys`, from `keyedProvidersAt`, the one place a debug base is applied; `KeyedModels(baseURLs)` reads a
+  `providercredentials`, from `keyedProvidersAt`, the one place a debug base is applied; `KeyedModels(baseURLs)` reads a
   keyed provider's catalog for `SyncCatalogs`. **Every entry states its `Cache`** (and
   `AffinityRoute` where the vendor routes by key); a new entry lands with the line
   `make test-livecache` prints for it.

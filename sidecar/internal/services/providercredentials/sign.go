@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package providerkeys
+package providercredentials
 
 import (
 	"cmp"
@@ -25,7 +25,7 @@ import (
 )
 
 // errOffBase is a request under none of the provider's base URLs.
-var errOffBase = errors.New("providerkeys: the request is not for the provider's API")
+var errOffBase = errors.New("providercredentials: the request is not for the provider's API")
 
 // Signer is id's signer, nil for an unknown id.
 func (s *Service) Signer(id string) llm.SessionSigner {

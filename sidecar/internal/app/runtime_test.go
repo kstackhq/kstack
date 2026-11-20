@@ -143,11 +143,11 @@ func TestAKeyedRowListsItsModelsWhileItHasACredential(t *testing.T) {
 		return len(p.Catalog) > 0
 	}
 	assert.False(t, listed(), "no credential, no model")
-	require.NoError(t, rt.ProviderKeys.Save("groq", "gsk-saved-0123456789abcdef"))
+	require.NoError(t, rt.ProviderCredentials.Save("groq", "gsk-saved-0123456789abcdef"))
 	for !listed() {
 		testutil.Recv(t, frames, "groq's models")
 	}
-	require.NoError(t, rt.ProviderKeys.Delete("groq"))
+	require.NoError(t, rt.ProviderCredentials.Delete("groq"))
 	for listed() {
 		testutil.Recv(t, frames, "groq's models leave")
 	}
@@ -164,7 +164,7 @@ func TestOpenRouterFallsBackAfterADisconnect(t *testing.T) {
 
 	p, ok := rt.LLM.Provider(openrouter.ID)
 	require.True(t, ok)
-	assert.Equal(t, rt.ProviderKeys.Signer(openrouter.ID), p.Signer)
+	assert.Equal(t, rt.ProviderCredentials.Signer(openrouter.ID), p.Signer)
 	assert.Empty(t, p.Key)
 	assert.NotEmpty(t, p.Catalog)
 
@@ -178,9 +178,9 @@ func TestOpenRouterFallsBackAfterADisconnect(t *testing.T) {
 		return r.Header.Get("Authorization")
 	}
 	assert.Equal(t, "Bearer "+envKey, bearer())
-	require.NoError(t, rt.ProviderKeys.Save(openrouter.ID, savedKey))
+	require.NoError(t, rt.ProviderCredentials.Save(openrouter.ID, savedKey))
 	assert.Equal(t, "Bearer "+savedKey, bearer())
-	require.NoError(t, rt.ProviderKeys.Delete(openrouter.ID))
+	require.NoError(t, rt.ProviderCredentials.Delete(openrouter.ID))
 	assert.Equal(t, "Bearer "+envKey, bearer())
 }
 

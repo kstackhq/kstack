@@ -200,7 +200,7 @@ func TestAStaleRefusalChecksNothing(t *testing.T) {
 }
 
 // Bind answers signer.Ended{} with no session, a sign-in under way included:
-// providerkeys reads that value as the cue to bind a key.
+// providercredentials reads that value as the cue to bind a key.
 func TestBindIsDeadWithNoSession(t *testing.T) {
 	r := newRig(t)
 	assert.Equal(t, llm.Signer(signer.Ended{}), r.svc.Bind())

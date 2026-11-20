@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package providerkeys holds each keyed provider's API keys, the environment's
+// Package providercredentials holds each keyed provider's API keys, the environment's
 // and the one saved from the Providers pane, and signs the provider's
 // requests with the highest credential present: its connector, then the saved
 // key, then the environment key.
 //
 // Files: this one (Service, New, state, the watches), keyring.go (the entry),
 // save.go (Save, Delete), sign.go (the signers).
-package providerkeys
+package providercredentials
 
 import (
 	"context"
@@ -59,10 +59,10 @@ const (
 )
 
 var (
-	ErrUnknownProvider = errors.New("providerkeys: no such provider")
-	ErrBadKey          = errors.New("providerkeys: not an API key")
-	ErrNotSaved        = errors.New("providerkeys: the keyring refused the key")
-	ErrNotDeleted      = errors.New("providerkeys: the keyring refused the delete")
+	ErrUnknownProvider = errors.New("providercredentials: no such provider")
+	ErrBadKey          = errors.New("providercredentials: not an API key")
+	ErrNotSaved        = errors.New("providercredentials: the keyring refused the key")
+	ErrNotDeleted      = errors.New("providercredentials: the keyring refused the delete")
 )
 
 // State is one provider as every window draws it. It holds no key.
@@ -165,7 +165,7 @@ func New(cfg Config) (*Service, error) {
 			return nil, err
 		}
 		if _, dup := s.byID[p.ID]; dup {
-			return nil, fmt.Errorf("providerkeys: %s is listed twice", p.ID)
+			return nil, fmt.Errorf("providercredentials: %s is listed twice", p.ID)
 		}
 		p.env, p.connector = cfg.EnvKeys[p.ID], cfg.Connectors[p.ID]
 		s.providers = append(s.providers, p)
@@ -199,13 +199,13 @@ func New(cfg Config) (*Service, error) {
 
 func newProvider(in Provider) (*provider, error) {
 	if in.ID == "" {
-		return nil, errors.New("providerkeys: a provider has no id")
+		return nil, errors.New("providercredentials: a provider has no id")
 	}
 	p := &provider{Provider: in}
 	for _, rt := range in.Routes {
 		base, err := url.Parse(rt.BaseURL)
 		if err != nil || base.Host == "" {
-			return nil, fmt.Errorf("providerkeys: %s's base URL %q has no host", in.ID, rt.BaseURL)
+			return nil, fmt.Errorf("providercredentials: %s's base URL %q has no host", in.ID, rt.BaseURL)
 		}
 		p.bases = append(p.bases, base)
 	}

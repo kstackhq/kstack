@@ -27,7 +27,7 @@ provider's order only when it signs that provider's own endpoint, which today is
 `gemini` (the Gemini API) and `google` (Vertex AI) are two providers, so a Gemini key no longer
 hides Vertex AI.
 
-**Every keyed provider is signed by one service, `services/providerkeys`.** It holds each provider's
+**Every keyed provider is signed by one service, `services/providercredentials`.** It holds each provider's
 environment key and saved key (in the OS keyring, one entry per provider), knows the provider's
 connector, and is the provider's `llm.SessionSigner`. Every keyed provider is in `llm.Service` from
 launch and lists its written catalog only while it has a credential, so a saved key needs no

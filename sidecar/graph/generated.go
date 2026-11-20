@@ -31,7 +31,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	gqlparser "github.com/vektah/gqlparser/v2"
@@ -1143,11 +1143,11 @@ type OpenRouterConnectionResolver interface {
 	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
 }
 type ProviderCredentialStateResolver interface {
-	Failure(ctx context.Context, obj *providerkeys.State) (*providerkeys.Failure, error)
+	Failure(ctx context.Context, obj *providercredentials.State) (*providercredentials.Failure, error)
 }
 type QueryResolver interface {
 	Models(ctx context.Context) ([]*model.Model, error)
-	ProviderCredentials(ctx context.Context) ([]*providerkeys.State, error)
+	ProviderCredentials(ctx context.Context) ([]*providercredentials.State, error)
 	Sandbox(ctx context.Context) (*sandbox.Status, error)
 	Cluster(ctx context.Context, id apimeta.ClusterID) (*cluster.Cluster, error)
 	Clusters(ctx context.Context) ([]*cluster.Cluster, error)
@@ -1199,7 +1199,7 @@ type SubscriptionResolver interface {
 	GoogleConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	AWSConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ModelsWatch(ctx context.Context) (<-chan []*model.Model, error)
-	ProviderCredentialsWatch(ctx context.Context) (<-chan []*providerkeys.State, error)
+	ProviderCredentialsWatch(ctx context.Context) (<-chan []*providercredentials.State, error)
 }
 type ToolCallResolver interface {
 	Status(ctx context.Context, obj *chat.ToolCall) (*chat.ToolCallStatus, error)
@@ -21138,7 +21138,7 @@ func (ec *executionContext) fieldContext_Provider_llmDialect(_ context.Context, 
 	return graphql.NewScalarFieldContext("Provider", field, false, false, "LLMDialect")
 }
 
-func (ec *executionContext) _ProviderCredentialState_id(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ProviderCredentialState_id(ctx context.Context, field graphql.CollectedField, obj *providercredentials.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -21161,7 +21161,7 @@ func (ec *executionContext) fieldContext_ProviderCredentialState_id(_ context.Co
 	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "String")
 }
 
-func (ec *executionContext) _ProviderCredentialState_label(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ProviderCredentialState_label(ctx context.Context, field graphql.CollectedField, obj *providercredentials.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -21184,7 +21184,7 @@ func (ec *executionContext) fieldContext_ProviderCredentialState_label(_ context
 	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "String")
 }
 
-func (ec *executionContext) _ProviderCredentialState_keyVariable(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ProviderCredentialState_keyVariable(ctx context.Context, field graphql.CollectedField, obj *providercredentials.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -21207,7 +21207,7 @@ func (ec *executionContext) fieldContext_ProviderCredentialState_keyVariable(_ c
 	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "String")
 }
 
-func (ec *executionContext) _ProviderCredentialState_source(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ProviderCredentialState_source(ctx context.Context, field graphql.CollectedField, obj *providercredentials.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -21219,8 +21219,8 @@ func (ec *executionContext) _ProviderCredentialState_source(ctx context.Context,
 			return obj.Source, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v providerkeys.Source) graphql.Marshaler {
-			return ec.marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v providercredentials.Source) graphql.Marshaler {
+			return ec.marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐSource(ctx, selections, v)
 		},
 		true,
 		true,
@@ -21230,7 +21230,7 @@ func (ec *executionContext) fieldContext_ProviderCredentialState_source(_ contex
 	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "ProviderCredentialSource")
 }
 
-func (ec *executionContext) _ProviderCredentialState_hasEnvironmentKey(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ProviderCredentialState_hasEnvironmentKey(ctx context.Context, field graphql.CollectedField, obj *providercredentials.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -21253,7 +21253,7 @@ func (ec *executionContext) fieldContext_ProviderCredentialState_hasEnvironmentK
 	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "Boolean")
 }
 
-func (ec *executionContext) _ProviderCredentialState_hasSavedKey(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ProviderCredentialState_hasSavedKey(ctx context.Context, field graphql.CollectedField, obj *providercredentials.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -21276,7 +21276,7 @@ func (ec *executionContext) fieldContext_ProviderCredentialState_hasSavedKey(_ c
 	return graphql.NewScalarFieldContext("ProviderCredentialState", field, false, false, "Boolean")
 }
 
-func (ec *executionContext) _ProviderCredentialState_failure(ctx context.Context, field graphql.CollectedField, obj *providerkeys.State) (ret graphql.Marshaler) {
+func (ec *executionContext) _ProviderCredentialState_failure(ctx context.Context, field graphql.CollectedField, obj *providercredentials.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -21288,8 +21288,8 @@ func (ec *executionContext) _ProviderCredentialState_failure(ctx context.Context
 			return ec.Resolvers.ProviderCredentialState().Failure(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *providerkeys.Failure) graphql.Marshaler {
-			return ec.marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *providercredentials.Failure) graphql.Marshaler {
+			return ec.marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐFailure(ctx, selections, v)
 		},
 		true,
 		false,
@@ -21343,8 +21343,8 @@ func (ec *executionContext) _Query_providerCredentials(ctx context.Context, fiel
 			return ec.Resolvers.Query().ProviderCredentials(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*providerkeys.State) graphql.Marshaler {
-			return ec.marshalNProviderCredentialState2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐStateᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*providercredentials.State) graphql.Marshaler {
+			return ec.marshalNProviderCredentialState2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐStateᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -24437,8 +24437,8 @@ func (ec *executionContext) _Subscription_providerCredentialsWatch(ctx context.C
 			return ec.Resolvers.Subscription().ProviderCredentialsWatch(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*providerkeys.State) graphql.Marshaler {
-			return ec.marshalNProviderCredentialState2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐStateᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*providercredentials.State) graphql.Marshaler {
+			return ec.marshalNProviderCredentialState2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐStateᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -32315,7 +32315,7 @@ func (ec *executionContext) _Provider(ctx context.Context, sel ast.SelectionSet,
 
 var providerCredentialStateImplementors = []string{"ProviderCredentialState"}
 
-func (ec *executionContext) _ProviderCredentialState(ctx context.Context, sel ast.SelectionSet, obj *providerkeys.State) graphql.Marshaler {
+func (ec *executionContext) _ProviderCredentialState(ctx context.Context, sel ast.SelectionSet, obj *providercredentials.State) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, providerCredentialStateImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -35632,15 +35632,15 @@ func (ec *executionContext) marshalNProvider2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	return ec._Provider(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource(ctx context.Context, v any) (providerkeys.Source, error) {
+func (ec *executionContext) unmarshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐSource(ctx context.Context, v any) (providercredentials.Source, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource[tmp]
+	res := unmarshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐSource[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource(ctx context.Context, sel ast.SelectionSet, v providerkeys.Source) graphql.Marshaler {
+func (ec *executionContext) marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐSource(ctx context.Context, sel ast.SelectionSet, v providercredentials.Source) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource[v])
+	res := graphql.MarshalString(marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐSource[v])
 	if res == graphql.Null {
 		graphql.AddInvalidNullFromMarshaler(ctx, "ProviderCredentialSource!")
 	}
@@ -35648,25 +35648,25 @@ func (ec *executionContext) marshalNProviderCredentialSource2githubᚗcomᚋksta
 }
 
 var (
-	unmarshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource = map[string]providerkeys.Source{
-		"None":           providerkeys.SourceNone,
-		"EnvironmentKey": providerkeys.SourceEnvironmentKey,
-		"SavedKey":       providerkeys.SourceSavedKey,
-		"Connector":      providerkeys.SourceConnector,
+	unmarshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐSource = map[string]providercredentials.Source{
+		"None":           providercredentials.SourceNone,
+		"EnvironmentKey": providercredentials.SourceEnvironmentKey,
+		"SavedKey":       providercredentials.SourceSavedKey,
+		"Connector":      providercredentials.SourceConnector,
 	}
-	marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐSource = map[providerkeys.Source]string{
-		providerkeys.SourceNone:           "None",
-		providerkeys.SourceEnvironmentKey: "EnvironmentKey",
-		providerkeys.SourceSavedKey:       "SavedKey",
-		providerkeys.SourceConnector:      "Connector",
+	marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐSource = map[providercredentials.Source]string{
+		providercredentials.SourceNone:           "None",
+		providercredentials.SourceEnvironmentKey: "EnvironmentKey",
+		providercredentials.SourceSavedKey:       "SavedKey",
+		providercredentials.SourceConnector:      "Connector",
 	}
 )
 
-func (ec *executionContext) marshalNProviderCredentialState2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐStateᚄ(ctx context.Context, sel ast.SelectionSet, v []*providerkeys.State) graphql.Marshaler {
+func (ec *executionContext) marshalNProviderCredentialState2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐStateᚄ(ctx context.Context, sel ast.SelectionSet, v []*providercredentials.State) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNProviderCredentialState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐState(ctx, sel, v[i])
+		return ec.marshalNProviderCredentialState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐState(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -35678,7 +35678,7 @@ func (ec *executionContext) marshalNProviderCredentialState2ᚕᚖgithubᚗcom�
 	return ret
 }
 
-func (ec *executionContext) marshalNProviderCredentialState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐState(ctx context.Context, sel ast.SelectionSet, v *providerkeys.State) graphql.Marshaler {
+func (ec *executionContext) marshalNProviderCredentialState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐState(ctx context.Context, sel ast.SelectionSet, v *providercredentials.State) graphql.Marshaler {
 	if v == nil {
 		graphql.AddInvalidNullError(ctx, "ProviderCredentialState!")
 		return graphql.Null
@@ -36720,33 +36720,33 @@ func (ec *executionContext) marshalOProvider2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	return ec._Provider(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure(ctx context.Context, v any) (*providerkeys.Failure, error) {
+func (ec *executionContext) unmarshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐFailure(ctx context.Context, v any) (*providercredentials.Failure, error) {
 	if v == nil {
 		return nil, nil
 	}
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure[tmp]
+	res := unmarshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐFailure[tmp]
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure(ctx context.Context, sel ast.SelectionSet, v *providerkeys.Failure) graphql.Marshaler {
+func (ec *executionContext) marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐFailure(ctx context.Context, sel ast.SelectionSet, v *providercredentials.Failure) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	_ = sel
 	_ = ctx
-	res := graphql.MarshalString(marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure[*v])
+	res := graphql.MarshalString(marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐFailure[*v])
 	return res
 }
 
 var (
-	unmarshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure = map[string]providerkeys.Failure{
-		"NotDeleted":  providerkeys.NotDeleted,
-		"KeyRejected": providerkeys.KeyRejected,
+	unmarshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐFailure = map[string]providercredentials.Failure{
+		"NotDeleted":  providercredentials.NotDeleted,
+		"KeyRejected": providercredentials.KeyRejected,
 	}
-	marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋproviderkeysᚐFailure = map[providerkeys.Failure]string{
-		providerkeys.NotDeleted:  "NotDeleted",
-		providerkeys.KeyRejected: "KeyRejected",
+	marshalOProviderKeyFailure2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐFailure = map[providercredentials.Failure]string{
+		providercredentials.NotDeleted:  "NotDeleted",
+		providercredentials.KeyRejected: "KeyRejected",
 	}
 )
 

@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/services/providerkeys"
+	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 )
 
 // Every keyed provider says everything a send needs: an id, a label, a dialect
@@ -462,15 +462,15 @@ func TestKeyedProviders(t *testing.T) {
 			assert.Len(t, r.Routes, 1, r.ID)
 		}
 	}
-	assert.Equal(t, []providerkeys.Route{{BaseURL: "https://api.anthropic.com", Header: "X-Api-Key"}}, rows[0].Routes)
-	assert.Equal(t, []providerkeys.Route{{BaseURL: "https://api.openai.com/v1", Header: "Authorization", Prefix: "Bearer "}}, rows[1].Routes)
-	assert.Equal(t, []providerkeys.Route{
+	assert.Equal(t, []providercredentials.Route{{BaseURL: "https://api.anthropic.com", Header: "X-Api-Key"}}, rows[0].Routes)
+	assert.Equal(t, []providercredentials.Route{{BaseURL: "https://api.openai.com/v1", Header: "Authorization", Prefix: "Bearer "}}, rows[1].Routes)
+	assert.Equal(t, []providercredentials.Route{
 		{BaseURL: "https://opencode.ai/inference/go/openai/v1", Header: "Authorization", Prefix: "Bearer "},
 		{BaseURL: "https://opencode.ai/inference/go/anthropic", Header: "X-Api-Key"},
 	}, rows[len(rows)-1].Routes)
 
 	moved := KeyedProviders(map[string]string{"opencode-go": "http://127.0.0.1:1"})
-	assert.Equal(t, []providerkeys.Route{
+	assert.Equal(t, []providercredentials.Route{
 		{BaseURL: "http://127.0.0.1:1", Header: "Authorization", Prefix: "Bearer "},
 		{BaseURL: "http://127.0.0.1:1", Header: "X-Api-Key"},
 	}, moved[len(moved)-1].Routes, "one stub takes both headers")
