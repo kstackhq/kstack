@@ -17,29 +17,109 @@ package oskeyringtest
 
 import (
 	"maps"
+	"slices"
 	"sync"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
 )
 
-// Keyring is the OS keyring in memory; the zero value is empty. A non-nil Fail
-// field is the error every call of its kind answers, changing nothing. Set the
-// fields before sharing it.
+// Kind is a keyring call's method.
+type Kind string
+
+const (
+	Get    Kind = "Get"
+	Set    Kind = "Set"
+	Delete Kind = "Delete"
+)
+
+// Call is one call made to the keyring.
+type Call struct {
+	Kind    Kind
+	Account string
+}
+
+// Keyring is the OS keyring in memory; the zero value is empty. A non-nil
+// FailSet or FailDelete is the error every call of its kind answers, changing
+// nothing: set them before sharing it. Gets fail through FailGets and FailGet.
 type Keyring struct {
-	FailGet, FailSet, FailDelete error
+	FailSet, FailDelete error
 
 	mu      sync.Mutex
 	entries map[string]string
+	calls   []Call
+	holds   []hold
+	// The next failGets Gets answer failGetsErr; failGet is each account's own.
+	failGets    int
+	failGetsErr error
+	failGet     map[string]error
+}
+
+// hold makes calls of its kinds, every kind when it has none, wait for released.
+type hold struct {
+	kinds    []Kind
+	released chan struct{}
 }
 
 // New is an empty keyring.
 func New() *Keyring { return &Keyring{} }
 
-func (k *Keyring) Get(account string) (string, error) {
+// Hold makes every call of kinds, or every call with no kind, wait from now
+// until release. Release before the test ends, so no goroutine outlives it.
+func (k *Keyring) Hold(kinds ...Kind) (release func()) {
+	released := make(chan struct{})
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if k.FailGet != nil {
-		return "", k.FailGet
+	k.holds = append(k.holds, hold{kinds, released})
+	return sync.OnceFunc(func() { close(released) })
+}
+
+// FailGets makes the next n Gets answer err, whatever the account.
+func (k *Keyring) FailGets(n int, err error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.failGets, k.failGetsErr = n, err
+}
+
+// FailGet makes every Get of account answer err.
+func (k *Keyring) FailGet(account string, err error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.failGet == nil {
+		k.failGet = map[string]error{}
+	}
+	k.failGet[account] = err
+}
+
+// Calls is every call made so far, in order.
+func (k *Keyring) Calls() []Call {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return slices.Clone(k.calls)
+}
+
+// enter records a call, then waits out the holds on its kind.
+func (k *Keyring) enter(kind Kind, account string) {
+	k.mu.Lock()
+	k.calls = append(k.calls, Call{kind, account})
+	holds := slices.Clone(k.holds)
+	k.mu.Unlock()
+	for _, h := range holds {
+		if len(h.kinds) == 0 || slices.Contains(h.kinds, kind) {
+			<-h.released
+		}
+	}
+}
+
+func (k *Keyring) Get(account string) (string, error) {
+	k.enter(Get, account)
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.failGets > 0 {
+		k.failGets--
+		return "", k.failGetsErr
+	}
+	if err := k.failGet[account]; err != nil {
+		return "", err
 	}
 	v, ok := k.entries[account]
 	if !ok {
@@ -49,6 +129,7 @@ func (k *Keyring) Get(account string) (string, error) {
 }
 
 func (k *Keyring) Set(account, value string) error {
+	k.enter(Set, account)
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.FailSet != nil {
@@ -62,6 +143,7 @@ func (k *Keyring) Set(account, value string) error {
 }
 
 func (k *Keyring) Delete(account string) error {
+	k.enter(Delete, account)
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.FailDelete != nil {
