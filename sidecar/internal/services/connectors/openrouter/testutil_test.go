@@ -325,13 +325,13 @@ func newRig(t *testing.T, opts ...option) *rig {
 }
 
 func (r *rig) config() Config {
-	return Config{AuthURL: r.openRouter.authURL(), APIBaseURL: r.openRouter.apiBase()}
+	return Config{AuthURL: r.openRouter.authURL(), APIBaseURL: r.openRouter.apiBase(), Keyring: r.keyring}
 }
 
 func (r *rig) build() *Service {
 	r.t.Helper()
 	opts := append([]option{
-		withKeyring(r.keyring), withBrowser(following), withCheckEnded(func() { r.checkEnded.Fire(struct{}{}) }),
+		withBrowser(following), withCheckEnded(func() { r.checkEnded.Fire(struct{}{}) }),
 	}, r.opts...)
 	return newService(r.t, r.config(), opts...)
 }

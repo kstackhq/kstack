@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package oskeyring reads and writes the OS keyring.
+// Package oskeyring reads and writes the OS keyring. A read may wait on the
+// user, for an unlock prompt, so it has no deadline: Read lets its caller
+// abandon one, and a Gate opens the keyring once for every reader.
 package oskeyring
 
 import (
@@ -24,6 +26,9 @@ import (
 // ErrNoEntry is an account the keyring holds nothing under.
 var ErrNoEntry = errors.New("oskeyring: no keyring entry")
 
+// ErrUnavailable is a keyring that is not there to ask yet.
+var ErrUnavailable = errors.New("oskeyring: the keyring is not available")
+
 // Keyring is the OS keyring under one service name.
 type Keyring interface {
 	// Get answers ErrNoEntry for an account that holds nothing.
@@ -33,8 +38,8 @@ type Keyring interface {
 	Delete(account string) error
 }
 
-// New is the OS keyring under service.
-func New(service string) Keyring { return osKeyring{service: service} }
+// New is the OS keyring under service, behind a gate.
+func New(service string) Keyring { return Gate(osKeyring{service: service}, DefaultPace) }
 
 // osKeyring is the OS keyring through go-keyring.
 type osKeyring struct {
@@ -46,16 +51,16 @@ func (k osKeyring) Get(account string) (string, error) {
 	if errors.Is(err, keyring.ErrNotFound) {
 		return "", ErrNoEntry
 	}
-	return v, err
+	return v, unavailable(err)
 }
 
 func (k osKeyring) Set(account, value string) error {
-	return keyring.Set(k.service, account, value)
+	return unavailable(keyring.Set(k.service, account, value))
 }
 
 func (k osKeyring) Delete(account string) error {
 	if err := keyring.Delete(k.service, account); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-		return err
+		return unavailable(err)
 	}
 	return nil
 }

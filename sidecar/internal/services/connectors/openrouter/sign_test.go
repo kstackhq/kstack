@@ -31,7 +31,7 @@ import (
 func TestTheKeyGoesNowhereElse(t *testing.T) {
 	keyring := newFakeKeyring()
 	keyring.put(keyAccount, `{"v":1,"key":"stored-openrouter-key-0001"}`)
-	s := newService(t, Config{APIBaseURL: "https://openrouter.test/api/v1"}, withKeyring(keyring))
+	s := newService(t, Config{APIBaseURL: "https://openrouter.test/api/v1", Keyring: keyring})
 	require.Equal(t, connectors.Connected, s.State().Phase)
 	req, err := http.NewRequest(http.MethodPost, "https://openrouter.test/auth", nil)
 	require.NoError(t, err)
