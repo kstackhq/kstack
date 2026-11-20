@@ -146,3 +146,40 @@ func TestHoldWithNoKindHoldsEveryCall(t *testing.T) {
 		}
 	})
 }
+
+// A wrapped keyring is recorded and held as the fake is, and answered by the
+// keyring it wraps.
+func TestWrapRecordsAndHoldsThenDelegates(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		inner := New()
+		require.NoError(t, inner.Set("a", "v"))
+		k := Wrap(inner)
+		release := k.Hold(Get)
+		got := make(chan string, 1)
+		go func() { v, _ := k.Get("a"); got <- v }()
+		synctest.Wait()
+		assert.Empty(t, got, "the Get is held")
+
+		release()
+		assert.Equal(t, "v", <-got)
+		require.NoError(t, k.Set("b", "w"))
+		require.NoError(t, k.Delete("a"))
+		assert.Equal(t, map[string]string{"b": "w"}, inner.Entries())
+		assert.Equal(t, []Call{{Get, "a"}, {Set, "b"}, {Delete, "a"}}, k.Calls())
+	})
+}
+
+// A call the wrapped keyring holds blocks no other call, nor Calls.
+func TestAHeldInnerCallBlocksNoOther(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		inner := New()
+		release := inner.Hold(Get)
+		k := Wrap(inner)
+		go func() { _, _ = k.Get("a") }()
+		synctest.Wait()
+
+		require.NoError(t, k.Set("b", "w"))
+		assert.Equal(t, []Call{{Get, "a"}, {Set, "b"}}, k.Calls())
+		release()
+	})
+}
