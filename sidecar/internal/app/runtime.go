@@ -179,8 +179,9 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.add("logs service", lifecycle.CloseFunc(rt.Logs.Close))
 	rt.Cluster.SetCacheFiles(rt.Logs)
 
-	// One keyring for every service.
-	keyring := cmp.Or(cfg.keyring, oskeyring.New(cmp.Or(cfg.KeychainService, defaultKeychainService)))
+	// One keyring for every service, so they share its gate: a locked keyring
+	// asks the user once for their reads.
+	keyring := cmp.Or(cfg.Keyring, oskeyring.New(cmp.Or(cfg.KeychainService, defaultKeychainService)))
 	rt.KstackCloud, err = kstackcloud.New(kstackcloud.Config{
 		DB:       db,
 		Keyring:  keyring,

@@ -167,8 +167,11 @@ each use, so it must answer the same binding every time.
 package's `withKeyring` option goes, and its rig passes its fake through `Config`.
 
 `app/runtime.go`, `build`, makes one keyring before the connectors,
-`cmp.Or(cfg.keyring, oskeyring.New(keychainService))`, and passes it to each `New` and to
+`cmp.Or(cfg.Keyring, oskeyring.New(keychainService))`, and passes it to each `New` and to
 `providerkeys.New`. They then share the gate, and one fake reaches every service in a test.
+`app.Config.Keyring` is exported so the `main` package's `run` tests pass a fake too: a test
+never asks the machine's keyring, and a runner with no Secret Service never waits out the gate's
+retries.
 
 ## Tasks
 
@@ -225,7 +228,7 @@ Every test uses `oskeyringtest` and never sleeps.
   `Refused` to the resolved binding alone (`TestPendingWaitsForReady`).
 - A `Pending` whose request context is live answers `llm.ErrSignedOut` when `done` closes with
   `ready` still open (`TestPendingEndsWithItsService`).
-- `app.New` passes one keyring to every service: with `cfg.keyring` set, a restored entry of each
+- `app.New` passes one keyring to every service: with `cfg.Keyring` set, a restored entry of each
   connector's is read from it (`TestEveryServiceReadsTheOneKeyring` in `app`).
 
 `coverage / Gate` is green.
@@ -239,6 +242,8 @@ Every test uses `oskeyringtest` and never sleeps.
 - **A failed opening is kept.** After it a restore reads nothing, which is today's outcome for an
   unreadable keyring, reached without asking again.
 - **One more keyring call per launch**, the probe: on macOS one `security` process.
+- **Until step 2, a machine with no Secret Service waits at each launch.** Auto-start answers
+  `ServiceUnknown`, so all `1 + Retries` probes are made, about 7.5 s, inside `build`.
 - **A keyring that locks again after it opened is not gated.** Each later call then prompts on its
   own, as today.
 

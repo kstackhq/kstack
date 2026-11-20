@@ -38,8 +38,8 @@ type Keyring interface {
 	Delete(account string) error
 }
 
-// New is the OS keyring under service.
-func New(service string) Keyring { return osKeyring{service: service} }
+// New is the OS keyring under service, behind a gate.
+func New(service string) Keyring { return Gate(osKeyring{service: service}, DefaultPace) }
 
 // osKeyring is the OS keyring through go-keyring.
 type osKeyring struct {

@@ -265,8 +265,8 @@ func withDirs(t *testing.T, cfg Config) Config {
 	if cfg.cloudPlatforms == nil {
 		cfg.cloudPlatforms = []bash.CloudPlatform{}
 	}
-	if cfg.keyring == nil {
-		cfg.keyring = oskeyringtest.New()
+	if cfg.Keyring == nil {
+		cfg.Keyring = oskeyringtest.New()
 	}
 	return cfg
 }

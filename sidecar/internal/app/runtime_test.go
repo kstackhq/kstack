@@ -314,7 +314,7 @@ func TestABadKeyedBaseFailsTheBuild(t *testing.T) {
 // Every service reads its restored entry from the one keyring build makes.
 func TestEveryServiceReadsTheOneKeyring(t *testing.T) {
 	k := oskeyringtest.New()
-	a, err := New(t.Context(), withDirs(t, Config{keyring: k}))
+	a, err := New(t.Context(), withDirs(t, Config{Keyring: k}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
