@@ -73,5 +73,5 @@
     "vitest": "^4.1.12",
     "wonka": "^6.3.6"
   },
-  "packageManager": "pnpm@12.4.1"
+  "packageManager": "pnpm@12.9.1"
 }

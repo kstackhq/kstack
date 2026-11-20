@@ -32,7 +32,7 @@ What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 - [Rust](https://rustup.rs/) 1.98.1
 - [Go](https://go.dev/dl/) 1.26
 - [Node](https://nodejs.org/en/download) 24
-- [pnpm](https://pnpm.io/installation) 12.4.1 (`npm install -g pnpm@12.4.1`)
+- [pnpm](https://pnpm.io/installation) 12.9.1 (`npm install -g pnpm@12.9.1`)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/), for `make lint`'s YAML linters
 - curl, for `make lint-md`, which downloads a pinned [lychee](https://github.com/lycheeverse/lychee) when the one on PATH is not 0.24.2
 - curl and unzip, for `make generate-proto`, which downloads a pinned [protoc](https://github.com/protocolbuffers/protobuf/releases) when the one on PATH is not 36.0
