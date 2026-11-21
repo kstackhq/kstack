@@ -38,6 +38,12 @@ What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 - curl and unzip, for `make generate-proto`, which downloads a pinned [protoc](https://github.com/protocolbuffers/protobuf/releases) when the one on PATH is not 36.0
 - curl, for `make cover-changed` when `src-tauri/` or `proto/` changed, which downloads a pinned [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) when the one on PATH is not 0.9.1; never `cargo install` it
 
+On macOS, install the prerequisites and workspace dependencies with the interactive script:
+
+```console
+./scripts/prerequisites.sh
+```
+
 On Linux:
 
 ```console
