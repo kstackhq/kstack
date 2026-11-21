@@ -928,6 +928,10 @@
         {
           "path": "src/components/settings/settings-dialog/monitoring.tsx",
           "blob": "f444c5da6ed00482d44a9eb059c6e9d20a811d18"
+        },
+        {
+          "path": "src/components/settings/settings-dialog/tools.tsx",
+          "blob": "e98fc1d60faba97c4868c2935b95da964e02e82d"
         }
       ],
       "security": true,
