@@ -434,6 +434,26 @@ func (r *mutationResolver) SandboxExecutablesProbe(ctx context.Context) ([]*mode
 	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
 }
 
+// SandboxConsoleRun is the resolver for the sandboxConsoleRun field.
+func (r *mutationResolver) SandboxConsoleRun(ctx context.Context, command string, clusterID *apimeta.ClusterID, network bool) (int, error) {
+	if r.Console == nil {
+		return 0, sandboxConsoleErr(bash.ErrNoConsole)
+	}
+	number, err := r.Console.StartConsoleCommand(bash.ConsoleRequest{Command: command, ClusterID: valueOf(clusterID), Network: network})
+	if err != nil {
+		return 0, sandboxConsoleErr(err)
+	}
+	return number, nil
+}
+
+// SandboxConsoleStop is the resolver for the sandboxConsoleStop field.
+func (r *mutationResolver) SandboxConsoleStop(ctx context.Context, number *int) (bool, error) {
+	if r.Console != nil {
+		r.Console.StopConsoleCommand(valueOf(number))
+	}
+	return true, nil
+}
+
 // SandboxExecutableRegister is the resolver for the sandboxExecutableRegister field.
 func (r *mutationResolver) SandboxExecutableRegister(ctx context.Context, name string, invocation *string) ([]*model.SandboxExecutable, error) {
 	if !r.probes() {
@@ -1209,6 +1229,22 @@ func (r *subscriptionResolver) SandboxFoldersWatch(ctx context.Context, chatID *
 		}
 	}()
 	return out, nil
+}
+
+// SandboxConsoleWatch is the resolver for the sandboxConsoleWatch field: the
+// console's receiver is current-on-subscribe, so its first value sends the
+// first frame. With no shell, one empty frame.
+func (r *subscriptionResolver) SandboxConsoleWatch(ctx context.Context) (<-chan *model.SandboxConsole, error) {
+	frameOf := func(run *bash.ConsoleRun) *model.SandboxConsole {
+		return &model.SandboxConsole{Run: sandboxConsoleRunOf(run)}
+	}
+	if r.Console == nil {
+		none := make(chan *bash.ConsoleRun, 1)
+		none <- nil
+		return mapStream(ctx, none, func() {}, frameOf), nil
+	}
+	rx := r.Console.WatchConsole()
+	return mapStream(ctx, rx.Chan(), rx.Close, frameOf), nil
 }
 
 // AuthStateWatch is the resolver for the authStateWatch field; the stream is

@@ -56,6 +56,9 @@ type Resolver struct {
 	// Executables probes the executables sandboxed commands run: the Bash tool, nil where
 	// there is no shell.
 	Executables ExecutableProber
+	// Console runs the Sandbox console's commands: the Bash tool, nil where
+	// there is no shell.
+	Console SandboxConsole
 	// Logs pages and follows a scope's lines.
 	Logs LogsService
 	// CloudTargets are the cloud platforms this build has, in the order
@@ -157,6 +160,14 @@ type ExecutableProber interface {
 	StartProbe(registered []settings.Executable)
 	Report(registered []settings.Executable) []bash.ExecutableReport
 	WatchProbe() *watch.Receiver[bash.ProbeState]
+}
+
+// SandboxConsole is the Sandbox console: *bash.Tool, or a test's fake.
+// StartConsoleCommand refuses a machine whose sandbox does not confine a command.
+type SandboxConsole interface {
+	StartConsoleCommand(req bash.ConsoleRequest) (int, error)
+	StopConsoleCommand(number int)
+	WatchConsole() *watch.Receiver[*bash.ConsoleRun]
 }
 
 // probes reports whether this machine probes executables: a sandbox and a shell.

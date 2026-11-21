@@ -4686,3 +4686,150 @@ func TestEnvVarsOverAFailedStoreIsAnError(t *testing.T) {
 	assert.NotEmpty(t, errs)
 	assert.Nil(t, data)
 }
+
+// fakeConsole records each command it is asked to start and answers err;
+// its hub is the console's gauge.
+type fakeConsole struct {
+	err     error
+	started []bash.ConsoleRequest
+	stopped []int
+	hub     *watch.Hub[*bash.ConsoleRun]
+}
+
+func newFakeConsole() *fakeConsole {
+	return &fakeConsole{hub: watch.New[*bash.ConsoleRun](nil)}
+}
+
+// StartConsoleCommand numbers each command it starts from 1.
+func (f *fakeConsole) StartConsoleCommand(req bash.ConsoleRequest) (int, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	f.started = append(f.started, req)
+	return len(f.started), nil
+}
+
+func (f *fakeConsole) StopConsoleCommand(number int) { f.stopped = append(f.stopped, number) }
+
+func (f *fakeConsole) WatchConsole() *watch.Receiver[*bash.ConsoleRun] { return f.hub.Receiver() }
+
+// sandboxConsoleServer is a server over console, nil for a machine with no
+// shell.
+func sandboxConsoleServer(t *testing.T, console graph.SandboxConsole) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Console: console}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+const sandboxConsoleFields = `{ run { number command clusterID network running output discarded exitCode notice durationMs } }`
+
+// consoleFrame is the next sandboxConsoleWatch frame on events.
+func consoleFrame(t *testing.T, events <-chan sseEvent) map[string]any {
+	t.Helper()
+	ev := testutil.Recv(t, events, "a sandboxConsoleWatch frame")
+	var payload struct {
+		Data struct {
+			Console map[string]any `json:"sandboxConsoleWatch"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(ev.data), &payload), ev.data)
+	return payload.Data.Console
+}
+
+// A run starts the command as typed, with its cluster and network, and
+// answers its number; a stop stops one command, or whichever runs.
+func TestSandboxConsoleRunStartsTheCommand(t *testing.T) {
+	console := newFakeConsole()
+	srv := sandboxConsoleServer(t, console)
+
+	data, errs := mutation(t, srv.URL, `mutation { sandboxConsoleRun(command: "kubectl get ns", clusterID: "7", network: true) }`)
+	require.Empty(t, errs)
+	assert.Equal(t, float64(1), data["sandboxConsoleRun"])
+	data, errs = mutation(t, srv.URL, `mutation { sandboxConsoleRun(command: "ls ~", network: false) }`)
+	require.Empty(t, errs)
+	assert.Equal(t, float64(2), data["sandboxConsoleRun"])
+	data, errs = mutation(t, srv.URL, `mutation { sandboxConsoleStop(number: 2) }`)
+	require.Empty(t, errs)
+	assert.Equal(t, true, data["sandboxConsoleStop"])
+	_, errs = mutation(t, srv.URL, `mutation { sandboxConsoleStop }`)
+	require.Empty(t, errs)
+
+	assert.Equal(t, []bash.ConsoleRequest{
+		{Command: "kubectl get ns", ClusterID: "7", Network: true},
+		{Command: "ls ~"},
+	}, console.started)
+	assert.Equal(t, []int{2, 0}, console.stopped)
+}
+
+// A refused run names why: a command running is a conflict, and a refusal
+// in the user's words, or a machine whose sandbox confines nothing, is a
+// validation error carrying them. Anything else stays opaque.
+func TestSandboxConsoleRunRefusals(t *testing.T) {
+	for err, want := range map[error][2]string{
+		bash.ErrConsoleBusy:                       {"KSTACK_CONFLICT", bash.ErrConsoleBusy.Error()},
+		bash.ErrNoConsole:                         {"KSTACK_VALIDATION_ERROR", bash.ErrNoConsole.Error()},
+		bash.ErrConsoleClosed:                     {"KSTACK_VALIDATION_ERROR", bash.ErrConsoleClosed.Error()},
+		&bash.ConsoleRefusal{Reason: "Type one."}: {"KSTACK_VALIDATION_ERROR", "Type one."},
+	} {
+		console := newFakeConsole()
+		console.err = err
+		message, code := refusalOf(t, sandboxConsoleServer(t, console), `mutation { sandboxConsoleRun(command: "x", network: false) }`)
+		assert.Equal(t, want[0], code, err)
+		assert.Equal(t, want[1], message, err)
+	}
+
+	console := newFakeConsole()
+	console.err = errors.New("disk on fire")
+	_, code := refusalOf(t, sandboxConsoleServer(t, console), `mutation { sandboxConsoleRun(command: "x", network: false) }`)
+	assert.NotEqual(t, "KSTACK_VALIDATION_ERROR", code)
+}
+
+// A machine with no shell refuses a run, stops nothing, and its watch sends
+// one empty frame.
+func TestSandboxConsoleWithNoShell(t *testing.T) {
+	srv := sandboxConsoleServer(t, nil)
+
+	_, code := refusalOf(t, srv, `mutation { sandboxConsoleRun(command: "x", network: false) }`)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
+	data, errs := mutation(t, srv.URL, `mutation { sandboxConsoleStop }`)
+	require.Empty(t, errs)
+	assert.Equal(t, true, data["sandboxConsoleStop"])
+
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxConsoleWatch `+sandboxConsoleFields+` }`)
+	defer resp.Body.Close()
+	assert.Equal(t, map[string]any{"run": nil}, consoleFrame(t, sseEvents(t, resp)))
+}
+
+// The watch sends the console's last command as it stands, first null, and
+// ends with the console's feed.
+func TestSandboxConsoleWatchSendsTheLastCommand(t *testing.T) {
+	console := newFakeConsole()
+	srv := sandboxConsoleServer(t, console)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxConsoleWatch `+sandboxConsoleFields+` }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	assert.Equal(t, map[string]any{"run": nil}, consoleFrame(t, events))
+
+	tx := console.hub.Sender()
+	tx.Send(&bash.ConsoleRun{ConsoleRequest: bash.ConsoleRequest{Command: "ls ~"}, Number: 1, Running: true, Output: "a"}) //nolint:errcheck // Send never blocks
+	assert.Equal(t, map[string]any{"run": map[string]any{
+		"number": float64(1), "command": "ls ~", "clusterID": nil, "network": false, "running": true,
+		"output": "a", "discarded": float64(0), "exitCode": nil, "notice": nil, "durationMs": float64(0),
+	}}, consoleFrame(t, events))
+
+	code := 130
+	tx.Send(&bash.ConsoleRun{ //nolint:errcheck // Send never blocks
+		ConsoleRequest: bash.ConsoleRequest{Command: "kubectl get ns", ClusterID: "7", Network: true},
+		Number:         2, Output: "b", Discarded: 9, ExitCode: &code, Notice: "Command cancelled (exit code 130)",
+		Duration: 1500 * time.Millisecond,
+	})
+	assert.Equal(t, map[string]any{"run": map[string]any{
+		"number": float64(2), "command": "kubectl get ns", "clusterID": "7", "network": true, "running": false,
+		"output": "b", "discarded": float64(9), "exitCode": float64(130), "notice": "Command cancelled (exit code 130)",
+		"durationMs": float64(1500),
+	}}, consoleFrame(t, events))
+
+	console.hub.Close()
+	testutil.WaitClosed(t, events, "the watch to end with the feed")
+}

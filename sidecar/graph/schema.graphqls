@@ -2309,6 +2309,36 @@ type SandboxExecutablesReport {
   executables: [SandboxExecutable!]!
 }
 
+"The Sandbox console's last command, as it runs and once it ends."
+type SandboxConsoleRun {
+  "Counts the console's commands since the sidecar started. A gauge keeps its latest value alone, so a watcher tells one command from the next by this."
+  number: Int!
+  "The command as the user typed it. User text: draw it through VisibleText."
+  command: String!
+  "The cluster the command reached; null for none."
+  clusterID: ClusterID
+  "Whether the command had the internet."
+  network: Boolean!
+  "Whether the command is still running; output arrives in later frames."
+  running: Boolean!
+  "Its stdout and stderr together, in arrival order, up to 256 KiB. Command output, attacker-controlled: strip control sequences and draw it through VisibleText."
+  output: String!
+  "Bytes the command wrote past the cap, dropped."
+  discarded: Int!
+  "How the command exited; null while it runs, when it never started, or when its code could not be read."
+  exitCode: Int
+  "The sidecar's line on a command that did not simply exit: `Command timed out after 120s`, `Command cancelled`, an exit code that could not be read, or `could not start: …`. Null otherwise."
+  notice: String
+  "How long the command ran, in milliseconds; 0 while it runs."
+  durationMs: Int!
+}
+
+"The Sandbox console, as a watcher sees it."
+type SandboxConsole {
+  "The last command, running or ended; null before the first, and on a machine with no shell."
+  run: SandboxConsoleRun
+}
+
 "One value the settings file held and the sidecar left out."
 type SettingsRefusal {
   "The setting's key in the file, dotted inside a group: `permissions.rules`."
@@ -2492,6 +2522,12 @@ type Mutation {
 
   "Start a probe of every listed executable in the sandbox, with no cluster and no network, and answer the report as it stands; a probe already running is waited out, then one runs. Its end reaches `sandboxExecutablesWatch`. Refused KSTACK_VALIDATION_ERROR on a machine with no sandbox."
   sandboxExecutablesProbe: [SandboxExecutable!]!
+
+  "Run a command the user typed in the Sandbox console, as a chat's sandboxed command runs: in a workspace of its own, with the folders granted always, `clusterID`'s cluster, read alone, and the internet when `network` is set. Nothing approves it, and it reaches no chat and no model. It answers once the command starts, with its `number`; its output and its end reach `sandboxConsoleWatch`. Refused KSTACK_CONFLICT while a command runs, and KSTACK_VALIDATION_ERROR for an empty or overlong command, the internet where the machine has none, or a machine whose sandbox does not confine a command."
+  sandboxConsoleRun(command: String!, clusterID: ClusterID, network: Boolean!): Int!
+
+  "Stop the Sandbox console's running command, as a chat's Cancel stops a call: command `number`'s, or whichever runs when it is null. Does nothing when none runs, or another, so a stop sent late never ends a newer command."
+  sandboxConsoleStop(number: Int): Boolean!
 
   "Register an executable for the probe, with `invocation`, or `<name> --version` when it is null. Refused KSTACK_VALIDATION_ERROR for a name or invocation out of shape, a name already listed, or on a machine with no sandbox. Returns the whole report, the new executable not probed yet."
   sandboxExecutableRegister(name: String!, invocation: String): [SandboxExecutable!]!
@@ -2692,6 +2728,8 @@ type Subscription {
   sandboxExecutablesWatch: SandboxExecutablesReport!
   "GAUGE. The folders granted, as `sandboxFolders` answers them, a fresh value on each change to the always rules and, with a chat, on each write or revoke of the chat's grants. A folder changing on disk sends nothing."
   sandboxFoldersWatch(chatID: ChatID): SandboxFolders!
+  "GAUGE. The Sandbox console's last command: a fresh value as it starts, about every quarter second while it writes, and as it ends."
+  sandboxConsoleWatch: SandboxConsole!
 
   # --- Cloud account ---
   "Authentication state as a gauge: a fresh snapshot on every change of account (sign-in, sign-out, a session that ended)."

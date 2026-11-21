@@ -244,6 +244,36 @@ type ResourceRule struct {
 	ResourceNames []string `json:"resourceNames"`
 }
 
+// The Sandbox console, as a watcher sees it.
+type SandboxConsole struct {
+	// The last command, running or ended; null before the first, and on a machine with no shell.
+	Run *SandboxConsoleRun `json:"run,omitempty"`
+}
+
+// The Sandbox console's last command, as it runs and once it ends.
+type SandboxConsoleRun struct {
+	// Counts the console's commands since the sidecar started. A gauge keeps its latest value alone, so a watcher tells one command from the next by this.
+	Number int `json:"number"`
+	// The command as the user typed it. User text: draw it through VisibleText.
+	Command string `json:"command"`
+	// The cluster the command reached; null for none.
+	ClusterID *apimeta.ClusterID `json:"clusterID,omitempty"`
+	// Whether the command had the internet.
+	Network bool `json:"network"`
+	// Whether the command is still running; output arrives in later frames.
+	Running bool `json:"running"`
+	// Its stdout and stderr together, in arrival order, up to 256 KiB. Command output, attacker-controlled: strip control sequences and draw it through VisibleText.
+	Output string `json:"output"`
+	// Bytes the command wrote past the cap, dropped.
+	Discarded int `json:"discarded"`
+	// How the command exited; null while it runs, when it never started, or when its code could not be read.
+	ExitCode *int `json:"exitCode,omitempty"`
+	// The sidecar's line on a command that did not simply exit: `Command timed out after 120s`, `Command cancelled`, an exit code that could not be read, or `could not start: …`. Null otherwise.
+	Notice *string `json:"notice,omitempty"`
+	// How long the command ran, in milliseconds; 0 while it runs.
+	DurationMs int `json:"durationMs"`
+}
+
 // One executable the sandbox probe checks, as the last probe found it.
 type SandboxExecutable struct {
 	// The executable's name. User text for a registered one: draw it through VisibleText.

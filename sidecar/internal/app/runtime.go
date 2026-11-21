@@ -322,7 +322,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	// Edges back to a service built later, set once both exist. The part goes
 	// with the edge, so it closes before the service it reads.
 	if shell != nil {
-		// A probe has no chat, so its run reads the folders granted always alone.
+		// A probe or a console command has no chat, so its run reads the folders granted always alone.
 		shell.SetAlwaysFolders(func(ctx context.Context) []session.Folder { return rt.Chat.FoldersFor(ctx, "") })
 		// Ends a running probe at Close.
 		rt.add("executable probe", lifecycle.CloseFunc(shell.Close))
@@ -361,8 +361,9 @@ func (rt *Runtime) Close() error {
 func (rt *Runtime) resolver() *graph.Resolver {
 	// A nil pointer in an interface is not a nil interface.
 	var prober graph.ExecutableProber
+	var console graph.SandboxConsole
 	if rt.Shell != nil {
-		prober = rt.Shell
+		prober, console = rt.Shell, rt.Shell
 	}
 	return &graph.Resolver{
 		ClusterSvc:          rt.Cluster,
@@ -382,6 +383,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		EnvVars:             rt.EnvVars,
 		ToolSettings:        rt.ToolSettings,
 		Executables:         prober,
+		Console:             console,
 		Logs:                rt.Logs,
 		CloudTargets:        rt.CloudTargets,
 	}

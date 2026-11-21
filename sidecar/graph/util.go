@@ -420,6 +420,38 @@ func sandboxExecutableErr(err error) error {
 	return err
 }
 
+// sandboxConsoleErr is what the console's run resolver returns an error
+// through: a command already running is a conflict, a refusal in the user's
+// words is a validation error carrying them, and anything else stays opaque.
+func sandboxConsoleErr(err error) error {
+	if errors.Is(err, bash.ErrConsoleBusy) {
+		return gqlerrors.NewError("KSTACK_CONFLICT", err.Error())
+	}
+	if _, ok := errors.AsType[*bash.ConsoleRefusal](err); ok || errors.Is(err, bash.ErrNoConsole) || errors.Is(err, bash.ErrConsoleClosed) {
+		return gqlerrors.NewValidationError("sandbox-console", err.Error())
+	}
+	return err
+}
+
+// sandboxConsoleRunOf is the console's last command on the wire; nil for none.
+func sandboxConsoleRunOf(run *bash.ConsoleRun) *model.SandboxConsoleRun {
+	if run == nil {
+		return nil
+	}
+	out := &model.SandboxConsoleRun{
+		Number: run.Number, Command: run.Command, Network: run.Network, Running: run.Running,
+		Output: run.Output, Discarded: run.Discarded, ExitCode: run.ExitCode,
+		DurationMs: int(run.Duration.Milliseconds()),
+	}
+	if run.ClusterID != "" {
+		out.ClusterID = &run.ClusterID
+	}
+	if run.Notice != "" {
+		out.Notice = &run.Notice
+	}
+	return out
+}
+
 // envVarErr is what the variable resolvers return an error through: a refusal
 // in the user's words is a validation error carrying them, a missing cluster is
 // not found, and anything else stays opaque.

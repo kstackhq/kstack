@@ -29,6 +29,8 @@ const (
 	Chat     Kind = "chat"
 	Subagent Kind = "subagent"
 	Monitor  Kind = "monitor"
+	// Console is the Sandbox console's: a command the user typed in Settings.
+	Console Kind = "console"
 )
 
 // Network is why a sandboxed command reaches the internet. It is stored on the
@@ -40,6 +42,7 @@ const (
 	NetworkChat     Network = "chat"     // the chat's switch
 	NetworkTurn     Network = "turn"     // the turn's toggle
 	NetworkApproved Network = "approved" // the user approved the call's own request
+	NetworkConsole  Network = "console"  // the Sandbox console's Network checkbox
 )
 
 // Session is one agent run's policy: what its tools and the proxies its runs

@@ -332,6 +332,11 @@ at once. Its report reaches the user alone, never a model: `sandboxExecutablesPr
 `sandboxExecutablesWatch` is the gauge its end reaches (`ProbeState` folded with the settings into
 one `SandboxExecutablesReport`).
 
+**The Sandbox console** (`console.go`) runs one typed command at a time as a chat's sandboxed call,
+in a `scratchDir`, as `session.Console`: the always folders (`SetAlwaysFolders`), no asker (so no
+cluster change) and no cloud platform. `sandboxConsoleWatch` is its gauge. →
+[record](../../../docs/security/2026-11-21-the-sandbox-console.md).
+
 **A command runs where its request shows** (`resolveWorkdir`): its `workdir`, else the workspace. A
 sandboxed call must start under the workspace by name (guidance, not a boundary).
 **`resolveWorkdir` never touches the filesystem** — a UNC path touched before the user decides

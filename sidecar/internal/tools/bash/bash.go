@@ -201,6 +201,8 @@ type Tool struct {
 	alwaysFolders func(context.Context) []session.Folder
 	// probe is the tool probe's state (executableprobe.go).
 	probe *executableProbe
+	// console is the Sandbox console's state (console.go).
+	console *console
 }
 
 // Described is a tool that runs nothing: what a machine of platform whose shell
@@ -275,6 +277,7 @@ func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Se
 		snapTimeout:  snapshotTimeout,
 		snapLimit:    snapshotLimit,
 		probe:        newExecutableProbe(),
+		console:      newConsole(),
 	}
 	// A nil pointer in an interface is not a nil interface.
 	if boxer != nil {
@@ -990,6 +993,8 @@ type spec struct {
 	killGrace                    time.Duration // a timed-out group's time between SIGTERM and SIGKILL
 	pipeGrace                    time.Duration // the wait for the pipe once bash is gone
 	hooks                        hooks
+	// onOutput, when set, is handed each piece of output as it is kept.
+	onOutput func(kept []byte)
 }
 
 // stopFor is why the runner is stopping bash: the loop's context ending is a
@@ -1121,17 +1126,22 @@ func awaitCopy(read <-chan struct{}, r *os.File, grace time.Duration) {
 	}
 }
 
-// captureWriter keeps the first limit bytes written to it and counts the rest.
+// captureWriter keeps the first limit bytes written to it and counts the rest,
+// handing what it keeps to onKeep when that is set.
 type captureWriter struct {
 	limit     int
 	buf       []byte
 	discarded int
+	onKeep    func(kept []byte)
 }
 
 func (w *captureWriter) Write(p []byte) (int, error) {
 	keep := min(len(p), max(w.limit-len(w.buf), 0))
 	w.buf = append(w.buf, p[:keep]...)
 	w.discarded += len(p) - keep
+	if w.onKeep != nil && keep > 0 {
+		w.onKeep(p[:keep])
+	}
 	return len(p), nil
 }
 

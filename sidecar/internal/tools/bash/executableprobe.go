@@ -247,12 +247,14 @@ func (t *Tool) startQueuedProbe() {
 	})
 }
 
-// Close ends a running probe and waits for it, then ends every watcher.
+// Close ends a running probe and console command and waits for them, then
+// ends every watcher.
 func (t *Tool) Close() error {
 	p := t.probe
 	p.stop()
 	p.wg.Wait()
 	p.hub.Close()
+	t.console.close()
 	return nil
 }
 

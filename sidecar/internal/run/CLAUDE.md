@@ -37,9 +37,9 @@ value, and surfaces as `sandboxPathFault`.
 ## The session (`session`)
 
 **A `session.Session` is one agent run's policy** (`internal/run/session`, a leaf a proxy
-imports, never the reverse): `Kind`, `Outside`, and live readers `Policy`, `Network` (a failed
+imports, never the reverse): `Kind` (`Console` is the Sandbox console's, which no chat holds), `Outside`, and live readers `Policy`, `Network` (a failed
 read is `NoNetwork`) and `Folders` (read only through `GrantedFolders`). Only the monitor sets
-`NoPrompts` and `NoSecretData`. **`session.Narrow`** builds a subagent's from its parent's: identity
+`NoSecretData`, and it and the console `NoPrompts`. **`session.Narrow`** builds a subagent's from its parent's: identity
 copied at spawn, each live field handed on or tightened, never widened. A new field is classed by
 that rule and gets its line in `TestNarrowKeepsTheParentsIdentity`.
 

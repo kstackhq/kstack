@@ -17,6 +17,7 @@
 package app
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -232,6 +233,65 @@ func TestASandboxedDeleteAsksAndRuns(t *testing.T) {
 	assert.Empty(t, row.approvalID, "the call itself ran unasked")
 	assert.Contains(t, e.cluster.requests(), "DELETE /api/v1/namespaces/default/pods/x")
 	assert.Equal(t, "approved", e.clusterWrite(t, "approved").status)
+}
+
+// The Sandbox console runs what the user typed in the real sandbox, with the
+// folders granted always: a read of the cluster runs, and a delete is refused
+// and never reaches it, since nobody is there to ask.
+func TestTheSandboxConsoleReadsTheClusterAndChangesNothing(t *testing.T) {
+	e := startE2E(t)
+	granted := testutil.GrantableDir(t)
+	require.NoError(t, os.WriteFile(filepath.Join(granted, "note"), []byte("granted\n"), 0o600))
+	raw := graphql(t, e.url, `mutation { folderGrant(path: "`+granted+`", write: false, duration: Always) { always { path } } }`)
+	require.NotContains(t, raw, `"errors"`, raw)
+
+	req, err := http.NewRequest(http.MethodPost, e.url+"/graphql", strings.NewReader(`{"query":"subscription { sandboxConsoleWatch { run { running output } } }"}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	frames := make(chan string)
+	go func() {
+		defer close(frames)
+		sc := bufio.NewScanner(resp.Body)
+		sc.Buffer(nil, 1<<20)
+		for sc.Scan() {
+			if data, ok := strings.CutPrefix(sc.Text(), "data: "); ok {
+				frames <- data
+			}
+		}
+	}()
+
+	command := `cat ` + filepath.Join(granted, "note") + `; kubectl get pods -o json | jq '.items | length'; kubectl delete pod x --wait=false`
+	body, err := json.Marshal(command)
+	require.NoError(t, err)
+	raw = graphql(t, e.url, `mutation { sandboxConsoleRun(command: `+string(body)+`, clusterID: "`+e.clusterID+`", network: false) }`)
+	require.Contains(t, raw, `"sandboxConsoleRun":1`, raw)
+
+	var output string
+	for {
+		var frame struct {
+			Data struct {
+				Watch struct {
+					Run *struct {
+						Running bool   `json:"running"`
+						Output  string `json:"output"`
+					} `json:"run"`
+				} `json:"sandboxConsoleWatch"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(testutil.Recv(t, frames, "a console frame")), &frame))
+		if run := frame.Data.Watch.Run; run != nil && !run.Running {
+			output = run.Output
+			break
+		}
+	}
+	assert.True(t, strings.HasPrefix(output, "granted\n2\n"), output)
+	assert.Contains(t, output, "kstack: this sandbox reads the cluster and changes nothing.")
+	assert.Contains(t, e.cluster.requests(), "GET /api/v1/namespaces/default/pods")
+	assert.NotContains(t, e.cluster.requests(), "DELETE /api/v1/namespaces/default/pods/x")
 }
 
 // A denied delete comes back Forbidden and never reaches the cluster.

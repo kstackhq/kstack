@@ -19,7 +19,7 @@ sidecar/internal/services/cluster/CLAUDE.md: 18432
 sidecar/internal/services/logs/CLAUDE.md: 23552
 sidecar/internal/services/providercredentials/CLAUDE.md: 3584
 sidecar/internal/services/settings/CLAUDE.md: 6656
-sidecar/internal/tools/CLAUDE.md: 30720
+sidecar/internal/tools/CLAUDE.md: 31232
 src-tauri/CLAUDE.md: 30720
 src-tauri/linux/CLAUDE.md: 4608
 src-tauri/src/updater/CLAUDE.md: 3584

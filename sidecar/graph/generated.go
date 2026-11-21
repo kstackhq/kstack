@@ -736,6 +736,8 @@ type ComplexityRoot struct {
 		ProviderKeyDelete               func(childComplexity int, providerID string) int
 		ProviderKeySave                 func(childComplexity int, providerID string, key string) int
 		SandboxCloudAccessSet           func(childComplexity int, target permissions.Target, on bool) int
+		SandboxConsoleRun               func(childComplexity int, command string, clusterID *apimeta.ClusterID, network bool) int
+		SandboxConsoleStop              func(childComplexity int, number *int) int
 		SandboxExecutableRegister       func(childComplexity int, name string, invocation *string) int
 		SandboxExecutableRemove         func(childComplexity int, name string) int
 		SandboxExecutablesProbe         func(childComplexity int) int
@@ -879,6 +881,23 @@ type ComplexityRoot struct {
 		Request  func(childComplexity int) int
 	}
 
+	SandboxConsole struct {
+		Run func(childComplexity int) int
+	}
+
+	SandboxConsoleRun struct {
+		ClusterID  func(childComplexity int) int
+		Command    func(childComplexity int) int
+		Discarded  func(childComplexity int) int
+		DurationMs func(childComplexity int) int
+		ExitCode   func(childComplexity int) int
+		Network    func(childComplexity int) int
+		Notice     func(childComplexity int) int
+		Number     func(childComplexity int) int
+		Output     func(childComplexity int) int
+		Running    func(childComplexity int) int
+	}
+
 	SandboxExecutable struct {
 		Error      func(childComplexity int) int
 		Invocation func(childComplexity int) int
@@ -971,6 +990,7 @@ type ComplexityRoot struct {
 		ModelsWatch                   func(childComplexity int) int
 		OpenRouterConnectionWatch     func(childComplexity int) int
 		ProviderCredentialsWatch      func(childComplexity int) int
+		SandboxConsoleWatch           func(childComplexity int) int
 		SandboxExecutablesWatch       func(childComplexity int) int
 		SandboxFoldersWatch           func(childComplexity int, chatID *apimeta.ChatID) int
 		ToolSettingsWatch             func(childComplexity int) int
@@ -1120,6 +1140,8 @@ type MutationResolver interface {
 	SandboxPathRemove(ctx context.Context, dir string) ([]*model.SandboxPathEntry, error)
 	SandboxPathRefresh(ctx context.Context) ([]*model.SandboxPathEntry, error)
 	SandboxExecutablesProbe(ctx context.Context) ([]*model.SandboxExecutable, error)
+	SandboxConsoleRun(ctx context.Context, command string, clusterID *apimeta.ClusterID, network bool) (int, error)
+	SandboxConsoleStop(ctx context.Context, number *int) (bool, error)
 	SandboxExecutableRegister(ctx context.Context, name string, invocation *string) ([]*model.SandboxExecutable, error)
 	SandboxExecutableRemove(ctx context.Context, name string) ([]*model.SandboxExecutable, error)
 	EnvVarSet(ctx context.Context, clusterID *apimeta.ClusterID, name string, value string, target envvars.Target) ([]*envvars.Var, error)
@@ -1214,6 +1236,7 @@ type SubscriptionResolver interface {
 	LogsFollow(ctx context.Context, id apimeta.ClusterID, request model.LogsFollowInput) (<-chan *model.LogsFollowFrame, error)
 	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
 	SandboxFoldersWatch(ctx context.Context, chatID *apimeta.ChatID) (<-chan *model.SandboxFolders, error)
+	SandboxConsoleWatch(ctx context.Context) (<-chan *model.SandboxConsole, error)
 	AuthStateWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ChatGPTConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	OpenRouterConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
@@ -4082,6 +4105,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SandboxCloudAccessSet(childComplexity, args["target"].(permissions.Target), args["on"].(bool)), true
+	case "Mutation.sandboxConsoleRun":
+		if e.ComplexityRoot.Mutation.SandboxConsoleRun == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_sandboxConsoleRun_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SandboxConsoleRun(childComplexity, args["command"].(string), args["clusterID"].(*apimeta.ClusterID), args["network"].(bool)), true
+	case "Mutation.sandboxConsoleStop":
+		if e.ComplexityRoot.Mutation.SandboxConsoleStop == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_sandboxConsoleStop_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SandboxConsoleStop(childComplexity, args["number"].(*int)), true
 	case "Mutation.sandboxExecutableRegister":
 		if e.ComplexityRoot.Mutation.SandboxExecutableRegister == nil {
 			break
@@ -4745,6 +4790,74 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SandboxAction.Request(childComplexity), true
 
+	case "SandboxConsole.run":
+		if e.ComplexityRoot.SandboxConsole.Run == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxConsole.Run(childComplexity), true
+
+	case "SandboxConsoleRun.clusterID":
+		if e.ComplexityRoot.SandboxConsoleRun.ClusterID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxConsoleRun.ClusterID(childComplexity), true
+	case "SandboxConsoleRun.command":
+		if e.ComplexityRoot.SandboxConsoleRun.Command == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxConsoleRun.Command(childComplexity), true
+	case "SandboxConsoleRun.discarded":
+		if e.ComplexityRoot.SandboxConsoleRun.Discarded == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxConsoleRun.Discarded(childComplexity), true
+	case "SandboxConsoleRun.durationMs":
+		if e.ComplexityRoot.SandboxConsoleRun.DurationMs == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxConsoleRun.DurationMs(childComplexity), true
+	case "SandboxConsoleRun.exitCode":
+		if e.ComplexityRoot.SandboxConsoleRun.ExitCode == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxConsoleRun.ExitCode(childComplexity), true
+	case "SandboxConsoleRun.network":
+		if e.ComplexityRoot.SandboxConsoleRun.Network == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxConsoleRun.Network(childComplexity), true
+	case "SandboxConsoleRun.notice":
+		if e.ComplexityRoot.SandboxConsoleRun.Notice == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxConsoleRun.Notice(childComplexity), true
+	case "SandboxConsoleRun.number":
+		if e.ComplexityRoot.SandboxConsoleRun.Number == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxConsoleRun.Number(childComplexity), true
+	case "SandboxConsoleRun.output":
+		if e.ComplexityRoot.SandboxConsoleRun.Output == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxConsoleRun.Output(childComplexity), true
+	case "SandboxConsoleRun.running":
+		if e.ComplexityRoot.SandboxConsoleRun.Running == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxConsoleRun.Running(childComplexity), true
+
 	case "SandboxExecutable.error":
 		if e.ComplexityRoot.SandboxExecutable.Error == nil {
 			break
@@ -5203,6 +5316,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.ProviderCredentialsWatch(childComplexity), true
+	case "Subscription.sandboxConsoleWatch":
+		if e.ComplexityRoot.Subscription.SandboxConsoleWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.SandboxConsoleWatch(childComplexity), true
 	case "Subscription.sandboxExecutablesWatch":
 		if e.ComplexityRoot.Subscription.SandboxExecutablesWatch == nil {
 			break
@@ -7008,6 +7127,40 @@ func (ec *executionContext) childFields_SandboxAction(ctx context.Context, field
 	return nil, fmt.Errorf("no field named %q was found under type SandboxAction", field.Name)
 }
 
+func (ec *executionContext) childFields_SandboxConsole(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "run":
+		return ec.fieldContext_SandboxConsole_run(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SandboxConsole", field.Name)
+}
+
+func (ec *executionContext) childFields_SandboxConsoleRun(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "number":
+		return ec.fieldContext_SandboxConsoleRun_number(ctx, field)
+	case "command":
+		return ec.fieldContext_SandboxConsoleRun_command(ctx, field)
+	case "clusterID":
+		return ec.fieldContext_SandboxConsoleRun_clusterID(ctx, field)
+	case "network":
+		return ec.fieldContext_SandboxConsoleRun_network(ctx, field)
+	case "running":
+		return ec.fieldContext_SandboxConsoleRun_running(ctx, field)
+	case "output":
+		return ec.fieldContext_SandboxConsoleRun_output(ctx, field)
+	case "discarded":
+		return ec.fieldContext_SandboxConsoleRun_discarded(ctx, field)
+	case "exitCode":
+		return ec.fieldContext_SandboxConsoleRun_exitCode(ctx, field)
+	case "notice":
+		return ec.fieldContext_SandboxConsoleRun_notice(ctx, field)
+	case "durationMs":
+		return ec.fieldContext_SandboxConsoleRun_durationMs(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SandboxConsoleRun", field.Name)
+}
+
 func (ec *executionContext) childFields_SandboxExecutable(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "name":
@@ -8171,6 +8324,50 @@ func (ec *executionContext) field_Mutation_sandboxCloudAccessSet_args(ctx contex
 		return nil, err
 	}
 	args["on"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_sandboxConsoleRun_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "command",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["command"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "clusterID",
+		func(ctx context.Context, v any) (*apimeta.ClusterID, error) {
+			return ec.unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["clusterID"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "network",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["network"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_sandboxConsoleStop_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "number",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["number"] = arg0
 	return args, nil
 }
 
@@ -19133,6 +19330,94 @@ func (ec *executionContext) fieldContext_Mutation_sandboxExecutablesProbe(_ cont
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_sandboxConsoleRun(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_sandboxConsoleRun(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SandboxConsoleRun(ctx, fc.Args["command"].(string), fc.Args["clusterID"].(*apimeta.ClusterID), fc.Args["network"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_sandboxConsoleRun(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_sandboxConsoleRun_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_sandboxConsoleStop(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_sandboxConsoleStop(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SandboxConsoleStop(ctx, fc.Args["number"].(*int))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_sandboxConsoleStop(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_sandboxConsoleStop_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_sandboxExecutableRegister(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -22831,6 +23116,268 @@ func (ec *executionContext) fieldContext_SandboxAction_reason(_ context.Context,
 	return graphql.NewScalarFieldContext("SandboxAction", field, false, false, "String")
 }
 
+func (ec *executionContext) _SandboxConsole_run(ctx context.Context, field graphql.CollectedField, obj *model.SandboxConsole) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxConsole_run(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Run, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxConsoleRun) graphql.Marshaler {
+			return ec.marshalOSandboxConsoleRun2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxConsoleRun(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxConsole_run(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SandboxConsole",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxConsoleRun(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SandboxConsoleRun_number(ctx context.Context, field graphql.CollectedField, obj *model.SandboxConsoleRun) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxConsoleRun_number(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Number, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxConsoleRun_number(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxConsoleRun", field, false, false, "Int")
+}
+
+func (ec *executionContext) _SandboxConsoleRun_command(ctx context.Context, field graphql.CollectedField, obj *model.SandboxConsoleRun) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxConsoleRun_command(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Command, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxConsoleRun_command(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxConsoleRun", field, false, false, "String")
+}
+
+func (ec *executionContext) _SandboxConsoleRun_clusterID(ctx context.Context, field graphql.CollectedField, obj *model.SandboxConsoleRun) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxConsoleRun_clusterID(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ClusterID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *apimeta.ClusterID) graphql.Marshaler {
+			return ec.marshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxConsoleRun_clusterID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxConsoleRun", field, false, false, "ClusterID")
+}
+
+func (ec *executionContext) _SandboxConsoleRun_network(ctx context.Context, field graphql.CollectedField, obj *model.SandboxConsoleRun) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxConsoleRun_network(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Network, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxConsoleRun_network(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxConsoleRun", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _SandboxConsoleRun_running(ctx context.Context, field graphql.CollectedField, obj *model.SandboxConsoleRun) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxConsoleRun_running(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Running, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxConsoleRun_running(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxConsoleRun", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _SandboxConsoleRun_output(ctx context.Context, field graphql.CollectedField, obj *model.SandboxConsoleRun) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxConsoleRun_output(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Output, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxConsoleRun_output(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxConsoleRun", field, false, false, "String")
+}
+
+func (ec *executionContext) _SandboxConsoleRun_discarded(ctx context.Context, field graphql.CollectedField, obj *model.SandboxConsoleRun) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxConsoleRun_discarded(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Discarded, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxConsoleRun_discarded(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxConsoleRun", field, false, false, "Int")
+}
+
+func (ec *executionContext) _SandboxConsoleRun_exitCode(ctx context.Context, field graphql.CollectedField, obj *model.SandboxConsoleRun) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxConsoleRun_exitCode(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ExitCode, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxConsoleRun_exitCode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxConsoleRun", field, false, false, "Int")
+}
+
+func (ec *executionContext) _SandboxConsoleRun_notice(ctx context.Context, field graphql.CollectedField, obj *model.SandboxConsoleRun) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxConsoleRun_notice(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Notice, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxConsoleRun_notice(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxConsoleRun", field, false, false, "String")
+}
+
+func (ec *executionContext) _SandboxConsoleRun_durationMs(ctx context.Context, field graphql.CollectedField, obj *model.SandboxConsoleRun) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxConsoleRun_durationMs(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DurationMs, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxConsoleRun_durationMs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxConsoleRun", field, false, false, "Int")
+}
+
 func (ec *executionContext) _SandboxExecutable_name(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24527,6 +25074,38 @@ func (ec *executionContext) fieldContext_Subscription_sandboxFoldersWatch(ctx co
 	if fc.Args, err = ec.field_Subscription_sandboxFoldersWatch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_sandboxConsoleWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_sandboxConsoleWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().SandboxConsoleWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxConsole) graphql.Marshaler {
+			return ec.marshalNSandboxConsole2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxConsole(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_sandboxConsoleWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxConsole(ctx, field)
+		},
 	}
 	return fc, nil
 }
@@ -32084,6 +32663,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "sandboxConsoleRun":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_sandboxConsoleRun(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sandboxConsoleStop":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_sandboxConsoleStop(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "sandboxExecutableRegister":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_sandboxExecutableRegister(ctx, field)
@@ -33270,6 +33863,117 @@ func (ec *executionContext) _SandboxAction(ctx context.Context, sel ast.Selectio
 	return out
 }
 
+var sandboxConsoleImplementors = []string{"SandboxConsole"}
+
+func (ec *executionContext) _SandboxConsole(ctx context.Context, sel ast.SelectionSet, obj *model.SandboxConsole) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sandboxConsoleImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SandboxConsole")
+		case "run":
+			out.Values[i] = ec._SandboxConsole_run(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var sandboxConsoleRunImplementors = []string{"SandboxConsoleRun"}
+
+func (ec *executionContext) _SandboxConsoleRun(ctx context.Context, sel ast.SelectionSet, obj *model.SandboxConsoleRun) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sandboxConsoleRunImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SandboxConsoleRun")
+		case "number":
+			out.Values[i] = ec._SandboxConsoleRun_number(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "command":
+			out.Values[i] = ec._SandboxConsoleRun_command(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "clusterID":
+			out.Values[i] = ec._SandboxConsoleRun_clusterID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "network":
+			out.Values[i] = ec._SandboxConsoleRun_network(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "running":
+			out.Values[i] = ec._SandboxConsoleRun_running(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "output":
+			out.Values[i] = ec._SandboxConsoleRun_output(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "discarded":
+			out.Values[i] = ec._SandboxConsoleRun_discarded(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "exitCode":
+			out.Values[i] = ec._SandboxConsoleRun_exitCode(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "notice":
+			out.Values[i] = ec._SandboxConsoleRun_notice(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "durationMs":
+			out.Values[i] = ec._SandboxConsoleRun_durationMs(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
 var sandboxExecutableImplementors = []string{"SandboxExecutable"}
 
 func (ec *executionContext) _SandboxExecutable(ctx context.Context, sel ast.SelectionSet, obj *model.SandboxExecutable) graphql.Marshaler {
@@ -33768,6 +34472,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_sandboxExecutablesWatch(ctx, fields[0])
 	case "sandboxFoldersWatch":
 		return ec._Subscription_sandboxFoldersWatch(ctx, fields[0])
+	case "sandboxConsoleWatch":
+		return ec._Subscription_sandboxConsoleWatch(ctx, fields[0])
 	case "authStateWatch":
 		return ec._Subscription_authStateWatch(ctx, fields[0])
 	case "chatGPTConnectionWatch":
@@ -36341,6 +37047,14 @@ func (ec *executionContext) marshalNSandboxAction2ᚕgithubᚗcomᚋkstackhqᚋk
 	return ret
 }
 
+func (ec *executionContext) marshalNSandboxConsole2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxConsole(ctx context.Context, sel ast.SelectionSet, v *model.SandboxConsole) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "SandboxConsole!")
+		return graphql.Null
+	}
+	return ec._SandboxConsole(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNSandboxExecutable2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutableᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.SandboxExecutable) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
@@ -37406,6 +38120,13 @@ func (ec *executionContext) marshalOReadAction2ᚖgithubᚗcomᚋkstackhqᚋksta
 		return graphql.Null
 	}
 	return ec._ReadAction(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOSandboxConsoleRun2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxConsoleRun(ctx context.Context, sel ast.SelectionSet, v *model.SandboxConsoleRun) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._SandboxConsoleRun(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOSandboxRequest2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐSandboxRequest(ctx context.Context, sel ast.SelectionSet, v chat.SandboxRequest) graphql.Marshaler {

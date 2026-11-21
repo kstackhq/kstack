@@ -222,7 +222,7 @@ func run(parent context.Context, s spec) result {
 		return fail(err)
 	}
 
-	out := &captureWriter{limit: s.capture}
+	out := &captureWriter{limit: s.capture, onKeep: s.onOutput}
 	read := copyOutput(out, c.out)
 
 	s.hooks.waitBeforeReap(ctx)
