@@ -25,7 +25,8 @@ Every tool the model can call. **A tool's kind is the interfaces it implements**
 **One `Box` holds every tool** (`box.go`), in offer order, plus readers for tools this machine
 cannot offer. `NewBox` panics on a wiring mistake. `For(target, names)` is a turn's box: the
 target's catalog list, in box order; a name with no tool is skipped (how a machine with no shell
-drops bash). `Without(kinds...)` is how a subagent gets no `Agent`. **Every stored call is read
+drops bash). `Without(kinds...)` is how a subagent gets no `Agent`. `WithoutNames(names)` drops the tools the user
+turned off from the offer, the prompt and `Runner`, keeping the readers. **Every stored call is read
 through the box, under the row's name and contract**: `Box.Action` for its arguments, `Box.Shown`
 for a shown action, `Box.WatchResult` for a watch's task result; callers ask the box rather than
 range over it, so kinds never leak past `tools`. →

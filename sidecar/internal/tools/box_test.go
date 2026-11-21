@@ -431,6 +431,27 @@ func TestWithoutDropsEveryToolOfTheKind(t *testing.T) {
 	assert.True(t, box.Without(ActionCommand, ActionRead, ActionSearch).Empty())
 }
 
+// A tool left out by name is neither offered, prompted nor run, and its
+// stored calls still read.
+func TestWithoutNamesDropsTheNamedTools(t *testing.T) {
+	read := custom{reader{"read", ActionRead}}
+	box := NewBox([]Tool{echo, read, search})
+
+	turn := box.WithoutNames([]string{"echo", search.Name()})
+
+	defs, native := turn.Offer()
+	assert.Equal(t, []llm.ToolDefinition{{Name: "read"}}, defs)
+	assert.Empty(t, native)
+	assert.Len(t, turn.Prompts(), 1)
+	_, ok := turn.Runner("echo")
+	assert.False(t, ok, "a call to a tool turned off is an unknown tool")
+	assert.False(t, turn.Has("echo"))
+	assert.True(t, turn.Has("read"))
+	kind, ok := turn.ActionKind("echo")
+	assert.True(t, ok)
+	assert.Equal(t, ActionCommand, kind, "its stored calls still read")
+}
+
 // perTarget is a tool whose offer names the model of the turn it is offered to.
 type perTarget struct {
 	custom

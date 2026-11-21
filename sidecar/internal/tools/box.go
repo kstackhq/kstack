@@ -117,6 +117,25 @@ func (b Box) Without(kinds ...ActionKind) Box {
 	return out
 }
 
+// WithoutNames is the box less every tool named in names, so a tool the user turned
+// off loses its offer, its prompt section and its runner: a call the model
+// makes to it is an unknown tool. The readers stay, so a stored call still
+// reads the same.
+func (b Box) WithoutNames(names []string) Box {
+	out := Box{readers: b.readers}
+	for _, t := range b.tools {
+		if !slices.Contains(names, t.Name()) {
+			out.tools = append(out.tools, t)
+		}
+	}
+	return out
+}
+
+// Has reports whether the box holds a tool named name; readers do not count.
+func (b Box) Has(name string) bool {
+	return slices.ContainsFunc(b.tools, func(t Tool) bool { return t.Name() == name })
+}
+
 // Empty reports whether the box holds no tools; readers do not count.
 func (b Box) Empty() bool { return len(b.tools) == 0 }
 
