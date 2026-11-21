@@ -516,6 +516,9 @@ func (r *mutationResolver) ToolSettingSet(ctx context.Context, name string, enab
 	if errors.Is(err, toolsettings.ErrUnknownTool) {
 		return nil, gqlerrors.NewValidationError("tool", "No listed tool has that name.")
 	}
+	if errors.Is(err, toolsettings.ErrAlwaysOn) {
+		return nil, gqlerrors.NewValidationError("tool", "That tool is always on.")
+	}
 	if err != nil {
 		return nil, err
 	}

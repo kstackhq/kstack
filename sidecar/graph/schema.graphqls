@@ -1930,6 +1930,8 @@ type ToolSetting {
   description: String!
   "Whether turns are offered it, from the next turn. On unless the user turned it off."
   enabled: Boolean!
+  "Whether the tool is always on: `toolSettingSet` refuses to turn it off."
+  alwaysOn: Boolean!
 }
 
 # --- Permissions ---

@@ -1017,6 +1017,7 @@ type ComplexityRoot struct {
 	}
 
 	ToolSetting struct {
+		AlwaysOn    func(childComplexity int) int
 		Description func(childComplexity int) int
 		Enabled     func(childComplexity int) int
 		Group       func(childComplexity int) int
@@ -5414,6 +5415,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ToolCallApproval.Status(childComplexity), true
 
+	case "ToolSetting.alwaysOn":
+		if e.ComplexityRoot.ToolSetting.AlwaysOn == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolSetting.AlwaysOn(childComplexity), true
 	case "ToolSetting.description":
 		if e.ComplexityRoot.ToolSetting.Description == nil {
 			break
@@ -7218,6 +7225,8 @@ func (ec *executionContext) childFields_ToolSetting(ctx context.Context, field g
 		return ec.fieldContext_ToolSetting_description(ctx, field)
 	case "enabled":
 		return ec.fieldContext_ToolSetting_enabled(ctx, field)
+	case "alwaysOn":
+		return ec.fieldContext_ToolSetting_alwaysOn(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ToolSetting", field.Name)
 }
@@ -25773,6 +25782,29 @@ func (ec *executionContext) fieldContext_ToolSetting_enabled(_ context.Context, 
 	return graphql.NewScalarFieldContext("ToolSetting", field, false, false, "Boolean")
 }
 
+func (ec *executionContext) _ToolSetting_alwaysOn(ctx context.Context, field graphql.CollectedField, obj *toolsettings.Setting) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ToolSetting_alwaysOn(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.AlwaysOn, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ToolSetting_alwaysOn(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ToolSetting", field, false, false, "Boolean")
+}
+
 func (ec *executionContext) _UnhealthyKindRef_apiVersion(ctx context.Context, field graphql.CollectedField, obj *cluster.UnhealthyKindRef) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -34000,6 +34032,11 @@ func (ec *executionContext) _ToolSetting(ctx context.Context, sel ast.SelectionS
 			}
 		case "enabled":
 			out.Values[i] = ec._ToolSetting_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "alwaysOn":
+			out.Values[i] = ec._ToolSetting_alwaysOn(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

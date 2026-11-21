@@ -3706,11 +3706,13 @@ func TestSandboxCloudAccessSetRefusesWhatHasNoSwitch(t *testing.T) {
 	assert.True(t, cfg.CloudOn(permissions.GitHub), "nothing was written")
 }
 
-// newToolServer is a server listing two tools, over a fresh app.db.
+// newToolServer is a server listing three tools, one always on, over a fresh
+// app.db.
 func newToolServer(t *testing.T) (*httptest.Server, *toolsettings.Service) {
 	t.Helper()
 	settings, err := toolsettings.New(appdbtest.Open(t), []toolsettings.Listing{
 		{Name: "Bash", Label: "Bash", Group: toolsettings.GroupCommands, Description: "Run shell commands."},
+		{Name: "TaskStop", Label: "TaskStop", Group: toolsettings.GroupCommands, Description: "Stop a task.", AlwaysOn: true},
 		{Name: "web_search", Label: "WebSearch", Group: toolsettings.GroupWeb, Description: "Search the web."},
 	}, time.Now)
 	require.NoError(t, err)
@@ -3740,15 +3742,17 @@ func disabledTools(t *testing.T, settings *toolsettings.Service) []string {
 // toolSettingSet writes the setting and answers the list.
 func TestToolSettingsListsEveryToolWithItsSetting(t *testing.T) {
 	srv, settings := newToolServer(t)
-	data := mutate(t, srv, `{ toolSettings { name label group description enabled } }`)
+	data := mutate(t, srv, `{ toolSettings { name label group description enabled alwaysOn } }`)
 	assert.Equal(t, []any{
-		map[string]any{"name": "Bash", "label": "Bash", "group": "Commands", "description": "Run shell commands.", "enabled": true},
-		map[string]any{"name": "web_search", "label": "WebSearch", "group": "Web", "description": "Search the web.", "enabled": true},
+		map[string]any{"name": "Bash", "label": "Bash", "group": "Commands", "description": "Run shell commands.", "enabled": true, "alwaysOn": false},
+		map[string]any{"name": "TaskStop", "label": "TaskStop", "group": "Commands", "description": "Stop a task.", "enabled": true, "alwaysOn": true},
+		map[string]any{"name": "web_search", "label": "WebSearch", "group": "Web", "description": "Search the web.", "enabled": true, "alwaysOn": false},
 	}, data["toolSettings"])
 
 	data = mutate(t, srv, `mutation { toolSettingSet(name: "web_search", enabled: false) { name enabled } }`)
 	assert.Equal(t, []any{
 		map[string]any{"name": "Bash", "enabled": true},
+		map[string]any{"name": "TaskStop", "enabled": true},
 		map[string]any{"name": "web_search", "enabled": false},
 	}, data["toolSettingSet"])
 	assert.Equal(t, []string{"web_search"}, disabledTools(t, settings))
@@ -3761,10 +3765,10 @@ func TestToolSettingsWatchIsAGauge(t *testing.T) {
 	resp := openSSESubscription(t, srv.URL, "", `subscription { toolSettingsWatch { name enabled } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
-	assert.Contains(t, nextSSE(t, events).data, `[{"name":"Bash","enabled":true},{"name":"web_search","enabled":true}]`)
+	assert.Contains(t, nextSSE(t, events).data, `[{"name":"Bash","enabled":true},{"name":"TaskStop","enabled":true},{"name":"web_search","enabled":true}]`)
 
 	mutate(t, srv, `mutation { toolSettingSet(name: "Bash", enabled: false) { name } }`)
-	assert.Contains(t, nextSSE(t, events).data, `[{"name":"Bash","enabled":false},{"name":"web_search","enabled":true}]`)
+	assert.Contains(t, nextSSE(t, events).data, `[{"name":"Bash","enabled":false},{"name":"TaskStop","enabled":true},{"name":"web_search","enabled":true}]`)
 }
 
 // A name no listed tool has has no setting, so nothing is written.
@@ -3773,6 +3777,15 @@ func TestToolSettingSetRefusesANameNotListed(t *testing.T) {
 	message, code := refusalOf(t, srv, `mutation { toolSettingSet(name: "Nope", enabled: false) { name } }`)
 	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
 	assert.Equal(t, "No listed tool has that name.", message)
+	assert.Empty(t, disabledTools(t, settings))
+}
+
+// An always-on tool cannot be turned off, so nothing is written.
+func TestToolSettingSetRefusesToTurnOffAnAlwaysOnTool(t *testing.T) {
+	srv, settings := newToolServer(t)
+	message, code := refusalOf(t, srv, `mutation { toolSettingSet(name: "TaskStop", enabled: false) { name } }`)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
+	assert.Equal(t, "That tool is always on.", message)
 	assert.Empty(t, disabledTools(t, settings))
 }
 
