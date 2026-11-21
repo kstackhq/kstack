@@ -134,9 +134,11 @@ type ClusterCards interface {
 	ClusterCard(ctx context.Context, clusterID apimeta.ClusterID) string
 }
 
-// ToolLists is the tools a turn on each target is offered, by name.
+// ToolLists is the tools a turn on each target is offered, by name, and which
+// of them no setting turns off.
 type ToolLists interface {
 	ToolsFor(t llm.Target) []string
+	AlwaysOn(name string) bool
 }
 
 // Service is what the GraphQL layer calls.

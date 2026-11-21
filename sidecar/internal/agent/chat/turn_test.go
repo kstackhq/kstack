@@ -38,6 +38,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/taskstop"
 )
 
 // A turn reserved just as the service stops never runs: its rows are written, and
@@ -1604,6 +1605,19 @@ func TestATurnIsNotOfferedAToolTheUserTurnedOff(t *testing.T) {
 	next := send(t, s, &msg.ChatID, "2", "again")
 	awaitSettled(t, s, msg.ChatID, next.ID)
 	assert.Equal(t, []string{"echo", "other"}, offered(fakeOf(s).LastRequest()))
+}
+
+// An always-on tool stays in the offer whatever its stored setting says.
+func TestATurnIsAlwaysOfferedTaskStop(t *testing.T) {
+	t.Parallel()
+
+	s := startServiceWithTool(t, testTool{name: taskstop.Name}, testTool{name: "echo"})
+	setToolEnabled(t, s, taskstop.Name, false)
+	setToolEnabled(t, s, "echo", false)
+
+	msg := send(t, s, nil, "1", "hi")
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+	assert.Equal(t, []string{taskstop.Name}, offered(fakeOf(s).LastRequest()))
 }
 
 // The tool settings are read once per turn: a tool turned off while a turn runs

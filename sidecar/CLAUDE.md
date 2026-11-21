@@ -195,7 +195,8 @@ same name. A sandboxed run reads it at its start; a command outside the sandbox 
 ## Tool settings (`internal/services/toolsettings`)
 
 **`tool_settings`, a row per tool per scope overriding on.** Only every cluster's scope is
-written; turning a tool back on keeps its row. A row for a tool the box lacks is ignored. The chat
+written; turning a tool back on keeps its row. A row for a tool the box lacks, or turning off one
+listed `AlwaysOn` (TaskStop), is ignored. The chat
 service reads it where it reserves a turn. → [ADR](../docs/adr/2026-11-21-tool-settings-are-rows-in-app-db.md),
 [security record](../docs/security/2026-11-20-the-user-turns-tools-off.md).
 

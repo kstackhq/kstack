@@ -15,6 +15,8 @@
 package catalog
 
 import (
+	"slices"
+
 	"github.com/kstackhq/kstack/sidecar/internal/services/toolsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -33,10 +35,11 @@ import (
 
 // toolListings is every tool on any list, in the order Settings draws them.
 // Turning one off only takes it out of a turn's offer: a setting never adds a
-// tool to a list.
+// tool to a list. TaskStop is always on, so a turn can stop the background work
+// it started.
 var toolListings = []toolsettings.Listing{
 	{Name: bash.Name, Label: "Bash", Group: toolsettings.GroupCommands, Description: "Run shell commands, in the sandbox where there is one."},
-	{Name: taskstop.Name, Label: "TaskStop", Group: toolsettings.GroupCommands, Description: "Stop a background command, agent or log watch."},
+	{Name: taskstop.Name, Label: "TaskStop", Group: toolsettings.GroupCommands, Description: "Stop a background command, agent or log watch.", AlwaysOn: true},
 	{Name: read.Name, Label: "Read", Group: toolsettings.GroupFiles, Description: "Read a file."},
 	{Name: write.Name, Label: "Write", Group: toolsettings.GroupFiles, Description: "Create or replace a file."},
 	{Name: edit.Name, Label: "Edit", Group: toolsettings.GroupFiles, Description: "Change part of a file."},
@@ -53,3 +56,9 @@ var toolListings = []toolsettings.Listing{
 // ToolListings is every tool a chat can be offered, in the order Settings draws
 // them.
 func ToolListings() []toolsettings.Listing { return toolListings }
+
+// AlwaysOn reports whether the tool named name is listed always on, so no
+// setting turns it off.
+func (c Catalog) AlwaysOn(name string) bool {
+	return slices.ContainsFunc(toolListings, func(l toolsettings.Listing) bool { return l.Name == name && l.AlwaysOn })
+}

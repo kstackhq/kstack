@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -274,11 +275,12 @@ func (s *service) chatOf(t *turn) (Chat, error) {
 }
 
 // boxFor is what a run on target is offered: the tools its list names that the
-// target takes and the user has not disabled, from the service's box. A model
-// that takes no tools is offered none, so the prompt says so and Stream is
-// never handed an offer it refuses. The service's box still reads every
-// stored call.
+// target takes and the user has not disabled, from the service's box. An
+// always-on tool stays whatever its stored setting says. A model that takes no
+// tools is offered none, so the prompt says so and Stream is never handed an
+// offer it refuses. The service's box still reads every stored call.
 func (s *service) boxFor(target llm.Target, disabled []string) tools.Box {
+	disabled = slices.DeleteFunc(slices.Clone(disabled), s.lists.AlwaysOn)
 	return s.tools.For(target, s.lists.ToolsFor(target)).WithoutNames(disabled)
 }
 

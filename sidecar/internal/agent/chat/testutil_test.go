@@ -50,6 +50,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/logsview"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/logswatch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/read"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/taskstop"
 )
 
 // update rewrites the golden files in testdata; `make generate-prompts` passes it.
@@ -267,6 +268,9 @@ func testBox(offered ...tools.Tool) (tools.Box, stubLists) {
 type stubLists []string
 
 func (l stubLists) ToolsFor(llm.Target) []string { return l }
+
+// AlwaysOn holds TaskStop on, as the catalog does.
+func (stubLists) AlwaysOn(name string) bool { return name == taskstop.Name }
 
 // noLists offers no turn a tool.
 var noLists = stubLists(nil)

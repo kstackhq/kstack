@@ -19,6 +19,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/taskstop"
 )
 
 // Every tool on a list has a listing, and every listing is of a tool on a list, so
@@ -42,4 +45,12 @@ func TestToolListingsMatchTheLists(t *testing.T) {
 	for name := range listed {
 		assert.True(t, slices.Contains(names, name), "%s has no listing", name)
 	}
+}
+
+// TaskStop alone is always on: a turn can always stop the work it started.
+func TestOnlyTaskStopIsAlwaysOn(t *testing.T) {
+	c := New(Config{})
+	assert.True(t, c.AlwaysOn(taskstop.Name))
+	assert.False(t, c.AlwaysOn(bash.Name))
+	assert.False(t, c.AlwaysOn("Gone"))
 }

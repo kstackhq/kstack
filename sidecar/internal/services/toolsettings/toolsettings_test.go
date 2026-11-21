@@ -90,6 +90,24 @@ func TestSetRefusesAToolOffTheList(t *testing.T) {
 	assert.ErrorIs(t, newService(t, appdbtest.Open(t)).Set(t.Context(), "Gone", false), ErrUnknownTool)
 }
 
+// An always-on tool cannot be turned off, and a stored row turning it off is
+// ignored.
+func TestAnAlwaysOnToolStaysOn(t *testing.T) {
+	t.Parallel()
+	db := appdbtest.Open(t)
+	_, err := db.Write.Exec(`INSERT INTO tool_settings (tool_name, cluster_id, enabled, updated_at) VALUES ('TaskStop', NULL, 0, 0)`)
+	require.NoError(t, err)
+	stop := Listing{Name: "TaskStop", Label: "TaskStop", Group: GroupCommands, Description: "Stop a task.", AlwaysOn: true}
+	s, err := New(db, []Listing{bash, stop}, time.Now)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	assert.Equal(t, []Setting{{bash, true}, {stop, true}}, list(t, s))
+	assert.ErrorIs(t, s.Set(t.Context(), "TaskStop", false), ErrAlwaysOn)
+	require.NoError(t, s.Set(t.Context(), "TaskStop", true))
+	assert.Equal(t, []Setting{{bash, true}, {stop, true}}, list(t, s))
+}
+
 func TestSubscribeIsAGauge(t *testing.T) {
 	t.Parallel()
 	s := newService(t, appdbtest.Open(t))

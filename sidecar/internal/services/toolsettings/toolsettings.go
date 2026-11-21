@@ -50,6 +50,7 @@ type Listing struct {
 	Label       string // what Settings calls it
 	Group       Group
 	Description string // what it does, in one line
+	AlwaysOn    bool   // on whatever its row says; Set refuses to turn it off
 }
 
 // A Setting is a tool and whether turns are offered it.
@@ -60,6 +61,9 @@ type Setting struct {
 
 // ErrUnknownTool is a Set of a name the service lists no tool of.
 var ErrUnknownTool = errors.New("toolsettings: no listed tool has that name")
+
+// ErrAlwaysOn is a Set turning off a tool listed AlwaysOn.
+var ErrAlwaysOn = errors.New("toolsettings: that tool cannot be turned off")
 
 // Service owns the tool_settings table. Only the setting for every cluster is
 // read and written.
@@ -99,7 +103,7 @@ func (s *Service) List(ctx context.Context) ([]Setting, error) {
 	}
 	out := make([]Setting, 0, len(s.listings))
 	for _, l := range s.listings {
-		out = append(out, Setting{Listing: l, Enabled: !slices.Contains(off, l.Name)})
+		out = append(out, Setting{Listing: l, Enabled: l.AlwaysOn || !slices.Contains(off, l.Name)})
 	}
 	return out, nil
 }
@@ -108,8 +112,12 @@ func (s *Service) List(ctx context.Context) ([]Setting, error) {
 // back on writes the row rather than deleting it, so updated_at orders every
 // change.
 func (s *Service) Set(ctx context.Context, name string, enabled bool) error {
-	if !slices.ContainsFunc(s.listings, func(l Listing) bool { return l.Name == name }) {
+	i := slices.IndexFunc(s.listings, func(l Listing) bool { return l.Name == name })
+	if i < 0 {
 		return ErrUnknownTool
+	}
+	if s.listings[i].AlwaysOn && !enabled {
+		return ErrAlwaysOn
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
