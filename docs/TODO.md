@@ -574,6 +574,16 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 ## Host (Tauri/Rust)
 
+- **The tray's account section draws a restoring account as signed out.** The section is hidden
+  (`SHOW_ACCOUNT_SECTION` in `src-tauri/src/tray/mod.rs`). `account_snapshot_from`
+  (`tray/account_menu.rs`) reads `authenticated` alone, so until the launch has read the keyring
+  the section would offer *Sign in / Sign up*, and the sidecar refuses a sign-in while
+  `restoring`. **Fix, before showing the section:** carry `AuthState.restoring` into
+  `AccountSnapshot`, give `AccountMenuDescriptor` a `Restoring` that `build_account_descriptor`
+  answers before `authenticated`, and draw it as one disabled item, *Checking your keychain…*.
+  Test the descriptor and the drawn item (text, disabled) beside `mod.rs`'s
+  `signed_out_the_section_offers_sign_in`.
+
 - **The log level can only be set by an environment variable.** The host reads `KSTACK_LOG_LEVEL` in
   `env_filter` (`src-tauri/src/logging.rs`). The sidecar reads the same variable in `main.go`, and
   inherits it from the host that spawned it. Someone who starts the app by double-clicking it cannot

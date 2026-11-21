@@ -160,18 +160,20 @@ describe('ProvidersSettings', () => {
     [{ source: 'SavedKey' }, 'Using a saved key'],
     [{ source: 'EnvironmentKey' }, 'Found OPENAI_API_KEY'],
     [{ source: 'None' }, 'No API key found'],
-    [{ source: 'Restoring' }, 'No API key found'],
+    [{ source: 'Restoring' }, 'Checking your keychain…'],
   ] as const)('draws the detail for %o', (state, line) => {
     credentials({ openai: state });
     render(<ProvidersSettings />);
     expect(row('OpenAI')).toHaveTextContent(line);
   });
 
-  it('marks a restoring keyed provider not set up', () => {
+  it("draws a restoring provider's dot as a dashed ring, neither set up nor not", () => {
     credentials({ anthropic: { source: 'Restoring', hasEnvironmentKey: true } });
     render(<ProvidersSettings />);
 
-    expect(row('Anthropic').querySelector('[data-slot="status"]')).toHaveAttribute('data-set-up', 'false');
+    const status = row('Anthropic').querySelector('[data-slot="status"]');
+    expect(status).not.toHaveAttribute('data-set-up');
+    expect(status).toHaveClass('border-dashed');
   });
 
   it('marks a keyed provider set up while it has a credential, with a menu', async () => {
@@ -275,6 +277,14 @@ describe('ProvidersSettings', () => {
     expect(await screen.findByRole('menuitem', { name: 'Configure…' })).toHaveAttribute('aria-disabled', 'true');
   });
 
+  it('marks a placeholder set up while the catalog serves it', () => {
+    serve([model('ollama', 'Ollama', 'llama')]);
+    render(<ProvidersSettings />);
+
+    expect(row('Ollama')).toHaveTextContent('Configured');
+    expect(row('Ollama').querySelector('[data-slot="status"]')).toHaveAttribute('data-set-up', 'true');
+  });
+
   it('draws a keyed provider the catalog serves once', () => {
     serve([model('gemini', 'Gemini', 'flash')]);
     render(<ProvidersSettings />);
@@ -324,6 +334,41 @@ describe('ProvidersSettings', () => {
     expect(dialog).not.toHaveTextContent('Coming soon');
     await user.click(within(dialog).getByRole('button', { name: 'Open Connectors' }));
     expect(selectTab).toHaveBeenCalledExactlyOnceWith('Connectors');
+  });
+
+  it.each([
+    ['chatgpt', 'ChatGPT plan'],
+    ['google', 'Vertex AI'],
+  ])('checks the keychain for %s, which takes no key, while it restores', (id, name) => {
+    credentials({ [id]: { source: 'Restoring' } });
+    render(<ProvidersSettings />);
+
+    expect(row(name)).toHaveTextContent('Checking your keychain…');
+    expect(row(name)).not.toHaveTextContent('Not connected');
+  });
+
+  it('offers no action on a restoring provider, with a key or without one', () => {
+    credentials({ anthropic: { source: 'Restoring' }, chatgpt: { source: 'Restoring' } });
+    render(<ProvidersSettings />);
+
+    expect(within(row('Anthropic')).queryByRole('button')).toBeNull();
+    expect(within(row('ChatGPT plan')).queryByRole('button')).toBeNull();
+  });
+
+  it.each([
+    ['SavedKey', 'anthropic', 'Anthropic', 'Using a saved key', 'true', 'Anthropic actions'],
+    ['None', 'anthropic', 'Anthropic', 'No API key found', 'false', 'Set up'],
+    ['Connector', 'chatgpt', 'ChatGPT plan', 'Connected on the Connectors tab', 'true', 'ChatGPT plan actions'],
+    ['None', 'chatgpt', 'ChatGPT plan', 'Not connected', 'false', 'Connect'],
+  ] as const)('draws the usual row once restored to %s (%s)', (source, id, name, detail, setUp, action) => {
+    credentials({ [id]: { source: 'Restoring' } });
+    const { rerender } = render(<ProvidersSettings />);
+
+    credentials({ [id]: { source, hasSavedKey: source === 'SavedKey' } });
+    rerender(<ProvidersSettings />);
+    expect(row(name)).toHaveTextContent(detail);
+    expect(row(name).querySelector('[data-slot="status"]')).toHaveAttribute('data-set-up', setUp);
+    expect(within(row(name)).getByRole('button', { name: action })).toBeInTheDocument();
   });
 
   it('reads no key failure on a provider that takes no key', () => {

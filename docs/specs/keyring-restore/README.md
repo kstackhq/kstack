@@ -33,7 +33,7 @@ raise a dialog. Until the read answers, the launch stalls.
 | --- | --- | --- | --- |
 | 1 | [The read that waits](1-the-read-that-waits.md) | `oskeyring.Read`, the gate, `signer.Pending`, one keyring for every service | `New` still reads, so the launch still waits. A dismissed unlock prompt is shown once, where today it returns for each service. |
 | 2 | [The services restore in the background](2-the-services-restore-in-the-background.md) | `Restoring` in every service, on GraphQL and on gRPC; the idle clock stopped while signing | The launch no longer waits. The windows draw `Restoring` rows with their default detail. |
-| 3 | [The windows draw checking](3-the-windows-draw-checking.md) | The *checking* rows in the webview, the tray's descriptor | The work is whole. |
+| 3 | [The windows draw checking](3-the-windows-draw-checking.md) | The *checking* rows in the webview | The work is whole. |
 
 Every step can ship. Step 1 stays, marked built, until step 2 is complete, since step 2 cites its
 API.

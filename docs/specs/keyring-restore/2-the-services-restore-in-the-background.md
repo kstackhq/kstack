@@ -300,7 +300,8 @@ answer `connectors.ErrRestoring` as `FailedPrecondition`; every other error stay
   answers. `providersFrom`'s `configured` holds for neither `None` nor `Restoring`. Step 3
   replaces each.
 - **Host.** `src-tauri` builds `AuthState` literals in its tests; each gains `restoring: false`.
-  The tray reads `authenticated` alone, so a restoring account draws as signed out until step 3.
+  The tray reads `authenticated` alone, so a restoring account draws as signed out; its account
+  section is hidden ([`docs/TODO.md`](../../TODO.md#host-taurirust)).
 
 ## Security
 
