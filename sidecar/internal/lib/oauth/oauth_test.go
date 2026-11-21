@@ -20,6 +20,8 @@ import (
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 )
 
 // testVerifier is a sample PKCE code verifier. The protocol layer treats the
@@ -689,4 +691,23 @@ func TestAClientSecretGoesOnTheExchangeAndTheRefresh(t *testing.T) {
 	_, err = public.Refresh(context.Background(), "r")
 	require.NoError(t, err)
 	assert.NotContains(t, (*forms)[2], "client_secret")
+}
+
+// Every request to the issuer names Kstack: oauth2's token requests, the revoke
+// and the discovery.
+func TestEveryRequestToTheIssuerNamesKstack(t *testing.T) {
+	var agents []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		agents = append(agents, r.Header.Get("User-Agent"))
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer ts.Close()
+	c := NewClient(Config{ClientID: "issued", TokenURL: ts.URL, RevocationURL: ts.URL})
+
+	_, _ = c.Exchange(context.Background(), "code", testVerifier, "")
+	_, _ = c.Refresh(context.Background(), "r1")
+	_ = c.Revoke(context.Background(), "r1")
+	_, _ = Discover(context.Background(), ts.URL)
+
+	assert.Equal(t, []string{version.UserAgent(), version.UserAgent(), version.UserAgent(), version.UserAgent()}, agents)
 }

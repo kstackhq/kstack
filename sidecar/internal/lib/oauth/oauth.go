@@ -21,6 +21,8 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 )
 
 // expiryLeeway expires a token early, so one handed out stays valid through the request
@@ -80,10 +82,12 @@ type Client struct {
 	httpc         *http.Client
 }
 
-// newHTTPClient is the issuer's client. It follows no redirect: a 307 or 308 would
-// resend a form holding a code or a refresh token to wherever it points.
+// newHTTPClient is the issuer's client, naming Kstack on every request, go-oidc's
+// and oauth2's included. It follows no redirect: a 307 or 308 would resend a form
+// holding a code or a refresh token to wherever it points.
 func newHTTPClient() *http.Client {
 	return &http.Client{
+		Transport:     version.Transport(nil),
 		Timeout:       15 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}

@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -151,7 +152,7 @@ func TestWebFetchSendsNoCredentials(t *testing.T) {
 	}))
 	_, isError := run(t, s.tool(s.dialing()), s.url("a.test", "/"))
 	require.False(t, isError)
-	assert.Equal(t, "Kstack/dev", got.Get("User-Agent"))
+	assert.Equal(t, version.UserAgent(), got.Get("User-Agent"))
 	assert.Equal(t, "text/markdown, text/html;q=0.9, text/plain;q=0.8, */*;q=0.1", got.Get("Accept"))
 	assert.Empty(t, got.Get("Authorization"))
 	assert.Empty(t, got.Get("Cookie"))

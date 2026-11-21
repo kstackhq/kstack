@@ -103,7 +103,7 @@ func (t *Tool) get(ctx context.Context, u *url.URL) (*http.Response, error) {
 	if err != nil { // coverage:ignore u is a parsed http(s) URL, whose String parses again
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Kstack/"+version.Version)
+	req.Header.Set("User-Agent", version.UserAgent())
 	req.Header.Set("Accept", accept)
 	return t.transport.RoundTrip(req)
 }

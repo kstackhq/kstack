@@ -36,6 +36,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 )
 
 // The trap: a hardcoded scheme turns a plain-HTTP port-forward into https:// and every request
@@ -66,7 +68,7 @@ func TestNewConnectionStampsItsTuningOnACopy(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, defaultQPS, conn.Config.QPS)
-	assert.Equal(t, userAgent, conn.Config.UserAgent)
+	assert.Equal(t, version.UserAgent(), conn.Config.UserAgent)
 	assert.Zero(t, caller.QPS, "the caller's config is untouched")
 	assert.Empty(t, caller.UserAgent)
 }

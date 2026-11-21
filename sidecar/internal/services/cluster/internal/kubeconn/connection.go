@@ -62,9 +62,6 @@ const (
 	listIdleTimeout = 2 * time.Minute
 )
 
-// userAgent tells an audit log the desktop app apart from other Kstack clients.
-var userAgent = "kstack-desktop/" + version.Version
-
 // Connection is one identity and the clients built over the credentials reaching it. The clients
 // share one http.Client, so they share one connection pool — with HTTP/2 that is a single TCP
 // connection carrying every concurrent request to that API server.
@@ -248,7 +245,7 @@ func newConnection(cfg *rest.Config, o options, newDynamic dynamicBuilder) (*Con
 	own := rest.CopyConfig(cfg)
 	own.QPS = defaultQPS
 	own.Burst = defaultBurst
-	own.UserAgent = userAgent
+	own.UserAgent = version.UserAgent()
 	own.Dial = newCountingDialer(conn.counts)
 
 	// DefaultServerUrlFor rather than DefaultServerURL: it derives the scheme from whether the
