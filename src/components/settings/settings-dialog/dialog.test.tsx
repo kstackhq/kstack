@@ -87,10 +87,10 @@ const NAMES = [
   'Providers',
   'Memory',
   'Environment',
-  'Monitoring',
   'Sandbox',
   'Permissions',
   'Tools',
+  'Monitoring',
 ];
 
 beforeEach(() => {
