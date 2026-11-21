@@ -323,7 +323,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	// with the edge, so it closes before the service it reads.
 	if shell != nil {
 		// A probe has no chat, so its run reads the folders granted always alone.
-		shell.SetProbeFolders(func(ctx context.Context) []session.Folder { return rt.Chat.FoldersFor(ctx, "") })
+		shell.SetAlwaysFolders(func(ctx context.Context) []session.Folder { return rt.Chat.FoldersFor(ctx, "") })
 		// Ends a running probe at Close.
 		rt.add("executable probe", lifecycle.CloseFunc(shell.Close))
 	}

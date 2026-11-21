@@ -196,6 +196,9 @@ type Tool struct {
 	// SetCallDeadline.
 	after func(d time.Duration) <-chan time.Time
 
+	// alwaysFolders is the folders granted always, which a run that belongs
+	// to no chat reads; nil reads none.
+	alwaysFolders func(context.Context) []session.Folder
 	// probe is the tool probe's state (executableprobe.go).
 	probe *executableProbe
 }
@@ -283,6 +286,14 @@ func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Se
 		t.version = readVersion(shell)
 	}
 	return t, true
+}
+
+// SetAlwaysFolders hands the tool the folders granted always, which a run that
+// belongs to no chat reads at its start, so a folder granted since reaches the
+// next one. It is unguarded: the app calls it once the chat service is built,
+// after the tool and before any run.
+func (t *Tool) SetAlwaysFolders(folders func(context.Context) []session.Folder) {
+	t.alwaysFolders = folders
 }
 
 // SetCallDeadline makes after start each call's deadline in place of

@@ -21,7 +21,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -127,8 +126,6 @@ type ProbeState struct {
 
 // executableProbe is the Bash tool's probe state.
 type executableProbe struct {
-	// folders is the folders granted always, which a probe's run reads.
-	folders     func(context.Context) []session.Folder
 	diskTimeout time.Duration // diskTimeout, or a test's shorter one
 	// buildTimeout is the run's build's bound, diskTimeout in production;
 	// its own field so a test can cut the build alone.
@@ -173,14 +170,6 @@ func newExecutableProbe() *executableProbe {
 // publish sends the probe's state. Called under mu.
 func (p *executableProbe) publish() {
 	p.tx.Send(ProbeState{Probing: p.running, Probes: p.started, Last: slices.Clone(p.last)}) //nolint:errcheck // Send never blocks, and the hub closes with the probe
-}
-
-// SetProbeFolders hands the probe the folders granted always, read at each
-// run so a folder granted after a report reaches the next probe. The app
-// calls it once the chat service is built, after the tool and before any
-// probe.
-func (t *Tool) SetProbeFolders(folders func(context.Context) []session.Folder) {
-	t.probe.folders = folders
 }
 
 // ProbeExecutables runs each curated tool's invocation, then each registered
@@ -404,7 +393,7 @@ type probeResult struct {
 // probeRun runs argv once in the sandbox as a Workspace run with no cluster
 // and no network, in a throwaway chat directory removed after it.
 func (t *Tool) probeRun(ctx context.Context, argv []string) probeResult {
-	dir, err := newProbeDir(t.tmpDir)
+	dir, err := newScratchDir(t.tmpDir, "probe")
 	if err != nil {
 		return probeResult{err: "could not start: " + err.Error()}
 	}
@@ -418,7 +407,7 @@ func (t *Tool) probeRun(ctx context.Context, argv []string) probeResult {
 	}
 	// No cluster, no chat and no network: the folders granted always are all
 	// the session holds.
-	rt := tools.Runtime{Session: session.Session{Folders: t.probe.folders}, Dir: dir}
+	rt := tools.Runtime{Session: session.Session{Folders: t.alwaysFolders}, Dir: dir}
 	workspace := tools.WorkspacePath(dir)
 	// The run's build reads the disk as runProbe's PATH build does, and
 	// abandons the read only when its context ends, so it gets the same bound.
@@ -447,35 +436,6 @@ func (t *Tool) probeRun(ctx context.Context, argv []string) probeResult {
 		out.err = strings.TrimSuffix(headerOf(res, probeTimeout, false), "\n")
 	}
 	return out
-}
-
-// probeDir is a throwaway chat directory for one probe run, under the cache's
-// tmp directory and named for the sidecar's pid, so a sweep takes what a crash
-// left.
-type probeDir string
-
-// newProbeDir makes a probeDir under tmpDir.
-func newProbeDir(tmpDir string) (probeDir, error) {
-	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
-		return "", err
-	}
-	pid := os.Getpid()
-	if err := holdRunLock(tmpDir, pid); err != nil {
-		return "", err
-	}
-	dir, err := os.MkdirTemp(tmpDir, strconv.Itoa(pid)+"-probe-*")
-	return probeDir(dir), err
-}
-
-func (d probeDir) Path() string { return string(d) }
-
-func (d probeDir) Root(create bool) (*os.Root, error) {
-	if create {
-		if err := os.MkdirAll(string(d), 0o700); err != nil {
-			return nil, err
-		}
-	}
-	return os.OpenRoot(string(d))
 }
 
 // firstLine is s's first line holding more than whitespace, trimmed.

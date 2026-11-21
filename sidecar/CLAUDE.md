@@ -64,7 +64,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 **`build` fills one `Runtime`** (`internal/app/runtime.go`), a field per service in build order.
 A service never sees the runtime: it takes constructor arguments. Field order is build order is
 start order (`rt.add`); stop and close reverse it. An edge back to a later service is a setter at
-the end of `build` (`SetProbeFolders`, `SetCacheFiles`). **kubeconfig before cluster is
+the end of `build` (`SetAlwaysFolders`, `SetCacheFiles`). **kubeconfig before cluster is
 load-bearing** (`app_test.go`). → [ADR: the runtime is built in
 order](../docs/adr/2026-10-06-the-runtime-is-built-in-order.md).
 

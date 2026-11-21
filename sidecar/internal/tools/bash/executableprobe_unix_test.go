@@ -249,7 +249,7 @@ func TestAProbeReadsTheAlwaysFoldersAlone(t *testing.T) {
 	tl, fake, bin := probingTool(t)
 	writeExecutable(t, bin, "kubectl", "true")
 	granted := testutil.GrantableDir(t)
-	tl.SetProbeFolders(func(context.Context) []session.Folder {
+	tl.SetAlwaysFolders(func(context.Context) []session.Folder {
 		return []session.Folder{{Path: granted}}
 	})
 
@@ -433,21 +433,6 @@ func TestAProbeDirectoryThatCannotBeRemovedIsLogged(t *testing.T) {
 	assert.Contains(t, logs.String(), "could not remove a probe's directory")
 }
 
-// A probe directory's Root makes the folder when asked, and says why it could
-// not.
-func TestAProbeDirectorysRootMakesTheFolder(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "file")
-	require.NoError(t, os.WriteFile(file, nil, 0o600))
-	_, err := probeDir(filepath.Join(file, "probe")).Root(true)
-	assert.Error(t, err)
-
-	dir := probeDir(filepath.Join(t.TempDir(), "probe"))
-	root, err := dir.Root(true)
-	require.NoError(t, err)
-	require.NoError(t, root.Close())
-	assert.DirExists(t, dir.Path())
-}
-
 // recording is a real sandbox that keeps each Run it was handed.
 type recording struct {
 	*sandbox.Sandbox
@@ -472,7 +457,7 @@ func realProbingTool(t *testing.T) (*Tool, *recording, string) {
 	tl.home = testutil.GrantableDir(t)
 	bin := testutil.GrantableDir(t)
 	onPath(tl, bin)
-	tl.SetProbeFolders(nil)
+	tl.SetAlwaysFolders(nil)
 	return tl, rec, bin
 }
 
