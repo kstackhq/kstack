@@ -21,7 +21,7 @@ use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
 use tokio::sync::watch;
 
 use crate::error::{AppError, Result};
-use crate::paths::{app_cache_dir, app_data_dir, log_dir, runtime_dir, Roots};
+use crate::paths::{app_cache_dir, app_data_dir, config_dir_for, log_dir, runtime_dir, Roots};
 
 use super::graphql::{FrameSink, GraphqlResponse, QueryClient, SubscriptionClient};
 use super::grpc::{AuthStateStream, GrpcClient};
@@ -99,6 +99,9 @@ impl SidecarService {
         let dirs = Dirs {
             cache: app_cache_dir(roots, &data)?,
             runtime: runtime_dir(&data)?,
+            // Fenced from the sidecar's file tools, even when `host_file::manage`
+            // could not make or tighten it.
+            config: config_dir_for(roots),
             data,
         };
         let endpoint = Endpoint::pick(&dirs.runtime)?;
@@ -426,6 +429,7 @@ struct Dirs {
     data: std::path::PathBuf,
     cache: std::path::PathBuf,
     runtime: std::path::PathBuf,
+    config: Option<std::path::PathBuf>,
 }
 
 /// CLI flags for the sidecar; a free function so the contract is unit-testable
@@ -452,6 +456,10 @@ fn cmd_args(socket: &Endpoint, dirs: &Dirs, log_file: Option<&std::path::Path>) 
     .flat_map(|(flag, value)| [flag.to_owned(), value])
     .collect();
 
+    if let Some(dir) = &dirs.config {
+        args.push("--config-dir".to_owned());
+        args.push(dir.to_string_lossy().into_owned());
+    }
     if let Some(path) = log_file {
         args.push("--log-file".to_owned());
         args.push(path.to_string_lossy().into_owned());
@@ -619,7 +627,7 @@ mod tests {
         );
     }
 
-    /// Pins the host↔sidecar CLI contract (`--socket`, the three directories,
+    /// Pins the host↔sidecar CLI contract (`--socket`, the directories,
     /// `--host-pid`, and the endpoints); changing it without updating the
     /// sidecar silently misroutes the cache or the socket, drops the peer
     /// check, or leaves sign-in on an inherited environment variable.
@@ -646,6 +654,8 @@ mod tests {
             OAUTH_CLIENT_ID.to_owned(),
             "--keychain-service".to_owned(),
             KEYCHAIN_SERVICE.to_owned(),
+            "--config-dir".to_owned(),
+            "/some/app/config".to_owned(),
             "--log-file".to_owned(),
             log_file.to_string_lossy().into_owned(),
         ];
@@ -662,6 +672,7 @@ mod tests {
             data: "/some/app/data".into(),
             cache: "/some/app/cache".into(),
             runtime: "/some/app/run".into(),
+            config: Some("/some/app/config".into()),
         }
     }
 
@@ -674,6 +685,19 @@ mod tests {
         let path = Endpoint::pick(&base).expect("pick should succeed");
         let args = cmd_args(&path, &test_dirs(), None);
         assert!(!args.iter().any(|a| a == "--log-file"), "got: {args:?}");
+    }
+
+    /// A config directory that could not be made leaves the flag off.
+    #[test]
+    fn cmd_args_omits_the_config_dir_when_there_is_none() {
+        let base = std::env::temp_dir();
+        let path = Endpoint::pick(&base).expect("pick should succeed");
+        let dirs = Dirs {
+            config: None,
+            ..test_dirs()
+        };
+        let args = cmd_args(&path, &dirs, None);
+        assert!(!args.iter().any(|a| a == "--config-dir"), "got: {args:?}");
     }
 
     #[test]
@@ -761,6 +785,26 @@ mod tests {
         let (service, args) = spawn_script(&app, &roots, "exit 0");
 
         assert!(!args.iter().any(|a| a == "--log-file"), "got: {args:?}");
+        service.kill();
+    }
+
+    /// The config directory is fenced by its path, so one the host cannot make
+    /// or tighten is still passed: the file inside may yet be readable.
+    #[cfg(unix)]
+    #[test]
+    fn a_config_directory_the_host_cannot_prepare_is_still_fenced() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let roots = roots(scratch.path());
+        let config = crate::paths::app_config_dir(&roots).unwrap();
+        std::fs::remove_dir(&config).unwrap();
+        std::fs::write(&config, "").unwrap();
+        assert!(crate::paths::app_config_dir(&roots).is_err());
+
+        let (service, args) = spawn_script(&app, &roots, "exit 0");
+
+        let at = args.iter().position(|a| a == "--config-dir").unwrap();
+        assert_eq!(args[at + 1], config.to_string_lossy());
         service.kill();
     }
 

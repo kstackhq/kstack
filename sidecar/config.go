@@ -62,6 +62,7 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 	fs.StringVar(&cfg.App.DataDir, "data-dir", "", "directory for what a user would lose: app.db, the chats' files (required)")
 	fs.StringVar(&cfg.App.CacheDir, "cache-dir", "", "directory for what Kstack rebuilds: the mirror, the kubectl cache (required)")
 	fs.StringVar(&cfg.App.RuntimeDir, "runtime-dir", "", "directory for what lives for a session: the shell snapshot, a sandboxed run's files (required)")
+	fs.StringVar(&cfg.App.ConfigDir, "config-dir", "", "the host's config directory, which the file tools and the sandbox deny; empty when there is none")
 	// The OAuth client is public (PKCE/loopback, no secret), so baking the
 	// production defaults into the binary leaks nothing.
 	fs.StringVar(&cfg.App.OAuthIssuerURL, "oauth-issuer", "https://oauth.kstack.sh", "OAuth issuer URL")

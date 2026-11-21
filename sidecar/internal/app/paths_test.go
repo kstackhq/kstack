@@ -55,3 +55,20 @@ func TestTheLogDirectoryIsKstacks(t *testing.T) {
 	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: filepath.Join(data, "logs")})
 	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one inside the data directory adds nothing")
 }
+
+func TestTheConfigDirectoryIsKstacks(t *testing.T) {
+	data, cache, runtime := filepath.FromSlash("/d"), filepath.FromSlash("/c"), filepath.FromSlash("/r")
+	config := filepath.FromSlash("/u/.config/Kstack")
+	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, ConfigDir: config})
+	assert.Equal(t, []string{data, cache, runtime, config}, p.Bash.DeniedDirs,
+		"the config directory holds host.json, which the file tools are fenced out of")
+
+	// macOS's config directory is the data directory.
+	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, ConfigDir: data})
+	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one that is the data directory adds nothing")
+
+	nested := filepath.Join(data, "config")
+	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, ConfigDir: nested})
+	assert.Equal(t, []string{data, cache, runtime, nested}, p.Bash.DeniedDirs,
+		"one under another by name is kept, since a link can lead it elsewhere")
+}

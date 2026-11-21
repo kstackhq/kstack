@@ -74,13 +74,16 @@ pub fn app_data_dir(roots: &Roots) -> Result<PathBuf> {
 /// Windows roams with the profile. On macOS the config root is the data root,
 /// so this is the data directory.
 pub fn app_config_dir(roots: &Roots) -> Result<PathBuf> {
-    let root = roots
-        .config
-        .as_ref()
+    let dir = config_dir_for(roots)
         .ok_or_else(|| AppError::Io(std::io::Error::other("resolve config_dir: none")))?;
-    let dir = root.join(APP_DIR_NAME);
     ensure_data_dir(&dir)?;
     Ok(dir)
+}
+
+/// Where the config directory sits, whether or not it could be made: the
+/// sidecar fences a directory that exists but could not be tightened too.
+pub fn config_dir_for(roots: &Roots) -> Option<PathBuf> {
+    Some(roots.config.as_ref()?.join(APP_DIR_NAME))
 }
 
 /// Creates the sidecar's data directory owner-only, and tightens one an earlier build

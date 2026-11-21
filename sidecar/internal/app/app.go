@@ -68,6 +68,9 @@ type Config struct {
 	// LogDir is where the host logs, which is Kstack's own too: a grant of the
 	// home must not open it. Empty when the sidecar logs to stderr alone.
 	LogDir string
+	// ConfigDir is where the host keeps host.json, fenced like LogDir. Empty
+	// when the host has none.
+	ConfigDir string
 	// OAuthIssuerURL is Kstack's OAuth issuer, whose discovery document names
 	// the endpoints.
 	OAuthIssuerURL string

@@ -62,6 +62,13 @@ func pathsOf(cfg Config) paths {
 	if cfg.LogDir != "" && !slices.ContainsFunc(kstack, func(dir string) bool { return under(dir, cfg.LogDir) }) {
 		kstack = append(kstack, cfg.LogDir)
 	}
+	// The config directory sits outside the three on Linux and Windows. Only an
+	// exact duplicate (macOS's, the data directory) is dropped: one nested in
+	// another by name can resolve elsewhere through a link, and the fences
+	// resolve each path themselves.
+	if cfg.ConfigDir != "" && !slices.Contains(kstack, cfg.ConfigDir) {
+		kstack = append(kstack, cfg.ConfigDir)
+	}
 	return paths{
 		LockFile:     filepath.Join(data, "sidecar.lock"),
 		AppDBFile:    filepath.Join(data, "app.db"),
