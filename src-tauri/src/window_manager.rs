@@ -14,8 +14,10 @@
 
 //! Window lifecycle. Every window is built in code by [`WindowManager`]
 //! (`tauri.conf.json` declares none — a test pins this), so all chrome lives in
-//! `build_window`; new windows cascade down-right of their anchor
-//! ([`cascade_position`]). See
+//! `build_window`; new windows are sized to their monitor ([`fit_size`]) and
+//! cascade down-right of their anchor ([`cascade_position`]), an app window
+//! at its anchor's size, and the main
+//! window reopens at its saved frame (`window_state.rs`). See
 //! docs/adr/2026-08-09-per-platform-window-chrome.md.
 //!
 //! Windows are visible from creation, painted with the resolved scheme at t0
@@ -27,6 +29,7 @@
 //! Closing the last window does not exit the process (see `lib.rs`), so every
 //! entry point here recreates `"main"` on demand.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -38,6 +41,7 @@ use tracing::warn;
 
 use crate::error::Result;
 use crate::host_file::{self, ColorSchemePreference};
+use crate::window_state::{self, Frame, SavedFrame};
 
 /// Label of the primary window (created at startup by `lib.rs`'s `setup`).
 const MAIN_LABEL: &str = "main";
@@ -64,8 +68,10 @@ pub fn is_logs_label(label: &str) -> bool {
 struct WindowSpec {
     /// The page, under the app's origin.
     path: &'static str,
-    /// Logical size.
+    /// Logical size on a screen with room for it ([`fit_size`]).
     size: (f64, f64),
+    /// Whether a new window takes the size of the app window it anchors on.
+    takes_anchor_size: bool,
     /// The bar the macOS traffic lights center in.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     bar_height: f64,
@@ -73,14 +79,23 @@ struct WindowSpec {
 
 const APP_WINDOW: WindowSpec = WindowSpec {
     path: "index.html",
-    size: (800.0, 600.0),
+    size: (1200.0, 760.0),
+    takes_anchor_size: true,
     bar_height: APP_BAR_HEIGHT,
 };
+
+/// Logical floor on every window's size, so the layout never renders below its
+/// narrowest design.
+const MIN_SIZE: (f64, f64) = (600.0, 400.0);
+
+/// The largest share of its monitor's work area a new window takes per side.
+const MAX_WORK_AREA_SHARE: f64 = 0.85;
 
 /// A log window's page asks the host what to draw, so its URL carries nothing.
 const LOG_WINDOW: WindowSpec = WindowSpec {
     path: "logs",
     size: (1000.0, 700.0),
+    takes_anchor_size: false,
     bar_height: LOG_BAR_HEIGHT,
 };
 
@@ -268,6 +283,54 @@ fn cascade_position(
     }
 }
 
+/// Logical size for a new window of `size` on `work_area` (`(x, y, w, h)`):
+/// at most [`MAX_WORK_AREA_SHARE`] of the work area per side, never below
+/// [`MIN_SIZE`].
+fn fit_size(size: (f64, f64), work_area: (f64, f64, f64, f64)) -> (f64, f64) {
+    let (_, _, area_w, area_h) = work_area;
+    (
+        size.0.min(area_w * MAX_WORK_AREA_SHARE).max(MIN_SIZE.0),
+        size.1.min(area_h * MAX_WORK_AREA_SHARE).max(MIN_SIZE.1),
+    )
+}
+
+/// The logical px of a restored window's title bar that must stay on a work
+/// area, so it can be dragged back.
+const MIN_VISIBLE_TITLE_BAR: f64 = 100.0;
+
+/// Whether `frame` still fits `work_area`: no larger than it, its title bar
+/// (the app bar's height across its top) on it for at least
+/// [`MIN_VISIBLE_TITLE_BAR`] of its width.
+fn fits(frame: &Frame, work_area: (f64, f64, f64, f64)) -> bool {
+    let (x, y, width, height) = work_area;
+    let visible = (frame.x + frame.width).min(x + width) - frame.x.max(x);
+    frame.width <= width
+        && frame.height <= height
+        && frame.y >= y
+        && frame.y + APP_BAR_HEIGHT <= y + height
+        && visible >= MIN_VISIBLE_TITLE_BAR
+}
+
+/// Whether `frame` is as large as `work_area`, as a maximized window's is.
+fn covers(frame: &Frame, work_area: (f64, f64, f64, f64)) -> bool {
+    let (_, _, width, height) = work_area;
+    frame.width >= width && frame.height >= height
+}
+
+/// A new window of `size` on `monitor`: [`fit_size`]d, then placed by
+/// [`cascade_position`].
+fn frame_on(monitor: &Monitor, anchor: Option<(f64, f64)>, size: (f64, f64)) -> Frame {
+    let area = logical_work_area(monitor);
+    let (width, height) = fit_size(size, area);
+    let (x, y) = cascade_position(anchor, (width, height), area);
+    Frame {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
 /// Unminimizes, shows and focuses `window`.
 fn surface<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
     // A minimized window won't surface on show()/set_focus() alone.
@@ -276,6 +339,30 @@ fn surface<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
     window.show()?;
     window.set_focus()?;
     Ok(())
+}
+
+/// `window`'s outer position and inner size in logical px. `None` when the
+/// window cannot be read, or is minimized or fullscreen, neither of which is
+/// its normal frame (Windows reports a minimized window far off-screen).
+fn current_frame<R: Runtime>(window: &WebviewWindow<R>) -> Option<Frame> {
+    let normal = !window.is_minimized().ok()? && !window.is_fullscreen().ok()?;
+    let scale = window.scale_factor().ok()?;
+    let position = window.outer_position().ok()?.to_logical::<f64>(scale);
+    let size = window.inner_size().ok()?.to_logical::<f64>(scale);
+    normal.then_some(Frame {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+    })
+}
+
+/// `window`'s inner size in logical px while it is at its normal frame:
+/// `None` when it is minimized, fullscreen or maximized.
+fn normal_size<R: Runtime>(window: &WebviewWindow<R>) -> Option<(f64, f64)> {
+    let frame = current_frame(window)?;
+    let maximized = window.is_maximized().ok()?;
+    (!maximized).then_some((frame.width, frame.height))
 }
 
 /// A monitor's work area as logical `(x, y, width, height)` — Tauri only
@@ -288,7 +375,7 @@ fn logical_work_area(monitor: &Monitor) -> (f64, f64, f64, f64) {
     (position.x, position.y, size.width, size.height)
 }
 
-/// The monitors a new window is placed against. `app.rs` reads the real
+/// The monitors a window is placed against. `app.rs` reads the real
 /// runtime's; Tauri's mock runtime has none, so tests pass their own.
 pub trait Monitors: Send + Sync {
     /// The monitor the window labelled `label` is on.
@@ -296,6 +383,9 @@ pub trait Monitors: Send + Sync {
 
     /// The system's primary monitor.
     fn primary(&self) -> Option<Monitor>;
+
+    /// Every connected monitor.
+    fn all(&self) -> Vec<Monitor>;
 }
 
 /// Owns window creation and focus for the host.
@@ -316,15 +406,30 @@ pub struct WindowManager {
     shutdown: CancellationToken,
 
     monitors: Box<dyn Monitors>,
+
+    /// The main window's frame as last seen, written to `state_path` when the
+    /// window is destroyed and on exit. Seeded from the file when the main
+    /// window is built. Never held while the runtime is queried.
+    main_frame: Mutex<Option<SavedFrame>>,
+
+    /// Where the main window's frame is kept across launches
+    /// ([`window_state::path`]). `None` keeps it for this session only.
+    state_path: Option<PathBuf>,
 }
 
 impl WindowManager {
-    pub fn new(shutdown: CancellationToken, monitors: impl Monitors + 'static) -> Self {
+    pub fn new(
+        shutdown: CancellationToken,
+        monitors: impl Monitors + 'static,
+        state_path: Option<PathBuf>,
+    ) -> Self {
         Self {
             next_id: AtomicU64::new(0),
             last_built: Mutex::new(None),
             shutdown,
             monitors: Box::new(monitors),
+            main_frame: Mutex::new(None),
+            state_path,
         }
     }
 
@@ -339,7 +444,8 @@ impl WindowManager {
     /// never reuses an existing one. Opens nothing once a quit has begun.
     pub fn new_window<R: Runtime>(&self, app: &AppHandle<R>) -> Result<()> {
         let label = self.next_label();
-        self.open(app, &label, &APP_WINDOW, None)?;
+        let frame = self.placement(app, None, &APP_WINDOW);
+        self.open(app, &label, &APP_WINDOW, frame)?;
         Ok(())
     }
 
@@ -351,7 +457,8 @@ impl WindowManager {
         label: &str,
         anchor: &str,
     ) -> Result<Option<WebviewWindow<R>>> {
-        self.open(app, label, &LOG_WINDOW, Some(anchor))
+        let frame = self.placement(app, Some(anchor), &LOG_WINDOW);
+        self.open(app, label, &LOG_WINDOW, frame)
     }
 
     /// Builds the window `label` unless a quit has begun.
@@ -360,12 +467,12 @@ impl WindowManager {
         app: &AppHandle<R>,
         label: &str,
         spec: &WindowSpec,
-        anchor: Option<&str>,
+        frame: Option<Frame>,
     ) -> Result<Option<WebviewWindow<R>>> {
         if self.quitting() {
             return Ok(None);
         }
-        let window = self.build_window(app, label, spec, anchor)?;
+        let window = self.build_window(app, label, spec, frame, false)?;
         self.hide_if_quitting(app, window.clone());
         Ok(Some(window))
     }
@@ -453,19 +560,27 @@ impl WindowManager {
         })
     }
 
-    /// Logical `(x, y)` for the next window of `size`: a cascade step off the
-    /// anchor (see [`Self::anchor_window`]) on its monitor, else centered on the
-    /// primary. `None` when no monitor can be read.
+    /// Where the next window of `spec` opens: sized to its monitor, a
+    /// cascade step off the anchor (see [`Self::anchor_window`]) on its
+    /// monitor, else centered on the primary. An app window takes the size of
+    /// the app window it anchors on. `None` when no monitor can be read.
     fn placement<R: Runtime>(
         &self,
         app: &AppHandle<R>,
         anchor: Option<&str>,
-        size: (f64, f64),
-    ) -> Option<(f64, f64)> {
+        spec: &WindowSpec,
+    ) -> Option<Frame> {
         // Anchor and its monitor resolve together — an anchor whose monitor
         // can't be read is no anchor at all. Anything unreadable degrades to a
         // centered window, never a failed build.
-        let anchored = self.anchor_window(app, anchor).and_then(|window| {
+        let anchor = self.anchor_window(app, anchor);
+        let size = anchor
+            .as_ref()
+            .filter(|window| spec.takes_anchor_size && is_app_label(window.label()))
+            .and_then(normal_size)
+            .unwrap_or(spec.size);
+
+        let anchored = anchor.and_then(|window| {
             let monitor = self.monitors.of_window(window.label())?;
             let position = window
                 .outer_position()
@@ -480,11 +595,83 @@ impl WindowManager {
             None => (self.monitors.primary()?, None),
         };
 
-        Some(cascade_position(
-            anchor_position,
-            size,
-            logical_work_area(&monitor),
-        ))
+        Some(frame_on(&monitor, anchor_position, size))
+    }
+
+    /// Where the main window opens: at its saved frame (remembered, else read
+    /// from `state_path`) while that fits a connected monitor, else at the
+    /// default centered on the primary. `None` when neither can be had.
+    ///
+    /// The frame chosen is remembered as the normal frame, so a window that
+    /// opens maximized and is never unmaximized saves it.
+    fn main_window_placement(&self) -> Option<SavedFrame> {
+        // Not held while the monitors are read: from the blocking pool that
+        // waits on the event loop, which may itself be waiting on this lock
+        // (a tray click racing a Dock reopen).
+        let remembered = *self.main_frame.lock().unwrap_or_else(|p| p.into_inner());
+        let saved = remembered.or_else(|| window_state::read(self.state_path.as_deref()?));
+
+        let monitors = self.monitors.all();
+        let restored = saved.map(|saved| saved.frame).filter(|frame| {
+            monitors
+                .iter()
+                .any(|monitor| fits(frame, logical_work_area(monitor)))
+        });
+        let frame = match restored {
+            Some(frame) => frame,
+            None => frame_on(&self.monitors.primary()?, None, APP_WINDOW.size),
+        };
+
+        let placed = SavedFrame {
+            frame,
+            maximized: saved.is_some_and(|saved| saved.maximized),
+        };
+        *self.main_frame.lock().unwrap_or_else(|p| p.into_inner()) = Some(placed);
+        Some(placed)
+    }
+
+    /// Remembers the main window's frame after it moved or resized. Other
+    /// windows, and a minimized or fullscreen main window, are ignored.
+    ///
+    /// A frame covering its work area counts as maximized: Windows reports a
+    /// maximize's move before the window reads as maximized.
+    pub fn main_window_moved<R: Runtime>(&self, app: &AppHandle<R>, label: &str) {
+        if label != MAIN_LABEL {
+            return;
+        }
+        let observed = app.get_webview_window(MAIN_LABEL).and_then(|window| {
+            let frame = current_frame(&window)?;
+            let covered = self
+                .monitors
+                .of_window(MAIN_LABEL)
+                .is_some_and(|monitor| covers(&frame, logical_work_area(&monitor)));
+            let maximized = covered || window.is_maximized().unwrap_or(false);
+            Some(SavedFrame { frame, maximized })
+        });
+        if let Some(current) = observed {
+            let mut main_frame = self.main_frame.lock().unwrap_or_else(|p| p.into_inner());
+            *main_frame = Some(window_state::next_saved(main_frame.take(), current));
+        }
+    }
+
+    /// Saves the main window's frame once it is destroyed; other windows are
+    /// ignored.
+    pub fn main_window_destroyed(&self, label: &str) {
+        if label == MAIN_LABEL {
+            self.save_main_frame();
+        }
+    }
+
+    /// Writes the main window's remembered frame to `state_path`, when there
+    /// are both. Failures are logged.
+    pub fn save_main_frame(&self) {
+        let saved = *self.main_frame.lock().unwrap_or_else(|p| p.into_inner());
+        let (Some(saved), Some(path)) = (saved, &self.state_path) else {
+            return;
+        };
+        if let Err(err) = window_state::write(path, &saved) {
+            warn!(%err, "failed to save the main window's frame");
+        }
     }
 
     /// Surface the main window: recreate it if the user closed it, unminimize it
@@ -495,7 +682,12 @@ impl WindowManager {
         }
         let window = match app.get_webview_window(MAIN_LABEL) {
             Some(window) => window,
-            None => self.build_window(app, MAIN_LABEL, &APP_WINDOW, None)?,
+            None => {
+                let placed = self.main_window_placement();
+                let frame = placed.map(|placed| placed.frame);
+                let maximized = placed.is_some_and(|placed| placed.maximized);
+                self.build_window(app, MAIN_LABEL, &APP_WINDOW, frame, maximized)?
+            }
         };
         // Queued whatever surface returns: a step may fail after show() went out.
         let surfaced = surface(&window);
@@ -509,7 +701,7 @@ impl WindowManager {
     /// frameless, Linux additionally transparent. See
     /// docs/adr/2026-08-09-per-platform-window-chrome.md.
     ///
-    /// Positioned explicitly on every platform, off `anchor` when given
+    /// Positioned explicitly on every platform at `frame` when there is one
     /// ([`Self::placement`]): AppKit auto-cascades an unpositioned window,
     /// Linux/Windows pile up.
     ///
@@ -520,22 +712,24 @@ impl WindowManager {
         app: &AppHandle<R>,
         label: &str,
         spec: &WindowSpec,
-        anchor: Option<&str>,
+        frame: Option<Frame>,
+        maximized: bool,
     ) -> Result<WebviewWindow<R>> {
-        let (width, height) = spec.size;
         let url = WebviewUrl::App(spec.path.into());
         let mut builder = WebviewWindowBuilder::new(app, label, url)
             .title(WINDOW_TITLE)
-            .inner_size(width, height)
-            // Floor the window so the layout never renders below its narrowest design.
-            .min_inner_size(600.0, 400.0)
+            .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
+            .maximized(maximized)
             .on_navigation(is_app_origin)
             .on_new_window(|url, _features| refuse_new_window(&url));
 
-        // No monitor to measure against — let the OS place the window.
-        if let Some((x, y)) = self.placement(app, anchor, spec.size) {
-            builder = builder.position(x, y);
-        }
+        builder = match frame {
+            Some(frame) => builder
+                .inner_size(frame.width, frame.height)
+                .position(frame.x, frame.y),
+            // No monitor to measure against — let the OS place the window.
+            None => builder.inner_size(spec.size.0, spec.size.1),
+        };
 
         #[cfg(target_os = "macos")]
         {
@@ -601,17 +795,20 @@ impl WindowManager {
 #[cfg(test)]
 mod tests {
     use super::{
-        background_color_for, cascade_position, is_app_origin, refuse_new_window, warn_on_error,
-        WindowManager,
+        background_color_for, cascade_position, covers, fit_size, fits, is_app_origin,
+        refuse_new_window, warn_on_error, Frame, WindowManager, APP_WINDOW,
     };
     use crate::host_file::ColorSchemePreference;
+    use crate::logging::captured;
     use crate::services::sidecar::SidecarService;
     use crate::testutil::{mock_app, monitor, window, OneMonitor, Scratch};
+    use crate::window_state::{self, SavedFrame};
     use std::collections::HashSet;
     use std::sync::Arc;
     use std::thread;
     use tauri::test::MockRuntime;
     use tauri::webview::NewWindowResponse;
+    use tauri::window::Monitor;
     use tauri::Manager;
     use tauri::Url;
     use tokio_util::sync::CancellationToken;
@@ -747,9 +944,18 @@ mod tests {
         }
     }
 
+    fn frame(x: f64, y: f64, width: f64, height: f64) -> Frame {
+        Frame {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
     /// A manager on no readable monitor.
     fn manager() -> WindowManager {
-        WindowManager::new(CancellationToken::new(), OneMonitor(None))
+        WindowManager::new(CancellationToken::new(), OneMonitor(None), None)
     }
 
     #[test]
@@ -758,8 +964,9 @@ mod tests {
         assert_eq!(wm.next_label(), "window-1");
     }
 
-    /// The first window centers on the primary monitor; the next steps off it,
-    /// on its monitor, in logical px.
+    /// The first window centers on the primary monitor at the default size;
+    /// the next steps off it, on its monitor, at its size. The mock reports
+    /// every window at the origin with no size, which is raised to the minimum.
     #[test]
     fn windows_open_centered_then_cascade() {
         let scratch = Scratch::new();
@@ -768,17 +975,20 @@ mod tests {
         let wm = WindowManager::new(
             CancellationToken::new(),
             OneMonitor(Some(monitor((0, 0, 3840, 2160), 2.0))),
+            None,
         );
 
         assert_eq!(
-            wm.placement(app.handle(), None, WINDOW),
-            Some((560.0, 240.0))
+            wm.placement(app.handle(), None, &APP_WINDOW),
+            Some(frame(360.0, 160.0, 1200.0, 760.0))
         );
         wm.new_window(app.handle()).unwrap();
         assert!(app.get_webview_window("window-1").is_some());
 
-        // The mock puts every window at the origin.
-        assert_eq!(wm.placement(app.handle(), None, WINDOW), Some((28.0, 28.0)));
+        assert_eq!(
+            wm.placement(app.handle(), None, &APP_WINDOW),
+            Some(frame(28.0, 28.0, 600.0, 400.0))
+        );
         wm.new_window(app.handle()).unwrap();
         assert!(app.get_webview_window("window-2").is_some());
     }
@@ -790,7 +1000,7 @@ mod tests {
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let wm = manager();
 
-        assert_eq!(wm.placement(app.handle(), None, WINDOW), None);
+        assert_eq!(wm.placement(app.handle(), None, &APP_WINDOW), None);
         wm.new_window(app.handle()).unwrap();
         assert!(app.get_webview_window("window-1").is_some());
     }
@@ -823,7 +1033,7 @@ mod tests {
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let main = window(&app, "main");
         let shutdown = CancellationToken::new();
-        let wm = WindowManager::new(shutdown.clone(), OneMonitor(None));
+        let wm = WindowManager::new(shutdown.clone(), OneMonitor(None), None);
         shutdown.cancel();
 
         wm.hide_if_quitting(app.handle(), main);
@@ -889,6 +1099,30 @@ mod tests {
         assert_eq!(anchor.label(), "main");
     }
 
+    /// Neither kind takes the other's size: a log window keeps its own off
+    /// an app window, and an app window the default off a log window.
+    #[test]
+    fn a_window_takes_only_an_app_windows_size_and_only_as_an_app_window() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let wm = WindowManager::new(
+            CancellationToken::new(),
+            OneMonitor(Some(monitor((0, 0, 1920, 1080), 1.0))),
+            None,
+        );
+        window(&app, "main");
+        window(&app, "logs-1");
+
+        assert_eq!(
+            wm.placement(app.handle(), Some("main"), &super::LOG_WINDOW),
+            Some(frame(28.0, 28.0, 1000.0, 700.0))
+        );
+        assert_eq!(
+            wm.placement(app.handle(), Some("logs-1"), &APP_WINDOW),
+            Some(frame(28.0, 28.0, 1200.0, 760.0))
+        );
+    }
+
     #[test]
     fn a_log_window_with_no_anchor_centers_at_its_own_size() {
         let scratch = Scratch::new();
@@ -896,11 +1130,12 @@ mod tests {
         let wm = WindowManager::new(
             CancellationToken::new(),
             OneMonitor(Some(monitor((0, 0, 1920, 1080), 1.0))),
+            None,
         );
 
-        let placed = wm.placement(app.handle(), None, super::LOG_WINDOW.size);
+        let placed = wm.placement(app.handle(), None, &super::LOG_WINDOW);
 
-        assert_eq!(placed, Some((460.0, 190.0)));
+        assert_eq!(placed, Some(frame(460.0, 190.0, 1000.0, 700.0)));
     }
 
     #[test]
@@ -922,7 +1157,7 @@ mod tests {
         let scratch = Scratch::new();
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let shutdown = CancellationToken::new();
-        let wm = WindowManager::new(shutdown.clone(), OneMonitor(None));
+        let wm = WindowManager::new(shutdown.clone(), OneMonitor(None), None);
         window(&app, "logs-1");
         shutdown.cancel();
 
@@ -1144,9 +1379,8 @@ mod tests {
         assert_eq!(seen.len(), THREADS * PER_THREAD);
     }
 
-    // A roomy 1920x1080 work area at the origin, and the size every window
-    // opens at — the common case the cascade is tuned for.
-    const WINDOW: (f64, f64) = super::APP_WINDOW.size;
+    // A roomy 1920x1080 work area at the origin, and a window well inside it.
+    const WINDOW: (f64, f64) = (800.0, 600.0);
     const ROOMY: (f64, f64, f64, f64) = (0.0, 0.0, 1920.0, 1080.0);
     const STEP: f64 = super::CASCADE_STEP;
 
@@ -1244,6 +1478,248 @@ mod tests {
         assert_eq!(
             cascade_position(Some(centered), WINDOW, secondary),
             (2480.0 + STEP, 255.0 + STEP)
+        );
+    }
+
+    #[test]
+    fn a_large_screen_gets_the_default_size() {
+        assert_eq!(
+            fit_size(APP_WINDOW.size, (0.0, 0.0, 2560.0, 1415.0)),
+            (1200.0, 760.0)
+        );
+    }
+
+    /// A 13.6" MacBook Air at its default 1470x956, less the menu bar and a
+    /// visible Dock: the width keeps the default and the height is capped.
+    #[test]
+    fn a_macbook_air_keeps_the_default_width() {
+        let (width, height) = fit_size(APP_WINDOW.size, (0.0, 37.0, 1470.0, 845.0));
+        assert_eq!(width, 1200.0);
+        assert!((height - 718.25).abs() < 1e-9, "{height}");
+    }
+
+    #[test]
+    fn a_small_screen_gets_a_share_of_its_work_area() {
+        // A 1366x768 laptop less a 40px taskbar.
+        let (width, height) = fit_size(APP_WINDOW.size, (0.0, 0.0, 1366.0, 728.0));
+        assert!((width - 1161.1).abs() < 1e-9, "{width}");
+        assert!((height - 618.8).abs() < 1e-9, "{height}");
+    }
+
+    #[test]
+    fn no_window_is_sized_below_the_minimum() {
+        assert_eq!(
+            fit_size(APP_WINDOW.size, (0.0, 0.0, 640.0, 400.0)),
+            (600.0, 400.0)
+        );
+    }
+
+    /// A frame fits a work area it is no larger than, with enough of its
+    /// title bar on it to grab; a sliver or a title bar off the top does not.
+    #[test]
+    fn a_frame_fits_a_work_area_its_title_bar_is_reachable_on() {
+        let area = (0.0, 0.0, 1920.0, 1080.0);
+        let at = |x, y| frame(x, y, 1200.0, 760.0);
+
+        assert!(fits(&at(100.0, 50.0), area));
+        assert!(fits(&at(1820.0, 50.0), area), "100px left");
+        assert!(fits(&at(-1100.0, 50.0), area), "100px right");
+        assert!(!fits(&at(1919.0, 50.0), area), "a sliver");
+        assert!(!fits(&at(-1150.0, 50.0), area), "50px");
+        assert!(!fits(&at(100.0, -10.0), area), "above");
+        assert!(!fits(&at(100.0, 1050.0), area), "below");
+        assert!(!fits(&at(3000.0, 50.0), area), "on a monitor that is gone");
+        assert!(!fits(&frame(0.0, 0.0, 2560.0, 760.0), area), "too wide");
+        assert!(!fits(&frame(0.0, 0.0, 1200.0, 1440.0), area), "too tall");
+    }
+
+    #[test]
+    fn a_frame_as_large_as_its_work_area_covers_it() {
+        let area = (0.0, 40.0, 1920.0, 1040.0);
+
+        assert!(covers(&frame(0.0, 40.0, 1920.0, 1040.0), area));
+        assert!(
+            covers(&frame(-8.0, -8.0, 1936.0, 1096.0), area),
+            "overhangs"
+        );
+        assert!(!covers(&frame(0.0, 40.0, 960.0, 1040.0), area), "half");
+        assert!(!covers(&frame(0.0, 40.0, 1920.0, 760.0), area), "shorter");
+    }
+
+    /// A manager on `monitors`, the first the primary and every window's,
+    /// keeping its frame in `scratch`; and an app.
+    fn on(monitors: Vec<Monitor>, scratch: &Scratch) -> (tauri::App<MockRuntime>, WindowManager) {
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let wm = WindowManager::new(
+            CancellationToken::new(),
+            These(monitors),
+            Some(state_path(scratch)),
+        );
+        (app, wm)
+    }
+
+    /// These monitors, the first the primary and every window's.
+    struct These(Vec<Monitor>);
+
+    impl super::Monitors for These {
+        fn of_window(&self, _label: &str) -> Option<Monitor> {
+            self.0.first().cloned()
+        }
+
+        fn primary(&self) -> Option<Monitor> {
+            self.0.first().cloned()
+        }
+
+        fn all(&self) -> Vec<Monitor> {
+            self.0.clone()
+        }
+    }
+
+    /// [`on`] one 1920x1080 monitor at 100%.
+    fn on_one_monitor(scratch: &Scratch) -> (tauri::App<MockRuntime>, WindowManager) {
+        on(vec![monitor((0, 0, 1920, 1080), 1.0)], scratch)
+    }
+
+    fn state_path(scratch: &Scratch) -> std::path::PathBuf {
+        scratch.path().join("window-state.json")
+    }
+
+    fn save(scratch: &Scratch, saved: &SavedFrame) {
+        window_state::write(&state_path(scratch), saved).unwrap();
+    }
+
+    fn saved(frame: Frame, maximized: bool) -> SavedFrame {
+        SavedFrame { frame, maximized }
+    }
+
+    /// The default, centered on [`on_one_monitor`]'s: what the main window
+    /// opens at with nothing saved, or nothing it can restore.
+    const CENTERED: Frame = Frame {
+        x: 360.0,
+        y: 160.0,
+        width: 1200.0,
+        height: 760.0,
+    };
+
+    #[test]
+    fn with_nothing_saved_the_main_window_opens_centered_and_remembers_it() {
+        let scratch = Scratch::new();
+        let (_app, wm) = on_one_monitor(&scratch);
+
+        assert_eq!(wm.main_window_placement(), Some(saved(CENTERED, false)));
+        assert_eq!(*wm.main_frame.lock().unwrap(), Some(saved(CENTERED, false)));
+    }
+
+    /// A frame on the second monitor, maximized.
+    #[test]
+    fn the_main_window_opens_at_its_saved_frame() {
+        let scratch = Scratch::new();
+        let monitors = vec![
+            monitor((0, 0, 2880, 1800), 2.0),
+            monitor((1440, 0, 1920, 1080), 1.0),
+        ];
+        let (app, wm) = on(monitors, &scratch);
+        let on_second = saved(frame(1600.0, 50.0, 1200.0, 760.0), true);
+        save(&scratch, &on_second);
+
+        assert_eq!(wm.main_window_placement(), Some(on_second));
+        wm.show_main_window(app.handle()).unwrap();
+        assert!(app.get_webview_window("main").is_some());
+    }
+
+    /// A maximized window saved on a monitor that is gone opens centered on
+    /// the primary, and that is the frame it saves if it is never
+    /// unmaximized, not the one on the missing monitor.
+    #[test]
+    fn a_frame_saved_on_a_missing_monitor_is_replaced_by_the_centered_one() {
+        let scratch = Scratch::new();
+        let (_app, wm) = on_one_monitor(&scratch);
+        save(&scratch, &saved(frame(2500.0, 50.0, 1200.0, 760.0), true));
+
+        assert_eq!(wm.main_window_placement(), Some(saved(CENTERED, true)));
+        wm.save_main_frame();
+        assert_eq!(
+            window_state::read(&state_path(&scratch)),
+            Some(saved(CENTERED, true))
+        );
+    }
+
+    /// With no monitor to measure against, the OS places the main window.
+    #[test]
+    fn the_main_window_has_no_placement_with_no_monitor_readable() {
+        let scratch = Scratch::new();
+        let (_app, wm) = on(Vec::new(), &scratch);
+        assert_eq!(wm.main_window_placement(), None);
+    }
+
+    /// Moving the main window is remembered and written on save; another
+    /// window's move is not. The mock reports every window at the origin with
+    /// no size.
+    #[test]
+    fn the_main_windows_frame_is_remembered_and_saved() {
+        let scratch = Scratch::new();
+        let (app, wm) = on_one_monitor(&scratch);
+        let path = state_path(&scratch);
+        window(&app, "window-1");
+
+        wm.main_window_moved(app.handle(), "window-1");
+        wm.save_main_frame();
+        assert_eq!(window_state::read(&path), None, "not the main window");
+
+        window(&app, "main");
+        wm.main_window_moved(app.handle(), "main");
+        wm.save_main_frame();
+        let remembered = saved(frame(0.0, 0.0, 0.0, 0.0), false);
+        assert_eq!(window_state::read(&path), Some(remembered));
+    }
+
+    /// Windows reports a maximize's move before the window reads as
+    /// maximized. The mock's sizeless window covers a sizeless work area.
+    #[test]
+    fn a_frame_covering_its_work_area_is_read_as_maximized() {
+        let scratch = Scratch::new();
+        let (app, wm) = on(vec![monitor((0, 0, 0, 0), 1.0)], &scratch);
+        window(&app, "main");
+        *wm.main_frame.lock().unwrap() = Some(saved(CENTERED, false));
+
+        wm.main_window_moved(app.handle(), "main");
+
+        assert_eq!(*wm.main_frame.lock().unwrap(), Some(saved(CENTERED, true)));
+    }
+
+    /// A frame that cannot be written is logged, not raised.
+    #[test]
+    fn a_frame_that_cannot_be_saved_is_logged() {
+        let scratch = Scratch::new();
+        let (_app, wm) = on_one_monitor(&scratch);
+        // A directory where the file should be, so the rename onto it fails.
+        std::fs::create_dir_all(state_path(&scratch)).unwrap();
+        *wm.main_frame.lock().unwrap() = Some(saved(CENTERED, false));
+
+        let out = captured(|| wm.save_main_frame());
+
+        assert!(
+            out.contains("failed to save the main window's frame"),
+            "got: {out}"
+        );
+    }
+
+    /// A rebuilt main window takes the frame remembered this session over the
+    /// file, and a closed one leaves nothing to read.
+    #[test]
+    fn a_remembered_frame_wins_over_the_file() {
+        let scratch = Scratch::new();
+        let (app, wm) = on_one_monitor(&scratch);
+        save(&scratch, &saved(frame(40.0, 30.0, 1500.0, 900.0), false));
+        let remembered = saved(frame(10.0, 20.0, 800.0, 600.0), false);
+        *wm.main_frame.lock().unwrap() = Some(remembered);
+
+        assert_eq!(wm.main_window_placement(), Some(remembered));
+        wm.main_window_moved(app.handle(), "main");
+        assert_eq!(
+            *wm.main_frame.lock().unwrap(),
+            Some(remembered),
+            "no main window to read"
         );
     }
 }

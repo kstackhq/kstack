@@ -58,13 +58,15 @@ impl Drop for Scratch {
 }
 
 /// An app on the mock runtime serving every command, its app directories
-/// under `root`, managing an [`AppState`] over `sidecar`.
+/// under `root`, managing an [`AppState`] over `sidecar` that keeps the main
+/// window's frame in `root/window-state.json`.
 pub fn mock_app(root: &Path, sidecar: SidecarService) -> App<MockRuntime> {
     let app = bare_app(root);
     app.manage(AppState::new(
         sidecar,
         Vec::new(),
         OneMonitor(Some(monitor((0, 0, 1920, 1080), 1.0))),
+        Some(root.join("window-state.json")),
     ));
     app
 }
@@ -93,6 +95,10 @@ impl Monitors for OneMonitor {
 
     fn primary(&self) -> Option<Monitor> {
         self.0.clone()
+    }
+
+    fn all(&self) -> Vec<Monitor> {
+        self.0.iter().cloned().collect()
     }
 }
 

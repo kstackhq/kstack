@@ -44,6 +44,7 @@ mod updater;
 mod wake;
 mod webview_log;
 mod window_manager;
+mod window_state;
 mod window_title;
 
 #[cfg(test)]
@@ -173,6 +174,8 @@ fn exited<R: Runtime>(app: &AppHandle<R>) {
         tracing::warn!("sidecar was still running at exit; killed it");
     }
 
+    state.window_manager.save_main_frame();
+
     tracing::info!("shutdown complete");
 
     // Last: the process exits without dropping managed state, so nothing after
@@ -218,6 +221,16 @@ fn window_destroyed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     cancel_webview_subscriptions(app, label);
     forget_webview_log(app, label);
     log_windows::destroyed(app, label);
+    if let Some(state) = app.try_state::<AppState>() {
+        state.window_manager.main_window_destroyed(label);
+    }
+}
+
+/// `label`'s window moved or resized.
+fn window_moved<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    if let Some(state) = app.try_state::<AppState>() {
+        state.window_manager.main_window_moved(app, label);
+    }
 }
 
 /// `label`'s window took focus.
@@ -481,6 +494,26 @@ mod tests {
         window_destroyed(app.handle(), "main");
 
         assert!(state.log_windows.view("logs-1").is_err());
+    }
+
+    /// The main window's last frame is saved when it is destroyed, so a
+    /// rebuild or the next launch finds it.
+    #[test]
+    fn the_main_windows_frame_is_saved_when_it_is_destroyed() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let path = scratch.path().join("window-state.json");
+        crate::testutil::window(&app, "main");
+
+        window_moved(app.handle(), "main");
+        window_destroyed(app.handle(), "logs-1");
+        assert!(
+            crate::window_state::read(&path).is_none(),
+            "not the main window"
+        );
+
+        window_destroyed(app.handle(), "main");
+        assert!(crate::window_state::read(&path).is_some());
     }
 
     /// A live log window's focus and page load reach its app window.

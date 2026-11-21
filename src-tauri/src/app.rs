@@ -32,7 +32,7 @@ use crate::state::AppState;
 use crate::window_manager::Monitors;
 use crate::{
     cloud, exit_requested, exited, invoke_handler, logging, page_started, second_instance_launched,
-    tray, wake, window_destroyed, window_focused,
+    tray, wake, window_destroyed, window_focused, window_moved, window_state,
 };
 
 // coverage:ignore-start AppHandle::exit is unimplemented on the mock runtime
@@ -74,6 +74,10 @@ impl Monitors for AppMonitors {
 
     fn primary(&self) -> Option<Monitor> {
         self.0.primary_monitor().ok().flatten()
+    }
+
+    fn all(&self) -> Vec<Monitor> {
+        self.0.available_monitors().unwrap_or_default()
     }
 }
 // coverage:ignore-stop
@@ -277,6 +281,7 @@ pub fn run() {
                 })?,
                 log_guards,
                 AppMonitors(app.handle().clone()),
+                window_state::path(&roots),
             );
 
             // Create the main window. All windows are built in code
@@ -344,6 +349,11 @@ pub fn run() {
                 event: WindowEvent::Focused(true),
                 ..
             } => window_focused(app_handle, &label),
+            RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::Moved(_) | WindowEvent::Resized(_),
+                ..
+            } => window_moved(app_handle, &label),
             RunEvent::ExitRequested { api, code, .. } => {
                 let app = app_handle.clone();
                 if exit_requested(app_handle, code, move |code| app.exit(code)) {

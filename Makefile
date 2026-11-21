@@ -197,10 +197,11 @@ check: lint vet test ## Run every lint, vet and test
 check-changed: ## Run the checks for what this branch changed, on this platform, before opening a pull request (ALL_PLATFORMS=1 adds staticcheck and every GOOS and tag)
 	bash scripts/check-changed.sh
 
-clean: ## Remove the sidecar binaries, Cargo's target/ and Go's test cache
+clean: ## Remove the sidecar binaries, Cargo's target/, Go's test cache and the dev app's saved window frame
 	rm -rf src-tauri/binaries
 	rm -rf src-tauri/target
 	cd sidecar && go clean -testcache
+	go run scripts/clean-dev-data.go -window-state
 
 # Separate from `clean`, so clearing build outputs never deletes a developer's chats.
 clean-data: ## Delete the dev app's data and cache directories (database, chats, settings, mirror)

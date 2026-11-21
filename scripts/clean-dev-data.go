@@ -2,9 +2,11 @@
 
 // Deletes the dev app's data and cache directories, so the next
 // `pnpm tauri dev` starts from an empty database and resyncs its caches.
-// Run from anywhere:
+// With -window-state it deletes only the saved window frame, so the next dev
+// launch opens at the default size. Run from anywhere:
 //
-//	go run scripts/clean-dev-data.go   # `make clean-data`
+//	go run scripts/clean-dev-data.go                 # `make clean-data`
+//	go run scripts/clean-dev-data.go -window-state   # part of `make clean`
 //
 // Each directory is resolved as src-tauri/src/paths.rs resolves it in a debug
 // build. The leaf is always `Kstack-dev`, so an installed release's `Kstack`
@@ -13,6 +15,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"net"
@@ -24,8 +27,17 @@ import (
 
 const leaf = "Kstack-dev"
 
+// windowStateFile is src-tauri/src/window_state.rs's FILE_NAME.
+const windowStateFile = "window-state.json"
+
 func main() {
-	if err := clean(); err != nil {
+	windowState := flag.Bool("window-state", false, "delete only the saved window frame")
+	flag.Parse()
+	run := clean
+	if *windowState {
+		run = cleanWindowState
+	}
+	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "clean-dev-data:", err)
 		os.Exit(1)
 	}
@@ -46,6 +58,19 @@ func clean() error {
 		}
 	}
 	return nil
+}
+
+// cleanWindowState deletes the dev app's saved window frame.
+func cleanWindowState() error {
+	data, _, err := devDirs()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(filepath.Join(data, windowStateFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // devDirs mirrors Tauri's local_data_dir and cache_dir, and paths.rs's

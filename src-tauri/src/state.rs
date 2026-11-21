@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use tokio_util::sync::CancellationToken;
@@ -56,11 +57,12 @@ impl AppState {
         sidecar: SidecarService,
         log_guards: Vec<WorkerGuard>,
         monitors: impl Monitors + 'static,
+        window_state_path: Option<PathBuf>,
     ) -> Self {
         let shutdown = CancellationToken::new();
         Self {
             sidecar,
-            window_manager: WindowManager::new(shutdown.clone(), monitors),
+            window_manager: WindowManager::new(shutdown.clone(), monitors, window_state_path),
             tray: Arc::new(Mutex::new(TraySnapshots::default())),
             shutdown,
             quit: Quit::default(),
@@ -106,6 +108,7 @@ mod tests {
             SidecarService::without_process(None),
             guards,
             OneMonitor(None),
+            None,
         );
         let subscriber = tracing_subscriber::registry().with(layer);
         tracing::subscriber::with_default(subscriber, || tracing::info!("the last line"));
