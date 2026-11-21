@@ -474,11 +474,12 @@ func (r *Resolver) sandboxFolders(ctx context.Context, chatID apimeta.ChatID) *m
 	always, chat := r.ChatSvc.FolderGrants(ctx, chatID)
 	out := &model.SandboxFolders{
 		Always: sandboxFoldersOf(always), Chat: sandboxFoldersOf(chat),
-		Never: []string{}, Wide: []string{},
+		Never: []string{}, Closed: []string{}, Wide: []string{},
 		RulesHeld: r.Settings.Held(settings.FieldRules),
 	}
 	if r.SandboxStatus.Available {
 		out.Never = append(out.Never, r.Settings.NeverReadable(ctx)...)
+		out.Closed = append(out.Closed, r.Settings.ClosedFolders(ctx)...)
 		out.Wide = append(out.Wide, r.Settings.WideFolders(ctx)...)
 	}
 	return out

@@ -47,6 +47,7 @@ function withFolders(over: Partial<SandboxFolders> = {}) {
     always: [],
     chat: [],
     never: [],
+    closed: [],
     wide: ['/Users/ren', '/Users'],
     rulesHeld: false,
     granting: false,
@@ -156,7 +157,10 @@ describe('SandboxFolderGroups', () => {
   });
 
   it('lists what is never readable, and the folders only a folder inside of can be granted', async () => {
-    withFolders({ never: ['/Users/ren/.ssh', '/Users/ren/.aws '] });
+    withFolders({
+      never: ['/Users/ren/.ssh', '/Users/ren/.aws '],
+      closed: ['/Users/ren/Documents', '/opt/homebrew/var'],
+    });
     render(<SandboxFolderGroups path={pathOf()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Closed folders' }));
     const never = await screen.findByRole('list', { name: 'Never, not even a folder inside' });
@@ -170,7 +174,7 @@ describe('SandboxFolderGroups', () => {
       within(inside)
         .getAllByRole('listitem')
         .map((li) => li.textContent),
-    ).toEqual(['~/Documents', '~/Desktop', '~/Downloads']);
+    ).toEqual(['/Users/ren/Documents', '/opt/homebrew/var']);
   });
 
   it('switches each PATH folder: on is included, off is waiting or removed', async () => {
@@ -235,13 +239,15 @@ describe('SandboxFolderGroups', () => {
   });
 
   it('draws empty groups before the sidecar answers', async () => {
-    withFolders({ always: undefined, never: undefined });
+    withFolders({ always: undefined, never: undefined, closed: undefined });
     render(<SandboxFolderGroups path={pathOf({ entries: undefined })} />);
     expect(screen.getByRole('button', { name: 'Custom · 0' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'PATH · 0' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Closed folders' }));
     const never = await screen.findByRole('list', { name: 'Never, not even a folder inside' });
     expect(within(never).queryAllByRole('listitem')).toHaveLength(0);
+    const inside = screen.getByRole('list', { name: 'Only a folder inside can be granted' });
+    expect(within(inside).queryAllByRole('listitem')).toHaveLength(0);
   });
 
   it('closes the folder-grant form on Cancel', async () => {

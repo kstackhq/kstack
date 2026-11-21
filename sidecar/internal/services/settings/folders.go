@@ -264,6 +264,16 @@ func (s *Service) NeverReadable(ctx context.Context) []string {
 	return snap.zones.Never
 }
 
+// ClosedFolders is the closed folders, as Settings draws them: none can be
+// granted, a folder inside one can. Nil on a machine with no sandbox.
+func (s *Service) ClosedFolders(ctx context.Context) []string {
+	snap := s.currentSnapshot(ctx)
+	if snap == nil {
+		return nil
+	}
+	return snap.zones.Open.Deny
+}
+
 // WideFolders is the folders a read grant of which reads more than a project:
 // the home and each folder over it, resolved, and the platform's own
 // (wideDirs). Nil on a machine with no sandbox, and when resolving the home

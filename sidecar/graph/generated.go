@@ -908,6 +908,7 @@ type ComplexityRoot struct {
 	SandboxFolders struct {
 		Always    func(childComplexity int) int
 		Chat      func(childComplexity int) int
+		Closed    func(childComplexity int) int
 		Never     func(childComplexity int) int
 		RulesHeld func(childComplexity int) int
 		Wide      func(childComplexity int) int
@@ -4861,6 +4862,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SandboxFolders.Chat(childComplexity), true
+	case "SandboxFolders.closed":
+		if e.ComplexityRoot.SandboxFolders.Closed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxFolders.Closed(childComplexity), true
 	case "SandboxFolders.never":
 		if e.ComplexityRoot.SandboxFolders.Never == nil {
 			break
@@ -7061,6 +7068,8 @@ func (ec *executionContext) childFields_SandboxFolders(ctx context.Context, fiel
 		return ec.fieldContext_SandboxFolders_chat(ctx, field)
 	case "never":
 		return ec.fieldContext_SandboxFolders_never(ctx, field)
+	case "closed":
+		return ec.fieldContext_SandboxFolders_closed(ctx, field)
 	case "wide":
 		return ec.fieldContext_SandboxFolders_wide(ctx, field)
 	case "rulesHeld":
@@ -23309,6 +23318,29 @@ func (ec *executionContext) fieldContext_SandboxFolders_never(_ context.Context,
 	return graphql.NewScalarFieldContext("SandboxFolders", field, false, false, "String")
 }
 
+func (ec *executionContext) _SandboxFolders_closed(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolders) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxFolders_closed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Closed, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxFolders_closed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxFolders", field, false, false, "String")
+}
+
 func (ec *executionContext) _SandboxFolders_wide(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolders) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -33430,6 +33462,11 @@ func (ec *executionContext) _SandboxFolders(ctx context.Context, sel ast.Selecti
 			}
 		case "never":
 			out.Values[i] = ec._SandboxFolders_never(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "closed":
+			out.Values[i] = ec._SandboxFolders_closed(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

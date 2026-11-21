@@ -221,6 +221,7 @@ func TestNoSnapshotRefusesEveryFolder(t *testing.T) {
 	assert.Empty(t, never)
 	assert.Empty(t, closed)
 	assert.Empty(t, s.NeverReadable(t.Context()))
+	assert.Empty(t, s.ClosedFolders(t.Context()))
 	assert.Empty(t, s.WideFolders(t.Context()))
 }
 
@@ -296,6 +297,16 @@ func TestTheSnapshotIsTakenOnFirstUse(t *testing.T) {
 	assert.NoError(t, s.CheckFolder(t.Context(), f.home, false))
 	assert.Equal(t, int32(1), calls.Load())
 	assert.Equal(t, []string{f.in(".ssh"), f.in("Library/Keychains")}, s.NeverReadable(t.Context()))
+}
+
+func TestAClosedFolderOpensOnlyAFolderInsideIt(t *testing.T) {
+	f := newGrantFixture(t)
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	require.NoError(t, err)
+	s := NewService(store, func() Zones { return f.zones }, nil, "")
+	assert.Equal(t, []string{f.in("Documents")}, s.ClosedFolders(t.Context()))
+	assert.Equal(t, "closed", ruleOf(t, s.CheckFolder(t.Context(), f.in("Documents"), false)))
+	assert.NoError(t, s.CheckFolder(t.Context(), f.in("Documents/project"), false))
 }
 
 func TestWideIsTheHomeAndEachFolderOverIt(t *testing.T) {

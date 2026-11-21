@@ -37,6 +37,7 @@ function withFolders(over: Partial<SandboxFolders>) {
     always: [],
     chat: [],
     never: [],
+    closed: [],
     wide: ['/Users/ren', '/Users'],
     rulesHeld: false,
     granting: false,

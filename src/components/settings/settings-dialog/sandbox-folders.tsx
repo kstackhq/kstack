@@ -55,7 +55,7 @@ const SHELL_FOLDERS = ['/opt/homebrew', '/opt/homebrew/Cellar/zsh/5.9'];
 const SYSTEM_FOLDERS = ['/bin', '/sbin', '/usr/bin', '/usr/sbin', '/usr/lib', '/usr/share', '/etc', '/dev'];
 
 export function SandboxFolderGroups({ path }: { path: SandboxPath }) {
-  const { always, never, wide, rulesHeld, revoking, revokeError, grant, revoke } = useSandboxFolders();
+  const { always, never, closed, wide, rulesHeld, revoking, revokeError, grant, revoke } = useSandboxFolders();
   const [adding, setAdding] = useState(false);
   const home = wide?.[0];
 
@@ -63,7 +63,7 @@ export function SandboxFolderGroups({ path }: { path: SandboxPath }) {
     <Group
       title="Folders"
       lede="Everything a sandboxed command can read or write, besides the chat's own workspace. A chat can grant more for itself."
-      info={<ClosedFolders never={never} />}
+      info={<ClosedFolders never={never} closed={closed} />}
       action={
         <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
           Add folder
@@ -121,15 +121,14 @@ export function SandboxFolderGroups({ path }: { path: SandboxPath }) {
   );
 }
 
-function ClosedFolders({ never }: { never: string[] | undefined }) {
+function ClosedFolders({ never, closed }: { never: string[] | undefined; closed: string[] | undefined }) {
   return (
     <InfoPopover label="Closed folders">
       <p>These stay closed even when you grant a folder above them, like your home.</p>
       <PathList label="Never, not even a folder inside" paths={never ?? []}>
         Also other users&apos; homes and Kstack&apos;s own data.
       </PathList>
-      {/* Placeholder: awaits a field for it. SandboxFolders.wide is a different list. */}
-      <PathList label="Only a folder inside can be granted" paths={PRIVATE_FOLDERS.map((name) => `~/${name}`)} />
+      <PathList label="Only a folder inside can be granted" paths={closed ?? []} />
     </InfoPopover>
   );
 }

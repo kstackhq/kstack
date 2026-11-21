@@ -297,6 +297,8 @@ type SandboxFolders struct {
 	Chat []*SandboxFolder `json:"chat"`
 	// The denied-always list for this machine, with ~ expanded, read-only.
 	Never []string `json:"never"`
+	// The closed folders for this machine, with ~ expanded: each is refused whole, and a folder inside one can be granted.
+	Closed []string `json:"closed"`
 	// The folders a read grant of which draws the wide warning, resolved: the home, each folder over it, and /Volumes on macOS.
 	Wide []string `json:"wide"`
 	// Whether the file's rules cannot be read, which refuses every always grant and revoke until the file is fixed or what Kstack cannot read is discarded.

@@ -40,6 +40,7 @@ const folders = {
   always: [code],
   chat: [gone],
   never: ['/Users/ren/.ssh'],
+  closed: ['/Users/ren/Documents'],
   wide: ['/Users/ren', '/Users'],
   rulesHeld: true,
 };
@@ -65,7 +66,7 @@ describe('useSandboxFolders', () => {
     expect(result.current.rulesHeld).toBe(false);
   });
 
-  it('follows the watch: the grants, the never-readable list and the wide folders', () => {
+  it('follows the watch: the grants, the never-readable and closed lists and the wide folders', () => {
     const { result, rerender } = renderHook(() => useSandboxFolders('c1'));
     expect(useWatchSubscriptionMock).toHaveBeenCalledWith(
       expect.objectContaining({ variables: { chatID: 'c1' } }),
@@ -77,6 +78,7 @@ describe('useSandboxFolders', () => {
     expect(result.current.always).toEqual([code]);
     expect(result.current.chat).toEqual([gone]);
     expect(result.current.never).toEqual(['/Users/ren/.ssh']);
+    expect(result.current.closed).toEqual(['/Users/ren/Documents']);
     expect(result.current.wide).toEqual(['/Users/ren', '/Users']);
     expect(result.current.rulesHeld).toBe(true);
 

@@ -2245,6 +2245,8 @@ type SandboxFolders {
   chat: [SandboxFolder!]!
   "The denied-always list for this machine, with ~ expanded, read-only."
   never: [String!]!
+  "The closed folders for this machine, with ~ expanded: each is refused whole, and a folder inside one can be granted."
+  closed: [String!]!
   "The folders a read grant of which draws the wide warning, resolved: the home, each folder over it, and /Volumes on macOS."
   wide: [String!]!
   "Whether the file's rules cannot be read, which refuses every always grant and revoke until the file is fixed or what Kstack cannot read is discarded."

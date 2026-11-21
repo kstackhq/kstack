@@ -31,7 +31,7 @@ func newFolderServer(t *testing.T) (*httptest.Server, string) {
 func newFolderServerWith(t *testing.T, body string) (*httptest.Server, string) {
 	t.Helper()
 	home := testutil.GrantableDir(t)
-	for _, d := range []string{".ssh", "code"} {
+	for _, d := range []string{".ssh", "code", "Documents"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(home, d), 0o755))
 	}
 	file := filepath.Join(t.TempDir(), "settings.json")
@@ -41,7 +41,11 @@ func newFolderServerWith(t *testing.T, body string) (*httptest.Server, string) {
 	store, err := settings.Open(file)
 	require.NoError(t, err)
 	security := settings.NewService(store, func() settings.Zones {
-		return settings.Zones{Never: []string{filepath.Join(home, ".ssh")}, Home: home}
+		return settings.Zones{
+			Never: []string{filepath.Join(home, ".ssh")},
+			Open:  sandbox.FilePolicy{Deny: []string{filepath.Join(home, "Documents")}},
+			Home:  home,
+		}
 	}, nil, "")
 	srv, _, _ := newChatServerOn(t, sandbox.Status{Available: true}, security)
 	return srv, home
@@ -75,7 +79,7 @@ func newChatOn(t *testing.T, srv *httptest.Server) string {
 	return sent["chatSend"].(map[string]any)["chatID"].(string)
 }
 
-const foldersFields = `{ always { id path write refused } chat { id path write refused } never wide rulesHeld }`
+const foldersFields = `{ always { id path write refused } chat { id path write refused } never closed wide rulesHeld }`
 
 func TestFolderGrantAndRevoke(t *testing.T) {
 	srv, home := newFolderServer(t)
@@ -90,6 +94,7 @@ func TestFolderGrantAndRevoke(t *testing.T) {
 	assert.Equal(t, false, first["write"])
 	assert.Nil(t, first["refused"])
 	assert.Equal(t, []any{filepath.Join(home, ".ssh")}, folders["never"])
+	assert.Equal(t, []any{filepath.Join(home, "Documents")}, folders["closed"])
 	assert.Contains(t, folders["wide"], home)
 
 	got = mutate(t, srv, `mutation { folderGrant(path: "`+code+`", write: true, duration: Always) `+foldersFields+` }`)
@@ -252,7 +257,7 @@ func TestSandboxFoldersSayTheRulesAreHeld(t *testing.T) {
 func TestSandboxFoldersWithNoSandbox(t *testing.T) {
 	srv := newChatServer(t)
 	got := mutate(t, srv, `{ sandboxFolders `+foldersFields+` }`)
-	assert.Equal(t, map[string]any{"always": []any{}, "chat": []any{}, "never": []any{}, "wide": []any{}, "rulesHeld": false}, got["sandboxFolders"])
+	assert.Equal(t, map[string]any{"always": []any{}, "chat": []any{}, "never": []any{}, "closed": []any{}, "wide": []any{}, "rulesHeld": false}, got["sandboxFolders"])
 
 	res := post(t, srv, `mutation { folderGrant(path: "/home/me/code", write: false, duration: Always) { wide } }`)
 	require.Len(t, res.Errors, 1)

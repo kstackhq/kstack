@@ -43,6 +43,7 @@ const SandboxFoldersWatchDocument = graphql(`
         refused
       }
       never
+      closed
       wide
       rulesHeld
     }
@@ -85,6 +86,8 @@ export type SandboxFolders = {
   always: SandboxFolder[] | undefined;
   chat: SandboxFolder[] | undefined;
   never: string[] | undefined;
+  /** The folders a grant refuses whole, though a folder inside one can be granted. */
+  closed: string[] | undefined;
   /** The folders a read grant of which reads more than a project, resolved. */
   wide: string[] | undefined;
   /** The file holds a rule Kstack cannot read, so the sidecar refuses every Remove. */
@@ -149,6 +152,7 @@ export function useSandboxFolders(chatID?: string): SandboxFolders {
     always: folders?.always,
     chat: folders?.chat,
     never: folders?.never,
+    closed: folders?.closed,
     wide: folders?.wide,
     rulesHeld: folders?.rulesHeld ?? false,
     granting,
