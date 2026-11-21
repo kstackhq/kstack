@@ -92,6 +92,9 @@ type Documents = {
     "\n  mutation ProviderKeySave($providerID: String!, $key: String!) {\n    providerKeySave(providerID: $providerID, key: $key)\n  }\n": typeof types.ProviderKeySaveDocument,
     "\n  mutation ProviderKeyDelete($providerID: String!) {\n    providerKeyDelete(providerID: $providerID)\n  }\n": typeof types.ProviderKeyDeleteDocument,
     "\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n": typeof types.SandboxCloudAccessDocument,
+    "\n  subscription SandboxConsoleWatch {\n    sandboxConsoleWatch {\n      run {\n        number\n        command\n        clusterID\n        network\n        running\n        output\n        discarded\n        exitCode\n        notice\n        durationMs\n      }\n    }\n  }\n": typeof types.SandboxConsoleWatchDocument,
+    "\n  mutation SandboxConsoleRun($command: String!, $clusterID: ClusterID, $network: Boolean!) {\n    sandboxConsoleRun(command: $command, clusterID: $clusterID, network: $network)\n  }\n": typeof types.SandboxConsoleRunDocument,
+    "\n  mutation SandboxConsoleStop($number: Int) {\n    sandboxConsoleStop(number: $number)\n  }\n": typeof types.SandboxConsoleStopDocument,
     "\n  subscription SandboxExecutablesWatch {\n    sandboxExecutablesWatch {\n      probing\n      probes\n      executables {\n        name\n        invocation\n        registered\n        probed\n        resolved\n        shim\n        target\n        ok\n        version\n        error\n      }\n    }\n  }\n": typeof types.SandboxExecutablesWatchDocument,
     "\n  mutation SandboxExecutablesProbe {\n    sandboxExecutablesProbe {\n      name\n    }\n  }\n": typeof types.SandboxExecutablesProbeDocument,
     "\n  mutation SandboxExecutableRegister($name: String!, $invocation: String) {\n    sandboxExecutableRegister(name: $name, invocation: $invocation) {\n      name\n    }\n  }\n": typeof types.SandboxExecutableRegisterDocument,
@@ -187,6 +190,9 @@ const documents: Documents = {
     "\n  mutation ProviderKeySave($providerID: String!, $key: String!) {\n    providerKeySave(providerID: $providerID, key: $key)\n  }\n": types.ProviderKeySaveDocument,
     "\n  mutation ProviderKeyDelete($providerID: String!) {\n    providerKeyDelete(providerID: $providerID)\n  }\n": types.ProviderKeyDeleteDocument,
     "\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n": types.SandboxCloudAccessDocument,
+    "\n  subscription SandboxConsoleWatch {\n    sandboxConsoleWatch {\n      run {\n        number\n        command\n        clusterID\n        network\n        running\n        output\n        discarded\n        exitCode\n        notice\n        durationMs\n      }\n    }\n  }\n": types.SandboxConsoleWatchDocument,
+    "\n  mutation SandboxConsoleRun($command: String!, $clusterID: ClusterID, $network: Boolean!) {\n    sandboxConsoleRun(command: $command, clusterID: $clusterID, network: $network)\n  }\n": types.SandboxConsoleRunDocument,
+    "\n  mutation SandboxConsoleStop($number: Int) {\n    sandboxConsoleStop(number: $number)\n  }\n": types.SandboxConsoleStopDocument,
     "\n  subscription SandboxExecutablesWatch {\n    sandboxExecutablesWatch {\n      probing\n      probes\n      executables {\n        name\n        invocation\n        registered\n        probed\n        resolved\n        shim\n        target\n        ok\n        version\n        error\n      }\n    }\n  }\n": types.SandboxExecutablesWatchDocument,
     "\n  mutation SandboxExecutablesProbe {\n    sandboxExecutablesProbe {\n      name\n    }\n  }\n": types.SandboxExecutablesProbeDocument,
     "\n  mutation SandboxExecutableRegister($name: String!, $invocation: String) {\n    sandboxExecutableRegister(name: $name, invocation: $invocation) {\n      name\n    }\n  }\n": types.SandboxExecutableRegisterDocument,
@@ -530,6 +536,18 @@ export function graphql(source: "\n  mutation ProviderKeyDelete($providerID: Str
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n"): (typeof documents)["\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  subscription SandboxConsoleWatch {\n    sandboxConsoleWatch {\n      run {\n        number\n        command\n        clusterID\n        network\n        running\n        output\n        discarded\n        exitCode\n        notice\n        durationMs\n      }\n    }\n  }\n"): (typeof documents)["\n  subscription SandboxConsoleWatch {\n    sandboxConsoleWatch {\n      run {\n        number\n        command\n        clusterID\n        network\n        running\n        output\n        discarded\n        exitCode\n        notice\n        durationMs\n      }\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation SandboxConsoleRun($command: String!, $clusterID: ClusterID, $network: Boolean!) {\n    sandboxConsoleRun(command: $command, clusterID: $clusterID, network: $network)\n  }\n"): (typeof documents)["\n  mutation SandboxConsoleRun($command: String!, $clusterID: ClusterID, $network: Boolean!) {\n    sandboxConsoleRun(command: $command, clusterID: $clusterID, network: $network)\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation SandboxConsoleStop($number: Int) {\n    sandboxConsoleStop(number: $number)\n  }\n"): (typeof documents)["\n  mutation SandboxConsoleStop($number: Int) {\n    sandboxConsoleStop(number: $number)\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

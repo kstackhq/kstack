@@ -80,7 +80,12 @@ type Store<Data, Result> = {
   listeners: Set<() => void>;
 };
 
-export type UseWatchSubscriptionResponse<Result> = { data: Result | undefined; connected: boolean };
+export type UseWatchSubscriptionResponse<Result> = {
+  data: Result | undefined;
+  connected: boolean;
+  /** The connection the data folded under; it moves on every reconnect, a restarted sidecar's included. */
+  generation: number;
+};
 
 export type WatchOptions = {
   // Give this instance its own stream instead of sharing one with every other
@@ -227,7 +232,7 @@ export function useWatchSubscription<Data, Result, Variables extends AnyVariable
   // never will be) back to "no data yet".
   const data = published && published.generation === status.generation ? published.result : undefined;
 
-  return { data, connected: status.connected };
+  return { data, connected: status.connected, generation: status.generation };
 }
 
 // A watch's rendering state. `connecting` covers everything before the collection

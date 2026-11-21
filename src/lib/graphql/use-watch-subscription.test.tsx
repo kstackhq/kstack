@@ -75,7 +75,8 @@ const subscribeCount = () => invokeMock.mock.calls.filter(([cmd]) => cmd === 'gr
 // Drive one specific connection, by the order its subscription was opened.
 const emitOn = (idx: number, raw: string) => act(async () => channels[idx].onmessage!(raw));
 
-const state = (r: { result: { current: { data?: number[] | undefined; connected: boolean } } }) => r.result.current;
+const state = (r: { result: { current: { data?: number[] | undefined; connected: boolean; generation: number } } }) =>
+  r.result.current;
 
 describe('useWatchSubscription', () => {
   beforeEach(() => {
@@ -217,6 +218,7 @@ describe('useWatchSubscription', () => {
     await emit(NEXT(1));
     await emit(NEXT(2));
     expect(state(r).data).toEqual([1, 2]);
+    const first = state(r).generation;
 
     await emit(JSON.stringify({ type: 'complete' }));
     await vi.advanceTimersByTimeAsync(1_000); // backoff → reconnect dials
@@ -225,6 +227,7 @@ describe('useWatchSubscription', () => {
     await emit(OPEN); // reconnect opens: masks stale data until the replay folds
     expect(state(r).connected).toBe(true);
     expect(state(r).data).toBeUndefined();
+    expect(state(r).generation).toBeGreaterThan(first);
 
     await emit(NEXT(7)); // replayed snapshot has only object 7
     expect(state(r).data).toEqual([7]); // [1,2] are gone, not [1,2,7]
