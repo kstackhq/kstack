@@ -144,6 +144,7 @@ pub fn roots(root: &Path) -> Roots {
         local_data: root.join("local"),
         cache: root.join("cache"),
         home: root.join("home"),
+        state: root.join("state"),
     }
 }
 

@@ -204,7 +204,7 @@ clean: ## Remove the sidecar binaries, Cargo's target/, Go's test cache and the 
 	go run scripts/clean-dev-data.go -window-state
 
 # Separate from `clean`, so clearing build outputs never deletes a developer's chats.
-clean-data: ## Delete the dev app's data, cache and config directories (database, chats, settings, mirror)
+clean-data: ## Delete the dev app's data, cache, config and state directories (database, chats, settings, mirror, logs)
 	go run scripts/clean-dev-data.go
 
 # Prints each target's `##` description.

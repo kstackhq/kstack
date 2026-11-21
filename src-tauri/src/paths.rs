@@ -14,22 +14,26 @@
 
 //! Where the app keeps its files on disk.
 //!
-//! One place resolves the `Kstack`/`Kstack-dev` leaf, because every directory
+//! One place resolves the leaf ([`APP_DIR_NAME`]), because every directory
 //! the app keeps needs it, and a second copy of the join is what silently drops
 //! the `-dev` split.
 
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::error::{AppError, Result};
 
-/// The data-dir leaf under `local_data_dir`. Debug builds use a `-dev` sibling
-/// so a dev run never collides with an installed release.
-const APP_DIR_NAME: &str = if cfg!(debug_assertions) {
-    "Kstack-dev"
-} else {
-    "Kstack"
+/// The leaf each of Kstack's directories takes under its platform root. Debug
+/// builds use a `-dev` sibling so a dev run never collides with an installed
+/// release. Linux names folders in lowercase; macOS and Windows show the
+/// product name.
+const APP_DIR_NAME: &str = match (cfg!(target_os = "linux"), cfg!(debug_assertions)) {
+    (true, true) => "kstack-dev",
+    (true, false) => "kstack",
+    (false, true) => "Kstack-dev",
+    (false, false) => "Kstack",
 };
 
 /// The platform directories Kstack's own hang off, resolved once from the
@@ -42,36 +46,61 @@ pub struct Roots {
     pub local_data: PathBuf,
     pub cache: PathBuf,
     pub home: PathBuf,
+    /// XDG's state root, which only Linux reads.
+    pub state: PathBuf,
 }
 
 impl Roots {
     pub fn of<R: Runtime>(app: &AppHandle<R>) -> Result<Self> {
         let path = app.path();
+        let home = resolved(path.home_dir(), "home_dir")?;
+        let state = state_home(std::env::var_os("XDG_STATE_HOME"), &home);
         Self::new(
             path.config_dir().ok(),
             resolved(path.local_data_dir(), "local_data_dir")?,
             resolved(path.cache_dir(), "cache_dir")?,
-            resolved(path.home_dir(), "home_dir")?,
+            home,
+            state,
         )
     }
 
-    /// The roots, each refused when it holds `..` ([`plain_root`]). A refused
-    /// config root fails the launch like the others: the sidecar fences the
-    /// config directory by its path, so one it is not given is unfenced. The
-    /// home is taken as given: only macOS's log directory reads it.
+    /// The roots, each refused when it holds `..` ([`plain_root`]), which
+    /// fails the launch: the sidecar fences the config, state and log
+    /// directories by their paths, so one it is not given is unfenced. A root
+    /// is checked where a directory hangs off it: the state root on Linux,
+    /// the home on macOS, whose logs it holds.
     pub(crate) fn new(
         config: Option<PathBuf>,
         local_data: PathBuf,
         cache: PathBuf,
         home: PathBuf,
+        state: PathBuf,
     ) -> Result<Self> {
         Ok(Self {
             config: config.map(plain_root).transpose()?,
             local_data: plain_root(local_data)?,
             cache: plain_root(cache)?,
-            home,
+            home: if cfg!(target_os = "macos") {
+                plain_root(home)?
+            } else {
+                home
+            },
+            state: if cfg!(target_os = "linux") {
+                plain_root(state)?
+            } else {
+                state
+            },
         })
     }
+}
+
+/// XDG's state root: `$XDG_STATE_HOME` when it is absolute, which the spec
+/// requires, else `~/.local/state`.
+fn state_home(xdg_state_home: Option<OsString>, home: &Path) -> PathBuf {
+    xdg_state_home
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .unwrap_or_else(|| home.join(".local/state"))
 }
 
 fn resolved(dir: tauri::Result<PathBuf>, name: &str) -> Result<PathBuf> {
@@ -98,9 +127,34 @@ fn plain_root(dir: PathBuf) -> Result<PathBuf> {
 /// Human-readable leaf on `local_data_dir`, not Tauri's bundle-id
 /// `app_local_data_dir` (Application Support convention is a display name).
 pub fn app_data_dir(roots: &Roots) -> Result<PathBuf> {
-    let dir = roots.local_data.join(APP_DIR_NAME);
+    let dir = data_dir_for(roots);
     ensure_data_dir(&dir)?;
     Ok(dir)
+}
+
+/// Where the data directory sits, whether or not it could be made.
+fn data_dir_for(roots: &Roots) -> PathBuf {
+    roots.local_data.join(APP_DIR_NAME)
+}
+
+/// The app's state directory, created owner-only: what one machine keeps
+/// between runs and a user would not miss, the logs and the window frame.
+/// Linux keeps it under XDG's state root; macOS and Windows have none, so
+/// there it is the data directory.
+pub fn app_state_dir(roots: &Roots) -> Result<PathBuf> {
+    let dir = state_dir_for(roots);
+    ensure_data_dir(&dir)?;
+    Ok(dir)
+}
+
+/// Where the state directory sits, whether or not it could be made: the
+/// sidecar fences it either way.
+pub fn state_dir_for(roots: &Roots) -> PathBuf {
+    if cfg!(target_os = "linux") {
+        roots.state.join(APP_DIR_NAME)
+    } else {
+        data_dir_for(roots)
+    }
 }
 
 /// The app's config directory, created owner-only: what a user sets, which
@@ -196,27 +250,26 @@ pub fn app_cache_dir(roots: &Roots, data_dir: &Path) -> Result<PathBuf> {
     ensure_cache_dir(&roots.cache, data_dir)
 }
 
-/// Where the log directory sits, given the two roots it can hang off.
+/// Where the log directory sits, given the two places it can hang off.
 ///
 /// macOS has a real convention and we follow it: `~/Library/Logs`, which is
-/// where a user is told to look and what Console.app lists. Linux and Windows
-/// have no separate log location — XDG defines none that Tauri uses, and
-/// Windows has none at all — so there it is a leaf on the data directory,
-/// which is what `app_log_dir` resolves to on both as well.
-fn log_dir_for(home: &Path, data_dir: &Path) -> Result<PathBuf> {
+/// where a user is told to look and what Console.app lists. On Linux it is the
+/// state directory itself, where XDG puts logs. Windows has no log location, so
+/// there it is a leaf on the state directory, which is the data directory.
+fn log_dir_for(home: &Path, state_dir: &Path) -> PathBuf {
     if cfg!(target_os = "macos") {
-        Ok(plain_root(home.to_path_buf())?
-            .join("Library/Logs")
-            .join(APP_DIR_NAME))
+        home.join("Library/Logs").join(APP_DIR_NAME)
+    } else if cfg!(target_os = "linux") {
+        state_dir.to_path_buf()
     } else {
-        Ok(data_dir.join("logs"))
+        state_dir.join("logs")
     }
 }
 
 /// Creates the log directory owner-only. Split from [`log_dir`] so the mode is
 /// testable without an `AppHandle`.
-fn ensure_log_dir(home: &Path, data_dir: &Path) -> Result<PathBuf> {
-    let dir = log_dir_for(home, data_dir)?;
+fn ensure_log_dir(home: &Path, state_dir: &Path) -> Result<PathBuf> {
+    let dir = log_dir_for(home, state_dir);
     ensure_data_dir(&dir)?;
     Ok(dir)
 }
@@ -229,7 +282,7 @@ fn ensure_log_dir(home: &Path, data_dir: &Path) -> Result<PathBuf> {
 /// display name everything else here uses, and it has no debug variant, so a
 /// dev run would write into an installed release's logs.
 pub fn log_dir(roots: &Roots) -> Result<PathBuf> {
-    ensure_log_dir(&roots.home, &app_data_dir(roots)?)
+    ensure_log_dir(&roots.home, &app_state_dir(roots)?)
 }
 
 /// The directory for what lives for a session, owner-only: the IPC endpoint,
@@ -248,9 +301,7 @@ pub fn log_dir(roots: &Roots) -> Result<PathBuf> {
 pub fn runtime_dir(_data_dir: &Path) -> Result<PathBuf> {
     // SAFETY: `geteuid` reads process state and cannot fail.
     let uid = unsafe { libc::geteuid() };
-    let xdg = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir());
+    let xdg = runtime_home(std::env::var_os("XDG_RUNTIME_DIR"));
     let dir = runtime_dir_path(xdg.as_deref(), uid)?;
     if xdg.is_none() {
         return private_dir_or_fresh(&dir, uid);
@@ -369,6 +420,16 @@ pub fn runtime_dir(data_dir: &Path) -> Result<PathBuf> {
 #[cfg(not(unix))]
 fn runtime_dir_for(data_dir: &Path) -> PathBuf {
     data_dir.join("run")
+}
+
+/// XDG's runtime root: `$XDG_RUNTIME_DIR` when it is absolute, which the spec
+/// requires, and a directory. A relative one would name a different folder
+/// from each working directory.
+#[cfg(unix)]
+fn runtime_home(xdg_runtime_dir: Option<OsString>) -> Option<PathBuf> {
+    xdg_runtime_dir
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute() && dir.is_dir())
 }
 
 /// Where [`runtime_dir`] puts the directory: under `$XDG_RUNTIME_DIR` when the
@@ -539,20 +600,29 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn log_dir_is_under_library_logs() {
-        let dir = log_dir_for(Path::new("/Users/x"), Path::new("/Users/x/unused")).unwrap();
+        let dir = log_dir_for(Path::new("/Users/x"), Path::new("/Users/x/unused"));
         assert_eq!(dir, Path::new("/Users/x/Library/Logs").join(APP_DIR_NAME));
     }
 
-    /// Linux and Windows have no log location of their own.
-    #[cfg(not(target_os = "macos"))]
+    /// Windows has no log location of its own.
+    #[cfg(windows)]
     #[test]
     fn log_dir_is_a_logs_leaf_on_the_data_dir() {
         let dir = log_dir_for(
-            Path::new("/home/x"),
-            Path::new("/home/x/.local/share/Kstack"),
-        )
-        .unwrap();
-        assert_eq!(dir, Path::new("/home/x/.local/share/Kstack/logs"));
+            Path::new(r"C:\Users\x"),
+            Path::new(r"C:\Users\x\AppData\Local\Kstack"),
+        );
+        assert_eq!(dir, Path::new(r"C:\Users\x\AppData\Local\Kstack\logs"));
+    }
+
+    /// XDG puts logs in the state directory.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_logs_in_the_state_dir() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+
+        assert_eq!(log_dir(&roots).unwrap(), app_state_dir(&roots).unwrap());
     }
 
     /// The endpoint's directory is the wall around the socket. `/tmp` is shared
@@ -566,6 +636,19 @@ mod tests {
         let dir = runtime_dir(Path::new("/unused")).expect("runtime dir");
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o700, "the runtime dir must be owner-only");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_runtime_root_is_an_absolute_directory() {
+        let scratch = crate::testutil::Scratch::new();
+        let dir = scratch.path().to_path_buf();
+
+        assert_eq!(runtime_home(Some(dir.clone().into())), Some(dir.clone()));
+        // The working directory exists, and is still not taken by a relative name.
+        assert_eq!(runtime_home(Some(".".into())), None);
+        assert_eq!(runtime_home(Some(dir.join("missing").into())), None);
+        assert_eq!(runtime_home(None), None);
     }
 
     /// Without `$XDG_RUNTIME_DIR` the fallback lands in a temp dir every user
@@ -758,6 +841,7 @@ mod tests {
         assert!(roots.local_data.is_absolute());
         assert!(roots.cache.is_absolute());
         assert!(roots.home.is_absolute());
+        assert!(roots.state.is_absolute());
     }
 
     /// A `..` is refused whatever is on disk: a link before it would make the
@@ -789,8 +873,8 @@ mod tests {
     }
 
     /// A refused root fails the launch, the config root included, since a
-    /// config directory the sidecar is not given is not fenced. The home is
-    /// not read on the way.
+    /// directory the sidecar is not given is not fenced. Only macOS hangs a
+    /// directory off the home.
     #[cfg(unix)]
     #[test]
     fn a_refused_root_fails_the_launch() {
@@ -798,7 +882,13 @@ mod tests {
         let fine = crate::testutil::roots(scratch.path());
         let dotted = scratch.path().join("link/../root");
         let with = |config: Option<PathBuf>, local_data: PathBuf, home: PathBuf| {
-            Roots::new(config, local_data, fine.cache.clone(), home)
+            Roots::new(
+                config,
+                local_data,
+                fine.cache.clone(),
+                home,
+                fine.state.clone(),
+            )
         };
 
         assert!(with(
@@ -812,42 +902,18 @@ mod tests {
             fine.config.clone(),
             fine.local_data.clone(),
             dotted.clone(),
-            fine.home.clone()
+            fine.home.clone(),
+            fine.state.clone()
         )
         .is_err());
-        assert!(with(fine.config.clone(), fine.local_data.clone(), dotted).is_ok());
+        assert_eq!(
+            with(fine.config.clone(), fine.local_data.clone(), dotted).is_err(),
+            cfg!(target_os = "macos")
+        );
         assert!(with(None, fine.local_data.clone(), fine.home.clone())
             .unwrap()
             .config
             .is_none());
-    }
-
-    /// Linux and Windows log under the data directory, so a home that would
-    /// be refused stops nothing there.
-    #[cfg(not(target_os = "macos"))]
-    #[test]
-    fn a_refused_home_leaves_the_log_dir_alone() {
-        let scratch = crate::testutil::Scratch::new();
-        let roots = Roots {
-            home: scratch.path().join("link/../home"),
-            ..crate::testutil::roots(scratch.path())
-        };
-
-        assert!(log_dir(&roots).is_ok());
-    }
-
-    /// macOS logs under the home, so there a refused home is a log directory
-    /// the host cannot place, which leaves it on stderr.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn a_refused_home_has_no_log_dir() {
-        let scratch = crate::testutil::Scratch::new();
-        let roots = Roots {
-            home: scratch.path().join("link/../home"),
-            ..crate::testutil::roots(scratch.path())
-        };
-
-        assert!(log_dir(&roots).is_err());
     }
 
     /// `$XDG_RUNTIME_DIR` is a root the host hands the sidecar too.
@@ -882,6 +948,99 @@ mod tests {
         assert!(err.to_string().contains("resolve home_dir"), "got: {err}");
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_names_its_folders_in_lowercase() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+
+        assert_eq!(APP_DIR_NAME.trim_end_matches("-dev"), "kstack");
+        assert_eq!(APP_DIR_NAME.ends_with("-dev"), cfg!(debug_assertions));
+        assert_eq!(
+            app_data_dir(&roots).unwrap(),
+            roots.local_data.join(APP_DIR_NAME)
+        );
+        assert_eq!(
+            app_config_dir(&roots).unwrap(),
+            roots.config.unwrap().join(APP_DIR_NAME)
+        );
+    }
+
+    /// XDG ignores a base directory that is not absolute.
+    #[test]
+    fn the_state_root_is_xdg_state_home_else_under_the_home() {
+        let home = Path::new("/home/x");
+        let fallback = home.join(".local/state");
+        let absolute = std::env::temp_dir();
+
+        assert_eq!(state_home(Some(absolute.clone().into()), home), absolute);
+        assert_eq!(state_home(Some("state".into()), home), fallback);
+        assert_eq!(state_home(Some("".into()), home), fallback);
+        assert_eq!(state_home(None, home), fallback);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_keeps_state_under_the_state_root_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+
+        let dir = app_state_dir(&roots).unwrap();
+
+        assert_eq!(dir, roots.state.join(APP_DIR_NAME));
+        assert_eq!(
+            std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+
+    /// macOS and Windows have no state root: state stays with the data.
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn state_is_kept_in_the_data_dir() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+
+        assert_eq!(
+            app_state_dir(&roots).unwrap(),
+            app_data_dir(&roots).unwrap()
+        );
+    }
+
+    /// A state directory the sidecar is not given is not fenced, so on Linux
+    /// a refused state root fails the launch. Elsewhere it is not read.
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_state_root_fails_the_launch_on_linux() {
+        let scratch = crate::testutil::Scratch::new();
+        let fine = crate::testutil::roots(scratch.path());
+
+        let roots = Roots::new(
+            fine.config,
+            fine.local_data,
+            fine.cache,
+            fine.home,
+            scratch.path().join("link/../state"),
+        );
+
+        assert_eq!(roots.is_err(), cfg!(target_os = "linux"));
+    }
+
+    /// The sidecar fences the state directory by the path the host keeps its
+    /// files under.
+    #[test]
+    fn the_state_dir_is_named_before_it_is_made() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+
+        let named = state_dir_for(&roots);
+
+        assert!(!named.exists());
+        assert_eq!(app_state_dir(&roots).unwrap(), named);
+    }
+
     #[test]
     fn the_app_directories_hang_off_the_roots() {
         let scratch = crate::testutil::Scratch::new();
@@ -894,7 +1053,10 @@ mod tests {
         assert_eq!(cache, cache_dir_for(&roots.cache, &data));
         assert!(cache.is_dir());
         let logs = log_dir(&roots).unwrap();
-        assert_eq!(logs, log_dir_for(&roots.home, &data).unwrap());
+        assert_eq!(
+            logs,
+            log_dir_for(&roots.home, &app_state_dir(&roots).unwrap())
+        );
         assert!(logs.is_dir());
         let config = app_config_dir(&roots).unwrap();
         assert_eq!(config, roots.config.unwrap().join(APP_DIR_NAME));

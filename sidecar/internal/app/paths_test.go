@@ -61,6 +61,19 @@ func TestTheLogDirectoryIsKstacks(t *testing.T) {
 	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one that is the data directory adds nothing")
 }
 
+func TestTheStateDirectoryIsKstacks(t *testing.T) {
+	data, cache, runtime := filepath.FromSlash("/d"), filepath.FromSlash("/c"), filepath.FromSlash("/r")
+	state := filepath.FromSlash("/u/.local/state/kstack")
+	logs := filepath.Join(state, "logs")
+	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: logs, StateDir: state})
+	assert.Equal(t, []string{data, cache, runtime, logs, state}, p.Bash.DeniedDirs,
+		"the state directory holds the window frame beside the logs")
+
+	// macOS's and Windows' state directory is the data directory.
+	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, StateDir: data})
+	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one that is the data directory adds nothing")
+}
+
 func TestTheConfigDirectoryIsKstacks(t *testing.T) {
 	data, cache, runtime := filepath.FromSlash("/d"), filepath.FromSlash("/c"), filepath.FromSlash("/r")
 	config := filepath.FromSlash("/u/.config/Kstack")

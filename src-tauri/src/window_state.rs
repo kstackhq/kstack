@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! `<data>/window-state.json`: the main window's last frame, restored on the
+//! `<state>/window-state.json`: the main window's last frame, restored on the
 //! next launch. Disposable: a missing, corrupt or differently stamped file
 //! reads as no saved frame, and the next write replaces it.
 
@@ -28,11 +28,11 @@ const SCHEMA_VERSION: u32 = 1;
 /// Also deleted by `make clean` (`scripts/clean-dev-data.go`).
 const FILE_NAME: &str = "window-state.json";
 
-/// Where the main window's frame is kept across launches: in the data
+/// Where the main window's frame is kept across launches: in the state
 /// directory, so a dev build keeps its own and `make clean-data` resets it.
-/// `None` when the data directory cannot be made.
+/// `None` when the state directory cannot be made.
 pub fn path(roots: &Roots) -> Option<PathBuf> {
-    Some(paths::app_data_dir(roots).ok()?.join(FILE_NAME))
+    Some(paths::app_state_dir(roots).ok()?.join(FILE_NAME))
 }
 
 /// A window's outer position and inner size in logical px, each monitor's
@@ -128,14 +128,14 @@ mod tests {
     }
 
     #[test]
-    fn the_frame_is_kept_in_the_data_directory() {
+    fn the_frame_is_kept_in_the_state_directory() {
         let scratch = Scratch::new();
         let roots = roots(scratch.path());
-        let in_data_dir = paths::app_data_dir(&roots)
+        let in_state_dir = paths::app_state_dir(&roots)
             .unwrap()
             .join("window-state.json");
 
-        assert_eq!(path(&roots), Some(in_data_dir));
+        assert_eq!(path(&roots), Some(in_state_dir));
     }
 
     #[test]

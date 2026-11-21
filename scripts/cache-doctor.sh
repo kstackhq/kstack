@@ -6,20 +6,26 @@
 # outside the repo. Reads only; safe while the app is running (WAL).
 #
 #   ./scripts/cache-doctor.sh            # dev build (tauri dev)
-#   ./scripts/cache-doctor.sh Kstack     # installed release build
+#   ./scripts/cache-doctor.sh kstack     # installed release build (Kstack on macOS)
 set -uo pipefail
 
-APP_DIR_NAME="${1:-Kstack-dev}"
-
+# paths.rs's APP_DIR_NAME: lowercase on Linux. The app reads XDG_DATA_HOME
+# only when it is absolute.
 case "$(uname -s)" in
-  Darwin) BASE="$HOME/Library/Application Support" ;;
-  *)      BASE="${XDG_DATA_HOME:-$HOME/.local/share}" ;;
+  Darwin) BASE="$HOME/Library/Application Support"; LEAF=Kstack ;;
+  *)
+    case "${XDG_DATA_HOME:-}" in
+      /*) BASE="$XDG_DATA_HOME" ;;
+      *)  BASE="$HOME/.local/share" ;;
+    esac
+    LEAF=kstack ;;
 esac
+APP_DIR_NAME="${1:-$LEAF-dev}"
 DATA_DIR="$BASE/$APP_DIR_NAME"
 
 if [ ! -d "$DATA_DIR" ]; then
   echo "no data dir at $DATA_DIR" >&2
-  echo "(pass the other name: Kstack-dev for 'tauri dev', Kstack for an installed build)" >&2
+  echo "(pass the other name: $LEAF-dev for 'tauri dev', $LEAF for an installed build)" >&2
   exit 1
 fi
 command -v sqlite3 >/dev/null || { echo "sqlite3 not found" >&2; exit 1; }

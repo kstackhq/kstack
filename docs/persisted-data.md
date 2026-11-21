@@ -62,14 +62,16 @@ Adding the mechanism is in [`TODO.md`](TODO.md), *Sidecar (Go)*.
 
 | Root | Resolved by | Holds |
 | --- | --- | --- |
-| `<data>` | `paths.rs` `app_data_dir`: `local_data_dir`/`Kstack` (`Kstack-dev` in debug) | what a user would lose |
-| `<cache>` | `paths.rs` `app_cache_dir` (`<data>/cache` on Windows) | the cluster and log caches |
-| `<config>` | `paths.rs` `app_config_dir`: `config_dir`/`Kstack` (`Kstack-dev` in debug); `<data>` on macOS | `host.json` |
+| `<data>` | `paths.rs` `app_data_dir`: `local_data_dir`/`<leaf>` | what a user would lose |
+| `<cache>` | `paths.rs` `app_cache_dir`: `cache_dir`/`<leaf>`; `<data>/cache` on Windows | the cluster and log caches |
+| `<config>` | `paths.rs` `app_config_dir`: `config_dir`/`<leaf>`; `<data>` on macOS | `host.json` |
+| `<state>` | `paths.rs` `app_state_dir`: `$XDG_STATE_HOME` (else `~/.local/state`)/`<leaf>` on Linux; `<data>` elsewhere | the window state, and the logs on Linux |
 | OS keyring | service `Kstack` | the Kstack account's, the ChatGPT plan's and the Google account's refresh tokens, the OpenRouter connector's key, the AWS connector's session, the saved provider API keys |
 | Webview storage | the webview's profile, keyed by bundle id | `localStorage` under `kstack:*` |
 
-The webview profile hangs off the bundle id, not the `Kstack-dev` leaf, so a dev build and a
-release share it. `make clean-data` clears `<data>`, `<cache>` and `<config>`, not the profile. The caches live under
+`<leaf>` is `kstack` (`kstack-dev` in debug) on Linux and `Kstack` (`Kstack-dev`) elsewhere. The
+webview profile hangs off the bundle id, not the leaf, so a dev build and a release share it.
+`make clean-data` clears `<data>`, `<cache>`, `<config>` and `<state>`, not the profile. The caches live under
 `<cache>` because the OS may reclaim that root; they are still durable, since they hold history the
 cluster no longer has.
 
@@ -86,7 +88,7 @@ cluster no longer has.
 | Log cache | `<cache>/logs/<cache id>.db` | `logstore` | durable | `sqlitemigrate` | SQL migrations | refused; `OpenOrCreate` returns the error to the caller | `logstore` `TestAShippedMigrationIsNeverEdited`, `TestOpenOrCreateRefusesANewerFile` |
 | Sidecar settings | `<data>/settings.json` | `lib/jsonsettings`, `services/settings` | preference | `schemaVersion` 1 | upgrade in `Open` (none written yet) | read; a write keeps its unknown keys and its version | `TestAWriteStampsTheVersion`, `TestAWriteKeepsTheKeysNoFieldNames` |
 | Host file | `<config>/host.json` | `src-tauri/src/host_file.rs` | preference | `schemaVersion` 1 | none | read; a write drops unknown fields and stamps 1 (accepted gap, ADR; #824) | `update_stamps_current_version` |
-| Window state | `<data>/window-state.json`: the main window's `x`, `y`, `width`, `height` in logical px (the unmaximized frame) and `maximized`; `make clean` and `make clean-data` delete the dev build's | `src-tauri/src/window_state.rs` | disposable (the window opens at its default size) | `schemaVersion` 1 | none | ignored, as is a file that does not parse; the next write replaces it | `the_file_is_stamped_with_its_schema_version`, `a_missing_corrupt_or_differently_stamped_file_reads_as_nothing` |
+| Window state | `<state>/window-state.json`: the main window's `x`, `y`, `width`, `height` in logical px (the unmaximized frame) and `maximized`; `make clean` and `make clean-data` delete the dev build's | `src-tauri/src/window_state.rs` | disposable (the window opens at its default size) | `schemaVersion` 1 | none | ignored, as is a file that does not parse; the next write replaces it | `the_file_is_stamped_with_its_schema_version`, `a_missing_corrupt_or_differently_stamped_file_reads_as_nothing` |
 | Kstack sign-in token of `desktop/v0.0.1` | OS keyring, service `Kstack`, account `auth-token`: the whole token as JSON | `services/connectors/kstackcloud` | disposable (sign in again) | none | deleted at every launch the keyring opens, never read | — | `TestNewDeletesTheOldEntry`, `TestAFailedDeleteOfTheOldEntryIsRetried`, `TestTheOldEntryIsDeletedOnlyFromAKeyringThatOpened` |
 | OAuth connections | `app.db` `oauth_connections`, a row per provider signed in to with OAuth: issued client id (NULL for a fixed client), subject, email, name, the session id its keyring entry must name; `provider_data` is one provider's own JSON (ChatGPT: `{"hostID"}`); no token | `internal/appdb` (migrations `0002`, `0003`), `services/connectors/internal/oauthconn/registration.go` | durable | rides `app.db`'s | an `app.db` migration | with `app.db` | `TestMigration0002AddsTheOAuthConnections`, `TestMigration0003AddsTheName`, `TestARegistrationRoundTrips`, `TestARegistrationLeavesOtherProvidersAlone` |
 | User's variables | `app.db` `env_vars`, a row per variable: name, value, target (sandbox, outside or both) and an optional cluster, in the order added; `tool_calls.env`, the variables a command outside the sandbox was shown | `internal/appdb` (migration `0004`), `services/envvars`, `agent/chat` | durable | rides `app.db`'s | an `app.db` migration | with `app.db`; a row the check refuses is listed with its reason and given to no command | `TestMigration0004AddsTheUsersVariables`, `TestARefusedRowIsListedWithItsReasonAndGivenToNoCommand` |
@@ -104,7 +106,7 @@ cluster no longer has.
 
 Kept on disk but never read back as a format, or not kept across a restart:
 
-- **Logs**: the host's and the sidecar's text logs. Appended, never parsed.
+- **Logs**: the host's and the sidecar's text logs, in `<state>` on Linux. Appended, never parsed.
 - **`<cache>/kubectl/`**: kubectl's own cache, in kubectl's format.
 - **`<cache>/tmp/`, `<runtime>/`**: a run's scratch, swept at start.
 - **`sessionStorage`** `kstack:history-forward-ceiling`, `kstack:chatgpt-plan-pending` (a sign-in

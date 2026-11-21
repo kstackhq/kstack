@@ -71,6 +71,9 @@ type Config struct {
 	// ConfigDir is where the host keeps host.json, fenced like LogDir. Empty
 	// when the host has none.
 	ConfigDir string
+	// StateDir is where the host keeps the window frame, fenced like LogDir.
+	// Empty when the host has none.
+	StateDir string
 	// OAuthIssuerURL is Kstack's OAuth issuer, whose discovery document names
 	// the endpoints.
 	OAuthIssuerURL string

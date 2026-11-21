@@ -1,8 +1,8 @@
 //go:build ignore
 
-// Deletes the dev app's data, cache and config directories, so the next
-// `pnpm tauri dev` starts from an empty database and default settings, and
-// resyncs its caches.
+// Deletes the dev app's data, cache, config and state directories, so the
+// next `pnpm tauri dev` starts from an empty database and default settings,
+// and resyncs its caches.
 // With -window-state it deletes only the saved window frame, so the next dev
 // launch opens at the default size. Run from anywhere:
 //
@@ -10,8 +10,8 @@
 //	go run scripts/clean-dev-data.go -window-state   # part of `make clean`
 //
 // Each directory is resolved as src-tauri/src/paths.rs resolves it in a debug
-// build. The leaf is always `Kstack-dev`, so an installed release's `Kstack`
-// is never touched. It is Go rather than shell so it runs on Windows too.
+// build. The leaf always ends in `-dev`, so an installed release's folders are
+// never touched. It is Go rather than shell so it runs on Windows too.
 package main
 
 import (
@@ -28,7 +28,15 @@ import (
 	"time"
 )
 
-const leaf = "Kstack-dev"
+// leaf is paths.rs's APP_DIR_NAME in a debug build: lowercase on Linux.
+var leaf = devLeaf()
+
+func devLeaf() string {
+	if runtime.GOOS == "linux" {
+		return "kstack-dev"
+	}
+	return "Kstack-dev"
+}
 
 // windowStateFile is src-tauri/src/window_state.rs's FILE_NAME.
 const windowStateFile = "window-state.json"
@@ -59,13 +67,19 @@ func clean() error {
 	if err != nil {
 		return err
 	}
+	state, err := devStateDir(data)
+	if err != nil {
+		return err
+	}
 	if err := refuseWhileRunning(data); err != nil {
 		return err
 	}
 	// The cache first: on Windows it sits inside the data directory.
 	dirs := []string{cache, data}
-	if config != data {
-		dirs = append(dirs, config)
+	for _, dir := range []string{config, state} {
+		if dir != data {
+			dirs = append(dirs, dir)
+		}
 	}
 	for _, dir := range dirs {
 		if err := remove(dir); err != nil {
@@ -81,7 +95,11 @@ func cleanWindowState() error {
 	if err != nil {
 		return err
 	}
-	err = os.Remove(filepath.Join(data, windowStateFile))
+	state, err := devStateDir(data)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(filepath.Join(state, windowStateFile))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -120,6 +138,19 @@ func devCacheDir(data string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(cacheHome, leaf), nil
+}
+
+// devStateDir mirrors paths.rs's app_state_dir: a leaf on XDG's state root on
+// Linux, the data directory elsewhere.
+func devStateDir(data string) (string, error) {
+	if runtime.GOOS != "linux" {
+		return data, nil
+	}
+	stateHome, err := xdg("XDG_STATE_HOME", ".local", "state")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(stateHome, leaf), nil
 }
 
 // devConfigDir mirrors Tauri's config_dir and paths.rs's app_config_dir,
@@ -221,7 +252,7 @@ func refuseWhileListening() error {
 // else kstack-dev-<uid> under the temp dir, or a random sibling of it when
 // that name was refused.
 func runtimeDirs() ([]string, error) {
-	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); filepath.IsAbs(dir) {
 		// Before the stat: a link the host resolved through at launch may be
 		// gone, and the temp dir would then be searched instead.
 		if err := noDotDot("XDG_RUNTIME_DIR", dir); err != nil {

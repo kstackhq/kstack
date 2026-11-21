@@ -26,7 +26,7 @@ import (
 // path holding one could put files outside them. The host refuses such a root
 // first; the sidecar does not rely on it.
 func TestConfigFromArgsRefusesAKstackPathHoldingDotDot(t *testing.T) {
-	for _, flag := range []string{"--data-dir", "--cache-dir", "--runtime-dir", "--config-dir", "--log-file"} {
+	for _, flag := range []string{"--data-dir", "--cache-dir", "--runtime-dir", "--config-dir", "--state-dir", "--log-file"} {
 		t.Run(flag, func(t *testing.T) {
 			_, err := configFromArgs([]string{flag, "/home/x/link/../kstack"}, noEnv.get)
 			require.ErrorContains(t, err, flag)

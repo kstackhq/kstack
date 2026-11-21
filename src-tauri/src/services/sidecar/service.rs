@@ -23,7 +23,9 @@ use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
 use tokio::sync::watch;
 
 use crate::error::{AppError, Result};
-use crate::paths::{app_cache_dir, app_data_dir, config_dir_for, runtime_dir, Roots};
+use crate::paths::{
+    app_cache_dir, app_data_dir, config_dir_for, runtime_dir, state_dir_for, Roots,
+};
 
 use super::graphql::{FrameSink, GraphqlResponse, QueryClient, SubscriptionClient};
 use super::grpc::{AuthStateStream, GrpcClient};
@@ -106,6 +108,7 @@ impl SidecarService {
             // Fenced from the sidecar's file tools, even when `host_file::manage`
             // could not make or tighten it.
             config: config_dir_for(roots),
+            state: state_dir_for(roots),
             data,
         };
         let endpoint = Endpoint::pick(&dirs.runtime)?;
@@ -431,6 +434,8 @@ struct Dirs {
     cache: std::path::PathBuf,
     runtime: std::path::PathBuf,
     config: Option<std::path::PathBuf>,
+    /// The host's state directory, fenced like `config`.
+    state: std::path::PathBuf,
 }
 
 /// CLI flags for the sidecar; a free function so the contract is unit-testable
@@ -451,6 +456,7 @@ fn cmd_args(socket: &Endpoint, dirs: &Dirs, log_file: Option<&std::path::Path>) 
         ("--data-dir", dirs.data.clone().into()),
         ("--cache-dir", dirs.cache.clone().into()),
         ("--runtime-dir", dirs.runtime.clone().into()),
+        ("--state-dir", dirs.state.clone().into()),
         ("--host-pid", std::process::id().to_string().into()),
         ("--oauth-issuer", OAUTH_ISSUER.into()),
         ("--oauth-client-id", OAUTH_CLIENT_ID.into()),
@@ -650,6 +656,8 @@ mod tests {
             "/some/app/cache".to_owned(),
             "--runtime-dir".to_owned(),
             "/some/app/run".to_owned(),
+            "--state-dir".to_owned(),
+            "/some/app/state".to_owned(),
             "--host-pid".to_owned(),
             std::process::id().to_string(),
             "--oauth-issuer".to_owned(),
@@ -697,6 +705,7 @@ mod tests {
             cache: "/some/app/cache".into(),
             runtime: "/some/app/run".into(),
             config: Some("/some/app/config".into()),
+            state: "/some/app/state".into(),
         }
     }
 
@@ -711,7 +720,7 @@ mod tests {
         assert!(!args.iter().any(|a| a == "--log-file"), "got: {args:?}");
     }
 
-    /// A config directory that could not be made leaves the flag off.
+    /// A config directory the host has no path for leaves its flag off.
     #[test]
     fn cmd_args_omits_the_config_dir_when_there_is_none() {
         let base = std::env::temp_dir();
@@ -853,6 +862,23 @@ mod tests {
 
         let at = args.iter().position(|a| a == "--config-dir").unwrap();
         assert_eq!(args[at + 1], config.into_os_string());
+        service.kill();
+    }
+
+    /// The window frame sits in the state directory, which the sidecar fences
+    /// by the path it is handed.
+    #[cfg(unix)]
+    #[test]
+    fn the_state_directory_is_handed_to_the_sidecar() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let roots = roots(scratch.path());
+
+        let (service, args) = spawn_script(&app, &roots, "exit 0");
+
+        let at = args.iter().position(|a| a == "--state-dir").unwrap();
+        let state = crate::paths::state_dir_for(&roots);
+        assert_eq!(args[at + 1], state.into_os_string());
         service.kill();
     }
 

@@ -18,11 +18,11 @@ are all named in `appdb.go`. `NewID()` mints UUIDv7; `ValidateUUID` accepts only
 
 ## Directories
 
-**`app/paths.go` names every path under the three directories** (the doc comment on `paths` is
-the tree). Each owner gets its own `Paths` (`cluster.Paths`, `bash.Paths`) and names nothing else.
+**`app/paths.go` names every path under the three directories** (its doc comment is the
+tree). Each owner gets its own `Paths` (`cluster.Paths`, `bash.Paths`) and names nothing else.
 **Each subtree has one owner**, which makes it 0700, sweeps it and removes it. `<data>` is what a
 user would lose, `<cache>` what Kstack rebuilds, `<runtime>` what lives for a session. The host's
-log and config directories are fenced too (`bash.Paths.DeniedDirs`). → [ADR:
+log, config and state directories are fenced too (`bash.Paths.DeniedDirs`). → [ADR:
 each file in the platform's directory for its
 kind](../docs/adr/2026-09-27-kstacks-files-follow-the-platforms-directory-kinds.md).
 
