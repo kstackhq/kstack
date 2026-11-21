@@ -57,9 +57,9 @@ const TABS: { label: string; icon: LucideIcon; content: ComponentType }[] = [
   { label: 'Providers', icon: Sparkles, content: ProvidersSettings },
   { label: 'Memory', icon: Brain, content: MemorySettings },
   { label: 'Environment', icon: SquareTerminal, content: EnvironmentSettings },
+  { label: 'Tools', icon: Wrench, content: ToolsSettings },
   { label: 'Sandbox', icon: Container, content: SandboxSettings },
   { label: 'Permissions', icon: ShieldCheck, content: PermissionSettings },
-  { label: 'Tools', icon: Wrench, content: ToolsSettings },
   { label: 'Monitoring', icon: ScanEye, content: MonitoringSettings },
 ];
 

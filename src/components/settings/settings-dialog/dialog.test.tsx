@@ -87,9 +87,9 @@ const NAMES = [
   'Providers',
   'Memory',
   'Environment',
+  'Tools',
   'Sandbox',
   'Permissions',
-  'Tools',
   'Monitoring',
 ];
 
