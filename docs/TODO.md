@@ -138,6 +138,29 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 ## Sidecar (Go)
 
+- **Run the keyring's manual checks.** `oskeyring`'s gate and the background restore are tested
+  over fakes alone. By hand, with a throwaway program over `oskeyring.New`, recording what differs
+  from the code in the pull request that corrects it:
+  - Linux, the Secret Service stopped, then its unit masked so auto-start fails: the probe's error,
+    its Go type and its D-Bus name, which `unavailable_linux.go` must match as `ErrUnavailable`.
+  - Linux, no session bus: the probe fails at once and is not retried.
+  - Linux, the login keyring locked: the probe raises one prompt; unlocked, it answers
+    `ErrNoEntry`; dismissed, an error that is not `ErrUnavailable`.
+  - macOS, the login keychain locked (`security lock-keychain`): whether the probe, a lookup of an
+    item that is not there, raises the unlock dialog, and whether the reads that follow share one
+    dialog. **If they raise several, the one-prompt promise does not hold on macOS:** serialize the
+    restores' reads behind the gate, and say so in the ADR that follows
+    [a launch restores keyring credentials in the background](adr/2026-11-20-a-launch-restores-keyring-credentials-in-the-background.md).
+  - The app, on Linux with the login keyring locked, for a keyed provider no connector signs with
+    a saved key and its environment key both: the window opens with the prompt up and every
+    connector row and gauged provider row *checking*; a turn to that provider waits; unlocked, the
+    rows settle, the provider on *Using a saved key*, and the turn runs. Dismissed instead: one
+    prompt, every connector signed out, the provider on its environment key, the turn under it.
+- **Read the keyring again after a restore found it unreadable.** A dismissed prompt or an
+  unreadable keyring fails `oskeyring`'s gate for the process: every service settles signed out,
+  and `kstackcloud` leaves `auth-token` until a later launch. Wanted: a way to ask again (a
+  *Try again* in Settings, or a retry on the next sign-in), which gives the gate a new opening.
+
 - **Kstack has no app-level data migration.** Each format migrates itself when it opens, and a
   SQL migration changes tables only, so nothing can move, rename or remove a path under `<data>` or
   `<cache>`, or rewrite a JSON column SQL cannot express. Until it exists the layout only grows
