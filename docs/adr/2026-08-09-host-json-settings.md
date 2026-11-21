@@ -3,6 +3,7 @@ title: Persist app settings in host-owned host.json, not webview localStorage
 date: 2026-08-09
 scope: cross-cutting
 status: Accepted
+amended_by: [Keep host.json in the Kstack config directory](2026-11-21-host-json-lives-under-the-kstack-config-directory.md)
 ---
 
 # Persist app settings in host-owned host.json, not webview localStorage

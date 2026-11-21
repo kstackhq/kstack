@@ -754,8 +754,8 @@ impl WindowManager {
             builder = builder.transparent(true);
         }
 
-        // One `host.json` read feeds both pre-paint paths below. A failed
-        // config-dir lookup degrades to defaults, never a failed build.
+        // One `host.json` read feeds both pre-paint paths below. A file with
+        // no location degrades to defaults, never a failed build.
         let host_file = host_file::path(app)
             .map(|path| host_file::read(&path))
             .unwrap_or_default();

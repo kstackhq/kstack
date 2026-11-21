@@ -1,7 +1,8 @@
 //go:build ignore
 
-// Deletes the dev app's data and cache directories, so the next
-// `pnpm tauri dev` starts from an empty database and resyncs its caches.
+// Deletes the dev app's data, cache and config directories, so the next
+// `pnpm tauri dev` starts from an empty database and default settings, and
+// resyncs its caches.
 // With -window-state it deletes only the saved window frame, so the next dev
 // launch opens at the default size. Run from anywhere:
 //
@@ -48,11 +49,19 @@ func clean() error {
 	if err != nil {
 		return err
 	}
+	config, err := devConfigDir()
+	if err != nil {
+		return err
+	}
 	if err := refuseWhileRunning(data); err != nil {
 		return err
 	}
 	// The cache first: on Windows it sits inside the data directory.
-	for _, dir := range []string{cache, data} {
+	dirs := []string{cache, data}
+	if config != data {
+		dirs = append(dirs, config)
+	}
+	for _, dir := range dirs {
 		if err := remove(dir); err != nil {
 			return err
 		}
@@ -95,6 +104,27 @@ func devDirs() (data, cache string, err error) {
 	}
 	return filepath.Join(xdg("XDG_DATA_HOME", filepath.Join(home, ".local", "share")), leaf),
 		filepath.Join(xdg("XDG_CACHE_HOME", filepath.Join(home, ".cache")), leaf), nil
+}
+
+// devConfigDir mirrors Tauri's config_dir and paths.rs's app_config_dir,
+// where host.json lives. On macOS it is the data directory.
+func devConfigDir() (string, error) {
+	if runtime.GOOS == "windows" {
+		roaming := os.Getenv("APPDATA")
+		if roaming == "" {
+			return "", errors.New("APPDATA is not set")
+		}
+		return filepath.Join(roaming, leaf), nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support", leaf), nil
+	}
+	return filepath.Join(xdg("XDG_CONFIG_HOME", filepath.Join(home, ".config")), leaf), nil
 }
 
 // xdg reads an XDG base directory, which the spec ignores unless absolute.

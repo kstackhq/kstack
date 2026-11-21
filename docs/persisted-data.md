@@ -64,12 +64,12 @@ Adding the mechanism is in [`TODO.md`](TODO.md), *Sidecar (Go)*.
 | --- | --- | --- |
 | `<data>` | `paths.rs` `app_data_dir`: `local_data_dir`/`Kstack` (`Kstack-dev` in debug) | what a user would lose |
 | `<cache>` | `paths.rs` `app_cache_dir` (`<data>/cache` on Windows) | the cluster and log caches |
-| `<config>` | Tauri `app_config_dir`, keyed by bundle id `sh.kstack.desktop` | `host.json` |
+| `<config>` | `paths.rs` `app_config_dir`: `config_dir`/`Kstack` (`Kstack-dev` in debug); `<data>` on macOS | `host.json` |
 | OS keyring | service `Kstack` | the Kstack account's, the ChatGPT plan's and the Google account's refresh tokens, the OpenRouter connector's key, the AWS connector's session, the saved provider API keys |
 | Webview storage | the webview's profile, keyed by bundle id | `localStorage` under `kstack:*` |
 
-`<config>` and the webview profile hang off the bundle id, not the `Kstack-dev` leaf, so a dev
-build and a release share them. `make clean-data` does not clear them. The caches live under
+The webview profile hangs off the bundle id, not the `Kstack-dev` leaf, so a dev build and a
+release share it. `make clean-data` clears `<data>`, `<cache>` and `<config>`, not the profile. The caches live under
 `<cache>` because the OS may reclaim that root; they are still durable, since they hold history the
 cluster no longer has.
 

@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! `host.json` (`app_config_dir()/host.json`) — the persisted-settings source
-//! of truth; the webview keeps no copy. See
-//! docs/adr/2026-08-09-host-json-settings.md.
+//! `host.json`, in `paths::app_config_dir` — the persisted-settings source of
+//! truth; the webview keeps no copy. See
+//! docs/adr/2026-08-09-host-json-settings.md and
+//! docs/adr/2026-11-21-host-json-lives-under-the-kstack-config-directory.md.
 //!
 //! Reaches the webview two ways, both fed from one read in
 //! `window_manager::build_window`: [`init_script`] (`window.__KSTACK_HOST__`,
@@ -30,6 +31,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+use crate::error::{AppError, Result};
+use crate::paths::{self, Roots};
+
 /// Schema version stamped into the file on every write, for future migrations.
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 
@@ -38,9 +42,28 @@ const CURRENT_SCHEMA_VERSION: u32 = 1;
 /// (`src/lib/host-file.ts`).
 pub const UPDATED_EVENT: &str = "host-file-updated";
 
-/// Absolute path of `host.json` (dir created on demand by [`update`]).
-pub fn path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<PathBuf> {
-    Ok(app.path().app_config_dir()?.join("host.json"))
+const FILE_NAME: &str = "host.json";
+
+/// Where `host.json` is ([`manage`]).
+pub struct Location(pub PathBuf);
+
+/// Manages the [`Location`] of `host.json` in the config directory. `setup`
+/// calls it before the first window, which reads the file. Without a location
+/// the windows paint the defaults and a change fails.
+pub fn manage<R: tauri::Runtime>(app: &tauri::AppHandle<R>, roots: &Roots) {
+    match paths::app_config_dir(roots) {
+        Ok(dir) => {
+            app.manage(Location(dir.join(FILE_NAME)));
+        }
+        Err(err) => tracing::warn!(%err, "host.json has no location"),
+    }
+}
+
+/// Absolute path of `host.json`, as [`manage`] resolved it.
+pub fn path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf> {
+    app.try_state::<Location>()
+        .map(|location| location.0.clone())
+        .ok_or_else(|| AppError::Io(std::io::Error::other("host.json has no location")))
 }
 
 /// The user's color-scheme choice; serialized lowercase to match the webview's
@@ -133,6 +156,7 @@ pub fn init_script(file: &HostFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::{roots, Scratch};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -226,6 +250,32 @@ mod tests {
         let updated = update(&path, HostFilePatch::default()).unwrap();
         assert_eq!(updated.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(read(&path).schema_version, CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn manage_sets_the_location_path_reads() {
+        let scratch = Scratch::new();
+        let app = tauri::test::mock_app();
+        assert!(path(app.handle()).is_err());
+
+        manage(app.handle(), &roots(scratch.path()));
+
+        let expected = paths::app_config_dir(&roots(scratch.path()))
+            .unwrap()
+            .join("host.json");
+        assert_eq!(path(app.handle()).unwrap(), expected);
+    }
+
+    #[test]
+    fn manage_without_a_config_dir_sets_no_location() {
+        let scratch = Scratch::new();
+        let roots = roots(scratch.path());
+        std::fs::write(roots.config.as_ref().unwrap(), "not a directory").unwrap();
+        let app = tauri::test::mock_app();
+
+        manage(app.handle(), &roots);
+
+        assert!(path(app.handle()).is_err());
     }
 
     #[test]

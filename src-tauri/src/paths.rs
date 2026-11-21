@@ -14,9 +14,9 @@
 
 //! Where the app keeps its files on disk.
 //!
-//! One place resolves the `Kstack`/`Kstack-dev` leaf, because two callers now
-//! need it — the sidecar's data directory and the host's log directory — and a
-//! second copy of the join is what silently drops the `-dev` split.
+//! One place resolves the `Kstack`/`Kstack-dev` leaf, because every directory
+//! the app keeps needs it, and a second copy of the join is what silently drops
+//! the `-dev` split.
 
 use std::path::{Path, PathBuf};
 
@@ -36,6 +36,9 @@ const APP_DIR_NAME: &str = if cfg!(debug_assertions) {
 /// app. A test builds one over a scratch directory: Tauri's directory override
 /// does not reach these.
 pub struct Roots {
+    /// `None` when the platform cannot name one: the preferences are then
+    /// unavailable, never a failed launch.
+    pub config: Option<PathBuf>,
     pub local_data: PathBuf,
     pub cache: PathBuf,
     pub home: PathBuf,
@@ -45,6 +48,7 @@ impl Roots {
     pub fn of<R: Runtime>(app: &AppHandle<R>) -> Result<Self> {
         let path = app.path();
         Ok(Self {
+            config: path.config_dir().ok(),
             local_data: resolved(path.local_data_dir(), "local_data_dir")?,
             cache: resolved(path.cache_dir(), "cache_dir")?,
             home: resolved(path.home_dir(), "home_dir")?,
@@ -62,6 +66,19 @@ fn resolved(dir: tauri::Result<PathBuf>, name: &str) -> Result<PathBuf> {
 /// `app_local_data_dir` (Application Support convention is a display name).
 pub fn app_data_dir(roots: &Roots) -> Result<PathBuf> {
     let dir = roots.local_data.join(APP_DIR_NAME);
+    ensure_data_dir(&dir)?;
+    Ok(dir)
+}
+
+/// The app's config directory, created owner-only: what a user sets, which
+/// Windows roams with the profile. On macOS the config root is the data root,
+/// so this is the data directory.
+pub fn app_config_dir(roots: &Roots) -> Result<PathBuf> {
+    let root = roots
+        .config
+        .as_ref()
+        .ok_or_else(|| AppError::Io(std::io::Error::other("resolve config_dir: none")))?;
+    let dir = root.join(APP_DIR_NAME);
     ensure_data_dir(&dir)?;
     Ok(dir)
 }
@@ -386,6 +403,32 @@ mod tests {
         std::fs::remove_dir_all(&base).unwrap();
     }
 
+    /// Settings are the user's, like the data. Unix only — Windows has no POSIX
+    /// mode bits.
+    #[cfg(unix)]
+    #[test]
+    fn config_dir_is_created_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = crate::testutil::Scratch::new();
+        let dir = app_config_dir(&crate::testutil::roots(scratch.path())).expect("create");
+        assert_eq!(
+            std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+
+    #[test]
+    fn no_config_root_is_an_error_not_a_guess() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = Roots {
+            config: None,
+            ..crate::testutil::roots(scratch.path())
+        };
+        let err = app_config_dir(&roots).unwrap_err();
+        assert!(err.to_string().contains("config_dir"), "got: {err}");
+    }
+
     /// macOS and Linux have a cache location of their own.
     #[cfg(not(windows))]
     #[test]
@@ -623,6 +666,7 @@ mod tests {
             crate::services::sidecar::SidecarService::without_process(None),
         );
         let roots = Roots::of(app.handle()).unwrap();
+        assert!(roots.config.unwrap().is_absolute());
         assert!(roots.local_data.is_absolute());
         assert!(roots.cache.is_absolute());
         assert!(roots.home.is_absolute());
@@ -648,6 +692,9 @@ mod tests {
         let logs = log_dir(&roots).unwrap();
         assert_eq!(logs, log_dir_for(&roots.home, &data));
         assert!(logs.is_dir());
+        let config = app_config_dir(&roots).unwrap();
+        assert_eq!(config, roots.config.unwrap().join(APP_DIR_NAME));
+        assert!(config.is_dir());
     }
 
     #[cfg(unix)]

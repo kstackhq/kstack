@@ -31,8 +31,9 @@ use crate::services::sidecar::SidecarService;
 use crate::state::AppState;
 use crate::window_manager::Monitors;
 use crate::{
-    cloud, exit_requested, exited, invoke_handler, logging, page_started, second_instance_launched,
-    tray, wake, window_destroyed, window_focused, window_moved, window_state,
+    cloud, exit_requested, exited, host_file, invoke_handler, logging, page_started,
+    second_instance_launched, tray, wake, window_destroyed, window_focused, window_moved,
+    window_state,
 };
 
 // coverage:ignore-start AppHandle::exit is unimplemented on the mock runtime
@@ -274,6 +275,7 @@ pub fn run() {
             // fails to start, and until this lands it reaches stderr alone.
             let roots = Roots::of(app.handle())?;
             let log_guards = logging::install_file_layer(&log_reload, &roots);
+            host_file::manage(app.handle(), &roots);
 
             let state = AppState::new(
                 SidecarService::spawn(&roots, |args| {

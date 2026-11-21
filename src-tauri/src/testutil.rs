@@ -71,16 +71,19 @@ pub fn mock_app(root: &Path, sidecar: SidecarService) -> App<MockRuntime> {
     app
 }
 
-/// [`mock_app`] before `setup` manages its state.
+/// [`mock_app`] before `setup` manages its state, with `host.json` under
+/// `root`.
 pub fn bare_app(root: &Path) -> App<MockRuntime> {
     let mut context = mock_context(noop_assets());
     context.config_mut().app.app_directories_override =
         Some(AppDirectoriesOverride::Root(root.to_path_buf()));
-    mock_builder()
+    let app = mock_builder()
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(crate::invoke_handler())
         .build(context)
-        .unwrap()
+        .unwrap();
+    crate::host_file::manage(app.handle(), &roots(root));
+    app
 }
 
 /// The monitors for the mock runtime, which has none: every window is on the
@@ -137,6 +140,7 @@ pub fn script_sidecar(root: &Path, script: &str) -> SidecarService {
 /// own directories.
 pub fn roots(root: &Path) -> Roots {
     Roots {
+        config: Some(root.join("config")),
         local_data: root.join("local"),
         cache: root.join("cache"),
         home: root.join("home"),
