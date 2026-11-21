@@ -192,6 +192,13 @@ same name. A sandboxed run reads it at its start; a command outside the sandbox 
 [ADR: either side of the sandbox](../docs/adr/2026-11-20-the-users-variables-reach-commands-on-either-side-of-the-sandbox.md),
 [security record](../docs/security/2026-11-20-the-users-variables.md).
 
+## Tool settings (`internal/services/toolsettings`)
+
+**`tool_settings`, a row per tool per scope overriding on.** Only every cluster's scope is
+written; turning a tool back on keeps its row. A row for a tool the box lacks is ignored. The chat
+service reads it where it reserves a turn. → [ADR](../docs/adr/2026-11-21-tool-settings-are-rows-in-app-db.md),
+[security record](../docs/security/2026-11-20-the-user-turns-tools-off.md).
+
 ## Azure (`internal/services/azureauth`)
 
 **The user's `az` login, for Azure's mount**, in `run/azureproxy`'s types. `Account` discovers it

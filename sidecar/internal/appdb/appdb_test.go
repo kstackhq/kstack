@@ -31,10 +31,10 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	require.FileExists(t, path)
 
-	// Migrations ran: the schema_migrations sequence is at version 4.
+	// Migrations ran: the schema_migrations sequence is at version 5.
 	var v int
 	require.NoError(t, db.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 4, v)
+	require.Equal(t, 5, v)
 	requireTables(t, db.Write.DB)
 	require.NoError(t, db.Close())
 
@@ -43,7 +43,7 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db2.Close() })
 	require.NoError(t, db2.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 4, v)
+	require.Equal(t, 5, v)
 	requireTables(t, db2.Write.DB)
 }
 
@@ -155,6 +155,7 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"messages wr=0 strict=1",
 		"oauth_connections wr=1 strict=1",
 		"tool_calls wr=0 strict=1",
+		"tool_settings wr=0 strict=1",
 	}, tables)
 
 	idx, err := db.Query(`SELECT sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name`)
@@ -184,6 +185,7 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"CREATE INDEX messages_run_idx ON messages (run_id)",
 		"CREATE UNIQUE INDEX tool_calls_llm_call_idx ON tool_calls (llm_call_id, seq)",
 		"CREATE INDEX tool_calls_spawned_idx ON tool_calls (spawned_run_id)",
+		"CREATE UNIQUE INDEX tool_settings_tool_name ON tool_settings (ifnull(cluster_id, ''), tool_name)",
 	}, indexes)
 }
 
@@ -407,6 +409,7 @@ var shippedMigrations = map[string]string{
 	"0002_oauth_connections.sql":      "a0f97ef3bdd26e882187424cf23f7a73b35747d09e85eef705f7f4d72fc03fea",
 	"0003_oauth_connections_name.sql": "e734c075633be2f4a9dc8e43a460185a422d962116f7b7038ea5977773df1808",
 	"0004_env_vars.sql":               "d1b78060708e5ea46b55f65d43136c935d6166eb35358b7d92c5bc72a1231d86",
+	"0005_tool_settings.sql":          "286b5254057d5a29b9824f54136c3df82c039c06e94b014510b19a0ce9f9991c",
 }
 
 func TestAShippedMigrationIsNeverEdited(t *testing.T) {
@@ -577,4 +580,54 @@ func TestSubscriptionsEndOnClose(t *testing.T) {
 func TestSubscribeWithNoKeysPanics(t *testing.T) {
 	h, _ := openTestDB(t)
 	require.Panics(t, func() { h.Subscribe() })
+}
+
+// 0005 adds the user's tool settings over a 0004 database, keeping its rows:
+// one setting per tool per scope, a cluster's going with the cluster.
+func TestMigration0005AddsTheToolSettings(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "app.db")
+	frozen := fstest.MapFS{}
+	for _, name := range []string{"0001_init.sql", "0002_oauth_connections.sql", "0003_oauth_connections_name.sql", "0004_env_vars.sql"} {
+		data, err := fs.ReadFile(migrationsFS, "migrations/"+name)
+		require.NoError(t, err)
+		frozen["migrations/"+name] = &fstest.MapFile{Data: data}
+	}
+	pool, err := sqlitepool.OpenWriter(path)
+	require.NoError(t, err)
+	_, err = sqlitemigrate.Apply(ctx, pool.DB, frozen, "migrations")
+	require.NoError(t, err)
+	for _, seed := range []string{
+		`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('c1', 'kubeconfig', 'ctx', 0, 0)`,
+		`INSERT INTO env_vars (id, cluster_id, name, value, target, created_at, updated_at) VALUES ('v1', NULL, 'HELM_NAMESPACE', 'apps', 'both', 0, 0)`,
+	} {
+		_, err = pool.ExecContext(ctx, seed)
+		require.NoError(t, err, seed)
+	}
+	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
+
+	db, err := Open(path, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	var value string
+	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT value FROM env_vars WHERE id = 'v1'`).Scan(&value))
+	assert.Equal(t, "apps", value, "0004's row survives")
+
+	insert := func(cluster any, enabled int) error {
+		_, err := db.Write.ExecContext(ctx, `INSERT INTO tool_settings (tool_name, cluster_id, enabled, updated_at)
+			VALUES ('Bash', ?, ?, 0)`, cluster, enabled)
+		return err
+	}
+	require.NoError(t, insert(nil, 0))
+	assert.Error(t, insert(nil, 1), "a second setting of one tool for every cluster")
+	require.NoError(t, insert("c1", 1), "the tool again, in a cluster")
+	assert.Error(t, insert("c2", 0), "a cluster that does not exist")
+	assert.Error(t, insert(nil, 2), "enabled is 0 or 1")
+
+	_, err = db.Write.ExecContext(ctx, `DELETE FROM clusters WHERE id = 'c1'`)
+	require.NoError(t, err)
+	var scopes string
+	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT group_concat(ifnull(cluster_id, 'every')) FROM tool_settings`).Scan(&scopes))
+	assert.Equal(t, "every", scopes, "the cluster's row goes with it")
 }
