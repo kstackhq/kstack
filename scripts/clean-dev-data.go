@@ -86,9 +86,9 @@ func cleanWindowState() error {
 // cache_dir_for.
 func devDirs() (data, cache string, err error) {
 	if runtime.GOOS == "windows" {
-		local := os.Getenv("LOCALAPPDATA")
-		if local == "" {
-			return "", "", errors.New("LOCALAPPDATA is not set")
+		local, err := windowsDir("LOCALAPPDATA")
+		if err != nil {
+			return "", "", err
 		}
 		data = filepath.Join(local, leaf)
 		return data, filepath.Join(data, "cache"), nil
@@ -110,9 +110,9 @@ func devDirs() (data, cache string, err error) {
 // where host.json lives. On macOS it is the data directory.
 func devConfigDir() (string, error) {
 	if runtime.GOOS == "windows" {
-		roaming := os.Getenv("APPDATA")
-		if roaming == "" {
-			return "", errors.New("APPDATA is not set")
+		roaming, err := windowsDir("APPDATA")
+		if err != nil {
+			return "", err
 		}
 		return filepath.Join(roaming, leaf), nil
 	}
@@ -125,6 +125,16 @@ func devConfigDir() (string, error) {
 		return filepath.Join(home, "Library", "Application Support", leaf), nil
 	}
 	return filepath.Join(xdg("XDG_CONFIG_HOME", filepath.Join(home, ".config")), leaf), nil
+}
+
+// windowsDir reads a Windows profile folder from the environment, refusing a
+// relative value, which would delete a folder under the working directory.
+func windowsDir(name string) (string, error) {
+	dir := os.Getenv(name)
+	if !filepath.IsAbs(dir) {
+		return "", fmt.Errorf("%s is %q, not an absolute path", name, dir)
+	}
+	return dir, nil
 }
 
 // xdg reads an XDG base directory, which the spec ignores unless absolute.
