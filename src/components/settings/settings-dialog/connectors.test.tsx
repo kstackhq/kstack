@@ -541,6 +541,15 @@ describe('the OpenRouter row', () => {
     expect(row()).toHaveTextContent(text);
   });
 
+  it('checks the keychain while signed out and its provider is restoring, and offers Connect', () => {
+    state.openRouterSource = 'Restoring';
+    state.connectors = [openRouter({ phase: 'SignedOut' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Checking your keychain…');
+    expect(within(row()).getByRole('button', { name: 'Connect' })).toBeEnabled();
+  });
+
   it('draws nothing before the credentials load, so the detail never flips', () => {
     state.keysLoaded = false;
     state.openRouterSource = 'SavedKey';

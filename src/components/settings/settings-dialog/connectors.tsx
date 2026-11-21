@@ -315,6 +315,7 @@ function openRouterDetail(
     case 'Restoring':
       return CHECKING_KEYCHAIN;
     case 'SignedOut': {
+      if (credential?.source === 'Restoring') return CHECKING_KEYCHAIN;
       const failed = credential && keyFailureText(credential);
       if (failed) return failed;
       if (credential?.source === 'SavedKey') return 'Using a saved key';
