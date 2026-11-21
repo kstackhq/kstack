@@ -32,6 +32,9 @@ async function stampScreen(section, json) {
     text = figma.createText();
     text.name = 'Stamp';
     text.fontSize = 12;
+    // Locked so a person editing the canvas does not move or delete it. The
+    // plugin API still writes it.
+    text.locked = true;
     section.appendChild(text);
     text.x = Math.min(...drawn.map((c) => c.x));
     text.y = Math.max(8, Math.min(...drawn.map((c) => c.y)) - 48);

@@ -68,7 +68,7 @@ Every group on a page is a Figma section, laid out so that no two overlap. A new
 
 `changes` lists what the design has that the code lacks, one plain sentence each. It is absent when there is none. A person may write a stamp by hand, spaced as they like. A component with no stamp is new: stamping it adds its entry here.
 
-**A screen's stamp is the same JSON in its section's `Stamp` text layer**, since a section has no description. The layer is a direct child of the section, outside every frame.
+**A screen's stamp is the same JSON in its section's `Stamp` text layer**, since a section has no description. The layer is a direct child of the section, outside every frame, and locked; the plugin API still writes it.
 
 ### Commands
 
