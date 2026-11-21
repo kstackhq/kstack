@@ -38,8 +38,22 @@ vi.mock('@/gql', () => ({ graphql: () => ({}) }));
 const { useToolSettings } = await import('./tool-settings');
 
 const listed = [
-  { name: 'Bash', label: 'Bash', group: 'Commands', description: 'Run shell commands.', enabled: true },
-  { name: 'WebFetch', label: 'WebFetch', group: 'Web', description: 'Fetch a web page.', enabled: false },
+  {
+    name: 'Bash',
+    label: 'Bash',
+    group: 'Commands',
+    description: 'Run shell commands.',
+    enabled: true,
+    alwaysOn: false,
+  },
+  {
+    name: 'WebFetch',
+    label: 'WebFetch',
+    group: 'Web',
+    description: 'Fetch a web page.',
+    enabled: false,
+    alwaysOn: false,
+  },
 ];
 
 beforeEach(() => {

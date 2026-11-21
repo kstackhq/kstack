@@ -105,7 +105,7 @@ type Documents = {
     "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      dir\n    }\n  }\n": typeof types.SandboxPathRefreshDocument,
     "\n  mutation ChatSandboxDisabledSet($id: ChatID!, $sandboxDisabled: Boolean!) {\n    chatSandboxDisabledSet(id: $id, sandboxDisabled: $sandboxDisabled) {\n      id\n      sandboxDisabled\n    }\n  }\n": typeof types.ChatSandboxDisabledSetDocument,
     "\n  query Sandbox {\n    sandbox {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n": typeof types.SandboxDocument,
-    "\n  subscription ToolSettingsWatch {\n    toolSettingsWatch {\n      name\n      label\n      group\n      description\n      enabled\n    }\n  }\n": typeof types.ToolSettingsWatchDocument,
+    "\n  subscription ToolSettingsWatch {\n    toolSettingsWatch {\n      name\n      label\n      group\n      description\n      enabled\n      alwaysOn\n    }\n  }\n": typeof types.ToolSettingsWatchDocument,
     "\n  mutation ToolSettingSet($name: String!, $enabled: Boolean!) {\n    toolSettingSet(name: $name, enabled: $enabled) {\n      name\n      enabled\n    }\n  }\n": typeof types.ToolSettingSetDocument,
 };
 const documents: Documents = {
@@ -200,7 +200,7 @@ const documents: Documents = {
     "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      dir\n    }\n  }\n": types.SandboxPathRefreshDocument,
     "\n  mutation ChatSandboxDisabledSet($id: ChatID!, $sandboxDisabled: Boolean!) {\n    chatSandboxDisabledSet(id: $id, sandboxDisabled: $sandboxDisabled) {\n      id\n      sandboxDisabled\n    }\n  }\n": types.ChatSandboxDisabledSetDocument,
     "\n  query Sandbox {\n    sandbox {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n": types.SandboxDocument,
-    "\n  subscription ToolSettingsWatch {\n    toolSettingsWatch {\n      name\n      label\n      group\n      description\n      enabled\n    }\n  }\n": types.ToolSettingsWatchDocument,
+    "\n  subscription ToolSettingsWatch {\n    toolSettingsWatch {\n      name\n      label\n      group\n      description\n      enabled\n      alwaysOn\n    }\n  }\n": types.ToolSettingsWatchDocument,
     "\n  mutation ToolSettingSet($name: String!, $enabled: Boolean!) {\n    toolSettingSet(name: $name, enabled: $enabled) {\n      name\n      enabled\n    }\n  }\n": types.ToolSettingSetDocument,
 };
 
@@ -585,7 +585,7 @@ export function graphql(source: "\n  query Sandbox {\n    sandbox {\n      avail
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  subscription ToolSettingsWatch {\n    toolSettingsWatch {\n      name\n      label\n      group\n      description\n      enabled\n    }\n  }\n"): (typeof documents)["\n  subscription ToolSettingsWatch {\n    toolSettingsWatch {\n      name\n      label\n      group\n      description\n      enabled\n    }\n  }\n"];
+export function graphql(source: "\n  subscription ToolSettingsWatch {\n    toolSettingsWatch {\n      name\n      label\n      group\n      description\n      enabled\n      alwaysOn\n    }\n  }\n"): (typeof documents)["\n  subscription ToolSettingsWatch {\n    toolSettingsWatch {\n      name\n      label\n      group\n      description\n      enabled\n      alwaysOn\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

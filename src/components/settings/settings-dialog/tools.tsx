@@ -89,7 +89,12 @@ function ToolRow({
           <span className="font-mono text-sm text-popover-foreground">{tool.label}</span>
           <span className="text-xs text-muted-foreground">{tool.description}</span>
         </div>
-        <Switch aria-label={tool.label} checked={tool.enabled} disabled={busy} onCheckedChange={onSwitch} />
+        <Switch
+          aria-label={tool.label}
+          checked={tool.enabled}
+          disabled={busy || tool.alwaysOn}
+          onCheckedChange={onSwitch}
+        />
       </div>
       {children}
     </li>

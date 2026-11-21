@@ -16,6 +16,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ToolGroup } from '@/gql/graphql';
 import type { ToolSettings } from '@/lib/tool-settings';
 
 const { hook } = vi.hoisted(() => ({ hook: { current: {} as ToolSettings } }));
@@ -23,12 +24,13 @@ vi.mock('@/lib/tool-settings', () => ({ useToolSettings: () => hook.current }));
 
 const { ToolsSettings } = await import('./tools');
 
-const tool = (name: string, group: string, enabled = true) => ({
+const tool = (name: string, group: ToolGroup, enabled = true, alwaysOn = false) => ({
   name,
   label: name,
   group,
   description: `What ${name} does.`,
   enabled,
+  alwaysOn,
 });
 
 beforeEach(() => {
@@ -37,7 +39,7 @@ beforeEach(() => {
     changing: new Set(),
     error: null,
     set: vi.fn(async () => {}),
-  } as ToolSettings;
+  };
 });
 
 describe('ToolsSettings', () => {
@@ -68,6 +70,14 @@ describe('ToolsSettings', () => {
     expect(hook.current.set).toHaveBeenCalledWith('WebFetch', true);
     await user.click(screen.getByRole('switch', { name: 'Bash' }));
     expect(hook.current.set).toHaveBeenCalledWith('Bash', false);
+  });
+
+  it("holds an always-on tool's switch on", () => {
+    hook.current = { ...hook.current, tools: [tool('TaskStop', 'Commands', true, true)] };
+    render(<ToolsSettings />);
+    const taskStop = screen.getByRole('switch', { name: 'TaskStop' });
+    expect(taskStop).toBeChecked();
+    expect(taskStop).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('holds a switch while its change is in flight, and shows a refusal', () => {

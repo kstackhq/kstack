@@ -10,7 +10,7 @@ The settings dialog and the folder-grant form. Also owns `src/lib/`'s `sandbox-*
 
 **Providers** (`providers.tsx`) lists `useProviderCredentials()`'s providers, set up while signed, then `PROVIDERS`, set up while `useModels()` serves them; nothing draws before both. Null `keyVariable` gets *Connect*, no key UI. `Restoring` is `status: 'checking'`: a dashed ring, `CHECKING_KEYCHAIN`, no action. *Configure…* and *Set up* open `provider-setup-form.tsx`. **The webview's one typed secret**: the form holds the key, and the hook sends it through `client.mutation(...).toPromise()`, never `useMutation`, whose state would keep it. → [record](../../../docs/security/2026-11-20-saved-provider-keys.md).
 
-**Tools** (`tools.tsx`, `useToolSettings`) is the `toolSettingsWatch` gauge in a `Group` per kind, a switch per tool; a row leaves room for the tool's own settings.
+**Tools** (`tools.tsx`, `useToolSettings`) is the `toolSettingsWatch` gauge in a `Group` per kind, a switch per tool, held on for an `alwaysOn` tool; a row leaves room for the tool's own settings.
 
 **Memory** (`memory.tsx`) shows one scope: *Every cluster* (the default) or a cluster, picked from the kubeconfig's, then the archived, by `ScopePicker` (`scope-picker.tsx`) over `useScope`. It reuses the memory popover's parts (`src/components/cluster/CLAUDE.md`, *Memory*), keyed on the scope. Every cluster's notes ride on the window's cluster's watch, else the first record's. Placeholders, marked in code: local instructions, no note counts, and a disabled *Clear* awaiting `memoryClear`.
 

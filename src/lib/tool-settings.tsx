@@ -31,6 +31,7 @@ const ToolSettingsWatchDocument = graphql(`
       group
       description
       enabled
+      alwaysOn
     }
   }
 `);
