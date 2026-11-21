@@ -28,5 +28,5 @@ src/components/chat/CLAUDE.md: 24576
 src/components/cluster/CLAUDE.md: 7680
 src/components/dashboard/CLAUDE.md: 17408
 src/components/logs/CLAUDE.md: 11776
-src/components/settings/CLAUDE.md: 6912
+src/components/settings/CLAUDE.md: 7168
 src/components/shell/CLAUDE.md: 6656
