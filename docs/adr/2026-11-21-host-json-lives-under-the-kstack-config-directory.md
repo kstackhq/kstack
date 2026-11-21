@@ -23,9 +23,10 @@ created owner-only. That is `~/Library/Application Support/Kstack` on macOS (the
 `%APPDATA%\Kstack` on Windows and `$XDG_CONFIG_HOME/Kstack` on Linux. `host.json` lives there.
 
 `host_file::manage` resolves the path once in `setup`, before the first window, and manages it as
-`host_file::Location`. The host passes the directory's path to the sidecar as `--config-dir`, so the
-file tools and the sandbox deny it with Kstack's other directories. Nothing copies the bundle-id
-file across: the app is not public, so no user has a color scheme to keep.
+`host_file::Location`. Each write makes the directory owner-only again, unless it is a link, and the
+file `0600`. The host passes the directory's path to the sidecar as `--config-dir`, so the file
+tools and the sandbox deny it with Kstack's other directories. Nothing copies the bundle-id file
+across: the app is not public, so no user has a color scheme to keep.
 
 `make clean-data` deletes the dev build's config directory with its data and cache directories, so
 it resets the dev build's settings too.

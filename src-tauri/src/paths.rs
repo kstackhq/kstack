@@ -76,8 +76,19 @@ pub fn app_data_dir(roots: &Roots) -> Result<PathBuf> {
 pub fn app_config_dir(roots: &Roots) -> Result<PathBuf> {
     let dir = config_dir_for(roots)
         .ok_or_else(|| AppError::Io(std::io::Error::other("resolve config_dir: none")))?;
-    ensure_data_dir(&dir)?;
+    ensure_config_dir(&dir)?;
     Ok(dir)
+}
+
+/// Creates the config directory owner-only, and tightens an existing one
+/// unless it is a link. A dotfiles manager links `~/.config/<app>` into a
+/// repository, whose mode is the user's to keep.
+pub fn ensure_config_dir(path: &Path) -> Result<()> {
+    let linked = std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink());
+    if linked {
+        return Ok(());
+    }
+    ensure_data_dir(path)
 }
 
 /// Where the config directory sits, whether or not it could be made: the
@@ -418,6 +429,27 @@ mod tests {
         assert_eq!(
             std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
             0o700
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_config_dir_keeps_its_targets_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let target = scratch.path().join("dotfiles");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let link = config_dir_for(&roots).unwrap();
+        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        assert_eq!(app_config_dir(&roots).unwrap(), link);
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o755
         );
     }
 

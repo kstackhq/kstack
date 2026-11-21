@@ -116,7 +116,7 @@ pub fn read(path: &Path) -> HostFile {
 /// persist atomically (unique temp + rename; concurrent windows can't tear the
 /// file, last writer wins), and return the merged result. Creates the parent
 /// dir on first run.
-pub fn update(path: &Path, patch: HostFilePatch) -> std::io::Result<HostFile> {
+pub fn update(path: &Path, patch: HostFilePatch) -> Result<HostFile> {
     let mut file = read(path);
     if let Some(preference) = patch.color_scheme_preference {
         file.color_scheme_preference = Some(preference);
@@ -126,22 +126,53 @@ pub fn update(path: &Path, patch: HostFilePatch) -> std::io::Result<HostFile> {
     let parent = path
         .parent()
         .ok_or_else(|| std::io::Error::other("host file path has no parent directory"))?;
-    std::fs::create_dir_all(parent)?;
+    // Owner-only again here, not just at launch: the directory may have been
+    // removed since.
+    paths::ensure_config_dir(parent)?;
 
-    let contents = serde_json::to_string_pretty(&file).map_err(std::io::Error::other)?;
+    let contents = serde_json::to_string_pretty(&file)?;
 
     // Unique temp name so concurrent writers never share a partial file; the
     // rename is atomic.
     static WRITE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let tmp = path.with_extension(format!(
-        "tmp-{}-{}",
-        std::process::id(),
-        WRITE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    std::fs::write(&tmp, contents)?;
+    let names = std::iter::repeat_with(|| {
+        path.with_extension(format!(
+            "tmp-{}-{}",
+            std::process::id(),
+            WRITE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+    });
+    let tmp = write_new_file(names, contents.as_bytes())?;
     std::fs::rename(&tmp, path)?;
 
     Ok(file)
+}
+
+/// Writes `contents` to the first of `names` that does not exist yet, readable
+/// by its owner alone, and returns it. A name already taken is passed over,
+/// never opened: it would keep its own mode, or lead through a link. Windows
+/// has no mode bits: there the profile's ACL covers the file.
+fn write_new_file(
+    names: impl IntoIterator<Item = PathBuf>,
+    contents: &[u8],
+) -> std::io::Result<PathBuf> {
+    use std::io::Write;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    for name in names {
+        match options.open(&name) {
+            Ok(mut file) => {
+                file.write_all(contents)?;
+                return Ok(name);
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    Err(std::io::Error::other("no free temporary name"))
 }
 
 /// Initialization script exposing the file as `window.__KSTACK_HOST__`.
@@ -250,6 +281,64 @@ mod tests {
         let updated = update(&path, HostFilePatch::default()).unwrap();
         assert_eq!(updated.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(read(&path).schema_version, CURRENT_SCHEMA_VERSION);
+    }
+
+    /// The config directory is made owner-only at launch; a write after it was
+    /// removed makes it so again, and the file is the owner's alone. Unix only
+    /// — Windows has no POSIX mode bits.
+    #[cfg(unix)]
+    #[test]
+    fn a_write_after_the_directory_went_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = Scratch::new();
+        let app = tauri::test::mock_app();
+        manage(app.handle(), &roots(scratch.path()));
+        let path = path(app.handle()).unwrap();
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+
+        update(&path, HostFilePatch::default()).unwrap();
+
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(path.parent().unwrap()), 0o700);
+        assert_eq!(mode(&path), 0o600);
+    }
+
+    /// A temp name already taken, even by a link, is passed over, so the
+    /// settings file never takes another file's mode or becomes a link.
+    #[cfg(unix)]
+    #[test]
+    fn a_taken_temp_name_is_passed_over() {
+        let scratch = Scratch::new();
+        let target = scratch.path().join("target");
+        std::fs::write(&target, "untouched").unwrap();
+        let taken = scratch.path().join("taken");
+        std::os::unix::fs::symlink(&target, &taken).unwrap();
+        let free = scratch.path().join("free");
+
+        let written = write_new_file([taken, free.clone()], b"new").unwrap();
+
+        assert_eq!(written, free);
+        assert_eq!(std::fs::read_to_string(&free).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "untouched");
+    }
+
+    /// Only a taken name is passed over; any other failure ends the write.
+    #[test]
+    fn write_new_file_stops_at_another_failure() {
+        let scratch = Scratch::new();
+        let unwritable = scratch.path().join("missing").join("tmp");
+        let free = scratch.path().join("free");
+        assert!(write_new_file([unwritable, free.clone()], b"new").is_err());
+        assert!(!free.exists());
+    }
+
+    #[test]
+    fn write_new_file_fails_when_every_name_is_taken() {
+        let scratch = Scratch::new();
+        let taken = scratch.path().join("taken");
+        std::fs::write(&taken, "").unwrap();
+        assert!(write_new_file([taken], b"new").is_err());
     }
 
     #[test]
