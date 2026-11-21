@@ -15,6 +15,7 @@
 package llm
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"io"
@@ -88,10 +89,15 @@ func TransportError(providerID string, err error) *Error {
 }
 
 // SignError is a Signer that could not sign: nothing was sent. Its cause is
-// logged here, where it is read, unless it is ErrSignedOut or
-// ErrCredentialChanged, which say it all.
+// logged here, where it is read, unless it says it all: ErrSignedOut,
+// ErrCredentialChanged, or a context's end while the signer waited, which ends
+// the request and says nothing of the credential.
 func SignError(providerID string, err error) *Error {
 	switch {
+	case errors.Is(err, context.Canceled):
+		return &Error{ProviderID: providerID, Kind: "cancelled", cause: err}
+	case errors.Is(err, context.DeadlineExceeded):
+		return &Error{ProviderID: providerID, Kind: "timed out", cause: err}
 	case errors.Is(err, ErrSignedOut):
 		return &Error{ProviderID: providerID, Kind: "signed out", cause: err}
 	case errors.Is(err, ErrCredentialChanged):

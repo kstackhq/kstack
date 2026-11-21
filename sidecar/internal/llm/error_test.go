@@ -16,7 +16,9 @@ package llm
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -85,6 +87,38 @@ func TestTransportErrorKeepsItsCause(t *testing.T) {
 	err := TransportError("anthropic", cause)
 
 	require.ErrorIs(t, err, cause)
+}
+
+// A signer that waited until its request's context ended failed nothing of the
+// credential: no error is logged, and the kind names the end.
+func TestSignErrorLogsNoEndedContext(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		kind string
+	}{
+		{context.Canceled, "cancelled"},
+		{fmt.Errorf("oauthconn: refresh: %w", context.DeadlineExceeded), "timed out"},
+	} {
+		t.Run(c.kind, func(t *testing.T) {
+			buf := captureLog(t)
+
+			err := SignError("chatgpt", c.err)
+
+			assert.Equal(t, c.kind, err.Kind)
+			assert.ErrorIs(t, err, c.err)
+			assert.Empty(t, buf.String())
+		})
+	}
+}
+
+func TestSignErrorLogsAnUnavailableCredential(t *testing.T) {
+	buf := captureLog(t)
+
+	err := SignError("chatgpt", errors.New("the keyring is locked"))
+
+	assert.Equal(t, "credential unavailable", err.Kind)
+	assert.Contains(t, buf.String(), "level=ERROR")
+	assert.Contains(t, buf.String(), "provider credential unavailable")
 }
 
 // The cause of an unreadable reply is the reply's own bytes, so nothing of it

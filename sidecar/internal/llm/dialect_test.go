@@ -1124,6 +1124,8 @@ func TestEveryDialectSendsNothingASignerCouldNotSign(t *testing.T) {
 	}{
 		{ErrSignedOut, "signed out"},
 		{ErrCredentialChanged, "credential changed"},
+		{context.Canceled, "cancelled"},
+		{context.DeadlineExceeded, "timed out"},
 		{errors.New("the keyring is locked"), "credential unavailable"},
 	} {
 		t.Run(c.kind, func(t *testing.T) {
