@@ -16,12 +16,13 @@ import { act, cleanup, render, renderHook, waitFor } from '@testing-library/reac
 import { Provider as UrqlProvider } from 'urql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { mockTauriCore } from '@/test-utils';
+import { flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
 
 // Mocks ---------------------------------------------------------------
 
 const { invokeMock, channels, liveChannel, factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
+flushWatchesSynchronously();
 
 const { createGraphqlClient } = await import('@/lib/graphql/client');
 const { AuthProvider, useAuthState } = await import('./auth');
@@ -31,7 +32,7 @@ const { AuthProvider, useAuthState } = await import('./auth');
 const flush = () => act(async () => {});
 
 type GqlIdentity = { sub: string; email: string; name: string };
-type GqlAuthState = { authenticated: boolean; identity: GqlIdentity | null };
+type GqlAuthState = { restoring: boolean; authenticated: boolean; identity: GqlIdentity | null };
 
 // The mutation response graphql_query returns; overridable per-test.
 let mutationBody: unknown = { data: { login: true, logout: true } };
@@ -41,10 +42,11 @@ function pushAuthState(s: GqlAuthState) {
 }
 
 const SIGNED_IN: GqlAuthState = {
+  restoring: false,
   authenticated: true,
   identity: { sub: 'sub-1', email: 'a@example.com', name: 'Ada' },
 };
-const SIGNED_OUT: GqlAuthState = { authenticated: false, identity: null };
+const SIGNED_OUT: GqlAuthState = { restoring: false, authenticated: false, identity: null };
 
 function renderAuthState() {
   const client = createGraphqlClient();
@@ -103,6 +105,17 @@ describe('AuthProvider / useAuthState', () => {
     });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.authState).toEqual({ authenticated: false, identity: null });
+  });
+
+  it('stays loading while the account is restoring, and not after', async () => {
+    const { result } = renderAuthState();
+    await flush();
+    act(() => pushAuthState({ ...SIGNED_OUT, restoring: true }));
+    expect(result.current.loading).toBe(true);
+
+    act(() => pushAuthState(SIGNED_IN));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.authState.authenticated).toBe(true);
   });
 
   it('adopts the identity from a signed-in frame', async () => {
