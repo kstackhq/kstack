@@ -217,7 +217,8 @@ Never `record` an edited component to clear the report without that answer: reco
 - A variable imported with `importVariableByKeyAsync` lasts only for that call: `getVariableByIdAsync` returns `null` in the next, and binding `null` unbinds silently. Import it in every call that binds it.
 - Run `use_figma` calls one at a time.
 - `createAutoLayout()` and `createComponent()` frames start with a white fill. Light mode hides it; clear it, or dark mode draws white panels.
-- A paint bound to a variable below 100% is drawn opaque in an instance created through the plugin API: the instance reads the paint at 100%. The library's own `Button` (destructive, `bg-destructive/10`) does it too. Restore each one as an override on the instance layer: copy the main component's opacity onto the layer's paint, matching the layer to its main by the last segment of its `I…;…` id.
+- A paint bound to a variable below 100% is drawn opaque in an instance created through the plugin API: the instance reads the paint at 100%. The library's own `Button` (destructive, `bg-destructive/10`) does it too. Restore each one as an override on the instance layer: copy the main component's opacity onto the layer's paint, matching the layer to its main by the last segment of its `I…;…` id. Detaching such an instance keeps the 100%.
+- A gradient stop bound to a variable takes the variable's alpha too, so a `from-<token>` fade cannot be one gradient. Draw it as the token's fill under a gradient mask.
 - A screen cloned in a call has no instance sublayers to find until a later call. Clone in one call, edit in the next.
 - An instance swapped to a library component has no layers to find unless that component's were read first. Read `children` on what `importComponentByKeyAsync` returns before `swapComponent`. A hidden instance has none either way.
 

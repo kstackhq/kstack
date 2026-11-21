@@ -435,9 +435,9 @@
     {
       "id": "cluster/memory/row",
       "figma": {
-        "node": "37:1685",
+        "node": "2767:2576",
         "name": "Memory/Row",
-        "hash": "902d3e459404eadc"
+        "hash": "3a7fbcf3f816f788"
       },
       "code": [
         {
@@ -449,17 +449,36 @@
       "notes": [
         "Default hides the trash button without giving up its space: layer opacity here, opacity-0 in code.",
         "The age is humanDuration's, as everywhere in the app: \"3d ago\", not \"3 days ago\".",
-        "Editing and New draw the library Textarea, focus marked by its border alone, with no primary/20 glow (src/CLAUDE.md, Text boxes).",
-        "The editor's box is min-h-10, not Figma's 64px, so New is as tall as a saved one-line note (60px).",
+        "Editing and New draw the library Textarea at State=Focus with its effect removed: the primitive marks focus by its border alone.",
+        "The editor's box is min-h-10 (40px), so New is as tall as a saved one-line note (60px).",
         "The body is model-writable text."
+      ]
+    },
+    {
+      "id": "cluster/memory/instructions",
+      "figma": {
+        "node": "2767:2637",
+        "name": "Memory/Instructions",
+        "hash": "c45f3abd57159b05"
+      },
+      "code": [
+        {
+          "path": "src/components/cluster/memory-instructions.tsx",
+          "blob": "afca99ab784e543742881b3d607894537ed35ad7"
+        }
+      ],
+      "notes": [
+        "Focus marks the box's border alone, with no ring/50 ring.",
+        "The grip is src/assets/resize-thumb.svg in the border's color: input on hover or with text, ring on focus.",
+        "Saved keeps its place at opacity 0 until a save."
       ]
     },
     {
       "id": "cluster/memory-popover",
       "figma": {
-        "node": "39:2265",
+        "node": "2767:3301",
         "name": "MemoryPopover",
-        "hash": "41fb61966aa43548"
+        "hash": "46057f00f9a5fddf"
       },
       "code": [
         {
@@ -478,8 +497,8 @@
       "notes": [
         "Sample data.",
         "Open memory settings leads nowhere yet.",
-        "The popup takes the omnibox's width, up to 640px; Figma draws it at 620px.",
-        "The instructions box marks focus by its border alone, with no ring/50 ring.",
+        "The popup takes the omnibox's width; Figma draws it at 640px, the omnibox's.",
+        "The fade is a color/popover fill under a gradient mask: a gradient stop bound to a variable takes its alpha too.",
         "The scroller keeps the system's overlay scrollbar, as the other popups do, not table-scrollbar.",
         "Memory text is model-writable: it is drawn as text, never as Markdown."
       ]
@@ -1014,12 +1033,16 @@
       "figma": {
         "node": "42:10241",
         "name": "MemoryPopover",
-        "hash": "326c0a3d23b6d2c0"
+        "hash": "11677f43722aa7c2"
       },
       "code": [
         {
           "path": "src/components/cluster/memory/popover.tsx",
-          "blob": "cbf1c6564f98dd85b49e438c61f7b57de8010842"
+          "blob": "daf498b67f6fb04acf05b0d80fa8badeea4378d3"
+        },
+        {
+          "path": "src/components/cluster/omnibox-popover.tsx",
+          "blob": "70fe1e72dbecc81a66b51a552e801a93f26bf667"
         }
       ]
     },
