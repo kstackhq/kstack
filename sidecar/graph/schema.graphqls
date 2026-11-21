@@ -1904,6 +1904,32 @@ input MemorySaveInput {
   body: String!
 }
 
+# --- Tools ---
+
+"What a tool does, as Settings groups the tools."
+enum ToolGroup {
+  Commands
+  Files
+  Web
+  Cluster
+  Logs
+  Memory
+  Agents
+}
+
+"A tool a chat can be offered on this machine, and the user's setting of it."
+type ToolSetting {
+  "The tool's name, which `toolSettingSet` takes."
+  name: String!
+  "What Settings calls it."
+  label: String!
+  group: ToolGroup!
+  "What the tool does, in one line."
+  description: String!
+  "Whether turns are offered it, from the next turn. On unless the user turned it off."
+  enabled: Boolean!
+}
+
 # --- Permissions ---
 
 "How much an action can do, as the permissions engine numbers its classes 1 to 6. A rule may name `UpstreamWrite` or `Destructive`."
@@ -2350,6 +2376,10 @@ type Query {
   "The chat's own rules, each as Settings spells a rule. Empty for a chat with none."
   chatGrants(chatID: ChatID!): [PermissionRule!]!
 
+  # --- Tools ---
+  "Every tool a chat can be offered on this machine, in the order Settings draws them, each with its setting; live updates via toolSettingsWatch."
+  toolSettings: [ToolSetting!]!
+
   # --- Logs ---
   """
   One page of a window of a view's lines on the cluster, oldest first. A first page
@@ -2471,6 +2501,10 @@ type Mutation {
 
   "Delete a memory. Refused `KSTACK_RECORD_NOT_FOUND` for an unknown id. Returns true."
   memoryDelete(id: MemoryID!): Boolean!
+
+  # --- Tools ---
+  "Turn a tool on or off for every chat, subagent and monitor run, from its next turn. A running turn keeps its tools. Refused `KSTACK_VALIDATION_ERROR` for a name no listed tool has. Returns the whole list."
+  toolSettingSet(name: String!, enabled: Boolean!): [ToolSetting!]!
 
   # --- Permissions ---
   "Set the mode of a context nothing else names. Also the fix for a default mode the file holds that Kstack cannot read."
@@ -2677,4 +2711,8 @@ type Subscription {
   # --- Provider credentials ---
   "GAUGE. Every provider: the latest list after each change, so changes close together arrive as one."
   providerCredentialsWatch: [ProviderCredentialState!]!
+
+  # --- Tools ---
+  "GAUGE. Every tool with its setting, as toolSettings lists them: the latest list after each change."
+  toolSettingsWatch: [ToolSetting!]!
 }

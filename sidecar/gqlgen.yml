@@ -648,6 +648,27 @@ models:
       Both:
         value: github.com/kstackhq/kstack/sidecar/internal/services/envvars.Both
 
+  # --- Tools ---
+  ToolSetting:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/toolsettings.Setting
+  ToolGroup:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/toolsettings.Group
+    enum_values:
+      Commands:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/toolsettings.GroupCommands
+      Files:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/toolsettings.GroupFiles
+      Web:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/toolsettings.GroupWeb
+      Cluster:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/toolsettings.GroupCluster
+      Logs:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/toolsettings.GroupLogs
+      Memory:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/toolsettings.GroupMemory
+      Agents:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/toolsettings.GroupAgents
+
   # --- Permissions ---
   PermissionClass:
     model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Class

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -38,6 +39,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
+	"github.com/kstackhq/kstack/sidecar/internal/services/toolsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -73,6 +75,8 @@ type Runtime struct {
 	LLM                 *llm.Service
 	// EnvVars is the user's variables, which every command reads.
 	EnvVars *envvars.Service
+	// ToolSettings is the user's settings of the model's tools.
+	ToolSettings *toolsettings.Service
 	// Shell is nil on a machine with no shell.
 	Shell         *bash.Tool
 	SandboxStatus sandbox.Status
@@ -302,6 +306,14 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
 	}
 
+	// Settings lists only the tools this machine's box holds.
+	listed := slices.DeleteFunc(slices.Clone(catalog.ToolListings()), func(l toolsettings.Listing) bool { return !rt.Tools.Has(l.Name) })
+	rt.ToolSettings, err = toolsettings.New(db, listed, time.Now)
+	if err != nil { // coverage:ignore the statements prepare on the schema app.db was just migrated to
+		return fail(err)
+	}
+	rt.add("tool settings", lifecycle.CloseFunc(rt.ToolSettings.Close))
+
 	rt.Chat, err = chat.New(db, p.ChatsDir, p.MonitorDir, rt.LLM, clustercard.New(rt.Cluster), rt.Memory, rt.Tools, rt.Catalog, rt.SandboxStatus, rt.Settings, rt.CloudTargets)
 	if err != nil {
 		return fail(err)
@@ -369,6 +381,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		OpenURL:             browser.Open,
 		Settings:            rt.Settings,
 		EnvVars:             rt.EnvVars,
+		ToolSettings:        rt.ToolSettings,
 		Executables:         prober,
 		Logs:                rt.Logs,
 		CloudTargets:        rt.CloudTargets,

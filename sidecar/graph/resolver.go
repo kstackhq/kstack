@@ -21,6 +21,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
+	"github.com/kstackhq/kstack/sidecar/internal/services/toolsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -50,6 +51,8 @@ type Resolver struct {
 	Settings *settings.Service
 	// EnvVars is the user's variables for their commands.
 	EnvVars *envvars.Service
+	// ToolSettings is the user's settings of the model's tools.
+	ToolSettings *toolsettings.Service
 	// Executables probes the executables sandboxed commands run: the Bash tool, nil where
 	// there is no shell.
 	Executables ExecutableProber

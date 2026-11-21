@@ -33,6 +33,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
+	"github.com/kstackhq/kstack/sidecar/internal/services/toolsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	gqlparser "github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
@@ -740,6 +741,7 @@ type ComplexityRoot struct {
 		SandboxPathInclude              func(childComplexity int, dir string, target string) int
 		SandboxPathRefresh              func(childComplexity int) int
 		SandboxPathRemove               func(childComplexity int, dir string) int
+		ToolSettingSet                  func(childComplexity int, name string, enabled bool) int
 	}
 
 	NonResourceRule struct {
@@ -850,6 +852,7 @@ type ComplexityRoot struct {
 		SandboxPathFault     func(childComplexity int) int
 		SandboxPathResolved  func(childComplexity int) int
 		SettingsRefused      func(childComplexity int) int
+		ToolSettings         func(childComplexity int) int
 	}
 
 	ReadAction struct {
@@ -968,6 +971,7 @@ type ComplexityRoot struct {
 		ProviderCredentialsWatch      func(childComplexity int) int
 		SandboxExecutablesWatch       func(childComplexity int) int
 		SandboxFoldersWatch           func(childComplexity int, chatID *apimeta.ChatID) int
+		ToolSettingsWatch             func(childComplexity int) int
 	}
 
 	ToolAction struct {
@@ -1009,6 +1013,14 @@ type ComplexityRoot struct {
 		Duration func(childComplexity int) int
 		ID       func(childComplexity int) int
 		Status   func(childComplexity int) int
+	}
+
+	ToolSetting struct {
+		Description func(childComplexity int) int
+		Enabled     func(childComplexity int) int
+		Group       func(childComplexity int) int
+		Label       func(childComplexity int) int
+		Name        func(childComplexity int) int
 	}
 
 	UnhealthyKindRef struct {
@@ -1110,6 +1122,7 @@ type MutationResolver interface {
 	EnvVarRemove(ctx context.Context, clusterID *apimeta.ClusterID, name string) ([]*envvars.Var, error)
 	MemorySave(ctx context.Context, input model.MemorySaveInput) (*memory.Memory, error)
 	MemoryDelete(ctx context.Context, id memory.MemoryID) (bool, error)
+	ToolSettingSet(ctx context.Context, name string, enabled bool) ([]*toolsettings.Setting, error)
 	PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error)
 	PermissionModeSet(ctx context.Context, context string, mode permissions.Mode) (*model.PermissionSettings, error)
 	PermissionModeClear(ctx context.Context, context string) (*model.PermissionSettings, error)
@@ -1168,6 +1181,7 @@ type QueryResolver interface {
 	PermissionSettings(ctx context.Context) (*model.PermissionSettings, error)
 	SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error)
 	ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
+	ToolSettings(ctx context.Context) ([]*toolsettings.Setting, error)
 	LogsFetch(ctx context.Context, id apimeta.ClusterID, request model.LogsFetchInput) (*model.LogRecordsPage, error)
 	AuthState(ctx context.Context) (*connectors.State, error)
 	ChatGPTConnection(ctx context.Context) (*connectors.State, error)
@@ -1204,6 +1218,7 @@ type SubscriptionResolver interface {
 	AWSConnectionWatch(ctx context.Context) (<-chan *connectors.State, error)
 	ModelsWatch(ctx context.Context) (<-chan []*model.Model, error)
 	ProviderCredentialsWatch(ctx context.Context) (<-chan []*providercredentials.State, error)
+	ToolSettingsWatch(ctx context.Context) (<-chan []*toolsettings.Setting, error)
 }
 type ToolCallResolver interface {
 	Status(ctx context.Context, obj *chat.ToolCall) (*chat.ToolCallStatus, error)
@@ -4113,6 +4128,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SandboxPathRemove(childComplexity, args["dir"].(string)), true
+	case "Mutation.toolSettingSet":
+		if e.ComplexityRoot.Mutation.ToolSettingSet == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_toolSettingSet_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ToolSettingSet(childComplexity, args["name"].(string), args["enabled"].(bool)), true
 
 	case "NonResourceRule.nonResourceUrls":
 		if e.ComplexityRoot.NonResourceRule.NonResourceUrls == nil {
@@ -4632,6 +4658,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.SettingsRefused(childComplexity), true
+	case "Query.toolSettings":
+		if e.ComplexityRoot.Query.ToolSettings == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.ToolSettings(childComplexity), true
 
 	case "ReadAction.path":
 		if e.ComplexityRoot.ReadAction.Path == nil {
@@ -5172,6 +5204,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.SandboxFoldersWatch(childComplexity, args["chatID"].(*apimeta.ChatID)), true
+	case "Subscription.toolSettingsWatch":
+		if e.ComplexityRoot.Subscription.ToolSettingsWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.ToolSettingsWatch(childComplexity), true
 
 	case "ToolAction.command":
 		if e.ComplexityRoot.ToolAction.Command == nil {
@@ -5367,6 +5405,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ToolCallApproval.Status(childComplexity), true
+
+	case "ToolSetting.description":
+		if e.ComplexityRoot.ToolSetting.Description == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolSetting.Description(childComplexity), true
+	case "ToolSetting.enabled":
+		if e.ComplexityRoot.ToolSetting.Enabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolSetting.Enabled(childComplexity), true
+	case "ToolSetting.group":
+		if e.ComplexityRoot.ToolSetting.Group == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolSetting.Group(childComplexity), true
+	case "ToolSetting.label":
+		if e.ComplexityRoot.ToolSetting.Label == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolSetting.Label(childComplexity), true
+	case "ToolSetting.name":
+		if e.ComplexityRoot.ToolSetting.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolSetting.Name(childComplexity), true
 
 	case "UnhealthyKindRef.apiVersion":
 		if e.ComplexityRoot.UnhealthyKindRef.APIVersion == nil {
@@ -7127,6 +7196,22 @@ func (ec *executionContext) childFields_ToolCallApproval(ctx context.Context, fi
 	return nil, fmt.Errorf("no field named %q was found under type ToolCallApproval", field.Name)
 }
 
+func (ec *executionContext) childFields_ToolSetting(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "name":
+		return ec.fieldContext_ToolSetting_name(ctx, field)
+	case "label":
+		return ec.fieldContext_ToolSetting_label(ctx, field)
+	case "group":
+		return ec.fieldContext_ToolSetting_group(ctx, field)
+	case "description":
+		return ec.fieldContext_ToolSetting_description(ctx, field)
+	case "enabled":
+		return ec.fieldContext_ToolSetting_enabled(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ToolSetting", field.Name)
+}
+
 func (ec *executionContext) childFields_UnhealthyKindRef(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "apiVersion":
@@ -8130,6 +8215,28 @@ func (ec *executionContext) field_Mutation_sandboxPathRemove_args(ctx context.Co
 		return nil, err
 	}
 	args["dir"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_toolSettingSet_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "enabled",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["enabled"] = arg1
 	return args, nil
 }
 
@@ -19239,6 +19346,50 @@ func (ec *executionContext) fieldContext_Mutation_memoryDelete(ctx context.Conte
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_toolSettingSet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_toolSettingSet(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ToolSettingSet(ctx, fc.Args["name"].(string), fc.Args["enabled"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*toolsettings.Setting) graphql.Marshaler {
+			return ec.marshalNToolSetting2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐSettingᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_toolSettingSet(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ToolSetting(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_toolSettingSet_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_permissionDefaultModeSet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -22014,6 +22165,38 @@ func (ec *executionContext) fieldContext_Query_chatGrants(ctx context.Context, f
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_toolSettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_toolSettings(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().ToolSettings(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*toolsettings.Setting) graphql.Marshaler {
+			return ec.marshalNToolSetting2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐSettingᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_toolSettings(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ToolSetting(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_logsFetch(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24530,6 +24713,38 @@ func (ec *executionContext) fieldContext_Subscription_providerCredentialsWatch(_
 	return fc, nil
 }
 
+func (ec *executionContext) _Subscription_toolSettingsWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_toolSettingsWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().ToolSettingsWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*toolsettings.Setting) graphql.Marshaler {
+			return ec.marshalNToolSetting2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐSettingᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_toolSettingsWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ToolSetting(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ToolAction_description(ctx context.Context, field graphql.CollectedField, obj *tools.Action) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -25408,6 +25623,121 @@ func (ec *executionContext) _ToolCallApproval_duration(ctx context.Context, fiel
 }
 func (ec *executionContext) fieldContext_ToolCallApproval_duration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ToolCallApproval", field, false, false, "ApprovalDuration")
+}
+
+func (ec *executionContext) _ToolSetting_name(ctx context.Context, field graphql.CollectedField, obj *toolsettings.Setting) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ToolSetting_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ToolSetting_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ToolSetting", field, false, false, "String")
+}
+
+func (ec *executionContext) _ToolSetting_label(ctx context.Context, field graphql.CollectedField, obj *toolsettings.Setting) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ToolSetting_label(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Label, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ToolSetting_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ToolSetting", field, false, false, "String")
+}
+
+func (ec *executionContext) _ToolSetting_group(ctx context.Context, field graphql.CollectedField, obj *toolsettings.Setting) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ToolSetting_group(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Group, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v toolsettings.Group) graphql.Marshaler {
+			return ec.marshalNToolGroup2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐGroup(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ToolSetting_group(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ToolSetting", field, false, false, "ToolGroup")
+}
+
+func (ec *executionContext) _ToolSetting_description(ctx context.Context, field graphql.CollectedField, obj *toolsettings.Setting) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ToolSetting_description(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ToolSetting_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ToolSetting", field, false, false, "String")
+}
+
+func (ec *executionContext) _ToolSetting_enabled(ctx context.Context, field graphql.CollectedField, obj *toolsettings.Setting) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ToolSetting_enabled(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ToolSetting_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ToolSetting", field, false, false, "Boolean")
 }
 
 func (ec *executionContext) _UnhealthyKindRef_apiVersion(ctx context.Context, field graphql.CollectedField, obj *cluster.UnhealthyKindRef) (ret graphql.Marshaler) {
@@ -31693,6 +32023,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "toolSettingSet":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_toolSettingSet(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "permissionDefaultModeSet":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_permissionDefaultModeSet(ctx, field)
@@ -32584,6 +32921,12 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_chatGrants(ctx, field)
 				})
+		case "toolSettings":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_toolSettings(ctx, field)
+				})
 		case "logsFetch":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
@@ -33333,6 +33676,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_modelsWatch(ctx, fields[0])
 	case "providerCredentialsWatch":
 		return ec._Subscription_providerCredentialsWatch(ctx, fields[0])
+	case "toolSettingsWatch":
+		return ec._Subscription_toolSettingsWatch(ctx, fields[0])
 	default:
 		panic("unknown field " + strconv.Quote(fields[0].Name))
 	}
@@ -33564,6 +33909,59 @@ func (ec *executionContext) _ToolCallApproval(ctx context.Context, sel ast.Selec
 		case "duration":
 			out.Values[i] = ec._ToolCallApproval_duration(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var toolSettingImplementors = []string{"ToolSetting"}
+
+func (ec *executionContext) _ToolSetting(ctx context.Context, sel ast.SelectionSet, obj *toolsettings.Setting) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, toolSettingImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ToolSetting")
+		case "name":
+			out.Values[i] = ec._ToolSetting_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "label":
+			out.Values[i] = ec._ToolSetting_label(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "group":
+			out.Values[i] = ec._ToolSetting_group(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "description":
+			out.Values[i] = ec._ToolSetting_description(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "enabled":
+			out.Values[i] = ec._ToolSetting_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		default:
@@ -36099,6 +36497,66 @@ var (
 		chat.ToolCallRunsOnProvider: "Provider",
 	}
 )
+
+func (ec *executionContext) unmarshalNToolGroup2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐGroup(ctx context.Context, v any) (toolsettings.Group, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalNToolGroup2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐGroup[tmp]
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNToolGroup2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐGroup(ctx context.Context, sel ast.SelectionSet, v toolsettings.Group) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(marshalNToolGroup2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐGroup[v])
+	if res == graphql.Null {
+		graphql.AddInvalidNullFromMarshaler(ctx, "ToolGroup!")
+	}
+	return res
+}
+
+var (
+	unmarshalNToolGroup2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐGroup = map[string]toolsettings.Group{
+		"Commands": toolsettings.GroupCommands,
+		"Files":    toolsettings.GroupFiles,
+		"Web":      toolsettings.GroupWeb,
+		"Cluster":  toolsettings.GroupCluster,
+		"Logs":     toolsettings.GroupLogs,
+		"Memory":   toolsettings.GroupMemory,
+		"Agents":   toolsettings.GroupAgents,
+	}
+	marshalNToolGroup2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐGroup = map[toolsettings.Group]string{
+		toolsettings.GroupCommands: "Commands",
+		toolsettings.GroupFiles:    "Files",
+		toolsettings.GroupWeb:      "Web",
+		toolsettings.GroupCluster:  "Cluster",
+		toolsettings.GroupLogs:     "Logs",
+		toolsettings.GroupMemory:   "Memory",
+		toolsettings.GroupAgents:   "Agents",
+	}
+)
+
+func (ec *executionContext) marshalNToolSetting2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐSettingᚄ(ctx context.Context, sel ast.SelectionSet, v []*toolsettings.Setting) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNToolSetting2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐSetting(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNToolSetting2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐSetting(ctx context.Context, sel ast.SelectionSet, v *toolsettings.Setting) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "ToolSetting!")
+		return graphql.Null
+	}
+	return ec._ToolSetting(ctx, sel, v)
+}
 
 func (ec *executionContext) marshalNUnhealthyKindRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐUnhealthyKindRef(ctx context.Context, sel ast.SelectionSet, v cluster.UnhealthyKindRef) graphql.Marshaler {
 	return ec._UnhealthyKindRef(ctx, sel, &v)

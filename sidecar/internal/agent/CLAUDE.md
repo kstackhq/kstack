@@ -9,7 +9,7 @@ is each tool; `internal/llm/CLAUDE.md` is the wires.
 ## Catalog (`internal/agent/catalog`)
 
 The providers the app holds and, for each provider, every tool its turns are offered, by tool
-name. It imports `llm`, each tool's package, `providercredentials`, and the connectors `chatgpt`, `google` and `openrouter` (their ids and API bases); only `config.go`
+name. It imports `llm`, each tool's package, `providercredentials`, `toolsettings`, and the connectors `chatgpt`, `google` and `openrouter` (their ids and API bases); only `config.go`
 and `app` import it.
 
 - `catalog.go`: `New(Config)` is every row `Config.Credentials` holds, in picker order, each
@@ -38,6 +38,7 @@ and `app` import it.
   what leaves the machine, so adding a vendor tool or leaving one of ours off is a security change.
   One tool per kind; lists never depend on API keys. Held by `catalog_test.go` and `app_test.go`
   (`TestEachListIsOneToolOfEachKind`, `TestEveryToolIsOnAList`).
+- `tools.go`: `ToolListings()` is each tool's Settings › Tools row (`TestToolListingsMatchTheLists`).
 
 → [ADR: the catalog is its own package](../../../docs/adr/2026-09-24-the-catalog-is-its-own-package.md).
 

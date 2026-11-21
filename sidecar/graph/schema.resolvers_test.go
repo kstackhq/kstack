@@ -55,6 +55,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
+	"github.com/kstackhq/kstack/sidecar/internal/services/toolsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -3685,6 +3686,86 @@ func TestSandboxCloudAccessSetRefusesWhatHasNoSwitch(t *testing.T) {
 		assert.Equal(t, "This build has no switch for that target.", message, target)
 	}
 	assert.True(t, cfg.CloudOn(permissions.GitHub), "nothing was written")
+}
+
+// newToolServer is a server listing two tools, over a fresh app.db.
+func newToolServer(t *testing.T) (*httptest.Server, *toolsettings.Service) {
+	t.Helper()
+	settings, err := toolsettings.New(appdbtest.Open(t), []toolsettings.Listing{
+		{Name: "Bash", Label: "Bash", Group: toolsettings.GroupCommands, Description: "Run shell commands."},
+		{Name: "web_search", Label: "WebSearch", Group: toolsettings.GroupWeb, Description: "Search the web."},
+	}, time.Now)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, settings.Close()) })
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
+		ClusterSvc: newFakeClusterService(clusterFixtures()), ToolSettings: settings,
+	}))
+	t.Cleanup(srv.Close)
+	return srv, settings
+}
+
+// disabledTools is the names of the tools settings has off.
+func disabledTools(t *testing.T, settings *toolsettings.Service) []string {
+	t.Helper()
+	list, err := settings.List(t.Context())
+	require.NoError(t, err)
+	var off []string
+	for _, s := range list {
+		if !s.Enabled {
+			off = append(off, s.Name)
+		}
+	}
+	return off
+}
+
+// toolSettings lists every tool with its setting, on until turned off;
+// toolSettingSet writes the setting and answers the list.
+func TestToolSettingsListsEveryToolWithItsSetting(t *testing.T) {
+	srv, settings := newToolServer(t)
+	data := mutate(t, srv, `{ toolSettings { name label group description enabled } }`)
+	assert.Equal(t, []any{
+		map[string]any{"name": "Bash", "label": "Bash", "group": "Commands", "description": "Run shell commands.", "enabled": true},
+		map[string]any{"name": "web_search", "label": "WebSearch", "group": "Web", "description": "Search the web.", "enabled": true},
+	}, data["toolSettings"])
+
+	data = mutate(t, srv, `mutation { toolSettingSet(name: "web_search", enabled: false) { name enabled } }`)
+	assert.Equal(t, []any{
+		map[string]any{"name": "Bash", "enabled": true},
+		map[string]any{"name": "web_search", "enabled": false},
+	}, data["toolSettingSet"])
+	assert.Equal(t, []string{"web_search"}, disabledTools(t, settings))
+}
+
+// toolSettingsWatch sends the current list on subscribe, then the list after
+// each change.
+func TestToolSettingsWatchIsAGauge(t *testing.T) {
+	srv, _ := newToolServer(t)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { toolSettingsWatch { name enabled } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	assert.Contains(t, nextSSE(t, events).data, `[{"name":"Bash","enabled":true},{"name":"web_search","enabled":true}]`)
+
+	mutate(t, srv, `mutation { toolSettingSet(name: "Bash", enabled: false) { name } }`)
+	assert.Contains(t, nextSSE(t, events).data, `[{"name":"Bash","enabled":false},{"name":"web_search","enabled":true}]`)
+}
+
+// A name no listed tool has has no setting, so nothing is written.
+func TestToolSettingSetRefusesANameNotListed(t *testing.T) {
+	srv, settings := newToolServer(t)
+	message, code := refusalOf(t, srv, `mutation { toolSettingSet(name: "Nope", enabled: false) { name } }`)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
+	assert.Equal(t, "No listed tool has that name.", message)
+	assert.Empty(t, disabledTools(t, settings))
+}
+
+// A setting that cannot be read or written reaches the caller as an error.
+func TestToolSettingsReportAStoreItCannotReach(t *testing.T) {
+	srv, settings := newToolServer(t)
+	require.NoError(t, settings.Close())
+	for _, q := range []string{`{ toolSettings { name } }`, `mutation { toolSettingSet(name: "Bash", enabled: false) { name } }`} {
+		message, _ := refusalOf(t, srv, q)
+		assert.NotEmpty(t, message, q)
+	}
 }
 
 // fakeChatGPT is the ChatGPT connector as the wire sees it: a state the test

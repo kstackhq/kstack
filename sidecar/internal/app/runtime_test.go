@@ -24,6 +24,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/github"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/google"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/openrouter"
+	"github.com/kstackhq/kstack/sidecar/internal/services/toolsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -93,6 +94,24 @@ func TestTheResolverHasNoProberWithoutAShell(t *testing.T) {
 	rt := &Runtime{SandboxStatus: sandbox.Status{Available: true}}
 
 	assert.True(t, rt.resolver().Executables == nil)
+}
+
+// Settings lists the catalog's tools that this machine's box holds, in the
+// catalog's order, each on until the user turns it off.
+func TestToolSettingsListTheToolsTheBoxHolds(t *testing.T) {
+	rt, err := build(t.Context(), withDirs(t, Config{}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, rt.Close()) })
+	var want []toolsettings.Setting
+	for _, l := range catalog.ToolListings() {
+		if rt.Tools.Has(l.Name) {
+			want = append(want, toolsettings.Setting{Listing: l, Enabled: true})
+		}
+	}
+	got, err := rt.ToolSettings.List(t.Context())
+	require.NoError(t, err)
+	assert.NotEmpty(t, got)
+	assert.Equal(t, want, got)
 }
 
 // The resolver and the chat service list the build's cloud platforms in its

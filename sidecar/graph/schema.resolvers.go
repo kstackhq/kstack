@@ -7,6 +7,7 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
+	"github.com/kstackhq/kstack/sidecar/internal/services/toolsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -503,6 +505,18 @@ func (r *mutationResolver) MemoryDelete(ctx context.Context, id memory.MemoryID)
 	return true, nil
 }
 
+// ToolSettingSet is the resolver for the toolSettingSet field.
+func (r *mutationResolver) ToolSettingSet(ctx context.Context, name string, enabled bool) ([]*toolsettings.Setting, error) {
+	err := r.ToolSettings.Set(ctx, name, enabled)
+	if errors.Is(err, toolsettings.ErrUnknownTool) {
+		return nil, gqlerrors.NewValidationError("tool", "No listed tool has that name.")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r.Query().ToolSettings(ctx)
+}
+
 // PermissionDefaultModeSet is the resolver for the permissionDefaultModeSet field.
 func (r *mutationResolver) PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error) {
 	return r.permissionsAfter(ctx, r.Settings.SetDefaultMode(mode))
@@ -869,6 +883,12 @@ func (r *queryResolver) ChatGrants(ctx context.Context, chatID apimeta.ChatID) (
 	return rulePointers(rules), nil
 }
 
+// ToolSettings is the resolver for the toolSettings field.
+func (r *queryResolver) ToolSettings(ctx context.Context) ([]*toolsettings.Setting, error) {
+	list, err := r.Resolver.ToolSettings.List(ctx)
+	return ptrSlice(list), err
+}
+
 // LogsFetch is the resolver for the logsFetch field.
 func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, request model.LogsFetchInput) (*model.LogRecordsPage, error) {
 	q, err := fetchRequestOf(request)
@@ -1230,6 +1250,12 @@ func (r *subscriptionResolver) ModelsWatch(ctx context.Context) (<-chan []*model
 func (r *subscriptionResolver) ProviderCredentialsWatch(ctx context.Context) (<-chan []*providercredentials.State, error) {
 	states, cancel := r.ProviderCredentials.Subscribe()
 	return mapStream(ctx, states, cancel, ptrSlice[providercredentials.State]), nil
+}
+
+// ToolSettingsWatch is the resolver for the toolSettingsWatch field.
+func (r *subscriptionResolver) ToolSettingsWatch(ctx context.Context) (<-chan []*toolsettings.Setting, error) {
+	settings, cancel := r.Resolver.ToolSettings.Subscribe()
+	return mapStream(ctx, settings, cancel, ptrSlice[toolsettings.Setting]), nil
 }
 
 // Status is the resolver for the status field: null for a call the provider
