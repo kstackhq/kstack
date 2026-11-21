@@ -17,11 +17,18 @@ import { describe, expect, it } from 'vitest';
 import { highlight, load, loaded } from '@/lib/highlight';
 
 describe('highlight', () => {
+  it('has the common grammars ready for the first render', () => {
+    for (const lang of ['yaml', 'json', 'bash', 'shell', 'go', 'diff', 'dockerfile', 'xml', 'plaintext']) {
+      expect(loaded(lang)).toBe(true);
+    }
+    expect(JSON.stringify(highlight('yaml', 'kind: Pod'))).toContain('hljs-attr');
+  });
+
   it('loads a grammar on demand, then highlights synchronously', async () => {
-    expect(loaded('go')).toBe(false);
-    await expect(load('go')).resolves.toBe(true);
-    expect(loaded('go')).toBe(true);
-    const tree = highlight('go', 'func main() {}');
+    expect(loaded('rust')).toBe(false);
+    await expect(load('rust')).resolves.toBe(true);
+    expect(loaded('rust')).toBe(true);
+    const tree = highlight('rust', 'fn main() {}');
     expect(JSON.stringify(tree)).toContain('hljs-keyword');
   });
 
@@ -37,8 +44,8 @@ describe('highlight', () => {
   });
 
   it('shares one load between callers asking while it is in flight', async () => {
-    const [a, b] = await Promise.all([load('bash'), load('bash')]);
+    const [a, b] = await Promise.all([load('python'), load('python')]);
     expect(a && b).toBe(true);
-    expect(loaded('sh')).toBe(true);
+    expect(loaded('py')).toBe(true);
   });
 });

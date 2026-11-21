@@ -12,17 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Syntax highlighting for the code blocks in an answer, with every highlight.js
-// grammar available and none in the bundle: each is its own chunk, fetched the
-// first time a fence names it. What a grammar produces is a hast tree, rendered
-// to React elements — never an HTML string.
+// Common grammars highlight on the first render; the rest load on demand.
+// What a grammar produces is a hast tree, rendered to React elements — never HTML.
 import type { LanguageFn } from 'highlight.js';
+import bash from 'highlight.js/lib/languages/bash';
+import diff from 'highlight.js/lib/languages/diff';
+import dockerfile from 'highlight.js/lib/languages/dockerfile';
+import go from 'highlight.js/lib/languages/go';
+import json from 'highlight.js/lib/languages/json';
+import plaintext from 'highlight.js/lib/languages/plaintext';
+import shell from 'highlight.js/lib/languages/shell';
+import xml from 'highlight.js/lib/languages/xml';
+import yaml from 'highlight.js/lib/languages/yaml';
 import { createLowlight } from 'lowlight';
 
 const low = createLowlight();
+for (const [name, grammar] of Object.entries({ yaml, json, bash, shell, go, diff, dockerfile, xml, plaintext })) {
+  low.register(name, grammar);
+}
 
-// One loader per grammar, keyed by its file name; Vite splits each into a chunk.
-const loaders = import.meta.glob<{ default: LanguageFn }>('/node_modules/highlight.js/es/languages/*.js');
+// One loader per grammar, keyed by its file name; Vite splits uncommon ones into chunks.
+const loaders = import.meta.glob<{ default: LanguageFn }>([
+  '/node_modules/highlight.js/es/languages/*.js',
+  '!/node_modules/highlight.js/es/languages/*.js.js',
+  '!/node_modules/highlight.js/es/languages/{yaml,json,bash,shell,go,diff,dockerfile,xml,plaintext}.js',
+]);
 
 // A fence's word onto the grammar's file. Every grammar declares its own aliases,
 // but only once loaded — this is the subset needed to find the file in the first
@@ -68,7 +82,7 @@ const ALIASES: Record<string, string> = {
 
 function fileOf(lang: string): string | undefined {
   const name = ALIASES[lang.toLowerCase()] ?? lang.toLowerCase();
-  return loaders[`/node_modules/highlight.js/es/languages/${name}.js`] ? name : undefined;
+  return low.registered(name) || loaders[`/node_modules/highlight.js/es/languages/${name}.js`] ? name : undefined;
 }
 
 const pending = new Map<string, Promise<boolean>>();
