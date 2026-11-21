@@ -35,6 +35,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
@@ -305,9 +306,10 @@ func TestOnlyTheListedHeadersReachGitHub(t *testing.T) {
 	}
 	h.do(t, http.MethodGet, apiURL+"/user", "", sent)
 	got := testutil.Recv(t, h.api.seen, "the read").header
-	for _, name := range []string{"Accept", "X-Github-Api-Version", "User-Agent", "If-None-Match"} {
+	for _, name := range []string{"Accept", "X-Github-Api-Version", "If-None-Match"} {
 		assert.Equal(t, sent.Get(name), got.Get(name), name)
 	}
+	assert.Equal(t, version.UserAgent()+" GitHub CLI 2.103.3", got.Get("User-Agent"), "Kstack named ahead of the command")
 	for _, name := range []string{"Cookie", "X-Http-Method-Override", "X-Github-Otp", "Graphql-Features", "Git-Protocol", "Proxy-Authorization"} {
 		assert.Empty(t, got.Values(name), name)
 	}
@@ -329,6 +331,7 @@ func TestOnlyTheListedHeadersReachGitHub(t *testing.T) {
 		got := testutil.Recv(t, h.git.seen, c.url).header
 		assert.Equal(t, c.protocol, got.Get("Git-Protocol") == "version=2", c.url)
 		assert.Empty(t, got.Values("Cookie"), c.url)
+		assert.Equal(t, version.UserAgent()+" GitHub CLI 2.103.3", got.Get("User-Agent"), c.url)
 	}
 }
 

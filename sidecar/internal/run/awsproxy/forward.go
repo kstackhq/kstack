@@ -32,6 +32,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 )
 
@@ -104,6 +105,7 @@ func (p *Proxy) send(ctx context.Context, creds aws.Credentials, o outbound) (*h
 		out.Body = http.NoBody
 	}
 	out.Header = o.header
+	out.Header.Set("User-Agent", version.Prefix(out.Header.Get("User-Agent")))
 	sum := sha256.Sum256(o.body)
 	hash := hex.EncodeToString(sum[:])
 	out.Header.Set("X-Amz-Content-Sha256", hash)

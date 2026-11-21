@@ -26,6 +26,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 )
 
 // A read is signed anew: nothing of the sandbox's signature, key id, date or
@@ -44,6 +46,24 @@ func TestAReadIsSignedAnew(t *testing.T) {
 			assert.NotContains(t, strings.Join(values, ","), v, name)
 		}
 	}
+}
+
+// AWS reads Kstack ahead of the command's agent, and Kstack alone on the
+// bucket list the proxy makes itself.
+func TestKstackIsNamedToAWS(t *testing.T) {
+	f := newFixture(t)
+	r := f.ec2()
+	r.Header.Set("User-Agent", "aws-cli/2.31.0")
+	require.Equal(t, http.StatusOK, f.serve(r).Code)
+	got := f.sent()
+	assert.Equal(t, version.UserAgent()+" aws-cli/2.31.0", got.header.Get("User-Agent"))
+	assert.NoError(t, got.signedBy)
+
+	f.listing(func() []string { return []string{"mine"} })
+	require.Equal(t, http.StatusOK, f.serve(f.list("mine")).Code)
+	list := f.sent()
+	require.Contains(t, list.uri, "max-buckets")
+	assert.Equal(t, version.UserAgent(), list.header.Get("User-Agent"))
 }
 
 // A global row signs in us-east-1 whatever region the client signed for.

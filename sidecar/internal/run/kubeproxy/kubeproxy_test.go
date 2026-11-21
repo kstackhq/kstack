@@ -36,10 +36,12 @@ import (
 	"golang.org/x/time/rate"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 )
 
 // upstreamFunc is an Upstream answering from a function.
@@ -239,6 +241,24 @@ func TestTheConnectionsBasePathIsKept(t *testing.T) {
 
 	require.Len(t, api.requests(), 1)
 	assert.Equal(t, "/k8s/clusters/c-1/api/v1/pods", api.requests()[0].URL.Path)
+}
+
+// The audit log reads Kstack ahead of the command, though the connection's
+// client-go sets its own agent only on a request that names none.
+func TestKstackIsNamedAheadOfTheCommandsAgent(t *testing.T) {
+	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+	base, _ := url.Parse(api.URL)
+	client, err := rest.HTTPClientFor(&rest.Config{Host: api.URL, UserAgent: version.UserAgent()})
+	require.NoError(t, err)
+	s := serve(t, upstreamFunc(func(context.Context) (Endpoint, error) { return Endpoint{Base: base, Client: client}, nil }))
+
+	req := s.request(t, "GET", "/api", s.g.Token())
+	req.Header.Set("User-Agent", "kubectl/v1.34.0 (linux/arm64) kubernetes/abcdef0")
+	s.do(t, req)
+
+	seen := api.requests()
+	require.Len(t, seen, 1)
+	assert.Equal(t, version.UserAgent()+" kubectl/v1.34.0 (linux/arm64) kubernetes/abcdef0", seen[0].Header.Get("User-Agent"))
 }
 
 // Neither the run's proxy credentials nor any credential of the client's own

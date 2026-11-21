@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
@@ -288,7 +289,7 @@ func TestOnlyTheListedHeadersAreForwarded(t *testing.T) {
 	got := h.upstream.requests()[0].header
 	assert.Equal(t, "application/json", got.Get("Accept"))
 	assert.Equal(t, "en-US", got.Get("Accept-Language"))
-	assert.Equal(t, "AZURECLI/2.93.0", got.Get("User-Agent"))
+	assert.Equal(t, version.UserAgent()+" AZURECLI/2.93.0", got.Get("User-Agent"), "Kstack named ahead of the command")
 	assert.Equal(t, "c1", got.Get("X-Ms-Client-Request-Id"))
 	for _, name := range []string{
 		"X-Ms-Authorization-Auxiliary", "X-Http-Method-Override", "X-Http-Method", "X-Method-Override",

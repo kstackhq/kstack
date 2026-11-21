@@ -36,6 +36,7 @@ import (
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 )
@@ -284,6 +285,9 @@ func forward(base *url.URL, client *http.Client) *httputil.ReverseProxy {
 			// request that carries none.
 			pr.Out.Header.Del("Authorization")
 			pr.Out.Header.Del("Proxy-Authorization")
+			// client-go sets its agent only on a request that names none, and
+			// the audit log should name Kstack ahead of the command.
+			pr.Out.Header.Set("User-Agent", version.Prefix(pr.Out.Header.Get("User-Agent")))
 		},
 		// The connection's own, so the exec plugin, TLS and the pool are the
 		// mirror's.

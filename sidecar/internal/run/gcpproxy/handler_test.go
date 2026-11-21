@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
@@ -259,9 +260,10 @@ func TestOnlyTheListedHeadersAreForwarded(t *testing.T) {
 	for _, name := range []string{"X-Http-Method-Override", "X-Goog-Api-Key", "X-Goog-Encryption-Key", "Cookie"} {
 		assert.Empty(t, s.header.Values(name), name)
 	}
-	for _, name := range []string{"Accept", "X-Goog-Api-Client", "X-Goog-User-Project", "User-Agent"} {
+	for _, name := range []string{"Accept", "X-Goog-Api-Client", "X-Goog-User-Project"} {
 		assert.Equal(t, header.Get(name), s.header.Get(name), name)
 	}
+	assert.Equal(t, version.UserAgent()+" google-cloud-sdk", s.header.Get("User-Agent"), "Kstack named ahead of the command")
 }
 
 func TestAChangeAsksWithItsAccount(t *testing.T) {

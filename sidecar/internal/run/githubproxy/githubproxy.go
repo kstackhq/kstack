@@ -36,6 +36,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 )
@@ -341,6 +342,7 @@ func (p *proxy) forward(w http.ResponseWriter, r *http.Request, rt *route, heade
 	}
 	out.ContentLength = length
 	out.Header = runproxy.Outbound(r.Header, headers)
+	out.Header.Set("User-Agent", version.Prefix(out.Header.Get("User-Agent")))
 	out.Header.Set("Authorization", rt.authorization(token))
 	resp, err := p.client.Do(out)
 	if err != nil {

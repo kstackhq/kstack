@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 )
@@ -273,6 +274,7 @@ func (p *proxy) forward(w http.ResponseWriter, r *http.Request, tenant string, b
 		return
 	}
 	out.Header = runproxy.Outbound(r.Header, forwarded)
+	out.Header.Set("User-Agent", version.Prefix(out.Header.Get("User-Agent")))
 	out.Header.Set("Authorization", "Bearer "+token)
 	resp, err := p.Transport.RoundTrip(out)
 	if err != nil {

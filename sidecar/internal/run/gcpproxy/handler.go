@@ -32,6 +32,7 @@ import (
 	"sync"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 )
@@ -219,6 +220,7 @@ func rewriteRequest(pr *httputil.ProxyRequest) {
 	pr.Out.URL = &url.URL{Scheme: "https", Host: f.svc.upstream, Path: in.Path, RawPath: in.RawPath, RawQuery: in.RawQuery}
 	pr.Out.Host = ""
 	pr.Out.Header = runproxy.Outbound(pr.In.Header, forwardedHeaders)
+	pr.Out.Header.Set("User-Agent", version.Prefix(pr.Out.Header.Get("User-Agent")))
 	if f.svc.rewrites() {
 		// So the transport asks for gzip itself and hands back plain bytes,
 		// and an answer is whole JSON.
