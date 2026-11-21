@@ -12,6 +12,7 @@ import (
 	"github.com/kstackhq/kstack/cli/internal/desktop"
 	"github.com/kstackhq/kstack/cli/internal/newsletter"
 	"github.com/kstackhq/kstack/cli/internal/tui"
+	"github.com/kstackhq/kstack/cli/internal/useragent"
 )
 
 // version is set by the release build (-ldflags "-X main.version=...").
@@ -20,12 +21,13 @@ var version = "dev"
 func main() { // coverage:ignore only wires the real dependencies, which no test runs
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	httpc := useragent.Client(version)
 	deps := cmd.Deps{
 		TUI: func(ctx context.Context) error {
-			return tui.Run(ctx, os.Stdin, os.Stdout, newsletter.New().Subscribe)
+			return tui.Run(ctx, os.Stdin, os.Stdout, newsletter.New(httpc).Subscribe)
 		},
 		App: func(ctx context.Context, out io.Writer) error {
-			s, err := desktop.NewSystem()
+			s, err := desktop.NewSystem(httpc)
 			if err != nil {
 				return err
 			}

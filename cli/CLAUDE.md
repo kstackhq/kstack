@@ -16,11 +16,12 @@ newsletter endpoint (`newsletter.DefaultURL`) is a placeholder.
 
 | Package | Holds |
 | --- | --- |
-| `main.go` | `main`: wires the real dependencies and the build's `version` into `cmd.Execute`. Nothing else, so it is not measured. |
+| `main.go` | `main`: wires the real dependencies, the HTTP client among them, and the build's `version` into `cmd.Execute`. Nothing else, so it is not measured. |
 | `cmd` | The Cobra commands, one file each (`root.go`, `app.go`). `New(Deps)` builds the tree, never a package variable, so tests build their own; `Execute` runs it and turns the result into an exit status. |
 | `internal/desktop` | `Open`, the locate → download → install → launch decision, over the `Steps` interface; `System`, the real `Steps`. |
 | `internal/newsletter` | `Client.Subscribe`: a JSON POST of the address. |
 | `internal/tui` | `Model` (the update loop) and `Run`. |
+| `internal/useragent` | `Client`, the CLI's one HTTP client, which names it as `kstack-cli/<version> (<GOOS>/<GOARCH>)` on every request. `main` builds it and passes it to `newsletter.New` and `desktop.NewSystem`. |
 
 ## Conventions
 

@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,7 +15,8 @@ import (
 
 func TestNewSystemDescribesThisMachine(t *testing.T) {
 	t.Parallel()
-	s, err := NewSystem()
+	httpc := &http.Client{}
+	s, err := NewSystem(httpc)
 	require.NoError(t, err)
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
@@ -27,6 +29,7 @@ func TestNewSystemDescribesThisMachine(t *testing.T) {
 	assert.Equal(t, os.Geteuid() == 0, s.IsRoot)
 	assert.Equal(t, 30*time.Second, s.Stall)
 	assert.Equal(t, os.Getenv("PATH"), s.Getenv("PATH"))
+	assert.Same(t, httpc, s.HTTP)
 }
 
 // The test binary stands in for a command: with -test.run=^$ it runs no test

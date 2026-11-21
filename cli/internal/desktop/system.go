@@ -46,21 +46,21 @@ type System struct {
 	Start func(name string, args ...string) error
 }
 
-// NewSystem returns the System for this machine.
-func NewSystem() (*System, error) {
+// NewSystem returns the System for this machine, downloading through httpc,
+// which sets no overall timeout: a large download takes as long as it needs.
+func NewSystem(httpc *http.Client) (*System, error) {
 	home, err := os.UserHomeDir()
 	if err != nil { // coverage:ignore every platform CI runs on sets a home directory
 		return nil, err
 	}
 	return &System{
-		OS:     runtime.GOOS,
-		Arch:   runtime.GOARCH,
-		Root:   string(filepath.Separator),
-		Home:   home,
-		Getenv: os.Getenv,
-		IsRoot: os.Geteuid() == 0,
-		// No overall timeout: a large download takes as long as it needs.
-		HTTP:     &http.Client{},
+		OS:       runtime.GOOS,
+		Arch:     runtime.GOARCH,
+		Root:     string(filepath.Separator),
+		Home:     home,
+		Getenv:   os.Getenv,
+		IsRoot:   os.Geteuid() == 0,
+		HTTP:     httpc,
 		Stall:    30 * time.Second,
 		Releases: DefaultReleases,
 		Run:      run,

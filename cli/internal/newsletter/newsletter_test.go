@@ -56,7 +56,8 @@ func TestSubscribeFailsOnABadURL(t *testing.T) {
 
 func TestNewPointsAtTheDefaultEndpoint(t *testing.T) {
 	t.Parallel()
-	c := New()
+	httpc := &http.Client{}
+	c := New(httpc)
 	assert.Equal(t, "https://kstack.sh/api/newsletter", c.URL)
-	assert.NotNil(t, c.HTTP)
+	assert.Same(t, httpc, c.HTTP)
 }

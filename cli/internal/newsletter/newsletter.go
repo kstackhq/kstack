@@ -13,19 +13,24 @@ import (
 // DefaultURL is a placeholder until the newsletter backend exists.
 const DefaultURL = "https://kstack.sh/api/newsletter"
 
+// timeout bounds a sign-up.
+const timeout = 30 * time.Second
+
 // Client posts sign-ups to URL.
 type Client struct {
 	URL  string
 	HTTP *http.Client
 }
 
-// New returns a client for DefaultURL.
-func New() Client {
-	return Client{URL: DefaultURL, HTTP: &http.Client{Timeout: 30 * time.Second}}
+// New returns a client for DefaultURL, sending through httpc.
+func New(httpc *http.Client) Client {
+	return Client{URL: DefaultURL, HTTP: httpc}
 }
 
 // Subscribe signs email up. Any status but 2xx is an error.
 func (c Client) Subscribe(ctx context.Context, email string) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	body, _ := json.Marshal(map[string]string{"email": email}) // a map of strings always marshals
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL, bytes.NewReader(body))
 	if err != nil {
