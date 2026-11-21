@@ -73,8 +73,9 @@ type Service struct {
 	project  string
 }
 
-// New is the connector, signed in if app.db and the keyring hold a session. It
-// reaches no network.
+// New is the connector, Restoring until the engine has read the keyring, then
+// signed in if app.db and the keyring hold a session. It reaches no network
+// and makes no keyring call.
 func New(cfg Config) (*Service, error) {
 	engine, err := oauthconn.New(oauthconn.Config{
 		Provider: provider(cfg),

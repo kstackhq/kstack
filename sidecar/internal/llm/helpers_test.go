@@ -253,3 +253,18 @@ func TestWithReplayIDLeavesANonObjectAlone(t *testing.T) {
 
 	assert.Equal(t, payload, withReplayID(payload, "id", "call00003"))
 }
+
+// A Sign ended by its request's context is the request's end, not a credential
+// that is unavailable.
+func TestASignEndedByItsRequestIsNoCredentialError(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1/", nil)
+	require.NoError(t, err)
+
+	_, err = SignedDo(Provider{ID: "p", Signer: newHeldSigner()}, req)
+
+	assert.ErrorIs(t, err, context.Canceled)
+	var e *Error
+	assert.False(t, errors.As(err, &e), "%v", err)
+}

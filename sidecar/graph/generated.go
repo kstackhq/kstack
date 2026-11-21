@@ -81,6 +81,7 @@ type ComplexityRoot struct {
 	AuthState struct {
 		Authenticated func(childComplexity int) int
 		Identity      func(childComplexity int) int
+		Restoring     func(childComplexity int) int
 	}
 
 	BackgroundTask struct {
@@ -1032,6 +1033,7 @@ type AWSConnectionResolver interface {
 	Failure(ctx context.Context, obj *connectors.State) (*connectors.Failure, error)
 }
 type AuthStateResolver interface {
+	Restoring(ctx context.Context, obj *connectors.State) (bool, error)
 	Authenticated(ctx context.Context, obj *connectors.State) (bool, error)
 	Identity(ctx context.Context, obj *connectors.State) (*oauth.Identity, error)
 }
@@ -1258,6 +1260,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.AuthState.Identity(childComplexity), true
+	case "AuthState.restoring":
+		if e.ComplexityRoot.AuthState.Restoring == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AuthState.Restoring(childComplexity), true
 
 	case "BackgroundTask.endedBecause":
 		if e.ComplexityRoot.BackgroundTask.EndedBecause == nil {
@@ -5545,6 +5553,8 @@ func (ec *executionContext) childFields_AWSConnection(ctx context.Context, field
 
 func (ec *executionContext) childFields_AuthState(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
+	case "restoring":
+		return ec.fieldContext_AuthState_restoring(ctx, field)
 	case "authenticated":
 		return ec.fieldContext_AuthState_authenticated(ctx, field)
 	case "identity":
@@ -8706,6 +8716,29 @@ func (ec *executionContext) _AWSConnection_failure(ctx context.Context, field gr
 }
 func (ec *executionContext) fieldContext_AWSConnection_failure(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("AWSConnection", field, true, true, "ConnectorFailure")
+}
+
+func (ec *executionContext) _AuthState_restoring(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AuthState_restoring(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.AuthState().Restoring(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AuthState_restoring(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AuthState", field, true, true, "Boolean")
 }
 
 func (ec *executionContext) _AuthState_authenticated(ctx context.Context, field graphql.CollectedField, obj *connectors.State) (ret graphql.Marshaler) {
@@ -27443,6 +27476,12 @@ func (ec *executionContext) _AuthState(ctx context.Context, sel ast.SelectionSet
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("AuthState")
+		case "restoring":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._AuthState_restoring(ctx, field, obj)
+				})
 		case "authenticated":
 			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
 				true, true,
@@ -34697,12 +34736,14 @@ func (ec *executionContext) marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkst
 
 var (
 	unmarshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase = map[string]connectors.Phase{
+		"Restoring": connectors.Restoring,
 		"SignedOut": connectors.SignedOut,
 		"SigningIn": connectors.SigningIn,
 		"Connected": connectors.Connected,
 		"Failed":    connectors.Failed,
 	}
 	marshalNConnectorPhase2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐPhase = map[connectors.Phase]string{
+		connectors.Restoring: "Restoring",
 		connectors.SignedOut: "SignedOut",
 		connectors.SigningIn: "SigningIn",
 		connectors.Connected: "Connected",
@@ -35725,12 +35766,14 @@ func (ec *executionContext) marshalNProviderCredentialSource2githubᚗcomᚋksta
 
 var (
 	unmarshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐSource = map[string]providercredentials.Source{
+		"Restoring":      providercredentials.SourceRestoring,
 		"None":           providercredentials.SourceNone,
 		"EnvironmentKey": providercredentials.SourceEnvironmentKey,
 		"SavedKey":       providercredentials.SourceSavedKey,
 		"Connector":      providercredentials.SourceConnector,
 	}
 	marshalNProviderCredentialSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐSource = map[providercredentials.Source]string{
+		providercredentials.SourceRestoring:      "Restoring",
 		providercredentials.SourceNone:           "None",
 		providercredentials.SourceEnvironmentKey: "EnvironmentKey",
 		providercredentials.SourceSavedKey:       "SavedKey",

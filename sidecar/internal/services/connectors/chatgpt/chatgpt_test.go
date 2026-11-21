@@ -26,6 +26,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
@@ -36,6 +37,7 @@ func newService(t *testing.T, apiBaseURL string) *Service {
 	s, err := New(Config{DB: appdbtest.Open(t), Keyring: oskeyringtest.New(), Issuer: Issuer, APIBaseURL: apiBaseURL})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
+	testutil.Wait(t, s.Restored(), "the restore")
 	return s
 }
 

@@ -35,6 +35,8 @@ type fakeEngine struct {
 	mu    sync.Mutex
 	calls []string
 	state connectors.State
+	// restored is Restored's channel, closed unless a test holds it.
+	restored chan struct{}
 
 	// feed is Subscribe's channel. Unbuffered, so a publish returns once the
 	// subscriber has taken the state.
@@ -42,8 +44,17 @@ type fakeEngine struct {
 }
 
 func newFakeEngine() *fakeEngine {
-	return &fakeEngine{state: connectors.State{Phase: connectors.SignedOut}, feed: make(chan connectors.State)}
+	e := newRestoringEngine()
+	close(e.restored)
+	return e
 }
+
+// newRestoringEngine is an engine whose restore has not published.
+func newRestoringEngine() *fakeEngine {
+	return &fakeEngine{state: connectors.State{Phase: connectors.SignedOut}, restored: make(chan struct{}), feed: make(chan connectors.State)}
+}
+
+func (f *fakeEngine) Restored() <-chan struct{} { return f.restored }
 
 func (f *fakeEngine) record(call string) {
 	f.mu.Lock()
@@ -125,10 +136,20 @@ func (k *fakeKeyring) Delete(account string) error {
 	return nil
 }
 
-// newTestService is the connector over e and k.
-func newTestService(t *testing.T, e *fakeEngine, k *fakeKeyring) *Service {
+// newTestService is the connector over e and k, its old entry's delete
+// ended.
+func newTestService(t *testing.T, e *fakeEngine, k oskeyring.Keyring) *Service {
+	t.Helper()
+	s := startTestService(t, e, k)
+	testutil.Wait(t, s.oldEntryDone, "the old entry's delete")
+	return s
+}
+
+// startTestService is the connector over e and k, closed when the test ends.
+func startTestService(t *testing.T, e *fakeEngine, k oskeyring.Keyring) *Service {
 	t.Helper()
 	s, err := newService(k, func() (engine, error) { return e, nil })
 	require.NoError(t, err)
+	t.Cleanup(s.Close)
 	return s
 }

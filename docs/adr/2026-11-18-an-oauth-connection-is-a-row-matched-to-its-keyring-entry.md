@@ -5,6 +5,7 @@ scope: sidecar
 status: Accepted
 amended_by:
   - [The Kstack sign-in is a connector on the OAuth engine](2026-11-19-the-kstack-sign-in-is-a-connector-on-the-oauth-engine.md)
+  - [A launch restores keyring credentials in the background](2026-11-20-a-launch-restores-keyring-credentials-in-the-background.md)
 ---
 
 # An OAuth connection is a row in app.db matched to its keyring entry

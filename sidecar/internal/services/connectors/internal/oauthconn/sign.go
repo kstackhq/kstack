@@ -72,14 +72,29 @@ func (s *Service) Refused(r *http.Request) { s.refused(r, anySession) }
 
 // Bind is a binding for the current session alone. With no session, during a
 // sign-in included, it has ended for good: an attempt's generation becomes
-// its session's, so a binding made during one would come alive later.
+// its session's, so a binding made during one would come alive later. While
+// Restoring it is the session the restore publishes, never one connected
+// after.
 func (s *Service) Bind() llm.Signer {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Phase != connectors.Connected {
+	switch s.state.Phase {
+	case connectors.Restoring:
+		return signer.Pending(s.restored, s.ctx.Done(), s.restoredBinding)
+	case connectors.Connected:
+		return sessionBinding{s: s, gen: s.gen}
+	}
+	return signer.Ended{}
+}
+
+// restoredBinding is the binding of the session the restore published.
+func (s *Service) restoredBinding() llm.Signer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.restoredGen == 0 {
 		return signer.Ended{}
 	}
-	return sessionBinding{s: s, gen: s.gen}
+	return sessionBinding{s: s, gen: s.restoredGen}
 }
 
 // sessionBinding signs under one generation, and ends once it has moved.
@@ -103,6 +118,9 @@ func (s *Service) sign(r *http.Request, gen uint64) error {
 	if !signer.Covers(s.base, r.URL) {
 		return errOffResource
 	}
+	if err := s.awaitRestore(r.Context()); err != nil {
+		return err
+	}
 	tok, ref, err := s.accessToken(gen)
 	if ref != nil {
 		// The wait is the caller's to end; the refresh is not.
@@ -118,6 +136,19 @@ func (s *Service) sign(r *http.Request, gen uint64) error {
 	}
 	r.Header.Set("Authorization", "Bearer "+tok)
 	return nil
+}
+
+// awaitRestore waits for the restore to publish. ctx ends the wait with its
+// error, and Close with llm.ErrSignedOut.
+func (s *Service) awaitRestore(ctx context.Context) error {
+	select {
+	case <-s.restored:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.ctx.Done():
+		return llm.ErrSignedOut
+	}
 }
 
 func (s *Service) refused(r *http.Request, gen uint64) {

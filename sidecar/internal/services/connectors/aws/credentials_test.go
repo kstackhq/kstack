@@ -15,12 +15,15 @@
 package aws
 
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
@@ -148,4 +151,41 @@ func TestARotatedTokenIsSavedBeforeCredentialsAreHandedOut(t *testing.T) {
 	var live bool
 	r.signin.set(func(f *fakeSignin) { _, live = f.refreshes[stored.Refresh] })
 	require.True(t, live, "the keyring holds the live refresh token")
+}
+
+// A Retrieve made while Restoring answers the restored session's credentials
+// once the read answers, and ends with its context when the read never does.
+func TestRetrieveWaitsForTheRestore(t *testing.T) {
+	r := newRig(t)
+	connect(t, r.svc)
+	s, release := r.relaunchHeld(oskeyringtest.Get)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := s.Retrieve(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+
+	got := make(chan error, 1)
+	go func() { _, err := s.Retrieve(t.Context()); got <- err }()
+	// A bounded negative wait: a Retrieve that did not wait would answer
+	// ErrSignedOut at once, with no session restored yet.
+	testutil.NoRecv(t, got, 50*time.Millisecond, "a Retrieve before the read answers")
+	release()
+	require.NoError(t, testutil.Recv(t, got, "the credentials"))
+}
+
+// A wait for the restore ends signed out when the service closes with the
+// read still held.
+func TestAWaitEndsWithClose(t *testing.T) {
+	r := newRig(t)
+	s, _ := r.relaunchHeld(oskeyringtest.Get)
+	ended := make(chan error, 1)
+	go func() { _, err := s.Retrieve(t.Context()); ended <- err }()
+	// A bounded negative wait: a Retrieve that did not wait would answer
+	// ErrSignedOut at once, as Close's end of the wait does.
+	testutil.NoRecv(t, ended, 50*time.Millisecond, "a Retrieve before the read answers")
+
+	s.Close()
+
+	require.ErrorIs(t, testutil.Recv(t, ended, "the wait"), ErrSignedOut)
 }

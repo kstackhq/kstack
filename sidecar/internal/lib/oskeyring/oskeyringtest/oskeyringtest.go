@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package oskeyringtest is an in-memory oskeyring.Keyring for tests.
+// Package oskeyringtest is an oskeyring.Keyring for tests: in memory, or
+// wrapping another keyring to record, hold and fail its calls.
 package oskeyringtest
 
 import (
@@ -38,11 +39,16 @@ type Call struct {
 	Account string
 }
 
-// Keyring is the OS keyring in memory; the zero value is empty. A non-nil
-// FailSet or FailDelete is the error every call of its kind answers, changing
-// nothing: set them before sharing it. Gets fail through FailGets and FailGet.
+// Keyring is the OS keyring in memory, the zero value empty, or one Wrap made
+// over another keyring. A non-nil FailSet or FailDelete is the error every call
+// of its kind answers, changing nothing: set them before sharing it. Gets fail
+// through FailGets and FailGet.
 type Keyring struct {
 	FailSet, FailDelete error
+
+	// inner, when set, answers every call in place of entries. It is called
+	// without mu, so a call it holds blocks no other.
+	inner oskeyring.Keyring
 
 	mu      sync.Mutex
 	entries map[string]string
@@ -62,6 +68,10 @@ type hold struct {
 
 // New is an empty keyring.
 func New() *Keyring { return &Keyring{} }
+
+// Wrap is a keyring that records, holds and fails calls as New's does, and
+// passes the rest to inner, which keeps the entries.
+func Wrap(inner oskeyring.Keyring) *Keyring { return &Keyring{inner: inner} }
 
 // Hold makes every call of kinds, or every call with no kind, wait from now
 // until release. Release before the test ends, so no goroutine outlives it.
@@ -112,15 +122,14 @@ func (k *Keyring) enter(kind Kind, account string) {
 
 func (k *Keyring) Get(account string) (string, error) {
 	k.enter(Get, account)
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	if k.failGets > 0 {
-		k.failGets--
-		return "", k.failGetsErr
-	}
-	if err := k.failGet[account]; err != nil {
+	if err := k.getFailure(account); err != nil {
 		return "", err
 	}
+	if k.inner != nil {
+		return k.inner.Get(account)
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
 	v, ok := k.entries[account]
 	if !ok {
 		return "", oskeyring.ErrNoEntry
@@ -128,13 +137,27 @@ func (k *Keyring) Get(account string) (string, error) {
 	return v, nil
 }
 
-func (k *Keyring) Set(account, value string) error {
-	k.enter(Set, account)
+// getFailure is the error a Get of account answers, nil to answer it.
+func (k *Keyring) getFailure(account string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	if k.failGets > 0 {
+		k.failGets--
+		return k.failGetsErr
+	}
+	return k.failGet[account]
+}
+
+func (k *Keyring) Set(account, value string) error {
+	k.enter(Set, account)
 	if k.FailSet != nil {
 		return k.FailSet
 	}
+	if k.inner != nil {
+		return k.inner.Set(account, value)
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
 	if k.entries == nil {
 		k.entries = map[string]string{}
 	}
@@ -144,16 +167,19 @@ func (k *Keyring) Set(account, value string) error {
 
 func (k *Keyring) Delete(account string) error {
 	k.enter(Delete, account)
-	k.mu.Lock()
-	defer k.mu.Unlock()
 	if k.FailDelete != nil {
 		return k.FailDelete
 	}
+	if k.inner != nil {
+		return k.inner.Delete(account)
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
 	delete(k.entries, account)
 	return nil
 }
 
-// Entries is a copy of every entry.
+// Entries is a copy of every entry; none for a keyring Wrap made.
 func (k *Keyring) Entries() map[string]string {
 	k.mu.Lock()
 	defer k.mu.Unlock()

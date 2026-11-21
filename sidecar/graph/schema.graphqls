@@ -974,6 +974,8 @@ type Model {
 
 "Which credential signs a provider's requests. The highest one present does: Connector, then SavedKey, then EnvironmentKey."
 enum ProviderCredentialSource {
+  "The launch has not read the keyring yet, or the provider's connector has not."
+  Restoring
   None
   "The key variable, from the launch or the login shell."
   EnvironmentKey
@@ -2034,8 +2036,10 @@ type Identity {
   name: String!
 }
 
-"Local session state. `authenticated` means a session is stored, not that the server has just validated it. `identity` is display-only and non-null only when authenticated."
+"Local session state. Once `restoring` is false, `authenticated` means a session is stored, not that the server has just validated it. `identity` is display-only and non-null only when authenticated."
 type AuthState {
+  "True until the launch has read the keyring. `authenticated` is false then, and says nothing."
+  restoring: Boolean!
   authenticated: Boolean!
   identity: Identity
 }
@@ -2045,6 +2049,8 @@ type AuthState {
 
 "Where a connector is."
 enum ConnectorPhase {
+  "The launch has not read the keyring yet. Neither signed out nor connected."
+  Restoring
   SignedOut
   "The browser is open on the provider's sign-in."
   SigningIn
@@ -2384,9 +2390,9 @@ type Query {
 
 type Mutation {
   # --- Provider credentials ---
-  "Save a provider's API key in the OS keyring, replacing any saved one. Always true when it does not error. It signs the provider's requests from the next one, unless its connector is connected. The key is not checked against the provider. Never returns the key. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider, for one that takes no key, and for a key that, once trimmed of surrounding whitespace, is under 16 or over 512 bytes or holds a space or anything but printable ASCII; KSTACK_PROVIDER_KEY_NOT_SAVED when the keyring refused, and nothing changed."
+  "Save a provider's API key in the OS keyring, replacing any saved one. Always true when it does not error. It signs the provider's requests from the next one, unless its connector is connected. The key is not checked against the provider. Never returns the key. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider, for one that takes no key, and for a key that, once trimmed of surrounding whitespace, is under 16 or over 512 bytes or holds a space or anything but printable ASCII; KSTACK_PROVIDER_KEY_NOT_SAVED when the keyring refused, and nothing changed. Refused (KSTACK_VALIDATION_ERROR) while the provider is Restoring."
   providerKeySave(providerID: String!, key: String!): Boolean!
-  "Delete a provider's saved key. Always true when it does not error, including when none was saved; an entry a newer Kstack wrote is left in the keyring. KSTACK_PROVIDER_KEY_NOT_DELETED when the keyring refused: the key is out of use, returns after a restart, and calling again retries. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider and for one that takes no key."
+  "Delete a provider's saved key. Always true when it does not error, including when none was saved; an entry a newer Kstack wrote is left in the keyring. KSTACK_PROVIDER_KEY_NOT_DELETED when the keyring refused: the key is out of use, returns after a restart, and calling again retries. Refused (KSTACK_VALIDATION_ERROR) for an unknown provider, for one that takes no key, and while it is Restoring."
   providerKeyDelete(providerID: String!): Boolean!
 
   # --- Cluster ---
@@ -2501,55 +2507,55 @@ type Mutation {
   folderRevoke(id: String!): SandboxFolders!
 
   # --- Cloud account ---
-  "Start the sidecar-owned browser sign-in (OAuth), ending one under way. Returns true once the browser opens, and an error when the sign-in could not start (no issuer, no keyring, no browser); a sign-in while signed in is `KSTACK_VALIDATION_ERROR`. The token exchange completes in the background, with the signed-in state delivered via authStateWatch."
+  "Start the sidecar-owned browser sign-in (OAuth), ending one under way. Returns true once the browser opens, and an error when the sign-in could not start (no issuer, no keyring, no browser); a sign-in while signed in or while Restoring is `KSTACK_VALIDATION_ERROR`. The token exchange completes in the background, with the signed-in state delivered via authStateWatch."
   authLoginStart: Boolean!
 
-  "Sign out: clear local credentials, broadcast signed-out, and revoke the token server-side (best-effort). Errors only when the sign-out could not be recorded and the credential is still stored."
+  "Sign out: clear local credentials, broadcast signed-out, and revoke the token server-side (best-effort). Errors only when the sign-out could not be recorded and the credential is still stored. Refused (KSTACK_VALIDATION_ERROR) while Restoring."
   authLogout: Boolean!
 
   # --- ChatGPT connector ---
-  "Open the browser on OpenAI's sign-in. Returns once it opens; the outcome arrives on chatGPTConnectionWatch. `fresh` forgets the saved registration first. Refused (KSTACK_VALIDATION_ERROR) during an attempt and while connected."
+  "Open the browser on OpenAI's sign-in. Returns once it opens; the outcome arrives on chatGPTConnectionWatch. `fresh` forgets the saved registration first. Refused (KSTACK_VALIDATION_ERROR) while Restoring, during an attempt and while connected."
   chatGPTConnect(fresh: Boolean!): Boolean!
   "End a sign-in under way. Returns true; a no-op otherwise."
   chatGPTConnectCancel: Boolean!
-  "Sign out on this machine, then ask OpenAI to end the session. Returns once this machine is signed out; an unconfirmed revocation arrives on chatGPTConnectionWatch."
+  "Sign out on this machine, then ask OpenAI to end the session. Returns once this machine is signed out; an unconfirmed revocation arrives on chatGPTConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring."
   chatGPTDisconnect: Boolean!
   "Open ChatGPT's usage settings in the browser. The address is the sidecar's constant."
   chatGPTUsageOpen: Boolean!
   # --- OpenRouter connector ---
-  "Open the browser on OpenRouter's sign-in. Returns once the attempt starts or fails; the outcome, a browser that could not open or a keyring that cannot keep the key included, arrives on openRouterConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) during an attempt, while connected, and while a key the keyring would not delete is still there."
+  "Open the browser on OpenRouter's sign-in. Returns once the attempt starts or fails; the outcome, a browser that could not open or a keyring that cannot keep the key included, arrives on openRouterConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring, during an attempt, while connected, and while a key the keyring would not delete is still there."
   openRouterConnect: Boolean!
   "End a sign-in under way. Returns true; a no-op otherwise."
   openRouterConnectCancel: Boolean!
-  "Delete the key on this machine. The key stays live on OpenRouter until the user deletes it there. Errors when the key could not be deleted; the state is then Failed with NotDeleted, and calling again retries. The provider's saved key, then its environment key, signs in its place."
+  "Delete the key on this machine. The key stays live on OpenRouter until the user deletes it there. Errors when the key could not be deleted; the state is then Failed with NotDeleted, and calling again retries. The provider's saved key, then its environment key, signs in its place. Refused (KSTACK_VALIDATION_ERROR) while Restoring."
   openRouterDisconnect: Boolean!
   "Open OpenRouter's key settings in the browser. The address is the sidecar's constant."
   openRouterKeysOpen: Boolean!
 
   # --- AWS connector ---
-  "Open the browser on AWS's sign-in. Returns once the attempt starts or fails; the outcome, a browser that could not open or a keyring that cannot keep the session included, arrives on awsConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) during an attempt, while connected, and while a session the keyring would not delete is still there."
+  "Open the browser on AWS's sign-in. Returns once the attempt starts or fails; the outcome, a browser that could not open or a keyring that cannot keep the session included, arrives on awsConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring, during an attempt, while connected, and while a session the keyring would not delete is still there."
   awsConnect: Boolean!
   "End a sign-in under way. A no-op otherwise."
   awsConnectCancel: Boolean!
-  "Delete the session on this machine. AWS is not asked to revoke it, so its refresh token stays valid at AWS until the session expires. Errors when the keyring would not delete it; the state is then Failed with NotDeleted, and calling again retries."
+  "Delete the session on this machine. AWS is not asked to revoke it, so its refresh token stays valid at AWS until the session expires. Errors when the keyring would not delete it; the state is then Failed with NotDeleted, and calling again retries. Refused (KSTACK_VALIDATION_ERROR) while Restoring."
   awsDisconnect: Boolean!
 
   # --- GitHub connector ---
-  "Ask GitHub for a code, then open the browser on GitHub's page. Returns once the browser opens or the attempt fails; the code and the outcome arrive on gitHubConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) in a build with no GitHub OAuth App, during an attempt, while connected, and while a token the keyring would not delete is still there."
+  "Ask GitHub for a code, then open the browser on GitHub's page. Returns once the browser opens or the attempt fails; the code and the outcome arrive on gitHubConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) in a build with no GitHub OAuth App, while Restoring, during an attempt, while connected, and while a token the keyring would not delete is still there."
   gitHubConnect: Boolean!
   "End the sign-in under way, if any. A token GitHub grants after it is dropped."
   gitHubConnectCancel: Boolean!
-  "Delete the token on this machine. It stays authorized on GitHub until the user revokes Kstack there. Errors when the token could not be deleted; the state is then Failed with NotDeleted, and calling again retries."
+  "Delete the token on this machine. It stays authorized on GitHub until the user revokes Kstack there. Errors when the token could not be deleted; the state is then Failed with NotDeleted, and calling again retries. Refused (KSTACK_VALIDATION_ERROR) while Restoring."
   gitHubDisconnect: Boolean!
   "Open GitHub's authorized OAuth Apps settings in the browser. The address is the sidecar's constant."
   gitHubSettingsOpen: Boolean!
 
   # --- Google connector ---
-  "Open the browser on Google's sign-in. Returns once it opens; the outcome arrives on googleConnectionWatch. `fresh` forgets the saved account first. Refused (KSTACK_VALIDATION_ERROR) in a build with no Google client, during an attempt and while connected."
+  "Open the browser on Google's sign-in. Returns once it opens; the outcome arrives on googleConnectionWatch. `fresh` forgets the saved account first. Refused (KSTACK_VALIDATION_ERROR) in a build with no Google client, while Restoring, during an attempt and while connected."
   googleConnect(fresh: Boolean!): Boolean!
   "End the sign-in under way, if any. Tokens Google grants after it are revoked."
   googleConnectCancel: Boolean!
-  "Sign out on this machine, then ask Google to revoke the grant. Returns once this machine is signed out; an unconfirmed revocation arrives on googleConnectionWatch."
+  "Sign out on this machine, then ask Google to revoke the grant. Returns once this machine is signed out; an unconfirmed revocation arrives on googleConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring."
   googleDisconnect: Boolean!
 }
 

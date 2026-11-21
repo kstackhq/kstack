@@ -350,6 +350,7 @@ mod tests {
                     name: "Ada".into(),
                     ..Identity::default()
                 }),
+                restoring: false,
             })],
             ..FakeGrpc::default()
         };

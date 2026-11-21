@@ -184,6 +184,14 @@ describe('the ChatGPT row', () => {
     expect(within(row()).queryByRole('button', { name: 'Actions for ChatGPT' })).toBeNull();
   });
 
+  it('draws the offer with no action while restoring', () => {
+    state.connectors = [chatgpt({ phase: 'Restoring', registered: true })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('OpenAI models on your ChatGPT plan');
+    expect(within(row()).queryByRole('button')).toBeNull();
+  });
+
   it('waits for the browser while signing in, and cancels on a press', async () => {
     state.connectors = [chatgpt({ phase: 'SigningIn', registered: true })];
     render(<ConnectorsSettings />);
@@ -417,6 +425,14 @@ describe('the OpenRouter row', () => {
     expect(within(row()).getByRole('button', { name: 'Connect' })).toBeEnabled();
   });
 
+  it('draws the offer with no action while restoring', () => {
+    state.connectors = [openRouter({ phase: 'Restoring' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Many providers on one account');
+    expect(within(row()).queryByRole('button')).toBeNull();
+  });
+
   it('waits for the browser while signing in, and cancels on a press', async () => {
     state.connectors = [openRouter({ phase: 'SigningIn' })];
     render(<ConnectorsSettings />);
@@ -587,6 +603,14 @@ describe('the AWS row', () => {
     expect(menuButton()).toBeNull();
   });
 
+  it('draws the offer with no action while restoring', () => {
+    state.connectors = [aws({ phase: 'Restoring' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Cloud resources and Bedrock models');
+    expect(within(row()).queryByRole('button')).toBeNull();
+  });
+
   it('waits for the browser while signing in, and cancels on a press', async () => {
     state.connectors = [aws({ phase: 'SigningIn' })];
     render(<ConnectorsSettings />);
@@ -707,6 +731,14 @@ describe('the GitHub row', () => {
     expect(menuButton()).toBeNull();
     await userEvent.setup().click(within(row()).getByRole('button', { name: 'Connect' }));
     expect(actions.connect).toHaveBeenCalledOnce();
+  });
+
+  it('draws the offer with no action while restoring', () => {
+    state.connectors = [gitHub({ phase: 'Restoring' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent('Repositories for git and gh in the sandbox');
+    expect(within(row()).queryByRole('button')).toBeNull();
   });
 
   it('offers Connect after a failure with no reason, and draws the offer', () => {
@@ -861,6 +893,14 @@ describe('the Google row', () => {
     await userEvent.setup().click(within(row()).getByRole('button', { name: 'Connect' }));
     expect(actions.connect).toHaveBeenCalledWith(false);
     expect(menuButton()).toBeNull();
+  });
+
+  it('draws the offer with no action while restoring', () => {
+    state.connectors = [google({ phase: 'Restoring' })];
+    render(<ConnectorsSettings />);
+
+    expect(row()).toHaveTextContent(offer);
+    expect(within(row()).queryByRole('button')).toBeNull();
   });
 
   it('waits for the browser while signing in, and cancels on a press', async () => {

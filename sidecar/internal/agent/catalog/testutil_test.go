@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 )
@@ -56,6 +57,7 @@ func newCredentials(t *testing.T, c credentials) *providercredentials.Service {
 	})
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
+	testutil.Wait(t, s.Restored(), "the restore")
 	return s
 }
 
@@ -73,6 +75,17 @@ func (sessionConnector) WatchSession() (<-chan uint64, func()) {
 	rx := watch.New[uint64](1).Receiver()
 	return rx.Chan(), rx.Close
 }
+
+func (sessionConnector) Restored() <-chan struct{} { return restored }
+
+func (sessionConnector) RestoredSession() uint64 { return 1 }
+
+// restored is a connector's Restored once its restore has published.
+var restored = func() chan struct{} {
+	c := make(chan struct{})
+	close(c)
+	return c
+}()
 
 // switchConnector is a connector the test connects and disconnects. It signs
 // with its token while it has a session.
@@ -110,6 +123,11 @@ func (*switchConnector) Refused(*http.Request) {}
 
 // Bind is the connector itself: the catalog's reads sign unbound.
 func (c *switchConnector) Bind() llm.Signer { return c }
+
+func (*switchConnector) Restored() <-chan struct{} { return restored }
+
+// RestoredSession is 0: the test connects after the restore.
+func (*switchConnector) RestoredSession() uint64 { return 0 }
 
 func (c *switchConnector) WatchSession() (<-chan uint64, func()) {
 	rx := c.sessions.Receiver()

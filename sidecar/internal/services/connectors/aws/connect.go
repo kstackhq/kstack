@@ -84,6 +84,8 @@ func (s *Service) begin() (*attempt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch s.state.Phase {
+	case connectors.Restoring:
+		return nil, connectors.ErrRestoring
 	case connectors.SigningIn:
 		return nil, connectors.ErrSigningIn
 	case connectors.Connected:

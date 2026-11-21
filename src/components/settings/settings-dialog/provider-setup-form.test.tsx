@@ -84,6 +84,7 @@ describe('ProviderSetupForm', () => {
     ['EnvironmentKey', 'Environment variable'],
     ['Connector', 'OpenRouter connector'],
     ['None', 'Environment variable'],
+    ['Restoring', 'Environment variable'],
   ] as const)('opens on the source that signs, %s', (source, name) => {
     render(
       <ProviderSetupForm

@@ -98,6 +98,8 @@ type Service struct {
 
 	hub *watch.Hub[connectors.State]
 	tx  *watch.Sender[connectors.State]
+	// restored closes once the restore has published.
+	restored chan struct{}
 
 	mu      sync.Mutex
 	gen     uint64
@@ -121,7 +123,8 @@ func withCheckEnded(fn func()) option { return func(s *Service) { s.checkEnded =
 
 func withAttemptEnded(fn func()) option { return func(s *Service) { s.attemptEnded = fn } }
 
-// New builds the service and restores a stored token. It reaches no network.
+// New builds the service, Restoring, and restores a stored token on a
+// goroutine. It reaches no network and makes no keyring call.
 func New(cfg Config) (*Service, error) {
 	return newWithOptions(cfg)
 }
@@ -148,14 +151,19 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 		ctx:            ctx,
 		stop:           stop,
 		hub:            watch.New(connectors.State{}),
+		restored:       make(chan struct{}),
 	}
 	s.tx = s.hub.Sender()
 	for _, opt := range opts {
 		opt(s)
 	}
-	s.publishLocked(s.restore())
+	s.publishLocked(connectors.State{Phase: connectors.Restoring})
+	s.wg.Go(s.restore)
 	return s, nil
 }
+
+// Restored closes once the restore has published what the keyring held.
+func (s *Service) Restored() <-chan struct{} { return s.restored }
 
 // State is the connector's current state.
 func (s *Service) State() connectors.State {
@@ -170,7 +178,8 @@ func (s *Service) Subscribe() (<-chan connectors.State, func()) {
 	return rx.Chan(), rx.Close
 }
 
-// Close ends every goroutine the service started and waits for them.
+// Close ends every goroutine the service started and waits for them, but
+// for a keyring call that never answers, which it leaves behind.
 func (s *Service) Close() {
 	s.stop()
 	s.wg.Wait()

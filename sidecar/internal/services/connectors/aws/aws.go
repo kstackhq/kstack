@@ -94,6 +94,8 @@ type Service struct {
 
 	hub *watch.Hub[connectors.State]
 	tx  *watch.Sender[connectors.State]
+	// restored closes once the restore has published.
+	restored chan struct{}
 
 	// refreshing serializes refreshes: a refresh token is spent once.
 	refreshing sync.Mutex
@@ -163,7 +165,8 @@ func withAttemptTimeout(d time.Duration) option { return func(s *Service) { s.at
 
 func withAttemptEnded(fn func()) option { return func(s *Service) { s.attemptEnded = fn } }
 
-// New builds the service and restores a stored session. It reaches no network.
+// New builds the service, Restoring, and restores a stored session on a
+// goroutine. It reaches no network and makes no keyring call.
 func New(cfg Config) (*Service, error) {
 	return newWithOptions(cfg)
 }
@@ -184,15 +187,20 @@ func newWithOptions(cfg Config, opts ...option) (*Service, error) {
 		ctx:            ctx,
 		stop:           stop,
 		hub:            watch.New(connectors.State{}),
+		restored:       make(chan struct{}),
 	}
 	s.tx = s.hub.Sender()
 	for _, opt := range opts {
 		opt(s)
 	}
 	s.tokens = newTokenClient(signin.String(), s.httpClient, s.now)
-	s.publishLocked(s.restore())
+	s.publishLocked(connectors.State{Phase: connectors.Restoring})
+	s.wg.Go(s.restore)
 	return s, nil
 }
+
+// Restored closes once the restore has published what the keyring held.
+func (s *Service) Restored() <-chan struct{} { return s.restored }
 
 // State is the connector's current state.
 func (s *Service) State() connectors.State {

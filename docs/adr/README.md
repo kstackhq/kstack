@@ -281,3 +281,4 @@ usually just documentation in the wrong place.
 | 2026-11-20 | [Keep a setting with a cluster scope as rows in app.db](2026-11-20-a-setting-with-scopes-is-rows.md) | sidecar | Accepted |
 | 2026-11-20 | [The user's variables reach commands on either side of the sandbox](2026-11-20-the-users-variables-reach-commands-on-either-side-of-the-sandbox.md) | sidecar, webview | Accepted |
 | 2026-11-20 | [Every provider is one row, signed by one service](2026-11-20-every-provider-is-one-row-signed-by-one-service.md) | cross-cutting | Accepted |
+| 2026-11-20 | [A launch restores keyring credentials in the background](2026-11-20-a-launch-restores-keyring-credentials-in-the-background.md) | cross-cutting | Accepted |

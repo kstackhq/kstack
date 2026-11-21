@@ -23,6 +23,9 @@ import "errors"
 type Phase string
 
 const (
+	// Restoring is a launch that has not read the keyring yet: neither signed
+	// out nor connected. Only New enters it, and only the restore leaves it.
+	Restoring Phase = "Restoring"
 	SignedOut Phase = "SignedOut"
 	SigningIn Phase = "SigningIn"
 	Connected Phase = "Connected"
@@ -79,4 +82,6 @@ var (
 	ErrNotDeleted = errors.New("connectors: a key the keyring would not delete is still there")
 	// ErrNoClient is a build that names no OAuth client to sign in under.
 	ErrNoClient = errors.New("connectors: no OAuth client is configured")
+	// ErrRestoring is a change asked for before the launch read the keyring.
+	ErrRestoring = errors.New("connectors: the keyring has not been read yet")
 )

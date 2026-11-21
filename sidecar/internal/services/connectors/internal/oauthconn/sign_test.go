@@ -24,6 +24,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
@@ -331,4 +333,80 @@ func TestNoAPIBaseSignsNothing(t *testing.T) {
 		assert.ErrorIs(t, r.svc.Sign(req), errOffResource, raw)
 		assert.Empty(t, req.Header.Get("Authorization"), raw)
 	}
+}
+
+// A Sign made while Restoring carries the restored session's token once the
+// read answers, and ends with its context when the read never does. A
+// request off the resource is refused at once.
+func TestSignWaitsForTheRestore(t *testing.T) {
+	r := newRig(t)
+	connect(t, r.svc)
+	s, release := r.relaunchHeld(oskeyringtest.Get)
+
+	off, err := http.NewRequest(http.MethodGet, "https://elsewhere.test/v1", nil)
+	require.NoError(t, err)
+	assert.ErrorIs(t, s.Sign(off), errOffResource)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	assert.ErrorIs(t, s.Sign(apiRequest(t, "/responses").WithContext(ctx)), context.Canceled)
+
+	signed := make(chan error, 1)
+	go func() { _, err := signedToken(t, s); signed <- err }()
+	release()
+	assert.NoError(t, testutil.Recv(t, signed, "the signature"))
+}
+
+// A wait for the restore ends signed out when the service closes with the
+// read still held, bound or not.
+func TestAWaitEndsWithClose(t *testing.T) {
+	r := newRig(t)
+	connect(t, r.svc)
+	s, _ := r.relaunchHeld(oskeyringtest.Get)
+	bound := s.Bind()
+	ended := make(chan error, 2)
+	go func() { _, err := signedToken(t, s); ended <- err }()
+	go func() { _, err := signedToken(t, bound); ended <- err }()
+
+	s.Close()
+
+	assert.ErrorIs(t, testutil.Recv(t, ended, "the unbound wait"), llm.ErrSignedOut)
+	assert.ErrorIs(t, testutil.Recv(t, ended, "the bound wait"), llm.ErrSignedOut)
+}
+
+// A binding made while Restoring signs for the session the restore published,
+// and never comes alive under one connected later. RestoredSession stays the
+// restore's.
+func TestABindingMadeWhileRestoringIsTheRestoredSessions(t *testing.T) {
+	t.Run("restored connected", func(t *testing.T) {
+		r := newRig(t)
+		connect(t, r.svc)
+		s, release := r.relaunchHeld(oskeyringtest.Get)
+		bound := s.Bind()
+		release()
+		awaitRestored(t, s)
+
+		_, err := signedToken(t, bound)
+		require.NoError(t, err)
+		restored := s.RestoredSession()
+		assert.NotZero(t, restored)
+
+		require.NoError(t, s.Disconnect(t.Context()))
+		connect(t, s)
+		_, err = signedToken(t, bound)
+		assert.ErrorIs(t, err, llm.ErrSignedOut)
+		assert.Equal(t, restored, s.RestoredSession())
+	})
+	t.Run("restored signed out", func(t *testing.T) {
+		r := newRig(t)
+		s, release := r.relaunchHeld(oskeyringtest.Get)
+		bound := s.Bind()
+		release()
+		awaitRestored(t, s)
+		connect(t, s)
+
+		_, err := signedToken(t, bound)
+		assert.ErrorIs(t, err, llm.ErrSignedOut)
+		assert.Zero(t, s.RestoredSession())
+	})
 }

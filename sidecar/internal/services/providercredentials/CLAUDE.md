@@ -12,9 +12,16 @@ It is not a connector: nothing signs in.
   and `Delete` are `ErrNoKey`. Its connector alone signs it.
 - **One entry per provider in the OS keyring**: account `<id>-api-key` (`openrouter-saved-api-key`
   for OpenRouter, whose connector owns `openrouter-api-key`), `{"v":1,"key"}`. `account` is the one
-  spelling; `TestTheAccountNames` pins it. `New` restores: a newer `v` is left and marked, so
-  `Delete` leaves it too; an entry that does not parse, or holds a key `Save` would refuse, is
+  spelling; `TestTheAccountNames` pins it. The restore reads as the connectors do: a newer `v` is
+  left and marked, so `Delete` leaves it too; an entry that does not parse, or holds a key `Save` would refuse, is
   deleted; an unreadable keyring writes nothing, and `Delete` still reaches its entry.
+- **A provider is `SourceRestoring` until its own read has answered and its connector has
+  restored**; a keyless provider waits on its connector alone. A follower subscribes to
+  `WatchSession` only after the connector's `Restored()`, and lands on its `RestoredSession()`,
+  `landedGen`, which moves no `keyGen`. Until then `Save` and `Delete` answer `ErrRestoring`,
+  `Sign` waits, and `Bind` is a `signer.Pending` of the session at the bind: the connector's
+  binding says, or `landedGen` while the connector restores. `HasCredential` holds for the
+  environment key alone meanwhile.
 - **Two locks, in this order.** `writes` serializes `Save` and `Delete`, the only lock held across
   a keyring call. `mu` guards every provider and publishes each change, so the gauge never ends on
   an older list. Neither is held across a connector call.

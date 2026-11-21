@@ -16,6 +16,7 @@ package providercredentials
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -43,13 +44,31 @@ type providerSigner struct {
 	p *provider
 }
 
+// Sign waits for the provider to leave Restoring, then signs with the highest
+// credential present.
 func (ps providerSigner) Sign(req *http.Request) error {
+	if err := ps.awaitRestore(req.Context()); err != nil {
+		return err
+	}
 	if c := ps.p.connector; c != nil {
 		if err := c.Sign(req); !errors.Is(err, llm.ErrSignedOut) {
 			return err
 		}
 	}
 	return ps.current().Sign(req)
+}
+
+// awaitRestore waits for the provider to leave Restoring. ctx ends the wait
+// with its error, and Close with llm.ErrSignedOut.
+func (ps providerSigner) awaitRestore(ctx context.Context) error {
+	select {
+	case <-ps.p.restored:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-ps.s.ctx.Done():
+		return llm.ErrSignedOut
+	}
 }
 
 func (ps providerSigner) Refused(req *http.Request) {
@@ -61,8 +80,13 @@ func (ps providerSigner) Refused(req *http.Request) {
 
 // Bind is the connector's binding while it has a session, else one for the
 // current key alone, which fails with llm.ErrCredentialChanged once the saved
-// key changes or the connector starts a session.
+// key changes or the connector starts a session. While Restoring nothing signs
+// until both are known: a saved key must not sign and then be replaced by the
+// connector a moment later.
 func (ps providerSigner) Bind() llm.Signer {
+	if ps.s.restoring(ps.p) {
+		return ps.pending()
+	}
 	if c := ps.p.connector; c != nil {
 		if b := c.Bind(); b != llm.Signer(signer.Ended{}) {
 			return b
@@ -73,6 +97,37 @@ func (ps providerSigner) Bind() llm.Signer {
 		return signer.Ended{}
 	}
 	return b
+}
+
+// pending is a binding made while Restoring. It resolves to the connector's
+// binding when the connector had a session at the bind, else to the key's.
+// Once the connector has restored, its binding says which, as in Bind. Before,
+// its binding is a signer.Pending, so the landing says: never the current
+// session, since one started after the bind is not the bind's.
+func (ps providerSigner) pending() llm.Signer {
+	var connector llm.Signer = signer.Ended{}
+	connectorRestored := true
+	if c := ps.p.connector; c != nil {
+		select {
+		case <-c.Restored():
+		default:
+			connectorRestored = false
+		}
+		connector = c.Bind()
+	}
+	key := ps.current()
+	return signer.Pending(ps.p.restored, ps.s.ctx.Done(), func() llm.Signer {
+		ps.s.mu.Lock()
+		defer ps.s.mu.Unlock()
+		hasSession := connector != llm.Signer(signer.Ended{})
+		if !connectorRestored {
+			hasSession = ps.p.landedGen != 0
+		}
+		if hasSession {
+			return connector
+		}
+		return key
+	})
 }
 
 // current is a binding of the provider's key as it is now.
