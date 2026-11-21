@@ -184,12 +184,17 @@ describe('the ChatGPT row', () => {
     expect(within(row()).queryByRole('button', { name: 'Actions for ChatGPT' })).toBeNull();
   });
 
-  it('draws the offer with no action while restoring', () => {
+  it('checks the keychain with no action while restoring, then draws its usual row', () => {
     state.connectors = [chatgpt({ phase: 'Restoring', registered: true })];
-    render(<ConnectorsSettings />);
+    const { rerender } = render(<ConnectorsSettings />);
 
-    expect(row()).toHaveTextContent('OpenAI models on your ChatGPT plan');
+    expect(row()).toHaveTextContent('Checking your keychain…');
     expect(within(row()).queryByRole('button')).toBeNull();
+
+    state.connectors = [chatgpt({ phase: 'SignedOut' })];
+    rerender(<ConnectorsSettings />);
+    expect(row()).toHaveTextContent('OpenAI models on your ChatGPT plan');
+    expect(within(row()).getByRole('button', { name: 'Continue with ChatGPT' })).toBeEnabled();
   });
 
   it('waits for the browser while signing in, and cancels on a press', async () => {
@@ -425,12 +430,17 @@ describe('the OpenRouter row', () => {
     expect(within(row()).getByRole('button', { name: 'Connect' })).toBeEnabled();
   });
 
-  it('draws the offer with no action while restoring', () => {
+  it('checks the keychain with no action while restoring, then draws its usual row', () => {
     state.connectors = [openRouter({ phase: 'Restoring' })];
-    render(<ConnectorsSettings />);
+    const { rerender } = render(<ConnectorsSettings />);
 
-    expect(row()).toHaveTextContent('Many providers on one account');
+    expect(row()).toHaveTextContent('Checking your keychain…');
     expect(within(row()).queryByRole('button')).toBeNull();
+
+    state.connectors = [openRouter({ phase: 'SignedOut' })];
+    rerender(<ConnectorsSettings />);
+    expect(row()).toHaveTextContent('Many providers on one account');
+    expect(within(row()).getByRole('button', { name: 'Connect' })).toBeEnabled();
   });
 
   it('waits for the browser while signing in, and cancels on a press', async () => {
@@ -603,12 +613,17 @@ describe('the AWS row', () => {
     expect(menuButton()).toBeNull();
   });
 
-  it('draws the offer with no action while restoring', () => {
+  it('checks the keychain with no action while restoring, then draws its usual row', () => {
     state.connectors = [aws({ phase: 'Restoring' })];
-    render(<ConnectorsSettings />);
+    const { rerender } = render(<ConnectorsSettings />);
 
-    expect(row()).toHaveTextContent('Cloud resources and Bedrock models');
+    expect(row()).toHaveTextContent('Checking your keychain…');
     expect(within(row()).queryByRole('button')).toBeNull();
+
+    state.connectors = [aws({ phase: 'SignedOut' })];
+    rerender(<ConnectorsSettings />);
+    expect(row()).toHaveTextContent('Cloud resources and Bedrock models');
+    expect(within(row()).getByRole('button', { name: 'Connect' })).toBeEnabled();
   });
 
   it('waits for the browser while signing in, and cancels on a press', async () => {
@@ -733,12 +748,17 @@ describe('the GitHub row', () => {
     expect(actions.connect).toHaveBeenCalledOnce();
   });
 
-  it('draws the offer with no action while restoring', () => {
+  it('checks the keychain with no action while restoring, then draws its usual row', () => {
     state.connectors = [gitHub({ phase: 'Restoring' })];
-    render(<ConnectorsSettings />);
+    const { rerender } = render(<ConnectorsSettings />);
 
-    expect(row()).toHaveTextContent('Repositories for git and gh in the sandbox');
+    expect(row()).toHaveTextContent('Checking your keychain…');
     expect(within(row()).queryByRole('button')).toBeNull();
+
+    state.connectors = [gitHub({ phase: 'SignedOut' })];
+    rerender(<ConnectorsSettings />);
+    expect(row()).toHaveTextContent('Repositories for git and gh in the sandbox');
+    expect(within(row()).getByRole('button', { name: 'Connect' })).toBeEnabled();
   });
 
   it('offers Connect after a failure with no reason, and draws the offer', () => {
@@ -895,12 +915,17 @@ describe('the Google row', () => {
     expect(menuButton()).toBeNull();
   });
 
-  it('draws the offer with no action while restoring', () => {
+  it('checks the keychain with no action while restoring, then draws its usual row', () => {
     state.connectors = [google({ phase: 'Restoring' })];
-    render(<ConnectorsSettings />);
+    const { rerender } = render(<ConnectorsSettings />);
 
-    expect(row()).toHaveTextContent(offer);
+    expect(row()).toHaveTextContent('Checking your keychain…');
     expect(within(row()).queryByRole('button')).toBeNull();
+
+    state.connectors = [google({ phase: 'SignedOut' })];
+    rerender(<ConnectorsSettings />);
+    expect(row()).toHaveTextContent(offer);
+    expect(within(row()).getByRole('button', { name: 'Connect' })).toBeEnabled();
   });
 
   it('waits for the browser while signing in, and cancels on a press', async () => {

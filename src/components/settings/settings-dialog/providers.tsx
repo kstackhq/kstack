@@ -211,6 +211,9 @@ function ProviderRow({
   );
 }
 
+/** A credential's line until the launch has read the keyring. */
+export const CHECKING_KEYCHAIN = 'Checking your keychain…';
+
 /** What is wrong with a credential's key, in words; undefined when nothing is. */
 export function keyFailureText({ failure, source, keyVariable }: ProviderCredentialState): ReactNode {
   // A failure is a key's, so a provider that takes none has none.
