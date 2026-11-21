@@ -19,7 +19,10 @@ package awsauth
 import (
 	"context"
 	"crypto/rand"
+	"encoding/pem"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -35,6 +38,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 )
 
 // profile is a service over a config file whose one profile resolves through
@@ -428,5 +432,51 @@ func TestAnSSOProfileWithNoSessionSaysToSignIn(t *testing.T) {
 		_, err := s.Credentials(context.Background())
 		assert.EqualError(t, err, "no AWS login was found for the profile "+profile+
 			"; run `aws sso login --profile "+profile+"` outside the sandbox")
+	}
+}
+
+// The chain's own requests name Kstack in the SDK's User-Agent: here STS's,
+// for a role assumed from a profile's keys, over TLS the profile's CA bundle
+// trusts, so the SDK's own client sends it. The test sets the process's
+// environment, so it does not run in parallel.
+func TestACredentialRequestNamesKstack(t *testing.T) {
+	clearAWSEnv(t)
+	agents := make(chan string, 8)
+	sts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		agents <- r.Header.Get("User-Agent")
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(sts.Close)
+	dir := t.TempDir()
+	ca := filepath.Join(dir, "ca.pem")
+	require.NoError(t, os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: sts.Certificate().Raw}), 0o600))
+	cfg := filepath.Join(dir, "config")
+	require.NoError(t, os.WriteFile(cfg, []byte("[profile keys]\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\n"+
+		"aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n"+
+		"[profile role]\nrole_arn = arn:aws:iam::123456789012:role/r\nsource_profile = keys\n"+
+		"region = eu-west-1\nca_bundle = "+ca+"\nservices = fake\n"+
+		"[services fake]\nsts =\n  endpoint_url = "+sts.URL+"\n"), 0o600))
+	s := newService("role", func(ctx context.Context) (aws.Config, error) {
+		return loadConfig(ctx, "role", config.WithSharedConfigFiles([]string{cfg}),
+			config.WithSharedCredentialsFiles([]string{filepath.Join(dir, "none")}))
+	})
+	t.Cleanup(s.Drop)
+
+	_, err := s.Credentials(context.Background())
+	require.ErrorIs(t, err, ErrNoLogin)
+	ua := testutil.Recv(t, agents, "the STS request")
+	assert.True(t, strings.HasPrefix(ua, "aws-sdk-go-v2/"), ua)
+	assert.Contains(t, strings.Fields(ua), "kstack-desktop/"+version.Version)
+}
+
+// clearAWSEnv unsets every AWS_ variable for the test, so only its own files
+// steer the SDK: an endpoint, CA bundle or key in the environment would win
+// over them. The SDK reads some by presence, so an empty value is not enough.
+func clearAWSEnv(t *testing.T) {
+	for _, kv := range os.Environ() {
+		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "AWS_") {
+			t.Setenv(name, "") // restores the variable when the test ends
+			require.NoError(t, os.Unsetenv(name))
+		}
 	}
 }

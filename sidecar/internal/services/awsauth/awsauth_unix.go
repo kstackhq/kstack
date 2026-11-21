@@ -27,10 +27,13 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/smithy-go/middleware"
 	"golang.org/x/sync/semaphore"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 )
 
 // ErrNoLogin is every failure to resolve a chain, which a NoLoginError
@@ -89,8 +92,24 @@ type Service struct {
 // chain. It reads nothing until asked.
 func New(profile string) *Service {
 	return newService(profile, func(ctx context.Context) (aws.Config, error) {
-		return config.LoadDefaultConfig(ctx, config.WithSharedConfigProfile(profile))
+		return loadConfig(ctx, profile)
 	})
+}
+
+// loadConfig is profile's configuration as New loads it, with a test's files
+// in opts. The chain's own requests, to SSO and STS, carry
+// kstack-desktop/<version> in the SDK's User-Agent. The SDK owns that header,
+// so the token follows the SDK's own, whose os/ and md/GOARCH give the
+// platform: here alone the app's name neither leads nor carries
+// (<GOOS>/<GOARCH>). The SDK's own client sends the requests, keeping its
+// redirect policy, CA bundle and metadata timeouts.
+func loadConfig(ctx context.Context, profile string, opts ...func(*config.LoadOptions) error) (aws.Config, error) {
+	nameKstack := awsmiddleware.AddUserAgentKeyValue(version.Product, version.Version)
+	opts = append(opts,
+		config.WithSharedConfigProfile(profile),
+		config.WithAPIOptions([]func(*middleware.Stack) error{nameKstack}),
+	)
+	return config.LoadDefaultConfig(ctx, opts...)
 }
 
 // newService is profile's login over load, a test's own configuration.
