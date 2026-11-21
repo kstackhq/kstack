@@ -18,7 +18,7 @@
 //! the app keeps needs it, and a second copy of the join is what silently drops
 //! the `-dev` split.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use tauri::{AppHandle, Manager, Runtime};
 
@@ -47,17 +47,50 @@ pub struct Roots {
 impl Roots {
     pub fn of<R: Runtime>(app: &AppHandle<R>) -> Result<Self> {
         let path = app.path();
+        Self::new(
+            path.config_dir().ok(),
+            resolved(path.local_data_dir(), "local_data_dir")?,
+            resolved(path.cache_dir(), "cache_dir")?,
+            resolved(path.home_dir(), "home_dir")?,
+        )
+    }
+
+    /// The roots, each refused when it holds `..` ([`plain_root`]). A refused
+    /// config root fails the launch like the others: the sidecar fences the
+    /// config directory by its path, so one it is not given is unfenced. The
+    /// home is taken as given: only macOS's log directory reads it.
+    pub(crate) fn new(
+        config: Option<PathBuf>,
+        local_data: PathBuf,
+        cache: PathBuf,
+        home: PathBuf,
+    ) -> Result<Self> {
         Ok(Self {
-            config: path.config_dir().ok(),
-            local_data: resolved(path.local_data_dir(), "local_data_dir")?,
-            cache: resolved(path.cache_dir(), "cache_dir")?,
-            home: resolved(path.home_dir(), "home_dir")?,
+            config: config.map(plain_root).transpose()?,
+            local_data: plain_root(local_data)?,
+            cache: plain_root(cache)?,
+            home,
         })
     }
 }
 
 fn resolved(dir: tauri::Result<PathBuf>, name: &str) -> Result<PathBuf> {
     dir.map_err(|e| AppError::Io(std::io::Error::other(format!("resolve {name}: {e}"))))
+}
+
+/// `dir`, refused when it holds `..`. On Unix a `..` after a link names the
+/// link target's parent, while the sidecar and `make clean-data` take it out
+/// by name, so the host's files and their fences could be different folders.
+/// The check reads the path alone, so it answers the same at every call.
+/// Windows reads `..` by name itself.
+fn plain_root(dir: PathBuf) -> Result<PathBuf> {
+    if cfg!(unix) && dir.components().any(|c| c == Component::ParentDir) {
+        return Err(AppError::Io(std::io::Error::other(format!(
+            "{} holds `..`; set it without one",
+            dir.display()
+        ))));
+    }
+    Ok(dir)
 }
 
 /// The app's per-machine data directory, created owner-only.
@@ -82,13 +115,28 @@ pub fn app_config_dir(roots: &Roots) -> Result<PathBuf> {
 
 /// Creates the config directory owner-only, and tightens an existing one
 /// unless it is a link. A dotfiles manager links `~/.config/<app>` into a
-/// repository, whose mode is the user's to keep.
+/// repository, whose mode is the user's to keep. One already owner-only is
+/// left untouched, so a read-only mount still yields its `host.json`.
 pub fn ensure_config_dir(path: &Path) -> Result<()> {
-    let linked = std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink());
-    if linked {
+    let keep = std::fs::symlink_metadata(path)
+        .is_ok_and(|meta| meta.file_type().is_symlink() || is_owner_only_dir(&meta));
+    if keep {
         return Ok(());
     }
     ensure_data_dir(path)
+}
+
+#[cfg(unix)]
+fn is_owner_only_dir(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    meta.is_dir() && meta.permissions().mode() & 0o777 == 0o700
+}
+
+/// Windows has no mode bits: the profile's ACL is the gate.
+#[cfg(not(unix))]
+fn is_owner_only_dir(_meta: &std::fs::Metadata) -> bool {
+    false
 }
 
 /// Where the config directory sits, whether or not it could be made: the
@@ -155,23 +203,27 @@ pub fn app_cache_dir(roots: &Roots, data_dir: &Path) -> Result<PathBuf> {
 /// have no separate log location — XDG defines none that Tauri uses, and
 /// Windows has none at all — so there it is a leaf on the data directory,
 /// which is what `app_log_dir` resolves to on both as well.
-fn log_dir_for(home: &Path, data_dir: &Path) -> PathBuf {
+fn log_dir_for(home: &Path, data_dir: &Path) -> Result<PathBuf> {
     if cfg!(target_os = "macos") {
-        home.join("Library/Logs").join(APP_DIR_NAME)
+        Ok(plain_root(home.to_path_buf())?
+            .join("Library/Logs")
+            .join(APP_DIR_NAME))
     } else {
-        data_dir.join("logs")
+        Ok(data_dir.join("logs"))
     }
 }
 
 /// Creates the log directory owner-only. Split from [`log_dir`] so the mode is
 /// testable without an `AppHandle`.
 fn ensure_log_dir(home: &Path, data_dir: &Path) -> Result<PathBuf> {
-    let dir = log_dir_for(home, data_dir);
+    let dir = log_dir_for(home, data_dir)?;
     ensure_data_dir(&dir)?;
     Ok(dir)
 }
 
-/// The app's log directory, created owner-only.
+/// The app's log directory, created owner-only. `app.rs` asks once and hands
+/// the answer to both the host's log and the sidecar's, so the sidecar fences
+/// the directory the host writes in.
 ///
 /// Not Tauri's `app_log_dir`: it names the leaf by bundle id rather than the
 /// display name everything else here uses, and it has no debug variant, so a
@@ -199,7 +251,7 @@ pub fn runtime_dir(_data_dir: &Path) -> Result<PathBuf> {
     let xdg = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .filter(|p| p.is_dir());
-    let dir = runtime_dir_path(xdg.as_deref(), uid);
+    let dir = runtime_dir_path(xdg.as_deref(), uid)?;
     if xdg.is_none() {
         return private_dir_or_fresh(&dir, uid);
     }
@@ -326,11 +378,11 @@ fn runtime_dir_for(data_dir: &Path) -> PathBuf {
 /// one directory for all of them means the first user to run owns it `0700` and
 /// every later user's chmod fails with EPERM.
 #[cfg(unix)]
-fn runtime_dir_path(xdg: Option<&Path>, uid: u32) -> PathBuf {
-    match xdg {
-        Some(base) => base.join(RUNTIME_DIR_NAME),
-        None => std::env::temp_dir().join(format!("{RUNTIME_DIR_NAME}-{uid}")),
-    }
+fn runtime_dir_path(xdg: Option<&Path>, uid: u32) -> Result<PathBuf> {
+    Ok(match xdg {
+        Some(base) => plain_root(base.to_path_buf())?.join(RUNTIME_DIR_NAME),
+        None => plain_root(std::env::temp_dir())?.join(format!("{RUNTIME_DIR_NAME}-{uid}")),
+    })
 }
 
 /// Leaf for [`runtime_dir`]. A `-dev` sibling like [`APP_DIR_NAME`], so a dev
@@ -487,7 +539,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn log_dir_is_under_library_logs() {
-        let dir = log_dir_for(Path::new("/Users/x"), Path::new("/Users/x/unused"));
+        let dir = log_dir_for(Path::new("/Users/x"), Path::new("/Users/x/unused")).unwrap();
         assert_eq!(dir, Path::new("/Users/x/Library/Logs").join(APP_DIR_NAME));
     }
 
@@ -498,7 +550,8 @@ mod tests {
         let dir = log_dir_for(
             Path::new("/home/x"),
             Path::new("/home/x/.local/share/Kstack"),
-        );
+        )
+        .unwrap();
         assert_eq!(dir, Path::new("/home/x/.local/share/Kstack/logs"));
     }
 
@@ -521,14 +574,14 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn runtime_dir_path_is_per_user_outside_xdg() {
-        let mine = runtime_dir_path(None, 1000);
-        let theirs = runtime_dir_path(None, 1001);
+        let mine = runtime_dir_path(None, 1000).unwrap();
+        let theirs = runtime_dir_path(None, 1001).unwrap();
         assert_ne!(mine, theirs);
 
         // $XDG_RUNTIME_DIR is already per-user, so the uid stays out of the name.
         let xdg = Path::new("/run/user/1000");
         assert_eq!(
-            runtime_dir_path(Some(xdg), 1000),
+            runtime_dir_path(Some(xdg), 1000).unwrap(),
             xdg.join(RUNTIME_DIR_NAME)
         );
     }
@@ -707,6 +760,122 @@ mod tests {
         assert!(roots.home.is_absolute());
     }
 
+    /// A `..` is refused whatever is on disk: a link before it would make the
+    /// folder the filesystem opens differ from the one the sidecar fences.
+    #[cfg(unix)]
+    #[test]
+    fn a_root_holding_dotdot_is_refused() {
+        let err = plain_root(PathBuf::from("/home/x/link/../conf")).unwrap_err();
+        assert!(err.to_string().contains("link/../conf"), "got: {err}");
+        assert!(plain_root(PathBuf::from("../conf")).is_err());
+    }
+
+    /// Windows takes `..` out by name, as the sidecar does.
+    #[cfg(windows)]
+    #[test]
+    fn a_root_holding_dotdot_stands_on_windows() {
+        let root = PathBuf::from(r"C:\Users\x\link\..\conf");
+        assert_eq!(plain_root(root.clone()).unwrap(), root);
+    }
+
+    /// A root with no `..` stands as given, link or missing: the sidecar
+    /// resolves its links itself.
+    #[test]
+    fn a_root_without_dotdot_stands_as_given() {
+        let scratch = crate::testutil::Scratch::new();
+        let missing = scratch.path().join("missing");
+
+        assert_eq!(plain_root(missing.clone()).unwrap(), missing);
+    }
+
+    /// A refused root fails the launch, the config root included, since a
+    /// config directory the sidecar is not given is not fenced. The home is
+    /// not read on the way.
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_root_fails_the_launch() {
+        let scratch = crate::testutil::Scratch::new();
+        let fine = crate::testutil::roots(scratch.path());
+        let dotted = scratch.path().join("link/../root");
+        let with = |config: Option<PathBuf>, local_data: PathBuf, home: PathBuf| {
+            Roots::new(config, local_data, fine.cache.clone(), home)
+        };
+
+        assert!(with(
+            Some(dotted.clone()),
+            fine.local_data.clone(),
+            fine.home.clone()
+        )
+        .is_err());
+        assert!(with(fine.config.clone(), dotted.clone(), fine.home.clone()).is_err());
+        assert!(Roots::new(
+            fine.config.clone(),
+            fine.local_data.clone(),
+            dotted.clone(),
+            fine.home.clone()
+        )
+        .is_err());
+        assert!(with(fine.config.clone(), fine.local_data.clone(), dotted).is_ok());
+        assert!(with(None, fine.local_data.clone(), fine.home.clone())
+            .unwrap()
+            .config
+            .is_none());
+    }
+
+    /// Linux and Windows log under the data directory, so a home that would
+    /// be refused stops nothing there.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_refused_home_leaves_the_log_dir_alone() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = Roots {
+            home: scratch.path().join("link/../home"),
+            ..crate::testutil::roots(scratch.path())
+        };
+
+        assert!(log_dir(&roots).is_ok());
+    }
+
+    /// macOS logs under the home, so there a refused home is a log directory
+    /// the host cannot place, which leaves it on stderr.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_refused_home_has_no_log_dir() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = Roots {
+            home: scratch.path().join("link/../home"),
+            ..crate::testutil::roots(scratch.path())
+        };
+
+        assert!(log_dir(&roots).is_err());
+    }
+
+    /// `$XDG_RUNTIME_DIR` is a root the host hands the sidecar too.
+    #[cfg(unix)]
+    #[test]
+    fn a_runtime_root_holding_dotdot_is_refused() {
+        assert!(runtime_dir_path(Some(Path::new("/run/link/../user")), 1000).is_err());
+    }
+
+    /// An owner-only config directory is not chmod-ed again: a setgid bit,
+    /// which a chmod to `0700` would clear, survives.
+    #[cfg(unix)]
+    #[test]
+    fn an_owner_only_config_dir_is_not_chmodded() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = crate::testutil::Scratch::new();
+        let dir = scratch.path().join("config");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o2700)).unwrap();
+        let mode = || std::fs::metadata(&dir).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode(), 0o2700, "the setgid bit must be settable here");
+
+        ensure_config_dir(&dir).unwrap();
+
+        assert_eq!(mode(), 0o2700);
+    }
+
     #[test]
     fn an_unresolvable_root_is_named_in_the_error() {
         let err = resolved(Err(tauri::Error::UnknownPath), "home_dir").unwrap_err();
@@ -725,7 +894,7 @@ mod tests {
         assert_eq!(cache, cache_dir_for(&roots.cache, &data));
         assert!(cache.is_dir());
         let logs = log_dir(&roots).unwrap();
-        assert_eq!(logs, log_dir_for(&roots.home, &data));
+        assert_eq!(logs, log_dir_for(&roots.home, &data).unwrap());
         assert!(logs.is_dir());
         let config = app_config_dir(&roots).unwrap();
         assert_eq!(config, roots.config.unwrap().join(APP_DIR_NAME));

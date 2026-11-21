@@ -19,7 +19,7 @@
 
 use std::ffi::OsString;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tracing::{Event, Level, Metadata, Subscriber};
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
@@ -32,7 +32,7 @@ use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{reload, EnvFilter, Registry};
 
 use crate::log_rotate::RotatingFile;
-use crate::paths::{log_dir, Roots};
+use crate::paths::{self, Roots};
 
 /// Swaps the file layer in once a path is known. Boxed because a
 /// `reload::Layer` implements `Layer<S>` for exactly the `S` it names, and
@@ -249,22 +249,33 @@ where
         .with_writer(writer)
 }
 
-/// Points the process's log at files under the app data directory, returning
+/// The log directory, or `None` when it cannot be placed or made, which
+/// leaves the app on stderr. Asked once per launch: the host's file layer and
+/// the sidecar's `--log-file` both take this answer, so the sidecar fences
+/// the directory the host writes in.
+pub fn log_dir(roots: &Roots) -> Option<PathBuf> {
+    paths::log_dir(roots)
+        .inspect_err(|err| tracing::error!(%err, "no log directory; logging to stderr only"))
+        .ok()
+}
+
+/// Points the process's log at files in `dir`, [`log_dir`]'s answer, returning
 /// the guards that must outlive them.
 ///
 /// Never fails the caller: a desktop app that will not start because it cannot
 /// log is worse than one that logs to stderr alone. Call before anything worth
 /// logging — the sidecar's startup above all.
-pub fn install_file_layer(handle: &ReloadHandle, roots: &Roots) -> Vec<WorkerGuard> {
-    match log_dir(roots)
-        .and_then(|dir| file_layer(&dir))
-        .and_then(|FileLog { layer, guards }| {
-            // Fails only if the subscriber is gone, which cannot happen here —
-            // but it shares the fallback rather than becoming this function's
-            // one panic.
-            handle.reload(Some(layer))?;
-            Ok(guards)
-        }) {
+pub fn install_file_layer(handle: &ReloadHandle, dir: Option<&Path>) -> Vec<WorkerGuard> {
+    let Some(dir) = dir else {
+        return Vec::new();
+    };
+    match file_layer(dir).and_then(|FileLog { layer, guards }| {
+        // Fails only if the subscriber is gone, which cannot happen here —
+        // but it shares the fallback rather than becoming this function's
+        // one panic.
+        handle.reload(Some(layer))?;
+        Ok(guards)
+    }) {
         Ok(guards) => guards,
         Err(err) => {
             tracing::error!(%err, "no log file; logging to stderr only");
@@ -658,7 +669,7 @@ mod tests {
 
         tracing::subscriber::with_default(subscriber, || {
             tracing::info!("before the file");
-            let guards = install_file_layer(&handle, &roots);
+            let guards = install_file_layer(&handle, log_dir(&roots).as_deref());
             tracing::info!("after the file");
             drop(guards);
         });
@@ -681,7 +692,9 @@ mod tests {
         std::fs::write(&logs, "").unwrap();
         let (_, handle) = process_subscriber(std::io::sink, false, EnvFilter::new("info"));
 
-        assert!(install_file_layer(&handle, &roots).is_empty());
+        assert_eq!(log_dir(&roots), None);
+        assert!(install_file_layer(&handle, None).is_empty());
+        assert!(install_file_layer(&handle, Some(&logs)).is_empty());
     }
 
     #[test]

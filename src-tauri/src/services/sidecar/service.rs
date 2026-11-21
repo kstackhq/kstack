@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::ffi::OsString;
+use std::path::Path;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -22,7 +23,7 @@ use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
 use tokio::sync::watch;
 
 use crate::error::{AppError, Result};
-use crate::paths::{app_cache_dir, app_data_dir, config_dir_for, log_dir, runtime_dir, Roots};
+use crate::paths::{app_cache_dir, app_data_dir, config_dir_for, runtime_dir, Roots};
 
 use super::graphql::{FrameSink, GraphqlResponse, QueryClient, SubscriptionClient};
 use super::grpc::{AuthStateStream, GrpcClient};
@@ -91,8 +92,10 @@ impl SidecarService {
     /// Spawns the sidecar; a background task drains its event stream (log
     /// forwarding + termination reporting). `sidecar` makes the command from
     /// its arguments: `app.rs` resolves the bundled binary, a test a stand-in.
+    /// `log_dir` is the directory the host logs in (`logging::log_dir`).
     pub fn spawn(
         roots: &Roots,
+        log_dir: Option<&Path>,
         sidecar: impl FnOnce(Vec<OsString>) -> Result<Command>,
     ) -> Result<Self> {
         // Created up front, owner-only, so the sidecar makes its own beneath them.
@@ -107,16 +110,13 @@ impl SidecarService {
         };
         let endpoint = Endpoint::pick(&dirs.runtime)?;
 
-        // The sidecar keeps its own log beside main.log. Failing to place one
-        // never stops the app: the flag is omitted and its records come back
-        // over the pipes instead.
-        let log_file = match log_dir(roots) {
-            Ok(dir) => Some(dir.join(SIDECAR_LOG_FILE)),
-            Err(e) => {
-                tracing::warn!(err = %e, "no sidecar log file; forwarding its pipes");
-                None
-            }
-        };
+        // The sidecar keeps its own log beside main.log. Without a log
+        // directory the flag is omitted and its records come back over the
+        // pipes instead.
+        let log_file = log_dir.map(|dir| dir.join(SIDECAR_LOG_FILE));
+        if log_file.is_none() {
+            tracing::warn!("no sidecar log file; forwarding its pipes");
+        }
 
         let (mut rx, child) = sidecar(cmd_args(&endpoint, &dirs, log_file.as_deref()))?.spawn()?;
         let pid = child.pid();
@@ -744,7 +744,8 @@ mod tests {
         use tauri_plugin_shell::ShellExt;
 
         let mut handed = Vec::new();
-        let service = SidecarService::spawn(roots, |args| {
+        let logs = crate::logging::log_dir(roots);
+        let service = SidecarService::spawn(roots, logs.as_deref(), |args| {
             handed = args;
             Ok(app.shell().command("sh").args(["-c", script]))
         })
@@ -802,13 +803,36 @@ mod tests {
         let scratch = Scratch::new();
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let roots = roots(scratch.path());
-        let logs = log_dir(&roots).unwrap();
+        let logs = crate::paths::log_dir(&roots).unwrap();
         std::fs::remove_dir(&logs).unwrap();
         std::fs::write(&logs, "").unwrap();
 
         let (service, args) = spawn_script(&app, &roots, "exit 0");
 
         assert!(!args.iter().any(|a| a == "--log-file"), "got: {args:?}");
+        service.kill();
+    }
+
+    /// The sidecar logs in the directory it is handed, the one the host logs
+    /// in, and fences it.
+    #[cfg(unix)]
+    #[test]
+    fn the_sidecar_logs_in_the_directory_it_is_handed() {
+        use tauri_plugin_shell::ShellExt;
+
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let logs = scratch.path().join("the-hosts-logs");
+        let mut handed = Vec::new();
+
+        let service = SidecarService::spawn(&roots(scratch.path()), Some(&logs), |args| {
+            handed = args;
+            Ok(app.shell().command("sh").args(["-c", "exit 0"]))
+        })
+        .unwrap();
+
+        let at = handed.iter().position(|a| a == "--log-file").unwrap();
+        assert_eq!(handed[at + 1], logs.join(SIDECAR_LOG_FILE).into_os_string());
         service.kill();
     }
 

@@ -23,6 +23,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -45,7 +47,11 @@ func main() {
 }
 
 func clean() error {
-	data, cache, err := devDirs()
+	data, err := devDataDir()
+	if err != nil {
+		return err
+	}
+	cache, err := devCacheDir(data)
 	if err != nil {
 		return err
 	}
@@ -71,7 +77,7 @@ func clean() error {
 
 // cleanWindowState deletes the dev app's saved window frame.
 func cleanWindowState() error {
-	data, _, err := devDirs()
+	data, err := devDataDir()
 	if err != nil {
 		return err
 	}
@@ -82,49 +88,58 @@ func cleanWindowState() error {
 	return err
 }
 
-// devDirs mirrors Tauri's local_data_dir and cache_dir, and paths.rs's
-// cache_dir_for.
-func devDirs() (data, cache string, err error) {
-	if runtime.GOOS == "windows" {
+// devDataDir mirrors Tauri's local_data_dir.
+func devDataDir() (string, error) {
+	switch runtime.GOOS {
+	case "windows":
 		local, err := windowsDir("LOCALAPPDATA")
 		if err != nil {
-			return "", "", err
+			return "", err
 		}
-		data = filepath.Join(local, leaf)
-		return data, filepath.Join(data, "cache"), nil
+		return filepath.Join(local, leaf), nil
+	case "darwin":
+		return underHome("Library", "Application Support", leaf)
 	}
-
-	home, err := os.UserHomeDir()
+	dataHome, err := xdg("XDG_DATA_HOME", ".local", "share")
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, "Library", "Application Support", leaf),
-			filepath.Join(home, "Library", "Caches", leaf), nil
+	return filepath.Join(dataHome, leaf), nil
+}
+
+// devCacheDir mirrors Tauri's cache_dir and paths.rs's cache_dir_for.
+func devCacheDir(data string) (string, error) {
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(data, "cache"), nil
+	case "darwin":
+		return underHome("Library", "Caches", leaf)
 	}
-	return filepath.Join(xdg("XDG_DATA_HOME", filepath.Join(home, ".local", "share")), leaf),
-		filepath.Join(xdg("XDG_CACHE_HOME", filepath.Join(home, ".cache")), leaf), nil
+	cacheHome, err := xdg("XDG_CACHE_HOME", ".cache")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cacheHome, leaf), nil
 }
 
 // devConfigDir mirrors Tauri's config_dir and paths.rs's app_config_dir,
 // where host.json lives. On macOS it is the data directory.
 func devConfigDir() (string, error) {
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		roaming, err := windowsDir("APPDATA")
 		if err != nil {
 			return "", err
 		}
 		return filepath.Join(roaming, leaf), nil
+	case "darwin":
+		return underHome("Library", "Application Support", leaf)
 	}
-
-	home, err := os.UserHomeDir()
+	configHome, err := xdg("XDG_CONFIG_HOME", ".config")
 	if err != nil {
 		return "", err
 	}
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, "Library", "Application Support", leaf), nil
-	}
-	return filepath.Join(xdg("XDG_CONFIG_HOME", filepath.Join(home, ".config")), leaf), nil
+	return filepath.Join(configHome, leaf), nil
 }
 
 // windowsDir reads a Windows profile folder from the environment, refusing a
@@ -137,12 +152,36 @@ func windowsDir(name string) (string, error) {
 	return dir, nil
 }
 
-// xdg reads an XDG base directory, which the spec ignores unless absolute.
-func xdg(name, fallback string) string {
-	if dir := os.Getenv(name); filepath.IsAbs(dir) {
-		return dir
+// underHome joins elems onto $HOME, refused when it holds `..` (noDotDot).
+func underHome(elems ...string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
 	}
-	return fallback
+	if err := noDotDot("HOME", home); err != nil {
+		return "", err
+	}
+	return filepath.Join(append([]string{home}, elems...)...), nil
+}
+
+// xdg reads an XDG base directory, which the spec ignores unless absolute,
+// and falls back to elems under $HOME. $HOME is read only for the fallback.
+func xdg(name string, elems ...string) (string, error) {
+	if dir := os.Getenv(name); filepath.IsAbs(dir) {
+		return dir, noDotDot(name, dir)
+	}
+	return underHome(elems...)
+}
+
+// noDotDot refuses a Unix base directory holding `..`, as the app does. Go
+// joins it by name, while the filesystem reads a `..` after a link as the
+// link target's parent, so the two could name different folders. It is
+// checked before any join, which would drop the `..`.
+func noDotDot(name, dir string) error {
+	if slices.Contains(strings.Split(dir, "/"), "..") {
+		return fmt.Errorf("%s is %q, which holds `..`; set it without one", name, dir)
+	}
+	return nil
 }
 
 // refuseWhileRunning fails when a dev sidecar holds the data directory open.
@@ -157,7 +196,11 @@ func refuseWhileRunning(data string) error {
 // directory. A socket a crashed run left behind refuses the dial, so it does
 // not count.
 func refuseWhileListening() error {
-	for _, dir := range runtimeDirs() {
+	dirs, err := runtimeDirs()
+	if err != nil {
+		return err
+	}
+	for _, dir := range dirs {
 		socks, err := filepath.Glob(filepath.Join(dir, "kstack-sidecar-*.sock"))
 		if err != nil {
 			return err
@@ -177,15 +220,24 @@ func refuseWhileListening() error {
 // runtimeDirs mirrors paths.rs's runtime_dir: $XDG_RUNTIME_DIR/kstack-dev,
 // else kstack-dev-<uid> under the temp dir, or a random sibling of it when
 // that name was refused.
-func runtimeDirs() []string {
+func runtimeDirs() ([]string, error) {
 	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		// Before the stat: a link the host resolved through at launch may be
+		// gone, and the temp dir would then be searched instead.
+		if err := noDotDot("XDG_RUNTIME_DIR", dir); err != nil {
+			return nil, err
+		}
 		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			return []string{filepath.Join(dir, "kstack-dev")}
+			return []string{filepath.Join(dir, "kstack-dev")}, nil
 		}
 	}
-	base := filepath.Join(os.TempDir(), fmt.Sprintf("kstack-dev-%d", os.Geteuid()))
+	temp := os.TempDir()
+	if err := noDotDot("TMPDIR", temp); err != nil {
+		return nil, err
+	}
+	base := filepath.Join(temp, fmt.Sprintf("kstack-dev-%d", os.Geteuid()))
 	siblings, _ := filepath.Glob(base + "-??????")
-	return append([]string{base}, siblings...)
+	return append([]string{base}, siblings...), nil
 }
 
 // refuseWhileHeld renames the data directory and back. Windows refuses to

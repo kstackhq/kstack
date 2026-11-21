@@ -58,16 +58,15 @@ type paths struct {
 func pathsOf(cfg Config) paths {
 	data, cache, runtime := cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir
 	kstack := []string{data, cache, runtime}
-	// On macOS the host logs under ~/Library/Logs, outside the three.
-	if cfg.LogDir != "" && !slices.ContainsFunc(kstack, func(dir string) bool { return under(dir, cfg.LogDir) }) {
-		kstack = append(kstack, cfg.LogDir)
-	}
-	// The config directory sits outside the three on Linux and Windows. Only an
-	// exact duplicate (macOS's, the data directory) is dropped: one nested in
-	// another by name can resolve elsewhere through a link, and the fences
-	// resolve each path themselves.
-	if cfg.ConfigDir != "" && !slices.Contains(kstack, cfg.ConfigDir) {
-		kstack = append(kstack, cfg.ConfigDir)
+	// The log directory sits outside the three on macOS, and the config
+	// directory on Linux and Windows. Only an exact duplicate (macOS's config
+	// directory, the data directory) is dropped: one nested in another by name
+	// can resolve elsewhere through a link, and the fences resolve each path
+	// themselves.
+	for _, dir := range []string{cfg.LogDir, cfg.ConfigDir} {
+		if dir != "" && !slices.Contains(kstack, dir) {
+			kstack = append(kstack, dir)
+		}
 	}
 	return paths{
 		LockFile:     filepath.Join(data, "sidecar.lock"),
@@ -88,10 +87,4 @@ func pathsOf(cfg Config) paths {
 			DeniedDirs: kstack,
 		},
 	}
-}
-
-// under reports whether path is dir or lies under it, by name.
-func under(dir, path string) bool {
-	rel, err := filepath.Rel(dir, path)
-	return err == nil && (rel == "." || filepath.IsLocal(rel))
 }

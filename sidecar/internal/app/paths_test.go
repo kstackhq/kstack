@@ -52,8 +52,13 @@ func TestTheLogDirectoryIsKstacks(t *testing.T) {
 	assert.Equal(t, []string{data, cache, runtime, logs}, p.Bash.DeniedDirs,
 		"a log directory outside the three is one of Kstack's directories, which the file tools are fenced out of too")
 
-	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: filepath.Join(data, "logs")})
-	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one inside the data directory adds nothing")
+	nested := filepath.Join(data, "logs")
+	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: nested})
+	assert.Equal(t, []string{data, cache, runtime, nested}, p.Bash.DeniedDirs,
+		"one under the data directory by name is kept, since a link can lead it elsewhere")
+
+	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: data})
+	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one that is the data directory adds nothing")
 }
 
 func TestTheConfigDirectoryIsKstacks(t *testing.T) {

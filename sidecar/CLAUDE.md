@@ -2,8 +2,8 @@
 
 A Go binary the Tauri host starts. It serves GraphQL and a gRPC control channel and owns all
 Kubernetes logic. **No TCP**: it listens on a Unix socket (named pipe on Windows), prints
-`READY unix:<path>`, and exits on `SIGINT`/`SIGTERM` or **stdin EOF**. `--data-dir`, `--cache-dir`
-and `--runtime-dir` are required and absolute; tests pass `t.TempDir()`.
+`READY unix:<path>` and exits on `SIGINT`/`SIGTERM` or **stdin EOF**. `--data-dir`, `--cache-dir`
+and `--runtime-dir` are required and absolute, with no `..` on Unix; tests pass `t.TempDir()`.
 
 **`<data-dir>/app.db` belongs to `internal/appdb`, and the app owns it.** `build`
 (`internal/app/runtime.go`) opens it before any service, under the data directory's lock, and hands the `*appdb.DB` to each service that uses it;

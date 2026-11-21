@@ -16,8 +16,12 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/app"
@@ -51,8 +55,8 @@ type config struct {
 // getenv is the environment those reads see — os.Getenv from main, and a test's
 // own map, so a test never reads a key out of the shell running it.
 //
-// On a bad flag the flag package has already written the problem and the usage
-// to stderr; the caller only needs to exit.
+// On a bad flag the problem is already on stderr, the flag package's or
+// refuseDotDot's; the caller only needs to exit.
 func configFromArgs(args []string, getenv func(string) string) (config, error) {
 	var cfg config
 	fs := flag.NewFlagSet("kstack-sidecar", flag.ContinueOnError)
@@ -89,7 +93,31 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 	readProviders(&cfg, getenv)
 	cfg.App.AddFake = debugBuild
 	applyEnvOverrides(&cfg, getenv)
+	if err := refuseDotDot(cfg); err != nil {
+		fmt.Fprintln(fs.Output(), err)
+		return config{}, err
+	}
 	return cfg, nil
+}
+
+// refuseDotDot refuses a Kstack path holding `..` on Unix. The fences take a
+// `..` out by name, while the filesystem reads one after a link as the link
+// target's parent, so files written there could sit outside the fences. The
+// host refuses such a root before it starts the sidecar. Windows reads `..`
+// by name itself.
+func refuseDotDot(cfg config) error {
+	for _, p := range []struct{ flag, path string }{
+		{"--data-dir", cfg.App.DataDir},
+		{"--cache-dir", cfg.App.CacheDir},
+		{"--runtime-dir", cfg.App.RuntimeDir},
+		{"--config-dir", cfg.App.ConfigDir},
+		{"--log-file", cfg.LogFile},
+	} {
+		if runtime.GOOS != "windows" && slices.Contains(strings.Split(p.path, "/"), "..") {
+			return fmt.Errorf("%s is %q, which holds `..`", p.flag, p.path)
+		}
+	}
+	return nil
 }
 
 // readProviders takes the model-provider keys from the environment in every build —

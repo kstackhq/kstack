@@ -163,6 +163,22 @@ func TestTheLoginShellsPolicyAnswersAlike(t *testing.T) {
 	}, got)
 }
 
+// A Kstack directory nested in another by name, as the log directory sits in
+// the data directory on Linux, is accepted and denied with the one around it.
+func TestANestedKstackPathIsAcceptedAndDenied(t *testing.T) {
+	s := confining(t)
+	base := testutil.GrantableDir(t)
+	kstack := mkdirs(t, base, "data", "cache", "runtime", "data/logs")
+	scratch := mkdirs(t, base, "cache/tmp/1-1")[0]
+	always := AlwaysPolicy{Kstack: kstack, Write: []string{scratch}}
+	files := FilePolicy{Read: []string{"/"}}
+	require.NoError(t, Policy{Files: files, Always: always}.Check())
+
+	got := accessOf(t, s, base, files, always, "data/f", "data/logs/f", "cache/tmp/1-1/f")
+
+	assert.Equal(t, map[string]access{"data/f": none, "data/logs/f": none, "cache/tmp/1-1/f": readWrite}, got)
+}
+
 // A Read on the home reads ~/.zshrc and not ~/.ssh, a denied-always path;
 // and a Read inside ~/.ssh is refused by Check. Step 4D's grants rest on this.
 func TestTheDeniedAlwaysListWinsOverARead(t *testing.T) {

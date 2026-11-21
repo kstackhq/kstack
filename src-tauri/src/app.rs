@@ -274,11 +274,12 @@ pub fn run() {
             // First: everything below is what a user is asked for when the app
             // fails to start, and until this lands it reaches stderr alone.
             let roots = Roots::of(app.handle())?;
-            let log_guards = logging::install_file_layer(&log_reload, &roots);
+            let log_dir = logging::log_dir(&roots);
+            let log_guards = logging::install_file_layer(&log_reload, log_dir.as_deref());
             host_file::manage(app.handle(), &roots);
 
             let state = AppState::new(
-                SidecarService::spawn(&roots, |args| {
+                SidecarService::spawn(&roots, log_dir.as_deref(), |args| {
                     Ok(app.shell().sidecar("kstack-sidecar")?.args(args))
                 })?,
                 log_guards,
