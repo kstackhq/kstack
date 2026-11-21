@@ -49,10 +49,11 @@ type Provider = {
   credential?: ProviderCredentialState;
   /** What a provider with no key lacks until it is set up. */
   missing?: string;
-  configured: boolean;
+  /** Checking until the launch has read the keyring. */
+  status: 'set-up' | 'not-set-up' | 'checking';
 };
 
-type Entry = Omit<Provider, 'configured'>;
+type Entry = Omit<Provider, 'status'>;
 
 // Placeholder: Bedrock, Foundry and Ollama await the LLM rebuild.
 const PROVIDERS: Entry[] = [
@@ -81,15 +82,23 @@ function providersFrom(models: Catalog['models'], credentials: ProviderCredentia
       label: c.label,
       sources: connector ? [...keys, connector] : keys,
       credential: c,
-      configured: c.source !== 'None' && c.source !== 'Restoring',
+      status: statusOf(c.source),
     };
   });
-  const others = PROVIDERS.map((p) => ({ ...p, configured: served.some((s) => s.id === p.id) }));
+  const others = PROVIDERS.map((p): Provider => ({
+    ...p,
+    status: served.some((s) => s.id === p.id) ? 'set-up' : 'not-set-up',
+  }));
   const known = new Set([...gauged, ...others].map((p) => p.id));
   const unknown = served
     .filter((s) => !known.has(s.id))
-    .map(({ id, label }) => ({ id, label, sources: [], configured: true }));
+    .map(({ id, label }): Provider => ({ id, label, sources: [], status: 'set-up' }));
   return [...gauged, ...others, ...unknown].toSorted((a, b) => a.label.localeCompare(b.label));
+}
+
+function statusOf(source: ProviderCredentialState['source']): Provider['status'] {
+  if (source === 'Restoring') return 'checking';
+  return source === 'None' ? 'not-set-up' : 'set-up';
 }
 
 export function ProvidersSettings() {
@@ -134,7 +143,7 @@ function ProviderList({ catalog: { models, loaded }, keys }: { catalog: Catalog;
           onOpenChange={close}
           title={
             <>
-              {target.configured ? 'Configure' : 'Set up'} <VisibleText text={target.label} />
+              {target.status === 'set-up' ? 'Configure' : 'Set up'} <VisibleText text={target.label} />
             </>
           }
         >
@@ -173,21 +182,24 @@ function ProviderRow({
   onConfigure: () => void;
   onRemoveKey: () => void;
 }) {
-  const { label, configured, sources, credential } = provider;
+  const { label, status, sources, credential } = provider;
+  const setUp = status === 'set-up';
   const removable =
     credential !== undefined &&
     credential.keyVariable !== null &&
     (credential.hasSavedKey || credential.failure === 'NotDeleted');
   return (
     <li className="flex items-center gap-3 px-4 py-2.5">
-      {/* Filled when set up, a ring when not: shape as well as color, and the detail says it in words. */}
+      {/* Filled when set up, a ring when not, a dashed ring while checking: shape as well as color,
+          and the detail says it in words. */}
       <span
         aria-hidden
         data-slot="status"
-        data-set-up={configured}
+        data-set-up={status === 'checking' ? undefined : setUp}
         className={cn(
           'size-2 shrink-0 rounded-full',
-          configured ? 'bg-emerald-500' : 'border border-muted-foreground/50',
+          setUp ? 'bg-emerald-500' : 'border border-muted-foreground/50',
+          status === 'checking' && 'border-dashed',
         )}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -198,15 +210,16 @@ function ProviderRow({
           <Detail provider={provider} />
         </span>
       </div>
-      {configured || removable ? (
-        <RowMenu
-          label={label}
-          onConfigure={sources.length > 0 ? onConfigure : undefined}
-          onRemoveKey={removable ? onRemoveKey : undefined}
-        />
-      ) : (
-        <SetUpButton sources={sources} onSetUp={onConfigure} />
-      )}
+      {status !== 'checking' &&
+        (setUp || removable ? (
+          <RowMenu
+            label={label}
+            onConfigure={sources.length > 0 ? onConfigure : undefined}
+            onRemoveKey={removable ? onRemoveKey : undefined}
+          />
+        ) : (
+          <SetUpButton sources={sources} onSetUp={onConfigure} />
+        ))}
     </li>
   );
 }
@@ -237,8 +250,9 @@ export function keyFailureText({ failure, source, keyVariable }: ProviderCredent
   }
 }
 
-function Detail({ provider: { configured, credential, missing } }: { provider: Provider }) {
-  if (!credential) return configured ? 'Configured' : missing;
+function Detail({ provider: { status, credential, missing } }: { provider: Provider }) {
+  if (!credential) return status === 'set-up' ? 'Configured' : missing;
+  if (credential.source === 'Restoring') return CHECKING_KEYCHAIN;
   if (credential.keyVariable === null) {
     return credential.source === 'Connector' ? 'Connected on the Connectors tab' : 'Not connected';
   }
@@ -256,7 +270,6 @@ function Detail({ provider: { configured, credential, missing } }: { provider: P
           Found <code>{keyVariable}</code>
         </>
       );
-    case 'Restoring':
     case 'None':
       return 'No API key found';
   }
