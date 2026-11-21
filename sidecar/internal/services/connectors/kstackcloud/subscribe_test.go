@@ -67,3 +67,21 @@ func TestSubscribeCancelEndsTheStream(t *testing.T) {
 	testutil.WaitClosed(t, states, "the stream to end")
 	require.Equal(t, []string{"Subscribe", "Unsubscribe"}, e.recorded())
 }
+
+// The frame that leaves Restoring for signed out is a change of account, and
+// is sent.
+func TestSubscribeSendsTheEndOfTheRestore(t *testing.T) {
+	t.Parallel()
+	e := newFakeEngine()
+	s := newTestService(t, e, &fakeKeyring{})
+	states, cancel := s.Subscribe()
+	defer cancel()
+
+	restoring := connectors.State{Phase: connectors.Restoring}
+	e.publish(t, restoring)
+	assert.Equal(t, restoring, testutil.Recv(t, states, "the first state"))
+
+	signedOut := connectors.State{Phase: connectors.SignedOut}
+	e.publish(t, signedOut)
+	assert.Equal(t, signedOut, testutil.Recv(t, states, "the end of the restore"))
+}

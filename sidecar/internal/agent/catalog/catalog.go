@@ -70,7 +70,7 @@ func New(cfg Config) Catalog {
 				continue
 			}
 			p.Signer = cfg.Credentials.Signer(p.ID)
-			if st.Source == providercredentials.SourceNone {
+			if !st.HasCredential() {
 				// SyncCatalogs lists it once the provider has a credential.
 				p.Catalog = nil
 			}

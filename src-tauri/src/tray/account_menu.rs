@@ -199,6 +199,7 @@ mod tests {
         let state = AuthState {
             authenticated: false,
             identity: None,
+            restoring: false,
         };
         let snap = account_snapshot_from(&state);
         assert!(!snap.authenticated);
@@ -215,6 +216,7 @@ mod tests {
                 email: "ada@example.com".to_string(),
                 name: "Ada".to_string(),
             }),
+            restoring: false,
         };
         let snap = account_snapshot_from(&state);
         assert!(snap.authenticated);
@@ -231,6 +233,7 @@ mod tests {
                 email: String::new(),
                 name: String::new(),
             }),
+            restoring: false,
         };
         let snap = account_snapshot_from(&state);
         assert!(snap.name.is_none());

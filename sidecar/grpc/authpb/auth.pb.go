@@ -214,6 +214,9 @@ type AuthState struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Authenticated bool                   `protobuf:"varint,1,opt,name=authenticated,proto3" json:"authenticated,omitempty"`
 	Identity      *Identity              `protobuf:"bytes,2,opt,name=identity,proto3" json:"identity,omitempty"` // unset (nil) while signed out
+	// restoring is true until the launch has read the keyring; authenticated is
+	// false then, and says nothing.
+	Restoring     bool `protobuf:"varint,3,opt,name=restoring,proto3" json:"restoring,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -260,6 +263,13 @@ func (x *AuthState) GetIdentity() *Identity {
 		return x.Identity
 	}
 	return nil
+}
+
+func (x *AuthState) GetRestoring() bool {
+	if x != nil {
+		return x.Restoring
+	}
+	return false
 }
 
 type Identity struct {
@@ -332,10 +342,11 @@ const file_auth_proto_rawDesc = "" +
 	"\x12StartLoginResponse\"\x0f\n" +
 	"\rLogoutRequest\"\x10\n" +
 	"\x0eLogoutResponse\"\x17\n" +
-	"\x15AuthStateWatchRequest\"]\n" +
+	"\x15AuthStateWatchRequest\"{\n" +
 	"\tAuthState\x12$\n" +
 	"\rauthenticated\x18\x01 \x01(\bR\rauthenticated\x12*\n" +
-	"\bidentity\x18\x02 \x01(\v2\x0e.auth.IdentityR\bidentity\"M\n" +
+	"\bidentity\x18\x02 \x01(\v2\x0e.auth.IdentityR\bidentity\x12\x1c\n" +
+	"\trestoring\x18\x03 \x01(\bR\trestoring\"M\n" +
 	"\bIdentity\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x12\n" +

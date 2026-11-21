@@ -49,18 +49,44 @@ func encode(key string) string {
 	return string(data)
 }
 
-// restore is id's saved key, "" for none, and whether the entry is a newer
-// Kstack's, which is left for it. One that does not parse, or holds no key Save
-// would take, is deleted. A keyring that cannot be read is no proof there is no
-// key, so nothing is written.
-func (s *Service) restore(id string) (key string, newer bool) {
-	v, err := s.keyring.Get(account(id))
+// restore reads p's entry, deletes one this build cannot use, then lands p's
+// read. A newer version's entry is left and marked, so Delete leaves it too;
+// an unreadable keyring writes nothing. No keyring call runs under a lock,
+// and each ends with s.ctx: a Close during either lands nothing.
+func (s *Service) restore(p *provider) {
+	v, err := oskeyring.Read(s.ctx, s.keyring, account(p.ID), oskeyring.SlowAfter)
+	if s.ctx.Err() != nil {
+		return
+	}
+	key, newer, unusable := readKey(p.ID, v, err)
+	if unusable {
+		err := oskeyring.Delete(s.ctx, s.keyring, account(p.ID))
+		if s.ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			slog.Warn("providercredentials: could not delete an unreadable keyring entry", "provider", p.ID, "err", err)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if key != "" {
+		safe.AddSecret(key)
+	}
+	p.saved, p.newer, p.read = key, newer, true
+	s.landLocked(p)
+}
+
+// readKey is the key a read of id's entry answered, "" for none. newer is an
+// entry a newer Kstack wrote; unusable is one that does not parse, or holds a
+// key Save would refuse.
+func readKey(id, v string, err error) (key string, newer, unusable bool) {
 	if errors.Is(err, oskeyring.ErrNoEntry) {
-		return "", false
+		return "", false, false
 	}
 	if err != nil {
 		slog.Warn("providercredentials: could not read the keyring", "provider", id, "err", err)
-		return "", false
+		return "", false, false
 	}
 	// The stamp is read alone, so a newer shape is recognised before it fails
 	// to decode as this one.
@@ -69,15 +95,11 @@ func (s *Service) restore(id string) (key string, newer bool) {
 	}
 	if json.Unmarshal([]byte(v), &stamp) == nil && stamp.V > entryVersion {
 		slog.Warn("providercredentials: the saved key's entry is a newer Kstack's; leaving it", "provider", id, "v", stamp.V)
-		return "", true
+		return "", true, false
 	}
 	var e entry
 	if json.Unmarshal([]byte(v), &e) != nil || e.V != entryVersion || !isKey(e.Key) {
-		if err := s.keyring.Delete(account(id)); err != nil {
-			slog.Warn("providercredentials: could not delete an unreadable keyring entry", "provider", id, "err", err)
-		}
-		return "", false
+		return "", false, true
 	}
-	safe.AddSecret(e.Key)
-	return e.Key, false
+	return e.Key, false, false
 }

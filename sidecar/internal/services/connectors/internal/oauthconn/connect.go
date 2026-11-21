@@ -50,7 +50,8 @@ type attempt struct {
 // Connect starts a sign-in and returns once the browser opens; the outcome
 // arrives on the state. fresh forgets the saved client and account first,
 // keeping the host id: it is the one way to change accounts. It is refused
-// during an attempt and while connected; every other failure is the state's.
+// while Restoring, during an attempt and while connected; every other failure
+// is the state's.
 func (s *Service) Connect(ctx context.Context, fresh bool) error {
 	_, err := s.Start(ctx, fresh)
 	return err
@@ -88,6 +89,8 @@ func (s *Service) begin(fresh bool) (*attempt, connectors.Failure, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch s.state.Phase {
+	case connectors.Restoring:
+		return nil, "", connectors.ErrRestoring
 	case connectors.SigningIn:
 		return nil, "", connectors.ErrSigningIn
 	case connectors.Connected:

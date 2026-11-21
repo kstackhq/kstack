@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -37,6 +38,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
@@ -138,24 +140,41 @@ type rig struct {
 	t       *testing.T
 	signin  *fakeSignin
 	keyring *fakeKeyring
-	opts    []option
-	svc     *Service
+	// calls is keyring as the service reaches it: recorded, and held on request.
+	calls *oskeyringtest.Keyring
+	opts  []option
+	svc   *Service
 }
 
 func newRig(t *testing.T, opts ...option) *rig {
 	t.Helper()
 	r := &rig{t: t, signin: newFakeSignin(t), keyring: newFakeKeyring(), opts: opts}
+	r.calls = oskeyringtest.Wrap(r.keyring)
 	r.svc = r.build()
 	return r
 }
 
 func (r *rig) build() *Service {
 	r.t.Helper()
+	s := r.start()
+	awaitRestored(r.t, s)
+	return s
+}
+
+// start is build without the wait for the restore.
+func (r *rig) start() *Service {
+	r.t.Helper()
 	opts := append([]option{withBrowser(following), withHTTPClient(r.signin.client())}, r.opts...)
-	s, err := newWithOptions(Config{SigninURL: r.signin.url(), Keyring: r.keyring}, opts...)
+	s, err := newWithOptions(Config{SigninURL: r.signin.url(), Keyring: r.calls}, opts...)
 	require.NoError(r.t, err)
 	r.t.Cleanup(s.Close)
 	return s
+}
+
+// awaitRestored waits for s to publish what the keyring held.
+func awaitRestored(t *testing.T, s *Service) {
+	t.Helper()
+	testutil.Wait(t, s.Restored(), "the restore")
 }
 
 // restart is a new service over the same keyring, as the next launch is.
@@ -166,6 +185,23 @@ func (r *rig) restart() *Service {
 	return r.svc
 }
 
+// relaunchHeld relaunches with the keyring's calls of kinds held until the
+// release it answers, which the test's end calls too.
+func (r *rig) relaunchHeld(kinds ...oskeyringtest.Kind) (*Service, func()) {
+	r.t.Helper()
+	release := r.calls.Hold(kinds...)
+	r.t.Cleanup(release)
+	r.svc.Close()
+	r.svc = r.start()
+	return r.svc, release
+}
+
+// awaitCall waits for the service to make c.
+func (r *rig) awaitCall(c oskeyringtest.Call) {
+	r.t.Helper()
+	require.Eventually(r.t, func() bool { return slices.Contains(r.calls.Calls(), c) }, testutil.Timeout, time.Millisecond, "%v", c)
+}
+
 func (r *rig) storeSession(e entry) {
 	r.t.Helper()
 	require.NoError(r.t, saveEntry(r.keyring, e))
@@ -174,7 +210,7 @@ func (r *rig) storeSession(e entry) {
 // stored is the keyring's entry, and whether the account holds one.
 func (r *rig) stored() (entry, bool) {
 	r.t.Helper()
-	e, found, err := loadEntry(r.keyring)
+	e, found, err := parseEntry(r.keyring.Get(sessionAccount))
 	require.NoError(r.t, err)
 	return e, found
 }

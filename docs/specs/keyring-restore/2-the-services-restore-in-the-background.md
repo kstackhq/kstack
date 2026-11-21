@@ -1,7 +1,7 @@
 ---
 title: The services restore in the background
 scope: sidecar, host, webview
-status: Planned
+status: In progress
 ---
 
 # The services restore in the background
@@ -9,7 +9,8 @@ status: Planned
 **Answers:** [#1094](https://github.com/kstackhq/kstack/issues/1094), step 2 of
 [the sequence](README.md). **Needs:** [step 1](1-the-read-that-waits.md). **Unblocks:** step 3.
 
-Go paths below are under `sidecar/internal/` unless they say otherwise.
+Go paths below are under `sidecar/internal/` unless they say otherwise. `graph/`, `grpc/` and
+`gqlgen.yml` are under `sidecar/`.
 
 ## In short
 
@@ -81,7 +82,9 @@ refused until then (below), so no `Connect` can write the entry the delete is ab
 phase and not a generation.
 
 **`Restored() <-chan struct{}`** is closed once the restore has published. It is what
-`providerkeys`, `kstackcloud` and the tests wait on.
+`providerkeys`, `kstackcloud` and the tests wait on. A service that waits on another's
+`Restored()` waits on its own `ctx` too: the other's restore may never answer, and `Close` must
+still return.
 
 **`Close`** cancels `ctx` and waits for the service's goroutines. The restore returns as soon as
 `ctx` ends, so `Close` never waits on the keyring: a `Get` that never answers is left behind, and
@@ -91,7 +94,7 @@ ends with the process.
 
 | Call | Answer |
 | --- | --- |
-| `Sign`, `Token`, `Retrieve` | Waits for `restored`, then answers as it does today. The wait ends with the caller's context, and with `s.ctx`, as `llm.ErrSignedOut` or the package's own `ErrSignedOut`. |
+| `Sign`, `Token`, `Retrieve` | Waits for `restored`, then answers as it does today. The caller's context ends the wait with its error; `s.ctx` ends it with `llm.ErrSignedOut`, or the package's own `ErrSignedOut`. |
 | `Bind` | A `signer.Pending` (below), which ends the same two ways. |
 | `Refused` | Nothing. |
 | `Connect`, `Start`, `Disconnect`, `Save`, `Delete` | `ErrRestoring`. No keyring call is made. |
@@ -135,10 +138,8 @@ connectors, the engine does not leave a newer entry: a session needs the row and
 agree, and it cannot tell that they do. This spec keeps that. If the delete is cancelled, or the
 row's write fails, the next launch finds the same mismatch and finishes it.
 
-`KeyringAnswered() bool` says, once `Restored()` is closed, whether the read answered: a value or
-no entry. `sign` waits after its `signer.Covers` check, so an off-resource request is still
-refused at once. `chatgpt`
-and `google` embed the engine and do not change.
+`sign` waits after its `signer.Covers` check, so an off-resource request is still refused at
+once. `chatgpt` and `google` embed the engine and do not change.
 
 **`openrouter`, `github`, `aws`.** Each `restore()` splits the same way. `github.Token(ctx)` and
 `aws.Retrieve(ctx)` wait under `ctx`; `Tokens(fallback).Token` then falls back to `gh` only when
@@ -150,10 +151,11 @@ which `providerkeys` takes into its own (§4).
 - `Service` gains a context, its cancel and a `WaitGroup`, as the other connectors have; `Close`
   cancels, waits, then closes the engine.
 - `New` no longer deletes `auth-token`. A goroutine of the service's waits for the engine's
-  `Restored()`, then runs `oskeyring.Delete(ctx, k, oldAccount)` **only if the engine's
-  `KeyringAnswered()`**. After a dismissed prompt or an unreadable keyring it deletes nothing: a
+  `Restored()` or its own `ctx`, then runs `oskeyring.Delete(ctx, k, oldAccount)` **only if
+  `oskeyring.Opened(k)` answers nil**. The engine's read has passed the gate by then, so `Opened`
+  answers at once. After a dismissed prompt or an unreadable keyring it deletes nothing: a
   `Delete` passes a failed gate, and would raise the prompt again. The next launch tries, as a
-  failed delete does today. The `engine` interface gains `Restored()` and `KeyringAnswered()`.
+  failed delete does today. The `engine` interface gains `Restored()`.
 - `Subscribe` sends only a change of account, and `account` gains `restoring`, so the frame that
   leaves `Restoring` for signed out is sent.
 - `Connect` answers the engine's `ErrRestoring`.
@@ -163,12 +165,20 @@ which `providerkeys` takes into its own (§4).
 **A provider is `Restoring` until its own read has answered and its connector's restore has
 landed.** One read per provider runs on the service's `wg`, all started together by `New`.
 
-- `Connector` gains `Restored() <-chan struct{}`. A connector publishes its session on
-  `WatchSession` before it closes `restored`.
+- `Connector` gains `Restored() <-chan struct{}` and `RestoredSession() uint64`, the session
+  its restore published, 0 for none, which never changes after `Restored()` closes. A connector
+  publishes its session on `WatchSession` before it closes `restored`. Its doc's rule for `Bind` becomes: `signer.Ended{}`
+  whenever it has no session and is not `Restoring`, and nothing else then; a `Pending` while
+  `Restoring`.
 - `New` no longer receives from `WatchSession`. Each follower waits for the connector's
-  `Restored()`, then takes the current generation off `gens`, and under `mu` sets `connectorGen`
-  and marks the connector landed. **This first value does not move `keyGen`**; every later one
-  moves it as today.
+  `Restored()` or the service's `ctx`, and **only then subscribes to `WatchSession`**. A receiver
+  made before the restore published can deliver the `Restoring` `0` after it, since `Chan`'s
+  feeder may already hold that value; one made after delivers the current session first, which a
+  `Disconnect` or `Connect` may already have moved from the restored one. On that first value,
+  under `mu`, the follower records `RestoredSession()` as `landedGen`, marks the connector
+  landed, then applies the value as any later one: **the landing itself does not move
+  `keyGen`**; a session other than the restored one moves it as today. `landedGen` never
+  changes after.
 - A read that answers sets `saved` and `newer` under `mu`. It does not move `keyGen` either: no
   binding under a key exists before the provider has landed.
 - When both have landed the provider's `restored` closes, in the same critical section that
@@ -200,11 +210,15 @@ place of its `Source` check.
 **Signing while `Restoring`.** A saved key must not sign and then be replaced by the connector a
 moment later, so nothing signs until both are known.
 
-- `Bind` takes the connector's binding `cb` (a `Pending`, or `signer.Ended{}` with no connector)
-  and a `keyBinding` of the current `keyGen`, and answers
-  `signer.Pending(p.restored, s.ctx.Done(), resolve)`. `resolve` answers `cb` when the connector landed with a
-  session, else the `keyBinding`, which signs with the saved key, then the environment key, or
-  fails `llm.ErrSignedOut` with neither.
+- `Bind` takes the connector's binding `cb` (`signer.Ended{}` with no connector) and a
+  `keyBinding` of the current `keyGen`, and answers
+  `signer.Pending(p.restored, s.ctx.Done(), resolve)`. `resolve` answers `cb` when the connector
+  had a session at the bind, else the `keyBinding`, which signs with the saved key, then the
+  environment key, or fails `llm.ErrSignedOut` with neither. Once the connector has restored, `cb`
+  says which, as outside `Restoring`; before, `cb` is a `Pending`, and `landedGen` says. It never
+  reads the current `connectorGen`: a session started after the bind is not the bind's, and a
+  binding that resolved to the connector fails after a `Disconnect`, as one made while connected
+  does.
 - The unbound `Sign` waits for `p.restored`, then runs as today. The wait ends with the request's
   context, and with the service's.
 - `Save` and `Delete` answer `ErrRestoring` and make no keyring call.
@@ -275,14 +289,16 @@ type AuthState {
 ### 8. gRPC
 
 `proto/auth.proto`: `AuthState` gains `bool restoring = 3;`, then `make generate-proto`.
-`grpc/auth_server.go`'s `toAuthState` sets it for `connectors.Restoring`.
+`grpc/auth_server.go`'s `toAuthState` sets it for `connectors.Restoring`. `StartLogin` and `Logout`
+answer `connectors.ErrRestoring` as `FailedPrecondition`; every other error stays `Internal`.
 
 ### 9. What the webview and the host need to build
 
 - **Webview.** After `pnpm codegen`, each `switch` over `ConnectorPhase` in
   `settings-dialog/connectors.tsx` and over `ProviderCredentialSource` in
   `settings-dialog/providers.tsx` gains a `Restoring` case that answers what `SignedOut` or `None`
-  answers. Step 3 replaces each.
+  answers. `providersFrom`'s `configured` holds for neither `None` nor `Restoring`. Step 3
+  replaces each.
 - **Host.** `src-tauri` builds `AuthState` literals in its tests; each gains `restoring: false`.
   The tray reads `authenticated` alone, so a restoring account draws as signed out until step 3.
 
@@ -305,9 +321,9 @@ header.
   first so the review reads it before the code: why a deadline on the read was rejected (a short
   one fails the user typing a password, and nothing reads again; a long one stalls as long); why a
   change is refused and a signature waits; why the first call runs alone; why `Close` leaves a read
-  that never answers. It amends *`New` reads both* in
-  [the engine's ADR](../../adr/2026-11-18-an-oauth-connection-is-a-row-matched-to-its-keyring-entry.md),
-  which gets its `amended_by` line.
+  that never answers. It amends the Decision's "ignored and deleted at launch" in
+  [the engine's ADR](../../adr/2026-11-18-an-oauth-connection-is-a-row-matched-to-its-keyring-entry.md):
+  the match is now made by the restore, after the launch. That ADR gets its `amended_by` line.
 - `CLAUDE.md`s: root (a connection gauge's and `providerCredentialsWatch`'s first frame can be
   `Restoring`); `sidecar/` (*Connectors*); `oauthconn`, `openrouter`, `github`, `aws` (*`New`
   reads it* becomes the restore, what waits and what is refused, what `Close` leaves);
@@ -315,18 +331,22 @@ header.
   `HasCredential`, which values leave `keyGen`); `internal/llm` (the idle clock stops while a
   request is signed).
 - `docs/TODO.md`: the `auth-token` line names the goroutine in place of `kstackcloud.New`.
-- `docs/persisted-data.md` is unchanged. A pinning test it names keeps its name.
+- `docs/persisted-data.md`: the `auth-token` row names
+  `TestTheOldEntryIsDeletedOnlyFromAKeyringThatOpened` in place of the two tests it joins.
 
 ## Tasks
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | The ADR; `connectors.Restoring` and `ErrRestoring`; `oauthconn`'s restore, waits and refusals | Planned |
-| 2 | `openrouter`, `github`, `aws`: the same | Planned |
-| 3 | `kstackcloud`: the old entry's delete, `Subscribe`; `proto/auth.proto`, `toAuthState`; the host's literals | Planned |
-| 4 | `providerkeys`: `SourceRestoring`, `HasCredential`, the followers, the pending binding; `catalog.New` | Planned |
-| 5 | `llm`: the guard in the context, `pause` and `resume` around `authorize` | Planned |
-| 6 | GraphQL schema, `gqlgen.yml`, the two error maps, resolver tests; `pnpm codegen`; the webview's cases; `app`'s launch tests | Planned |
+| 1 | The ADR; `connectors.Restoring` and `ErrRestoring`; `oauthconn`'s restore, waits and refusals | Built (#1102) |
+| 2 | `openrouter`, `github`, `aws`: the same | Built (#1102) |
+| 3 | `kstackcloud`: the old entry's delete, `Subscribe`; `proto/auth.proto`, `toAuthState`; the host's literals | Built (#1102) |
+| 4 | `providerkeys`: `SourceRestoring`, `HasCredential`, the followers, the pending binding; `catalog.New` | Built (#1102) |
+| 5 | `llm`: the guard in the context, `pause` and `resume` around `authorize` | Built (#1102) |
+| 6 | GraphQL schema, `gqlgen.yml`, the two error maps, resolver tests; `pnpm codegen`; the webview's cases; `app`'s launch tests | Built (#1102) |
+| 7 | macOS: serialize the restores' reads, only if step 1's manual check finds a dialog per read | Waits on step 1's manual check |
+
+Task 7 is dropped if step 1's manual check finds one dialog.
 
 Verification is `docs/specs/README.md`'s *Verification commands*: `make test-changed` while
 working, `make check-changed` before the pull request, the wire checks, and `make generate-proto`
@@ -354,7 +374,9 @@ Every test uses `oskeyringtest`, waits on `Restored()` or a watch, and never sle
   (`TestAChangeIsRefusedWhileRestoring`, per service).
 - With a saved key and a connector that restores connected, a request made while `Restoring`
   carries the connector's key and never the saved one; with a connector that restores signed out,
-  the saved key (`TestNothingSignsBeforeBothAreKnown` in `providerkeys`).
+  the saved key. A binding made while `Restoring` that resolved to the connector fails
+  `llm.ErrSignedOut` after a `Disconnect`, and never signs with the saved key
+  (`TestNothingSignsBeforeBothAreKnown` in `providerkeys`).
 - A provider with an environment key has `HasCredential()` while `Restoring`, and its models are
   listed before the keyring answers; one with a saved key alone lists them once it does
   (`TestAnEnvironmentKeyListsItsModelsAtOnce` in `app`).
@@ -367,9 +389,9 @@ Every test uses `oskeyringtest`, waits on `Restored()` or a watch, and never sle
   - closed before the release, `Close` returns, nothing is published, and `Restored()` stays open;
     the test releases the delete in its cleanup (`TestCloseLeavesACleanupThatNeverAnswers`).
 - `oauthconn` restores by its table: each of its rows, with an entry of a newer `v` deleted
-  and the row signed out (`TestTheRestoreTable`). With a row it cannot read it stays `Restoring`
-  while the keyring holds the read, then is `SignedOut` with both stores as they were
-  (`TestAnUnreadableRowWaitsForTheKeyring`).
+  and the row signed out (`TestNewRestoresWhatTheStoresHold`, the name `persisted-data.md` pins).
+  With a row it cannot read it stays `Restoring` while the keyring holds the read, then is
+  `SignedOut` with both stores as they were (`TestAnUnreadableRowWaitsForTheKeyring`).
 - **One bad entry, through a whole launch.** `app.New` over a gated fake with `FailGet` set for one
   connector's account: that connector is `SignedOut`, and every other service restores what
   the keyring holds (`TestABadEntrySignsOutItsOwnServiceAlone` in `app`).
@@ -378,8 +400,16 @@ Every test uses `oskeyringtest`, waits on `Restored()` or a watch, and never sle
   `Restored()` is closed, every connector is `SignedOut`, no keyed provider holds a saved key,
   `Calls()` is that one `Get`, with no `Delete` of `auth-token`. A `providerKeySave` then reaches the keyring, and
   the app closes (`TestADismissedPromptIsAskedOnce` in `app`).
-- With the read answered, `auth-token` is deleted after the restore; with the keyring unreadable
-  it is not (`TestTheOldEntryIsDeletedOnlyFromAKeyringThatAnswered` in `kstackcloud`).
+- Over `oskeyring.Gate` of a fake: with the probe answered, `auth-token` is deleted after the
+  restore; with the probe failed it is not; with the engine's read held, `Close` returns and
+  nothing is deleted (`TestTheOldEntryIsDeletedOnlyFromAKeyringThatOpened` in `kstackcloud`).
+- With the connector's restore held, a `providerkeys` provider stays `Restoring`, and `Close`
+  returns. Released, the provider lands on the connector's restored session, never on the `0`
+  published while `Restoring`: a connector that restores connected gives `SourceConnector`, with
+  `keyGen` unmoved (`TestAFollowerLandsOnTheRestoredSession` in `providerkeys`). A connector that
+  restores connected and disconnects before the follower subscribes still lands it on the restored
+  session: a binding made while `Restoring` fails `llm.ErrSignedOut` and never signs with the
+  saved key (`TestNothingSignsBeforeBothAreKnown`).
 - A binding made while `Restoring`, signing under a context that never ends, answers
   `llm.ErrSignedOut` when the service closes with the read still held; so do an unbound `Sign`,
   `Token` and `Retrieve`, each with its package's error (`TestAWaitEndsWithClose`, per service).
@@ -391,7 +421,8 @@ Every test uses `oskeyringtest`, waits on `Restored()` or a watch, and never sle
 - `kstackcloud`'s `Subscribe` sends the frame that leaves `Restoring`
   (`TestSubscribeSendsTheEndOfTheRestore`).
 - The resolvers map both `ErrRestoring`s to `KSTACK_VALIDATION_ERROR`; `authStateWatch` and the
-  gRPC watch carry `restoring` (`graph/schema.resolvers_test.go`, `grpc/auth_server_test.go`).
+  gRPC watch carry `restoring`; `StartLogin` and `Logout` answer
+  `FailedPrecondition` (`graph/schema.resolvers_test.go`, `grpc/auth_server_test.go`).
 
 `coverage / Gate` is green.
 
@@ -404,9 +435,11 @@ Every test uses `oskeyringtest`, waits on `Restored()` or a watch, and never sle
   of Kstack's signature raises nothing. Whether the probe raises the unlock dialog is step 1's manual check. If it
   does, the reads wait behind it and one dialog is shown. If it does not, the gate opens at once,
   the reads run together, and whether they share one dialog is the same check's to answer. **If it
-  finds several, the one-prompt promise does not hold on macOS**: the README and step 1 are
-  corrected to say so, and serializing macOS's reads becomes a task of this step.
-- **A turn sent at launch waits in `Sign`.** It shows as a turn with no first token yet, and stops
+  finds several, the one-prompt promise does not hold on macOS** until task 7 serializes the reads;
+  the README and step 1 are corrected to say so.
+- **A turn sent at launch on a listed model waits in `Sign`.** A provider with a saved key alone,
+  and ChatGPT and Google, list no model until their restore lands, so a turn on one of theirs is
+  refused as an unknown model until then. It shows as a turn with no first token yet, and stops
   with the user's *Stop*. The idle clock is stopped for it (§6), and nothing else times it.
 - **A dismissed prompt fails every read** (step 1's gate), whenever it arrives. Each service then
   reports an unreadable keyring and makes no keyring call; a turn that was waiting fails signed
@@ -414,8 +447,9 @@ Every test uses `oskeyringtest`, waits on `Restored()` or a watch, and never sle
 - **The first frame is no longer the answer.** A consumer that treated the first frame of a
   connection gauge as signed in or out now sees `Restoring` first. `catalogsync` and the followers
   already take each change in order.
-- **Between this step and step 3 a restoring row offers *Connect*.** The click is refused with
-  `KSTACK_VALIDATION_ERROR`. Both steps are on `wip/keyring-restore` before either reaches `main`.
+- **Between this step and step 3 a restoring row reads as signed out, with no button.** The
+  rows draw their actions for `SignedOut` and `Failed` alone, so a `Restoring` row offers none.
+  The providers pane still offers *Save key*, which answers `KSTACK_VALIDATION_ERROR`. Both steps are on `wip/keyring-restore` before either reaches `main`.
 
 ## When it lands
 

@@ -71,6 +71,7 @@ func scrubChild() int {
 		return 2
 	}
 	defer keys.Close()
+	<-keys.Restored()
 	var ids []string
 	for _, st := range keys.States() {
 		if st.Source == providercredentials.SourceEnvironmentKey {

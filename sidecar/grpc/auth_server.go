@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"errors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -62,7 +63,7 @@ func (s *authServer) StartLogin(ctx context.Context, _ *authpb.StartLoginRequest
 		return nil, status.Error(codes.Unavailable, "no auth service")
 	}
 	if err := s.auth.Connect(ctx); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, authError(err)
 	}
 	return &authpb.StartLoginResponse{}, nil
 }
@@ -74,16 +75,26 @@ func (s *authServer) Logout(ctx context.Context, _ *authpb.LogoutRequest) (*auth
 		return nil, status.Error(codes.Unavailable, "no auth service")
 	}
 	if err := s.auth.Disconnect(ctx); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, authError(err)
 	}
 	return &authpb.LogoutResponse{}, nil
+}
+
+// authError is a failed sign-in or sign-out as a status: a connector that has
+// not read the keyring yet refuses it as FailedPrecondition, and anything else
+// is Internal.
+func authError(err error) error {
+	if errors.Is(err, connectors.ErrRestoring) {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return status.Error(codes.Internal, err.Error())
 }
 
 // toAuthState projects the connector's state to the wire; Identity is set only
 // while signed in.
 func toAuthState(s connectors.State) *authpb.AuthState {
 	if s.Phase != connectors.Connected {
-		return &authpb.AuthState{}
+		return &authpb.AuthState{Restoring: s.Phase == connectors.Restoring}
 	}
 	return &authpb.AuthState{
 		Authenticated: true,

@@ -29,7 +29,8 @@ type fakeAuth struct {
 	mu      sync.Mutex
 	loginAs oauth.Identity
 
-	connectErr error // when set, Connect fails without signing in
+	connectErr    error // when set, Connect fails without signing in
+	disconnectErr error // when set, Disconnect fails without signing out
 
 	hub *watch.Hub[connectors.State]
 	tx  *watch.Sender[connectors.State]
@@ -76,6 +77,9 @@ func (f *fakeAuth) Connect(context.Context) error {
 func (f *fakeAuth) Disconnect(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.disconnectErr != nil {
+		return f.disconnectErr
+	}
 	f.publishLocked(connectors.State{Phase: connectors.SignedOut})
 	return nil
 }

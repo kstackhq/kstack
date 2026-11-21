@@ -7,8 +7,11 @@ provider: it is a granted key, like `openrouter`, and shares `lib/oskeyring` wit
 [security record](../../../../../docs/security/2026-11-19-the-github-connector.md).
 
 - **One store: an entry present is connected.** Account `github-token`, `{"v":1,"token","login"}`.
-  `New` reads it and reaches no network. A newer `v` is left in place; an entry that does not
-  parse is deleted; a keyring that cannot be read writes nothing.
+  The restore reads it and reaches no network. A newer `v` is left in place; an entry that does
+  not parse is deleted; a keyring that cannot be read writes nothing.
+- **`New` is `Restoring` and makes no keyring call**; the restore reads on a goroutine. Until it
+  publishes, `Token` waits (`Tokens` reaches `gh` only once signed out) and every change answers
+  `ErrRestoring`. `Close` leaves a keyring call that never answers behind.
 - **`Connect` is refused with no client id** (`connectors.ErrNoClient`), during an attempt, while connected
   and in `Failed{NotDeleted}`. It checks the keyring, asks for a code, publishes `SigningIn` with
   the `UserCode`, and opens the browser only on a page on `AuthURL`'s origin. It returns once the

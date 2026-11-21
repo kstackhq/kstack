@@ -16,13 +16,16 @@ package providercredentials
 
 import (
 	"errors"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // An account name is a persisted format: this table changes only with a
@@ -104,4 +107,97 @@ func TestAnUndeletableBadEntryIsNoKey(t *testing.T) {
 	k.FailDelete = errors.New("locked")
 	s := newService(t, Config{Keyring: k})
 	assert.False(t, state(t, s, twinID).HasSavedKey)
+}
+
+// awaitCall waits for k to receive c.
+func awaitCall(t *testing.T, k *oskeyringtest.Keyring, c oskeyringtest.Call) {
+	t.Helper()
+	require.Eventually(t, func() bool { return slices.Contains(k.Calls(), c) }, testutil.Timeout, time.Millisecond, "%v", c)
+}
+
+// assertUnpublished fails if s's restore has published.
+func assertUnpublished(t *testing.T, s *Service) {
+	t.Helper()
+	select {
+	case <-s.Restored():
+		t.Fatal("the restore published")
+	default:
+	}
+}
+
+// New returns before the keyring answers, every provider Restoring, and Close
+// leaves a read that never answers behind.
+func TestCloseLeavesAReadThatNeverAnswers(t *testing.T) {
+	t.Parallel()
+	k, _ := held(t, savedEntry, oskeyringtest.Get)
+	s := startService(t, Config{Keyring: k})
+
+	assert.Equal(t, SourceRestoring, state(t, s, twinID).Source)
+	testutil.WaitReturn(t, s.Close, "Close")
+	assert.Equal(t, SourceRestoring, state(t, s, twinID).Source)
+	assertUnpublished(t, s)
+}
+
+// Released, the restore publishes what the keyring held, with no relaunch.
+func TestTheRestorePublishesWhatItRead(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		entry   string
+		failGet bool
+		want    Source
+	}{
+		"a saved key": {entry: savedEntry, want: SourceSavedKey},
+		"none":        {want: SourceNone},
+		"unreadable":  {entry: savedEntry, failGet: true, want: SourceNone},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			k := oskeyringtest.New()
+			if c.entry != "" {
+				require.NoError(t, k.Set(account(twinID), c.entry))
+			}
+			if c.failGet {
+				k.FailGet(account(twinID), errors.New("locked"))
+			}
+			release := k.Hold(oskeyringtest.Get)
+			t.Cleanup(release)
+			s := startService(t, Config{Keyring: k})
+			require.Equal(t, SourceRestoring, state(t, s, twinID).Source)
+
+			release()
+			testutil.Wait(t, s.Restored(), "the restore")
+
+			assert.Equal(t, c.want, state(t, s, twinID).Source)
+		})
+	}
+}
+
+// The restore lands only once its delete of an unusable entry has answered;
+// until then the provider is Restoring and refuses every change.
+func TestTheRestoreWaitsForItsCleanup(t *testing.T) {
+	t.Parallel()
+	k, release := held(t, `not json`, oskeyringtest.Delete)
+	s := startService(t, Config{Keyring: k})
+	awaitCall(t, k, oskeyringtest.Call{Kind: oskeyringtest.Delete, Account: account(twinID)})
+
+	assert.Equal(t, SourceRestoring, state(t, s, twinID).Source)
+	assert.ErrorIs(t, s.Save(twinID, otherKey), ErrRestoring)
+
+	release()
+	testutil.Wait(t, s.Restored(), "the restore")
+	assert.Equal(t, SourceNone, state(t, s, twinID).Source)
+	assert.Empty(t, k.Entries())
+}
+
+// A Close during the restore's delete returns and lands nothing.
+func TestCloseLeavesACleanupThatNeverAnswers(t *testing.T) {
+	t.Parallel()
+	k, _ := held(t, `not json`, oskeyringtest.Delete)
+	s := startService(t, Config{Keyring: k})
+	awaitCall(t, k, oskeyringtest.Call{Kind: oskeyringtest.Delete, Account: account(twinID)})
+
+	testutil.WaitReturn(t, s.Close, "Close")
+
+	assert.Equal(t, SourceRestoring, state(t, s, twinID).Source)
+	assertUnpublished(t, s)
 }

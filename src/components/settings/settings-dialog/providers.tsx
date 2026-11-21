@@ -81,7 +81,7 @@ function providersFrom(models: Catalog['models'], credentials: ProviderCredentia
       label: c.label,
       sources: connector ? [...keys, connector] : keys,
       credential: c,
-      configured: c.source !== 'None',
+      configured: c.source !== 'None' && c.source !== 'Restoring',
     };
   });
   const others = PROVIDERS.map((p) => ({ ...p, configured: served.some((s) => s.id === p.id) }));
@@ -253,6 +253,7 @@ function Detail({ provider: { configured, credential, missing } }: { provider: P
           Found <code>{keyVariable}</code>
         </>
       );
+    case 'Restoring':
     case 'None':
       return 'No API key found';
   }

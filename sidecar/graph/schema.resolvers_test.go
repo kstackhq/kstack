@@ -1242,6 +1242,24 @@ func TestAuthStateQuerySignedOut(t *testing.T) {
 	}
 }
 
+// A connector that has not read the keyring yet is restoring, and says
+// nothing of a session; a sign-in or sign-out then is a validation error.
+func TestAuthStateWhileRestoring(t *testing.T) {
+	svc := newFakeAuthState(connectors.State{Phase: connectors.Restoring}, oauth.Identity{})
+	svc.connectErr, svc.disconnectErr = connectors.ErrRestoring, connectors.ErrRestoring
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
+	defer srv.Close()
+
+	data, errs := mutation(t, srv.URL, `query { authState { restoring authenticated identity { sub } } }`)
+	require.Empty(t, errs)
+	assert.Equal(t, map[string]any{"restoring": true, "authenticated": false, "identity": nil}, data["authState"])
+	for _, op := range []string{`mutation { authLoginStart }`, `mutation { authLogout }`} {
+		_, errs := mutation(t, srv.URL, op)
+		require.Len(t, errs, 1, op)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"], op)
+	}
+}
+
 // The authState query reflects the current signed-in identity.
 func TestAuthStateQuerySignedIn(t *testing.T) {
 	svc := signedInFakeAuth(oauth.Identity{UserID: "u1", Email: "a@x.com", Name: "Ada"})
@@ -4357,7 +4375,7 @@ func TestAConnectorRefusalIsAValidationError(t *testing.T) {
 	openRouter := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
 	openRouterSrv := openRouterServer(t, openRouter, func(string) error { return nil })
 
-	for _, refusal := range []error{connectors.ErrSigningIn, connectors.ErrConnected, connectors.ErrNotDeleted} {
+	for _, refusal := range []error{connectors.ErrRestoring, connectors.ErrSigningIn, connectors.ErrConnected, connectors.ErrNotDeleted} {
 		chatGPT.connectErr, chatGPT.disconnectErr = refusal, refusal
 		openRouter.connectErr, openRouter.disconnectErr = refusal, refusal
 		for _, c := range []struct{ url, op string }{
@@ -4430,6 +4448,15 @@ func connectorConstants(t *testing.T) (phases, failures []string) {
 // providerCredentialsServer serves a provider credentials service over k, with one keyed
 // provider holding an environment key.
 func providerCredentialsServer(t *testing.T, k *oskeyringtest.Keyring) (*httptest.Server, *providercredentials.Service) {
+	t.Helper()
+	srv, keys := startProviderCredentialsServer(t, k)
+	testutil.Wait(t, keys.Restored(), "the restore")
+	return srv, keys
+}
+
+// startProviderCredentialsServer is providerCredentialsServer without the wait for the
+// restore.
+func startProviderCredentialsServer(t *testing.T, k *oskeyringtest.Keyring) (*httptest.Server, *providercredentials.Service) {
 	t.Helper()
 	keys, err := providercredentials.New(providercredentials.Config{
 		Keyring:   k,
@@ -4514,6 +4541,26 @@ func TestProviderKeyRefusals(t *testing.T) {
 		_, errs := mutation(t, srv.URL, op)
 		require.Len(t, errs, 1, op)
 		assert.Equal(t, code, errs[0].Extensions["code"], op)
+	}
+}
+
+// While the keyring is unread, every provider is Restoring, one with an
+// environment key says so, and a Save or Delete is a validation error.
+func TestProviderKeysWhileRestoring(t *testing.T) {
+	k := oskeyringtest.New()
+	t.Cleanup(k.Hold(oskeyringtest.Get))
+	srv, _ := startProviderCredentialsServer(t, k)
+
+	data, errs := mutation(t, srv.URL, `query { providerCredentials { id source hasEnvironmentKey hasSavedKey } }`)
+	require.Empty(t, errs)
+	assert.Contains(t, data["providerCredentials"], map[string]any{"id": "anthropic", "source": "Restoring", "hasEnvironmentKey": true, "hasSavedKey": false})
+	for _, op := range []string{
+		`mutation { providerKeySave(providerID: "groq", key: "key-0123456789abcdef") }`,
+		`mutation { providerKeyDelete(providerID: "groq") }`,
+	} {
+		_, errs := mutation(t, srv.URL, op)
+		require.Len(t, errs, 1, op)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"], op)
 	}
 }
 

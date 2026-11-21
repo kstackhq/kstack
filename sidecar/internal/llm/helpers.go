@@ -80,18 +80,29 @@ type idleClock func(d time.Duration, f func()) idleTimer
 // wallClock is time.AfterFunc as the guard's clock.
 func wallClock(d time.Duration, f func()) idleTimer { return time.AfterFunc(d, f) }
 
+// idleGuardKey is the context key of a stream's guard, where authorize finds it.
+type idleGuardKey struct{}
+
 // newIdleGuard starts the clock over ctx. The context it returns ends with
 // ErrStreamIdle as its cause once bound passes with no event, so a trip and a
-// caller's cancel read apart after the stream has ended on it.
+// caller's cancel read apart after the stream has ended on it. It carries the
+// guard, so authorize can stop the clock while the request is signed.
 func newIdleGuard(ctx context.Context, bound time.Duration, clock idleClock) (*idleGuard, context.Context) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	g := &idleGuard{bound: bound, cancel: cancel}
 	g.timer = clock(bound, func() { cancel(ErrStreamIdle) })
-	return g, ctx
+	return g, context.WithValue(ctx, idleGuardKey{}, g)
 }
 
 // event restarts the clock. Called for every event the stream receives.
 func (g *idleGuard) event() { g.timer.Reset(g.bound) }
+
+// pause stops the clock until resume. It stops the timer, not the context, so
+// a cancel still ends what runs meanwhile.
+func (g *idleGuard) pause() { g.timer.Stop() }
+
+// resume restarts the clock at the full bound.
+func (g *idleGuard) resume() { g.timer.Reset(g.bound) }
 
 // stop ends the clock and releases the context. The caller owes it once the
 // stream is over.
@@ -146,8 +157,14 @@ func openAIOptions(p Provider, wire ...option.RequestOption) []option.RequestOpt
 }
 
 // authorize sets r's credential: the signer's, or the key in the header the row
-// names, else the dialect's own. A provider with neither sends none.
+// names, else the dialect's own. A provider with neither sends none. The
+// stream's idle clock stops meanwhile: a signer may wait for the keyring, which
+// only the user bounds. A request with no guard, a catalog read, has no clock.
 func authorize(p Provider, r *http.Request) error {
+	if g, ok := r.Context().Value(idleGuardKey{}).(*idleGuard); ok {
+		g.pause()
+		defer g.resume()
+	}
 	switch {
 	case p.Signer != nil:
 		return p.Signer.Sign(r)
@@ -163,6 +180,11 @@ func authorize(p Provider, r *http.Request) error {
 // read a 3xx as an answer.
 func send(p Provider, r *http.Request, next func(*http.Request) (*http.Response, error)) (*http.Response, error) {
 	if err := authorize(p, r); err != nil {
+		// A cancel or an idle trip while the signer waited ends the request,
+		// not the credential.
+		if ctxErr := r.Context().Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, SignError(p.ID, err)
 	}
 	resp, err := next(r)

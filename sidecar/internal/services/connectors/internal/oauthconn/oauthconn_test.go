@@ -39,9 +39,9 @@ func TestAFirstLaunchIsSignedOut(t *testing.T) {
 	assert.Equal(t, connectors.State{Phase: connectors.SignedOut}, r.svc.State())
 }
 
-// New reads both stores and reaches no network. A session exists only when the
-// row and the keyring's entry name the same sign-in; anything else is signed
-// out, with the row's session cleared and the entry deleted.
+// The restore reads both stores and reaches no network. A session exists only
+// when the row and the keyring's entry name the same sign-in; anything else is
+// signed out, with the row's session cleared and the entry deleted.
 func TestNewRestoresWhatTheStoresHold(t *testing.T) {
 	for name, p := range map[string]struct {
 		newRig   func(*testing.T, ...option) *rig
@@ -87,7 +87,7 @@ func TestNewRestoresWhatTheStoresHold(t *testing.T) {
 					assert.Equal(t, c.wantSession, savedRegistration(t, r).SessionID)
 					_, ok := storedRefresh(t, r)
 					assert.Equal(t, c.wantEntry, ok)
-					assert.Empty(t, r.issuer.forms("refresh_token"), "New reaches no network")
+					assert.Empty(t, r.issuer.forms("refresh_token"), "the restore reaches no network")
 				})
 			}
 		})
@@ -155,7 +155,8 @@ func TestAnUnreadableRowLeavesTheEntry(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// A keyring New cannot read is no proof of a sign-out: nothing is written.
+// A keyring the restore cannot read is no proof of a sign-out: nothing is
+// written.
 func TestAnUnreadableKeyringWritesNothing(t *testing.T) {
 	r := newRig(t)
 	r.seed(registration{Data: hostData("h"), ClientID: "c", SessionID: "s1"}, "", "")
@@ -261,7 +262,8 @@ func TestCloseEndsASignInAndARevocation(t *testing.T) {
 	})
 }
 
-// A stale entry New cannot delete is left for the next launch, signed out.
+// A stale entry the restore cannot delete is left for the next launch, signed
+// out.
 func TestAStaleEntryNewCannotDelete(t *testing.T) {
 	r := newRig(t)
 	r.keyring.entries[refreshAccount] = "refresh-stored"

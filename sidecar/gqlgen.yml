@@ -753,6 +753,8 @@ models:
   ProviderCredentialSource:
     model: github.com/kstackhq/kstack/sidecar/internal/services/providercredentials.Source
     enum_values:
+      Restoring:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/providercredentials.SourceRestoring
       None:
         value: github.com/kstackhq/kstack/sidecar/internal/services/providercredentials.SourceNone
       EnvironmentKey:
@@ -775,6 +777,8 @@ models:
   ConnectorPhase:
     model: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Phase
     enum_values:
+      Restoring:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.Restoring
       SignedOut:
         value: github.com/kstackhq/kstack/sidecar/internal/services/connectors.SignedOut
       SigningIn:

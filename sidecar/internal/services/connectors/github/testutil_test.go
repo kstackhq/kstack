@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
@@ -330,6 +332,8 @@ type rig struct {
 	t       *testing.T
 	github  *fakeGitHub
 	keyring *fakeKeyring
+	// calls is keyring as the service reaches it: recorded, and held on request.
+	calls   *oskeyringtest.Keyring
 	browser *fakeBrowser
 	// checkEnded fires each time a token check ends, attemptEnded each time a
 	// sign-in's polling and its outcome do.
@@ -350,12 +354,13 @@ func newRig(t *testing.T, opts ...option) *rig {
 		checkEnded: testutil.NewProbe[struct{}](4), attemptEnded: testutil.NewProbe[struct{}](4),
 		clientID: testClientID, opts: opts,
 	}
+	r.calls = oskeyringtest.Wrap(r.keyring)
 	r.svc = r.build()
 	return r
 }
 
 func (r *rig) config() Config {
-	return Config{ClientID: r.clientID, AuthURL: r.github.authURL(), APIURL: r.github.apiURL(), Keyring: r.keyring}
+	return Config{ClientID: r.clientID, AuthURL: r.github.authURL(), APIURL: r.github.apiURL(), Keyring: r.calls}
 }
 
 func (r *rig) pace(seconds int) time.Duration {
@@ -375,6 +380,20 @@ func (r *rig) paced() []int {
 
 func (r *rig) build() *Service {
 	r.t.Helper()
+	s := r.start()
+	awaitRestored(r.t, s)
+	return s
+}
+
+// awaitRestored waits for s to publish what the keyring held.
+func awaitRestored(t *testing.T, s *Service) {
+	t.Helper()
+	testutil.Wait(t, s.Restored(), "the restore")
+}
+
+// start is build without the wait for the restore.
+func (r *rig) start() *Service {
+	r.t.Helper()
 	opts := append([]option{
 		withBrowser(r.browser.open), withPace(r.pace),
 		withCheckEnded(func() { r.checkEnded.Fire(struct{}{}) }),
@@ -392,6 +411,23 @@ func (r *rig) restart() *Service {
 	r.svc.Close()
 	r.svc = r.build()
 	return r.svc
+}
+
+// relaunchHeld relaunches with the keyring's calls of kinds held until the
+// release it answers, which the test's end calls too.
+func (r *rig) relaunchHeld(kinds ...oskeyringtest.Kind) (*Service, func()) {
+	r.t.Helper()
+	release := r.calls.Hold(kinds...)
+	r.t.Cleanup(release)
+	r.svc.Close()
+	r.svc = r.start()
+	return r.svc, release
+}
+
+// awaitCall waits for the service to make c.
+func (r *rig) awaitCall(c oskeyringtest.Call) {
+	r.t.Helper()
+	require.Eventually(r.t, func() bool { return slices.Contains(r.calls.Calls(), c) }, testutil.Timeout, time.Millisecond, "%v", c)
 }
 
 // stored is the keyring's entry, and whether the account holds anything.

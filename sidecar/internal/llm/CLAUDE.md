@@ -156,6 +156,8 @@ internal/llm/
   `delta.JSON.ExtraFields`.
 - **Every stream runs under an idle guard**, reset by every event and every body read, ending with
   `ErrStreamIdle` as the cause. The bound is per dialect, the clock a parameter (`idleClock`).
+  **The clock stops while a request is signed** (`authorize`): a signer may wait for the
+  keyring. The guard rides the context; a request with none signs as it is.
   → [ADR: bound a model stream by wire silence](../../../docs/adr/2026-10-17-a-model-stream-is-bounded-by-wire-silence.md).
 - **Caching.** Messages marks the system block and the request-level `cache_control` at one hour
   (`cacheHour`). Every entry states `Model.Cache`; Chat Completions marks only `CacheMarks`. A

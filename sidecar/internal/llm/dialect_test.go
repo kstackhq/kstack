@@ -468,6 +468,49 @@ func TestEveryDialectBoundsAnIdleStream(t *testing.T) {
 	})
 }
 
+// The idle clock stops while a request is signed, so a Sign that waits for the
+// keyring past the bound does not end the turn; released, the turn streams its
+// answer with the clock running again from the full bound. A cancel still ends
+// the wait.
+func TestTheIdleClockStopsWhileARequestIsSigned(t *testing.T) {
+	eachWire(t, func(t *testing.T, w wire) {
+		t.Run("released", func(t *testing.T) {
+			p, _ := w.replay(t, w.text)
+			signer := newHeldSigner()
+			p.Key, p.Signer = "", signer
+			timer := newFakeTimer()
+
+			done := goStream(func() (Response, error) {
+				return w.stream(t.Context(), w.req(p), time.Minute, timer.clock, func(Chunk) {})
+			})
+			signer.waiting.Wait(t, "the signature")
+			timer.trip()
+			timer.resets.Drain()
+			close(signer.release)
+			timer.awaitReset(t)
+			got := testutil.Recv(t, done, "the stream's end")
+
+			require.NoError(t, got.err)
+		})
+		t.Run("cancelled", func(t *testing.T) {
+			p, _ := w.replay(t, w.text)
+			signer := newHeldSigner()
+			p.Key, p.Signer = "", signer
+			ctx, cancel := context.WithCancel(t.Context())
+
+			done := goStream(func() (Response, error) {
+				return w.stream(ctx, w.req(p), time.Minute, newFakeTimer().clock, func(Chunk) {})
+			})
+			signer.waiting.Wait(t, "the signature")
+			cancel()
+			got := testutil.Recv(t, done, "the stream's end")
+
+			assert.ErrorIs(t, got.err, context.Canceled)
+			assert.NotErrorIs(t, got.err, ErrStreamIdle)
+		})
+	})
+}
+
 // A cancel ends the stream as a cancel, never as an idle stream, with what was
 // streamed already emitted.
 func TestEveryDialectEndsOnCancel(t *testing.T) {

@@ -126,6 +126,8 @@ export type ConnectorPhase =
   | 'Connected'
   /** The last attempt, session or key ended; `failure` says why. */
   | 'Failed'
+  /** The launch has not read the keyring yet. Neither signed out nor connected. */
+  | 'Restoring'
   | 'SignedOut'
   /** The browser is open on the provider's sign-in. */
   | 'SigningIn';
@@ -375,6 +377,8 @@ export type ProviderCredentialSource =
   /** The key variable, from the launch or the login shell. */
   | 'EnvironmentKey'
   | 'None'
+  /** The launch has not read the keyring yet, or the provider's connector has not. */
+  | 'Restoring'
   /** A key saved from the Providers pane, in the OS keyring. */
   | 'SavedKey';
 

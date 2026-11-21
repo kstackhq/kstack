@@ -177,6 +177,7 @@ mod tests {
             watch: vec![Ok(AuthState {
                 authenticated: true,
                 identity: Some(Identity::default()),
+                restoring: false,
             })],
             ..FakeGrpc::default()
         };

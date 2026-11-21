@@ -49,6 +49,7 @@ type Config struct {
 // engine is what the connector uses of the OAuth engine.
 type engine interface {
 	State() connectors.State
+	Restored() <-chan struct{}
 	Subscribe() (<-chan connectors.State, func())
 	Start(ctx context.Context, fresh bool) (connectors.Failure, error)
 	Cancel()
@@ -62,10 +63,18 @@ type Service struct {
 	engine engine
 	// connecting runs one Connect at a time.
 	connecting sync.Mutex
+
+	// ctx ends the old entry's delete, which runs on wg.
+	ctx  context.Context
+	stop context.CancelFunc
+	wg   sync.WaitGroup
+	// oldEntryDone closes when the old entry's delete has ended, run or not.
+	oldEntryDone chan struct{}
 }
 
-// New is the connector, signed in if app.db and the keyring hold a session. It
-// reaches no network.
+// New is the connector, Restoring until the engine has read the keyring, then
+// signed in if app.db and the keyring hold a session. It reaches no network
+// and makes no keyring call.
 func New(cfg Config) (*Service, error) {
 	return newService(cfg.Keyring, func() (engine, error) {
 		return oauthconn.New(oauthconn.Config{
@@ -76,27 +85,40 @@ func New(cfg Config) (*Service, error) {
 	})
 }
 
-// newService deletes the old entry, then builds the engine.
+// newService builds the engine, and deletes the old entry on a goroutine.
 func newService(k oskeyring.Keyring, newEngine func() (engine, error)) (*Service, error) {
-	if err := deleteOldEntry(k); err != nil {
-		// A machine with no keyring fails this at every launch; the next tries again.
-		slog.Info("kstack: could not delete the old sign-in's keyring entry", "err", err)
-	}
 	e, err := newEngine()
 	if err != nil {
 		return nil, err
 	}
-	return &Service{engine: e}, nil
+	ctx, stop := context.WithCancel(context.Background())
+	s := &Service{engine: e, ctx: ctx, stop: stop, oldEntryDone: make(chan struct{})}
+	s.wg.Go(func() { s.deleteOldEntry(k) })
+	return s, nil
 }
 
-// deleteOldEntry deletes oldAccount once the keyring has opened. A keyring
-// that did not open, a dismissed prompt included, is not asked again.
-func deleteOldEntry(k oskeyring.Keyring) error {
-	if err := oskeyring.Opened(k); err != nil {
-		return err
+// deleteOldEntry deletes oldAccount after the engine's restore, whose read has
+// opened the keyring by then. A keyring that did not open, a dismissed prompt
+// included, is not asked again: a delete is not gated, and would prompt.
+func (s *Service) deleteOldEntry(k oskeyring.Keyring) {
+	defer close(s.oldEntryDone)
+	select {
+	case <-s.engine.Restored():
+	case <-s.ctx.Done():
+		return
 	}
-	return k.Delete(oldAccount)
+	err := oskeyring.Opened(k)
+	if err == nil {
+		err = oskeyring.Delete(s.ctx, k, oldAccount)
+	}
+	if err != nil && s.ctx.Err() == nil {
+		// A machine with no keyring fails this at every launch; the next tries again.
+		slog.Info("kstack: could not delete the old sign-in's keyring entry", "err", err)
+	}
 }
+
+// Restored closes once the engine has published what the stores held.
+func (s *Service) Restored() <-chan struct{} { return s.engine.Restored() }
 
 // State is the connector's current state.
 func (s *Service) State() connectors.State { return s.engine.State() }
@@ -106,9 +128,13 @@ func (s *Service) State() connectors.State { return s.engine.State() }
 // entry is still there.
 func (s *Service) Disconnect(ctx context.Context) error { return s.engine.Disconnect(ctx) }
 
-// Close ends the engine's goroutines, a revocation under way included, and
-// waits for them.
-func (s *Service) Close() { s.engine.Close() }
+// Close ends the connector's goroutines and the engine's, a revocation under
+// way included, and waits for them.
+func (s *Service) Close() {
+	s.stop()
+	s.wg.Wait()
+	s.engine.Close()
+}
 
 // provider is the Kstack Cloud sign-in at cfg's issuer.
 func provider(cfg Config) oauthconn.Provider {

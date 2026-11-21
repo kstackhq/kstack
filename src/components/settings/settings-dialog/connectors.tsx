@@ -246,7 +246,8 @@ function ChatGPTRow({
             Continue with ChatGPT
           </Button>
         )}
-        {(connection.phase === 'Connected' || (connection.registered && connection.phase !== 'SigningIn')) && (
+        {(connection.phase === 'Connected' ||
+          (connection.registered && connection.phase !== 'SigningIn' && connection.phase !== 'Restoring')) && (
           <ChatGPTMenu connected={connection.phase === 'Connected'} actions={actions} onFresh={() => connect(true)} />
         )}
       </div>
@@ -310,6 +311,7 @@ function openRouterDetail(
   credential: ProviderCredentialState | undefined,
 ): ReactNode {
   switch (phase) {
+    case 'Restoring':
     case 'SignedOut': {
       const failed = credential && keyFailureText(credential);
       if (failed) return failed;
@@ -362,6 +364,7 @@ function OpenRouterRow({
 
 function gitHubDetail({ phase, userCode, failure }: GitHubConnection, { name, detail }: Connector): ReactNode {
   switch (phase) {
+    case 'Restoring':
     case 'SignedOut':
     case 'Connected':
       return detail;
@@ -512,6 +515,7 @@ function awsDetail({ phase, failure }: AWSConnection, { name, detail }: Connecto
       return 'Waiting for the browser…';
     case 'Failed':
       return failure ? failureText[failure](name) : detail;
+    case 'Restoring':
     case 'SignedOut':
     case 'Connected':
       return detail;
@@ -606,6 +610,7 @@ function googleDetail({ phase, project, failure }: GoogleConnection, { name, det
     case 'Failed':
       if (failure === 'ScopeNotGranted') return 'The sign-in did not allow access to Google Cloud.';
       return failure ? failureText[failure](name) : detail;
+    case 'Restoring':
     case 'SignedOut':
       return detail;
   }

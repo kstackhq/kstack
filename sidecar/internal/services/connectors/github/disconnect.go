@@ -28,6 +28,9 @@ import (
 func (s *Service) Disconnect() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.state.Phase == connectors.Restoring {
+		return connectors.ErrRestoring
+	}
 	s.stopAttemptLocked()
 	// Only a held token, or one a refused delete left, is in the keyring; any
 	// other entry is a newer Kstack's.

@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
@@ -132,4 +134,38 @@ func TestACheckThatCannotReachGitHubKeepsTheToken(t *testing.T) {
 	assert.Equal(t, connectors.Connected, r.svc.State().Phase)
 	_, ok := r.stored()
 	assert.True(t, ok)
+}
+
+// A Token asked for while Restoring answers the restored token once the read
+// answers, and ends with its context when the read never does. The proxy's
+// tokens wait too, and reach the fallback only once the connector is signed
+// out.
+func TestTokenWaitsForTheRestore(t *testing.T) {
+	gh := &fallback{token: "test_ghsOwnToken00000000000001"}
+	r := newRig(t)
+	r.keyring.put(tokenAccount, storedEntry(storedToken, "octocat"))
+	s, release := r.relaunchHeld(oskeyringtest.Get)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := s.Tokens(gh).Token(ctx)
+	assert.ErrorIs(t, err, context.Canceled, "no fallback before the restore")
+
+	got := make(chan string, 1)
+	go func() { tok, _ := s.Tokens(gh).Token(t.Context()); got <- tok }()
+	release()
+	assert.Equal(t, storedToken, testutil.Recv(t, got, "the token"))
+}
+
+// A wait for the restore ends signed out when the service closes with the
+// read still held.
+func TestAWaitEndsWithClose(t *testing.T) {
+	r := newRig(t)
+	s, _ := r.relaunchHeld(oskeyringtest.Get)
+	ended := make(chan error, 1)
+	go func() { _, err := s.Token(t.Context()); ended <- err }()
+
+	s.Close()
+
+	assert.ErrorIs(t, testutil.Recv(t, ended, "the wait"), ErrSignedOut)
 }

@@ -38,7 +38,11 @@ var _ sdkaws.CredentialsProvider = (*Service)(nil)
 // Retrieve answers the session's credentials, refreshing them first when they
 // are near expiry. One refresh runs at a time, under the service's own bound:
 // a caller's cancel must not drop a refresh token AWS has already rotated.
-func (s *Service) Retrieve(context.Context) (sdkaws.Credentials, error) {
+// While Restoring it waits for the restore.
+func (s *Service) Retrieve(ctx context.Context) (sdkaws.Credentials, error) {
+	if err := s.awaitRestore(ctx); err != nil {
+		return sdkaws.Credentials{}, err
+	}
 	s.refreshing.Lock()
 	defer s.refreshing.Unlock()
 
@@ -70,6 +74,19 @@ func (s *Service) Retrieve(context.Context) (sdkaws.Credentials, error) {
 		return sdkaws.Credentials{}, err
 	}
 	return s.session.creds, nil
+}
+
+// awaitRestore waits for the restore to publish. ctx ends the wait with its
+// error, and Close with ErrSignedOut.
+func (s *Service) awaitRestore(ctx context.Context) error {
+	select {
+	case <-s.restored:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.ctx.Done():
+		return ErrSignedOut
+	}
 }
 
 // held is the session as it stands, and its generation. A rotated refresh

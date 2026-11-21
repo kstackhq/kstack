@@ -341,3 +341,38 @@ func TestAuthUnaryRPCsSurfaceServiceFailures(t *testing.T) {
 	require.Equal(t, codes.Internal, st.Code())
 	require.Contains(t, st.Message(), "keyring locked")
 }
+
+// A connector that has not read the keyring yet is restoring on the wire, and
+// says nothing of a session.
+func TestAuthStateWatchCarriesRestoring(t *testing.T) {
+	svc := newFakeAuthSvcState(connectors.State{Phase: connectors.Restoring}, oauth.Identity{})
+	grpcSrv := grpcserver.NewServer(context.Background(), svc, nil)
+	conn := newGRPCTestConn(t, grpcSrv)
+	t.Cleanup(grpcSrv.Stop)
+
+	stream, err := authpb.NewAuthServiceClient(conn).AuthStateWatch(context.Background(), &authpb.AuthStateWatchRequest{})
+	require.NoError(t, err)
+	first, err := stream.Recv()
+	require.NoError(t, err)
+
+	require.True(t, first.GetRestoring())
+	require.False(t, first.GetAuthenticated())
+	require.Nil(t, first.GetIdentity())
+}
+
+// A sign-in or sign-out asked for while the connector restores is refused as
+// a failed precondition, not an internal failure.
+func TestAuthUnaryRPCsRefuseWhileRestoring(t *testing.T) {
+	svc := newFakeAuthSvc(oauth.Identity{})
+	svc.connectErr = connectors.ErrRestoring
+	svc.disconnectErr = connectors.ErrRestoring
+	grpcSrv := grpcserver.NewServer(context.Background(), svc, nil)
+	conn := newGRPCTestConn(t, grpcSrv)
+	t.Cleanup(grpcSrv.Stop)
+	client := authpb.NewAuthServiceClient(conn)
+
+	_, err := client.StartLogin(context.Background(), &authpb.StartLoginRequest{})
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	_, err = client.Logout(context.Background(), &authpb.LogoutRequest{})
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+}

@@ -49,18 +49,49 @@ func saveEntry(k oskeyring.Keyring, token, login string) error {
 	return k.Set(tokenAccount, string(data))
 }
 
-// restore reads the entry. A readable one is the token, connected. Any other is
-// signed out: a newer version's is left for the Kstack that wrote it, and one
-// that does not parse is deleted. A keyring that cannot be read is no proof of
-// a sign-out, so nothing is written.
-func (s *Service) restore() connectors.State {
-	v, err := s.keyring.Get(tokenAccount)
+// restore reads the entry, deletes one this build cannot parse, then
+// publishes what it read: the token, connected, or signed out. No keyring call
+// runs under s.mu, and each ends with s.ctx: a Close during either publishes
+// nothing.
+func (s *Service) restore() {
+	v, err := oskeyring.Read(s.ctx, s.keyring, tokenAccount, oskeyring.SlowAfter)
+	if s.ctx.Err() != nil {
+		return
+	}
+	e, unparsable := readEntry(v, err)
+	if unparsable {
+		err := oskeyring.Delete(s.ctx, s.keyring, tokenAccount)
+		if s.ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			slog.Warn("github: could not delete an unreadable keyring entry", "err", err)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := connectors.State{Phase: connectors.SignedOut}
+	if e.Token != "" {
+		safe.AddSecret(e.Token)
+		s.gen++
+		s.token = e.Token
+		st = connectors.State{Phase: connectors.Connected, Name: e.Login}
+	}
+	s.publishLocked(st)
+	close(s.restored)
+}
+
+// readEntry is the entry a read answered, empty for none. A newer version's
+// entry is left for the Kstack that wrote it; unparsable is one that does not
+// parse. A keyring that cannot be read is no proof of a sign-out, so it is
+// neither.
+func readEntry(v string, err error) (e entry, unparsable bool) {
 	if errors.Is(err, oskeyring.ErrNoEntry) {
-		return connectors.State{Phase: connectors.SignedOut}
+		return entry{}, false
 	}
 	if err != nil {
 		slog.Warn("github: could not read the keyring; treating as signed out", "err", err)
-		return connectors.State{Phase: connectors.SignedOut}
+		return entry{}, false
 	}
 	// The stamp is read alone, so a newer shape is recognised before it fails
 	// to decode as this one.
@@ -69,17 +100,10 @@ func (s *Service) restore() connectors.State {
 	}
 	if json.Unmarshal([]byte(v), &stamp) == nil && stamp.V > entryVersion {
 		slog.Warn("github: the token's entry is a newer Kstack's; leaving it", "v", stamp.V)
-		return connectors.State{Phase: connectors.SignedOut}
+		return entry{}, false
 	}
-	var e entry
 	if json.Unmarshal([]byte(v), &e) != nil || e.V != entryVersion || e.Token == "" || e.Login == "" {
-		if err := s.keyring.Delete(tokenAccount); err != nil {
-			slog.Warn("github: could not delete an unreadable keyring entry", "err", err)
-		}
-		return connectors.State{Phase: connectors.SignedOut}
+		return entry{}, true
 	}
-	safe.AddSecret(e.Token)
-	s.gen++
-	s.token = e.Token
-	return connectors.State{Phase: connectors.Connected, Name: e.Login}
+	return e, false
 }
