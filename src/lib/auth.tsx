@@ -41,6 +41,7 @@ const SIGNED_OUT: AuthState = { authenticated: false, identity: null };
 const AuthStateWatchSubscription = graphql(`
   subscription AuthStateWatch {
     authStateWatch {
+      restoring
       authenticated
       identity {
         sub
@@ -89,9 +90,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [, runStartLogin] = useMutation(AuthLoginStartMutation);
   const [, runLogout] = useMutation(AuthLogoutMutation);
 
-  // No frame yet → loading, anonymous; the sidecar always emits a snapshot first.
+  // Loading until the first frame, and while the launch reads the keyring: until
+  // then a signed-out frame says nothing about the account.
   const authState = data ? toAuthState(data.authStateWatch) : SIGNED_OUT;
-  const loading = data === undefined;
+  const loading = data === undefined || data.authStateWatch.restoring;
 
   // Resulting state arrives over the subscription; mutation errors go to the error
   // bus and are rethrown to callers. A browser sign-in's outcome is never a
