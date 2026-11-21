@@ -49,7 +49,7 @@ export const Route = createRoute({
 // The kind a resource last resolved to, under the cache it came from.
 type HeldKind = { cacheID: string | undefined; resource: string; kind: ServerKind };
 
-// Each resource is a page, a header over a panel: `events` → `EventsPage`; a resolved
+// Each resource is a page, a header over a panel (a kind's page has a note at most): `events` → `EventsPage`; a resolved
 // discovered kind → `KindPage`; anything else → `PlaceholderPage`. Label and kind resolve
 // against the same live catalog the sidebar uses.
 function Dashboard() {
@@ -87,11 +87,6 @@ function inScope<T>(rows: T[], namespace: string | undefined, namespaceOf: (row:
   return namespace === undefined ? rows : rows.filter((r) => namespaceOf(r) === namespace);
 }
 
-// A page counts its rows once its watch's snapshot has landed.
-function countOf(rows: unknown[], active: boolean, phase: WatchPhase): number | undefined {
-  return active && phase !== 'connecting' ? rows.length : undefined;
-}
-
 // A kind's page, over its objects watch. The watch is cluster-wide; the scope filters it
 // here, a namespaced kind's alone.
 function KindPage({ kind, label }: { kind: ServerKind; label: string }) {
@@ -118,13 +113,12 @@ function KindPage({ kind, label }: { kind: ServerKind; label: string }) {
 
   return (
     <>
-      <PageHeader title={label}>
-        {!namespaced && namespace !== undefined && (
-          <>
-            Cluster-scoped, so the <VisibleText text={namespace} /> filter isn&apos;t applied.
-          </>
-        )}
-      </PageHeader>
+      {/* No title: the app bar's breadcrumbs name the kind. */}
+      {!namespaced && namespace !== undefined && (
+        <PageHeader>
+          Cluster-scoped, so the <VisibleText text={namespace} /> filter isn&apos;t applied.
+        </PageHeader>
+      )}
       {/* Keyed by kind, so a new kind starts unsorted. */}
       <ObjectsTable
         key={`${kind.apiVersion}/${kind.resource}`}
@@ -153,7 +147,7 @@ function EventsPage() {
 
   return (
     <>
-      <PageHeader title="Events" count={countOf(shown, active, phase)}>
+      <PageHeader title="Events">
         {namespace !== undefined && (
           <>
             Events in <VisibleText text={namespace} />.

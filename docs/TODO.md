@@ -802,7 +802,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   keyboard path back. `ScopeMenu` (`dashboard-resource-nav/scope-menu.tsx`) already has the list,
   search and keys.
 
-- **The dashboard's namespace scope holds one namespace.** The sidebar's namespace picker picks one
+- **The dashboard's namespace scope holds one namespace.** The app bar's namespace chip picks one
   namespace or all of them ([ADR](adr/2026-11-12-the-namespace-scope-is-a-search-param.md)). Let it pick
   several: the `namespace` param becomes a list, the picker's menu gains checkboxes, the tables
   filter by the set, and the sidebar's *Namespace* heading names the count when there are more

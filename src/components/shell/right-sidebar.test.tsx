@@ -188,6 +188,17 @@ describe('RightSidebar', () => {
     expect(panel()).not.toBeInTheDocument();
   });
 
+  it('is the main card’s right column: the page’s fill, a 1px rule on its left', () => {
+    renderPanel();
+    clickToggle();
+    expect(panel()).toHaveClass('border-l', 'bg-background');
+  });
+
+  it('draws its toggle as a 28px app bar button', () => {
+    renderPanel();
+    expect(screen.getByRole('button', { name: /toggle right sidebar/i })).toHaveClass('size-7', 'rounded-md');
+  });
+
   it('says whether it is open, for anything reading the button', () => {
     renderPanel();
     const toggle = screen.getByRole('button', { name: /toggle right sidebar/i });
@@ -197,11 +208,11 @@ describe('RightSidebar', () => {
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('sits in the row as an ordinary flex item, flush to the window', () => {
+  it('sits in the card’s row as an ordinary flex item', () => {
     renderPanel();
     clickToggle();
     // Not floating: it takes width from the page and the row's height makes it
-    // flush with the bar above and the window's bottom edge.
+    // flush with the card's top and bottom.
     expect(panel()).not.toHaveClass('absolute', 'fixed', 'rounded-lg');
   });
 
@@ -211,10 +222,11 @@ describe('RightSidebar', () => {
     layOut();
     expect(panelWidth()).toBe('400px');
 
-    // The panel ends at the window's right edge, so its width is what is left of
-    // the window from the pointer.
+    // The panel ends 9px inside the window's right edge (the card's 8px of chrome and
+    // its border), so its width is what is left of the window from the pointer, less
+    // that.
     fireEvent.pointerDown(handle(), { pointerId: 1 });
-    fireEvent.pointerMove(window, { clientX: 600 });
+    fireEvent.pointerMove(window, { clientX: 591 });
     expect(panelWidth()).toBe('400px');
     expect(localStorage.getItem('kstack:right-sidebar-width:chat')).toBe('400');
 

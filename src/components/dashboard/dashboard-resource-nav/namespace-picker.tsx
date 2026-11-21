@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The dashboard nav's namespace picker: every namespace, or one.
+// The dashboard's namespace scope: every namespace, or one. The app bar draws it as a
+// chip at its right, on the dashboard alone.
 import { Layers } from 'lucide-react';
 
 import { VisibleText } from '@/components/primitives/visible-text';
@@ -50,7 +51,8 @@ export function NamespacePicker() {
   return (
     <ScopeMenu
       trigger={
-        <ScopeTrigger icon={Layers} aria-label={`Namespace: ${label}`}>
+        // Opts out of the bar's drag region, as the cluster chip does.
+        <ScopeTrigger icon={Layers} aria-label={`Namespace: ${label}`} data-tauri-drag-region="false">
           <VisibleText text={label} />
         </ScopeTrigger>
       }

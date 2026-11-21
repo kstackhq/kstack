@@ -3,6 +3,8 @@ title: The omnibox is the cluster picker
 date: 2026-10-29
 scope: frontend
 status: Accepted
+amended_by:
+  - [The chrome holds the mode switch, the scope and the global actions](2026-11-21-the-chrome-holds-the-mode-switch-the-scope-and-the-global-actions.md)
 ---
 
 # The omnibox is the cluster picker

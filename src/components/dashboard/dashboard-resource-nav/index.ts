@@ -12,5 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The dashboard's resource nav. Nothing outside imports its rows.
+// The dashboard's resource nav, and the namespace scope's chip the app bar draws.
+// Nothing outside imports its rows.
+export { NamespacePicker } from './namespace-picker';
 export { DashboardResourceNav } from './nav';

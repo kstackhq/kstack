@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Collapses the sidebar from the card's header, and reopens it from the collapsed
-// pill. Drives the same `@kubetail/ui` state as the built-in `Cmd/Ctrl+B`, so all
-// three stay in sync.
+// The app bar's left-sidebar toggle: collapses and reopens the sidebar, or opens it as
+// a drawer on a narrow window. Drives the same `@kubetail/ui` state as the built-in
+// `Cmd/Ctrl+B`, so the two stay in sync.
 import { Button } from '@kubetail/ui/elements/button';
 import { useSidebar } from '@kubetail/ui/elements/sidebar';
+import { cn } from '@kubetail/ui/lib/utils';
 import { PanelLeft } from 'lucide-react';
+
+import { APP_BAR_HOVER_CLASS } from '@/lib/control-style';
 
 export function LeftSidebarToggle() {
   const { toggleSidebar } = useSidebar();
@@ -27,9 +30,9 @@ export function LeftSidebarToggle() {
       size="icon-sm"
       aria-label="Toggle sidebar"
       onClick={toggleSidebar}
-      className="shrink-0 text-muted-foreground"
+      className={cn('size-7 shrink-0 rounded-md text-muted-foreground', APP_BAR_HOVER_CLASS)}
     >
-      <PanelLeft className="size-4 " aria-hidden />
+      <PanelLeft className="size-4" aria-hidden />
     </Button>
   );
 }

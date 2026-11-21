@@ -34,9 +34,6 @@ vi.mock('@/lib/dashboard-nav', () => ({
   }),
 }));
 
-// The picker has its own suite, and reads the namespaces through a provider.
-vi.mock('./namespace-picker', () => ({ NamespacePicker: () => <div data-testid="namespace-picker" /> }));
-
 const { DashboardResourceNav } = await import('./nav');
 
 const served = (apiVersion: string, kind: string, resource: string, count: number, scope = 'Namespaced') => ({
@@ -83,12 +80,12 @@ beforeEach(() => {
 });
 
 describe('DashboardResourceNav', () => {
-  // The scope decides what the rest of the nav counts and shows, so it comes first.
-  it('leads with the namespace picker, above Overview', async () => {
+  // The namespace scope is the app bar's chip.
+  it('leads with Overview, with no namespace picker of its own', async () => {
     await render();
-    const picker = screen.getByTestId('namespace-picker');
-    const overview = screen.getByRole('link', { name: 'Overview' });
-    expect(picker.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const nav = screen.getByRole('navigation', { name: 'Resources' });
+    expect(nav.firstElementChild).toBe(screen.getByRole('link', { name: 'Overview' }));
+    expect(screen.queryByRole('button', { name: /^Namespace:/ })).not.toBeInTheDocument();
   });
 
   it('draws Overview and Events above the sections, Events with its count', async () => {

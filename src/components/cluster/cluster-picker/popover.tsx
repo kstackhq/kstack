@@ -28,7 +28,7 @@ import { useClusters } from '@/lib/clusters';
 import { useDialog } from '@/lib/dialog';
 import { useLogsView } from '@/lib/logs-view';
 
-import { OmniboxPopover } from '../omnibox-popover';
+import { OMNIBOX_POPUP_WIDTH, OmniboxPopover } from '../omnibox-popover';
 import { ClusterList } from './list';
 
 function Notice({ children }: { children: ReactNode }) {
@@ -95,8 +95,8 @@ export function ClusterPicker({
       data-testid="cluster-picker"
       // The filter when there is one; otherwise the popup's own default.
       initialFocus={() => filterRef.current ?? true}
-      className="flex max-w-[calc(100vw-16px)] flex-col gap-3 rounded-xl border bg-popover p-[18px] text-popover-foreground shadow-lg outline-hidden"
-      style={{ width: 'max(var(--anchor-width), 480px)', maxHeight: 'var(--available-height)' }}
+      className="flex flex-col gap-3 rounded-xl border bg-popover p-[18px] text-popover-foreground shadow-lg outline-hidden"
+      style={{ width: OMNIBOX_POPUP_WIDTH, maxHeight: 'var(--available-height)' }}
     >
       <div className="flex items-center gap-2">
         <p className="flex-1 text-base font-medium">Clusters</p>

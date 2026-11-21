@@ -31,7 +31,7 @@ import { UnsavedDrafts } from '@/lib/unsaved-drafts';
 
 import { MemoryInstructions } from '../memory-instructions';
 import { MemoryList } from '../memory-list';
-import { OmniboxPopover } from '../omnibox-popover';
+import { OMNIBOX_POPUP_WIDTH, OmniboxPopover } from '../omnibox-popover';
 
 // The cluster's own notes. Its watch also carries the memories for every
 // cluster; the popover leaves those out.
@@ -156,7 +156,7 @@ export function MemoryPopover({
       initialFocus={popupRef}
       data-testid="memory-popup"
       className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg outline-hidden"
-      style={{ width: 'var(--anchor-width)', height: 'min(476px, var(--available-height))' }}
+      style={{ width: OMNIBOX_POPUP_WIDTH, height: 'min(476px, var(--available-height))' }}
     >
       {/* Keyed on the window's cluster, so no instructions or draft carry over to another. */}
       <UnsavedDrafts value={drafts}>

@@ -202,7 +202,7 @@ describe('dashboard route', () => {
       resource: 'horizontalpodautoscalers',
     };
     await render('/dashboard?resource=autoscaling/horizontalpodautoscalers', [hpa]);
-    expect(screen.getByRole('heading', { name: /^HorizontalPodAutoscaler\b/ })).toBeInTheDocument();
+    expect(propsOf('objects-table').label).toBe('HorizontalPodAutoscaler');
   });
 
   it('says a kind the synced catalog lacks is not served by this cluster', async () => {
@@ -272,9 +272,12 @@ describe('dashboard route', () => {
     expect(screen.getByText(/loading resources/i)).toBeInTheDocument();
   });
 
-  it('names the view it is showing', async () => {
+  // The app bar's breadcrumbs name it.
+  it('opens a kind’s page on its table, with no heading of its own', async () => {
     await render('/dashboard?resource=deployments', [KIND]);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Deployments');
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+    expect(screen.getByTestId('objects-table')).toBeInTheDocument();
   });
 
   it('lands on the default view when the link carries no resource', async () => {
@@ -294,17 +297,6 @@ describe('dashboard route', () => {
 
     await render('/dashboard?resource=');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(expected);
-  });
-
-  it('heads a kind’s page with its label alone, and no count', async () => {
-    useClusterCachedDataObjectsMock.mockReturnValue({
-      objects: [pod('a', 'x'), pod('b', 'y')],
-      active: true,
-      phase: 'live',
-    });
-    await render('/dashboard?resource=deployments', [KIND]);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Deployments$/);
-    expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
   });
 
   it('shows a namespaced kind’s objects in the namespace alone', async () => {
@@ -332,17 +324,18 @@ describe('dashboard route', () => {
     expect(screen.getByText(/Cluster-scoped, so the/)).toHaveTextContent(
       "Cluster-scoped, so the checkout filter isn't applied.",
     );
+    // The note keeps its place above the table, without a title over it.
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
   });
 
-  it('heads Events with its count, scoped to the namespace', async () => {
+  it('heads Events with its title alone, scoped to the namespace', async () => {
     useClusterCachedDataEventsMock.mockReturnValue({
       events: [event('a', 'checkout'), event('b', 'default')],
       active: true,
       phase: 'live',
     });
     await render('/dashboard?resource=events&namespace=checkout');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Events');
-    expect(screen.getByTestId('page-count')).toHaveTextContent('1');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Events$/);
     expect(screen.getByText(/Events in/)).toHaveTextContent('Events in checkout.');
     const table = propsOf('events-table');
     expect(table.events.map((e: { uid: string }) => e.uid)).toEqual(['a']);
@@ -356,13 +349,7 @@ describe('dashboard route', () => {
       phase: 'live',
     });
     await render('/dashboard?resource=events');
-    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
+    expect(propsOf('events-table').events).toHaveLength(2);
     expect(screen.queryByText(/Events in/)).not.toBeInTheDocument();
-  });
-
-  it('draws no Events count before the events land', async () => {
-    useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'connecting' });
-    await render('/dashboard?resource=events');
-    expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
   });
 });

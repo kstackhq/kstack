@@ -13,7 +13,8 @@
 // limitations under the License.
 
 // The dashboard's resource nav (sidebar, dashboard mode only): Overview and Events, then
-// the Cluster and Namespace sections of grouped kinds.
+// the Cluster and Namespace sections of grouped kinds. The namespace scope that decides
+// what it counts is the app bar's chip (`NamespacePicker`).
 // See docs/adr/2026-11-12-the-dashboard-nav-groups-kinds-by-scope-and-api-group.md
 import { Separator } from '@kubetail/ui/elements/separator';
 import { Spinner } from '@kubetail/ui/elements/spinner';
@@ -29,7 +30,6 @@ import { filterNav, groupCount, PINNED, resolveDashboardResource } from '@/lib/d
 import type { DashboardResource, NavGroup as Group, NavSection } from '@/lib/dashboard-resources';
 import { usePersistedFlag } from '@/lib/persisted-flag';
 
-import { NamespacePicker } from './namespace-picker';
 import { NavGroup } from './nav-group';
 import { NavItem } from './nav-item';
 
@@ -97,10 +97,6 @@ export function DashboardResourceNav() {
 
   return (
     <nav aria-label="Resources" className="flex flex-col gap-0.5">
-      {/* The scope first: it decides what the rows below count and show. */}
-      <div className="pb-2">
-        <NamespacePicker />
-      </div>
       {PINNED.map((p) => (
         <NavItem
           key={p.id}
@@ -115,7 +111,7 @@ export function DashboardResourceNav() {
       {/* The pinned rows are pages; a rule sets them apart from the kinds below. */}
       <Separator className="my-2 bg-sidebar-border" />
       {/* Above the kinds it filters, and sticky, so they scroll under it. */}
-      <div className="sticky top-0 z-10 bg-sidebar pb-1">
+      <div className="sticky top-0 z-10 bg-app-bar pb-1">
         <SearchBox
           aria-label="Search kinds"
           placeholder="Search"

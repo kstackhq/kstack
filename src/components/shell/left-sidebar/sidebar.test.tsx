@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { SidebarProvider } from '@kubetail/ui/elements/sidebar';
+import { SidebarProvider, useSidebar } from '@kubetail/ui/elements/sidebar';
 import { createRootRoute, createRoute, Link, Outlet } from '@tanstack/react-router';
 import { act, fireEvent, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -24,42 +24,33 @@ import { LeftSidebar } from './sidebar';
 
 // Mocks ---------------------------------------------------------------
 
-// This suite is about which of the two the switch shows; each stub keeps the toggle
-// so collapsing and reopening can be driven the way the user does it. The real
-// ones are covered beside them (`card.test.tsx`, `pill.test.tsx`).
-vi.mock('./card', async () => {
-  const { LeftSidebarToggle } = await import('./toggle');
-  return {
-    LeftSidebarCard: ({ header, nav }: { header?: ReactNode; nav?: ReactNode }) => (
-      <div data-testid="left-sidebar-card">
-        <LeftSidebarToggle />
-        {header}
-        {nav}
-      </div>
-    ),
-  };
-});
-vi.mock('./pill', async () => {
-  const { LeftSidebarToggle } = await import('./toggle');
-  return {
-    LeftSidebarPill: () => (
-      <div data-testid="left-sidebar-pill">
-        <LeftSidebarToggle />
-      </div>
-    ),
-  };
-});
+// This suite is about where the card shows; the real one is covered beside it
+// (`card.test.tsx`).
+vi.mock('./card', () => ({
+  LeftSidebarCard: ({ nav }: { nav?: ReactNode }) => <div data-testid="left-sidebar-card">{nav}</div>,
+}));
 
 // Helpers -------------------------------------------------------------
+
+// The app bar's toggle, which lives outside the sidebar: it drives the same state.
+function Toggle() {
+  const { toggleSidebar } = useSidebar();
+  return (
+    <button type="button" aria-label="Toggle sidebar" onClick={toggleSidebar}>
+      toggle
+    </button>
+  );
+}
 
 // The switch reads open/collapsed state from the provider the layout mounts, and
 // closes an overlaid card on navigation — hence the router around it. The link is
 // the one the overlay would carry.
-function renderSidebar(props: { header?: ReactNode; nav?: ReactNode } = {}) {
+function renderSidebar(props: { nav?: ReactNode } = {}) {
   const root = createRootRoute({
     component: () => (
       <SidebarProvider>
-        <LeftSidebar {...props} nav={props.nav ?? <Link to="/dashboard">go-dashboard</Link>} />
+        <Toggle />
+        <LeftSidebar width={256} onResize={() => {}} nav={props.nav ?? <Link to="/dashboard">go-dashboard</Link>} />
         <Outlet />
       </SidebarProvider>
     ),
@@ -82,28 +73,24 @@ function narrowWindow(fireChange: (matches: boolean) => void) {
 
 const cardVisible = () => screen.queryByTestId('left-sidebar-card') !== null;
 const overlaid = () => screen.queryByTestId('sidebar-overlay') !== null;
-const pillVisible = () => screen.queryByTestId('left-sidebar-pill') !== null;
 
 // Tests ---------------------------------------------------------------
 
 describe('LeftSidebar', () => {
-  it('shows the card by default and passes it the header and nav', async () => {
-    await renderSidebar({ header: <div>header-content</div>, nav: <div>nav-content</div> });
-    const card = screen.getByTestId('left-sidebar-card');
-    expect(card.contains(screen.getByText('header-content'))).toBe(true);
-    expect(card.contains(screen.getByText('nav-content'))).toBe(true);
-    expect(pillVisible()).toBe(false);
+  it('shows the card by default and passes it the nav', async () => {
+    await renderSidebar({ nav: <div>nav-content</div> });
+    expect(screen.getByTestId('left-sidebar-card').contains(screen.getByText('nav-content'))).toBe(true);
   });
 
-  it('swaps the card for the pill when collapsed, and back from the pill', async () => {
+  it('draws nothing when collapsed, and the card again when reopened', async () => {
     await renderSidebar();
     clickToggle();
+    // The rail and the app bar's toggle cover what a collapsed stub would.
     expect(cardVisible()).toBe(false);
-    expect(pillVisible()).toBe(true);
+    expect(overlaid()).toBe(false);
 
     clickToggle();
     expect(cardVisible()).toBe(true);
-    expect(pillVisible()).toBe(false);
   });
 
   it('reopens the card on the keyboard shortcut', async () => {
@@ -111,10 +98,9 @@ describe('LeftSidebar', () => {
     clickToggle();
     expect(cardVisible()).toBe(false);
 
-    // `Cmd/Ctrl+B` is the library's own binding, beside the pill's toggle.
+    // `Cmd/Ctrl+B` is the library's own binding, beside the bar's toggle.
     fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
     expect(cardVisible()).toBe(true);
-    expect(pillVisible()).toBe(false);
   });
 
   it('remembers a manual collapse across a narrow→wide breakpoint round-trip', async () => {
@@ -129,10 +115,8 @@ describe('LeftSidebar', () => {
     // the user's choice rather than auto-reopening.
     setNarrow(true);
     expect(cardVisible()).toBe(false);
-    expect(pillVisible()).toBe(true);
     setNarrow(false);
     expect(cardVisible()).toBe(false);
-    expect(pillVisible()).toBe(true);
   });
 
   it('collapses when the window narrows, rather than throwing a drawer over the page', async () => {
@@ -141,7 +125,6 @@ describe('LeftSidebar', () => {
 
     setNarrow(true);
     expect(cardVisible()).toBe(false);
-    expect(pillVisible()).toBe(true);
 
     // Back in the row once there is space for it beside the page.
     setNarrow(false);
@@ -155,8 +138,6 @@ describe('LeftSidebar', () => {
     setNarrow(true);
 
     clickToggle();
-    // The pill keeps the row's width, so the page does not shift under the pointer.
-    expect(pillVisible()).toBe(true);
     expect(cardVisible()).toBe(true);
     expect(overlaid()).toBe(true);
   });
@@ -200,7 +181,6 @@ describe('LeftSidebar', () => {
 
     fireEvent.click(screen.getByTestId('sidebar-scrim'));
     expect(cardVisible()).toBe(false);
-    expect(pillVisible()).toBe(true);
   });
 
   it('closes the overlaid card on Escape', async () => {
@@ -243,10 +223,9 @@ describe('LeftSidebar', () => {
       screen.getByRole('link', { name: 'go-dashboard' }).click();
     });
     expect(cardVisible()).toBe(false);
-    expect(pillVisible()).toBe(true);
   });
 
-  it('reopens the drawer from the pill’s toggle', async () => {
+  it('reopens the drawer from the bar’s toggle', async () => {
     const setNarrow = narrowWindow(mockMatchMedia());
     await renderSidebar();
     setNarrow(true);

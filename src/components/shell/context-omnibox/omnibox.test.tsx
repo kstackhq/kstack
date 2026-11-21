@@ -135,6 +135,19 @@ describe('ContextOmnibox', () => {
     expect(screen.getByTestId('context-omnibox').contains(trigger())).toBe(true);
   });
 
+  it('is a 32px chip with no fill or outline at rest, as wide as its contents', () => {
+    render(<ContextOmnibox />);
+    const chip = screen.getByTestId('context-omnibox');
+    expect(chip).toHaveClass('h-8', 'rounded-lg');
+    expect(chip).not.toHaveClass('w-full', 'max-w-160', 'bg-background', 'ring-1');
+  });
+
+  it('draws its status and memory buttons at 28px', () => {
+    render(<ContextOmnibox />);
+    expect(screen.getByRole('button', { name: /^Cluster status:/ })).toHaveClass('size-7', 'rounded-full');
+    expect(screen.getByRole('button', { name: 'Memory' })).toHaveClass('size-7', 'rounded-full');
+  });
+
   it('opts out of the app bar’s drag region', () => {
     render(<ContextOmnibox />);
     // Pressing a control's padding should no more move the window than a

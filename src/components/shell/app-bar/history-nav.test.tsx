@@ -72,6 +72,13 @@ const forward = () => screen.getByRole('button', { name: 'Go forward' });
 beforeEach(() => sessionStorage.clear());
 
 describe('HistoryNav', () => {
+  it('draws two round buttons side by side, with no outline or divider between them', async () => {
+    await renderWithRouter(buildTree(), '/chat');
+    expect(Array.from(back().parentElement!.children)).toEqual([back(), forward()]);
+    expect(back().parentElement).not.toHaveClass('border');
+    [back(), forward()].forEach((b) => expect(b).toHaveClass('size-7.5', 'rounded-full'));
+  });
+
   it('disables both buttons at the start of history', async () => {
     await renderWithRouter(buildTree(), '/chat');
     expect(back()).toBeDisabled();

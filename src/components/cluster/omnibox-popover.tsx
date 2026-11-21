@@ -12,12 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A popover hung from the omnibox rather than from the control that opens it, so
-// it centres on the omnibox and starts at its width. The library's `PopoverContent`
-// anchors on the trigger alone, so the positioner is base-ui's own.
+// A popover hung from the omnibox (the app bar's cluster chip) rather than from the
+// control that opens it, so it starts at the chip's left edge. The library's
+// `PopoverContent` anchors on the trigger alone, so the positioner is base-ui's own.
+// The chip is narrow; each popup sets a width of its own (`OMNIBOX_POPUP_WIDTH`).
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { Popover, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import type { ReactElement, RefObject } from 'react';
+
+// 640px, less the window's margins on a narrow one.
+export const OMNIBOX_POPUP_WIDTH = 'min(640px, calc(100vw - 16px))';
 
 export function OmniboxPopover({
   anchorRef,
@@ -38,11 +42,11 @@ export function OmniboxPopover({
       <PopoverTrigger render={children} />
       <PopoverPrimitive.Portal>
         {/* z-50, as the library's popover content has: above the sidebar drawer
-            and its scrim. It never flips above the omnibox: its height is capped
+            and its scrim. It never flips above the chip: its height is capped
             at the room below, which would otherwise trip the flip. */}
         <PopoverPrimitive.Positioner
           anchor={anchorRef}
-          align="center"
+          align="start"
           side="bottom"
           sideOffset={8}
           collisionAvoidance={{ side: 'none' }}

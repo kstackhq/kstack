@@ -193,12 +193,12 @@ describe('MemoryPopover', () => {
   });
 
   // jsdom lays nothing out, so this checks the styles that place and size it.
-  it("hangs at the omnibox's width and a capped height", async () => {
+  it('hangs at a width of its own, not the chip’s, and a capped height', async () => {
     const user = userEvent.setup();
     render(popover());
     await user.click(button('Memory button'));
     const popup = await screen.findByTestId('memory-popup');
-    expect(popup.style.width).toBe('var(--anchor-width)');
+    expect(popup.style.width).toBe('min(640px, -16px + 100vw)');
     expect(popup.style.height).toBe('min(476px, var(--available-height))');
   });
 

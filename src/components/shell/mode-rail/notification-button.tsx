@@ -12,20 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Notifications button in the app bar's right-hand pill, beside Settings. Nothing
-// feeds it yet: the popover's copy is a placeholder.
+// Notifications, at the mode rail's foot above Settings. Nothing feeds it yet: the
+// popover's copy is a placeholder. It opens to the right, into the window.
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import { Bell } from 'lucide-react';
 
-import { AppBarButton } from './button';
+import { RailButton } from './button';
 
 export function NotificationButton() {
   return (
     <Popover>
-      <PopoverTrigger render={<AppBarButton className="border-transparent" />} aria-label="Notifications">
+      <PopoverTrigger render={<RailButton title="Notifications" />} aria-label="Notifications">
         <Bell aria-hidden />
       </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={8} className="w-72">
+      <PopoverContent side="right" align="end" sideOffset={8} className="w-72">
         <p className="text-sm font-medium">Notifications</p>
         <p className="mt-1 text-sm text-muted-foreground">Nothing here yet.</p>
       </PopoverContent>

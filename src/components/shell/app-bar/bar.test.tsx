@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { SidebarProvider } from '@kubetail/ui/elements/sidebar';
+import { fireEvent, render as rtlRender, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { AppMode } from '@/lib/app-mode';
 import {
   MAC_USER_AGENT,
   NON_MAC_USER_AGENT,
+  mockMatchMedia,
   mockTauriCore,
   mockTauriWindow,
   restoreUserAgent,
@@ -31,22 +34,22 @@ import {
 const { factory } = mockTauriWindow();
 vi.mock('@tauri-apps/api/window', () => factory());
 
-// The history nav needs a router; this suite renders the bar outside one, so stub
-// it — its own suite covers the real one.
+// Each control has its own suite; here they only mark their place. The history nav
+// needs a router, the title and the chips read providers.
 vi.mock('./history-nav', () => ({
   HistoryNav: () => <div data-testid="history-nav" />,
 }));
-// The notification button opens a popover and the settings button opens the
-// dialog host; their own suites cover the real ones.
-vi.mock('./notification-button', () => ({
-  NotificationButton: () => <div data-testid="notification-button" />,
+vi.mock('./title', () => ({
+  AppBarTitle: ({ mode }: { mode: AppMode }) => <div data-testid="app-bar-title" data-mode={mode} />,
 }));
-vi.mock('./settings-button', () => ({
-  SettingsButton: () => <div data-testid="settings-button" />,
-}));
-// The omnibox reads the kubeconfig; its own suite covers it.
 vi.mock('@/components/shell/context-omnibox/omnibox', () => ({
   ContextOmnibox: () => <div data-testid="context-omnibox" />,
+}));
+vi.mock('@/components/dashboard/dashboard-resource-nav', () => ({
+  NamespacePicker: () => <div data-testid="namespace-picker" />,
+}));
+vi.mock('@/components/shell/right-sidebar', () => ({
+  RightSidebarToggle: () => <button type="button" aria-label="Toggle right sidebar" />,
 }));
 
 // `AppMenu` (rendered off macOS) drives the host over `invoke`.
@@ -56,6 +59,22 @@ vi.mock('@tauri-apps/api/core', () => coreFactory());
 const { AppBar } = await import('./bar');
 
 // Helpers -------------------------------------------------------------
+
+// The left toggle reads the provider the layout mounts.
+function render({
+  mode,
+  sidebarWidth = 256,
+  open = true,
+}: { mode?: AppMode; sidebarWidth?: number; open?: boolean } = {}) {
+  return rtlRender(
+    <SidebarProvider open={open}>
+      <AppBar mode={mode ?? 'chat'} sidebarWidth={sidebarWidth} />
+    </SidebarProvider>,
+  );
+}
+
+const bands = () => Array.from(screen.getByTestId('app-bar').children);
+const indexOf = (el: Element) => bands().findIndex((band) => band === el || band.contains(el));
 
 beforeEach(() => {
   invokeMock.mockReset();
@@ -70,124 +89,144 @@ afterEach(() => {
 // Tests ---------------------------------------------------------------
 
 describe('AppBar', () => {
-  it('holds its height as the layout column’s top band', () => {
-    render(<AppBar />);
-    // 48px, and never shrunk by the row below it.
-    expect(screen.getByTestId('app-bar')).toHaveClass('h-12', 'shrink-0');
+  it('holds its height as the layout column’s top band, on the chrome’s colour', () => {
+    render();
+    // 56px, and never shrunk by the row below it. It paints the chrome itself: its
+    // compositor layer would otherwise show through on a Linux resize.
+    expect(screen.getByTestId('app-bar')).toHaveClass('h-14', 'shrink-0', 'bg-border', 'transform-gpu');
   });
 
   it('drags the window from anywhere it is not a control, on every platform', () => {
-    const { unmount } = render(<AppBar />);
-    // `deep`, so the spacing and margins between the controls drag too; Tauri
-    // stops at the first clickable element, which is what keeps buttons clicking.
+    const { unmount } = render();
     expect(screen.getByTestId('app-bar')).toHaveAttribute('data-tauri-drag-region', 'deep');
     unmount();
 
     setUserAgent(MAC_USER_AGENT);
-    render(<AppBar />);
+    render();
     expect(screen.getByTestId('app-bar')).toHaveAttribute('data-tauri-drag-region', 'deep');
   });
 
   it('clicks the pressed element when the press drags the window', () => {
-    render(<AppBar />);
-    const spacer = screen.getAllByTestId('app-bar-spacer')[0];
+    render();
+    const spacer = screen.getByTestId('app-bar-spacer');
     const onClick = vi.fn();
     spacer.addEventListener('click', onClick);
     fireEvent.pointerDown(spacer, { button: 0 });
     expect(onClick).toHaveBeenCalledOnce();
   });
 
-  it('centers the omnibox between the two spacers', () => {
-    render(<AppBar />);
-    const bands = Array.from(screen.getByTestId('app-bar').children);
-    const [left, right] = screen.getAllByTestId('app-bar-spacer');
-    const picker = screen.getByTestId('context-omnibox').parentElement!;
-
-    expect(bands.indexOf(left)).toBeLessThan(bands.indexOf(picker));
-    expect(bands.indexOf(picker)).toBeLessThan(bands.indexOf(right));
-    // Both spacers grow, so the omnibox lands in the middle of what's left, and
-    // both keep a floor so a narrow window still leaves room either side of it.
-    expect(left).toHaveClass('flex-1', 'min-w-4');
-    expect(right).toHaveClass('flex-1', 'min-w-4');
+  it('reads left to right: gutter, divider, cluster chip, title, spacer, right toggle, caption buttons', () => {
+    render();
+    const order = [
+      screen.getByTestId('app-bar-gutter'),
+      screen.getByTestId('app-bar-divider'),
+      screen.getByTestId('context-omnibox'),
+      screen.getByTestId('app-bar-title'),
+      screen.getByTestId('app-bar-spacer'),
+      screen.getByRole('button', { name: 'Toggle right sidebar' }),
+      screen.getByRole('button', { name: /close/i }),
+    ].map(indexOf);
+    expect(order).toEqual(order.toSorted((a, b) => a - b));
+    expect(new Set(order).size).toBe(order.length);
+    expect(screen.getByTestId('app-bar-spacer')).toHaveClass('flex-1');
   });
 
-  it('carries the app menu and the caption buttons off macOS', () => {
-    render(<AppBar />);
-    // Frameless there, so the bar is the whole title bar.
-    const bar = screen.getByTestId('app-bar');
-    expect(bar.contains(screen.getByRole('button', { name: /application menu/i }))).toBe(true);
-    expect(bar.contains(screen.getByRole('button', { name: /minimize/i }))).toBe(true);
-    expect(bar.contains(screen.getByRole('button', { name: /close/i }))).toBe(true);
-    // No native lights to leave room for.
-    expect(screen.queryByTestId('traffic-light-gutter')).not.toBeInTheDocument();
+  it('holds the window’s controls, the history nav and the left toggle in the gutter', () => {
+    render();
+    const gutter = screen.getByTestId('app-bar-gutter');
+    const inside = [
+      screen.getByRole('button', { name: /application menu/i }),
+      screen.getByTestId('history-nav'),
+      screen.getByRole('button', { name: 'Toggle sidebar' }),
+    ];
+    expect(inside.every((el) => gutter.contains(el))).toBe(true);
+    expect(Array.from(gutter.children)).toEqual(inside);
+  });
+
+  it('widens the gutter to the page’s left edge while the sidebar is open', () => {
+    render({ sidebarWidth: 300 });
+    // 38px rail, 8px gap, the sidebar, the main card's 1px border.
+    expect(screen.getByTestId('app-bar-gutter').style.width).toBe('347px');
+  });
+
+  it('hugs its contents while the sidebar is collapsed', () => {
+    render({ open: false });
+    expect(screen.getByTestId('app-bar-gutter').style.width).toBe('');
+  });
+
+  it('hugs its contents on a narrow window, where the sidebar is a drawer', () => {
+    // `matches` means "below the medium breakpoint".
+    const setNarrow = mockMatchMedia();
+    Object.defineProperty(window, 'innerWidth', { value: 600, configurable: true });
+    setNarrow(true);
+    render();
+    expect(screen.getByTestId('app-bar-gutter').style.width).toBe('');
+    Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true });
+    setNarrow(false);
+  });
+
+  it('collapses the sidebar from its toggle', () => {
+    const onOpenChange = vi.fn();
+    rtlRender(
+      <SidebarProvider open onOpenChange={onOpenChange}>
+        <AppBar mode="chat" sidebarWidth={256} />
+      </SidebarProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('passes the mode to the title', () => {
+    render({ mode: 'dashboard' });
+    expect(screen.getByTestId('app-bar-title')).toHaveAttribute('data-mode', 'dashboard');
+  });
+
+  it('draws the namespace scope chip on the dashboard alone, after the spacer', () => {
+    const { unmount } = render({ mode: 'dashboard' });
+    const chip = screen.getByTestId('namespace-picker');
+    expect(indexOf(screen.getByTestId('app-bar-spacer'))).toBeLessThan(indexOf(chip));
+    expect(indexOf(chip)).toBeLessThan(indexOf(screen.getByRole('button', { name: 'Toggle right sidebar' })));
+    unmount();
+
+    render({ mode: 'chat' });
+    expect(screen.queryByTestId('namespace-picker')).not.toBeInTheDocument();
+  });
+
+  it('keeps notifications and settings off the bar', () => {
+    render();
+    expect(screen.queryByRole('button', { name: 'Notifications' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
+  });
+
+  it('ends 12px from the edge, or from the caption buttons', () => {
+    render();
+    const toggle = screen.getByRole('button', { name: 'Toggle right sidebar' });
+    expect(toggle.parentElement).toHaveClass('pr-3', 'pl-1');
   });
 
   // The bar is the one place that decides, so `AppMenu`'s `Ctrl/Cmd+N`/`Q`
   // accelerators ride on that decision — they register only where it mounts.
   it('carries the menu accelerators off macOS', () => {
-    render(<AppBar />);
+    render();
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
     expect(invokeMock).toHaveBeenCalledWith('new_window');
   });
 
   it('leaves the accelerators to the native menu on macOS', () => {
     setUserAgent(MAC_USER_AGENT);
-    render(<AppBar />);
+    render();
     // Would fire twice beside the native menu item if the menu mounted here.
     fireEvent.keyDown(window, { key: 'n', metaKey: true });
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
-  it('places the controls after the left chrome, ahead of the omnibox', () => {
-    render(<AppBar />);
-    const bands = Array.from(screen.getByTestId('app-bar').children);
-    const controls = screen.getByTestId('app-bar-controls');
-    const menu = screen.getByRole('button', { name: /application menu/i });
-    expect(bands.indexOf(menu)).toBeLessThan(bands.indexOf(controls));
-    expect(bands.indexOf(controls)).toBeLessThan(bands.indexOf(screen.getAllByTestId('app-bar-spacer')[0]));
-  });
-
-  it('puts the settings controls at the far end, past the omnibox', () => {
-    render(<AppBar />);
-    const bands = Array.from(screen.getByTestId('app-bar').children);
-    const actions = screen.getByTestId('app-bar-actions');
-    const rightSpacer = screen.getAllByTestId('app-bar-spacer')[1];
-    expect(bands.indexOf(rightSpacer)).toBeLessThan(bands.indexOf(actions));
-    // Ahead of the caption buttons, which have to reach the window's corner.
-    const captions = screen.getByRole('button', { name: /close/i }).parentElement!;
-    expect(bands.indexOf(actions)).toBeLessThan(bands.indexOf(captions));
-  });
-
-  it('spaces the right-hand controls 20px from the edge', () => {
-    render(<AppBar />);
-    const actions = screen.getByTestId('app-bar-actions');
-    expect(actions).toHaveClass('mr-5');
-    // Only the notification/settings pill: accounts are not part of the MVP.
-    const pill = screen.getByTestId('settings-button').parentElement!;
-    expect(Array.from(actions.children)).toEqual([pill]);
-    expect(Array.from(pill.children)).toContain(screen.getByTestId('notification-button'));
-  });
-
-  it('spaces the controls 16px from the chrome', () => {
-    render(<AppBar />);
-    const controls = screen.getByTestId('app-bar-controls');
-    expect(controls).toHaveClass('ml-4');
-    expect(Array.from(controls.children)).toEqual([screen.getByTestId('history-nav')]);
-  });
-
   it('reserves the traffic lights and drops the caption chrome on macOS', () => {
     setUserAgent(MAC_USER_AGENT);
-    render(<AppBar />);
+    render();
     // The OS draws the lights and owns the menu bar, so the bar only makes room.
-    const bar = screen.getByTestId('app-bar');
-    expect(bar.contains(screen.getByTestId('traffic-light-gutter'))).toBe(true);
+    const gutter = screen.getByTestId('app-bar-gutter');
+    expect(gutter.firstElementChild).toBe(screen.getByTestId('traffic-light-gutter'));
     expect(screen.queryByRole('button', { name: /application menu/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /minimize/i })).not.toBeInTheDocument();
-
-    // The gutter stands in for the menu, so the history nav still follows it.
-    const bands = Array.from(bar.children);
-    expect(bands.indexOf(screen.getByTestId('traffic-light-gutter'))).toBeLessThan(
-      bands.indexOf(screen.getByTestId('app-bar-controls')),
-    );
   });
 });

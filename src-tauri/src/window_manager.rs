@@ -88,8 +88,8 @@ const LOG_WINDOW: WindowSpec = WindowSpec {
 // every platform so CI covers the arithmetic (hence `allow(dead_code)`).
 
 /// App-bar height, the strip the macOS traffic lights sit in. Kept in sync with
-/// `src/components/shell/app-bar/bar.tsx`'s `h-12`.
-const APP_BAR_HEIGHT: f64 = 48.0;
+/// `src/components/shell/app-bar/bar.tsx`'s `h-14` (a test checks it).
+const APP_BAR_HEIGHT: f64 = 56.0;
 
 /// A log window's bar height, the strip its traffic lights sit in. Kept in sync
 /// with `src/components/logs/log-window/bar.tsx`'s `h-10`.
@@ -943,6 +943,14 @@ mod tests {
         let above = y - super::TRAFFIC_LIGHT_NATIVE_INSET;
         let below = super::APP_BAR_HEIGHT - above - super::TRAFFIC_LIGHT_DIAMETER;
         assert_eq!(above, below);
+    }
+
+    #[test]
+    fn app_bar_height_matches_the_webviews_bar() {
+        // Tailwind's spacing unit is 4px, so the bar's `h-<n>` is `n * 4` px.
+        let bar = include_str!("../../src/components/shell/app-bar/bar.tsx");
+        let class = format!("h-{}", super::APP_BAR_HEIGHT / 4.0);
+        assert!(bar.contains(&class), "bar.tsx should carry `{class}`");
     }
 
     #[test]

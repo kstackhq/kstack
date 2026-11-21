@@ -16,14 +16,13 @@
 // what a query matches; the menu owns the box, the list and picking.
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import { cn } from '@kubetail/ui/lib/utils';
-import { ChevronsUpDown } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useCallback, useId, useRef, useState } from 'react';
 import type { ComponentProps, KeyboardEvent, ReactElement } from 'react';
 
 import { CODE_TEXT } from '@/components/primitives/text-entry';
 import { VisibleText } from '@/components/primitives/visible-text';
-import { SIDEBAR_CONTROL_CLASS } from '@/lib/control-style';
 
 export type ScopeMenuEntry =
   | { type: 'label'; key: string; label: string }
@@ -37,22 +36,23 @@ export type ScopeMenuEntry =
 
 type ScopeTriggerProps = ComponentProps<'button'> & { icon?: LucideIcon };
 
-// The button that opens a menu, as wide as the nav: an icon, what is chosen, and the
-// up-down chevron. The hover needs its `dark:` form to paint over the control's dark fill.
+// The button that opens a menu, as a chip in the app bar: an icon, what is chosen, and
+// a chevron. The fill and border are the sidebar controls' (`SIDEBAR_CONTROL_CLASS`) at
+// the chip's size. The hover needs its `dark:` form to paint over the dark fill.
 export function ScopeTrigger({ icon: Icon, className, children, ...props }: ScopeTriggerProps) {
   return (
     <button
       type="button"
       className={cn(
-        'flex h-9 w-full min-w-0 items-center gap-2 border px-2.5 text-sm font-medium hover:bg-accent dark:hover:bg-accent',
-        SIDEBAR_CONTROL_CLASS,
+        'flex h-7 max-w-60 min-w-0 shrink-0 items-center gap-1.5 rounded-lg border border-sidebar-border bg-background px-2',
+        'text-[13px] font-medium text-foreground hover:bg-accent dark:bg-card dark:hover:bg-accent',
         className,
       )}
       {...props}
     >
       {Icon && <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />}
-      <span className="flex-1 truncate text-left">{children}</span>
-      <ChevronsUpDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate">{children}</span>
+      <ChevronDown aria-hidden className="size-3.25 shrink-0" />
     </button>
   );
 }

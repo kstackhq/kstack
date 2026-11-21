@@ -13,8 +13,9 @@
 // limitations under the License.
 
 // The main window's layout, mounted once by the pathless `_app` route: the app bar
-// over a row holding the floating sidebar beside the routed page. Secondary windows
-// get their own sidebar-less layout alongside this one.
+// over a row of the mode rail beside the main card, which holds the left sidebar, the
+// routed page and the right sidebar. Secondary windows get their own sidebar-less
+// layout alongside this one.
 //
 // Every band is a flex item, so the sidebar and the page start below the chrome by
 // construction. The column's height is definite (`h-`, not `min-h-`) and `main`
@@ -30,14 +31,15 @@ import { AppBar } from '@/components/shell/app-bar';
 import { AppDialogs } from '@/components/shell/app-dialogs';
 import { ConnectionStatus } from '@/components/shell/connection-status';
 import { LeftSidebar } from '@/components/shell/left-sidebar';
-import { ModeNav } from '@/components/shell/mode-nav';
-import { RightSidebar, RightSidebarToggle, pageMinWidth } from '@/components/shell/right-sidebar';
+import { ModeRail } from '@/components/shell/mode-rail';
+import { RightSidebar, pageMinWidth } from '@/components/shell/right-sidebar';
 import type { AppMode } from '@/lib/app-mode';
 import { ChatOutboxProvider } from '@/lib/chat-outbox';
 import { ChatSwitchProvider } from '@/lib/chat-switch';
 import { ClusterCachedDataKindsProvider } from '@/lib/cluster-cached-data-kinds';
 import { ClusterNamespacesProvider } from '@/lib/cluster-namespaces';
 import { DialogProvider } from '@/lib/dialog';
+import { useLeftSidebarWidth } from '@/lib/left-sidebar-width';
 import { LogWindowsProvider } from '@/lib/log-windows';
 import { LogsViewProvider } from '@/lib/logs-view';
 import { ObjectViewProvider } from '@/lib/object-view';
@@ -54,6 +56,8 @@ export function AppLayout() {
   // The library's provider persists open/collapsed to a `sidebar_state` cookie it
   // never reads back, so hold the state here to keep it across windows.
   const [sidebarOpen, setSidebarOpen] = usePersistedFlag('sidebar-open', true);
+  // Read once here: the sidebar and the bar's gutter draw the same width, live.
+  const [sidebarWidth, setSidebarWidth] = useLeftSidebarWidth();
   // The right sidebar measures the page to stop a drag at the page's floor.
   const pageRef = useRef<HTMLElement>(null);
 
@@ -80,43 +84,44 @@ export function AppLayout() {
                 {/* The log windows move the focused view out of the sidebar, so they sit
               inside both. */}
                 <LogWindowsProvider>
-                  {/* Above the sidebar and the routes: both read the catalog, and the
-                sidebar's namespace picker reads the namespaces on every page. */}
+                  {/* Above the bar, the sidebar and the routes: the nav, the bar's title
+                and the page read the catalog, and the bar's namespace chip reads the
+                namespaces on every page. */}
                   <ClusterCachedDataKindsProvider enabled={onDashboard}>
                     <ClusterNamespacesProvider enabled={onDashboard}>
+                      {/* The column is the chrome: the bar, the rail and the 8px around the
+                      main card show its colour. */}
                       <SidebarProvider
                         open={sidebarOpen}
                         onOpenChange={setSidebarOpen}
-                        className="h-(--app-min-h) min-h-0 flex-col"
+                        className="h-(--app-min-h) min-h-0 flex-col bg-border"
                       >
-                        <AppBar />
-                        {/* `relative`: too narrow for the card beside the page, `LeftSidebar`
-                      floats it over this row. `overflow-clip`: the three items' minimum
-                      widths can sum past a narrow window, and an absolute element with no
-                      nearer positioned ancestor anchors here, past `main`'s clip. */}
-                        <div className="relative flex min-h-0 flex-1 overflow-clip">
-                          {/* The mode switch is pinned: it is how you leave whatever the nav below
-                        is showing, so it must not scroll away with it. */}
-                          <LeftSidebar
-                            header={<ModeNav />}
-                            nav={onDashboard ? <DashboardResourceNav /> : <ChatNav mode="chat" />}
-                          />
-                          <main
-                            ref={pageRef}
-                            className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
-                            style={{ minWidth: pageMinWidth }}
-                          >
-                            <Outlet />
-                          </main>
-                          <RightSidebar page={pageRef} />
-                          {/* Pinned to the row's top-right corner rather than to the page, so it
-                        holds its place as the panel opens under it — over the page while
-                        closed, over the panel once open. Below the sidebar drawer's z-30
-                        scrim: a covered control must not be clickable.
-                        The 16px inset mirrors where the card's own toggle lands (`p-2` on
-                        the card plus `p-2` on its header), so the two sit level. */}
-                          <div className="absolute top-4 right-4 z-20">
-                            <RightSidebarToggle />
+                        <AppBar mode={mode} sidebarWidth={sidebarWidth} />
+                        {/* `overflow-clip`: the items' minimum widths can sum past a narrow
+                        window. */}
+                        <div className="flex min-h-0 flex-1 overflow-clip">
+                          <ModeRail />
+                          {/* 8px between the rail and the card, and of chrome right of and
+                          below it; the bar above is the gap there. */}
+                          <div className="flex min-h-0 min-w-0 flex-1 px-2 pb-2">
+                            {/* `relative`: too narrow for the sidebar beside the page,
+                            `LeftSidebar` floats it over the card as a drawer, and an
+                            absolute element anchors here rather than past `main`'s clip. */}
+                            <div className="relative flex min-h-0 min-w-0 flex-1 overflow-clip rounded-xl border bg-background shadow-md">
+                              <LeftSidebar
+                                width={sidebarWidth}
+                                onResize={setSidebarWidth}
+                                nav={onDashboard ? <DashboardResourceNav /> : <ChatNav mode="chat" />}
+                              />
+                              <main
+                                ref={pageRef}
+                                className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+                                style={{ minWidth: pageMinWidth }}
+                              >
+                                <Outlet />
+                              </main>
+                              <RightSidebar page={pageRef} />
+                            </div>
                           </div>
                         </div>
                       </SidebarProvider>

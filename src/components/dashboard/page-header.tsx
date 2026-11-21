@@ -12,26 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A dashboard page's header: its title and count, and a note under them.
+// A dashboard page's header: its title, and a note under it. A kind's page has no title,
+// since the app bar's breadcrumbs name it, and draws its note alone.
 import type { ReactNode } from 'react';
 
 import { VisibleText } from '@/components/primitives/visible-text';
 
-type PageHeaderProps = { title: string; count?: number; children?: ReactNode };
+type PageHeaderProps = { title?: string; children?: ReactNode };
 
-export function PageHeader({ title, count, children }: PageHeaderProps) {
+export function PageHeader({ title, children }: PageHeaderProps) {
   return (
     <header className="mb-5 space-y-1.5">
-      <div className="flex min-w-0 items-baseline gap-2.5">
+      {title !== undefined && (
         <h1 className="min-w-0 truncate text-2xl font-semibold">
           <VisibleText text={title} />
         </h1>
-        {count !== undefined && (
-          <span data-testid="page-count" className="text-base text-muted-foreground tabular-nums">
-            {count}
-          </span>
-        )}
-      </div>
+      )}
       {children && <p className="text-sm text-muted-foreground">{children}</p>}
     </header>
   );

@@ -62,6 +62,14 @@ describe('NamespacePicker', () => {
     expect(screen.getByRole('button', { name: 'Namespace: All namespaces' })).toHaveTextContent('All namespaces');
   });
 
+  it('is a chip in the app bar that does not drag the window', () => {
+    setup();
+    render(<NamespacePicker />);
+    const chip = screen.getByRole('button', { name: /^Namespace:/ });
+    expect(chip).toHaveAttribute('data-tauri-drag-region', 'false');
+    expect(chip).toHaveClass('h-7', 'rounded-lg', 'border-sidebar-border', 'bg-background');
+  });
+
   it('names the chosen namespace through VisibleText', () => {
     setup({ namespace: 'a\u200bb' });
     render(<NamespacePicker />);

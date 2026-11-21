@@ -12,21 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Settings button at the right of the app bar, beside the account control. The
-// dialog it asks for renders in `AppDialogs`, above the sidebar — only the request
-// is made here.
-import { Settings } from 'lucide-react';
-
-import { useDialog } from '@/lib/dialog';
-
-import { AppBarButton } from './button';
-
-export function SettingsButton() {
-  const { openDialog } = useDialog();
-
-  return (
-    <AppBarButton aria-label="Settings" className="border-transparent" onClick={() => openDialog('settings')}>
-      <Settings aria-hidden />
-    </AppBarButton>
-  );
-}
+// The mode rail. Its buttons are its own.
+export { ModeRail } from './rail';

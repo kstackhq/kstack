@@ -34,7 +34,7 @@ beforeEach(() => {
 // Tests ---------------------------------------------------------------
 
 describe('SettingsButton', () => {
-  it('offers settings from the app bar', () => {
+  it('offers settings from the mode rail', () => {
     render(<SettingsButton />);
     expect(button()).toBeInTheDocument();
   });

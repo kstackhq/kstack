@@ -25,7 +25,7 @@ const button = () => screen.getByRole('button', { name: 'Notifications' });
 // Tests ---------------------------------------------------------------
 
 describe('NotificationButton', () => {
-  it('offers notifications from the app bar', () => {
+  it('offers notifications from the mode rail', () => {
     render(<NotificationButton />);
     expect(button()).toBeInTheDocument();
   });

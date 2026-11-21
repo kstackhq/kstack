@@ -168,7 +168,7 @@ export function ChatNav({ mode }: { mode: AppMode }) {
 
       {/* Sticky, so the rows it filters scroll under it. */}
       {!onDashboard && chats.length > 0 && (
-        <div className="sticky top-0 z-10 bg-sidebar pb-2">
+        <div className="sticky top-0 z-10 bg-app-bar pb-2">
           <SearchBox
             aria-label="Search chats"
             placeholder="Search"

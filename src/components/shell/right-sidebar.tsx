@@ -12,17 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The window's right sidebar: flush against the app bar and the window's bottom
-// edge, unlike the floating card on the left — it is a wall of the window, not a
-// panel over the page. Closed until its toggle asks for it; the layout pins that
-// toggle to the content row's top-right corner, so it holds its place as the panel
-// opens under it.
+// The window's right sidebar: the main card's right column, beside the page. Closed
+// until its toggle, at the app bar's right end, asks for it.
 //
 // What it holds follows the mode, since the two have nothing in common: the dashboard
 // gets the focused object, else a chat of its own; chat mode the focused log view, or a
 // placeholder while none is set. The panel does not scroll — its contents own a scroller
 // each, and one inside another gives two scrollbars that fight.
 import { Button } from '@kubetail/ui/elements/button';
+import { cn } from '@kubetail/ui/lib/utils';
 import { PanelRight } from 'lucide-react';
 import type { RefObject } from 'react';
 import { useCallback, useRef } from 'react';
@@ -32,6 +30,7 @@ import { ObjectPanel } from '@/components/dashboard/object-panel';
 import { LogsViewPanel } from '@/components/logs/log-panel';
 import { ResizeHandle } from '@/components/primitives/resize-handle';
 import type { AppMode } from '@/lib/app-mode';
+import { APP_BAR_HOVER_CLASS } from '@/lib/control-style';
 import { useLogWindows } from '@/lib/log-windows';
 import { useLogsView } from '@/lib/logs-view';
 import { useObjectView } from '@/lib/object-view';
@@ -59,6 +58,9 @@ function room(aside: HTMLElement, page: HTMLElement) {
   const floor = Math.min(PAGE_MIN_WIDTH, rowWidth / 2);
   return aside.getBoundingClientRect().right - page.getBoundingClientRect().left - floor;
 }
+// The chrome right of the main card and the card's border (`app-layout.tsx`).
+const CARD_INSET = 8 + 1;
+
 const widthKey = (mode: AppMode) => `right-sidebar-width:${mode}`;
 
 function Placeholder({ title, detail }: { title: string; detail: string }) {
@@ -107,9 +109,9 @@ export function RightSidebarToggle() {
       aria-label="Toggle right sidebar"
       aria-pressed={open}
       onClick={toggle}
-      className="text-muted-foreground"
+      className={cn('size-7 rounded-md text-muted-foreground', APP_BAR_HOVER_CLASS)}
     >
-      <PanelRight aria-hidden />
+      <PanelRight className="size-4" aria-hidden />
     </Button>
   );
 }
@@ -132,7 +134,7 @@ export function RightSidebar({ page }: { page: RefObject<HTMLElement | null> }) 
   const onDashboard = mode === 'dashboard';
 
   return (
-    // An ordinary item in the content row, so it takes its width from the page
+    // An ordinary item in the main card's row, so it takes its width from the page
     // rather than covering it, and the row's height makes it flush top and bottom.
     // `relative` anchors the resize handle on its inner edge. It shrinks before the page
     // goes under its floor, down to its minimum; the stored width is left alone for a wider
@@ -141,13 +143,14 @@ export function RightSidebar({ page }: { page: RefObject<HTMLElement | null> }) 
       ref={asideRef}
       data-testid="right-sidebar"
       aria-label={onDashboard ? 'Dashboard details' : 'Chat details'}
-      className="relative flex flex-col overflow-hidden bg-card"
+      className="relative flex flex-col overflow-hidden border-l bg-background"
       style={{ width, minWidth: WIDTH[mode].min }}
     >
       {onDashboard ? <DashboardPanel /> : <ChatPanel />}
-      {/* The panel ends at the window's right edge, so what is left of the window
-          from the pointer is its width. */}
-      <ResizeHandle edge="left" onResize={resize} label="Resize right sidebar" />
+      {/* The panel ends 9px inside the window's right edge (the card's 8px of chrome
+          and its 1px border), so what is left of the window from the pointer, less
+          that, is its width. */}
+      <ResizeHandle edge="left" offset={-CARD_INSET} onResize={resize} label="Resize right sidebar" />
     </aside>
   );
 }

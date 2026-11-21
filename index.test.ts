@@ -27,6 +27,12 @@ describe('index.html boot mark', () => {
         '<img class="dark-only" src="/src/assets/icons/app-dark.svg" width="48" height="48" alt="" /></div></div>',
     );
   });
+
+  // The app bar's height, so the window drags from the same strip before and after
+  // the bundle paints.
+  it('makes the boot drag strip the app bar’s 56px', () => {
+    expect(html).toMatch(/\.boot-drag \{[^}]*height: 56px;/);
+  });
 });
 
 // src/assets/icons/ is make generate-icons' output; an edit there is lost on the next run.

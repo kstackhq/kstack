@@ -84,6 +84,14 @@ beforeEach(() => {
 describe('ClusterPicker', () => {
   // A chat and a namespace belong to a cluster, so neither follows a cluster switch —
   // and the rest of the window's state does.
+  // jsdom lays nothing out (and normalizes the `calc`), so this checks the style that
+  // sizes it: the chip it hangs
+  // from is far narrower than the list.
+  it('opens at a width of its own, not the chip’s', async () => {
+    await openPicker();
+    expect(screen.getByTestId('cluster-picker').style.width).toBe('min(640px, -16px + 100vw)');
+  });
+
   it('switches cluster from a row, closing the panel’s chat and the namespace scope', async () => {
     const user = await openPicker();
     await user.click(row('staging'));

@@ -39,6 +39,8 @@ describe('ReadyGate', () => {
     expect(screen.getByRole('status')).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByTestId('app-mark')).toBeInTheDocument();
     expect(screen.getByTestId('drag-strip')).toHaveAttribute('data-tauri-drag-region', 'deep');
+    // The app bar's 56px, where the macOS traffic lights sit.
+    expect(screen.getByTestId('drag-strip')).toHaveClass('h-14');
     expect(screen.queryByText('the app')).not.toBeInTheDocument();
   });
 

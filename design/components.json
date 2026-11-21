@@ -104,7 +104,11 @@
       },
       "code": [
         {
-          "path": "src/components/shell/app-bar/bar.tsx",
+          "path": "src/components/shell/mode-rail/notification-button.tsx",
+          "blob": "5d41e00f28aa6792ab645925b7fb15fce77da2d5"
+        },
+        {
+          "path": "src/components/shell/mode-rail/settings-button.tsx",
           "blob": "5d41e00f28aa6792ab645925b7fb15fce77da2d5"
         }
       ]
@@ -146,7 +150,7 @@
       },
       "code": [
         {
-          "path": "src/components/shell/mode-nav.tsx",
+          "path": "src/components/shell/mode-rail/rail.tsx",
           "blob": "979578f200f85525136212e5f653bc77d9691ad5"
         }
       ]

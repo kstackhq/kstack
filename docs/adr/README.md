@@ -283,3 +283,4 @@ usually just documentation in the wrong place.
 | 2026-11-20 | [Every provider is one row, signed by one service](2026-11-20-every-provider-is-one-row-signed-by-one-service.md) | cross-cutting | Accepted |
 | 2026-11-20 | [A launch restores keyring credentials in the background](2026-11-20-a-launch-restores-keyring-credentials-in-the-background.md) | cross-cutting | Accepted |
 | 2026-11-21 | [Keep the tool settings as rows in app.db](2026-11-21-tool-settings-are-rows-in-app-db.md) | sidecar | Accepted |
+| 2026-11-21 | [The chrome holds the mode switch, the scope and the global actions](2026-11-21-the-chrome-holds-the-mode-switch-the-scope-and-the-global-actions.md) | frontend | Accepted |

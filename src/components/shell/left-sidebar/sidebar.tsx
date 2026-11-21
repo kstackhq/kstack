@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The window's left sidebar, as the layout mounts it: the open `LeftSidebarCard` or the
-// collapsed `LeftSidebarPill`. Too narrow for the card beside the page, the pill holds
-// the row alone and the toggle opens the card over it as a drawer — so opening one
-// never moves the page under the pointer, and narrowing never throws a panel over it.
+// The window's left sidebar, as the layout mounts it: the open `LeftSidebarCard`, or
+// nothing while collapsed. Too narrow for the card beside the page, the toggle opens
+// it over the main card as a drawer, so opening one never moves the page under the
+// pointer, and narrowing never throws a panel over it.
 //
 // Open/collapsed state, the drawer's own state, and `Cmd/Ctrl+B` come from the
 // library's `SidebarProvider`, mounted by `app-layout.tsx`; this reads them through
@@ -31,16 +31,16 @@ import { useEffect } from 'react';
 import { useFocusTrap } from '@/lib/focus-trap';
 
 import { LeftSidebarCard } from './card';
-import { LeftSidebarPill } from './pill';
 
 type LeftSidebarProps = {
-  /** Pinned above the scroll area, beside the toggle. */
-  header?: ReactNode;
-  /** Sidebar body (navigation, pickers) — scrolls under the header. */
+  /** Padding included; the layout holds it, since the app bar's gutter reads it too. */
+  width: number;
+  onResize: (px: number) => void;
+  /** Sidebar body (navigation, pickers). */
   nav?: ReactNode;
 };
 
-export function LeftSidebar({ header, nav }: LeftSidebarProps) {
+export function LeftSidebar({ width, onResize, nav }: LeftSidebarProps) {
   const { open, isMobile, openMobile, setOpenMobile } = useSidebar();
   const drawer = isMobile && openMobile;
   const trapRef = useFocusTrap<HTMLDivElement>(drawer);
@@ -66,38 +66,34 @@ export function LeftSidebar({ header, nav }: LeftSidebarProps) {
     setOpenMobile(false);
   }, [href, setOpenMobile]);
 
-  if (!isMobile) return open ? <LeftSidebarCard header={header} nav={nav} /> : <LeftSidebarPill />;
+  const card = <LeftSidebarCard width={width} onResize={onResize} nav={nav} />;
+  if (!isMobile) return open ? card : null;
+  if (!drawer) return null;
 
   return (
+    // Both anchor to the main card (`app-layout.tsx` positions it), so the scrim
+    // covers the card alone and the rail and the app bar stay usable.
     <>
-      {/* The pill holds the row's width, so the page keeps its geometry while the
-          card floats above it. Both anchor to the content row (`app-layout.tsx`
-          positions it). */}
-      <LeftSidebarPill />
-      {drawer && (
-        <>
-          <button
-            type="button"
-            aria-label="Close sidebar"
-            data-testid="sidebar-scrim"
-            onClick={() => setOpenMobile(false)}
-            className="absolute inset-0 z-30 cursor-default bg-black/40"
-          />
-          {/* A panel over the page has to hold the keyboard as well as the eye:
-              the trap keeps Tab inside it and hands focus back on close, and
-              `aria-modal` tells assistive tech to ignore what it covers. */}
-          <div
-            ref={trapRef}
-            role="dialog"
-            aria-modal
-            aria-label="Sidebar"
-            data-testid="sidebar-overlay"
-            className="absolute inset-y-0 left-0 z-40 flex drop-shadow-xl"
-          >
-            <LeftSidebarCard header={header} nav={nav} />
-          </div>
-        </>
-      )}
+      <button
+        type="button"
+        aria-label="Close sidebar"
+        data-testid="sidebar-scrim"
+        onClick={() => setOpenMobile(false)}
+        className="absolute inset-0 z-30 cursor-default bg-black/40"
+      />
+      {/* A panel over the page has to hold the keyboard as well as the eye: the
+            trap keeps Tab inside it and hands focus back on close, and `aria-modal`
+            tells assistive tech to ignore what it covers. */}
+      <div
+        ref={trapRef}
+        role="dialog"
+        aria-modal
+        aria-label="Sidebar"
+        data-testid="sidebar-overlay"
+        className="absolute inset-y-0 left-0 z-40 flex drop-shadow-xl"
+      >
+        {card}
+      </div>
     </>
   );
 }
