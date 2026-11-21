@@ -177,15 +177,13 @@ func authorize(p Provider, r *http.Request) error {
 	return nil
 }
 
-// userAgent names Kstack to every vendor, in place of the SDK's or Go's own
-// name: some vendors watch for anonymous clients.
-var userAgent = "kstack/" + version.Version
-
 // send is every wire's middleware: name Kstack, authorize, send, and tell a
-// signer of a 401. A redirect fails here, since NoRedirectClient follows none
-// and the SDKs read a 3xx as an answer.
+// signer of a 401. Kstack's User-Agent leads and the SDK's own follows: some
+// vendors watch for anonymous clients, and read the SDK's for support. A
+// redirect fails here, since NoRedirectClient follows none and the SDKs read a
+// 3xx as an answer.
 func send(p Provider, r *http.Request, next func(*http.Request) (*http.Response, error)) (*http.Response, error) {
-	r.Header.Set("User-Agent", userAgent)
+	r.Header.Set("User-Agent", version.Prefix(r.Header.Get("User-Agent")))
 	if err := authorize(p, r); err != nil {
 		// A cancel or an idle trip while the signer waited ends the request,
 		// not the credential.
@@ -211,16 +209,19 @@ func send(p Provider, r *http.Request, next func(*http.Request) (*http.Response,
 }
 
 // SignedDo sends req as every wire sends a request of p: authorized, following
-// no redirect, a signer told of a 401. Its User-Agent is always Kstack's,
-// whatever req carries.
+// no redirect, a signer told of a 401. Its User-Agent leads with Kstack's.
 func SignedDo(p Provider, req *http.Request) (*http.Response, error) {
 	return send(p, req, NoRedirectClient.Do)
 }
 
-// NoRedirectClient is every request's client. It follows no redirect: Go
+// NoRedirectClient is every request's client. It puts Kstack's User-Agent
+// ahead of the request's own, an AWS SDK's included. It follows no redirect: Go
 // resends Authorization to a target on the same domain or a subdomain, and any
 // other header to any target, and a credential is for its endpoint alone.
-var NoRedirectClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+var NoRedirectClient = &http.Client{
+	Transport:     version.Transport(nil),
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
 
 // providerOptions is a provider's own lines as one SDK's request options: its
 // query parameters, its extra body fields, the wire's own options, and last the

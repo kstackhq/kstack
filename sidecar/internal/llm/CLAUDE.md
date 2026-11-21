@@ -48,8 +48,8 @@ internal/llm/
 
 - **`Provider.Key` or `Provider.Signer`, never both** (`New` panics). A `Signer` sets each
   request's authorization and hears a `401` (`Refused`). Every wire runs `send` (`helpers.go`) on
-  `NoRedirectClient`, key or signer; no SDK is given a key. `send` also sets
-  `User-Agent: kstack/<version>`. `authorize` puts a key where
+  `NoRedirectClient`, key or signer; no SDK is given a key. `send` also puts
+  `version.UserAgent()` ahead of the SDK's own token; `NoRedirectClient` does too, for the connectors' SDKs. `authorize` puts a key where
   `AuthHeader` says: `KeyHeader`, else the dialect's own header. Every production provider is
   signed by `services/providercredentials`, which takes each route's header from `AuthHeader` too. A failed `Sign` sends nothing: `SignError`. → [ADR: a provider's
   credential is a key or a signer](../../../docs/adr/2026-11-18-a-providers-credential-is-a-key-or-a-signer.md).

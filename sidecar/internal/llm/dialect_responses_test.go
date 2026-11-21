@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -159,7 +160,7 @@ func TestResponsesStreamsAReplyAndRecordsIt(t *testing.T) {
 	assert.Equal(t, false, rec.body["store"])
 	assert.Equal(t, "/responses", rec.path)
 	assert.Equal(t, "Bearer sk-test", rec.header.Get("Authorization"))
-	assert.Equal(t, "kstack/"+version.Version, rec.header.Get("User-Agent"))
+	assert.Regexp(t, "^"+regexp.QuoteMeta(version.UserAgent())+" OpenAI/Go [0-9.]+$", rec.header.Get("User-Agent"))
 }
 
 // A model that lists efforts asks to reason at that level and for a summary of it.

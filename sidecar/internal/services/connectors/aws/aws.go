@@ -157,8 +157,6 @@ type option func(*Service)
 
 func withBrowser(open func(string) error) option { return func(s *Service) { s.open = open } }
 
-func withHTTPClient(c *http.Client) option { return func(s *Service) { s.httpClient = c } }
-
 func withNow(now func() time.Time) option { return func(s *Service) { s.now = now } }
 
 func withAttemptTimeout(d time.Duration) option { return func(s *Service) { s.attemptTimeout = d } }

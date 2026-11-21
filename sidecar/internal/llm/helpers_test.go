@@ -284,5 +284,23 @@ func TestSignedDoNamesKstack(t *testing.T) {
 	require.NoError(t, err)
 	resp.Body.Close()
 
-	assert.Equal(t, "kstack/"+version.Version, got)
+	assert.Equal(t, version.UserAgent(), got)
+}
+
+// The connectors send through NoRedirectClient without send, so the client
+// itself names Kstack.
+func TestNoRedirectClientNamesKstack(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("User-Agent")
+	}))
+	t.Cleanup(srv.Close)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
+	require.NoError(t, err)
+
+	resp, err := NoRedirectClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	assert.Equal(t, version.UserAgent(), got)
 }

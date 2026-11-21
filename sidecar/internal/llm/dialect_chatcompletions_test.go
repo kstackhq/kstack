@@ -21,6 +21,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -135,7 +136,7 @@ func TestChatCompletionsStreamsAReplyAndRecordsIt(t *testing.T) {
 	}, rec.body["messages"])
 	assert.Equal(t, "/chat/completions", rec.path)
 	assert.Equal(t, "Bearer gsk-test", rec.header.Get("Authorization"))
-	assert.Equal(t, "kstack/"+version.Version, rec.header.Get("User-Agent"))
+	assert.Regexp(t, "^"+regexp.QuoteMeta(version.UserAgent())+" OpenAI/Go [0-9.]+$", rec.header.Get("User-Agent"))
 }
 
 // The wire streams no usage unless asked for it, so every request asks.

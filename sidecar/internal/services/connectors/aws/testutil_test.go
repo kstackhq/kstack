@@ -164,7 +164,7 @@ func (r *rig) build() *Service {
 // start is build without the wait for the restore.
 func (r *rig) start() *Service {
 	r.t.Helper()
-	opts := append([]option{withBrowser(following), withHTTPClient(r.signin.client())}, r.opts...)
+	opts := append([]option{withBrowser(following)}, r.opts...)
 	s, err := newWithOptions(Config{SigninURL: r.signin.url(), Keyring: r.calls}, opts...)
 	require.NoError(r.t, err)
 	r.t.Cleanup(s.Close)
@@ -322,6 +322,7 @@ type fakeSignin struct {
 	refreshes  map[string]string     // live refresh token → the key it is bound to
 	authorizes []url.Values
 	bodies     []map[string]string
+	agents     []string // each token request's User-Agent
 	keyIDs     []string // every access key id handed out
 	secrets    []string // every refresh token, secret key and session token handed out
 }
@@ -348,8 +349,7 @@ func newFakeSignin(t *testing.T) *fakeSignin {
 	return f
 }
 
-func (f *fakeSignin) url() string          { return f.srv.URL }
-func (f *fakeSignin) client() *http.Client { return f.srv.Client() }
+func (f *fakeSignin) url() string { return f.srv.URL }
 
 // authorize redirects to redirect_uri with a code and the state, as AWS does.
 func (f *fakeSignin) authorize(w http.ResponseWriter, r *http.Request) {
@@ -369,6 +369,7 @@ func (f *fakeSignin) token(w http.ResponseWriter, r *http.Request) {
 	require.NoError(f.t, json.NewDecoder(r.Body).Decode(&body))
 	f.mu.Lock()
 	f.bodies = append(f.bodies, body)
+	f.agents = append(f.agents, r.Header.Get("User-Agent"))
 	fail, hold, answer := f.tokenErr, f.hold, f.answer
 	f.mu.Unlock()
 	if hold != nil {
@@ -468,6 +469,12 @@ func (f *fakeSignin) tokenBodies() []map[string]string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]map[string]string(nil), f.bodies...)
+}
+
+func (f *fakeSignin) userAgents() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.agents...)
 }
 
 func (f *fakeSignin) mintedSecrets() []string {

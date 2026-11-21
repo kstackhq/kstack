@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
@@ -98,6 +100,19 @@ func TestASignInConnectsAsThePrincipalAndKeepsTheSession(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, connectors.Connected, r.restart().State().Phase)
+}
+
+// The signin SDK names itself; Kstack's agent leads it, once.
+func TestASignInNamesKstackAheadOfTheSDK(t *testing.T) {
+	r := newRig(t)
+	connect(t, r.svc)
+
+	agents := r.signin.userAgents()
+	require.Len(t, agents, 1)
+	sdk, ok := strings.CutPrefix(agents[0], version.UserAgent()+" ")
+	require.True(t, ok, agents[0])
+	assert.Contains(t, sdk, "aws-sdk-go-v2/")
+	assert.NotContains(t, sdk, "kstack-desktop/")
 }
 
 func TestASignInTheUserDeclinesIsDeclined(t *testing.T) {
