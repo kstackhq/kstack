@@ -1584,3 +1584,86 @@ func TestATurnsRuntimeCarriesItsChatsSwitch(t *testing.T) {
 		assert.Equal(t, "chat 1/"+string(msg.ChatID)+"/"+want, rows[0].result)
 	}
 }
+
+// A tool the user turned off leaves the next turn's offer and its section of
+// the system prompt; turned on again, it is back on the turn after.
+func TestATurnIsNotOfferedAToolTheUserTurnedOff(t *testing.T) {
+	t.Parallel()
+
+	s := startServiceWithTool(t, testTool{name: "echo"}, testTool{name: "other"})
+	setToolEnabled(t, s, "echo", false)
+
+	msg := send(t, s, nil, "1", "hi")
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+	req := fakeOf(s).LastRequest()
+	assert.Equal(t, []string{"other"}, offered(req))
+	assert.NotContains(t, req.SystemPrompt, "## echo")
+	assert.Contains(t, req.SystemPrompt, "## other")
+
+	setToolEnabled(t, s, "echo", true)
+	next := send(t, s, &msg.ChatID, "2", "again")
+	awaitSettled(t, s, msg.ChatID, next.ID)
+	assert.Equal(t, []string{"echo", "other"}, offered(fakeOf(s).LastRequest()))
+}
+
+// The tool settings are read once per turn: a tool turned off while a turn runs
+// stays in that turn's offer.
+func TestARunningTurnKeepsItsTools(t *testing.T) {
+	t.Parallel()
+
+	s := startServiceWithTool(t, testTool{name: "echo"})
+	gate := make(chan struct{})
+	fakeOf(s).SetGate(gate)
+	fakeOf(s).SetToolCalls(llm.StagedCall("echo", `{}`))
+
+	msg := send(t, s, nil, "1", "hi")
+	awaitLiveContent(t, s, msg.ChatID)
+	setToolEnabled(t, s, "echo", false)
+	close(gate)
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+
+	reqs := fakeOf(s).Requests()
+	require.Len(t, reqs, 2)
+	for _, req := range reqs {
+		assert.Equal(t, []string{"echo"}, offered(req))
+	}
+	rows := toolCallRows(t, s.db, msg.RunID)
+	require.Len(t, rows, 1)
+	assert.Equal(t, toolSucceeded, rows[0].status)
+}
+
+// Turning a tool off takes it from the offer, never from the box: a call of it
+// is refused as a name the turn lacks, and its row still records the tool's
+// contract and draws its action.
+func TestACallOfAToolTurnedOffIsRefusedAndStillDraws(t *testing.T) {
+	t.Parallel()
+
+	s := startServiceWithTool(t, testTool{name: "echo"})
+	setToolEnabled(t, s, "echo", false)
+	fakeOf(s).SetToolCalls(llm.StagedCall("echo", `{"x":1}`))
+
+	msg := send(t, s, nil, "1", "hi")
+	settled := awaitSettled(t, s, msg.ChatID, msg.ID)
+
+	rows := toolCallRows(t, s.db, msg.RunID)
+	require.Len(t, rows, 1)
+	assert.Equal(t, `{"error":"unknown-tool"}`, rows[0].result)
+	assert.Equal(t, "echo/v1", rows[0].contract)
+	calls, err := settled.ToolCallList()
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	assert.Equal(t, &tools.Action{Command: &tools.CommandAction{Text: `{"x":1}`}}, calls[0].Action)
+}
+
+// A send whose read of the tool settings fails writes nothing.
+func TestASendThatCannotReadTheToolSettingsIsRefused(t *testing.T) {
+	t.Parallel()
+
+	s := startServiceWithTool(t, testTool{name: "echo"})
+	_, err := s.db.Write.Exec(`DROP TABLE tool_settings`)
+	require.NoError(t, err)
+
+	_, err = s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi", nil)
+	assert.ErrorContains(t, err, "disabled tools")
+	assert.Empty(t, fakeOf(s).Requests(), "no model asked")
+}

@@ -273,13 +273,17 @@ func (s *service) tryNoticeTurn(ctx context.Context, chatID ChatID) error {
 		if replaced := s.withSandboxReplaced(withoutView(newest), state); replaced != newest {
 			question = []llm.Block{llm.ContextBlock(replaced)}
 		}
-		if err := roomFor(ctx, st, chatID, target, s.boxFor(target)); err != nil {
+		off, err := disabledTools(ctx, st)
+		if err != nil {
+			return err
+		}
+		if err := roomFor(ctx, st, chatID, target, s.boxFor(target, off)); err != nil {
 			return err
 		}
 		if t, err = s.reserveTurn(chatID, newRunID(), target); err != nil {
 			return err
 		}
-		t.outsideSandbox = c.SandboxDisabled
+		t.outsideSandbox, t.disabledTools = c.SandboxDisabled, off
 		if err := markNotified(ctx, st, chatID, at); err != nil {
 			return err
 		}

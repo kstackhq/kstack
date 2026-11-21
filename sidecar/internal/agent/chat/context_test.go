@@ -341,7 +341,7 @@ func TestAChatWithNoTurnHasNothingToCount(t *testing.T) {
 	used, err := lastContextUse(t.Context(), st, c.ID, "fake")
 	require.NoError(t, err)
 	assert.Zero(t, used)
-	assert.NoError(t, roomFor(t.Context(), st, c.ID, target, s.boxFor(target)))
+	assert.NoError(t, roomFor(t.Context(), st, c.ID, target, s.boxFor(target, nil)))
 }
 
 // A store that cannot answer either read fails the send rather than admitting it,
@@ -355,14 +355,14 @@ func TestRoomForReportsAStoreItCannotRead(t *testing.T) {
 	closed := newTestSet(t)
 	require.NoError(t, closed.Close())
 
-	assert.ErrorContains(t, roomFor(t.Context(), closed.Stmts(), "c", target, s.boxFor(target)), "newest run")
+	assert.ErrorContains(t, roomFor(t.Context(), closed.Stmts(), "c", target, s.boxFor(target, nil)), "newest run")
 
 	// The first read answers, the second cannot: it is swapped for a read of the
 	// wrong shape, so only the count fails.
 	table := swapped(map[stmtID]string{stmtSelectLastContextUse: `SELECT 'text', 0, 0, 0`})
 	open := prepareTable(t, openTestDB(t, t.TempDir()), table).Stmts()
 
-	assert.ErrorContains(t, roomFor(t.Context(), open, "c", target, s.boxFor(target)), "last context use")
+	assert.ErrorContains(t, roomFor(t.Context(), open, "c", target, s.boxFor(target, nil)), "last context use")
 }
 
 // A count is its provider's: a switch to a provider of another dialect with no
@@ -399,5 +399,5 @@ func TestASubagentsCallsDoNotCount(t *testing.T) {
 
 	target, err := s.llmSvc.Resolve("fake", "fake", "")
 	require.NoError(t, err)
-	assert.NoError(t, roomFor(t.Context(), s.store.Stmts(), first.ChatID, target, s.boxFor(target)))
+	assert.NoError(t, roomFor(t.Context(), s.store.Stmts(), first.ChatID, target, s.boxFor(target, nil)))
 }

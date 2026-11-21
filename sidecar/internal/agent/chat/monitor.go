@@ -61,7 +61,11 @@ func (s *service) RunMonitor(ctx context.Context, clusterID apimeta.ClusterID, t
 		return MonitorResult{}, ErrNoSandbox
 	}
 	brief = strings.TrimSpace(brief)
-	box := s.boxFor(target)
+	off, err := disabledTools(ctx, s.store.Stmts())
+	if err != nil {
+		return MonitorResult{}, err
+	}
+	box := s.boxFor(target, off)
 	if brief == "" || len(brief) > maxMonitorBriefLen || box.Empty() {
 		return MonitorResult{}, ErrBadRequest
 	}

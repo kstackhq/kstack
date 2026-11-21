@@ -123,15 +123,16 @@ func TestANoticeTurnWhoseReadFailsStartsNothing(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct{ name, corrupt string }{
-		{name: "no answer names a run", corrupt: `UPDATE messages SET run_id = NULL WHERE chat_id = ?`},
-		{name: "the newest context does not parse", corrupt: `UPDATE messages SET content = '[' WHERE chat_id = ? AND role = 'user'`},
+		{name: "no answer names a run", corrupt: `UPDATE messages SET run_id = NULL`},
+		{name: "the newest context does not parse", corrupt: `UPDATE messages SET content = '[' WHERE role = 'user'`},
+		{name: "the tool settings do not read", corrupt: `DROP TABLE tool_settings`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tt := newTaskTool()
 			s := startServiceWithTool(t, tt)
 			first, ft := startTaskTurn(t, s, tt, nil, "1")
 			done := taskDoneOf(t, s, first.ChatID, ft)
-			_, err := s.db.Write.Exec(tc.corrupt, string(first.ChatID))
+			_, err := s.db.Write.Exec(tc.corrupt)
 			require.NoError(t, err)
 
 			ft.exit(0)

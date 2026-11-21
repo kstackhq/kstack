@@ -73,7 +73,7 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 		Messages: []llm.Message{{Role: string(RoleUser), Blocks: subagentMessage(card, d.Prompt)}},
 		// Its prefix is its brief, not the chat's.
 		AffinityKey: string(run.ID),
-		Tools:       SubagentBox(s.boxFor(target)),
+		Tools:       SubagentBox(s.boxFor(target, t.disabledTools)),
 		Runtime: tools.Runtime{
 			ClusterID: t.clusterID, ChatID: chatID, Session: session.Narrow(t.session()),
 			Dir: s.chatDir(chatID), Tasks: s.chatTasks(chatID, c.runJournal), Files: runStamps{},

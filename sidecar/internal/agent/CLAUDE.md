@@ -96,7 +96,8 @@ statement), `statements.go`, `stream.go`, `sweep.go`, `chatdir.go`, `workspace.g
 
 **The turn.** `Send` checks the model and effort **after the replay lookup** (a replay answers by
 `requestID` alone, so a catalog change must not refuse a retry); a bad name is `ErrBadRequest`
-with nothing written. The box is `s.tools.For(target, s.lists.ToolsFor(target))`; `AffinityKey` is
+with nothing written. The box is `boxFor`: `For(target, s.lists.ToolsFor(target))` `.WithoutNames` the disabled tools, read where the
+turn is reserved; its subagents keep it. Off leaves the offer, not the box, so stored calls draw. `AffinityKey` is
 the chat id. `prompts/system.md` states only what is true now and has every cluster command name
 the card's `cluster.context` (the app's cluster need not be the kubeconfig's current one). **A
 row's tool blocks enter the history only when it settled `Complete`**; an answer that failed empty

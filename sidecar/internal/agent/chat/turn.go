@@ -77,6 +77,9 @@ type turn struct {
 	clusterID       apimeta.ClusterID
 	outsideSandbox  bool
 	networkThisTurn bool
+	// disabledTools is the tools the user turned off, read where the turn was
+	// reserved: the turn and its subagents are offered what was on then.
+	disabledTools []string
 }
 
 // runJournal is one run's journal: the loop's Recorder and Approver, which
@@ -241,7 +244,7 @@ func (s *service) run(t *turn) (res loop.Result, err error) {
 	t.clusterID = chat.ClusterID
 	spec := loop.Turn{
 		Target: t.target, SystemPrompt: SystemPrompt(), Messages: history, AffinityKey: string(t.chatID),
-		Tools: s.boxFor(t.target),
+		Tools: s.boxFor(t.target, t.disabledTools),
 		Runtime: tools.Runtime{
 			ClusterID: t.clusterID, ChatID: t.chatID, Session: t.session(),
 			Dir: s.chatDir(t.chatID), Tasks: s.chatTasks(t.chatID, t.runJournal), Files: s.chatFiles(t.chatID),
@@ -271,10 +274,12 @@ func (s *service) chatOf(t *turn) (Chat, error) {
 }
 
 // boxFor is what a run on target is offered: the tools its list names that the
-// target takes, from the service's box. A model that takes no tools is offered
-// none, so the prompt says so and Stream is never handed an offer it refuses.
-func (s *service) boxFor(target llm.Target) tools.Box {
-	return s.tools.For(target, s.lists.ToolsFor(target))
+// target takes and the user has not disabled, from the service's box. A model
+// that takes no tools is offered none, so the prompt says so and Stream is
+// never handed an offer it refuses. The service's box still reads every
+// stored call.
+func (s *service) boxFor(target llm.Target, disabled []string) tools.Box {
+	return s.tools.For(target, s.lists.ToolsFor(target)).WithoutNames(disabled)
 }
 
 // history is the chat's stored messages as the model is shown them: every message

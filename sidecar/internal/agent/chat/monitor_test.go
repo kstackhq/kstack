@@ -391,3 +391,31 @@ func TestAMonitorSettleTheStoreRefusesLeavesTheRunRunning(t *testing.T) {
 	assert.Equal(t, RunSucceeded, res.Status)
 	assert.Equal(t, RunRunning, runStatusOf(t, s.db, res.RunID))
 }
+
+// A monitor run is offered nothing the user turned off.
+func TestAMonitorRunFollowsTheToolSettings(t *testing.T) {
+	t.Parallel()
+
+	s := startMonitorService(t, "card-7", testTool{name: "echo"}, testTool{name: "other"})
+	setMonitoring(t, s.db, "7", true)
+	setToolEnabled(t, s, "echo", false)
+
+	res, err := s.RunMonitor(t.Context(), "7", fakeTarget(s), "look at the pods")
+	require.NoError(t, err)
+	assert.Equal(t, RunSucceeded, res.Status)
+	assert.Equal(t, []string{"other"}, offered(fakeOf(s).LastRequest()))
+}
+
+// A monitor run whose read of the tool settings fails does not start.
+func TestAMonitorRunThatCannotReadTheToolSettingsIsRefused(t *testing.T) {
+	t.Parallel()
+
+	s := startMonitorService(t, "card-7", testTool{name: "echo"})
+	setMonitoring(t, s.db, "7", true)
+	_, err := s.db.Write.Exec(`DROP TABLE tool_settings`)
+	require.NoError(t, err)
+
+	_, err = s.RunMonitor(t.Context(), "7", fakeTarget(s), "look at the pods")
+	assert.ErrorContains(t, err, "disabled tools")
+	assert.Empty(t, fakeOf(s).Requests(), "no model asked")
+}

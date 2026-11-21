@@ -76,6 +76,8 @@ const (
 	stmtSelectClusterMonitoring
 	stmtSelectLiveClusterIDs
 
+	stmtSelectDisabledTools
+
 	stmtSelectChatGrants
 	stmtUpsertChatGrant
 	stmtDeleteChatGrant
@@ -316,6 +318,11 @@ var statements = []sqlstmt.Statement{
 	stmtSelectClusterMonitoring: sqlstmt.OnBoth(`SELECT monitoring_enabled FROM clusters WHERE id = ? AND delete_requested_at IS NULL`),
 	// The clusters a monitor may be kept under: the sweeper ends every other.
 	stmtSelectLiveClusterIDs: sqlstmt.OnReader(`SELECT id FROM clusters WHERE delete_requested_at IS NULL`),
+
+	// The tools the user turned off for every cluster (services/toolsettings
+	// owns the table). OnBoth, since a send reads them in the transaction that
+	// reserves its turn.
+	stmtSelectDisabledTools: sqlstmt.OnBoth(`SELECT tool_name FROM tool_settings WHERE cluster_id IS NULL AND enabled = 0`),
 
 	// OnBoth, since a grant's write reads the chat's rules in its transaction.
 	stmtSelectChatGrants: sqlstmt.OnBoth(`SELECT rule FROM chat_grants WHERE chat_id = ? ORDER BY created_at, id`),

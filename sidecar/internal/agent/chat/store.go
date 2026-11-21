@@ -1116,6 +1116,11 @@ func liveClusterIDs(ctx context.Context, st stmts) ([]apimeta.ClusterID, error) 
 	return collectIDs[apimeta.ClusterID](ctx, st, stmtSelectLiveClusterIDs, "live clusters")
 }
 
+// disabledTools is the names of the tools the user turned off.
+func disabledTools(ctx context.Context, st stmts) ([]string, error) {
+	return collectIDs[string](ctx, st, stmtSelectDisabledTools, "disabled tools")
+}
+
 // collectIDs runs a statement whose rows are one id each.
 func collectIDs[ID ~string](ctx context.Context, st stmts, stmt stmtID, what string, args ...any) ([]ID, error) {
 	rows, err := st.Query(ctx, stmt, args...)

@@ -1769,3 +1769,21 @@ func TestASubagentRunsOnItsModelsOverrides(t *testing.T) {
 		assert.Equal(t, c.effort, target.Effort, c.model)
 	}
 }
+
+// A subagent is offered what its parent's turn was: a tool turned off is out of
+// both.
+func TestASubagentFollowsTheToolSettings(t *testing.T) {
+	t.Parallel()
+
+	s := startServiceWithAgent(t, testTool{name: "echo"}, testTool{name: "other"})
+	setToolEnabled(t, s, "echo", false)
+	sub := subagentFake(s, "Count the pods.")
+	fakeOf(s).SetToolCalls(agentCall("Count the pods."))
+
+	msg := send(t, s, nil, "k", "how many pods?")
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+	awaitTasks(t, s, msg.ChatID)
+
+	assert.Equal(t, []string{agent.Name, "other"}, offered(fakeOf(s).Requests()[0]))
+	assert.Equal(t, []string{"other"}, offered(sub.LastRequest()))
+}

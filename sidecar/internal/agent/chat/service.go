@@ -557,9 +557,13 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 		if c.NetworkEnabled != networkEnabled {
 			return ErrChatNetworkChanged
 		}
+		off, err := disabledTools(ctx, st)
+		if err != nil {
+			return err
+		}
 		// Before anything is written.
 		if chatID != nil {
-			if err := roomFor(ctx, st, *chatID, target, s.boxFor(target)); err != nil {
+			if err := roomFor(ctx, st, *chatID, target, s.boxFor(target, off)); err != nil {
 				return err
 			}
 		}
@@ -573,7 +577,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 			return err
 		}
 		// Pinned here, beside the context block that tells the model.
-		t.outsideSandbox, t.networkThisTurn = disabled, networkThisTurn
+		t.outsideSandbox, t.networkThisTurn, t.disabledTools = disabled, networkThisTurn, off
 		// The chat's id is known only now: a new chat has none when the card is
 		// rendered.
 		block := s.withWorkspace(contextText, id)

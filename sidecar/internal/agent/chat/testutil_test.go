@@ -42,6 +42,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
+	"github.com/kstackhq/kstack/sidecar/internal/services/toolsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -789,4 +790,13 @@ func testSettings(t *testing.T) *settings.Service {
 	s, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	return settings.NewService(s, nil, nil, "")
+}
+
+// setToolEnabled turns the tool named name on or off, as Settings does.
+func setToolEnabled(t *testing.T, s *service, name string, enabled bool) {
+	t.Helper()
+	settings, err := toolsettings.New(s.db, []toolsettings.Listing{{Name: name}}, time.Now)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, settings.Close()) })
+	require.NoError(t, settings.Set(t.Context(), name, enabled))
 }
