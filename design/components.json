@@ -951,7 +951,7 @@
       "figma": {
         "node": "22:2516",
         "name": "Platforms",
-        "hash": "f749ebad80fd47d5"
+        "hash": "f4120a1dfc230c0f"
       },
       "code": [
         {
@@ -969,7 +969,7 @@
       "figma": {
         "node": "42:10238",
         "name": "Popups on Shell",
-        "hash": "7cd08f39334f8492"
+        "hash": "eb3ed577a9cfea30"
       },
       "code": [
         {
@@ -986,7 +986,7 @@
       "figma": {
         "node": "42:10239",
         "name": "ClusterStatus",
-        "hash": "bad0b74fa9b4e2ea"
+        "hash": "cb53841a91163fd9"
       },
       "code": [
         {
@@ -1000,7 +1000,7 @@
       "figma": {
         "node": "42:10240",
         "name": "ClusterPicker",
-        "hash": "0b6b3c6bea5bc86f"
+        "hash": "08a6e6144fcb7db6"
       },
       "code": [
         {
@@ -1028,7 +1028,7 @@
       "figma": {
         "node": "43:9226",
         "name": "AppMenu",
-        "hash": "5474ef26aab096b6"
+        "hash": "c13cd3d6ccec5635"
       },
       "code": [
         {
