@@ -9,6 +9,7 @@ macOS and Windows update in the app; Linux does not. Also owns `scripts/sign-upd
 - **A release build checks each trusted key's manifest**, `https://updates.kstack.sh/desktop/stable/latest-<key id>.json`, at launch and every 24 hours (`find`, `CHECK_INTERVAL`). The current key's (`plugins.updater` in `tauri.conf.json`) goes first, then the standby's (`updater-standby.json`; absent until promoted, which counts as no update). The first update found wins (`check_each`).
 - **Each check's update is verified against that check's key alone** and, with `requireSignedVersion`, only a signature made for the manifest's version. `the_updater_pins_its_keys_manifests_and_signed_version` holds each endpoint to its key's id.
 - A check that takes over `CHECK_TIMEOUT` (30s) fails like any other.
+- **The check and the download send the sidecar's User-Agent**, `kstack-desktop/<version> (<GOOS>/<GOARCH>)` (`user_agent`), set in `platform.rs::builder`.
 
 ## The install
 

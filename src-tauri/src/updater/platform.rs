@@ -165,11 +165,18 @@ fn updaters(app: &AppHandle) -> tauri_plugin_updater::Result<[Updater; 2]> {
 /// the installer finds its executable locked.
 fn builder(app: &AppHandle) -> tauri_plugin_updater::UpdaterBuilder {
     let hook = app.clone();
+    // The plugin builds the check's and the download's clients alike, naming
+    // itself, and `configure_client` runs last on both.
+    let user_agent = super::user_agent(&app.package_info().version);
     // `timeout` bounds the check alone: the plugin gives the `Update` it
     // returns none, so the read timeout is what ends a stalled download.
     app.updater_builder()
         .timeout(super::CHECK_TIMEOUT)
-        .configure_client(|client| client.read_timeout(super::DOWNLOAD_STALL))
+        .configure_client(move |client| {
+            client
+                .read_timeout(super::DOWNLOAD_STALL)
+                .user_agent(user_agent.clone())
+        })
         .on_before_exit(move || {
             crate::stop_for_install(&hook);
             hook.cleanup_before_exit();

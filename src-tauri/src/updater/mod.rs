@@ -53,6 +53,26 @@ pub const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a download may go without receiving a byte before it fails.
 pub const DOWNLOAD_STALL: Duration = Duration::from_secs(60);
 
+/// The User-Agent of the manifest check and the download, in the sidecar's
+/// shape: `kstack-desktop/<version> (<GOOS>/<GOARCH>)`, Go's platform names.
+pub fn user_agent(version: impl Display) -> String {
+    format!(
+        "kstack-desktop/{version} ({}/{})",
+        go_name(std::env::consts::OS),
+        go_name(std::env::consts::ARCH)
+    )
+}
+
+/// The name Go gives a Rust OS or architecture.
+fn go_name(rust: &str) -> &str {
+    match rust {
+        "macos" => "darwin",
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => other,
+    }
+}
+
 /// A key the app trusts, and the manifest signed with it.
 #[derive(Deserialize)]
 pub struct Key {
@@ -291,6 +311,23 @@ mod tests {
         assert!(updater.get("dangerousInsecureTransportProtocol").is_none());
         assert!(updater.get("dangerousAcceptInvalidCerts").is_none());
         assert!(updater.get("dangerousAcceptInvalidHostnames").is_none());
+    }
+
+    #[test]
+    fn the_user_agent_names_the_desktop_app_as_the_sidecar_does() {
+        let platform = format!(
+            "{}/{}",
+            go_name(std::env::consts::OS),
+            go_name(std::env::consts::ARCH)
+        );
+        assert_eq!(
+            user_agent("1.2.3"),
+            format!("kstack-desktop/1.2.3 ({platform})")
+        );
+        assert_eq!(go_name("macos"), "darwin");
+        assert_eq!(go_name("windows"), "windows");
+        assert_eq!(go_name("x86_64"), "amd64");
+        assert_eq!(go_name("aarch64"), "arm64");
     }
 
     #[test]
