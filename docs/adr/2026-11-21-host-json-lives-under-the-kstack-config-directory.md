@@ -24,9 +24,9 @@ created owner-only. That is `~/Library/Application Support/Kstack` on macOS (the
 
 `host_file::manage` resolves the path once in `setup`, before the first window, and manages it as
 `host_file::Location`. Each write makes the directory owner-only again, unless it is a link, and the
-file `0600`. The host passes the directory's path to the sidecar as `--config-dir`, so the file
-tools and the sandbox deny it with Kstack's other directories. Nothing copies the bundle-id file
-across: the app is not public, so no user has a color scheme to keep.
+file `0600`. The host passes the directory's path to the sidecar, unconverted, as `--config-dir`, so
+the file tools and the sandbox deny it with Kstack's other directories. Nothing copies the bundle-id
+file across: the app is not public, so no user has a color scheme to keep.
 
 `make clean-data` deletes the dev build's config directory with its data and cache directories, so
 it resets the dev build's settings too.
@@ -45,7 +45,7 @@ it resets the dev build's settings too.
 - A dev build and a release each keep their own `host.json`.
 - An install of `desktop/v0.0.1` starts with the default color scheme. Its old file stays in the
   bundle-id directory, which nothing reads.
-- A config directory that the platform cannot name or that cannot be made leaves `host.json` with no
-  location: windows paint the defaults and a change fails, but the app starts. The sidecar still
+- A config directory that the platform cannot name or that cannot be made leaves `host.json` with
+  no location: windows paint the defaults and a change fails, but the app starts. The sidecar still
   fences any directory the platform named, made or not; it gets no `--config-dir` only when there is
   no name.

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::ffi::OsString;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -92,7 +93,7 @@ impl SidecarService {
     /// its arguments: `app.rs` resolves the bundled binary, a test a stand-in.
     pub fn spawn(
         roots: &Roots,
-        sidecar: impl FnOnce(Vec<String>) -> Result<Command>,
+        sidecar: impl FnOnce(Vec<OsString>) -> Result<Command>,
     ) -> Result<Self> {
         // Created up front, owner-only, so the sidecar makes its own beneath them.
         let data = app_data_dir(roots)?;
@@ -441,33 +442,36 @@ struct Dirs {
 ///
 /// `log_file` is where the sidecar keeps its own log. `None` leaves the flag
 /// off and the sidecar logs to stderr, which we forward.
-fn cmd_args(socket: &Endpoint, dirs: &Dirs, log_file: Option<&std::path::Path>) -> Vec<String> {
-    let mut args: Vec<String> = [
-        ("--socket", socket.as_arg().to_owned()),
-        ("--data-dir", dirs.data.to_string_lossy().into_owned()),
-        ("--cache-dir", dirs.cache.to_string_lossy().into_owned()),
-        ("--runtime-dir", dirs.runtime.to_string_lossy().into_owned()),
-        ("--host-pid", std::process::id().to_string()),
-        ("--oauth-issuer", OAUTH_ISSUER.to_owned()),
-        ("--oauth-client-id", OAUTH_CLIENT_ID.to_owned()),
-        ("--keychain-service", KEYCHAIN_SERVICE.to_owned()),
+///
+/// Paths go as the OS spells them: a lossy conversion would hand the sidecar a
+/// different directory than the host uses, and fence the wrong one.
+fn cmd_args(socket: &Endpoint, dirs: &Dirs, log_file: Option<&std::path::Path>) -> Vec<OsString> {
+    let mut args: Vec<OsString> = [
+        ("--socket", socket.as_arg().into()),
+        ("--data-dir", dirs.data.clone().into()),
+        ("--cache-dir", dirs.cache.clone().into()),
+        ("--runtime-dir", dirs.runtime.clone().into()),
+        ("--host-pid", std::process::id().to_string().into()),
+        ("--oauth-issuer", OAUTH_ISSUER.into()),
+        ("--oauth-client-id", OAUTH_CLIENT_ID.into()),
+        ("--keychain-service", KEYCHAIN_SERVICE.into()),
     ]
     .into_iter()
-    .flat_map(|(flag, value)| [flag.to_owned(), value])
+    .flat_map(|(flag, value): (&str, OsString)| [flag.into(), value])
     .collect();
 
     if let Some(dir) = &dirs.config {
-        args.push("--config-dir".to_owned());
-        args.push(dir.to_string_lossy().into_owned());
+        args.push("--config-dir".into());
+        args.push(dir.clone().into());
     }
     if let Some(path) = log_file {
-        args.push("--log-file".to_owned());
-        args.push(path.to_string_lossy().into_owned());
+        args.push("--log-file".into());
+        args.push(path.into());
     }
     // A developer's terminal wants both processes' records; a release build's
     // pipes stay quiet so nothing is stored twice.
     if cfg!(debug_assertions) {
-        args.push("--log-stderr".to_owned());
+        args.push("--log-stderr".into());
     }
     args
 }
@@ -664,7 +668,27 @@ mod tests {
         if cfg!(debug_assertions) {
             want.push("--log-stderr".to_owned());
         }
+        let want: Vec<OsString> = want.into_iter().map(OsString::from).collect();
         assert_eq!(cmd_args(&path, &dirs, Some(&log_file)), want);
+    }
+
+    /// Linux paths are bytes, not UTF-8. The sidecar must fence the directory
+    /// the host writes, not a lossy spelling of it.
+    #[cfg(unix)]
+    #[test]
+    fn cmd_args_keeps_a_path_that_is_not_utf8() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let base = std::env::temp_dir();
+        let path = Endpoint::pick(&base).expect("pick should succeed");
+        let config = OsString::from_vec(b"/home/x/.config/\xffKstack".to_vec());
+        let dirs = Dirs {
+            config: Some(config.clone().into()),
+            ..test_dirs()
+        };
+        let args = cmd_args(&path, &dirs, None);
+        let at = args.iter().position(|a| a == "--config-dir").unwrap();
+        assert_eq!(args[at + 1], config);
     }
 
     fn test_dirs() -> Dirs {
@@ -716,7 +740,7 @@ mod tests {
         app: &tauri::App<tauri::test::MockRuntime>,
         roots: &Roots,
         script: &str,
-    ) -> (SidecarService, Vec<String>) {
+    ) -> (SidecarService, Vec<OsString>) {
         use tauri_plugin_shell::ShellExt;
 
         let mut handed = Vec::new();
@@ -804,7 +828,7 @@ mod tests {
         let (service, args) = spawn_script(&app, &roots, "exit 0");
 
         let at = args.iter().position(|a| a == "--config-dir").unwrap();
-        assert_eq!(args[at + 1], config.to_string_lossy());
+        assert_eq!(args[at + 1], config.into_os_string());
         service.kill();
     }
 
