@@ -26,7 +26,7 @@ type RunCheck struct {
 // NewRunCheck resolves open, never and home's broad folders once for every
 // entry of a run.
 func NewRunCheck(open sandbox.FilePolicy, never []string, home string) RunCheck {
-	return RunCheck{z: resolveZones(Zones{Never: never, Open: open, Home: home})}
+	return RunCheck{z: zonesOf(Zones{Never: never, Open: open, Home: home})}
 }
 
 // Folder is the folder a run searches for an adopted entry, and whether the

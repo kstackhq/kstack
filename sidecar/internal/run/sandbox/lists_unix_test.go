@@ -135,8 +135,7 @@ func TestANestedHomeIsNotAnotherUsersHome(t *testing.T) {
 }
 
 // A Never path on or above the home is dropped, so a home of /root or one
-// inside a denied folder does not deny itself. Never reads nothing under the
-// home, so the home need not exist.
+// inside a denied folder does not deny itself. The home need not exist.
 func TestANeverPathAboveTheHomeIsDropped(t *testing.T) {
 	otherHomesIn(t, t.TempDir())
 	base := resolved(t.TempDir())

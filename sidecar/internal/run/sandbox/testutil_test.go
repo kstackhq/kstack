@@ -80,10 +80,20 @@ func withoutCoverWarning(out []byte) string {
 	return strings.ReplaceAll(string(out), coverWarning, "")
 }
 
+// canonicalOf is paths, canonical.
+func canonicalOf(t *testing.T, paths ...string) []string {
+	t.Helper()
+	c, err := Canonical(paths)
+	require.NoError(t, err)
+	return c
+}
+
 // compiledRules is the rules p compiles to, unchecked.
 func compiledRules(t *testing.T, p Policy) []rule {
 	t.Helper()
-	return p.rules()
+	c, err := p.canonicalPaths()
+	require.NoError(t, err)
+	return p.rules(c)
 }
 
 // checked is why r cannot start, or nil.

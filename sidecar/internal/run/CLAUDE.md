@@ -69,11 +69,11 @@ that rule and gets its line in `TestNarrowKeepsTheParentsIdentity`.
   `OpenFiles`, `Processes`, counted over `Sandbox.CountedProcesses()` plus `forwarderTasks` →
   [ADR: process limits are set inside the run](../../../docs/adr/2026-10-02-process-limits-are-set-inside-the-run.md).
 
-**`Check`** refuses, among others, anything beneath a Write, a run's own path that is a link, and
-a memory or process limit with no open-files limit (`sandbox-shell` cannot restore the one Go
-raised). Paths compare resolved (`paths.go`), a missing one through its
-deepest existing folder. Both platforms compile one merged list (`Policy.rules`), last match
-winning, the run's own paths last.
+**`Check`** refuses, among others, anything beneath a Write, a run's own path that is a link, a
+rule the kernel cannot name, a folder named two ways and a memory or process limit with no
+open-files limit. **Two paths compare as files** (`Under`, `Same`); text tells only inside one
+compiled policy. Both platforms compile one merged list (`Policy.rules`), last match winning, own
+paths last. → [ADR](../../../docs/adr/2026-11-22-paths-are-compared-as-files.md).
 
 **`neverEnv` (`env.go`) is the one list of variables that may never pass** (agent sockets,
 `DOCKER_HOST`, tokens, loader variables, shell startup hooks, every `AWS_`, `ARM_` and `AZURE_`

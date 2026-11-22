@@ -276,7 +276,7 @@ func (s *Service) setState(dir, target string, state PathState, already error, s
 // folder is open, and the snapshot the folder checks read until the next.
 func (s *Service) view(resolved []string) pathView {
 	snap := takeSnapshot(s.zones(), resolved)
-	z := resolveZones(snap.zones)
+	z := zonesOf(snap.zones)
 	kept, dropped := filterPath(resolved, z)
 	v := pathView{dropped: dropped, snap: snap}
 	for _, d := range kept {

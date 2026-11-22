@@ -101,3 +101,16 @@ func TestWithSearchOpensTheFolderItself(t *testing.T) {
 	}, got)
 	assert.Equal(t, []string{downloads, documents}, files.Deny, "the policy it was called on is unchanged")
 }
+
+// The kernel follows a link before the .. after it, so the entry names the
+// folder beside the link's target, not the one beside the link.
+func TestSearchFolderFollowsALinkBeforeDotDot(t *testing.T) {
+	base := resolved(t.TempDir())
+	dirs := mkdirs(t, base, "bin", "versions/bin", "versions/v1")
+	beside, target := dirs[1], dirs[2]
+	require.NoError(t, os.Symlink(target, filepath.Join(base, "current")))
+
+	folder, _, reason := SearchFolder(base+"/current/../bin", nil, nil)
+	assert.Empty(t, reason)
+	assert.Equal(t, beside, folder)
+}

@@ -24,11 +24,13 @@ import (
 )
 
 // Resolved first, since Windows can hand out a temp dir under its short name.
-func TestSpelledKeepsAPathTheDiskLists(t *testing.T) {
+func TestCanonicalKeepsAPathTheDiskLists(t *testing.T) {
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "Code", "svc"), 0o755))
 	svc := filepath.Join(dir, "Code", "svc")
-	assert.Equal(t, []string{svc, filepath.Join(dir, "Code", "missing", "x")},
-		Spelled([]string{svc, filepath.Join(dir, "Code", "missing", "x")}), "a path as listed, and one that is not kept as given")
+	paths := []string{svc, filepath.Join(dir, "Code", "missing", "x")}
+	got, err := Canonical(paths)
+	require.NoError(t, err)
+	assert.Equal(t, paths, got, "a path as listed, and one that is not kept as given")
 }

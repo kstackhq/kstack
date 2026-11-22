@@ -78,7 +78,7 @@ func (f Fence) Walk(folder session.Folder, path string) (File, error) {
 	w := walk{grant: folder.Path, never: statAll(h.Never)}
 	for _, c := range h.Closed {
 		// A closed folder over the grant is the folder the grant opens.
-		if c != folder.Path && sandbox.Under(c, []string{folder.Path}) {
+		if !sandbox.Same(c, folder.Path) && sandbox.Under(c, []string{folder.Path}) {
 			w.closed = append(w.closed, statAll([]string{c})...)
 		}
 	}

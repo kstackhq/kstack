@@ -17,12 +17,14 @@ package sandbox
 import (
 	"bufio"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
@@ -67,4 +69,80 @@ func TestAnIgnoredSIGXCPUOutlivesTheLimit(t *testing.T) {
 
 	require.Eventually(t, func() bool { return cpuSeconds(pid) >= cpuGrace+2 }, 3*testutil.Timeout, 100*time.Millisecond,
 		"the spin stopped before seven seconds of CPU")
+}
+
+// deniedAt is where p's compiled Deny rules lie.
+func deniedAt(t *testing.T, p Policy) []string {
+	t.Helper()
+	var at []string
+	for _, r := range compiledRules(t, p) {
+		if r.kind == ruleDeny {
+			at = append(at, r.at)
+		}
+	}
+	return at
+}
+
+// A Read granted in the disk's spelling reaches a denied-always path whose
+// link spells it in another case, so its Deny is compiled.
+func TestADenyLinkedInAnotherCaseIsCompiled(t *testing.T) {
+	folder, link := linkInAnotherCase(t)
+	p := Policy{
+		Files:  FilePolicy{Read: []string{filepath.Dir(folder)}},
+		Always: AlwaysPolicy{Deny: []string{link}},
+	}
+
+	assert.Equal(t, []string{folder}, deniedAt(t, p))
+}
+
+// A Kstack root linked in another case, as a dotfiles-managed config folder
+// can be, is denied under a Read granted in the disk's spelling.
+func TestAKstackRootLinkedInAnotherCaseIsDenied(t *testing.T) {
+	folder, link := linkInAnotherCase(t)
+	p := Policy{
+		Files:  FilePolicy{Read: []string{filepath.Dir(folder)}},
+		Always: AlwaysPolicy{Kstack: []string{link}},
+	}
+
+	assert.Equal(t, []string{folder}, deniedAt(t, p))
+}
+
+// Check compares in the disk's spelling: a Read on a Kstack root that a link
+// spells in another case lies on a path no rule opens.
+func TestCheckRefusesAReadOnAKstackRootLinkedInAnotherCase(t *testing.T) {
+	folder, link := linkInAnotherCase(t)
+	p := Policy{
+		Files:  FilePolicy{Read: []string{folder}},
+		Always: AlwaysPolicy{Kstack: []string{link}},
+	}
+
+	assert.ErrorContains(t, p.Check(), "lies on or inside a path no rule opens")
+}
+
+// Outside compares in the disk's spelling: a Read inside a path that a link
+// spells in another case is dropped.
+func TestOutsideDropsARuleInsideAPathLinkedInAnotherCase(t *testing.T) {
+	folder, link := linkInAnotherCase(t)
+	f := FilePolicy{Read: []string{folder, filepath.Dir(folder)}}
+
+	assert.Equal(t, []string{filepath.Dir(folder)}, f.Outside(link).Read)
+}
+
+// A toolchain or shell folder that is the home in another case would compile
+// to a Read on the home.
+func TestAFolderLinkedInAnotherCaseIsBroad(t *testing.T) {
+	folder, link := linkInAnotherCase(t)
+
+	assert.True(t, isBroad(link, broadDirs(folder)))
+}
+
+func TestAPathEntryLinkedInAnotherCaseIsBroad(t *testing.T) {
+	folder, link := linkInAnotherCase(t)
+
+	_, _, reason := SearchFolder(link, nil, Broad(folder))
+	assert.Equal(t, "broad", reason)
+
+	got, _, reason := SearchFolder(link, nil, nil)
+	assert.Empty(t, reason)
+	assert.Equal(t, folder, got, "the folder as the disk spells it")
 }

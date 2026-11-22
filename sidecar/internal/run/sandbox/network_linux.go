@@ -175,8 +175,7 @@ func resolverTarget(p Policy) (string, error) {
 	if r, err := filepath.EvalSymlinks(hostResolvConf); err == nil {
 		at = r
 	}
-	denied := resolvedAll(slices.Concat(p.Files.Deny, p.Always.Deny, p.Always.Kstack))
-	if overFixedMount(at) || inAny(at, denied) {
+	if overFixedMount(at) || Under(at, slices.Concat(p.Files.Deny, p.Always.Deny, p.Always.Kstack)) {
 		return "", fmt.Errorf("the host's resolv.conf is %s, where a run's resolver cannot be bound", at)
 	}
 	return at, nil

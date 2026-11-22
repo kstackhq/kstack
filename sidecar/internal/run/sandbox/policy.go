@@ -104,58 +104,124 @@ func (p Policy) Check() error {
 	return err
 }
 
-// compile is p's rules, or why p cannot be enforced as written.
+// compile is p's rules, or why p cannot be enforced as written. It reads each
+// path's canonical form once, so the rules it checks are the rules it answers.
 func (p Policy) compile() ([]rule, error) {
-	if err := p.check(); err != nil {
+	c, err := p.canonicalPaths()
+	if err != nil {
 		return nil, err
 	}
-	return p.rules(), nil
+	if err := p.check(c); err != nil {
+		return nil, err
+	}
+	return p.rules(c), nil
+}
+
+// canonicalPaths is each path a policy's rules name and its canonical form.
+type canonicalPaths map[string]string
+
+// of is each of paths, canonical.
+func (c canonicalPaths) of(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = c[p]
+	}
+	return out
+}
+
+// canonicalPaths is p's canonicalPaths, or why it has none: a path that is not
+// absolute, one the kernel cannot name, or two that name one folder two ways.
+// The rules are checked and compiled by their text, and compared under
+// another name a rule could miss one it overlaps, and a Deny be dropped as out
+// of reach.
+func (p Policy) canonicalPaths() (canonicalPaths, error) {
+	for _, path := range p.paths() {
+		if !filepath.IsAbs(path) {
+			return nil, fmt.Errorf("%s is not an absolute path", path)
+		}
+	}
+	named := slices.Concat(p.rulePaths(), p.ownResolver())
+	at, err := Canonical(named)
+	if err == nil {
+		err = aliased(at, fileOf)
+	}
+	if err != nil {
+		return nil, err
+	}
+	c := canonicalPaths{}
+	for i, path := range named {
+		c[path] = at[i]
+	}
+	return c, nil
+}
+
+// aliased is why paths cannot be compared by text, or nil: two of them hold a
+// file its folder names two ways, as a folder that folds names does where the
+// kernel gives no stored spelling. file is the file at a path (fileOf).
+func aliased(paths []string, file func(string) (fileID, bool)) error {
+	type entry struct {
+		folder string
+		file   fileID
+	}
+	names := map[entry]string{}
+	seen := map[string]bool{}
+	for _, p := range paths {
+		for at := p; !seen[at]; at = filepath.Dir(at) {
+			seen[at] = true
+			f, ok := file(at)
+			if !ok {
+				continue
+			}
+			e := entry{filepath.Dir(at), f}
+			if other, named := names[e]; named {
+				return fmt.Errorf("%s and %s name one file", other, at)
+			}
+			names[e] = at
+		}
+	}
+	return nil
 }
 
 // check is why p cannot be enforced as written, or nil. Paths are compared
-// resolved, since both sandboxes check a file at its real location.
-func (p Policy) check() error {
-	for _, path := range p.paths() {
-		if !filepath.IsAbs(path) {
-			return fmt.Errorf("%s is not an absolute path", path)
-		}
-	}
+// canonical, since both sandboxes check a file at its real location.
+func (p Policy) check(c canonicalPaths) error {
 	// A run can rename what a Write rule covers, so a rule beneath one could be
 	// moved out from under.
-	writes := resolvedAll(slices.Concat(p.Files.Write, p.Always.Write))
-	for _, path := range p.rulePaths() {
-		r := resolved(path)
+	writes := c.of(slices.Concat(p.Files.Write, p.Always.Write))
+	rulePaths := p.rulePaths()
+	for i, r := range c.of(rulePaths) {
 		for _, w := range writes {
 			if r != w && within(r, w) {
-				return fmt.Errorf("%s lies beneath the Write rule %s", path, w)
+				return fmt.Errorf("%s lies beneath the Write rule %s", rulePaths[i], w)
 			}
 		}
 	}
-	kstack, denied := resolvedAll(p.Always.Kstack), resolvedAll(p.Always.Deny)
+	kstack, denied := c.of(p.Always.Kstack), c.of(p.Always.Deny)
 	always := slices.Concat(denied, kstack)
 	files := slices.Concat(p.Files.Read, p.Files.Write, p.Files.Deny)
-	for _, path := range files {
-		if inAny(resolved(path), always) {
-			return fmt.Errorf("%s lies on or inside a path no rule opens", path)
+	for i, r := range c.of(files) {
+		if inAny(r, always) {
+			return fmt.Errorf("%s lies on or inside a path no rule opens", files[i])
 		}
 	}
-	for _, path := range slices.Concat(files, p.Always.Read, p.Always.Write) {
-		if overFixedMount(resolved(path)) {
-			return fmt.Errorf("a rule on %s would replace a mount every run has", path)
+	mounted := slices.Concat(files, p.Always.Read, p.Always.Write)
+	for i, r := range c.of(mounted) {
+		if overFixedMount(r) {
+			return fmt.Errorf("a rule on %s would replace a mount every run has", mounted[i])
 		}
 	}
 	if p.Network.Resolver != "" && !p.Network.Internet {
 		return errors.New("a resolver for a run without the internet")
 	}
-	for _, path := range slices.Concat(p.Always.Read, p.Always.Write, p.ownResolver()) {
-		if err := notLink(path); err != nil {
+	own := slices.Concat(p.Always.Read, p.Always.Write, p.ownResolver())
+	for i, r := range c.of(own) {
+		if err := notLink(own[i]); err != nil {
 			return err
 		}
-		r := resolved(path)
 		// The run's own paths compile last, so a denial inside one would lose.
 		holdsDenied := slices.ContainsFunc(denied, func(d string) bool { return within(d, r) })
 		if !inAny(r, kstack) || inAny(r, denied) || holdsDenied {
-			return fmt.Errorf("%s is not inside Kstack's directories, clear of the denied-always list", path)
+			return fmt.Errorf("%s is not inside Kstack's directories, clear of the denied-always list", own[i])
 		}
 	}
 	if len(p.Network.Relays) > 1 {
@@ -206,11 +272,10 @@ func (p Policy) paths() []string {
 }
 
 // Outside is f less every Read or Write rule on or inside one of paths,
-// compared resolved.
+// compared as files. It reads the disk.
 func (f FilePolicy) Outside(paths ...string) FilePolicy {
-	out := resolvedAll(paths)
 	keep := func(rules []string) []string {
-		return slices.DeleteFunc(slices.Clone(rules), func(r string) bool { return inAny(resolved(r), out) })
+		return slices.DeleteFunc(slices.Clone(rules), func(r string) bool { return Under(r, paths) })
 	}
 	return FilePolicy{Read: keep(f.Read), Write: keep(f.Write), Deny: f.Deny}
 }
@@ -234,7 +299,7 @@ const (
 )
 
 // rule is one file rule as a platform compiles it: its path as written and
-// resolved, and whether it is one of the run's own paths inside Kstack's
+// canonical, and whether it is one of the run's own paths inside Kstack's
 // directories.
 type rule struct {
 	path, at string
@@ -248,12 +313,12 @@ type rule struct {
 // shallowest first. A Read or Write rule whose path does not exist opens
 // nothing and is left out. A Deny is left out where no Files Read or Write
 // reaches it, since its path is off limits already.
-func (p Policy) rules() []rule {
+func (p Policy) rules(c canonicalPaths) []rule {
 	files := slices.Concat(
-		rulesOf(p.Files.Write, ruleWrite, false), rulesOf(p.Files.Read, ruleRead, false), rulesOf(p.Files.Deny, ruleDeny, false))
+		c.rules(p.Files.Write, ruleWrite, false), c.rules(p.Files.Read, ruleRead, false), c.rules(p.Files.Deny, ruleDeny, false))
 	sortRules(files)
-	always := slices.Concat(rulesOf(p.Always.Deny, ruleDeny, false), rulesOf(p.Always.Kstack, ruleDeny, false))
-	own := slices.Concat(rulesOf(p.Always.Write, ruleWrite, true), rulesOf(p.Always.Read, ruleRead, true))
+	always := slices.Concat(c.rules(p.Always.Deny, ruleDeny, false), c.rules(p.Always.Kstack, ruleDeny, false))
+	own := slices.Concat(c.rules(p.Always.Write, ruleWrite, true), c.rules(p.Always.Read, ruleRead, true))
 	sortRules(own)
 
 	var reach []string
@@ -272,16 +337,16 @@ func (p Policy) rules() []rule {
 	})
 }
 
-// rulesOf is a rule of kind for each of paths.
-func rulesOf(paths []string, kind ruleKind, own bool) []rule {
+// rules is a rule of kind for each of paths.
+func (c canonicalPaths) rules(paths []string, kind ruleKind, own bool) []rule {
 	rules := make([]rule, len(paths))
 	for i, path := range paths {
-		rules[i] = rule{path: path, at: resolved(path), kind: kind, own: own}
+		rules[i] = rule{path: path, at: c[path], kind: kind, own: own}
 	}
 	return rules
 }
 
-// sortRules orders rules by their resolved paths, shallowest first, and among
+// sortRules orders rules by their canonical paths, shallowest first, and among
 // rules on one path by kind. The path as written can mislead: /bin, a link to
 // /usr/bin, would sort before /usr.
 func sortRules(rules []rule) {

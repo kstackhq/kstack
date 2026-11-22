@@ -102,12 +102,11 @@ func resolveExecutable(name string, path []string) (string, bool) {
 
 // shimManager is the manager whose shims folder under home holds the binary
 // at path, or false. Many real tools are scripts, so a #! line alone makes
-// nothing a shim. The folder is resolved and the file is not: a mise shim is
-// a link to mise itself, which lies in no shims folder.
+// nothing a shim. The file's folder is compared and the file is not: a mise
+// shim is a link to mise itself, which lies in no shims folder.
 func shimManager(path, home string) (string, bool) {
-	at := filepath.Join(sandbox.Resolved([]string{filepath.Dir(path)})[0], filepath.Base(path))
 	for manager, dir := range shimDirs {
-		if sandbox.Under(at, sandbox.Resolved([]string{filepath.Join(home, dir)})) {
+		if sandbox.Under(filepath.Dir(path), []string{filepath.Join(home, dir)}) {
 			return manager, true
 		}
 	}

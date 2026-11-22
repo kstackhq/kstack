@@ -31,7 +31,7 @@ import (
 // the test.
 func linkInAnotherCase(t *testing.T) (folder, link string) {
 	t.Helper()
-	base := Canonical([]string{t.TempDir()})[0]
+	base := canonicalOf(t, t.TempDir())[0]
 	folder = mkdirs(t, base, "Disk/kube")[0]
 	upper := filepath.Join(base, "DISK", "KUBE")
 	skipIfCaseSensitive(t, upper)
@@ -47,6 +47,21 @@ func skipIfCaseSensitive(t *testing.T, other string) {
 	if _, err := os.Stat(other); errors.Is(err, fs.ErrNotExist) {
 		t.Skip("the filesystem is case-sensitive")
 	}
+}
+
+// A folder in another case is the same folder, with no link and no canonical
+// name read: the two are compared as files.
+func TestUnderHoldsAFolderInAnotherCase(t *testing.T) {
+	base := canonicalOf(t, t.TempDir())[0]
+	folder := mkdirs(t, base, "Disk/kube")[0]
+	upper := filepath.Join(base, "DISK", "KUBE")
+	skipIfCaseSensitive(t, upper)
+
+	assert.True(t, Same(upper, folder))
+	assert.True(t, Under(filepath.Join(upper, "config"), []string{folder}))
+	assert.True(t, Under(filepath.Join(upper, "new", "file"), []string{filepath.Join(folder, "new")}), "names past the deepest folder are compared as given")
+	assert.False(t, Under(filepath.Join(upper, "other"), []string{filepath.Join(folder, "new")}))
+	assert.False(t, Under(filepath.Join(base, "DISK"), []string{folder}))
 }
 
 // Why Canonical asks the kernel: following a link keeps the link's own
@@ -65,19 +80,19 @@ func TestCanonicalSpellsALinksTargetAsTheDiskDoes(t *testing.T) {
 	folder, link := linkInAnotherCase(t)
 
 	assert.Equal(t, []string{folder, filepath.Join(folder, "missing")},
-		Canonical([]string{link, filepath.Join(link, "missing")}))
+		canonicalOf(t, link, filepath.Join(link, "missing")))
 }
 
 // The directory lists both names for the one file, the other first.
 func TestCanonicalSpellsAHardLinkedFileByItsOwnEntry(t *testing.T) {
-	base := Canonical([]string{t.TempDir()})[0]
+	base := canonicalOf(t, t.TempDir())[0]
 	file := filepath.Join(base, "Cred")
 	require.NoError(t, os.WriteFile(file, nil, 0o600))
 	require.NoError(t, os.Link(file, filepath.Join(base, "Alias")))
 	upper := filepath.Join(base, "CRED")
 	skipIfCaseSensitive(t, upper)
 
-	assert.Equal(t, []string{file}, Canonical([]string{upper}))
+	assert.Equal(t, []string{file}, canonicalOf(t, upper))
 }
 
 func sameFile(t *testing.T, a, b string) bool {
@@ -98,7 +113,7 @@ func TestCanonicalSpellsAnAccentAsStored(t *testing.T) {
 		{"stored decomposed", decomposed, composed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			base := Canonical([]string{t.TempDir()})[0]
+			base := canonicalOf(t, t.TempDir())[0]
 			stored := mkdirs(t, base, tc.stored)[0]
 			other := filepath.Join(base, tc.other)
 			if _, err := os.Stat(other); errors.Is(err, fs.ErrNotExist) {
@@ -107,7 +122,7 @@ func TestCanonicalSpellsAnAccentAsStored(t *testing.T) {
 			link := filepath.Join(base, "link")
 			require.NoError(t, os.Symlink(other, link))
 
-			assert.Equal(t, []string{stored, stored, stored}, Canonical([]string{stored, other, link}))
+			assert.Equal(t, []string{stored, stored, stored}, canonicalOf(t, stored, other, link))
 		})
 	}
 }
@@ -115,7 +130,7 @@ func TestCanonicalSpellsAnAccentAsStored(t *testing.T) {
 // Naming a path asks for no access to it: a folder that can be searched and
 // not read, and a file that cannot be read, are still spelled as stored.
 func TestCanonicalSpellsWhatItMayNotRead(t *testing.T) {
-	base := Canonical([]string{t.TempDir()})[0]
+	base := canonicalOf(t, t.TempDir())[0]
 	inner := mkdirs(t, base, "Searchable/Inner")[0]
 	dir := filepath.Dir(inner)
 	file := filepath.Join(inner, "File")
@@ -124,7 +139,8 @@ func TestCanonicalSpellsWhatItMayNotRead(t *testing.T) {
 	require.NoError(t, os.Chmod(dir, 0o100))
 	t.Cleanup(func() { os.Chmod(dir, 0o700) })
 
-	assert.Equal(t, []string{dir, inner, file}, Canonical([]string{filepath.Join(base, "SEARCHABLE"), filepath.Join(base, "SEARCHABLE", "INNER"), filepath.Join(base, "SEARCHABLE", "INNER", "FILE")}))
+	assert.Equal(t, []string{dir, inner, file}, canonicalOf(t,
+		filepath.Join(base, "SEARCHABLE"), filepath.Join(base, "SEARCHABLE", "INNER"), filepath.Join(base, "SEARCHABLE", "INNER", "FILE")))
 }
 
 // The data volume's own path and the path through its firmlink name one
@@ -137,6 +153,6 @@ func TestCanonicalNamesTheHomeThroughItsFirmlink(t *testing.T) {
 		t.Skip("no data volume at /System/Volumes/Data")
 	}
 
-	got := Canonical([]string{home, onData})
+	got := canonicalOf(t, home, onData)
 	assert.Equal(t, got[0], got[1])
 }

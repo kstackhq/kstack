@@ -42,10 +42,15 @@ func (t *Tool) grantRules(folders []session.Folder, open sandbox.FilePolicy, nev
 			slog.Info("folder grant left out of a run", "folder", f.Path, "reason", err.Error())
 			continue
 		}
-		if _, seen := writable[f.Path]; !seen {
-			passed = append(passed, f.Path)
+		// One folder under two names is one rule: a policy naming it twice
+		// is refused.
+		path := f.Path
+		if i := slices.IndexFunc(passed, func(p string) bool { return sandbox.Same(p, path) }); i >= 0 {
+			path = passed[i]
+		} else {
+			passed = append(passed, path)
 		}
-		writable[f.Path] = writable[f.Path] || f.Write
+		writable[path] = writable[path] || f.Write
 	}
 	var rules sandbox.FilePolicy
 	for _, p := range passed {

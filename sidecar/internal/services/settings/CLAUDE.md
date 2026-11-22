@@ -47,7 +47,7 @@ writable by a non-administrators' group.
 **`Service` (`service.go`) is the store plus the sync**, over `Zones` (`Never`, `Open`, `Home`),
 the refresh's resolver and the launch's fault; on a machine with no sandbox it syncs nothing and
 its path methods answer `ErrNoSandbox`. An entry is **open** when its `Target` is under an `Open`
-Read path and no Deny path, compared by text over resolved lists. `SyncPath` reads the disk on a
+Read path and no Deny path, compared as files. `SyncPath` reads the disk on a
 goroutine bounded by `SyncTimeout` (5s) and diffs in one `Update` naming `sandbox.path`: a new
 open, unshared entry is `adopted`, any other new one `pending`, a changed `Target` is new again,
 and the shell's order wins. **While the field is held or `PathStrict` is set, every new entry is
@@ -62,9 +62,9 @@ record](../../../../docs/security/2026-10-02-path-from-the-login-shell.md).
 
 **A folder grant is a rule checked against the zones** (`folders.go`): `permissions.Rule.Folder`,
 class 1 read or 2 read-write, matching no action. `CheckFolder` answers a `FolderRefusal`; the
-rules are in the function and `TestCheckFolderRefusesEachRule`. **Every path compared is
-canonical** (`sandbox.Canonical`: links followed, each component spelled as its directory
-lists it), since the zones are compared by text and macOS opens `/Users/ME` as `/Users/me`. **The
+rules are in the function and `TestCheckFolderRefusesEachRule`. **A grant is its canonical
+path** (`sandbox.Canonical`), **and is compared with the zones and `PATH` as files**
+(`sandbox.Under`, `sandbox.Same`), never by text: macOS opens `/Users/ME` as `/Users/me`. **The
 service holds the zones as a snapshot** taken by each `SyncPath`; checks re-resolve its paths but
 never re-run the zones function. Every disk read goes through `readWithin`, bounded by
 `SyncTimeout`. With no sandbox every folder is refused. → [ADR: a folder grant is a

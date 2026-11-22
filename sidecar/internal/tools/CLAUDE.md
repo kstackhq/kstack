@@ -100,7 +100,7 @@ under `tools/` is one). Its errors are values, so each tool words its own refusa
   workspace by name, a name under `OpenWorkspace`'s root; else the path, once `Holds` finds it
   outside. A `File`'s methods are the path forms or the root forms.
 - **A granted folder is reached by handle** (`grant.go`, `walk.go`). `WithHidden` gives the fence
-  the zones' `Never` and `Closed` paths, **resolved on every comparison, never cached**.
+  the zones' `Never` and `Closed` paths, **compared as files each time, never cached**.
   `Granted(ctx, folders, path)` resolves on a goroutine abandoned when `ctx` ends (a dead network
   mount blocks in a syscall), answering false so the tool asks. `Walk(folder, path)` opens `/` as an
   `os.Root` and walks down without following links, compares each handle with the closed paths, and

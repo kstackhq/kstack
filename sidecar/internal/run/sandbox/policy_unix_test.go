@@ -218,6 +218,15 @@ func TestARuleIsCompiledWhereItsLinkLeads(t *testing.T) {
 
 // A run's own path that is a link is refused, Read or Write, since the profile
 // would open where the link leads. A link above the last component is not.
+// It cannot be compared, so a Deny that overlaps it under another name could
+// be dropped as out of reach.
+func TestARuleTheKernelCannotNameIsRefused(t *testing.T) {
+	svc := unnameable(t)
+
+	require.ErrorContains(t, Policy{Files: FilePolicy{Read: []string{svc}}}.Check(), svc)
+	require.ErrorContains(t, Policy{Files: FilePolicy{Deny: []string{svc}}}.Check(), svc)
+}
+
 func TestARunsOwnPathThatIsALinkIsRefused(t *testing.T) {
 	base := resolved(t.TempDir())
 	d := mkdirs(t, base, "data/chats/c/workspace", "cache/tmp/1-a", "runtime/runs/1-a")

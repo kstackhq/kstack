@@ -94,6 +94,19 @@ func TestGrantedComparesResolvedPaths(t *testing.T) {
 	assert.False(t, ok, "a fence that knows nothing hidden skips nothing")
 }
 
+// The hidden paths are compared as files, so a never file under a second name
+// inside a grant is still hidden: neither the gate nor the walk opens it.
+func TestAHiddenFileUnderAnotherNameStaysHidden(t *testing.T) {
+	g := newGrantHome(t)
+	home := session.Folder{Path: g.home}
+	require.NoError(t, os.Link(g.in(".netrc"), g.in("code/notes")))
+
+	_, ok := g.fence.Granted(t.Context(), []session.Folder{home}, g.in("code/notes"))
+	assert.False(t, ok)
+	_, err := readWalked(t, g.fence, home, g.in("code/notes"))
+	assert.ErrorIs(t, err, ErrHidden)
+}
+
 // A never path that is a link is caught at the target it has now, not the one
 // it had when the sandbox's lists were read: with ~/.ssh retargeted under a
 // granted home, neither the gate nor the walk opens the new target.

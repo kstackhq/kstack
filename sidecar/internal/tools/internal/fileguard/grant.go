@@ -58,9 +58,8 @@ func (f Fence) Hidden() (Hidden, bool) {
 }
 
 // Granted is the folder path is under, and false for a path under none or one
-// the sandbox keeps shut there. Paths are compared resolved: the folders are
-// (their check refuses any other), and path and the hidden sets are resolved
-// now, through the deepest folder of each that exists. The deepest folder
+// the sandbox keeps shut there. Paths are compared as files (sandbox.Under),
+// read now, each through its deepest folder that exists. The deepest folder
 // covering path answers, a read-write one first where one covers it, since the
 // sandbox's deepest rule decides and a read-write grant covers what lies under
 // it. Resolving reads the disk, which a dead network mount can hold in a
@@ -114,6 +113,6 @@ func (h Hidden) hides(grant session.Folder, p string) bool {
 		return true
 	}
 	return slices.ContainsFunc(h.Closed, func(c string) bool {
-		return c != grant.Path && sandbox.Under(c, []string{grant.Path}) && sandbox.Under(p, []string{c})
+		return !sandbox.Same(c, grant.Path) && sandbox.Under(c, []string{grant.Path}) && sandbox.Under(p, []string{c})
 	})
 }

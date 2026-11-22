@@ -28,15 +28,20 @@ import (
 // grants: the Never lists with ~/ under home, /root, the other users' homes
 // and, on Linux, the rootless container sockets. The homes and the sockets
 // are read at call time, and listing a folder can hang on a network mount, so
-// the caller bounds it. A path on or above home is left out, so a home of
-// /root does not deny itself.
+// the caller bounds it. A path on or above home, compared canonical, is left
+// out, so a home of /root does not deny itself.
 func (s *Sandbox) Never(home string) []string {
 	paths := slices.Concat(neverPaths(home), []string{"/root"}, otherHomes(home), runtimeNever())
 	if home == "" {
 		return paths
 	}
-	h := resolved(home)
-	return slices.DeleteFunc(paths, func(p string) bool { return within(h, resolved(p)) })
+	return notAbove(home, paths)
+}
+
+// notAbove is each of paths that is not on or above home, compared as files:
+// a home the disk spells in another case is still home.
+func notAbove(home string, paths []string) []string {
+	return slices.DeleteFunc(slices.Clone(paths), func(p string) bool { return under(home, p) })
 }
 
 // NoWrite is the NoWrite lists with ~/ under home: what something outside
@@ -67,26 +72,23 @@ func inHome(home string, paths []string) []string {
 }
 
 // otherHomes is each entry of homesParent but notHomes and any on or above
-// home, compared resolved, so a home nested in an entry keeps that entry. A
-// parent that cannot be listed adds nothing.
+// home (notAbove), so a home nested in an entry keeps that entry. A parent
+// that cannot be listed adds nothing.
 func otherHomes(home string) []string {
 	entries, err := os.ReadDir(homesParent)
 	if err != nil { // coverage:ignore homesParent, /home or /Users, exists on every system Kstack supports
 		return nil
 	}
-	own := ""
-	if home != "" {
-		own = resolved(home)
-	}
 	var homes []string
 	for _, e := range entries {
-		p := filepath.Join(homesParent, e.Name())
-		if slices.Contains(notHomes, e.Name()) || (own != "" && within(own, resolved(p))) {
-			continue
+		if !slices.Contains(notHomes, e.Name()) {
+			homes = append(homes, filepath.Join(homesParent, e.Name()))
 		}
-		homes = append(homes, p)
 	}
-	return homes
+	if home == "" {
+		return homes
+	}
+	return notAbove(home, homes)
 }
 
 // System is what every sandboxed run on this machine starts from, from one
@@ -127,19 +129,18 @@ func (s *Sandbox) System(home, shell string) System {
 	return sys
 }
 
-// broadDirs is what no toolchain or shell folder may be or hold, resolved:
-// /, and with a home, the home and appDataDirs under it.
+// broadDirs is what no toolchain or shell folder may be or hold: /, and with a
+// home, the home and appDataDirs under it.
 func broadDirs(home string) []string {
 	if home == "" {
 		return []string{"/"}
 	}
-	return append(resolvedAll(append(inHome(home, appDataDirs), home)), "/")
+	return append(inHome(home, appDataDirs), home, "/")
 }
 
-// isBroad reports whether p, resolved, is or holds one of broad.
+// isBroad reports whether p is or holds one of broad, compared as files.
 func isBroad(p string, broad []string) bool {
-	r := resolved(p)
-	return slices.ContainsFunc(broad, func(b string) bool { return within(b, r) })
+	return slices.ContainsFunc(broad, func(b string) bool { return under(b, p) })
 }
 
 // maxHops is how many links the kernel follows in one lookup.
@@ -176,9 +177,9 @@ func shellReads(home, shell string, broad []string) []string {
 // every app's data.
 func shellFolder(home, shell string) string {
 	dir := filepath.Dir(shell)
-	underHome := home != "" && within(resolved(dir), resolved(home))
+	underHome := home != "" && under(dir, home)
 	parent := filepath.Dir(dir)
-	holdsHome := home != "" && within(resolved(home), resolved(parent))
+	holdsHome := home != "" && under(home, parent)
 	if filepath.Base(dir) == "bin" && !underHome && parent != "/" && !holdsHome {
 		return parent
 	}

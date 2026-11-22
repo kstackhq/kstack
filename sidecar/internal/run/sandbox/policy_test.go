@@ -16,10 +16,51 @@ package sandbox
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// foldingCase is a fileOf for a disk that ignores case, which no test can
+// mount: each path is the file its lower-case spelling names.
+func foldingCase() func(string) (fileID, bool) {
+	files := map[string]uint64{}
+	return func(path string) (fileID, bool) {
+		name := strings.ToLower(path)
+		if _, ok := files[name]; !ok {
+			files[name] = uint64(len(files))
+		}
+		return fileID{ino: files[name]}, true
+	}
+}
+
+// A policy's rules are compared by text, so one naming a folder two ways is
+// refused: a Deny in one spelling would be dropped under a Read in the other.
+func TestAPolicyNamingOneFolderTwoWaysIsRefused(t *testing.T) {
+	native := func(paths ...string) []string {
+		for i, p := range paths {
+			paths[i] = filepath.FromSlash(p)
+		}
+		return paths
+	}
+	require.NoError(t, aliased(native("/home/me/code", "/home/me/code/svc", "/home/me/.ssh"), foldingCase()))
+
+	for name, paths := range map[string][]string{
+		"the rules themselves":   {"/home/me/code", "/home/me/Code"},
+		"a folder above them":    {"/home/me/.ssh", "/home/ME/code"},
+		"a rule and one beneath": {"/home/me/code", "/home/me/CODE/.env"},
+	} {
+		require.ErrorContains(t, aliased(native(paths...), foldingCase()), "name one file", name)
+	}
+
+	// The same folder mounted in two places has two names, each real.
+	twice := func(path string) (fileID, bool) {
+		return fileID{ino: uint64(len(filepath.Base(path)))}, filepath.Base(path) == "code"
+	}
+	require.NoError(t, aliased(native("/mnt/a/code", "/srv/b/code"), twice))
+}
 
 // A policy fails Check for each thing it refuses, and passes when every
 // rule is where a run's rules go.

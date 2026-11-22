@@ -144,6 +144,20 @@ func TestAProbePastItsBoundEndsPastasChild(t *testing.T) {
 		"processes left: %v", processesOf(token))
 }
 
+// A probe whose policy cannot be enforced fails, saying why: here, a home
+// the kernel cannot name.
+func TestAPastaProbeWithARefusedPolicyFails(t *testing.T) {
+	pasta := fakeBwrap(t, filepath.Join(t.TempDir(), "pasta"), "exit 0")
+	t.Setenv("HOME", unnameable(t))
+	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
+
+	s.probePasta(t.Context(), []string{pasta}, time.Minute)
+
+	available, reason := s.NetworkStatus()
+	assert.False(t, available)
+	assert.Contains(t, reason, "the path of")
+}
+
 // With no temporary directory to run in, the pasta probe fails, saying why.
 func TestAPastaProbeWithNoTempDirFails(t *testing.T) {
 	pasta := fakeBwrap(t, filepath.Join(t.TempDir(), "pasta"), "exit 0")

@@ -929,15 +929,16 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   `background-color` leaves the theme-matching foreground open; a contrast floor on every kept
   colour would close it. Either land one or accept it as a **By decision** row with an ADR.
 
-- **Compile the sandbox's rules in the disk's spelling (medium; sandbox owner).** `Policy.rules`,
-  `Check` and `Outside` (`sidecar/internal/run/sandbox/policy.go`) compare paths by text after
-  following links, and a link's text keeps its own capitalization. On a case-insensitive volume a
-  link into Kstack's directories, or one that is a root, a subfolder or a never-readable path,
-  can resolve to a spelling the disk does not use. A read grant on the target's parent, which
-  Settings takes in the disk's spelling, then overlaps no Deny by text, so the Deny is left out
-  and a sandboxed run reads the files. Compare `sandbox.Spelled` paths in all three, pin it with
-  a macOS test, and measure the listing it adds to each run.
-
+- **Bound the rule compile in the sandbox probes (medium; sandbox owner).** A probe builds its
+  policy within its bound and compiles it after, and the compile looks up each rule path
+  (`Policy.compile`, `sidecar/internal/run/sandbox/policy.go`). A rule path through a mount that
+  does not answer stalls the probe before its command starts, so sandbox detection does not
+  return. Compile inside the bound ([#1150](https://github.com/kstackhq/kstack/issues/1150)).
+- **Pin path comparison on a Linux mount that folds names (low; sandbox owner).** Paths are
+  compared as files (`sandbox.Under`), and a policy naming one folder two ways is refused
+  (`aliased`, `sidecar/internal/run/sandbox/policy.go`), but no test mounts a folding filesystem
+  (vfat, a casefold directory): the Linux tests stand a hard link and a fake in for one. Run the
+  sandbox suite on such a mount in CI.
 - **Audit what secrets a sandboxed read still passes (medium; sandbox owner).** Redaction covers
   a Secret's values, `last-applied-configuration`, and a helm release's values and manifest
   Secrets. Check what else carries a secret to the model: env values and ConfigMaps; a helm

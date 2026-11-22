@@ -37,19 +37,55 @@ func TestAMissingPathIsResolvedThroughItsDeepestFolder(t *testing.T) {
 	assert.Equal(t, filepath.Join(target, "missing", "file"), resolved(filepath.Join(base, "var", "missing", "file")))
 }
 
-// Resolved follows a link, so a path through one is Under the folder it
-// leads into; Under itself reads the text alone.
-func TestUnderComparesResolvedPaths(t *testing.T) {
+// Under follows the links of both paths itself, so no caller can forget to.
+func TestUnderFollowsLinks(t *testing.T) {
 	base := resolved(t.TempDir())
 	inside := mkdirs(t, base, "denied/inside")[0]
 	link := filepath.Join(base, "link")
 	require.NoError(t, os.Symlink(inside, link))
-	denied := Resolved([]string{filepath.Join(base, "denied")})
+	denied := []string{filepath.Join(base, "denied")}
 
-	assert.True(t, Under(Resolved([]string{link})[0], denied))
+	assert.True(t, Under(link, denied))
+	assert.True(t, Under(filepath.Join(link, "missing", "file"), denied), "a missing path, through its deepest folder")
+	assert.True(t, Under(inside, []string{filepath.Join(link, "..")}), "a folder named through a link")
 	assert.True(t, Under(denied[0], denied))
-	assert.False(t, Under(link, denied), "an unresolved link is compared as written")
 	assert.False(t, Under(base, denied))
+	assert.True(t, Same(link, inside))
+	assert.False(t, Same(link, denied[0]))
+}
+
+// The kernel follows a link before a .., so the path names the parent of the
+// link's target, not the folder beside the link.
+func TestALinkBeforeDotDotIsFollowedFirst(t *testing.T) {
+	base := resolved(t.TempDir())
+	d := mkdirs(t, base, "opt/tool/v2", "opt/tool/bin", "bin")
+	current := filepath.Join(base, "current")
+	require.NoError(t, os.Symlink(d[0], current))
+	asWritten := current + "/../bin"
+
+	assert.Equal(t, d[1], resolved(asWritten))
+	assert.Equal(t, filepath.Join(d[1], "missing"), resolved(asWritten+"/missing/"))
+	assert.Equal(t, []string{d[1], filepath.Join(d[1], "missing")}, canonicalOf(t, asWritten, asWritten+"/missing"))
+	assert.True(t, Same(asWritten, d[1]))
+	assert.False(t, Same(asWritten, d[2]))
+}
+
+// Two paths are compared as files. A hard link is the one way to give a file
+// two names on a filesystem that keeps case, and stands in here for a folder
+// one that folds names opens under two spellings.
+func TestUnderComparesFilesNotNames(t *testing.T) {
+	base := resolved(t.TempDir())
+	d := mkdirs(t, base, "keys", "work")
+	key := filepath.Join(d[0], "id")
+	require.NoError(t, os.WriteFile(key, nil, 0o600))
+	other := filepath.Join(d[1], "notes")
+	require.NoError(t, os.Link(key, other))
+
+	assert.True(t, Under(other, []string{key}))
+	assert.True(t, Same(other, key))
+	assert.False(t, Under(other, []string{filepath.Join(d[0], "id.pub")}), "a path that is not there is compared by name")
+	assert.False(t, Under(other, []string{d[0]}), "a hard link lies in its own folder alone")
+	assert.False(t, Under(filepath.Join(d[1], "missing"), []string{filepath.Join(d[0], "missing")}))
 }
 
 // unnameable is a path the kernel cannot name: one through a link to itself.
@@ -63,9 +99,9 @@ func unnameable(t *testing.T) string {
 func TestCanonicalFailsOnAPathThroughALinkToItself(t *testing.T) {
 	svc := unnameable(t)
 
-	_, err := canonical([]string{svc})
+	got, err := Canonical([]string{svc})
 	require.ErrorContains(t, err, svc)
-	assert.Equal(t, []string{svc}, Canonical([]string{svc}), "kept as given")
+	assert.Equal(t, []string{svc}, got, "kept as given")
 }
 
 // The kernel names a path by searching its folders, so none need be listed.
@@ -76,9 +112,7 @@ func TestCanonicalNamesAPathUnderAFolderItCannotList(t *testing.T) {
 	t.Cleanup(func() { os.Chmod(locked, 0o755) })
 	missing := filepath.Join(locked, "missing", "x")
 
-	got, err := canonical([]string{svc, missing})
-	require.NoError(t, err)
-	assert.Equal(t, []string{svc, missing}, got)
+	assert.Equal(t, []string{svc, missing}, canonicalOf(t, svc, missing))
 }
 
 // A folder this user may not search hides what it holds from a run of theirs
@@ -92,9 +126,7 @@ func TestCanonicalKeepsAPathItMayNotReach(t *testing.T) {
 		t.Skip("this user searches a folder whatever its mode")
 	}
 
-	got, err := canonical([]string{svc})
-	require.NoError(t, err)
-	assert.Equal(t, []string{svc}, got)
+	assert.Equal(t, []string{svc}, canonicalOf(t, svc))
 }
 
 // Nothing lies beneath a file, so a path through one is missing. Any other
@@ -105,11 +137,11 @@ func TestCanonicalFailsOnAPathTheKernelCannotName(t *testing.T) {
 	require.NoError(t, os.WriteFile(file, nil, 0o600))
 
 	through := filepath.Join(file, "x")
-	got, err := canonical([]string{through})
+	got, err := Canonical([]string{through})
 	require.NoError(t, err)
 	assert.Equal(t, []string{through}, got)
 
-	_, err = canonical([]string{filepath.Join(base, strings.Repeat("n", 300))})
+	_, err = Canonical([]string{filepath.Join(base, strings.Repeat("n", 300))})
 	require.ErrorIs(t, err, syscall.ENAMETOOLONG)
 	_, err = Canonical([]string{filepath.Join(base, "a\x00b")})
 	require.ErrorIs(t, err, syscall.EINVAL, "no file is named with a NUL")

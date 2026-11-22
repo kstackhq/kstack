@@ -18,14 +18,14 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
 )
 
-// resolvedAll is each of paths resolved. Comparisons between paths read
-// their text, so a path named through a link must be resolved to match.
+// resolvedAll is each of paths resolved.
 func resolvedAll(paths []string) []string {
 	out := make([]string, len(paths))
 	for i, p := range paths {
@@ -39,7 +39,10 @@ func inAny(p string, dirs []string) bool {
 	return slices.ContainsFunc(dirs, func(d string) bool { return within(p, d) })
 }
 
-// within reports whether p is dir or lies under it, by their text alone.
+// within reports whether p is dir or lies under it, by their text alone. Text
+// tells only for the canonical paths of one policy, which names no folder two
+// ways (aliased), and for a fixed path such as /proc; any other two paths are
+// compared by under.
 func within(p, dir string) bool {
 	rel, err := filepath.Rel(dir, p)
 	return err == nil && !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
@@ -48,15 +51,21 @@ func within(p, dir string) bool {
 // resolved is p with its links followed. A path that does not exist is
 // resolved through its deepest folder that does.
 func resolved(p string) string {
-	p = filepath.Clean(p)
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		return r
 	}
-	parent := filepath.Dir(p)
-	if parent == p { // coverage:ignore EvalSymlinks of the root fails only when / cannot be read
-		return p
+	parent, name := split(p)
+	if name == "" { // coverage:ignore EvalSymlinks of the root fails only when / cannot be read
+		return filepath.Clean(p)
 	}
-	return filepath.Join(resolved(parent), filepath.Base(p))
+	return filepath.Join(resolved(parent), name)
+}
+
+// split is p's parent and last name, as written. filepath.Dir cleans its
+// answer, and cleaning drops a .. with the name before it, where the kernel
+// follows a link there first and takes the parent of its target.
+func split(p string) (parent, name string) {
+	return filepath.Split(strings.TrimRight(p, string(filepath.Separator)))
 }
 
 // Resolved is each of paths with its links followed, so a caller comparing
@@ -65,47 +74,30 @@ func Resolved(paths []string) []string {
 	return resolvedAll(paths)
 }
 
-// Canonical is each of paths as the kernel names it (kernelPath), so two names
-// of one folder compare equal by text: a path through a link, and on a
-// case-insensitive filesystem a path in another case. A path the kernel
-// cannot name is kept as given.
-func Canonical(paths []string) []string {
+// Canonical is each of paths as the kernel names it (kernelPath): its links
+// followed, and on macOS each name spelled as the volume stores it. The error
+// is the first path the kernel could not name, which is kept as given.
+//
+// Two paths of two calls are not compared by text: Linux has no stored
+// spelling to read, so a folder that folds names keeps the spelling it was
+// given. Under and Same compare them.
+func Canonical(paths []string) ([]string, error) {
 	out := make([]string, len(paths))
+	var first error
 	for i, p := range paths {
-		out[i], _ = kernelNamed(filepath.Clean(p))
-	}
-	return out
-}
-
-// canonical is Canonical, or the first error naming a path: the caller
-// refuses what it cannot compare.
-func canonical(paths []string) ([]string, error) {
-	out := make([]string, len(paths))
-	for i, p := range paths {
-		s, err := kernelNamed(filepath.Clean(p))
-		if err != nil {
-			return nil, err
+		var err error
+		out[i], err = canonical(p)
+		if first == nil {
+			first = err
 		}
-		out[i] = s
 	}
-	return out, nil
+	return out, first
 }
 
-// Under reports whether p is one of dirs or lies under one, by their text
-// alone: both must already be resolved.
-func Under(p string, dirs []string) bool {
-	return inAny(p, dirs)
-}
-
-// Spelled is Canonical: the kernel's name for a path follows its links too.
-func Spelled(paths []string) []string {
-	return Canonical(paths)
-}
-
-// kernelNamed is p as the kernel names it. A path that is not there, or that this
-// user may not reach, which no run of theirs can either, is named through its
-// deepest folder that is, the rest kept as given.
-func kernelNamed(p string) (string, error) {
+// canonical is p as the kernel names it. A path that is not there, or that
+// this user may not reach, which no run of theirs can either, is named through
+// its deepest folder that is, the rest kept as given.
+func canonical(p string) (string, error) {
 	at, err := kernelPath(p)
 	// ENOTDIR is a path through a file, which holds nothing.
 	missing := errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.ENOTDIR)
@@ -113,13 +105,66 @@ func kernelNamed(p string) (string, error) {
 	case err == nil:
 		return at, nil
 	case !missing:
-		return p, fmt.Errorf("the path of %s on disk: %w", p, err)
+		return filepath.Clean(p), fmt.Errorf("the path of %s on disk: %w", p, err)
 	}
-	parent := filepath.Dir(p)
-	if parent == p { // coverage:ignore the root is always there
-		return p, nil
+	parent, name := split(p)
+	if name == "" { // coverage:ignore the root is always there
+		return filepath.Clean(p), nil
 	}
 	// On an error dir is parent as given, so the join is p.
-	dir, err := kernelNamed(parent)
-	return filepath.Join(dir, filepath.Base(p)), err
+	dir, err := canonical(parent)
+	return filepath.Join(dir, name), err
+}
+
+// Under reports whether p is one of dirs or lies under one, as files (under).
+// It reads the disk.
+func Under(p string, dirs []string) bool {
+	p = resolved(p)
+	return slices.ContainsFunc(dirs, func(d string) bool { return beneath(p, d) })
+}
+
+// Same reports whether a and b are one path, as files (under). It reads the
+// disk.
+func Same(a, b string) bool {
+	return under(a, b) && under(b, a)
+}
+
+// under reports whether p is dir or lies under it, as files: links are
+// followed, and a folder on p that is the file dir is holds p however either
+// is spelled, so a folder that folds names is one folder. Names past the
+// deepest part of dir that is there are compared as given.
+func under(p, dir string) bool {
+	return beneath(resolved(p), dir)
+}
+
+// beneath is under for a p already resolved.
+func beneath(p, dir string) bool {
+	dir = resolved(dir)
+	if within(p, dir) {
+		return true
+	}
+	there, rest := deepest(dir)
+	for at := p; ; at = filepath.Dir(at) {
+		if info, err := os.Lstat(at); err == nil && os.SameFile(info, there) {
+			below, _ := filepath.Rel(at, p)
+			return within(below, rest)
+		}
+		if at == filepath.Dir(at) {
+			return false
+		}
+	}
+}
+
+// deepest is the deepest part of p, resolved, that is there, and the names of
+// p past it, "." for none.
+func deepest(p string) (there os.FileInfo, rest string) {
+	for at := p; ; at = filepath.Dir(at) {
+		if info, err := os.Lstat(at); err == nil {
+			rest, _ = filepath.Rel(at, p)
+			return info, rest
+		}
+		if at == filepath.Dir(at) { // coverage:ignore the root is always there
+			return nil, p
+		}
+	}
 }

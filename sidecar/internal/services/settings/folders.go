@@ -36,20 +36,20 @@ type FolderRefusal struct {
 func (r FolderRefusal) Error() string { return r.Reason }
 
 // CheckFolder is nil when path can be granted, read, or with write read and
-// write, else a FolderRefusal. It reads the disk: path is made canonical and
-// compared with z, every path canonical, and pathEntries, the PATH folders,
-// already canonical. A link on or above path, or a spelling the disk does not
-// list, is refused with the canonical path, so the folder the user reads is
-// the folder the sandbox checks.
+// write, else a FolderRefusal. It reads the disk: path is made canonical, and
+// compared as a file with z and pathEntries, the PATH folders. A link on or
+// above path, or a spelling the disk is known not to use, is refused with the
+// canonical path, so the folder the user reads is the folder the sandbox
+// checks.
 func CheckFolder(path string, write bool, z Zones, pathEntries []string) error {
-	return checkFolder(path, write, resolveZones(z), pathEntries, false)
+	return checkFolder(path, write, zonesOf(z), pathEntries, false)
 }
 
 // CheckStoredFolder is CheckFolder for a grant already stored: one that
 // resolves elsewhere than it did has moved, or had a link put in its place,
 // since it was granted.
 func CheckStoredFolder(path string, write bool, z Zones, pathEntries []string) error {
-	return checkFolder(path, write, resolveZones(z), pathEntries, true)
+	return checkFolder(path, write, zonesOf(z), pathEntries, true)
 }
 
 func checkFolder(path string, write bool, z zones, pathEntries []string, stored bool) error {
@@ -69,24 +69,29 @@ func checkFolder(path string, write bool, z zones, pathEntries []string, stored 
 	if err != nil { // coverage:ignore the Stat just found the folder; only a removal in between fails this
 		return refuse("exists", "This folder does not exist.")
 	}
-	spelled := sandbox.Spelled([]string{resolved})[0]
+	canon, err := sandbox.Canonical([]string{resolved})
+	if err != nil { // coverage:ignore the folder was just followed; only a removal in between fails this
+		// A run's check refuses a rule it cannot name, and the run with it.
+		return refuse("unreadable", "Kstack cannot read how the disk spells this folder, so it cannot be granted.")
+	}
+	spelled := canon[0]
 	switch {
 	case spelled != path && stored:
 		return refuse("moved", "This folder has moved or become a link. Grant it again.")
 	case resolved != path:
 		return FolderRefusal{Rule: "link", Reason: path + " is a link to " + spelled + "; grant " + spelled + " instead.", Target: spelled}
 	case spelled != path:
-		// A case-insensitive filesystem opens either spelling, and the zones
-		// are compared by text.
+		// A case-insensitive filesystem opens either spelling, and the
+		// sandbox's profile matches the one the volume stores.
 		return FolderRefusal{Rule: "spelling", Reason: path + " is spelled " + spelled + " on disk; grant " + spelled + " instead.", Target: spelled}
 	case sandbox.Under(path, z.never):
 		return refuse("never", "This folder is never readable in the sandbox.")
-	case slices.Contains(z.deny, path):
+	case slices.ContainsFunc(z.deny, func(d string) bool { return sandbox.Same(d, path) }):
 		// A closed folder's Deny is not outranked by a Read on the same path.
 		return refuse("closed", "Grant a folder inside it.")
 	case !write:
 		return nil
-	case path == z.home:
+	case z.home != "" && sandbox.Same(path, z.home):
 		// A command that can write a folder can rename what is under it.
 		return refuse("home", "Your home can be granted read-only.")
 	}
@@ -105,7 +110,7 @@ func checkFolder(path string, write bool, z zones, pathEntries []string, stored 
 	return nil
 }
 
-// overlapping is the first of dirs that path is on, under or over.
+// overlapping is the first of dirs that path is on, under or over, as files.
 func overlapping(path string, dirs []string) (string, bool) {
 	for _, d := range dirs {
 		if sandbox.Under(path, []string{d}) || sandbox.Under(d, []string{path}) {
@@ -115,10 +120,11 @@ func overlapping(path string, dirs []string) (string, bool) {
 	return "", false
 }
 
-// inside is the first of dirs that lies under path, path itself left out.
+// inside is the first of dirs that lies under path, as files, path itself
+// left out.
 func inside(path string, dirs []string) (string, bool) {
 	for _, d := range dirs {
-		if d != path && sandbox.Under(d, []string{path}) {
+		if !sandbox.Same(d, path) && sandbox.Under(d, []string{path}) {
 			return d, true
 		}
 	}
@@ -138,22 +144,21 @@ func fixedMountOf(path string) string {
 }
 
 // PathEntryFolders is each stored PATH entry's Dir and Target, whatever its
-// state, canonical: what a run's own check of a grant reads as the PATH.
+// state: what a run's own check of a grant reads as the PATH.
 func PathEntryFolders(entries []PathEntry) []string {
 	return pathFolders(entries, nil)
 }
 
 // pathFolders is each stored PATH entry's Dir and Target, whatever its state,
-// then the login shell's own, each canonical: something outside the sandbox
-// searches all of them.
+// then the login shell's own: something outside the sandbox searches all of
+// them.
 func pathFolders(entries []PathEntry, loginPath []string) []string {
 	var all []string
 	for _, e := range entries {
 		all = append(all, e.Dir, e.Target)
 	}
 	all = append(all, loginPath...)
-	all = slices.DeleteFunc(all, func(p string) bool { return !filepath.IsAbs(p) || strings.ContainsRune(p, 0) })
-	return sandbox.Canonical(all)
+	return slices.DeleteFunc(all, func(p string) bool { return !filepath.IsAbs(p) || strings.ContainsRune(p, 0) })
 }
 
 // snapshot is what the folder checks read: the zones as the zones function
@@ -232,7 +237,7 @@ func (s *Service) checkWithin(ctx context.Context, path string, write, stored bo
 	}
 	entries := s.Get().Sandbox.Path
 	err, ok := readWithin(ctx, s.syncTimeout, func() error {
-		return s.checkFolder(path, write, resolveZones(snap.zones), pathFolders(entries, snap.loginPath), stored)
+		return s.checkFolder(path, write, zonesOf(snap.zones), pathFolders(entries, snap.loginPath), stored)
 	})
 	if !ok {
 		return timeoutRefusal
@@ -275,15 +280,19 @@ func (s *Service) ClosedFolders(ctx context.Context) []string {
 }
 
 // WideFolders is the folders a read grant of which reads more than a project:
-// the home and each folder over it, resolved, and the platform's own
-// (wideDirs). Nil on a machine with no sandbox, and when resolving the home
+// the home and each folder over it, canonical, and the platform's own
+// (wideDirs). Nil on a machine with no sandbox, and when reading the home
 // runs past the bound.
 func (s *Service) WideFolders(ctx context.Context) []string {
 	snap := s.currentSnapshot(ctx)
 	if snap == nil || snap.zones.Home == "" {
 		return nil
 	}
-	home, ok := readWithin(ctx, s.syncTimeout, func() string { return sandbox.Resolved([]string{snap.zones.Home})[0] })
+	home, ok := readWithin(ctx, s.syncTimeout, func() string {
+		// A home the kernel cannot name is drawn as given.
+		home, _ := sandbox.Canonical([]string{snap.zones.Home})
+		return home[0]
+	})
 	if !ok { // coverage:ignore only a home on a mount that hangs past the bound reaches it
 		return nil
 	}

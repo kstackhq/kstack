@@ -15,9 +15,11 @@
 package sandbox
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // System reads the system's folders, /private/etc whole, with its secret
@@ -39,4 +41,19 @@ func TestDarwinListsReadTheSystemAndHideItsSecrets(t *testing.T) {
 
 func TestDarwinNoWriteHoldsLaunchAgents(t *testing.T) {
 	assert.Contains(t, NoWrite("/Users/me"), "/Users/me/Library/LaunchAgents")
+}
+
+// A HOME in another case than the disk's is still the user's own home: it is
+// not denied as another user's, so the probe's policy passes its check.
+func TestAHomeInAnotherCaseIsNotAnotherUsersHome(t *testing.T) {
+	parent := canonicalOf(t, t.TempDir())[0]
+	d := mkdirs(t, parent, "Me", "other")
+	home := filepath.Join(parent, "me")
+	skipIfCaseSensitive(t, home)
+	otherHomesIn(t, parent)
+	s := &Sandbox{self: "/usr/bin/true"}
+
+	assert.Equal(t, []string{d[1]}, otherHomes(home))
+	assert.NotContains(t, s.Never(home), d[0])
+	require.NoError(t, s.probePolicy("/bin/sh", canonicalOf(t, t.TempDir())[0], home).Check())
 }

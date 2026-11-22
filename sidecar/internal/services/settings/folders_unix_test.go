@@ -20,6 +20,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -179,6 +180,37 @@ func TestAFixedMountCannotBeGranted(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A PATH entry is the folder the shell searches. The kernel follows a link
+// before a .., so the entry names the parent of the link's target: a write
+// grant there is refused, and one on the folder beside the link is not.
+func TestAPathEntryThroughALinkAndDotDotIsTheFolderSearched(t *testing.T) {
+	f := newGrantFixture(t)
+	for _, d := range []string{"opt/tool/v2", "opt/tool/bin", "work/bin"} {
+		require.NoError(t, os.MkdirAll(f.in(d), 0o755))
+	}
+	require.NoError(t, os.Symlink(f.in("opt/tool/v2"), f.in("work/current")))
+	entries := pathFolders(nil, []string{f.in("work/current") + "/../bin"})
+
+	assert.Equal(t, "tool", ruleOf(t, CheckFolder(f.in("opt/tool/bin"), true, f.zones, entries)))
+	assert.NoError(t, CheckFolder(f.in("work/bin"), true, f.zones, entries))
+}
+
+// A zone or PATH folder that cannot be followed holds nothing, so it shuts no
+// other folder.
+func TestAPathThatCannotBeFollowedShutsNoOtherFolder(t *testing.T) {
+	f := newGrantFixture(t)
+	require.NoError(t, os.MkdirAll(f.in("work"), 0o755))
+	loop := f.in("loop")
+	require.NoError(t, os.Symlink(loop, loop))
+	bin := filepath.Join(loop, "bin")
+	z := f.zones
+	z.Never = append(slices.Clone(z.Never), bin)
+	z.NoWrite = append(slices.Clone(z.NoWrite), bin)
+
+	assert.NoError(t, CheckFolder(f.in("work"), true, z, pathFolders(nil, []string{bin})))
+	assert.NoError(t, CheckStoredFolder(f.in("work"), true, z, PathEntryFolders([]PathEntry{{Dir: bin, Target: bin}})))
 }
 
 func TestAWriteGrantOnCodeThatRunsIsRefused(t *testing.T) {
@@ -347,4 +379,17 @@ func TestACheckResolvesTheZonesNow(t *testing.T) {
 	assert.NoError(t, s.CheckFolder(t.Context(), f.in("dotfiles/ssh-a"), false), "the old one is a folder like any other")
 	never, _ := s.Hidden()
 	assert.Equal(t, f.zones.Never, never, "Hidden is the list as the zones name it")
+}
+
+// Naming a folder lists nothing, so one under a folder that can be searched
+// and not listed is granted.
+func TestAFolderUnderOneThatCannotBeListedIsGranted(t *testing.T) {
+	f := newGrantFixture(t)
+	svc := f.in("locked/svc")
+	require.NoError(t, os.MkdirAll(svc, 0o755))
+	require.NoError(t, os.Chmod(f.in("locked"), 0o311))
+	t.Cleanup(func() { os.Chmod(f.in("locked"), 0o755) })
+
+	assert.NoError(t, CheckFolder(svc, false, f.zones, nil))
+	assert.NoError(t, CheckStoredFolder(svc, true, f.zones, nil))
 }

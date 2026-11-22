@@ -56,3 +56,18 @@ func TestWideHoldsTheVolumesOnMacOS(t *testing.T) {
 	s := NewService(store, func() Zones { return f.zones }, nil, "")
 	assert.Contains(t, s.WideFolders(t.Context()), "/Volumes")
 }
+
+// A grant is taken in the disk's spelling, so the home is listed in it too,
+// whatever case HOME is in.
+func TestWideSpellsTheHomeAsTheDiskDoes(t *testing.T) {
+	f := newGrantFixture(t)
+	upper := filepath.Join(filepath.Dir(f.home), strings.ToUpper(filepath.Base(f.home)))
+	if _, err := os.Stat(upper); err != nil {
+		t.Skip("the filesystem is case-sensitive")
+	}
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	require.NoError(t, err)
+	s := NewService(store, func() Zones { return Zones{Home: upper} }, nil, "")
+
+	assert.Equal(t, f.home, s.WideFolders(t.Context())[0])
+}
