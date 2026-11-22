@@ -13,17 +13,13 @@
 // limitations under the License.
 
 // The window's right sidebar: flush against the app bar and the window's bottom
-// edge, unlike the floating card on the left — it is a wall of the window, not a
-// panel over the page. Closed until its toggle asks for it; the layout pins that
-// toggle to the content row's top-right corner, so it holds its place as the panel
-// opens under it.
+// edge — a wall of the window, not a panel over the page. Closed until its toggle in
+// the app bar asks for it.
 //
 // What it holds follows the mode, since the two have nothing in common: the dashboard
 // gets the focused object, else a chat of its own; chat mode the focused log view, or a
 // placeholder while none is set. The panel does not scroll — its contents own a scroller
 // each, and one inside another gives two scrollbars that fight.
-import { Button } from '@kubetail/ui/elements/button';
-import { PanelRight } from 'lucide-react';
 import type { RefObject } from 'react';
 import { useCallback, useRef } from 'react';
 
@@ -52,12 +48,26 @@ const WIDTH: Record<AppMode, WidthBounds> = {
 const PAGE_MIN_WIDTH = 320;
 export const pageMinWidth = `min(${PAGE_MIN_WIDTH}px, 50%)`;
 
+const pageFloor = (rowWidth: number) => Math.min(PAGE_MIN_WIDTH, rowWidth / 2);
+
+// The widest the left sidebar can be beside the page and this panel: the content row less
+// the page's floor and, while this panel is open, its minimum. `css` is over the row's width
+// (`100cqw`: the row is their container), for the layout to follow; `px` is for a row measured.
+export type LeftSidebarRoom = { css: string; px: (rowWidth: number) => number };
+export function leftSidebarRoom(mode: AppMode, open: boolean): LeftSidebarRoom {
+  const reserved = open ? WIDTH[mode].min : 0;
+  const floor = `min(${PAGE_MIN_WIDTH}px, 50cqw)`;
+  return {
+    css: open ? `calc(100cqw - ${floor} - ${reserved}px)` : `calc(100cqw - ${floor})`,
+    px: (rowWidth) => rowWidth - pageFloor(rowWidth) - reserved,
+  };
+}
+
 // How wide the panel can be before the page goes under its floor: everything right of the
 // page's left edge, less the floor.
 function room(aside: HTMLElement, page: HTMLElement) {
   const rowWidth = page.parentElement?.clientWidth ?? 0;
-  const floor = Math.min(PAGE_MIN_WIDTH, rowWidth / 2);
-  return aside.getBoundingClientRect().right - page.getBoundingClientRect().left - floor;
+  return aside.getBoundingClientRect().right - page.getBoundingClientRect().left - pageFloor(rowWidth);
 }
 const widthKey = (mode: AppMode) => `right-sidebar-width:${mode}`;
 
@@ -97,34 +107,15 @@ function DashboardPanel() {
   return <DashboardChat />;
 }
 
-export function RightSidebarToggle() {
-  const { open, toggle } = useRightSidebar();
-
-  return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      aria-label="Toggle right sidebar"
-      aria-pressed={open}
-      onClick={toggle}
-      className="text-muted-foreground"
-    >
-      <PanelRight aria-hidden />
-    </Button>
-  );
-}
-
 export function RightSidebar({ page }: { page: RefObject<HTMLElement | null> }) {
   const { mode, open } = useRightSidebar();
   const [width, setWidth] = usePersistedWidth(widthKey(mode), WIDTH[mode]);
   const asideRef = useRef<HTMLElement>(null);
 
-  const resize = useCallback(
-    (px: number) => {
-      const aside = asideRef.current;
-      setWidth(aside && page.current ? Math.min(px, room(aside, page.current)) : px);
-    },
-    [page, setWidth],
+  // The widest a resize may make it: as wide as the page's floor allows.
+  const bounds = useCallback(
+    () => ({ min: WIDTH[mode].min, max: room(asideRef.current!, page.current!) }),
+    [mode, page],
   );
 
   if (!open) return null;
@@ -145,9 +136,7 @@ export function RightSidebar({ page }: { page: RefObject<HTMLElement | null> }) 
       style={{ width, minWidth: WIDTH[mode].min }}
     >
       {onDashboard ? <DashboardPanel /> : <ChatPanel />}
-      {/* The panel ends at the window's right edge, so what is left of the window
-          from the pointer is its width. */}
-      <ResizeHandle edge="left" onResize={resize} label="Resize right sidebar" />
+      <ResizeHandle edge="left" bounds={bounds} onResize={setWidth} label="Resize right sidebar" />
     </aside>
   );
 }

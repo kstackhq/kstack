@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -21,8 +21,8 @@ import { LogWindowsContext } from '@/lib/log-windows';
 import { LogsViewProvider, useLogsView } from '@/lib/logs-view';
 import type { LogsView } from '@/lib/logs-view';
 import { ObjectViewProvider, useObjectView } from '@/lib/object-view';
-import { RightSidebarProvider } from '@/lib/right-sidebar';
-import { fakeLogWindows } from '@/test-utils';
+import { RightSidebarProvider, useRightSidebar } from '@/lib/right-sidebar';
+import { fakeLogWindows, stubResizeObserver } from '@/test-utils';
 
 // The panel's contents have a suite of their own, and the real widgets want a router,
 // a urql client, the Tauri bridge and a layout. This file is about which one is mounted.
@@ -63,7 +63,17 @@ vi.mock('@/components/logs/log-viewer', () => ({
   ),
 }));
 
-const { RightSidebar, RightSidebarToggle } = await import('./right-sidebar');
+const { RightSidebar, leftSidebarRoom } = await import('./right-sidebar');
+
+// The app bar's toggle, as far as this suite needs it.
+function RightSidebarToggle() {
+  const { open, toggle } = useRightSidebar();
+  return (
+    <button type="button" aria-label="Toggle right sidebar" aria-pressed={open} onClick={toggle}>
+      toggle
+    </button>
+  );
+}
 
 const { value: logWindows } = fakeLogWindows();
 
@@ -105,7 +115,9 @@ function layOut({ pageLeft = 0 }: { pageLeft?: number } = {}) {
   const row = screen.getByTestId('row');
   Object.defineProperty(row, 'clientWidth', { value: window.innerWidth - pageLeft, configurable: true });
   vi.spyOn(row.querySelector('main')!, 'getBoundingClientRect').mockReturnValue(new DOMRect(pageLeft, 0, 0, 0));
-  vi.spyOn(panel()!, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, window.innerWidth, 0));
+  // The panel at the window's right edge, as wide as its style says.
+  const width = Number.parseFloat(panel()!.style.width);
+  vi.spyOn(panel()!, 'getBoundingClientRect').mockReturnValue(new DOMRect(window.innerWidth - width, 0, width, 0));
 }
 
 const logsView: LogsView = {
@@ -148,6 +160,8 @@ function FocusObject() {
   );
 }
 
+stubResizeObserver();
+
 const panel = () => screen.queryByTestId('right-sidebar');
 const panelWidth = () => screen.getByTestId('right-sidebar').style.width;
 const handle = () => screen.getByRole('separator', { name: 'Resize right sidebar' });
@@ -172,6 +186,15 @@ afterEach(() => {
 });
 
 // Tests ---------------------------------------------------------------
+
+describe('leftSidebarRoom', () => {
+  it('leaves the page its floor, and the right sidebar its minimum while it is open', () => {
+    expect(leftSidebarRoom('chat', false).px(800)).toBe(480);
+    expect(leftSidebarRoom('chat', true).px(800)).toBe(240);
+    // The floor is half a row under 640px.
+    expect(leftSidebarRoom('dashboard', true).px(600)).toBe(60);
+  });
+});
 
 describe('RightSidebar', () => {
   it('stays closed until it is asked for', () => {
@@ -213,14 +236,45 @@ describe('RightSidebar', () => {
 
     // The panel ends at the window's right edge, so its width is what is left of
     // the window from the pointer.
-    fireEvent.pointerDown(handle(), { pointerId: 1 });
-    fireEvent.pointerMove(window, { clientX: 600 });
-    expect(panelWidth()).toBe('400px');
-    expect(localStorage.getItem('kstack:right-sidebar-width:chat')).toBe('400');
+    fireEvent.pointerDown(handle());
+    fireEvent.pointerMove(window, { clientX: 650 });
+    expect(panelWidth()).toBe('350px');
+    expect(localStorage.getItem('kstack:right-sidebar-width:chat')).toBe('350');
 
     fireEvent.pointerUp(window);
     // Releasing detaches the listeners: further movement is ignored.
     fireEvent.pointerMove(window, { clientX: 700 });
+    expect(panelWidth()).toBe('350px');
+  });
+
+  // Shrunk by the row to 300px, a stored 400px moves on the first press; it grows no
+  // further than the page's floor allows, the bound it reports.
+  it('steps its width from the keyboard, from its width as drawn, the left arrow growing it', () => {
+    renderPanel();
+    clickToggle();
+    layOut();
+    const drawn = vi.spyOn(panel()!, 'getBoundingClientRect').mockReturnValue(new DOMRect(700, 0, 300, 0));
+    act(() => handle().focus());
+    expect(handle()).toHaveAttribute('aria-valuenow', '300');
+    expect(handle()).toHaveAttribute('aria-valuemin', '240');
+    // Right of the page's left edge (0) to the panel's right (1000), less the 320px floor.
+    expect(handle()).toHaveAttribute('aria-valuemax', '680');
+    fireEvent.keyDown(handle(), { key: 'ArrowRight' });
+    expect(panelWidth()).toBe('284px');
+    drawn.mockReturnValue(new DOMRect(330, 0, 670, 0));
+    fireEvent.keyDown(handle(), { key: 'ArrowLeft' });
+    expect(panelWidth()).toBe('680px');
+  });
+
+  // Shrunk by the row to the room it has, a stored 400px is the user's for a wider window.
+  it('keeps the stored width on a press the room holds back', () => {
+    renderPanel();
+    clickToggle();
+    // A 600px row: room for 1000 − 400 − the 300px floor.
+    layOut({ pageLeft: 400 });
+    vi.spyOn(panel()!, 'getBoundingClientRect').mockReturnValue(new DOMRect(700, 0, 300, 0));
+    fireEvent.keyDown(handle(), { key: 'ArrowLeft' });
+    expect(localStorage.getItem('kstack:right-sidebar-width:chat')).toBeNull();
     expect(panelWidth()).toBe('400px');
   });
 
@@ -229,7 +283,7 @@ describe('RightSidebar', () => {
     clickToggle();
     layOut();
 
-    fireEvent.pointerDown(handle(), { pointerId: 1 });
+    fireEvent.pointerDown(handle());
     fireEvent.pointerMove(window, { clientX: 990 });
     expect(panelWidth()).toBe('240px');
   });
@@ -240,7 +294,7 @@ describe('RightSidebar', () => {
     layOut({ pageLeft: 200 });
 
     // Past the left card, the row is 800px: the page keeps 320px of it.
-    fireEvent.pointerDown(handle(), { pointerId: 1 });
+    fireEvent.pointerDown(handle());
     fireEvent.pointerMove(window, { clientX: -500 });
     expect(panelWidth()).toBe('480px');
     expect(localStorage.getItem(`kstack:right-sidebar-width:${mode}`)).toBe('480');
@@ -248,13 +302,28 @@ describe('RightSidebar', () => {
 
   it('leaves the page half the row once the row is under 640px', () => {
     Object.defineProperty(window, 'innerWidth', { value: 600, configurable: true });
+    localStorage.setItem('kstack:right-sidebar-width:chat', '250');
     renderPanel();
     clickToggle();
     layOut();
 
-    fireEvent.pointerDown(handle(), { pointerId: 1 });
+    fireEvent.pointerDown(handle());
     fireEvent.pointerMove(window, { clientX: 0 });
     expect(panelWidth()).toBe('300px');
+  });
+
+  // Shrunk by the row to the room it has, a stored 400px is the user's for a wider window.
+  it('keeps the stored width on a drag outward the room holds back', () => {
+    Object.defineProperty(window, 'innerWidth', { value: 600, configurable: true });
+    renderPanel();
+    clickToggle();
+    layOut();
+    vi.spyOn(panel()!, 'getBoundingClientRect').mockReturnValue(new DOMRect(300, 0, 300, 0));
+
+    fireEvent.pointerDown(handle());
+    fireEvent.pointerMove(window, { clientX: 0 });
+    expect(panelWidth()).toBe('400px');
+    expect(localStorage.getItem('kstack:right-sidebar-width:chat')).toBeNull();
   });
 
   it('gives way to the page on a narrow window, down to its minimum', () => {

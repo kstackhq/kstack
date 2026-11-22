@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The window's left sidebar, as the layout mounts it: the open `LeftSidebarCard` or the
-// collapsed `LeftSidebarPill`. Too narrow for the card beside the page, the pill holds
-// the row alone and the toggle opens the card over it as a drawer — so opening one
-// never moves the page under the pointer, and narrowing never throws a panel over it.
+// The window's left sidebar, as the layout mounts it: `LeftSidebarPanel`, sliding between
+// its width and none. Too narrow for it beside the page, it leaves the row, and the app
+// bar's toggle opens it over the row as a drawer — so narrowing never throws a panel over
+// the page.
 //
-// Open/collapsed state, the drawer's own state, and `Cmd/Ctrl+B` come from the
+// Open/closed state, the drawer's own state, and `Cmd/Ctrl+B` come from the
 // library's `SidebarProvider`, mounted by `app-layout.tsx`; this reads them through
 // `useSidebar`. Narrowness comes from there too (`isMobile`, its own hardcoded
 // 768px) rather than a second media query of our own: it is what the toggle
@@ -25,25 +25,29 @@
 // button flipping a state nothing shows.
 import { useSidebar } from '@kubetail/ui/elements/sidebar';
 import { useLocation } from '@tanstack/react-router';
-import type { ReactNode } from 'react';
-import { useEffect } from 'react';
+import { X } from 'lucide-react';
+import type { MouseEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 
+import { leftSidebarRoom } from '@/components/shell/right-sidebar';
 import { useFocusTrap } from '@/lib/focus-trap';
+import { isImeKey } from '@/lib/ime';
+import { useRightSidebar } from '@/lib/right-sidebar';
 
-import { LeftSidebarCard } from './card';
-import { LeftSidebarPill } from './pill';
+import { LeftSidebarPanel } from './panel';
 
 type LeftSidebarProps = {
-  /** Pinned above the scroll area, beside the toggle. */
-  header?: ReactNode;
-  /** Sidebar body (navigation, pickers) — scrolls under the header. */
+  /** Sidebar body (navigation, pickers); it scrolls. */
   nav?: ReactNode;
 };
 
-export function LeftSidebar({ header, nav }: LeftSidebarProps) {
+export function LeftSidebar({ nav }: LeftSidebarProps) {
   const { open, isMobile, openMobile, setOpenMobile } = useSidebar();
+  const { mode, open: rightOpen } = useRightSidebar();
+  const room = useMemo(() => leftSidebarRoom(mode, rightOpen), [mode, rightOpen]);
   const drawer = isMobile && openMobile;
   const trapRef = useFocusTrap<HTMLDivElement>(drawer);
+  const closeDrawer = useCallback(() => setOpenMobile(false), [setOpenMobile]);
 
   // Escape closes it, as it does any overlay. The listener stays on `window`, which
   // is later in the bubble path than `document`: a dialog opened from inside the
@@ -52,52 +56,74 @@ export function LeftSidebar({ header, nav }: LeftSidebarProps) {
   useEffect(() => {
     if (!drawer) return undefined;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpenMobile(false);
+      // An IME's Escape drops its candidate and leaves the drawer open.
+      if (e.key === 'Escape' && !isImeKey(e)) closeDrawer();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [drawer, setOpenMobile]);
+  }, [drawer, closeDrawer]);
+
+  // The drawer belongs to the narrow layout: widening the window ends it, so narrowing
+  // again does not bring it back.
+  useEffect(() => {
+    if (!isMobile) closeDrawer();
+  }, [isMobile, closeDrawer]);
 
   // A drawer left open covers the page it just opened, so a navigation closes it.
   // Keyed on the whole location: picking a resource moves the search param, not the
-  // path.
+  // path. A link to where the window already is moves nothing, so a plain click on any
+  // link in the drawer closes it too.
   const href = useLocation({ select: (location) => location.href });
   useEffect(() => {
-    setOpenMobile(false);
-  }, [href, setOpenMobile]);
+    closeDrawer();
+  }, [href, closeDrawer]);
+  const closeOnLinkClick = (e: MouseEvent) => {
+    // A modified click opens no page in this window, as the router leaves it alone.
+    const modified = e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey;
+    if (!modified && (e.target as Element).closest('a[href]')) closeDrawer();
+  };
 
-  if (!isMobile) return open ? <LeftSidebarCard header={header} nav={nav} /> : <LeftSidebarPill />;
-
+  // Beside the page, it leaves room for the page's floor and the right sidebar's minimum.
+  if (!isMobile) {
+    return <LeftSidebarPanel open={open} nav={nav} room={room} />;
+  }
+  if (!drawer) return null;
   return (
+    // Both anchor to the content row (`app-layout.tsx` positions it).
     <>
-      {/* The pill holds the row's width, so the page keeps its geometry while the
-          card floats above it. Both anchor to the content row (`app-layout.tsx`
-          positions it). */}
-      <LeftSidebarPill />
-      {drawer && (
-        <>
-          <button
-            type="button"
-            aria-label="Close sidebar"
-            data-testid="sidebar-scrim"
-            onClick={() => setOpenMobile(false)}
-            className="absolute inset-0 z-30 cursor-default bg-black/40"
-          />
-          {/* A panel over the page has to hold the keyboard as well as the eye:
-              the trap keeps Tab inside it and hands focus back on close, and
-              `aria-modal` tells assistive tech to ignore what it covers. */}
-          <div
-            ref={trapRef}
-            role="dialog"
-            aria-modal
-            aria-label="Sidebar"
-            data-testid="sidebar-overlay"
-            className="absolute inset-y-0 left-0 z-40 flex drop-shadow-xl"
-          >
-            <LeftSidebarCard header={header} nav={nav} />
-          </div>
-        </>
-      )}
+      <button
+        type="button"
+        aria-label="Close sidebar"
+        data-testid="sidebar-scrim"
+        onClick={closeDrawer}
+        className="absolute inset-0 z-30 cursor-default bg-black/40"
+      />
+      {/* A panel over the page has to hold the keyboard as well as the eye:
+          the trap keeps Tab inside it and hands focus back on close, and
+          `aria-modal` tells assistive tech to ignore what it covers. It slides in
+          from off the row's left edge on mount. Its close button sits inside it, beside
+          the panel's edge, so the controls the trap holds Tab among include one that
+          dismisses it. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- it hears its links' own clicks, which a key press on a link sends too */}
+      <div
+        ref={trapRef}
+        role="dialog"
+        aria-modal
+        aria-label="Sidebar"
+        data-testid="sidebar-overlay"
+        onClick={closeOnLinkClick}
+        className="absolute inset-y-0 left-0 z-40 flex drop-shadow-xl transition-transform duration-200 ease-out starting:-translate-x-full motion-reduce:transition-none"
+      >
+        <LeftSidebarPanel open nav={nav} />
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          onClick={closeDrawer}
+          className="absolute top-2 left-full ml-2 flex size-7 items-center justify-center rounded-full bg-background text-muted-foreground shadow-sm hover:text-foreground"
+        >
+          <X aria-hidden className="size-4" />
+        </button>
+      </div>
     </>
   );
 }

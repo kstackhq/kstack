@@ -12,5 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The left sidebar. Its card, pill and toggle are its own.
+// The left sidebar. Its panel is its own.
 export { LeftSidebar } from './sidebar';

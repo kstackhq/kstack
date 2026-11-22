@@ -12,27 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Chat/Dashboard switch. Router links, not local state, so each mode is a real
-// deep-linkable route; the active one is highlighted via `data-status`.
+// Chat/Dashboard switch in the app bar: a segmented control of icons. Router links, not
+// local state, so each mode is a real deep-linkable route; the active one is highlighted
+// via `data-status`.
+import { Tooltip, TooltipContent, TooltipTrigger } from '@kubetail/ui/elements/tooltip';
 import { Link } from '@tanstack/react-router';
 import { LayoutDashboard, MessageCircle } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
-const TRACK = 'inline-flex w-full items-center rounded-lg bg-muted p-[3px] text-muted-foreground';
-const ITEM =
-  'flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium transition-colors hover:text-foreground ' +
-  'data-[status=active]:bg-background data-[status=active]:text-foreground data-[status=active]:shadow-sm';
+import { APP_BAR_BOX_CLASS } from '@/lib/control-style';
+
+const TRACK = `flex items-center gap-0.5 bg-muted p-0.75 ${APP_BAR_BOX_CLASS}`;
+const SEGMENT =
+  'flex size-5.5 items-center justify-center rounded-[5px] border border-transparent text-muted-foreground transition-colors hover:text-foreground ' +
+  'data-[status=active]:border-[0.5px] data-[status=active]:border-sidebar-border data-[status=active]:bg-background data-[status=active]:text-foreground data-[status=active]:shadow-sm';
+
+function Segment({ to, label, icon: Icon }: { to: '/chat' | '/dashboard'; label: string; icon: LucideIcon }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<Link to={to} aria-label={label} className={SEGMENT} />}>
+        <Icon className="size-3.75" aria-hidden />
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function ModeNav() {
   return (
-    <nav className={TRACK} aria-label="View">
-      <Link to="/chat" className={ITEM}>
-        <MessageCircle className="size-4" aria-hidden />
-        Chat
-      </Link>
-      <Link to="/dashboard" className={ITEM}>
-        <LayoutDashboard className="size-4" aria-hidden />
-        Dashboard
-      </Link>
+    // The whole track is the control: a press between the icons must not drag the window.
+    <nav className={TRACK} aria-label="View" data-tauri-drag-region="false">
+      <Segment to="/chat" label="Chat" icon={MessageCircle} />
+      <Segment to="/dashboard" label="Dashboard" icon={LayoutDashboard} />
     </nav>
   );
 }

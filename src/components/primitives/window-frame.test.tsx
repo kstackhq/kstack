@@ -29,6 +29,12 @@ const { windowMock, factory } = mockTauriWindow();
 vi.mock('@tauri-apps/api/window', () => factory());
 
 const { WindowFrame } = await import('./window-frame');
+const { useWindowFrame } = await import('@/lib/window-frame');
+
+function FrameReader() {
+  const frame = useWindowFrame();
+  return <div data-testid="reader" data-frame={frame?.dataset.testid ?? 'none'} />;
+}
 
 beforeEach(() => {
   windowMock.isMaximized.mockClear().mockResolvedValue(false);
@@ -52,6 +58,25 @@ describe('WindowFrame', () => {
     // Restored (not maximized): inset gutter + rounded corners + shadow.
     expect(frame.className).toContain('inset-4');
     expect(frame.className).toContain('rounded-lg');
+  });
+
+  // A popup portalled outside the frame keeps within its edge, not the viewport's.
+  it('hands its element down on Linux, and none elsewhere', () => {
+    const { unmount } = render(
+      <WindowFrame>
+        <FrameReader />
+      </WindowFrame>,
+    );
+    expect(screen.getByTestId('reader')).toHaveAttribute('data-frame', 'window-frame');
+    unmount();
+
+    setUserAgent(MAC_USER_AGENT);
+    render(
+      <WindowFrame>
+        <FrameReader />
+      </WindowFrame>,
+    );
+    expect(screen.getByTestId('reader')).toHaveAttribute('data-frame', 'none');
   });
 
   it('collapses the gutter to full-bleed when the window is maximized', async () => {

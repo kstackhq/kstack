@@ -20,9 +20,8 @@
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { Alert, AlertDescription, AlertTitle } from '@kubetail/ui/elements/alert';
 import { Button } from '@kubetail/ui/elements/button';
-import { Popover, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import { ArrowRight, Check, CircleAlert, Server, TriangleAlert } from 'lucide-react';
-import { type ReactElement, type ReactNode, useState } from 'react';
+import { type ReactElement, type ReactNode, type RefObject, useState } from 'react';
 
 import { ClusterDot } from '@/components/cluster/cluster-dot';
 import { DataRateSparkline } from '@/components/cluster/data-rate-sparkline';
@@ -47,6 +46,8 @@ import {
 import { type Cluster, type ClusterCacheHealth, formatRate } from '@/lib/clusters';
 import { useDialog } from '@/lib/dialog';
 import { humanMinutes } from '@/lib/human-duration';
+
+import { OmniboxPopover } from '../omnibox-popover';
 
 // The header's pill: the overall tone in one word.
 const PILL: Record<Tone, { label: string; className: string }> = {
@@ -382,45 +383,42 @@ function ClusterStatus({ context, cluster, onClose }: { context: string; cluster
   );
 }
 
-// `cluster` is the context's record, absent until the sidecar has reached it.
+// `cluster` is the context's record, absent until the sidecar has reached it. Hangs from the
+// omnibox, at least 320px wide.
 export function ClusterStatusPopover({
+  anchorRef,
   context,
   cluster,
   children,
 }: {
+  anchorRef: RefObject<HTMLElement | null>;
   context: string;
   cluster: Cluster | undefined;
   children: ReactElement;
 }) {
   const [open, setOpen] = useState(false);
+  const popup = (
+    <PopoverPrimitive.Popup
+      data-testid="cluster-status"
+      aria-label="Cluster status"
+      className="flex flex-col overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg outline-hidden"
+      style={{
+        width: 'max(var(--anchor-width), 320px)',
+        maxWidth: 'var(--available-width)',
+        maxHeight: 'var(--available-height)',
+      }}
+    >
+      {cluster ? (
+        <ClusterStatus context={context} cluster={cluster} onClose={() => setOpen(false)} />
+      ) : (
+        <Header context={context} tone="muted" subtitle="Kstack has not reached this cluster yet." />
+      )}
+    </PopoverPrimitive.Popup>
+  );
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={children} />
-      <PopoverPrimitive.Portal>
-        {/* Hangs below the server icon, its left edge on the icon's. z-50, as the library's
-            popover content has: above the sidebar drawer and its scrim. It never flips above:
-            its height is capped at the room below, which would otherwise trip the flip. */}
-        <PopoverPrimitive.Positioner
-          align="start"
-          side="bottom"
-          sideOffset={8}
-          collisionAvoidance={{ side: 'none' }}
-          className="z-50"
-        >
-          <PopoverPrimitive.Popup
-            data-testid="cluster-status"
-            aria-label="Cluster status"
-            className="flex w-80 max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg outline-hidden"
-            style={{ maxHeight: 'var(--available-height)' }}
-          >
-            {cluster ? (
-              <ClusterStatus context={context} cluster={cluster} onClose={() => setOpen(false)} />
-            ) : (
-              <Header context={context} tone="muted" subtitle="Kstack has not reached this cluster yet." />
-            )}
-          </PopoverPrimitive.Popup>
-        </PopoverPrimitive.Positioner>
-      </PopoverPrimitive.Portal>
-    </Popover>
+    <OmniboxPopover anchorRef={anchorRef} popup={popup} open={open} onOpenChange={setOpen}>
+      {children}
+    </OmniboxPopover>
   );
 }

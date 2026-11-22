@@ -270,4 +270,12 @@ describe('LogsViewHeader', () => {
     expect(screen.getByText(/matching/)).toHaveTextContent('matching /panic/');
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
+
+  // The sidebar's toggle is in the app bar, so the header's top-right corner is its own.
+  it('pads its header evenly', () => {
+    render(<LogsViewHeader view={view} grep="panic" />);
+    const header = screen.getByRole('heading').closest('header')!;
+    expect(header).toHaveClass('p-4');
+    expect(header.className).not.toMatch(/\bpr-/);
+  });
 });

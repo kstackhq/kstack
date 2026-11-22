@@ -45,9 +45,7 @@ export function ObjectPanel({ object, tab, onTab, onClose }: ObjectPanelProps) {
   const View = VIEW[tab];
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* The layout pins the sidebar toggle over the panel's top-right corner, so the
-          header leaves that corner alone, as the log view's does. */}
-      <header className="flex items-start gap-2 p-4 pr-14 pb-3">
+      <header className="flex items-start gap-2 p-4 pb-3">
         <div className="min-w-0 flex-1 text-sm">
           <h2 className="truncate font-semibold" title={object.name}>
             <VisibleText text={object.kind} />: <VisibleText text={object.name} />

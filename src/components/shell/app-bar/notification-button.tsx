@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Notifications button in the app bar's right-hand pill, beside Settings. Nothing
+// Notifications button at the app bar's right end, beside Settings. Nothing
 // feeds it yet: the popover's copy is a placeholder.
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import { Bell } from 'lucide-react';
@@ -22,7 +22,7 @@ import { AppBarButton } from './button';
 export function NotificationButton() {
   return (
     <Popover>
-      <PopoverTrigger render={<AppBarButton className="border-transparent" />} aria-label="Notifications">
+      <PopoverTrigger render={<AppBarButton />} aria-label="Notifications">
         <Bell aria-hidden />
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={8} className="w-72">

@@ -327,11 +327,9 @@ export async function renderWithRouter(routeTree: AnyRoute, path: string) {
   };
 }
 
-// jsdom has no layout: every element is 0px tall and `ResizeObserver` is missing, so a
-// `VirtualTable` renders no rows. Gives every element `clientHeight` and a `ResizeObserver`
-// that reports once, on `observe`. Call at module scope in any suite that renders rows.
-export function stubLayout(clientHeight: number) {
-  Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => clientHeight });
+// jsdom has no `ResizeObserver`. Gives one that reports once, on `observe`. Call at module
+// scope in any suite that renders a component measuring itself (the app bar).
+export function stubResizeObserver() {
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -345,6 +343,14 @@ export function stubLayout(clientHeight: number) {
       disconnect() {}
     },
   );
+}
+
+// jsdom has no layout: every element is 0px tall, so a `VirtualTable` renders no rows. Gives
+// every element `clientHeight`, and a `ResizeObserver`. Call at module scope in any suite
+// that renders rows.
+export function stubLayout(clientHeight: number) {
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => clientHeight });
+  stubResizeObserver();
 }
 
 // A text box with the webview's suggestions off (`components/primitives/text-entry.tsx`).

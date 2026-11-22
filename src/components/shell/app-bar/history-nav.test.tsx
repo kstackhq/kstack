@@ -197,3 +197,13 @@ describe('HistoryNav (standalone-site browser history)', () => {
     expect(screen.getByRole('button', { name: 'Go forward' })).toBeDisabled();
   });
 });
+
+describe('HistoryNav look', () => {
+  it('draws two 30px round ghost buttons with no outline around them', async () => {
+    await renderWithRouter(buildTree(), '/chat');
+    for (const button of [back(), forward()]) {
+      expect(button).toHaveClass('size-7.5', 'rounded-full', 'border-transparent');
+    }
+    expect(back().parentElement).not.toHaveClass('border');
+  });
+});

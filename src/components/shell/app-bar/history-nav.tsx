@@ -30,7 +30,7 @@ import { useCallback, useRef, useSyncExternalStore } from 'react';
 
 import { storageKey } from '@/lib/storage-key';
 
-import { AppBarButton, AppBarDivider, AppBarGroup } from './button';
+import { AppBarButton } from './button';
 
 // Exported so tests can seed a pre-reload value.
 export const FORWARD_CEILING_STORAGE_KEY = storageKey('history-forward-ceiling');
@@ -93,19 +93,16 @@ function useHistoryNav() {
 
 export function HistoryNav() {
   const { canGoBack, canGoForward, goBack, goForward } = useHistoryNav();
-
-  // Ghosts inside the pill: the group draws the outline.
-  const buttonClass = 'border-transparent text-muted-foreground';
+  const buttonClass = 'size-7.5 rounded-full';
 
   return (
-    <AppBarGroup>
+    <div className="flex items-center">
       <AppBarButton aria-label="Go back" disabled={!canGoBack} onClick={goBack} className={buttonClass}>
-        <ChevronLeft className="size-4 " aria-hidden />
+        <ChevronLeft className="size-4" aria-hidden />
       </AppBarButton>
-      <AppBarDivider />
       <AppBarButton aria-label="Go forward" disabled={!canGoForward} onClick={goForward} className={buttonClass}>
-        <ChevronRight className="size-4 " aria-hidden />
+        <ChevronRight className="size-4" aria-hidden />
       </AppBarButton>
-    </AppBarGroup>
+    </div>
   );
 }

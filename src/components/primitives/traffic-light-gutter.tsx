@@ -15,7 +15,7 @@
 // Space (px) reserved for the macOS traffic lights: the host places the first at
 // x=20 (`window_manager.rs`) and the three end near x=72; the rest is breathing
 // room. Eyeball against the native buttons when tuning.
-const TRAFFIC_LIGHT_GUTTER = 96;
+const TRAFFIC_LIGHT_GUTTER = 76;
 
 /** The macOS traffic lights' place at a bar's left end, in the app and log windows. */
 export function TrafficLightGutter() {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -135,6 +135,70 @@ describe('ContextOmnibox', () => {
     expect(screen.getByTestId('context-omnibox').contains(trigger())).toBe(true);
   });
 
+  it('is a 30px, 8px-radius box, bordered and white with no shadow', () => {
+    render(<ContextOmnibox />);
+    const box = screen.getByTestId('context-omnibox');
+    expect(box).toHaveClass('h-7.5', 'w-full', 'max-w-88', 'rounded-lg', 'border', 'border-sidebar-border');
+    expect(box).toHaveClass('bg-white', 'dark:bg-input/30');
+    expect(box.className).not.toMatch(/shadow/);
+  });
+
+  it('draws the status and memory buttons as 28px circles around a 13px name', () => {
+    render(<ContextOmnibox />);
+    expect(screen.getByRole('button', { name: 'Memory' })).toHaveClass('size-7', 'rounded-full');
+    expect(screen.getByRole('button', { name: /^Cluster status/ })).toHaveClass('size-7', 'rounded-full');
+    expect(screen.getByTestId('cluster-trigger-name').parentElement).toHaveClass(
+      'text-[13px]',
+      'font-medium',
+      'text-muted-foreground',
+    );
+  });
+
+  // A strip of the box outside every control, its border included, would take a press and
+  // open nothing.
+  it('leaves no gap between its controls, their hit areas covering the margins and the border', () => {
+    render(<ContextOmnibox />);
+    expect(screen.getByTestId('context-omnibox').className).not.toMatch(/\b(gap|px|p)-/);
+    for (const name of ['Memory', /^Cluster status/]) {
+      // From inside the button's own 1px border: it, the 4px margin and the box's 1px
+      // border beside it, and both borders above and below.
+      const button = screen.getByRole('button', { name });
+      expect(button).toHaveClass('border', 'border-transparent', 'mx-1', 'after:-inset-x-1.5', 'after:-inset-y-0.5');
+    }
+    expect(trigger()).toHaveClass('h-full', 'after:-inset-px');
+  });
+
+  // Over the content, the hit area would take the hover from the TLS badge and the status
+  // dot, and their tooltips with it. `isolate` keeps it above the omnibox's own fill.
+  it('lays each control’s hit area behind its content', () => {
+    render(<ContextOmnibox />);
+    for (const control of [
+      screen.getByRole('button', { name: 'Memory' }),
+      screen.getByRole('button', { name: /^Cluster status/ }),
+      trigger(),
+    ]) {
+      expect(control).toHaveClass('relative', 'isolate', 'after:absolute', 'after:-z-10');
+    }
+  });
+
+  // At the window's 600px minimum the box is about 80px: the two buttons' 56px, and room
+  // for the badge's icon beside a truncated name.
+  it('compacts to a narrow box, keeping every control and the TLS warning', () => {
+    serveContexts(['prod'], { clusterEntry: { server: 'https://prod:6443', insecureSkipTLSVerify: true } });
+    render(<ContextOmnibox />);
+    expect(screen.getByTestId('context-omnibox')).toHaveClass('@container');
+    for (const name of ['Memory', /^Cluster status/]) {
+      expect(screen.getByRole('button', { name })).toHaveClass('@max-[14rem]:mx-0', '@max-[14rem]:after:-inset-0.5');
+    }
+    expect(screen.getByTestId('cluster-trigger-name')).toHaveClass('truncate');
+    expect(screen.getByTestId('cluster-trigger-name').parentElement).toHaveClass('@max-[14rem]:gap-1');
+    // The words give way to an icon, the warning's tooltip and spoken name kept.
+    const badge = screen.getByTitle(/insecure-skip-tls-verify/);
+    expect(badge).toHaveClass('shrink-0', '@max-[14rem]:px-0.5');
+    expect(badge.querySelector('svg')).toHaveClass('hidden', '@max-[14rem]:block');
+    expect(screen.getByText('Unverified TLS')).toHaveClass('@max-[14rem]:sr-only');
+  });
+
   it('opts out of the app bar’s drag region', () => {
     render(<ContextOmnibox />);
     // Pressing a control's padding should no more move the window than a
@@ -215,6 +279,16 @@ describe('ContextOmnibox', () => {
     expect(screen.queryByText('Clusters', { selector: 'p' })).not.toBeInTheDocument();
   });
 
+  // jsdom lays nothing out, so the positioner's alignment stands in for where it hangs.
+  it('centres the status under the omnibox, as the picker and memory are', async () => {
+    const user = userEvent.setup();
+    render(<ContextOmnibox />);
+
+    await user.click(statusButton());
+    const popup = await screen.findByTestId('cluster-status');
+    await waitFor(() => expect(popup.closest('[data-align]')).toHaveAttribute('data-align', 'center'));
+  });
+
   it('switches cluster from a picker row', async () => {
     const user = userEvent.setup();
     render(<ContextOmnibox />);
@@ -255,7 +329,7 @@ describe('ContextOmnibox', () => {
     serveContexts(['prod'], { clusterEntry: { server: 'https://prod:6443', insecureSkipTLSVerify: true } });
     render(<ContextOmnibox />);
     // The one place the app says a connection goes unverified.
-    expect(screen.getByText('Unverified TLS')).toHaveAttribute(
+    expect(screen.getByText('Unverified TLS').parentElement).toHaveAttribute(
       'title',
       expect.stringContaining('insecure-skip-tls-verify'),
     );
@@ -264,7 +338,26 @@ describe('ContextOmnibox', () => {
   it('warns for a plain http server too', () => {
     serveContexts(['prod'], { clusterEntry: { server: 'http://localhost:8080', insecureSkipTLSVerify: false } });
     render(<ContextOmnibox />);
-    expect(screen.getByText('Unverified TLS')).toHaveAttribute('title', expect.stringContaining('plain http'));
+    expect(screen.getByText('Unverified TLS').parentElement).toHaveAttribute(
+      'title',
+      expect.stringContaining('plain http'),
+    );
+  });
+
+  // The button's name replaces its contents for a screen reader, the badge's words with them.
+  it.each([
+    { reason: 'insecure-skip-tls-verify', entry: { server: 'https://prod:6443', insecureSkipTLSVerify: true } },
+    { reason: 'a plain http server', entry: { server: 'http://localhost:8080', insecureSkipTLSVerify: false } },
+  ])('announces the warning with the cluster for $reason', ({ entry }) => {
+    serveContexts(['prod'], { clusterEntry: entry });
+    render(<ContextOmnibox />);
+    expect(trigger()).toHaveAccessibleName('Cluster: prod, unverified TLS');
+  });
+
+  it('announces a verified cluster by name alone', () => {
+    serveContexts(['prod'], { clusterEntry: { server: 'https://prod:6443', insecureSkipTLSVerify: false } });
+    render(<ContextOmnibox />);
+    expect(trigger()).toHaveAccessibleName('Cluster: prod');
   });
 
   it('stays quiet for a verified cluster', () => {
@@ -291,6 +384,18 @@ describe('ContextOmnibox', () => {
     serveContexts([], { phase: 'connecting' });
     render(<ContextOmnibox />);
     expect(screen.getByRole('button', { name: 'Cluster: connecting' })).toHaveTextContent('Connecting…');
+  });
+
+  // About 22px is left for the words at the window's 600px minimum: the spinner and the
+  // bare icon say it, and the button's name keeps the words.
+  it.each([
+    { phase: 'connecting' as const, words: 'Connecting…', name: 'Cluster: connecting' },
+    { phase: 'live' as const, words: 'No kubeconfig', name: 'Cluster: no kubeconfig' },
+  ])('drops "$words" in a narrow box, keeping it as the name', ({ phase, words, name }) => {
+    serveContexts([], { phase });
+    render(<ContextOmnibox />);
+    expect(screen.getByText(words)).toHaveClass('@max-[14rem]:hidden');
+    expect(screen.getByRole('button', { name })).toBeInTheDocument();
   });
 
   // The picker still opens, so a user with no kubeconfig reaches the dialog's orphaned caches.

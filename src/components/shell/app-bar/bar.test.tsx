@@ -22,9 +22,13 @@ import {
   mockTauriWindow,
   restoreUserAgent,
   setUserAgent,
+  stubResizeObserver,
 } from '@/test-utils';
 
 // Mocks ---------------------------------------------------------------
+
+// The bar measures its two ends.
+stubResizeObserver();
 
 // `WindowControls` (rendered off macOS) drives the native window via
 // `getCurrentWindow`, so the window API must be mocked before importing.
@@ -43,6 +47,19 @@ vi.mock('./notification-button', () => ({
 }));
 vi.mock('./settings-button', () => ({
   SettingsButton: () => <div data-testid="settings-button" />,
+}));
+// The toggles read the sidebars' providers and the mode switch the router; their own
+// suites cover them.
+vi.mock('./left-sidebar-toggle', () => ({
+  LeftSidebarToggle: () => <button type="button" aria-label="Toggle sidebar" data-testid="left-sidebar-toggle" />,
+}));
+vi.mock('./right-sidebar-toggle', () => ({
+  RightSidebarToggle: () => (
+    <button type="button" aria-label="Toggle right sidebar" data-testid="right-sidebar-toggle" />
+  ),
+}));
+vi.mock('@/components/shell/mode-nav', () => ({
+  ModeNav: () => <nav data-testid="mode-nav" />,
 }));
 // The omnibox reads the kubeconfig; its own suite covers it.
 vi.mock('@/components/shell/context-omnibox/omnibox', () => ({
@@ -72,8 +89,8 @@ afterEach(() => {
 describe('AppBar', () => {
   it('holds its height as the layout column’s top band', () => {
     render(<AppBar />);
-    // 48px, and never shrunk by the row below it.
-    expect(screen.getByTestId('app-bar')).toHaveClass('h-12', 'shrink-0');
+    // 40px, and never shrunk by the row below it.
+    expect(screen.getByTestId('app-bar')).toHaveClass('h-10', 'shrink-0');
   });
 
   it('drags the window from anywhere it is not a control, on every platform', () => {
@@ -90,35 +107,67 @@ describe('AppBar', () => {
 
   it('clicks the pressed element when the press drags the window', () => {
     render(<AppBar />);
-    const spacer = screen.getAllByTestId('app-bar-spacer')[0];
+    const start = screen.getByTestId('app-bar-start');
     const onClick = vi.fn();
-    spacer.addEventListener('click', onClick);
-    fireEvent.pointerDown(spacer, { button: 0 });
+    start.addEventListener('click', onClick);
+    fireEvent.pointerDown(start, { button: 0 });
     expect(onClick).toHaveBeenCalledOnce();
   });
 
-  it('centers the omnibox between the two spacers', () => {
+  it('centers the omnibox on the window, in a middle column that shrinks first, to a floor', () => {
+    // The left end, with the traffic lights and the history, is the wider.
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return { 'app-bar-start': 260, 'app-bar-end': 112 }[this.dataset.testid ?? ''] ?? 0;
+    });
     render(<AppBar />);
-    const bands = Array.from(screen.getByTestId('app-bar').children);
-    const [left, right] = screen.getAllByTestId('app-bar-spacer');
-    const picker = screen.getByTestId('context-omnibox').parentElement!;
+    const bar = screen.getByTestId('app-bar');
+    // Flexible ends, each at least its own content and the other end's while that leaves
+    // the omnibox 5rem, around a column of at most 352px that gives way first.
+    expect(bar).toHaveClass('grid');
+    expect(bar.style.gridTemplateColumns).toBe(
+      'minmax(max(260px, min(112px, 100% - 112px - 5rem)), 1fr) minmax(0px, 352px) ' +
+        'minmax(max(112px, min(260px, 100% - 260px - 5rem)), 1fr)',
+    );
+    expect(screen.getByTestId('app-bar-start')).toHaveClass('justify-self-start');
+    expect(screen.getByTestId('app-bar-end')).toHaveClass('justify-self-end');
+    width.mockRestore();
+    const columns = Array.from(bar.children);
+    expect(columns).toHaveLength(3);
+    expect(columns[1].contains(screen.getByTestId('context-omnibox'))).toBe(true);
+  });
 
-    expect(bands.indexOf(left)).toBeLessThan(bands.indexOf(picker));
-    expect(bands.indexOf(picker)).toBeLessThan(bands.indexOf(right));
-    // Both spacers grow, so the omnibox lands in the middle of what's left, and
-    // both keep a floor so a narrow window still leaves room either side of it.
-    expect(left).toHaveClass('flex-1', 'min-w-4');
-    expect(right).toHaveClass('flex-1', 'min-w-4');
+  it('lays out the left group: history, the sidebar toggle, a divider, then the mode switch', () => {
+    render(<AppBar />);
+    const controls = screen.getByTestId('app-bar-controls');
+    expect(controls).toHaveClass('gap-1.5');
+    const [history, toggle, divider, modes] = Array.from(controls.children);
+    expect(history).toBe(screen.getByTestId('history-nav'));
+    expect(toggle).toBe(screen.getByTestId('left-sidebar-toggle'));
+    expect(divider).toHaveClass('w-px', 'mr-1.75');
+    expect(modes).toBe(screen.getByTestId('mode-nav'));
+  });
+
+  it('lays out the right group: notifications, settings, then the right sidebar toggle', () => {
+    render(<AppBar />);
+    const actions = screen.getByTestId('app-bar-actions');
+    expect(actions).toHaveClass('gap-1', 'pr-3');
+    expect(Array.from(actions.children)).toEqual([
+      screen.getByTestId('notification-button'),
+      screen.getByTestId('settings-button'),
+      screen.getByTestId('right-sidebar-toggle'),
+    ]);
   });
 
   it('carries the app menu and the caption buttons off macOS', () => {
     render(<AppBar />);
     // Frameless there, so the bar is the whole title bar.
-    const bar = screen.getByTestId('app-bar');
-    expect(bar.contains(screen.getByRole('button', { name: /application menu/i }))).toBe(true);
-    expect(bar.contains(screen.getByRole('button', { name: /minimize/i }))).toBe(true);
-    expect(bar.contains(screen.getByRole('button', { name: /close/i }))).toBe(true);
-    // No native lights to leave room for.
+    const [start, , end] = Array.from(screen.getByTestId('app-bar').children);
+    const menu = screen.getByRole('button', { name: /application menu/i });
+    expect(start.firstElementChild?.contains(menu)).toBe(true);
+    // The caption buttons come last, so the close button reaches the corner.
+    expect(end.lastElementChild?.contains(screen.getByRole('button', { name: /close/i }))).toBe(true);
     expect(screen.queryByTestId('traffic-light-gutter')).not.toBeInTheDocument();
   });
 
@@ -138,56 +187,13 @@ describe('AppBar', () => {
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
-  it('places the controls after the left chrome, ahead of the omnibox', () => {
-    render(<AppBar />);
-    const bands = Array.from(screen.getByTestId('app-bar').children);
-    const controls = screen.getByTestId('app-bar-controls');
-    const menu = screen.getByRole('button', { name: /application menu/i });
-    expect(bands.indexOf(menu)).toBeLessThan(bands.indexOf(controls));
-    expect(bands.indexOf(controls)).toBeLessThan(bands.indexOf(screen.getAllByTestId('app-bar-spacer')[0]));
-  });
-
-  it('puts the settings controls at the far end, past the omnibox', () => {
-    render(<AppBar />);
-    const bands = Array.from(screen.getByTestId('app-bar').children);
-    const actions = screen.getByTestId('app-bar-actions');
-    const rightSpacer = screen.getAllByTestId('app-bar-spacer')[1];
-    expect(bands.indexOf(rightSpacer)).toBeLessThan(bands.indexOf(actions));
-    // Ahead of the caption buttons, which have to reach the window's corner.
-    const captions = screen.getByRole('button', { name: /close/i }).parentElement!;
-    expect(bands.indexOf(actions)).toBeLessThan(bands.indexOf(captions));
-  });
-
-  it('spaces the right-hand controls 20px from the edge', () => {
-    render(<AppBar />);
-    const actions = screen.getByTestId('app-bar-actions');
-    expect(actions).toHaveClass('mr-5');
-    // Only the notification/settings pill: accounts are not part of the MVP.
-    const pill = screen.getByTestId('settings-button').parentElement!;
-    expect(Array.from(actions.children)).toEqual([pill]);
-    expect(Array.from(pill.children)).toContain(screen.getByTestId('notification-button'));
-  });
-
-  it('spaces the controls 16px from the chrome', () => {
-    render(<AppBar />);
-    const controls = screen.getByTestId('app-bar-controls');
-    expect(controls).toHaveClass('ml-4');
-    expect(Array.from(controls.children)).toEqual([screen.getByTestId('history-nav')]);
-  });
-
   it('reserves the traffic lights and drops the caption chrome on macOS', () => {
     setUserAgent(MAC_USER_AGENT);
     render(<AppBar />);
     // The OS draws the lights and owns the menu bar, so the bar only makes room.
-    const bar = screen.getByTestId('app-bar');
-    expect(bar.contains(screen.getByTestId('traffic-light-gutter'))).toBe(true);
+    const [start] = Array.from(screen.getByTestId('app-bar').children);
+    expect(start.firstElementChild).toBe(screen.getByTestId('traffic-light-gutter'));
     expect(screen.queryByRole('button', { name: /application menu/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /minimize/i })).not.toBeInTheDocument();
-
-    // The gutter stands in for the menu, so the history nav still follows it.
-    const bands = Array.from(bar.children);
-    expect(bands.indexOf(screen.getByTestId('traffic-light-gutter'))).toBeLessThan(
-      bands.indexOf(screen.getByTestId('app-bar-controls')),
-    );
   });
 });

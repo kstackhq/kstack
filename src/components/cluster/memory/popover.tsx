@@ -128,7 +128,7 @@ export function MemoryPopoverContent() {
   );
 }
 
-// Hangs from the omnibox, at its width.
+// Hangs from the omnibox, at least 640px wide.
 export function MemoryPopover({
   anchorRef,
   children,
@@ -156,7 +156,11 @@ export function MemoryPopover({
       initialFocus={popupRef}
       data-testid="memory-popup"
       className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg outline-hidden"
-      style={{ width: 'var(--anchor-width)', height: 'min(476px, var(--available-height))' }}
+      style={{
+        width: 'max(var(--anchor-width), 640px)',
+        maxWidth: 'var(--available-width)',
+        height: 'min(476px, var(--available-height))',
+      }}
     >
       {/* Keyed on the window's cluster, so no instructions or draft carry over to another. */}
       <UnsavedDrafts value={drafts}>

@@ -161,4 +161,14 @@ describe('ClusterPicker', () => {
 
     expect(screen.getByRole('textbox', { name: 'Filter clusters' })).toHaveFocus();
   });
+
+  // jsdom lays nothing out, so this checks the style that sizes it.
+  it('is at least 640px wide, wider than the omnibox it hangs from, and capped to the frame', async () => {
+    serveContexts(['a']);
+    await openPicker();
+    const popup = screen.getByTestId('cluster-picker');
+    expect(popup.style.width).toBe('max(var(--anchor-width), 640px)');
+    // The room `OmniboxPopover`'s positioner leaves inside the window frame.
+    expect(popup.style.maxWidth).toBe('var(--available-width)');
+  });
 });

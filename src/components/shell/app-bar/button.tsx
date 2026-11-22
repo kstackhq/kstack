@@ -12,32 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The look every control in the app bar wears, in one place so the buttons, the
-// pills and the omnibox cannot drift apart.
+// The look every button in the app bar wears, in one place so they cannot drift apart.
 import { Button } from '@kubetail/ui/elements/button';
 import { cn } from '@kubetail/ui/lib/utils';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ComponentProps } from 'react';
 
-import { APP_BAR_HEIGHT_CLASS, APP_BAR_HOVER_CLASS, APP_BAR_SHAPE_CLASS } from '@/lib/control-style';
+import { APP_BAR_HOVER_CLASS } from '@/lib/control-style';
 
-const VARIANTS = { variant: 'ghost', size: 'icon' } as const;
+// `ghost` has no resting fill, so the bar's tint shows through and only hover paints;
+// `icon-sm` is the 28px square. The icon is gray.
+const VARIANTS = { variant: 'ghost', size: 'icon-sm' } as const;
 
 export function AppBarButton({ className, ...props }: ComponentProps<typeof Button>) {
-  return (
-    <Button {...VARIANTS} className={cn(APP_BAR_SHAPE_CLASS, 'size-8', APP_BAR_HOVER_CLASS, className)} {...props} />
-  );
+  return <Button {...VARIANTS} className={cn('text-muted-foreground', APP_BAR_HOVER_CLASS, className)} {...props} />;
 }
 
-/**
- * Two or more controls drawn as one pill. The outline rides the group and the
- * buttons inside stay ghosts, with an `AppBarDivider` between them.
- */
-export function AppBarGroup({ children }: { children: ReactNode }) {
-  return (
-    <div className={cn('flex shrink-0 items-center border', APP_BAR_HEIGHT_CLASS, APP_BAR_SHAPE_CLASS)}>{children}</div>
-  );
-}
-
-export function AppBarDivider() {
-  return <div className="h-4.5 w-px shrink-0 bg-sidebar-border" aria-hidden />;
+export function AppBarDivider({ className }: { className?: string }) {
+  return <div className={cn('h-4.5 w-px shrink-0 bg-sidebar-border', className)} aria-hidden />;
 }

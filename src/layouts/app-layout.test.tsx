@@ -16,7 +16,10 @@ import { createRootRoute, createRoute } from '@tanstack/react-router';
 import { act, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { mockTauriWindow, renderWithRouter } from '@/test-utils';
+import { mockTauriWindow, renderWithRouter, stubResizeObserver } from '@/test-utils';
+
+// The app bar measures its two ends.
+stubResizeObserver();
 
 // Mocks ---------------------------------------------------------------
 
@@ -126,7 +129,7 @@ function buildTree() {
 }
 
 function sidebarOf(container: HTMLElement) {
-  const el = container.querySelector('[data-testid="left-sidebar-card"]');
+  const el = container.querySelector('[data-testid="left-sidebar-panel"]');
   if (!el) throw new Error('sidebar not found');
   return el;
 }
@@ -160,14 +163,17 @@ beforeEach(() => {
 });
 
 describe('AppLayout', () => {
-  it('pins the mode nav at the sidebar’s top, out of the scroll area', async () => {
+  it('puts the mode switch and both sidebar toggles in the app bar', async () => {
     const { container } = await renderWithRouter(buildTree(), '/');
-    const sidebar = sidebarOf(container);
-    const nav = screen.getByTestId('mode-nav');
-    expect(sidebar.contains(nav)).toBe(true);
-    // It is how you leave whatever the nav below is showing, so it must not
-    // scroll away with it.
-    expect(sidebar.querySelector('[data-slot="sidebar-content"]')?.contains(nav)).toBe(false);
+    const bar = screen.getByTestId('app-bar');
+    for (const control of [
+      screen.getByTestId('mode-nav'),
+      screen.getByRole('button', { name: 'Toggle sidebar' }),
+      screen.getByRole('button', { name: /toggle right sidebar/i }),
+    ]) {
+      expect(bar.contains(control)).toBe(true);
+    }
+    expect(sidebarOf(container).contains(screen.getByTestId('mode-nav'))).toBe(false);
   });
 
   it('places the app menu in the app bar, not the sidebar', async () => {
@@ -266,37 +272,32 @@ describe('AppLayout', () => {
     await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Resources' })).not.toBeInTheDocument());
   });
 
-  // The pill is the collapsed sidebar's whole affordance, so a collapse is
-  // reversible without reaching for `Cmd/Ctrl+B`.
-  it('collapses the sidebar to the pill, and reopens it from there', async () => {
+  it('slides the sidebar closed from the app bar’s toggle, and open again', async () => {
     const { container } = await renderWithRouter(buildTree(), '/chat');
 
     await act(async () => {
-      screen.getByRole('button', { name: /toggle sidebar/i }).click();
+      screen.getByRole('button', { name: 'Toggle sidebar' }).click();
     });
-    const pill = screen.getByTestId('left-sidebar-pill');
-    expect(contentRowOf(container).contains(pill)).toBe(true);
-    expect(container.querySelector('[data-testid="left-sidebar-card"]')).toBeNull();
+    expect(sidebarOf(container)).toHaveAttribute('inert');
+    expect(contentRowOf(container).contains(sidebarOf(container))).toBe(true);
 
     await act(async () => {
-      screen.getByRole('button', { name: /toggle sidebar/i }).click();
+      screen.getByRole('button', { name: 'Toggle sidebar' }).click();
     });
-    expect(sidebarOf(container)).toBeInTheDocument();
-    expect(screen.queryByTestId('left-sidebar-pill')).not.toBeInTheDocument();
+    expect(sidebarOf(container)).not.toHaveAttribute('inert');
   });
 
-  // Windows share the collapsed state, so a user who works with the sidebar out of
-  // the way does not have to collapse it again in every window they open.
-  it('remembers the sidebar collapsed for the next window', async () => {
+  // Windows share the closed state, so a user who works with the sidebar out of
+  // the way does not have to close it again in every window they open.
+  it('remembers the sidebar closed for the next window', async () => {
     const first = await renderWithRouter(buildTree(), '/chat');
     await act(async () => {
-      screen.getByRole('button', { name: /toggle sidebar/i }).click();
+      screen.getByRole('button', { name: 'Toggle sidebar' }).click();
     });
     first.unmount();
 
     const { container } = await renderWithRouter(buildTree(), '/chat');
-    expect(screen.getByTestId('left-sidebar-pill')).toBeInTheDocument();
-    expect(container.querySelector('[data-testid="left-sidebar-card"]')).toBeNull();
+    expect(sidebarOf(container)).toHaveAttribute('inert');
   });
 
   // A virtualized table scrolls inside a definite height; `min-h-*` alone would grow
@@ -312,8 +313,8 @@ describe('AppLayout', () => {
 
   it('puts the right sidebar after the page, flush to the window', async () => {
     const { container } = await renderWithRouter(buildTree(), '/');
-    // Closed until asked for, and then between the page and the toggle floating
-    // over the row's corner — the page keeps the middle, the panel the right wall.
+    // Closed until asked for, and then after the page — the page keeps the middle,
+    // the panel the right wall.
     expect(screen.queryByTestId('right-sidebar')).not.toBeInTheDocument();
 
     await act(async () => {
@@ -321,26 +322,8 @@ describe('AppLayout', () => {
     });
     const row = contentRowOf(container);
     const panel = screen.getByTestId('right-sidebar');
-    expect(Array.from(row.children).indexOf(panel)).toBe(row.children.length - 2);
+    expect(Array.from(row.children).indexOf(panel)).toBe(row.children.length - 1);
     expect(pageOf(container).contains(panel)).toBe(false);
-  });
-
-  it('holds the right sidebar’s toggle in the row’s corner, open or closed', async () => {
-    const { container } = await renderWithRouter(buildTree(), '/');
-    const toggle = screen.getByRole('button', { name: /toggle right sidebar/i });
-    const corner = toggle.parentElement!;
-
-    // Pinned to the row, not to the page: the page narrows when the panel opens,
-    // and the toggle has to stay where the pointer left it.
-    expect(contentRowOf(container).contains(corner)).toBe(true);
-    expect(pageOf(container).contains(corner)).toBe(false);
-    // 16px in, level with the card's own toggle (`p-2` + the header's `p-2`).
-    expect(corner).toHaveClass('absolute', 'top-4', 'right-4');
-
-    await act(async () => {
-      toggle.click();
-    });
-    expect(screen.getByRole('button', { name: /toggle right sidebar/i }).parentElement).toBe(corner);
   });
 
   it('renders the connection-status banner', async () => {

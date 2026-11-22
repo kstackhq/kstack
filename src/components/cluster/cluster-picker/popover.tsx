@@ -95,8 +95,12 @@ export function ClusterPicker({
       data-testid="cluster-picker"
       // The filter when there is one; otherwise the popup's own default.
       initialFocus={() => filterRef.current ?? true}
-      className="flex max-w-[calc(100vw-16px)] flex-col gap-3 rounded-xl border bg-popover p-[18px] text-popover-foreground shadow-lg outline-hidden"
-      style={{ width: 'max(var(--anchor-width), 480px)', maxHeight: 'var(--available-height)' }}
+      className="flex flex-col gap-3 rounded-xl border bg-popover p-[18px] text-popover-foreground shadow-lg outline-hidden"
+      style={{
+        width: 'max(var(--anchor-width), 640px)',
+        maxWidth: 'var(--available-width)',
+        maxHeight: 'var(--available-height)',
+      }}
     >
       <div className="flex items-center gap-2">
         <p className="flex-1 text-base font-medium">Clusters</p>

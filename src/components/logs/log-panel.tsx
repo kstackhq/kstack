@@ -16,7 +16,6 @@
 // viewer under them. The panel does not scroll; the viewer owns its scroller. A log
 // window draws the same header, without the buttons.
 import { Button } from '@kubetail/ui/elements/button';
-import { cn } from '@kubetail/ui/lib/utils';
 import { ExternalLink, X } from 'lucide-react';
 
 import { Names, SourceLine } from '@/components/logs/log-source-line';
@@ -33,20 +32,18 @@ export function LogsViewHeader({
   grep,
   onClose,
   onOpenInWindow,
-  className,
 }: {
   view: LogsView;
   grep: string;
   onClose?: () => void;
   onOpenInWindow?: () => void;
-  className?: string;
 }) {
   const { sources, filters, anchor, pinToEnd } = view.action;
   const [first] = sources;
   const more = sources.length - 1;
   const detail = 'truncate text-xs text-muted-foreground';
   return (
-    <header className={cn('flex items-start gap-2 border-b p-4', className)}>
+    <header className="flex items-start gap-2 border-b p-4">
       <div className="min-w-0 flex-1 text-sm">
         <h2 className="truncate font-semibold">
           Logs: <SourceLine source={first} />
@@ -115,10 +112,7 @@ export function LogsViewPanel({
   const grep = view.grep ?? view.action.grep;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* The layout pins the sidebar toggle over the panel's top-right corner (16px in,
-          28px square), so the header leaves that corner alone: the buttons sit level
-          with the toggle and 12px to its left. */}
-      <LogsViewHeader view={view} grep={grep} onClose={onClose} onOpenInWindow={onOpenInWindow} className="pr-14" />
+      <LogsViewHeader view={view} grep={grep} onClose={onClose} onOpenInWindow={onOpenInWindow} />
       {/* Keyed on the call: a new call lands at its anchor, a re-render of the same
           call leaves the user where they scrolled. */}
       <LogViewer

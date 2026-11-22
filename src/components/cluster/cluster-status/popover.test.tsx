@@ -90,7 +90,7 @@ function tree(cluster: Cluster | undefined) {
   return (
     <UrqlProvider value={createGraphqlClient()}>
       <DialogProvider>
-        <ClusterStatusPopover context="prod" cluster={cluster}>
+        <ClusterStatusPopover anchorRef={{ current: null }} context="prod" cluster={cluster}>
           <button type="button">Open status</button>
         </ClusterStatusPopover>
         <DialogProbe />
@@ -126,6 +126,15 @@ describe('ClusterStatusPopover', () => {
   });
 
   afterEach(cleanup);
+
+  // jsdom lays nothing out, so this checks the style that sizes it.
+  it('is at least 320px wide, as wide as the omnibox it hangs from, and capped to the frame', async () => {
+    const { popup } = await openStatus(clusterRecord({ context: 'prod' }));
+    expect(popup.style.width).toBe('max(var(--anchor-width), 320px)');
+    // The room `OmniboxPopover`'s positioner leaves inside the window frame.
+    expect(popup.style.maxWidth).toBe('var(--available-width)');
+    expect(popup.style.maxHeight).toBe('var(--available-height)');
+  });
 
   it('names the window’s cluster', async () => {
     const { popup } = await openStatus(clusterRecord({ context: 'prod' }));

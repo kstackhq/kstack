@@ -18,32 +18,65 @@
 // and caption buttons; the frameless platforms get `AppMenu` on the left and
 // `WindowControls` on the right.
 // See docs/adr/2026-08-09-per-platform-window-chrome.md
+import { useLayoutEffect, useRef, useState } from 'react';
+
 import { TrafficLightGutter } from '@/components/primitives/traffic-light-gutter';
 import { WindowControls } from '@/components/primitives/window-controls';
 import { ContextOmnibox } from '@/components/shell/context-omnibox';
+import { ModeNav } from '@/components/shell/mode-nav';
 import { isMacOS } from '@/lib/platform';
 import { dismissPopupsOnWindowDrag } from '@/lib/window-drag';
 
-import { AppBarDivider, AppBarGroup } from './button';
+import { AppBarDivider } from './button';
 import { HistoryNav } from './history-nav';
+import { LeftSidebarToggle } from './left-sidebar-toggle';
 import { AppMenu } from './menu';
 import { NotificationButton } from './notification-button';
+import { RightSidebarToggle } from './right-sidebar-toggle';
 import { SettingsButton } from './settings-button';
+
+// The narrowest the omnibox's column goes before the omnibox leaves the centre line: its
+// two buttons and room for the trigger. Under it the shorter end gives up its spare space.
+const OMNIBOX_MIN_WIDTH = '5rem';
+
+// An end's column: at least its own content, and at least the other end's while that
+// leaves the omnibox `OMNIBOX_MIN_WIDTH`, so equal ends centre the omnibox when there is
+// room for it.
+function endColumn(own: number, other: number) {
+  return `minmax(max(${own}px, min(${other}px, 100% - ${other}px - ${OMNIBOX_MIN_WIDTH})), 1fr)`;
+}
 
 export function AppBar() {
   // `AppMenu` registers the `Ctrl/Cmd+N`/`Q` accelerators while it is mounted, so
   // this branch is what keeps them off macOS, where the native menu owns them.
   const mac = isMacOS();
-
+  // Each end's content width; each end sits at it to be measured.
+  const startRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+  const [ends, setEnds] = useState({ start: 0, end: 0 });
+  useLayoutEffect(() => {
+    const measure = () => setEnds({ start: startRef.current!.offsetWidth, end: endRef.current!.offsetWidth });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(startRef.current!);
+    observer.observe(endRef.current!);
+    return () => observer.disconnect();
+  }, []);
+  const columns = `${endColumn(ends.start, ends.end)} minmax(0, 352px) ${endColumn(ends.end, ends.start)}`;
   return (
-    // 48px tall; `window_manager.rs` mirrors the number to center the traffic lights
+    // 40px tall; `window_manager.rs` mirrors the number to center the traffic lights
     // in it. No padding of its own: the close button has to reach the window's
     // corner, and the gutter supplies the macOS inset.
+    //
+    // Three columns: the two ends share what the omnibox leaves equally, so the omnibox
+    // sits on the window's center line, and neither goes under the wider end's content,
+    // so the omnibox's column is what gives way in a narrow window, down to
+    // `OMNIBOX_MIN_WIDTH`; past that the omnibox moves off the line rather than shrink.
     //
     // `deep` makes every pixel of the bar a drag handle, spacing and margins
     // included, rather than only the elements that carry the attribute. Tauri's
     // hit test walks up from what was pressed and stops at the first clickable
-    // element, so the buttons in here still click; the omnibox opts out below.
+    // element, so the buttons in here still click; the omnibox opts out.
     // A press that drags never ends in a click, so `dismissPopupsOnWindowDrag`
     // clicks for it, closing any open popup.
     //
@@ -55,36 +88,30 @@ export function AppBar() {
       data-testid="app-bar"
       data-tauri-drag-region="deep"
       onPointerDown={dismissPopupsOnWindowDrag}
-      className="flex h-12 shrink-0 transform-gpu items-stretch bg-app-bar"
+      className="grid h-10 shrink-0 transform-gpu bg-app-bar"
+      style={{ gridTemplateColumns: columns }}
     >
-      {mac ? <TrafficLightGutter /> : <AppMenu />}
-      {/* 16px from the chrome on the left. */}
-      <div data-testid="app-bar-controls" className="ml-4 flex items-center gap-2">
-        <HistoryNav />
+      <div ref={startRef} data-testid="app-bar-start" className="flex items-stretch gap-1.5 justify-self-start">
+        {mac ? <TrafficLightGutter /> : <AppMenu />}
+        <div data-testid="app-bar-controls" className="flex items-center gap-1.5">
+          <HistoryNav />
+          <LeftSidebarToggle />
+          <AppBarDivider className="mr-1.75" />
+          <ModeNav />
+        </div>
       </div>
-      {/* The omnibox rides between two spacers, so it centers itself in whatever
-          the two ends leave rather than against a fixed offset. They keep 16px
-          once the window is too narrow to leave them any, so the omnibox never
-          butts against the chrome. */}
-      <div data-testid="app-bar-spacer" aria-hidden className="min-w-4 flex-1" />
-      {/* Starts at the omnibox's own width and takes a third of whatever slack
-          the row has left, so it widens with the window until the omnibox hits
-          its own cap. */}
-      <div className="flex min-w-0 basis-104 grow items-center justify-center">
+      <div className="flex min-w-0 items-center">
         <ContextOmnibox />
       </div>
-      <div data-testid="app-bar-spacer" aria-hidden className="min-w-4 flex-1" />
-      {/* 20px from the window's right edge, or from the caption buttons where the
-          platform draws them. Accounts are not part of the MVP, so
-          `AccountAvatar` is left out of this group. */}
-      <div data-testid="app-bar-actions" className="mr-5 flex items-center gap-2 self-center">
-        <AppBarGroup>
+      <div ref={endRef} data-testid="app-bar-end" className="flex items-stretch justify-self-end">
+        {/* Accounts are not part of the MVP, so `AccountAvatar` is left out. */}
+        <div data-testid="app-bar-actions" className="flex items-center gap-1 pr-3">
           <NotificationButton />
-          <AppBarDivider />
           <SettingsButton />
-        </AppBarGroup>
+          <RightSidebarToggle />
+        </div>
+        {!mac && <WindowControls />}
       </div>
-      {!mac && <WindowControls />}
     </div>
   );
 }

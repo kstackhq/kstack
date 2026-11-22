@@ -36,7 +36,7 @@
   /* The data-rate sparkline's two lines: categorical slots 1 and 2, validated on --card. */
   --series-received: #2a78d6;
   --series-sent: #eb6834;
-  --sidebar: #f1f4f9;
+  --sidebar: #f2f3fa;
   --sidebar-foreground: #414c5c;
   --sidebar-primary: #9f5436;
   --sidebar-primary-foreground: #ffffff;
@@ -44,9 +44,8 @@
   --sidebar-accent-foreground: #402318;
   --sidebar-border: #ccd5e2;
   --sidebar-ring: #9f5436;
-  --app-bar: #f2f3fa;
-  --app-bar-hover: #e5e5e5;
-  --app-bar-input-border: rgba(23, 23, 23, 0.05);
+  --app-bar: #dbe2ec;
+  --app-bar-hover: rgba(23, 23, 23, 0.06);
   /* A log line's colours are fancy-ansi's defaults but where the theme's background would
      drown them: white on the light one. */
   --ansi-white: #8a9099;
@@ -92,7 +91,6 @@
   --sidebar-ring: #5f6b7d;
   --app-bar: #232935;
   --app-bar-hover: rgba(255, 255, 255, 0.135);
-  --app-bar-input-border: rgba(255, 255, 255, 0.102);
   /* Black on the dark one; white goes back to its default. */
   --ansi-black: #7a808b;
   --ansi-bright-black: #949aa5;
@@ -105,7 +103,6 @@
   --font-mono: 'Roboto Mono Variable', ui-monospace, monospace;
   --color-app-bar: var(--app-bar);
   --color-app-bar-hover: var(--app-bar-hover);
-  --color-app-bar-input-border: var(--app-bar-input-border);
 
   /*
    * The memory brain's save pulse (`MemoryButton` in context-omnibox/omnibox.tsx): a primary

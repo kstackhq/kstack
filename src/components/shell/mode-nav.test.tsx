@@ -14,8 +14,10 @@
 
 import { createRootRoute, createRoute, Outlet } from '@tanstack/react-router';
 import { act, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
+import { startsWindowDrag } from '@/lib/window-drag';
 import { renderWithRouter } from '@/test-utils';
 
 import { ModeNav } from './mode-nav';
@@ -51,13 +53,41 @@ describe('ModeNav', () => {
     expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
   });
 
-  it('gives each mode an icon that stays out of its name', async () => {
+  it('draws each mode as an icon alone, named by its label', async () => {
     await renderWithRouter(buildTree(), '/chat');
-    // Decorative: the label is the accessible name, so the icon is hidden.
     ['Chat', 'Dashboard'].forEach((name) => {
-      const icon = screen.getByRole('link', { name }).querySelector('svg');
-      expect(icon).toHaveAttribute('aria-hidden', 'true');
+      const link = screen.getByRole('link', { name });
+      expect(link).toHaveAttribute('aria-label', name);
+      expect(link).toHaveTextContent('');
+      expect(link.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     });
+  });
+
+  it('sits in a nav named for the view', async () => {
+    await renderWithRouter(buildTree(), '/chat');
+    const nav = screen.getByRole('navigation', { name: 'View' });
+    expect(nav.contains(screen.getByRole('link', { name: 'Chat' }))).toBe(true);
+    expect(nav.contains(screen.getByRole('link', { name: 'Dashboard' }))).toBe(true);
+  });
+
+  it('opts its whole track out of the app bar’s drag region', async () => {
+    await renderWithRouter(buildTree(), '/chat');
+    const nav = screen.getByRole('navigation', { name: 'View' });
+    // A press on the track's padding, inside the app bar's deep region.
+    const bar = document.createElement('div');
+    bar.setAttribute('data-tauri-drag-region', 'deep');
+    expect(startsWindowDrag([nav, bar])).toBe(false);
+  });
+
+  it('is as tall as the omnibox, 30px', async () => {
+    await renderWithRouter(buildTree(), '/chat');
+    expect(screen.getByRole('navigation', { name: 'View' })).toHaveClass('h-7.5');
+  });
+
+  it('names a mode in a tooltip on hover', async () => {
+    await renderWithRouter(buildTree(), '/chat');
+    await userEvent.hover(screen.getByRole('link', { name: 'Dashboard' }));
+    await waitFor(() => expect(document.querySelector('[data-slot=tooltip-content]')).toHaveTextContent('Dashboard'));
   });
 
   it('marks only the current route active', async () => {

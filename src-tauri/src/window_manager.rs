@@ -103,8 +103,8 @@ const LOG_WINDOW: WindowSpec = WindowSpec {
 // every platform so CI covers the arithmetic (hence `allow(dead_code)`).
 
 /// App-bar height, the strip the macOS traffic lights sit in. Kept in sync with
-/// `src/components/shell/app-bar/bar.tsx`'s `h-12`.
-const APP_BAR_HEIGHT: f64 = 48.0;
+/// `src/components/shell/app-bar/bar.tsx`'s `h-10`.
+const APP_BAR_HEIGHT: f64 = 40.0;
 
 /// A log window's bar height, the strip its traffic lights sit in. Kept in sync
 /// with `src/components/logs/log-window/bar.tsx`'s `h-10`.

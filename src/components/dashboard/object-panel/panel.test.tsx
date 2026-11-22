@@ -45,6 +45,14 @@ describe('ObjectPanel', () => {
     expect(screen.queryByTestId('events-view')).not.toBeInTheDocument();
   });
 
+  // The sidebar's toggle is in the app bar, so the header's top-right corner is its own.
+  it('pads its header evenly, keeping its corner for its own close', () => {
+    render(<ObjectPanel object={POD} tab="yaml" onTab={vi.fn()} onClose={vi.fn()} />);
+    const header = screen.getByRole('heading').closest('header')!;
+    expect(header).toHaveClass('p-4');
+    expect(header.className).not.toMatch(/\bpr-/);
+  });
+
   it('offers Logs for a kind a log view reads alone', () => {
     const { rerender } = render(<ObjectPanel object={POD} tab="yaml" onTab={vi.fn()} onClose={vi.fn()} />);
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['YAML', 'Events', 'Logs']);

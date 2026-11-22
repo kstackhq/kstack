@@ -12,12 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A popover hung from the omnibox rather than from the control that opens it, so
-// it centres on the omnibox and starts at its width. The library's `PopoverContent`
-// anchors on the trigger alone, so the positioner is base-ui's own.
+// A popover hung from the omnibox rather than from the control that opens it, so it
+// centres on the omnibox; each popup is at least as wide. The library's `PopoverContent`
+// anchors on the trigger alone, so the positioner is base-ui's own. It keeps 8px inside the
+// window frame's visible edge, which on Linux is inset from the viewport's: a popup caps
+// its width at the `--available-width` that leaves.
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { Popover, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import type { ReactElement, RefObject } from 'react';
+
+import { useWindowFrame } from '@/lib/window-frame';
 
 export function OmniboxPopover({
   anchorRef,
@@ -33,6 +37,7 @@ export function OmniboxPopover({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
+  const frame = useWindowFrame();
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger render={children} />
@@ -46,6 +51,8 @@ export function OmniboxPopover({
           side="bottom"
           sideOffset={8}
           collisionAvoidance={{ side: 'none' }}
+          collisionBoundary={frame ?? 'clipping-ancestors'}
+          collisionPadding={8}
           className="z-50"
         >
           {popup}

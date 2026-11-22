@@ -25,7 +25,7 @@ export function SettingsButton() {
   const { openDialog } = useDialog();
 
   return (
-    <AppBarButton aria-label="Settings" className="border-transparent" onClick={() => openDialog('settings')}>
+    <AppBarButton aria-label="Settings" onClick={() => openDialog('settings')}>
       <Settings aria-hidden />
     </AppBarButton>
   );

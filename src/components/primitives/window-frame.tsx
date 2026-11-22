@@ -23,13 +23,16 @@
 // While maximized there's no off-window space, so collapse to full-bleed `inset-0`
 // (and `WindowResizeHandles` hides its grips to match).
 import type { ReactNode } from 'react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import { isLinux } from '@/lib/platform';
+import { WindowFrameContext } from '@/lib/window-frame';
 import { useWindowMaximized } from '@/lib/window-maximized';
 
 export function WindowFrame({ children }: { children?: ReactNode }) {
   const maximized = useWindowMaximized();
+  // Handed down, so a popup portalled outside it can keep within its edge.
+  const [frame, setFrame] = useState<HTMLDivElement | null>(null);
 
   // Mirror maximized onto <html> so chrome portaled outside the frame (the dialog
   // scrim) can match its geometry from CSS. Only meaningful on frameless Linux —
@@ -43,8 +46,8 @@ export function WindowFrame({ children }: { children?: ReactNode }) {
     ? 'fixed inset-0 overflow-hidden bg-background contain-[paint]'
     : 'fixed inset-4 overflow-hidden rounded-lg border border-black/5 bg-background shadow-[0_6px_16px_rgba(0,0,0,0.35)] contain-[paint] dark:border-white/5';
   return (
-    <div data-testid="window-frame" className={className}>
-      {children}
+    <div ref={setFrame} data-testid="window-frame" className={className}>
+      <WindowFrameContext value={frame}>{children}</WindowFrameContext>
     </div>
   );
 }
