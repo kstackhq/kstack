@@ -12,18 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The dashboard nav's namespace picker: every namespace, or one.
+// The breadcrumb bar's namespace picker: every namespace, or one.
 import { Layers } from 'lucide-react';
 
 import { VisibleText } from '@/components/primitives/visible-text';
 import { useClusterNamespaces } from '@/lib/cluster-namespaces';
 import { useNamespaceScope } from '@/lib/namespace-scope';
+import { visibleTitle } from '@/lib/visible-text';
 
 import { ScopeMenu, ScopeTrigger } from './scope-menu';
 import type { ScopeMenuEntry } from './scope-menu';
 
-// Not a valid namespace name, so it never collides with one.
-const ALL = '*';
+// The scope never holds an empty namespace (the route reads one as absent), so it never
+// collides with one.
+const ALL = '';
 
 export function NamespacePicker() {
   const { namespace, setNamespace } = useNamespaceScope();
@@ -34,7 +36,8 @@ export function NamespacePicker() {
   const entries = (query: string): ScopeMenuEntry[] => {
     const q = query.trim().toLowerCase();
     const matches = (name: string) => name.toLowerCase().includes(q);
-    const shown: ScopeMenuEntry[] = [{ type: 'option', id: ALL, label: 'All namespaces' }];
+    // A search names a namespace: Enter takes a match, and never broadens the scope unasked.
+    const shown: ScopeMenuEntry[] = [{ type: 'option', id: ALL, label: 'All namespaces', explicit: q !== '' }];
     // The chosen namespace stays reachable while the list cannot show it.
     if (namespace !== undefined && !namespaces.includes(namespace) && matches(namespace)) {
       shown.push({ type: 'option', id: namespace, label: namespace, note: listed ? 'Not found' : undefined });
@@ -50,7 +53,7 @@ export function NamespacePicker() {
   return (
     <ScopeMenu
       trigger={
-        <ScopeTrigger icon={Layers} aria-label={`Namespace: ${label}`}>
+        <ScopeTrigger icon={Layers} aria-label={`Namespace: ${visibleTitle(label)}`}>
           <VisibleText text={label} />
         </ScopeTrigger>
       }

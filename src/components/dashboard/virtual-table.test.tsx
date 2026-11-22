@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { stubLayout } from '@/test-utils';
 
@@ -81,6 +81,74 @@ describe('VirtualTable', () => {
   });
 
   // Home/End/PageUp/PageDown are the browser's on a focused overflow container.
+  it('pins a pinned column’s cells to the right edge, and no other', () => {
+    const pinned: VirtualColumn<Row>[] = [
+      ...columns,
+      { key: 'more', header: '', width: 40, pinned: true, cell: () => 'more' },
+    ];
+    render(<VirtualTable rows={rowsOf(1)} rowKey={rowKey} columns={pinned} />);
+    const [id, more] = within(bodyRows()[0]).getAllByRole('cell');
+    expect(more).toHaveClass('sticky', 'bg-background');
+    expect(more).toHaveStyle({ right: '0px' });
+    expect(id).not.toHaveClass('sticky');
+    expect(screen.getByTestId('pinned-header-patch')).toHaveStyle({ width: '40px' });
+  });
+
+  it('stacks pinned columns from the right edge, each beside the ones after it', () => {
+    const pinned: VirtualColumn<Row>[] = [
+      ...columns,
+      { key: 'open', header: '', width: 30, pinned: true, cell: () => 'open' },
+      { key: 'more', header: '', width: 40, pinned: true, cell: () => 'more' },
+    ];
+    render(<VirtualTable rows={rowsOf(1)} rowKey={rowKey} columns={pinned} />);
+    const cells = within(bodyRows()[0]).getAllByRole('cell');
+    expect(cells.at(-2)).toHaveStyle({ right: '40px' });
+    expect(cells.at(-1)).toHaveStyle({ right: '0px' });
+    expect(screen.getByTestId('pinned-header-patch')).toHaveStyle({ width: '70px' });
+  });
+
+  it('draws no header patch without a pinned column or a scrollbar', () => {
+    renderTable(rowsOf(1));
+    expect(screen.queryByTestId('pinned-header-patch')).toBeNull();
+  });
+
+  // The patch and a focused header button's scroll are measured by the pinned columns' widths.
+  it('takes a pinned column only with a width', () => {
+    // @ts-expect-error -- a pinned column without a width
+    const unsized: VirtualColumn<Row> = { key: 'more', header: '', pinned: true, cell: () => 'more' };
+    const sized: VirtualColumn<Row> = { ...unsized, width: 40 };
+    expect(sized.width).toBe(40);
+  });
+
+  // Its header sits under the patch, where neither text nor a sort button would show.
+  it('takes a pinned column only without header text or a sort', () => {
+    // @ts-expect-error -- a pinned column with header text
+    const titled: VirtualColumn<Row> = { key: 'more', header: 'More', width: 40, pinned: true, cell: () => 'more' };
+    // @ts-expect-error -- a pinned column that sorts
+    const sorted: VirtualColumn<Row> = {
+      key: 'more',
+      header: '',
+      width: 40,
+      pinned: true,
+      cell: () => 'more',
+      sortValue: () => 1,
+    };
+    expect([titled.pinned, sorted.pinned]).toEqual([true, true]);
+  });
+
+  it('refuses a pinned column before an ordinary one', () => {
+    // React logs the render's error before it rethrows.
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const misordered: VirtualColumn<Row>[] = [
+      { key: 'more', header: '', width: 40, pinned: true, cell: () => 'more' },
+      ...columns,
+    ];
+    expect(() => render(<VirtualTable rows={rowsOf(1)} rowKey={rowKey} columns={misordered} />)).toThrow(
+      'pinned columns must come after every other column',
+    );
+    logged.mockRestore();
+  });
+
   it('makes the scroller focusable', () => {
     const { scroller } = renderTable(rowsOf(3));
     expect(scroller).toHaveAttribute('tabindex', '0');
@@ -242,6 +310,83 @@ describe('VirtualTable', () => {
       renderTable(rowsOf(3));
       const header = screen.getByRole('columnheader').closest('table')!.parentElement!.parentElement!.parentElement!;
       expect(header.style.paddingRight).toBe('10px');
+      // The header scrolled sideways still draws in that padding, so a patch covers it.
+      expect(screen.getByTestId('pinned-header-patch')).toHaveStyle({ right: '0px', width: '10px' });
+      offset.mockRestore();
+      client.mockRestore();
+    });
+
+    // A focused button the pinned column covers would hide its focus ring and still sort.
+    describe('a focused header button', () => {
+      // Beside the 40px pinned column, 150px of the 190px view is free.
+      function renderWide() {
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(190);
+        const wide: VirtualColumn<Row>[] = [
+          { key: 'name', header: 'Name', width: 240, sortValue: (r) => r.id, cell: (r) => r.id },
+          { key: 'age', header: 'Age', width: 100, sortValue: (r) => r.id, cell: (r) => r.id },
+          { key: 'more', header: '', width: 40, pinned: true, cell: () => 'more' },
+        ];
+        render(<VirtualTable rows={rowsOf(1)} rowKey={rowKey} columns={wide} onSort={vi.fn()} />);
+        const scroller = screen.getByRole('table').lastElementChild as HTMLElement;
+        scroller.scrollLeft = 100;
+        // Puts a button at `left` px from the view's left edge, `width` wide, and focuses it.
+        const focusAt = (name: string, left: number, width: number) => {
+          const button = screen.getByRole('button', { name: new RegExp(`^${name}`) });
+          vi.spyOn(button, 'getBoundingClientRect').mockReturnValue(new DOMRect(left, 0, width, 20));
+          button.focus();
+        };
+        return { scroller, focusAt };
+      }
+
+      afterEach(() => vi.restoreAllMocks());
+
+      // Name's column is wider than the room, but its button is in view.
+      it('moves nothing while the button shows, though its column is wider than the room', () => {
+        const { scroller, focusAt } = renderWide();
+        focusAt('Name', 8, 60);
+        expect(scroller.scrollLeft).toBe(100);
+      });
+
+      it('scrolls by the least that brings a button under the pinned column into view', () => {
+        const { scroller, focusAt } = renderWide();
+        focusAt('Age', 130, 40);
+        expect(scroller.scrollLeft).toBe(120);
+      });
+
+      it('scrolls back to a button left of the view', () => {
+        const { scroller, focusAt } = renderWide();
+        focusAt('Name', -60, 60);
+        expect(scroller.scrollLeft).toBe(40);
+      });
+
+      it('shows a button wider than the room from its left edge', () => {
+        const { scroller, focusAt } = renderWide();
+        focusAt('Age', 20, 200);
+        expect(scroller.scrollLeft).toBe(120);
+      });
+
+      // Focus scrolls the header's clipped box too; it goes back, as the header follows by transform.
+      it('puts the header’s own box back', () => {
+        const { focusAt } = renderWide();
+        const headerBox = screen.getByRole('table').firstElementChild as HTMLElement;
+        headerBox.scrollLeft = 50;
+        focusAt('Age', 130, 40);
+        expect(headerBox.scrollLeft).toBe(0);
+      });
+    });
+
+    // The patch over the scroller's bar inherits the strip's background, so it must be opaque.
+    it('paints the header strip opaque, unless the caller restyles it', () => {
+      const strip = () => screen.getByTestId('pinned-header-patch').parentElement!;
+      const offset = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(410);
+      const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400);
+      const { unmount } = render(<VirtualTable rows={rowsOf(3)} rowKey={rowKey} columns={columns} />);
+      expect(strip()).toHaveClass('bg-background');
+      unmount();
+
+      render(<VirtualTable rows={rowsOf(3)} rowKey={rowKey} columns={columns} headerClassName="bg-muted" />);
+      expect(strip()).toHaveClass('bg-muted');
+      expect(strip()).not.toHaveClass('bg-background');
       offset.mockRestore();
       client.mockRestore();
     });

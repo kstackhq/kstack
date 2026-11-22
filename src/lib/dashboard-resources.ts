@@ -103,41 +103,44 @@ const GROUPS: readonly { id: GroupId; label: string; kinds: readonly CuratedKind
 ];
 
 // The group of a kind not curated, by its API group. A kind in an unlisted API group is a
-// custom resource when a CRD backs it, else an extension.
-const API_GROUP_TO_GROUP: Partial<Record<string, GroupId>> = {
-  apps: 'workloads',
-  batch: 'workloads',
-  autoscaling: 'workloads',
-  policy: 'workloads',
-  'node.k8s.io': 'infrastructure',
-  'scheduling.k8s.io': 'infrastructure',
-  'coordination.k8s.io': 'infrastructure',
-  'flowcontrol.apiserver.k8s.io': 'infrastructure',
-  'resource.k8s.io': 'infrastructure',
-  'networking.k8s.io': 'network',
-  'discovery.k8s.io': 'network',
-  'gateway.networking.k8s.io': 'network',
-  'storage.k8s.io': 'storage',
-  'rbac.authorization.k8s.io': 'access-control',
-  'certificates.k8s.io': 'access-control',
-  'apiextensions.k8s.io': 'extensions',
-  'apiregistration.k8s.io': 'extensions',
-  'admissionregistration.k8s.io': 'extensions',
-};
+// custom resource when a CRD backs it, else an extension. Both tables are maps, since the
+// cluster names the key and a plain object would answer `constructor`.
+const API_GROUP_TO_GROUP = new Map<string, GroupId>([
+  ['apps', 'workloads'],
+  ['batch', 'workloads'],
+  ['autoscaling', 'workloads'],
+  ['policy', 'workloads'],
+  ['node.k8s.io', 'infrastructure'],
+  ['scheduling.k8s.io', 'infrastructure'],
+  ['coordination.k8s.io', 'infrastructure'],
+  ['flowcontrol.apiserver.k8s.io', 'infrastructure'],
+  ['resource.k8s.io', 'infrastructure'],
+  ['networking.k8s.io', 'network'],
+  ['discovery.k8s.io', 'network'],
+  ['gateway.networking.k8s.io', 'network'],
+  ['storage.k8s.io', 'storage'],
+  ['rbac.authorization.k8s.io', 'access-control'],
+  ['certificates.k8s.io', 'access-control'],
+  ['apiextensions.k8s.io', 'extensions'],
+  ['apiregistration.k8s.io', 'extensions'],
+  ['admissionregistration.k8s.io', 'extensions'],
+]);
 
 // The core group spans every group, so its kinds not curated map by plural.
-const CORE_KIND_TO_GROUP: Partial<Record<string, GroupId>> = {
-  replicationcontrollers: 'workloads',
-  podtemplates: 'workloads',
-  componentstatuses: 'infrastructure',
-  endpoints: 'network',
-  resourcequotas: 'config',
-  limitranges: 'config',
-};
+const CORE_KIND_TO_GROUP = new Map<string, GroupId>([
+  ['replicationcontrollers', 'workloads'],
+  ['podtemplates', 'workloads'],
+  ['componentstatuses', 'infrastructure'],
+  ['endpoints', 'network'],
+  ['resourcequotas', 'config'],
+  ['limitranges', 'config'],
+]);
 
+// Namespaced kinds first: they are the ones most visited, and the ones the namespace
+// picker scopes.
 const SECTIONS = [
-  { id: 'cluster', label: 'Cluster', scope: 'Cluster' },
   { id: 'namespace', label: 'Namespace', scope: 'Namespaced' },
+  { id: 'cluster', label: 'Cluster', scope: 'Cluster' },
 ] as const;
 
 // A curated or core kind's id is its plural; any other's is `<group>/<resource>`.
@@ -217,7 +220,7 @@ function place(k: ServerKind): Placed {
   if (i !== undefined) return placeCurated(i, k.count);
 
   const apiGroup = apiGroupOf(k.apiVersion);
-  const group = apiGroup === '' ? CORE_KIND_TO_GROUP[k.resource] : API_GROUP_TO_GROUP[apiGroup];
+  const group = apiGroup === '' ? CORE_KIND_TO_GROUP.get(k.resource) : API_GROUP_TO_GROUP.get(apiGroup);
   return {
     id: navIdOf(k),
     label: k.kind,
@@ -284,6 +287,28 @@ const KNOWN_LABELS = new Map<DashboardResource, string>([
 // else the id itself.
 export function dashboardResourceLabel(kinds: readonly ServerKind[], id: DashboardResource): string {
   return KNOWN_LABELS.get(id) ?? serverKindForResource(kinds, id)?.kind ?? id;
+}
+
+// A kind's place in the nav: its section, with its label, and its group's label.
+export type NavPlace = { section: NavSection['id']; sectionLabel: string; group: string };
+
+// Where a kind sits in the tree `buildDashboardNav(kinds)` builds. Undefined for a pinned
+// page or a kind the tree does not hold. It places the one kind, so a caller needing no
+// more than this need not build the tree.
+export function navPlaceOf(kinds: readonly ServerKind[] | undefined, id: DashboardResource): NavPlace | undefined {
+  if (PINNED.some((p) => p.id === id)) return undefined;
+  let placed: Placed | undefined;
+  if (kinds === undefined) {
+    const i = CURATED.findIndex((c) => c.resource === id);
+    if (i >= 0) placed = placeCurated(i);
+  } else {
+    const k = serverKindForResource(kinds, id);
+    if (k && !isEvents(k)) placed = place(k);
+  }
+  if (!placed) return undefined;
+  const { scope, group } = placed;
+  const section = SECTIONS.find((s) => s.scope === scope)!;
+  return { section: section.id, sectionLabel: section.label, group: GROUPS.find((g) => g.id === group)!.label };
 }
 
 function kindsOf(sections: readonly NavSection[]): NavKind[] {

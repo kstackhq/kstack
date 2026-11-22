@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The object table's last column: a menu of the row's actions behind a ⋯ on every row.
+// The object table's last column: a menu of the row's actions behind a ⋯ on every row, and a
+// chevron that opens the object.
 import { Button } from '@kubetail/ui/elements/button';
 import {
   DropdownMenu,
@@ -20,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@kubetail/ui/elements/dropdown-menu';
-import { FileCode, List, MoreHorizontal, ScrollText } from 'lucide-react';
+import { ChevronRight, FileCode, List, MoreHorizontal, ScrollText } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import type { VirtualColumn } from '@/components/dashboard/virtual-table';
@@ -28,6 +29,7 @@ import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects'
 import type { GVR } from '@/lib/gvr';
 import { actionsForKind } from '@/lib/object-actions';
 import type { ObjectAction } from '@/lib/object-actions';
+import { visibleTitle } from '@/lib/visible-text';
 
 const ACTION: Record<ObjectAction, { label: string; icon: LucideIcon }> = {
   yaml: { label: 'View YAML', icon: FileCode },
@@ -45,28 +47,40 @@ export function actionsColumn(
     // The trigger names itself; a header would only crowd the narrow column.
     header: '',
     className: 'text-right',
-    // The `icon-sm` trigger (28px) and the last cell's padding (6px left, 12px right).
-    width: 46,
+    pinned: true,
+    // Two `icon-sm` buttons (28px each) and the last cell's padding (6px left, 12px right).
+    width: 74,
     cell: (o) => (
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={<Button type="button" variant="ghost" size="icon-sm" />}
-          aria-label={`Actions for ${o.name}`}
+      <div className="flex justify-end">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button type="button" variant="ghost" size="icon-sm" />}
+            aria-label={`Actions for ${visibleTitle(o.name)}`}
+          >
+            <MoreHorizontal className="size-4" aria-hidden />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" sideOffset={4}>
+            {actions.map((action) => {
+              const { label, icon: Icon } = ACTION[action];
+              return (
+                <DropdownMenuItem key={action} onClick={() => onAction(action, o)}>
+                  <Icon className="size-4" aria-hidden />
+                  {label}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Open ${visibleTitle(o.name)}`}
+          onClick={() => onAction('yaml', o)}
         >
-          <MoreHorizontal className="size-4" aria-hidden />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" sideOffset={4}>
-          {actions.map((action) => {
-            const { label, icon: Icon } = ACTION[action];
-            return (
-              <DropdownMenuItem key={action} onClick={() => onAction(action, o)}>
-                <Icon className="size-4" aria-hidden />
-                {label}
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
+          <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
+        </Button>
+      </div>
     ),
   };
 }

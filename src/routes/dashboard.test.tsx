@@ -42,6 +42,14 @@ vi.mock('@/routes/_app', async () => {
   };
 });
 
+// The bar is covered by its own suite; this one checks what it is handed.
+vi.mock('@/components/dashboard/breadcrumb-bar', () => ({
+  DashboardBreadcrumbBar: ({ resource, label, kind }: { resource: string; label: string; kind?: ServerKind }) => (
+    <div data-testid="breadcrumb-bar" data-resource={resource} data-kind={kind?.kind}>
+      {label}
+    </div>
+  ),
+}));
 // Both panels are covered by their own suites; this one is about which is picked and
 // what each is handed.
 vi.mock('@/components/dashboard/events-table', () => ({
@@ -133,6 +141,9 @@ beforeEach(() => {
 
 // What the mocked component was last handed.
 const propsOf = (testId: string) => JSON.parse(screen.getByTestId(testId).textContent ?? '{}');
+const crumb = () => screen.getByTestId('breadcrumb-bar');
+// The Events page's note, whatever it holds.
+const eventsNote = () => screen.queryByText((_, el) => el?.tagName === 'P' && /event/i.test(el.textContent ?? ''));
 
 function render(path: string, kinds: ServerKind[] = []) {
   useClusterCachedDataKindsMock.mockReturnValue({ kinds, active: true, cacheID: 'cache-1', phase: 'live' });
@@ -202,7 +213,7 @@ describe('dashboard route', () => {
       resource: 'horizontalpodautoscalers',
     };
     await render('/dashboard?resource=autoscaling/horizontalpodautoscalers', [hpa]);
-    expect(screen.getByRole('heading', { name: /^HorizontalPodAutoscaler\b/ })).toBeInTheDocument();
+    expect(crumb()).toHaveTextContent(/^HorizontalPodAutoscaler$/);
   });
 
   it('says a kind the synced catalog lacks is not served by this cluster', async () => {
@@ -265,6 +276,27 @@ describe('dashboard route', () => {
     expect(screen.getByText(/this cluster does not serve deployments/i)).toBeInTheDocument();
   });
 
+  // A namespace switch re-subscribes the catalog, which replays from empty.
+  it('keeps a discovered kind’s breadcrumb through a namespace switch', async () => {
+    const widget: ServerKind = {
+      apiVersion: 'example.com/v1',
+      kind: 'Widget',
+      resource: 'widgets',
+      scope: 'Namespaced',
+      isCRD: true,
+      count: 2,
+      printerColumns: [],
+    };
+    await render('/dashboard?resource=example.com/widgets', [widget]);
+    expect(crumb()).toHaveTextContent('Widget');
+    expect(crumb()).toHaveAttribute('data-kind', 'Widget');
+
+    emit({ kinds: [], active: true, cacheID: 'cache-1', phase: 'connecting' });
+    expect(crumb()).toHaveTextContent('Widget');
+    expect(crumb()).toHaveAttribute('data-kind', 'Widget');
+    expect(propsOf('objects-table')).toMatchObject({ label: 'Widget' });
+  });
+
   it('holds no kind across a swap to another cache', async () => {
     await render('/dashboard?resource=deployments', [KIND]);
     emit({ kinds: [], active: true, cacheID: 'cache-2', phase: 'connecting' });
@@ -272,39 +304,50 @@ describe('dashboard route', () => {
     expect(screen.getByText(/loading resources/i)).toBeInTheDocument();
   });
 
-  it('names the view it is showing', async () => {
+  it('names the view it is showing in the breadcrumb bar', async () => {
     await render('/dashboard?resource=deployments', [KIND]);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Deployments');
+    expect(crumb()).toHaveTextContent('Deployments');
+    expect(crumb()).toHaveAttribute('data-resource', 'deployments');
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+  });
+
+  it('holds the breadcrumb bar above the page, out of the page’s padding', async () => {
+    await render('/dashboard?resource=deployments', [KIND]);
+    const section = crumb().parentElement!;
+    expect(section.firstElementChild).toBe(crumb());
+    expect(section).not.toHaveClass('p-6');
+    const body = crumb().nextElementSibling!;
+    expect(body).toHaveClass('px-4', 'py-3', 'min-h-0', 'flex-1');
+    expect(body.contains(screen.getByTestId('objects-table'))).toBe(true);
   });
 
   it('lands on the default view when the link carries no resource', async () => {
     const explicit = await render(`/dashboard?resource=${DEFAULT_DASHBOARD_RESOURCE}`);
-    const expected = screen.getByRole('heading', { level: 1 }).textContent ?? '';
+    const expected = crumb().textContent ?? '';
     explicit.unmount();
 
     // A bare `/dashboard` resolves to the default without the link rewriting itself.
     await render('/dashboard');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(expected);
+    expect(crumb()).toHaveTextContent(expected);
   });
 
   it('reads an empty resource param as absent, not as a view named nothing', async () => {
     const explicit = await render(`/dashboard?resource=${DEFAULT_DASHBOARD_RESOURCE}`);
-    const expected = screen.getByRole('heading', { level: 1 }).textContent ?? '';
+    const expected = crumb().textContent ?? '';
     explicit.unmount();
 
     await render('/dashboard?resource=');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(expected);
+    expect(crumb()).toHaveTextContent(expected);
   });
 
-  it('heads a kind’s page with its label alone, and no count', async () => {
+  it('names a kind’s page by its label alone, and no count', async () => {
     useClusterCachedDataObjectsMock.mockReturnValue({
       objects: [pod('a', 'x'), pod('b', 'y')],
       active: true,
       phase: 'live',
     });
     await render('/dashboard?resource=deployments', [KIND]);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Deployments$/);
-    expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
+    expect(crumb()).toHaveTextContent(/^Deployments$/);
   });
 
   it('shows a namespaced kind’s objects in the namespace alone', async () => {
@@ -334,35 +377,51 @@ describe('dashboard route', () => {
     );
   });
 
-  it('heads Events with its count, scoped to the namespace', async () => {
+  it('shows Events scoped to the namespace, and says so', async () => {
     useClusterCachedDataEventsMock.mockReturnValue({
       events: [event('a', 'checkout'), event('b', 'default')],
       active: true,
       phase: 'live',
     });
     await render('/dashboard?resource=events&namespace=checkout');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Events');
-    expect(screen.getByTestId('page-count')).toHaveTextContent('1');
-    expect(screen.getByText(/Events in/)).toHaveTextContent('Events in checkout.');
+    expect(crumb()).toHaveTextContent('Events');
+    expect(eventsNote()).toHaveTextContent(/^1 event in checkout\.$/);
     const table = propsOf('events-table');
     expect(table.events.map((e: { uid: string }) => e.uid)).toEqual(['a']);
     expect(table.namespace).toBe('checkout');
   });
 
-  it('heads Events with every event and no subtitle without a namespace', async () => {
+  it('shows Events with every event and no note without a namespace', async () => {
     useClusterCachedDataEventsMock.mockReturnValue({
       events: [event('a', 'x'), event('b', 'y')],
       active: true,
       phase: 'live',
     });
     await render('/dashboard?resource=events');
-    expect(screen.getByTestId('page-count')).toHaveTextContent('2');
-    expect(screen.queryByText(/Events in/)).not.toBeInTheDocument();
+    expect(propsOf('events-table').events).toHaveLength(2);
+    expect(eventsNote()).toHaveTextContent(/^2 events\.$/);
   });
 
-  it('draws no Events count before the events land', async () => {
+  it('counts no events until the snapshot lands, naming the namespace meanwhile', async () => {
     useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'connecting' });
+    await render('/dashboard?resource=events&namespace=checkout');
+    expect(eventsNote()).toHaveTextContent(/^Events in checkout\.$/);
+  });
+
+  it('draws no note before the snapshot without a namespace, nor with no active cache', async () => {
+    useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'connecting' });
+    const { unmount } = await render('/dashboard?resource=events');
+    expect(eventsNote()).not.toBeInTheDocument();
+    // Nor an empty one, holding space above the spinner.
+    expect(document.querySelector('p.mb-5')).toBeNull();
+    unmount();
+    useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: false, phase: 'live' });
     await render('/dashboard?resource=events');
-    expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
+    expect(eventsNote()).not.toBeInTheDocument();
+  });
+
+  it('counts zero events once an empty snapshot lands', async () => {
+    await render('/dashboard?resource=events');
+    expect(eventsNote()).toHaveTextContent(/^0 events\.$/);
   });
 });

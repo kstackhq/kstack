@@ -302,7 +302,9 @@ export function ObjectsTable({
         </div>
       </div>
       {/* A tab or a query that leaves no row draws the table empty, its footer counting zero. */}
-      <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm', CELLS)}>
+      <div
+        className={cn('flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-background shadow-sm', CELLS)}
+      >
         <VirtualTable
           rows={rows}
           rowKey={rowKey}

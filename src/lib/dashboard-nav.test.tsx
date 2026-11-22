@@ -16,6 +16,8 @@ import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ServerKind } from './dashboard-resources';
+
 // The hook composes `useWatchSubscription` with the active-context → cluster/cache
 // join and a cache-aware guard. Mock those seams so the test drives the delta stream +
 // cache state directly, without a real GraphQL client. The mock stands in for the
@@ -48,7 +50,7 @@ vi.mock('@/lib/namespace-scope', () => ({
   useNamespaceScope: () => ({ namespace: undefined, setNamespace: () => {} }),
 }));
 
-const { useDashboardNav } = await import('./dashboard-nav');
+const { useDashboardNav, useDashboardNavPlace } = await import('./dashboard-nav');
 const { buildDashboardNav } = await import('./dashboard-resources');
 const { ClusterCachedDataKindsProvider } = await import('./cluster-cached-data-kinds');
 
@@ -387,5 +389,47 @@ describe('useDashboardNav', () => {
     const { result } = renderNav();
     expect(result.current.active).toBe(true);
     expect(result.current.phase).toBe('connecting');
+  });
+});
+
+describe('useDashboardNavPlace', () => {
+  it('places a curated kind before the Bookmark, and after it only a kind it is handed', () => {
+    useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClusterCachedDataKindsProvider enabled>{children}</ClusterCachedDataKindsProvider>
+    );
+    const hpa = { ...HPA, printerColumns: [] };
+    type Props = { id: string; kind?: ServerKind };
+    const initialProps: Props = { id: 'autoscaling/horizontalpodautoscalers' };
+    const { result, rerender } = renderHook(({ id, kind }: Props) => useDashboardNavPlace(id, kind), {
+      wrapper,
+      initialProps,
+    });
+
+    pushFrame('Added', HPA);
+    rerender({ id: 'autoscaling/horizontalpodautoscalers' });
+    expect(result.current).toBeUndefined();
+    rerender({ id: 'pods' });
+    expect(result.current).toEqual({ section: 'namespace', sectionLabel: 'Namespace', group: 'Workloads' });
+
+    pushBookmark();
+    rerender({ id: 'autoscaling/horizontalpodautoscalers', kind: hpa });
+    expect(result.current).toEqual({ section: 'namespace', sectionLabel: 'Namespace', group: 'Workloads' });
+    // The caller searched the landed catalog and missed: even a curated id has no place.
+    rerender({ id: 'pods' });
+    expect(result.current).toBeUndefined();
+  });
+
+  it('places a kind it is handed while the catalog replays', () => {
+    useClustersMock.mockReturnValue({ clusters: [clusterFixture({ status: 'True', reason: 'Watching' })] });
+    const { result } = renderHook(
+      () => useDashboardNavPlace('autoscaling/horizontalpodautoscalers', { ...HPA, printerColumns: [] }),
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <ClusterCachedDataKindsProvider enabled>{children}</ClusterCachedDataKindsProvider>
+        ),
+      },
+    );
+    expect(result.current).toEqual({ section: 'namespace', sectionLabel: 'Namespace', group: 'Workloads' });
   });
 });

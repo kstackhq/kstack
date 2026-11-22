@@ -16,6 +16,7 @@ import { Spinner } from '@kubetail/ui/elements/spinner';
 import { createRoute } from '@tanstack/react-router';
 import { useCallback, useMemo, useState } from 'react';
 
+import { DashboardBreadcrumbBar } from '@/components/dashboard/breadcrumb-bar';
 import { EventsTable } from '@/components/dashboard/events-table';
 import { ObjectsTable } from '@/components/dashboard/objects-table';
 import { PageHeader } from '@/components/dashboard/page-header';
@@ -49,7 +50,7 @@ export const Route = createRoute({
 // The kind a resource last resolved to, under the cache it came from.
 type HeldKind = { cacheID: string | undefined; resource: string; kind: ServerKind };
 
-// Each resource is a page, a header over a panel: `events` → `EventsPage`; a resolved
+// Each resource is a page under the breadcrumb bar, a note over a panel: `events` → `EventsPage`; a resolved
 // discovered kind → `KindPage`; anything else → `PlaceholderPage`. Label and kind resolve
 // against the same live catalog the sidebar uses.
 function Dashboard() {
@@ -58,7 +59,6 @@ function Dashboard() {
   const resolved = resolveDashboardResource(resource);
   // The catalog re-emits on count churn — memoize so a Modified frame doesn't rescan it
   // every render.
-  const label = useMemo(() => dashboardResourceLabel(kinds, resolved), [kinds, resolved]);
   const serverKind = useMemo(() => serverKindForResource(kinds, resolved), [kinds, resolved]);
 
   // A new connection replays the catalog onto a clean slate, so it is empty until the
@@ -70,6 +70,9 @@ function Dashboard() {
   }
   const holding = held && active && phase === 'connecting' && held.cacheID === cacheID && held.resource === resolved;
   const kind = serverKind ?? (holding ? held.kind : undefined);
+  // From the kind the page shows, so the label and the breadcrumb hold through a replay too.
+  // Without one, `kinds` was just searched for the id, so neither searches it again.
+  const label = dashboardResourceLabel(kind ? [kind] : [], resolved);
 
   let page;
   if (resolved === 'events') {
@@ -79,17 +82,17 @@ function Dashboard() {
   } else {
     page = <PlaceholderPage label={label} resource={resolved} active={active} phase={phase} />;
   }
-  return <section className="flex min-h-0 min-w-0 flex-1 flex-col p-6">{page}</section>;
+  return (
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <DashboardBreadcrumbBar resource={resolved} label={label} kind={kind} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 py-3">{page}</div>
+    </section>
+  );
 }
 
 // The rows the namespace scope shows: all of them without one.
 function inScope<T>(rows: T[], namespace: string | undefined, namespaceOf: (row: T) => string): T[] {
   return namespace === undefined ? rows : rows.filter((r) => namespaceOf(r) === namespace);
-}
-
-// A page counts its rows once its watch's snapshot has landed.
-function countOf(rows: unknown[], active: boolean, phase: WatchPhase): number | undefined {
-  return active && phase !== 'connecting' ? rows.length : undefined;
 }
 
 // A kind's page, over its objects watch. The watch is cluster-wide; the scope filters it
@@ -118,7 +121,7 @@ function KindPage({ kind, label }: { kind: ServerKind; label: string }) {
 
   return (
     <>
-      <PageHeader title={label}>
+      <PageHeader>
         {!namespaced && namespace !== undefined && (
           <>
             Cluster-scoped, so the <VisibleText text={namespace} /> filter isn&apos;t applied.
@@ -153,15 +156,28 @@ function EventsPage() {
 
   return (
     <>
-      <PageHeader title="Events" count={countOf(shown, active, phase)}>
-        {namespace !== undefined && (
-          <>
-            Events in <VisibleText text={namespace} />.
-          </>
-        )}
-      </PageHeader>
+      <EventsNote count={active && phase !== 'connecting' ? shown.length : undefined} namespace={namespace} />
       <EventsTable events={shown} active={active} phase={phase} namespace={namespace} />
     </>
+  );
+}
+
+// How many events the scope holds, once the snapshot has landed. The table's Count column
+// is each event's repetitions, so this is the page's one total.
+function EventsNote({ count, namespace }: { count?: number; namespace?: string }) {
+  if (count === undefined && namespace === undefined) return null;
+  const noun = count === undefined ? 'Events' : `${count} ${count === 1 ? 'event' : 'events'}`;
+  return (
+    <PageHeader>
+      {noun}
+      {namespace !== undefined && (
+        <>
+          {' in '}
+          <VisibleText text={namespace} />
+        </>
+      )}
+      .
+    </PageHeader>
   );
 }
 
@@ -188,12 +204,7 @@ function PlaceholderPage({ label, resource, active, phase }: PlaceholderPageProp
   } else {
     note = <Note>This cluster does not serve {name}, or your credentials cannot list them.</Note>;
   }
-  return (
-    <>
-      <PageHeader title={label} />
-      {note}
-    </>
-  );
+  return note;
 }
 
 function Note({ children }: { children: React.ReactNode }) {

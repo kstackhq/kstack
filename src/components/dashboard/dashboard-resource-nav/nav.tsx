@@ -18,18 +18,16 @@
 import { Separator } from '@kubetail/ui/elements/separator';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { useSearch } from '@tanstack/react-router';
-import { Compass, List } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 
 import { SectionHeading } from '@/components/primitives/section-heading';
 import { SearchBox } from '@/components/primitives/text-entry';
 import { SIDEBAR_CONTROL_CLASS } from '@/lib/control-style';
-import { useDashboardNav } from '@/lib/dashboard-nav';
+import { PINNED_ICON, SECTION_ICON, useDashboardNav } from '@/lib/dashboard-nav';
 import { filterNav, groupCount, PINNED, resolveDashboardResource } from '@/lib/dashboard-resources';
 import type { DashboardResource, NavGroup as Group, NavSection } from '@/lib/dashboard-resources';
 import { usePersistedFlag } from '@/lib/persisted-flag';
 
-import { NamespacePicker } from './namespace-picker';
 import { NavGroup } from './nav-group';
 import { NavItem } from './nav-item';
 
@@ -79,8 +77,6 @@ function sectionLabel(section: NavSection, searching: boolean): string {
   return searching && section.groups.length === 0 ? `${section.label} · no matches` : section.label;
 }
 
-const PINNED_ICON = { overview: Compass, events: List };
-
 export function DashboardResourceNav() {
   const { nav, active: watchActive, phase } = useDashboardNav();
   const { resource } = useSearch({ strict: false });
@@ -97,10 +93,6 @@ export function DashboardResourceNav() {
 
   return (
     <nav aria-label="Resources" className="flex flex-col gap-0.5">
-      {/* The scope first: it decides what the rows below count and show. */}
-      <div className="pb-2">
-        <NamespacePicker />
-      </div>
       {PINNED.map((p) => (
         <NavItem
           key={p.id}
@@ -113,9 +105,12 @@ export function DashboardResourceNav() {
         />
       ))}
       {/* The pinned rows are pages; a rule sets them apart from the kinds below. */}
-      <Separator className="my-2 bg-sidebar-border" />
+      {/* 18px under it to the search box, as far as each section's capitals sit under
+          what is above them: the nav's 2px gap, the heading's 8px margin, 4px padding
+          and about 4px of leading. */}
+      <Separator className="mt-2 mb-4 bg-sidebar-border" />
       {/* Above the kinds it filters, and sticky, so they scroll under it. */}
-      <div className="sticky top-0 z-10 bg-sidebar pb-1">
+      <div className="sticky top-0 z-10 bg-sidebar">
         <SearchBox
           aria-label="Search kinds"
           placeholder="Search"
@@ -123,9 +118,7 @@ export function DashboardResourceNav() {
           className={SIDEBAR_CONTROL_CLASS}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setQuery('');
-          }}
+          onClear={() => setQuery('')}
         />
         {searching && (
           <div className="flex items-center justify-between px-1 pt-1.5">
@@ -146,7 +139,7 @@ export function DashboardResourceNav() {
         <Fragment key={s.id}>
           {/* Lighter than the rule above the search box, so the sections read as part of
               what the search filters. */}
-          <SectionHeading label={sectionLabel(s, searching)} />
+          <SectionHeading label={sectionLabel(s, searching)} icon={SECTION_ICON[s.id]} />
           {s.groups.map((g, i) => (
             <GroupBlock key={g.id} group={g} sectionId={s.id} first={i === 0} active={active} searching={searching} />
           ))}

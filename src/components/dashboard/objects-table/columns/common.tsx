@@ -40,8 +40,10 @@ export type ObjectColumn = VirtualColumn<ClusterCachedDataObject> & {
   tone?: (o: ClusterCachedDataObject) => StatusTone;
 };
 
-// A column that reads the object's body, so a kind names its body's shape once.
-export type KindColumn<T> = Omit<ObjectColumn, 'cell' | 'sortValue' | 'tone'> & {
+// A column that reads the object's body, so a kind names its body's shape once. Only the
+// table's own actions column is pinned.
+export type KindColumn<T> = Omit<ObjectColumn, 'cell' | 'sortValue' | 'tone' | 'pinned'> & {
+  pinned?: false;
   cell: (b: T) => ReactNode;
   sortValue?: (b: T) => SortValue;
   tone?: (b: T) => StatusTone;

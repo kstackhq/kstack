@@ -12,10 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A section's heading in a sidebar list: a muted, capitalized label. The capitals are
-// CSS; the label stays as written.
-export function SectionHeading({ label }: { label: string }) {
+import { cn } from '@kubetail/ui/lib/utils';
+import type { LucideIcon } from 'lucide-react';
+
+// A section's heading in a sidebar list: a muted, capitalized label, after an icon when
+// given one. The capitals are CSS; the label stays as written.
+export function SectionHeading({
+  label,
+  icon: Icon,
+  className,
+}: {
+  label: string;
+  icon?: LucideIcon;
+  className?: string;
+}) {
   return (
-    <h3 className="mt-2 truncate p-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</h3>
+    <h3
+      className={cn(
+        'mt-2 flex items-center gap-1.5 p-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase',
+        className,
+      )}
+    >
+      {Icon && <Icon className="size-3 shrink-0" aria-hidden />}
+      <span className="truncate">{label}</span>
+    </h3>
   );
 }

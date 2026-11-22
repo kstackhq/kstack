@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { expectCodeText, expectProseText } from '@/test-utils';
 
@@ -71,5 +71,51 @@ describe('text entry', () => {
   it('lets a caller override a setting', () => {
     render(<Input autoComplete="on" aria-label="input" />);
     expect(screen.getByLabelText('input')).toHaveAttribute('autocomplete', 'on');
+  });
+});
+
+describe('SearchBox onClear', () => {
+  const reached = vi.fn();
+  const onClear = vi.fn();
+  const onKeyDown = vi.fn();
+  const box = () => screen.getByRole('searchbox', { name: 'search' });
+  const renderBox = (value: string) => {
+    window.addEventListener('keydown', reached);
+    render(<SearchBox aria-label="search" value={value} onChange={() => {}} onClear={onClear} onKeyDown={onKeyDown} />);
+  };
+
+  afterEach(() => {
+    window.removeEventListener('keydown', reached);
+    vi.clearAllMocks();
+  });
+
+  it('clears on Escape, keeping that Escape from whatever is around the box', () => {
+    renderBox('st');
+    fireEvent.keyDown(box(), { key: 'Escape' });
+    expect(onClear).toHaveBeenCalledOnce();
+    expect(reached).not.toHaveBeenCalled();
+    expect(onKeyDown).toHaveBeenCalledOnce();
+  });
+
+  it('lets the Escape of an empty box through', () => {
+    renderBox('');
+    fireEvent.keyDown(box(), { key: 'Escape' });
+    expect(onClear).not.toHaveBeenCalled();
+    expect(reached).toHaveBeenCalledOnce();
+  });
+
+  it('leaves an IME’s Escape and every other key alone', () => {
+    renderBox('st');
+    fireEvent.keyDown(box(), { key: 'Escape', isComposing: true });
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    expect(onClear).not.toHaveBeenCalled();
+    expect(reached).toHaveBeenCalledTimes(2);
+  });
+
+  it('takes no Escape without the prop', () => {
+    window.addEventListener('keydown', reached);
+    render(<SearchBox aria-label="search" defaultValue="st" />);
+    fireEvent.keyDown(box(), { key: 'Escape' });
+    expect(reached).toHaveBeenCalledOnce();
   });
 });

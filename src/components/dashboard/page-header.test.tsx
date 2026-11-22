@@ -18,25 +18,14 @@ import { describe, expect, it } from 'vitest';
 import { PageHeader } from './page-header';
 
 describe('PageHeader', () => {
-  it('draws the title, through VisibleText, as the page heading', () => {
-    render(<PageHeader title={'a\u200bb'} />);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('a\\u{200B}b');
+  it('draws its note, and no title: the breadcrumb bar names the page', () => {
+    render(<PageHeader>Events in checkout.</PageHeader>);
+    expect(screen.getByText('Events in checkout.')).toHaveClass('text-sm', 'text-muted-foreground');
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
   });
 
-  it('draws the count when given', () => {
-    render(<PageHeader title="Events" count={11} />);
-    expect(screen.getByTestId('page-count')).toHaveTextContent('11');
-  });
-
-  it('draws no count when it is not known, and a zero when it is', () => {
-    const { rerender } = render(<PageHeader title="Pods" />);
-    expect(screen.queryByTestId('page-count')).not.toBeInTheDocument();
-    rerender(<PageHeader title="Pods" count={0} />);
-    expect(screen.getByTestId('page-count')).toHaveTextContent('0');
-  });
-
-  it('draws its note under the title', () => {
-    render(<PageHeader title="Events">Events in checkout.</PageHeader>);
-    expect(screen.getByText('Events in checkout.')).toBeInTheDocument();
+  it('draws nothing without a note', () => {
+    const { container } = render(<PageHeader>{false}</PageHeader>);
+    expect(container).toBeEmptyDOMElement();
   });
 });

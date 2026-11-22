@@ -26,16 +26,14 @@ const { navState } = vi.hoisted(() => ({
   navState: { kinds: undefined as unknown[] | undefined, active: true, phase: 'live' },
 }));
 
-vi.mock('@/lib/dashboard-nav', () => ({
+vi.mock('@/lib/dashboard-nav', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/dashboard-nav')>()),
   useDashboardNav: () => ({
     nav: buildDashboardNav(navState.kinds as ServerKind[] | undefined),
     active: navState.active,
     phase: navState.phase,
   }),
 }));
-
-// The picker has its own suite, and reads the namespaces through a provider.
-vi.mock('./namespace-picker', () => ({ NamespacePicker: () => <div data-testid="namespace-picker" /> }));
 
 const { DashboardResourceNav } = await import('./nav');
 
@@ -83,12 +81,12 @@ beforeEach(() => {
 });
 
 describe('DashboardResourceNav', () => {
-  // The scope decides what the rest of the nav counts and shows, so it comes first.
-  it('leads with the namespace picker, above Overview', async () => {
+  // The namespace picker lives in the breadcrumb bar, so Overview leads.
+  it('leads with Overview, holding no namespace picker', async () => {
     await render();
-    const picker = screen.getByTestId('namespace-picker');
-    const overview = screen.getByRole('link', { name: 'Overview' });
-    expect(picker.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const nav = screen.getByRole('navigation', { name: 'Resources' });
+    expect(nav.firstElementChild).toBe(screen.getByRole('link', { name: 'Overview' }));
+    expect(screen.queryByRole('button', { name: /^Namespace:/ })).not.toBeInTheDocument();
   });
 
   it('draws Overview and Events above the sections, Events with its count', async () => {
@@ -100,7 +98,7 @@ describe('DashboardResourceNav', () => {
   });
 
   // The catalog counts in the namespace scope, so the counts stay.
-  // The picker above names the namespace; the heading does not repeat it.
+  // The breadcrumb bar's picker names the namespace; the heading does not repeat it.
   it('draws the counts the catalog took in the namespace scope, under a plain heading', async () => {
     await render('/dashboard?namespace=checkout&resource=pods');
     expect(screen.getByRole('heading', { name: 'Namespace' })).toBeInTheDocument();
@@ -219,12 +217,31 @@ describe('DashboardResourceNav search', () => {
     const rule = screen.getByRole('separator');
     expect(follows(screen.getByRole('link', { name: /Events/ }), rule)).toBe(true);
     expect(follows(rule, search())).toBe(true);
-    expect(follows(search(), screen.getByRole('heading', { name: 'Cluster' }))).toBe(true);
+    expect(follows(search(), screen.getByRole('heading', { name: 'Namespace' }))).toBe(true);
+    expect(
+      follows(screen.getByRole('heading', { name: 'Namespace' }), screen.getByRole('heading', { name: 'Cluster' })),
+    ).toBe(true);
+  });
+
+  it('spaces each section’s heading the same under whatever is above it, and the box as far under the rule', async () => {
+    await render();
+    expect(screen.getByRole('separator')).toHaveClass('mt-2', 'mb-4');
+    expect(search().closest('.sticky')?.className).not.toMatch(/\bpb-/);
+    for (const name of ['Namespace', 'Cluster']) {
+      expect(screen.getByRole('heading', { name })).toHaveClass('mt-2');
+      expect(screen.getByRole('heading', { name })).not.toHaveClass('mt-0');
+    }
   });
 
   it('is a code-text box', async () => {
     await render();
     expectCodeText(search());
+  });
+
+  it('marks the Cluster section with a globe and the Namespace section with layers', async () => {
+    await render();
+    expect(screen.getByRole('heading', { name: 'Cluster' }).querySelector('svg')).toHaveClass('lucide-globe');
+    expect(screen.getByRole('heading', { name: 'Namespace' }).querySelector('svg')).toHaveClass('lucide-layers');
   });
 
   it('keeps the kinds whose name starts with the query, empty ones too, their groups open', async () => {
@@ -258,6 +275,27 @@ describe('DashboardResourceNav search', () => {
     type('st');
     fireEvent.keyDown(search(), { key: 'Escape' });
     expect(search()).toHaveValue('');
+  });
+
+  // In the narrow drawer, an Escape that reached `window` would close it too.
+  it('keeps the Escape that clears its query from the window, and lets the next one through', async () => {
+    const reached = vi.fn();
+    window.addEventListener('keydown', reached);
+    await render();
+    type('st');
+    fireEvent.keyDown(search(), { key: 'Escape' });
+    expect(search()).toHaveValue('');
+    expect(reached).not.toHaveBeenCalled();
+    fireEvent.keyDown(search(), { key: 'Escape' });
+    window.removeEventListener('keydown', reached);
+    expect(reached).toHaveBeenCalledOnce();
+  });
+
+  it('leaves the query to an IME’s Escape', async () => {
+    await render();
+    type('st');
+    fireEvent.keyDown(search(), { key: 'Escape', isComposing: true });
+    expect(search()).toHaveValue('st');
   });
 
   it('leaves the query alone on any other key', async () => {

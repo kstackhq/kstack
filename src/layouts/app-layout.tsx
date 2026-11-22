@@ -80,7 +80,7 @@ export function AppLayout() {
               inside both. */}
                 <LogWindowsProvider>
                   {/* Above the sidebar and the routes: both read the catalog, and the
-                sidebar's namespace picker reads the namespaces on every page. */}
+                breadcrumb bar's namespace picker reads the namespaces on every page. */}
                   <ClusterCachedDataKindsProvider enabled={onDashboard}>
                     <ClusterNamespacesProvider enabled={onDashboard}>
                       <SidebarProvider

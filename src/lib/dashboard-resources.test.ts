@@ -22,6 +22,7 @@ import {
   filterNav,
   groupCount,
   mayNameDiscoveredKind,
+  navPlaceOf,
   resolveDashboardResource,
   serverKindForResource,
 } from './dashboard-resources';
@@ -40,15 +41,6 @@ describe('buildDashboardNav before the catalog lands', () => {
     const nav = buildDashboardNav(undefined);
     expect(shape(nav)).toEqual([
       {
-        section: 'cluster',
-        groups: [
-          'Infrastructure: nodes namespaces',
-          'Storage: persistentvolumes storageclasses',
-          'Access control: clusterroles clusterrolebindings',
-          'Extensions: customresourcedefinitions apiservices',
-        ],
-      },
-      {
         section: 'namespace',
         groups: [
           'Workloads: pods deployments statefulsets daemonsets replicasets jobs cronjobs',
@@ -56,6 +48,15 @@ describe('buildDashboardNav before the catalog lands', () => {
           'Config: configmaps secrets',
           'Storage: persistentvolumeclaims',
           'Access control: serviceaccounts roles rolebindings',
+        ],
+      },
+      {
+        section: 'cluster',
+        groups: [
+          'Infrastructure: nodes namespaces',
+          'Storage: persistentvolumes storageclasses',
+          'Access control: clusterroles clusterrolebindings',
+          'Extensions: customresourcedefinitions apiservices',
         ],
       },
     ]);
@@ -101,8 +102,8 @@ describe('buildDashboardNav once the catalog lands', () => {
   it('lists only the kinds the catalog serves, with their counts', () => {
     const nav = buildDashboardNav([served('v1', 'Pod', 'pods', 42), served('apps/v1', 'Deployment', 'deployments', 0)]);
     expect(shape(nav)).toEqual([
-      { section: 'cluster', groups: [] },
       { section: 'namespace', groups: ['Workloads: pods deployments'] },
+      { section: 'cluster', groups: [] },
     ]);
     expect(kindOf(nav, 'pods')).toEqual({ id: 'pods', label: 'Pods', count: 42 });
     expect(kindOf(nav, 'deployments')?.count).toBe(0);
@@ -176,7 +177,7 @@ describe('order within a group', () => {
       served('autoscaling/v2', 'HorizontalPodAutoscaler', 'horizontalpodautoscalers'),
       served('v1', 'Pod', 'pods'),
     ]);
-    expect(shape(nav)[1].groups).toEqual([
+    expect(shape(nav)[0].groups).toEqual([
       'Workloads: pods jobs autoscaling/horizontalpodautoscalers policy/poddisruptionbudgets',
     ]);
   });
@@ -247,12 +248,12 @@ describe('filterNav without a query', () => {
 
   it('hides kinds with no objects, and a group left with none', () => {
     const view = filterNav(nav, { active: 'overview', query: '' });
-    expect(ids(view.sections)).toEqual([['infrastructure: nodes'], ['workloads: pods']]);
+    expect(ids(view.sections)).toEqual([['workloads: pods'], ['infrastructure: nodes']]);
   });
 
   it('keeps the active kind even while it is empty', () => {
     const view = filterNav(nav, { active: 'deployments', query: '' });
-    expect(ids(view.sections)[1]).toEqual(['workloads: pods deployments']);
+    expect(ids(view.sections)[0]).toEqual(['workloads: pods deployments']);
   });
 
   it('hides nothing while counts are unknown', () => {
@@ -272,8 +273,8 @@ describe('filterNav with a query', () => {
   it('keeps kinds whose label starts with it, any case, empty ones included', () => {
     const view = filterNav(nav, { active: 'overview', query: ' POD' });
     expect(view.sections.map((s) => s.groups.flatMap((g) => g.kinds.map((k) => k.id)))).toEqual([
-      [],
       ['pods', 'policy/poddisruptionbudgets'],
+      [],
     ]);
     expect(view.matches).toBe(2);
     expect(view.total).toBe(4);
@@ -298,5 +299,75 @@ describe('groupCount', () => {
       }),
     ).toBe(7);
     expect(groupCount({ id: 'g', label: 'G', kinds: [{ id: 'a', label: 'A' }] })).toBeUndefined();
+  });
+});
+
+describe('navPlaceOf', () => {
+  it('names a kind’s section and group', () => {
+    const kinds = [
+      served('v1', 'Node', 'nodes', 1, { scope: 'Cluster' }),
+      served('apps/v1', 'Deployment', 'deployments'),
+    ];
+    expect(navPlaceOf(kinds, 'nodes')).toEqual({
+      section: 'cluster',
+      sectionLabel: 'Cluster',
+      group: 'Infrastructure',
+    });
+    expect(navPlaceOf(kinds, 'deployments')).toEqual({
+      section: 'namespace',
+      sectionLabel: 'Namespace',
+      group: 'Workloads',
+    });
+  });
+
+  it('places a kind where the tree does', () => {
+    const kinds = [
+      served('v1', 'Pod', 'pods'),
+      served('example.com/v1', 'Widget', 'widgets', 1, { isCRD: true }),
+      served('example.com/v1', 'Gadget', 'gadgets', 1, { scope: 'Cluster' }),
+    ];
+    const nav = buildDashboardNav(kinds);
+    for (const s of nav.sections) {
+      for (const g of s.groups) {
+        for (const k of g.kinds)
+          expect(navPlaceOf(kinds, k.id)).toEqual({ section: s.id, sectionLabel: s.label, group: g.label });
+      }
+    }
+  });
+
+  // The cluster names the API group, so it can name an object's own properties.
+  it('places a kind whose API group is named after an object property by its fallback', () => {
+    const kinds = [
+      served('constructor/v1', 'Widget', 'widgets', 1, { isCRD: true }),
+      served('toString/v1', 'Gadget', 'gadgets'),
+    ];
+    expect(navPlaceOf(kinds, 'constructor/widgets')?.group).toBe('Custom resources');
+    expect(navPlaceOf(kinds, 'toString/gadgets')?.group).toBe('Extensions');
+  });
+
+  it('places a curated kind before the catalog lands', () => {
+    expect(navPlaceOf(undefined, 'pods')).toEqual({
+      section: 'namespace',
+      sectionLabel: 'Namespace',
+      group: 'Workloads',
+    });
+  });
+
+  it('places nothing for a pinned page or a kind the tree does not hold', () => {
+    for (const kinds of [undefined, [served('v1', 'Event', 'events'), served('events.k8s.io/v1', 'Event', 'events')]]) {
+      expect(navPlaceOf(kinds, 'overview')).toBeUndefined();
+      expect(navPlaceOf(kinds, 'events')).toBeUndefined();
+      expect(navPlaceOf(kinds, 'example.com/widgets')).toBeUndefined();
+    }
+  });
+
+  it('never reads the catalog for a pinned page', () => {
+    const unread = new Proxy([] as ServerKind[], {
+      get: () => {
+        throw new Error('read the catalog');
+      },
+    });
+    expect(navPlaceOf(unread, 'overview')).toBeUndefined();
+    expect(navPlaceOf(unread, 'events')).toBeUndefined();
   });
 });

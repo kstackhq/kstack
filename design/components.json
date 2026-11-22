@@ -174,7 +174,7 @@
       },
       "code": [
         {
-          "path": "src/components/dashboard/dashboard-resource-nav/scope-menu.tsx",
+          "path": "src/components/dashboard/breadcrumb-bar/scope-menu.tsx",
           "blob": "f2e070b495ca1cbc5846ee9df0f870ec7da016ff"
         }
       ]

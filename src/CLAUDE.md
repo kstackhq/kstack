@@ -45,7 +45,7 @@ This file holds what crosses the webview; each larger subsystem has a guide besi
   - `logs/` — the log viewer, the log panel, the log window, a view's source line and `AnsiText`.
   - `settings/` — the settings dialog and the folder-grant form.
   - `chat/` — the chat panes, composer, transcript, nav, the transcript's log cards, and the dashboard's chat.
-  - `dashboard/` — the objects and events tables, the object panel, the resource nav, the page header, the status pill and `VirtualTable`.
+  - `dashboard/` — the objects and events tables, the object panel, the resource nav, the breadcrumb bar, the page header, the status pill and `VirtualTable`.
   - `shell/` — the app bar, the context omnibox, both sidebars, the mode nav, the app's dialogs host, the startup gate, the error boundary and the error banner.
 - **Imports point one way**: `primitives` ← `cluster` ← `logs` ← `settings` ← `chat`, `dashboard` ← `shell`. An area imports only from the areas to its left (and `src/lib/`); `chat` and `dashboard` import neither each other. Across areas an import is `@/components/<area>/<name>`; a sibling in the same area may use `./`.
 

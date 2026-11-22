@@ -62,10 +62,10 @@ describe('NamespacePicker', () => {
     expect(screen.getByRole('button', { name: 'Namespace: All namespaces' })).toHaveTextContent('All namespaces');
   });
 
-  it('names the chosen namespace through VisibleText', () => {
+  it('names the chosen namespace through VisibleText, in its text and its name', () => {
     setup({ namespace: 'a\u200bb' });
     render(<NamespacePicker />);
-    expect(screen.getByRole('button', { name: /^Namespace:/ })).toHaveTextContent('a\\u{200B}b');
+    expect(screen.getByRole('button', { name: 'Namespace: a\\u{200B}b' })).toHaveTextContent('a\\u{200B}b');
   });
 
   it('lists All namespaces first, then the cluster’s namespaces', async () => {
@@ -82,6 +82,49 @@ describe('NamespacePicker', () => {
     expect(options()).toEqual(['All namespaces', 'kube-system']);
   });
 
+  // Typing clears the highlight; Enter must not fall to the broadest option.
+  it('picks the first matching namespace on Enter after a search', async () => {
+    setup({ namespace: 'default' });
+    const user = await openMenu();
+    await user.keyboard('kube-system{Enter}');
+    expect(setNamespace).toHaveBeenLastCalledWith('kube-system');
+  });
+
+  it('keeps the scope on Enter when the search matches no namespace', async () => {
+    setup({ namespace: 'default' });
+    const user = await openMenu();
+    await user.keyboard('kube-sytsem{Enter}');
+    expect(setNamespace).not.toHaveBeenCalled();
+    // All namespaces is still there to pick.
+    await user.keyboard('{ArrowDown}{Enter}');
+    expect(setNamespace).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('keeps the scope on Enter while the namespaces load', async () => {
+    setup({ namespace: 'default', namespaces: [], phase: 'connecting' });
+    const user = await openMenu();
+    await user.keyboard('kube{Enter}');
+    expect(setNamespace).not.toHaveBeenCalled();
+  });
+
+  // The route takes any nonempty namespace, `*` included.
+  it('tells a namespace named * from All namespaces', async () => {
+    setup({ namespace: '*' });
+    const user = await openMenu();
+    expect(options()).toEqual(['All namespaces', '*Not found', 'checkout', 'default', 'kube-system']);
+    const ids = screen.getAllByRole('option').map((o) => o.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    await user.click(screen.getByRole('option', { name: /^\*/ }));
+    expect(setNamespace).toHaveBeenLastCalledWith('*');
+  });
+
+  it('picks All namespaces on Enter once the search is cleared', async () => {
+    setup({ namespace: 'default' });
+    const user = await openMenu();
+    await user.keyboard('kube{Backspace}{Backspace}{Backspace}{Backspace}{Enter}');
+    expect(setNamespace).toHaveBeenLastCalledWith(undefined);
+  });
+
   it('keeps a chosen namespace the cluster does not list, marked Not found', async () => {
     setup({ namespace: 'gone' });
     await openMenu();
@@ -94,6 +137,16 @@ describe('NamespacePicker', () => {
     expect(screen.getByText('Loading namespaces…')).toBeInTheDocument();
     // Not *Not found*: the list has not landed.
     expect(options()).toEqual(['All namespaces', 'checkout']);
+  });
+
+  // The loading label and a namespace of the same name are siblings in one list.
+  it('tells the loading label from a namespace named loading', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    setup({ namespace: 'loading', namespaces: [], phase: 'connecting' });
+    await openMenu();
+    expect(options()).toEqual(['All namespaces', 'loading']);
+    expect(consoleError.mock.calls.some(([message]) => String(message).includes('same key'))).toBe(false);
+    consoleError.mockRestore();
   });
 
   it('holds All namespaces and the chosen one with no active cache', async () => {
