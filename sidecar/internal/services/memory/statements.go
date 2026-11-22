@@ -31,6 +31,7 @@ const (
 	stmtSelectByID
 	stmtSelectScope
 	stmtDelete
+	stmtSelectCounts
 	numStmts int = iota
 )
 
@@ -54,8 +55,9 @@ var statements = []sqlstmt.Statement{
 	WHERE ifnull(cluster_id, '') = ? AND name = ?`),
 	stmtSelectByID: sqlstmt.OnBoth(`SELECT ` + memoryColumns + ` FROM memories WHERE id = ?`),
 	// The memories in one scope: a cluster's by its id, the global ones by ''.
-	stmtSelectScope: sqlstmt.OnBoth(`SELECT ` + memoryColumns + ` FROM memories WHERE ifnull(cluster_id, '') = ?`),
-	stmtDelete:      sqlstmt.OnWriter(`DELETE FROM memories WHERE id = ?`),
+	stmtSelectScope:  sqlstmt.OnBoth(`SELECT ` + memoryColumns + ` FROM memories WHERE ifnull(cluster_id, '') = ?`),
+	stmtDelete:       sqlstmt.OnWriter(`DELETE FROM memories WHERE id = ?`),
+	stmtSelectCounts: sqlstmt.OnReader(`SELECT cluster_id, COUNT(*) FROM memories GROUP BY cluster_id`),
 }
 
 type stmts = sqlstmt.Stmts[stmtID]

@@ -92,6 +92,8 @@ type Service interface {
 	// Visible is every memory cluster sees: its own, then the global ones, each by name.
 	Visible(ctx context.Context, cluster apimeta.ClusterID) ([]Memory, error)
 	Watch(ctx context.Context, cluster apimeta.ClusterID) (*Stream[MemoryWatchFrame], error)
+	Counts(ctx context.Context) ([]Count, error)
+	WatchCounts(ctx context.Context) (*Stream[[]Count], error)
 
 	// Create, Update and Delete are the user's writes, from the dialog.
 	Create(ctx context.Context, in Input) (Memory, error)

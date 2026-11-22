@@ -2649,10 +2649,12 @@ func TestAFailedMemoryStoreCarriesNoCode(t *testing.T) {
 	raw := string(postGQL(t, srv.URL, string(body)))
 	assert.Contains(t, raw, `"errors"`)
 	assert.NotContains(t, raw, `"code":"KSTACK_`)
+	assert.Contains(t, string(postGQL(t, srv.URL, `{"query":"{ memoryCounts { count } }"}`)), `"errors"`)
 
 	require.NoError(t, stop(t.Context()))
 	body, _ = json.Marshal(map[string]string{"query": `subscription { memoriesWatch(clusterID: "1") { type } }`})
 	assert.Contains(t, string(postGQL(t, srv.URL, string(body))), `"code":"KSTACK_SERVICE_UNAVAILABLE"`)
+	assert.Contains(t, string(postGQL(t, srv.URL, `{"query":"subscription { memoryCountsWatch { count } }"}`)), `"code":"KSTACK_SERVICE_UNAVAILABLE"`)
 }
 
 // memorySave is the mutation for one input, as GraphQL text.
@@ -2721,6 +2723,42 @@ func TestMemoriesWatchOpensWithASnapshot(t *testing.T) {
 	first := awaitChatFrame(t, events, func(map[string]any) bool { return true })
 	assert.Equal(t, map[string]any{"type": "Added", "memory": map[string]any{"name": "pages"}}, first)
 	assert.Equal(t, "Bookmark", firstChatFrameType(t, events))
+}
+
+func TestMemoryCountsQueryAndWatchCoverOtherClusters(t *testing.T) {
+	srv := newMemoryServer(t)
+	mutate(t, srv, memorySave(`clusterID: "2", name: "other", body: "b"`))
+	data, _ := mutation(t, srv.URL, `{ memoryCounts { clusterID count } }`)
+	assert.Equal(t, []any{map[string]any{"clusterID": "2", "count": float64(1)}}, data["memoryCounts"])
+
+	resp, events := chatFrames(t, srv, `subscription { memoryCountsWatch { clusterID count } }`)
+	defer resp.Body.Close()
+	readCounts := func() any {
+		t.Helper()
+		deadline := time.After(testutil.Timeout)
+		for {
+			select {
+			case ev, ok := <-events:
+				require.True(t, ok, "counts stream closed")
+				var payload struct {
+					Data struct {
+						Counts []any `json:"memoryCountsWatch"`
+					}
+				}
+				if json.Unmarshal([]byte(ev.data), &payload) == nil && payload.Data.Counts != nil {
+					return payload.Data.Counts
+				}
+			case <-deadline:
+				t.Fatal("timed out waiting for counts")
+			}
+		}
+	}
+	assert.Equal(t, data["memoryCounts"], readCounts())
+	mutate(t, srv, memorySave(`clusterID: null, name: "shared", body: "b"`))
+	assert.Equal(t, []any{
+		map[string]any{"clusterID": nil, "count": float64(1)},
+		map[string]any{"clusterID": "2", "count": float64(1)},
+	}, readCounts())
 }
 
 // A plan's usage limit reaches the wire as its kind, which the transcript branches

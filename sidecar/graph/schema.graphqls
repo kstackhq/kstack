@@ -1897,6 +1897,12 @@ type MemoryWatchFrame {
   memory: Memory
 }
 
+"The number of notes in exactly one scope; null is every cluster. Missing scopes have zero notes."
+type MemoryCount {
+  clusterID: ClusterID
+  count: Int!
+}
+
 input MemorySaveInput {
   "The memory to rewrite. Null creates one."
   id: MemoryID
@@ -2353,6 +2359,8 @@ type SettingsRefusal {
 # Every root field, grouped by the noun it belongs to.
 
 type Query {
+  "The current note counts by scope. Scopes absent from the list have zero notes."
+  memoryCounts: [MemoryCount!]!
   # --- Model ---
   "Every model the sidecar can answer with, in catalog order — the first entry is what a picker starts on. The ChatGPT plan's models come and go with its connection; modelsWatch follows them."
   models: [Model!]!
@@ -2712,6 +2720,9 @@ type Subscription {
   # --- Memory ---
   "DELTA WATCH. What one cluster's chats see, keyed by `memory.id`: its own memories and every cluster's. A move between scopes arrives as `Added` or `Deleted` on each cluster it enters or leaves."
   memoriesWatch(clusterID: ClusterID!): MemoryWatchFrame!
+
+  "GAUGE. Current-on-subscribe counts of notes in every scope, including clusters outside the current watch."
+  memoryCountsWatch: [MemoryCount!]!
 
   # --- Logs ---
   """

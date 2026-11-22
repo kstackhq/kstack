@@ -27,14 +27,14 @@ import { useActiveCluster } from '@/lib/active-cluster';
 import { EVERY, useScope } from '@/lib/cluster-scope';
 import { displayName, useClusters } from '@/lib/clusters';
 import { type Memory, useMemories } from '@/lib/memories';
+import { useMemoryCounts } from '@/lib/memory-counts';
 import { useMemoryWrites } from '@/lib/memory-writes';
 
 import { ScopePicker } from './scope-picker';
 
-// Placeholder: awaits a count field on `Cluster`, or a `memoryCounts` query.
-const noteCount = (_scope: string): number | undefined => undefined;
-
 export function MemorySettings() {
+  const counts = useMemoryCounts();
+  const noteCount = (scope: string) => counts?.get(scope) ?? (counts ? 0 : undefined);
   const { clusters } = useClusters();
   const { clusterID: activeID } = useActiveCluster();
   const [picked, setPicked] = useState(EVERY);

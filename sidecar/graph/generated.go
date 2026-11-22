@@ -671,6 +671,11 @@ type ComplexityRoot struct {
 		Scope func(childComplexity int) int
 	}
 
+	MemoryCount struct {
+		ClusterID func(childComplexity int) int
+		Count     func(childComplexity int) int
+	}
+
 	MemoryWatchFrame struct {
 		Memory func(childComplexity int) int
 		Type   func(childComplexity int) int
@@ -843,6 +848,7 @@ type ComplexityRoot struct {
 		GitHubConnection     func(childComplexity int) int
 		GoogleConnection     func(childComplexity int) int
 		LogsFetch            func(childComplexity int, id apimeta.ClusterID, request model.LogsFetchInput) int
+		MemoryCounts         func(childComplexity int) int
 		Models               func(childComplexity int) int
 		OpenRouterConnection func(childComplexity int) int
 		PermissionSettings   func(childComplexity int) int
@@ -987,6 +993,7 @@ type ComplexityRoot struct {
 		GoogleConnectionWatch         func(childComplexity int) int
 		LogsFollow                    func(childComplexity int, id apimeta.ClusterID, request model.LogsFollowInput) int
 		MemoriesWatch                 func(childComplexity int, clusterID apimeta.ClusterID) int
+		MemoryCountsWatch             func(childComplexity int) int
 		ModelsWatch                   func(childComplexity int) int
 		OpenRouterConnectionWatch     func(childComplexity int) int
 		ProviderCredentialsWatch      func(childComplexity int) int
@@ -1188,6 +1195,7 @@ type ProviderCredentialStateResolver interface {
 	Failure(ctx context.Context, obj *providercredentials.State) (*providercredentials.Failure, error)
 }
 type QueryResolver interface {
+	MemoryCounts(ctx context.Context) ([]*model.MemoryCount, error)
 	Models(ctx context.Context) ([]*model.Model, error)
 	ProviderCredentials(ctx context.Context) ([]*providercredentials.State, error)
 	Sandbox(ctx context.Context) (*sandbox.Status, error)
@@ -1233,6 +1241,7 @@ type SubscriptionResolver interface {
 	ChatsWatch(ctx context.Context) (<-chan *chat.ChatWatchFrame, error)
 	ChatMessagesWatch(ctx context.Context, chatID apimeta.ChatID) (<-chan *chat.ChatMessageWatchFrame, error)
 	MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memory.MemoryWatchFrame, error)
+	MemoryCountsWatch(ctx context.Context) (<-chan []*model.MemoryCount, error)
 	LogsFollow(ctx context.Context, id apimeta.ClusterID, request model.LogsFollowInput) (<-chan *model.LogsFollowFrame, error)
 	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
 	SandboxFoldersWatch(ctx context.Context, chatID *apimeta.ChatID) (<-chan *model.SandboxFolders, error)
@@ -3590,6 +3599,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.MemoryAction.Scope(childComplexity), true
 
+	case "MemoryCount.clusterID":
+		if e.ComplexityRoot.MemoryCount.ClusterID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.MemoryCount.ClusterID(childComplexity), true
+	case "MemoryCount.count":
+		if e.ComplexityRoot.MemoryCount.Count == nil {
+			break
+		}
+
+		return e.ComplexityRoot.MemoryCount.Count(childComplexity), true
+
 	case "MemoryWatchFrame.memory":
 		if e.ComplexityRoot.MemoryWatchFrame.Memory == nil {
 			break
@@ -4636,6 +4658,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.LogsFetch(childComplexity, args["id"].(apimeta.ClusterID), args["request"].(model.LogsFetchInput)), true
+	case "Query.memoryCounts":
+		if e.ComplexityRoot.Query.MemoryCounts == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.MemoryCounts(childComplexity), true
 	case "Query.models":
 		if e.ComplexityRoot.Query.Models == nil {
 			break
@@ -5298,6 +5326,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.MemoriesWatch(childComplexity, args["clusterID"].(apimeta.ClusterID)), true
+	case "Subscription.memoryCountsWatch":
+		if e.ComplexityRoot.Subscription.MemoryCountsWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.MemoryCountsWatch(childComplexity), true
 	case "Subscription.modelsWatch":
 		if e.ComplexityRoot.Subscription.ModelsWatch == nil {
 			break
@@ -6891,6 +6925,16 @@ func (ec *executionContext) childFields_MemoryAction(ctx context.Context, field 
 		return ec.fieldContext_MemoryAction_scope(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type MemoryAction", field.Name)
+}
+
+func (ec *executionContext) childFields_MemoryCount(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "clusterID":
+		return ec.fieldContext_MemoryCount_clusterID(ctx, field)
+	case "count":
+		return ec.fieldContext_MemoryCount_count(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type MemoryCount", field.Name)
 }
 
 func (ec *executionContext) childFields_MemoryWatchFrame(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -18207,6 +18251,52 @@ func (ec *executionContext) fieldContext_MemoryAction_scope(_ context.Context, f
 	return graphql.NewScalarFieldContext("MemoryAction", field, false, false, "String")
 }
 
+func (ec *executionContext) _MemoryCount_clusterID(ctx context.Context, field graphql.CollectedField, obj *model.MemoryCount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_MemoryCount_clusterID(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ClusterID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *apimeta.ClusterID) graphql.Marshaler {
+			return ec.marshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_MemoryCount_clusterID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("MemoryCount", field, false, false, "ClusterID")
+}
+
+func (ec *executionContext) _MemoryCount_count(ctx context.Context, field graphql.CollectedField, obj *model.MemoryCount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_MemoryCount_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Count, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_MemoryCount_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("MemoryCount", field, false, false, "Int")
+}
+
 func (ec *executionContext) _MemoryWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *memory.MemoryWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -21815,6 +21905,38 @@ func (ec *executionContext) fieldContext_ProviderCredentialState_failure(_ conte
 	return graphql.NewScalarFieldContext("ProviderCredentialState", field, true, true, "ProviderKeyFailure")
 }
 
+func (ec *executionContext) _Query_memoryCounts(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_memoryCounts(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().MemoryCounts(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.MemoryCount) graphql.Marshaler {
+			return ec.marshalNMemoryCount2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐMemoryCountᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_memoryCounts(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_MemoryCount(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_models(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24954,6 +25076,38 @@ func (ec *executionContext) fieldContext_Subscription_memoriesWatch(ctx context.
 	if fc.Args, err = ec.field_Subscription_memoriesWatch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_memoryCountsWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_memoryCountsWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().MemoryCountsWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.MemoryCount) graphql.Marshaler {
+			return ec.marshalNMemoryCount2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐMemoryCountᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_memoryCountsWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_MemoryCount(ctx, field)
+		},
 	}
 	return fc, nil
 }
@@ -32399,6 +32553,44 @@ func (ec *executionContext) _MemoryAction(ctx context.Context, sel ast.Selection
 	return out
 }
 
+var memoryCountImplementors = []string{"MemoryCount"}
+
+func (ec *executionContext) _MemoryCount(ctx context.Context, sel ast.SelectionSet, obj *model.MemoryCount) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, memoryCountImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("MemoryCount")
+		case "clusterID":
+			out.Values[i] = ec._MemoryCount_clusterID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "count":
+			out.Values[i] = ec._MemoryCount_count(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
 var memoryWatchFrameImplementors = []string{"MemoryWatchFrame"}
 
 func (ec *executionContext) _MemoryWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *memory.MemoryWatchFrame) graphql.Marshaler {
@@ -33503,6 +33695,12 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Query")
+		case "memoryCounts":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_memoryCounts(ctx, field)
+				})
 		case "models":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
@@ -34466,6 +34664,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_chatMessagesWatch(ctx, fields[0])
 	case "memoriesWatch":
 		return ec._Subscription_memoriesWatch(ctx, fields[0])
+	case "memoryCountsWatch":
+		return ec._Subscription_memoryCountsWatch(ctx, fields[0])
 	case "logsFollow":
 		return ec._Subscription_logsFollow(ctx, fields[0])
 	case "sandboxExecutablesWatch":
@@ -36574,6 +36774,30 @@ var (
 		memory.AuthorUser:  "User",
 	}
 )
+
+func (ec *executionContext) marshalNMemoryCount2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐMemoryCountᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.MemoryCount) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNMemoryCount2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐMemoryCount(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNMemoryCount2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐMemoryCount(ctx context.Context, sel ast.SelectionSet, v *model.MemoryCount) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "MemoryCount!")
+		return graphql.Null
+	}
+	return ec._MemoryCount(ctx, sel, v)
+}
 
 func (ec *executionContext) unmarshalNMemoryID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemoryID(ctx context.Context, v any) (memory.MemoryID, error) {
 	tmp, err := graphql.UnmarshalString(v)

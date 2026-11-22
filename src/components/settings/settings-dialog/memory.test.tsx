@@ -16,16 +16,18 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { EVERY } from '@/lib/cluster-scope';
 import { type Cluster, displayName } from '@/lib/clusters';
 import type { Memory } from '@/lib/memories';
 import { clusterRecord } from '@/test-utils';
 
 // The seams: the cluster records, the kubeconfig's contexts (none before the
 // records), the window's cluster, the memories watch and urql's mutation hook.
-const { state, watched, saveMock } = vi.hoisted(() => ({
+const { state, watched, saveMock, countState } = vi.hoisted(() => ({
   state: { clusters: null as Cluster[] | null, contexts: [] as string[], activeID: undefined as string | undefined },
   watched: { ids: [] as (string | undefined)[], memories: [] as unknown[], phase: 'live' },
   saveMock: vi.fn(),
+  countState: { counts: undefined as Map<string, number> | undefined },
 }));
 vi.mock('@/lib/clusters', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/clusters')>()),
@@ -41,6 +43,7 @@ vi.mock('@/lib/memories', () => ({
     return { memories: watched.memories, phase: watched.phase };
   },
 }));
+vi.mock('@/lib/memory-counts', () => ({ useMemoryCounts: () => countState.counts }));
 vi.mock('urql', () => ({ useMutation: () => [{}, saveMock] }));
 vi.mock('@/lib/dialog', () => ({ useDialogHost: () => null }));
 
@@ -78,6 +81,7 @@ beforeEach(() => {
   watched.ids = [];
   watched.memories = [];
   watched.phase = 'live';
+  countState.counts = undefined;
   saveMock.mockResolvedValue({ data: { memorySave: { id: 'm9' } } });
 });
 
@@ -90,6 +94,28 @@ async function pick(user: ReturnType<typeof userEvent.setup>, name: string | Reg
 
 describe('MemorySettings', () => {
   describe('scope', () => {
+    it('shows live counts for every, present and archived scopes, including zero', async () => {
+      countState.counts = new Map([
+        [EVERY, 2],
+        ['id-prod', 1],
+        ['id-alpha-old', 3],
+      ]);
+      const user = userEvent.setup();
+      const { rerender } = render(<MemorySettings />);
+      await user.click(trigger());
+      const options = () =>
+        within(screen.getByRole('listbox'))
+          .getAllByRole('option')
+          .map((o) => o.textContent);
+      expect(options()).toEqual(['Every cluster2', 'prod1', 'dev0', 'alpha-old3', 'zeta-old0']);
+      countState.counts = new Map([
+        [EVERY, 1],
+        ['id-prod', 2],
+      ]);
+      rerender(<MemorySettings />);
+      if (!screen.queryByRole('listbox')) await user.click(trigger());
+      expect(options()).toEqual(['Every cluster1', 'prod2', 'dev0', 'alpha-old0', 'zeta-old0']);
+    });
     it('applies to every cluster by default', () => {
       render(<MemorySettings />);
       expect(trigger()).toHaveTextContent('Every cluster');

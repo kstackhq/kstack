@@ -168,6 +168,12 @@ type LogsViewSnapshotInput struct {
 	SelectedCount int `json:"selectedCount"`
 }
 
+// The number of notes in exactly one scope; null is every cluster. Missing scopes have zero notes.
+type MemoryCount struct {
+	ClusterID *apimeta.ClusterID `json:"clusterID,omitempty"`
+	Count     int                `json:"count"`
+}
+
 type MemorySaveInput struct {
 	// The memory to rewrite. Null creates one.
 	ID *memory.MemoryID `json:"id,omitempty"`

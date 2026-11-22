@@ -788,6 +788,23 @@ func (r *providerCredentialStateResolver) Failure(ctx context.Context, obj *prov
 	return &obj.Failure, nil
 }
 
+// MemoryCounts is the resolver for the memoryCounts field.
+func memoryCountsOf(counts []memory.Count) []*model.MemoryCount {
+	out := make([]*model.MemoryCount, 0, len(counts))
+	for _, item := range counts {
+		out = append(out, &model.MemoryCount{ClusterID: item.ClusterID, Count: item.Count})
+	}
+	return out
+}
+
+func (r *queryResolver) MemoryCounts(ctx context.Context) ([]*model.MemoryCount, error) {
+	counts, err := r.MemorySvc.Counts(ctx)
+	if err != nil {
+		return nil, memoryErr(err)
+	}
+	return memoryCountsOf(counts), nil
+}
+
 // Models is the resolver for the models field.
 func (r *queryResolver) Models(ctx context.Context) ([]*model.Model, error) {
 	return modelsOf(r.LLMSvc.Providers()), nil
@@ -1127,6 +1144,15 @@ func (r *subscriptionResolver) MemoriesWatch(ctx context.Context, clusterID apim
 		return nil, memoryErr(err)
 	}
 	return watchStream(ctx, st.Frames, st.Err), nil
+}
+
+// MemoryCountsWatch is the resolver for the memoryCountsWatch field.
+func (r *subscriptionResolver) MemoryCountsWatch(ctx context.Context) (<-chan []*model.MemoryCount, error) {
+	st, err := r.MemorySvc.WatchCounts(ctx)
+	if err != nil {
+		return nil, memoryErr(err)
+	}
+	return mapStream(ctx, st.Frames, func() { recordWatchFailure(ctx, st.Err()) }, memoryCountsOf), nil
 }
 
 // LogsFollow is the resolver for the logsFollow field. Its stream's Err is filed

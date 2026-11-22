@@ -12,7 +12,7 @@ The settings dialog and the folder-grant form. Also owns `src/lib/`'s `sandbox-*
 
 **Tools** (`tools.tsx`, `useToolSettings`) is the `toolSettingsWatch` gauge in a `Group` per kind, a switch per tool, held on for an `alwaysOn` tool; a row leaves room for the tool's own settings.
 
-**Memory** (`memory.tsx`) shows one scope: *Every cluster* (the default) or a cluster, picked from the kubeconfig's, then the archived, by `ScopePicker` (`scope-picker.tsx`) over `useScope`. It reuses the memory popover's parts (`src/components/cluster/CLAUDE.md`, *Memory*), keyed on the scope. Every cluster's notes ride on the window's cluster's watch, else the first record's. Placeholders, marked in code: local instructions, no note counts, and a disabled *Clear* awaiting `memoryClear`.
+**Memory** (`memory.tsx`) shows one scope: *Every cluster* (the default) or a cluster, picked from the kubeconfig's, then the archived, by `ScopePicker` (`scope-picker.tsx`) over `useScope`. It reuses the memory popover's parts (`src/components/cluster/CLAUDE.md`, *Memory*), keyed on the scope. `memoryCountsWatch` supplies current counts for every scope, including archived clusters; absent scopes count as zero. Every cluster's notes ride on the window's cluster's watch, else the first record's. Placeholders, marked in code: local instructions and a disabled *Clear* awaiting `memoryClear`.
 
 **Environment** (`environment.tsx`) is the user's variables for one scope (`useEnvVars(clusterID)`), picked as Memory's is. A variable names the commands it reaches (`EnvVarTarget`); a refused one is drawn on its own row with its reason. The form is keyed on the scope.
 
