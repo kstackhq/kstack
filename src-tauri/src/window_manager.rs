@@ -741,9 +741,13 @@ impl WindowManager {
         }
 
         // Non-macOS is frameless — the webview draws its own `WindowControls`.
+        // Its webview takes the profile directory by path.
         #[cfg(not(target_os = "macos"))]
         {
             builder = builder.decorations(false);
+            if let Some(dir) = crate::webview_profile::dir(app) {
+                builder = builder.data_directory(dir);
+            }
         }
 
         // Linux goes transparent so the webview's `WindowFrame` paints its own
@@ -1097,6 +1101,24 @@ mod tests {
         let anchor = wm.anchor_window(app.handle(), Some("main")).unwrap();
 
         assert_eq!(anchor.label(), "main");
+    }
+
+    /// Tauri makes the data directory a window is built with, so its
+    /// existence shows the window took the managed profile.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_window_opens_the_managed_webview_profile() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        crate::webview_profile::manage(app.handle(), &crate::testutil::roots(scratch.path()))
+            .unwrap();
+        let profile = crate::webview_profile::dir(app.handle()).unwrap();
+        assert!(!profile.exists());
+        let wm = WindowManager::new(CancellationToken::new(), OneMonitor(None), None);
+
+        wm.new_window(app.handle()).unwrap();
+
+        assert!(profile.is_dir());
     }
 
     /// Neither kind takes the other's size: a log window keeps its own off

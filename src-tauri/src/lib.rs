@@ -43,6 +43,8 @@ mod tray;
 mod updater;
 mod wake;
 mod webview_log;
+#[cfg(not(target_os = "macos"))]
+mod webview_profile;
 mod window_manager;
 mod window_state;
 mod window_title;

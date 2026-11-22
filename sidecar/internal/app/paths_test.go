@@ -67,7 +67,7 @@ func TestTheStateDirectoryIsKstacks(t *testing.T) {
 	logs := filepath.Join(state, "logs")
 	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: logs, StateDir: state})
 	assert.Equal(t, []string{data, cache, runtime, logs, state}, p.Bash.DeniedDirs,
-		"the state directory holds the window frame beside the logs")
+		"the state directory holds the window frame and the webview's profile beside the logs")
 
 	// macOS's and Windows' state directory is the data directory.
 	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, StateDir: data})

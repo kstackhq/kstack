@@ -277,6 +277,8 @@ pub fn run() {
             let log_dir = logging::log_dir(&roots);
             let log_guards = logging::install_file_layer(&log_reload, log_dir.as_deref());
             host_file::manage(app.handle(), &roots);
+            #[cfg(not(target_os = "macos"))]
+            crate::webview_profile::manage(app.handle(), &roots)?;
 
             let state = AppState::new(
                 SidecarService::spawn(&roots, log_dir.as_deref(), |args| {

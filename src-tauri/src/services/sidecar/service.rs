@@ -865,8 +865,8 @@ mod tests {
         service.kill();
     }
 
-    /// The window frame sits in the state directory, which the sidecar fences
-    /// by the path it is handed.
+    /// The window frame, and on Linux the webview's profile, sit in the state
+    /// directory, which the sidecar fences by the path it is handed.
     #[cfg(unix)]
     #[test]
     fn the_state_directory_is_handed_to_the_sidecar() {

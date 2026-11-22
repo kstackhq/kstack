@@ -277,6 +277,31 @@ pub fn log_dir(roots: &Roots) -> Result<PathBuf> {
     Ok(dir)
 }
 
+/// The webview's profile directory on Linux and Windows: a leaf on the state
+/// directory, so a dev build keeps its own and the sidecar's fence covers it.
+/// The webview makes the directory itself, inside a state directory this
+/// user has made owner-only: whoever owns a directory can replace what is in
+/// it. WebKitGTK takes the path as a string, so on Linux one that is not
+/// UTF-8 is refused: its lossy spelling would be a folder outside the fence.
+/// So is a link, which would lead the profile out of it.
+#[cfg(not(target_os = "macos"))]
+pub fn webview_dir(roots: &Roots) -> Result<PathBuf> {
+    let dir = app_state_dir(roots)?.join("webview");
+    if std::fs::symlink_metadata(&dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err(AppError::Io(std::io::Error::other(format!(
+            "{} is a link; link the state directory instead",
+            dir.display()
+        ))));
+    }
+    if cfg!(target_os = "linux") && dir.to_str().is_none() {
+        return Err(AppError::Io(std::io::Error::other(format!(
+            "{} is not UTF-8, which the webview's profile needs",
+            dir.display()
+        ))));
+    }
+    Ok(dir)
+}
+
 /// The directory for what lives for a session, owner-only: the IPC endpoint,
 /// the shell snapshot, and each sandboxed run's kubeconfig and socket.
 ///
@@ -1019,6 +1044,39 @@ mod tests {
         );
 
         assert_eq!(roots.is_err(), cfg!(target_os = "linux"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_linked_webview_dir_is_refused() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let target = scratch.path().join("elsewhere");
+        std::fs::create_dir(&target).unwrap();
+        let link = app_state_dir(&roots).unwrap().join("webview");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let err = webview_dir(&roots).unwrap_err();
+
+        assert!(err.to_string().contains("is a link"), "got: {err}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_webview_dir_that_is_not_utf8_is_refused() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let scratch = crate::testutil::Scratch::new();
+        let roots = Roots {
+            state: scratch
+                .path()
+                .join(std::ffi::OsStr::from_bytes(b"st\xffate")),
+            ..crate::testutil::roots(scratch.path())
+        };
+
+        let err = webview_dir(&roots).unwrap_err();
+
+        assert!(err.to_string().contains("not UTF-8"), "got: {err}");
     }
 
     /// The sidecar fences the state directory by the path the host keeps its

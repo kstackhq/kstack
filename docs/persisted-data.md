@@ -67,11 +67,11 @@ Adding the mechanism is in [`TODO.md`](TODO.md), *Sidecar (Go)*.
 | `<config>` | `paths.rs` `app_config_dir`: `config_dir`/`<leaf>`; `<data>` on macOS | `host.json` |
 | `<state>` | `paths.rs` `app_state_dir`: `$XDG_STATE_HOME` (else `~/.local/state`)/`<leaf>` on Linux; `<data>` elsewhere | the window state, and on Linux the logs, in `logs/` |
 | OS keyring | service `Kstack` | the Kstack account's, the ChatGPT plan's and the Google account's refresh tokens, the OpenRouter connector's key, the AWS connector's session, the saved provider API keys |
-| Webview storage | the webview's profile, keyed by bundle id | `localStorage` under `kstack:*` |
+| Webview storage | the webview's profile: `<state>/webview` on Linux and Windows (`paths.rs` `webview_dir`), WKWebView's own under the bundle id on macOS | `localStorage` under `kstack:*` |
 
-`<leaf>` is `kstack` (`kstack-dev` in debug) on Linux and `Kstack` (`Kstack-dev`) elsewhere. The
+`<leaf>` is `kstack` (`kstack-dev` in debug) on Linux and `Kstack` (`Kstack-dev`) elsewhere. On macOS the
 webview profile hangs off the bundle id, not the leaf, so a dev build and a release share it.
-`make clean-data` clears `<data>`, `<cache>`, `<config>` and `<state>`, not the profile. The caches live under
+`make clean-data` clears `<data>`, `<cache>`, `<config>` and `<state>`, not macOS's profile. The caches live under
 `<cache>` because the OS may reclaim that root; they are still durable, since they hold history the
 cluster no longer has.
 
