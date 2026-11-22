@@ -19,10 +19,15 @@ import { HighlightedText } from './highlighted-text';
 
 describe('HighlightedText', () => {
   it('draws the text plain, then highlighted once the grammar arrives', async () => {
+    const { container } = render(<HighlightedText lang="rust" text="fn main() {}" />);
+    expect(container).toHaveTextContent('fn main() {}');
+    await waitFor(() => expect(container.querySelector('.hljs-keyword')).toHaveTextContent('fn'));
+    expect(container).toHaveTextContent('fn main() {}');
+  });
+
+  it('highlights a common grammar on the first render', () => {
     const { container } = render(<HighlightedText lang="yaml" text="kind: Pod" />);
-    expect(container).toHaveTextContent('kind: Pod');
-    await waitFor(() => expect(container.querySelector('.hljs-attr')).toHaveTextContent('kind'));
-    expect(container).toHaveTextContent('kind: Pod');
+    expect(container.querySelector('.hljs-attr')).toHaveTextContent('kind');
   });
 
   it('spells an invisible character, plain and highlighted', async () => {
@@ -42,11 +47,11 @@ describe('HighlightedText', () => {
   });
 
   it('stops waiting for the grammar once unmounted', async () => {
-    // A fresh module graph, so the grammar is not loaded yet.
+    // A fresh module graph, so this uncommon grammar is not loaded yet.
     vi.resetModules();
     const { HighlightedText: Fresh } = await import('./highlighted-text');
     const { load } = await import('@/lib/highlight');
-    render(<Fresh lang="yaml" text="kind: Pod" />).unmount();
-    await expect(load('yaml')).resolves.toBe(true);
+    render(<Fresh lang="python" text="print('hello')" />).unmount();
+    await expect(load('python')).resolves.toBe(true);
   });
 });

@@ -106,10 +106,9 @@ describe('Markdown', () => {
     expect(document.querySelector('a')).toBeNull();
   });
 
-  // The grammar is a chunk of its own, so the block is plain until it arrives.
-  it('highlights a fence that names a language once its grammar arrives', async () => {
+  it('highlights a common fence on the first render', () => {
     render(<Markdown text={'```yaml\nkind: Pod\n```'} />);
-    await waitFor(() => expect(document.querySelector('pre .hljs-attr')).toHaveTextContent('kind'));
+    expect(document.querySelector('pre .hljs-attr')).toHaveTextContent('kind');
   });
 
   // A streaming answer grows past a fence it has finished.
