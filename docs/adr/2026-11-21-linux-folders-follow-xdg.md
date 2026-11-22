@@ -4,6 +4,8 @@ date: 2026-11-21
 scope: host
 status: Accepted
 amends: [Keep each file in the platform's directory for its kind](2026-09-27-kstacks-files-follow-the-platforms-directory-kinds.md)
+amended_by:
+  - [Each folder kind has its own folder on every platform](2026-11-22-each-folder-kind-has-its-own-folder-on-every-platform.md)
 ---
 
 # Linux folders follow XDG

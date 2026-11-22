@@ -62,17 +62,23 @@ Adding the mechanism is in [`TODO.md`](TODO.md), *Sidecar (Go)*.
 
 | Root | Resolved by | Holds |
 | --- | --- | --- |
-| `<data>` | `paths.rs` `app_data_dir`: `local_data_dir`/`<leaf>` | what a user would lose |
-| `<cache>` | `paths.rs` `app_cache_dir`: `cache_dir`/`<leaf>`; `<data>/cache` on Windows | the cluster and log caches |
-| `<config>` | `paths.rs` `app_config_dir`: `config_dir`/`<leaf>`; `<data>` on macOS | `host.json` |
-| `<state>` | `paths.rs` `app_state_dir`: `$XDG_STATE_HOME` (else `~/.local/state`)/`<leaf>` on Linux; `<data>` elsewhere | the window state, and on Linux the logs, in `logs/` |
+| `<data>` | `paths.rs` `app_data_dir` | what a user would lose |
+| `<cache>` | `paths.rs` `app_cache_dir` | the cluster and log caches |
+| `<config>` | `paths.rs` `app_config_dir` | `host.json` |
+| `<state>` | `paths.rs` `app_state_dir` | the window state, and on Linux and Windows the logs, in `logs/` |
 | OS keyring | service `<service>`: `Kstack` (`Kstack-dev` in debug; `KEYCHAIN_SERVICE` in `src-tauri/src/services/sidecar/service.rs`) | the Kstack account's, the ChatGPT plan's and the Google account's refresh tokens, the OpenRouter connector's key, the AWS connector's session, the saved provider API keys |
 | Webview storage | the webview's profile: `<state>/webview` on Linux and Windows (`paths.rs` `webview_dir`), WKWebView's own under the bundle id on macOS | `localStorage` under `kstack:*`, split by origin |
 
-`<leaf>` is `kstack` (`kstack-dev` in debug) on Linux and `Kstack` (`Kstack-dev`) elsewhere. The
+Each resolves through `paths.rs` `layout`, which gives every kind its own folder on every platform:
+none is another's, and none sits inside another's. On Linux that holds for the default XDG roots. An override can undo it: two roots set to one
+directory give their kinds one `kstack` folder, and a root set inside another's `kstack` folder
+puts its kind inside the other's. Each platform's folders are listed below. The
+leaf is `kstack` (`kstack-dev` in debug) on Linux and `Kstack` (`Kstack-dev`) elsewhere. The
 caches live under `<cache>` because the OS may reclaim that root; they are still durable, since they
 hold history the cluster no longer has. `make clean-data` clears the dev build's `<data>`, `<cache>`,
-`<config>` and `<state>`, and with `<state>` its webview profile on Linux and Windows.
+`<config>` and `<state>`, with `<state>` its webview profile on Linux and Windows, on macOS and
+Windows the app folder that holds them, on Windows the `%APPDATA%\Kstack-dev` folder that holds
+the config, and on macOS the logs.
 
 A dev build and a release never read each other's keyring entries or webview storage. The keyring
 entries sit under different services. `localStorage` is per origin: a dev build loads
@@ -102,7 +108,9 @@ is the doc comment on `paths` in `sidecar/internal/app/paths.go`.
 
 | Path | Kind | Holds |
 | --- | --- | --- |
-| `~/Library/Application Support/Kstack/` | `<data>`, `<config>`, `<state>` | `app.db`, `beehive.db`, `settings.json`, `chats/`, `monitor/`, `sidecar.lock`, `host.json`, `window-state.json` |
+| `~/Library/Application Support/Kstack/data/` | `<data>` | `app.db`, `beehive.db`, `settings.json`, `chats/`, `monitor/`, `sidecar.lock` |
+| `~/Library/Application Support/Kstack/config/` | `<config>` | `host.json` |
+| `~/Library/Application Support/Kstack/state/` | `<state>` | `window-state.json` |
 | `~/Library/Caches/Kstack/` | `<cache>` | `kube/`, `logs/` (the log cache), `kubectl/`, `tmp/` |
 | `~/Library/Logs/Kstack/` | logs | `main.log`, `webview.log`, `sidecar.log` |
 | `$TMPDIR/kstack-<uid>/` | `<runtime>` | the IPC socket, `shell/`, `runs/` |
@@ -112,12 +120,13 @@ is the doc comment on `paths` in `sidecar/internal/app/paths.go`.
 
 | Path | Kind | Holds |
 | --- | --- | --- |
-| `%LOCALAPPDATA%\Kstack\` | `<data>`, `<state>` | `app.db`, `beehive.db`, `settings.json`, `chats\`, `monitor\`, `sidecar.lock`, `window-state.json` |
+| `%LOCALAPPDATA%\Kstack\data\` | `<data>` | `app.db`, `beehive.db`, `settings.json`, `chats\`, `monitor\`, `sidecar.lock` |
 | `%LOCALAPPDATA%\Kstack\cache\` | `<cache>` | `kube\`, `logs\` (the log cache), `kubectl\`, `tmp\` |
-| `%LOCALAPPDATA%\Kstack\logs\` | logs | `main.log`, `webview.log`, `sidecar.log` |
+| `%LOCALAPPDATA%\Kstack\state\` | `<state>` | `window-state.json` |
+| `%LOCALAPPDATA%\Kstack\state\logs\` | logs | `main.log`, `webview.log`, `sidecar.log` |
+| `%LOCALAPPDATA%\Kstack\state\webview\` | webview profile | `localStorage`, in WebView2's `EBWebView\` |
 | `%LOCALAPPDATA%\Kstack\run\` | `<runtime>` | `shell\`, `runs\`; the IPC endpoint is a named pipe |
-| `%LOCALAPPDATA%\Kstack\webview\` | webview profile | `localStorage`, in WebView2's `EBWebView\` |
-| `%APPDATA%\Kstack\` | `<config>` | `host.json` |
+| `%APPDATA%\Kstack\config\` | `<config>` | `host.json` |
 
 ## Register
 

@@ -64,12 +64,13 @@ type paths struct {
 func pathsOf(cfg Config) paths {
 	data, cache, runtime := cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir
 	kstack := []string{data, cache, runtime}
-	// The log directory sits outside the three on macOS, the config directory
-	// on Linux and Windows, and the state directory on Linux. Only an exact
-	// duplicate (macOS's config directory, the data directory) is dropped: one
-	// nested in another by name can resolve elsewhere through a link, and the
-	// fences resolve each path themselves.
-	for _, dir := range []string{cfg.LogDir, cfg.ConfigDir, cfg.StateDir} {
+	// The config and state directories sit outside the three, and so does the
+	// log directory on macOS; on Linux and Windows it is in the state
+	// directory. The app folders hold them on macOS and Windows.
+	// Only an exact duplicate is dropped: one nested in another by name can
+	// resolve elsewhere through a link, and the fences resolve each path
+	// themselves.
+	for _, dir := range append([]string{cfg.LogDir, cfg.ConfigDir, cfg.StateDir}, cfg.AppDirs...) {
 		if dir != "" && !slices.Contains(kstack, dir) {
 			kstack = append(kstack, dir)
 		}

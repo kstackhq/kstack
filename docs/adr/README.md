@@ -287,3 +287,4 @@ usually just documentation in the wrong place.
 | 2026-11-21 | [Linux folders follow XDG](2026-11-21-linux-folders-follow-xdg.md) | host | Accepted |
 | 2026-11-22 | [Fence a linked subfolder of Kstack's directories](2026-11-22-a-linked-subfolder-of-kstacks-directories-is-fenced.md) | sidecar | Accepted |
 | 2026-11-22 | [Paths are compared as files](2026-11-22-paths-are-compared-as-files.md) | sidecar | Accepted |
+| 2026-11-22 | [Each folder kind has its own folder on every platform](2026-11-22-each-folder-kind-has-its-own-folder-on-every-platform.md) | host | Accepted |

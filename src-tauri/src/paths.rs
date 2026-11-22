@@ -14,7 +14,7 @@
 
 //! Where the app keeps its files on disk.
 //!
-//! One place resolves the leaf ([`APP_DIR_NAME`]), because every directory
+//! One place resolves the leaf ([`app_dir_name`]), because every directory
 //! the app keeps needs it, and a second copy of the join is what silently drops
 //! the `-dev` split.
 
@@ -25,16 +25,134 @@ use tauri::{AppHandle, Manager, Runtime};
 
 use crate::error::{AppError, Result};
 
+/// The platform a layout is for. Each platform's [`layout`] is a pure function
+/// of it, so every platform's paths are tested on every OS.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Platform {
+    Linux,
+    MacOs,
+    Windows,
+}
+
+impl Platform {
+    /// The platform this build runs on.
+    const CURRENT: Self = if cfg!(target_os = "linux") {
+        Self::Linux
+    } else if cfg!(target_os = "macos") {
+        Self::MacOs
+    } else {
+        Self::Windows
+    };
+}
+
 /// The leaf each of Kstack's directories takes under its platform root. Debug
 /// builds use a `-dev` sibling so a dev run never collides with an installed
 /// release. Linux names folders in lowercase; macOS and Windows show the
 /// product name.
-const APP_DIR_NAME: &str = match (cfg!(target_os = "linux"), cfg!(debug_assertions)) {
-    (true, true) => "kstack-dev",
-    (true, false) => "kstack",
-    (false, true) => "Kstack-dev",
-    (false, false) => "Kstack",
+const fn app_dir_name(platform: Platform) -> &'static str {
+    match platform {
+        Platform::Linux => LOWERCASE_APP_DIR_NAME,
+        Platform::MacOs | Platform::Windows => PRODUCT_APP_DIR_NAME,
+    }
+}
+
+const LOWERCASE_APP_DIR_NAME: &str = if cfg!(debug_assertions) {
+    "kstack-dev"
+} else {
+    "kstack"
 };
+
+const PRODUCT_APP_DIR_NAME: &str = if cfg!(debug_assertions) {
+    "Kstack-dev"
+} else {
+    "Kstack"
+};
+
+/// Where each kind of directory sits on one platform, whether or not it
+/// could be made.
+#[derive(Debug)]
+struct Layout {
+    /// The folder macOS and Windows keep several kinds in. `None` on Linux,
+    /// where each kind has a root. A per-user Windows install puts the
+    /// release's executable in it too, so it is never deleted whole.
+    app: Option<PathBuf>,
+    /// Windows' leaf on the config root, which holds the config alone.
+    config_app: Option<PathBuf>,
+    data: PathBuf,
+    /// `None` when the platform names no config root.
+    config: Option<PathBuf>,
+    state: PathBuf,
+    cache: PathBuf,
+    logs: PathBuf,
+    /// Windows' alone: Unix keeps it under the session's runtime root
+    /// ([`runtime_dir`]).
+    #[cfg_attr(unix, allow(dead_code))]
+    runtime: Option<PathBuf>,
+}
+
+/// Each kind takes a folder of its own, and none holds another's, so the
+/// sidecar fences each and `make clean-data` deletes each by its path.
+///
+/// - Linux gives every kind a root (XDG's), so each is a leaf on its root.
+/// - macOS has a root for the cache (`~/Library/Caches`, which backups skip)
+///   and the logs (`~/Library/Logs`, which Console.app lists). The data and
+///   config roots are one folder and there is no state root, so those three
+///   are subfolders of one app folder.
+/// - Windows' cache root is its local data root, and it has no state or
+///   runtime root, so those kinds are siblings in one app folder under
+///   `%LOCALAPPDATA%`, whose ACL covers them. The logs sit in the state, as on
+///   Linux. The config roams, in `%APPDATA%`, as a subfolder of the leaf
+///   there: were that root the local data root, the config would still be a
+///   sibling of the other kinds.
+fn layout(platform: Platform, roots: &Roots) -> Layout {
+    let leaf = app_dir_name(platform);
+    let app = roots.local_data.join(leaf);
+    match platform {
+        Platform::Linux => {
+            let state = roots.state.join(leaf);
+            Layout {
+                app: None,
+                config_app: None,
+                data: app,
+                config: roots.config.as_ref().map(|dir| dir.join(leaf)),
+                logs: state.join("logs"),
+                state,
+                cache: roots.cache.join(leaf),
+                runtime: None,
+            }
+        }
+        Platform::MacOs => Layout {
+            data: app.join("data"),
+            // In the app folder whatever the config root is, which decides
+            // only whether there is a config directory.
+            config: roots.config.as_ref().map(|_| app.join("config")),
+            state: app.join("state"),
+            cache: roots.cache.join(leaf),
+            logs: roots.home.join("Library/Logs").join(leaf),
+            runtime: None,
+            config_app: None,
+            app: Some(app),
+        },
+        Platform::Windows => Layout {
+            data: app.join("data"),
+            config: roots
+                .config
+                .as_ref()
+                .map(|dir| dir.join(leaf).join("config")),
+            config_app: roots.config.as_ref().map(|dir| dir.join(leaf)),
+            state: app.join("state"),
+            cache: app.join("cache"),
+            logs: app.join("state").join("logs"),
+            runtime: Some(app.join("run")),
+            app: Some(app),
+        },
+    }
+}
+
+/// This platform's layout.
+fn current_layout(roots: &Roots) -> Layout {
+    layout(Platform::CURRENT, roots)
+}
 
 /// The platform directories Kstack's own hang off, resolved once from the
 /// app. A test builds one over a scratch directory: Tauri's directory override
@@ -127,42 +245,57 @@ fn plain_root(dir: PathBuf) -> Result<PathBuf> {
 /// Human-readable leaf on `local_data_dir`, not Tauri's bundle-id
 /// `app_local_data_dir` (Application Support convention is a display name).
 pub fn app_data_dir(roots: &Roots) -> Result<PathBuf> {
-    let dir = data_dir_for(roots);
-    ensure_data_dir(&dir)?;
-    Ok(dir)
-}
-
-/// Where the data directory sits, whether or not it could be made.
-fn data_dir_for(roots: &Roots) -> PathBuf {
-    roots.local_data.join(APP_DIR_NAME)
+    let layout = current_layout(roots);
+    ensure_app_dir_above(&layout, &layout.data)?;
+    owner_only(layout.data)
 }
 
 /// The app's state directory, created owner-only: what one machine keeps
-/// between runs and a user would not miss, the window frame and on Linux the
-/// logs. Linux keeps it under XDG's state root; macOS and Windows have none,
-/// so there it is the data directory.
+/// between runs and a user would not miss, the window frame and, on Linux and
+/// Windows, the logs and the webview's profile.
 pub fn app_state_dir(roots: &Roots) -> Result<PathBuf> {
-    let dir = state_dir_for(roots);
-    ensure_data_dir(&dir)?;
-    Ok(dir)
+    let layout = current_layout(roots);
+    ensure_app_dir_above(&layout, &layout.state)?;
+    owner_only(layout.state)
+}
+
+/// Makes the app folder owner-only when `dir` is in it, before `dir` is made
+/// or read: whoever can write a folder can replace what is in it, so a private
+/// kind in an open app folder is not private. One already owner-only is left
+/// untouched, as [`ensure_config_dir`] leaves the config.
+fn ensure_app_dir_above(layout: &Layout, dir: &Path) -> Result<()> {
+    let Some(app) = layout.app.as_ref().filter(|app| dir.starts_with(app)) else {
+        return Ok(());
+    };
+    if std::fs::metadata(app).is_ok_and(|meta| is_owner_only_dir(&meta)) {
+        return Ok(());
+    }
+    ensure_data_dir(app)
+}
+
+/// The folders macOS and Windows keep the kinds in: the app folder, and on
+/// Windows the config's too. The sidecar fences them beside the kinds, so
+/// nothing is written among them.
+pub fn app_dirs_for(roots: &Roots) -> Vec<PathBuf> {
+    let layout = current_layout(roots);
+    layout.app.into_iter().chain(layout.config_app).collect()
 }
 
 /// Where the state directory sits, whether or not it could be made: the
 /// sidecar fences it either way.
 pub fn state_dir_for(roots: &Roots) -> PathBuf {
-    if cfg!(target_os = "linux") {
-        roots.state.join(APP_DIR_NAME)
-    } else {
-        data_dir_for(roots)
-    }
+    current_layout(roots).state
 }
 
 /// The app's config directory, created owner-only: what a user sets, which
-/// Windows roams with the profile. On macOS the config root is the data root,
-/// so this is the data directory.
+/// Windows roams with the profile.
 pub fn app_config_dir(roots: &Roots) -> Result<PathBuf> {
-    let dir = config_dir_for(roots)
+    let layout = current_layout(roots);
+    let dir = layout
+        .config
+        .clone()
         .ok_or_else(|| AppError::Io(std::io::Error::other("resolve config_dir: none")))?;
+    ensure_app_dir_above(&layout, &dir)?;
     ensure_config_dir(&dir)?;
     Ok(dir)
 }
@@ -196,7 +329,7 @@ fn is_owner_only_dir(_meta: &std::fs::Metadata) -> bool {
 /// Where the config directory sits, whether or not it could be made: the
 /// sidecar fences a directory that exists but could not be tightened too.
 pub fn config_dir_for(roots: &Roots) -> Option<PathBuf> {
-    Some(roots.config.as_ref()?.join(APP_DIR_NAME))
+    current_layout(roots).config
 }
 
 /// Creates the sidecar's data directory owner-only, and tightens one an earlier build
@@ -221,47 +354,18 @@ pub fn ensure_data_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Where the cache directory sits, given the two roots it can hang off.
-///
-/// The cache holds what Kstack rebuilds: the mirror, the kubectl cache, and a
-/// sandboxed run's `TMPDIR`. macOS and Linux have a location for it
-/// (`~/Library/Caches`, `$XDG_CACHE_HOME`) that backups skip. On Windows the
-/// cache root is `%LOCALAPPDATA%`, the data directory's own parent, so there it
-/// is a leaf on the data directory.
-fn cache_dir_for(cache_base: &Path, data_dir: &Path) -> PathBuf {
-    if cfg!(windows) {
-        data_dir.join("cache")
-    } else {
-        cache_base.join(APP_DIR_NAME)
-    }
-}
-
-/// Creates the cache directory owner-only. Split from [`app_cache_dir`] so the
-/// mode is testable without an `AppHandle`.
-fn ensure_cache_dir(cache_base: &Path, data_dir: &Path) -> Result<PathBuf> {
-    let dir = cache_dir_for(cache_base, data_dir);
+/// `dir`, created owner-only ([`ensure_data_dir`]).
+fn owner_only(dir: PathBuf) -> Result<PathBuf> {
     ensure_data_dir(&dir)?;
     Ok(dir)
 }
 
-/// The app's cache directory, created owner-only. `data_dir` is
-/// [`app_data_dir`]'s answer, which Windows hangs the cache off.
-pub fn app_cache_dir(roots: &Roots, data_dir: &Path) -> Result<PathBuf> {
-    ensure_cache_dir(&roots.cache, data_dir)
-}
-
-/// Where the log directory sits, given the two places it can hang off.
-///
-/// macOS has a real convention and we follow it: `~/Library/Logs`, which is
-/// where a user is told to look and what Console.app lists. Linux and Windows
-/// have none, so there it is a `logs` leaf on the state directory: XDG's state
-/// root on Linux, the data directory on Windows.
-fn log_dir_for(home: &Path, state_dir: &Path) -> PathBuf {
-    if cfg!(target_os = "macos") {
-        home.join("Library/Logs").join(APP_DIR_NAME)
-    } else {
-        state_dir.join("logs")
-    }
+/// The app's cache directory, created owner-only: what Kstack rebuilds, the
+/// mirror, the kubectl cache and a sandboxed run's `TMPDIR`.
+pub fn app_cache_dir(roots: &Roots) -> Result<PathBuf> {
+    let layout = current_layout(roots);
+    ensure_app_dir_above(&layout, &layout.cache)?;
+    owner_only(layout.cache)
 }
 
 /// The app's log directory, created owner-only. `app.rs` asks once and hands
@@ -272,9 +376,14 @@ fn log_dir_for(home: &Path, state_dir: &Path) -> PathBuf {
 /// display name everything else here uses, and it has no debug variant, so a
 /// dev run would write into an installed release's logs.
 pub fn log_dir(roots: &Roots) -> Result<PathBuf> {
-    let dir = log_dir_for(&roots.home, &app_state_dir(roots)?);
-    ensure_data_dir(&dir)?;
-    Ok(dir)
+    let layout = current_layout(roots);
+    ensure_app_dir_above(&layout, &layout.logs)?;
+    // `owner_only` tightens the leaf alone, and on Linux and Windows the logs
+    // sit in a state directory an earlier run may have left open.
+    if layout.logs.starts_with(&layout.state) {
+        ensure_data_dir(&layout.state)?;
+    }
+    owner_only(layout.logs)
 }
 
 /// The webview's profile directory on Linux and Windows: a leaf on the state
@@ -315,7 +424,7 @@ pub fn webview_dir(roots: &Roots) -> Result<PathBuf> {
 /// concurrent copy owns its own. Outside `$XDG_RUNTIME_DIR` a name that is
 /// refused gives way to one beside it ([`private_dir_or_fresh`]).
 #[cfg(unix)]
-pub fn runtime_dir(_data_dir: &Path) -> Result<PathBuf> {
+pub fn runtime_dir(_roots: &Roots) -> Result<PathBuf> {
     // SAFETY: `geteuid` reads process state and cannot fail.
     let uid = unsafe { libc::geteuid() };
     let xdg = runtime_home(std::env::var_os("XDG_RUNTIME_DIR"));
@@ -424,19 +533,19 @@ fn ensure_private_dir(dir: &Path, uid: u32) -> Result<()> {
 }
 
 /// The directory for what lives for a session. Windows has no per-user runtime
-/// directory, and `TEMP` can point at one users share, so it is a leaf on the
-/// data directory, which the profile ACL covers. The named pipe ignores it:
-/// its namespace is flat, so the DACL and the peer check are its whole policy.
+/// directory, and `TEMP` can point at one users share, so it sits in the app
+/// folder under `%LOCALAPPDATA%`, which the profile ACL covers ([`layout`]).
+/// The named pipe ignores it: its namespace is flat, so the DACL and the peer
+/// check are its whole policy.
 #[cfg(not(unix))]
-pub fn runtime_dir(data_dir: &Path) -> Result<PathBuf> {
-    let dir = runtime_dir_for(data_dir);
-    ensure_data_dir(&dir)?;
-    Ok(dir)
-}
-
-#[cfg(not(unix))]
-fn runtime_dir_for(data_dir: &Path) -> PathBuf {
-    data_dir.join("run")
+pub fn runtime_dir(roots: &Roots) -> Result<PathBuf> {
+    let layout = current_layout(roots);
+    let dir = layout
+        .runtime
+        .clone()
+        .ok_or_else(|| AppError::Io(std::io::Error::other("no runtime directory")))?;
+    ensure_app_dir_above(&layout, &dir)?;
+    owner_only(dir)
 }
 
 /// XDG's runtime root: `$XDG_RUNTIME_DIR` when it is absolute, which the spec
@@ -463,7 +572,7 @@ fn runtime_dir_path(xdg: Option<&Path>, uid: u32) -> Result<PathBuf> {
     })
 }
 
-/// Leaf for [`runtime_dir`]. A `-dev` sibling like [`APP_DIR_NAME`], so a dev
+/// Leaf for [`runtime_dir`]. A `-dev` sibling like [`app_dir_name`]'s, so a dev
 /// run and an installed release never share a socket directory.
 #[cfg(unix)]
 const RUNTIME_DIR_NAME: &str = if cfg!(debug_assertions) {
@@ -533,16 +642,14 @@ mod tests {
     fn cache_dir_is_created_owner_only() {
         use std::os::unix::fs::PermissionsExt;
 
-        let base = std::env::temp_dir().join(format!("kstack-cachedir-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
 
-        let dir = ensure_cache_dir(&base, &base.join("data")).expect("create");
+        let dir = app_cache_dir(&roots).expect("create");
         assert_eq!(
             std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
             0o700
         );
-
-        std::fs::remove_dir_all(&base).unwrap();
     }
 
     /// Settings are the user's, like the data. Unix only — Windows has no POSIX
@@ -592,57 +699,6 @@ mod tests {
         assert!(err.to_string().contains("config_dir"), "got: {err}");
     }
 
-    /// macOS and Linux have a cache location of their own.
-    #[cfg(not(windows))]
-    #[test]
-    fn cache_dir_is_a_leaf_on_the_platform_cache_dir() {
-        let dir = cache_dir_for(Path::new("/home/x/.cache"), Path::new("/home/x/unused"));
-        assert_eq!(dir, Path::new("/home/x/.cache").join(APP_DIR_NAME));
-    }
-
-    /// Windows' cache root is the data directory's own parent.
-    #[cfg(windows)]
-    #[test]
-    fn cache_dir_is_a_leaf_on_the_data_dir() {
-        let dir = cache_dir_for(
-            Path::new(r"C:\Users\x\AppData\Local"),
-            Path::new(r"C:\Users\x\AppData\Local\Kstack"),
-        );
-        assert_eq!(dir, Path::new(r"C:\Users\x\AppData\Local\Kstack\cache"));
-    }
-
-    /// macOS is the only platform with a standard log location.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn log_dir_is_under_library_logs() {
-        let dir = log_dir_for(Path::new("/Users/x"), Path::new("/Users/x/unused"));
-        assert_eq!(dir, Path::new("/Users/x/Library/Logs").join(APP_DIR_NAME));
-    }
-
-    /// Windows has no log location of its own.
-    #[cfg(windows)]
-    #[test]
-    fn log_dir_is_a_logs_leaf_on_the_data_dir() {
-        let dir = log_dir_for(
-            Path::new(r"C:\Users\x"),
-            Path::new(r"C:\Users\x\AppData\Local\Kstack"),
-        );
-        assert_eq!(dir, Path::new(r"C:\Users\x\AppData\Local\Kstack\logs"));
-    }
-
-    /// XDG puts logs in the state directory.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_logs_in_a_logs_leaf_on_the_state_dir() {
-        let scratch = crate::testutil::Scratch::new();
-        let roots = crate::testutil::roots(scratch.path());
-
-        assert_eq!(
-            log_dir(&roots).unwrap(),
-            app_state_dir(&roots).unwrap().join("logs")
-        );
-    }
-
     /// The endpoint's directory is the wall around the socket. `/tmp` is shared
     /// and sticky-bit only, so anything that can enter the directory can reach
     /// the address the host is about to dial.
@@ -651,7 +707,8 @@ mod tests {
     fn runtime_dir_is_owner_only() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = runtime_dir(Path::new("/unused")).expect("runtime dir");
+        let scratch = crate::testutil::Scratch::new();
+        let dir = runtime_dir(&crate::testutil::roots(scratch.path())).expect("runtime dir");
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o700, "the runtime dir must be owner-only");
     }
@@ -827,23 +884,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
-    /// Windows has no per-user runtime directory, so it hangs off the data
-    /// directory.
     #[cfg(windows)]
     #[test]
-    fn runtime_dir_is_a_leaf_on_the_data_dir() {
-        let dir = runtime_dir_for(Path::new(r"C:\Users\x\AppData\Local\Kstack"));
-        assert_eq!(dir, Path::new(r"C:\Users\x\AppData\Local\Kstack\run"));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn runtime_dir_is_created_under_the_data_dir() {
+    fn runtime_dir_is_created_in_the_app_folder() {
         let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
 
-        let dir = runtime_dir(scratch.path()).expect("runtime dir");
+        let dir = runtime_dir(&roots).expect("runtime dir");
 
-        assert_eq!(dir, scratch.path().join("run"));
+        assert_eq!(Some(&dir), current_layout(&roots).runtime.as_ref());
         assert!(dir.is_dir());
     }
 
@@ -966,24 +1015,6 @@ mod tests {
         assert!(err.to_string().contains("resolve home_dir"), "got: {err}");
     }
 
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_names_its_folders_in_lowercase() {
-        let scratch = crate::testutil::Scratch::new();
-        let roots = crate::testutil::roots(scratch.path());
-
-        assert_eq!(APP_DIR_NAME.trim_end_matches("-dev"), "kstack");
-        assert_eq!(APP_DIR_NAME.ends_with("-dev"), cfg!(debug_assertions));
-        assert_eq!(
-            app_data_dir(&roots).unwrap(),
-            roots.local_data.join(APP_DIR_NAME)
-        );
-        assert_eq!(
-            app_config_dir(&roots).unwrap(),
-            roots.config.unwrap().join(APP_DIR_NAME)
-        );
-    }
-
     /// XDG ignores a base directory that is not absolute.
     #[test]
     fn the_state_root_is_xdg_state_home_else_under_the_home() {
@@ -997,33 +1028,17 @@ mod tests {
         assert_eq!(state_home(None, home), fallback);
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     #[test]
-    fn linux_keeps_state_under_the_state_root_owner_only() {
+    fn state_dir_is_created_owner_only() {
         use std::os::unix::fs::PermissionsExt;
 
         let scratch = crate::testutil::Scratch::new();
-        let roots = crate::testutil::roots(scratch.path());
+        let dir = app_state_dir(&crate::testutil::roots(scratch.path())).unwrap();
 
-        let dir = app_state_dir(&roots).unwrap();
-
-        assert_eq!(dir, roots.state.join(APP_DIR_NAME));
         assert_eq!(
             std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
             0o700
-        );
-    }
-
-    /// macOS and Windows have no state root: state stays with the data.
-    #[cfg(not(target_os = "linux"))]
-    #[test]
-    fn state_is_kept_in_the_data_dir() {
-        let scratch = crate::testutil::Scratch::new();
-        let roots = crate::testutil::roots(scratch.path());
-
-        assert_eq!(
-            app_state_dir(&roots).unwrap(),
-            app_data_dir(&roots).unwrap()
         );
     }
 
@@ -1092,26 +1107,266 @@ mod tests {
         assert_eq!(app_state_dir(&roots).unwrap(), named);
     }
 
+    /// The roots Tauri resolves on `platform`, so each platform's layout is
+    /// checked on every OS. Windows' are written with `/`, which it reads as
+    /// a separator too.
+    fn platform_roots(platform: Platform) -> Roots {
+        let roots = |config: &str, local_data: &str, cache: &str, home: &str, state: &str| Roots {
+            config: Some(PathBuf::from(config)),
+            local_data: PathBuf::from(local_data),
+            cache: PathBuf::from(cache),
+            home: PathBuf::from(home),
+            state: PathBuf::from(state),
+        };
+        match platform {
+            Platform::Linux => roots(
+                "/home/x/.config",
+                "/home/x/.local/share",
+                "/home/x/.cache",
+                "/home/x",
+                "/home/x/.local/state",
+            ),
+            Platform::MacOs => roots(
+                "/Users/x/Library/Application Support",
+                "/Users/x/Library/Application Support",
+                "/Users/x/Library/Caches",
+                "/Users/x",
+                "/Users/x/.local/state",
+            ),
+            Platform::Windows => roots(
+                "C:/Users/x/AppData/Roaming",
+                "C:/Users/x/AppData/Local",
+                "C:/Users/x/AppData/Local",
+                "C:/Users/x",
+                "C:/Users/x/.local/state",
+            ),
+        }
+    }
+
+    #[test]
+    fn linux_gives_each_kind_a_leaf_on_its_own_root() {
+        let roots = platform_roots(Platform::Linux);
+        let leaf = app_dir_name(Platform::Linux);
+
+        let layout = layout(Platform::Linux, &roots);
+
+        assert_eq!(leaf.trim_end_matches("-dev"), "kstack");
+        assert_eq!(leaf.ends_with("-dev"), cfg!(debug_assertions));
+        assert_eq!(layout.app, None);
+        assert_eq!(layout.data, roots.local_data.join(leaf));
+        assert_eq!(layout.config, Some(roots.config.unwrap().join(leaf)));
+        assert_eq!(layout.state, roots.state.join(leaf));
+        assert_eq!(layout.cache, roots.cache.join(leaf));
+        assert_eq!(layout.logs, roots.state.join(leaf).join("logs"));
+        assert_eq!(layout.runtime, None);
+    }
+
+    /// macOS's config root is its data root, so the two kinds and the state,
+    /// which has no root of its own there, are subfolders of one app folder.
+    /// The cache and the logs keep the platform's own folders.
+    #[test]
+    fn macos_keeps_data_config_and_state_in_one_app_folder() {
+        let roots = platform_roots(Platform::MacOs);
+        let leaf = app_dir_name(Platform::MacOs);
+        let app = roots.local_data.join(leaf);
+
+        let layout = layout(Platform::MacOs, &roots);
+
+        assert_eq!(leaf.trim_end_matches("-dev"), "Kstack");
+        assert_eq!(leaf.ends_with("-dev"), cfg!(debug_assertions));
+        assert_eq!(layout.data, app.join("data"));
+        assert_eq!(layout.config, Some(app.join("config")));
+        assert_eq!(layout.state, app.join("state"));
+        assert_eq!(layout.cache, roots.cache.join(leaf));
+        assert_eq!(layout.logs, roots.home.join("Library/Logs").join(leaf));
+        assert_eq!(layout.runtime, None);
+        assert_eq!(layout.app, Some(app));
+    }
+
+    /// macOS's config directory is in the app folder even under a config root
+    /// that is not the data root, and there is none without a config root.
+    #[test]
+    fn macos_config_follows_the_app_folder() {
+        let mut roots = platform_roots(Platform::MacOs);
+        let app = roots.local_data.join(app_dir_name(Platform::MacOs));
+
+        roots.config = Some(PathBuf::from("/Users/x/elsewhere"));
+        assert_eq!(
+            layout(Platform::MacOs, &roots).config,
+            Some(app.join("config"))
+        );
+
+        roots.config = None;
+        assert_eq!(layout(Platform::MacOs, &roots).config, None);
+    }
+
+    /// A state directory that cannot be made fails the logs it would hold.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn log_dir_fails_under_a_state_directory_that_cannot_be_made() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let state = state_dir_for(&roots);
+        std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+        std::fs::write(&state, "").unwrap();
+
+        assert!(log_dir(&roots).is_err());
+    }
+
+    #[test]
+    fn the_running_os_takes_its_own_layout() {
+        #[cfg(target_os = "linux")]
+        assert_eq!(Platform::CURRENT, Platform::Linux);
+        #[cfg(target_os = "macos")]
+        assert_eq!(Platform::CURRENT, Platform::MacOs);
+        #[cfg(windows)]
+        assert_eq!(Platform::CURRENT, Platform::Windows);
+    }
+
+    /// The logs sit in the state directory on Linux, so asking for them
+    /// tightens one an earlier run left open.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn log_dir_tightens_the_state_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let state = state_dir_for(&roots);
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        log_dir(&roots).unwrap();
+
+        let mode = std::fs::metadata(&state).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+    }
+
+    /// Windows' cache root is its local data root, and it has no state or
+    /// runtime root, so those kinds are siblings in one app folder, the logs
+    /// in the state as on Linux. The config roams, in a root of its own.
+    #[test]
+    fn windows_keeps_every_local_kind_side_by_side_in_one_app_folder() {
+        let roots = platform_roots(Platform::Windows);
+        let leaf = app_dir_name(Platform::Windows);
+        let app = roots.local_data.join(leaf);
+
+        let layout = layout(Platform::Windows, &roots);
+
+        assert_eq!(leaf.trim_end_matches("-dev"), "Kstack");
+        assert_eq!(leaf.ends_with("-dev"), cfg!(debug_assertions));
+        assert_eq!(layout.data, app.join("data"));
+        assert_eq!(layout.cache, app.join("cache"));
+        assert_eq!(layout.state, app.join("state"));
+        assert_eq!(layout.logs, app.join("state").join("logs"));
+        assert_eq!(layout.runtime, Some(app.join("run")));
+        let config_app = roots.config.unwrap().join(leaf);
+        assert_eq!(layout.config, Some(config_app.join("config")));
+        assert_eq!(layout.config_app, Some(config_app));
+        assert_eq!(layout.app, Some(app));
+    }
+
+    /// Windows' roaming and local roots resolved to one folder.
+    fn windows_shared_roots() -> Roots {
+        let mut roots = platform_roots(Platform::Windows);
+        roots.config = Some(roots.local_data.clone());
+        roots
+    }
+
+    /// The config is a subfolder of its leaf, so on the local data root it is
+    /// a sibling of the other kinds, not the app folder that holds them.
+    #[test]
+    fn windows_config_on_the_local_root_is_a_subfolder_of_the_app_folder() {
+        let roots = windows_shared_roots();
+        let app = roots.local_data.join(app_dir_name(Platform::Windows));
+
+        let layout = layout(Platform::Windows, &roots);
+
+        assert_eq!(layout.config, Some(app.join("config")));
+    }
+
+    /// Each kind is fenced and deleted on its own, so none may be another's
+    /// folder or sit inside one.
+    #[test]
+    fn no_kind_shares_or_holds_another_kinds_folder() {
+        let cases = [
+            (Platform::Linux, platform_roots(Platform::Linux)),
+            (Platform::MacOs, platform_roots(Platform::MacOs)),
+            (Platform::Windows, platform_roots(Platform::Windows)),
+            (Platform::Windows, windows_shared_roots()),
+        ];
+        for (platform, roots) in cases {
+            let layout = layout(platform, &roots);
+            let mut kinds = vec![
+                ("data", layout.data),
+                ("state", layout.state),
+                ("cache", layout.cache),
+            ];
+            kinds.extend(layout.config.map(|dir| ("config", dir)));
+            kinds.extend(layout.runtime.map(|dir| ("runtime", dir)));
+            for (name, dir) in &kinds {
+                for (other, other_dir) in &kinds {
+                    assert!(
+                        name == other || !other_dir.starts_with(dir),
+                        "{platform:?}: {other} {other_dir:?} is in {name} {dir:?}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn the_app_directories_hang_off_the_roots() {
         let scratch = crate::testutil::Scratch::new();
         let roots = crate::testutil::roots(scratch.path());
 
         let data = app_data_dir(&roots).unwrap();
-        assert_eq!(data, roots.local_data.join(APP_DIR_NAME));
+        assert_eq!(data, current_layout(&roots).data);
         assert!(data.is_dir());
-        let cache = app_cache_dir(&roots, &data).unwrap();
-        assert_eq!(cache, cache_dir_for(&roots.cache, &data));
+        let cache = app_cache_dir(&roots).unwrap();
+        assert_eq!(cache, current_layout(&roots).cache);
         assert!(cache.is_dir());
         let logs = log_dir(&roots).unwrap();
-        assert_eq!(
-            logs,
-            log_dir_for(&roots.home, &app_state_dir(&roots).unwrap())
-        );
+        assert_eq!(logs, current_layout(&roots).logs);
         assert!(logs.is_dir());
         let config = app_config_dir(&roots).unwrap();
-        assert_eq!(config, roots.config.unwrap().join(APP_DIR_NAME));
+        assert_eq!(current_layout(&roots).config.as_ref(), Some(&config));
         assert!(config.is_dir());
+    }
+
+    /// An open app folder is tightened before a kind in it is made, and one
+    /// already owner-only keeps its other bits.
+    #[cfg(unix)]
+    #[test]
+    fn the_app_folder_is_made_owner_only_before_a_kind_in_it() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let layout = layout(Platform::MacOs, &roots);
+        let app = layout.app.clone().unwrap();
+        let mode = || std::fs::metadata(&app).unwrap().permissions().mode() & 0o7777;
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o775)).unwrap();
+
+        ensure_app_dir_above(&layout, &layout.config.clone().unwrap()).unwrap();
+        assert_eq!(mode(), 0o700);
+
+        std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o2700)).unwrap();
+        ensure_app_dir_above(&layout, &layout.data).unwrap();
+        assert_eq!(mode(), 0o2700);
+    }
+
+    /// A kind outside the app folder leaves it alone.
+    #[test]
+    fn a_kind_outside_the_app_folder_does_not_make_it() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let layout = layout(Platform::MacOs, &roots);
+
+        ensure_app_dir_above(&layout, &layout.cache).unwrap();
+
+        assert!(!layout.app.unwrap().exists());
     }
 
     #[cfg(unix)]

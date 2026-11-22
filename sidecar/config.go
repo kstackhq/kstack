@@ -68,6 +68,10 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 	fs.StringVar(&cfg.App.RuntimeDir, "runtime-dir", "", "directory for what lives for a session: the shell snapshot, a sandboxed run's files (required)")
 	fs.StringVar(&cfg.App.ConfigDir, "config-dir", "", "the host's config directory, which the file tools and the sandbox deny; empty when there is none")
 	fs.StringVar(&cfg.App.StateDir, "state-dir", "", "the host's state directory, denied like the config directory; empty when there is none")
+	fs.Func("app-dir", "a folder holding Kstack's directories, denied like the config directory; repeatable", func(dir string) error {
+		cfg.App.AppDirs = append(cfg.App.AppDirs, dir)
+		return nil
+	})
 	// The OAuth client is public (PKCE/loopback, no secret), so baking the
 	// production defaults into the binary leaks nothing.
 	fs.StringVar(&cfg.App.OAuthIssuerURL, "oauth-issuer", "https://oauth.kstack.sh", "OAuth issuer URL")
@@ -107,14 +111,19 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 // host refuses such a root before it starts the sidecar. Windows reads `..`
 // by name itself.
 func refuseDotDot(cfg config) error {
-	for _, p := range []struct{ flag, path string }{
+	type flagPath struct{ flag, path string }
+	paths := []flagPath{
 		{"--data-dir", cfg.App.DataDir},
 		{"--cache-dir", cfg.App.CacheDir},
 		{"--runtime-dir", cfg.App.RuntimeDir},
 		{"--config-dir", cfg.App.ConfigDir},
 		{"--state-dir", cfg.App.StateDir},
 		{"--log-file", cfg.LogFile},
-	} {
+	}
+	for _, dir := range cfg.App.AppDirs {
+		paths = append(paths, flagPath{"--app-dir", dir})
+	}
+	for _, p := range paths {
 		if runtime.GOOS != "windows" && slices.Contains(strings.Split(p.path, "/"), "..") {
 			return fmt.Errorf("%s is %q, which holds `..`", p.flag, p.path)
 		}

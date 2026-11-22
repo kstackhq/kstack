@@ -74,6 +74,9 @@ type Config struct {
 	// StateDir is where the host keeps the window frame and the webview's
 	// profile, fenced like LogDir. Empty when the host has none.
 	StateDir string
+	// AppDirs are the folders macOS and Windows keep these directories in,
+	// fenced so nothing is written among them. Empty on Linux.
+	AppDirs []string
 	// OAuthIssuerURL is Kstack's OAuth issuer, whose discovery document names
 	// the endpoints.
 	OAuthIssuerURL string

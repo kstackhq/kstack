@@ -24,7 +24,7 @@ use tokio::sync::watch;
 
 use crate::error::{AppError, Result};
 use crate::paths::{
-    app_cache_dir, app_data_dir, config_dir_for, runtime_dir, state_dir_for, Roots,
+    app_cache_dir, app_data_dir, app_dirs_for, config_dir_for, runtime_dir, state_dir_for, Roots,
 };
 
 use super::graphql::{FrameSink, GraphqlResponse, QueryClient, SubscriptionClient};
@@ -103,12 +103,13 @@ impl SidecarService {
         // Created up front, owner-only, so the sidecar makes its own beneath them.
         let data = app_data_dir(roots)?;
         let dirs = Dirs {
-            cache: app_cache_dir(roots, &data)?,
-            runtime: runtime_dir(&data)?,
+            cache: app_cache_dir(roots)?,
+            runtime: runtime_dir(roots)?,
             // Fenced from the sidecar's file tools, even when `host_file::manage`
             // could not make or tighten it.
             config: config_dir_for(roots),
             state: state_dir_for(roots),
+            app: app_dirs_for(roots),
             data,
         };
         let endpoint = Endpoint::pick(&dirs.runtime)?;
@@ -436,6 +437,8 @@ struct Dirs {
     config: Option<std::path::PathBuf>,
     /// The host's state directory, fenced like `config`.
     state: std::path::PathBuf,
+    /// The folders macOS and Windows keep these in, fenced too.
+    app: Vec<std::path::PathBuf>,
 }
 
 /// CLI flags for the sidecar; a free function so the contract is unit-testable
@@ -468,6 +471,10 @@ fn cmd_args(socket: &Endpoint, dirs: &Dirs, log_file: Option<&std::path::Path>) 
 
     if let Some(dir) = &dirs.config {
         args.push("--config-dir".into());
+        args.push(dir.clone().into());
+    }
+    for dir in &dirs.app {
+        args.push("--app-dir".into());
         args.push(dir.clone().into());
     }
     if let Some(path) = log_file {
@@ -668,6 +675,8 @@ mod tests {
             KEYCHAIN_SERVICE.to_owned(),
             "--config-dir".to_owned(),
             "/some/app/config".to_owned(),
+            "--app-dir".to_owned(),
+            "/some/app".to_owned(),
             "--log-file".to_owned(),
             log_file.to_string_lossy().into_owned(),
         ];
@@ -706,6 +715,7 @@ mod tests {
             runtime: "/some/app/run".into(),
             config: Some("/some/app/config".into()),
             state: "/some/app/state".into(),
+            app: vec!["/some/app".into()],
         }
     }
 
@@ -731,6 +741,19 @@ mod tests {
         };
         let args = cmd_args(&path, &dirs, None);
         assert!(!args.iter().any(|a| a == "--config-dir"), "got: {args:?}");
+    }
+
+    /// Linux has no app folder, which leaves its flag off.
+    #[test]
+    fn cmd_args_omits_the_app_dir_when_there_is_none() {
+        let base = std::env::temp_dir();
+        let path = Endpoint::pick(&base).expect("pick should succeed");
+        let dirs = Dirs {
+            app: Vec::new(),
+            ..test_dirs()
+        };
+        let args = cmd_args(&path, &dirs, None);
+        assert!(!args.iter().any(|a| a == "--app-dir"), "got: {args:?}");
     }
 
     #[test]

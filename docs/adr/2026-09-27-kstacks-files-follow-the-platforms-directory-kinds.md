@@ -6,6 +6,7 @@ status: Accepted
 amended_by:
   - [A shipped schema changes only by a new migration](2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md)
   - [Linux folders follow XDG](2026-11-21-linux-folders-follow-xdg.md)
+  - [Each folder kind has its own folder on every platform](2026-11-22-each-folder-kind-has-its-own-folder-on-every-platform.md)
 ---
 
 # Keep each file in the platform's directory for its kind

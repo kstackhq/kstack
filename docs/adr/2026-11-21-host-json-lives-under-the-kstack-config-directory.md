@@ -3,6 +3,8 @@ title: Keep host.json in the Kstack config directory
 date: 2026-11-21
 scope: host
 status: Accepted
+amended_by:
+  - [Each folder kind has its own folder on every platform](2026-11-22-each-folder-kind-has-its-own-folder-on-every-platform.md)
 ---
 
 # Keep host.json in the Kstack config directory

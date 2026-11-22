@@ -921,6 +921,16 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   machine. Check the file against `SHA256SUMS` and that file's signature before installing, and
   record the protection in [`security-model.md`](security-model.md).
 
+- **Refuse a macOS directory whose ACL grants another account write (low; host owner).**
+  `src-tauri/src/paths.rs` makes each of Kstack's directories owner-only by its mode bits: it
+  sets 0700 (`ensure_data_dir`), or leaves the config directory and the app folder alone when
+  they already have it (`is_owner_only_dir`). On macOS an extended ACL is apart from the mode, so
+  an existing directory carrying one that grants another account write keeps it at 0700, and its
+  entries stay replaceable. Adding the ACL needs write access to the user's own
+  `~/Library/Application Support` first. Linux is not exposed: a POSIX ACL's mask is the group
+  bits, which 0700 clears. Read the ACL and refuse or strip a granting entry, and record the
+  protection in [`security-model.md`](security-model.md).
+
 - **Decide what to do about colour that hides a log line from the eye (low; logs owner).** A
   kept SGR sequence can set a foreground that matches its background, or the theme's own
   background, or dim the text, and the viewer draws it as asked

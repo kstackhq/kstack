@@ -69,9 +69,33 @@ func TestTheStateDirectoryIsKstacks(t *testing.T) {
 	assert.Equal(t, []string{data, cache, runtime, logs, state}, p.Bash.DeniedDirs,
 		"the state directory holds the window frame and the webview's profile beside the logs")
 
-	// macOS's and Windows' state directory is the data directory.
 	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, StateDir: data})
 	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one that is the data directory adds nothing")
+}
+
+func TestTheAppFolderIsKstacks(t *testing.T) {
+	app := filepath.FromSlash("/u/Library/Application Support/Kstack")
+	data, state := filepath.Join(app, "data"), filepath.Join(app, "state")
+	cache, runtime := filepath.FromSlash("/c"), filepath.FromSlash("/r")
+	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, StateDir: state, AppDirs: []string{app}})
+	assert.Equal(t, []string{data, cache, runtime, state, app}, p.Bash.DeniedDirs,
+		"the folder holding the kinds is fenced beside them, so nothing is written among them")
+}
+
+// Windows keeps the config in a folder of its own on the roaming root, apart
+// from the app folder.
+func TestTheConfigsAppFolderIsKstacks(t *testing.T) {
+	app := filepath.FromSlash("/u/AppData/Local/Kstack")
+	configApp := filepath.FromSlash("/u/AppData/Roaming/Kstack")
+	data, config := filepath.Join(app, "data"), filepath.Join(configApp, "config")
+	cache, runtime := filepath.Join(app, "cache"), filepath.Join(app, "run")
+	cfg := Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, ConfigDir: config, AppDirs: []string{app, configApp}}
+	assert.Equal(t, []string{data, cache, runtime, config, app, configApp}, pathsOf(cfg).Bash.DeniedDirs,
+		"the config's folder is fenced beside the config, so nothing is written next to it")
+
+	cfg.AppDirs = []string{app, app}
+	assert.Equal(t, []string{data, cache, runtime, config, app}, pathsOf(cfg).Bash.DeniedDirs,
+		"one that is the app folder adds nothing")
 }
 
 func TestTheConfigDirectoryIsKstacks(t *testing.T) {
@@ -81,7 +105,6 @@ func TestTheConfigDirectoryIsKstacks(t *testing.T) {
 	assert.Equal(t, []string{data, cache, runtime, config}, p.Bash.DeniedDirs,
 		"the config directory holds host.json, which the file tools are fenced out of")
 
-	// macOS's config directory is the data directory.
 	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, ConfigDir: data})
 	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one that is the data directory adds nothing")
 

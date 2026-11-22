@@ -28,7 +28,7 @@ import (
 	"time"
 )
 
-// leaf is paths.rs's APP_DIR_NAME in a debug build: lowercase on Linux.
+// leaf is paths.rs's app_dir_name in a debug build: lowercase on Linux.
 var leaf = devLeaf()
 
 func devLeaf() string {
@@ -55,31 +55,12 @@ func main() {
 }
 
 func clean() error {
-	data, err := devDataDir()
+	dirs, err := devDirs()
 	if err != nil {
 		return err
 	}
-	cache, err := devCacheDir(data)
-	if err != nil {
+	if err := refuseWhileRunning(); err != nil {
 		return err
-	}
-	config, err := devConfigDir()
-	if err != nil {
-		return err
-	}
-	state, err := devStateDir(data)
-	if err != nil {
-		return err
-	}
-	if err := refuseWhileRunning(data); err != nil {
-		return err
-	}
-	// The cache first: on Windows it sits inside the data directory.
-	dirs := []string{cache, data}
-	for _, dir := range []string{config, state} {
-		if dir != data {
-			dirs = append(dirs, dir)
-		}
 	}
 	for _, dir := range dirs {
 		if err := remove(dir); err != nil {
@@ -89,13 +70,10 @@ func clean() error {
 	return nil
 }
 
-// cleanWindowState deletes the dev app's saved window frame.
+// cleanWindowState deletes the dev app's saved window frame. It resolves the
+// state directory alone, so another kind's unusable root does not stop it.
 func cleanWindowState() error {
-	data, err := devDataDir()
-	if err != nil {
-		return err
-	}
-	state, err := devStateDir(data)
+	state, err := devStateDir()
 	if err != nil {
 		return err
 	}
@@ -106,71 +84,88 @@ func cleanWindowState() error {
 	return err
 }
 
-// devDataDir mirrors Tauri's local_data_dir.
-func devDataDir() (string, error) {
+// devDirs is every folder paths.rs's layout gives a debug build. macOS and
+// Windows keep several kinds in one app folder, which is listed as itself:
+// were it a link, deleting a kind through it would empty the link's target.
+func devDirs() ([]string, error) {
 	switch runtime.GOOS {
 	case "windows":
+		app, err := devAppDir()
+		if err != nil {
+			return nil, err
+		}
+		roaming, err := windowsDir("APPDATA")
+		if err != nil {
+			return nil, err
+		}
+		// The config's folder, which is the app folder again when the
+		// roaming root is the local one.
+		return []string{app, filepath.Join(roaming, leaf)}, nil
+	case "darwin":
+		app, err := devAppDir()
+		if err != nil {
+			return nil, err
+		}
+		cache, err := underHome("Library", "Caches", leaf)
+		if err != nil {
+			return nil, err
+		}
+		logs, err := underHome("Library", "Logs", leaf)
+		if err != nil {
+			return nil, err
+		}
+		return []string{app, cache, logs}, nil
+	}
+	dataHome, err := xdg("XDG_DATA_HOME", ".local", "share")
+	if err != nil {
+		return nil, err
+	}
+	cacheHome, err := xdg("XDG_CACHE_HOME", ".cache")
+	if err != nil {
+		return nil, err
+	}
+	configHome, err := xdg("XDG_CONFIG_HOME", ".config")
+	if err != nil {
+		return nil, err
+	}
+	state, err := devStateDir()
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		filepath.Join(dataHome, leaf),
+		filepath.Join(cacheHome, leaf),
+		filepath.Join(configHome, leaf),
+		state,
+	}, nil
+}
+
+// devAppDir is the folder macOS and Windows keep the data and state in, with
+// the config on macOS and the cache and runtime directory on Windows.
+func devAppDir() (string, error) {
+	if runtime.GOOS == "windows" {
 		local, err := windowsDir("LOCALAPPDATA")
 		if err != nil {
 			return "", err
 		}
 		return filepath.Join(local, leaf), nil
-	case "darwin":
-		return underHome("Library", "Application Support", leaf)
 	}
-	dataHome, err := xdg("XDG_DATA_HOME", ".local", "share")
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dataHome, leaf), nil
+	return underHome("Library", "Application Support", leaf)
 }
 
-// devCacheDir mirrors Tauri's cache_dir and paths.rs's cache_dir_for.
-func devCacheDir(data string) (string, error) {
-	switch runtime.GOOS {
-	case "windows":
-		return filepath.Join(data, "cache"), nil
-	case "darwin":
-		return underHome("Library", "Caches", leaf)
-	}
-	cacheHome, err := xdg("XDG_CACHE_HOME", ".cache")
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(cacheHome, leaf), nil
-}
-
-// devStateDir mirrors paths.rs's app_state_dir: a leaf on XDG's state root on
-// Linux, the data directory elsewhere.
-func devStateDir(data string) (string, error) {
-	if runtime.GOOS != "linux" {
-		return data, nil
-	}
-	stateHome, err := xdg("XDG_STATE_HOME", ".local", "state")
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(stateHome, leaf), nil
-}
-
-// devConfigDir mirrors Tauri's config_dir and paths.rs's app_config_dir,
-// where host.json lives. On macOS it is the data directory.
-func devConfigDir() (string, error) {
-	switch runtime.GOOS {
-	case "windows":
-		roaming, err := windowsDir("APPDATA")
+func devStateDir() (string, error) {
+	if runtime.GOOS == "linux" {
+		stateHome, err := xdg("XDG_STATE_HOME", ".local", "state")
 		if err != nil {
 			return "", err
 		}
-		return filepath.Join(roaming, leaf), nil
-	case "darwin":
-		return underHome("Library", "Application Support", leaf)
+		return filepath.Join(stateHome, leaf), nil
 	}
-	configHome, err := xdg("XDG_CONFIG_HOME", ".config")
+	app, err := devAppDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configHome, leaf), nil
+	return filepath.Join(app, "state"), nil
 }
 
 // windowsDir reads a Windows profile folder from the environment, refusing a
@@ -215,12 +210,16 @@ func noDotDot(name, dir string) error {
 	return nil
 }
 
-// refuseWhileRunning fails when a dev sidecar holds the data directory open.
-func refuseWhileRunning(data string) error {
-	if runtime.GOOS == "windows" {
-		return refuseWhileHeld(data)
+// refuseWhileRunning fails while a dev sidecar runs.
+func refuseWhileRunning() error {
+	if runtime.GOOS != "windows" {
+		return refuseWhileListening()
 	}
-	return refuseWhileListening()
+	app, err := devAppDir()
+	if err != nil {
+		return err
+	}
+	return refuseWhileHeld(app)
 }
 
 // refuseWhileListening looks for a live sidecar socket in the dev runtime
@@ -271,18 +270,18 @@ func runtimeDirs() ([]string, error) {
 	return append([]string{base}, siblings...), nil
 }
 
-// refuseWhileHeld renames the data directory and back. Windows refuses to
-// rename a directory while a file in it is open, and its sidecar listens on
-// a named pipe rather than a socket under the runtime directory.
-func refuseWhileHeld(data string) error {
-	aside := data + ".clean"
-	if err := os.Rename(data, aside); err != nil {
+// refuseWhileHeld renames the app folder and back. Windows refuses to rename
+// a directory while a file anywhere under it is open, and its sidecar listens
+// on a named pipe rather than a socket under the runtime directory.
+func refuseWhileHeld(app string) error {
+	aside := app + ".clean"
+	if err := os.Rename(app, aside); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
-		return fmt.Errorf("%s is in use; quit `pnpm tauri dev` first: %w", data, err)
+		return fmt.Errorf("%s is in use; quit `pnpm tauri dev` first: %w", app, err)
 	}
-	return os.Rename(aside, data)
+	return os.Rename(aside, app)
 }
 
 func remove(dir string) error {
