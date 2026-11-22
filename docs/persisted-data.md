@@ -69,11 +69,49 @@ Adding the mechanism is in [`TODO.md`](TODO.md), *Sidecar (Go)*.
 | OS keyring | service `Kstack` | the Kstack account's, the ChatGPT plan's and the Google account's refresh tokens, the OpenRouter connector's key, the AWS connector's session, the saved provider API keys |
 | Webview storage | the webview's profile: `<state>/webview` on Linux and Windows (`paths.rs` `webview_dir`), WKWebView's own under the bundle id on macOS | `localStorage` under `kstack:*` |
 
-`<leaf>` is `kstack` (`kstack-dev` in debug) on Linux and `Kstack` (`Kstack-dev`) elsewhere. On macOS the
-webview profile hangs off the bundle id, not the leaf, so a dev build and a release share it.
-`make clean-data` clears `<data>`, `<cache>`, `<config>` and `<state>`, not macOS's profile. The caches live under
-`<cache>` because the OS may reclaim that root; they are still durable, since they hold history the
-cluster no longer has.
+`<leaf>` is `kstack` (`kstack-dev` in debug) on Linux and `Kstack` (`Kstack-dev`) elsewhere. The
+caches live under `<cache>` because the OS may reclaim that root; they are still durable, since they
+hold history the cluster no longer has. `make clean-data` clears the dev build's `<data>`, `<cache>`,
+`<config>` and `<state>`.
+
+### Every folder, by platform
+
+A release build's paths; a dev build's leaf ends in `-dev`. The sidecar owns the data, cache and
+runtime folders and writes `sidecar.log`; the host owns the rest. The tree under each sidecar folder
+is the doc comment on `paths` in `sidecar/internal/app/paths.go`.
+
+**Linux.** An XDG variable that is unset or relative reads as its default, shown here.
+
+| Path | Kind | Holds |
+| --- | --- | --- |
+| `~/.local/share/kstack/` | `<data>` | `app.db`, `beehive.db`, `settings.json`, `chats/`, `monitor/`, `sidecar.lock` |
+| `~/.cache/kstack/` | `<cache>` | `kube/`, `logs/` (the log cache), `kubectl/`, `tmp/` |
+| `~/.config/kstack/` | `<config>` | `host.json` |
+| `~/.local/state/kstack/` | `<state>` | `window-state.json` |
+| `~/.local/state/kstack/logs/` | logs | `main.log`, `webview.log`, `sidecar.log` |
+| `~/.local/state/kstack/webview/` | webview profile | `localStorage`, WebKitGTK's cache |
+| `$XDG_RUNTIME_DIR/kstack/`, else `/tmp/kstack-<uid>/` | `<runtime>` | the IPC socket, `shell/`, `runs/` |
+
+**macOS.**
+
+| Path | Kind | Holds |
+| --- | --- | --- |
+| `~/Library/Application Support/Kstack/` | `<data>`, `<config>`, `<state>` | `app.db`, `beehive.db`, `settings.json`, `chats/`, `monitor/`, `sidecar.lock`, `host.json`, `window-state.json` |
+| `~/Library/Caches/Kstack/` | `<cache>` | `kube/`, `logs/` (the log cache), `kubectl/`, `tmp/` |
+| `~/Library/Logs/Kstack/` | logs | `main.log`, `webview.log`, `sidecar.log` |
+| `$TMPDIR/kstack-<uid>/` | `<runtime>` | the IPC socket, `shell/`, `runs/` |
+| WKWebView's own, under the bundle id `sh.kstack.desktop` | webview profile | `localStorage`; a dev build and a release share it, and `make clean-data` leaves it |
+
+**Windows.**
+
+| Path | Kind | Holds |
+| --- | --- | --- |
+| `%LOCALAPPDATA%\Kstack\` | `<data>`, `<state>` | `app.db`, `beehive.db`, `settings.json`, `chats\`, `monitor\`, `sidecar.lock`, `window-state.json` |
+| `%LOCALAPPDATA%\Kstack\cache\` | `<cache>` | `kube\`, `logs\` (the log cache), `kubectl\`, `tmp\` |
+| `%LOCALAPPDATA%\Kstack\logs\` | logs | `main.log`, `webview.log`, `sidecar.log` |
+| `%LOCALAPPDATA%\Kstack\run\` | `<runtime>` | `shell\`, `runs\`; the IPC endpoint is a named pipe |
+| `%LOCALAPPDATA%\Kstack\webview\` | webview profile | `localStorage`, in WebView2's `EBWebView\` |
+| `%APPDATA%\Kstack\` | `<config>` | `host.json` |
 
 ## Register
 
