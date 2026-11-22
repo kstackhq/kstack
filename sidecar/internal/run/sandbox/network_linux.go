@@ -81,10 +81,15 @@ func (s *Sandbox) tryPasta(ctx context.Context, pasta string, bound time.Duratio
 		return false, fmt.Errorf("no answer in %s", bound)
 	}
 	p.Network.Internet = true
-	cmd, err := s.pastaCommand(ctx, pasta, Run{
+	r := Run{
 		Shell: "/bin/sh", Args: []string{"-c", pastaProbeScript}, Dir: dir,
 		Env: []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "TMPDIR=" + dir}, Policy: p,
-	}, "", false)
+	}
+	rules, err := r.check()
+	if err != nil {
+		return false, err
+	}
+	cmd, err := s.pastaCommand(ctx, pasta, r, rules, "", false)
 	if err != nil {
 		return false, err
 	}
@@ -139,7 +144,7 @@ var probeNet = []string{"-4", "-i", "lo", "-I", "kstack0", "-a", "192.0.2.2", "-
 // is false for the probe alone, which passes probeNet. sandbox-pasta watches
 // the lifeline, not the forwarder: pasta closes every descriptor it did not
 // open but the standard streams.
-func (s *Sandbox) pastaCommand(ctx context.Context, pasta string, r Run, resolverAt string, configNet bool) (*exec.Cmd, error) {
+func (s *Sandbox) pastaCommand(ctx context.Context, pasta string, r Run, rules []rule, resolverAt string, configNet bool) (*exec.Cmd, error) {
 	args := slices.Concat([]string{PastaCommand}, s.lifelineArgs(), []string{"--", pasta})
 	if configNet {
 		args = append(args, "--config-net")
@@ -151,7 +156,7 @@ func (s *Sandbox) pastaCommand(ctx context.Context, pasta string, r Run, resolve
 	args = append(args, "--quiet", "--no-map-gw", "-t", "none", "-u", "none", "-T", "none", "-U", "none",
 		"--dns-forward", ResolverAddress)
 	args = append(args, "--", s.bwrap)
-	args = append(args, s.args(r, resolverAt)...)
+	args = append(args, s.args(r, rules, resolverAt)...)
 	cmd := exec.CommandContext(ctx, s.self, args...)
 	if err := s.handLifeline(cmd); err != nil {
 		return nil, err

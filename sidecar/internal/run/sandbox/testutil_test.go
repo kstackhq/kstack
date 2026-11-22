@@ -79,3 +79,15 @@ const coverWarning = "warning: GOCOVERDIR not set, no coverage data emitted\n"
 func withoutCoverWarning(out []byte) string {
 	return strings.ReplaceAll(string(out), coverWarning, "")
 }
+
+// compiledRules is the rules p compiles to, unchecked.
+func compiledRules(t *testing.T, p Policy) []rule {
+	t.Helper()
+	return p.rules()
+}
+
+// checked is why r cannot start, or nil.
+func checked(r Run) error {
+	_, err := r.check()
+	return err
+}

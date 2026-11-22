@@ -245,7 +245,7 @@ func TestTheProbePassesARunsPastaFlags(t *testing.T) {
 	r := internetRun(t, s, "-c", "true")
 
 	run, _ := pastaArgs(t, command(t, s, t.Context(), r).Args)
-	probeCmd, err := s.pastaCommand(t.Context(), s.pasta, r, "", false)
+	probeCmd, err := s.pastaCommand(t.Context(), s.pasta, r, compiledRules(t, r.Policy), "", false)
 	require.NoError(t, err)
 	probe, _ := pastaArgs(t, probeCmd.Args)
 

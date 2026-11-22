@@ -75,19 +75,21 @@ type Run struct {
 	Policy Policy
 }
 
-// check is why r cannot start: its policy's Check, or a variable in its
-// environment that NeverEnv names and that is not a mount's placeholder. Both
-// platforms' Command call it, so no caller passes one by hand.
-func (r Run) check() error {
-	if err := r.Policy.Check(); err != nil {
-		return err
+// check is the rules r's policy compiles to, or why r cannot start: its
+// policy's Check, or a variable in its environment that NeverEnv names and
+// that is not a mount's placeholder. Both platforms' Command call it, so no
+// caller passes one by hand.
+func (r Run) check() ([]rule, error) {
+	rules, err := r.Policy.compile()
+	if err != nil {
+		return nil, err
 	}
 	for _, kv := range r.Env {
 		if name, value, _ := strings.Cut(kv, "="); Unpassable(name) && !r.placeholder(name, value) {
-			return fmt.Errorf("%s may not pass into a sandboxed run", name)
+			return nil, fmt.Errorf("%s may not pass into a sandboxed run", name)
 		}
 	}
-	return nil
+	return rules, nil
 }
 
 // Status is whether this machine has a sandbox for commands to run through,

@@ -182,17 +182,13 @@ func exists(path string) bool {
 // The caller sets its output and Cancel, and starts it; exec refuses a Cancel
 // on a command made without ctx.
 func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
-	if err := r.check(); err != nil {
+	rules, err := r.check()
+	if err != nil {
 		return nil, err
 	}
 	p := r.Policy
-	for _, path := range slices.Concat(p.Files.Read, p.Files.Write, p.Files.Deny, p.Always.Read, p.Always.Write) {
-		if overFixedMount(resolved(path)) {
-			return nil, fmt.Errorf("a rule on %s would replace a mount every run has", path)
-		}
-	}
 	if !p.Network.Internet {
-		cmd := exec.CommandContext(ctx, s.bwrap, s.args(r, "")...)
+		cmd := exec.CommandContext(ctx, s.bwrap, s.args(r, rules, "")...)
 		if err := s.handLifeline(cmd); err != nil {
 			return nil, err
 		}
@@ -210,7 +206,7 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd, err := s.pastaCommand(ctx, s.pasta, r, at, true)
+	cmd, err := s.pastaCommand(ctx, s.pasta, r, rules, at, true)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +218,7 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 // earlier one: the namespaces; a rule on / itself, then the fixed mounts over
 // it; the policy's other rules; r's resolver at resolverAt, unless that is "";
 // then the closing remounts and the chain.
-func (s *Sandbox) args(r Run, resolverAt string) []string {
+func (s *Sandbox) args(r Run, rules []rule, resolverAt string) []string {
 	// A run with the internet is in pasta's network namespace, where bwrap
 	// starts as uid 0 holding every capability: it makes a user namespace of
 	// its own, runs the command as the user, and drops them all.
@@ -235,7 +231,6 @@ func (s *Sandbox) args(r Run, resolverAt string) []string {
 		"--die-with-parent", "--new-session", "--as-pid-1",
 	)
 	// Rules sort shallowest first, so any rule on / leads.
-	rules := r.Policy.rules()
 	var m mounter
 	for len(rules) > 0 && rules[0].at == "/" {
 		m.mount(rules[0])

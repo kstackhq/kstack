@@ -43,7 +43,7 @@ func TestARunsCheckRefusesAnUnpassableVariable(t *testing.T) {
 		"LD_PRELOAD=/x.so", "AWS_SESSION_TOKEN=t", "AZURE_STORAGE_KEY=k", "ARM_CLIENT_SECRET=s", "MSI_SECRET=s",
 	} {
 		r := Run{Env: []string{"PATH=/usr/bin", kv}}
-		assert.ErrorContains(t, r.check(), "may not pass", kv)
+		assert.ErrorContains(t, checked(r), "may not pass", kv)
 	}
-	assert.NoError(t, Run{Env: []string{"PATH=/usr/bin", "HOME=/w", "AZURE_CONFIG_DIR=/t/azure"}}.check())
+	assert.NoError(t, checked(Run{Env: []string{"PATH=/usr/bin", "HOME=/w", "AZURE_CONFIG_DIR=/t/azure"}}))
 }

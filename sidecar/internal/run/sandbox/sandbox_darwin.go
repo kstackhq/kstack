@@ -132,11 +132,12 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	done := make(chan built, 1)
 	build := buildProfile
 	go func() {
-		if err := r.check(); err != nil {
+		rules, err := r.check()
+		if err != nil {
 			done <- built{err: err}
 			return
 		}
-		text, params := build(s, r)
+		text, params := build(s, r, rules)
 		done <- built{text: text, params: params}
 	}()
 	var b built
@@ -265,14 +266,14 @@ const relayRules = `(allow network-bind network-inbound (local tcp4 "localhost:%
 `
 
 // profile is r's Seatbelt profile and the -D arguments it reads. Every path
-// is resolved, since Seatbelt checks a file's real path, and is a parameter,
+// is canonical, since Seatbelt checks a file's real path, and is a parameter,
 // since a path can hold what the text would read as code. A Read rule carries
 // its refusal to write, so it decides a tie with a Write rule the way a
 // read-only mount does.
-func (s *Sandbox) profile(r Run) (text string, params []string) {
+func (s *Sandbox) profile(r Run, compiled []rule) (text string, params []string) {
 	var rules strings.Builder
 	var reached []string
-	for i, ru := range r.Policy.rules() {
+	for i, ru := range compiled {
 		name := "RULE_" + strconv.Itoa(i)
 		params = append(params, "-D", name+"="+ru.at)
 		switch ru.kind {

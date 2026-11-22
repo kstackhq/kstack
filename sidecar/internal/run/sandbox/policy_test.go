@@ -99,7 +99,7 @@ func TestADenyIsCompiledOnlyWhereAReadOrWriteReachesIt(t *testing.T) {
 	}
 
 	var denied []string
-	for _, r := range p.rules() {
+	for _, r := range compiledRules(t, p) {
 		if r.kind == ruleDeny {
 			denied = append(denied, r.at)
 		}

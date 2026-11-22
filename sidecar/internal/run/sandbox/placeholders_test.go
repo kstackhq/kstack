@@ -82,7 +82,7 @@ func awsRun(t *testing.T, extra ...string) Run {
 // another port, another region or a file elsewhere does not, whoever put it
 // there, and no other AWS name passes at all.
 func TestOnlyAPlaceholderPassesTheCheck(t *testing.T) {
-	assert.NoError(t, awsRun(t).check())
+	assert.NoError(t, checked(awsRun(t)))
 	for _, kv := range []string{
 		"AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
 		"AWS_ACCESS_KEY_ID=" + AWSKeyIDPrefix + "ABAB",
@@ -101,7 +101,7 @@ func TestOnlyAPlaceholderPassesTheCheck(t *testing.T) {
 		"AWS_CONTAINER_CREDENTIALS_FULL_URI=http://169.254.170.2/x",
 		"AWS_ENDPOINT_URL_S3=http://127.0.0.1:4100",
 	} {
-		assert.ErrorContains(t, awsRun(t, kv).check(), "may not pass", kv)
+		assert.ErrorContains(t, checked(awsRun(t, kv)), "may not pass", kv)
 	}
 }
 

@@ -98,9 +98,23 @@ func (l Limits) check() error {
 	return nil
 }
 
-// Check is why p cannot be enforced as written, or nil. Paths are compared
-// resolved, since both sandboxes check a file at its real location.
+// Check is why p cannot be enforced as written, or nil.
 func (p Policy) Check() error {
+	_, err := p.compile()
+	return err
+}
+
+// compile is p's rules, or why p cannot be enforced as written.
+func (p Policy) compile() ([]rule, error) {
+	if err := p.check(); err != nil {
+		return nil, err
+	}
+	return p.rules(), nil
+}
+
+// check is why p cannot be enforced as written, or nil. Paths are compared
+// resolved, since both sandboxes check a file at its real location.
+func (p Policy) check() error {
 	for _, path := range p.paths() {
 		if !filepath.IsAbs(path) {
 			return fmt.Errorf("%s is not an absolute path", path)
@@ -119,9 +133,15 @@ func (p Policy) Check() error {
 	}
 	kstack, denied := resolvedAll(p.Always.Kstack), resolvedAll(p.Always.Deny)
 	always := slices.Concat(denied, kstack)
-	for _, path := range slices.Concat(p.Files.Read, p.Files.Write, p.Files.Deny) {
+	files := slices.Concat(p.Files.Read, p.Files.Write, p.Files.Deny)
+	for _, path := range files {
 		if inAny(resolved(path), always) {
 			return fmt.Errorf("%s lies on or inside a path no rule opens", path)
+		}
+	}
+	for _, path := range slices.Concat(files, p.Always.Read, p.Always.Write) {
+		if overFixedMount(resolved(path)) {
+			return fmt.Errorf("a rule on %s would replace a mount every run has", path)
 		}
 	}
 	if p.Network.Resolver != "" && !p.Network.Internet {

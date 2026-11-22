@@ -209,7 +209,7 @@ func TestARuleIsCompiledWhereItsLinkLeads(t *testing.T) {
 	}
 
 	var at []string
-	for _, r := range p.rules() {
+	for _, r := range compiledRules(t, p) {
 		at = append(at, r.at)
 	}
 

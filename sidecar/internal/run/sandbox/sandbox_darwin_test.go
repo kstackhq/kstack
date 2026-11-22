@@ -136,7 +136,7 @@ func TestTheProfileWritesNoPathIntoItsText(t *testing.T) {
 	odd := mkdirs(t, base, "data/we\"ird)\n(allow default)")[0]
 	r.Policy.Always.Write[0], r.Dir = odd, odd
 
-	text, args := s.profile(r)
+	text, args := s.profile(r, compiledRules(t, r.Policy))
 
 	assert.NotContains(t, text, base)
 	assert.NotContains(t, text, "(allow default)")
@@ -157,7 +157,7 @@ func TestTheProfileNamesWhatARunReads(t *testing.T) {
 	s := &Sandbox{self: "/bin/sh"}
 	r, base := profileRun(t, s)
 
-	text, args := s.profile(r)
+	text, args := s.profile(r, compiledRules(t, r.Policy))
 	params := paramsOf(t, args)
 
 	reads := []string{resolved("/bin/sh"), filepath.Join(base, "home", ".cargo"), filepath.Join(base, "tools", "bin")}
@@ -191,7 +191,7 @@ func TestAProfilePathIsResolved(t *testing.T) {
 	socket := filepath.Join(sockLink, "proxy.sock")
 	r.Policy.Network.Relays = []Relay{{Port: 4321, Socket: socket}}
 
-	text, args := s.profile(r)
+	text, args := s.profile(r, compiledRules(t, r.Policy))
 	params := paramsOf(t, args)
 
 	ruleNamed(t, text, params, writeRule, filepath.Join(base, "data", "chats", "c", "workspace"))
@@ -210,7 +210,7 @@ func TestTheProfileDeniesBetweenTheReadsAndTheRunsOwn(t *testing.T) {
 	brew := mkdirs(t, base, "tools/bin/var")[0]
 	r.Policy.Files.Deny = []string{brew}
 
-	text, args := s.profile(r)
+	text, args := s.profile(r, compiledRules(t, r.Policy))
 	params := paramsOf(t, args)
 
 	cargo := filepath.Join(base, "home", ".cargo")
@@ -243,7 +243,7 @@ func TestTheProfileKeepsARunsOwnRootsInPlace(t *testing.T) {
 	extra := mkdirs(t, base, "extra")[0]
 	r.Policy.Files.Write = append(r.Policy.Files.Write, extra)
 
-	text, args := s.profile(r)
+	text, args := s.profile(r, compiledRules(t, r.Policy))
 	params := paramsOf(t, args)
 
 	deny := `(deny file-write-unlink file-write-create (literal (param "%s")))`
@@ -262,7 +262,7 @@ func TestTheProfileDeniesALinkedCredentialPathUnderARoot(t *testing.T) {
 	r, base := profileRun(t, s)
 	require.NoError(t, os.Symlink("/usr/share", filepath.Join(base, "home", ".aws")))
 
-	text, args := s.profile(r)
+	text, args := s.profile(r, compiledRules(t, r.Policy))
 
 	ruleNamed(t, text, paramsOf(t, args), denyRule, "/usr/share")
 }
@@ -274,7 +274,7 @@ func TestTheProfileLetsEveryAncestorBeStattedAfterTheDenials(t *testing.T) {
 	s := &Sandbox{self: "/bin/sh"}
 	r, base := profileRun(t, s)
 
-	text, args := s.profile(r)
+	text, args := s.profile(r, compiledRules(t, r.Policy))
 	params := paramsOf(t, args)
 
 	lastDenial := strings.LastIndex(text, "(deny file-read* file-write*")
@@ -293,12 +293,12 @@ func TestOnlyARunWithASocketHasNetwork(t *testing.T) {
 	s := &Sandbox{self: "/bin/sh"}
 	r, _ := profileRun(t, s)
 
-	text, args := s.profile(r)
+	text, args := s.profile(r, compiledRules(t, r.Policy))
 	assert.NotContains(t, text, "network")
 	assert.NotContains(t, paramsOf(t, args), "SOCKET")
 
 	r.Policy.Network.Relays = []Relay{{Port: 4321, Socket: filepath.Join(r.Policy.Always.Read[0], "proxy.sock")}}
-	text, _ = s.profile(r)
+	text, _ = s.profile(r, compiledRules(t, r.Policy))
 	assert.Contains(t, text, `(allow network-bind network-inbound (local tcp4 "localhost:4321"))`)
 	assert.Contains(t, text, `(remote tcp4 "localhost:4321")`)
 	assert.Contains(t, text, `(remote unix-socket (path-literal (param "SOCKET")))`)
@@ -448,7 +448,7 @@ func TestTheCommandIsSandboxExecOverTheProfile(t *testing.T) {
 
 	cmd := command(t, s, t.Context(), r)
 
-	text, params := s.profile(r)
+	text, params := s.profile(r, compiledRules(t, r.Policy))
 	assert.Equal(t, "/usr/bin/sandbox-exec", cmd.Path)
 	assert.Equal(t, slices.Concat([]string{"/usr/bin/sandbox-exec", "-p", text}, params,
 		[]string{"/bin/kstack-sidecar", InitCommand, "--", "/bin/kstack-sidecar", ShellCommand, "--", "/bin/sh", "-c", "exit 0"}), cmd.Args)
@@ -501,7 +501,7 @@ func TestAMemoryLimitIsRefused(t *testing.T) {
 // does, holds the command only until its context ends.
 func TestACommandWhoseProfileHangsIsRefusedWhenItsContextEnds(t *testing.T) {
 	release := make(chan struct{})
-	buildProfile = func(*Sandbox, Run) (string, []string) { <-release; return "", nil }
+	buildProfile = func(*Sandbox, Run, []rule) (string, []string) { <-release; return "", nil }
 	t.Cleanup(func() { close(release); buildProfile = (*Sandbox).profile })
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -1224,7 +1224,7 @@ func TestAnotherProcessesLaunchStringsAreRefused(t *testing.T) {
 var setuidPrograms = []string{"/usr/bin/sudo", "/usr/bin/su", "/usr/bin/login", "/usr/libexec/security_authtrampoline"}
 
 func TestTheProfileRefusesSetuidPrograms(t *testing.T) {
-	text, _ := (&Sandbox{self: "/bin/kstack-sidecar"}).profile(Run{})
+	text, _ := (&Sandbox{self: "/bin/kstack-sidecar"}).profile(Run{}, nil)
 	allow, deny := strings.Index(text, "(allow process-exec)\n"), strings.Index(text, "(deny process-exec\n")
 	require.NotEqual(t, -1, deny, text)
 	assert.Less(t, allow, deny)
@@ -1484,7 +1484,7 @@ func TestTheCompiledProfileMatchesTheGolden(t *testing.T) {
 		"cluster": f.run(s, true), "no-cluster": f.run(s, false), "internet": f.withInternet(s, f.run(s, true)),
 	} {
 		t.Run(name, func(t *testing.T) {
-			text, args := s.profile(r)
+			text, args := s.profile(r, compiledRules(t, r.Policy))
 			f.golden(t, "profile_darwin_"+name+".golden", f.inlined(t, text, args))
 		})
 	}
