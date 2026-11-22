@@ -12,12 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { Connector } from '@/lib/connectors';
 import type { ProviderCredentialState, SaveKeyResult } from '@/lib/provider-credentials';
 import { expectCodeText, mockTauriCore } from '@/test-utils';
+
+const { connectors } = vi.hoisted(() => ({ connectors: { current: [] as Connector[], loaded: true } }));
+vi.mock('@/lib/connectors', () => ({
+  AWS_ID: 'aws',
+  useConnectors: () => ({ connectors: connectors.current, loaded: connectors.loaded }),
+}));
 
 const { factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
@@ -26,6 +33,11 @@ const { SelectSettingsTab } = await import('@/lib/settings-tab');
 const { ProviderSetupForm } = await import('./provider-setup-form');
 
 const KEY = 'sk-typed-0123456789abcdef';
+
+beforeEach(() => {
+  connectors.current = [];
+  connectors.loaded = true;
+});
 
 function credential(c: Partial<ProviderCredentialState> = {}): ProviderCredentialState {
   return {
@@ -50,13 +62,49 @@ describe('ProviderSetupForm', () => {
     expect(screen.getByRole('radio', { name: 'AWS connector' })).toHaveAccessibleDescription(
       'Sign in through an AWS connector.',
     );
-    expect(screen.getByRole('combobox', { name: 'Connector' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Connector' })).toBeNull();
+    expect(screen.getByText('No connected AWS connector.')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Region' })).toHaveTextContent('us-east-1');
 
     await user.click(screen.getByRole('radio', { name: 'Access key' }));
 
     expect(screen.getByRole('radio', { name: 'Access key' })).toBeChecked();
     expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  it('offers only connected AWS connectors, spelling unsafe characters in the option', async () => {
+    const user = userEvent.setup();
+    connectors.current = [
+      { id: 'aws', name: 'AWS', detail: 'arn:aws:iam::123:user/\u202ebob', connected: true },
+      { id: 'aws-other', name: 'Other AWS', detail: 'other', connected: true },
+      { id: 'github', name: 'GitHub', detail: 'github', connected: true },
+      { id: 'aws', name: 'AWS', detail: 'signed out', connected: false },
+    ];
+    render(<ProviderSetupForm sources={['aws-connector']} onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('combobox', { name: 'Connector' }));
+    const options = screen.getAllByRole('option');
+    expect(options).toHaveLength(1);
+    expect(within(options[0]).getByText(/arn:aws:iam::123/)).toBeInTheDocument();
+    expect(options[0].querySelector('mark')).toBeInTheDocument();
+    expect(screen.queryByText('Example connector')).toBeNull();
+  });
+
+  it('points to Connectors when no AWS connector is connected, but not before loading', async () => {
+    const user = userEvent.setup();
+    const selectTab = vi.fn();
+    connectors.loaded = false;
+    render(
+      <SelectSettingsTab value={selectTab}>
+        <ProviderSetupForm sources={['aws-connector', 'environment']} onClose={vi.fn()} />
+      </SelectSettingsTab>,
+    );
+    expect(screen.queryByText('No connected AWS connector.')).toBeNull();
+    await user.click(screen.getByRole('radio', { name: 'Environment variable' }));
+    connectors.loaded = true;
+    await user.click(screen.getByRole('radio', { name: 'AWS connector' }));
+    await user.click(screen.getByRole('button', { name: 'Open Connectors' }));
+    expect(selectTab).toHaveBeenCalledExactlyOnceWith('Connectors');
   });
 
   it('marks each source that awaits its design as coming soon', () => {

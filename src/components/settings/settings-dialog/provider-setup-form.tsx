@@ -25,6 +25,7 @@ import { useId, useState } from 'react';
 
 import { Input } from '@/components/primitives/text-entry';
 import { VisibleText } from '@/components/primitives/visible-text';
+import { AWS_ID, useConnectors } from '@/lib/connectors';
 import type { ProviderCredentialState, ProviderCredentialSource, SaveKeyResult } from '@/lib/provider-credentials';
 import { useSelectSettingsTab } from '@/lib/settings-tab';
 
@@ -68,9 +69,6 @@ const SAVE_FAILURES: Record<Exclude<SaveKeyResult, 'saved'>, string> = {
   'not-saved': "Your system's password store refused the key. Nothing was saved.",
   failed: 'Kstack could not save the key.',
 };
-
-// Placeholder: awaits connectors.
-const CONNECTORS = ['Example connector'];
 
 // Placeholder: awaits the Bedrock provider's region list.
 const REGIONS = ['us-east-1', 'us-east-2', 'us-west-2', 'eu-central-1', 'eu-west-1', 'ap-northeast-1'];
@@ -264,15 +262,40 @@ function ApiKeyForm({
 }
 
 function AwsConnectorFields() {
+  const { connectors, loaded } = useConnectors();
+  const selectTab = useSelectSettingsTab();
+  const aws = loaded ? connectors.filter((c) => c.id === AWS_ID && c.connected) : [];
   return (
-    <div className="flex gap-3">
-      <PickField label="Connector" options={CONNECTORS} />
-      <PickField label="Region" options={REGIONS} initial={REGIONS[0]} />
-    </div>
+    <>
+      <div className="flex gap-3">
+        {aws.length > 0 && <PickField label="Connector" options={aws.map((c) => ({ value: c.id, label: c.detail }))} />}
+        <PickField
+          label="Region"
+          options={REGIONS.map((region) => ({ value: region, label: region }))}
+          initial={REGIONS[0]}
+        />
+      </div>
+      {loaded && aws.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No connected AWS connector.{' '}
+          <Button type="button" variant="link" size="sm" onClick={() => selectTab('Connectors')}>
+            Open Connectors
+          </Button>
+        </p>
+      )}
+    </>
   );
 }
 
-function PickField({ label, options, initial }: { label: string; options: string[]; initial?: string }) {
+function PickField({
+  label,
+  options,
+  initial,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  initial?: string;
+}) {
   const id = useId();
   return (
     <Field className="flex-1">
@@ -283,8 +306,8 @@ function PickField({ label, options, initial }: { label: string; options: string
         </SelectTrigger>
         <SelectContent alignItemWithTrigger={false}>
           {options.map((o) => (
-            <SelectItem key={o} value={o}>
-              {o}
+            <SelectItem key={o.value} value={o.value}>
+              <VisibleText text={o.label} />
             </SelectItem>
           ))}
         </SelectContent>

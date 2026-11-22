@@ -28,6 +28,12 @@ vi.mock('@/lib/models', async (importOriginal) => ({
   useModels: () => catalog.current,
 }));
 vi.mock('@/lib/provider-credentials', () => ({ useProviderCredentials: () => keys.current }));
+vi.mock('@/lib/connectors', () => ({
+  AWS_ID: 'aws',
+  GOOGLE_ID: 'google',
+  OPENROUTER_ID: 'openrouter',
+  useConnectors: () => ({ connectors: [], loaded: true }),
+}));
 
 const { SelectSettingsTab } = await import('@/lib/settings-tab');
 const { keyFailureText, ProvidersSettings } = await import('./providers');
