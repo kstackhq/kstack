@@ -170,6 +170,7 @@ func TestAKeyedRowListsItsModelsWhileItHasACredential(t *testing.T) {
 		return len(p.Catalog) > 0
 	}
 	assert.False(t, listed(), "no credential, no model")
+	awaitRestored(t, rt)
 	require.NoError(t, rt.ProviderCredentials.Save("groq", "gsk-saved-0123456789abcdef"))
 	for !listed() {
 		testutil.Recv(t, frames, "groq's models")
@@ -187,6 +188,7 @@ func TestOpenRouterFallsBackAfterADisconnect(t *testing.T) {
 	rt, err := build(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouter.ID: envKey}}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, rt.Close()) })
+	awaitRestored(t, rt)
 	require.NoError(t, rt.OpenRouter.Disconnect(), "the environment key no longer refuses it")
 
 	p, ok := rt.LLM.Provider(openrouter.ID)
