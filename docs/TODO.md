@@ -685,6 +685,15 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 ## Frontend (webview)
 
+- **`AppLogo` has no user.** No component renders `src/components/primitives/app-logo.tsx`,
+  and `design/components.json` still maps it to its Figma component. Decide whether the shell shows the logo again; if not, delete the file and its
+  manifest entry, and retire the Figma component.
+
+- **`PageHeader` is only a note.** `src/components/dashboard/page-header.tsx` draws one muted
+  paragraph, much as `Note` in `src/routes/dashboard.tsx` does. Decide whether the design keeps it
+  as its own component; if not, fold the two into one and update its `design/components.json`
+  entry.
+
 - **The dashboard tables' scrollbar ignores macOS's setting.** The tables draw a custom bar
   that always shows (`table-scrollbar`, `index.css`), since WebKit draws the rows' separators
   over its overlay bar. Moving the separators onto the cells (`border-separate`) did not stop
