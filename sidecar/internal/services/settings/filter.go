@@ -38,23 +38,16 @@ type zones struct {
 
 func resolveZones(z Zones) zones {
 	rz := zones{
-		never:   canonical(z.Never),
+		never:   sandbox.Canonical(z.Never),
 		broad:   sandbox.Broad(z.Home),
-		read:    canonical(z.Open.Read),
-		deny:    canonical(z.Open.Deny),
-		noWrite: canonical(z.NoWrite),
+		read:    sandbox.Canonical(z.Open.Read),
+		deny:    sandbox.Canonical(z.Open.Deny),
+		noWrite: sandbox.Canonical(z.NoWrite),
 	}
 	if z.Home != "" {
-		rz.home = canonical([]string{z.Home})[0]
+		rz.home = sandbox.Canonical([]string{z.Home})[0]
 	}
 	return rz
-}
-
-// canonical is each of paths with its links followed and then spelled as the
-// disk spells it, so two names of one folder compare equal by text: a path
-// through a link, and on a case-insensitive filesystem a path in another case.
-func canonical(paths []string) []string {
-	return sandbox.Spelled(sandbox.Resolved(paths))
 }
 
 // open reports whether target, resolved, is under a Read path and no Deny

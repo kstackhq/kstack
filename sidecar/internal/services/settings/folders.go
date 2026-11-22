@@ -153,7 +153,7 @@ func pathFolders(entries []PathEntry, loginPath []string) []string {
 	}
 	all = append(all, loginPath...)
 	all = slices.DeleteFunc(all, func(p string) bool { return !filepath.IsAbs(p) || strings.ContainsRune(p, 0) })
-	return canonical(all)
+	return sandbox.Canonical(all)
 }
 
 // snapshot is what the folder checks read: the zones as the zones function

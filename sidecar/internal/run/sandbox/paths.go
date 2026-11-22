@@ -62,6 +62,15 @@ func Resolved(paths []string) []string {
 	return resolvedAll(paths)
 }
 
+// Canonical is each of paths with its links followed and then spelled as the
+// disk spells it, so two names of one folder compare equal by text: a path
+// through a link, and on a case-insensitive filesystem a path in another case.
+// Following a link keeps the link's own capitalization, so resolving alone
+// does not settle the spelling.
+func Canonical(paths []string) []string {
+	return Spelled(resolvedAll(paths))
+}
+
 // Under reports whether p is one of dirs or lies under one, by their text
 // alone: both must already be resolved.
 func Under(p string, dirs []string) bool {

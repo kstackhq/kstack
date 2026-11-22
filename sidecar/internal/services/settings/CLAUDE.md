@@ -63,7 +63,7 @@ record](../../../../docs/security/2026-10-02-path-from-the-login-shell.md).
 **A folder grant is a rule checked against the zones** (`folders.go`): `permissions.Rule.Folder`,
 class 1 read or 2 read-write, matching no action. `CheckFolder` answers a `FolderRefusal`; the
 rules are in the function and `TestCheckFolderRefusesEachRule`. **Every path compared is
-canonical** (`canonical`, `filter.go`: links followed, each component spelled as its directory
+canonical** (`sandbox.Canonical`: links followed, each component spelled as its directory
 lists it), since the zones are compared by text and macOS opens `/Users/ME` as `/Users/me`. **The
 service holds the zones as a snapshot** taken by each `SyncPath`; checks re-resolve its paths but
 never re-run the zones function. Every disk read goes through `readWithin`, bounded by
