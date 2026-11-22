@@ -53,8 +53,9 @@ Cluster data streams as **Kubernetes-style delta watches**: an `Added` snapshot,
 Applies to every hand-written file — Go, Rust, TypeScript, Markdown. Not to generated output (`src/gql/`, `sidecar/graph/generated*`, lockfiles).
 
 1. **Code — simple, idiomatic, easy for a human to follow.** Prefer the boring construction. Match the idiom of the file you are in over the one you would pick on a blank page. Cleverness that needs a comment to survive review is usually the wrong trade.
-2. **Comments — terse, necessary, easy for a human to read.** Say what the code cannot: the *why*, the invariant, the trap that made this shape necessary. Never restate what the line already says. A comment justifying a choice the code no longer contains is dead weight — state the current design, don't argue against the alternatives you rejected (that is what `docs/adr/` is for).
-3. **Documentation — simple, concise, easy for a human to read.** Lead with what is true now. One idea per sentence.
+2. **Names — descriptive, idiomatic, consistent with the rest of the codebase,** signatures and schemas included. One concept, one name.
+3. **Comments — terse, necessary, easy for a human to read.** Say what the code cannot: the *why*, the invariant, the trap that made this shape necessary. Never restate what the line already says. A comment justifying a choice the code no longer contains is dead weight — state the current design, don't argue against the alternatives you rejected (that is what `docs/adr/` is for).
+4. **Documentation — simple, concise, easy for a human to read.** Lead with what is true now. One idea per sentence.
 
 Watch for comments addressed to a *reviewer* rather than a reader opening the file cold; the tell is a comment that spends its length on the option **not** taken.
 
