@@ -42,7 +42,7 @@ Two parts have guides of their own, loaded when a file in their folder is read: 
 
 ## Logging
 
-**Text on stderr always, plus JSON files** (`.json().flatten_event(true)`), rotated by size (`log_rotate.rs`), in `~/Library/Logs/Kstack{,-dev}` on macOS, `app_state_dir` on Linux, `<data>/logs` on Windows. **Not `app_log_dir`**: bundle id, no dev leaf. → [ADR: JSON logs rendered by the host](../docs/adr/2026-09-08-json-logs-rendered-by-the-host.md).
+**Text on stderr always, plus JSON files** (`.json().flatten_event(true)`), rotated by size (`log_rotate.rs`), in `~/Library/Logs/Kstack{,-dev}` on macOS, `<state>/logs` on Linux and Windows. **Not `app_log_dir`**: bundle id, no dev leaf. → [ADR: JSON logs rendered by the host](../docs/adr/2026-09-08-json-logs-rendered-by-the-host.md).
 
 **The subscriber is built in two steps**, since the log directory needs an `AppHandle`: `logging::process_subscriber` composes the registry, an empty `reload::Layer`, the `EnvFilter` and stderr, which `app.rs` installs; `logging::install_file_layer` swaps the file layer in.
 

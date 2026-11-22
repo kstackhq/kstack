@@ -65,7 +65,7 @@ Adding the mechanism is in [`TODO.md`](TODO.md), *Sidecar (Go)*.
 | `<data>` | `paths.rs` `app_data_dir`: `local_data_dir`/`<leaf>` | what a user would lose |
 | `<cache>` | `paths.rs` `app_cache_dir`: `cache_dir`/`<leaf>`; `<data>/cache` on Windows | the cluster and log caches |
 | `<config>` | `paths.rs` `app_config_dir`: `config_dir`/`<leaf>`; `<data>` on macOS | `host.json` |
-| `<state>` | `paths.rs` `app_state_dir`: `$XDG_STATE_HOME` (else `~/.local/state`)/`<leaf>` on Linux; `<data>` elsewhere | the window state, and the logs on Linux |
+| `<state>` | `paths.rs` `app_state_dir`: `$XDG_STATE_HOME` (else `~/.local/state`)/`<leaf>` on Linux; `<data>` elsewhere | the window state, and on Linux the logs, in `logs/` |
 | OS keyring | service `Kstack` | the Kstack account's, the ChatGPT plan's and the Google account's refresh tokens, the OpenRouter connector's key, the AWS connector's session, the saved provider API keys |
 | Webview storage | the webview's profile, keyed by bundle id | `localStorage` under `kstack:*` |
 
@@ -106,7 +106,7 @@ cluster no longer has.
 
 Kept on disk but never read back as a format, or not kept across a restart:
 
-- **Logs**: the host's and the sidecar's text logs, in `<state>` on Linux. Appended, never parsed.
+- **Logs**: the host's and the sidecar's text logs, in `<state>/logs` on Linux. Appended, never parsed.
 - **`<cache>/kubectl/`**: kubectl's own cache, in kubectl's format.
 - **`<cache>/tmp/`, `<runtime>/`**: a run's scratch, swept at start.
 - **`sessionStorage`** `kstack:history-forward-ceiling`, `kstack:chatgpt-plan-pending` (a sign-in

@@ -23,9 +23,9 @@ On Linux each folder takes a lowercase leaf, `kstack` or `kstack-dev`. macOS and
 `Kstack` and `Kstack-dev`.
 
 Linux gains a state folder, `$XDG_STATE_HOME/kstack` (when absolute, else `~/.local/state/kstack`).
-It holds the host's and the sidecar's logs and `window-state.json`. The host hands the sidecar the
-state folder (`--state-dir`), which fences the whole of it. On macOS and Windows state is the data
-folder, and the logs stay where they were.
+It holds `window-state.json`, and the host's and the sidecar's logs in a `logs` folder, as on
+Windows. The host hands the sidecar the state folder (`--state-dir`), which fences the whole of it.
+On macOS and Windows state is the data folder, and the logs stay where they were.
 
 Nothing moves what the old folders hold.
 

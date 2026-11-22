@@ -138,9 +138,9 @@ fn data_dir_for(roots: &Roots) -> PathBuf {
 }
 
 /// The app's state directory, created owner-only: what one machine keeps
-/// between runs and a user would not miss, the logs and the window frame.
-/// Linux keeps it under XDG's state root; macOS and Windows have none, so
-/// there it is the data directory.
+/// between runs and a user would not miss, the window frame and on Linux the
+/// logs. Linux keeps it under XDG's state root; macOS and Windows have none,
+/// so there it is the data directory.
 pub fn app_state_dir(roots: &Roots) -> Result<PathBuf> {
     let dir = state_dir_for(roots);
     ensure_data_dir(&dir)?;
@@ -253,25 +253,15 @@ pub fn app_cache_dir(roots: &Roots, data_dir: &Path) -> Result<PathBuf> {
 /// Where the log directory sits, given the two places it can hang off.
 ///
 /// macOS has a real convention and we follow it: `~/Library/Logs`, which is
-/// where a user is told to look and what Console.app lists. On Linux it is the
-/// state directory itself, where XDG puts logs. Windows has no log location, so
-/// there it is a leaf on the state directory, which is the data directory.
+/// where a user is told to look and what Console.app lists. Linux and Windows
+/// have none, so there it is a `logs` leaf on the state directory: XDG's state
+/// root on Linux, the data directory on Windows.
 fn log_dir_for(home: &Path, state_dir: &Path) -> PathBuf {
     if cfg!(target_os = "macos") {
         home.join("Library/Logs").join(APP_DIR_NAME)
-    } else if cfg!(target_os = "linux") {
-        state_dir.to_path_buf()
     } else {
         state_dir.join("logs")
     }
-}
-
-/// Creates the log directory owner-only. Split from [`log_dir`] so the mode is
-/// testable without an `AppHandle`.
-fn ensure_log_dir(home: &Path, state_dir: &Path) -> Result<PathBuf> {
-    let dir = log_dir_for(home, state_dir);
-    ensure_data_dir(&dir)?;
-    Ok(dir)
 }
 
 /// The app's log directory, created owner-only. `app.rs` asks once and hands
@@ -282,7 +272,9 @@ fn ensure_log_dir(home: &Path, state_dir: &Path) -> Result<PathBuf> {
 /// display name everything else here uses, and it has no debug variant, so a
 /// dev run would write into an installed release's logs.
 pub fn log_dir(roots: &Roots) -> Result<PathBuf> {
-    ensure_log_dir(&roots.home, &app_state_dir(roots)?)
+    let dir = log_dir_for(&roots.home, &app_state_dir(roots)?);
+    ensure_data_dir(&dir)?;
+    Ok(dir)
 }
 
 /// The directory for what lives for a session, owner-only: the IPC endpoint,
@@ -499,16 +491,14 @@ mod tests {
     fn log_dir_is_created_0700() {
         use std::os::unix::fs::PermissionsExt;
 
-        let base = std::env::temp_dir().join(format!("kstack-logdir-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
 
-        let dir = ensure_log_dir(&base, &base).expect("create");
+        let dir = log_dir(&roots).expect("create");
         assert_eq!(
             std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
             0o700
         );
-
-        std::fs::remove_dir_all(&base).unwrap();
     }
 
     /// The cache holds what Kstack rebuilds, so it is created owner-only like
@@ -618,11 +608,14 @@ mod tests {
     /// XDG puts logs in the state directory.
     #[cfg(target_os = "linux")]
     #[test]
-    fn linux_logs_in_the_state_dir() {
+    fn linux_logs_in_a_logs_leaf_on_the_state_dir() {
         let scratch = crate::testutil::Scratch::new();
         let roots = crate::testutil::roots(scratch.path());
 
-        assert_eq!(log_dir(&roots).unwrap(), app_state_dir(&roots).unwrap());
+        assert_eq!(
+            log_dir(&roots).unwrap(),
+            app_state_dir(&roots).unwrap().join("logs")
+        );
     }
 
     /// The endpoint's directory is the wall around the socket. `/tmp` is shared
