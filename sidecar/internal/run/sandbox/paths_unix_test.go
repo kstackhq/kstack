@@ -19,6 +19,8 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -50,12 +52,65 @@ func TestUnderComparesResolvedPaths(t *testing.T) {
 	assert.False(t, Under(base, denied))
 }
 
-func TestSpelledKeepsAPathUnderAFolderItCannotList(t *testing.T) {
-	base := resolved(t.TempDir())
-	svc := mkdirs(t, base, "locked/svc")[0]
+// unnameable is a path the kernel cannot name: one through a link to itself.
+func unnameable(t *testing.T) string {
+	t.Helper()
+	loop := filepath.Join(resolved(t.TempDir()), "loop")
+	require.NoError(t, os.Symlink(loop, loop))
+	return filepath.Join(loop, "svc")
+}
+
+func TestCanonicalFailsOnAPathThroughALinkToItself(t *testing.T) {
+	svc := unnameable(t)
+
+	_, err := canonical([]string{svc})
+	require.ErrorContains(t, err, svc)
+	assert.Equal(t, []string{svc}, Canonical([]string{svc}), "kept as given")
+}
+
+// The kernel names a path by searching its folders, so none need be listed.
+func TestCanonicalNamesAPathUnderAFolderItCannotList(t *testing.T) {
+	svc := mkdirs(t, resolved(t.TempDir()), "locked/svc")[0]
 	locked := filepath.Dir(svc)
 	require.NoError(t, os.Chmod(locked, 0o311))
 	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	missing := filepath.Join(locked, "missing", "x")
 
-	assert.Equal(t, []string{svc}, Spelled([]string{svc}))
+	got, err := canonical([]string{svc, missing})
+	require.NoError(t, err)
+	assert.Equal(t, []string{svc, missing}, got)
+}
+
+// A folder this user may not search hides what it holds from a run of theirs
+// too, so a path through it is kept as given.
+func TestCanonicalKeepsAPathItMayNotReach(t *testing.T) {
+	svc := mkdirs(t, resolved(t.TempDir()), "locked/svc")[0]
+	locked := filepath.Dir(svc)
+	require.NoError(t, os.Chmod(locked, 0o600))
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	if _, err := os.Stat(svc); err == nil {
+		t.Skip("this user searches a folder whatever its mode")
+	}
+
+	got, err := canonical([]string{svc})
+	require.NoError(t, err)
+	assert.Equal(t, []string{svc}, got)
+}
+
+// Nothing lies beneath a file, so a path through one is missing. Any other
+// failure leaves the path's name unknown.
+func TestCanonicalFailsOnAPathTheKernelCannotName(t *testing.T) {
+	base := resolved(t.TempDir())
+	file := filepath.Join(base, "file")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+
+	through := filepath.Join(file, "x")
+	got, err := canonical([]string{through})
+	require.NoError(t, err)
+	assert.Equal(t, []string{through}, got)
+
+	_, err = canonical([]string{filepath.Join(base, strings.Repeat("n", 300))})
+	require.ErrorIs(t, err, syscall.ENAMETOOLONG)
+	_, err = Canonical([]string{filepath.Join(base, "a\x00b")})
+	require.ErrorIs(t, err, syscall.EINVAL, "no file is named with a NUL")
 }

@@ -15,10 +15,13 @@
 package sandbox
 
 import (
-	"os"
+	"errors"
+	"fmt"
+	"io/fs"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 // resolvedAll is each of paths resolved. Comparisons between paths read
@@ -62,13 +65,30 @@ func Resolved(paths []string) []string {
 	return resolvedAll(paths)
 }
 
-// Canonical is each of paths with its links followed and then spelled as the
-// disk spells it, so two names of one folder compare equal by text: a path
-// through a link, and on a case-insensitive filesystem a path in another case.
-// Following a link keeps the link's own capitalization, so resolving alone
-// does not settle the spelling.
+// Canonical is each of paths as the kernel names it (kernelPath), so two names
+// of one folder compare equal by text: a path through a link, and on a
+// case-insensitive filesystem a path in another case. A path the kernel
+// cannot name is kept as given.
 func Canonical(paths []string) []string {
-	return Spelled(resolvedAll(paths))
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i], _ = kernelNamed(filepath.Clean(p))
+	}
+	return out
+}
+
+// canonical is Canonical, or the first error naming a path: the caller
+// refuses what it cannot compare.
+func canonical(paths []string) ([]string, error) {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		s, err := kernelNamed(filepath.Clean(p))
+		if err != nil {
+			return nil, err
+		}
+		out[i] = s
+	}
+	return out, nil
 }
 
 // Under reports whether p is one of dirs or lies under one, by their text
@@ -77,62 +97,29 @@ func Under(p string, dirs []string) bool {
 	return inAny(p, dirs)
 }
 
-// Spelled is each of paths as the disk spells it: every component replaced by
-// the name its directory lists for the same file, so on a case-insensitive
-// filesystem two spellings of one folder compare equal by text. Each path
-// should be resolved first. A component not found, or whose directory cannot
-// be listed, is kept as given with the rest of its path. It reads the disk,
-// each directory once.
+// Spelled is Canonical: the kernel's name for a path follows its links too.
 func Spelled(paths []string) []string {
-	listings := map[string][]os.DirEntry{}
-	out := make([]string, len(paths))
-	for i, p := range paths {
-		out[i] = spelled(p, listings)
-	}
-	return out
+	return Canonical(paths)
 }
 
-func spelled(p string, listings map[string][]os.DirEntry) string {
-	p = filepath.Clean(p)
-	vol := filepath.VolumeName(p)
-	parts := strings.Split(p[len(vol):], string(filepath.Separator))
-	dir := vol + string(filepath.Separator)
-	for i, name := range parts {
-		if name == "" {
-			continue
-		}
-		listed, ok := listedName(dir, name, listings)
-		if !ok {
-			return filepath.Join(append([]string{dir}, parts[i:]...)...)
-		}
-		dir = filepath.Join(dir, listed)
+// kernelNamed is p as the kernel names it. A path that is not there, or that this
+// user may not reach, which no run of theirs can either, is named through its
+// deepest folder that is, the rest kept as given.
+func kernelNamed(p string) (string, error) {
+	at, err := kernelPath(p)
+	// ENOTDIR is a path through a file, which holds nothing.
+	missing := errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.ENOTDIR)
+	switch {
+	case err == nil:
+		return at, nil
+	case !missing:
+		return p, fmt.Errorf("the path of %s on disk: %w", p, err)
 	}
-	return dir
-}
-
-// listedName is the name dir lists for the file name names in it.
-func listedName(dir, name string, listings map[string][]os.DirEntry) (string, bool) {
-	info, err := os.Lstat(filepath.Join(dir, name))
-	if err != nil {
-		return "", false
+	parent := filepath.Dir(p)
+	if parent == p { // coverage:ignore the root is always there
+		return p, nil
 	}
-	entries, ok := listings[dir]
-	if !ok {
-		entries, err = os.ReadDir(dir)
-		if err != nil {
-			return "", false
-		}
-		listings[dir] = entries
-	}
-	for _, e := range entries {
-		if e.Name() == name {
-			return name, true
-		}
-	}
-	for _, e := range entries {
-		if other, err := e.Info(); err == nil && os.SameFile(info, other) {
-			return e.Name(), true
-		}
-	}
-	return "", false // coverage:ignore the Lstat found the file, so its folder lists it; only a removal in between reaches this
+	// On an error dir is parent as given, so the join is p.
+	dir, err := kernelNamed(parent)
+	return filepath.Join(dir, filepath.Base(p)), err
 }
