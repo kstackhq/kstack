@@ -17,7 +17,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { stubLayout } from '@/test-utils';
 
-import { ROW_H, ROW_H_PX, TALL_ROW, VirtualTable } from './virtual-table';
+import { ROW_H, ROW_H_PX, TALL_ROW } from './row-size';
+import { VirtualTable } from './virtual-table';
 import type { VirtualColumn } from './virtual-table';
 
 // A viewport ten rows tall.

@@ -28,17 +28,7 @@ import type { ReactNode } from 'react';
 
 import type { SortValue } from '@/lib/sort-rows';
 
-// One fact, two forms. `ROW_H_PX` is the pinned row's rendered height — `TableRow` has
-// `border-b` under collapsed table borders, so it is read off a rendered row, not derived.
-export const ROW_H = 'h-9';
-export const ROW_H_PX = 36;
-
-// A row's height, as a class and in pixels.
-export type RowSize = { className: string; px: number };
-const ROW: RowSize = { className: ROW_H, px: ROW_H_PX };
-// A row of two lines, such as a name over its owner. A row's height is only a minimum, and
-// two lines under the library's cell padding would outgrow it, so its cells carry none.
-export const TALL_ROW: RowSize = { className: 'h-11 [&>td]:py-0', px: 44 };
+import { ROW, type RowSize } from './row-size';
 
 // Rows rendered beyond each edge of the viewport. Also covers the one frame between a
 // scroll correction below and the `scroll` event that recomputes the window from it.

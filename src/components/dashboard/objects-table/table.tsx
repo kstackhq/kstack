@@ -22,9 +22,10 @@ import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
 import { cn } from '@kubetail/ui/lib/utils';
 import { useEffect, useMemo, useState } from 'react';
 
+import { TALL_ROW } from '@/components/dashboard/row-size';
 import { HEALTH_TONE } from '@/components/dashboard/status-pill';
 import type { StatusTone } from '@/components/dashboard/status-pill';
-import { TALL_ROW, VirtualTable } from '@/components/dashboard/virtual-table';
+import { VirtualTable } from '@/components/dashboard/virtual-table';
 import type { TableSort, VirtualColumn } from '@/components/dashboard/virtual-table';
 import { SearchBox } from '@/components/primitives/text-entry';
 import { VisibleText } from '@/components/primitives/visible-text';
