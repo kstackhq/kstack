@@ -43,6 +43,7 @@ in the shell's order, with `Dir`, `Target`, `State` (`adopted`, `pending`, `gone
 (`shell`/`user`) and `Shared`. A state holds for `Target` alone. `filterPath` (`filter.go`) drops
 what `sandbox.SearchFolder` refuses, `node_modules` and duplicates, and marks `Shared` a folder
 writable by a non-administrators' group.
+`sandbox.pathShell` and `sandbox.pathImportedAt` persist the last imported shell and time; failed refreshes keep both.
 
 **`Service` (`service.go`) is the store plus the sync**, over `Zones` (`Never`, `Open`, `Home`),
 the refresh's resolver and the launch's fault; on a machine with no sandbox it syncs nothing and

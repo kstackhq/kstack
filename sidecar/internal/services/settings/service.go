@@ -46,7 +46,7 @@ type Service struct {
 	*Store
 	// zones and resolve are nil on a machine with no sandbox.
 	zones   func() Zones
-	resolve func(context.Context) ([]string, error)
+	resolve func(context.Context) (PathImport, error)
 
 	// pathMu serializes the list's writes, and guards fault.
 	pathMu sync.Mutex
@@ -71,7 +71,7 @@ const SyncTimeout = 5 * time.Second
 // NewService is the store with the list's sync. zones is read at each sync;
 // resolve runs the login shell for a refresh; fault is why the launch's
 // resolution failed, "" when it answered.
-func NewService(store *Store, zones func() Zones, resolve func(context.Context) ([]string, error), fault string) *Service {
+func NewService(store *Store, zones func() Zones, resolve func(context.Context) (PathImport, error), fault string) *Service {
 	return &Service{Store: store, zones: zones, resolve: resolve, fault: fault, syncTimeout: SyncTimeout, checkFolder: checkFolder}
 }
 
@@ -111,7 +111,7 @@ type pathView struct {
 // whether the list it wrote differs from the one it read. The disk is read on
 // a goroutine abandoned when ctx ends or syncTimeout passes, since a stat on
 // a dead network mount does not return; one that ends first changes nothing.
-func (s *Service) SyncPath(ctx context.Context, resolved []string) (changed bool, err error) {
+func (s *Service) SyncPath(ctx context.Context, resolved []string, shell ...string) (changed bool, err error) {
 	if s.zones == nil {
 		return false, ErrNoSandbox
 	}
@@ -144,9 +144,13 @@ func (s *Service) SyncPath(ctx context.Context, resolved []string) (changed bool
 		before = st.Sandbox.Path
 		st.Sandbox.Path = diffPath(st.Sandbox.Path, v.fresh, held || st.Sandbox.PathStrict)
 		st.Sandbox.PathResolved, st.Sandbox.PathStrict = true, false
+		if len(shell) > 0 && shell[0] != "" {
+			st.Sandbox.PathShell = filepath.Base(shell[0])
+			st.Sandbox.PathImportedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		}
 		after = st.Sandbox.Path
 		return nil
-	}, FieldPath, FieldPathResolved, FieldPathStrict)
+	}, FieldPath, FieldPathResolved, FieldPathStrict, FieldPathShell, FieldPathImportedAt)
 	if err != nil {
 		return false, err
 	}
@@ -159,6 +163,11 @@ func (s *Service) SyncPath(ctx context.Context, resolved []string) (changed bool
 // RefreshPath is Refresh PATH: the login shell run again, then a sync. A
 // resolution that fails changes nothing and answers its reason. It answers
 // the whole list.
+type PathImport struct {
+	Path  []string
+	Shell string
+}
+
 func (s *Service) RefreshPath(ctx context.Context) ([]PathEntry, error) {
 	if s.resolve == nil {
 		return nil, ErrNoSandbox
@@ -174,7 +183,7 @@ func (s *Service) RefreshPath(ctx context.Context) ([]PathEntry, error) {
 	if err != nil {
 		return nil, PathRefusal("Your shell did not answer: " + err.Error() + ".")
 	}
-	if _, err := s.SyncPath(ctx, path); err != nil {
+	if _, err := s.SyncPath(ctx, path.Path, path.Shell); err != nil {
 		return nil, err
 	}
 	return s.Get().Sandbox.Path, nil

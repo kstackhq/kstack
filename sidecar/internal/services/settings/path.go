@@ -22,9 +22,11 @@ import (
 // The keys of the sandbox group's fields, each of which answers its strictest
 // state while the store holds it.
 const (
-	FieldPath         = "sandbox.path"
-	FieldPathResolved = "sandbox.pathResolved"
-	FieldPathStrict   = "sandbox.pathStrict"
+	FieldPath           = "sandbox.path"
+	FieldPathResolved   = "sandbox.pathResolved"
+	FieldPathStrict     = "sandbox.pathStrict"
+	FieldPathShell      = "sandbox.pathShell"
+	FieldPathImportedAt = "sandbox.pathImportedAt"
 )
 
 // PathEntry is one folder of the user's PATH and what the sandbox does with

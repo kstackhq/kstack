@@ -37,6 +37,8 @@ const SandboxPathDocument = graphql(`
     }
     sandboxPathFault
     sandboxPathResolved
+    sandboxPathShell
+    sandboxPathImportedAt
   }
 `);
 
@@ -73,6 +75,8 @@ export type SandboxPath = {
   fault: string | null | undefined;
   /** Whether a sync has read the shell: until one has, commands search the default PATH. */
   resolved: boolean | undefined;
+  shell: string | null | undefined;
+  importedAt: string | null | undefined;
   /** The dirs whose Include or Remove is in flight. */
   changing: ReadonlySet<string>;
   refreshing: boolean;
@@ -139,6 +143,8 @@ export function useSandboxPath(): SandboxPath {
     entries: data?.sandboxPath,
     fault: data?.sandboxPathFault,
     resolved: data?.sandboxPathResolved,
+    shell: data?.sandboxPathShell,
+    importedAt: data?.sandboxPathImportedAt,
     changing,
     refreshing,
     changeError,

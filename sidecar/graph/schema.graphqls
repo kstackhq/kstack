@@ -2401,6 +2401,12 @@ type Query {
   "Whether a sync has ever read the login shell's PATH. Until one has, sandboxed commands search the platform's default folders; after it, the list alone, so an empty one searches nothing. False on a machine with no sandbox."
   sandboxPathResolved: Boolean!
 
+  "The shell that last supplied the frozen PATH, if known."
+  sandboxPathShell: String
+
+  "When that shell's PATH was last imported, if known."
+  sandboxPathImportedAt: Time
+
   "Every executable the sandbox probe checks, the curated ones then the user's, as the last probe found each. Empty on a machine with no sandbox."
   sandboxExecutables: [SandboxExecutable!]!
 

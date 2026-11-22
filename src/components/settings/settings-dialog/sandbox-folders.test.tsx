@@ -65,6 +65,8 @@ function pathOf(over: Partial<SandboxPath> = {}): SandboxPath {
     entries: [],
     fault: null,
     resolved: true,
+    shell: null,
+    importedAt: null,
     changing: new Set(),
     refreshing: false,
     changeError: null,

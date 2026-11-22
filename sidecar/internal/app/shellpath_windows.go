@@ -14,10 +14,13 @@
 
 package app
 
-import "context"
+import (
+	"context"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
+)
 
 // shellPathResolver is nil: Windows has no sandbox, so no PATH is resolved
 // for one.
-func shellPathResolver(sandboxer, string, []string, string) func(context.Context) ([]string, error) {
+func shellPathResolver(sandboxer, string, []string, string) func(context.Context) (settings.PathImport, error) {
 	return nil
 }

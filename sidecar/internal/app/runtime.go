@@ -333,7 +333,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		rt.add("PATH sync", lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
 			// Only when the list moved, so nothing runs unasked on a machine
 			// whose tools did not; the executable probe part's Close ends it.
-			if syncPath(ctx, rt.Settings, login.path) {
+			if syncPath(ctx, rt.Settings, login.path, login.shell) {
 				shell.StartProbe(rt.Settings.Get().Executables)
 			}
 			return func(context.Context) error { return nil }, nil

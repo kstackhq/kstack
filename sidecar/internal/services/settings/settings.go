@@ -32,7 +32,9 @@ type Settings struct {
 // SandboxSettings is the sandbox group: the user's PATH as a sandboxed run
 // searches it, and what else a run may reach.
 type SandboxSettings struct {
-	Path []PathEntry `json:"path,omitempty"` // the user's PATH, frozen, in the shell's order
+	Path           []PathEntry `json:"path,omitempty"`           // the user's PATH, frozen, in the shell's order
+	PathShell      string      `json:"pathShell,omitempty"`      // the shell that last supplied PATH
+	PathImportedAt string      `json:"pathImportedAt,omitempty"` // RFC3339 time of the last sync
 	// PathResolved is set by the first sync: before it a run searches the
 	// platform's default PATH, after it the list alone.
 	PathResolved bool `json:"pathResolved,omitempty"`

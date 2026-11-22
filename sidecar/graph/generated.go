@@ -829,33 +829,35 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		AWSConnection        func(childComplexity int) int
-		AuthState            func(childComplexity int) int
-		ChatGPTConnection    func(childComplexity int) int
-		ChatGrants           func(childComplexity int, chatID apimeta.ChatID) int
-		Cluster              func(childComplexity int, id apimeta.ClusterID) int
-		ClusterCache         func(childComplexity int, id apimeta.ObjectID) int
-		ClusterCachedKind    func(childComplexity int, id apimeta.ObjectID) int
-		ClusterCachedKinds   func(childComplexity int, cacheID *apimeta.ObjectID) int
-		ClusterCaches        func(childComplexity int, clusterID *apimeta.ClusterID) int
-		Clusters             func(childComplexity int) int
-		EnvVars              func(childComplexity int, clusterID *apimeta.ClusterID) int
-		GitHubConnection     func(childComplexity int) int
-		GoogleConnection     func(childComplexity int) int
-		LogsFetch            func(childComplexity int, id apimeta.ClusterID, request model.LogsFetchInput) int
-		Models               func(childComplexity int) int
-		OpenRouterConnection func(childComplexity int) int
-		PermissionSettings   func(childComplexity int) int
-		ProviderCredentials  func(childComplexity int) int
-		Sandbox              func(childComplexity int) int
-		SandboxCloudAccess   func(childComplexity int) int
-		SandboxExecutables   func(childComplexity int) int
-		SandboxFolders       func(childComplexity int, chatID *apimeta.ChatID) int
-		SandboxPath          func(childComplexity int) int
-		SandboxPathFault     func(childComplexity int) int
-		SandboxPathResolved  func(childComplexity int) int
-		SettingsRefused      func(childComplexity int) int
-		ToolSettings         func(childComplexity int) int
+		AWSConnection         func(childComplexity int) int
+		AuthState             func(childComplexity int) int
+		ChatGPTConnection     func(childComplexity int) int
+		ChatGrants            func(childComplexity int, chatID apimeta.ChatID) int
+		Cluster               func(childComplexity int, id apimeta.ClusterID) int
+		ClusterCache          func(childComplexity int, id apimeta.ObjectID) int
+		ClusterCachedKind     func(childComplexity int, id apimeta.ObjectID) int
+		ClusterCachedKinds    func(childComplexity int, cacheID *apimeta.ObjectID) int
+		ClusterCaches         func(childComplexity int, clusterID *apimeta.ClusterID) int
+		Clusters              func(childComplexity int) int
+		EnvVars               func(childComplexity int, clusterID *apimeta.ClusterID) int
+		GitHubConnection      func(childComplexity int) int
+		GoogleConnection      func(childComplexity int) int
+		LogsFetch             func(childComplexity int, id apimeta.ClusterID, request model.LogsFetchInput) int
+		Models                func(childComplexity int) int
+		OpenRouterConnection  func(childComplexity int) int
+		PermissionSettings    func(childComplexity int) int
+		ProviderCredentials   func(childComplexity int) int
+		Sandbox               func(childComplexity int) int
+		SandboxCloudAccess    func(childComplexity int) int
+		SandboxExecutables    func(childComplexity int) int
+		SandboxFolders        func(childComplexity int, chatID *apimeta.ChatID) int
+		SandboxPath           func(childComplexity int) int
+		SandboxPathFault      func(childComplexity int) int
+		SandboxPathImportedAt func(childComplexity int) int
+		SandboxPathResolved   func(childComplexity int) int
+		SandboxPathShell      func(childComplexity int) int
+		SettingsRefused       func(childComplexity int) int
+		ToolSettings          func(childComplexity int) int
 	}
 
 	ReadAction struct {
@@ -1202,6 +1204,8 @@ type QueryResolver interface {
 	SandboxPath(ctx context.Context) ([]*model.SandboxPathEntry, error)
 	SandboxPathFault(ctx context.Context) (*string, error)
 	SandboxPathResolved(ctx context.Context) (bool, error)
+	SandboxPathShell(ctx context.Context) (*string, error)
+	SandboxPathImportedAt(ctx context.Context) (*time.Time, error)
 	SandboxExecutables(ctx context.Context) ([]*model.SandboxExecutable, error)
 	EnvVars(ctx context.Context, clusterID *apimeta.ClusterID) ([]*envvars.Var, error)
 	PermissionSettings(ctx context.Context) (*model.PermissionSettings, error)
@@ -4701,12 +4705,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.SandboxPathFault(childComplexity), true
+	case "Query.sandboxPathImportedAt":
+		if e.ComplexityRoot.Query.SandboxPathImportedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.SandboxPathImportedAt(childComplexity), true
 	case "Query.sandboxPathResolved":
 		if e.ComplexityRoot.Query.SandboxPathResolved == nil {
 			break
 		}
 
 		return e.ComplexityRoot.Query.SandboxPathResolved(childComplexity), true
+	case "Query.sandboxPathShell":
+		if e.ComplexityRoot.Query.SandboxPathShell == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.SandboxPathShell(childComplexity), true
 	case "Query.settingsRefused":
 		if e.ComplexityRoot.Query.SettingsRefused == nil {
 			break
@@ -22305,6 +22321,52 @@ func (ec *executionContext) fieldContext_Query_sandboxPathResolved(_ context.Con
 	return graphql.NewScalarFieldContext("Query", field, true, true, "Boolean")
 }
 
+func (ec *executionContext) _Query_sandboxPathShell(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_sandboxPathShell(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().SandboxPathShell(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_sandboxPathShell(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Query", field, true, true, "String")
+}
+
+func (ec *executionContext) _Query_sandboxPathImportedAt(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_sandboxPathImportedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().SandboxPathImportedAt(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalOTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_sandboxPathImportedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Query", field, true, true, "Time")
+}
+
 func (ec *executionContext) _Query_sandboxExecutables(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -33586,6 +33648,18 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_sandboxPathResolved(ctx, field)
+				})
+		case "sandboxPathShell":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_sandboxPathShell(ctx, field)
+				})
+		case "sandboxPathImportedAt":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_sandboxPathImportedAt(ctx, field)
 				})
 		case "sandboxExecutables":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,

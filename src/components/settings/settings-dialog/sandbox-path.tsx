@@ -30,7 +30,7 @@ function inEffect(entries: number, resolved: boolean | undefined): string {
 }
 
 export function SandboxPathSection({ path, onRefreshed }: { path: SandboxPath; onRefreshed: () => void }) {
-  const { entries, fault, resolved, refreshing, refreshError, refresh } = path;
+  const { entries, fault, resolved, shell, importedAt, refreshing, refreshError, refresh } = path;
   return (
     <Group
       title="PATH"
@@ -53,6 +53,11 @@ export function SandboxPathSection({ path, onRefreshed }: { path: SandboxPath; o
         <p className="font-mono text-sm break-all whitespace-pre-wrap" data-testid="path">
           <VisibleText text={entries?.map((entry) => entry.dir).join(':') ?? ''} trailing="end" />
         </p>
+        {shell && importedAt && (
+          <p className="text-xs text-muted-foreground">
+            Imported from <VisibleText text={shell} /> on {new Date(importedAt).toLocaleString()}.
+          </p>
+        )}
         {fault && (
           <p className="text-xs text-muted-foreground">
             {`Kstack could not read your shell's PATH: ${fault}. ${inEffect(entries?.length ?? 0, resolved)}`}

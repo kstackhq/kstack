@@ -2903,8 +2903,11 @@ func sandboxPathServer(t *testing.T, available bool, resolve func(context.Contex
 		zones := func() settings.Zones {
 			return settings.Zones{Open: sandbox.FilePolicy{Read: []string{open}}}
 		}
-		svc = settings.NewService(store, zones, resolve, "timeout")
-		_, err := svc.SyncPath(t.Context(), []string{open, pending})
+		svc = settings.NewService(store, zones, func(ctx context.Context) (settings.PathImport, error) {
+			path, err := resolve(ctx)
+			return settings.PathImport{Path: path, Shell: "/bin/zsh"}, err
+		}, "timeout")
+		_, err := svc.SyncPath(t.Context(), []string{open, pending}, "/bin/zsh")
 		require.NoError(t, err)
 	}
 	srv = httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Settings: svc, SandboxStatus: sandbox.Status{Available: available}}))
@@ -2929,10 +2932,12 @@ func TestSandboxPathMutationsAnswerTheList(t *testing.T) {
 	}
 	const fields = `{ dir target state source shared }`
 
-	data, _ := mutation(t, srv.URL, `{ sandboxPath `+fields+` sandboxPathFault sandboxPathResolved }`)
+	data, _ := mutation(t, srv.URL, `{ sandboxPath `+fields+` sandboxPathFault sandboxPathResolved sandboxPathShell sandboxPathImportedAt }`)
 	assert.Equal(t, []any{entry(open, "Adopted", "Shell"), entry(pending, "Pending", "Shell")}, data["sandboxPath"])
 	assert.Equal(t, "timeout", data["sandboxPathFault"])
 	assert.Equal(t, true, data["sandboxPathResolved"])
+	assert.Equal(t, "zsh", data["sandboxPathShell"])
+	assert.NotEmpty(t, data["sandboxPathImportedAt"])
 
 	data, _ = mutation(t, srv.URL, `mutation { sandboxPathInclude(dir: "`+jsonEscape(pending)+`", target: "`+jsonEscape(pending)+`") `+fields+` }`)
 	assert.Equal(t, []any{entry(open, "Adopted", "Shell"), entry(pending, "Adopted", "User")}, data["sandboxPathInclude"])
@@ -2959,10 +2964,12 @@ func TestSandboxPathMutationsAnswerTheList(t *testing.T) {
 func TestSandboxPathIsEmptyWithNoSandbox(t *testing.T) {
 	srv, open, _ := sandboxPathServer(t, false, nil)
 
-	data, _ := mutation(t, srv.URL, `{ sandboxPath { dir } sandboxPathFault sandboxPathResolved }`)
+	data, _ := mutation(t, srv.URL, `{ sandboxPath { dir } sandboxPathFault sandboxPathResolved sandboxPathShell sandboxPathImportedAt }`)
 	assert.Equal(t, []any{}, data["sandboxPath"])
 	assert.Nil(t, data["sandboxPathFault"])
 	assert.Equal(t, false, data["sandboxPathResolved"])
+	assert.Nil(t, data["sandboxPathShell"])
+	assert.Nil(t, data["sandboxPathImportedAt"])
 	for _, query := range []string{
 		`mutation { sandboxPathInclude(dir: "` + jsonEscape(open) + `", target: "` + jsonEscape(open) + `") { dir } }`,
 		`mutation { sandboxPathRemove(dir: "` + jsonEscape(open) + `") { dir } }`,

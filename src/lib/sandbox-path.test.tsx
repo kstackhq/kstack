@@ -32,7 +32,13 @@ const listed = [entry('/opt/homebrew/bin', 'Adopted'), entry('/Users/ren/scripts
 
 const queried = {
   fetching: false,
-  data: { sandboxPath: listed, sandboxPathFault: 'timeout', sandboxPathResolved: true },
+  data: {
+    sandboxPath: listed,
+    sandboxPathFault: 'timeout',
+    sandboxPathResolved: true,
+    sandboxPathShell: 'zsh',
+    sandboxPathImportedAt: '2026-11-22T12:00:00Z',
+  },
 };
 
 beforeEach(() => {
@@ -50,6 +56,8 @@ describe('useSandboxPath', () => {
     expect(result.current.entries).toEqual(listed);
     expect(result.current.fault).toBe('timeout');
     expect(result.current.resolved).toBe(true);
+    expect(result.current.shell).toBe('zsh');
+    expect(result.current.importedAt).toBe('2026-11-22T12:00:00Z');
   });
 
   it('includes an entry, in flight until it answers, then asks for the list again', async () => {

@@ -74,7 +74,14 @@ func newTestService(t *testing.T, z *zoneFixture, resolve func(context.Context) 
 	t.Helper()
 	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
-	return NewService(store, func() Zones { return z.zones }, resolve, "")
+	var wrapped func(context.Context) (PathImport, error)
+	if resolve != nil {
+		wrapped = func(ctx context.Context) (PathImport, error) {
+			path, err := resolve(ctx)
+			return PathImport{Path: path}, err
+		}
+	}
+	return NewService(store, func() Zones { return z.zones }, wrapped, "")
 }
 
 // statesOf is each entry's dir and state, in order.
@@ -376,11 +383,11 @@ func TestTheLastFaultIsKept(t *testing.T) {
 	answer := errors.New("exit")
 	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
-	s := NewService(store, func() Zones { return z.zones }, func(context.Context) ([]string, error) {
+	s := NewService(store, func() Zones { return z.zones }, func(context.Context) (PathImport, error) {
 		if answer != nil {
-			return nil, answer
+			return PathImport{}, answer
 		}
-		return []string{dir}, nil
+		return PathImport{Path: []string{dir}}, nil
 	}, "timeout")
 	assert.Equal(t, "timeout", s.PathFault(), "the launch's fault until a refresh answers")
 
@@ -400,6 +407,39 @@ func TestTheLastFaultIsKept(t *testing.T) {
 	_, err = s.SyncPath(ctx, []string{z.dir(t, "open/other")})
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, []string{dir + "=adopted/shell"}, statesOf(s.Get().Sandbox.Path))
+}
+
+func TestPathImportKeepsItsShellAndTimeAcrossRestart(t *testing.T) {
+	z := newZones(t)
+	dir := z.dir(t, "open/bin")
+	file := filepath.Join(t.TempDir(), "settings.json")
+	store, err := Open(file)
+	require.NoError(t, err)
+	fail := false
+	s := NewService(store, func() Zones { return z.zones }, func(context.Context) (PathImport, error) {
+		if fail {
+			return PathImport{}, errors.New("timeout")
+		}
+		return PathImport{Path: []string{dir}, Shell: "/bin/zsh"}, nil
+	}, "")
+	_, err = s.RefreshPath(t.Context())
+	require.NoError(t, err)
+	first := s.Get().Sandbox
+	assert.Equal(t, "zsh", first.PathShell)
+	importedAt, err := time.Parse(time.RFC3339Nano, first.PathImportedAt)
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now(), importedAt, time.Second)
+
+	fail = true
+	_, err = s.RefreshPath(t.Context())
+	require.Error(t, err)
+	assert.Equal(t, first.PathImportedAt, s.Get().Sandbox.PathImportedAt)
+	assert.Equal(t, first.PathShell, s.Get().Sandbox.PathShell)
+
+	store, err = Open(file)
+	require.NoError(t, err)
+	assert.Equal(t, first.PathShell, store.Get().Sandbox.PathShell)
+	assert.Equal(t, first.PathImportedAt, store.Get().Sandbox.PathImportedAt)
 }
 
 // What the filter left out is counted on one log line, never by entry.
@@ -467,7 +507,7 @@ func TestARefreshIsBounded(t *testing.T) {
 	s := NewService(store, func() Zones {
 		<-release
 		return z.zones
-	}, func(context.Context) ([]string, error) { return []string{dir}, nil }, "")
+	}, func(context.Context) (PathImport, error) { return PathImport{Path: []string{dir}}, nil }, "")
 	s.syncTimeout = time.Millisecond
 
 	_, err = s.RefreshPath(t.Context())
@@ -604,8 +644,8 @@ func TestEveryStateCombinationKeepsTheInvariants(t *testing.T) {
 			open1 := func() *Service {
 				store, err := Open(file)
 				require.NoError(t, err)
-				return NewService(store, func() Zones { return zones }, func(context.Context) ([]string, error) {
-					return nil, errors.New("timeout")
+				return NewService(store, func() Zones { return zones }, func(context.Context) (PathImport, error) {
+					return PathImport{}, errors.New("timeout")
 				}, "")
 			}
 			s := open1()

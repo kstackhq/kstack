@@ -23,6 +23,7 @@ import (
 // launch is what the launch's run of the login shell answered.
 type launch struct {
 	path  []string          // the shell's PATH; nil when it was not read
+	shell string            // the account shell that answered
 	fault string            // why it was not read; "" when it was
 	keys  map[string]string // the provider keys the shell set, by variable
 }

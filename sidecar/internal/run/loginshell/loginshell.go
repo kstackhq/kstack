@@ -229,8 +229,9 @@ type outcome struct {
 
 // Result is what one run of the login shell answered.
 type Result struct {
-	Path []string          // PATH as the shell exported it, split on ":", unfiltered
-	Env  map[string]string // the imported allowlist, resolved; what the app sets on macOS
+	Path  []string          // PATH as the shell exported it, split on ":", unfiltered
+	Shell string            // the account shell that answered
+	Env   map[string]string // the imported allowlist, resolved; what the app sets on macOS
 	// Keys is each key Resolve was asked for that the shell had set, by name,
 	// as the shell gave it. They are secrets, and nothing sets them on the
 	// process.
@@ -260,6 +261,7 @@ func Resolve(ctx context.Context, start Start, keys []string) (Result, *Fault) {
 		// The shell answered, but with a PATH that finds nothing.
 		return Result{}, fault(reasonBadOutput)
 	}
+	res.Shell = shell
 	return res, nil
 }
 
@@ -292,13 +294,19 @@ func findShellOrTimeout(ctx context.Context) (string, *Fault) {
 // Path is Resolve's Path alone, bounded by DefaultTimeout, for a caller that
 // has no use for the environment. Its error is a *Fault.
 func Path(ctx context.Context, start Start) ([]string, error) {
+	res, err := PathResult(ctx, start)
+	return res.Path, err
+}
+
+// PathResult is Path with the account shell's name for the frozen PATH's source.
+func PathResult(ctx context.Context, start Start) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 	res, f := Resolve(ctx, start, nil)
 	if f != nil {
-		return nil, f
+		return Result{}, f
 	}
-	return res.Path, nil
+	return res, nil
 }
 
 // scrubbedEnv is the resolution's environment: the identity, locale and agent

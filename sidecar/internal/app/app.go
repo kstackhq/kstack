@@ -325,8 +325,8 @@ func newSettingsService(store *settings.Store, sb sandboxer, shell *bash.Tool, s
 // syncPath folds the launch's PATH into the stored list, and answers whether
 // it changed it. A sync that fails changes nothing and is not a startup
 // error.
-func syncPath(ctx context.Context, svc *settings.Service, path []string) bool {
-	changed, err := svc.SyncPath(ctx, path)
+func syncPath(ctx context.Context, svc *settings.Service, path []string, shell string) bool {
+	changed, err := svc.SyncPath(ctx, path, shell)
 	if err != nil {
 		slog.Warn("PATH not synced", "err", err)
 	}

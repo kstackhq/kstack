@@ -879,6 +879,25 @@ func (r *queryResolver) SandboxPathResolved(ctx context.Context) (bool, error) {
 	return r.Settings.PathResolved(), nil
 }
 
+// SandboxPathShell is the resolver for the sandboxPathShell field.
+func (r *queryResolver) SandboxPathShell(ctx context.Context) (*string, error) {
+	if shell := r.Settings.Get().Sandbox.PathShell; r.Settings.PathResolved() && shell != "" {
+		return &shell, nil
+	}
+	return nil, nil
+}
+
+// SandboxPathImportedAt is the resolver for the sandboxPathImportedAt field.
+func (r *queryResolver) SandboxPathImportedAt(ctx context.Context) (*time.Time, error) {
+	if r.Settings.PathResolved() {
+		at, err := time.Parse(time.RFC3339Nano, r.Settings.Get().Sandbox.PathImportedAt)
+		if err == nil {
+			return &at, nil
+		}
+	}
+	return nil, nil
+}
+
 // SandboxExecutables is the resolver for the sandboxExecutables field.
 func (r *queryResolver) SandboxExecutables(ctx context.Context) ([]*model.SandboxExecutable, error) {
 	if !r.probes() {

@@ -33,6 +33,8 @@ function pathOf(over: Partial<SandboxPath> = {}): SandboxPath {
     entries: [],
     fault: null,
     resolved: true,
+    shell: null,
+    importedAt: null,
     changing: new Set(),
     refreshing: false,
     changeError: null,
@@ -54,6 +56,20 @@ describe('SandboxPathSection', () => {
     );
     expect(screen.getByRole('group', { name: 'PATH' })).toHaveTextContent("Your shell's PATH, as last imported.");
     expect(screen.getByTestId('path').textContent).toBe('/opt/homebrew/bin:/usr/bin:/bin\\u{20}');
+  });
+
+  it('shows the last imported shell and date, and updates after another import', () => {
+    const path = pathOf({ shell: 'zsh\u202e', importedAt: '2026-11-22T12:00:00Z' });
+    const { rerender } = render(<SandboxPathSection path={path} onRefreshed={vi.fn()} />);
+    expect(screen.getByText(/Imported from/)).toHaveTextContent('zsh');
+    expect(screen.getByText(/Imported from/).querySelector('mark')).toBeInTheDocument();
+    expect(screen.getByText(/Imported from/)).toHaveTextContent('2026');
+
+    rerender(
+      <SandboxPathSection path={pathOf({ shell: 'bash', importedAt: '2026-11-23T12:00:00Z' })} onRefreshed={vi.fn()} />,
+    );
+    expect(screen.getByText(/Imported from/)).toHaveTextContent('bash');
+    expect(screen.getByText(/Imported from/)).toHaveTextContent('23');
   });
 
   it('imports from the shell, then probes the executables, but not on a refusal', async () => {

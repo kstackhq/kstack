@@ -80,5 +80,5 @@ func runShell(ctx context.Context, start loginshell.Start, keyVars []string, res
 	}
 	slog.Info("login shell read", "elapsed", time.Since(started))
 	setShellEnv(res.Env)
-	return launch{path: res.Path, keys: res.Keys}
+	return launch{path: res.Path, shell: res.Shell, keys: res.Keys}
 }

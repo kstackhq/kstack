@@ -235,7 +235,7 @@ func TestTheZonesAreASnapshot(t *testing.T) {
 	s := NewService(store, func() Zones {
 		calls.Add(1)
 		return f.zones
-	}, func(context.Context) ([]string, error) { return []string{filtered}, nil }, "")
+	}, func(context.Context) (PathImport, error) { return PathImport{Path: []string{filtered}}, nil }, "")
 
 	synced(t, s, []string{filtered})
 	assert.Empty(t, s.Get().Sandbox.Path, "the sync filters the project's folder out")
