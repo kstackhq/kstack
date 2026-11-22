@@ -929,6 +929,15 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   `background-color` leaves the theme-matching foreground open; a contrast floor on every kept
   colour would close it. Either land one or accept it as a **By decision** row with an ADR.
 
+- **Compile the sandbox's rules in the disk's spelling (medium; sandbox owner).** `Policy.rules`,
+  `Check` and `Outside` (`sidecar/internal/run/sandbox/policy.go`) compare paths by text after
+  following links, and a link's text keeps its own capitalization. On a case-insensitive volume a
+  link into Kstack's directories, or one that is a root, a subfolder or a never-readable path,
+  can resolve to a spelling the disk does not use. A read grant on the target's parent, which
+  Settings takes in the disk's spelling, then overlaps no Deny by text, so the Deny is left out
+  and a sandboxed run reads the files. Compare `sandbox.Spelled` paths in all three, pin it with
+  a macOS test, and measure the listing it adds to each run.
+
 - **Audit what secrets a sandboxed read still passes (medium; sandbox owner).** Redaction covers
   a Secret's values, `last-applied-configuration`, and a helm release's values and manifest
   Secrets. Check what else carries a secret to the model: env values and ConfigMaps; a helm

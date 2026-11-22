@@ -18,12 +18,12 @@ are all named in `appdb.go`. `NewID()` mints UUIDv7; `ValidateUUID` accepts only
 
 ## Directories
 
-**`app/paths.go` names every path under the three directories** (its doc comment is the
-tree). Each owner gets its own `Paths` (`cluster.Paths`, `bash.Paths`) and names nothing else.
-**Each subtree has one owner**, which makes it 0700, sweeps it and removes it. `<data>` is what a
-user would lose, `<cache>` what Kstack rebuilds, `<runtime>` what lives for a session. The host's
-log, config and state directories are fenced too (`bash.Paths.DeniedDirs`). → [ADR:
-each file in the platform's directory for its
+**`app/paths.go` names every path under the three directories** (its doc comment
+is the tree). Each owner gets its own `Paths` (`cluster.Paths`, `bash.Paths`), naming no other.
+**Each subtree has one owner**, which makes it 0700, sweeps and removes it. The host's
+log, config and state directories are fenced (`bash.Paths.DeniedDirs`), and a subfolder
+linked at start ([ADR](../docs/adr/2026-11-22-a-linked-subfolder-of-kstacks-directories-is-fenced.md)).
+→ [ADR: each file in the platform's directory for its
 kind](../docs/adr/2026-09-27-kstacks-files-follow-the-platforms-directory-kinds.md).
 
 **One sidecar per data directory.** `build` locks `<data>/sidecar.lock` (`internal/lib/filelock`:

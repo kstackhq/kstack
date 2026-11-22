@@ -285,3 +285,4 @@ usually just documentation in the wrong place.
 | 2026-11-21 | [Keep the tool settings as rows in app.db](2026-11-21-tool-settings-are-rows-in-app-db.md) | sidecar | Accepted |
 | 2026-11-21 | [Keep host.json in the Kstack config directory](2026-11-21-host-json-lives-under-the-kstack-config-directory.md) | host | Accepted |
 | 2026-11-21 | [Linux folders follow XDG](2026-11-21-linux-folders-follow-xdg.md) | host | Accepted |
+| 2026-11-22 | [Fence a linked subfolder of Kstack's directories](2026-11-22-a-linked-subfolder-of-kstacks-directories-is-fenced.md) | sidecar | Accepted |
