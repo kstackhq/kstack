@@ -16,18 +16,20 @@
 // dashboard. Each pane is a column whose last item is the composer, so the space
 // above it is what scrolls. Neither navigates — the two homes answer "a chat was
 // created" and "this chat is gone" differently, so they say so and the home decides.
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 
 import { ChatComposer } from '@/components/chat/chat-composer';
+import { ChatHeader } from '@/components/chat/chat-header';
 import { ChatTranscript } from '@/components/chat/chat-transcript';
 import { useActiveCluster } from '@/lib/active-cluster';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import type { AppMode } from '@/lib/app-mode';
 import { useAskAgainWhenLive } from '@/lib/ask-again-when-live';
 import { useChatOutbox } from '@/lib/chat-outbox';
-import { approvalAnchor, useChatMessages, useChats, waitingRequestsOf } from '@/lib/chats';
+import { approvalAnchor, chatModeOf, useChatMessages, useChats, waitingRequestsOf } from '@/lib/chats';
 import type { ChatMessage } from '@/lib/chats';
 import { useClusters } from '@/lib/clusters';
+import { useLastSettled } from '@/lib/graphql/use-last-settled';
 import { useNetworkSwitch } from '@/lib/network-switch';
 import { useSandbox } from '@/lib/sandbox';
 import { useSandboxSwitch } from '@/lib/sandbox-switch';
@@ -40,10 +42,12 @@ type NewChatPaneProps = {
   centered?: boolean;
   /** The first send created this chat. */
   onCreated: (chatID: string) => void;
+  /** The composer's message box. */
+  inputRef?: Ref<HTMLTextAreaElement>;
 };
 
 /** A chat that has not started. Nothing is written until the first send creates it. */
-export function NewChatPane({ mode, empty, centered = false, onCreated }: NewChatPaneProps) {
+export function NewChatPane({ mode, empty, centered = false, onCreated, inputRef }: NewChatPaneProps) {
   // The chat is filed under the window's cluster, so the composer waits on the
   // clusters watch: no snapshot yet means no answer to whether there is one.
   const { clusterID, phase } = useActiveCluster();
@@ -62,6 +66,7 @@ export function NewChatPane({ mode, empty, centered = false, onCreated }: NewCha
       sandboxAvailable={sandbox.available}
       networkAvailable={sandbox.networkAvailable}
       networkReason={sandbox.networkReason}
+      inputRef={inputRef}
     />
   );
 
@@ -149,6 +154,12 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
   const networkSwitch = useNetworkSwitch(chatID, chat?.networkEnabled);
   const switching = sandboxSwitch.switching || networkSwitch.switching;
   const waiting = firstWaitingEarlier(messages);
+  // The title bar's chat: one the chat list would list, in scope and of this mode, since a
+  // link can name any chat's id. `useChats` holds the chat through a reconnect, and the
+  // cluster is held through one of the clusters watch, so an open rename or confirm in the
+  // bar rides either out.
+  const scope = useLastSettled(clusterID, clusterPhase !== 'connecting');
+  const titled = chat && chat.clusterID === scope && chat.mode === chatModeOf(mode) ? chat : null;
 
   // Absence is gated on the list's Bookmark: before it, an id the map does not hold
   // is one the snapshot has yet to reach.
@@ -174,7 +185,7 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
     return <OutOfScope clusterID={chat.clusterID} />;
   }
 
-  return (
+  const transcript = (
     <ChatTranscript
       messages={messages}
       phase={phase}
@@ -209,5 +220,13 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
         />
       }
     />
+  );
+  // Chat mode's page carries the chat's title bar; the dashboard's panel does not.
+  if (mode !== 'chat') return transcript;
+  return (
+    <>
+      {titled && <ChatHeader chat={titled} />}
+      {transcript}
+    </>
   );
 }

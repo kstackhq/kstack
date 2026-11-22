@@ -98,6 +98,11 @@ vi.mock('@/components/chat/chat-transcript/transcript', () => ({
   ),
 }));
 
+// The title bar has its own suite; here it says which chat it was given.
+vi.mock('./chat-header', () => ({
+  ChatHeader: ({ chat }: { chat?: { title: string } }) => <div data-testid="chat-header">{chat?.title}</div>,
+}));
+
 const { ChatOutboxProvider } = await import('@/lib/chat-outbox');
 const { ChatPane, NewChatPane } = await import('./chat-pane');
 
@@ -200,6 +205,11 @@ describe('NewChatPane', () => {
     expect(useChatMessagesMock).not.toHaveBeenCalled();
     expect(screen.getByText('Ask about your cluster.')).toBeInTheDocument();
     expect(props('composer')).toMatchObject({ chatID: null, mode: 'chat', clusterID: '1', last: null });
+  });
+
+  it('draws no title bar, since there is no chat yet', () => {
+    renderPanes().fresh();
+    expect(screen.queryByTestId('chat-header')).not.toBeInTheDocument();
   });
 
   it('draws the empty slot and the composer as one group when centred', () => {
@@ -432,5 +442,68 @@ describe('ChatPane', () => {
 
     panes.fresh();
     expect(draftBox()).toHaveValue('half a question');
+  });
+
+  it('draws the chat’s title bar over the transcript in chat mode', () => {
+    const { open } = renderPanes();
+    open('c1');
+    const header = screen.getByTestId('chat-header');
+    expect(header).toHaveTextContent('A chat');
+    expect(
+      header.compareDocumentPosition(screen.getByTestId('transcript')) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  // The bar holds an open rename's draft and a delete's confirm: it stays mounted, so they
+  // ride a reconnect out.
+  it.each([
+    // `useChats` holds the chat through its replay.
+    ['chats', { listPhase: 'connecting' }, 'live'],
+    ['clusters', {}, 'connecting'],
+  ])('keeps the same title bar through a reconnect of the %s watch', (_, watches, clusterPhase) => {
+    const { open } = renderPanes();
+    open('c1');
+    const header = screen.getByTestId('chat-header');
+
+    useActiveClusterMock.mockReturnValue({ clusterID: clusterPhase === 'live' ? '1' : undefined, phase: clusterPhase });
+    open('c1', watches);
+    expect(screen.getByTestId('chat-header')).toBe(header);
+    expect(header).toHaveTextContent('A chat');
+
+    useActiveClusterMock.mockReturnValue({ clusterID: '1', phase: 'live' });
+    open('c1');
+    expect(screen.getByTestId('chat-header')).toBe(header);
+  });
+
+  it('leaves for the out-of-scope notice once the clusters watch settles on another cluster', () => {
+    const { open } = renderPanes();
+    open('c1');
+    useActiveClusterMock.mockReturnValue({ clusterID: '2', phase: 'live' });
+    open('c1', { listPhase: 'connecting' });
+    expect(screen.queryByTestId('chat-header')).not.toBeInTheDocument();
+    expect(screen.getByText('This chat belongs to another cluster.')).toBeInTheDocument();
+  });
+
+  // Its Rename and Delete would reach a chat that may be another cluster's.
+  it('draws no title bar before the clusters snapshot', () => {
+    useActiveClusterMock.mockReturnValue({ clusterID: undefined, phase: 'connecting' });
+    renderPanes().open('c1');
+    expect(screen.queryByTestId('chat-header')).not.toBeInTheDocument();
+  });
+
+  // A link to /chat/$chatId can carry a dashboard chat's id; the chat list would not list it.
+  it('draws no title bar over another mode’s chat', () => {
+    renderPanes().open('c1', { chats: [{ ...chat('c1'), mode: 'Dashboard' }] });
+    expect(screen.queryByTestId('chat-header')).not.toBeInTheDocument();
+  });
+
+  it('draws no title bar in the dashboard’s panel', () => {
+    setWatches({});
+    render(
+      <ChatOutboxProvider>
+        <ChatPane chatID="c1" mode="dashboard" onGone={() => onGone()} />
+      </ChatOutboxProvider>,
+    );
+    expect(screen.queryByTestId('chat-header')).not.toBeInTheDocument();
   });
 });

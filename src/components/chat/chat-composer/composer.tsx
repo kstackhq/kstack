@@ -19,6 +19,7 @@
 import { Button } from '@kubetail/ui/elements/button';
 import { ArrowUp, Square, X } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { Ref } from 'react';
 import { useMutation } from 'urql';
 
 import { PROSE_TEXT } from '@/components/primitives/text-entry';
@@ -91,6 +92,8 @@ type ChatComposerProps = {
   /** A switch is in flight. Send waits for it rather than send a switch about to change. */
   switching?: boolean;
   onSwitchNetwork?: (enabled: boolean) => void;
+  /** The message box, for a caller that hands it focus. */
+  inputRef?: Ref<HTMLTextAreaElement>;
 };
 
 const noop = () => {};
@@ -131,6 +134,7 @@ export function ChatComposer({
   networkEnabled,
   switching = false,
   onSwitchNetwork = noop,
+  inputRef,
 }: ChatComposerProps) {
   const { models, loaded } = useModels();
   const openUsage = useOpenChatGPTUsage();
@@ -355,6 +359,7 @@ export function ChatComposer({
             </div>
           )}
           <textarea
+            ref={inputRef}
             {...PROSE_TEXT}
             value={draft}
             // What is in flight is what the box shows, so it must not change under it.

@@ -101,6 +101,9 @@ const (
 	// maxTitleLen caps a title, in characters: the one a send derives is cut to
 	// it, and a rename past it is refused.
 	maxTitleLen = 80
+	// lineBreaks are Unicode's mandatory line breaks. A title is one line: a send's
+	// is cut at the first, and a rename holding one is refused.
+	lineBreaks = "\n\v\f\r\u0085\u2028\u2029"
 	// clusterCardTimeout bounds the cluster card's reads on a send: every read is a
 	// local file, so a card that takes longer is unavailable rather than a slower send.
 	clusterCardTimeout = 2 * time.Second
@@ -158,8 +161,8 @@ type Service interface {
 	// Cancel stops the in-flight turn, keeping the partial answer. A no-op when
 	// nothing is running.
 	Cancel(ctx context.Context, chatID ChatID) error
-	// Rename retitles a chat. The title is trimmed, and one empty or over
-	// maxTitleLen is refused.
+	// Rename retitles a chat. The title is trimmed, and one empty, over
+	// maxTitleLen or holding a line break is refused.
 	Rename(ctx context.Context, chatID ChatID, title string) (Chat, error)
 	// SetSandboxDisabled is the user's switch: the chat's commands from its next
 	// turn run outside the sandbox, or back in it. Leaving the sandbox turns
@@ -740,7 +743,10 @@ func (s *service) writeTurnRows(ctx context.Context, st stmts, t *turn, requestI
 // trimmed and capped. The cap counts characters, so a multibyte one is never cut
 // in half.
 func titleFrom(content string) string {
-	title, _, _ := strings.Cut(content, "\n")
+	title := content
+	if i := strings.IndexAny(title, lineBreaks); i >= 0 {
+		title = title[:i]
+	}
 	title = strings.TrimSpace(title)
 	if utf8.RuneCountInString(title) > maxTitleLen {
 		title = string([]rune(title)[:maxTitleLen])
@@ -760,7 +766,7 @@ func (s *service) Cancel(ctx context.Context, chatID ChatID) error {
 // Rename retitles a chat and returns the record it committed.
 func (s *service) Rename(ctx context.Context, chatID ChatID, title string) (Chat, error) {
 	title = strings.TrimSpace(title)
-	if title == "" || utf8.RuneCountInString(title) > maxTitleLen {
+	if title == "" || utf8.RuneCountInString(title) > maxTitleLen || strings.ContainsAny(title, lineBreaks) {
 		return Chat{}, ErrBadRequest
 	}
 	at := normalizeTime(s.now())

@@ -111,4 +111,4 @@ export function PanelDialog({ open, onOpenChange, className, children }: PanelDi
   );
 }
 
-export { DialogClose, DialogTitle };
+export { DialogClose, DialogDescription, DialogTitle };

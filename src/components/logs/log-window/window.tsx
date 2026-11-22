@@ -22,7 +22,7 @@ import type { ReactNode } from 'react';
 
 import { LogsViewHeader } from '@/components/logs/log-panel';
 import { LogViewer } from '@/components/logs/log-viewer';
-import { useChatMessages, useChats } from '@/lib/chats';
+import { chatTitleOf, useChatMessages, useChats } from '@/lib/chats';
 import { displayName, useClusters } from '@/lib/clusters';
 import type { Cluster } from '@/lib/clusters';
 import { reportHostError } from '@/lib/error-bus';
@@ -96,7 +96,8 @@ export function LogsWindow() {
   );
 }
 
-// What the view was last drawn from.
+// What the view was last drawn from. `chatTitle` is the chat's own, empty for none: the
+// native title takes it as is, and the bar names it.
 type Shown = { view: LogsView; chatTitle: string; cluster: Cluster | undefined };
 
 function sameShown(a: Shown | null, b: Shown | null) {
@@ -178,11 +179,13 @@ function Paired({ answer }: { answer: Answer }) {
   } else {
     body = <Notice>This log view is not available.</Notice>;
   }
+  // Undefined until a chat has loaded: a chat with no title is named, a missing one is not.
+  const chatTitle = loading ? shown?.chatTitle : chat?.title;
   return (
     <>
       <LogsWindowBar
         cluster={loading ? shown?.cluster : cluster}
-        chatTitle={loading ? (shown?.chatTitle ?? '') : (chat?.title ?? '')}
+        chatTitle={chatTitle === undefined ? '' : chatTitleOf(chatTitle)}
       />
       {body}
     </>

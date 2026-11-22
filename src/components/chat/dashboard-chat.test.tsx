@@ -31,7 +31,10 @@ vi.mock('@/layouts/app-layout', async () => {
 });
 
 // Both panes have suites of their own; here they report what they were handed.
-const { paneProps } = vi.hoisted(() => ({ paneProps: { current: null as Record<string, unknown> | null } }));
+const { paneProps, navFocusFallback } = vi.hoisted(() => ({
+  paneProps: { current: null as Record<string, unknown> | null },
+  navFocusFallback: { current: undefined } as { current: unknown },
+}));
 vi.mock('@/components/chat/chat-pane', () => ({
   ChatPane: (props: Record<string, unknown>) => {
     paneProps.current = props;
@@ -44,7 +47,10 @@ vi.mock('@/components/chat/chat-pane', () => ({
   },
 }));
 vi.mock('@/components/chat/chat-nav', () => ({
-  ChatNav: ({ mode }: { mode: string }) => <div data-testid="chat-nav">{mode}</div>,
+  ChatNav: ({ mode, focusFallback }: { mode: string; focusFallback?: unknown }) => {
+    navFocusFallback.current = focusFallback;
+    return <div data-testid="chat-nav">{mode}</div>;
+  },
 }));
 
 const { Route: rootRoute } = (await import('@/routes/__root')) as unknown as {
@@ -78,6 +84,13 @@ describe('DashboardChat', () => {
     expect(screen.getByTestId('chat-nav')).toHaveTextContent('dashboard');
     expect(paneProps.current).toMatchObject({ mode: 'dashboard' });
     expect(paneProps.current).not.toHaveProperty('chatID');
+  });
+
+  // The list's last row going leaves it nothing to hold focus, so focus goes to the composer.
+  it('hands the list the composer’s box to fall back on for focus', async () => {
+    await render();
+    expect(navFocusFallback.current).toBeDefined();
+    expect(paneProps.current?.inputRef).toBe(navFocusFallback.current);
   });
 
   it('opens the chat the param names, and drops the list', async () => {

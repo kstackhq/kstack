@@ -333,15 +333,19 @@ func TestRenameOfAnUnknownChatIsChatGone(t *testing.T) {
 	assert.ErrorIs(t, err, ErrChatGone)
 }
 
-// A rename is trimmed, and one left empty or longer than the cap is refused with
-// nothing written: the title reaches every window over the list watch.
-func TestRenameRefusesAnEmptyOrOverlongTitle(t *testing.T) {
+// A rename is trimmed, and one left empty, longer than the cap or of more than one
+// line is refused with nothing written: the title reaches every window over the list watch.
+func TestRenameRefusesAnEmptyOverlongOrMultilineTitle(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 
-	for _, title := range []string{"", "  \n ", strings.Repeat("x", maxTitleLen+1)} {
+	refused := []string{"", "  \n ", strings.Repeat("x", maxTitleLen+1)}
+	for _, lineBreak := range lineBreaks {
+		refused = append(refused, "ops"+string(lineBreak)+"west")
+	}
+	for _, title := range refused {
 		_, err := s.Rename(t.Context(), c.ID, title)
 		assert.ErrorIs(t, err, ErrBadRequest, "%q", title)
 	}
@@ -352,6 +356,27 @@ func TestRenameRefusesAnEmptyOrOverlongTitle(t *testing.T) {
 	renamed, err := s.Rename(t.Context(), c.ID, "  pods ")
 	require.NoError(t, err)
 	assert.Equal(t, "pods", renamed.Title)
+}
+
+// The webview checks a title before it sends one, by the same rules; its
+// `normalizeChatTitle` tests pin these cases (src/lib/chats.test.tsx).
+func TestRenameTrimsAndCountsAsTheWebviewDoes(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
+
+	renamed, err := s.Rename(t.Context(), c.ID, " \t\u0085\u00a0\u2028\u3000pods\n\u205f ")
+	require.NoError(t, err)
+	assert.Equal(t, "pods", renamed.Title)
+
+	renamed, err = s.Rename(t.Context(), c.ID, "\u0085"+strings.Repeat("a", maxTitleLen))
+	require.NoError(t, err)
+	assert.Equal(t, strings.Repeat("a", maxTitleLen), renamed.Title)
+
+	// TrimSpace keeps U+FEFF, which JavaScript's trim drops.
+	_, err = s.Rename(t.Context(), c.ID, "\ufeff"+strings.Repeat("a", maxTitleLen))
+	assert.ErrorIs(t, err, ErrBadRequest)
 }
 
 // The rename moves the chat's recency, and what it returns is the row it committed.
@@ -872,6 +897,15 @@ func TestSendCapsTheTitleItDerives(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, c.Title, maxTitleLen)
 	awaitSettled(t, s, msg.ChatID, msg.ID)
+}
+
+// A rename holding a line break is refused, so a derived title holds none either.
+func TestTitleFromEndsAtTheFirstLineBreak(t *testing.T) {
+	t.Parallel()
+
+	for _, lineBreak := range lineBreaks {
+		assert.Equal(t, "ops", titleFrom(" ops"+string(lineBreak)+"west"), "%U", lineBreak)
+	}
 }
 
 func TestSendCapsTheTitleAtACharacterBoundary(t *testing.T) {

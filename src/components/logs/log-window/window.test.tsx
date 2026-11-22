@@ -383,6 +383,15 @@ describe('LogsWindow across a reconnect', () => {
     expect(viewerMounts.count).toBe(0);
   });
 
+  it('keeps an untitled chat named in the bar, and its title part empty, through a reconnect', async () => {
+    live({ title: '' });
+    render(<LogsWindow />);
+    await viewerShown();
+    reconnect();
+    expect(screen.getByTestId('logs-window-chat')).toHaveTextContent('Untitled chat');
+    expect(titles()).toEqual([{ parts: ['Deployment web in prod', '', 'prod'] }]);
+  });
+
   it('draws Loading…, not a view it let go of, when a notice was up', async () => {
     live();
     state.chats = { chats: [], phase: 'live' };
@@ -426,12 +435,28 @@ describe("LogsWindow's title", () => {
     expect(titles()).toHaveLength(2);
   });
 
-  it('sends an empty part for a missing cluster or an empty chat title', async () => {
-    live({ title: '' });
+  it('sends an empty part for a missing cluster', async () => {
+    live();
     state.clusters = { clusters: [], connected: true };
     render(<LogsWindow />);
     await viewerShown();
-    expect(titles()).toEqual([{ parts: ['Deployment web in prod', '', ''] }]);
+    expect(titles()).toEqual([{ parts: ['Deployment web in prod', 'Why is web down', ''] }]);
+  });
+
+  // The host's contract: an empty part for a missing title.
+  it('sends an empty part for a chat with no title, which the bar names Untitled chat', async () => {
+    live({ title: '' });
+    render(<LogsWindow />);
+    await viewerShown();
+    expect(titles()).toEqual([{ parts: ['Deployment web in prod', '', 'prod'] }]);
+    expect(screen.getByTestId('logs-window-chat')).toHaveTextContent('Untitled chat');
+  });
+
+  it('names a chat with no title Untitled chat in the bar over a notice', async () => {
+    live({ calls: [call('call-2', action)], title: '' });
+    render(<LogsWindow />);
+    expect(await screen.findByText('This log view is not available.')).toBeInTheDocument();
+    expect(screen.getByTestId('logs-window-chat')).toHaveTextContent('Untitled chat');
   });
 
   it('sends none from a notice', async () => {

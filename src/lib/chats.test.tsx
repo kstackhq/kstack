@@ -30,6 +30,10 @@ vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
 const {
   actionKindLabel,
   chatModeOf,
+  chatTitleOf,
+  chatTitleHasLineBreak,
+  chatTitleTooLong,
+  normalizeChatTitle,
   grantOffered,
   noticesOf,
   queryResultOf,
@@ -106,6 +110,32 @@ describe('useChats', () => {
     rerender();
     expect(result.current.phase).toBe('live');
     expect(result.current.chats.map((c) => c.id)).toEqual(['a']);
+  });
+
+  // A reconnect masks the old connection's list until the replay's Bookmark.
+  it('holds the last synced list through a replay, taking each record as it lands', () => {
+    const { result, rerender } = renderChats();
+    pushChats(
+      { type: 'Added', chat: chat('a', '2026-09-01T10:00:00Z') },
+      { type: 'Added', chat: chat('b', '2026-09-01T09:00:00Z') },
+      { type: 'Bookmark', chat: null },
+    );
+    rerender();
+
+    acc = undefined;
+    rerender();
+    expect(result.current.phase).toBe('connecting');
+    expect(result.current.chats.map((c) => c.title)).toEqual(['chat a', 'chat b']);
+
+    pushChats({ type: 'Added', chat: { ...chat('b', '2026-09-01T11:00:00Z'), title: 'renamed' } });
+    rerender();
+    expect(result.current.chats.map((c) => c.title)).toEqual(['renamed', 'chat a']);
+
+    // The Bookmark says what the replay left out is gone.
+    pushChats({ type: 'Bookmark', chat: null });
+    rerender();
+    expect(result.current.phase).toBe('live');
+    expect(result.current.chats.map((c) => c.title)).toEqual(['renamed']);
   });
 
   it('sorts by updatedAt newest first, parsing the ISO wire value', () => {
@@ -307,6 +337,49 @@ describe('chatModeOf', () => {
   it('spells the app mode the way the wire does', () => {
     expect(chatModeOf('chat')).toBe('Chat');
     expect(chatModeOf('dashboard')).toBe('Dashboard');
+  });
+});
+
+describe('chatTitleOf', () => {
+  it('names a chat with no title, and leaves any other title as it is', () => {
+    expect(chatTitleOf('')).toBe('Untitled chat');
+    expect(chatTitleOf(' ')).toBe(' ');
+    expect(chatTitleOf('Why is checkout crashing?')).toBe('Why is checkout crashing?');
+  });
+});
+
+// The sidecar's `Rename` pins the same cases (`TestRenameTrimsAndCountsAsTheWebviewDoes`,
+// `TestRenameRefusesAnEmptyOverlongOrMultilineTitle`).
+describe('normalizeChatTitle, chatTitleTooLong and chatTitleHasLineBreak', () => {
+  it('trims what Go’s TrimSpace trims, and nothing else', () => {
+    expect(normalizeChatTitle(' \t\u0085\u00a0\u2028\u3000pods\n\u205f ')).toBe('pods');
+    // JavaScript's trim drops U+FEFF; Go's keeps it.
+    expect(normalizeChatTitle('\ufeffpods')).toBe('\ufeffpods');
+  });
+
+  // A regex would retry from every space of the run before the `b`.
+  it('reads a long paste in one pass from each end', () => {
+    const run = ' '.repeat(200_000);
+    expect(normalizeChatTitle(`a${run}b`)).toBe(`a${run}b`);
+    expect(normalizeChatTitle(`${run}a${run}`)).toBe('a');
+    expect(chatTitleTooLong(`${run}a${run}b`)).toBe(true);
+    expect(chatTitleTooLong('a'.repeat(1_000_000))).toBe(true);
+  });
+
+  it('counts code points of the trimmed title against 80', () => {
+    expect(chatTitleTooLong(`\u0085${'a'.repeat(80)}`)).toBe(false);
+    expect(chatTitleTooLong(`\ufeff${'a'.repeat(80)}`)).toBe(true);
+    expect(chatTitleTooLong('😀'.repeat(80))).toBe(false);
+    expect(chatTitleTooLong('😀'.repeat(81))).toBe(true);
+    expect(chatTitleTooLong('')).toBe(false);
+  });
+
+  it('finds a line break inside the trimmed title, of any of Unicode’s kinds', () => {
+    for (const lineBreak of '\n\v\f\r\u0085\u2028\u2029') {
+      expect(chatTitleHasLineBreak(`ops${lineBreak}west`)).toBe(true);
+      expect(chatTitleHasLineBreak(`ops west${lineBreak}`)).toBe(false);
+    }
+    expect(chatTitleHasLineBreak('ops\u2027west')).toBe(false);
   });
 });
 

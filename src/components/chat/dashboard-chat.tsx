@@ -21,6 +21,7 @@
 // how a chat starts here.
 import { Button } from '@kubetail/ui/elements/button';
 import { useNavigate, useSearch } from '@tanstack/react-router';
+import { useRef } from 'react';
 
 import { ChatNav } from '@/components/chat/chat-nav';
 import { ChatPane, NewChatPane } from '@/components/chat/chat-pane';
@@ -28,6 +29,7 @@ import { ChatPane, NewChatPane } from '@/components/chat/chat-pane';
 export function DashboardChat() {
   const { chat } = useSearch({ strict: false });
   const navigate = useNavigate();
+  const composerInput = useRef<HTMLTextAreaElement>(null);
   const select = (next: string | undefined, replace = false) =>
     navigate({ to: '.', search: (prev) => ({ ...prev, chat: next }), replace });
 
@@ -37,11 +39,12 @@ export function DashboardChat() {
         mode="dashboard"
         empty={
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
-            <ChatNav mode="dashboard" />
+            <ChatNav mode="dashboard" focusFallback={composerInput} />
           </div>
         }
         // Replace, so Back returns to whatever came before the list.
         onCreated={(id) => select(id, true)}
+        inputRef={composerInput}
       />
     );
   }

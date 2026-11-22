@@ -15,7 +15,7 @@
 // What a window reads about chats: the recent list and one chat's transcript, each a
 // delta watch folded into an id-keyed map. Stored records with no cache behind them,
 // so there is no provenance to guard and no need for `useCacheDeltaWatch`.
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import { graphql } from '@/gql';
 import type { ChatMessagesWatchSubscription, ChatMode, ChatsWatchSubscription, ToolActionKind } from '@/gql/graphql';
@@ -374,6 +374,56 @@ export function inFlight(status: ChatMessage['status']): boolean {
 // through here, so they cannot disagree.
 export const chatModeOf = (mode: AppMode): ChatMode => (mode === 'dashboard' ? 'Dashboard' : 'Chat');
 
+// A chat's title as the app names it. A chat can have none (its title reads as ""), and
+// a button or a sentence naming it would then be empty.
+export const chatTitleOf = (title: string): string => title || 'Untitled chat';
+
+// The sidecar's rules for a title it is sent (`Rename`): trimmed of what Go's
+// `strings.TrimSpace` trims, then at most 80 code points on one line. JavaScript's `trim` is not
+// Go's: it keeps U+0085 and drops U+FEFF. A title can be a paste of any length, so both
+// read only as far as they must.
+export const MAX_CHAT_TITLE_LENGTH = 80;
+
+// Go's `unicode.IsSpace`. Every one is a single UTF-16 unit.
+function isGoSpace(code: number): boolean {
+  return (
+    (code >= 0x09 && code <= 0x0d) ||
+    code === 0x20 ||
+    code === 0x85 ||
+    code === 0xa0 ||
+    code === 0x1680 ||
+    (code >= 0x2000 && code <= 0x200a) ||
+    code === 0x2028 ||
+    code === 0x2029 ||
+    code === 0x202f ||
+    code === 0x205f ||
+    code === 0x3000
+  );
+}
+
+export function normalizeChatTitle(title: string): string {
+  let start = 0;
+  let end = title.length;
+  while (start < end && isGoSpace(title.charCodeAt(start))) start++;
+  while (end > start && isGoSpace(title.charCodeAt(end - 1))) end--;
+  return title.slice(start, end);
+}
+
+export function chatTitleTooLong(title: string): boolean {
+  const codePoints = normalizeChatTitle(title)[Symbol.iterator]();
+  for (let i = 0; i < MAX_CHAT_TITLE_LENGTH; i++) {
+    if (codePoints.next().done) return false;
+  }
+  return !codePoints.next().done;
+}
+
+// Unicode's mandatory line breaks, the sidecar's `lineBreaks`.
+const LINE_BREAK = /[\n\v\f\r\u0085\u2028\u2029]/;
+
+export function chatTitleHasLineBreak(title: string): boolean {
+  return LINE_BREAK.test(normalizeChatTitle(title));
+}
+
 export type Folded<T> = { items: Map<string, T>; synced: boolean };
 
 // Folds one batch of frames. The Bookmark closes the snapshot and is keyed on `type`,
@@ -408,7 +458,15 @@ export function useChats(): { chats: Chat[]; phase: WatchPhase } {
     { unshared: true },
   );
 
-  const items = data?.items;
+  // A reconnect replays the list from nothing. Until its Bookmark, the last synced list
+  // stands in for the rows the replay has yet to reach, each replaced as its own record
+  // lands: only the Bookmark can say a chat is gone.
+  const [lastSynced, setLastSynced] = useState<Map<string, Chat>>();
+  if (data?.synced && data.items !== lastSynced) setLastSynced(data.items);
+  const items = useMemo(() => {
+    if (data?.synced || !lastSynced) return data?.items;
+    return new Map([...lastSynced, ...(data?.items ?? [])]);
+  }, [data, lastSynced]);
   // `updatedAt` is an ISO string, so it is parsed rather than compared as text. The
   // sidecar stores millis, so two chats can share one; the id (opaque text) breaks the
   // tie, so the order is at least stable.

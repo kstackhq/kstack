@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -132,6 +132,13 @@ describe('ChatNav', () => {
     expect(screen.queryByRole('heading', { name: 'Recents' })).not.toBeInTheDocument();
   });
 
+  it('has 8px under the search box, as over it, before Recents', () => {
+    renderNav([chat('c1', 'First chat')]);
+    expect(screen.getByRole('link', { name: 'New chat' })).toHaveClass('mb-2');
+    expect(screen.getByRole('searchbox', { name: 'Search chats' }).closest('.sticky')).toHaveClass('pb-2');
+    expect(screen.getByRole('heading', { name: 'Recents' })).toHaveClass('mt-0');
+  });
+
   it('narrows the rows to the titles the search matches, ignoring case', async () => {
     const user = userEvent.setup();
     renderNav([chat('c1', 'Why is checkout crashing?'), chat('c2', 'Scale down staging')]);
@@ -145,6 +152,39 @@ describe('ChatNav', () => {
     await user.keyboard('{Escape}');
     expect(box).toHaveValue('');
     expect(screen.getByRole('link', { name: 'Scale down staging' })).toBeInTheDocument();
+  });
+
+  // In the narrow drawer, an Escape that reached `window` would close it too.
+  it('keeps the Escape that clears its query from the window, and lets the next one through', () => {
+    const reached = vi.fn();
+    window.addEventListener('keydown', reached);
+    renderNav();
+    const box = screen.getByRole('searchbox', { name: 'Search chats' });
+    fireEvent.change(box, { target: { value: 'first' } });
+    fireEvent.keyDown(box, { key: 'Escape' });
+    expect(box).toHaveValue('');
+    expect(reached).not.toHaveBeenCalled();
+    fireEvent.keyDown(box, { key: 'Escape' });
+    window.removeEventListener('keydown', reached);
+    expect(reached).toHaveBeenCalledOnce();
+  });
+
+  it('leaves the query to an IME’s Escape', () => {
+    renderNav();
+    const box = screen.getByRole('searchbox', { name: 'Search chats' });
+    fireEvent.change(box, { target: { value: 'first' } });
+    fireEvent.keyDown(box, { key: 'Escape', isComposing: true });
+    expect(box).toHaveValue('first');
+  });
+
+  it.each([
+    ['stored', 'first\u200bchat'],
+    ['drawn', 'first\\u{200b}chat'],
+  ])('finds a spelled title by its %s text', (_, query) => {
+    renderNav([chat('c1', 'First\u200bchat'), chat('c2', 'Second chat')]);
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search chats' }), { target: { value: query } });
+    expect(screen.getByRole('link', { name: 'First\\u{200B}chat' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Second chat' })).not.toBeInTheDocument();
   });
 
   it('says so when no title matches, in place of the heading', async () => {
@@ -166,10 +206,30 @@ describe('ChatNav', () => {
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
   });
 
+  it('names a chat with no title Untitled chat, on its row and its actions', () => {
+    renderNav([chat('c1', '')]);
+    expect(screen.getByRole('link', { name: 'Untitled chat' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Actions for Untitled chat' })).toBeInTheDocument();
+  });
+
+  it('finds a chat with no title by the name its row draws', () => {
+    renderNav([chat('c1', ''), chat('c2', 'Second chat')]);
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search chats' }), { target: { value: 'untitled' } });
+    expect(screen.getByRole('link', { name: 'Untitled chat' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Second chat' })).not.toBeInTheDocument();
+  });
+
   it('links each chat to its own route', () => {
     renderNav([chat('c1', 'First chat'), chat('c2', 'Second chat')]);
     expect(screen.getByRole('link', { name: 'First chat' })).toHaveAttribute('href', '/chat/c1');
     expect(screen.getByRole('link', { name: 'Second chat' })).toHaveAttribute('href', '/chat/c2');
+  });
+
+  // As the title bar and the delete confirm spell it, so the three can be matched.
+  it('draws each title through VisibleText', () => {
+    renderNav([chat('c1', 'First\u200bchat')]);
+    expect(screen.getByRole('link', { name: 'First\\u{200B}chat' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Actions for First\\u{200B}chat' })).toBeInTheDocument();
   });
 
   it('marks a chat a request is waiting in, on either mode', () => {
@@ -271,6 +331,48 @@ describe('ChatNav', () => {
     expect(screen.getByRole('link', { name: 'First chat' })).toBeInTheDocument();
   });
 
+  // The input the keyboard was in goes away; the drawer's trap would send the next Tab to
+  // its first control.
+  it.each(['{Enter}', '{Escape}'])('hands focus to the row’s actions after %s ends a rename', async (key) => {
+    const user = userEvent.setup();
+    renderNav([chat('c1', 'First chat'), chat('c2', 'Second chat')]);
+    await menuFor(user, 'Second chat');
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }));
+    await user.keyboard(key);
+    expect(screen.getByRole('button', { name: 'Actions for Second chat' })).toHaveFocus();
+  });
+
+  it('leaves focus where the user moved it when a rename ends on a blur', async () => {
+    const user = userEvent.setup();
+    renderNav([chat('c1', 'First chat'), chat('c2', 'Second chat')]);
+    await menuFor(user, 'Second chat');
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }));
+    await user.click(screen.getByRole('searchbox', { name: 'Search chats' }));
+    expect(screen.getByRole('searchbox', { name: 'Search chats' })).toHaveFocus();
+    // A later redraw doesn't pull it back either.
+    await user.type(screen.getByRole('searchbox', { name: 'Search chats' }), 's');
+    expect(screen.getByRole('searchbox', { name: 'Search chats' })).toHaveFocus();
+  });
+
+  it('ends a rename whose row the search no longer matches', async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderNav([chat('c1', 'Alpha'), chat('c2', 'Gamma')]);
+    const search = screen.getByRole('searchbox', { name: 'Search chats' });
+    fireEvent.change(search, { target: { value: 'alpha' } });
+    await menuFor(user, 'Alpha');
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }));
+    expect(screen.getByRole('textbox', { name: /chat title/i })).toBeInTheDocument();
+
+    // Renamed in another window: the search drops the row, and its focused box with it.
+    useChatsMock.mockReturnValue({ chats: [chat('c1', 'Beta'), chat('c2', 'Gamma')], phase: 'live' });
+    rerender(<ChatNav mode="chat" />);
+    expect(search).toHaveFocus();
+    fireEvent.change(search, { target: { value: '' } });
+    expect(screen.queryByRole('textbox', { name: /chat title/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Beta' })).toBeInTheDocument();
+    expect(search).toHaveFocus();
+  });
+
   it('leaves the row as it was when a rename fails', async () => {
     renameMock.mockResolvedValue({ error: new Error('nope') });
     const user = userEvent.setup();
@@ -313,6 +415,204 @@ describe('ChatNav', () => {
 
     expect(screen.queryByText('Delete chat?')).not.toBeInTheDocument();
     expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  it('names the chat as another window renamed it while the confirm is open', async () => {
+    const user = userEvent.setup();
+    const view = renderNav();
+    await menuFor(user, 'First chat');
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }));
+
+    useChatsMock.mockReturnValue({ chats: [chat('c1', 'Renamed chat')], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.getByRole('dialog')).toHaveTextContent('Renamed chat');
+  });
+
+  it('closes the confirm once the snapshot shows another window deleted the chat', async () => {
+    const user = userEvent.setup();
+    const view = renderNav([chat('c1', 'First chat'), chat('c2', 'Second chat')]);
+    await menuFor(user, 'First chat');
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }));
+
+    useChatsMock.mockReturnValue({ chats: [chat('c2', 'Second chat')], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    // Back again, the chat brings no confirm with it: the one asked about is gone.
+    useChatsMock.mockReturnValue({ chats: [chat('c1', 'First chat'), chat('c2', 'Second chat')], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  // `useChats` holds the rows through a replay, taking each record as it lands.
+  it('keeps the confirm through a replay, naming the chat as its record lands', async () => {
+    const user = userEvent.setup();
+    const view = renderNav();
+    await menuFor(user, 'First chat');
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }));
+
+    const dialog = screen.getByRole('dialog');
+    useChatsMock.mockReturnValue({ chats: [chat('c1', 'First chat')], phase: 'connecting' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(dialog).toHaveTextContent('First chat');
+    useChatsMock.mockReturnValue({ chats: [chat('c1', 'Renamed chat')], phase: 'connecting' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(dialog).toHaveTextContent('Renamed chat');
+    useChatsMock.mockReturnValue({ chats: [chat('c1', 'Renamed chat')], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    // The same dialog, never closed and opened again.
+    expect(screen.getByRole('dialog')).toBe(dialog);
+  });
+
+  it('moves focus to the row taking the place of a focused row that leaves', () => {
+    const chats = [chat('c1', 'First chat'), chat('c2', 'Second chat'), chat('c3', 'Third chat')];
+    const view = renderNav(chats);
+    screen.getByRole('button', { name: 'Actions for Second chat' }).focus();
+
+    useChatsMock.mockReturnValue({ chats: [chats[0], chats[2]], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.getByRole('link', { name: 'Third chat' })).toHaveFocus();
+  });
+
+  it('moves focus to the last row when the focused last row leaves', () => {
+    const chats = [chat('c1', 'First chat'), chat('c2', 'Second chat')];
+    const view = renderNav(chats);
+    screen.getByRole('link', { name: 'Second chat' }).focus();
+
+    useChatsMock.mockReturnValue({ chats: [chats[0]], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.getByRole('link', { name: 'First chat' })).toHaveFocus();
+  });
+
+  it('moves focus to the search box when a filtered rename leaves no row', async () => {
+    const user = userEvent.setup();
+    const view = renderNav([chat('c1', 'Alpha'), chat('c2', 'Gamma')]);
+    await user.type(screen.getByRole('searchbox', { name: 'Search chats' }), 'alpha');
+    await menuFor(user, 'Alpha');
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }));
+    await user.clear(screen.getByRole('textbox', { name: /chat title/i }));
+    await user.type(screen.getByRole('textbox', { name: /chat title/i }), 'Beta{Enter}');
+    expect(await screen.findByRole('button', { name: 'Actions for Alpha' })).toHaveFocus();
+
+    useChatsMock.mockReturnValue({ chats: [chat('c1', 'Beta'), chat('c2', 'Gamma')], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.getByRole('searchbox', { name: 'Search chats' })).toHaveFocus();
+  });
+
+  it('moves focus to the next row when another window deletes the row being renamed', async () => {
+    const user = userEvent.setup();
+    const view = renderNav([chat('c1', 'First chat'), chat('c2', 'Second chat')]);
+    await menuFor(user, 'First chat');
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }));
+    expect(screen.getByRole('textbox', { name: /chat title/i })).toHaveFocus();
+
+    useChatsMock.mockReturnValue({ chats: [chat('c2', 'Second chat')], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.getByRole('link', { name: 'Second chat' })).toHaveFocus();
+  });
+
+  it('moves focus to New chat when the focused last chat leaves', () => {
+    const view = renderNav([chat('c1', 'First chat')]);
+    screen.getByRole('link', { name: 'First chat' }).focus();
+
+    useChatsMock.mockReturnValue({ chats: [], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.getByRole('link', { name: 'New chat' })).toHaveFocus();
+  });
+
+  it.each([
+    [
+      'chats',
+      () =>
+        useChatsMock.mockReturnValue({
+          chats: [chat('c1', 'First chat'), chat('c2', 'Second chat')],
+          phase: 'connecting',
+        }),
+    ],
+    ['clusters', () => useActiveClusterMock.mockReturnValue({ clusterID: undefined, phase: 'connecting' })],
+  ])('keeps the rows and a rename’s draft through a reconnect of the %s watch', async (_, reconnect) => {
+    const user = userEvent.setup();
+    const view = renderNav([chat('c1', 'First chat'), chat('c2', 'Second chat')]);
+    await menuFor(user, 'First chat');
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }));
+    await user.type(screen.getByRole('textbox', { name: /chat title/i }), ' draft');
+
+    reconnect();
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.getByRole('textbox', { name: /chat title/i })).toHaveValue('First chat draft');
+    expect(screen.getByRole('textbox', { name: /chat title/i })).toHaveFocus();
+    expect(screen.getByRole('link', { name: 'Second chat' })).toBeInTheDocument();
+
+    useChatsMock.mockReturnValue({ chats: [chat('c1', 'First chat'), chat('c2', 'Second chat')], phase: 'live' });
+    useActiveClusterMock.mockReturnValue({ clusterID: '1', phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.getByRole('textbox', { name: /chat title/i })).toHaveValue('First chat draft');
+  });
+
+  it.each(['rename', 'delete'])(
+    'drops the old cluster’s rows and an open %s once the clusters watch settles on another',
+    async (action) => {
+      const user = userEvent.setup();
+      const view = renderNav([chat('c1', 'First chat'), chat('c2', 'Other cluster’s chat', 'Chat', '2')]);
+      await menuFor(user, 'First chat');
+      await user.click(await screen.findByRole('menuitem', { name: new RegExp(action, 'i') }));
+
+      // The chats watch still replays when the window moves to cluster 2.
+      useChatsMock.mockReturnValue({
+        chats: [chat('c1', 'First chat'), chat('c2', 'Other cluster’s chat', 'Chat', '2')],
+        phase: 'connecting',
+      });
+      useActiveClusterMock.mockReturnValue({ clusterID: '2', phase: 'live' });
+      view.rerender(<ChatNav mode="chat" />);
+      expect(screen.queryByRole('link', { name: 'First chat' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('textbox', { name: /chat title/i })).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(screen.getByRole('link', { name: 'Other cluster’s chat' })).toBeInTheDocument();
+    },
+  );
+
+  it('moves focus to New chat when the last chat goes while the search box holds it', () => {
+    const view = renderNav([chat('c1', 'First chat')]);
+    screen.getByRole('searchbox', { name: 'Search chats' }).focus();
+
+    useChatsMock.mockReturnValue({ chats: [], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.getByRole('link', { name: 'New chat' })).toHaveFocus();
+  });
+
+  it('moves focus to the caller’s fallback when the focused last row leaves the dashboard’s list', () => {
+    const fallback = { current: null as HTMLButtonElement | null };
+    useChatsMock.mockReturnValue({ chats: [chat('c1', 'First chat', 'Dashboard')], phase: 'live' });
+    const view = render(
+      <>
+        <ChatNav mode="dashboard" focusFallback={fallback} />
+        <button ref={fallback} type="button">
+          Composer
+        </button>
+      </>,
+    );
+    screen.getByRole('link', { name: 'First chat' }).focus();
+
+    useChatsMock.mockReturnValue({ chats: [], phase: 'live' });
+    view.rerender(
+      <>
+        <ChatNav mode="dashboard" focusFallback={fallback} />
+        <button ref={fallback} type="button">
+          Composer
+        </button>
+      </>,
+    );
+    expect(screen.getByRole('button', { name: 'Composer' })).toHaveFocus();
+  });
+
+  it('leaves focus alone when a row leaves without it', () => {
+    const chats = [chat('c1', 'First chat'), chat('c2', 'Second chat')];
+    const view = renderNav(chats);
+    screen.getByRole('link', { name: 'New chat' }).focus();
+
+    useChatsMock.mockReturnValue({ chats: [chats[0]], phase: 'live' });
+    view.rerender(<ChatNav mode="chat" />);
+    expect(screen.getByRole('link', { name: 'New chat' })).toHaveFocus();
   });
 
   it('leaves the row in the list when a delete fails', async () => {
