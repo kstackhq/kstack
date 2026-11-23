@@ -958,7 +958,14 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   compared as files (`realpath.Under`), and a policy naming one folder two ways is refused
   (`aliased`, `sidecar/internal/run/sandbox/policy.go`), but no test mounts a folding filesystem
   (vfat, a casefold directory): the Linux tests stand a hard link and a fake in for one. Run the
-  sandbox suite on such a mount in CI.
+  sandbox suite on such a mount in CI, and pin there that `filterPath`
+  (`sidecar/internal/services/settings/filter.go`) drops a second spelling of a `PATH` folder.
+- **Keep an approval when the shell respells a `PATH` entry (low; sandbox owner).** `diffPath`
+  (`sidecar/internal/services/settings/service.go`) finds a stored entry by its exact `Dir`, so a
+  folder the user included as `Bin` is filed pending again when the shell lists it as `bin`, or
+  when the filter keeps another spelling of it first. It fails safe: the user includes it again.
+  A removal already holds for its folder under any `Dir`. Decide whether an inclusion does too,
+  for any `Dir` that leads to the folder or only for another spelling of the stored one.
 - **Audit what secrets a sandboxed read still passes (medium; sandbox owner).** Redaction covers
   a Secret's values, `last-applied-configuration`, and a helm release's values and manifest
   Secrets. Check what else carries a secret to the model: env values and ConfigMaps; a helm

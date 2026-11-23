@@ -38,25 +38,29 @@ constant spells one, and `Held`, `Update`'s `fields`, a `Refusal` and the wire a
   refused**, since a dropped narrowing field would widen the rule. → [the permissions
   engine](../../../../docs/security/2026-10-02-the-permissions-engine.md).
 
-**`Settings.Sandbox.Path` is the user's `PATH`, frozen** (`path.go`): a `PathEntry` per folder
-in the shell's order, with `Dir`, `Target`, `State` (`adopted`, `pending`, `gone`), `Source`
-(`shell`/`user`) and `Shared`. A state holds for `Target` alone. `filterPath` (`filter.go`) drops
-what `sandbox.SearchFolder` refuses, `node_modules` and duplicates, and marks `Shared` a folder
-writable by a non-administrators' group.
+**`Settings.Sandbox.Path` is the user's `PATH`, frozen** (`path.go`): a `PathEntry` per folder,
+with `Dir`, `Target`, `State` (`adopted`, `pending`, `gone`), `Source` (`shell`/`user`) and
+`Shared`. A state holds for `Target` alone. **A stored `Target` that differs from a fresh
+one in case alone is that folder when it is the same file** (`targetLookup`, off the `Update`); the
+sync stores the fresh one, but a removal the shell no longer lists keeps its own. **One with a link
+on it now has moved, and any other `Target` is another folder by its text, never read.** `filterPath` (`filter.go`) drops what
+`sandbox.SearchFolder` refuses, `node_modules` and duplicates, and marks `Shared` a folder a
+non-admin group can write.
 
 **`Service` (`service.go`) is the store plus the sync**, over `Zones` (`Never`, `Open`, `Home`),
 the refresh's resolver and the launch's fault; on a machine with no sandbox it syncs nothing and
 its path methods answer `ErrNoSandbox`. An entry is **open** when its `Target` is under an `Open`
-Read path and no Deny path, compared as files. `SyncPath` reads the disk on a
-goroutine bounded by `SyncTimeout` (5s) and diffs in one `Update` naming `sandbox.path`: a new
+Read path and no Deny path, compared as files. `SyncPath`, serialized, reads the disk on a
+goroutine bounded by `SyncTimeout` and diffs in one `Update` naming `sandbox.path`: a new
 open, unshared entry is `adopted`, any other new one `pending`, a changed `Target` is new again,
 and the shell's order wins. **While the field is held or `PathStrict` is set, every new entry is
-`pending`.** A sync that changed the list starts a probe of every listed executable
-(`StartProbe`), after the write and never holding it; a probe that fails is a warning, not a
-startup error. `AdoptPath`
-(Include) refuses `ErrPathChanged` when a refresh moved the entry since the user saw it;
-`DropPath` (Remove) sets `gone`. `RunCheck` (`checkrun.go`) applies the filter and adoption rule
-to one folder for a run. → [ADR: `PATH` is the login shell's, filtered and
+`pending`.** **A sync that cannot compare a stored `Target` writes nothing** and answers the
+lookup's error. A sync that changed the list probes every listed
+executable (`StartProbe`), after the write and never holding it; a probe that fails is a warning,
+not a startup error. `AdoptPath` (Include) refuses `ErrPathChanged` when a refresh moved the entry, and drops the removals kept for its folder under other `Dir`s, in any
+spelling (looked up before `pathMu`, 3 times, else `ErrPathBusy`; `ErrPathUnread` when a lookup fails or hangs); `DropPath` (Remove) sets `gone`.
+`RunCheck` (`checkrun.go`) applies the filter and adoption rule to a run's folder, and leaves out
+an approved entry whose `Target`'s lookup fails; its callers bound it. → [ADR: `PATH` is the login shell's, filtered and
 frozen](../../../../docs/adr/2026-10-02-path-is-the-login-shells-filtered-and-frozen.md), [security
 record](../../../../docs/security/2026-10-02-path-from-the-login-shell.md).
 

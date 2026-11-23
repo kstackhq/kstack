@@ -14,19 +14,22 @@
 
 package settings
 
-import "github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+import (
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+)
 
 // RunCheck is the sync's checks over one folder, against a run's own open
 // folders and the paths it never opens, since the stored list can predate a path the
 // denied-always list gained, a chmod, or a narrower open list.
 type RunCheck struct {
 	z zones
+	targetLookup
 }
 
 // NewRunCheck resolves open, never and home's broad folders once for every
 // entry of a run.
 func NewRunCheck(open sandbox.FilePolicy, never []string, home string) RunCheck {
-	return RunCheck{z: zonesOf(Zones{Never: never, Open: open, Home: home})}
+	return RunCheck{z: zonesOf(Zones{Never: never, Open: open, Home: home}), targetLookup: newTargetLookup()}
 }
 
 // Folder is the folder a run searches for an adopted entry, and whether the
@@ -43,9 +46,16 @@ func (c RunCheck) Folder(entry PathEntry) (folder string, open, ok bool) {
 	case open && !d.Shared:
 		// What the sync would adopt unasked, moved or not.
 		return d.Target, true, true
-	case d.Target == entry.Target && entry.Source == SourceUser:
-		// The user approved the folder itself.
+	case entry.Source == SourceUser && c.approved(entry.Target, d):
+		// The user approved the folder itself, in whatever spelling.
 		return d.Target, open, true
 	}
 	return "", false, false
+}
+
+// approved reports whether stored, a Target the user approved, is fresh's
+// folder (sameFolder). A lookup of stored that fails leaves the entry out.
+func (c RunCheck) approved(stored string, fresh pathDir) bool {
+	same, err := c.sameFolder(stored, fresh)
+	return same && err == nil
 }
