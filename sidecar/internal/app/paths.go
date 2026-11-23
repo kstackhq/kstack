@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -87,8 +88,7 @@ func pathsOf(cfg Config) paths {
 		if errors.Is(err, fs.ErrNotExist) {
 			return dir
 		}
-		// A Windows junction is ModeIrregular, not ModeSymlink.
-		if err != nil || info.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+		if err != nil || realpath.IsLink(info) {
 			linked = append(linked, dir)
 		}
 		return dir
