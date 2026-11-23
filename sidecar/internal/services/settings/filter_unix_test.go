@@ -73,6 +73,10 @@ func TestFilterPathDropsEachRule(t *testing.T) {
 	// reason is counted beside the list's.
 	kept, dropped := filterPath([]string{other, "bin", project, bin, again, group, groupSticky}, zones{})
 
+	for i := range kept {
+		assert.NotNil(t, kept[i].info, "the folder the filter checked")
+		kept[i].info = nil
+	}
 	assert.Equal(t, []pathDir{
 		{Dir: other, Target: other},
 		{Dir: bin, Target: bin},

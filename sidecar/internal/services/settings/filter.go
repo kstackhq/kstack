@@ -21,6 +21,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"os"
 )
 
 // pathDir is one folder filterPath kept.
@@ -28,6 +29,8 @@ type pathDir struct {
 	Dir    string // the entry as the shell gave it
 	Target string // the folder it resolved to
 	Shared bool   // writable by a group other than an administrators' one
+
+	info os.FileInfo // the folder the filter checked
 }
 
 // zones is Zones as the checks read it, each path as the zones list it. A
@@ -54,8 +57,10 @@ func filterPath(entries []string, z zones) (kept []pathDir, dropped map[string]i
 	dropped = map[string]int{}
 	for _, dir := range entries {
 		d, rule := filterDir(dir, z)
-		if rule == "" && slices.ContainsFunc(kept, func(k pathDir) bool { return k.Target == d.Target }) {
-			// It finds nothing the first does not.
+		// Compared as files: a folder that folds names is one folder in
+		// any spelling. And by Target, which a folder replaced between two
+		// reads of one entry shares.
+		if rule == "" && slices.ContainsFunc(kept, func(k pathDir) bool { return k.Target == d.Target || os.SameFile(k.info, d.info) }) {
 			rule = "duplicate"
 		}
 		if rule != "" {
@@ -78,5 +83,5 @@ func filterDir(dir string, z zones) (pathDir, string) {
 		// A project's folder holds whatever its last install fetched.
 		return pathDir{}, "project"
 	}
-	return pathDir{Dir: dir, Target: target, Shared: shared(info)}, ""
+	return pathDir{Dir: dir, Target: target, Shared: shared(info), info: info}, ""
 }
