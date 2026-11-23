@@ -584,7 +584,7 @@ func shortTemp(t *testing.T) string {
 }
 
 // fakeSandboxer runs a command as given and keeps each Run it was handed,
-// or answers cmdErr and runs nothing. Its port is 6443, or portErr, and the
+// or answers cmdErr and runs nothing, after hold if set. Its port is 6443, or portErr, and the
 // processes it counts are counted, or countErr.
 type fakeSandboxer struct {
 	confines bool
@@ -628,11 +628,11 @@ func (f *fakeSandboxer) Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, 
 		f.resolvers = append(f.resolvers, string(b))
 	}
 	f.mu.Unlock()
-	if f.hold != nil {
-		return nil, ctx.Err()
-	}
 	if f.cmdErr != nil {
 		return nil, f.cmdErr
+	}
+	if f.hold != nil {
+		return nil, ctx.Err()
 	}
 	cmd := exec.CommandContext(ctx, r.Shell, r.Args...)
 	cmd.Dir, cmd.Env = r.Dir, r.Env

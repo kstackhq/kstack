@@ -47,3 +47,27 @@ func TestARunsCheckRefusesAnUnpassableVariable(t *testing.T) {
 	}
 	assert.NoError(t, checked(Run{Env: []string{"PATH=/usr/bin", "HOME=/w", "AZURE_CONFIG_DIR=/t/azure"}}))
 }
+
+// A clone shares no slice with its run, so changing the run leaves it be.
+func TestACloneSharesNoSliceWithItsRun(t *testing.T) {
+	full := func() Run {
+		return Run{
+			Args: []string{"-c"}, Env: []string{"A=1"},
+			Policy: Policy{
+				Files:   FilePolicy{Read: []string{"/r"}, Write: []string{"/w"}, Deny: []string{"/d"}},
+				Always:  AlwaysPolicy{Deny: []string{"/ad"}, Kstack: []string{"/k"}, Read: []string{"/ar"}, Write: []string{"/aw"}},
+				Network: NetworkPolicy{Relays: []Relay{{Port: 1}}},
+			},
+		}
+	}
+	r := full()
+
+	c := r.clone()
+	r.Args[0], r.Env[0] = "x", "x"
+	f, a := r.Policy.Files, r.Policy.Always
+	f.Read[0], f.Write[0], f.Deny[0] = "x", "x", "x"
+	a.Deny[0], a.Kstack[0], a.Read[0], a.Write[0] = "x", "x", "x", "x"
+	r.Policy.Network.Relays[0].Port = 2
+
+	assert.Equal(t, full(), c)
+}

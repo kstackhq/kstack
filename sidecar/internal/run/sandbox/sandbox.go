@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -75,6 +76,17 @@ type Run struct {
 	Policy Policy
 }
 
+// clone is r with slices of its own: Command checks r on a goroutine that can
+// outlive the call, so it must not share them with the caller.
+func (r Run) clone() Run {
+	r.Args, r.Env = slices.Clone(r.Args), slices.Clone(r.Env)
+	f, a := &r.Policy.Files, &r.Policy.Always
+	f.Read, f.Write, f.Deny = slices.Clone(f.Read), slices.Clone(f.Write), slices.Clone(f.Deny)
+	a.Deny, a.Kstack, a.Read, a.Write = slices.Clone(a.Deny), slices.Clone(a.Kstack), slices.Clone(a.Read), slices.Clone(a.Write)
+	r.Policy.Network.Relays = slices.Clone(r.Policy.Network.Relays)
+	return r
+}
+
 // check is the rules r's policy compiles to, or why r cannot start: its
 // policy's Check, or a variable in its environment that NeverEnv names and
 // that is not a mount's placeholder. Both platforms' Command call it, so no
@@ -119,6 +131,13 @@ type Sandbox struct {
 	// pasta is the pasta a run with the internet starts under, on Linux; ""
 	// where the probe found none that passes, and networkReason says why.
 	pasta, networkReason string
+	// check, stat, buildProfile and buildProbePolicy are a test's stand-ins
+	// for Run.check and os.Stat on Linux, profile on macOS and probePolicy;
+	// nil runs the one it stands in for.
+	check            func(Run) ([]rule, error)
+	stat             func(string) (os.FileInfo, error)
+	buildProfile     func(Run, []rule) (text string, params []string)
+	buildProbePolicy func(shell, dir, home string) Policy
 	// lifeline is the read end of a pipe every run inherits, and held its
 	// write end: a bare descriptor, not an os.File, so no finalizer closes
 	// it and only this process's end does, however it ends, or Close. A run

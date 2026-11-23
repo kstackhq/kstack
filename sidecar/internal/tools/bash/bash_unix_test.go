@@ -717,6 +717,58 @@ func TestASandboxedRunLeadsItsOwnSession(t *testing.T) {
 	assert.Equal(t, &syscall.SysProcAttr{Setsid: true}, inside.SysProcAttr)
 }
 
+// A sandbox that hangs while it prepares, as one reading a stalled network
+// mount does, ends with the call's deadline as a timeout and with a cancel as
+// one, saying which before bash started. A refusal it answers once the
+// context has ended is still the refusal.
+func TestARunWhoseSandboxHangsSaysWhichStopEndedIt(t *testing.T) {
+	refused := errors.New("the policy names a folder two ways")
+	for _, c := range []struct {
+		name   string
+		cmdErr error
+		stop   func(clock, context.CancelFunc)
+		want   string
+	}{
+		{"timeout", nil, func(c clock, _ context.CancelFunc) { c.fire() }, "could not start: timed out after 3600s"},
+		{"cancel", nil, func(_ clock, cancel context.CancelFunc) { cancel() }, "could not start: cancelled"},
+		{"refusal", refused, func(c clock, _ context.CancelFunc) { c.fire() }, "could not start: " + refused.Error()},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tl := tool(t)
+			fake := &fakeSandboxer{hold: testutil.NewSignal(), cmdErr: c.cmdErr}
+			s := tl.spec("echo ran", 1024)
+			s.sandboxedRun = &sandboxedRun{boxer: fake}
+			clk := newClock()
+			s.hooks = hooks{after: clk.after}
+			parent, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan result, 1)
+
+			go func() { done <- run(parent, s) }()
+			fake.hold.Wait(t, "the sandbox to start preparing")
+			c.stop(clk, cancel)
+
+			r := testutil.Recv(t, done, "the run to end")
+			assert.Equal(t, c.want, resultText(r, s.timeout, nil, confined))
+		})
+	}
+}
+
+// A start error names the stop that ended the call first: a cancel after the
+// deadline fired does not relabel it.
+func TestAStartErrorNamesTheFirstStop(t *testing.T) {
+	clk := newClock()
+	parent, cancelParent := context.WithCancel(t.Context())
+	ctx, cancel := hooks{after: clk.after}.deadline(parent, time.Minute)
+	defer cancel()
+
+	clk.fire()
+	testutil.Wait(t, ctx.Done(), "the deadline to end the call")
+	cancelParent()
+
+	assert.Equal(t, "timed out after 60s", startError(ctx, ctx.Err(), time.Minute))
+}
+
 // A task's sandbox that hangs while it prepares, as one resolving a path on a
 // stalled network mount does, gives way when the call is cancelled: the task
 // is refused, and nothing starts.

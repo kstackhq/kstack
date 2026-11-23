@@ -430,7 +430,7 @@ func TestAProbeThatRunsIsASandbox(t *testing.T) {
 // command unconfined. The launcher hangs on purpose: the probe's own timeout
 // ends it.
 func TestAProbeThatTimesOutKeepsTheSandbox(t *testing.T) {
-	t.Cleanup(policyBuilds.Wait)
+	t.Cleanup(boundedCalls.Wait)
 	s, v := probe(t.Context(), launcher(t, "exec sleep 60\n"), 10*time.Millisecond)
 
 	require.NotNil(t, s)
@@ -500,16 +500,33 @@ func TestAMemoryLimitIsRefused(t *testing.T) {
 // A profile that hangs, as one resolving a path on a stalled network mount
 // does, holds the command only until its context ends.
 func TestACommandWhoseProfileHangsIsRefusedWhenItsContextEnds(t *testing.T) {
-	release := make(chan struct{})
-	buildProfile = func(*Sandbox, Run, []rule) (string, []string) { <-release; return "", nil }
-	t.Cleanup(func() { close(release); buildProfile = (*Sandbox).profile })
+	release, started := make(chan struct{}), make(chan struct{})
+	// Cleanups run last first, so the build is released before it is waited on.
+	t.Cleanup(boundedCalls.Wait)
+	t.Cleanup(func() { close(release) })
+	s := &Sandbox{self: "/bin/sh", launcher: "/usr/bin/true"}
+	s.buildProfile = func(Run, []rule) (string, []string) {
+		close(started)
+		<-release
+		return "", nil
+	}
 	ctx, cancel := context.WithCancel(t.Context())
+	type made struct {
+		cmd *exec.Cmd
+		err error
+	}
+	done := make(chan made, 1)
+
+	go func() {
+		cmd, err := s.Command(ctx, Run{Shell: "/bin/sh"})
+		done <- made{cmd, err}
+	}()
+	testutil.Wait(t, started, "the profile build to start")
 	cancel()
 
-	cmd, err := (&Sandbox{self: "/bin/sh", launcher: "/usr/bin/true"}).Command(ctx, Run{Shell: "/bin/sh"})
-
-	assert.Nil(t, cmd)
-	assert.ErrorIs(t, err, context.Canceled)
+	m := testutil.Recv(t, done, "Command to return while the build hangs")
+	assert.Nil(t, m.cmd)
+	assert.ErrorIs(t, m.err, context.Canceled)
 }
 
 // The port a run's kubeconfig dials is a free loopback one, which the
@@ -1581,7 +1598,7 @@ func TestARunWithAnUnpassableVariableIsRefused(t *testing.T) {
 // A probe whose context ended before it answered is the context's error, not
 // a verdict: read as one it would say there is no sandbox.
 func TestAProbeCutShortIsAnError(t *testing.T) {
-	t.Cleanup(policyBuilds.Wait)
+	t.Cleanup(boundedCalls.Wait)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 

@@ -72,10 +72,10 @@ func otherHomesIn(t *testing.T, parent string) {
 // that started it, still reading them, so each swap first waits it out.
 func keepLists(t *testing.T) {
 	t.Helper()
-	policyBuilds.Wait()
+	boundedCalls.Wait()
 	shared, platform, parent, brew := sharedLists, platformLists, homesParent, brewVar
 	t.Cleanup(func() {
-		policyBuilds.Wait()
+		boundedCalls.Wait()
 		sharedLists, platformLists, homesParent, brewVar = shared, platform, parent, brew
 	})
 }

@@ -109,13 +109,13 @@ func run(parent context.Context, s spec) result {
 	if err != nil {
 		_ = w.Close()
 		_ = r.Close()
-		return result{Error: err.Error()}
+		return result{Error: startError(ctx, err, s.timeout)}
 	}
 	cmd.Cancel = func() error { return stopBash(parent, cmd, g, s.killGrace) }
 	if err := cmd.Start(); err != nil {
 		_ = w.Close()
 		_ = r.Close()
-		return result{Error: err.Error()}
+		return result{Error: startError(ctx, err, s.timeout)}
 	}
 	_ = w.Close()
 
@@ -137,6 +137,20 @@ func run(parent context.Context, s spec) result {
 		res.ExitCode = sandbox.ExitCode(cmd.ProcessState)
 	}
 	return res
+}
+
+// startError is why bash could not start: err, or, when err is ctx ending,
+// which of the call's deadline and a cancel ended it first. Making a sandboxed
+// command can take until then: it reads the disk.
+func startError(ctx context.Context, err error, timeout time.Duration) string {
+	switch {
+	case ctx.Err() == nil || !errors.Is(err, ctx.Err()):
+		return err.Error()
+	case errors.Is(context.Cause(ctx), errCallTimeout):
+		return "timed out after " + formatTimeout(timeout)
+	default:
+		return "cancelled"
+	}
 }
 
 // shellCmd is bash on s.command in s.dir, through the sandbox when s has one, in

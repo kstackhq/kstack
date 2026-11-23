@@ -28,6 +28,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -75,7 +76,7 @@ func TestTheProbeIsBounded(t *testing.T) {
 	// Latency injected into the code under test: the fake outlasts the bound.
 	pasta := fakeBwrap(t, filepath.Join(t.TempDir(), "pasta"), "exec sleep 60")
 	// The bound can cut off the policy build too.
-	t.Cleanup(policyBuilds.Wait)
+	t.Cleanup(boundedCalls.Wait)
 	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
 
 	s.probePasta(t.Context(), []string{pasta}, 10*time.Millisecond)
@@ -102,19 +103,44 @@ func TestAPastaThatFailsTheProbeSaysWhy(t *testing.T) {
 func TestThePastaProbePolicyIsBounded(t *testing.T) {
 	release := make(chan struct{})
 	// Cleanups run last first, so the build is released before it is waited on.
-	t.Cleanup(policyBuilds.Wait)
+	t.Cleanup(boundedCalls.Wait)
 	t.Cleanup(func() { close(release) })
-	old := buildProbePolicy
-	buildProbePolicy = func(*Sandbox, string, string, string) Policy {
+	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
+	s.buildProbePolicy = func(string, string, string) Policy {
 		<-release
 		return Policy{}
 	}
-	t.Cleanup(func() { buildProbePolicy = old })
-	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
 
 	_, err := s.tryPasta(t.Context(), "/bin/true", 10*time.Millisecond)
 
 	assert.EqualError(t, err, "no answer in 10ms")
+}
+
+// A pasta probe whose check never answers fails at its bound too.
+func TestThePastaProbesCheckIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, started, release := hangingCheck()
+		defer release()
+
+		_, err := s.tryPasta(t.Context(), "/bin/true", 10*time.Millisecond)
+
+		requireStarted(t, started)
+		assert.EqualError(t, err, "no answer in 10ms")
+	})
+}
+
+// A pasta probe whose denial lookup hangs after its check fails at its bound
+// too.
+func TestThePastaProbesDenialLookupIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, started, release := hangingDenial()
+		defer release()
+
+		_, err := s.tryPasta(t.Context(), "/bin/true", 10*time.Millisecond)
+
+		requireStarted(t, started)
+		assert.EqualError(t, err, "no answer in 10ms")
+	})
 }
 
 // A probe past its bound ends pasta's child too. Killed during setup, pasta
@@ -128,7 +154,7 @@ func TestAProbePastItsBoundEndsPastasChild(t *testing.T) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	})
-	t.Cleanup(policyBuilds.Wait)
+	t.Cleanup(boundedCalls.Wait)
 	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
 	done := make(chan struct{})
 
@@ -231,9 +257,9 @@ func TestAPastaFailureFailsTheRun(t *testing.T) {
 	assert.NoFileExists(t, marker)
 }
 
-// pastaArgs is what args, a run's under sandbox-pasta, hands pasta: its flags,
+// splitPastaArgs is what args, a run's under sandbox-pasta, hands pasta: its flags,
 // then the command after the -- that ends them.
-func pastaArgs(t *testing.T, args []string) (flags, command []string) {
+func splitPastaArgs(t *testing.T, args []string) (flags, command []string) {
 	t.Helper()
 	require.Equal(t, []string{PastaCommand, "--", "/usr/bin/pasta"}, args[1:4])
 	rest := args[4:]
@@ -248,7 +274,7 @@ func TestARunStartsPastaThroughTheLauncher(t *testing.T) {
 	cmd := command(t, s, t.Context(), internetRun(t, s, "-c", "true"))
 
 	assert.Equal(t, os.Args[0], cmd.Path)
-	_, rest := pastaArgs(t, cmd.Args)
+	_, rest := splitPastaArgs(t, cmd.Args)
 	assert.Equal(t, "/usr/bin/bwrap", rest[0])
 }
 
@@ -258,10 +284,8 @@ func TestTheProbePassesARunsPastaFlags(t *testing.T) {
 	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap", pasta: "/usr/bin/pasta"}
 	r := internetRun(t, s, "-c", "true")
 
-	run, _ := pastaArgs(t, command(t, s, t.Context(), r).Args)
-	probeCmd, err := s.pastaCommand(t.Context(), s.pasta, r, compiledRules(t, r.Policy), "", false)
-	require.NoError(t, err)
-	probe, _ := pastaArgs(t, probeCmd.Args)
+	run, _ := splitPastaArgs(t, command(t, s, t.Context(), r).Args)
+	probe, _ := splitPastaArgs(t, slices.Concat([]string{s.self}, s.pastaArgs(s.bwrap, s.pasta, r, compiledRules(t, r.Policy), "", false)))
 
 	assert.Equal(t, "--config-net", run[0])
 	assert.Equal(t, append(slices.Clone(probeNet), run[1:]...), probe)
@@ -273,7 +297,7 @@ func TestTheProbePassesARunsPastaFlags(t *testing.T) {
 func TestANetworkRunAsksBwrapForTheUsersIDsAndNoCapability(t *testing.T) {
 	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap", pasta: "/usr/bin/pasta"}
 
-	_, rest := pastaArgs(t, command(t, s, t.Context(), internetRun(t, s, "-c", "true")).Args)
+	_, rest := splitPastaArgs(t, command(t, s, t.Context(), internetRun(t, s, "-c", "true")).Args)
 	bwrap := strings.Join(rest[1:], " ")
 
 	assert.True(t, strings.HasPrefix(bwrap,

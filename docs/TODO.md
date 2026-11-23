@@ -948,11 +948,12 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   `background-color` leaves the theme-matching foreground open; a contrast floor on every kept
   colour would close it. Either land one or accept it as a **By decision** row with an ADR.
 
-- **Bound the rule compile in the sandbox probes (medium; sandbox owner).** A probe builds its
-  policy within its bound and compiles it after, and the compile looks up each rule path
-  (`Policy.compile`, `sidecar/internal/run/sandbox/policy.go`). A rule path through a mount that
-  does not answer stalls the probe before its command starts, so sandbox detection does not
-  return. Compile inside the bound ([#1150](https://github.com/kstackhq/kstack/issues/1150)).
+- **Measure what a run's check costs (easy; sandbox owner).** A run's check names each rule path
+  as the kernel does (`Policy.compile`, `sidecar/internal/run/sandbox/policy.go`): Linux follows
+  its links, macOS asks the kernel for its full path, and the check for a folder named two ways
+  looks up its ancestors' file identities. Benchmark it by rule count, path depth, shared
+  ancestors and lookup latency before proposing a cache
+  ([#1150](https://github.com/kstackhq/kstack/issues/1150)).
 - **Pin path comparison on a Linux mount that folds names (low; sandbox owner).** Paths are
   compared as files (`sandbox.Under`), and a policy naming one folder two ways is refused
   (`aliased`, `sidecar/internal/run/sandbox/policy.go`), but no test mounts a folding filesystem

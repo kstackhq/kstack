@@ -86,8 +86,8 @@ exact name holding the value AWS's mount writes, so a real key fails the run →
 read-write one may not). **Adding a location is a security change**: every
 run reads it. The zones open no `PATH` entry. `Sandbox.System` never reads a broad folder (`/`,
 the home, an app-data folder) through a link or the shell's location. `FixedMount(p)` is what no
-grant may name. `System` and `Never` can hang on a network mount, so both run under a bound; a
-test that cuts a probe short waits on `policyBuilds` before swapping the lists. →
+grant may name. A stalled mount can hang building a probe's policy or a command: both are
+`bounded`, a direct `System` or `Never` is not. A test that strands one waits on `boundedCalls`. →
 [ADR: the sandbox's zones are Kstack's lists](../../../docs/adr/2026-10-02-the-sandboxs-zones-are-kstacks-lists.md),
 [path grants](../../../docs/security/2026-10-04-path-grants.md).
 

@@ -117,7 +117,10 @@ func (s *Sandbox) try(ctx context.Context, bound time.Duration) (string, error) 
 	cmd, err := s.Command(ctx, Run{
 		Shell: shell, Args: []string{"-c", `read -r m < /proc/self/uid_map; echo "$m"`}, Dir: dir, Env: env, Policy: p,
 	})
-	if err != nil {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "", fmt.Errorf("no answer in %s", bound)
+	case err != nil:
 		return "", err
 	}
 	var stdout, stderr bytes.Buffer
@@ -180,37 +183,75 @@ func exists(path string) bool {
 // sandbox-pasta's at the lifeline's EOF among them, reaches no process of
 // the sidecar's; a caller that replaces SysProcAttr keeps Setsid or Setpgid.
 // The caller sets its output and Cancel, and starts it; exec refuses a Cancel
-// on a command made without ctx.
+// on a command made without ctx. ctx bounds the command line's build too.
 func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
-	rules, err := r.check()
-	if err != nil {
-		return nil, err
-	}
-	p := r.Policy
-	if !p.Network.Internet {
-		cmd := exec.CommandContext(ctx, s.bwrap, s.args(r, rules, "")...)
-		if err := s.handLifeline(cmd); err != nil {
-			return nil, err
+	r = r.clone()
+	if p := r.Policy.Network; p.Internet {
+		if s.pasta == "" {
+			return nil, errors.New("this machine cannot give a sandboxed command the internet: " + s.networkReason)
 		}
-		cmd.Env = r.Env
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		return cmd, nil
+		if p.Resolver == "" {
+			return nil, errors.New("a run with the internet names no resolver")
+		}
 	}
-	if s.pasta == "" {
-		return nil, errors.New("this machine cannot give a sandboxed command the internet: " + s.networkReason)
-	}
-	if p.Network.Resolver == "" {
-		return nil, errors.New("a run with the internet names no resolver")
-	}
-	at, err := resolverTarget(p)
+	// A probe moves s.bwrap on to its next candidate while a build it left
+	// behind still runs, so the build reads its own copy.
+	bwrap, pasta := s.bwrap, s.pasta
+	line, err := bounded(ctx, func() (commandLine, error) {
+		return s.commandLine(r, bwrap, pasta)
+	})
 	if err != nil {
 		return nil, err
 	}
-	cmd, err := s.pastaCommand(ctx, s.pasta, r, rules, at, true)
+	cmd, err := s.command(ctx, line, r.Env)
 	if err != nil {
 		return nil, err
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	return cmd, nil
+}
+
+// commandLine is a program and its arguments.
+type commandLine struct {
+	name string
+	args []string
+}
+
+// commandLine is what runs r: bwrap, or sandbox-pasta over pasta for a run
+// with the internet; or why r's policy cannot be enforced. It reads the disk
+// for r's check, each denial and the host's resolv.conf, so it can hang on a
+// network mount.
+func (s *Sandbox) commandLine(r Run, bwrap, pasta string) (commandLine, error) {
+	rules, err := s.checkRun(r)
+	if err != nil {
+		return commandLine{}, err
+	}
+	if !r.Policy.Network.Internet {
+		return commandLine{bwrap, s.args(r, rules, "")}, nil
+	}
+	at, err := resolverTarget(r.Policy)
+	if err != nil {
+		return commandLine{}, err
+	}
+	return commandLine{s.self, s.pastaArgs(bwrap, pasta, r, rules, at, true)}, nil
+}
+
+// checkRun is r's check, or the test's stand-in for it.
+func (s *Sandbox) checkRun(r Run) ([]rule, error) {
+	if s.check != nil {
+		return s.check(r)
+	}
+	return r.check()
+}
+
+// command is line on ctx, holding s's lifeline, with env. Its line was built
+// with lifelineArgs, so a Close since refuses it (handLifeline).
+func (s *Sandbox) command(ctx context.Context, line commandLine, env []string) (*exec.Cmd, error) {
+	cmd := exec.CommandContext(ctx, line.name, line.args...)
+	if err := s.handLifeline(cmd); err != nil {
+		return nil, err
+	}
+	cmd.Env = env
 	return cmd, nil
 }
 
@@ -231,7 +272,10 @@ func (s *Sandbox) args(r Run, rules []rule, resolverAt string) []string {
 		"--die-with-parent", "--new-session", "--as-pid-1",
 	)
 	// Rules sort shallowest first, so any rule on / leads.
-	var m mounter
+	m := mounter{stat: s.stat}
+	if m.stat == nil {
+		m.stat = os.Stat
+	}
 	for len(rules) > 0 && rules[0].at == "/" {
 		m.mount(rules[0])
 		rules = rules[1:]
@@ -260,7 +304,7 @@ func (s *Sandbox) args(r Run, rules []rule, resolverAt string) []string {
 		args = append(args, "--remount-ro", d)
 	}
 	args = append(args, "--chdir", r.Dir, "--", s.self)
-	// With the internet, sandbox-pasta watches the lifeline (pastaCommand).
+	// With the internet, sandbox-pasta watches the lifeline (pastaArgs).
 	init := ForwarderArgs(r.Policy.Network.relay())
 	if r.Policy.Network.Internet {
 		init = slices.Insert(init, 1, stderrOnStdinFlag)
@@ -276,6 +320,7 @@ func (s *Sandbox) args(r Run, rules []rule, resolverAt string) []string {
 
 // mounter is bwrap's arguments for a policy's rules, one mount per rule.
 type mounter struct {
+	stat    func(string) (os.FileInfo, error)
 	args    []string
 	mounted []rule   // each rule mounted, in order
 	sealed  []string // the denied folders, remounted read-only at the end
@@ -293,7 +338,7 @@ func (m *mounter) mount(ru rule) {
 	case ru.own:
 		m.args = append(m.args, bindFlag(ru.kind), ru.path, ru.path)
 	case ru.kind == ruleDeny:
-		info, err := os.Stat(ru.at)
+		info, err := m.stat(ru.at)
 		switch {
 		case err != nil:
 			return

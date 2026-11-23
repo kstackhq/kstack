@@ -127,27 +127,22 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	type built struct {
 		text   string
 		params []string
-		err    error
 	}
-	done := make(chan built, 1)
-	build := buildProfile
-	go func() {
+	build := s.buildProfile
+	if build == nil {
+		build = s.profile
+	}
+	r = r.clone()
+	b, err := bounded(ctx, func() (built, error) {
 		rules, err := r.check()
 		if err != nil {
-			done <- built{err: err}
-			return
+			return built{}, err
 		}
-		text, params := build(s, r, rules)
-		done <- built{text: text, params: params}
-	}()
-	var b built
-	select {
-	case b = <-done:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	if b.err != nil {
-		return nil, b.err
+		text, params := build(r, rules)
+		return built{text, params}, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	name, args := s.argv(r)
 	cmd := exec.CommandContext(ctx, s.launcher, slices.Concat([]string{"-p", b.text}, b.params, []string{name}, args)...)
@@ -191,9 +186,6 @@ func (s *Sandbox) argv(r Run) (name string, args []string) {
 	init := slices.Insert(ForwarderArgs(r.Policy.Network.relay()), 1, s.lifelineArgs()...)
 	return s.self, slices.Concat(init, []string{s.self}, shellCommand(r.Policy.Limits), []string{r.Shell}, r.Args)
 }
-
-// buildProfile is profile, which a test replaces with one that hangs.
-var buildProfile = (*Sandbox).profile
 
 // profileText is the Seatbelt profile's fixed rules, with a marker line where
 // the policy's rules, the ancestors and the network go.

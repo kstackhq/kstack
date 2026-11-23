@@ -27,6 +27,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -199,7 +200,7 @@ func TestAProbePastItsBoundFails(t *testing.T) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	})
-	t.Cleanup(policyBuilds.Wait)
+	t.Cleanup(boundedCalls.Wait)
 	var s *Sandbox
 	var v Status
 	done := make(chan struct{})
@@ -1177,19 +1178,166 @@ func TestEachToolchainLocationRunsAProgram(t *testing.T) {
 func TestTheProbePolicyIsBounded(t *testing.T) {
 	release := make(chan struct{})
 	// Cleanups run last first, so the build is released before it is waited on.
-	t.Cleanup(policyBuilds.Wait)
+	t.Cleanup(boundedCalls.Wait)
 	t.Cleanup(func() { close(release) })
-	old := buildProbePolicy
-	buildProbePolicy = func(*Sandbox, string, string, string) Policy {
+	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
+	s.buildProbePolicy = func(string, string, string) Policy {
 		<-release
 		return Policy{}
 	}
-	t.Cleanup(func() { buildProbePolicy = old })
-	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
 
 	_, err := s.try(t.Context(), 10*time.Millisecond)
 
 	assert.EqualError(t, err, "no answer in 10ms")
+}
+
+// hang is a stand-in's body that blocks until release, and a channel closed
+// when it starts. Inside a synctest bubble, time passes only once it blocks,
+// so a deadline ends the call holding it, and code waiting on it is reported
+// as a deadlock.
+func hang() (wait func(), started <-chan struct{}, release func()) {
+	start, stop := make(chan struct{}), make(chan struct{})
+	wait = func() {
+		close(start)
+		<-stop
+	}
+	return wait, start, func() { close(stop) }
+}
+
+// hangingCheck is a sandbox whose check hangs. Its probe's policy builds at
+// once.
+func hangingCheck() (s *Sandbox, started <-chan struct{}, release func()) {
+	wait, started, release := hang()
+	s = &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
+	s.buildProbePolicy = func(string, string, string) Policy { return Policy{} }
+	s.check = func(Run) ([]rule, error) {
+		wait()
+		return nil, nil
+	}
+	return s, started, release
+}
+
+// hangingDenial is a sandbox whose check passes at once with one denial, and
+// whose lookup of that denial then hangs, as on a mount that stopped
+// answering since.
+func hangingDenial() (s *Sandbox, started <-chan struct{}, release func()) {
+	wait, started, release := hang()
+	s = &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
+	s.buildProbePolicy = func(string, string, string) Policy { return Policy{} }
+	s.check = func(Run) ([]rule, error) {
+		return []rule{{path: "/mnt/nfs", at: "/mnt/nfs", kind: ruleDeny}}, nil
+	}
+	s.stat = func(string) (os.FileInfo, error) {
+		wait()
+		return nil, os.ErrNotExist
+	}
+	return s, started, release
+}
+
+// requireStarted fails the test unless the check began.
+func requireStarted(t *testing.T, started <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-started:
+	default:
+		require.FailNow(t, "the check never started")
+	}
+}
+
+// A probe whose check never answers fails at its own bound, though its caller
+// waits on: the check looks up each rule path and its ancestors, which can
+// hang on a network mount.
+func TestTheProbesCheckIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, started, release := hangingCheck()
+		defer release()
+
+		_, err := s.try(t.Context(), 10*time.Millisecond)
+
+		requireStarted(t, started)
+		assert.EqualError(t, err, "no answer in 10ms")
+	})
+}
+
+// A check that hangs holds the command only until its context ends.
+func TestACommandWhoseCheckHangsIsRefusedWhenItsContextEnds(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, started, release := hangingCheck()
+		defer release()
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+
+		cmd, err := s.Command(ctx, Run{Shell: "/bin/sh", Dir: "/"})
+
+		requireStarted(t, started)
+		assert.Nil(t, cmd)
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	})
+}
+
+// A denial's lookup after the check, which can hang as the check can, holds
+// the command and the probe only until their context ends.
+func TestADenialLookupThatHangsIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, started, release := hangingDenial()
+		defer release()
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+
+		cmd, err := s.Command(ctx, Run{Shell: "/bin/sh", Dir: "/"})
+
+		requireStarted(t, started)
+		assert.Nil(t, cmd)
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	})
+	synctest.Test(t, func(t *testing.T) {
+		s, started, release := hangingDenial()
+		defer release()
+
+		_, err := s.try(t.Context(), 10*time.Millisecond)
+
+		requireStarted(t, started)
+		assert.EqualError(t, err, "no answer in 10ms")
+	})
+}
+
+// A probe's build left behind reads the bwrap it was started with, while the
+// probe moves on to its next one. The race detector checks it: the write
+// below is ordered after nothing the build does.
+func TestAProbesBuildLeftBehindReadsItsOwnBwrap(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, _, release := hangingCheck()
+
+		_, err := s.try(t.Context(), 10*time.Millisecond)
+		require.EqualError(t, err, "no answer in 10ms")
+		release()
+		s.bwrap = "/usr/lib/kstack/bwrap"
+	})
+}
+
+// A check Command leaves behind reads a copy of the run, so the caller may
+// change its own once Command returns.
+func TestACheckLeftBehindReadsACopyOfTheRun(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		wait, _, release := hang()
+		seen := make(chan string, 1)
+		s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
+		s.check = func(r Run) ([]rule, error) {
+			wait()
+			seen <- r.Env[0]
+			return nil, nil
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		env := []string{"A=1"}
+
+		_, err := s.Command(ctx, Run{Shell: "/bin/sh", Dir: "/", Env: env})
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		env[0] = "A=2"
+		release()
+
+		assert.Equal(t, "A=1", <-seen)
+	})
 }
 
 // Command refuses a run holding a variable no run may hold.
@@ -1270,7 +1418,7 @@ func TestTheShellCannotTraceItsOwnChild(t *testing.T) {
 // A probe whose context ended before it answered is the context's error, not
 // a verdict: read as one it would say there is no sandbox.
 func TestAProbeCutShortIsAnError(t *testing.T) {
-	t.Cleanup(policyBuilds.Wait)
+	t.Cleanup(boundedCalls.Wait)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 

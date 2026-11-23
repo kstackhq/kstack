@@ -29,23 +29,58 @@ func (s *Sandbox) probePolicy(shell, dir, home string) Policy {
 }
 
 // probePolicyWithin is probePolicy, or ctx's error if ctx ends first: the
-// policy reads folders under the home and lists the other homes, which can
-// hang on a network mount, so it is built on a goroutine left behind then.
+// policy reads folders under the home and lists the other homes.
 func (s *Sandbox) probePolicyWithin(ctx context.Context, shell, dir, home string) (Policy, error) {
-	built, build := make(chan Policy, 1), buildProbePolicy
-	policyBuilds.Go(func() {
-		built <- build(s, shell, dir, home)
+	build := s.buildProbePolicy
+	if build == nil {
+		build = s.probePolicy
+	}
+	return bounded(ctx, func() (Policy, error) {
+		return build(shell, dir, home), nil
+	})
+}
+
+// bounded is f's answer, or ctx's error if ctx ends first. f reads paths,
+// which can hang on a network mount, so it runs on a goroutine left behind
+// then. Each one left behind holds a thread in its syscall, so at most
+// maxBoundedCalls run at once; past that, a caller waits for one to end until
+// ctx does.
+func bounded[T any](ctx context.Context, f func() (T, error)) (T, error) {
+	type answer struct {
+		value T
+		err   error
+	}
+	var zero T
+	select {
+	case boundedSlots <- struct{}{}:
+	case <-ctx.Done():
+		return zero, ctx.Err()
+	}
+	// Both cases are ready when ctx has ended and a slot is free, and a
+	// call nobody waits for must not take the slot.
+	if err := ctx.Err(); err != nil {
+		<-boundedSlots
+		return zero, err
+	}
+	done := make(chan answer, 1)
+	boundedCalls.Go(func() {
+		defer func() { <-boundedSlots }()
+		value, err := f()
+		done <- answer{value, err}
 	})
 	select {
-	case p := <-built:
-		return p, nil
+	case a := <-done:
+		return a.value, a.err
 	case <-ctx.Done():
-		return Policy{}, ctx.Err()
+		return zero, ctx.Err()
 	}
 }
 
-// policyBuilds counts the policy builds still running, which tests wait on.
-var policyBuilds sync.WaitGroup
+// maxBoundedCalls is how many calls bounded runs at once.
+const maxBoundedCalls = 16
 
-// buildProbePolicy is probePolicy, which a test replaces with one that hangs.
-var buildProbePolicy = (*Sandbox).probePolicy
+// boundedSlots holds a token for each call bounded is running.
+var boundedSlots = make(chan struct{}, maxBoundedCalls)
+
+// boundedCalls counts the calls bounded still runs, which tests wait on.
+var boundedCalls sync.WaitGroup

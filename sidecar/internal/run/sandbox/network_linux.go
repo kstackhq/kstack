@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -85,11 +84,21 @@ func (s *Sandbox) tryPasta(ctx context.Context, pasta string, bound time.Duratio
 		Shell: "/bin/sh", Args: []string{"-c", pastaProbeScript}, Dir: dir,
 		Env: []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "TMPDIR=" + dir}, Policy: p,
 	}
-	rules, err := r.check()
-	if err != nil {
+	bwrap := s.bwrap
+	line, err := bounded(ctx, func() (commandLine, error) {
+		rules, err := s.checkRun(r)
+		if err != nil {
+			return commandLine{}, err
+		}
+		return commandLine{s.self, s.pastaArgs(bwrap, pasta, r, rules, "", false)}, nil
+	})
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return false, fmt.Errorf("no answer in %s", bound)
+	case err != nil:
 		return false, err
 	}
-	cmd, err := s.pastaCommand(ctx, pasta, r, rules, "", false)
+	cmd, err := s.command(ctx, line, r.Env)
 	if err != nil {
 		return false, err
 	}
@@ -137,14 +146,14 @@ func (s *Sandbox) NetworkStatus() (bool, string) {
 // Ubuntu 24.04's among them, will not start without one.
 var probeNet = []string{"-4", "-i", "lo", "-I", "kstack0", "-a", "192.0.2.2", "-g", "192.0.2.1", "-M", "02:00:00:00:00:01"}
 
-// pastaCommand is the process that runs r, which has the internet, under
-// the pasta at pasta, which sandbox-pasta starts: pasta makes a user and network namespace
-// and runs bwrap inside it, where bwrap makes the run's own user namespace as
-// the user. resolverAt is where r's resolver is bound, "" for none; configNet
+// pastaArgs is the arguments to this executable that run r, which has the
+// internet, under the bwrap at bwrap inside the pasta at pasta, which
+// sandbox-pasta starts: pasta makes a user and network namespace and runs
+// bwrap inside it, where bwrap makes the run's own user namespace as the user. resolverAt is where r's resolver is bound, "" for none; configNet
 // is false for the probe alone, which passes probeNet. sandbox-pasta watches
 // the lifeline, not the forwarder: pasta closes every descriptor it did not
 // open but the standard streams.
-func (s *Sandbox) pastaCommand(ctx context.Context, pasta string, r Run, rules []rule, resolverAt string, configNet bool) (*exec.Cmd, error) {
+func (s *Sandbox) pastaArgs(bwrap, pasta string, r Run, rules []rule, resolverAt string, configNet bool) []string {
 	args := slices.Concat([]string{PastaCommand}, s.lifelineArgs(), []string{"--", pasta})
 	if configNet {
 		args = append(args, "--config-net")
@@ -155,14 +164,8 @@ func (s *Sandbox) pastaCommand(ctx context.Context, pasta string, r Run, rules [
 	// forward no port to it, and -t none -u none none inward.
 	args = append(args, "--quiet", "--no-map-gw", "-t", "none", "-u", "none", "-T", "none", "-U", "none",
 		"--dns-forward", ResolverAddress)
-	args = append(args, "--", s.bwrap)
-	args = append(args, s.args(r, rules, resolverAt)...)
-	cmd := exec.CommandContext(ctx, s.self, args...)
-	if err := s.handLifeline(cmd); err != nil {
-		return nil, err
-	}
-	cmd.Env = r.Env
-	return cmd, nil
+	args = append(args, "--", bwrap)
+	return append(args, s.args(r, rules, resolverAt)...)
 }
 
 // resolverTarget is where r's resolver is bound: the host's resolv.conf as

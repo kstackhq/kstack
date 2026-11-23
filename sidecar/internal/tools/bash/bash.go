@@ -1066,9 +1066,10 @@ func (g *guard) escalate(parent context.Context, grace time.Duration, kill func(
 }
 
 // deadline derives the call's own context from parent: it ends when the timer
-// fires, and the runner reads parent to tell that from a cancel.
+// fires, with errCallTimeout its cause, and the runner reads parent to tell
+// that from a cancel.
 func (h hooks) deadline(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(parent)
+	ctx, cancel := context.WithCancelCause(parent)
 	fire := time.After(timeout)
 	if h.after != nil {
 		fire = h.after(timeout)
@@ -1076,12 +1077,15 @@ func (h hooks) deadline(parent context.Context, timeout time.Duration) (context.
 	go func() {
 		select {
 		case <-fire:
-			cancel()
+			cancel(errCallTimeout)
 		case <-ctx.Done():
 		}
 	}()
-	return ctx, cancel
+	return ctx, func() { cancel(nil) }
 }
+
+// errCallTimeout is the cause of a call's context its own deadline ended.
+var errCallTimeout = errors.New("the call's deadline passed")
 
 func (h hooks) waitBeforeReap(ctx context.Context) {
 	if h.beforeReap != nil {
