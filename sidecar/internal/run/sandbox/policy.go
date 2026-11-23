@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // Policy is everything the OS sandbox enforces for a run.
@@ -141,7 +143,7 @@ func (p Policy) canonicalPaths() (canonicalPaths, error) {
 		}
 	}
 	named := slices.Concat(p.rulePaths(), p.ownResolver())
-	at, err := Canonical(named)
+	at, err := realpath.Canonical(named)
 	if err == nil {
 		err = aliased(at, fileOf)
 	}
@@ -191,7 +193,7 @@ func (p Policy) check(c canonicalPaths) error {
 	rulePaths := p.rulePaths()
 	for i, r := range c.of(rulePaths) {
 		for _, w := range writes {
-			if r != w && within(r, w) {
+			if r != w && realpath.Within(r, w) {
 				return fmt.Errorf("%s lies beneath the Write rule %s", rulePaths[i], w)
 			}
 		}
@@ -200,7 +202,7 @@ func (p Policy) check(c canonicalPaths) error {
 	always := slices.Concat(denied, kstack)
 	files := slices.Concat(p.Files.Read, p.Files.Write, p.Files.Deny)
 	for i, r := range c.of(files) {
-		if inAny(r, always) {
+		if realpath.WithinAny(r, always) {
 			return fmt.Errorf("%s lies on or inside a path no rule opens", files[i])
 		}
 	}
@@ -219,8 +221,8 @@ func (p Policy) check(c canonicalPaths) error {
 			return err
 		}
 		// The run's own paths compile last, so a denial inside one would lose.
-		holdsDenied := slices.ContainsFunc(denied, func(d string) bool { return within(d, r) })
-		if !inAny(r, kstack) || inAny(r, denied) || holdsDenied {
+		holdsDenied := slices.ContainsFunc(denied, func(d string) bool { return realpath.Within(d, r) })
+		if !realpath.WithinAny(r, kstack) || realpath.WithinAny(r, denied) || holdsDenied {
 			return fmt.Errorf("%s is not inside Kstack's directories, clear of the denied-always list", own[i])
 		}
 	}
@@ -275,7 +277,7 @@ func (p Policy) paths() []string {
 // compared as files. It reads the disk.
 func (f FilePolicy) Outside(paths ...string) FilePolicy {
 	keep := func(rules []string) []string {
-		return slices.DeleteFunc(slices.Clone(rules), func(r string) bool { return Under(r, paths) })
+		return slices.DeleteFunc(slices.Clone(rules), func(r string) bool { return realpath.UnderAny(r, paths) })
 	}
 	return FilePolicy{Read: keep(f.Read), Write: keep(f.Write), Deny: f.Deny}
 }
@@ -330,7 +332,7 @@ func (p Policy) rules(c canonicalPaths) []rule {
 	all := slices.Concat(files, always, own)
 	return slices.DeleteFunc(all, func(r rule) bool {
 		if r.kind == ruleDeny {
-			return !slices.ContainsFunc(reach, func(t string) bool { return within(r.at, t) || within(t, r.at) })
+			return !slices.ContainsFunc(reach, func(t string) bool { return realpath.Within(r.at, t) || realpath.Within(t, r.at) })
 		}
 		_, err := os.Stat(r.at)
 		return err != nil

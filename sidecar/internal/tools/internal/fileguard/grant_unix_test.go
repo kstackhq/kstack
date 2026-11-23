@@ -25,8 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
-	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 )
 
@@ -152,7 +152,7 @@ func TestGrantedAnswersTheCancelWhileResolvingBlocks(t *testing.T) {
 		}
 		return paths
 	}
-	t.Cleanup(func() { resolvePaths = sandbox.Resolved })
+	t.Cleanup(func() { resolvePaths = realpath.ResolvedAll })
 
 	_, ok := g.fence.Granted(t.Context(), nil, g.in("code/README"))
 	assert.False(t, ok)

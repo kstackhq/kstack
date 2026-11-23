@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // A subfolder linked elsewhere joins the fence, so the files it leads to are
@@ -51,7 +51,7 @@ func TestALinkedSubfolderIsFenced(t *testing.T) {
 
 		denied := pathsOf(cfg).Bash.DeniedDirs
 		assert.Equal(t, []string{cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir, link}, denied)
-		assert.True(t, sandbox.Under(sandbox.Resolved([]string{filepath.Join(elsewhere, "x")})[0], sandbox.Resolved(denied)), sub)
+		assert.True(t, realpath.UnderAny(realpath.Resolved(filepath.Join(elsewhere, "x")), realpath.ResolvedAll(denied)), sub)
 	}
 
 	root, cfg := newConfig()

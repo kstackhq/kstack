@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
@@ -67,7 +68,7 @@ func seq(args []string, want ...string) bool {
 // A run starts bwrap with the run's environment, its namespaces first and the
 // chain last: the forwarder, then the shell launcher, then the shell.
 func TestTheCommandStartsBwrapOverTheChain(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	d := mkdirs(t, base, "opt/k", "w/sub", "c/tmp/1", "c/kubectl", "run/r1")
 	self := write(t, filepath.Join(d[0], "kstack-sidecar"), "")
 	snap := write(t, filepath.Join(base, "snap.sh"), "")
@@ -129,7 +130,7 @@ func mounts(t *testing.T, s *Sandbox, r Run) []string {
 // that does not, or links to nothing, is left out. A rule that is a link is
 // recreated as one, and its target is bound unless a Read rule holds it.
 func TestTheReadRulesAreBound(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	d := mkdirs(t, base, "usr/bin", "var/opt")
 	usr, varOpt := filepath.Join(base, "usr"), d[1]
 	bin := filepath.Join(base, "bin")
@@ -309,10 +310,10 @@ func (r testRun) on(s *Sandbox) Run {
 // a PATH of the system's and the environment env adds.
 func shRun(t *testing.T, script string, env ...string) testRun {
 	t.Helper()
-	ws := resolved(t.TempDir())
+	ws := realpath.Resolved(t.TempDir())
 	return testRun{
 		Run:  Run{Shell: "/bin/sh", Args: []string{"-c", script}, Dir: ws, Env: append([]string{"PATH=/usr/bin:/bin"}, env...)},
-		home: resolved(t.TempDir()), ws: ws, files: FilePolicy{Write: []string{ws}},
+		home: realpath.Resolved(t.TempDir()), ws: ws, files: FilePolicy{Write: []string{ws}},
 	}
 }
 
@@ -355,7 +356,7 @@ func index(args []string, want ...string) int {
 // after the binds made inside a denial. A rule on / goes under the fixed
 // mounts.
 func TestTheCommandMountsInOrder(t *testing.T) {
-	d := mkdirs(t, resolved(t.TempDir()), "home/ana", "tools")
+	d := mkdirs(t, realpath.Resolved(t.TempDir()), "home/ana", "tools")
 	home, outside := d[0], d[1]
 	cargo := mkdirs(t, home, ".cargo/bin")[0]
 	tree := filepath.Dir(cargo)
@@ -412,7 +413,7 @@ func TestTheCommandMountsInOrder(t *testing.T) {
 // A root with a link above it is bound at its resolved path and recreated as
 // a link at its own, as Homebrew's is under Fedora Atomic's linked /home.
 func TestARootBelowALinkIsBoundResolved(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	brew := mkdirs(t, base, "var/home/linuxbrew/.linuxbrew")[0]
 	require.NoError(t, os.Symlink(filepath.Join(base, "var", "home"), filepath.Join(base, "home")))
 	root := filepath.Join(base, "home", "linuxbrew", ".linuxbrew")
@@ -433,7 +434,7 @@ func TestALinkInsideADenialLeadsToItsRead(t *testing.T) {
 		"a denial below the target": {"target", "denied/sub/deeper"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			base := resolved(t.TempDir())
+			base := realpath.Resolved(t.TempDir())
 			target := filepath.Join(base, c.target)
 			write(t, filepath.Join(target, "f"), "granted")
 			denied := filepath.Join(base, c.denied)
@@ -538,7 +539,7 @@ func TestLocalShareIsUnreadable(t *testing.T) {
 // it names.
 func linkedHome(t *testing.T) (link, home string) {
 	t.Helper()
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	home = mkdirs(t, base, "data/ana")[0]
 	link = filepath.Join(base, "ana")
 	require.NoError(t, os.Symlink(home, link))
@@ -568,7 +569,7 @@ func TestKstacksDirectoriesAreUnreadableThroughALinkedHome(t *testing.T) {
 func TestAToolchainLinkIsRecreated(t *testing.T) {
 	s := confining(t)
 	r := shRun(t, "nixtool")
-	store := resolved(t.TempDir())
+	store := realpath.Resolved(t.TempDir())
 	addRoot(t, store)
 	program(t, filepath.Join(store, "profile", "bin", "nixtool"), "nix-ran")
 	require.NoError(t, os.Symlink(filepath.Join(store, "profile"), filepath.Join(r.home, ".nix-profile")))
@@ -601,7 +602,7 @@ func TestACredentialThroughALinkIsUnreadable(t *testing.T) {
 // A root that is a link runs what is under its target, wherever that lies.
 func TestARootThatIsALinkRuns(t *testing.T) {
 	s := confining(t)
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	program(t, filepath.Join(base, "var", "opt", "bin", "tool"), "tool-ran")
 	opt := filepath.Join(base, "opt")
 	require.NoError(t, os.Symlink(filepath.Join(base, "var", "opt"), opt))
@@ -617,7 +618,7 @@ func TestARootThatIsALinkRuns(t *testing.T) {
 // workspace inside them.
 func TestKstacksDirectoriesInsideARootAreUnreadable(t *testing.T) {
 	s := confining(t)
-	root := resolved(t.TempDir())
+	root := realpath.Resolved(t.TempDir())
 	addRoot(t, root)
 	data := filepath.Join(root, "kstack")
 	write(t, filepath.Join(data, "app.db"), "secret")
@@ -649,7 +650,7 @@ func newKstackRun(t *testing.T) kstackRun {
 	program(t, filepath.Join(home, ".cache", "bin", "cached"), "cached-ran")
 	data := filepath.Join(home, "apps", "kstack")
 	cache := filepath.Join(home, ".cache", "kstack")
-	runtime := resolved(t.TempDir())
+	runtime := realpath.Resolved(t.TempDir())
 	write(t, filepath.Join(data, "app.db"), "secret")
 	write(t, filepath.Join(cache, "kube", "c.db"), "secret")
 	write(t, filepath.Join(runtime, "host.sock"), "secret")
@@ -826,7 +827,7 @@ func TestAUnixOrVsockSocketCannotBeOpened(t *testing.T) {
 // host's socket in a directory it can read.
 func TestNoDatagramReachesAHostSocket(t *testing.T) {
 	s := confining(t)
-	dir := resolved(t.TempDir())
+	dir := realpath.Resolved(t.TempDir())
 	path := filepath.Join(dir, "host.sock")
 	ln, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
 	require.NoError(t, err)
@@ -980,7 +981,7 @@ func TestTheResolverBindsWhereTheHostsLinkLeads(t *testing.T) {
 // A shell on /tmp or /dev, or on or under /proc, makes no rule, since a rule
 // there would replace a fixed mount; one under /tmp does.
 func TestSystemLeavesOutTheFixedMounts(t *testing.T) {
-	under := mkdirs(t, resolved(t.TempDir()), "x")[0]
+	under := mkdirs(t, realpath.Resolved(t.TempDir()), "x")[0]
 	s := &Sandbox{self: "/usr/bin/true"}
 
 	for _, shell := range []string{"/tmp/sh", "/proc/1/sh", "/proc/sh", "/dev/sh"} {
@@ -1025,7 +1026,7 @@ func TestARuleOverAFixedMountIsRefused(t *testing.T) {
 // starts, and it cannot make either path.
 func TestAMissingReadOrWritePathIsSkipped(t *testing.T) {
 	s := confining(t)
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	read, written := filepath.Join(base, "read"), filepath.Join(base, "written")
 	r := shRun(t, fmt.Sprintf("mkdir -p %[1]s %[2]s 2>/dev/null; touch %[1]s/x %[2]s/x 2>/dev/null; echo started", read, written))
 	r.files.Read = []string{read}
@@ -1096,7 +1097,7 @@ func TestAFolderOnThePathIsNotRead(t *testing.T) {
 // stand-in plays it, and the real /etc/hosts still reads.
 func TestEtcSecretsStayHidden(t *testing.T) {
 	s := confining(t)
-	etc := filepath.Join(resolved(t.TempDir()), "etc")
+	etc := filepath.Join(realpath.Resolved(t.TempDir()), "etc")
 	hosts := write(t, filepath.Join(etc, "hosts"), "hosts-read")
 	key := write(t, filepath.Join(etc, "ssh", "ssh_host_ed25519_key"), "secret")
 	shadow := write(t, filepath.Join(etc, "shadow"), "secret")
@@ -1167,7 +1168,7 @@ func TestEachToolchainLocationRunsAProgram(t *testing.T) {
 			assert.Equal(t, "tool-ran", lines[0])
 			require.Len(t, lines, 1+len(l.Env))
 			for _, v := range lines[1:] {
-				assert.True(t, within(v, r.home), "%s is not under the home", v)
+				assert.True(t, realpath.Within(v, r.home), "%s is not under the home", v)
 			}
 		})
 	}

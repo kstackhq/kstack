@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 )
 
@@ -238,7 +238,7 @@ func TestTheWalkFollowsALinkMadeAfterTheResolve(t *testing.T) {
 	g := newGrantHome(t)
 	home := session.Folder{Path: g.home}
 	resolvePaths = func(paths []string) []string { return paths }
-	t.Cleanup(func() { resolvePaths = sandbox.Resolved })
+	t.Cleanup(func() { resolvePaths = realpath.ResolvedAll })
 	require.NoError(t, os.Symlink("code/README", g.in("readme-link")))
 	require.NoError(t, os.Symlink("svc", g.in("code/svc-link")))
 	require.NoError(t, os.Symlink(".ssh", g.in("alias")))

@@ -25,6 +25,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // listPaths is every path the lists name, each once per list it is on.
@@ -100,7 +102,7 @@ func TestNeverWithNoHomeIsTheAbsolutePaths(t *testing.T) {
 // Every other folder where the users' homes sit is Never, read at call time,
 // but for the user's own and the one that is no user's. System reads none.
 func TestTheOtherHomesAreNever(t *testing.T) {
-	parent := resolved(t.TempDir())
+	parent := realpath.Resolved(t.TempDir())
 	d := mkdirs(t, parent, "a", "b", notHomes[0], "ana")
 	otherHomesIn(t, parent)
 	s := &Sandbox{self: "/usr/bin/true"}
@@ -119,7 +121,7 @@ func TestTheOtherHomesAreNever(t *testing.T) {
 // A home nested in a folder of the homes parent keeps its own reads: that
 // folder holds it, so it is not another user's home.
 func TestANestedHomeIsNotAnotherUsersHome(t *testing.T) {
-	parent := resolved(t.TempDir())
+	parent := realpath.Resolved(t.TempDir())
 	d := mkdirs(t, parent, "company/alice/.nvm", "bo")
 	home := filepath.Dir(d[0])
 	otherHomesIn(t, parent)
@@ -138,7 +140,7 @@ func TestANestedHomeIsNotAnotherUsersHome(t *testing.T) {
 // inside a denied folder does not deny itself. The home need not exist.
 func TestANeverPathAboveTheHomeIsDropped(t *testing.T) {
 	otherHomesIn(t, t.TempDir())
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	keepLists(t)
 	platformLists.Never = append(slices.Clone(platformLists.Never), filepath.Join(base, "never"))
 	var s *Sandbox
@@ -175,7 +177,7 @@ func withLists(t *testing.T, l Lists) {
 // Homebrew's var and the Closed folders. Its Env is each found location's,
 // and Asdf says whether asdf's was found. A missing location adds nothing.
 func TestSystemReadsTheZones(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	home := filepath.Join(base, "home")
 	d := mkdirs(t, home, "bins", ".asdf", "shells", "late")
 	self := filepath.Join(mkdirs(t, base, "app")[0], "kstack-sidecar")
@@ -214,7 +216,7 @@ func TestSystemReadsTheZones(t *testing.T) {
 // folder of every app's data under it, is not read: it would read all of it.
 // A link to another folder under the home is read.
 func TestAToolchainLinkToABroadFolderIsNotRead(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	home := filepath.Join(base, "home")
 	d := mkdirs(t, home, ".config/x", ".local/share/x", "Library", "dotfiles/bin")
 	links := map[string]string{
@@ -251,18 +253,18 @@ func TestWithNoHomeSystemHoldsNoHomeRule(t *testing.T) {
 
 	got := s.System("", "/bin/sh")
 
-	assert.Equal(t, append(systemFolders(), resolved("/usr/bin/true")), got.Files.Read)
+	assert.Equal(t, append(systemFolders(), realpath.Resolved("/usr/bin/true")), got.Files.Read)
 	assert.Equal(t, brewVar, got.Files.Deny)
 	assert.Empty(t, got.Env)
 	assert.False(t, got.Asdf)
-	assert.NoError(t, s.probePolicy("/bin/sh", resolved(t.TempDir()), "").Check())
+	assert.NoError(t, s.probePolicy("/bin/sh", realpath.Resolved(t.TempDir()), "").Check())
 }
 
 // A shell installed under a prefix outside the home reads the prefix, so it
 // reaches its own share. Under the home, or where the prefix holds the home
 // or is /, its folder is read alone. One in another user's home adds nothing.
 func TestTheShellsPrefixIsReadButNeverTheHome(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	homes := mkdirs(t, base, "users")[0]
 	home := mkdirs(t, homes, "ana")[0]
 	other := mkdirs(t, homes, "bo/bin")[0]
@@ -270,7 +272,7 @@ func TestTheShellsPrefixIsReadButNeverTheHome(t *testing.T) {
 	withLists(t, Lists{})
 	s := &Sandbox{self: "/usr/bin/true"}
 	read := func(shell string) []string {
-		return slices.DeleteFunc(s.System(home, shell).Files.Read, func(p string) bool { return p == resolved(s.self) })
+		return slices.DeleteFunc(s.System(home, shell).Files.Read, func(p string) bool { return p == realpath.Resolved(s.self) })
 	}
 
 	assert.Equal(t, []string{filepath.Join(base, "opt", "zsh")}, read(filepath.Join(base, "opt", "zsh", "bin", "zsh")))
@@ -286,7 +288,7 @@ func TestTheShellsPrefixIsReadButNeverTheHome(t *testing.T) {
 // A shell whose folder is broad — the home, a folder of every app's data
 // under it, or / — reads the program alone, never the folder.
 func TestAShellInABroadFolderReadsOnlyItself(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	home := mkdirs(t, base, "home/.config")[0]
 	home = filepath.Dir(home)
 	otherHomesIn(t, t.TempDir())
@@ -303,7 +305,7 @@ func TestAShellInABroadFolderReadsOnlyItself(t *testing.T) {
 // A shell that is a link reads where each link on its way leads, so the
 // program it names runs, and nothing wider than shellFolder would read.
 func TestAShellLinkReadsWhereItLeads(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	home := filepath.Join(base, "home")
 	d := mkdirs(t, home, ".local/bin", "links", "shell-install/bin")
 	require.NoError(t, os.WriteFile(filepath.Join(d[2], "bash"), nil, 0o700))
@@ -315,13 +317,13 @@ func TestAShellLinkReadsWhereItLeads(t *testing.T) {
 
 	read := s.System(home, filepath.Join(d[0], "bash")).Files.Read
 
-	assert.Equal(t, []string{d[0], d[1], d[2], resolved(s.self)}, read)
+	assert.Equal(t, []string{d[0], d[1], d[2], realpath.Resolved(s.self)}, read)
 }
 
 // A Toolchain folder inside a Never path makes no rule, so a policy of
 // System and Never passes Check.
 func TestSystemLeavesOutTheNeverPaths(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	home := filepath.Join(base, "home")
 	d := mkdirs(t, home, ".docker/bin", "apps")
 	withLists(t, Lists{

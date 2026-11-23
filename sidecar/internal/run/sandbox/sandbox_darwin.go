@@ -30,6 +30,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // probeTimeout bounds the probe: its profile, and its sandboxed true under
@@ -290,7 +292,7 @@ func (s *Sandbox) profile(r Run, compiled []rule) (text string, params []string)
 		network = internetRules
 	}
 	if relay := r.Policy.Network.relay(); relay.Socket != "" {
-		params = append(params, "-D", "SOCKET="+relay.Socket, "-D", "SOCKET_RESOLVED="+resolved(relay.Socket))
+		params = append(params, "-D", "SOCKET="+relay.Socket, "-D", "SOCKET_RESOLVED="+realpath.Resolved(relay.Socket))
 		network += fmt.Sprintf(relayRules, relay.Port)
 	}
 	var up strings.Builder
@@ -331,4 +333,4 @@ func (s *Sandbox) NetworkStatus() (bool, string) { return true, "" }
 
 // FixedMount reports whether p is on or under /dev, a device filesystem a
 // folder grant has no business opening.
-func FixedMount(p string) bool { return within(filepath.Clean(p), "/dev") }
+func FixedMount(p string) bool { return realpath.Within(filepath.Clean(p), "/dev") }

@@ -23,10 +23,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 func TestFileOfTellsFilesApart(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	d := mkdirs(t, base, "a", "b")
 	file := filepath.Join(d[0], "file")
 	require.NoError(t, os.WriteFile(file, nil, 0o600))

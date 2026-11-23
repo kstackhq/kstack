@@ -44,6 +44,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
@@ -88,7 +89,7 @@ func ruleAt(t *testing.T, text, name string) int {
 // run's own directory. Its policy is the Workspace policy on s.
 func profileRun(t *testing.T, s *Sandbox) (Run, string) {
 	t.Helper()
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	d := mkdirs(t, base, "home/.cargo/bin", "tools/bin", "data/chats/c/workspace", "cache/tmp/1-a", "runtime/runs/1-a")
 	home := filepath.Join(base, "home")
 	addToolchain(t, "~/.cargo")
@@ -160,10 +161,10 @@ func TestTheProfileNamesWhatARunReads(t *testing.T) {
 	text, args := s.profile(r, compiledRules(t, r.Policy))
 	params := paramsOf(t, args)
 
-	reads := []string{resolved("/bin/sh"), filepath.Join(base, "home", ".cargo"), filepath.Join(base, "tools", "bin")}
+	reads := []string{realpath.Resolved("/bin/sh"), filepath.Join(base, "home", ".cargo"), filepath.Join(base, "tools", "bin")}
 	for _, p := range platformLists.System {
 		if _, err := os.Stat(p); err == nil {
-			reads = append(reads, resolved(p))
+			reads = append(reads, realpath.Resolved(p))
 		}
 	}
 	for _, p := range reads {
@@ -248,7 +249,7 @@ func TestTheProfileKeepsARunsOwnRootsInPlace(t *testing.T) {
 
 	deny := `(deny file-write-unlink file-write-create (literal (param "%s")))`
 	for _, p := range r.Policy.Always.Write {
-		name := nameOf(t, params, "RULE", resolved(p))
+		name := nameOf(t, params, "RULE", realpath.Resolved(p))
 		assert.Contains(t, text, fmt.Sprintf(writeRule, name)+"\n"+fmt.Sprintf(deny, name))
 	}
 	name := nameOf(t, params, "RULE", extra)
@@ -280,7 +281,7 @@ func TestTheProfileLetsEveryAncestorBeStattedAfterTheDenials(t *testing.T) {
 	lastDenial := strings.LastIndex(text, "(deny file-read* file-write*")
 	fixed := strings.Index(text, `(allow file-read-data (literal "/"))`)
 	require.Greater(t, fixed, lastDenial)
-	for _, p := range []string{"/", base, filepath.Join(base, "data"), filepath.Join(base, "data", "chats", "c"), filepath.Dir(resolved("/bin/sh"))} {
+	for _, p := range []string{"/", base, filepath.Join(base, "data"), filepath.Join(base, "data", "chats", "c"), filepath.Dir(realpath.Resolved("/bin/sh"))} {
 		name := nameOf(t, params, "UP", p)
 		assert.Contains(t, text, `(allow file-read-metadata (literal (param "`+name+`")))`)
 		assert.Greater(t, ruleAt(t, text, name), fixed)
@@ -889,7 +890,7 @@ func TestHomebrewsVarIsDenied(t *testing.T) {
 func TestEtcSecretsStayHidden(t *testing.T) {
 	s := confining(t)
 	m := standIn(t)
-	etc := filepath.Join(resolved(m.base), "etc")
+	etc := filepath.Join(realpath.Resolved(m.base), "etc")
 	hosts := write(t, etc, "hosts")
 	require.NoError(t, os.WriteFile(hosts, []byte("hosts-read"), 0o644))
 	key := write(t, etc, "ssh/ssh_host_ed25519_key")
@@ -985,7 +986,7 @@ func TestEachToolchainLocationRunsAProgram(t *testing.T) {
 			assert.Equal(t, "tool-ran", lines[0])
 			require.Len(t, lines, 1+len(l.Env))
 			for _, v := range lines[1:] {
-				assert.True(t, within(v, m.home), "%s is not under the home", v)
+				assert.True(t, realpath.Within(v, m.home), "%s is not under the home", v)
 			}
 		})
 	}

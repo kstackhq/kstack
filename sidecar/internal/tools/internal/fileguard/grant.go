@@ -18,7 +18,7 @@ import (
 	"context"
 	"slices"
 
-	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 )
 
@@ -32,8 +32,8 @@ type Hidden struct {
 	Never, Closed []string
 }
 
-// resolvePaths is sandbox.Resolved, or a test's stand-in.
-var resolvePaths = sandbox.Resolved
+// resolvePaths is realpath.ResolvedAll, or a test's stand-in.
+var resolvePaths = realpath.ResolvedAll
 
 // resolved is h with every path's links followed. It reads the disk.
 func (h Hidden) resolved() Hidden {
@@ -58,7 +58,7 @@ func (f Fence) Hidden() (Hidden, bool) {
 }
 
 // Granted is the folder path is under, and false for a path under none or one
-// the sandbox keeps shut there. Paths are compared as files (sandbox.Under),
+// the sandbox keeps shut there. Paths are compared as files (realpath.Under),
 // read now, each through its deepest folder that exists. The deepest folder
 // covering path answers, a read-write one first where one covers it, since the
 // sandbox's deepest rule decides and a read-write grant covers what lies under
@@ -92,7 +92,7 @@ func (h Hidden) granted(folders []session.Folder, path string) (session.Folder, 
 	var best session.Folder
 	found := false
 	for _, g := range folders {
-		if !sandbox.Under(path, []string{g.Path}) {
+		if !realpath.Under(path, g.Path) {
 			continue
 		}
 		if !found || g.Write && !best.Write || g.Write == best.Write && len(g.Path) > len(best.Path) {
@@ -109,10 +109,10 @@ func (h Hidden) granted(folders []session.Folder, path string) (session.Folder, 
 // or under a Closed folder that lies inside the grant. One over the grant is
 // the folder the grant opens.
 func (h Hidden) hides(grant session.Folder, p string) bool {
-	if sandbox.Under(p, h.Never) {
+	if realpath.UnderAny(p, h.Never) {
 		return true
 	}
 	return slices.ContainsFunc(h.Closed, func(c string) bool {
-		return !sandbox.Same(c, grant.Path) && sandbox.Under(c, []string{grant.Path}) && sandbox.Under(p, []string{c})
+		return !realpath.Same(c, grant.Path) && realpath.Under(c, grant.Path) && realpath.Under(p, c)
 	})
 }

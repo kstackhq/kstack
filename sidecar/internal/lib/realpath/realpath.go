@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package sandbox
+// Package realpath tells which file a path names: it follows a path's links,
+// names it as the kernel does, and compares two paths as files.
+package realpath
 
 import (
 	"errors"
@@ -25,32 +27,23 @@ import (
 	"syscall"
 )
 
-// resolvedAll is each of paths resolved.
-func resolvedAll(paths []string) []string {
-	out := make([]string, len(paths))
-	for i, p := range paths {
-		out[i] = resolved(p)
-	}
-	return out
-}
-
-// inAny reports whether p lies within any of dirs.
-func inAny(p string, dirs []string) bool {
-	return slices.ContainsFunc(dirs, func(d string) bool { return within(p, d) })
-}
-
-// within reports whether p is dir or lies under it, by their text alone. Text
-// tells only for the canonical paths of one policy, which names no folder two
-// ways (aliased), and for a fixed path such as /proc; any other two paths are
-// compared by under.
-func within(p, dir string) bool {
+// Within reports whether p is dir or lies under it, by their text alone. Text
+// tells only for paths known to name no folder two ways, such as the canonical
+// paths of one sandbox policy, and for a fixed path such as /proc; any other
+// two paths are compared by Under.
+func Within(p, dir string) bool {
 	rel, err := filepath.Rel(dir, p)
 	return err == nil && !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// resolved is p with its links followed. A path that does not exist is
+// WithinAny reports whether p is Within any of dirs.
+func WithinAny(p string, dirs []string) bool {
+	return slices.ContainsFunc(dirs, func(d string) bool { return Within(p, d) })
+}
+
+// Resolved is p with its links followed. A path that does not exist is
 // resolved through its deepest folder that does.
-func resolved(p string) string {
+func Resolved(p string) string {
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		return r
 	}
@@ -58,7 +51,17 @@ func resolved(p string) string {
 	if name == "" { // coverage:ignore EvalSymlinks of the root fails only when / cannot be read
 		return filepath.Clean(p)
 	}
-	return filepath.Join(resolved(parent), name)
+	return filepath.Join(Resolved(parent), name)
+}
+
+// ResolvedAll is each of paths Resolved, so a caller comparing many paths
+// against them resolves them once.
+func ResolvedAll(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = Resolved(p)
+	}
+	return out
 }
 
 // split is p's parent and last name, as written. filepath.Dir cleans its
@@ -68,13 +71,7 @@ func split(p string) (parent, name string) {
 	return filepath.Split(strings.TrimRight(p, string(filepath.Separator)))
 }
 
-// Resolved is each of paths with its links followed, so a caller comparing
-// many paths against them resolves them once.
-func Resolved(paths []string) []string {
-	return resolvedAll(paths)
-}
-
-// Canonical is each of paths as the kernel names it (kernelPath): its links
+// Canonical is each of paths as the kernel names it (KernelPath): its links
 // followed, and on macOS each name spelled as the volume stores it. The error
 // is the first path the kernel could not name, which is kept as given.
 //
@@ -98,7 +95,7 @@ func Canonical(paths []string) ([]string, error) {
 // this user may not reach, which no run of theirs can either, is named through
 // its deepest folder that is, the rest kept as given.
 func canonical(p string) (string, error) {
-	at, err := kernelPath(p)
+	at, err := KernelPath(p)
 	// ENOTDIR is a path through a file, which holds nothing.
 	missing := errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.ENOTDIR)
 	switch {
@@ -116,38 +113,37 @@ func canonical(p string) (string, error) {
 	return filepath.Join(dir, name), err
 }
 
-// Under reports whether p is one of dirs or lies under one, as files (under).
-// It reads the disk.
-func Under(p string, dirs []string) bool {
-	p = resolved(p)
+// Under reports whether p is dir or lies under it, as files: links are
+// followed, and a folder on p that is the file dir is holds p however either
+// is spelled, so a folder that folds names is one folder. Names past the
+// deepest part of dir that is there are compared as given. It reads the disk.
+func Under(p, dir string) bool {
+	return beneath(Resolved(p), dir)
+}
+
+// UnderAny reports whether p is Under any of dirs.
+func UnderAny(p string, dirs []string) bool {
+	p = Resolved(p)
 	return slices.ContainsFunc(dirs, func(d string) bool { return beneath(p, d) })
 }
 
-// Same reports whether a and b are one path, as files (under). It reads the
+// Same reports whether a and b are one path, as files (Under). It reads the
 // disk.
 func Same(a, b string) bool {
-	return under(a, b) && under(b, a)
+	return Under(a, b) && Under(b, a)
 }
 
-// under reports whether p is dir or lies under it, as files: links are
-// followed, and a folder on p that is the file dir is holds p however either
-// is spelled, so a folder that folds names is one folder. Names past the
-// deepest part of dir that is there are compared as given.
-func under(p, dir string) bool {
-	return beneath(resolved(p), dir)
-}
-
-// beneath is under for a p already resolved.
+// beneath is Under for a p already resolved.
 func beneath(p, dir string) bool {
-	dir = resolved(dir)
-	if within(p, dir) {
+	dir = Resolved(dir)
+	if Within(p, dir) {
 		return true
 	}
 	there, rest := deepest(dir)
 	for at := p; ; at = filepath.Dir(at) {
 		if info, err := os.Lstat(at); err == nil && os.SameFile(info, there) {
 			below, _ := filepath.Rel(at, p)
-			return within(below, rest)
+			return Within(below, rest)
 		}
 		if at == filepath.Dir(at) {
 			return false

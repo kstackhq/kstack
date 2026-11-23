@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package sandbox
+package realpath
 
 import (
 	"os"
@@ -31,11 +31,11 @@ type fullPath struct {
 	path   [unix.PathMax]byte
 }
 
-// kernelPath is the path the kernel holds for the file path names: links
+// KernelPath is the path the kernel holds for the file path names: links
 // followed, each component as the volume stores it, which is the path
 // Seatbelt checks a file on. It is one lookup, and like a stat it needs no
 // access to the file itself, so it opens no folder macOS guards.
-func kernelPath(path string) (string, error) {
+func KernelPath(path string) (string, error) {
 	name, err := unix.BytePtrFromString(path)
 	if err != nil {
 		return "", &os.PathError{Op: "getattrlist", Path: path, Err: err}

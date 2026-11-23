@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
@@ -353,7 +354,7 @@ func TestWideIsTheHomeAndEachFolderOverIt(t *testing.T) {
 	assert.NotContains(t, wide, f.in("code"))
 	for _, w := range wide[1:] {
 		if w != "/Volumes" {
-			assert.True(t, sandbox.Under(f.home, []string{w}), w)
+			assert.True(t, realpath.Under(f.home, w), w)
 		}
 	}
 }

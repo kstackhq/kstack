@@ -35,6 +35,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
@@ -43,7 +44,7 @@ import (
 // directory read and the resolver in it.
 func internetRun(t *testing.T, s *Sandbox, args ...string) Run {
 	t.Helper()
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	d := mkdirs(t, base, "kstack/runs/1-a", "work")
 	resolver := filepath.Join(d[0], "resolv.conf")
 	require.NoError(t, os.WriteFile(resolver, []byte("nameserver "+ResolverAddress+"\n"), 0o600))
@@ -332,7 +333,7 @@ func networked(t *testing.T) *Sandbox {
 // resolver: what a run with the internet adds to its Always part.
 func netKstack(t *testing.T) (kstack, runDir, resolver string) {
 	t.Helper()
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	runDir = mkdirs(t, base, "kstack/runs/1-a")[0]
 	resolver = filepath.Join(runDir, "resolv.conf")
 	require.NoError(t, os.WriteFile(resolver, []byte("nameserver "+ResolverAddress+"\n"), 0o600))
@@ -383,7 +384,7 @@ func TestANetworkRunHoldsNoCapability(t *testing.T) {
 // read what lies under it.
 func TestANetworkRunCannotUnmountANeverPath(t *testing.T) {
 	s := networked(t)
-	denied := resolved(t.TempDir())
+	denied := realpath.Resolved(t.TempDir())
 	require.NoError(t, os.WriteFile(filepath.Join(denied, "secret"), []byte("s3cret"), 0o600))
 	r := withNet(t, shRun(t, `umount "$D" 2>&1 || echo refused; cat "$D/secret" 2>&1`, "D="+denied))
 	r.always.Deny = append(r.always.Deny, denied)

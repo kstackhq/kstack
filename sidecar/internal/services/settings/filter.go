@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
@@ -30,7 +31,7 @@ type pathDir struct {
 }
 
 // zones is Zones as the checks read it, each path as the zones list it. A
-// folder is compared with them as files (sandbox.Under, sandbox.Same), never
+// folder is compared with them as files (realpath.UnderAny, realpath.Same), never
 // by text.
 type zones struct {
 	never, broad, read, deny, noWrite []string
@@ -44,7 +45,7 @@ func zonesOf(z Zones) zones {
 // open reports whether target is under a Read path and no Deny path: every
 // run reads it already.
 func (z zones) open(target string) bool {
-	return sandbox.Under(target, z.read) && !sandbox.Under(target, z.deny)
+	return realpath.UnderAny(target, z.read) && !realpath.UnderAny(target, z.deny)
 }
 
 // filterPath is entries less what no run should search, in the shell's

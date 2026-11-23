@@ -23,13 +23,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // The probe's policy is System over its shell, its folder writable, and the
 // Never paths denied, with no Kstack paths and no relay. It passes Check with
 // a toolchain folder inside ~/.docker, and with no home at all.
 func TestTheProbeKeepsTheCredentialsHidden(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	home := filepath.Join(base, "home")
 	mkdirs(t, home, ".docker/bin")
 	dir := mkdirs(t, base, "probe")[0]

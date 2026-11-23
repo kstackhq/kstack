@@ -23,11 +23,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // Every rule a run's policy holds a PATH folder to, each its own reason.
 func TestSearchFolderRefusesWhatARunCannotSearch(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	ok := mkdirs(t, base, "bin")[0]
 	denied := mkdirs(t, base, "denied")[0]
 	inDenied := mkdirs(t, denied, "bin")[0]
@@ -47,7 +49,7 @@ func TestSearchFolderRefusesWhatARunCannotSearch(t *testing.T) {
 	inHome := mkdirs(t, home, "bin")[0]
 	intoHome := filepath.Join(base, "into-home")
 	require.NoError(t, os.Symlink(home, intoHome))
-	never, broad := Resolved([]string{denied}), Broad(home)
+	never, broad := []string{realpath.Resolved(denied)}, Broad(home)
 
 	for dir, want := range map[string]string{
 		"":                             "empty",
@@ -89,7 +91,7 @@ func TestSearchFolderRefusesWhatARunCannotSearch(t *testing.T) {
 // The folders are real, since a Deny is resolved before it is compared: a
 // fixed path such as /home/... resolves elsewhere on macOS.
 func TestWithSearchOpensTheFolderItself(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	downloads := filepath.Join(base, "Downloads")
 	documents := filepath.Join(base, "Documents")
 	inDocuments := filepath.Join(documents, "bin")
@@ -105,7 +107,7 @@ func TestWithSearchOpensTheFolderItself(t *testing.T) {
 // The kernel follows a link before the .. after it, so the entry names the
 // folder beside the link's target, not the one beside the link.
 func TestSearchFolderFollowsALinkBeforeDotDot(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	dirs := mkdirs(t, base, "bin", "versions/bin", "versions/v1")
 	beside, target := dirs[1], dirs[2]
 	require.NoError(t, os.Symlink(target, filepath.Join(base, "current")))

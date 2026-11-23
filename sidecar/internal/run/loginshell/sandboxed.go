@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
@@ -79,7 +80,7 @@ func In(sb Commander, deny, kstackDirs []string, tmp TempDir) Start {
 func readable() []string {
 	read := []string{"/"}
 	if self, err := os.Executable(); err == nil {
-		read = append(read, sandbox.Resolved([]string{self})...)
+		read = append(read, realpath.Resolved(self))
 	}
 	return read
 }

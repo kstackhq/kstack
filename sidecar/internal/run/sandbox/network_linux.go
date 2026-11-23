@@ -25,6 +25,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // systemPastas are where a distribution puts pasta, in the order looked for.
@@ -178,7 +180,7 @@ func resolverTarget(p Policy) (string, error) {
 	if r, err := filepath.EvalSymlinks(hostResolvConf); err == nil {
 		at = r
 	}
-	if overFixedMount(at) || Under(at, slices.Concat(p.Files.Deny, p.Always.Deny, p.Always.Kstack)) {
+	if overFixedMount(at) || realpath.UnderAny(at, slices.Concat(p.Files.Deny, p.Always.Deny, p.Always.Kstack)) {
 		return "", fmt.Errorf("the host's resolv.conf is %s, where a run's resolver cannot be bound", at)
 	}
 	return at, nil

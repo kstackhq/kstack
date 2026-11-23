@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
@@ -83,7 +84,7 @@ func withoutCoverWarning(out []byte) string {
 // canonicalOf is paths, canonical.
 func canonicalOf(t *testing.T, paths ...string) []string {
 	t.Helper()
-	c, err := Canonical(paths)
+	c, err := realpath.Canonical(paths)
 	require.NoError(t, err)
 	return c
 }

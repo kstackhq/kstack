@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
@@ -69,7 +70,7 @@ func checkFolder(path string, write bool, z zones, pathEntries []string, stored 
 	if err != nil { // coverage:ignore the Stat just found the folder; only a removal in between fails this
 		return refuse("exists", "This folder does not exist.")
 	}
-	canon, err := sandbox.Canonical([]string{resolved})
+	canon, err := realpath.Canonical([]string{resolved})
 	if err != nil { // coverage:ignore the folder was just followed; only a removal in between fails this
 		// A run's check refuses a rule it cannot name, and the run with it.
 		return refuse("unreadable", "Kstack cannot read how the disk spells this folder, so it cannot be granted.")
@@ -84,14 +85,14 @@ func checkFolder(path string, write bool, z zones, pathEntries []string, stored 
 		// A case-insensitive filesystem opens either spelling, and the
 		// sandbox's profile matches the one the volume stores.
 		return FolderRefusal{Rule: "spelling", Reason: path + " is spelled " + spelled + " on disk; grant " + spelled + " instead.", Target: spelled}
-	case sandbox.Under(path, z.never):
+	case realpath.UnderAny(path, z.never):
 		return refuse("never", "This folder is never readable in the sandbox.")
-	case slices.ContainsFunc(z.deny, func(d string) bool { return sandbox.Same(d, path) }):
+	case slices.ContainsFunc(z.deny, func(d string) bool { return realpath.Same(d, path) }):
 		// A closed folder's Deny is not outranked by a Read on the same path.
 		return refuse("closed", "Grant a folder inside it.")
 	case !write:
 		return nil
-	case z.home != "" && sandbox.Same(path, z.home):
+	case z.home != "" && realpath.Same(path, z.home):
 		// A command that can write a folder can rename what is under it.
 		return refuse("home", "Your home can be granted read-only.")
 	}
@@ -113,7 +114,7 @@ func checkFolder(path string, write bool, z zones, pathEntries []string, stored 
 // overlapping is the first of dirs that path is on, under or over, as files.
 func overlapping(path string, dirs []string) (string, bool) {
 	for _, d := range dirs {
-		if sandbox.Under(path, []string{d}) || sandbox.Under(d, []string{path}) {
+		if realpath.Under(path, d) || realpath.Under(d, path) {
 			return d, true
 		}
 	}
@@ -124,7 +125,7 @@ func overlapping(path string, dirs []string) (string, bool) {
 // left out.
 func inside(path string, dirs []string) (string, bool) {
 	for _, d := range dirs {
-		if !sandbox.Same(d, path) && sandbox.Under(d, []string{path}) {
+		if !realpath.Same(d, path) && realpath.Under(d, path) {
 			return d, true
 		}
 	}
@@ -290,7 +291,7 @@ func (s *Service) WideFolders(ctx context.Context) []string {
 	}
 	home, ok := readWithin(ctx, s.syncTimeout, func() string {
 		// A home the kernel cannot name is drawn as given.
-		home, _ := sandbox.Canonical([]string{snap.zones.Home})
+		home, _ := realpath.Canonical([]string{snap.zones.Home})
 		return home[0]
 	})
 	if !ok { // coverage:ignore only a home on a mount that hangs past the bound reaches it

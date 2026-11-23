@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"slices"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
@@ -45,7 +46,7 @@ func (t *Tool) grantRules(folders []session.Folder, open sandbox.FilePolicy, nev
 		// One folder under two names is one rule: a policy naming it twice
 		// is refused.
 		path := f.Path
-		if i := slices.IndexFunc(passed, func(p string) bool { return sandbox.Same(p, path) }); i >= 0 {
+		if i := slices.IndexFunc(passed, func(p string) bool { return realpath.Same(p, path) }); i >= 0 {
 			path = passed[i]
 		} else {
 			passed = append(passed, path)
@@ -54,7 +55,7 @@ func (t *Tool) grantRules(folders []session.Folder, open sandbox.FilePolicy, nev
 	}
 	var rules sandbox.FilePolicy
 	for _, p := range passed {
-		underWrite := slices.ContainsFunc(passed, func(w string) bool { return w != p && writable[w] && sandbox.Under(p, []string{w}) })
+		underWrite := slices.ContainsFunc(passed, func(w string) bool { return w != p && writable[w] && realpath.Under(p, w) })
 		switch {
 		case underWrite:
 		case writable[p]:

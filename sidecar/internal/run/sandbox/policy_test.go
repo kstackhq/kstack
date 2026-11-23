@@ -21,6 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // foldingCase is a fileOf for a disk that ignores case, which no test can
@@ -65,7 +67,7 @@ func TestAPolicyNamingOneFolderTwoWaysIsRefused(t *testing.T) {
 // A policy fails Check for each thing it refuses, and passes when every
 // rule is where a run's rules go.
 func TestAPolicyChecks(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	p := func(rel string) string { return filepath.Join(base, filepath.FromSlash(rel)) }
 	workspace := func() Policy {
 		return Policy{
@@ -131,7 +133,7 @@ func TestOutsideDropsWhatIsOnOrInsideItsPaths(t *testing.T) {
 // A Deny is compiled only where a Files Read or Write reaches it: inside one,
 // on one, or holding one. Anywhere else its path is off limits already.
 func TestADenyIsCompiledOnlyWhereAReadOrWriteReachesIt(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	d := mkdirs(t, base, "home/.local/share/keyrings", "home/.kube", "srv/tools", "home/.ssh")
 	keyrings, kube, tools, ssh := d[0], d[1], d[2], d[3]
 	p := Policy{

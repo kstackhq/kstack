@@ -29,6 +29,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // probeBound is how long a probe's run may take. It starts this executable
@@ -348,7 +350,7 @@ func (m *mounter) mount(ru rule) {
 			// The tmpfs hides every link inside it, the tree's and those
 			// recreated, and a rule may reach its path through one.
 			for _, l := range m.links {
-				if within(l.path, ru.at) {
+				if realpath.Within(l.path, ru.at) {
 					m.args = append(m.args, "--symlink", l.at, l.path)
 				}
 			}
@@ -382,7 +384,7 @@ func (m *mounter) readable(at string) bool {
 // lastOver is the last rule mounted on or above p, if any.
 func (m *mounter) lastOver(p string) (rule, bool) {
 	for _, ru := range slices.Backward(m.mounted) {
-		if within(p, ru.at) {
+		if realpath.Within(p, ru.at) {
 			return ru, true
 		}
 	}
@@ -418,14 +420,14 @@ func (s *Sandbox) Port() (int, error) { return forwarderPort, nil }
 // has: its private /tmp, its /dev, or anything on or under /proc.
 func overFixedMount(p string) bool {
 	p = filepath.Clean(p)
-	return p == "/tmp" || p == "/dev" || within(p, "/proc")
+	return p == "/tmp" || p == "/dev" || realpath.Within(p, "/proc")
 }
 
 // FixedMount reports whether p is on or under a mount every run has its own
 // of: /proc, /dev or /tmp. The policy's rules are mounted after them, so a
 // rule there would bind the host's over the run's.
 func FixedMount(p string) bool {
-	return slices.ContainsFunc([]string{"/proc", "/dev", "/tmp"}, func(m string) bool { return within(filepath.Clean(p), m) })
+	return slices.ContainsFunc([]string{"/proc", "/dev", "/tmp"}, func(m string) bool { return realpath.Within(filepath.Clean(p), m) })
 }
 
 // countsPerNamespace reports whether a kernel of release counts a process

@@ -25,6 +25,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files in testdata")
@@ -53,7 +55,7 @@ var goldenFiles = []string{
 
 func newFixture(t *testing.T) fixture {
 	t.Helper()
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	mkdirs(t, base,
 		"home/.kube", "home/.aws", "home/.azure", "home/.config/gcloud", "home/.ssh", "home/.gnupg", "home/.config/gh",
 		"home/.local/share/keyrings", "home/Library/Keychains", "home/.cargo/bin",

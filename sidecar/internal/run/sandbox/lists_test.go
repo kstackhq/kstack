@@ -19,6 +19,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // Each credential a tool keeps inside a Toolchain location's tree is on Never,
@@ -27,7 +29,7 @@ import (
 func TestTheCredentialsBesideAToolsProgramsAreListed(t *testing.T) {
 	assert.Contains(t, sharedLists.Never, "~/.local/share/uv/credentials")
 	assert.True(t, slices.ContainsFunc(sharedLists.Toolchain, func(l Location) bool {
-		return slices.ContainsFunc(l.Read, func(r string) bool { return within("~/.local/share/uv/credentials", r) })
+		return slices.ContainsFunc(l.Read, func(r string) bool { return realpath.Within("~/.local/share/uv/credentials", r) })
 	}))
 	for _, c := range []string{"~/.cargo/credentials", "~/.cargo/credentials.toml", "~/.pulumi/credentials.json", "~/.fly/config.yml"} {
 		assert.Contains(t, sharedLists.Never, c)

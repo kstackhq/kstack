@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // Never is the paths no run on this machine can read, whatever its policy
@@ -41,7 +43,7 @@ func (s *Sandbox) Never(home string) []string {
 // notAbove is each of paths that is not on or above home, compared as files:
 // a home the disk spells in another case is still home.
 func notAbove(home string, paths []string) []string {
-	return slices.DeleteFunc(slices.Clone(paths), func(p string) bool { return under(home, p) })
+	return slices.DeleteFunc(slices.Clone(paths), func(p string) bool { return realpath.Under(home, p) })
 }
 
 // NoWrite is the NoWrite lists with ~/ under home: what something outside
@@ -123,7 +125,7 @@ func (s *Sandbox) System(home, shell string) System {
 			read = append(read, p)
 		}
 	}
-	read = slices.DeleteFunc(append(read, resolved(s.self)), overFixedMount)
+	read = slices.DeleteFunc(append(read, realpath.Resolved(s.self)), overFixedMount)
 	deny := slices.Concat(brewVar, inHome(home, slices.Concat(sharedLists.Closed, platformLists.Closed)))
 	sys.Files = FilePolicy{Read: read, Deny: deny}.Outside(slices.Concat(neverPaths(home), otherHomes(home))...)
 	return sys
@@ -140,7 +142,7 @@ func broadDirs(home string) []string {
 
 // isBroad reports whether p is or holds one of broad, compared as files.
 func isBroad(p string, broad []string) bool {
-	return slices.ContainsFunc(broad, func(b string) bool { return under(b, p) })
+	return slices.ContainsFunc(broad, func(b string) bool { return realpath.Under(b, p) })
 }
 
 // maxHops is how many links the kernel follows in one lookup.
@@ -177,9 +179,9 @@ func shellReads(home, shell string, broad []string) []string {
 // every app's data.
 func shellFolder(home, shell string) string {
 	dir := filepath.Dir(shell)
-	underHome := home != "" && under(dir, home)
+	underHome := home != "" && realpath.Under(dir, home)
 	parent := filepath.Dir(dir)
-	holdsHome := home != "" && under(home, parent)
+	holdsHome := home != "" && realpath.Under(home, parent)
 	if filepath.Base(dir) == "bin" && !underHome && parent != "/" && !holdsHome {
 		return parent
 	}

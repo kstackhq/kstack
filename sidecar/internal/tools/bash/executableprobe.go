@@ -28,8 +28,8 @@ import (
 
 	"github.com/amorey/gochan/watch"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
-	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -106,7 +106,7 @@ func resolveExecutable(name string, path []string) (string, bool) {
 // shim is a link to mise itself, which lies in no shims folder.
 func shimManager(path, home string) (string, bool) {
 	for manager, dir := range shimDirs {
-		if sandbox.Under(filepath.Dir(path), []string{filepath.Join(home, dir)}) {
+		if realpath.Under(filepath.Dir(path), filepath.Join(home, dir)) {
 			return manager, true
 		}
 	}

@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // SearchFolder is the folder a run may search for the PATH entry dir — dir
@@ -38,7 +40,7 @@ func SearchFolder(dir string, never, broad []string) (folder string, info os.Fil
 	}
 	// Named as written, as the shell's lookup reads it: a link before a ..
 	// leads to the parent of its target.
-	folder, err := kernelPath(dir)
+	folder, err := realpath.KernelPath(dir)
 	if err != nil {
 		return "", nil, "missing"
 	}
@@ -49,9 +51,9 @@ func SearchFolder(dir string, never, broad []string) (folder string, info os.Fil
 	case worldWritable(info):
 		// Anyone on the machine could put a program in it.
 		return "", nil, "world"
-	case Under(folder, never):
+	case realpath.UnderAny(folder, never):
 		return "", nil, "never"
-	case slices.ContainsFunc(broad, func(b string) bool { return under(b, folder) }):
+	case slices.ContainsFunc(broad, func(b string) bool { return realpath.Under(b, folder) }):
 		// Its Read rule would open the whole home, every app's data or the
 		// disk. A folder that big is a grant, not a PATH entry.
 		return "", nil, "broad"
@@ -77,7 +79,7 @@ func Broad(home string) []string {
 // is a Files rule, so this opens none. It reads the disk.
 func (f FilePolicy) WithSearch(folders []string) FilePolicy {
 	deny := slices.DeleteFunc(slices.Clone(f.Deny), func(d string) bool {
-		return slices.ContainsFunc(folders, func(folder string) bool { return Same(folder, d) })
+		return slices.ContainsFunc(folders, func(folder string) bool { return realpath.Same(folder, d) })
 	})
 	return FilePolicy{Read: slices.Concat(f.Read, folders), Write: f.Write, Deny: deny}
 }

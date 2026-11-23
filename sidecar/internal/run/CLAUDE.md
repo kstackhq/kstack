@@ -71,7 +71,7 @@ that rule and gets its line in `TestNarrowKeepsTheParentsIdentity`.
 
 **`Check`** refuses, among others, anything beneath a Write, a run's own path that is a link, a
 rule the kernel cannot name, a folder named two ways and a memory or process limit with no
-open-files limit. **Two paths compare as files** (`Under`, `Same`); text tells only inside one
+open-files limit. **Two paths compare as files** (`lib/realpath`); text tells only inside one
 compiled policy. Both platforms compile one merged list (`Policy.rules`), last match winning, own
 paths last. → [ADR](../../../docs/adr/2026-11-22-paths-are-compared-as-files.md).
 

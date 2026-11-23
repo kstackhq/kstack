@@ -14,13 +14,13 @@
 
 //go:build !darwin
 
-package sandbox
+package realpath
 
 import "path/filepath"
 
-// kernelPath is path with its links followed, which is the name bwrap binds.
+// KernelPath is path with its links followed, which is the name bwrap binds.
 // The kernel gives no stored spelling to read here, so a folder that folds
 // names keeps the spelling it was given.
-func kernelPath(path string) (string, error) {
+func KernelPath(path string) (string, error) {
 	return filepath.EvalSymlinks(path)
 }

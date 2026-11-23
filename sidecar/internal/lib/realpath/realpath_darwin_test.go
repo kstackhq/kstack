@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package sandbox
+package realpath
 
 import (
 	"errors"
@@ -58,10 +58,10 @@ func TestUnderHoldsAFolderInAnotherCase(t *testing.T) {
 	skipIfCaseSensitive(t, upper)
 
 	assert.True(t, Same(upper, folder))
-	assert.True(t, Under(filepath.Join(upper, "config"), []string{folder}))
-	assert.True(t, Under(filepath.Join(upper, "new", "file"), []string{filepath.Join(folder, "new")}), "names past the deepest folder are compared as given")
-	assert.False(t, Under(filepath.Join(upper, "other"), []string{filepath.Join(folder, "new")}))
-	assert.False(t, Under(filepath.Join(base, "DISK"), []string{folder}))
+	assert.True(t, Under(filepath.Join(upper, "config"), folder))
+	assert.True(t, Under(filepath.Join(upper, "new", "file"), filepath.Join(folder, "new")), "names past the deepest folder are compared as given")
+	assert.False(t, Under(filepath.Join(upper, "other"), filepath.Join(folder, "new")))
+	assert.False(t, Under(filepath.Join(base, "DISK"), folder))
 }
 
 // Why Canonical asks the kernel: following a link keeps the link's own

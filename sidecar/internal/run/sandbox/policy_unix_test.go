@@ -34,6 +34,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
@@ -101,7 +102,7 @@ func TestEveryPairOfRulesAnswersAlike(t *testing.T) {
 		"Deny over Deny":  {func(o, i string) FilePolicy { return FilePolicy{Deny: []string{o, i}} }, none, none},
 	} {
 		t.Run(name, func(t *testing.T) {
-			base := resolved(t.TempDir())
+			base := realpath.Resolved(t.TempDir())
 			outer, inner := filepath.Join(base, "outer"), filepath.Join(base, "outer", "inner")
 
 			got := accessOf(t, s, base, c.files(outer, inner), AlwaysPolicy{}, "outer/inner/f", "outer/beside/f")
@@ -118,7 +119,7 @@ func TestEveryPairOfRulesAnswersAlike(t *testing.T) {
 		"Read and Deny":  {FilePolicy{Read: []string{"p"}, Deny: []string{"p"}}, none},
 	} {
 		t.Run("a tie of "+name, func(t *testing.T) {
-			base := resolved(t.TempDir())
+			base := realpath.Resolved(t.TempDir())
 			on := func(rules []string) []string {
 				if len(rules) == 0 {
 					return nil
@@ -133,7 +134,7 @@ func TestEveryPairOfRulesAnswersAlike(t *testing.T) {
 		})
 	}
 	t.Run("a Kstack path with the run's own inside", func(t *testing.T) {
-		base := resolved(t.TempDir())
+		base := realpath.Resolved(t.TempDir())
 		k := filepath.Join(base, "k")
 		always := AlwaysPolicy{Kstack: []string{k}, Read: []string{filepath.Join(k, "r")}, Write: []string{filepath.Join(k, "w")}}
 
@@ -183,7 +184,7 @@ func TestANestedKstackPathIsAcceptedAndDenied(t *testing.T) {
 // and a Read inside ~/.ssh is refused by Check. Step 4D's grants rest on this.
 func TestTheDeniedAlwaysListWinsOverARead(t *testing.T) {
 	s := confining(t)
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	home := filepath.Join(base, "home")
 
 	got := accessOf(t, s, base, FilePolicy{Read: []string{home}}, AlwaysPolicy{}, "home/.zshrc", "home/.ssh/id_ed25519")
@@ -197,7 +198,7 @@ func TestTheDeniedAlwaysListWinsOverARead(t *testing.T) {
 // linked home, and a credential path that is itself a link, each lie where
 // they resolve, inside the Read that holds them.
 func TestARuleIsCompiledWhereItsLinkLeads(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	home := mkdirs(t, base, "home")[0]
 	linked := filepath.Join(base, "home-link")
 	require.NoError(t, os.Symlink(home, linked))
@@ -228,7 +229,7 @@ func TestARuleTheKernelCannotNameIsRefused(t *testing.T) {
 }
 
 func TestARunsOwnPathThatIsALinkIsRefused(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	d := mkdirs(t, base, "data/chats/c/workspace", "cache/tmp/1-a", "runtime/runs/1-a")
 	link := filepath.Join(base, "data/chats/c/linked")
 	require.NoError(t, os.Symlink(filepath.Join(base, "data"), link))
@@ -251,7 +252,7 @@ func TestARunsOwnPathThatCannotBeLookedAtIsRefused(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root looks through any folder's mode")
 	}
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	d := mkdirs(t, base, "data/chats/c/workspace")
 	chat := filepath.Dir(d[0])
 	require.NoError(t, os.Chmod(chat, 0))
@@ -278,7 +279,7 @@ func init() {
 // home, with a workspace it writes, the system's PATH and env, and limits l.
 func limitedRunOf(t *testing.T, s *Sandbox, l Limits, env []string, argv ...string) Run {
 	t.Helper()
-	d := mkdirs(t, resolved(t.TempDir()), "home", "ws")
+	d := mkdirs(t, realpath.Resolved(t.TempDir()), "home", "ws")
 	env = append([]string{"PATH=/usr/bin:/bin"}, env...)
 	files := s.System(d[0], "/bin/sh").Files
 	files.Write = append(files.Write, d[1])
@@ -421,7 +422,7 @@ func TestSudoCannotGainRoot(t *testing.T) {
 // own path is: absolute, not a link, inside Kstack's directories, and only with
 // the internet.
 func TestTheResolverIsChecked(t *testing.T) {
-	base := resolved(t.TempDir())
+	base := realpath.Resolved(t.TempDir())
 	d := mkdirs(t, base, "runtime/runs/1-a", "home")
 	resolver := filepath.Join(d[0], "resolv.conf")
 	require.NoError(t, os.WriteFile(resolver, []byte("nameserver 169.254.1.53\n"), 0o600))

@@ -955,7 +955,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   ancestors and lookup latency before proposing a cache
   ([#1150](https://github.com/kstackhq/kstack/issues/1150)).
 - **Pin path comparison on a Linux mount that folds names (low; sandbox owner).** Paths are
-  compared as files (`sandbox.Under`), and a policy naming one folder two ways is refused
+  compared as files (`realpath.Under`), and a policy naming one folder two ways is refused
   (`aliased`, `sidecar/internal/run/sandbox/policy.go`), but no test mounts a folding filesystem
   (vfat, a casefold directory): the Linux tests stand a hard link and a fake in for one. Run the
   sandbox suite on such a mount in CI.
