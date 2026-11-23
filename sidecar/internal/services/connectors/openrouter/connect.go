@@ -67,7 +67,7 @@ func (s *Service) Connect(context.Context) error {
 	if a == nil {
 		return err
 	}
-	if err := s.openBrowser(a); err != nil {
+	if err := s.open(s.authPageURL(a)); err != nil {
 		slog.Warn("openrouter: could not open the browser", "err", err)
 		a.forget()
 		s.endAttempt(a.gen, connectors.Refused)
@@ -81,9 +81,9 @@ func (s *Service) Connect(context.Context) error {
 	return nil
 }
 
-// begin starts an attempt under a new generation, once the keyring is known to
-// take a write. When it does not it answers no attempt and no error: the state
-// says NotSaved, and no browser opens.
+// begin starts an attempt under a new generation and binds its loopback, once
+// the keyring is known to take a write. When it does not it answers no attempt
+// and no error: the state says NotSaved, and no browser opens.
 func (s *Service) begin() (*attempt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -105,11 +105,18 @@ func (s *Service) begin() (*attempt, error) {
 		s.publishLocked(connectors.State{Phase: connectors.Failed, Failure: connectors.NotSaved})
 		return nil, nil
 	}
+	state := oauth2.GenerateVerifier()
+	listener, err := browser.Listen(state, callbackPath)
+	if err != nil { // coverage:ignore binding an ephemeral loopback port does not fail
+		slog.Error("openrouter: could not bind the loopback", "err", err)
+		s.publishLocked(connectors.State{Phase: connectors.Failed, Failure: connectors.Refused})
+		return nil, nil
+	}
 	ctx, cancel := context.WithCancel(s.ctx)
 	verifier := oauth2.GenerateVerifier()
 	a := &attempt{
-		gen: s.gen, ctx: ctx, cancel: cancel,
-		state: oauth2.GenerateVerifier(), verifier: verifier, challenge: oauth2.S256ChallengeFromVerifier(verifier),
+		gen: s.gen, ctx: ctx, cancel: cancel, listener: listener,
+		state: state, verifier: verifier, challenge: oauth2.S256ChallengeFromVerifier(verifier),
 	}
 	safe.AddSecret(a.state)
 	safe.AddSecret(a.verifier)
@@ -117,20 +124,6 @@ func (s *Service) begin() (*attempt, error) {
 	s.attempt = a
 	s.publishLocked(connectors.State{Phase: connectors.SigningIn})
 	return a, nil
-}
-
-// openBrowser binds the loopback, then opens the browser on the auth page that
-// names it.
-func (s *Service) openBrowser(a *attempt) error {
-	var err error
-	if a.listener, err = browser.Listen(a.state, callbackPath); err != nil { // coverage:ignore binding an ephemeral loopback port does not fail
-		return err
-	}
-	if err := s.open(s.authPageURL(a)); err != nil {
-		a.listener.Close()
-		return err
-	}
-	return nil
 }
 
 // authPageURL is OpenRouter's auth page for a: the challenge, the key's label,
@@ -160,10 +153,12 @@ func (s *Service) Cancel() {
 	s.publishLocked(connectors.State{Phase: connectors.SignedOut})
 }
 
-// stopAttemptLocked ends the attempt's wait for the callback (s.mu held).
+// stopAttemptLocked ends the attempt's wait for the callback and closes its
+// loopback, so no callback is answered once the attempt has ended (s.mu held).
 func (s *Service) stopAttemptLocked() {
 	if s.attempt != nil {
 		s.attempt.cancel()
+		s.attempt.listener.Close()
 		s.attempt = nil
 	}
 }
