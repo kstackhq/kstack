@@ -41,8 +41,9 @@ strip = true        # strip symbols from the shipped binary
 [dev-dependencies]
 # Test-only tokio features: `test-util` provides the paused-clock helpers
 # (`pause`/`advance`/`start_paused`) the wake coalescer tests use to drive the
-# debounce deterministically without wall-clock sleeps.
-tokio = { version = "1", features = ["test-util", "macros", "rt"] }
+# debounce deterministically without wall-clock sleeps. `net` provides
+# `UnixSocket`, which binds a socket without listening on it.
+tokio = { version = "1", features = ["test-util", "macros", "rt", "net"] }
 # Tauri's mock runtime (`tauri::test`): builds an app with no window system, so
 # the commands and `AppState` run under test.
 tauri = { version = "2", features = ["test"] }

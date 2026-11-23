@@ -302,8 +302,11 @@ mod tests {
     #[tokio::test]
     async fn a_refused_dial_is_not_retried() {
         let path = Endpoint::pick(&std::env::temp_dir()).expect("pick");
-        // std's listener leaves its file behind when dropped.
-        drop(std::os::unix::net::UnixListener::bind(path.as_arg()).unwrap());
+        // Bound, never listening: a dropped listener would not do, since a
+        // process another test spawns holds its descriptor until exec, and the
+        // kernel accepts dials on it until then.
+        let socket = tokio::net::UnixSocket::new_stream().unwrap();
+        socket.bind(path.as_arg()).unwrap();
 
         let err = ours(path.clone())
             .connect_with_budget(Duration::from_secs(60))
