@@ -53,6 +53,10 @@ type AlwaysPolicy struct {
 	Kstack []string // the data, cache and runtime directories
 	Read   []string // the run's own paths it reads, each inside a Kstack path
 	Write  []string // and reads and writes
+	// LinkParents is the folder holding each link Kstack followed to its
+	// folders. A run that could write one could repoint the link, so no
+	// Write rule may be on or above one.
+	LinkParents []string
 }
 
 // NetworkPolicy is how a run reaches past the machine. The zero value is no
@@ -142,7 +146,7 @@ func (p Policy) canonicalPaths() (canonicalPaths, error) {
 			return nil, fmt.Errorf("%s is not an absolute path", path)
 		}
 	}
-	named := slices.Concat(p.rulePaths(), p.ownResolver())
+	named := slices.Concat(p.rulePaths(), p.ownResolver(), p.Always.LinkParents)
 	at, err := realpath.Canonical(named)
 	if err == nil {
 		err = aliased(at, fileOf)
@@ -195,6 +199,13 @@ func (p Policy) check(c canonicalPaths) error {
 		for _, w := range writes {
 			if r != w && realpath.Within(r, w) {
 				return fmt.Errorf("%s lies beneath the Write rule %s", rulePaths[i], w)
+			}
+		}
+	}
+	for i, parent := range c.of(p.Always.LinkParents) {
+		for _, w := range writes {
+			if realpath.Within(parent, w) {
+				return fmt.Errorf("the Write rule %s is on or above %s, which holds a link Kstack follows", w, p.Always.LinkParents[i])
 			}
 		}
 	}
@@ -266,7 +277,7 @@ func (p Policy) rulePaths() []string {
 
 // paths is every path p names.
 func (p Policy) paths() []string {
-	paths := append(p.rulePaths(), p.ownResolver()...)
+	paths := slices.Concat(p.rulePaths(), p.ownResolver(), p.Always.LinkParents)
 	for _, r := range p.Network.Relays {
 		paths = append(paths, r.Socket)
 	}

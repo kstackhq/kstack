@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
@@ -199,4 +200,22 @@ func TestAReadWriteGrantIsWritten(t *testing.T) {
 	text, isError = runIn(t, tl, "echo hi > "+filepath.Join(ro, "x"), session.Folder{Path: ro})
 	assert.True(t, isError, text)
 	assert.NoFileExists(t, filepath.Join(ro, "x"), "a read grant is not written")
+}
+
+// A run carries the folders holding the links Kstack followed, and a
+// read-write grant of one is left out of it: a command that can write one
+// could repoint the link.
+func TestAReadWriteGrantOfALinkParentIsLeftOut(t *testing.T) {
+	tl := tool(t)
+	_, p := folders(t, "cache", "big/kstack")
+	cache, target := p[0], p[1]
+	link := filepath.Join(cache, "kstack")
+	require.NoError(t, os.Symlink(target, link))
+	tl.links = []realpath.Link{{Name: link, Parent: cache}}
+
+	got := grantedRun(t, tl, []session.Folder{{Path: cache, Write: true}})
+
+	assert.Equal(t, []string{cache}, got.Always.LinkParents)
+	assert.NotContains(t, got.Files.Write, cache)
+	assert.NoError(t, got.Check())
 }

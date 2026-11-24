@@ -42,6 +42,7 @@ import (
 	"unicode"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
@@ -157,6 +158,8 @@ type Tool struct {
 	runsDir, tmpDir, kubectlDir string
 	// denied is Kstack's own directories, which a sandboxed run cannot read.
 	denied []string
+	// links is each link Kstack followed to them, whose folders no run writes.
+	links []realpath.Link
 	// pathList is the user's stored PATH list, read once at a sandboxed run's
 	// start; nil for none. fallbackPath is what a run searches while the list
 	// was never resolved: the platform's login default, or a test's folders.
@@ -225,6 +228,9 @@ func Described(platform, kind, version string, sandboxed bool) *Tool {
 type Paths struct {
 	ShellDir, RunsDir, TmpDir, KubectlDir string
 	DeniedDirs                            []string
+	// Links is each link Kstack followed to its folders: no run writes the
+	// folder holding one.
+	Links []realpath.Link
 }
 
 // New finds the shell — on Unix the login shell when it is zsh or bash, else
@@ -271,6 +277,7 @@ func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Se
 		tmpDir:       paths.TmpDir,
 		kubectlDir:   paths.KubectlDir,
 		denied:       paths.DeniedDirs,
+		links:        paths.Links,
 		pathList:     pathList,
 		userEnv:      userEnv,
 		fallbackPath: filepath.SplitList(defaultPath),
@@ -949,7 +956,7 @@ func (t *Tool) workspacePolicy(system, grants sandbox.FilePolicy, never, reads, 
 	files.Write = slices.Concat(files.Write, grants.Write, t.extraWritable)
 	return sandbox.Policy{
 		Files:   files,
-		Always:  sandbox.AlwaysPolicy{Deny: never, Kstack: t.denied, Read: reads, Write: writes},
+		Always:  sandbox.AlwaysPolicy{Deny: never, Kstack: t.denied, Read: reads, Write: writes, LinkParents: realpath.Parents(t.links)},
 		Network: net,
 		Limits:  limits,
 	}

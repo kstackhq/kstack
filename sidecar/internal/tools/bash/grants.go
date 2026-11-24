@@ -34,7 +34,7 @@ func (t *Tool) grantRules(folders []session.Folder, open sandbox.FilePolicy, nev
 	if len(folders) == 0 {
 		return sandbox.FilePolicy{}
 	}
-	zones := settings.Zones{Never: slices.Concat(never, t.denied), Open: open, Home: t.home, NoWrite: sandbox.NoWrite(t.home)}
+	zones := settings.Zones{Never: slices.Concat(never, t.denied), Open: open, Home: t.home, NoWrite: sandbox.NoWrite(t.home), Links: t.links}
 	pathFolders := settings.PathEntryFolders(entries)
 	var passed []string
 	writable := map[string]bool{}

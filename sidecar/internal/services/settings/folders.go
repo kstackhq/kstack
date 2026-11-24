@@ -96,6 +96,11 @@ func checkFolder(path string, write bool, z zones, pathEntries []string, stored 
 		// A command that can write a folder can rename what is under it.
 		return refuse("home", "Your home can be granted read-only.")
 	}
+	for _, l := range z.links {
+		if realpath.Under(l.Parent, path) {
+			return refuse("link-parent", "Kstack follows the link "+l.Name+", and a command that can write "+path+" could repoint it. Grant it read-only.")
+		}
+	}
 	if p, ok := overlapping(path, slices.Concat(z.read, pathEntries)); ok {
 		return refuse("tool", "Kstack reads tools from "+p+"; grant it read-only, or a folder beside it.")
 	}

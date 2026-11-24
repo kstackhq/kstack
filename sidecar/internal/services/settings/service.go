@@ -26,19 +26,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
 // Zones is what the sync judges an entry, and a grant a folder, by: Never,
 // the paths no rule opens; Open, what every run reads, whose Read paths are
 // the open folders and whose Deny paths close what lies under them again;
-// Home, which with its app-data folders no entry may be or hold; and NoWrite,
-// what something outside the sandbox runs, which no grant may write.
+// Home, which with its app-data folders no entry may be or hold; NoWrite,
+// what something outside the sandbox runs, which no grant may write; and
+// Links, the links Kstack followed to its folders, whose parents no grant may
+// write.
 type Zones struct {
 	Never   []string
 	Open    sandbox.FilePolicy
 	Home    string
 	NoWrite []string
+	Links   []realpath.Link
 }
 
 // Service is the store, and the frozen PATH kept in it.
