@@ -36,6 +36,10 @@ const (
 	stmtUpdateGitHubSwitch
 	stmtUpdateGCPSwitch
 	stmtUpdateAzureSwitch
+	stmtSelectExecutables
+	stmtSelectExecutableListed
+	stmtInsertExecutable
+	stmtDeleteExecutable
 )
 
 // statements are the store's. Those over a table with a chat_id touch only
@@ -73,6 +77,13 @@ var statements = []sqlstmt.Statement{
 	stmtUpdateGitHubSwitch: sqlstmt.OnWriter(`UPDATE sandbox_settings SET github_enabled = ?, updated_at = ? WHERE id = 1`),
 	stmtUpdateGCPSwitch:    sqlstmt.OnWriter(`UPDATE sandbox_settings SET gcp_enabled = ?, updated_at = ? WHERE id = 1`),
 	stmtUpdateAzureSwitch:  sqlstmt.OnWriter(`UPDATE sandbox_settings SET azure_enabled = ?, updated_at = ? WHERE id = 1`),
+
+	// rowid orders two added in the same millisecond.
+	stmtSelectExecutables: sqlstmt.OnReader(`SELECT name, invocation FROM executables ORDER BY created_at, rowid`),
+	// OnBoth, since a register reads it in its transaction.
+	stmtSelectExecutableListed: sqlstmt.OnBoth(`SELECT EXISTS (SELECT 1 FROM executables WHERE name = ?)`),
+	stmtInsertExecutable:       sqlstmt.OnWriter(`INSERT INTO executables (name, invocation, created_at) VALUES (?, ?, ?)`),
+	stmtDeleteExecutable:       sqlstmt.OnWriter(`DELETE FROM executables WHERE name = ?`),
 }
 
 type stmts = sqlstmt.Stmts[stmtID]

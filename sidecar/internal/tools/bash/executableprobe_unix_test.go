@@ -162,6 +162,35 @@ func TestTheProbeRunsOnlyTheList(t *testing.T) {
 	assert.Equal(t, got, tl.LastProbe())
 }
 
+// A probe runs no registered executable the shape check refuses, however its
+// caller passed it: marked, or malformed and unmarked. The curated kubectl
+// still runs beside a registered kubectl.
+func TestAProbeRunsNoRefusedExecutable(t *testing.T) {
+	tl, fake, bin := probingTool(t)
+	kubectlBin := writeExecutable(t, bin, "kubectl", "echo v1")
+	writeExecutable(t, bin, "other", "true")
+	writeExecutable(t, bin, "k9s", "true")
+	registered := []settings.Executable{
+		{Name: "kubectl", Invocation: "kubectl version"},
+		{Name: "stern", Invocation: "other --version"},
+		{Name: "k9s", Invocation: "k9s info", Refusal: "Its own reason."},
+	}
+
+	got := tl.ProbeExecutables(t.Context(), registered)
+
+	var ran [][]string
+	for _, r := range fake.seen() {
+		ran = append(ran, append([]string{r.Shell}, r.Args...))
+	}
+	assert.Equal(t, [][]string{{kubectlBin, "version", "--client"}}, ran, "the curated kubectl alone")
+	assert.True(t, got[0].OK, "the curated kubectl")
+	for i, r := range got[len(settings.CuratedExecutables):] {
+		assert.NotEmpty(t, r.Refusal, registered[i].Name)
+		assert.False(t, r.Probed, registered[i].Name)
+		assert.Empty(t, r.Error, registered[i].Name)
+	}
+}
+
 // A kubectl under asdf's shims is reported as a shim, with the binary asdf's
 // resolver names, which runs in the sandbox first; a #! script elsewhere is
 // no shim.

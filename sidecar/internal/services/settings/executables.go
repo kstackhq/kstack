@@ -15,16 +15,25 @@
 package settings
 
 import (
+	"context"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 	"unicode"
+
+	"github.com/amorey/gobus/conflate"
+
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 )
 
-// Executable is a program the user asked the probe to check.
+// Executable is a program the probe checks.
 type Executable struct {
-	Name       string `json:"name"`
-	Invocation string `json:"invocation"` // "<name> --version" when the user gave none
+	Name       string
+	Invocation string // "<name> --version" when the user gave none
+	// Refusal is why CheckExecutable refuses a registered one, which is never
+	// probed; "" for one Kstack probes.
+	Refusal string
 }
 
 // CuratedExecutables is what the probe checks on every machine, in this order.
@@ -38,9 +47,6 @@ var CuratedExecutables = []Executable{
 	{Name: "jq", Invocation: "jq --version"},
 	{Name: "yq", Invocation: "yq --version"},
 }
-
-// FieldExecutables is the registered executables' JSON key.
-const FieldExecutables = "executables"
 
 const (
 	maxInvocationFields = 8
@@ -74,26 +80,6 @@ func CheckExecutable(name, invocation string) error {
 	return nil
 }
 
-// checkExecutables refuses an executable CheckExecutable refuses, or one whose name an earlier
-// executable has. An executable only widens what is probed, so a refused one is dropped.
-func checkExecutables(v *Settings) []Refusal {
-	var refused []Refusal
-	var kept []Executable
-	for _, executable := range v.Executables {
-		err := CheckExecutable(executable.Name, executable.Invocation)
-		if err == nil && slices.ContainsFunc(kept, func(k Executable) bool { return k.Name == executable.Name }) {
-			err = ExecutableRefusal("It is listed twice.")
-		}
-		if err != nil {
-			refused = append(refused, Refusal{Field: FieldExecutables, Value: executable.Name, Reason: err.Error()})
-			continue
-		}
-		kept = append(kept, executable)
-	}
-	v.Executables = kept
-	return refused
-}
-
 // A ExecutableRefusal is a register or a remove the user cannot have, in their words.
 type ExecutableRefusal string
 
@@ -104,32 +90,61 @@ const (
 	ErrExecutableNotRegistered ExecutableRefusal = "That executable is not registered."
 )
 
-// RegisterExecutable adds an executable for the probe to check, with invocation, or
-// "<name> --version" when it is "".
-func (s *Store) RegisterExecutable(name, invocation string) error {
+// Executables is the registered executables in the order added, one
+// CheckExecutable refuses with its Refusal. A read that fails partway answers
+// none.
+func (s *Store) Executables(ctx context.Context) ([]Executable, error) {
+	rows, err := s.stmts.Stmts().Query(ctx, stmtSelectExecutables)
+	if err != nil {
+		return nil, fmt.Errorf("select executables: %w", err)
+	}
+	return scanAll(rows, func() (Executable, error) {
+		var e Executable
+		if err := rows.Scan(&e.Name, &e.Invocation); err != nil {
+			return Executable{}, fmt.Errorf("scan executable: %w", err)
+		}
+		if err := CheckExecutable(e.Name, e.Invocation); err != nil {
+			e.Refusal = err.Error()
+		}
+		return e, nil
+	})
+}
+
+// RegisterExecutable adds an executable for the probe to check, with
+// invocation, or "<name> --version" when it is "". A name already stored is
+// ErrExecutableListed before it is checked, so a refused row's name stays
+// listed until the user removes it.
+func (s *Store) RegisterExecutable(ctx context.Context, name, invocation string) error {
 	if invocation == "" {
 		invocation = name + " --version"
 	}
-	if err := CheckExecutable(name, invocation); err != nil {
-		return err
-	}
-	return s.Update(func(v *Settings) error {
-		if slices.ContainsFunc(v.Executables, func(executable Executable) bool { return executable.Name == name }) {
+	return s.write(ctx, appdb.KeyExecutables, func(st stmts) error {
+		var listed bool
+		if err := st.QueryRow(ctx, stmtSelectExecutableListed, name).Scan(&listed); err != nil {
+			return fmt.Errorf("select executable: %w", err)
+		}
+		if listed {
 			return ErrExecutableListed
 		}
-		v.Executables = append(v.Executables, Executable{Name: name, Invocation: invocation})
+		if err := CheckExecutable(name, invocation); err != nil {
+			return err
+		}
+		if _, err := st.Exec(ctx, stmtInsertExecutable, name, invocation, s.now().UnixMilli()); err != nil { // coverage:ignore the lookup in this transaction rules out the key's conflict, and every column is given
+			return fmt.Errorf("insert executable: %w", err)
+		}
 		return nil
 	})
 }
 
-// RemoveExecutable removes a registered executable by name.
-func (s *Store) RemoveExecutable(name string) error {
-	return s.Update(func(v *Settings) error {
-		i := slices.IndexFunc(v.Executables, func(executable Executable) bool { return executable.Name == name })
-		if i < 0 {
-			return ErrExecutableNotRegistered
-		}
-		v.Executables = slices.Delete(v.Executables, i, i+1)
-		return nil
+// RemoveExecutable removes a registered executable by name, a refused one too.
+func (s *Store) RemoveExecutable(ctx context.Context, name string) error {
+	return s.write(ctx, appdb.KeyExecutables, func(st stmts) error {
+		return execOne(ctx, st, stmtDeleteExecutable, ErrExecutableNotRegistered, name)
 	})
+}
+
+// WatchExecutables pings after each register or remove commits. Watch before
+// the first read.
+func (s *Store) WatchExecutables() *conflate.Receiver[string, struct{}] {
+	return s.db.Subscribe(appdb.KeyExecutables)
 }

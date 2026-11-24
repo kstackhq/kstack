@@ -335,7 +335,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 			// Only when the list moved, so nothing runs unasked on a machine
 			// whose tools did not; the executable probe part's Close ends it.
 			if syncPath(ctx, rt.Settings, login.path) {
-				shell.StartProbe(rt.Settings.Get().Executables)
+				probeExecutables(ctx, rt.Settings.Executables, shell.StartProbe)
 			}
 			return func(context.Context) error { return nil }, nil
 		}))

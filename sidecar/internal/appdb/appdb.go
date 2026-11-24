@@ -126,6 +126,9 @@ const (
 	// KeyPermissions: an approval_modes row, or a kube_rules or folder_grants row
 	// whose chat_id is NULL, was written by the settings store.
 	KeyPermissions = "permissions"
+	// KeyExecutables: an executables row was registered or removed by the
+	// settings store.
+	KeyExecutables = "executables"
 )
 
 // MessagesKey: the chat's message rows changed. Re-read and diff.
