@@ -291,43 +291,47 @@ func TestABadGitHubAuthURLFailsTheBuild(t *testing.T) {
 }
 
 // The wire reaches the app's OpenRouter connector, whatever key the
-// environment holds, and the provider keys service.
+// environment holds, and the provider keys service, once the keyring is read.
 func TestTheWireReachesTheOpenRouterConnector(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{openrouter.ID: "sk-or-env-0123456789abcdef"}}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	awaitRestored(t, a.rt)
 	ts := serveApp(t, a)
 
 	assert.JSONEq(t, `{"data":{"openRouterConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ openRouterConnection { phase } }`))
 	assert.Contains(t, graphql(t, ts.URL, `{ providerCredentials { id source } }`), `{"id":"openrouter","source":"EnvironmentKey"}`)
 }
 
-// The wire reaches the app's AWS connector.
+// The wire reaches the app's AWS connector, once the keyring is read.
 func TestTheWireReachesTheAWSConnector(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	awaitRestored(t, a.rt)
 	ts := serveApp(t, a)
 
 	assert.JSONEq(t, `{"data":{"awsConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ awsConnection { phase } }`))
 }
 
-// The wire reaches the app's GitHub connector.
+// The wire reaches the app's GitHub connector, once the keyring is read.
 func TestTheWireReachesTheGitHubConnector(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	awaitRestored(t, a.rt)
 	ts := serveApp(t, a)
 
 	assert.JSONEq(t, `{"data":{"gitHubConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ gitHubConnection { phase } }`))
 }
 
-// The wire reaches the app's Google connector.
+// The wire reaches the app's Google connector, once the keyring is read.
 func TestTheWireReachesTheGoogleConnector(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{Getenv: googleEnv("my-project")}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	startApp(t, a)
+	awaitRestored(t, a.rt)
 	ts := serveApp(t, a)
 
 	assert.JSONEq(t, `{"data":{"googleConnection":{"phase":"SignedOut","project":"my-project"}}}`, graphql(t, ts.URL, `{ googleConnection { phase project } }`))
