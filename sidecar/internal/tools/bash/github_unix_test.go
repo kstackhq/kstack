@@ -54,7 +54,7 @@ func githubTool(t *testing.T, srv *httptest.Server, name string) *Tool {
 	withTool(t, tl, name)
 	tl.cloud = Cloud{
 		Platforms: []CloudPlatform{newTestGitHub(upstreamsOf(srv))},
-		On:        switchesOn(permissions.GitHub).On,
+		Switches:  switchesOn(permissions.GitHub).read,
 	}
 	return tl
 }
@@ -141,7 +141,7 @@ func TestGhRunsOnGitHubsFilesUnchanged(t *testing.T) {
 		t.Skip("no gh on PATH")
 	}
 	dir := t.TempDir()
-	m, err := newTestGitHub(githubproxy.GitHub()).Mount(t.Context(), CloudRun{Port: 6443, Dir: dir, Session: session.Session{Kind: session.Chat}})
+	m, err := newTestGitHub(githubproxy.GitHub()).Mount(t.Context(), CloudRun{On: switchedOn, Port: 6443, Dir: dir, Session: session.Session{Kind: session.Chat}})
 	require.NoError(t, err)
 	t.Cleanup(m.Grant.End)
 	files := []string{filepath.Join(dir, "gh", "hosts.yml"), filepath.Join(dir, "gh", "config.yml")}
@@ -266,6 +266,7 @@ func TestGitHubsFilesAreOwnerOnly(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	m, err := newTestGitHub(githubproxy.GitHub()).Mount(t.Context(), CloudRun{
+		On:   switchedOn,
 		Port: 6443, Dir: dir, Session: session.Session{Kind: session.Chat}, Refusal: "kstack: no",
 	})
 	require.NoError(t, err)
@@ -288,7 +289,7 @@ func TestGitHubsFilesAreOwnerOnly(t *testing.T) {
 func TestGitHubsGitconfigClearsCredentialHelpers(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	m, err := newTestGitHub(githubproxy.GitHub()).Mount(t.Context(), CloudRun{Port: 6443, Dir: dir, Session: session.Session{Kind: session.Chat}})
+	m, err := newTestGitHub(githubproxy.GitHub()).Mount(t.Context(), CloudRun{On: switchedOn, Port: 6443, Dir: dir, Session: session.Session{Kind: session.Chat}})
 	require.NoError(t, err)
 	t.Cleanup(m.Grant.End)
 	called, global := filepath.Join(dir, "called"), filepath.Join(dir, "global")

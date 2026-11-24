@@ -34,9 +34,4 @@ var strictest = map[string]func(*Settings){
 	FieldPathResolved: func(v *Settings) { v.Sandbox.PathResolved = true },
 	// Strict, so the next sync adopts nothing new unasked.
 	FieldPathStrict: func(v *Settings) { v.Sandbox.PathStrict = true },
-	// Off, since a refused value may have been the user's off.
-	FieldAWS:    func(v *Settings) { v.Sandbox.AWS = new(false) },
-	FieldGitHub: func(v *Settings) { v.Sandbox.GitHub = new(false) },
-	FieldGCP:    func(v *Settings) { v.Sandbox.GCP = new(false) },
-	FieldAzure:  func(v *Settings) { v.Sandbox.Azure = new(false) },
 }

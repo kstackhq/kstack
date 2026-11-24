@@ -46,7 +46,7 @@ func cloudTool(t *testing.T, sw *switches, platforms ...CloudPlatform) *Tool {
 	t.Helper()
 	tl := tool(t)
 	tl.sandboxer = &fakeSandboxer{}
-	tl.cloud = Cloud{Platforms: platforms, On: sw.On}
+	tl.cloud = Cloud{Platforms: platforms, Switches: sw.read}
 	return tl
 }
 
@@ -122,6 +122,28 @@ func TestACloudPlatformThatIsOffHasNoRoute(t *testing.T) {
 	assert.Empty(t, r.run.Policy.Network.Relays)
 }
 
+// A run whose switches cannot be read mounts no cloud platform.
+func TestARunThatCannotReadTheSwitchesHasNoPlatform(t *testing.T) {
+	sw := switchesOn(permissions.AWS)
+	sw.fail(errors.New("the database is locked"))
+	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
+	r := startRun(t, cloudTool(t, sw, p), chatRuntime(t, session.Chat, nil), false)
+	assert.Empty(t, p.mounts)
+	assert.Empty(t, r.run.Policy.Network.Relays)
+}
+
+// A run's grant reads the switch live: once it cannot be read, the route is
+// refused.
+func TestASwitchThatCannotBeReadMidRunIsOff(t *testing.T) {
+	sw := switchesOn(permissions.AWS)
+	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
+	r := startRun(t, cloudTool(t, sw, p), chatRuntime(t, session.Chat, nil), false)
+	token := testutil.Recv(t, p.mounts, "the mount").grant.Token()
+	sw.fail(errors.New("the database is locked"))
+	code, _ := send(t, r, http.MethodGet, "127.0.0.1:6443", token)
+	assert.Equal(t, http.StatusUnauthorized, code)
+}
+
 func TestAMonitorHasNoPlatform(t *testing.T) {
 	p := newFakePlatform(permissions.AWS, "127.0.0.1:6443")
 	startRun(t, cloudTool(t, switchesOn(permissions.AWS), p), chatRuntime(t, session.Monitor, nil), false)
@@ -195,7 +217,7 @@ func TestARequestWaitingOnTheUserOutlivesTheSwitch(t *testing.T) {
 	got := testutil.Recv(t, answered, "the change's answer")
 	assert.Equal(t, answer{http.StatusOK, "changed"}, got)
 	code, _ := send(t, r, http.MethodGet, "127.0.0.1:6443", token)
-	assert.Equal(t, http.StatusUnauthorized, code, "the next request meets the door")
+	assert.Equal(t, http.StatusUnauthorized, code, "the next request reads the switch")
 }
 
 // A mount that fails fails the run, ends every grant already mounted and
@@ -329,7 +351,7 @@ func TestACurlTrustsTheRunsCertificate(t *testing.T) {
 	withTool(t, tl, "curl")
 	p := newFakePlatform(permissions.Azure)
 	p.tls, p.exports, p.atDoor = true, true, true
-	tl.cloud = Cloud{Platforms: []CloudPlatform{p}, On: switchesOn(permissions.Azure).On}
+	tl.cloud = Cloud{Platforms: []CloudPlatform{p}, Switches: switchesOn(permissions.Azure).read}
 
 	text, isError := tl.Run(t.Context(), chatRuntime(t, session.Chat, nil),
 		command(`curl -sS --cacert "$FAKE_CA" -H "`+tokenHeader+`: $FAKE_TOKEN" "https://$FAKE_DOOR/x"`))
@@ -386,7 +408,7 @@ func TestEveryCloudPlatformAndTheClusterAnswerInOneRun(t *testing.T) {
 			NewGCP(gcpauth.New(helperAnswering("users-google-token", "proj-1")), google),
 			NewAzure(login, azureTransport),
 		},
-		On: switchesOn(permissions.AWS, permissions.GitHub, permissions.GCP, permissions.Azure).On,
+		Switches: switchesOn(permissions.AWS, permissions.GitHub, permissions.GCP, permissions.Azure).read,
 	}
 	rt := tools.Runtime{ClusterID: "7", Dir: testChatDir(t), Session: session.Session{Kind: session.Chat, Policy: askSession.Policy}}
 

@@ -15,6 +15,7 @@
 package runproxy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -37,9 +38,12 @@ var testLimits = Limits{QPS: 1000, Burst: 1000, Open: 32, Bodies: 16}
 
 const noAsker = "kstack: this sandbox reads AWS and changes nothing."
 
+// switchedOn is a cloud platform's switch that is always on.
+func switchedOn(context.Context) bool { return true }
+
 func newTestGrant(t *testing.T, asker Asker, limits Limits) *Grant {
 	t.Helper()
-	g := NewGrant(permissions.AWS, session.Session{Kind: session.Chat}, asker, noAsker, limits)
+	g := NewGrant(permissions.AWS, switchedOn, session.Session{Kind: session.Chat}, asker, noAsker, limits)
 	t.Cleanup(g.End)
 	return g
 }
@@ -56,8 +60,88 @@ func TestOnlyTheGrantsTokenHolds(t *testing.T) {
 	assert.False(t, g.Holds(g.Token()), "an ended grant's token holds nothing")
 }
 
+// The switch is read on every Enter, with the request's context: off, the
+// request is refused; on again, it enters.
+func TestEnterReadsTheSwitch(t *testing.T) {
+	type key struct{}
+	on := true
+	var read context.Context
+	g := NewGrant(permissions.AWS, func(ctx context.Context) bool { read = ctx; return on }, session.Session{Kind: session.Chat}, nil, noAsker, testLimits)
+	t.Cleanup(g.End)
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r = r.WithContext(context.WithValue(r.Context(), key{}, "the request's"))
+
+	on = false
+	_, done, ok := g.Enter(r)
+	done()
+	assert.False(t, ok, "a switch that is off refuses the request")
+	assert.Equal(t, "the request's", read.Value(key{}))
+
+	on = true
+	_, done, ok = g.Enter(r)
+	assert.True(t, ok)
+	done()
+}
+
+// A switch read in flight belongs to the grant: End cancels it, and Wait
+// joins the request that made it.
+func TestEndCancelsASwitchReadAndWaitJoinsIt(t *testing.T) {
+	reading := make(chan struct{})
+	g := NewGrant(permissions.AWS, func(ctx context.Context) bool {
+		close(reading)
+		<-ctx.Done()
+		return true
+	}, session.Session{Kind: session.Chat}, nil, noAsker, testLimits)
+	entered := make(chan bool, 1)
+	go func() {
+		_, done, ok := g.Enter(httptest.NewRequest(http.MethodGet, "/", nil))
+		done()
+		entered <- ok
+	}()
+	testutil.Wait(t, reading, "the switch read")
+	g.End()
+	assert.False(t, testutil.Recv(t, entered, "Enter's answer"), "a grant that ended mid-read lets nothing in")
+	g.Wait()
+}
+
+// Admit challenges a request without the token before reading the switch, and
+// refuses one Enter refuses 401, never challenged.
+func TestAdmitChecksTheTokenThenTheSwitch(t *testing.T) {
+	on, reads := true, 0
+	g := NewGrant(permissions.GitHub, func(context.Context) bool { reads++; return on }, session.Session{Kind: session.Chat}, nil, noAsker,
+		Limits{QPS: 1000, Burst: 1000, Open: 32, Bodies: 16, Challenges: true})
+	t.Cleanup(g.End)
+	admit := func(token string) (*httptest.ResponseRecorder, bool) {
+		w := httptest.NewRecorder()
+		_, done, ok := g.Admit(w, httptest.NewRequest(http.MethodGet, "/", nil), token)
+		done()
+		return w, ok
+	}
+
+	w, ok := admit("")
+	assert.False(t, ok)
+	assert.Equal(t, http.StatusProxyAuthRequired, w.Code)
+	assert.Zero(t, reads, "a request without the token read the switch")
+
+	on = false
+	w, ok = admit(g.Token())
+	assert.False(t, ok)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Empty(t, w.Header().Get("Proxy-Authenticate"))
+	assert.Equal(t, unauthorized+"\n", w.Body.String())
+
+	on = true
+	_, ok = admit(g.Token())
+	assert.True(t, ok)
+	assert.Equal(t, 2, reads)
+}
+
+func TestAGrantWithNoSwitchPanics(t *testing.T) {
+	assert.Panics(t, func() { NewGrant(permissions.AWS, nil, session.Session{}, nil, noAsker, testLimits) })
+}
+
 func TestAGrantForTheClusterPanics(t *testing.T) {
-	assert.Panics(t, func() { NewGrant(permissions.Cluster, session.Session{}, nil, noAsker, testLimits) })
+	assert.Panics(t, func() { NewGrant(permissions.Cluster, switchedOn, session.Session{}, nil, noAsker, testLimits) })
 }
 
 // A limit below one would refuse every request the user approves.
@@ -70,7 +154,7 @@ func TestAGrantWithAZeroLimitPanics(t *testing.T) {
 	} {
 		limits := testLimits
 		narrow(&limits)
-		assert.Panics(t, func() { NewGrant(permissions.AWS, session.Session{}, nil, noAsker, limits) }, name)
+		assert.Panics(t, func() { NewGrant(permissions.AWS, switchedOn, session.Session{}, nil, noAsker, limits) }, name)
 	}
 }
 

@@ -135,7 +135,7 @@ func (p *awsPlatform) Mount(ctx context.Context, run CloudRun) (CloudMount, erro
 	if err := os.Mkdir(filepath.Dir(config), 0o700); err != nil {
 		return CloudMount{}, err
 	}
-	g := runproxy.NewGrant(permissions.AWS, run.Session, run.Asker, run.Refusal, cloudLimits)
+	g := runproxy.NewGrant(permissions.AWS, run.On, run.Session, run.Asker, run.Refusal, cloudLimits)
 	keyID := sandbox.AWSKeyIDPrefix + strings.ToUpper(g.Token())
 	if err := writeNew(config, []byte(awsConfig(name, keyID))); err != nil { // coverage:ignore the folder was made empty just now
 		g.End()

@@ -17,6 +17,7 @@ package bash
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -52,7 +53,7 @@ func TestTheDoorRoutesByHost(t *testing.T) {
 	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
 	gcp := mountFor(t, newFakePlatform(permissions.GCP, "storage.gcp.kstack.invalid"))
 	cluster := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "cluster") })
-	d, err := newDoor(cluster, []CloudMount{aws, gcp}, switchesOn(permissions.AWS, permissions.GCP).On)
+	d, err := newDoor(cluster, []CloudMount{aws, gcp})
 	require.NoError(t, err)
 
 	_, body := get(t, d, http.MethodGet, "cluster.kstack.invalid", "")
@@ -83,7 +84,7 @@ func TestTheDoorRoutesByHost(t *testing.T) {
 func TestTheDoorRefusesACloudPlatformsUpgrade(t *testing.T) {
 	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
 	cluster := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "cluster") })
-	d, err := newDoor(cluster, []CloudMount{aws}, switchesOn(permissions.AWS).On)
+	d, err := newDoor(cluster, []CloudMount{aws})
 	require.NoError(t, err)
 	for _, h := range []http.Header{{"Upgrade": {"websocket"}}, {"Connection": {"keep-alive, Upgrade"}}} {
 		r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:6443/x", nil)
@@ -103,7 +104,7 @@ func TestTheDoorRefusesACloudPlatformsUpgrade(t *testing.T) {
 
 // A run with no cluster still answers the cluster's host 401.
 func TestTheDoorWithNoClusterRefusesItsHost(t *testing.T) {
-	d, err := newDoor(nil, []CloudMount{mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))}, switchesOn(permissions.AWS).On)
+	d, err := newDoor(nil, []CloudMount{mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))})
 	require.NoError(t, err)
 	code, _ := get(t, d, http.MethodGet, "cluster.kstack.invalid", "")
 	assert.Equal(t, http.StatusUnauthorized, code)
@@ -114,48 +115,52 @@ func TestTheDoorWithNoClusterRefusesItsHost(t *testing.T) {
 func TestAWrongRouteIsUnauthorized(t *testing.T) {
 	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
 	gcp := mountFor(t, newFakePlatform(permissions.GCP, "storage.gcp.kstack.invalid"))
-	d, err := newDoor(nil, []CloudMount{aws, gcp}, switchesOn(permissions.AWS, permissions.GCP).On)
+	d, err := newDoor(nil, []CloudMount{aws, gcp})
 	require.NoError(t, err)
 	code, _ := get(t, d, http.MethodGet, "storage.gcp.kstack.invalid", aws.Grant.Token())
 	assert.Equal(t, http.StatusUnauthorized, code)
 }
 
-// A route reads its switch on every request: off, its host is the door's
-// 401; on again, it is served.
+// A cloud platform's grant reads its switch on every request that holds its
+// token: off, the request is refused 401; on again, it is served. The door
+// reads no switch.
 func TestSwitchingACloudPlatformOffClosesItsRoute(t *testing.T) {
-	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
 	sw := switchesOn(permissions.AWS)
-	d, err := newDoor(nil, []CloudMount{aws}, sw.On)
+	aws := mountSwitched(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"), sw)
+	d, err := newDoor(nil, []CloudMount{aws})
 	require.NoError(t, err)
-	_, want := get(t, d, http.MethodGet, "unknown.kstack.invalid", "")
 
 	sw.set(permissions.AWS, false)
 	code, body := get(t, d, http.MethodGet, "127.0.0.1:6443", aws.Grant.Token())
 	assert.Equal(t, http.StatusUnauthorized, code)
-	assert.Equal(t, want, body)
+	assert.Contains(t, body, "kstack: unauthorized")
 
 	sw.set(permissions.AWS, true)
 	_, body = get(t, d, http.MethodGet, "127.0.0.1:6443", aws.Grant.Token())
 	assert.Equal(t, "read aws", body)
+
+	sw.fail(errors.New("the database is locked"))
+	code, _ = get(t, d, http.MethodGet, "127.0.0.1:6443", aws.Grant.Token())
+	assert.Equal(t, http.StatusUnauthorized, code, "a switch that cannot be read is off")
 }
 
 func TestTwoMountsCannotNameOneHost(t *testing.T) {
 	aws := mountFor(t, newFakePlatform(permissions.AWS, "127.0.0.1:6443"))
 	clash := mountFor(t, newFakePlatform(permissions.Azure, "127.0.0.1:6443"))
-	_, err := newDoor(nil, []CloudMount{aws, clash}, switchesOn().On)
+	_, err := newDoor(nil, []CloudMount{aws, clash})
 	assert.ErrorContains(t, err, "127.0.0.1:6443 over plain HTTP")
 
 	overTLS := newFakePlatform(permissions.Azure, "127.0.0.1:6443")
 	overTLS.tls = true
-	_, err = newDoor(nil, []CloudMount{aws, mountFor(t, overTLS)}, switchesOn().On)
+	_, err = newDoor(nil, []CloudMount{aws, mountFor(t, overTLS)})
 	assert.NoError(t, err, "one host on two transports is two routes")
 	twiceOverTLS := newFakePlatform(permissions.GCP, "127.0.0.1:6443")
 	twiceOverTLS.tls = true
-	_, err = newDoor(nil, []CloudMount{mountFor(t, overTLS), mountFor(t, twiceOverTLS)}, switchesOn().On)
+	_, err = newDoor(nil, []CloudMount{mountFor(t, overTLS), mountFor(t, twiceOverTLS)})
 	assert.ErrorContains(t, err, "127.0.0.1:6443 over TLS")
 
 	onCluster := mountFor(t, newFakePlatform(permissions.GCP, "cluster.kstack.invalid"))
-	_, err = newDoor(http.NotFoundHandler(), []CloudMount{onCluster}, switchesOn().On)
+	_, err = newDoor(http.NotFoundHandler(), []CloudMount{onCluster})
 	assert.ErrorContains(t, err, "cluster.kstack.invalid")
 }
 
@@ -189,7 +194,7 @@ func TestTheLoopbackAuthorityRoutesByTransport(t *testing.T) {
 	secure.tls = true
 	azure := mountFor(t, secure)
 	cluster := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "cluster") })
-	d, err := newDoor(cluster, []CloudMount{plain, azure}, switchesOn(permissions.AWS, permissions.Azure).On)
+	d, err := newDoor(cluster, []CloudMount{plain, azure})
 	require.NoError(t, err)
 	cert, err := runproxy.NewCertificate(time.Now())
 	require.NoError(t, err)

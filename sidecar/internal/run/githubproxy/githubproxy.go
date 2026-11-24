@@ -133,13 +133,8 @@ func New(grant *runproxy.Grant, tokens TokenSource, up Upstreams) http.Handler {
 // ServeHTTP checks the grant's token, the proxy credentials' password, then
 // hands r to its host.
 func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !p.grant.Holds(proxyPassword(r)) {
-		p.grant.Challenge(w)
-		return
-	}
-	r, done, ok := p.grant.Enter(r)
-	if !ok { // coverage:ignore only a grant that ends between Holds and Enter reaches it
-		p.grant.Challenge(w)
+	r, done, ok := p.grant.Admit(w, r, proxyPassword(r))
+	if !ok {
 		return
 	}
 	defer done()

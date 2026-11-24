@@ -3694,24 +3694,33 @@ func TestLogsFollowCarriesARefusal(t *testing.T) {
 	assert.NotContains(t, ev, `"watchFailed"`)
 }
 
-// newCloudServer is a resolver over a fresh settings file whose build has the
-// cloud platforms targets.
-func newCloudServer(t *testing.T, targets ...permissions.Target) (*httptest.Server, *settings.Store) {
+// newCloudServer is a resolver over a fresh settings file and app.db whose
+// build has the cloud platforms targets.
+func newCloudServer(t *testing.T, targets ...permissions.Target) (*httptest.Server, *settings.Store, *appdb.DB) {
 	t.Helper()
-	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
+	db := appdbtest.Open(t)
+	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), db)
 	require.NoError(t, err)
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: newFakeClusterService(clusterFixtures()), Settings: settings.NewService(cfg, nil, nil, ""), CloudTargets: targets,
 	}))
 	t.Cleanup(srv.Close)
-	return srv, cfg
+	return srv, cfg, db
+}
+
+// switches is cfg's cloud platform switches.
+func switches(t *testing.T, cfg *settings.Store) settings.CloudPlatformSwitches {
+	t.Helper()
+	sw, err := cfg.CloudPlatformSwitches(t.Context())
+	require.NoError(t, err)
+	return sw
 }
 
 // sandboxCloudAccess lists only the cloud platforms the build has, each on
 // until turned off; sandboxCloudAccessSet writes its cloud platform's field and
 // answers the list.
 func TestSandboxCloudAccessListsTheBuildsCloudPlatforms(t *testing.T) {
-	srv, cfg := newCloudServer(t, permissions.AWS, permissions.GCP)
+	srv, cfg, _ := newCloudServer(t, permissions.AWS, permissions.GCP)
 	data := mutate(t, srv, `{ sandboxCloudAccess { target on } }`)
 	assert.Equal(t, []any{
 		map[string]any{"target": "AWS", "on": true},
@@ -3723,23 +3732,42 @@ func TestSandboxCloudAccessListsTheBuildsCloudPlatforms(t *testing.T) {
 		map[string]any{"target": "AWS", "on": true},
 		map[string]any{"target": "GCP", "on": false},
 	}, data["sandboxCloudAccessSet"])
-	assert.False(t, cfg.CloudOn(permissions.GCP))
-	assert.True(t, cfg.CloudOn(permissions.AWS))
+	assert.False(t, switches(t, cfg).GCP)
+	assert.True(t, switches(t, cfg).AWS)
 
-	empty, _ := newCloudServer(t)
+	empty, _, _ := newCloudServer(t)
 	assert.Equal(t, []any{}, mutate(t, empty, `{ sandboxCloudAccess { target on } }`)["sandboxCloudAccess"])
 }
 
 // The cluster has no switch, and a cloud platform the build lacks has none
 // either.
 func TestSandboxCloudAccessSetRefusesWhatHasNoSwitch(t *testing.T) {
-	srv, cfg := newCloudServer(t, permissions.AWS)
+	srv, cfg, _ := newCloudServer(t, permissions.AWS)
 	for _, target := range []string{"Cluster", "GitHub"} {
 		message, code := refusalOf(t, srv, `mutation { sandboxCloudAccessSet(target: `+target+`, on: false) { target } }`)
 		assert.Equal(t, "KSTACK_VALIDATION_ERROR", code, target)
 		assert.Equal(t, "This build has no switch for that target.", message, target)
 	}
-	assert.True(t, cfg.CloudOn(permissions.GitHub), "nothing was written")
+	assert.True(t, switches(t, cfg).GitHub, "nothing was written")
+}
+
+// A read of the switches that fails is the query's error and the mutation's,
+// never a list of switches that are off.
+func TestSandboxCloudAccessAnswersAFailedRead(t *testing.T) {
+	srv, _, db := newCloudServer(t, permissions.AWS)
+	_, err := db.Write.Exec(`DROP TABLE sandbox_settings`)
+	require.NoError(t, err)
+	for _, q := range []string{`{ sandboxCloudAccess { target on } }`, `mutation { sandboxCloudAccessSet(target: AWS, on: false) { target on } }`} {
+		body, _ := json.Marshal(map[string]string{"query": q})
+		var resp struct {
+			Data   map[string]any
+			Errors []struct{ Message string }
+		}
+		raw := postGQL(t, srv.URL, string(body))
+		require.NoError(t, json.Unmarshal(raw, &resp), "%s", raw)
+		assert.Len(t, resp.Errors, 1, q)
+		assert.Nil(t, resp.Data, q)
+	}
 }
 
 // newToolServer is a server listing three tools, one always on, over a fresh

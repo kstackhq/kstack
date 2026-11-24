@@ -23,6 +23,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -155,6 +156,7 @@ func (a *fakeAsker) Record(_ context.Context, r runproxy.Request, _ permissions.
 type harness struct {
 	handler  http.Handler
 	grant    *runproxy.Grant
+	off      atomic.Bool // the grant's switch, on until a test turns it off
 	asker    *fakeAsker
 	tokens   *fakeTokens
 	upstream *upstream
@@ -166,7 +168,7 @@ func newHarness(t *testing.T, limits runproxy.Limits) *harness {
 		limits = runproxy.Limits{QPS: 1000, Burst: 1000, Open: 8, Bodies: 8}
 	}
 	h := &harness{asker: newFakeAsker(), tokens: &fakeTokens{next: []string{"users-own-token"}}, upstream: newUpstream(t)}
-	h.grant = runproxy.NewGrant(permissions.Azure, session.Session{Kind: session.Chat}, h.asker, "", limits)
+	h.grant = runproxy.NewGrant(permissions.Azure, func(context.Context) bool { return !h.off.Load() }, session.Session{Kind: session.Chat}, h.asker, "", limits)
 	t.Cleanup(h.grant.End)
 	h.handler = New(Config{Grant: h.grant, Port: 6443, Account: testAccount, Tokens: h.tokens, Transport: h.upstream.transport()})
 	return h
@@ -209,6 +211,16 @@ func identityRequest(h *harness, resource, header string) *http.Request {
 		r.Header.Set("X-IDENTITY-HEADER", header)
 	}
 	return r
+}
+
+// With the switch off, a request with the grant's token is refused 401 and
+// nothing reaches Azure.
+func TestASwitchedOffPlatformIsUnauthorized(t *testing.T) {
+	h := newHarness(t, runproxy.Limits{})
+	h.off.Store(true)
+	w := serve(h.handler, h.request(http.MethodGet, "/subscriptions?api-version=2022-12-01", ""))
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Empty(t, h.upstream.requests())
 }
 
 // The identity endpoint answers the grant's own token for Resource Manager,
@@ -571,7 +583,7 @@ func TestARefusalAndAFullGrantAre403(t *testing.T) {
 // A grant with no asker refuses a change in its own words, as 403.
 func TestAChangeWithNoAskerIsRefused(t *testing.T) {
 	h := newHarness(t, runproxy.Limits{})
-	g := runproxy.NewGrant(permissions.Azure, session.Session{Kind: session.Chat}, nil, "kstack: this sandbox reads Azure and changes nothing.", runproxy.Limits{QPS: 1, Burst: 1, Open: 1, Bodies: 1})
+	g := runproxy.NewGrant(permissions.Azure, func(context.Context) bool { return true }, session.Session{Kind: session.Chat}, nil, "kstack: this sandbox reads Azure and changes nothing.", runproxy.Limits{QPS: 1, Burst: 1, Open: 1, Bodies: 1})
 	t.Cleanup(g.End)
 	handler := New(Config{Grant: g, Port: 6443, Account: testAccount, Tokens: h.tokens, Transport: h.upstream.transport()})
 	r := h.request(http.MethodDelete, rg+"?api-version=1", "")

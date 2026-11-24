@@ -118,13 +118,11 @@ func New(grant *runproxy.Grant, src TokenSource, transport http.RoundTripper) *H
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok || !h.grant.Holds(bearer) {
-		h.grant.Challenge(w)
-		return
+	if !ok {
+		bearer = ""
 	}
-	r, done, ok := h.grant.Enter(r)
-	if !ok { // coverage:ignore the grant ends between Holds and Enter, a race no test orders
-		h.grant.Challenge(w)
+	r, done, ok := h.grant.Admit(w, r, bearer)
+	if !ok {
 		return
 	}
 	defer done()

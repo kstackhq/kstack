@@ -49,7 +49,7 @@ func (gitHubPlatform) Target() permissions.Target { return permissions.GitHub }
 func (g gitHubPlatform) Mount(_ context.Context, run CloudRun) (CloudMount, error) {
 	limits := cloudLimits
 	limits.Challenges = true
-	grant := runproxy.NewGrant(permissions.GitHub, run.Session, run.Asker, run.Refusal, limits)
+	grant := runproxy.NewGrant(permissions.GitHub, run.On, run.Session, run.Asker, run.Refusal, limits)
 	door := "127.0.0.1:" + strconv.Itoa(run.Port)
 	proxy := "http://kstack:" + grant.Token() + "@" + door
 	gitconfig, ghDir := filepath.Join(run.Dir, "gitconfig"), filepath.Join(run.Dir, "gh")

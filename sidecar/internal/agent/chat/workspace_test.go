@@ -28,6 +28,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -217,12 +218,12 @@ func TestTheSandboxSectionNamesTheCloudPlatformsOn(t *testing.T) {
 		"## Sandbox\n\n```json\n{\"cloud\":[\"aws\",\"gcp\"],\"commands\":\"sandboxed\",\"network\":\"off\"}\n```",
 		"a switch the build has no cloud platform for is not named")
 
-	require.NoError(t, s.settings.SetCloud(permissions.AWS, false))
+	require.NoError(t, s.settings.SetCloudPlatformSwitch(t.Context(), permissions.AWS, false))
 	sendAndSettle(t, s, &first.ChatID, "1", "2", "two")
 	assert.Contains(t, newestContextOf(t, s, first.ChatID),
 		"## Sandbox\n\n```json\n{\"cloud\":[\"gcp\"],\"commands\":\"sandboxed\",\"network\":\"off\"}\n```")
 
-	require.NoError(t, s.settings.SetCloud(permissions.GCP, false))
+	require.NoError(t, s.settings.SetCloudPlatformSwitch(t.Context(), permissions.GCP, false))
 	sendAndSettle(t, s, &first.ChatID, "1", "3", "three")
 	assert.Contains(t, newestContextOf(t, s, first.ChatID), "## Sandbox\n\n```json\n{\"commands\":\"sandboxed\",\"network\":\"off\"}\n```")
 
@@ -230,4 +231,19 @@ func TestTheSandboxSectionNamesTheCloudPlatformsOn(t *testing.T) {
 	on := sandboxState{cloudTargetsOn: []string{"gcp"}}
 	newest := s.withSandbox("## Cluster\n\n```json\n{}\n```", off)
 	assert.NotEqual(t, newest, s.withSandboxReplaced(newest, on), "a switch that moved sends the section again")
+}
+
+// A send whose switches cannot be read names no cloud platform.
+func TestTheSandboxSectionNamesNoCloudPlatformWhenTheSwitchesCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
+	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.cloudTargets = []permissions.Target{permissions.AWS}
+	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, "")
+	_, err := s.db.Write.Exec(`DROP TABLE sandbox_settings`)
+	require.NoError(t, err)
+
+	sent := sendAndSettle(t, s, nil, "1", "1", "one")
+	assert.Contains(t, newestContextOf(t, s, sent.ChatID), "## Sandbox\n\n```json\n{\"commands\":\"sandboxed\",\"network\":\"off\"}\n```")
 }

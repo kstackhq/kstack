@@ -282,7 +282,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 
 	pathList := func() settings.RunPath { return settingsStore.Get().RunPath() }
 	platforms := cloudPlatformsFor(probed, cfg.cloudPlatforms, rt.Kubeconfig, rt.GitHub)
-	shell, found := bash.New(p.Bash, cfg.HostPID, sb, rt.Cluster, pathList, rt.EnvVars.For, bash.Cloud{Platforms: platforms, On: settingsStore.CloudOn})
+	shell, found := bash.New(p.Bash, cfg.HostPID, sb, rt.Cluster, pathList, rt.EnvVars.For, bash.Cloud{Platforms: platforms, Switches: settingsStore.CloudPlatformSwitches})
 	if found && cfg.callDeadline != nil {
 		shell.SetCallDeadline(cfg.callDeadline)
 	}
