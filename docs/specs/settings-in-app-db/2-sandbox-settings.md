@@ -126,9 +126,9 @@ All tasks start Planned.
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | `appdb`: migration `0007` and its test, which builds the schema before it, seeds a row in each earlier table, migrates, and checks that every seed survives, the one row with every switch on, each `CHECK`, and that a second row is refused. | Planned |
-| 2 | `services/settings`, `run/runproxy`, the four cloud platform proxies, `tools/bash`, `agent/chat`, `graph`, `app`: the switches on `app.db`, with each reader's failed read as above, tested with a failed query and a missing row. `SetCloudPlatformSwitch` on a missing row inserts nothing. A request without the token never reads the switch, and one with it is refused with `401` once the switch is off. | Planned |
-| 3 | `src/`: the webview's error state, and the schema's description. | Planned |
+| 1 | `appdb`: migration `0007` and its test, which builds the schema before it, seeds a row in each earlier table, migrates, and checks that every seed survives, the one row with every switch on, each `CHECK`, and that a second row is refused. | Done |
+| 2 | `services/settings`, `run/runproxy`, the four cloud platform proxies, `tools/bash`, `agent/chat`, `graph`, `app`: the switches on `app.db`, with each reader's failed read as above, tested with a failed query and a missing row. `SetCloudPlatformSwitch` on a missing row inserts nothing. A request without the token never reads the switch, and one with it is refused with `401` once the switch is off. | Done |
+| 3 | `src/`: the webview's error state, and the schema's description. | Done |
 
 ## When it lands
 
