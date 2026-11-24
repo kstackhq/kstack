@@ -38,22 +38,22 @@ func (r FolderRefusal) Error() string { return r.Reason }
 
 // CheckFolder is nil when path can be granted, read, or with write read and
 // write, else a FolderRefusal. It reads the disk: path is made canonical, and
-// compared as a file with z and pathEntries, the PATH folders. A link on or
-// above path, or a spelling the disk is known not to use, is refused with the
-// canonical path, so the folder the user reads is the folder the sandbox
-// checks.
-func CheckFolder(path string, write bool, z Zones, pathEntries []string) error {
-	return checkFolder(path, write, zonesOf(z), pathEntries, false)
+// compared as a file with z and pathNoWrite, the PATH folders no write grant
+// may reach. A link on or above path, or a spelling the disk is known not to
+// use, is refused with the canonical path, so the folder the user reads is
+// the folder the sandbox checks.
+func CheckFolder(path string, write bool, z Zones, pathNoWrite []string) error {
+	return checkFolder(path, write, zonesOf(z), pathNoWrite, false)
 }
 
 // CheckStoredFolder is CheckFolder for a grant already stored: one that
 // resolves elsewhere than it did has moved, or had a link put in its place,
 // since it was granted.
-func CheckStoredFolder(path string, write bool, z Zones, pathEntries []string) error {
-	return checkFolder(path, write, zonesOf(z), pathEntries, true)
+func CheckStoredFolder(path string, write bool, z Zones, pathNoWrite []string) error {
+	return checkFolder(path, write, zonesOf(z), pathNoWrite, true)
 }
 
-func checkFolder(path string, write bool, z zones, pathEntries []string, stored bool) error {
+func checkFolder(path string, write bool, z zones, pathNoWrite []string, stored bool) error {
 	refuse := func(rule, reason string) error { return FolderRefusal{Rule: rule, Reason: reason} }
 	switch {
 	case !filepath.IsAbs(path) || filepath.Clean(path) != path:
@@ -96,7 +96,7 @@ func checkFolder(path string, write bool, z zones, pathEntries []string, stored 
 		// A command that can write a folder can rename what is under it.
 		return refuse("home", "Your home can be granted read-only.")
 	}
-	if p, ok := overlapping(path, slices.Concat(z.read, pathEntries)); ok {
+	if p, ok := overlapping(path, slices.Concat(z.read, absolute(pathNoWrite))); ok {
 		return refuse("tool", "Kstack reads tools from "+p+"; grant it read-only, or a folder beside it.")
 	}
 	if p, ok := inside(path, z.deny); ok {
@@ -144,37 +144,30 @@ func fixedMountOf(path string) string {
 	}
 }
 
-// PathEntryFolders is each stored PATH entry's Dir and Target, whatever its
-// state: what a run's own check of a grant reads as the PATH.
-func PathEntryFolders(entries []PathEntry) []string {
-	return pathFolders(entries, nil)
-}
-
-// pathFolders is each stored PATH entry's Dir and Target, whatever its state,
-// then the login shell's own: something outside the sandbox searches all of
-// them.
-func pathFolders(entries []PathEntry, loginPath []string) []string {
-	var all []string
-	for _, e := range entries {
-		all = append(all, e.Dir, e.Target)
-	}
-	all = append(all, loginPath...)
-	return slices.DeleteFunc(all, func(p string) bool { return !filepath.IsAbs(p) || strings.ContainsRune(p, 0) })
+// absolute is dirs less each that names no folder: a relative one, or one
+// holding a NUL.
+func absolute(dirs []string) []string {
+	return slices.DeleteFunc(slices.Clone(dirs), func(p string) bool { return !filepath.IsAbs(p) || strings.ContainsRune(p, 0) })
 }
 
 // snapshot is what the folder checks read: the zones as the zones function
-// listed them, and the login shell's PATH as the last sync read it, unfiltered.
-// Every check resolves them again, so a link on a list that is retargeted
-// after the sync is caught at its target now; the snapshot saves the zones
-// function's own reads of the disk alone.
+// listed them, and the home canonical. Every check resolves the zones again,
+// so a link on a list that is retargeted after the snapshot is caught at its
+// target now; the snapshot saves the zones function's own reads of the disk
+// alone.
 type snapshot struct {
-	zones     Zones
-	loginPath []string
+	zones Zones
+	home  string // canonical, or as given when the kernel cannot name it; "" for none
 }
 
-func takeSnapshot(z Zones, loginPath []string) *snapshot {
-	abs := slices.DeleteFunc(slices.Clone(loginPath), func(p string) bool { return !filepath.IsAbs(p) })
-	return &snapshot{zones: z, loginPath: abs}
+// takeSnapshot reads the disk.
+func takeSnapshot(z Zones) *snapshot {
+	snap := &snapshot{zones: z}
+	if z.Home != "" {
+		home, _ := realpath.Canonical([]string{z.Home})
+		snap.home = home[0]
+	}
+	return snap
 }
 
 // readWithin runs read, which reads the disk, and answers it, or false when
@@ -195,8 +188,8 @@ func readWithin[T any](ctx context.Context, bound time.Duration, read func() T) 
 	}
 }
 
-// currentSnapshot is the snapshot, taken on its first use when no sync has
-// taken one: zones reads the disk, so it is bounded as a sync is. Nil when ctx
+// currentSnapshot is the snapshot, taken on its first use when no read of the
+// shell has taken one: zones reads the disk, so it is bounded. Nil when ctx
 // or the bound ends first, or on a machine with no sandbox.
 func (s *Service) currentSnapshot(ctx context.Context) *snapshot {
 	if s.zones == nil {
@@ -205,7 +198,7 @@ func (s *Service) currentSnapshot(ctx context.Context) *snapshot {
 	s.snapMu.Lock()
 	defer s.snapMu.Unlock()
 	if s.snap == nil {
-		s.snap, _ = readWithin(ctx, s.syncTimeout, func() *snapshot { return takeSnapshot(s.zones(), nil) })
+		s.snap, _ = readWithin(ctx, s.diskTimeout, func() *snapshot { return takeSnapshot(s.zones()) })
 	}
 	return s.snap
 }
@@ -216,9 +209,10 @@ var (
 )
 
 // CheckFolder is CheckFolder against the snapshot's zones, resolved now, and
-// every PATH entry the list stores or the login shell answered. Its disk reads
-// are bounded as a sync's are. On a machine with no sandbox every folder is
-// refused.
+// the PATH's NoWrite folders (PathNoWrite). Its disk reads are bounded by
+// diskTimeout. On a machine with no sandbox every folder is
+// refused. A refusal is a FolderRefusal; any other error is a read that
+// failed.
 func (s *Service) CheckFolder(ctx context.Context, path string, write bool) error {
 	return s.checkWithin(ctx, path, write, false)
 }
@@ -236,9 +230,17 @@ func (s *Service) checkWithin(ctx context.Context, path string, write, stored bo
 	if snap == nil {
 		return timeoutRefusal
 	}
-	entries := s.Get().Sandbox.Path
-	err, ok := readWithin(ctx, s.syncTimeout, func() error {
-		return s.checkFolder(path, write, zonesOf(snap.zones), pathFolders(entries, snap.loginPath), stored)
+	// Only a write grant is compared with the PATH. A read that fails is an
+	// error, not a refusal: whoever asked decides what it costs.
+	var noWrite []string
+	if write {
+		var err error
+		if noWrite, err = s.PathNoWrite(ctx); err != nil {
+			return err
+		}
+	}
+	err, ok := readWithin(ctx, s.diskTimeout, func() error {
+		return s.checkFolder(path, write, zonesOf(snap.zones), noWrite, stored)
 	})
 	if !ok {
 		return timeoutRefusal
@@ -282,23 +284,15 @@ func (s *Service) ClosedFolders(ctx context.Context) []string {
 
 // WideFolders is the folders a read grant of which reads more than a project:
 // the home and each folder over it, canonical, and the platform's own
-// (wideDirs). Nil on a machine with no sandbox, and when reading the home
+// (wideDirs). Nil on a machine with no sandbox, and when the zones' snapshot
 // runs past the bound.
 func (s *Service) WideFolders(ctx context.Context) []string {
 	snap := s.currentSnapshot(ctx)
-	if snap == nil || snap.zones.Home == "" {
-		return nil
-	}
-	home, ok := readWithin(ctx, s.syncTimeout, func() string {
-		// A home the kernel cannot name is drawn as given.
-		home, _ := realpath.Canonical([]string{snap.zones.Home})
-		return home[0]
-	})
-	if !ok { // coverage:ignore only a home on a mount that hangs past the bound reaches it
+	if snap == nil || snap.home == "" {
 		return nil
 	}
 	var wide []string
-	for dir := home; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+	for dir := snap.home; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
 		wide = append(wide, dir)
 	}
 	return append(wide, wideDirs...)

@@ -196,20 +196,25 @@ func (s *service) foldersFor(ctx context.Context, chatID ChatID) ([]session.Fold
 	if err != nil {
 		return nil, err
 	}
-	return s.checkedFolders(ctx, chatID, grants), nil
+	return s.checkedFolders(ctx, chatID, grants)
 }
 
-// checkedFolders is grants less every folder that fails its check now.
-func (s *service) checkedFolders(ctx context.Context, chatID ChatID, grants []settings.FolderGrant) []session.Folder {
+// checkedFolders is grants less every folder that fails its check now. A
+// check whose read fails is an error.
+func (s *service) checkedFolders(ctx context.Context, chatID ChatID, grants []settings.FolderGrant) ([]session.Folder, error) {
+	checked, err := s.checkedFolderGrants(ctx, grants)
+	if err != nil {
+		return nil, err
+	}
 	var folders []session.Folder
-	for _, g := range s.checkedFolderGrants(ctx, grants) {
+	for _, g := range checked {
 		if g.Refusal != "" {
 			slog.Info("folder grant left out", "chat", chatID, "folder", g.Path, "reason", g.Refusal)
 			continue
 		}
 		folders = append(folders, session.Folder{Path: g.Path, Write: g.Write})
 	}
-	return folders
+	return folders, nil
 }
 
 // folderGrantsIn is the folder grants a run of chatID reads, unchecked: the
@@ -252,27 +257,36 @@ func (s *service) FolderGrants(ctx context.Context, chatID ChatID) (always, chat
 	if err != nil {
 		return nil, nil, err
 	}
-	always = s.checkedFolderGrants(ctx, stored)
+	if always, err = s.checkedFolderGrants(ctx, stored); err != nil {
+		return nil, nil, err
+	}
 	if chatID != "" {
 		if stored, err = readFolderGrants(ctx, s.store.Stmts(), chatID); err != nil {
 			return nil, nil, err
 		}
-		chat = s.checkedFolderGrants(ctx, stored)
+		if chat, err = s.checkedFolderGrants(ctx, stored); err != nil {
+			return nil, nil, err
+		}
 	}
 	return always, chat, nil
 }
 
-// checkedFolderGrants is grants, each checked.
-func (s *service) checkedFolderGrants(ctx context.Context, grants []settings.FolderGrant) []FolderGrant {
+// checkedFolderGrants is grants, each checked: a refusal stays on its grant,
+// and a check whose read fails is an error, so a failed read never looks like
+// a list of refused grants.
+func (s *service) checkedFolderGrants(ctx context.Context, grants []settings.FolderGrant) ([]FolderGrant, error) {
 	out := make([]FolderGrant, 0, len(grants))
 	for _, g := range grants {
 		fg := FolderGrant{ID: g.ID, Path: g.Path, Write: g.Write}
-		if err := s.settings.CheckStoredFolder(ctx, g.Path, g.Write); err != nil {
+		err := s.settings.CheckStoredFolder(ctx, g.Path, g.Write)
+		if _, refused := errors.AsType[settings.FolderRefusal](err); refused {
 			fg.Refusal = err.Error()
+		} else if err != nil {
+			return nil, err
 		}
 		out = append(out, fg)
 	}
-	return out
+	return out, nil
 }
 
 // GrantFolder writes a folder grant, once it passes its check: in chatID's

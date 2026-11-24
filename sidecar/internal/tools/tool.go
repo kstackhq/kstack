@@ -182,6 +182,14 @@ func FoldersUnread(tool string, err error) *Refusal {
 	return &Refusal{Result: "Kstack could not read the folders granted. Try again."}
 }
 
+// PathUnread is a sandboxed run's refusal when the PATH setting could not be
+// read: the run does not start rather than search a default. The reason is
+// logged, never shown.
+func PathUnread(tool string, err error) *Refusal {
+	slog.Warn("PATH setting not read", "tool", tool, "err", err)
+	return &Refusal{Result: "Kstack could not read your PATH setting. Try again."}
+}
+
 // ActionKind is what a call of a tool does, from a closed set. A turn is offered
 // at most one tool of each kind, and a tool's Action is always of its kind.
 type ActionKind string

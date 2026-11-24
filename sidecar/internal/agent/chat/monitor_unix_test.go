@@ -38,6 +38,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -164,7 +165,7 @@ func startSandboxRig(t *testing.T) sandboxRig {
 		ShellDir: filepath.Join(runtime, "shell"), RunsDir: filepath.Join(runtime, "runs"),
 		TmpDir: filepath.Join(cache, "tmp"), KubectlDir: filepath.Join(cache, "kubectl"),
 		DeniedDirs: []string{data, cache, runtime},
-	}, 0, sb, clusterService{api: api}, nil, nil, bash.Cloud{})
+	}, 0, sb, clusterService{api: api}, defaultPath, nil, bash.Cloud{})
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
@@ -176,6 +177,16 @@ func startSandboxRig(t *testing.T) sandboxRig {
 	setMonitoring(t, s.db, "7", true)
 	setMonitoring(t, s.db, "8", true)
 	return sandboxRig{s: s, sb: sb, api: api, home: home}
+}
+
+// defaultPath is the platform's default PATH, as the shell's: what a run
+// searches before the login shell was ever read.
+func defaultPath(context.Context) (settings.RunPath, error) {
+	var list settings.RunPath
+	for _, dir := range filepath.SplitList(bash.DefaultPath) {
+		list.Search = append(list.Search, settings.PathFolder{Path: dir, Origin: settings.OriginShell})
+	}
+	return list, nil
 }
 
 // monitorRuns runs one monitor reply on clusterID asking for calls, and answers

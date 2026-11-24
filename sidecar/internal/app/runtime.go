@@ -280,7 +280,8 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.add("user's variables", lifecycle.CloseFunc(rt.EnvVars.Close))
 
-	pathList := func() settings.RunPath { return settingsStore.Get().RunPath() }
+	// rt.Settings is set below, before any run reads it.
+	pathList := func(ctx context.Context) (settings.RunPath, error) { return rt.Settings.RunPath(ctx) }
 	platforms := cloudPlatformsFor(probed, cfg.cloudPlatforms, rt.Kubeconfig, rt.GitHub)
 	shell, found := bash.New(p.Bash, cfg.HostPID, sb, rt.Cluster, pathList, rt.EnvVars.For, bash.Cloud{Platforms: platforms, Switches: settingsStore.CloudPlatformSwitches})
 	if found && cfg.callDeadline != nil {
@@ -329,12 +330,13 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		rt.add("executable probe", lifecycle.CloseFunc(shell.Close))
 	}
 
-	// Before the snapshot, so the first sandboxed run reads the synced list.
+	// Before the snapshot, so the first sandboxed run reads the shell's PATH
+	// this launch read. A launch whose read failed keeps the last one stored.
 	if login.path != nil && rt.SandboxStatus.Available {
-		rt.add("PATH sync", lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
-			// Only when the list moved, so nothing runs unasked on a machine
+		rt.add("shell PATH", lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
+			// Only when it changed, so nothing runs unasked on a machine
 			// whose tools did not; the executable probe part's Close ends it.
-			if syncPath(ctx, rt.Settings, login.path) {
+			if setShellPath(ctx, rt.Settings, login.path) {
 				probeExecutables(ctx, rt.Settings.Executables, shell.StartProbe)
 			}
 			return func(context.Context) error { return nil }, nil

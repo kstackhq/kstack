@@ -30,7 +30,7 @@ file's code.
 | 1 | [Permissions](1-permissions.md) | The approval modes, the always rules and a chat's grants, into `approval_modes`, `kube_rules` and `folder_grants` | `0006` | The file keeps the sandbox group and the executables. |
 | 2 | [Sandbox settings](2-sandbox-settings.md) | The cloud platform switches, into `sandbox_settings` | `0007` | The file keeps the `PATH` fields and the executables. |
 | 3 | [Executables](3-executables.md) | The registered executables, into `executables` | `0008` | The file keeps the `PATH` fields. |
-| 4 | [PATH](4-path.md) | The frozen `PATH`, into `path_entries` and `path_sync` | `0009` | The file holds nothing Kstack reads. |
+| 4 | [PATH](4-path.md) | The frozen `PATH`, replaced by one string, `sandbox_settings.path`, and a copy of the shell's, `shell_path` | `0009` | The file holds nothing Kstack reads. |
 | 5 | [Retire the file](5-retire-the-file.md) | Nothing; deletes `jsonsettings` and what is left of "held" | none | The work is whole. |
 
 Steps 1 to 4 do not depend on each other. They are numbered so each has its migration number.
@@ -81,7 +81,8 @@ change so they agree again.
 **What an install of `desktop/v0.0.1` loses on upgrade:** its approval modes, its always rules
 (deny and ask rules included), its folder grants, its registered executables, its `PATH`
 decisions and every chat's grants. Each returns to its default, so a cluster set to read-only
-becomes `ask`, and a removed `PATH` folder can be adopted again by the next sync. The release
+becomes `ask`, and the `PATH` setting is `$PATH`: an included folder the sandbox does not
+already read must be typed into it, and a removed one that is open is searched again. The release
 notes must list what to set again.
 
 The cloud platform switches are not on that list: `desktop/v0.0.1` did not have them, so no
@@ -114,8 +115,8 @@ in the user's words, null for a row Kstack uses, as `EnvVar` has. The webview dr
 ### A read that fails
 
 A failed read is never an empty result. No row means the default, and some defaults permit: a
-cluster with no mode row is `ask`, and a run with no `path_sync` row searches the platform's
-`PATH`. So:
+cluster with no mode row is `ask`, and a sandbox with no `PATH` setting would search the
+login shell's. So:
 
 - **A failed read is an error, and the operation that needed it stops.** A run does not start,
   a turn does not start, a Settings query answers the error.
@@ -126,7 +127,7 @@ Each reader has a test for a failed query and for a failure after some rows were
 
 ## Not in this sequence
 
-- Syncing settings across machines. `PATH` entries and executables describe one machine; the
+- Syncing settings across machines. The `PATH` setting and executables describe one machine; the
   sync design decides how to scope them.
 - A cluster scope for any of these settings but the approval mode and the rules, which step 1
   keys by cluster. A rule naming clusters by a pattern over their kube-contexts.

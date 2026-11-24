@@ -34,12 +34,13 @@ func otherCase(t *testing.T, dir string) string {
 	return upper
 }
 
-// On a volume that folds case, an approval stored in another case is still
-// not the folder's: it holds for its exact Target.
-func TestCheckRunLeavesOutAnApprovalStoredInAnotherCase(t *testing.T) {
+// On a volume that folds case, a typed folder in another case opens, but is
+// left out naming the disk's spelling, which the sandbox's profile matches.
+func TestATypedFolderInAnotherCaseIsLeftOut(t *testing.T) {
 	z := newZones(t)
 	dir := z.dir(t, "home/tools")
 
-	_, _, ok := NewRunCheck(z.zones.Open, nil, "").Folder(PathEntry{Dir: dir, Target: otherCase(t, dir), State: PathAdopted, Source: SourceUser})
-	assert.False(t, ok)
+	got := checked(z, typedFolder(otherCase(t, dir)))
+	assert.False(t, got[0].Searched)
+	assert.Contains(t, got[0].Reason, "is spelled "+dir)
 }

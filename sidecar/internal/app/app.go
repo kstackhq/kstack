@@ -324,17 +324,17 @@ type sandboxer interface {
 	Never(home string) []string
 }
 
-// newSettingsService is the user's settings and the frozen PATH kept in
-// them. The sync judges an entry, and a grant a folder, by what a sandboxed run
+// newSettingsService is the user's settings and the login shell's PATH kept
+// with them. A PATH folder and a folder grant are judged by what a sandboxed run
 // of the bash tool's shell reads, and by the paths no rule opens, Kstack's
 // directories (denied) among them. Refresh PATH runs the login shell in sb as
 // the launch does, its TMPDIR under tmpDir. Each reads the denied-always list
 // afresh, as a run does: it lists the other users' homes, which can appear
-// while the sidecar runs. On a machine with no sandbox it syncs nothing, keeps
+// while the sidecar runs. On a machine with no sandbox it stores no PATH, keeps
 // no fault and refuses every folder.
 func newSettingsService(store *settings.Store, sb sandboxer, shell *bash.Tool, status sandbox.Status, denied []string, fault, tmpDir string) *settings.Service {
 	if !status.Available {
-		return settings.NewService(store, nil, nil, "")
+		return settings.NewService(store, nil, nil, nil, "")
 	}
 	home, _ := os.UserHomeDir()
 	zones := func() settings.Zones {
@@ -342,16 +342,16 @@ func newSettingsService(store *settings.Store, sb sandboxer, shell *bash.Tool, s
 			Never: slices.Concat(sb.Never(home), denied), Open: sb.System(home, shell.Shell()).Files, Home: home, NoWrite: sandbox.NoWrite(home),
 		}
 	}
-	return settings.NewService(store, zones, shellPathResolver(sb, home, denied, tmpDir), fault)
+	return settings.NewService(store, zones, shellPathResolver(sb, home, denied, tmpDir), filepath.SplitList(bash.DefaultPath), fault)
 }
 
-// syncPath folds the launch's PATH into the stored list, and answers whether
-// it changed it. A sync that fails changes nothing and is not a startup
-// error.
-func syncPath(ctx context.Context, svc *settings.Service, path []string) bool {
-	changed, err := svc.SyncPath(ctx, path)
+// setShellPath stores the PATH the launch read from the login shell, and
+// answers whether it changed the stored one. A write that fails changes
+// nothing and is not a startup error.
+func setShellPath(ctx context.Context, svc *settings.Service, path []string) bool {
+	changed, err := svc.SetShellPath(ctx, path)
 	if err != nil {
-		slog.Warn("PATH not synced", "err", err)
+		slog.Warn("shell PATH not stored", "err", err)
 	}
 	return changed
 }

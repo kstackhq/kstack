@@ -351,6 +351,21 @@ func TestANoticeTurnWhoseFoldersCannotBeReadDoesNotStart(t *testing.T) {
 	assert.ErrorContains(t, s.tryNoticeTurn(t.Context(), c.ID), "folder_grants")
 }
 
+// A notice turn whose grant's check cannot read the PATH does not start
+// either: a failed read is not a refused grant.
+func TestANoticeTurnWhoseGrantCheckCannotReadThePathDoesNotStart(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	svc := filepath.Join(grantable(t, s), "code", "svc")
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	seedFolderGrant(t, s.db, c.ID, "stored", svc, "write")
+	_, err := s.db.Write.Exec(`DROP TABLE shell_path`)
+	require.NoError(t, err)
+
+	assert.ErrorContains(t, s.tryNoticeTurn(t.Context(), c.ID), "shell")
+}
+
 // A chat switched outside the sandbox between a notice turn's folder read and
 // its transaction reads again, and its turn takes no folders.
 func TestANoticeTurnRereadsAfterTheSwitchMoves(t *testing.T) {

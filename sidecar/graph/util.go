@@ -366,28 +366,44 @@ func sandboxPathErr(err error) error {
 	return err
 }
 
-// The path entries' states and sources, by their wire spelling.
-var (
-	sandboxPathStates = map[settings.PathState]model.SandboxPathState{
-		settings.PathAdopted: model.SandboxPathStateAdopted,
-		settings.PathPending: model.SandboxPathStatePending,
-		settings.PathGone:    model.SandboxPathStateGone,
-	}
-	sandboxPathSources = map[settings.Source]model.SandboxPathSource{
-		settings.SourceShell: model.SandboxPathSourceShell,
-		settings.SourceUser:  model.SandboxPathSourceUser,
-	}
-)
+// sandboxPathOrigins is each origin by its wire spelling.
+var sandboxPathOrigins = map[settings.PathOrigin]model.SandboxPathOrigin{
+	settings.OriginShell: model.SandboxPathOriginShell,
+	settings.OriginTyped: model.SandboxPathOriginTyped,
+}
 
-// sandboxPathOf is entries on the wire, in order.
-func sandboxPathOf(entries []settings.PathEntry) []*model.SandboxPathEntry {
-	out := make([]*model.SandboxPathEntry, len(entries))
-	for i, e := range entries {
-		out[i] = &model.SandboxPathEntry{
-			Dir: e.Dir, Target: e.Target, State: sandboxPathStates[e.State], Source: sandboxPathSources[e.Source], Shared: e.Shared,
-		}
+// sandboxPath is the PATH setting on the wire, with each of its folders.
+func (r *Resolver) sandboxPath(ctx context.Context) (*model.SandboxPath, error) {
+	setting, folders, err := r.Settings.PathFolders(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	out := &model.SandboxPath{Value: setting.Value, Refusal: optionalString(setting.Refusal), Folders: []*model.SandboxPathFolder{}}
+	for _, f := range folders {
+		out.Folders = append(out.Folders, &model.SandboxPathFolder{
+			Path: f.Path, Origin: sandboxPathOrigins[f.Origin], Target: optionalString(f.Target),
+			Searched: f.Searched, Reason: optionalString(f.Reason), Addable: f.Addable, Shared: f.Shared,
+		})
+	}
+	return out, nil
+}
+
+// optionalString is s, nil when empty.
+func optionalString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// sandboxPathAfter is a save's or a refresh's answer once its write has
+// committed: the setting, else savedUnread.
+func (r *Resolver) sandboxPathAfter(ctx context.Context, done string) (*model.SandboxPath, error) {
+	path, err := r.sandboxPath(ctx)
+	if err != nil {
+		return nil, savedUnread(done, err)
+	}
+	return path, nil
 }
 
 // snapshotOf is the wire's snapshot as the chat service takes it; nil for none.

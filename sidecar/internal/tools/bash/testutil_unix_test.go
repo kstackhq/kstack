@@ -17,6 +17,7 @@
 package bash
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,9 +59,11 @@ func confining(t *testing.T) *sandbox.Sandbox {
 }
 
 // withTool puts name, where the machine has it, on tl's PATH through a folder
-// the user included that holds a link to it: the folder it is in may be one
-// no run searches, as a CI runner's world-writable /usr/local/bin is. A
-// machine without it skips the test.
+// the user typed that holds a link to it: the folder it is in may be one
+// no run searches, as a CI runner's world-writable /usr/local/bin is. The
+// folder is in a home of tl's own, since a typed folder under /tmp is refused
+// on Linux and one in another home is never read. A machine without it skips
+// the test.
 func withTool(t *testing.T, tl *Tool, name string) {
 	t.Helper()
 	bin, err := exec.LookPath(name)
@@ -69,12 +72,12 @@ func withTool(t *testing.T, tl *Tool, name string) {
 	}
 	target, err := filepath.EvalSymlinks(bin)
 	require.NoError(t, err)
-	dir, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
+	tl.home = testutil.GrantableDir(t)
+	dir := filepath.Join(tl.home, "bin")
+	require.NoError(t, os.Mkdir(dir, 0o755))
 	require.NoError(t, os.Symlink(target, filepath.Join(dir, name)))
-	list := tl.pathList()
-	list.Entries = append([]settings.PathEntry{{
-		Dir: dir, Target: dir, State: settings.PathAdopted, Source: settings.SourceUser,
-	}}, list.Entries...)
-	tl.pathList = func() settings.RunPath { return list }
+	list, err := tl.pathList(t.Context())
+	require.NoError(t, err)
+	list.Search = append([]settings.PathFolder{{Path: dir, Origin: settings.OriginTyped}}, list.Search...)
+	tl.pathList = func(context.Context) (settings.RunPath, error) { return list, nil }
 }
