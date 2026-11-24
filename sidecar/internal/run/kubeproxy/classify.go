@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
@@ -44,11 +45,11 @@ var verbs = map[string]string{
 
 // classify is what a request the policy passed does, for a decision: its
 // class, scope and target, read off the path, and for a replica write or a
-// Namespace's create off the body, which checkBody has passed. context is the
-// grant's.
-func classify(r *http.Request, p apiPath, body []byte, context string) permissions.Action {
+// Namespace's create off the body, which checkBody has passed. cluster and
+// context are the grant's.
+func classify(r *http.Request, p apiPath, body []byte, cluster apimeta.ClusterID, context string) permissions.Action {
 	act := permissions.Action{
-		Context: context, Namespace: p.namespace,
+		ClusterID: cluster, Context: context, Namespace: p.namespace,
 		Verb: verbs[r.Method], Group: p.group, Kind: p.resource, Name: p.name,
 		DryRun: isDryRun(r),
 	}

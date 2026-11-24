@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
@@ -119,7 +120,7 @@ func mutation(t *testing.T, srvURL, mutation string) (map[string]any, []gqlError
 	return resp.Data, resp.Errors
 }
 
-// refusingChat answers every send, cancel, decision, stop, grants read and watch with err, for the refusals the real service gives
+// refusingChat answers every send, cancel, decision, stop, rules read and watch with err, for the refusals the real service gives
 // only under conditions a resolver test cannot set up. The embedded Service is nil,
 // so any other call panics, and a test leaning on it by accident fails on its code.
 type refusingChat struct {
@@ -153,7 +154,7 @@ func (c refusingChat) StopBackgroundTask(context.Context, chat.ToolCallID) (bool
 	return false, c.err
 }
 
-func (c refusingChat) ChatGrants(context.Context, chat.ChatID) ([]permissions.Rule, error) {
+func (c refusingChat) ChatKubeRules(context.Context, chat.ChatID) ([]permissions.Rule, error) {
 	return nil, c.err
 }
 
@@ -168,7 +169,7 @@ func (c refusingChat) WatchMessages(context.Context, chat.ChatID) (*chat.Stream[
 // testSettings is a settings store over a file not yet written: every default.
 func testSettings(t *testing.T) *settings.Service {
 	t.Helper()
-	s, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
+	s, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	return settings.NewService(s, nil, nil, "")
 }

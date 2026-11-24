@@ -19,3 +19,8 @@ export function refusalOf(error: CombinedError | undefined): string | null {
   if (!error) return null;
   return error.graphQLErrors[0]?.message ?? error.message;
 }
+
+/** Whether a mutation's write took though its answer could not be read after (`KSTACK_SAVED_UNREAD`): taken, not refused. */
+export function savedUnread(error: CombinedError | undefined): boolean {
+  return error?.graphQLErrors[0]?.extensions?.code === 'KSTACK_SAVED_UNREAD';
+}

@@ -14,24 +14,17 @@
 
 package settings
 
-import "github.com/kstackhq/kstack/sidecar/internal/run/permissions"
-
 // checks is the read-back: one check per field, each added by the field's
 // step. A check reads the value alone, never the disk or another service; it
 // removes from the settings every value it refuses and answers one Refusal for
 // each.
-var checks = []func(*Settings) []Refusal{checkPath, checkDefaultMode, checkModes, checkRules, checkExecutables}
+var checks = []func(*Settings) []Refusal{checkPath, checkExecutables}
 
 // strictest is how each field that restricts, keyed by its dotted key, is set
 // to its most restrictive state; each such field's step adds its line. When the
 // file holds a value of one the store refuses, the field answers that state
 // until the user fixes the file, never its zero value. A field not listed only
 // grants, so a refused value of it is dropped.
-//
-// modes and rules answer theirs where they are read (ModeFor, Rules): their
-// lines leave the elements that passed alone and only make the store hold the
-// field, since a strictest state kept in Settings would be saved by the next
-// per-element edit.
 var strictest = map[string]func(*Settings){
 	// A refused entry may have been a removal, so the field restricts. The
 	// entries that passed stay as they are: what makes the field strict is
@@ -40,10 +33,7 @@ var strictest = map[string]func(*Settings){
 	// Resolved, so no default stands in for the list.
 	FieldPathResolved: func(v *Settings) { v.Sandbox.PathResolved = true },
 	// Strict, so the next sync adopts nothing new unasked.
-	FieldPathStrict:  func(v *Settings) { v.Sandbox.PathStrict = true },
-	FieldDefaultMode: func(v *Settings) { v.Permissions.DefaultMode = permissions.ReadOnly },
-	FieldModes:       func(*Settings) {},
-	FieldRules:       func(*Settings) {},
+	FieldPathStrict: func(v *Settings) { v.Sandbox.PathStrict = true },
 	// Off, since a refused value may have been the user's off.
 	FieldAWS:    func(v *Settings) { v.Sandbox.AWS = new(false) },
 	FieldGitHub: func(v *Settings) { v.Sandbox.GitHub = new(false) },

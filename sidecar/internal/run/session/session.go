@@ -19,6 +19,7 @@ package session
 import (
 	"context"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
@@ -52,18 +53,20 @@ const (
 type Session struct {
 	Kind    Kind
 	Outside bool // the user switched the chat to run outside the sandbox
-	// Policy is the mode and rules a cluster write in kubeContext, the context
-	// the run's grant was made for, is decided by. It is read live on every
-	// write, so a mode or rule changed meanwhile applies to the next one.
-	Policy func(ctx context.Context, kubeContext string) permissions.Policy
+	// Policy is the mode and rules a cluster write on cluster, the cluster the
+	// run's grant was made for, is decided by: the cluster's mode, and every
+	// rule, each matching the context the action carries. It is read live on
+	// every write, so a mode or rule changed meanwhile applies to the next one.
+	Policy func(ctx context.Context, cluster apimeta.ClusterID) permissions.Policy
 	// Network is the network a sandboxed command starting now has: NetworkChat
 	// while the chat's switch is on, read live, else NetworkTurn for the turn's
 	// toggle, else NoNetwork. Nil is a session that never has network.
 	Network func(context.Context) Network
 	// Folders is the session's folder grants, the chat's joined with the always
-	// ones, each checked when read. Nil reads none: only the chat's builder
-	// sets it, and every reader goes through GrantedFolders.
-	Folders func(context.Context) []Folder
+	// ones, each checked when read. A read that fails is an error, never an
+	// empty list. Nil reads none: only the chat's builder sets it, and every
+	// reader goes through GrantedFolders.
+	Folders func(context.Context) ([]Folder, error)
 	// NoPrompts and NoSecretData are the one source of the policy's two flags:
 	// a proxy copies them onto the Policy it reads, so a session that never
 	// asks, or never reads Secret data, stays so whatever its rules and mode.
@@ -78,9 +81,9 @@ type Folder struct {
 }
 
 // GrantedFolders is the session's folders, none when it has no Folders.
-func (s Session) GrantedFolders(ctx context.Context) []Folder {
+func (s Session) GrantedFolders(ctx context.Context) ([]Folder, error) {
 	if s.Folders == nil {
-		return nil
+		return nil, nil
 	}
 	return s.Folders(ctx)
 }

@@ -13,13 +13,15 @@
 // limitations under the License.
 
 // The composer's "Allowed for this chat" list: the chat's own rules, each in
-// the words Settings uses, with Remove, and under a folder grant no run takes
-// the reason. It draws nothing while the chat holds none. A rule's line is the
-// sidecar's, drawn through VisibleText, since its context and namespace are
-// cluster text.
+// the words Settings uses, then the folders granted for the chat, each with
+// Remove, and under a folder no run takes the reason. It draws nothing while
+// the chat holds neither. A rule's line is the sidecar's, drawn through
+// VisibleText, since its context and namespace are cluster text; so is a
+// folder's refusal, and its path, with its whitespace kept and its trailing
+// whitespace spelled, as Settings draws it.
 import { Button } from '@kubetail/ui/elements/button';
 import { ShieldCheck } from 'lucide-react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import { VisibleText } from '@/components/primitives/visible-text';
 import { useChatGrants } from '@/lib/chat-grants';
@@ -27,10 +29,11 @@ import { useSandboxFolders } from '@/lib/sandbox-folders';
 
 export function ChatGrants({ chatID }: { chatID: string }) {
   const { rules, removing, error, remove } = useChatGrants(chatID);
-  const { chat } = useSandboxFolders(chatID);
+  const { chat: folders, revoking, revokeError, revoke } = useSandboxFolders(chatID);
   const [open, setOpen] = useState(false);
-  if (!rules || rules.length === 0) return null;
-  const refused = new Map(chat?.map((f) => [f.id, f.refused]));
+  const count = (rules?.length ?? 0) + (folders?.length ?? 0);
+  if (count === 0) return null;
+  const failure = error ?? revokeError;
 
   return (
     <div className="relative shrink-0">
@@ -43,37 +46,49 @@ export function ChatGrants({ chatID }: { chatID: string }) {
         onClick={() => setOpen((was) => !was)}
       >
         <ShieldCheck aria-hidden />
-        {rules.length} allowed
+        {count} allowed
       </Button>
       {open && (
         <div className="absolute bottom-full left-0 z-10 mb-1 w-80 rounded-md border bg-popover p-2 text-xs shadow-md">
           <p className="mb-1 text-muted-foreground">Allowed for this chat</p>
           <ul aria-label="Allowed for this chat" className="flex flex-col gap-1">
-            {rules.map((rule) => (
-              <li key={rule.id} className="flex items-start justify-between gap-2">
-                <span className="min-w-0 wrap-break-word">
-                  <VisibleText text={rule.line} />
-                  {refused.get(rule.id) && <span className="block text-muted-foreground">{refused.get(rule.id)}</span>}
+            {rules?.map((rule) => (
+              <Grant key={rule.id} busy={removing === rule.id} onRemove={() => void remove(rule.id)}>
+                <VisibleText text={rule.line} />
+              </Grant>
+            ))}
+            {folders?.map(({ id, path, write, refusal }) => (
+              <Grant key={id} busy={revoking.has(id)} onRemove={() => void revoke(id, 'Chat')}>
+                {write ? 'Reads and writes of ' : 'Reads of '}
+                <span className="break-all whitespace-pre-wrap">
+                  <VisibleText text={path} trailing="end" />
                 </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  disabled={removing === rule.id}
-                  onClick={() => remove(rule.id)}
-                >
-                  Remove
-                </Button>
-              </li>
+                {refusal && (
+                  <span className="block text-muted-foreground">
+                    <VisibleText text={refusal} />
+                  </span>
+                )}
+              </Grant>
             ))}
           </ul>
-          {error && (
+          {failure && (
             <p role="alert" className="mt-1 text-destructive">
-              {error}
+              {failure}
             </p>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+function Grant({ busy, onRemove, children }: { busy: boolean; onRemove: () => void; children: ReactNode }) {
+  return (
+    <li className="flex items-start justify-between gap-2">
+      <span className="min-w-0 wrap-break-word">{children}</span>
+      <Button type="button" variant="outline" size="xs" disabled={busy} onClick={onRemove}>
+        Remove
+      </Button>
+    </li>
   );
 }

@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 )
 
 func TestCheckExecutableRefusesEachBadShape(t *testing.T) {
@@ -59,7 +61,7 @@ func TestABadExecutableIsLeftOutWithItsReason(t *testing.T) {
 		{"name": "k9s", "invocation": "k9s info"}
 	]}`), 0o600))
 
-	s, err := Open(file)
+	s, err := Open(file, appdbtest.Open(t))
 	require.NoError(t, err)
 
 	assert.Equal(t, []Executable{{Name: "k9s", Invocation: "k9s version"}}, s.Get().Executables)
@@ -74,7 +76,7 @@ func TestABadExecutableIsLeftOutWithItsReason(t *testing.T) {
 // An executable is registered with its invocation, or "<name> --version" with none,
 // and removed by name; each refusal is in the user's words and writes nothing.
 func TestRegisterAndRemoveAnExecutable(t *testing.T) {
-	s, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	s, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 
 	require.NoError(t, s.RegisterExecutable("k9s", ""))

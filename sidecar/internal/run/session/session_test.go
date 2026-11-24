@@ -16,10 +16,13 @@ package session
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
@@ -28,13 +31,15 @@ import (
 func TestNarrowKeepsTheParentsIdentity(t *testing.T) {
 	folders := []Folder{{Path: "/Users/me/code", Write: true}}
 	for _, outside := range []bool{false, true} {
-		parent := Session{Kind: Chat, Outside: outside, Folders: func(context.Context) []Folder { return folders }}
+		parent := Session{Kind: Chat, Outside: outside, Folders: func(context.Context) ([]Folder, error) { return folders, nil }}
 
 		got := Narrow(parent)
 
 		assert.Equal(t, Subagent, got.Kind)
 		assert.Equal(t, parent.Outside, got.Outside)
-		assert.Equal(t, folders, got.Folders(t.Context()), "a subagent reads its parent's folders")
+		read, err := got.GrantedFolders(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, folders, read, "a subagent reads its parent's folders")
 	}
 	t.Run("NoPromptsAndNoSecretData", func(t *testing.T) {
 		got := Narrow(Session{Kind: Monitor, NoPrompts: true, NoSecretData: true})
@@ -44,13 +49,23 @@ func TestNarrowKeepsTheParentsIdentity(t *testing.T) {
 }
 
 func TestASessionWithNoFoldersReadsNone(t *testing.T) {
-	assert.Nil(t, Session{Kind: Chat}.GrantedFolders(t.Context()))
+	folders, err := Session{Kind: Chat}.GrantedFolders(t.Context())
+	require.NoError(t, err)
+	assert.Nil(t, folders)
+}
+
+// A read of the folders that fails is the reader's error, never an empty
+// list.
+func TestAFoldersReadThatFailsIsAnError(t *testing.T) {
+	failed := errors.New("no folders")
+	_, err := Session{Folders: func(context.Context) ([]Folder, error) { return nil, failed }}.GrantedFolders(t.Context())
+	assert.ErrorIs(t, err, failed)
 }
 
 // A subagent decides by its parent's mode and rules.
 func TestNarrowKeepsThePolicy(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.Auto, Rules: []permissions.Rule{permissions.Refused}}
-	parent := Session{Kind: Chat, Policy: func(context.Context, string) permissions.Policy { return policy }}
+	parent := Session{Kind: Chat, Policy: func(context.Context, apimeta.ClusterID) permissions.Policy { return policy }}
 
 	got := Narrow(parent)
 

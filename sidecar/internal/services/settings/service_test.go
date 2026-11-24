@@ -20,11 +20,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 )
 
 // On a machine with no sandbox the list is empty and every change is refused.
 func TestAServiceWithNoSandboxChangesNothing(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	s := NewService(store, nil, nil, "")
 

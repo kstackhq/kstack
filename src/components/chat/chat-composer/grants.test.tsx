@@ -21,7 +21,7 @@ import type { SandboxFolders } from '@/lib/sandbox-folders';
 
 const { grants, folders } = vi.hoisted(() => ({
   grants: { current: undefined as unknown as Grants },
-  folders: { current: {} as Pick<SandboxFolders, 'chat'> },
+  folders: { current: {} as Pick<SandboxFolders, 'chat' | 'revoking' | 'revokeError' | 'revoke'> },
 }));
 vi.mock('@/lib/chat-grants', () => ({ useChatGrants: () => grants.current }));
 vi.mock('@/lib/sandbox-folders', () => ({ useSandboxFolders: () => folders.current }));
@@ -29,6 +29,7 @@ vi.mock('@/lib/sandbox-folders', () => ({ useSandboxFolders: () => folders.curre
 const { ChatGrants } = await import('./grants');
 
 const remove = vi.fn();
+const revoke = vi.fn();
 const held = (over: Partial<Grants> = {}): Grants => ({
   rules: [
     { id: 'r1', line: 'Allow cluster writes in dev / web' },
@@ -43,7 +44,7 @@ const held = (over: Partial<Grants> = {}): Grants => ({
 beforeEach(() => {
   vi.clearAllMocks();
   grants.current = held();
-  folders.current = { chat: [] };
+  folders.current = { chat: [], revoking: new Set(), revokeError: null, revoke };
 });
 
 describe('ChatGrants', () => {
@@ -77,20 +78,50 @@ describe('ChatGrants', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('not found');
   });
 
-  it("draws a folder grant's refused reason under its line", async () => {
-    grants.current = held({
-      rules: [
-        { id: 'r1', line: 'Allow cluster writes in dev / web' },
-        { id: 'f1', line: 'Allow reads of /Users/ren/code' },
-      ],
-    });
+  it("draws the chat's folders after its rules, each with its refusal, and revokes one as the chat's", async () => {
     folders.current = {
-      chat: [{ id: 'f1', path: '/Users/ren/code', write: false, refused: 'This folder does not exist.' }],
+      ...folders.current,
+      chat: [
+        { id: 'f1', path: '/Users/ren/code', write: false, refusal: 'This folder does not exist.' },
+        { id: 'f2', path: '/Users/ren/data', write: true, refusal: null },
+      ],
     };
     render(<ChatGrants chatID="c1" />);
-    await userEvent.click(screen.getByRole('button', { name: /2 allowed/ }));
+    await userEvent.click(screen.getByRole('button', { name: /4 allowed/ }));
     const rows = within(screen.getByRole('list', { name: 'Allowed for this chat' })).getAllByRole('listitem');
-    expect(within(rows[0]).queryByText('This folder does not exist.')).toBeNull();
-    expect(within(rows[1]).getByText('This folder does not exist.')).toBeInTheDocument();
+    expect(rows).toHaveLength(4);
+    expect(rows[2]).toHaveTextContent('Reads of /Users/ren/code');
+    expect(within(rows[2]).getByText('This folder does not exist.')).toBeInTheDocument();
+    expect(rows[3]).toHaveTextContent('Reads and writes of /Users/ren/data');
+    await userEvent.click(within(rows[2]).getByRole('button', { name: 'Remove' }));
+    expect(revoke).toHaveBeenCalledWith('f1', 'Chat');
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('draws a chat with folders alone, and a refused revoke', async () => {
+    grants.current = held({ rules: [] });
+    folders.current = {
+      ...folders.current,
+      chat: [{ id: 'f1', path: '/srv', write: false, refusal: null }],
+      revoking: new Set(['f1']),
+      revokeError: 'gone',
+    };
+    render(<ChatGrants chatID="c1" />);
+    await userEvent.click(screen.getByRole('button', { name: /1 allowed/ }));
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('gone');
+  });
+
+  // Two folders that differ by trailing whitespace never look alike beside Remove.
+  it("spells a folder path's trailing whitespace", async () => {
+    grants.current = held({ rules: [] });
+    folders.current = {
+      ...folders.current,
+      chat: [{ id: 'f1', path: '/work/project  ', write: false, refusal: null }],
+    };
+    render(<ChatGrants chatID="c1" />);
+    await userEvent.click(screen.getByRole('button', { name: /1 allowed/ }));
+    const row = within(screen.getByRole('list', { name: 'Allowed for this chat' })).getByRole('listitem');
+    expect(row.querySelector('mark')).not.toBeNull();
   });
 });

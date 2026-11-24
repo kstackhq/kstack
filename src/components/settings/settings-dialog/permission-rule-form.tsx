@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The form a cluster rule is added or edited by: its effect and class, then
-// its scope and target, each optional and empty for anything.
+// The form a cluster rule is added or edited by: its effect and class, its
+// cluster, then its scope and target, each optional and empty for anything.
 import { Button } from '@kubetail/ui/elements/button';
 import { Checkbox } from '@kubetail/ui/elements/checkbox';
 import { useState } from 'react';
@@ -38,10 +38,15 @@ export const CLASSES: { value: PermissionClass; label: string }[] = [
 // The namespace that is cluster-scoped objects alone: permissions.ClusterScope.
 const CLUSTER_SCOPE = '[cluster]';
 
+// The cluster select's value for a rule naming none.
+const EVERY_CLUSTER = '';
+
+export type ClusterOption = { value: string; label: string };
+
 const EMPTY_RULE: RuleInput = {
   effect: 'Allow',
   class: 'UpstreamWrite',
-  context: '',
+  clusterID: null,
   namespace: '',
   verb: '',
   group: '',
@@ -52,22 +57,28 @@ const sameRule = (a: RuleInput, b: RuleInput) =>
   (Object.keys(EMPTY_RULE) as (keyof RuleInput)[]).every((key) => a[key] === b[key]);
 
 type Props = {
+  /** The clusters a rule may name, by id and label. */
+  clusters: ClusterOption[];
   /** The rule being edited; the form adds a new one when unset. */
   initial?: RuleInput;
-  disabled: boolean;
   onSubmit: (input: RuleInput) => void;
   onCancel: () => void;
 };
 
-export function RuleForm({ initial, disabled, onSubmit, onCancel }: Props) {
+export function RuleForm({ clusters, initial, onSubmit, onCancel }: Props) {
   const [draft, setDraft] = useState(initial ?? EMPTY_RULE);
   const set = (over: Partial<RuleInput>) => setDraft((d) => ({ ...d, ...over }));
-  const classes = CLASSES.filter((c) => !(draft.effect === 'Allow' && c.value === 'Destructive'));
+  const allow = draft.effect === 'Allow';
+  const classes = CLASSES.filter((c) => !(allow && c.value === 'Destructive'));
   // A class the effect no longer offers falls back to the first.
   const klass = classes.some((c) => c.value === draft.class) ? draft.class : classes[0].value;
-  const rule = { ...draft, class: klass };
+  // An Allow names one cluster, so it does not offer every cluster and falls
+  // back to the first.
+  const clusterOptions = allow ? clusters : [{ value: EVERY_CLUSTER, label: 'Every cluster' }, ...clusters];
+  const clusterID = allow && draft.clusterID === null ? (clusters[0]?.value ?? null) : draft.clusterID;
+  const rule = { ...draft, class: klass, clusterID };
 
-  // A Secret read rule names a context and a namespace alone, and every Secret
+  // A Secret read rule names a cluster and a namespace alone, and every Secret
   // is in a namespace, so picking it clears the fields it draws none of.
   const secretRead = klass === 'SecretRead';
   const pickClass = (value: PermissionClass) =>
@@ -89,7 +100,7 @@ export function RuleForm({ initial, disabled, onSubmit, onCancel }: Props) {
   // The namespace is a pattern over namespaced objects, or the one word for
   // cluster-scoped ones; the checkbox holds the word and shuts the pattern.
   const clusterScoped = draft.namespace === CLUSTER_SCOPE;
-  const text = (name: 'context' | 'namespace' | 'verb' | 'group' | 'kind', label: string, shut = false) => (
+  const text = (name: 'namespace' | 'verb' | 'group' | 'kind', label: string, shut = false) => (
     <Field label={label}>
       {(id) => (
         <Input
@@ -112,7 +123,16 @@ export function RuleForm({ initial, disabled, onSubmit, onCancel }: Props) {
         <Field label="Applies to">
           {(id) => <Select id={id} options={classes} value={klass} onChange={pickClass} />}
         </Field>
-        {text('context', 'Context')}
+        <Field label="Cluster">
+          {(id) => (
+            <Select
+              id={id}
+              options={clusterOptions}
+              value={clusterID ?? EVERY_CLUSTER}
+              onChange={(value) => set({ clusterID: value === EVERY_CLUSTER ? null : value })}
+            />
+          )}
+        </Field>
         {text('namespace', 'Namespace', clusterScoped)}
       </div>
       {!secretRead && (
@@ -136,8 +156,12 @@ export function RuleForm({ initial, disabled, onSubmit, onCancel }: Props) {
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
-        {/* Adding a rule the file holds writes nothing, so an unchanged edit would only remove the original. */}
-        <Button type="submit" size="sm" disabled={disabled || (initial && sameRule(rule, initial))}>
+        {/* Adding a rule the always rules hold writes nothing, so an unchanged edit would only remove the original. */}
+        <Button
+          type="submit"
+          size="sm"
+          disabled={(initial && sameRule(rule, initial)) || (allow && clusterID === null)}
+        >
           {initial ? 'Save' : 'Add'}
         </Button>
       </div>

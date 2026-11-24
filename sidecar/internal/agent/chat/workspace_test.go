@@ -188,9 +188,7 @@ func TestTheContextListsTheGrants(t *testing.T) {
 	home := grantable(t, s)
 	code, svc := filepath.Join(home, "code"), filepath.Join(home, "code", "svc")
 	require.NoError(t, s.GrantFolder(t.Context(), "", code, false))
-	gone := folderRule(filepath.Join(home, "gone"), false)
-	gone.ID = "gone"
-	require.NoError(t, s.settings.AddRule(gone))
+	require.NoError(t, s.settings.GrantFolder(t.Context(), filepath.Join(home, "gone"), false))
 
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
 	context := newestContextOf(t, s, first.ChatID)

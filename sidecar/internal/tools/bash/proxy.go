@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
@@ -102,10 +103,10 @@ func writeOf(w kubeproxy.Write) tools.ClusterWrite {
 	}
 }
 
-// newClusterGrant is a grant over up for the run of sess in kubeContext,
-// whose writes go to asker or are refused with refusal.
-func newClusterGrant(up kubeproxy.Upstream, sess session.Session, kubeContext string, asker kubeproxy.Asker, refusal string) *kubeproxy.Grant {
-	return kubeproxy.NewGrant(up, sess, kubeContext, asker, refusal, proxyQPS, proxyBurst, proxyMaxInFlight)
+// newClusterGrant is a grant over up for the run of sess on cluster, in
+// kubeContext, whose writes go to asker or are refused with refusal.
+func newClusterGrant(up kubeproxy.Upstream, sess session.Session, cluster apimeta.ClusterID, kubeContext string, asker kubeproxy.Asker, refusal string) *kubeproxy.Grant {
+	return kubeproxy.NewGrant(up, sess, cluster, kubeContext, asker, refusal, proxyQPS, proxyBurst, proxyMaxInFlight)
 }
 
 // certify makes the run's certificate and writes its bundle to caFile when a

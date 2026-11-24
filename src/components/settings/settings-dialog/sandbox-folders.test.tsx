@@ -29,7 +29,7 @@ const folder = (path: string, extra: Partial<SandboxFolder> = {}): SandboxFolder
   id: path,
   path,
   write: false,
-  refused: null,
+  refusal: null,
   ...extra,
 });
 
@@ -49,7 +49,6 @@ function withFolders(over: Partial<SandboxFolders> = {}) {
     never: [],
     closed: [],
     wide: ['/Users/ren', '/Users'],
-    rulesHeld: false,
     granting: false,
     revoking: new Set(),
     grantError: null,
@@ -86,7 +85,7 @@ beforeEach(() => {
 describe('SandboxFolderGroups', () => {
   it('lists each always grant with its access and a refused reason', () => {
     withFolders({
-      always: [folder('/Users/ren/src', { write: true }), folder('/Users/ren/k9s', { refused: 'not a folder' })],
+      always: [folder('/Users/ren/src', { write: true }), folder('/Users/ren/k9s', { refusal: 'not a folder' })],
     });
     render(<SandboxFolderGroups path={pathOf()} />);
 
@@ -116,24 +115,20 @@ describe('SandboxFolderGroups', () => {
     withFolders({ always: [folder('/Users/ren/k9s')], revokeError: 'held' });
     render(<SandboxFolderGroups path={pathOf()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
-    expect(folders.current.revoke).toHaveBeenCalledWith('/Users/ren/k9s');
+    expect(folders.current.revoke).toHaveBeenCalledWith('/Users/ren/k9s', 'Always');
     expect(screen.getByText('held')).toBeInTheDocument();
   });
 
-  it('holds the controls while the rules are held or the row is being removed', () => {
+  // A folder grant's Remove and access depend on no rule: only its own
+  // removal in flight holds them.
+  it('holds the controls of the row being removed alone', () => {
     withFolders({ always: [folder('/a'), folder('/b')], revoking: new Set(['/b']) });
-    const { unmount } = render(<SandboxFolderGroups path={pathOf()} />);
-    let rows = within(group(/^Custom · /)).getAllByRole('listitem');
+    render(<SandboxFolderGroups path={pathOf()} />);
+    const rows = within(group(/^Custom · /)).getAllByRole('listitem');
     expect(within(rows[0]).getByRole('button', { name: 'Remove' })).toBeEnabled();
+    expect(within(rows[0]).getByRole('combobox')).toBeEnabled();
     expect(within(rows[1]).getByRole('button', { name: 'Remove' })).toBeDisabled();
     expect(within(rows[1]).getByRole('combobox')).toBeDisabled();
-    unmount();
-
-    withFolders({ always: [folder('/a')], rulesHeld: true });
-    render(<SandboxFolderGroups path={pathOf()} />);
-    rows = within(group(/^Custom · /)).getAllByRole('listitem');
-    expect(within(rows[0]).getByRole('button', { name: 'Remove' })).toBeDisabled();
-    expect(within(rows[0]).getByRole('combobox')).toBeDisabled();
   });
 
   it('says a folder inside a closed one may meet a macOS prompt, on macOS alone', () => {

@@ -23,7 +23,7 @@ const allow = {
   line: 'Allow cluster writes in staging / payments-*',
   effect: 'Allow' as const,
   class: 'UpstreamWrite' as const,
-  context: 'staging',
+  clusterID: 'c2',
   namespace: 'payments-*',
   verb: '',
   group: '',
@@ -32,9 +32,10 @@ const allow = {
 const deny = {
   ...allow,
   id: 'r2',
-  line: 'Deny Secret reads in prod-*',
+  line: 'Deny Secret reads everywhere',
   effect: 'Deny' as const,
   class: 'SecretRead' as const,
+  clusterID: null,
 };
 
 // Kept out of JSX: the formatter writes an escape inside it as the bare character.
@@ -47,8 +48,11 @@ function renderRules(over: Partial<Parameters<typeof PermissionRules>[0]> = {}) 
   render(
     <PermissionRules
       rules={[allow, deny]}
+      clusters={[
+        { value: 'c1', label: 'dev-eks' },
+        { value: 'c2', label: 'staging' },
+      ]}
       contexts={['staging']}
-      disabled={false}
       onAdd={onAdd}
       onRemove={onRemove}
       {...over}
@@ -131,9 +135,9 @@ describe('PermissionRules', () => {
     const user = userEvent.setup();
     renderRules();
     await user.click(screen.getByRole('button', { name: 'Add rule' }));
-    await user.type(screen.getByLabelText('Context'), 'dev');
+    await user.selectOptions(screen.getByLabelText('Cluster'), 'staging');
     await user.click(screen.getByRole('button', { name: 'Add' }));
-    expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ context: 'dev' }));
+    expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ clusterID: 'c2' }));
     expect(screen.queryByRole('form')).toBeNull();
   });
 
@@ -160,7 +164,7 @@ describe('PermissionRules', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
     const form = screen.getByRole('form', { name: 'Edit rule' });
     expect(screen.queryByRole('listitem', { name: allow.line })).toBeNull();
-    expect(within(form).getByLabelText('Context')).toHaveValue('staging');
+    expect(within(form).getByLabelText('Cluster')).toHaveValue('c2');
     expect(within(form).getByRole('button', { name: 'Save' })).toBeDisabled();
 
     await user.type(within(form).getByLabelText('Verb'), 'patch');
@@ -168,7 +172,7 @@ describe('PermissionRules', () => {
     expect(onAdd).toHaveBeenCalledWith({
       effect: 'Allow',
       class: 'UpstreamWrite',
-      context: 'staging',
+      clusterID: 'c2',
       namespace: 'payments-*',
       verb: 'patch',
       group: '',
@@ -177,6 +181,14 @@ describe('PermissionRules', () => {
     expect(onRemove).toHaveBeenCalledWith('r1');
     expect(order).toEqual(['add', 'remove']);
     expect(screen.queryByRole('form')).toBeNull();
+  });
+
+  it('opens a rule for every cluster on Every cluster', async () => {
+    const user = userEvent.setup();
+    renderRules();
+    await openMenu(user, deny.line);
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+    expect(within(screen.getByRole('form', { name: 'Edit rule' })).getByLabelText('Cluster')).toHaveValue('');
   });
 
   it('removes nothing when the edit is refused', async () => {
@@ -191,12 +203,5 @@ describe('PermissionRules', () => {
     expect(onAdd).toHaveBeenCalled();
     expect(onRemove).not.toHaveBeenCalled();
     expect(screen.getByRole('form', { name: 'Edit rule' })).toBeInTheDocument();
-  });
-
-  it('holds every rule control while rules is held', () => {
-    renderRules({ disabled: true });
-    expect(screen.getByRole('button', { name: 'Add rule' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: `Actions for ${allow.line}` })).toBeDisabled();
-    expect(screen.getByRole('button', { name: `Actions for ${deny.line}` })).toBeDisabled();
   });
 });

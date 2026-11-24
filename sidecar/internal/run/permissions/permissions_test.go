@@ -24,26 +24,26 @@ import (
 
 // patch is a patch of the deployment api in dev / team-a, of class c.
 func patch(c Class) Action {
-	return Action{Class: c, Context: "dev", Namespace: "team-a", Verb: "patch", Group: "apps", Kind: "deployments", Name: "api"}
+	return Action{Class: c, ClusterID: "dev", Context: "dev", Namespace: "team-a", Verb: "patch", Group: "apps", Kind: "deployments", Name: "api"}
 }
 
 func TestDecideFollowsTheModeTable(t *testing.T) {
-	trusted := []Rule{{ID: "t", Effect: Allow, Class: UpstreamWrite, Context: "dev", Namespace: "team-a"}}
+	trusted := []Rule{{ID: "t", Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: "team-a"}}
 	for name, c := range map[string]struct {
 		policy Policy
 		want   map[Class]Decision
 	}{
 		"read-only": {Policy{Mode: ReadOnly}, map[Class]Decision{
-			ReadInside: Allowed, WriteInside: Allowed, NewHost: Denied, UpstreamWrite: Denied, Destructive: Denied, SecretRead: Prompted,
+			ReadInside: Allowed, WriteInside: Allowed, UpstreamWrite: Denied, Destructive: Denied, SecretRead: Prompted,
 		}},
 		"ask": {Policy{Mode: Ask}, map[Class]Decision{
-			ReadInside: Allowed, WriteInside: Allowed, NewHost: Prompted, UpstreamWrite: Prompted, Destructive: Prompted, SecretRead: Prompted,
+			ReadInside: Allowed, WriteInside: Allowed, UpstreamWrite: Prompted, Destructive: Prompted, SecretRead: Prompted,
 		}},
 		"trusted": {Policy{Mode: Ask, Rules: trusted}, map[Class]Decision{
-			ReadInside: Allowed, WriteInside: Allowed, NewHost: Prompted, UpstreamWrite: Allowed, Destructive: Prompted, SecretRead: Prompted,
+			ReadInside: Allowed, WriteInside: Allowed, UpstreamWrite: Allowed, Destructive: Prompted, SecretRead: Prompted,
 		}},
 		"auto": {Policy{Mode: Auto}, map[Class]Decision{
-			ReadInside: Allowed, WriteInside: Allowed, NewHost: Allowed, UpstreamWrite: Allowed, Destructive: Prompted, SecretRead: Allowed,
+			ReadInside: Allowed, WriteInside: Allowed, UpstreamWrite: Allowed, Destructive: Prompted, SecretRead: Allowed,
 		}},
 	} {
 		for class, want := range c.want {
@@ -64,7 +64,7 @@ func TestClassFiveAsksInEveryMode(t *testing.T) {
 	}
 	got, why := Policy{Mode: ReadOnly, Rules: allow}.Decide(patch(Destructive))
 	assert.Equal(t, Denied, got)
-	assert.Equal(t, "this context is read-only", why)
+	assert.Equal(t, "this cluster is read-only", why)
 }
 
 func TestDenyWinsOverAskWinsOverAllow(t *testing.T) {
@@ -89,7 +89,7 @@ func TestAClassFourRuleCoversClassFive(t *testing.T) {
 		effect Effect
 		want   Decision
 	}{{Deny, Denied}, {AskFor, Prompted}, {Allow, Prompted}} {
-		rules := []Rule{{ID: "r", Effect: c.effect, Class: UpstreamWrite, Context: "dev", Namespace: "team-a"}}
+		rules := []Rule{{ID: "r", Effect: c.effect, Class: UpstreamWrite, ClusterID: "dev", Namespace: "team-a"}}
 		got, _ := Policy{Mode: Auto, Rules: rules}.Decide(patch(Destructive))
 		assert.Equal(t, c.want, got, "%s", c.effect)
 	}
@@ -137,42 +137,42 @@ func TestARuleMatchesByGroupAndSubresource(t *testing.T) {
 
 	got, _ = allow("", "").Decide(deploy)
 	assert.Equal(t, Allowed, got, "an unset field matches anything")
-	scoped := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, Context: "prod"}}}
+	scoped := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, ClusterID: "prod"}}}
 	got, _ = scoped.Decide(patch(UpstreamWrite))
 	assert.Equal(t, Prompted, got, "a set field refuses another value")
 }
 
 func TestASetNamespaceSkipsAClusterScopedWrite(t *testing.T) {
-	node := Action{Class: UpstreamWrite, Context: "dev", Verb: "patch", Group: "core", Kind: "nodes"}
-	anyNamespace := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, Context: "dev", Namespace: "*"}}}
+	node := Action{Class: UpstreamWrite, ClusterID: "dev", Context: "dev", Verb: "patch", Group: "core", Kind: "nodes"}
+	anyNamespace := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: "*"}}}
 	got, _ := anyNamespace.Decide(node)
 	assert.Equal(t, Prompted, got, "* is every namespace, not none")
 	got, _ = anyNamespace.Decide(patch(UpstreamWrite))
 	assert.Equal(t, Allowed, got)
 
-	unset := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, Context: "dev"}}}
+	unset := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, ClusterID: "dev"}}}
 	got, _ = unset.Decide(node)
 	assert.Equal(t, Allowed, got, "an unset namespace still covers a cluster-scoped write")
 }
 
 func TestAClusterScopeMatchesOnlyAClusterScopedWrite(t *testing.T) {
-	node := Action{Class: UpstreamWrite, Context: "dev", Verb: "patch", Group: "core", Kind: "nodes"}
-	cluster := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, Context: "dev", Namespace: ClusterScope}}}
+	node := Action{Class: UpstreamWrite, ClusterID: "dev", Context: "dev", Verb: "patch", Group: "core", Kind: "nodes"}
+	cluster := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: ClusterScope}}}
 	got, _ := cluster.Decide(node)
 	assert.Equal(t, Allowed, got)
 	got, _ = cluster.Decide(patch(UpstreamWrite))
 	assert.Equal(t, Prompted, got, "a namespaced write is not cluster-scoped")
 
-	named := Action{Class: UpstreamWrite, Context: "dev", Namespace: ClusterScope, Verb: "patch", Group: "core", Kind: "pods"}
+	named := Action{Class: UpstreamWrite, ClusterID: "dev", Context: "dev", Namespace: ClusterScope, Verb: "patch", Group: "core", Kind: "pods"}
 	got, _ = cluster.Decide(named)
 	assert.Equal(t, Prompted, got, "the word is a scope, never a namespace's name")
 }
 
 func TestARuleRoundTripsThroughJSON(t *testing.T) {
-	rule := Rule{ID: "r1", Effect: Deny, Class: UpstreamWrite, Context: "prod-eu", Namespace: "team-a", Verb: "delete", Group: "core", Kind: "pods"}
+	rule := Rule{ID: "r1", Effect: Deny, Class: UpstreamWrite, ClusterID: "prod-eu", Namespace: "team-a", Verb: "delete", Group: "core", Kind: "pods"}
 	b, err := json.Marshal(rule)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"id":"r1","effect":"deny","class":4,"context":"prod-eu","namespace":"team-a","verb":"delete","group":"core","kind":"pods"}`, string(b))
+	assert.JSONEq(t, `{"id":"r1","effect":"deny","class":4,"clusterID":"prod-eu","namespace":"team-a","verb":"delete","group":"core","kind":"pods"}`, string(b))
 
 	var back Rule
 	require.NoError(t, json.Unmarshal([]byte(`{"id":"r1","effect":"allow","class":4}`), &back))
@@ -183,42 +183,18 @@ func TestARuleRoundTripsThroughJSON(t *testing.T) {
 
 func TestARuleReadsAsALine(t *testing.T) {
 	for want, rule := range map[string]Rule{
-		"Allow cluster writes in dev-eks / team-a":              {Effect: Allow, Class: UpstreamWrite, Context: "dev-eks", Namespace: "team-a"},
-		"Deny destructive delete of core namespaces in prod-eu": {Effect: Deny, Class: Destructive, Context: "prod-eu", Verb: "delete", Group: "core", Kind: "namespaces"},
+		"Allow cluster writes in dev-eks / team-a":              {Effect: Allow, Class: UpstreamWrite, ClusterID: "dev-eks", Namespace: "team-a"},
+		"Deny destructive delete of core namespaces in prod-eu": {Effect: Deny, Class: Destructive, ClusterID: "prod-eu", Verb: "delete", Group: "core", Kind: "namespaces"},
 		"Ask for destructive cluster writes everywhere":         {Effect: AskFor, Class: Destructive},
-		"Deny Secret reads in any context / kube-system":        {Effect: Deny, Class: SecretRead, Namespace: "kube-system"},
+		"Deny Secret reads in any cluster / kube-system":        {Effect: Deny, Class: SecretRead, Namespace: "kube-system"},
 		"Deny delete of anything everywhere":                    {Effect: Deny, Class: UpstreamWrite, Verb: "delete"},
 		"Deny writes of apps resources everywhere":              {Effect: Deny, Class: UpstreamWrite, Group: "apps"},
 		"Deny writes of deployments everywhere":                 {Effect: Deny, Class: UpstreamWrite, Kind: "deployments"},
 		"Deny destructive writes of deployments everywhere":     {Effect: Deny, Class: Destructive, Kind: "deployments"},
-		"Deny patch of core nodes cluster-wide in prod":         {Effect: Deny, Class: UpstreamWrite, Context: "prod", Namespace: ClusterScope, Verb: "patch", Group: "core", Kind: "nodes"},
+		"Deny patch of core nodes cluster-wide in prod":         {Effect: Deny, Class: UpstreamWrite, ClusterID: "prod", Namespace: ClusterScope, Verb: "patch", Group: "core", Kind: "nodes"},
 		"Deny cluster writes cluster-wide":                      {Effect: Deny, Class: UpstreamWrite, Namespace: ClusterScope},
 	} {
-		assert.Equal(t, want, rule.Line())
-	}
-}
-
-func TestAFolderRuleLine(t *testing.T) {
-	for want, rule := range map[string]Rule{
-		"Allow reads of /Users/me/code":              {Effect: Allow, Class: ReadInside, Folder: "/Users/me/code"},
-		"Allow reads and writes of /Users/me/code":   {Effect: Allow, Class: WriteInside, Folder: "/Users/me/code"},
-		`Allow reads of "/Users/me/My Code"`:         {Effect: Allow, Class: ReadInside, Folder: "/Users/me/My Code"},
-		`Allow reads of "/Users/me/a\"b"`:            {Effect: Allow, Class: ReadInside, Folder: `/Users/me/a"b`},
-		`Allow reads and writes of "/Users/me/a\\b"`: {Effect: Allow, Class: WriteInside, Folder: `/Users/me/a\b`},
-	} {
-		assert.Equal(t, want, rule.Line())
-	}
-}
-
-func TestAFolderRuleMatchesNoAction(t *testing.T) {
-	read := Action{Class: ReadInside}
-	for _, class := range []Class{ReadInside, WriteInside} {
-		for _, effect := range []Effect{Allow, Deny, AskFor} {
-			r := Rule{ID: "f", Effect: effect, Class: class, Folder: "/Users/me/code"}
-			assert.False(t, r.Matches(read), "%s %d", effect, class)
-			got, _ := Policy{Mode: Ask, Rules: []Rule{r}}.Authorize(read)
-			assert.Equal(t, Permit, got, "a folder rule never reaches a verdict: %s %d", effect, class)
-		}
+		assert.Equal(t, want, line(rule))
 	}
 }
 
@@ -231,7 +207,7 @@ func TestAReasonSaysWhatDecided(t *testing.T) {
 		"it always asks":                    {Policy{Mode: Auto}, patch(Destructive)},
 		"auto mode":                         {Policy{Mode: Auto}, patch(UpstreamWrite)},
 		"ask mode":                          {Policy{Mode: Ask}, patch(UpstreamWrite)},
-		"this context is read-only":         {Policy{Mode: ReadOnly}, patch(UpstreamWrite)},
+		"this cluster is read-only":         {Policy{Mode: ReadOnly}, patch(UpstreamWrite)},
 	} {
 		_, why := c.policy.Decide(c.act)
 		assert.Equal(t, want, why)
@@ -265,19 +241,19 @@ func orderedTable(p Policy, act Action) (Decision, string) {
 		return Allowed, "it changes nothing in the cluster"
 	}
 	if r, ok := p.first(Deny, act); ok {
-		return Denied, "a rule denies it: " + r.Line()
+		return Denied, "a rule denies it: " + line(r)
 	}
 	if p.Mode == ReadOnly && act.Class != SecretRead {
-		return Denied, "this context is read-only"
+		return Denied, "this cluster is read-only"
 	}
 	if r, ok := p.first(AskFor, act); ok {
-		return Prompted, "a rule asks for it: " + r.Line()
+		return Prompted, "a rule asks for it: " + line(r)
 	}
 	if act.Class == Destructive {
 		return Prompted, "it always asks"
 	}
 	if r, ok := p.first(Allow, act); ok {
-		return Allowed, "a rule allows it: " + r.Line()
+		return Allowed, "a rule allows it: " + line(r)
 	}
 	if p.Mode == Auto {
 		return Allowed, "auto mode"
@@ -290,7 +266,7 @@ func TestTheVerdictMatchesTheOrderedTable(t *testing.T) {
 	// can have.
 	choices := []Class{0, UpstreamWrite, Destructive}
 	for _, mode := range []Mode{ReadOnly, Ask, Auto} {
-		for class := ReadInside; class <= SecretRead; class++ {
+		for _, class := range []Class{ReadInside, WriteInside, UpstreamWrite, Destructive, SecretRead} {
 			for _, deny := range choices {
 				for _, ask := range choices {
 					for _, allow := range choices {
@@ -313,8 +289,8 @@ func TestTheVerdictMatchesTheOrderedTable(t *testing.T) {
 }
 
 func TestAForbidOnAFolderClassRefuses(t *testing.T) {
-	// The shape checks refuse a class 1 rule naming no folder. Should one
-	// reach the engine anyway, a forbid still wins.
+	// The table refuses a rule of class 1. Should one reach the engine
+	// anyway, a forbid still wins.
 	for _, c := range []struct {
 		effect Effect
 		want   Verdict
@@ -366,11 +342,10 @@ func TestAnUnmatchedActionIsTheDefaultDenial(t *testing.T) {
 	assert.Equal(t, Permit, got)
 }
 
-func TestReadOnlyRefusesClassesThreeToFive(t *testing.T) {
+func TestReadOnlyRefusesClassesFourAndFive(t *testing.T) {
 	for class, want := range map[Class]Verdict{
 		ReadInside:    Permit,
 		WriteInside:   Permit,
-		NewHost:       Refuse,
 		UpstreamWrite: Refuse,
 		Destructive:   Refuse,
 		SecretRead:    Unmatched,
@@ -385,7 +360,7 @@ func TestAnActionRoundTripsAsJSON(t *testing.T) {
 	act.Summary, act.DryRun = "Patch deployments/api in team-a on dev", true
 	b, err := json.Marshal(act)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"class":4,"context":"dev","namespace":"team-a","verb":"patch","group":"apps","kind":"deployments",
+	assert.JSONEq(t, `{"class":4,"clusterID":"dev","context":"dev","namespace":"team-a","verb":"patch","group":"apps","kind":"deployments",
 		"name":"api","summary":"Patch deployments/api in team-a on dev","dryRun":true}`, string(b))
 
 	var back Action
@@ -393,26 +368,26 @@ func TestAnActionRoundTripsAsJSON(t *testing.T) {
 	assert.Equal(t, act, back)
 }
 
-func TestALiteralFieldReadsQuoted(t *testing.T) {
-	literal := Rule{Effect: Allow, Class: UpstreamWrite, Context: Literal("dev*")}
-	assert.Equal(t, `Allow cluster writes in "dev*"`, literal.Line())
-	glob := Rule{Effect: Allow, Class: UpstreamWrite, Context: "dev-*"}
-	assert.Equal(t, `Allow cluster writes in dev-*`, glob.Line())
+func TestAClusterNameReadsAsWritten(t *testing.T) {
+	r := Rule{Effect: Allow, Class: UpstreamWrite, ClusterID: "c1"}
+	assert.Equal(t, `Allow cluster writes in "dev*"`, r.Line("dev*"), "a glob character is the name's own")
+	assert.Equal(t, `Allow cluster writes in dev-eks`, r.Line("dev-eks"))
+	assert.Equal(t, `Allow cluster writes everywhere`, Rule{Effect: Allow, Class: UpstreamWrite}.Line("dev-eks"), "a rule naming no cluster reads no name")
 }
 
 func TestALineReadsOneWay(t *testing.T) {
 	rules := map[string]Rule{
-		`Allow cluster writes in "a / b"`:               {Effect: Allow, Class: UpstreamWrite, Context: Literal("a / b")},
-		`Allow cluster writes in a / b`:                 {Effect: Allow, Class: UpstreamWrite, Context: "a", Namespace: "b"},
-		`Allow cluster writes in matching "a b*"`:       {Effect: Allow, Class: UpstreamWrite, Context: "a b*"},
-		`Allow cluster writes in "say \"hi\""`:          {Effect: Allow, Class: UpstreamWrite, Context: Literal(`say "hi"`)},
-		`Allow cluster writes in "back\\slash"`:         {Effect: Allow, Class: UpstreamWrite, Context: Literal(`back\slash`)},
-		`Allow delete of core "my pods" in dev / web`:   {Effect: Allow, Class: UpstreamWrite, Context: "dev", Namespace: "web", Verb: "delete", Group: "core", Kind: Literal("my pods")},
-		`Allow cluster writes in dev / matching "a b?"`: {Effect: Allow, Class: UpstreamWrite, Context: "dev", Namespace: "a b?"},
+		`Allow cluster writes in "a / b"`:               {Effect: Allow, Class: UpstreamWrite, ClusterID: "a / b"},
+		`Allow cluster writes in a / b`:                 {Effect: Allow, Class: UpstreamWrite, ClusterID: "a", Namespace: "b"},
+		`Allow cluster writes in "a b*"`:                {Effect: Allow, Class: UpstreamWrite, ClusterID: "a b*"},
+		`Allow cluster writes in "say \"hi\""`:          {Effect: Allow, Class: UpstreamWrite, ClusterID: `say "hi"`},
+		`Allow cluster writes in "back\\slash"`:         {Effect: Allow, Class: UpstreamWrite, ClusterID: `back\slash`},
+		`Allow delete of core "my pods" in dev / web`:   {Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: "web", Verb: "delete", Group: "core", Kind: Literal("my pods")},
+		`Allow cluster writes in dev / matching "a b?"`: {Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: "a b?"},
 	}
 	seen := map[string]bool{}
 	for want, rule := range rules {
-		line := rule.Line()
+		line := line(rule)
 		assert.Equal(t, want, line)
 		assert.False(t, seen[line], "two rules share %q", line)
 		seen[line] = true
@@ -434,9 +409,9 @@ func TestGrantableIsUnmatched(t *testing.T) {
 
 	v, _ = Policy{Mode: Ask}.Authorize(write)
 	assert.True(t, Grantable(v, write), "a class 4 write nothing names")
-	noContext := write
-	noContext.Context = ""
-	assert.False(t, Grantable(Unmatched, noContext), "a rule from an action with no context reaches every context")
+	noCluster := write
+	noCluster.ClusterID = ""
+	assert.False(t, Grantable(Unmatched, noCluster), "a rule from an action with no cluster reaches every cluster")
 }
 
 func TestADryRunIsNotGrantable(t *testing.T) {
@@ -452,66 +427,65 @@ func allows(r Rule, act Action) bool {
 	return v == Permit
 }
 
-func TestAGrantRuleKeepsTheLiteralScope(t *testing.T) {
+func TestAGrantRuleNamesTheActionsCluster(t *testing.T) {
 	act := patch(UpstreamWrite)
-	act.Context = "dev*"
 	r := GrantRule(act)
-	assert.Equal(t, Rule{Effect: Allow, Class: UpstreamWrite, Context: `dev\*`, Namespace: "team-a", Inside: true}, r)
+	assert.Equal(t, Rule{Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: "team-a", Inside: true}, r)
 	assert.True(t, allows(r, act))
 	other := act
-	other.Context = "dev-eks"
-	assert.False(t, allows(r, other), "a context named dev* grants that context alone")
+	other.ClusterID = "c2"
+	assert.False(t, allows(r, other), "another cluster, whatever its context's name")
 
 	inside := GrantRule(patch(UpstreamWrite))
-	assert.Equal(t, "Allow cluster writes inside dev / team-a", inside.Line())
-	label := Action{Class: UpstreamWrite, Context: "dev", Namespace: "team-a", Verb: "patch", Group: "core", Kind: "namespaces", Name: "team-a"}
+	assert.Equal(t, "Allow cluster writes inside dev / team-a", line(inside))
+	label := Action{Class: UpstreamWrite, ClusterID: "dev", Context: "dev", Namespace: "team-a", Verb: "patch", Group: "core", Kind: "namespaces", Name: "team-a"}
 	assert.False(t, allows(inside, label), "a grant for what is in team-a leaves the Namespace out")
 	label.Kind = "namespaces/finalize"
 	assert.False(t, allows(inside, label), "and its subresources")
 
-	ns := Action{Class: UpstreamWrite, Context: "dev-eks", Namespace: "team-a", Verb: "patch", Group: "core", Kind: "namespaces", Name: "team-a"}
+	ns := Action{Class: UpstreamWrite, ClusterID: "dev-eks", Context: "dev-eks", Namespace: "team-a", Verb: "patch", Group: "core", Kind: "namespaces", Name: "team-a"}
 	r = GrantRule(ns)
 	assert.Equal(t, "core", r.Group)
 	assert.Equal(t, "namespaces", r.Kind)
 	assert.True(t, allows(r, ns))
-	pod := Action{Class: UpstreamWrite, Context: "dev-eks", Namespace: "team-a", Verb: "delete", Group: "core", Kind: "pods", Name: "api"}
+	pod := Action{Class: UpstreamWrite, ClusterID: "dev-eks", Context: "dev-eks", Namespace: "team-a", Verb: "delete", Group: "core", Kind: "pods", Name: "api"}
 	assert.False(t, allows(r, pod), "a Namespace's grant is the object, not what is in it")
-	assert.Equal(t, "Allow writes of core namespaces in dev-eks / team-a", r.Line())
+	assert.Equal(t, "Allow writes of core namespaces in dev-eks / team-a", line(r))
 	finalize := ns
 	finalize.Kind = "namespaces/finalize"
 	assert.Equal(t, "namespaces/finalize", GrantRule(finalize).Kind, "a Namespace's subresource names it too")
 }
 
 func TestAClusterScopedGrantNamesTheResource(t *testing.T) {
-	node := Action{Class: UpstreamWrite, Context: "dev-eks", Verb: "patch", Group: "core", Kind: "nodes", Name: "n1"}
+	node := Action{Class: UpstreamWrite, ClusterID: "dev-eks", Context: "dev-eks", Verb: "patch", Group: "core", Kind: "nodes", Name: "n1"}
 	r := GrantRule(node)
-	assert.Equal(t, Rule{Effect: Allow, Class: UpstreamWrite, Context: "dev-eks", Group: "core", Kind: "nodes"}, r)
+	assert.Equal(t, Rule{Effect: Allow, Class: UpstreamWrite, ClusterID: "dev-eks", Group: "core", Kind: "nodes"}, r)
 	other := node
 	other.Name = "n2"
 	assert.True(t, allows(r, other))
 	for _, ns := range []string{"", "team-a"} {
-		pod := Action{Class: UpstreamWrite, Context: "dev-eks", Namespace: ns, Verb: "patch", Group: "core", Kind: "pods"}
+		pod := Action{Class: UpstreamWrite, ClusterID: "dev-eks", Context: "dev-eks", Namespace: ns, Verb: "patch", Group: "core", Kind: "pods"}
 		assert.False(t, allows(r, pod), "a pod write in %q", ns)
 	}
-	role := Action{Class: UpstreamWrite, Context: "dev-eks", Verb: "patch", Group: "rbac.authorization.k8s.io", Kind: "clusterroles"}
+	role := Action{Class: UpstreamWrite, ClusterID: "dev-eks", Context: "dev-eks", Verb: "patch", Group: "rbac.authorization.k8s.io", Kind: "clusterroles"}
 	assert.False(t, allows(r, role))
 }
 
 func TestACommandRuleNamesTheChange(t *testing.T) {
-	del := Action{Class: UpstreamWrite, Context: "dev*", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods", Name: "a"}
+	del := Action{Class: UpstreamWrite, ClusterID: "c1", Context: "dev*", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods", Name: "a"}
 	r := CommandRule(del)
 	assert.True(t, r.Command)
 	other := del
 	other.Name = "b"
 	assert.True(t, allows(r, other), "another pod's delete")
 	for name, act := range map[string]Action{
-		"a deployment's delete":   {Class: UpstreamWrite, Context: "dev*", Namespace: "web", Verb: "delete", Group: "apps", Kind: "deployments"},
-		"a patch of a pod":        {Class: UpstreamWrite, Context: "dev*", Namespace: "web", Verb: "patch", Group: "core", Kind: "pods"},
-		"a pod delete in dev-eks": {Class: UpstreamWrite, Context: "dev-eks", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods"},
+		"a deployment's delete":           {Class: UpstreamWrite, ClusterID: "c1", Namespace: "web", Verb: "delete", Group: "apps", Kind: "deployments"},
+		"a patch of a pod":                {Class: UpstreamWrite, ClusterID: "c1", Namespace: "web", Verb: "patch", Group: "core", Kind: "pods"},
+		"a pod delete on another cluster": {Class: UpstreamWrite, ClusterID: "c2", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods"},
 	} {
 		assert.False(t, allows(r, act), name)
 	}
-	assert.Equal(t, `Allow delete of core pods in "dev*" / web for this command`, r.Line())
+	assert.Equal(t, `Allow delete of core pods in "dev*" / web for this command`, r.Line(del.Context))
 
 	b, err := json.Marshal(r)
 	require.NoError(t, err)
@@ -551,13 +525,13 @@ func TestNoPromptsRefusesWhatWouldAsk(t *testing.T) {
 }
 
 func TestASecretReadGrantNamesItsScope(t *testing.T) {
-	get := Action{Class: SecretRead, Context: "dev-eks", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets", Name: "db"}
-	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks", Namespace: "team-a"}, GrantRule(get))
-	list := Action{Class: SecretRead, Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets"}
-	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks"}, GrantRule(list))
+	get := Action{Class: SecretRead, ClusterID: "dev-eks", Context: "dev-eks", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets", Name: "db"}
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, ClusterID: "dev-eks", Namespace: "team-a"}, GrantRule(get))
+	list := Action{Class: SecretRead, ClusterID: "dev-eks", Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets"}
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, ClusterID: "dev-eks"}, GrantRule(list))
 
-	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets", Command: true}, CommandRule(get))
-	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets", Command: true}, CommandRule(list))
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, ClusterID: "dev-eks", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets", Command: true}, CommandRule(get))
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, ClusterID: "dev-eks", Verb: "list", Group: "core", Kind: "secrets", Command: true}, CommandRule(list))
 
 	other := get
 	other.Name, other.Verb = "api", "list"
@@ -568,16 +542,16 @@ func TestASecretReadGrantNamesItsScope(t *testing.T) {
 }
 
 func TestAClassSixRuleReadsAsReads(t *testing.T) {
-	list := Action{Class: SecretRead, Context: "dev-eks", Namespace: "team-a", Verb: "list", Group: "core", Kind: "secrets"}
-	wide := Action{Class: SecretRead, Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets"}
+	list := Action{Class: SecretRead, ClusterID: "dev-eks", Context: "dev-eks", Namespace: "team-a", Verb: "list", Group: "core", Kind: "secrets"}
+	wide := Action{Class: SecretRead, ClusterID: "dev-eks", Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets"}
 	for want, rule := range map[string]Rule{
 		"Allow Secret reads in dev-eks / team-a":                          GrantRule(list),
 		"Allow Secret reads in dev-eks":                                   GrantRule(wide),
 		"Allow list of core secrets in dev-eks / team-a for this command": CommandRule(list),
-		"Allow reads of core secrets in dev-eks":                          {Effect: Allow, Class: SecretRead, Context: "dev-eks", Group: "core", Kind: "secrets"},
+		"Allow reads of core secrets in dev-eks":                          {Effect: Allow, Class: SecretRead, ClusterID: "dev-eks", Group: "core", Kind: "secrets"},
 	} {
-		assert.Equal(t, want, rule.Line())
-		assert.NotContains(t, rule.Line(), "writes")
+		assert.Equal(t, want, line(rule))
+		assert.NotContains(t, line(rule), "writes")
 	}
 }
 
@@ -639,3 +613,41 @@ func TestAClusterActionStoresNoTarget(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"target":"aws"`)
 }
+
+func TestAClassIsStoredByName(t *testing.T) {
+	t.Parallel()
+	for class, name := range map[Class]string{UpstreamWrite: "upstream-write", Destructive: "destructive", SecretRead: "secret-read"} {
+		assert.Equal(t, name, class.Name())
+		got, ok := ClassNamed(name)
+		assert.True(t, ok, name)
+		assert.Equal(t, class, got)
+	}
+	for _, name := range []string{"", "read-inside", "Destructive"} {
+		_, ok := ClassNamed(name)
+		assert.False(t, ok, name)
+	}
+}
+
+func TestSameIgnoresTheID(t *testing.T) {
+	t.Parallel()
+	a := Rule{ID: "a", Effect: Allow, Class: UpstreamWrite, ClusterID: "dev"}
+	b := a
+	b.ID = "b"
+	assert.True(t, a.Same(b))
+	b.Namespace = "web"
+	assert.False(t, a.Same(b))
+}
+
+// A read of the rules that failed allows nothing, and refuses every cluster
+// write and Secret read.
+func TestUnreadRulesRefuseWritesAndSecretReads(t *testing.T) {
+	t.Parallel()
+	p := Policy{Mode: Auto, Rules: Unread()}
+	for _, class := range []Class{UpstreamWrite, Destructive, SecretRead} {
+		got, _ := p.Authorize(patch(class))
+		assert.Equal(t, Refuse, got, "class %d", class)
+	}
+}
+
+// line is r in the user's words, naming its cluster by its id.
+func line(r Rule) string { return r.Line(string(r.ClusterID)) }

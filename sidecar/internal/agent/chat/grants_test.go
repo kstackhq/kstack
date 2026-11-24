@@ -16,7 +16,6 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -34,12 +33,57 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
-// seedGrant writes a chat_grants row holding rule as given.
-func seedGrant(t *testing.T, db *appdb.DB, chatID ChatID, rule string) {
+// exec runs q on db's writer.
+func exec(t *testing.T, db *appdb.DB, q string, args ...any) {
 	t.Helper()
-	_, err := db.Write.Exec(`INSERT INTO chat_grants (id, chat_id, rule, created_at) VALUES (?, ?, ?, ?)`,
-		appdb.NewID(), string(chatID), rule, time.Now().UnixMilli())
+	_, err := db.Write.Exec(q, args...)
 	require.NoError(t, err)
+}
+
+// seedKubeRule writes a kube_rules row of chatID's, on cluster 1.
+func seedKubeRule(t *testing.T, db *appdb.DB, chatID ChatID, id string, effect permissions.Effect, class permissions.Class) {
+	t.Helper()
+	exec(t, db, `INSERT INTO kube_rules (id, chat_id, effect, class, cluster_id, created_at) VALUES (?, ?, ?, ?, '1', ?)`,
+		id, string(chatID), string(effect), class.Name(), time.Now().UnixMilli())
+}
+
+// seedFolderGrant writes a folder_grants row of chatID's, as given.
+func seedFolderGrant(t *testing.T, db *appdb.DB, chatID ChatID, id, folder, access string) {
+	t.Helper()
+	exec(t, db, `INSERT INTO folder_grants (id, chat_id, folder, access, created_at) VALUES (?, ?, ?, ?, ?)`,
+		id, string(chatID), folder, access, time.Now().UnixMilli())
+}
+
+// rowsIn is how many rows table holds.
+func rowsIn(t *testing.T, db *appdb.DB, table string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, db.Read.QueryRow(`SELECT COUNT(*) FROM `+table).Scan(&n))
+	return n
+}
+
+// foldersFor is s.FoldersFor, which must read.
+func foldersFor(t *testing.T, s *service, chatID ChatID) []session.Folder {
+	t.Helper()
+	folders, err := s.FoldersFor(t.Context(), chatID)
+	require.NoError(t, err)
+	return folders
+}
+
+// grantedFolders is sess's folders, which must read.
+func grantedFolders(t *testing.T, sess session.Session) []session.Folder {
+	t.Helper()
+	folders, err := sess.GrantedFolders(t.Context())
+	require.NoError(t, err)
+	return folders
+}
+
+// folderGrants is s.FolderGrants, which must read.
+func folderGrants(t *testing.T, s *service, chatID ChatID) (always, chat []FolderGrant) {
+	t.Helper()
+	always, chat, err := s.FolderGrants(t.Context(), chatID)
+	require.NoError(t, err)
+	return always, chat
 }
 
 func TestAChatsGrantsGoWithTheChat(t *testing.T) {
@@ -48,150 +92,178 @@ func TestAChatsGrantsGoWithTheChat(t *testing.T) {
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	other := seedChat(t, s.db, aChat("1", time.Now()))
-	assert.Empty(t, s.grantsFor(t.Context(), c.ID))
+	assert.Empty(t, s.chatRules(t.Context(), c.ID))
 
-	allow := permissions.Rule{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite}
-	seedGrant(t, s.db, c.ID, `{"id":"a","effect":"allow","class":4}`)
-	assert.Equal(t, []permissions.Rule{allow}, s.grantsFor(t.Context(), c.ID), "a row is read live")
-	assert.Empty(t, s.grantsFor(t.Context(), other.ID), "another chat's rows are its own")
+	allow := permissions.Rule{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1"}
+	seedKubeRule(t, s.db, c.ID, "a", permissions.Allow, permissions.UpstreamWrite)
+	seedFolderGrant(t, s.db, c.ID, "f", "/srv/code", "read")
+	assert.Equal(t, []permissions.Rule{allow}, s.chatRules(t.Context(), c.ID), "a row is read live, and a folder grant is no rule")
+	assert.Empty(t, s.chatRules(t.Context(), other.ID), "another chat's rows are its own")
 
-	seedGrant(t, s.db, c.ID, `{"id":`)
-	assert.Equal(t, []permissions.Rule{allow, permissions.Refused}, s.grantsFor(t.Context(), c.ID),
-		"a row that does not decode refuses the chat's cluster writes")
-
-	_, err := s.db.Write.Exec(`DELETE FROM chats WHERE id = ?`, string(c.ID))
-	require.NoError(t, err)
-	var n int
-	require.NoError(t, s.db.Read.QueryRow(`SELECT COUNT(*) FROM chat_grants`).Scan(&n))
-	assert.Zero(t, n, "the rows go with the chat")
+	exec(t, s.db, `DELETE FROM chats WHERE id = ?`, string(c.ID))
+	assert.Zero(t, rowsIn(t, s.db, "kube_rules"), "the rows go with the chat")
+	assert.Zero(t, rowsIn(t, s.db, "folder_grants"))
 }
 
-// A key Rule does not name may be a narrowing field misspelled, so the row
-// refuses rather than reads as a wider grant.
-func TestAGrantWithAnUnknownKeyRefuses(t *testing.T) {
+// Every field of a rule survives its row.
+func TestAChatsRuleRoundTripsThroughItsRow(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	seedGrant(t, s.db, c.ID, `{"id":"a","effect":"allow","class":4,"namepsace":"team-a"}`)
-
-	assert.Equal(t, []permissions.Rule{permissions.Refused}, s.grantsFor(t.Context(), c.ID))
+	rule := permissions.Rule{Effect: permissions.Deny, Class: permissions.Destructive, ClusterID: "2", Namespace: "team-a",
+		Verb: "delete", Group: "apps", Kind: "deployments", Inside: true}
+	added, err := s.addKubeRule(t.Context(), c.ID, rule)
+	require.NoError(t, err)
+	rule.ID = added.ID
+	assert.Equal(t, []permissions.Rule{rule}, s.chatRules(t.Context(), c.ID))
 }
 
-func TestTheSessionCarriesTheContextsMode(t *testing.T) {
+// withSettingsOnItsDB gives s settings over its own app.db, holding the
+// clusters dev and prod.
+func withSettingsOnItsDB(t *testing.T, s *service) {
+	t.Helper()
+	for id, context := range map[string]string{"dev": "dev-eks", "prod": "prod-eu"} {
+		exec(t, s.db, `INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES (?, 'kubeconfig', ?, 0, 0)`, id, context)
+	}
+	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, "")
+}
+
+// A session's policy is the mode of the cluster the action runs on, read
+// live, and the chat's rules then the always rules.
+func TestTheSessionReadsTheClustersMode(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
+	withSettingsOnItsDB(t, s)
+	ctx := t.Context()
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	sess := s.sessionFor(c.ID, false, false)
 
-	assert.Equal(t, permissions.Ask, sess.Policy(t.Context(), "dev").Mode)
-	require.NoError(t, s.settings.SetDefaultMode(permissions.Auto))
-	assert.Equal(t, permissions.Auto, sess.Policy(t.Context(), "dev").Mode, "a mode changed in the file reaches the next write")
-	require.NoError(t, s.settings.SetMode("prod-eu", permissions.ReadOnly))
-	assert.Equal(t, permissions.ReadOnly, sess.Policy(t.Context(), "prod-eu").Mode)
-	assert.Empty(t, sess.Policy(t.Context(), "dev").Rules)
+	assert.Equal(t, permissions.Ask, sess.Policy(ctx, "dev").Mode)
+	require.NoError(t, s.settings.SetDefaultMode(ctx, permissions.Auto))
+	assert.Equal(t, permissions.Auto, sess.Policy(ctx, "dev").Mode, "a mode changed in Settings reaches the next write")
+	require.NoError(t, s.settings.SetMode(ctx, "prod", permissions.ReadOnly))
+	assert.Equal(t, permissions.ReadOnly, sess.Policy(ctx, "prod").Mode)
+	assert.Equal(t, permissions.Auto, sess.Policy(ctx, "dev").Mode)
+	assert.Empty(t, sess.Policy(ctx, "dev").Rules)
 
-	allow := permissions.Rule{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite}
-	require.NoError(t, s.settings.AddRule(allow))
-	seedGrant(t, s.db, c.ID, `{"id":"g","effect":"deny","class":4}`)
+	always, err := s.settings.AddKubeRule(ctx, permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "dev"})
+	require.NoError(t, err)
+	seedKubeRule(t, s.db, c.ID, "g", permissions.Deny, permissions.UpstreamWrite)
 	ids := []string{}
-	for _, r := range sess.Policy(t.Context(), "dev").Rules {
+	for _, r := range sess.Policy(ctx, "dev").Rules {
 		ids = append(ids, r.ID)
 	}
-	assert.Equal(t, []string{"g", "a"}, ids, "the chat's grants, then the always rules")
+	assert.Equal(t, []string{"g", always.ID}, ids, "the chat's rules, then the always rules")
 }
 
-// A read of the grants that fails may have hidden a Deny, so it refuses the
-// chat's cluster writes, and a grant that cannot read them is not written.
+// A policy whose mode or rules cannot be read is read-only and refuses every
+// cluster write and Secret read.
+func TestAPolicyThatCannotBeReadRefuses(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	withSettingsOnItsDB(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	_, err := s.settings.AddKubeRule(t.Context(), permissions.Rule{Effect: permissions.Allow, Class: permissions.SecretRead, ClusterID: "dev"})
+	require.NoError(t, err)
+	for _, table := range []string{"approval_modes", "kube_rules"} {
+		exec(t, s.db, `DROP TABLE `+table)
+	}
+
+	p := s.sessionFor(c.ID, false, false).Policy(t.Context(), "dev")
+	assert.Equal(t, permissions.ReadOnly, p.Mode)
+	for _, class := range []permissions.Class{permissions.UpstreamWrite, permissions.SecretRead} {
+		got, _ := p.Authorize(permissions.Action{Class: class, ClusterID: "1", Context: "dev-eks", Namespace: "web", Verb: "get", Group: "core", Kind: "secrets"})
+		assert.Equal(t, permissions.Refuse, got, "class %d", class)
+	}
+}
+
+// A read of the chat's rules that fails may have hidden a Deny, so it refuses
+// the chat's cluster writes and Secret reads, and a rule that cannot read
+// them is not written.
 func TestAGrantsReadThatFailsRefuses(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	_, err := s.db.Write.Exec(`DROP TABLE chat_grants`)
-	require.NoError(t, err)
+	seedKubeRule(t, s.db, c.ID, "a", permissions.Allow, permissions.UpstreamWrite)
+	exec(t, s.db, `DROP TABLE kube_rules`)
 
-	assert.Equal(t, []permissions.Rule{permissions.Refused}, s.grantsFor(t.Context(), c.ID))
-	_, err = s.addGrant(t.Context(), c.ID, folderRule(home, false))
+	assert.Equal(t, permissions.Unread(), s.chatRules(t.Context(), c.ID))
+	_, err := s.addKubeRule(t.Context(), c.ID, permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1"})
 	assert.Error(t, err)
-	assert.Error(t, s.GrantFolder(t.Context(), c.ID, home, false))
 }
 
-// A grant's write or removal that fails reaches the caller.
+// A rule's write or removal that fails reaches the caller.
 func TestAGrantsWriteThatFailsRefuses(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, Context: "dev"}
-	added, err := s.addGrant(t.Context(), c.ID, rule)
+	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1"}
+	added, err := s.addKubeRule(t.Context(), c.ID, rule)
 	require.NoError(t, err)
 	for _, kind := range []string{"INSERT", "DELETE"} {
-		_, err := s.db.Write.Exec(`CREATE TRIGGER refuse_` + kind + ` BEFORE ` + kind + ` ON chat_grants
+		exec(t, s.db, `CREATE TRIGGER refuse_`+kind+` BEFORE `+kind+` ON kube_rules
 			BEGIN SELECT RAISE(ABORT, 'refused'); END`)
-		require.NoError(t, err)
 	}
 
-	rule.Context = "prod"
-	_, err = s.addGrant(t.Context(), c.ID, rule)
+	rule.ClusterID = "2"
+	_, err = s.addKubeRule(t.Context(), c.ID, rule)
 	assert.ErrorContains(t, err, "refused")
-	_, err = s.RemoveChatGrant(t.Context(), c.ID, added.ID)
+	_, err = s.RemoveChatKubeRule(t.Context(), c.ID, added.ID)
 	assert.ErrorContains(t, err, "refused")
-	assert.Equal(t, []permissions.Rule{added}, s.grantsFor(t.Context(), c.ID))
+	assert.Equal(t, []permissions.Rule{added}, s.chatRules(t.Context(), c.ID))
 }
 
-// A chat's rules are written, listed, changed in place and removed by id, and
-// the command's next decision reads each change.
-func TestAChatsGrantsAreListedAndRemoved(t *testing.T) {
+// A chat's rules are written, listed and removed by id, and the command's next
+// decision reads each change. Its folder grants are no rules.
+func TestAChatsRulesAreListedAndRemoved(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
 	ctx := t.Context()
+	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, Context: "dev", Namespace: "web"}
+	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1", Namespace: "web"}
+	require.NoError(t, s.GrantFolder(ctx, c.ID, filepath.Join(home, "code"), false))
 
-	added, err := s.addGrant(ctx, c.ID, rule)
+	added, err := s.addKubeRule(ctx, c.ID, rule)
 	require.NoError(t, err)
 	require.NotEmpty(t, added.ID)
-	var rowID string
-	require.NoError(t, s.db.Read.QueryRow(`SELECT id FROM chat_grants`).Scan(&rowID))
-	assert.Equal(t, rowID, added.ID, "the row's id is the rule's")
-	assert.Equal(t, []permissions.Rule{added}, s.grantsFor(ctx, c.ID))
+	listed, err := s.ChatKubeRules(ctx, c.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []permissions.Rule{added}, listed)
 
-	again, err := s.addGrant(ctx, c.ID, rule)
+	again, err := s.addKubeRule(ctx, c.ID, rule)
 	require.NoError(t, err)
 	assert.Equal(t, added, again, "a rule the chat holds is not written twice")
-	assert.Len(t, s.grantsFor(ctx, c.ID), 1)
+	assert.Len(t, s.chatRules(ctx, c.ID), 1)
 
-	changed := added
-	changed.Namespace = "api"
-	_, err = s.addGrant(ctx, c.ID, changed)
-	require.NoError(t, err)
-	assert.Equal(t, []permissions.Rule{changed}, s.grantsFor(ctx, c.ID), "a rule under its id replaces that row's")
-	stranger := changed
-	stranger.ID = appdb.NewID()
-	_, err = s.addGrant(ctx, c.ID, stranger)
-	assert.ErrorIs(t, err, ErrGrantGone)
+	_, chat := folderGrants(t, s, c.ID)
+	require.Len(t, chat, 1)
+	_, err = s.RemoveChatKubeRule(ctx, c.ID, chat[0].ID)
+	assert.ErrorIs(t, err, ErrGrantGone, "a folder grant is not a rule")
 
-	left, err := s.RemoveChatGrant(ctx, c.ID, changed.ID)
+	left, err := s.RemoveChatKubeRule(ctx, c.ID, added.ID)
 	require.NoError(t, err)
 	assert.Empty(t, left)
-	assert.Empty(t, s.grantsFor(ctx, c.ID), "the command's next decision no longer finds it")
-	_, err = s.RemoveChatGrant(ctx, c.ID, changed.ID)
+	assert.Empty(t, s.chatRules(ctx, c.ID), "the command's next decision no longer finds it")
+	_, err = s.RemoveChatKubeRule(ctx, c.ID, added.ID)
 	assert.ErrorIs(t, err, ErrGrantGone)
 
-	_, err = s.db.Write.Exec(`DELETE FROM chats WHERE id = ?`, string(c.ID))
-	require.NoError(t, err)
-	_, err = s.RemoveChatGrant(ctx, c.ID, appdb.NewID())
+	exec(t, s.db, `DELETE FROM chats WHERE id = ?`, string(c.ID))
+	_, err = s.RemoveChatKubeRule(ctx, c.ID, appdb.NewID())
 	assert.ErrorIs(t, err, ErrChatGone)
-	_, err = s.addGrant(ctx, c.ID, rule)
+	_, err = s.addKubeRule(ctx, c.ID, rule)
 	assert.ErrorIs(t, err, ErrChatGone)
 }
 
-// Each write or revoke of a chat's rules pings its grants key once it commits,
-// and a refused one pings nothing, so a watch of the chat's folders re-reads.
+// Each write or revoke of a chat's rules or folder grants pings its grants
+// key once it commits, and a refused one pings nothing, so a watch of the
+// chat's folders re-reads.
 func TestAChatsGrantWritesPingItsKey(t *testing.T) {
 	t.Parallel()
 
@@ -215,23 +287,28 @@ func TestAChatsGrantWritesPingItsKey(t *testing.T) {
 
 	require.NoError(t, s.GrantFolder(ctx, c.ID, filepath.Join(home, "code"), false))
 	pinged("a folder grant")
-	added, err := s.addGrant(ctx, c.ID, permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite})
+	_, chat := folderGrants(t, s, c.ID)
+	require.NoError(t, s.RevokeFolder(ctx, c.ID, chat[0].ID))
+	pinged("a folder grant revoked")
+	added, err := s.addKubeRule(ctx, c.ID, permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1"})
 	require.NoError(t, err)
 	pinged("a rule an approval wrote")
-	_, err = s.RemoveChatGrant(ctx, c.ID, added.ID)
+	_, err = s.addKubeRule(ctx, c.ID, permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1"})
 	require.NoError(t, err)
-	pinged("a revoke")
+	quiet("a rule the chat holds already")
+	_, err = s.RemoveChatKubeRule(ctx, c.ID, added.ID)
+	require.NoError(t, err)
+	pinged("a rule removed")
 
-	_, err = s.RemoveChatGrant(ctx, c.ID, added.ID)
+	_, err = s.RemoveChatKubeRule(ctx, c.ID, added.ID)
 	require.ErrorIs(t, err, ErrGrantGone)
+	quiet("a refused removal")
+	require.ErrorIs(t, s.RevokeFolder(ctx, c.ID, chat[0].ID), ErrGrantGone)
 	quiet("a refused revoke")
 	require.Error(t, s.GrantFolder(ctx, c.ID, filepath.Join(home, "missing"), false))
 	quiet("a refused folder grant")
 	require.ErrorIs(t, s.GrantFolder(ctx, ChatID(appdb.NewID()), filepath.Join(home, "code"), false), ErrChatGone)
 	quiet("a grant for a chat that is gone")
-	_, err = s.addGrant(ctx, c.ID, permissions.Rule{ID: appdb.NewID(), Effect: permissions.Allow, Class: permissions.UpstreamWrite})
-	require.ErrorIs(t, err, ErrGrantGone)
-	quiet("a refused rule")
 	require.NoError(t, s.GrantFolder(ctx, other.ID, filepath.Join(home, "code"), false))
 	quiet("another chat's grant")
 }
@@ -264,15 +341,6 @@ func TestTheSwitchIsReadLive(t *testing.T) {
 	assert.Equal(t, session.NetworkTurn, s.sessionFor(c.ID, false, true).Network(t.Context()))
 }
 
-// folderRule is an always or chat grant of path.
-func folderRule(path string, write bool) permissions.Rule {
-	class := permissions.ReadInside
-	if write {
-		class = permissions.WriteInside
-	}
-	return permissions.Rule{Effect: permissions.Allow, Class: class, Folder: path}
-}
-
 func TestFoldersForNoChatIsTheAlwaysOnes(t *testing.T) {
 	t.Parallel()
 
@@ -280,16 +348,13 @@ func TestFoldersForNoChatIsTheAlwaysOnes(t *testing.T) {
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	code, svc := filepath.Join(home, "code"), filepath.Join(home, "code", "svc")
-	always := folderRule(svc, true)
-	always.ID = "always"
-	require.NoError(t, s.settings.AddRule(always))
-	_, err := s.addGrant(t.Context(), c.ID, folderRule(code, false))
-	require.NoError(t, err)
+	require.NoError(t, s.GrantFolder(t.Context(), "", svc, true))
+	require.NoError(t, s.GrantFolder(t.Context(), c.ID, code, false))
 
-	assert.Equal(t, []session.Folder{{Path: svc, Write: true}}, s.FoldersFor(t.Context(), ""), "the always folders alone")
-	assert.Equal(t, []session.Folder{{Path: code}, {Path: svc, Write: true}}, s.FoldersFor(t.Context(), c.ID),
+	assert.Equal(t, []session.Folder{{Path: svc, Write: true}}, foldersFor(t, s, ""), "the always folders alone")
+	assert.Equal(t, []session.Folder{{Path: code}, {Path: svc, Write: true}}, foldersFor(t, s, c.ID),
 		"the chat's, then the always ones")
-	assert.Equal(t, s.FoldersFor(t.Context(), c.ID), s.sessionFor(c.ID, false, false).GrantedFolders(t.Context()))
+	assert.Equal(t, foldersFor(t, s, c.ID), grantedFolders(t, s.sessionFor(c.ID, false, false)))
 }
 
 func TestNoFolderAppliesWithoutASandbox(t *testing.T) {
@@ -298,16 +363,14 @@ func TestNoFolderAppliesWithoutASandbox(t *testing.T) {
 	s := newTestService(t)
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	always := folderRule(home, false)
-	always.ID = "home"
-	require.NoError(t, s.settings.AddRule(always))
-	require.NotEmpty(t, s.sessionFor(c.ID, false, false).GrantedFolders(t.Context()))
+	require.NoError(t, s.GrantFolder(t.Context(), "", home, false))
+	require.NotEmpty(t, grantedFolders(t, s.sessionFor(c.ID, false, false)))
 
-	assert.Empty(t, s.sessionFor(c.ID, true, false).GrantedFolders(t.Context()), "a chat switched outside the sandbox gets none")
+	assert.Empty(t, grantedFolders(t, s.sessionFor(c.ID, true, false)), "a chat switched outside the sandbox gets none")
 	s.sandboxStatus = sandbox.Status{Reason: "no bwrap"}
-	assert.Empty(t, s.FoldersFor(t.Context(), c.ID))
-	assert.Empty(t, s.sessionFor(c.ID, false, false).GrantedFolders(t.Context()))
-	listed, chat := s.FolderGrants(t.Context(), c.ID)
+	assert.Empty(t, foldersFor(t, s, c.ID))
+	assert.Empty(t, grantedFolders(t, s.sessionFor(c.ID, false, false)))
+	listed, chat := folderGrants(t, s, c.ID)
 	assert.Empty(t, listed, "nor is one listed")
 	assert.Empty(t, chat)
 }
@@ -316,53 +379,84 @@ func TestFoldersForAnswersNoneWithNoSnapshot(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
+	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, "")
 	s.sandboxStatus = sandbox.Status{Available: true}
-	dir := testutil.GrantableDir(t)
-	always := folderRule(dir, false)
-	always.ID = "a"
-	require.NoError(t, s.settings.AddRule(always))
-	assert.Empty(t, s.FoldersFor(t.Context(), ""), "a service with no zones checks no folder")
+	require.NoError(t, s.settings.GrantFolder(t.Context(), testutil.GrantableDir(t), false))
+	assert.Empty(t, foldersFor(t, s, ""), "a service with no zones checks no folder")
+}
+
+// A read of the folder grants that fails is an error wherever they are read:
+// a run, the listing, a send, never an empty list.
+func TestAFoldersReadThatFailsIsAnError(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	home := grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	require.NoError(t, s.GrantFolder(t.Context(), "", home, false))
+	exec(t, s.db, `DROP TABLE folder_grants`)
+
+	for _, chatID := range []ChatID{"", c.ID} {
+		_, err := s.FoldersFor(t.Context(), chatID)
+		assert.Error(t, err)
+		_, _, err = s.FolderGrants(t.Context(), chatID)
+		assert.Error(t, err)
+	}
+	_, err := s.sessionFor(c.ID, false, false).GrantedFolders(t.Context())
+	assert.Error(t, err)
+	_, err = s.Send(t.Context(), &c.ID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi", nil)
+	assert.ErrorContains(t, err, "folder_grants", "a turn does not start")
+}
+
+// An always grant stored unchecked fails its check where it is listed, and a
+// chat's: each is listed with its refusal.
+func TestAGrantIsListedWithItsRefusal(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	home := grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	seedFolderGrant(t, s.db, c.ID, "stored", home, "write")
+	require.NoError(t, s.settings.GrantFolder(t.Context(), filepath.Join(home, ".ssh"), false))
+
+	always, chat := folderGrants(t, s, c.ID)
+	require.Len(t, always, 1)
+	require.Len(t, chat, 1)
+	assert.NotEmpty(t, always[0].Refusal)
+	assert.NotEmpty(t, chat[0].Refusal)
+	assert.Empty(t, foldersFor(t, s, c.ID), "no run takes either")
 }
 
 func TestAChatsFoldersJoinTheAlwaysOnes(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
+	ctx := t.Context()
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	code, svc := filepath.Join(home, "code"), filepath.Join(home, "code", "svc")
 	sess := s.sessionFor(c.ID, false, false)
 
-	require.NoError(t, s.GrantFolder(t.Context(), c.ID, code, false))
-	assert.Equal(t, []session.Folder{{Path: code}}, sess.GrantedFolders(t.Context()), "a chat's grant is read live")
-	require.NoError(t, s.GrantFolder(t.Context(), "", svc, true))
-	assert.Equal(t, []session.Folder{{Path: code}, {Path: svc, Write: true}}, sess.GrantedFolders(t.Context()))
+	require.NoError(t, s.GrantFolder(ctx, c.ID, code, false))
+	assert.Equal(t, []session.Folder{{Path: code}}, grantedFolders(t, sess), "a chat's grant is read live")
+	require.NoError(t, s.GrantFolder(ctx, "", svc, true))
+	assert.Equal(t, []session.Folder{{Path: code}, {Path: svc, Write: true}}, grantedFolders(t, sess))
 
-	always, chat := s.FolderGrants(t.Context(), c.ID)
+	always, chat := folderGrants(t, s, c.ID)
 	require.Len(t, always, 1)
 	require.Len(t, chat, 1)
 	assert.Equal(t, FolderGrant{ID: always[0].ID, Path: svc, Write: true}, always[0])
 	assert.Equal(t, FolderGrant{ID: chat[0].ID, Path: code}, chat[0])
 
-	assert.ErrorIs(t, s.RevokeFolder(chat[0].ID), ErrGrantGone, "a chat's grant is removed through the chat")
-	require.NoError(t, s.RevokeFolder(always[0].ID))
-	assert.Equal(t, []session.Folder{{Path: code}}, sess.GrantedFolders(t.Context()))
-	assert.ErrorIs(t, s.RevokeFolder(always[0].ID), ErrGrantGone)
+	assert.ErrorIs(t, s.RevokeFolder(ctx, "", chat[0].ID), ErrGrantGone, "a chat's grant is revoked through the chat")
+	assert.ErrorIs(t, s.RevokeFolder(ctx, c.ID, always[0].ID), ErrGrantGone, "an always grant is no chat's")
+	require.NoError(t, s.RevokeFolder(ctx, "", always[0].ID))
+	assert.Equal(t, []session.Folder{{Path: code}}, grantedFolders(t, sess))
+	assert.ErrorIs(t, s.RevokeFolder(ctx, "", always[0].ID), ErrGrantGone)
 
-	rules, err := s.ChatGrants(t.Context(), c.ID)
-	require.NoError(t, err)
-	require.Len(t, rules, 1)
-	assert.Equal(t, permissions.Rule{ID: rules[0].ID, Effect: permissions.Allow, Class: permissions.ReadInside, Folder: code}, rules[0])
-	rules, err = s.RemoveChatGrant(t.Context(), c.ID, chat[0].ID)
-	require.NoError(t, err)
-	assert.Empty(t, rules)
-	assert.Empty(t, sess.GrantedFolders(t.Context()))
-
-	cluster := permissions.Rule{ID: "c", Effect: permissions.Allow, Class: permissions.UpstreamWrite}
-	require.NoError(t, s.settings.AddRule(cluster))
-	assert.ErrorIs(t, s.RevokeFolder("c"), ErrGrantGone, "a rule that is not a folder's")
-	always, _ = s.FolderGrants(t.Context(), c.ID)
-	assert.Empty(t, always, "nor is it listed among them")
+	require.NoError(t, s.RevokeFolder(ctx, c.ID, chat[0].ID))
+	assert.Empty(t, grantedFolders(t, sess))
+	assert.ErrorIs(t, s.RevokeFolder(ctx, ChatID(appdb.NewID()), chat[0].ID), ErrChatGone)
 }
 
 func TestAGrantInTheSamePlaceChangesItsMode(t *testing.T) {
@@ -376,18 +470,18 @@ func TestAGrantInTheSamePlaceChangesItsMode(t *testing.T) {
 	// The chat's grants first, then the always ones, which "" names.
 	for _, grantee := range []ChatID{c.ID, ""} {
 		require.NoError(t, s.GrantFolder(t.Context(), grantee, svc, false))
-		beforeAlways, beforeChat := s.FolderGrants(t.Context(), c.ID)
+		beforeAlways, beforeChat := folderGrants(t, s, c.ID)
 		require.NoError(t, s.GrantFolder(t.Context(), grantee, svc, true))
-		afterAlways, afterChat := s.FolderGrants(t.Context(), c.ID)
+		afterAlways, afterChat := folderGrants(t, s, c.ID)
 		before, after := beforeChat, afterChat
 		if grantee == "" {
 			before, after = beforeAlways, afterAlways
 		}
-		require.Len(t, after, 1, "%q: one rule", grantee)
+		require.Len(t, after, 1, "%q: one grant", grantee)
 		assert.Equal(t, before[0].ID, after[0].ID, "%q: the first id", grantee)
 		assert.True(t, after[0].Write, "%q: read-write", grantee)
 	}
-	always, chat := s.FolderGrants(t.Context(), c.ID)
+	always, chat := folderGrants(t, s, c.ID)
 	assert.Len(t, always, 1, "a chat grant beside an always one on the same folder")
 	assert.Len(t, chat, 1)
 }
@@ -407,19 +501,9 @@ func TestAGrantIsCheckedWhenWritten(t *testing.T) {
 	gone := ChatID(appdb.NewID())
 	assert.ErrorIs(t, s.GrantFolder(t.Context(), gone, home, false), ErrChatGone)
 
-	always, chat := s.FolderGrants(t.Context(), c.ID)
+	always, chat := folderGrants(t, s, c.ID)
 	assert.Empty(t, always)
 	assert.Empty(t, chat)
-
-	// And again when listed: a row the check would refuse is listed refused.
-	stored := folderRule(home, true)
-	stored.ID = "stored"
-	b, err := json.Marshal(stored)
-	require.NoError(t, err)
-	seedGrant(t, s.db, c.ID, string(b))
-	_, chat = s.FolderGrants(t.Context(), c.ID)
-	require.Len(t, chat, 1)
-	assert.NotEmpty(t, chat[0].Refused)
 }
 
 func TestAGrantGoesWithTheChat(t *testing.T) {
@@ -431,40 +515,17 @@ func TestAGrantGoesWithTheChat(t *testing.T) {
 	svc := filepath.Join(home, "code", "svc")
 
 	require.NoError(t, s.GrantFolder(t.Context(), c.ID, svc, true))
-	assert.Equal(t, []session.Folder{{Path: svc, Write: true}}, s.sessionFor(c.ID, false, false).GrantedFolders(t.Context()),
+	assert.Equal(t, []session.Folder{{Path: svc, Write: true}}, grantedFolders(t, s.sessionFor(c.ID, false, false)),
 		"the chat's next command reads it")
+	assert.Equal(t, 1, rowsIn(t, s.db, "folder_grants"), "a chat's grant is a folder_grants row")
 
-	_, err := s.db.Write.Exec(`DELETE FROM chats WHERE id = ?`, string(c.ID))
-	require.NoError(t, err)
-	var n int
-	require.NoError(t, s.db.Read.QueryRow(`SELECT COUNT(*) FROM chat_grants`).Scan(&n))
-	assert.Zero(t, n)
+	exec(t, s.db, `DELETE FROM chats WHERE id = ?`, string(c.ID))
+	assert.Zero(t, rowsIn(t, s.db, "folder_grants"))
 }
 
-// While the rules field is held, Rules holds no Allow, so no always grant
-// reaches a run; Settings lists each as refused for that reason rather than as
-// a folder commands can read, and none can be revoked until the hold ends.
-func TestAHeldRulesFieldRefusesEveryAlwaysGrant(t *testing.T) {
-	t.Parallel()
-
-	s := newTestService(t)
-	home := grantableWith(t, s, `{"permissions": {"rules": [{"id": "r", "effect": "allow", "class": 1, "folder": "<home>/code"},
-		{"id": "b", "effect": "deny", "class": 9}]}}`)
-	c := seedChat(t, s.db, aChat("1", time.Now()))
-	require.True(t, s.settings.Held(settings.FieldRules))
-
-	assert.Empty(t, s.FoldersFor(t.Context(), c.ID))
-	always, _ := s.FolderGrants(t.Context(), c.ID)
-	require.Len(t, always, 1, "the grant stays listed, with its reason")
-	assert.Equal(t, filepath.Join(home, "code"), always[0].Path)
-	assert.Equal(t, RulesHeldReason, always[0].Refused)
-	assert.ErrorIs(t, s.RevokeFolder("r"), settings.ErrHeld)
-}
-
-// Two grants of one folder at once, in one place, leave one rule: the lookup
-// and the write are one transaction for a chat's, one update for an always
-// one.
-func TestConcurrentGrantsOfOneFolderLeaveOneRule(t *testing.T) {
+// Two grants of one folder at once, in one place, leave one grant: each is an
+// upsert on the folder.
+func TestConcurrentGrantsOfOneFolderLeaveOne(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
@@ -478,7 +539,7 @@ func TestConcurrentGrantsOfOneFolderLeaveOneRule(t *testing.T) {
 		}
 		wg.Wait()
 	}
-	always, chat := s.FolderGrants(t.Context(), c.ID)
+	always, chat := folderGrants(t, s, c.ID)
 	assert.Len(t, always, 1)
 	assert.Len(t, chat, 1)
 }
@@ -510,7 +571,7 @@ func TestTheMonitorSessionIsReadOnlyAndAsksNobody(t *testing.T) {
 	assert.Nil(t, sess.Policy)
 	assert.Nil(t, sess.Network)
 	assert.Nil(t, sess.Folders)
-	assert.Empty(t, sess.GrantedFolders(t.Context()))
+	assert.Empty(t, grantedFolders(t, sess))
 	assert.True(t, sess.NoPrompts)
 	assert.True(t, sess.NoSecretData)
 
@@ -520,4 +581,81 @@ func TestTheMonitorSessionIsReadOnlyAndAsksNobody(t *testing.T) {
 		got, why := policy.Authorize(permissions.Action{Class: class, Verb: "patch", Group: "apps", Kind: "deployments"})
 		assert.Equal(t, permissions.Refuse, got, "class %d: %s", class, why)
 	}
+}
+
+// A read of a chat's rules or folder grants that fails after some rows were
+// read is a failed read: the rules refuse, and the folders are an error.
+func TestAChatsReadThatFailsPartwayAnswersNone(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	for _, q := range []string{
+		`DROP TABLE kube_rules`,
+		`CREATE TABLE kube_rules (id, chat_id, effect, class, context, namespace, verb, api_group, kind, inside, created_at)`,
+		`DROP TABLE folder_grants`,
+		`CREATE TABLE folder_grants (id, chat_id, folder, access, created_at)`,
+	} {
+		exec(t, s.db, q)
+	}
+	for _, q := range []string{
+		`INSERT INTO kube_rules VALUES ('a', ?1, 'allow', 'upstream-write', '', '', '', '', '', 0, 1), ('b', ?1, 'deny', 'upstream-write', '', '', '', '', '', 'maybe', 2)`,
+		`INSERT INTO folder_grants VALUES ('a', ?1, '/srv/code', 'read', 1), ('b', ?1, NULL, 'read', 2)`,
+	} {
+		exec(t, s.db, q, string(c.ID))
+	}
+
+	assert.Equal(t, permissions.Unread(), s.chatRules(t.Context(), c.ID))
+	_, err := s.FoldersFor(t.Context(), c.ID)
+	assert.Error(t, err)
+}
+
+// A chat's grants that cannot be read fail the listing, though the always
+// ones read.
+func TestAChatsGrantsThatCannotBeReadFailTheListing(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	grantable(t, s)
+	s.settings = testSettings(t)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	exec(t, s.db, `DROP TABLE folder_grants`)
+
+	always, _, err := s.FolderGrants(t.Context(), "")
+	require.NoError(t, err)
+	assert.Empty(t, always)
+	_, _, err = s.FolderGrants(t.Context(), c.ID)
+	assert.Error(t, err)
+}
+
+// A chat's rule is checked as an always rule is, so one Kstack cannot apply
+// is refused in the user's words and nothing is written.
+func TestAChatsRuleKstackCannotApplyIsRefused(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	_, err := s.addKubeRule(t.Context(), c.ID, permissions.Rule{Effect: permissions.Allow, Class: permissions.Destructive})
+	var refusal settings.RuleRefusal
+	require.ErrorAs(t, err, &refusal)
+	assert.Equal(t, "allows a destructive write, which always asks", string(refusal))
+	assert.Zero(t, rowsIn(t, s.db, "kube_rules"))
+}
+
+// A send outside the sandbox takes no folders, so it starts though they cannot
+// be read.
+func TestASendOutsideTheSandboxReadsNoFolders(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	_, err := s.SetSandboxDisabled(t.Context(), c.ID, true)
+	require.NoError(t, err)
+	_, err = s.db.Write.Exec(`DROP TABLE folder_grants`)
+	require.NoError(t, err)
+
+	_, err = s.Send(t.Context(), &c.ID, ModeChat, "1", true, false, false, "fake", "fake", "high", reqID("1"), "hi", nil)
+	assert.NoError(t, err)
 }

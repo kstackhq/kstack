@@ -70,7 +70,6 @@ vi.mock('@/lib/logs-client', () => ({
 }));
 
 const { ChatOutboxProvider } = await import('@/lib/chat-outbox');
-const { chatGrantsContext } = await import('@/lib/chat-grants');
 const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
 const { RightSidebarProvider } = await import('@/lib/right-sidebar');
 const { LogWindowsContext } = await import('@/lib/log-windows');
@@ -3585,7 +3584,7 @@ describe('ChatTranscript', () => {
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name }));
       });
-      expect(sendMock).toHaveBeenLastCalledWith({ id: 'w-1', decision }, { additionalTypenames: ['PermissionRule'] });
+      expect(sendMock).toHaveBeenLastCalledWith({ id: 'w-1', decision }, { additionalTypenames: ['KubeRule'] });
     });
 
     it('sends Deny as Deny', async () => {
@@ -3614,19 +3613,24 @@ describe('ChatTranscript', () => {
       expect(names).toEqual(['Approve once', 'Deny']);
     });
 
-    // Always is refused while the settings hold rules Kstack cannot read; the
-    // request says so, and still takes Approve once.
+    // A refused Always says the sidecar's reason, leaves the request waiting,
+    // and still takes Approve once.
     it('says why Always was refused, and Approve once still sends', async () => {
       sendMock.mockResolvedValueOnce({
-        error: { graphQLErrors: [{ message: 'held', extensions: { code: 'KSTACK_VALIDATION_ERROR' } }] },
+        error: {
+          graphQLErrors: [
+            {
+              message: 'allows a destructive write, which always asks',
+              extensions: { code: 'KSTACK_VALIDATION_ERROR' },
+            },
+          ],
+        },
       });
       draw([waitingOn([clusterWrite()])]);
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'Always allow' }));
       });
-      expect(request()).toHaveTextContent(
-        'Kstack cannot add a rule while settings.json holds rules it cannot read. Fix them in Settings, or approve once.',
-      );
+      expect(request()).toHaveTextContent('allows a destructive write, which always asks');
       expect(request()).not.toHaveTextContent('The decision did not reach the sidecar.');
       await act(async () => {
         fireEvent.click(approve());
@@ -3923,7 +3927,7 @@ describe('ChatTranscript', () => {
                   approval: { id: 'w-2', status: 'Refused', duration: null },
                   path: '/api/v1/namespaces/web/pods/b',
                   body: '',
-                  reason: 'this context is read-only',
+                  reason: 'this cluster is read-only',
                 }),
                 clusterWrite({
                   approval: { id: 'w-3', status: 'Allowed', duration: null },
@@ -3942,7 +3946,7 @@ describe('ChatTranscript', () => {
       const items = [...screen.getByText('wc -l ~/.kube/config').closest('details')!.querySelectorAll('li')];
       expect(items.map((li) => li.textContent)).toEqual([
         'DELETE /api/v1/namespaces/web/pods/aallowedauto mode',
-        'DELETE /api/v1/namespaces/web/pods/brefusedthis context is read-only',
+        'DELETE /api/v1/namespaces/web/pods/brefusedthis cluster is read-only',
         'PATCH /api/v1/namespaces/web/pods/c?dryRun=All (dry run)allowedit changes nothing',
       ]);
       items.forEach((li) => expect(li.querySelector('[title]')).toBeNull());
@@ -4277,10 +4281,7 @@ describe('ChatTranscript', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Grant' }));
       });
 
-      expect(sendMock).toHaveBeenCalledWith(
-        { chatID: 'c1', path: '/Users/ana/code', write: false, duration: 'Chat' },
-        chatGrantsContext,
-      );
+      expect(sendMock).toHaveBeenCalledWith({ chatID: 'c1', path: '/Users/ana/code', write: false, duration: 'Chat' });
       expect(screen.queryByRole('textbox', { name: 'Folder to grant' })).toBeNull();
       expect(screen.queryByRole('button', { name: 'Grant a folder…' })).toBeNull();
       expect(screen.getByText('Granted')).toBeInTheDocument();

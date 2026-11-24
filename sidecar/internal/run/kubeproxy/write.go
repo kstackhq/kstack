@@ -148,7 +148,7 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		writeStatus(w, http.StatusForbidden, string(why))
 		return
 	}
-	act := classify(r, p, body, g.context)
+	act := classify(r, p, body, g.cluster, g.context)
 	write := Write{
 		Method: r.Method, Path: r.URL.RequestURI(), Subresource: p.subresource,
 		ContentType: r.Header.Get("Content-Type"), Body: body, DryRun: act.DryRun,
@@ -206,19 +206,19 @@ func newRequest(act permissions.Action, v permissions.Verdict, write *Write) Req
 	req := Request{Action: act, Write: write}
 	if permissions.Grantable(v, act) {
 		req.Grantable = true
-		req.CommandRule, req.ChatRule = permissions.CommandRule(act).Line(), permissions.GrantRule(act).Line()
+		req.CommandRule, req.ChatRule = permissions.CommandRule(act).Line(act.Context), permissions.GrantRule(act).Line(act.Context)
 	}
 	return req
 }
 
-// policy is the session's mode and rules for the grant's context, read now, so
+// policy is the session's mode and rules for the grant's cluster, read now, so
 // a change made meanwhile applies, joined by the command's own rules and
 // carrying the session's two flags. A session with no policy is read-only.
 // Called under the write lock.
 func (g *Grant) policy(ctx context.Context) permissions.Policy {
 	p := permissions.Policy{Mode: permissions.ReadOnly}
 	if g.session.Policy != nil {
-		p = g.session.Policy(ctx, g.context)
+		p = g.session.Policy(ctx, g.cluster)
 		p.Rules = append(slices.Clip(p.Rules), g.commandRules...)
 	}
 	p.NoPrompts, p.NoSecretData = g.session.NoPrompts, g.session.NoSecretData

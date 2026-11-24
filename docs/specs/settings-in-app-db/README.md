@@ -27,7 +27,7 @@ file's code.
 
 | Step | Spec | Moves | Migration | After it |
 | --- | --- | --- | --- | --- |
-| 1 | [Permissions](1-permissions.md) | The approval modes, the always rules and a chat's grants, into `approval_modes` and `permission_rules` | `0006` | The file keeps the sandbox group and the executables. |
+| 1 | [Permissions](1-permissions.md) | The approval modes, the always rules and a chat's grants, into `approval_modes`, `kube_rules` and `folder_grants` | `0006` | The file keeps the sandbox group and the executables. |
 | 2 | [Sandbox settings](2-sandbox-settings.md) | The cloud platform switches, into `sandbox_settings` | `0007` | The file keeps the `PATH` fields and the executables. |
 | 3 | [Executables](3-executables.md) | The registered executables, into `executables` | `0008` | The file keeps the `PATH` fields. |
 | 4 | [PATH](4-path.md) | The frozen `PATH`, into `path_entries` and `path_sync` | `0009` | The file holds nothing Kstack reads. |
@@ -45,7 +45,7 @@ both the file and `app.db` until step 5:
 
 - A step moves its area's methods onto `app.db`, laid out as `envvars` is (`store.go`,
   `statements.go`), and deletes its fields from `Settings`. The methods keep their names and
-  their meaning.
+  their meaning, except where the step's spec renames one.
 - A moved area publishes after each commit, current-on-subscribe, as `toolsettings` does.
 - A step removes its own part of "held" from the code and the wire. `settingsRefused` reports
   the areas still in the file, and goes in step 5.
@@ -56,8 +56,9 @@ both the file and `app.db` until step 5:
 
 ### No import, by decision
 
-**Nothing is imported or copied.** This is the maintainer's decision, and it overrides the
-repo's own rules for this sequence:
+**Nothing is imported or copied.** Kstack has not shipped to users, so no install is owed its
+old data, and no step weighs what a later migration would cost. This is the maintainer's
+decision, and it overrides the repo's own rules for this sequence:
 
 - [`persisted-data.md`](../../persisted-data.md) says every format `desktop/v0.0.1` wrote is
   shipped and must stay readable. `settings.json` and `chat_grants` are two of them. This
@@ -70,13 +71,15 @@ repo's own rules for this sequence:
   that shipped in `settings.json` cannot move into `app.db`. This sequence moves them.
 - [The settings-file ADR](../../adr/2026-10-07-settings-are-one-file-grouped-by-area.md) keeps
   the settings in a file. This sequence removes the file.
+- [The folder-grant ADR](../../adr/2026-10-04-a-folder-grant-is-a-rule.md) makes a folder grant
+  a `permissions.Rule`. Step 1 gives it a table and a type of its own.
 
 Where these specs and an earlier ADR or doc disagree, the specs win. Step 5 lists the docs to
 change so they agree again.
 
 **What an install of `desktop/v0.0.1` loses on upgrade:** its approval modes, its always rules
 (deny and ask rules included), its folder grants, its registered executables, its `PATH`
-decisions and every chat's grants. Each returns to its default, so a context set to read-only
+decisions and every chat's grants. Each returns to its default, so a cluster set to read-only
 becomes `ask`, and a removed `PATH` folder can be adopted again by the next sync. The release
 notes must list what to set again.
 
@@ -110,7 +113,7 @@ in the user's words, null for a row Kstack uses, as `EnvVar` has. The webview dr
 ### A read that fails
 
 A failed read is never an empty result. No row means the default, and some defaults permit: a
-context with no mode row is `ask`, and a run with no `path_sync` row searches the platform's
+cluster with no mode row is `ask`, and a run with no `path_sync` row searches the platform's
 `PATH`. So:
 
 - **A failed read is an error, and the operation that needed it stops.** A run does not start,
@@ -124,5 +127,6 @@ Each reader has a test for a failed query and for a failure after some rows were
 
 - Syncing settings across machines. `PATH` entries and executables describe one machine; the
   sync design decides how to scope them.
-- A cluster scope for any of these settings.
+- A cluster scope for any of these settings but the approval mode and the rules, which step 1
+  keys by cluster. A rule naming clusters by a pattern over their kube-contexts.
 - `host.json`, the host's own preferences.

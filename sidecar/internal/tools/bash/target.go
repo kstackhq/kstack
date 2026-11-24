@@ -22,11 +22,13 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 )
 
-// target is how a sandboxed run reaches the chat's cluster: the kube-context its
-// kubeconfig names, the context its grant decides permissions in, the directory
+// target is how a sandboxed run reaches the chat's cluster: the cluster, whose
+// mode its grant reads, the kube-context its kubeconfig names, the context its
+// grant's rules match, the directory
 // its kubectl cache lives in, and the server UID the cache is keyed on and the
 // claim vouches for, "" for a cluster never identified.
 type target struct {
+	id           apimeta.ClusterID
 	context      string
 	scopeContext string
 	cacheDir     string
@@ -63,5 +65,5 @@ func (t *Tool) target(ctx context.Context, id apimeta.ClusterID) (target, error)
 	if name == "" {
 		name = unnamedContext
 	}
-	return target{context: name, scopeContext: cluster.KubeContext(), cacheDir: cacheDir, serverUID: uid}, nil
+	return target{id: id, context: name, scopeContext: cluster.KubeContext(), cacheDir: cacheDir, serverUID: uid}, nil
 }

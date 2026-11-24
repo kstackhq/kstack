@@ -249,8 +249,8 @@ func TestAProbeReadsTheAlwaysFoldersAlone(t *testing.T) {
 	tl, fake, bin := probingTool(t)
 	writeExecutable(t, bin, "kubectl", "true")
 	granted := testutil.GrantableDir(t)
-	tl.SetAlwaysFolders(func(context.Context) []session.Folder {
-		return []session.Folder{{Path: granted}}
+	tl.SetAlwaysFolders(func(context.Context) ([]session.Folder, error) {
+		return []session.Folder{{Path: granted}}, nil
 	})
 
 	tl.ProbeExecutables(t.Context(), nil)

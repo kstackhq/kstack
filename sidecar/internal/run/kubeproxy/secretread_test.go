@@ -65,7 +65,7 @@ func TestMetadataOnly(t *testing.T) {
 
 // allowSecrets is a rule allowing Secret reads in dev / web, as a chat answer
 // writes one.
-var allowSecrets = permissions.GrantRule(permissions.Action{Class: permissions.SecretRead, Context: "dev", Namespace: "web"})
+var allowSecrets = permissions.GrantRule(permissions.Action{Class: permissions.SecretRead, ClusterID: "c1", Context: "dev", Namespace: "web"})
 
 // getSecret is a get of the Secret db in web, as kubectl get -o yaml sends it.
 func (s *served) getSecret(t *testing.T) *http.Request {
@@ -80,7 +80,7 @@ func (s *served) getSecret(t *testing.T) *http.Request {
 func TestASecretReadWithNoAskerIsRedacted(t *testing.T) {
 	api := answering(t, secretJSON)
 	for _, sess := range []session.Session{sessionIn(permissions.Ask, allowSecrets), sessionIn(permissions.Auto)} {
-		s := serveGrant(t, NewGrant(api.upstream(), sess, "dev", nil, noAsker, 1000, 1000, 32))
+		s := serveGrant(t, NewGrant(api.upstream(), sess, "c1", "dev", nil, noAsker, 1000, 1000, 32))
 		resp, body := s.do(t, s.getSecret(t))
 		require.Equal(t, http.StatusOK, resp.StatusCode, body)
 		assert.JSONEq(t, redactedSecretJSON, body)
@@ -117,7 +117,7 @@ func TestAnAllowedSecretReadPassesUnredacted(t *testing.T) {
 // is recorded refused with the reason: under a Deny rule, and in a session
 // that never asks.
 func TestADeniedSecretReadIsRedactedAndTwoHundred(t *testing.T) {
-	deny := permissions.Rule{ID: "d", Effect: permissions.Deny, Class: permissions.SecretRead, Context: "dev"}
+	deny := permissions.Rule{ID: "d", Effect: permissions.Deny, Class: permissions.SecretRead, ClusterID: "c1"}
 	silent := sessionIn(permissions.Ask)
 	silent.NoPrompts = true
 	for _, c := range []struct {

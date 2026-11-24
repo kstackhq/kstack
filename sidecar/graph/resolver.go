@@ -47,7 +47,8 @@ type Resolver struct {
 	// Auth is the Kstack Cloud connector, which backs the authState query and watch and
 	// the login and logout mutations: *kstackcloud.Service, or a test's fake.
 	Auth AuthConnector
-	// Settings is the user's settings file, and the frozen PATH kept in it.
+	// Settings is the user's settings, the approval modes and always grants
+	// among them, and the frozen PATH.
 	Settings *settings.Service
 	// EnvVars is the user's variables for their commands.
 	EnvVars *envvars.Service

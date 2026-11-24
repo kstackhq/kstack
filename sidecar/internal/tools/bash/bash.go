@@ -198,7 +198,7 @@ type Tool struct {
 
 	// alwaysFolders is the folders granted always, which a run that belongs
 	// to no chat reads; nil reads none.
-	alwaysFolders func(context.Context) []session.Folder
+	alwaysFolders func(context.Context) ([]session.Folder, error)
 	// probe is the tool probe's state (executableprobe.go).
 	probe *executableProbe
 	// console is the Sandbox console's state (console.go).
@@ -295,7 +295,7 @@ func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Se
 // belongs to no chat reads at its start, so a folder granted since reaches the
 // next one. It is unguarded: the app calls it once the chat service is built,
 // after the tool and before any run.
-func (t *Tool) SetAlwaysFolders(folders func(context.Context) []session.Folder) {
+func (t *Tool) SetAlwaysFolders(folders func(context.Context) ([]session.Folder, error)) {
 	t.alwaysFolders = folders
 }
 
@@ -877,7 +877,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		r.proxy = &runProxy{}
 		if cluster != nil {
 			asker, refusal := writesFor(rt, background)
-			r.proxy.grant = newClusterGrant(r.claim, rt.Session, cluster.scopeContext, asker, refusal)
+			r.proxy.grant = newClusterGrant(r.claim, rt.Session, cluster.id, cluster.scopeContext, asker, refusal)
 		}
 		run := CloudRun{Port: port, Dir: r.dir.path, ToolHome: toolHome, TmpDir: r.dir.tmp, CAFile: r.dir.caFile(), Session: rt.Session}
 		if cluster != nil {
@@ -914,9 +914,19 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 	// System stats folders under the home, Never lists the other homes,
 	// toolVersions reads a file under the home and runPath stats each entry,
 	// any of which can hang on a network mount, so the run is built on a
-	// goroutine abandoned if ctx ends first.
-	built := make(chan sandbox.Run, 1)
+	// goroutine abandoned if ctx ends first. So is the read of the folders
+	// granted, which checks each on disk; one that fails fails the run.
+	type build struct {
+		run sandbox.Run
+		err error
+	}
+	built := make(chan build, 1)
 	go func() {
+		granted, err := rt.Session.GrantedFolders(ctx)
+		if err != nil {
+			built <- build{err: errors.New(tools.FoldersUnread(Name, err).Result)}
+			return
+		}
 		sys := boxer.System(t.home, t.shell)
 		never := boxer.Never(t.home)
 		folders, pathReads := runPath(list, t.fallbackPath, sys.Files, slices.Concat(never, t.denied), t.home)
@@ -926,11 +936,16 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		}
 		env := sandboxedRunEnv(os.Environ(), t.env, joinPath(folders), ws, cwd, r.dir, cluster, toolHome, user, toolchain, cloudVars)
 		files := sys.Files.WithSearch(pathReads)
-		grants := t.grantRules(rt.Session.GrantedFolders(ctx), sys.Files, never, list.Entries)
-		built <- sandbox.Run{Env: env, Policy: t.workspacePolicy(files, grants, never, reads, writes, net, limits)}
+		grants := t.grantRules(granted, sys.Files, never, list.Entries)
+		built <- build{run: sandbox.Run{Env: env, Policy: t.workspacePolicy(files, grants, never, reads, writes, net, limits)}}
 	}()
 	select {
-	case r.run = <-built:
+	case b := <-built:
+		if b.err != nil {
+			r.end()
+			return nil, b.err
+		}
+		r.run = b.run
 		return r, nil
 	case <-ctx.Done():
 		r.end()

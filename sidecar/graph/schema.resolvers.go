@@ -15,7 +15,6 @@ import (
 	gqlerrors "github.com/kstackhq/kstack/sidecar/graph/errors"
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
-	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
@@ -252,6 +251,19 @@ func (r *googleConnectionResolver) Failure(ctx context.Context, obj *connectors.
 		return nil, nil
 	}
 	return &obj.Failure, nil
+}
+
+// ClusterID is the resolver for the clusterID field.
+func (r *kubeRuleResolver) ClusterID(ctx context.Context, obj *permissions.Rule) (*apimeta.ClusterID, error) {
+	if obj.ClusterID == "" {
+		return nil, nil
+	}
+	return &obj.ClusterID, nil
+}
+
+// Line is the resolver for the line field.
+func (r *kubeRuleResolver) Line(ctx context.Context, obj *permissions.Rule) (string, error) {
+	return r.ruleLine(ctx, *obj)
 }
 
 // ProviderKeySave is the resolver for the providerKeySave field.
@@ -547,69 +559,65 @@ func (r *mutationResolver) ToolSettingSet(ctx context.Context, name string, enab
 
 // PermissionDefaultModeSet is the resolver for the permissionDefaultModeSet field.
 func (r *mutationResolver) PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.SetDefaultMode(mode))
+	return r.permissionsAfter(ctx, r.Settings.SetDefaultMode(ctx, mode))
 }
 
 // PermissionModeSet is the resolver for the permissionModeSet field.
-func (r *mutationResolver) PermissionModeSet(ctx context.Context, context string, mode permissions.Mode) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.SetMode(context, mode))
+func (r *mutationResolver) PermissionModeSet(ctx context.Context, clusterID apimeta.ClusterID, mode permissions.Mode) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.Settings.SetMode(ctx, clusterID, mode))
 }
 
 // PermissionModeClear is the resolver for the permissionModeClear field.
-func (r *mutationResolver) PermissionModeClear(ctx context.Context, context string) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.ClearMode(context))
+func (r *mutationResolver) PermissionModeClear(ctx context.Context, clusterID apimeta.ClusterID) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.Settings.ClearMode(ctx, clusterID))
 }
 
-// PermissionRuleAdd is the resolver for the permissionRuleAdd field.
-func (r *mutationResolver) PermissionRuleAdd(ctx context.Context, input model.PermissionRuleInput) (*model.PermissionSettings, error) {
+// KubeRuleAdd is the resolver for the kubeRuleAdd field.
+func (r *mutationResolver) KubeRuleAdd(ctx context.Context, input model.KubeRuleInput) (*model.PermissionSettings, error) {
 	rule := permissions.Rule{
-		ID: appdb.NewID(), Effect: input.Effect, Class: input.Class,
-		Context: input.Context, Namespace: input.Namespace, Verb: input.Verb, Group: input.Group, Kind: input.Kind,
+		Effect: input.Effect, Class: input.Class, ClusterID: valueOf(input.ClusterID),
+		Namespace: input.Namespace, Verb: input.Verb, Group: input.Group, Kind: input.Kind,
 	}
-	return r.permissionsAfter(ctx, r.Settings.AddRule(rule))
+	_, err := r.Settings.AddKubeRule(ctx, rule)
+	return r.permissionsAfter(ctx, err)
 }
 
-// PermissionRuleRemove is the resolver for the permissionRuleRemove field.
-func (r *mutationResolver) PermissionRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.RemoveRule(id))
+// KubeRuleRemove is the resolver for the kubeRuleRemove field.
+func (r *mutationResolver) KubeRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.Settings.RemoveKubeRule(ctx, id))
 }
 
-// ChatGrantRemove is the resolver for the chatGrantRemove field.
-func (r *mutationResolver) ChatGrantRemove(ctx context.Context, chatID apimeta.ChatID, id string) ([]*permissions.Rule, error) {
-	rules, err := r.ChatSvc.RemoveChatGrant(ctx, chatID, id)
+// ChatKubeRuleRemove is the resolver for the chatKubeRuleRemove field.
+func (r *mutationResolver) ChatKubeRuleRemove(ctx context.Context, chatID apimeta.ChatID, id string) ([]*permissions.Rule, error) {
+	rules, err := r.ChatSvc.RemoveChatKubeRule(ctx, chatID, id)
 	if err != nil {
 		return nil, chatErr(err)
 	}
 	return rulePointers(rules), nil
 }
 
-// PermissionDiscardRefused is the resolver for the permissionDiscardRefused field.
-func (r *mutationResolver) PermissionDiscardRefused(ctx context.Context, field string) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.DiscardRefused(field))
-}
-
 // FolderGrant is the resolver for the folderGrant field.
 func (r *mutationResolver) FolderGrant(ctx context.Context, chatID *apimeta.ChatID, path string, write bool, duration model.GrantDuration) (*model.SandboxFolders, error) {
-	// An always grant belongs to no chat, and a chat's grant names its chat.
-	var chat apimeta.ChatID
-	if duration == model.GrantDurationChat {
-		if chatID == nil || *chatID == "" {
-			return nil, gqlerrors.NewValidationError("chatID", "a grant for a chat names the chat")
-		}
-		chat = *chatID
+	chat, err := granteeOf(chatID, duration)
+	if err != nil {
+		return nil, err
 	}
 	if err := r.ChatSvc.GrantFolder(ctx, chat, path, write); err != nil {
 		return nil, folderErr(err)
 	}
-	return r.sandboxFolders(ctx, chat), nil
+	return r.sandboxFoldersAfter(ctx, chat, "The folder was granted")
 }
 
 // FolderRevoke is the resolver for the folderRevoke field.
-func (r *mutationResolver) FolderRevoke(ctx context.Context, id string) (*model.SandboxFolders, error) {
-	if err := r.ChatSvc.RevokeFolder(id); err != nil {
+func (r *mutationResolver) FolderRevoke(ctx context.Context, chatID *apimeta.ChatID, id string, duration model.GrantDuration) (*model.SandboxFolders, error) {
+	chat, err := granteeOf(chatID, duration)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.ChatSvc.RevokeFolder(ctx, chat, id); err != nil {
 		return nil, folderErr(err)
 	}
-	return r.sandboxFolders(ctx, ""), nil
+	return r.sandboxFoldersAfter(ctx, chat, "The grant was removed")
 }
 
 // AuthLoginStart is the resolver for the authLoginStart field: it returns once the
@@ -899,12 +907,12 @@ func (r *queryResolver) PermissionSettings(ctx context.Context) (*model.Permissi
 
 // SandboxFolders is the resolver for the sandboxFolders field.
 func (r *queryResolver) SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error) {
-	return r.sandboxFolders(ctx, valueOf(chatID)), nil
+	return r.sandboxFolders(ctx, valueOf(chatID))
 }
 
-// ChatGrants is the resolver for the chatGrants field.
-func (r *queryResolver) ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error) {
-	rules, err := r.ChatSvc.ChatGrants(ctx, chatID)
+// ChatKubeRules is the resolver for the chatKubeRules field.
+func (r *queryResolver) ChatKubeRules(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error) {
+	rules, err := r.ChatSvc.ChatKubeRules(ctx, chatID)
 	if err != nil {
 		return nil, chatErr(err)
 	}
@@ -1196,18 +1204,21 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 }
 
 // SandboxFoldersWatch is the resolver for the sandboxFoldersWatch field: the
-// folders, read again on each settings value and each ping of the chat's
-// grants. The settings receiver is current-on-subscribe, so its first value
-// sends the first frame. With no chat, nothing pings the grants.
+// folders, read again on each settings value, each write of the always grants
+// and each ping of the chat's grants. The settings receiver is
+// current-on-subscribe, so its first value sends the first frame. With no
+// chat, nothing pings the grants. A read that fails ends the watch with its
+// reason, so the client reconnects and reads again.
 func (r *subscriptionResolver) SandboxFoldersWatch(ctx context.Context, chatID *apimeta.ChatID) (<-chan *model.SandboxFolders, error) {
 	chat := valueOf(chatID)
-	settings, grants := r.Settings.Subscribe(), r.ChatSvc.WatchGrants(chat)
+	settings, always, grants := r.Settings.Subscribe(), r.Settings.WatchPermissions(), r.ChatSvc.WatchGrants(chat)
 	out := make(chan *model.SandboxFolders)
 	go func() {
 		defer close(out)
 		defer settings.Close()
+		defer always.Close()
 		defer grants.Close()
-		settingsC, grantsC := settings.Chan(), grants.Chan()
+		settingsC, alwaysC, grantsC := settings.Chan(), always.Chan(), grants.Chan()
 		for {
 			select {
 			case <-ctx.Done():
@@ -1216,13 +1227,22 @@ func (r *subscriptionResolver) SandboxFoldersWatch(ctx context.Context, chatID *
 				if !ok { // coverage:ignore the settings store never closes its hub
 					return
 				}
+			case _, ok := <-alwaysC:
+				if !ok { // coverage:ignore only the database closing under a subscriber
+					return
+				}
 			case _, ok := <-grantsC:
 				if !ok { // coverage:ignore only the database closing under a subscriber
 					return
 				}
 			}
+			folders, err := r.sandboxFolders(ctx, chat)
+			if err != nil {
+				recordWatchFailure(ctx, fmt.Errorf("read the sandbox folders: %w", err))
+				return
+			}
 			select {
-			case out <- r.sandboxFolders(ctx, chat):
+			case out <- folders:
 			case <-ctx.Done(): // coverage:ignore only the subscriber leaving while a value is in flight
 				return
 			}
@@ -1353,6 +1373,9 @@ func (r *Resolver) GitHubConnection() GitHubConnectionResolver { return &gitHubC
 // GoogleConnection returns GoogleConnectionResolver implementation.
 func (r *Resolver) GoogleConnection() GoogleConnectionResolver { return &googleConnectionResolver{r} }
 
+// KubeRule returns KubeRuleResolver implementation.
+func (r *Resolver) KubeRule() KubeRuleResolver { return &kubeRuleResolver{r} }
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
@@ -1388,6 +1411,7 @@ type (
 	envVarResolver                  struct{ *Resolver }
 	gitHubConnectionResolver        struct{ *Resolver }
 	googleConnectionResolver        struct{ *Resolver }
+	kubeRuleResolver                struct{ *Resolver }
 	mutationResolver                struct{ *Resolver }
 	openRouterConnectionResolver    struct{ *Resolver }
 	providerCredentialStateResolver struct{ *Resolver }

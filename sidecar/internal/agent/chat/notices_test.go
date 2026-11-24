@@ -19,10 +19,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
@@ -334,4 +336,67 @@ func TestAWatchStartsATurnOnlyUnderASend(t *testing.T) {
 	for _, status := range []string{taskStopped, taskLost} {
 		assert.False(t, startsTurn([]waitingNotice{{status: status, watch: true, underSend: true}}), status)
 	}
+}
+
+// A notice turn whose folders cannot be read does not start.
+func TestANoticeTurnWhoseFoldersCannotBeReadDoesNotStart(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	_, err := s.db.Write.Exec(`DROP TABLE folder_grants`)
+	require.NoError(t, err)
+
+	assert.ErrorContains(t, s.tryNoticeTurn(t.Context(), c.ID), "folder_grants")
+}
+
+// A chat switched outside the sandbox between a notice turn's folder read and
+// its transaction reads again, and its turn takes no folders.
+func TestANoticeTurnRereadsAfterTheSwitchMoves(t *testing.T) {
+	t.Parallel()
+
+	tt := newTaskTool()
+	s := startServiceWithTool(t, tt)
+	home := grantable(t, s)
+	tt.holding, tt.hold = make(chan struct{}), make(chan struct{})
+	fakeOf(s).SetToolCalls(taskCall())
+	first := send(t, s, nil, "1", "start it")
+	testutil.Wait(t, tt.holding, "the task's start")
+	turn := heldTurn(t, s, first.ChatID)
+	close(tt.hold)
+	ft := testutil.Recv(t, tt.ready, "the task to start")
+	awaitTurnDone(t, turn)
+	require.NoError(t, s.GrantFolder(t.Context(), first.ChatID, filepath.Join(home, "code"), false))
+
+	var once sync.Once
+	switched := make(chan error, 1)
+	s.onFoldersRead = func() {
+		once.Do(func() {
+			_, err := s.SetSandboxDisabled(t.Context(), first.ChatID, true)
+			switched <- err
+		})
+	}
+	ft.exit(0)
+	require.NoError(t, testutil.Recv(t, switched, "the switch"))
+	answer := awaitNoticeTurn(t, s, first.ChatID, first.ID)
+
+	assert.NotContains(t, newestContextOf(t, s, answer.ChatID), filepath.Join(home, "code"), "no folders outside the sandbox")
+}
+
+// A turn outside the sandbox takes no folders, so a notice turn there starts
+// though they cannot be read.
+func TestANoticeTurnOutsideTheSandboxReadsNoFolders(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	_, err := s.SetSandboxDisabled(t.Context(), c.ID, true)
+	require.NoError(t, err)
+	_, err = s.db.Write.Exec(`DROP TABLE folder_grants`)
+	require.NoError(t, err)
+
+	assert.ErrorIs(t, s.tryNoticeTurn(t.Context(), c.ID), errNothingToTell)
+	assert.ErrorIs(t, s.tryNoticeTurn(t.Context(), ChatID(appdb.NewID())), ErrChatGone)
 }
