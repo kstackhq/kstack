@@ -41,11 +41,3 @@ func canonicalOf(t *testing.T, paths ...string) []string {
 	require.NoError(t, err)
 	return c
 }
-
-// statOf is os.Stat of path, which must not fail.
-func statOf(t *testing.T, path string) os.FileInfo {
-	t.Helper()
-	info, err := os.Stat(path)
-	require.NoError(t, err)
-	return info
-}

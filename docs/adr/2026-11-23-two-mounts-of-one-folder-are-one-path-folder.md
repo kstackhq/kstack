@@ -3,6 +3,8 @@ title: Treat two mounts of one folder as one PATH folder
 date: 2026-11-23
 scope: sidecar
 status: Accepted
+amended_by:
+  - [A stored PATH decision holds for its exact path](2026-11-24-a-stored-path-decision-holds-for-its-exact-path.md)
 ---
 
 # Treat two mounts of one folder as one PATH folder

@@ -55,7 +55,6 @@ type Service struct {
 	// syncTimeout bounds a sync's reading of the disk: SyncTimeout, or a
 	// test's shorter one.
 	syncTimeout time.Duration
-	targetLookup
 
 	// snapMu guards snap, the zones as the folder checks read them.
 	snapMu sync.Mutex
@@ -75,7 +74,7 @@ const SyncTimeout = 5 * time.Second
 // resolve runs the login shell for a refresh; fault is why the launch's
 // resolution failed, "" when it answered.
 func NewService(store *Store, zones func() Zones, resolve func(context.Context) ([]string, error), fault string) *Service {
-	return &Service{Store: store, zones: zones, resolve: resolve, fault: fault, syncTimeout: SyncTimeout, targetLookup: newTargetLookup(), checkFolder: checkFolder, syncing: make(chan struct{}, 1)}
+	return &Service{Store: store, zones: zones, resolve: resolve, fault: fault, syncTimeout: SyncTimeout, checkFolder: checkFolder, syncing: make(chan struct{}, 1)}
 }
 
 // A PathRefusal is a change to the list the user asked for and cannot have,
@@ -90,8 +89,6 @@ const (
 	ErrPathRemoved   PathRefusal = "That folder is already removed."
 	ErrPathHeld      PathRefusal = "Your PATH settings hold an entry Kstack cannot read. Refresh PATH first."
 	ErrPathChanged   PathRefusal = "That folder now leads somewhere else. Check it, then include it again."
-	ErrPathUnread    PathRefusal = "Kstack could not read that folder. Include it again."
-	ErrPathBusy      PathRefusal = "Your PATH changed while Kstack checked that folder. Include it again."
 	ErrNoSandbox     PathRefusal = "This machine has no sandbox."
 )
 
@@ -110,19 +107,13 @@ type pathView struct {
 	fresh   []freshDir
 	dropped map[string]int
 	snap    *snapshot
-	spelled map[string]string // spelledTargets over the stored list
-	// err is set when a stored Target's lookup failed: the view is not
-	// whole, and the sync writes nothing.
-	err error
 }
 
 // SyncPath filters resolved and folds it into the stored list, and answers
 // whether the list it wrote differs from the one it read. The disk is read on
 // a goroutine abandoned when ctx ends or syncTimeout passes, since a stat on
 // a dead network mount does not return; one that ends first changes nothing.
-// A sync that could not compare a stored Target (sameFolder) changes nothing
-// either, and answers the lookup's error. Syncs run one at a time, since each
-// folds what it read of the stored list into the list it writes.
+// Syncs run one at a time.
 func (s *Service) SyncPath(ctx context.Context, resolved []string) (changed bool, err error) {
 	if s.zones == nil {
 		return false, ErrNoSandbox
@@ -146,9 +137,6 @@ func (s *Service) SyncPath(ctx context.Context, resolved []string) (changed bool
 	case <-ctx.Done():
 		return false, ctx.Err()
 	}
-	if v.err != nil {
-		return false, fmt.Errorf("compare a stored PATH target: %w", v.err)
-	}
 	if len(v.dropped) > 0 {
 		slog.Info("PATH entries left out", "rules", countsOf(v.dropped))
 	}
@@ -163,7 +151,7 @@ func (s *Service) SyncPath(ctx context.Context, resolved []string) (changed bool
 	var before, after []PathEntry
 	err = s.Update(func(st *Settings) error {
 		before = st.Sandbox.Path
-		st.Sandbox.Path = diffPath(st.Sandbox.Path, v.fresh, v.spelled, held || st.Sandbox.PathStrict)
+		st.Sandbox.Path = diffPath(st.Sandbox.Path, v.fresh, held || st.Sandbox.PathStrict)
 		st.Sandbox.PathResolved, st.Sandbox.PathStrict = true, false
 		after = st.Sandbox.Path
 		return nil
@@ -251,106 +239,12 @@ func (s *Service) AdoptPath(dir, target string) ([]PathEntry, error) {
 	if target == "" {
 		return nil, ErrPathChanged
 	}
-	// Read before pathMu, so a lookup that hangs holds no sync. A sync can
-	// file a removal meanwhile, so the read is redone until it compared
-	// every removal the list holds.
-	spelled, err := s.removalsOf(dir, target)
 	s.pathMu.Lock()
 	defer s.pathMu.Unlock()
-	for read := 1; err == nil && !s.comparedAll(dir, target, spelled); read++ {
-		if read == includeReads {
-			return nil, ErrPathBusy
-		}
-		s.pathMu.Unlock()
-		spelled, err = s.removalsOf(dir, target)
-		s.pathMu.Lock()
-	}
-	if err != nil {
-		return nil, err
-	}
 	if s.Held(FieldPath) {
 		return nil, ErrPathHeld
 	}
-	return s.setState(dir, target, PathAdopted, ErrPathIncluded, false, spelled)
-}
-
-// includeReads is how many times an Include reads the removals for a list
-// that keeps changing under it, before it is refused.
-const includeReads = 3
-
-// removalTargets is the Targets of the removals kept under Dirs other than
-// dir that respell target.
-func removalTargets(stored []PathEntry, dir, target string) []string {
-	var targets []string
-	for _, e := range stored {
-		if e.Dir != dir && e.State == PathGone && respells(e.Target, target) && !slices.Contains(targets, e.Target) {
-			targets = append(targets, e.Target)
-		}
-	}
-	return targets
-}
-
-// removalsOf compares target with each removal's Target that respells it
-// (removalTargets), as the list stands now, and answers, for each, whether
-// it is target's folder. The entry's folder is the one target names with no
-// link followed, so a target that became a link drops no removal of where it
-// leads. The read is bounded by syncTimeout; one that fails or does not
-// answer is ErrPathUnread.
-func (s *Service) removalsOf(dir, target string) (map[string]bool, error) {
-	stored := s.Get().Sandbox.Path
-	// A request Include refuses reads no disk.
-	if !s.includable(stored, dir, target) {
-		return nil, nil
-	}
-	others := removalTargets(stored, dir, target)
-	if len(others) == 0 {
-		return nil, nil
-	}
-	type answer struct {
-		same map[string]bool
-		err  error
-	}
-	a, answered := readWithin(context.Background(), s.syncTimeout, func() answer {
-		folder, found, err := s.lookUp(target)
-		same := map[string]bool{}
-		for _, other := range others {
-			if err != nil {
-				break
-			}
-			id, ok, failed := s.lookUp(other)
-			same[other], err = found && ok && id.Same(folder), failed
-		}
-		return answer{same: same, err: err}
-	})
-	if !answered || a.err != nil {
-		return nil, ErrPathUnread
-	}
-	return a.same, nil
-}
-
-// includable reports whether an Include of dir for target, off stored, is
-// one AdoptPath would write: the field is not held, and the entry is listed
-// with target and not adopted.
-func (s *Service) includable(stored []PathEntry, dir, target string) bool {
-	return !s.Held(FieldPath) && slices.ContainsFunc(stored, func(e PathEntry) bool {
-		return e.Dir == dir && e.Target == target && e.State != PathAdopted
-	})
-}
-
-// comparedAll reports whether compared, removalsOf's answer, holds every
-// removal the list holds now. A request Include refuses has none to
-// compare.
-func (s *Service) comparedAll(dir, target string, compared map[string]bool) bool {
-	stored := s.Get().Sandbox.Path
-	if !s.includable(stored, dir, target) {
-		return true
-	}
-	for _, other := range removalTargets(stored, dir, target) {
-		if _, ok := compared[other]; !ok {
-			return false
-		}
-	}
-	return true
+	return s.setState(dir, target, PathAdopted, ErrPathIncluded, false)
 }
 
 // DropPath is Remove: an adopted or pending entry becomes removed, by the
@@ -364,15 +258,14 @@ func (s *Service) DropPath(dir string) ([]PathEntry, error) {
 	s.pathMu.Lock()
 	defer s.pathMu.Unlock()
 	// Remove narrows, so it holds for whatever the entry leads to.
-	return s.setState(dir, "", PathGone, ErrPathRemoved, s.Held(FieldPath), nil)
+	return s.setState(dir, "", PathGone, ErrPathRemoved, s.Held(FieldPath))
 }
 
 // setState sets dir's entry to state, by the user, or refuses an entry not
 // listed, one whose Target is not target when target is set, or one already
-// there with already. Adopting drops the removals kept for the entry's folder
-// under other Dirs: those of its Target, and those whose Target is in
-// spelled, judged off the Update. strict marks the next sync strict.
-func (s *Service) setState(dir, target string, state PathState, already error, strict bool, spelled map[string]bool) ([]PathEntry, error) {
+// there with already. Adopting drops the removals kept under other Dirs for
+// the entry's exact Target. strict marks the next sync strict.
+func (s *Service) setState(dir, target string, state PathState, already error, strict bool) ([]PathEntry, error) {
 	err := s.Update(func(v *Settings) error {
 		i := slices.IndexFunc(v.Sandbox.Path, func(e PathEntry) bool { return e.Dir == dir })
 		switch {
@@ -385,11 +278,11 @@ func (s *Service) setState(dir, target string, state PathState, already error, s
 		}
 		v.Sandbox.Path[i].State, v.Sandbox.Path[i].Source = state, SourceUser
 		if state == PathAdopted {
-			// A removal holds for its folder under any Dir, so one kept
+			// A removal holds for its Target under any Dir, so one kept
 			// under another Dir would remove this entry at the next sync.
 			folder := v.Sandbox.Path[i].Target
 			v.Sandbox.Path = slices.DeleteFunc(v.Sandbox.Path, func(e PathEntry) bool {
-				return e.Dir != dir && (e.Target == folder || spelled[e.Target]) && e.State == PathGone
+				return e.Dir != dir && e.Target == folder && e.State == PathGone
 			})
 		}
 		v.Sandbox.PathStrict = v.Sandbox.PathStrict || strict
@@ -411,52 +304,17 @@ func (s *Service) view(resolved []string) pathView {
 	for _, d := range kept {
 		v.fresh = append(v.fresh, freshDir{pathDir: d, Open: z.open(d.Target)})
 	}
-	v.spelled, v.err = s.spelledTargets(s.Get().Sandbox.Path, v.fresh)
 	return v
 }
 
-// spelledTargets maps each stored Target that is a fresh folder in another
-// spelling (targetLookup) to that folder's fresh Target. Every entry is
-// compared, whatever its state: a removal holds for the folder under any
-// Dir, and an entry read here can be removed before the sync writes. Each
-// Target is read once, and only one that respells a fresh folder's. err is a
-// lookup's failure.
-func (s *Service) spelledTargets(stored []PathEntry, fresh []freshDir) (map[string]string, error) {
-	spelled := map[string]string{}
-	read := map[string]bool{}
-	for _, e := range stored {
-		respelled := func(d freshDir) bool { return respells(e.Target, d.Target) }
-		if read[e.Target] || !slices.ContainsFunc(fresh, respelled) {
-			continue
-		}
-		read[e.Target] = true
-		id, found, err := s.lookUp(e.Target)
-		if err != nil {
-			return nil, err
-		}
-		if i := slices.IndexFunc(fresh, func(d freshDir) bool { return found && respelled(d) && id.Is(d.info) }); i >= 0 {
-			spelled[e.Target] = fresh[i].Target
-		}
-	}
-	return spelled, nil
-}
-
-// diffPath folds fresh, in the shell's order, into stored. spelled maps a
-// stored Target to the fresh spelling of its folder, which a listed entry is
-// stored in. A removal the shell no longer lists keeps its own Target: the
-// fresh folder can be a mount that goes away. held files every new entry
-// pending.
-func diffPath(stored []PathEntry, fresh []freshDir, spelled map[string]string, held bool) []PathEntry {
-	targetOf := func(e PathEntry) string {
-		if t, ok := spelled[e.Target]; ok {
-			return t
-		}
-		return e.Target
-	}
+// diffPath folds fresh, in the shell's order, into stored. A stored state
+// holds for its exact Target: a folder in another spelling is another
+// folder. held files every new entry pending.
+func diffPath(stored []PathEntry, fresh []freshDir, held bool) []PathEntry {
 	removed := map[string]bool{}
 	for _, e := range stored {
 		if e.State == PathGone {
-			removed[targetOf(e)] = true
+			removed[e.Target] = true
 		}
 	}
 	var out []PathEntry
@@ -471,12 +329,12 @@ func diffPath(stored []PathEntry, fresh []freshDir, spelled map[string]string, h
 			e.Target, e.Shared = d.Target, d.Shared
 			out = append(out, e)
 		case removed[d.Target]:
-			// Another spelling of a removed folder: the removal is of the
+			// A removal kept under another Dir: the removal is of the
 			// folder, so it holds here too.
 			out = append(out, PathEntry{Dir: d.Dir, Target: d.Target, State: PathGone, Source: SourceUser, Shared: d.Shared})
-		case i >= 0 && targetOf(stored[i]) == d.Target:
+		case i >= 0 && stored[i].Target == d.Target:
 			e := stored[i]
-			e.Target, e.Shared = d.Target, d.Shared
+			e.Shared = d.Shared
 			if e.State == PathAdopted && e.Source == SourceShell && (d.Shared || !d.Open) {
 				e.State = PathPending
 			}

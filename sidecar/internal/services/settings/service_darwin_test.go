@@ -21,21 +21,21 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// An approval stored in another case of the folder holds, and the sync
-// stores the disk's spelling.
-func TestASyncKeepsAnApprovalStoredInAnotherCase(t *testing.T) {
+// On a volume that folds case, an approval stored in another case of the
+// folder is another folder's: the sync files the entry again.
+func TestASyncFilesAnApprovalStoredInAnotherCaseAgain(t *testing.T) {
 	z := newZones(t)
 	s := newTestService(t, z, nil)
 	dir := z.dir(t, "home/tools")
 	setEntry(t, s, PathEntry{Dir: dir, Target: otherCase(t, dir), State: PathAdopted, Source: SourceUser})
 
 	synced(t, s, []string{dir})
-	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathAdopted, Source: SourceUser}, entryOf(t, s, dir))
+	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathPending, Source: SourceShell}, entryOf(t, s, dir))
 }
 
-// A removal stored in another case holds for any entry that leads to the
-// folder, and keeps its own spelling once the shell no longer lists it.
-func TestARemovalStoredInAnotherCaseHoldsUnderAnotherDir(t *testing.T) {
+// A removal stored in another case holds for no entry under another Dir, and
+// keeps its own Target.
+func TestARemovalStoredInAnotherCaseDoesNotHoldUnderAnotherDir(t *testing.T) {
 	z := newZones(t)
 	s := newTestService(t, z, nil)
 	dir, old := z.dir(t, "open/tools"), filepath.Join(z.base, "old")
@@ -43,6 +43,6 @@ func TestARemovalStoredInAnotherCaseHoldsUnderAnotherDir(t *testing.T) {
 	setEntry(t, s, PathEntry{Dir: old, Target: stored, State: PathGone, Source: SourceUser})
 
 	synced(t, s, []string{dir})
-	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathGone, Source: SourceUser}, entryOf(t, s, dir))
+	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathAdopted, Source: SourceShell}, entryOf(t, s, dir))
 	assert.Equal(t, PathEntry{Dir: old, Target: stored, State: PathGone, Source: SourceUser}, entryOf(t, s, old))
 }

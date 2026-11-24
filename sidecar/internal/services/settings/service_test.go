@@ -41,26 +41,21 @@ func TestAServiceWithNoSandboxChangesNothing(t *testing.T) {
 	assert.Empty(t, store.Get().Sandbox.Path)
 }
 
-// A stored Target that is another spelling of the fresh folder is the same
-// entry: the user's decision holds, and the disk's spelling is stored.
-func TestDiffPathKeepsAnEntryStoredInAnotherSpelling(t *testing.T) {
-	stored := []PathEntry{{Dir: "/tools", Target: "/TOOLS", State: PathAdopted, Source: SourceUser}}
-	fresh := []freshDir{{pathDir: pathDir{Dir: "/tools", Target: "/Tools"}}}
+// A stored state holds for its exact Target: an approval or a removal stored
+// in another spelling of a fresh folder does not carry to it.
+func TestDiffPathComparesTargetsAsText(t *testing.T) {
+	stored := []PathEntry{
+		{Dir: "/tools", Target: "/TOOLS", State: PathAdopted, Source: SourceUser},
+		{Dir: "/old", Target: "/BIN", State: PathGone, Source: SourceUser},
+	}
+	fresh := []freshDir{
+		{pathDir: pathDir{Dir: "/tools", Target: "/Tools"}},
+		{pathDir: pathDir{Dir: "/new", Target: "/Bin"}, Open: true},
+	}
 
-	got := diffPath(stored, fresh, map[string]string{"/TOOLS": "/Tools"}, false)
-	assert.Equal(t, []PathEntry{{Dir: "/tools", Target: "/Tools", State: PathAdopted, Source: SourceUser}}, got)
-}
-
-// A removal stored in another spelling holds for any entry that leads to the
-// folder, and keeps its own Target once the shell no longer lists it.
-func TestDiffPathHoldsARemovalStoredInAnotherSpelling(t *testing.T) {
-	stored := []PathEntry{{Dir: "/old", Target: "/TOOLS", State: PathGone, Source: SourceUser}}
-	fresh := []freshDir{{pathDir: pathDir{Dir: "/new", Target: "/Tools"}, Open: true}}
-
-	got := diffPath(stored, fresh, map[string]string{"/TOOLS": "/Tools"}, false)
 	assert.Equal(t, []PathEntry{
-		{Dir: "/new", Target: "/Tools", State: PathGone, Source: SourceUser},
-		{Dir: "/old", Target: "/TOOLS", State: PathGone, Source: SourceUser},
-	}, got)
-	assert.Equal(t, "/TOOLS", stored[0].Target, "the stored list is not written")
+		{Dir: "/tools", Target: "/Tools", State: PathPending, Source: SourceShell},
+		{Dir: "/new", Target: "/Bin", State: PathAdopted, Source: SourceShell},
+		{Dir: "/old", Target: "/BIN", State: PathGone, Source: SourceUser},
+	}, diffPath(stored, fresh, false))
 }

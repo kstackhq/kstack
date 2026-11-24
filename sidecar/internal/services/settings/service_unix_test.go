@@ -25,14 +25,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
@@ -213,7 +211,7 @@ func TestARemovalOutlivesTheEntrysAbsence(t *testing.T) {
 	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathGone, Source: SourceUser}, entryOf(t, s, dir))
 }
 
-func TestARemovalHoldsForEverySpellingOfTheFolder(t *testing.T) {
+func TestARemovalHoldsForEveryDirThatLeadsToItsTarget(t *testing.T) {
 	z := newZones(t)
 	s := newTestService(t, z, nil)
 	dir := z.dir(t, "open/bin")
@@ -804,95 +802,64 @@ func TestSyncPathAnswersARefusedWrite(t *testing.T) {
 	assert.Empty(t, s.Get().Sandbox.Path)
 }
 
-// An entry stored in another spelling of its folder keeps the user's
-// decision, and the sync stores the disk's spelling.
-func TestASyncKeepsAnEntryStoredInAnotherSpelling(t *testing.T) {
+// A decision holds for the exact Target it was made for: the folder in
+// another spelling is another folder, filed again, and a removal kept under
+// another Dir in another spelling does not hold for it.
+func TestASyncComparesStoredTargetsAsText(t *testing.T) {
 	z := newZones(t)
 	s := newTestService(t, z, nil)
-	dir := z.dir(t, "home/bin")
-	other := filepath.Join(z.home, "BIN")
-	setEntry(t, s, PathEntry{Dir: dir, Target: other, State: PathAdopted, Source: SourceUser})
-	s.noFollowID = func(path string) (realpath.ID, error) { return realpath.NoFollowID(dir) }
+	approved, removed := z.dir(t, "home/bin"), z.dir(t, "open/tools")
+	old := filepath.Join(z.base, "old")
+	setEntry(t, s, PathEntry{Dir: approved, Target: filepath.Join(z.home, "BIN"), State: PathAdopted, Source: SourceUser})
+	setEntry(t, s, PathEntry{Dir: old, Target: filepath.Join(z.open, "TOOLS"), State: PathGone, Source: SourceUser})
 
-	synced(t, s, []string{dir})
-	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathAdopted, Source: SourceUser}, entryOf(t, s, dir))
+	synced(t, s, []string{approved, removed})
+	assert.Equal(t, PathEntry{Dir: approved, Target: approved, State: PathPending, Source: SourceShell}, entryOf(t, s, approved))
+	assert.Equal(t, PathEntry{Dir: removed, Target: removed, State: PathAdopted, Source: SourceShell}, entryOf(t, s, removed))
 }
 
-// Only a stored target that differs from a fresh one in case alone is read,
-// and once:
-// one stored as the disk spells it is the folder by its text, and any other,
-// which may be on a mount that is gone, is another folder by its text.
-func TestASyncReadsOnlyATargetThatRespellsAFreshOne(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, moved := z.dir(t, "open/bin"), z.dir(t, "open/moved")
-	spelled, removed := filepath.Join(z.open, "MOVED"), filepath.Join(z.open, "REMOVED")
-	synced(t, s, []string{dir, moved})
-	setEntry(t, s, PathEntry{Dir: moved, Target: spelled, State: PathPending, Source: SourceShell})
-	// A second entry with the same Target is not read again, found or not.
-	setEntry(t, s, PathEntry{Dir: filepath.Join(z.base, "old"), Target: spelled, State: PathPending, Source: SourceShell})
-	setEntry(t, s, PathEntry{Dir: removed, Target: removed, State: PathGone, Source: SourceUser})
-	var mu sync.Mutex
-	var asked []string
-	s.noFollowID = func(path string) (realpath.ID, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		asked = append(asked, path)
-		return realpath.ID{}, realpath.ErrNotFoundNoFollow
-	}
-
-	synced(t, s, []string{dir, moved})
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Equal(t, []string{spelled}, asked)
-}
-
-// A removal made after the sync read the list, of an entry stored in another
-// spelling, still holds for the folder under the Dir the shell lists now.
+// A removal made while the sync reads the disk holds for its folder under
+// the Dir the shell lists now.
 func TestARemovalDuringASyncHoldsUnderAnotherDir(t *testing.T) {
 	z := newZones(t)
 	s := newTestService(t, z, nil)
-	dir := z.dir(t, "open/bin")
-	old, other := filepath.Join(z.open, "old"), filepath.Join(z.open, "BIN")
-	setEntry(t, s, PathEntry{Dir: old, Target: other, State: PathAdopted, Source: SourceUser})
-	s.noFollowID = func(string) (realpath.ID, error) {
+	dir, old := z.dir(t, "open/bin"), filepath.Join(z.open, "old")
+	setEntry(t, s, PathEntry{Dir: old, Target: dir, State: PathAdopted, Source: SourceUser})
+	zones := s.zones
+	s.zones = func() Zones {
 		_, err := s.DropPath(old)
 		assert.NoError(t, err)
-		return realpath.NoFollowID(dir)
+		return zones()
 	}
 
 	synced(t, s, []string{dir})
 	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathGone, Source: SourceUser}, entryOf(t, s, dir))
 }
 
-// A sync folds what it read of the stored list into the list it writes, so a
-// second one reads the list only once the first has written it.
+// A sync folds the stored list into the list it writes, so a second one reads
+// the disk only once the first has written it.
 func TestASyncWaitsForTheOneBeforeIt(t *testing.T) {
 	z := newZones(t)
 	s := newTestService(t, z, nil)
 	dir := z.dir(t, "open/bin")
-	other := filepath.Join(z.open, "BIN")
-	setEntry(t, s, PathEntry{Dir: dir, Target: other, State: PathGone, Source: SourceUser})
-	// Each sync reads the zones as it starts to read the disk. The lookups
-	// tell nothing here: both syncs would share one read of other.
+	// Each sync reads the zones as it starts to read the disk; the first
+	// holds there until released.
 	reading := testutil.NewProbe[struct{}](2)
+	release := make(chan struct{})
+	var first sync.Once
 	zones := s.zones
 	s.zones = func() Zones {
 		reading.Fire(struct{}{})
+		first.Do(func() { <-release })
 		return zones()
 	}
-	release := make(chan struct{})
-	s.noFollowID = func(string) (realpath.ID, error) {
-		<-release
-		return realpath.NoFollowID(dir)
-	}
 
-	first, second := make(chan error, 1), make(chan error, 1)
-	go func() { _, err := s.SyncPath(t.Context(), []string{dir}); first <- err }()
+	firstDone, secondDone := make(chan error, 1), make(chan error, 1)
+	go func() { _, err := s.SyncPath(t.Context(), []string{dir}); firstDone <- err }()
 	reading.Await(t, "the first sync's read")
-	go func() { _, err := s.SyncPath(t.Context(), []string{dir}); second <- err }()
+	go func() { _, err := s.SyncPath(t.Context(), []string{dir}); secondDone <- err }()
 	// A negative assertion: the second sync reads nothing while the first
-	// holds its lookup.
+	// holds its read.
 	select {
 	case <-reading.Chan():
 		close(release)
@@ -901,9 +868,9 @@ func TestASyncWaitsForTheOneBeforeIt(t *testing.T) {
 	}
 	close(release)
 
-	require.NoError(t, testutil.Recv(t, first, "the first sync"))
-	require.NoError(t, testutil.Recv(t, second, "the second sync"))
-	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathGone, Source: SourceUser}, entryOf(t, s, dir))
+	require.NoError(t, testutil.Recv(t, firstDone, "the first sync"))
+	require.NoError(t, testutil.Recv(t, secondDone, "the second sync"))
+	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathAdopted, Source: SourceShell}, entryOf(t, s, dir))
 }
 
 // A sync waiting for the one before it ends at its bound.
@@ -917,51 +884,6 @@ func TestAWaitingSyncEndsAtItsBound(t *testing.T) {
 		_, err := s.SyncPath(t.Context(), nil)
 		assert.ErrorIs(t, err, context.DeadlineExceeded)
 	}, "the waiting sync")
-}
-
-// A sync that cannot compare a stored target writes nothing: the target may
-// be a removal of a fresh folder, or an approval of one. The next sync
-// compares it again.
-func TestASyncWhoseLookupFailsChangesNothing(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, fresh := z.dir(t, "home/bin"), z.dir(t, "open/fresh")
-	stored := []PathEntry{{Dir: dir, Target: filepath.Join(z.home, "BIN"), State: PathAdopted, Source: SourceUser}}
-	setEntry(t, s, stored[0])
-	s.noFollowID = func(string) (realpath.ID, error) { return realpath.ID{}, syscall.EIO }
-
-	_, err := s.SyncPath(t.Context(), []string{dir, fresh})
-	assert.ErrorIs(t, err, syscall.EIO)
-	assert.Equal(t, stored, s.Get().Sandbox.Path)
-	assert.False(t, s.Get().Sandbox.PathResolved)
-
-	s.noFollowID = func(string) (realpath.ID, error) { return realpath.NoFollowID(dir) }
-	synced(t, s, []string{dir, fresh})
-	assert.Equal(t, []string{dir + "=adopted/user", fresh + "=adopted/shell"}, statesOf(s.Get().Sandbox.Path))
-}
-
-// A stored target whose lookup hangs, as a stat on a dead network mount
-// does, holds the sync no longer than its bound, and the sync writes nothing.
-func TestASyncWhoseLookupHangsEndsAtItsBound(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir := z.dir(t, "home/bin")
-	stored := []PathEntry{{Dir: dir, Target: filepath.Join(z.home, "BIN"), State: PathAdopted, Source: SourceUser}}
-	setEntry(t, s, stored[0])
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
-	s.noFollowID = func(string) (realpath.ID, error) {
-		<-release
-		return realpath.NoFollowID(dir)
-	}
-	// The sync waits out this bound, shrunk for the test.
-	s.syncTimeout = time.Millisecond
-
-	testutil.WaitReturn(t, func() {
-		_, err := s.SyncPath(t.Context(), []string{dir})
-		assert.ErrorIs(t, err, context.DeadlineExceeded)
-	}, "the sync")
-	assert.Equal(t, stored, s.Get().Sandbox.Path)
 }
 
 // Include approves the folder the user was shown, so one naming none is
@@ -978,296 +900,17 @@ func TestAnIncludeWithNoTargetIsRefused(t *testing.T) {
 	assert.Equal(t, []string{dir + "=pending/shell", old + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
 }
 
-// An Include the list refuses reads no disk: the Target the user was shown
-// may be on a mount that is gone.
-func TestAStaleIncludeReadsNoDisk(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, old := z.dir(t, "home/bin"), filepath.Join(z.base, "old")
-	included := z.dir(t, "open/bin")
-	stale := filepath.Join(z.base, "mount")
-	synced(t, s, []string{dir, included})
-	setEntry(t, s, PathEntry{Dir: old, Target: filepath.Join(z.home, "BIN"), State: PathGone, Source: SourceUser})
-	s.noFollowID = func(path string) (realpath.ID, error) {
-		t.Errorf("Include read %s", path)
-		return realpath.ID{}, realpath.ErrNotFoundNoFollow
-	}
-
-	_, err := s.AdoptPath(dir, stale)
-	assert.ErrorIs(t, err, ErrPathChanged)
-	_, err = s.AdoptPath(filepath.Join(z.base, "unlisted"), stale)
-	assert.ErrorIs(t, err, ErrPathNotListed)
-	_, err = s.AdoptPath(included, included)
-	assert.ErrorIs(t, err, ErrPathIncluded)
-}
-
-// An Include while the field is held is refused before it reads the disk.
-func TestAHeldIncludeReadsNoDisk(t *testing.T) {
-	z := newZones(t)
-	dir := z.dir(t, "home/bin")
-	file := filepath.Join(t.TempDir(), "settings.json")
-	raw := `{"sandbox": {"path": [{"dir": "` + dir + `", "target": "` + dir + `", "state": "pending", "source": "shell"},
-		{"dir": "/old", "target": "/mount/BIN", "state": "gone", "source": "user"},
-		{"dir": "bin", "target": "bin", "state": "gone", "source": "user"}]}}`
-	require.NoError(t, os.WriteFile(file, []byte(raw), 0o600))
-	store, err := Open(file)
-	require.NoError(t, err)
-	require.True(t, store.Held(FieldPath))
-	s := NewService(store, func() Zones { return z.zones }, nil, "")
-	s.noFollowID = func(path string) (realpath.ID, error) {
-		t.Errorf("Include read %s", path)
-		return realpath.ID{}, realpath.ErrNotFoundNoFollow
-	}
-
-	_, err = s.AdoptPath(dir, dir)
-	assert.ErrorIs(t, err, ErrPathHeld)
-}
-
-// A removal the shell no longer lists keeps the Target it was made for, so it
-// still holds once the folder it was matched with is listed no more.
-func TestAnUnlistedRemovalOutlivesTheSpellingItMatched(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	tools := z.dir(t, "open/tools")
-	spelled := filepath.Join(z.open, "TOOLS")
-	old, link := filepath.Join(z.base, "old"), filepath.Join(z.base, "link")
-	require.NoError(t, os.Symlink(tools, link))
-	setEntry(t, s, PathEntry{Dir: old, Target: spelled, State: PathGone, Source: SourceUser})
-	s.noFollowID = func(string) (realpath.ID, error) { return realpath.NoFollowID(tools) }
-	synced(t, s, []string{tools})
-	require.Equal(t, []PathEntry{
-		{Dir: tools, Target: tools, State: PathGone, Source: SourceUser},
-		{Dir: old, Target: spelled, State: PathGone, Source: SourceUser},
-	}, s.Get().Sandbox.Path)
-
-	synced(t, s, []string{link})
-	assert.Equal(t, []string{link + "=gone/user", tools + "=gone/user", old + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
-}
-
-// With every lookup answered, a new open, unshared entry is adopted.
-func TestASyncWhoseLookupsAnswerAdoptsANewOpenEntry(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	fresh, removed := z.dir(t, "open/fresh"), filepath.Join(z.base, "removed")
-	unlisted := filepath.Join(z.base, "unlisted")
-	setEntry(t, s, PathEntry{Dir: removed, Target: removed, State: PathGone, Source: SourceUser})
-	setEntry(t, s, PathEntry{Dir: unlisted, Target: unlisted, State: PathAdopted, Source: SourceShell})
-
-	synced(t, s, []string{fresh})
-	assert.Equal(t, []PathEntry{
-		{Dir: fresh, Target: fresh, State: PathAdopted, Source: SourceShell},
-		{Dir: removed, Target: removed, State: PathGone, Source: SourceUser},
-	}, s.Get().Sandbox.Path)
-}
-
-// A sync with no fresh folder has nothing to compare a stored target with,
-// so it reads none, and a stale one on a dead mount cannot hold it.
-func TestASyncOfAnEmptyListAsksNothing(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, removed := z.dir(t, "open/bin"), filepath.Join(z.open, "REMOVED")
-	synced(t, s, []string{dir})
-	setEntry(t, s, PathEntry{Dir: removed, Target: removed, State: PathGone, Source: SourceUser})
-	s.noFollowID = func(path string) (realpath.ID, error) {
-		t.Errorf("the sync read %s", path)
-		return realpath.ID{}, realpath.ErrNotFoundNoFollow
-	}
-
-	synced(t, s, nil)
-	assert.Equal(t, []PathEntry{{Dir: removed, Target: removed, State: PathGone, Source: SourceUser}}, s.Get().Sandbox.Path)
-}
-
-// Include drops a removal kept under another Dir in another spelling of the
-// entry's folder, so the next sync leaves the entry included; a removal of
-// another folder stays.
-func TestAnIncludeDropsARemovalOfItsFolderInAnotherSpelling(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, elsewhere := z.dir(t, "home/bin"), z.dir(t, "home/other")
-	spelled, otherSpelled := filepath.Join(z.home, "BIN"), filepath.Join(z.home, "OTHER")
-	old, older := filepath.Join(z.base, "old"), filepath.Join(z.base, "older")
-	synced(t, s, []string{dir})
-	setEntry(t, s, PathEntry{Dir: old, Target: spelled, State: PathGone, Source: SourceUser})
-	setEntry(t, s, PathEntry{Dir: older, Target: otherSpelled, State: PathGone, Source: SourceUser})
-	ofSpelling := map[string]string{dir: dir, spelled: dir, otherSpelled: elsewhere}
-	s.noFollowID = func(path string) (realpath.ID, error) { return realpath.NoFollowID(ofSpelling[path]) }
-
-	_, err := s.AdoptPath(dir, dir)
-	require.NoError(t, err)
-	assert.Equal(t, []string{dir + "=adopted/user", older + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
-
-	synced(t, s, []string{dir})
-	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathAdopted, Source: SourceUser}, entryOf(t, s, dir))
-}
-
-// The approval is of the folder Target named, so a Target that became a link
-// drops no removal of the folder it leads to.
-func TestAnIncludeOfATargetThatBecameALinkKeepsTheRemoval(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, elsewhere := z.dir(t, "home/bin"), z.dir(t, "home/other")
-	spelled, old := filepath.Join(z.home, "OTHER"), filepath.Join(z.base, "old")
-	synced(t, s, []string{dir})
-	setEntry(t, s, PathEntry{Dir: old, Target: spelled, State: PathGone, Source: SourceUser})
-	require.NoError(t, os.Remove(dir))
-	require.NoError(t, os.Symlink(elsewhere, dir))
-	s.noFollowID = func(path string) (realpath.ID, error) {
-		if path == spelled {
-			path = elsewhere
-		}
-		return realpath.NoFollowID(path)
-	}
-
-	_, err := s.AdoptPath(dir, dir)
-	require.NoError(t, err)
-	assert.Equal(t, []string{dir + "=adopted/user", old + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
-}
-
-// Include reads no disk when no removal under another Dir differs from the
-// entry's Target in text.
-func TestAnIncludeAsksOnlyAboutRemovalsThatDiffer(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, link := z.dir(t, "home/bin"), filepath.Join(z.base, "link")
-	pending := filepath.Join(z.base, "pending")
-	synced(t, s, []string{dir})
-	setEntry(t, s, PathEntry{Dir: link, Target: dir, State: PathGone, Source: SourceUser})
-	setEntry(t, s, PathEntry{Dir: pending, Target: filepath.Join(z.home, "BIN"), State: PathPending, Source: SourceShell})
-	s.noFollowID = func(path string) (realpath.ID, error) {
-		t.Errorf("Include read %s", path)
-		return realpath.ID{}, realpath.ErrNotFoundNoFollow
-	}
-
-	_, err := s.AdoptPath(dir, dir)
-	require.NoError(t, err)
-	assert.Equal(t, []string{dir + "=adopted/user", pending + "=pending/shell"}, statesOf(s.Get().Sandbox.Path))
-}
-
-// A comparison whose read hangs, as a stat on a dead network mount does,
-// ends at its bound: Include is refused, and changes nothing.
-func TestAnIncludeWhoseComparisonHangsIsRefused(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, old := z.dir(t, "home/bin"), filepath.Join(z.base, "old")
-	synced(t, s, []string{dir})
-	setEntry(t, s, PathEntry{Dir: old, Target: filepath.Join(z.home, "BIN"), State: PathGone, Source: SourceUser})
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
-	s.noFollowID = func(string) (realpath.ID, error) {
-		<-release
-		return realpath.ID{}, realpath.ErrNotFoundNoFollow
-	}
-	// Include waits out this bound, shrunk for the test.
-	s.syncTimeout = time.Millisecond
-
-	testutil.WaitReturn(t, func() {
-		_, err := s.AdoptPath(dir, dir)
-		assert.ErrorIs(t, err, ErrPathUnread)
-	}, "the Include")
-	assert.Equal(t, []string{dir + "=pending/shell", old + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
-}
-
-// An Include that cannot compare a removal is refused: adopting beside a
-// removal of the same folder would not hold at the next sync.
-func TestAnIncludeWhoseComparisonFailsIsRefused(t *testing.T) {
+// Include drops only the removals kept under other Dirs for its exact
+// Target: one stored in another spelling is another folder's, and stays.
+func TestAnIncludeKeepsARemovalStoredInAnotherSpelling(t *testing.T) {
 	z := newZones(t)
 	s := newTestService(t, z, nil)
 	dir, old := z.dir(t, "home/bin"), filepath.Join(z.base, "old")
 	spelled := filepath.Join(z.home, "BIN")
 	synced(t, s, []string{dir})
 	setEntry(t, s, PathEntry{Dir: old, Target: spelled, State: PathGone, Source: SourceUser})
-	for _, failing := range []string{dir, spelled} {
-		s.noFollowID = func(path string) (realpath.ID, error) {
-			if path == failing {
-				return realpath.ID{}, syscall.EIO
-			}
-			return realpath.NoFollowID(dir)
-		}
-
-		_, err := s.AdoptPath(dir, dir)
-		assert.ErrorIs(t, err, ErrPathUnread)
-		assert.Equal(t, []string{dir + "=pending/shell", old + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
-	}
-}
-
-// A removal a sync files for the folder while Include reads the others is
-// compared too, so the Include holds at the next sync.
-func TestAnIncludeDropsARemovalFiledWhileItRead(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir := z.dir(t, "home/bin")
-	old, newer := filepath.Join(z.base, "old"), filepath.Join(z.base, "newer")
-	spelled, respelled := filepath.Join(z.home, "BIN"), filepath.Join(z.home, "Bin")
-	synced(t, s, []string{dir})
-	setEntry(t, s, PathEntry{Dir: old, Target: spelled, State: PathGone, Source: SourceUser})
-	var filed sync.Once
-	s.noFollowID = func(string) (realpath.ID, error) {
-		filed.Do(func() { setEntry(t, s, PathEntry{Dir: newer, Target: respelled, State: PathGone, Source: SourceUser}) })
-		return realpath.NoFollowID(dir)
-	}
 
 	_, err := s.AdoptPath(dir, dir)
 	require.NoError(t, err)
-	assert.Equal(t, []string{dir + "=adopted/user"}, statesOf(s.Get().Sandbox.Path))
-}
-
-// A list that gains a removal at every read does not hold Include: it reads
-// includeReads times, then is refused, since a removal it did not compare
-// may be of its folder.
-func TestAnIncludeOfAListThatKeepsChangingEnds(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir := z.dir(t, "home/bin")
-	synced(t, s, []string{dir})
-	setEntry(t, s, PathEntry{Dir: filepath.Join(z.base, "old"), Target: filepath.Join(z.home, "BIN"), State: PathGone, Source: SourceUser})
-	var mu sync.Mutex
-	filed := 0
-	s.noFollowID = func(path string) (realpath.ID, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if path == dir {
-			filed++
-			// Each is another spelling of bin, so Include must compare it.
-			spelled := []string{"Bin", "bIn", "biN"}[filed-1]
-			setEntry(t, s, PathEntry{Dir: filepath.Join(z.base, fmt.Sprintf("old%d", filed)), Target: filepath.Join(z.home, spelled), State: PathGone, Source: SourceUser})
-		}
-		return realpath.NoFollowID(dir)
-	}
-
-	_, err := s.AdoptPath(dir, dir)
-	assert.ErrorIs(t, err, ErrPathBusy)
-	assert.Equal(t, includeReads, filed)
-	assert.Contains(t, statesOf(s.Get().Sandbox.Path), dir+"=pending/shell")
-}
-
-// Include compares before it takes the list's lock, so a comparison that
-// hangs holds no other change to the list.
-func TestAnIncludesComparisonHoldsNoOtherChange(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, other, old := z.dir(t, "home/bin"), z.dir(t, "open/other"), filepath.Join(z.base, "old")
-	synced(t, s, []string{dir, other})
-	setEntry(t, s, PathEntry{Dir: old, Target: filepath.Join(z.home, "BIN"), State: PathGone, Source: SourceUser})
-	asked := testutil.NewSignal()
-	release := make(chan struct{})
-	s.noFollowID = func(path string) (realpath.ID, error) {
-		asked.Fire()
-		<-release
-		if path == other {
-			return realpath.NoFollowID(other)
-		}
-		return realpath.NoFollowID(dir)
-	}
-
-	included := make(chan error, 1)
-	go func() { _, err := s.AdoptPath(dir, dir); included <- err }()
-	asked.Wait(t, "the Include's comparison")
-	testutil.WaitReturn(t, func() {
-		_, err := s.DropPath(other)
-		assert.NoError(t, err)
-	}, "a Remove while the comparison hangs")
-	close(release)
-
-	require.NoError(t, testutil.Recv(t, included, "the Include"))
-	assert.Equal(t, []string{dir + "=adopted/user", other + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
+	assert.Equal(t, []string{dir + "=adopted/user", old + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
 }

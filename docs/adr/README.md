@@ -290,3 +290,4 @@ usually just documentation in the wrong place.
 | 2026-11-22 | [Each folder kind has its own folder on every platform](2026-11-22-each-folder-kind-has-its-own-folder-on-every-platform.md) | host | Accepted |
 | 2026-11-23 | [Treat two mounts of one folder as one PATH folder](2026-11-23-two-mounts-of-one-folder-are-one-path-folder.md) | sidecar | Accepted |
 | 2026-11-23 | [The sidecar places Kstack's folders itself](2026-11-23-the-sidecar-places-kstacks-folders-itself.md) | cross-cutting | Accepted |
+| 2026-11-24 | [A stored PATH decision holds for its exact path](2026-11-24-a-stored-path-decision-holds-for-its-exact-path.md) | sidecar | Accepted |

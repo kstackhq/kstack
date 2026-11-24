@@ -34,12 +34,12 @@ func otherCase(t *testing.T, dir string) string {
 	return upper
 }
 
-func TestCheckRunKeepsAnApprovalStoredInAnotherCase(t *testing.T) {
+// On a volume that folds case, an approval stored in another case is still
+// not the folder's: it holds for its exact Target.
+func TestCheckRunLeavesOutAnApprovalStoredInAnotherCase(t *testing.T) {
 	z := newZones(t)
 	dir := z.dir(t, "home/tools")
 
-	got, open, ok := NewRunCheck(z.zones.Open, nil, "").Folder(PathEntry{Dir: dir, Target: otherCase(t, dir), State: PathAdopted, Source: SourceUser})
-	assert.True(t, ok)
-	assert.False(t, open)
-	assert.Equal(t, dir, got)
+	_, _, ok := NewRunCheck(z.zones.Open, nil, "").Folder(PathEntry{Dir: dir, Target: otherCase(t, dir), State: PathAdopted, Source: SourceUser})
+	assert.False(t, ok)
 }
