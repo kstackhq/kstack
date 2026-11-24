@@ -28,10 +28,21 @@ const SandboxCloudAccessDocument = graphql(`
   }
 `);
 
-/** The platforms turned on, in the sidecar's order; undefined until it answers. */
-export function useSandboxCloudAccess(): PermissionTarget[] | undefined {
+export type SandboxCloudAccess = {
+  /** The platforms turned on, in the sidecar's order; undefined until it answers, or when it cannot. */
+  platforms: PermissionTarget[] | undefined;
+  /** Whether the sidecar could not read the switches. */
+  readFailed: boolean;
+};
+
+export function useSandboxCloudAccess(): SandboxCloudAccess {
   // Each opening asks again: another window can turn a platform on or off.
-  const [{ data }] = useQuery({ query: SandboxCloudAccessDocument, requestPolicy: 'cache-and-network' });
-  const rows = data?.sandboxCloudAccess;
-  return useMemo(() => rows?.filter((row) => row.on).map((row) => row.target), [rows]);
+  const [{ data, error }] = useQuery({ query: SandboxCloudAccessDocument, requestPolicy: 'cache-and-network' });
+  const readFailed = error !== undefined;
+  // A failed read hides the platforms an earlier one answered: they may be stale.
+  const rows = readFailed ? undefined : data?.sandboxCloudAccess;
+  return useMemo(
+    () => ({ platforms: rows?.filter((row) => row.on).map((row) => row.target), readFailed }),
+    [rows, readFailed],
+  );
 }
