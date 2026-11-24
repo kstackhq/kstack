@@ -23,7 +23,7 @@ use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
 use tokio::sync::watch;
 
 use crate::error::{AppError, Result};
-use crate::paths::{current_layout, runtime_dir, Roots};
+use crate::paths::Folders;
 
 use super::graphql::{FrameSink, GraphqlResponse, QueryClient, SubscriptionClient};
 use super::grpc::{AuthStateStream, GrpcClient};
@@ -90,20 +90,20 @@ impl SidecarService {
     /// forwarding + termination reporting). `sidecar` makes the command from
     /// its arguments: `app.rs` resolves the bundled binary, a test a stand-in.
     pub fn spawn(
-        roots: &Roots,
+        folders: &Folders,
         sidecar: impl FnOnce(Vec<OsString>) -> Result<Command>,
     ) -> Result<Self> {
         // The one folder the host places for the sidecar: a squatted name can
         // move it. The sidecar places the rest itself.
-        let runtime = runtime_dir(roots)?;
-        let endpoint = Endpoint::pick(&runtime)?;
+        let runtime = &folders.runtime;
+        let endpoint = Endpoint::pick(runtime)?;
 
-        let (mut rx, child) = sidecar(cmd_args(&endpoint, &runtime))?.spawn()?;
+        let (mut rx, child) = sidecar(cmd_args(&endpoint, runtime))?.spawn()?;
         let pid = child.pid();
         // The sidecar's own account of its startup is in its `sidecar.log`,
         // in the layout's log folder, so main.log records that it was spawned
         // and says where to look.
-        tracing::info!(pid, log_dir = ?current_layout(roots).logs, "sidecar spawned");
+        tracing::info!(pid, log_dir = ?folders.logs, "sidecar spawned");
 
         let state = Arc::new(Mutex::new(State {
             child: Some(child),
@@ -523,7 +523,7 @@ async fn wait_ready(mut rx: watch::Receiver<Startup>) -> Result<()> {
 mod tests {
     use super::*;
     #[cfg(unix)]
-    use crate::testutil::{mock_app, roots, Scratch};
+    use crate::testutil::{folders, mock_app, roots, Scratch};
 
     #[test]
     fn a_ready_line_marks_the_sidecar_ready() {
@@ -659,13 +659,13 @@ mod tests {
     #[cfg(unix)]
     fn spawn_script(
         app: &tauri::App<tauri::test::MockRuntime>,
-        roots: &Roots,
+        folders: &Folders,
         script: &str,
     ) -> (SidecarService, Vec<OsString>) {
         use tauri_plugin_shell::ShellExt;
 
         let mut handed = Vec::new();
-        let service = SidecarService::spawn(roots, |args| {
+        let service = SidecarService::spawn(folders, |args| {
             handed = args;
             Ok(app.shell().command("sh").args(["-c", script]))
         })
@@ -682,7 +682,7 @@ mod tests {
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let (service, _) = spawn_script(
             &app,
-            &roots(scratch.path()),
+            &folders(scratch.path()),
             "echo 'READY x'; echo 'a log line' >&2; cat >/dev/null",
         );
 
@@ -697,7 +697,7 @@ mod tests {
     async fn a_sidecar_that_exits_before_ready_fails_startup() {
         let scratch = Scratch::new();
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
-        let (service, _) = spawn_script(&app, &roots(scratch.path()), "exit 3");
+        let (service, _) = spawn_script(&app, &folders(scratch.path()), "exit 3");
 
         let err = service.ready().await.unwrap_err();
         assert!(err.to_string().contains("exited before"), "got: {err}");
@@ -708,7 +708,7 @@ mod tests {
     fn kill_ends_a_running_sidecar_through_its_handle() {
         let scratch = Scratch::new();
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
-        let (service, _) = spawn_script(&app, &roots(scratch.path()), "read _");
+        let (service, _) = spawn_script(&app, &folders(scratch.path()), "read _");
 
         assert!(service.kill());
         assert!(!service.kill(), "idempotent");
@@ -723,8 +723,9 @@ mod tests {
         let scratch = Scratch::new();
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let roots = roots(scratch.path());
+        let folders = Folders::make(&roots).unwrap();
 
-        let (service, args) = spawn_script(&app, &roots, "exit 0");
+        let (service, args) = spawn_script(&app, &folders, "exit 0");
 
         let flags: Vec<_> = args
             .iter()
@@ -732,8 +733,17 @@ mod tests {
             .collect();
         assert_eq!(flags, ["--runtime"]);
         assert!(!args.iter().any(|a| a == "--log-file"), "got: {args:?}");
-        let layout = current_layout(&roots);
+        let layout = crate::paths::current_layout(&roots);
         assert!(!layout.data.exists() && !layout.cache.exists());
+        let runtime = args
+            .iter()
+            .position(|a| a == "--runtime-dir")
+            .map(|i| args[i + 1].as_os_str());
+        assert_eq!(
+            runtime,
+            Some(folders.runtime.as_os_str()),
+            "as runtime_dir names it"
+        );
         service.kill();
     }
 

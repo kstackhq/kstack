@@ -240,13 +240,195 @@ fn plain_root(dir: PathBuf) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// The app's state directory, created owner-only: what one machine keeps
-/// between runs and a user would not miss, the window frame and, on Linux and
-/// Windows, the logs and the webview's profile.
-pub fn app_state_dir(roots: &Roots) -> Result<PathBuf> {
-    let layout = current_layout(roots);
-    ensure_app_dir_above(&layout, &layout.state)?;
-    owner_only(layout.state)
+/// The host's folders, every path with its links followed, made once at
+/// launch ([`Folders::make`]). Nothing after it follows a link to one.
+#[derive(Debug)]
+pub struct Folders {
+    /// What one machine keeps between runs and a user would not miss: the
+    /// window frame and, on Linux and Windows, the logs and the webview's
+    /// profile.
+    pub state: PathBuf,
+    /// `None` when the log folder cannot be made: the host logs to stderr.
+    pub logs: Option<PathBuf>,
+    /// What a user sets, which Windows roams with the profile. `None` when
+    /// the platform names no config root or the folder cannot be made: the
+    /// preferences are then unavailable.
+    pub config: Option<PathBuf>,
+    /// Whether the config folder was itself a link at launch, such as a
+    /// dotfiles manager's: its target's mode is then the user's.
+    pub config_linked: bool,
+    /// The webview's profile, `<state>/webview`, which the webview makes.
+    #[cfg(not(target_os = "macos"))]
+    pub webview: PathBuf,
+    /// As [`runtime_dir`] names it, unresolved: the sidecar resolves it.
+    pub runtime: PathBuf,
+}
+
+impl Folders {
+    /// Follows the links of every folder the layout names, checks them, and
+    /// only then makes the host's own where they lead: the app folder above a
+    /// kind first, the state before the logs it holds. A link to nothing, a
+    /// linked `<state>/webview` and, on Windows, a link out of the profile
+    /// fail the launch.
+    pub fn make(roots: &Roots) -> Result<Self> {
+        let named = current_layout(roots);
+        let config_linked = named.config.as_deref().is_some_and(is_link);
+        let layout = followed_layout(&named)?;
+        if Platform::CURRENT == Platform::Windows {
+            let profile = followed(&roots.home)?;
+            check_in_profile(&named, &layout, &profile, through_a_link)?;
+        }
+
+        if let Err(err) = make_state(&layout) {
+            // On macOS the state holds the window frame alone, which the app
+            // can do without; elsewhere it holds the logs and the webview.
+            if Platform::CURRENT != Platform::MacOs {
+                return Err(err);
+            }
+            tracing::warn!(%err, "no state directory; the window frame is not kept");
+        }
+        let logs = make_logs(&layout)
+            .inspect_err(|err| tracing::error!(%err, "no log directory; logging to stderr only"))
+            .ok();
+        let config = make_config(&layout, config_linked)
+            .inspect_err(|err| tracing::warn!(%err, "no config directory"))
+            .ok();
+        Ok(Self {
+            #[cfg(not(target_os = "macos"))]
+            webview: webview_dir(&layout.state)?,
+            state: layout.state,
+            logs,
+            config,
+            config_linked,
+            runtime: runtime_dir(roots)?,
+        })
+    }
+}
+
+impl Layout {
+    /// Every folder the layout names. [`followed_layout`] lists the same
+    /// fields.
+    fn dirs(&self) -> impl Iterator<Item = &PathBuf> {
+        [
+            self.app.as_ref(),
+            self.app_on_config_root.as_ref(),
+            Some(&self.data),
+            self.config.as_ref(),
+            Some(&self.state),
+            Some(&self.cache),
+            Some(&self.logs),
+            self.runtime.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+    }
+}
+
+/// `layout` with every folder's links followed ([`followed`]).
+fn followed_layout(layout: &Layout) -> Result<Layout> {
+    let follow = |dir: &Option<PathBuf>| dir.as_deref().map(followed).transpose();
+    Ok(Layout {
+        app: follow(&layout.app)?,
+        app_on_config_root: follow(&layout.app_on_config_root)?,
+        data: followed(&layout.data)?,
+        config: follow(&layout.config)?,
+        state: followed(&layout.state)?,
+        cache: followed(&layout.cache)?,
+        logs: followed(&layout.logs)?,
+        runtime: follow(&layout.runtime)?,
+    })
+}
+
+/// `path` with every link followed, as the kernel names it. A name that is
+/// missing ends the walk, and the rest is kept as given; a link whose target
+/// is missing is an error naming both. Windows' verbatim `\\?\` spelling is
+/// never answered: a path only it can spell is an error.
+fn followed(path: &Path) -> Result<PathBuf> {
+    let mut at = path;
+    let mut rest = Vec::new();
+    loop {
+        match dunce::canonicalize(at) {
+            Ok(mut resolved) => {
+                refuse_verbatim(&resolved)?;
+                resolved.extend(rest.iter().rev());
+                return Ok(resolved);
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                if is_link(at) {
+                    let target = std::fs::read_link(at).map_err(AppError::Io)?;
+                    return Err(AppError::Io(std::io::Error::other(format!(
+                        "{} is a link to {}, which does not exist",
+                        at.display(),
+                        target.display()
+                    ))));
+                }
+                // coverage:ignore-start the root is always there, so a missing path has a parent
+                let (Some(parent), Some(name)) = (at.parent(), at.file_name()) else {
+                    return Err(AppError::Io(err));
+                };
+                // coverage:ignore-stop
+                rest.push(name);
+                at = parent;
+            }
+            Err(err) => {
+                return Err(AppError::Io(std::io::Error::other(format!(
+                    "follow {}: {err}",
+                    path.display()
+                ))))
+            }
+        }
+    }
+}
+
+/// Whether a link is on `path`: at it or at a folder above it.
+fn through_a_link(path: &Path) -> bool {
+    path.ancestors().any(is_link)
+}
+
+/// Whether `path` is itself a link: a symlink, or on Windows a junction.
+fn is_link(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+/// Refuses a resolved `path` still in Windows' verbatim spelling: one no
+/// other spelling can name. No resolved Unix path starts that way.
+fn refuse_verbatim(path: &Path) -> Result<()> {
+    if path.to_string_lossy().starts_with(VERBATIM_PREFIX) {
+        return Err(AppError::Io(std::io::Error::other(format!(
+            "{} can be named only by a verbatim path; move it",
+            path.display()
+        ))));
+    }
+    Ok(())
+}
+
+const VERBATIM_PREFIX: &str = r"\\?\";
+
+/// Refuses a layout folder a link leads out of the resolved `profile`, or
+/// onto it: on Windows its ACL is what keeps Kstack's files private. A folder
+/// reached through no link (`linked`) is where Windows names it, which an
+/// administrator may redirect off the profile, onto a mapped drive among
+/// others. Paths are resolved, so their names compare exactly.
+fn check_in_profile(
+    named: &Layout,
+    resolved: &Layout,
+    profile: &Path,
+    linked: impl Fn(&Path) -> bool,
+) -> Result<()> {
+    for (named, resolved) in named.dirs().zip(resolved.dirs()) {
+        let inside = resolved
+            .strip_prefix(profile)
+            .is_ok_and(|below| below.components().next().is_some());
+        if !inside && linked(named) {
+            return Err(AppError::Io(std::io::Error::other(format!(
+                "{} leads to {}, outside your profile; keep it inside {}",
+                named.display(),
+                resolved.display(),
+                profile.display()
+            ))));
+        }
+    }
+    Ok(())
 }
 
 /// Makes the app folder owner-only when `dir` is in it, before `dir` is made
@@ -263,26 +445,43 @@ fn ensure_app_dir_above(layout: &Layout, dir: &Path) -> Result<()> {
     ensure_data_dir(app)
 }
 
-/// The app's config directory, created owner-only: what a user sets, which
-/// Windows roams with the profile.
-pub fn app_config_dir(roots: &Roots) -> Result<PathBuf> {
-    let layout = current_layout(roots);
+/// The state folder, made owner-only, in an owner-only app folder.
+fn make_state(layout: &Layout) -> Result<()> {
+    ensure_app_dir_above(layout, &layout.state)?;
+    ensure_data_dir(&layout.state)
+}
+
+/// The log folder, made owner-only. On Linux and Windows it sits in the state
+/// folder, made just before it.
+///
+/// Not Tauri's `app_log_dir`: it names the leaf by bundle id rather than the
+/// display name everything else here uses, and it has no debug variant, so a
+/// dev run would write into an installed release's logs.
+fn make_logs(layout: &Layout) -> Result<PathBuf> {
+    ensure_app_dir_above(layout, &layout.logs)?;
+    owner_only(layout.logs.clone())
+}
+
+/// The config folder, made as [`ensure_config_dir`] makes it.
+fn make_config(layout: &Layout, linked: bool) -> Result<PathBuf> {
     let dir = layout
         .config
         .clone()
         .ok_or_else(|| AppError::Io(std::io::Error::other("resolve config_dir: none")))?;
-    ensure_app_dir_above(&layout, &dir)?;
-    ensure_config_dir(&dir)?;
+    ensure_app_dir_above(layout, &dir)?;
+    ensure_config_dir(&dir, linked)?;
     Ok(dir)
 }
 
-/// Creates the config directory owner-only, and tightens an existing one
-/// unless it is a link. A dotfiles manager links `~/.config/<app>` into a
-/// repository, whose mode is the user's to keep. One already owner-only is
-/// left untouched, so a read-only mount still yields its `host.json`.
-pub fn ensure_config_dir(path: &Path) -> Result<()> {
-    let keep = std::fs::symlink_metadata(path)
-        .is_ok_and(|meta| meta.file_type().is_symlink() || is_owner_only_dir(&meta));
+/// Makes the config folder at the resolved `path` owner-only, and tightens
+/// an open one. One that was itself a link at launch (`linked`), or is one
+/// now, keeps its target's mode: a dotfiles repository's mode is the user's. One already
+/// owner-only is left untouched, so a read-only mount still yields its
+/// `host.json`. One removed since launch is made again.
+pub fn ensure_config_dir(path: &Path, linked: bool) -> Result<()> {
+    let linked = linked || is_link(path);
+    let keep = std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_dir() && (linked || is_owner_only_dir(&meta)));
     if keep {
         return Ok(());
     }
@@ -330,35 +529,18 @@ fn owner_only(dir: PathBuf) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// The app's log directory, created owner-only. `app.rs` asks once, for the
-/// host's log; the sidecar logs in the same folder, placed from its own
-/// layout.
-///
-/// Not Tauri's `app_log_dir`: it names the leaf by bundle id rather than the
-/// display name everything else here uses, and it has no debug variant, so a
-/// dev run would write into an installed release's logs.
-pub fn log_dir(roots: &Roots) -> Result<PathBuf> {
-    let layout = current_layout(roots);
-    ensure_app_dir_above(&layout, &layout.logs)?;
-    // `owner_only` tightens the leaf alone, and on Linux and Windows the logs
-    // sit in a state directory an earlier run may have left open.
-    if layout.logs.starts_with(&layout.state) {
-        ensure_data_dir(&layout.state)?;
-    }
-    owner_only(layout.logs)
-}
-
-/// The webview's profile directory on Linux and Windows: a leaf on the state
-/// directory, so a dev build keeps its own and the sidecar's fence covers it.
-/// The webview makes the directory itself, inside a state directory this
-/// user has made owner-only: whoever owns a directory can replace what is in
-/// it. WebKitGTK takes the path as a string, so on Linux one that is not
-/// UTF-8 is refused: its lossy spelling would be a folder outside the fence.
-/// So is a link, which would lead the profile out of it.
+/// The webview's profile directory on Linux and Windows, under the resolved
+/// `state`: a leaf on the state directory, so a dev build keeps its own and
+/// the sidecar's fence covers it. The webview makes the directory itself,
+/// inside a state directory this user has made owner-only: whoever owns a
+/// directory can replace what is in it. WebKitGTK takes the path as a string,
+/// so on Linux one that is not UTF-8 is refused: its lossy spelling would be a
+/// folder outside the fence. So is a link, a junction included, which would
+/// lead the profile out of it.
 #[cfg(not(target_os = "macos"))]
-pub fn webview_dir(roots: &Roots) -> Result<PathBuf> {
-    let dir = app_state_dir(roots)?.join("webview");
-    if std::fs::symlink_metadata(&dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
+fn webview_dir(state: &Path) -> Result<PathBuf> {
+    let dir = state.join("webview");
+    if is_link(&dir) {
         return Err(AppError::Io(std::io::Error::other(format!(
             "{} is a link; link the state directory instead",
             dir.display()
@@ -386,7 +568,7 @@ pub fn webview_dir(roots: &Roots) -> Result<PathBuf> {
 /// concurrent copy owns its own. Outside `$XDG_RUNTIME_DIR` a name that is
 /// refused gives way to one beside it ([`private_dir_or_fresh`]).
 #[cfg(unix)]
-pub fn runtime_dir(_roots: &Roots) -> Result<PathBuf> {
+fn runtime_dir(_roots: &Roots) -> Result<PathBuf> {
     // SAFETY: `geteuid` reads process state and cannot fail.
     let uid = unsafe { libc::geteuid() };
     let xdg = runtime_home(std::env::var_os("XDG_RUNTIME_DIR"));
@@ -500,7 +682,7 @@ fn ensure_private_dir(dir: &Path, uid: u32) -> Result<()> {
 /// The named pipe ignores it: its namespace is flat, so the DACL and the peer
 /// check are its whole policy.
 #[cfg(not(unix))]
-pub fn runtime_dir(roots: &Roots) -> Result<PathBuf> {
+fn runtime_dir(roots: &Roots) -> Result<PathBuf> {
     let layout = current_layout(roots);
     let dir = layout
         .runtime
@@ -547,6 +729,189 @@ const RUNTIME_DIR_NAME: &str = if cfg!(debug_assertions) {
 mod tests {
     use super::*;
 
+    /// The folders `Folders::make` makes over `roots`, which must not fail.
+    fn made(roots: &Roots) -> Folders {
+        Folders::make(roots).expect("make")
+    }
+
+    /// `dir`, made. Under a [`crate::testutil::Scratch`] it is as the kernel
+    /// names it.
+    fn made_dir(dir: &Path) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        dir.to_path_buf()
+    }
+
+    #[test]
+    fn a_path_with_no_link_is_followed_to_itself() {
+        let scratch = crate::testutil::Scratch::new();
+        let dir = made_dir(&scratch.path().join("a"));
+
+        assert_eq!(followed(&dir).unwrap(), dir);
+        assert_eq!(
+            followed(&dir.join("missing/kstack")).unwrap(),
+            dir.join("missing/kstack"),
+            "a missing tail is kept as given"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_folder_is_followed_to_its_target() {
+        let scratch = crate::testutil::Scratch::new();
+        let target = made_dir(&scratch.path().join("big/kstack"));
+        let link = scratch.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        assert_eq!(followed(&link).unwrap(), target);
+        assert_eq!(followed(&link.join("logs")).unwrap(), target.join("logs"));
+    }
+
+    /// A path only a verbatim prefix can spell is refused by name.
+    #[test]
+    fn a_verbatim_path_is_refused() {
+        let verbatim = Path::new(r"\\?\C:\Users\x\con");
+
+        let err = refuse_verbatim(verbatim).unwrap_err().to_string();
+
+        assert!(err.contains(&verbatim.display().to_string()), "got: {err}");
+        assert!(refuse_verbatim(Path::new("/home/x")).is_ok());
+        assert!(refuse_verbatim(Path::new(r"C:\Users\x")).is_ok());
+    }
+
+    /// A layout folder that is a link to nothing fails the launch, and the
+    /// message names both ends.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_nothing_is_an_error_naming_both_ends() {
+        let scratch = crate::testutil::Scratch::new();
+        let link = scratch.path().join("link");
+        let target = scratch.path().join("gone");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let err = followed(&link.join("kstack")).unwrap_err().to_string();
+
+        assert!(err.contains(&link.display().to_string()), "got: {err}");
+        assert!(err.contains(&target.display().to_string()), "got: {err}");
+    }
+
+    /// A cycle of links stops the launch, naming the path.
+    #[cfg(unix)]
+    #[test]
+    fn a_cycle_of_links_is_an_error() {
+        let scratch = crate::testutil::Scratch::new();
+        let (a, b) = (scratch.path().join("a"), scratch.path().join("b"));
+        std::os::unix::fs::symlink(&b, &a).unwrap();
+        std::os::unix::fs::symlink(&a, &b).unwrap();
+
+        let err = followed(&a.join("kstack")).unwrap_err().to_string();
+
+        assert!(
+            err.contains(&a.join("kstack").display().to_string()),
+            "got: {err}"
+        );
+    }
+
+    /// The host's folders are the layout's, made, every path followed.
+    #[test]
+    fn folders_are_the_layouts_and_are_made() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let layout = current_layout(&roots);
+
+        let folders = made(&roots);
+
+        assert_eq!(folders.state, layout.state);
+        assert_eq!(folders.logs.as_ref(), Some(&layout.logs));
+        assert_eq!(folders.config, layout.config);
+        assert!(folders.state.is_dir());
+        assert!(layout.logs.is_dir());
+        assert!(layout.config.unwrap().is_dir());
+    }
+
+    /// A linked state, log and config folder each launch, and the folders
+    /// name the target.
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_layout_folder_is_named_by_its_target() {
+        let scratch = crate::testutil::Scratch::new();
+        let base = scratch.path();
+        let roots = crate::testutil::roots(base);
+        let layout = current_layout(&roots);
+        let link = |dir: &Path, name: &str| {
+            let target = made_dir(&base.join("elsewhere").join(name));
+            std::fs::create_dir_all(dir.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(&target, dir).unwrap();
+            target
+        };
+        let state = link(&layout.state, "state");
+        let config = link(layout.config.as_ref().unwrap(), "config");
+
+        let folders = made(&roots);
+
+        assert_eq!(folders.state, state);
+        assert_eq!(folders.config, Some(config));
+        // On Linux the logs are in the state, and so where its link leads.
+        assert_eq!(folders.logs, Some(followed(&layout.logs).unwrap()));
+    }
+
+    /// A log folder linked to nothing fails the launch, where one that cannot
+    /// be made leaves the host on stderr.
+    #[cfg(unix)]
+    #[test]
+    fn a_log_folder_linked_to_nothing_fails_the_launch() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let logs = current_layout(&roots).logs;
+        std::fs::create_dir_all(logs.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(scratch.path().join("gone"), &logs).unwrap();
+
+        assert!(Folders::make(&roots).is_err());
+    }
+
+    /// On Windows a link may not lead a layout folder out of the profile,
+    /// whose ACL keeps it private; one Windows itself names outside it is
+    /// the administrator's. Checked by text on resolved paths, so on every
+    /// OS: `linked` says whether a link led each folder to `resolved`.
+    #[test]
+    fn a_link_may_not_lead_a_layout_folder_out_of_the_profile() {
+        let scratch = crate::testutil::Scratch::new();
+        let profile = made_dir(&scratch.path().join("profile"));
+        let roots = |local: PathBuf| Roots {
+            config: Some(local.clone()),
+            local_data: local.clone(),
+            cache: local,
+            home: profile.clone(),
+            state: profile.join("state"),
+        };
+        let on = |local: PathBuf| layout(Platform::Windows, &roots(local));
+        let named = on(profile.join("AppData/Local"));
+        assert!(check_in_profile(&named, &on(profile.join("moved")), &profile, |_| true).is_ok());
+
+        let outside = on(scratch.path().join("D/big"));
+        let err = check_in_profile(&named, &outside, &profile, |_| true)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("outside your profile"), "got: {err}");
+        assert!(err.contains(&profile.display().to_string()), "got: {err}");
+        assert!(
+            check_in_profile(&outside, &outside, &profile, |_| false).is_ok(),
+            "a folder Windows redirects"
+        );
+
+        let mut itself = on(profile.join("moved"));
+        itself.app = Some(profile.clone());
+        assert!(
+            check_in_profile(&named, &itself, &profile, |_| true).is_err(),
+            "the profile itself"
+        );
+
+        let sibling = on(profile.with_file_name("PROFILE").join("Local"));
+        assert!(
+            check_in_profile(&named, &sibling, &profile, |_| true).is_err(),
+            "a sibling in another case"
+        );
+    }
+
     /// The data directory is the outer wall around the sidecar's caches, and the
     /// only one Windows has. Unix only — Windows has no POSIX mode bits.
     #[cfg(unix)]
@@ -590,7 +955,7 @@ mod tests {
         let scratch = crate::testutil::Scratch::new();
         let roots = crate::testutil::roots(scratch.path());
 
-        let dir = log_dir(&roots).expect("create");
+        let dir = made(&roots).logs.expect("create");
         assert_eq!(
             std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
             0o700
@@ -605,7 +970,9 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let scratch = crate::testutil::Scratch::new();
-        let dir = app_config_dir(&crate::testutil::roots(scratch.path())).expect("create");
+        let dir = made(&crate::testutil::roots(scratch.path()))
+            .config
+            .expect("create");
         assert_eq!(
             std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
             0o700
@@ -626,22 +993,63 @@ mod tests {
         std::fs::create_dir_all(link.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink(&target, &link).unwrap();
 
-        assert_eq!(app_config_dir(&roots).unwrap(), link);
+        let folders = made(&roots);
+        assert_eq!(folders.config, Some(target.clone()));
+        assert!(folders.config_linked);
+        let location = crate::host_file::Location {
+            path: target.join("host.json"),
+            config_linked: folders.config_linked,
+        };
+        crate::host_file::update(&location, Default::default()).unwrap();
+        assert!(
+            target.join("host.json").is_file(),
+            "host.json lands in the target"
+        );
         assert_eq!(
             std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
             0o755
         );
     }
 
+    /// A link above the config folder does not count: the folder below is
+    /// one Kstack makes, owner-only. Linux alone puts the config on its own
+    /// root.
+    #[cfg(target_os = "linux")]
     #[test]
-    fn no_config_root_is_an_error_not_a_guess() {
+    fn a_config_dir_under_a_linked_root_is_made_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = crate::testutil::Scratch::new();
+        let target = scratch.path().join("dotconfig");
+        std::fs::create_dir(&target).unwrap();
+        let root = scratch.path().join("config-link");
+        std::os::unix::fs::symlink(&target, &root).unwrap();
+        let roots = Roots {
+            config: Some(root),
+            ..crate::testutil::roots(scratch.path())
+        };
+
+        let folders = made(&roots);
+
+        let config = folders.config.unwrap();
+        assert!(config.starts_with(&target), "{}", config.display());
+        assert!(!folders.config_linked);
+        assert_eq!(
+            std::fs::metadata(&config).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+
+    /// No config root leaves the preferences unavailable, never a failed
+    /// launch.
+    #[test]
+    fn no_config_root_is_no_config_folder() {
         let scratch = crate::testutil::Scratch::new();
         let roots = Roots {
             config: None,
             ..crate::testutil::roots(scratch.path())
         };
-        let err = app_config_dir(&roots).unwrap_err();
-        assert!(err.to_string().contains("config_dir"), "got: {err}");
+        assert_eq!(made(&roots).config, None);
     }
 
     /// The endpoint's directory is the wall around the socket. `/tmp` is shared
@@ -949,9 +1357,66 @@ mod tests {
         let mode = || std::fs::metadata(&dir).unwrap().permissions().mode() & 0o7777;
         assert_eq!(mode(), 0o2700, "the setgid bit must be settable here");
 
-        ensure_config_dir(&dir).unwrap();
+        ensure_config_dir(&dir, false).unwrap();
 
         assert_eq!(mode(), 0o2700);
+    }
+
+    /// A config folder that becomes a link after launch keeps its target's
+    /// mode at the next write too.
+    #[cfg(unix)]
+    #[test]
+    fn a_config_dir_linked_after_launch_keeps_its_targets_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = crate::testutil::Scratch::new();
+        let target = scratch.path().join("dotfiles");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let dir = scratch.path().join("config");
+        std::os::unix::fs::symlink(&target, &dir).unwrap();
+
+        ensure_config_dir(&dir, false).unwrap();
+
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755);
+    }
+
+    /// On macOS the state holds the window frame alone, so one that cannot
+    /// be made leaves the launch going.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_state_dir_that_cannot_be_made_leaves_a_macos_launch_going() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let state = current_layout(&roots).state;
+        std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+        std::fs::write(&state, "").unwrap();
+
+        assert!(Folders::make(&roots).is_ok());
+    }
+
+    /// A config folder an earlier build left open is tightened, unless it
+    /// was a link at launch; one removed since is made again.
+    #[cfg(unix)]
+    #[test]
+    fn an_open_config_dir_is_tightened() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = crate::testutil::Scratch::new();
+        let dir = scratch.path().join("config");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mode = || std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+
+        ensure_config_dir(&dir, true).unwrap();
+        assert_eq!(mode(), 0o755, "a linked folder's mode is the user's");
+        ensure_config_dir(&dir, false).unwrap();
+        assert_eq!(mode(), 0o700);
+
+        std::fs::remove_dir(&dir).unwrap();
+        ensure_config_dir(&dir, true).unwrap();
+        assert_eq!(mode(), 0o700, "a removed folder is made owner-only");
     }
 
     #[test]
@@ -979,7 +1444,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let scratch = crate::testutil::Scratch::new();
-        let dir = app_state_dir(&crate::testutil::roots(scratch.path())).unwrap();
+        let dir = made(&crate::testutil::roots(scratch.path())).state;
 
         assert_eq!(
             std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
@@ -1006,8 +1471,8 @@ mod tests {
         assert_eq!(roots.is_err(), cfg!(target_os = "linux"));
     }
 
-    /// A junction and a directory symlink are each a link to `is_symlink`,
-    /// as they are to the sidecar's `realpath.IsLink`.
+    /// A junction and a directory symlink are each a link to `is_link`, as
+    /// they are to the sidecar's `realpath.IsLink`.
     #[cfg(windows)]
     #[test]
     fn a_junction_and_a_directory_symlink_are_links() {
@@ -1016,16 +1481,76 @@ mod tests {
         std::fs::create_dir(&target).unwrap();
         for kind in ["/J", "/D"] {
             let link = scratch.path().join(format!("link{}", &kind[1..]));
-            let out = std::process::Command::new("cmd")
-                .args(["/c", "mklink", kind])
-                .arg(&link)
-                .arg(&target)
-                .output()
-                .unwrap();
-            assert!(out.status.success(), "{out:?}");
-            let meta = std::fs::symlink_metadata(&link).unwrap();
-            assert!(meta.file_type().is_symlink(), "{kind}");
+            mklink(kind, &target, &link);
+            assert!(is_link(&link), "{kind}");
         }
+    }
+
+    /// Makes a `kind` link (`/J` a junction, `/D` a directory symlink) at
+    /// `link` to `target`, with the folders above it.
+    #[cfg(windows)]
+    fn mklink(kind: &str, target: &Path, link: &Path) {
+        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+        let out = std::process::Command::new("cmd")
+            .args(["/c", "mklink", kind])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+    }
+
+    /// A layout folder junctioned out of the profile fails the launch; one
+    /// junctioned inside it launches, named by its target, which no
+    /// verbatim prefix spells.
+    #[cfg(windows)]
+    #[test]
+    fn a_junction_out_of_the_profile_fails_the_launch() {
+        let scratch = crate::testutil::Scratch::new();
+        let profile = scratch.path().join("profile");
+        let roots = crate::testutil::roots(&profile);
+        let app = current_layout(&roots).app.unwrap();
+
+        let outside = scratch.path().join("D").join("Kstack");
+        std::fs::create_dir_all(&outside).unwrap();
+        mklink("/J", &outside, &app);
+        let err = Folders::make(&roots).unwrap_err().to_string();
+        assert!(err.contains("outside your profile"), "got: {err}");
+
+        std::fs::remove_dir(&app).unwrap();
+        let inside = profile.join("moved").join("Kstack");
+        std::fs::create_dir_all(&inside).unwrap();
+        mklink("/J", &inside, &app);
+        let folders = made(&roots);
+        assert!(folders.state.starts_with(&inside), "{folders:?}");
+        for dir in [
+            Some(&folders.state),
+            folders.logs.as_ref(),
+            folders.config.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            assert!(
+                !dir.to_string_lossy().starts_with(VERBATIM_PREFIX),
+                "{dir:?}"
+            );
+        }
+    }
+
+    /// A junction at `<state>/webview` is a link, refused as a symlink is.
+    #[cfg(windows)]
+    #[test]
+    fn a_junctioned_webview_dir_is_refused() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let target = scratch.path().join("elsewhere");
+        std::fs::create_dir(&target).unwrap();
+        mklink("/J", &target, &current_layout(&roots).state.join("webview"));
+
+        let err = Folders::make(&roots).unwrap_err();
+
+        assert!(err.to_string().contains("is a link"), "got: {err}");
     }
 
     #[cfg(target_os = "linux")]
@@ -1035,10 +1560,11 @@ mod tests {
         let roots = crate::testutil::roots(scratch.path());
         let target = scratch.path().join("elsewhere");
         std::fs::create_dir(&target).unwrap();
-        let link = app_state_dir(&roots).unwrap().join("webview");
-        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let state = current_layout(&roots).state;
+        std::fs::create_dir_all(&state).unwrap();
+        std::os::unix::fs::symlink(&target, state.join("webview")).unwrap();
 
-        let err = webview_dir(&roots).unwrap_err();
+        let err = Folders::make(&roots).unwrap_err();
 
         assert!(err.to_string().contains("is a link"), "got: {err}");
     }
@@ -1056,7 +1582,7 @@ mod tests {
             ..crate::testutil::roots(scratch.path())
         };
 
-        let err = webview_dir(&roots).unwrap_err();
+        let err = Folders::make(&roots).unwrap_err();
 
         assert!(err.to_string().contains("not UTF-8"), "got: {err}");
     }
@@ -1071,7 +1597,7 @@ mod tests {
         let named = current_layout(&roots).state;
 
         assert!(!named.exists());
-        assert_eq!(app_state_dir(&roots).unwrap(), named);
+        assert_eq!(made(&roots).state, named);
     }
 
     /// The roots Tauri resolves on `platform`, so each platform's layout is
@@ -1200,17 +1726,31 @@ mod tests {
         assert_eq!(layout(Platform::MacOs, &roots).config, None);
     }
 
-    /// A state directory that cannot be made fails the logs it would hold.
-    #[cfg(target_os = "linux")]
+    /// A log folder that is no link and cannot be made leaves `logs`
+    /// `None`, and the launch goes on, logging to stderr.
     #[test]
-    fn log_dir_fails_under_a_state_directory_that_cannot_be_made() {
+    fn a_log_dir_that_cannot_be_made_is_none() {
+        let scratch = crate::testutil::Scratch::new();
+        let roots = crate::testutil::roots(scratch.path());
+        let logs = current_layout(&roots).logs;
+        std::fs::create_dir_all(logs.parent().unwrap()).unwrap();
+        std::fs::write(&logs, "").unwrap();
+
+        assert_eq!(made(&roots).logs, None);
+    }
+
+    /// On Linux and Windows a state folder that cannot be made fails the
+    /// launch: it holds the logs and the webview's profile.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_state_dir_that_cannot_be_made_fails_the_launch() {
         let scratch = crate::testutil::Scratch::new();
         let roots = crate::testutil::roots(scratch.path());
         let state = current_layout(&roots).state;
         std::fs::create_dir_all(state.parent().unwrap()).unwrap();
         std::fs::write(&state, "").unwrap();
 
-        assert!(log_dir(&roots).is_err());
+        assert!(Folders::make(&roots).is_err());
     }
 
     #[test]
@@ -1236,7 +1776,7 @@ mod tests {
         std::fs::create_dir_all(&state).unwrap();
         std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        log_dir(&roots).unwrap();
+        made(&roots);
 
         let mode = std::fs::metadata(&state).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700);
@@ -1315,19 +1855,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn the_app_directories_hang_off_the_roots() {
-        let scratch = crate::testutil::Scratch::new();
-        let roots = crate::testutil::roots(scratch.path());
-
-        let logs = log_dir(&roots).unwrap();
-        assert_eq!(logs, current_layout(&roots).logs);
-        assert!(logs.is_dir());
-        let config = app_config_dir(&roots).unwrap();
-        assert_eq!(current_layout(&roots).config.as_ref(), Some(&config));
-        assert!(config.is_dir());
     }
 
     /// An open app folder is tightened before a kind in it is made, and one

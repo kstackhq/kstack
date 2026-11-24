@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! `host.json`, in `paths::app_config_dir` — the persisted-settings source of
-//! truth; the webview keeps no copy. See
+//! `host.json`, in the config folder (`Folders::config`) — the
+//! persisted-settings source of truth; the webview keeps no copy. See
 //! docs/adr/2026-08-09-host-json-settings.md and
 //! docs/adr/2026-11-21-host-json-lives-under-the-kstack-config-directory.md.
 //!
@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 use crate::error::{AppError, Result};
-use crate::paths::{self, Roots};
+use crate::paths::{self, Folders};
 
 /// Schema version stamped into the file on every write, for future migrations.
 const CURRENT_SCHEMA_VERSION: u32 = 1;
@@ -45,24 +45,34 @@ pub const UPDATED_EVENT: &str = "host-file-updated";
 const FILE_NAME: &str = "host.json";
 
 /// Where `host.json` is ([`manage`]).
-pub struct Location(pub PathBuf);
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Location {
+    /// In the resolved config folder.
+    pub path: PathBuf,
+    /// Whether the config folder was itself a link at launch
+    /// ([`Folders::config_linked`]).
+    pub config_linked: bool,
+}
 
 /// Manages the [`Location`] of `host.json` in the config directory. `setup`
 /// calls it before the first window, which reads the file. Without a location
 /// the windows paint the defaults and a change fails.
-pub fn manage<R: tauri::Runtime>(app: &tauri::AppHandle<R>, roots: &Roots) {
-    match paths::app_config_dir(roots) {
-        Ok(dir) => {
-            app.manage(Location(dir.join(FILE_NAME)));
+pub fn manage<R: tauri::Runtime>(app: &tauri::AppHandle<R>, folders: &Folders) {
+    match &folders.config {
+        Some(dir) => {
+            app.manage(Location {
+                path: dir.join(FILE_NAME),
+                config_linked: folders.config_linked,
+            });
         }
-        Err(err) => tracing::warn!(%err, "host.json has no location"),
+        None => tracing::warn!("host.json has no location"),
     }
 }
 
-/// Absolute path of `host.json`, as [`manage`] resolved it.
-pub fn path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf> {
+/// Where `host.json` is, as [`manage`] resolved it.
+pub fn location<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Location> {
     app.try_state::<Location>()
-        .map(|location| location.0.clone())
+        .map(|location| location.inner().clone())
         .ok_or_else(|| AppError::Io(std::io::Error::other("host.json has no location")))
 }
 
@@ -116,7 +126,8 @@ pub fn read(path: &Path) -> HostFile {
 /// persist atomically (unique temp + rename; concurrent windows can't tear the
 /// file, last writer wins), and return the merged result. Creates the parent
 /// dir on first run.
-pub fn update(path: &Path, patch: HostFilePatch) -> Result<HostFile> {
+pub fn update(location: &Location, patch: HostFilePatch) -> Result<HostFile> {
+    let path = &location.path;
     let mut file = read(path);
     if let Some(preference) = patch.color_scheme_preference {
         file.color_scheme_preference = Some(preference);
@@ -128,7 +139,7 @@ pub fn update(path: &Path, patch: HostFilePatch) -> Result<HostFile> {
         .ok_or_else(|| std::io::Error::other("host file path has no parent directory"))?;
     // Owner-only again here, not just at launch: the directory may have been
     // removed since.
-    paths::ensure_config_dir(parent)?;
+    paths::ensure_config_dir(parent, location.config_linked)?;
 
     let contents = serde_json::to_string_pretty(&file)?;
 
@@ -187,9 +198,17 @@ pub fn init_script(file: &HostFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{roots, Scratch};
+    use crate::testutil::{folders, roots, Scratch};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// A location at `path` in a config folder that was no link.
+    fn at(path: &Path) -> Location {
+        Location {
+            path: path.to_path_buf(),
+            config_linked: false,
+        }
+    }
 
     /// A unique path inside the OS temp dir, in a directory that does not yet
     /// exist (exercising `update`'s create-parent-dirs behavior).
@@ -238,7 +257,7 @@ mod tests {
         let path = temp_path();
         // Parent dir deliberately absent — update must create it (first run).
         let updated = update(
-            &path,
+            &at(&path),
             HostFilePatch {
                 color_scheme_preference: Some(ColorSchemePreference::Dark),
             },
@@ -256,13 +275,13 @@ mod tests {
     fn update_with_empty_patch_preserves_existing_values() {
         let path = temp_path();
         update(
-            &path,
+            &at(&path),
             HostFilePatch {
                 color_scheme_preference: Some(ColorSchemePreference::Light),
             },
         )
         .unwrap();
-        let updated = update(&path, HostFilePatch::default()).unwrap();
+        let updated = update(&at(&path), HostFilePatch::default()).unwrap();
         assert_eq!(
             updated.color_scheme_preference,
             Some(ColorSchemePreference::Light)
@@ -278,7 +297,7 @@ mod tests {
             r#"{"schemaVersion":0,"colorSchemePreference":"light"}"#,
         )
         .unwrap();
-        let updated = update(&path, HostFilePatch::default()).unwrap();
+        let updated = update(&at(&path), HostFilePatch::default()).unwrap();
         assert_eq!(updated.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(read(&path).schema_version, CURRENT_SCHEMA_VERSION);
     }
@@ -293,11 +312,12 @@ mod tests {
 
         let scratch = Scratch::new();
         let app = tauri::test::mock_app();
-        manage(app.handle(), &roots(scratch.path()));
-        let path = path(app.handle()).unwrap();
+        manage(app.handle(), &folders(scratch.path()));
+        let location = location(app.handle()).unwrap();
+        let path = location.path.clone();
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 
-        update(&path, HostFilePatch::default()).unwrap();
+        update(&location, HostFilePatch::default()).unwrap();
 
         let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(path.parent().unwrap()), 0o700);
@@ -342,17 +362,16 @@ mod tests {
     }
 
     #[test]
-    fn manage_sets_the_location_path_reads() {
+    fn manage_sets_what_location_reads() {
         let scratch = Scratch::new();
         let app = tauri::test::mock_app();
-        assert!(path(app.handle()).is_err());
+        assert!(location(app.handle()).is_err());
+        let folders = folders(scratch.path());
 
-        manage(app.handle(), &roots(scratch.path()));
+        manage(app.handle(), &folders);
 
-        let expected = paths::app_config_dir(&roots(scratch.path()))
-            .unwrap()
-            .join("host.json");
-        assert_eq!(path(app.handle()).unwrap(), expected);
+        let expected = folders.config.unwrap().join("host.json");
+        assert_eq!(location(app.handle()).unwrap().path, expected);
     }
 
     #[test]
@@ -364,9 +383,9 @@ mod tests {
         std::fs::write(&config, "not a directory").unwrap();
         let app = tauri::test::mock_app();
 
-        manage(app.handle(), &roots);
+        manage(app.handle(), &Folders::make(&roots).unwrap());
 
-        assert!(path(app.handle()).is_err());
+        assert!(location(app.handle()).is_err());
     }
 
     #[test]

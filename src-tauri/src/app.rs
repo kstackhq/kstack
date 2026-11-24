@@ -26,7 +26,7 @@ use tauri::{AppHandle, Manager, RunEvent, Runtime, WindowEvent};
 use tauri_plugin_shell::ShellExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::paths::Roots;
+use crate::paths::{Folders, Roots};
 use crate::services::sidecar::SidecarService;
 use crate::state::AppState;
 use crate::window_manager::Monitors;
@@ -273,20 +273,19 @@ pub fn run() {
         .setup(move |app| {
             // First: everything below is what a user is asked for when the app
             // fails to start, and until this lands it reaches stderr alone.
-            let roots = Roots::of(app.handle())?;
-            let log_dir = logging::log_dir(&roots);
-            let log_guards = logging::install_file_layer(&log_reload, log_dir.as_deref());
-            host_file::manage(app.handle(), &roots);
+            let folders = Folders::make(&Roots::of(app.handle())?)?;
+            let log_guards = logging::install_file_layer(&log_reload, folders.logs.as_deref());
+            host_file::manage(app.handle(), &folders);
             #[cfg(not(target_os = "macos"))]
-            crate::webview_profile::manage(app.handle(), &roots)?;
+            crate::webview_profile::manage(app.handle(), &folders);
 
             let state = AppState::new(
-                SidecarService::spawn(&roots, |args| {
+                SidecarService::spawn(&folders, |args| {
                     Ok(app.shell().sidecar("kstack-sidecar")?.args(args))
                 })?,
                 log_guards,
                 AppMonitors(app.handle().clone()),
-                window_state::path(&roots),
+                Some(window_state::path(&folders)),
             );
 
             // Create the main window. All windows are built in code

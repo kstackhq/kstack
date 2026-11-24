@@ -20,19 +20,16 @@ use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager, Runtime};
 
-use crate::error::Result;
-use crate::paths::{self, Roots};
+use crate::paths::Folders;
 
 /// Where the profile is ([`manage`]).
 struct Location(PathBuf);
 
 /// Manages the profile's [`Location`]. `setup` calls it before the first
-/// window, whose webview opens the profile. An error fails the launch: a
-/// window without a location would keep its profile under the bundle id,
-/// outside the sidecar's fence.
-pub fn manage<R: Runtime>(app: &AppHandle<R>, roots: &Roots) -> Result<()> {
-    app.manage(Location(paths::webview_dir(roots)?));
-    Ok(())
+/// window, whose webview opens the profile: without one it would keep its
+/// profile under the bundle id, outside the sidecar's fence.
+pub fn manage<R: Runtime>(app: &AppHandle<R>, folders: &Folders) {
+    app.manage(Location(folders.webview.clone()));
 }
 
 /// The profile directory, as [`manage`] resolved it.
@@ -44,35 +41,17 @@ pub fn dir<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{roots, Scratch};
+    use crate::testutil::{folders, Scratch};
 
     #[test]
     fn manage_sets_the_directory_dir_reads() {
         let scratch = Scratch::new();
-        let roots = roots(scratch.path());
+        let folders = folders(scratch.path());
         let app = tauri::test::mock_app();
         assert_eq!(dir(app.handle()), None);
 
-        manage(app.handle(), &roots).unwrap();
+        manage(app.handle(), &folders);
 
-        let expected = paths::app_state_dir(&roots).unwrap().join("webview");
-        assert_eq!(dir(app.handle()), Some(expected));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn a_state_dir_that_cannot_be_made_is_an_error() {
-        let scratch = Scratch::new();
-        // A file where the state root should be: nothing can be made under it.
-        let state = scratch.path().join("file");
-        std::fs::write(&state, "").unwrap();
-        let roots = Roots {
-            state,
-            ..roots(scratch.path())
-        };
-        let app = tauri::test::mock_app();
-
-        assert!(manage(app.handle(), &roots).is_err());
-        assert_eq!(dir(app.handle()), None);
+        assert_eq!(dir(app.handle()), Some(folders.state.join("webview")));
     }
 }
