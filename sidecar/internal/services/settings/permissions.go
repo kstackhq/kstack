@@ -109,13 +109,13 @@ func (s *Store) ClusterModes(ctx context.Context, clusters []apimeta.ClusterID) 
 
 // SetDefaultMode sets the default mode.
 func (s *Store) SetDefaultMode(ctx context.Context, mode permissions.Mode) error {
-	return s.write(ctx, func(st stmts) error { return upsertMode(ctx, st, "", mode, s.now().UnixMilli()) })
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error { return upsertMode(ctx, st, "", mode, s.now().UnixMilli()) })
 }
 
 // SetMode sets cluster's own mode: ErrClusterGone for a cluster that is gone
 // or awaiting deletion, ErrNoKubeContext for one with no kube-context.
 func (s *Store) SetMode(ctx context.Context, cluster apimeta.ClusterID, mode permissions.Mode) error {
-	return s.write(ctx, func(st stmts) error {
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
 		if err := requireKubeContext(ctx, st, cluster); err != nil {
 			return err
 		}
@@ -126,7 +126,7 @@ func (s *Store) SetMode(ctx context.Context, cluster apimeta.ClusterID, mode per
 // ClearMode removes cluster's own mode: ErrClusterGone for a cluster that is
 // gone or awaiting deletion.
 func (s *Store) ClearMode(ctx context.Context, cluster apimeta.ClusterID) error {
-	return s.write(ctx, func(st stmts) error {
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
 		if _, err := clusterHasKubeContext(ctx, st, cluster); err != nil {
 			return err
 		}
@@ -148,7 +148,7 @@ func (s *Store) AddKubeRule(ctx context.Context, r permissions.Rule) (permission
 	if err := CheckKubeRule(r); err != nil {
 		return permissions.Rule{}, err
 	}
-	err := s.write(ctx, func(st stmts) error {
+	err := s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
 		if r.ClusterID != "" {
 			if err := requireKubeContext(ctx, st, r.ClusterID); err != nil {
 				return err
@@ -175,7 +175,7 @@ func (s *Store) AddKubeRule(ctx context.Context, r permissions.Rule) (permission
 
 // RemoveKubeRule removes the always rule id: ErrNoRule when none has it.
 func (s *Store) RemoveKubeRule(ctx context.Context, id string) error {
-	return s.write(ctx, func(st stmts) error { return execOne(ctx, st, stmtDeleteKubeRule, ErrNoRule, id) })
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error { return execOne(ctx, st, stmtDeleteKubeRule, ErrNoRule, id) })
 }
 
 // FolderGrants is the always folder grants in the order written, unchecked: a
@@ -187,7 +187,7 @@ func (s *Store) FolderGrants(ctx context.Context) ([]FolderGrant, error) {
 // GrantFolder writes an always grant of path, which its caller has checked. A
 // folder granted already keeps its grant's id and changes its access.
 func (s *Store) GrantFolder(ctx context.Context, path string, write bool) error {
-	return s.write(ctx, func(st stmts) error {
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
 		return upsertFolderGrant(ctx, st, appdb.NewID(), path, write, s.now().UnixMilli())
 	})
 }
@@ -195,25 +195,7 @@ func (s *Store) GrantFolder(ctx context.Context, path string, write bool) error 
 // RevokeFolder removes the always folder grant id: ErrNoGrant when none has
 // it.
 func (s *Store) RevokeFolder(ctx context.Context, id string) error {
-	return s.write(ctx, func(st stmts) error { return execOne(ctx, st, stmtDeleteFolderGrant, ErrNoGrant, id) })
-}
-
-// errUnchanged ends a write that has nothing to change: it commits nothing and
-// publishes nothing, and its caller answers no error.
-var errUnchanged = errors.New("settings: nothing to write")
-
-// write runs fn in one transaction and, once it commits, notifies
-// appdb.KeyPermissions. A write fn refuses notifies nothing.
-func (s *Store) write(ctx context.Context, fn func(stmts) error) error {
-	err := s.stmts.InTx(ctx, fn)
-	if errors.Is(err, errUnchanged) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	s.db.Notify(appdb.KeyPermissions)
-	return nil
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error { return execOne(ctx, st, stmtDeleteFolderGrant, ErrNoGrant, id) })
 }
 
 // WatchPermissions pings after each write of the modes, the always rules or

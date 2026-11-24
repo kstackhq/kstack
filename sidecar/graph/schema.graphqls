@@ -2261,8 +2261,10 @@ type SandboxExecutable {
   ok: Boolean!
   "The first non-empty line of its output, redacted. The executable's own text: draw it through VisibleText."
   version: String!
-  "Why it did not run or did not pass: Bash's first line, `not found on the sandbox's PATH`, `could not start: …` or `not probed yet`; empty when ok."
+  "Why it did not run or did not pass: Bash's first line, `not found on the sandbox's PATH`, `could not start: …` or `not probed yet`; empty when ok, and for one refused."
   error: String!
+  "Why a registered executable is not probed, in the user's words; null for one Kstack probes. User text: draw it through VisibleText."
+  refusal: String
 }
 
 "The commands a variable reaches."
@@ -2389,7 +2391,7 @@ type Query {
   "Whether a sync has ever read the login shell's PATH. Until one has, sandboxed commands search the platform's default folders; after it, the list alone, so an empty one searches nothing. False on a machine with no sandbox."
   sandboxPathResolved: Boolean!
 
-  "Every executable the sandbox probe checks, the curated ones then the user's, as the last probe found each. Empty on a machine with no sandbox."
+  "Every executable the sandbox probe checks, the curated ones then the user's, a refused one with its refusal, as the last probe found each. Empty on a machine with no sandbox. A read of the registered executables that fails is an error."
   sandboxExecutables: [SandboxExecutable!]!
 
   "One scope's variables in the order added, a refused one with its refusal: a cluster's, or with no `clusterID` every cluster's. A command gets every cluster's, its chat's cluster's value in place of one of the same name, of the targets that reach it."
@@ -2508,7 +2510,7 @@ type Mutation {
   "Run the login shell again and fold its PATH in. Refused KSTACK_VALIDATION_ERROR with the shell's fault, or on a machine with no sandbox. Returns the whole list."
   sandboxPathRefresh: [SandboxPathEntry!]!
 
-  "Start a probe of every listed executable in the sandbox, with no cluster and no network, and answer the report as it stands; a probe already running is waited out, then one runs. Its end reaches `sandboxExecutablesWatch`. Refused KSTACK_VALIDATION_ERROR on a machine with no sandbox."
+  "Start a probe of every listed executable in the sandbox, with no cluster and no network, and answer the report as it stands; a probe already running is waited out, then one runs. Its end reaches `sandboxExecutablesWatch`. Refused KSTACK_VALIDATION_ERROR on a machine with no sandbox. A read of the registered executables that fails is an error, and starts no probe."
   sandboxExecutablesProbe: [SandboxExecutable!]!
 
   "Run a command the user typed in the Sandbox console, as a chat's sandboxed command runs: in a workspace of its own, with the folders granted always, `clusterID`'s cluster, read alone, and the internet when `network` is set. Nothing approves it, and it reaches no chat and no model. It answers once the command starts, with its `number`; its output and its end reach `sandboxConsoleWatch`. Refused KSTACK_CONFLICT while a command runs, and KSTACK_VALIDATION_ERROR for an empty or overlong command, the internet where the machine has none, or a machine whose sandbox does not confine a command."
@@ -2517,10 +2519,10 @@ type Mutation {
   "Stop the Sandbox console's running command, as a chat's Cancel stops a call: command `number`'s, or whichever runs when it is null. Does nothing when none runs, or another, so a stop sent late never ends a newer command."
   sandboxConsoleStop(number: Int): Boolean!
 
-  "Register an executable for the probe, with `invocation`, or `<name> --version` when it is null. Refused KSTACK_VALIDATION_ERROR for a name or invocation out of shape, a name already listed, or on a machine with no sandbox. Returns the whole report, the new executable not probed yet."
+  "Register an executable for the probe, with `invocation`, or `<name> --version` when it is null. Refused KSTACK_VALIDATION_ERROR for a name already listed, a refused one's included, a name or invocation out of shape, or on a machine with no sandbox. Returns the whole report, the new executable not probed yet; KSTACK_SAVED_UNREAD when it took but the list could not be read back."
   sandboxExecutableRegister(name: String!, invocation: String): [SandboxExecutable!]!
 
-  "Remove a registered executable. Refused KSTACK_VALIDATION_ERROR for a name not registered. Returns the whole report."
+  "Remove a registered executable, a refused one too. Refused KSTACK_VALIDATION_ERROR for a name not registered. Returns the whole report; KSTACK_SAVED_UNREAD when it took but the list could not be read back."
   sandboxExecutableRemove(name: String!): [SandboxExecutable!]!
 
   "Set a variable in one scope, from the next command that starts: a new name joins the scope's end, a listed one changes in place. Refused KSTACK_VALIDATION_ERROR, with the reason, for a name or value its target's commands may not have or a new name when the scope is full, and KSTACK_RECORD_NOT_FOUND for a missing cluster. Returns the scope's list as it stands now."
@@ -2709,7 +2711,7 @@ type Subscription {
   logsFollow(id: ClusterID!, request: LogsFollowInput!): LogsFollowFrame!
 
   # --- Sandbox ---
-  "GAUGE. The executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables."
+  "GAUGE. The executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables. A read of the registered executables that fails ends the watch with its reason."
   sandboxExecutablesWatch: SandboxExecutablesReport!
   "GAUGE. The folders granted, as `sandboxFolders` answers them, a fresh value on each write of the settings or the always grants and, with a chat, on each write or revoke of the chat's grants. A folder changing on disk sends nothing."
   sandboxFoldersWatch(chatID: ChatID): SandboxFolders!

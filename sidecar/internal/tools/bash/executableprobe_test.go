@@ -34,6 +34,28 @@ func TestTheExecutableListIsTheCuratedThenTheRegistered(t *testing.T) {
 	assert.Equal(t, ExecutableReport{Executable: k9s, Registered: true, Error: "not probed yet"}, got[len(got)-1])
 }
 
+// A registered entry the shape check refuses is listed with its Refusal and
+// no error, whether its caller marked it or not; one already marked keeps its
+// own. A curated entry is never checked, so kubectl stays curated beside a
+// registered kubectl.
+func TestTheExecutableListChecksTheRegistered(t *testing.T) {
+	registeredKubectl := settings.Executable{Name: "kubectl", Invocation: "kubectl version"}
+	malformed := settings.Executable{Name: "stern", Invocation: "other --version"}
+	marked := settings.Executable{Name: "k9s", Invocation: "k9s info", Refusal: "Its own reason."}
+
+	got := executableList([]settings.Executable{registeredKubectl, malformed, marked})
+
+	assert.Equal(t, ExecutableReport{Executable: settings.CuratedExecutables[0], Error: "not probed yet"}, got[0])
+	registered := got[len(settings.CuratedExecutables):]
+	registeredKubectl.Refusal = "Kstack probes kubectl already."
+	malformed.Refusal = "An invocation starts with the executable's name."
+	assert.Equal(t, []ExecutableReport{
+		{Executable: registeredKubectl, Registered: true},
+		{Executable: malformed, Registered: true},
+		{Executable: marked, Registered: true},
+	}, registered)
+}
+
 // cut counts characters, not bytes, so it never splits one.
 func TestCutKeepsWholeCharacters(t *testing.T) {
 	assert.Equal(t, "héé", cut("hééllo", 3))

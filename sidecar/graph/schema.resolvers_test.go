@@ -3274,7 +3274,7 @@ func TestAClusterWriteCarriesItsDurationAndDiff(t *testing.T) {
 }
 
 // fakeProber probes each tool as found and passing but for helm, which
-// fails.
+// fails, and a refused one, which it leaves.
 // A probe runs when the test says: StartProbe publishes it running and
 // keeps what it was asked, and finish runs it and publishes its end.
 type fakeProber struct {
@@ -3306,6 +3306,10 @@ func (f *fakeProber) finish() {
 	f.mu.Unlock()
 	var probed []bash.ExecutableReport
 	for _, report := range f.Report(registered) {
+		if report.Refusal != "" { // never probed
+			probed = append(probed, report)
+			continue
+		}
 		report.Probed, report.Resolved, report.OK, report.Version, report.Error = true, "/bin/"+report.Name, report.Name != "helm", "v1", ""
 		if report.Name == "helm" {
 			report.Error = "Exit code 1"
@@ -3318,31 +3322,26 @@ func (f *fakeProber) finish() {
 	f.hub.Sender().Send(bash.ProbeState{Probes: f.probes, Last: probed}) //nolint:errcheck // never closed
 }
 
-// Report is the curated tools then registered, each as the last probe found
-// it, else not probed yet.
+// Report is bash.ReportOver the last probe.
 func (f *fakeProber) Report(registered []settings.Executable) []bash.ExecutableReport {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var tools []settings.Executable
-	tools = append(tools, settings.CuratedExecutables...)
-	tools = append(tools, registered...)
-	var out []bash.ExecutableReport
-	for i, tool := range tools {
-		j := slices.IndexFunc(f.last, func(r bash.ExecutableReport) bool { return r.Executable == tool })
-		if j >= 0 {
-			out = append(out, f.last[j])
-			continue
-		}
-		out = append(out, bash.ExecutableReport{Executable: tool, Registered: i >= len(settings.CuratedExecutables), Error: "not probed yet"})
-	}
-	return out
+	return bash.ReportOver(f.last, registered)
+}
+
+// started is how many probes StartProbe was asked for.
+func (f *fakeProber) started() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.probes
 }
 
 // sandboxExecutablesServer is a server over a fake prober and a settings store,
 // on a machine with a sandbox or without.
-func sandboxExecutablesServer(t *testing.T, available bool) (*httptest.Server, *fakeProber) {
+func sandboxExecutablesServer(t *testing.T, available bool) (*httptest.Server, *fakeProber, *appdb.DB) {
 	t.Helper()
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
+	db := appdbtest.Open(t)
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), db)
 	require.NoError(t, err)
 	prober := newFakeProber()
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
@@ -3351,7 +3350,7 @@ func sandboxExecutablesServer(t *testing.T, available bool) (*httptest.Server, *
 		Executables:   prober,
 	}))
 	t.Cleanup(srv.Close)
-	return srv, prober
+	return srv, prober, db
 }
 
 // executablesReport is the first sandboxExecutablesWatch frame on events that probing
@@ -3374,7 +3373,7 @@ func executablesReport(t *testing.T, events <-chan sseEvent, probing bool, names
 	}
 }
 
-const sandboxExecutableFields = `{ name invocation registered probed resolved shim target ok version error }`
+const sandboxExecutableFields = `{ name invocation registered probed resolved shim target ok version error refusal }`
 
 // namesOf is each tool's name in tools, a list off the wire.
 func namesOf(tools any) []string {
@@ -3391,7 +3390,7 @@ func namesOf(tools any) []string {
 // carries whether one runs and re-draws when the registered tools change.
 // Each refusal is a KSTACK_VALIDATION_ERROR in the user's words.
 func TestSandboxExecutableMutationsAnswerTheReport(t *testing.T) {
-	srv, prober := sandboxExecutablesServer(t, true)
+	srv, prober, _ := sandboxExecutablesServer(t, true)
 	curated := []string{"kubectl", "helm", "kustomize", "git", "jq", "yq"}
 
 	data, _ := mutation(t, srv.URL, `{ sandboxExecutables `+sandboxExecutableFields+` }`)
@@ -3417,7 +3416,7 @@ func TestSandboxExecutableMutationsAnswerTheReport(t *testing.T) {
 	kubectl := report["executables"].([]any)[0].(map[string]any)
 	assert.Equal(t, map[string]any{
 		"name": "kubectl", "invocation": "kubectl version --client", "registered": false, "probed": true,
-		"resolved": "/bin/kubectl", "shim": false, "target": "", "ok": true, "version": "v1", "error": "",
+		"resolved": "/bin/kubectl", "shim": false, "target": "", "ok": true, "version": "v1", "error": "", "refusal": nil,
 	}, kubectl)
 
 	data, _ = mutation(t, srv.URL, `mutation { sandboxExecutableRegister(name: "k9s") `+sandboxExecutableFields+` }`)
@@ -3453,7 +3452,7 @@ func TestSandboxExecutableMutationsAnswerTheReport(t *testing.T) {
 
 // A prober that shuts its feed down ends the watch, which has nothing left to report.
 func TestSandboxExecutablesWatchEndsWithTheProbersFeed(t *testing.T) {
-	srv, prober := sandboxExecutablesServer(t, true)
+	srv, prober, _ := sandboxExecutablesServer(t, true)
 	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesWatch { probing executables { name } } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
@@ -3467,7 +3466,7 @@ func TestSandboxExecutablesWatchEndsWithTheProbersFeed(t *testing.T) {
 // A machine with no sandbox answers no tools, on the query and the watch,
 // and refuses the probe and a register.
 func TestSandboxExecutablesAreEmptyWithNoSandbox(t *testing.T) {
-	srv, _ := sandboxExecutablesServer(t, false)
+	srv, _, _ := sandboxExecutablesServer(t, false)
 
 	data, _ := mutation(t, srv.URL, `{ sandboxExecutables { name } }`)
 	assert.Equal(t, []any{}, data["sandboxExecutables"])
@@ -3489,7 +3488,7 @@ func TestSandboxExecutablesAreEmptyWithNoSandbox(t *testing.T) {
 func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
 	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
-	require.NoError(t, store.RegisterExecutable("k9s", ""))
+	require.NoError(t, store.RegisterExecutable(t.Context(), "k9s", ""))
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		Settings:    settings.NewService(store, nil, nil, ""),
 		Executables: newFakeProber(),
@@ -3498,7 +3497,85 @@ func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
 
 	data, _ := mutation(t, srv.URL, `mutation { sandboxExecutableRemove(name: "k9s") { name } }`)
 	assert.Equal(t, []any{}, data["sandboxExecutableRemove"])
-	assert.Empty(t, store.Get().Executables)
+	registered, err := store.Executables(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, registered)
+}
+
+// A stored row the shape check refuses is listed where it sits with its
+// refusal, unprobed and with no error; its name is already listed, and
+// Remove takes it while the curated executable of that name stays.
+func TestARefusedExecutableIsListedWithItsRefusal(t *testing.T) {
+	srv, prober, db := sandboxExecutablesServer(t, true)
+	_, err := db.Write.Exec(`INSERT INTO executables (name, invocation, created_at) VALUES ('kubectl', 'kubectl version', 1)`)
+	require.NoError(t, err)
+
+	mutation(t, srv.URL, `mutation { sandboxExecutablesProbe { name } }`)
+	prober.finish()
+	data, _ := mutation(t, srv.URL, `{ sandboxExecutables `+sandboxExecutableFields+` }`)
+	tools := data["sandboxExecutables"].([]any)
+	assert.Equal(t, []string{"kubectl", "helm", "kustomize", "git", "jq", "yq", "kubectl"}, namesOf(tools))
+	assert.Equal(t, map[string]any{
+		"name": "kubectl", "invocation": "kubectl version", "registered": true, "probed": false,
+		"resolved": "", "shim": false, "target": "", "ok": false, "version": "", "error": "",
+		"refusal": "Kstack probes kubectl already.",
+	}, tools[len(tools)-1])
+	assert.Equal(t, true, tools[0].(map[string]any)["probed"], "the curated kubectl")
+
+	_, errs := mutation(t, srv.URL, `mutation { sandboxExecutableRegister(name: "kubectl") { name } }`)
+	_, got := refusal(t, errs)
+	assert.Equal(t, "That executable is already listed.", got)
+
+	data, _ = mutation(t, srv.URL, `mutation { sandboxExecutableRemove(name: "kubectl") { name registered } }`)
+	assert.Equal(t, []string{"kubectl", "helm", "kustomize", "git", "jq", "yq"}, namesOf(data["sandboxExecutableRemove"]))
+}
+
+// A read of the executables that fails is an error on the query and the
+// probe, which starts no probe; a register or a remove whose write took
+// answers KSTACK_SAVED_UNREAD; and a watch's read on the register's ping ends
+// it with the reason.
+func TestAnExecutablesReadThatFailsIsAnError(t *testing.T) {
+	srv, prober, db := sandboxExecutablesServer(t, true)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesWatch { probing executables { name } } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	executablesReport(t, events, false, []string{"kubectl", "helm", "kustomize", "git", "jq", "yq"})
+
+	// A NULL invocation fails every read; a write still takes.
+	for _, q := range []string{
+		`DROP TABLE executables`,
+		`CREATE TABLE executables (name, invocation, created_at)`,
+		`INSERT INTO executables VALUES ('stern', NULL, 1)`,
+	} {
+		_, err := db.Write.Exec(q)
+		require.NoError(t, err, q)
+	}
+
+	_, errs := mutation(t, srv.URL, `{ sandboxExecutables { name } }`)
+	assert.NotEmpty(t, errs, "the query")
+	_, errs = mutation(t, srv.URL, `mutation { sandboxExecutablesProbe { name } }`)
+	assert.NotEmpty(t, errs, "the probe")
+	assert.Zero(t, prober.started(), "no probe started")
+
+	for _, query := range []string{
+		`mutation { sandboxExecutableRegister(name: "k9s") { name } }`,
+		`mutation { sandboxExecutableRemove(name: "k9s") { name } }`,
+	} {
+		_, errs = mutation(t, srv.URL, query)
+		code, _ := refusal(t, errs)
+		assert.Equal(t, "KSTACK_SAVED_UNREAD", code, query)
+	}
+
+	ev := testutil.Recv(t, events, "the failure frame")
+	assert.Contains(t, ev.data, `"watchFailed":true`)
+	assert.Contains(t, ev.data, "read the executables")
+	testutil.WaitClosed(t, events, "the watch to end")
+
+	resp = openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesWatch { probing executables { name } } }`)
+	defer resp.Body.Close()
+	events = sseEvents(t, resp)
+	assert.Contains(t, testutil.Recv(t, events, "the failure frame").data, `"watchFailed":true`, "a watch whose first read fails")
+	testutil.WaitClosed(t, events, "the second watch to end")
 }
 
 // --- Logs ---

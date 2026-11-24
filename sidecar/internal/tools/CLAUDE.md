@@ -326,7 +326,8 @@ endpoint is the door. A mount waits `azureMountWait` for the login, then mounts 
 [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-azure-through-a-token-injecting-proxy.md).
 
 **The executable probe** (`executableprobe.go`) runs each executable in the sandbox, **never through
-a shell**, with no cluster and no network. **Every disk read outside Kstack's directories is bounded**
+a shell**, with no cluster and no network. It checks each registered one itself (`executableList`):
+one `CheckExecutable` refuses never runs. **Every disk read outside Kstack's directories is bounded**
 (`onDisk`), so a dead mount fails one probe and holds neither the queue nor `Close`. One probe runs
 at once. Its report reaches the user alone, never a model: `sandboxExecutablesProbe` starts one
 (`StartProbe`) and answers at once, since a probe can outlast the host's request budget, and

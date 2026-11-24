@@ -292,8 +292,10 @@ type SandboxExecutable struct {
 	Ok bool `json:"ok"`
 	// The first non-empty line of its output, redacted. The executable's own text: draw it through VisibleText.
 	Version string `json:"version"`
-	// Why it did not run or did not pass: Bash's first line, `not found on the sandbox's PATH`, `could not start: …` or `not probed yet`; empty when ok.
+	// Why it did not run or did not pass: Bash's first line, `not found on the sandbox's PATH`, `could not start: …` or `not probed yet`; empty when ok, and for one refused.
 	Error string `json:"error"`
+	// Why a registered executable is not probed, in the user's words; null for one Kstack probes. User text: draw it through VisibleText.
+	Refusal *string `json:"refusal,omitempty"`
 }
 
 // The executable probe as a watcher sees it.

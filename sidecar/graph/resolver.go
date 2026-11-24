@@ -155,7 +155,8 @@ type LogsService interface {
 }
 
 // ExecutableProber is the executable probe: *bash.Tool, or a test's fake. StartProbe
-// and Report take the user's registered executables, the curated ones first, and
+// and Report take the user's registered executables and list the curated ones
+// first; a registered one the shape check refuses is listed and never probed.
 // WatchProbe says when a probe starts and ends.
 type ExecutableProber interface {
 	StartProbe(registered []settings.Executable)
@@ -174,11 +175,6 @@ type SandboxConsole interface {
 // probes reports whether this machine probes executables: a sandbox and a shell.
 func (r *Resolver) probes() bool {
 	return r.SandboxStatus.Available && r.Executables != nil
-}
-
-// registeredExecutables is the user's registered executables, as stored.
-func (r *Resolver) registeredExecutables() []settings.Executable {
-	return r.Settings.Get().Executables
 }
 
 // scopeOf is a variable's scope off the wire: the cluster, or "" for every

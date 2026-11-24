@@ -41,6 +41,7 @@ const exe = (name: string) => ({
   ok: true,
   version: 'v1',
   error: '',
+  refusal: null,
 });
 const listed = [exe('kubectl'), exe('helm')];
 
@@ -155,6 +156,21 @@ describe('useSandboxExecutables', () => {
     });
     expect(taken).toBe(false);
     expect(result.current.registerError).toBe('Kstack probes kubectl already.');
+  });
+
+  it('counts a register that took though its answer could not be read as taken, and keeps its message', async () => {
+    const message =
+      'The executable was registered, but Kstack could not read the settings back. Reopen Settings to see them.';
+    mutations.SandboxExecutableRegister.mockResolvedValue({
+      error: { graphQLErrors: [{ message, extensions: { code: 'KSTACK_SAVED_UNREAD' } }] },
+    });
+    const { result } = renderHook(() => useSandboxExecutables());
+    let taken = false;
+    await act(async () => {
+      taken = await result.current.register('k9s', '');
+    });
+    expect(taken).toBe(true);
+    expect(result.current.registerError).toBe(message);
   });
 
   it('removes an executable, in flight until it answers', async () => {

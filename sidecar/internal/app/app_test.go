@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -794,6 +795,23 @@ func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
 	assert.False(t, syncPath(t.Context(), svc, []string{t.TempDir()}), "nothing changed")
 	assert.Contains(t, log.String(), "PATH not synced")
 	assert.Empty(t, store.Get().Sandbox.Path)
+}
+
+// A probe after a sync probes the registered executables as read; a read
+// that fails starts no probe, the curated executables' included, and is a
+// warning.
+func TestAProbeAfterASyncReadsTheRegisteredExecutables(t *testing.T) {
+	k9s := []settings.Executable{{Name: "k9s", Invocation: "k9s version"}}
+	var started [][]settings.Executable
+	start := func(registered []settings.Executable) { started = append(started, registered) }
+
+	probeExecutables(t.Context(), func(context.Context) ([]settings.Executable, error) { return k9s, nil }, start)
+	assert.Equal(t, [][]settings.Executable{k9s}, started)
+
+	log := testutil.CaptureLogs(t)
+	probeExecutables(t.Context(), func(context.Context) ([]settings.Executable, error) { return nil, errors.New("boom") }, start)
+	assert.Len(t, started, 1, "no probe started")
+	assert.Contains(t, log.String(), "executables not read")
 }
 
 // A folder under internal/ is a layer: an import between two folders points

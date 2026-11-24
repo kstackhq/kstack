@@ -900,6 +900,7 @@ type ComplexityRoot struct {
 		Name       func(childComplexity int) int
 		Ok         func(childComplexity int) int
 		Probed     func(childComplexity int) int
+		Refusal    func(childComplexity int) int
 		Registered func(childComplexity int) int
 		Resolved   func(childComplexity int) int
 		Shim       func(childComplexity int) int
@@ -4852,6 +4853,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SandboxExecutable.Probed(childComplexity), true
+	case "SandboxExecutable.refusal":
+		if e.ComplexityRoot.SandboxExecutable.Refusal == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutable.Refusal(childComplexity), true
 	case "SandboxExecutable.registered":
 		if e.ComplexityRoot.SandboxExecutable.Registered == nil {
 			break
@@ -7133,6 +7140,8 @@ func (ec *executionContext) childFields_SandboxExecutable(ctx context.Context, f
 		return ec.fieldContext_SandboxExecutable_version(ctx, field)
 	case "error":
 		return ec.fieldContext_SandboxExecutable_error(ctx, field)
+	case "refusal":
+		return ec.fieldContext_SandboxExecutable_refusal(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type SandboxExecutable", field.Name)
 }
@@ -23422,6 +23431,29 @@ func (ec *executionContext) fieldContext_SandboxExecutable_error(_ context.Conte
 	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, "String")
 }
 
+func (ec *executionContext) _SandboxExecutable_refusal(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutable_refusal(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Refusal, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutable_refusal(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, "String")
+}
+
 func (ec *executionContext) _SandboxExecutablesReport_probing(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutablesReport) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -33796,6 +33828,11 @@ func (ec *executionContext) _SandboxExecutable(ctx context.Context, sel ast.Sele
 		case "error":
 			out.Values[i] = ec._SandboxExecutable_error(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "refusal":
+			out.Values[i] = ec._SandboxExecutable_refusal(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
 		default:

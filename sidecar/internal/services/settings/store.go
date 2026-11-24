@@ -24,6 +24,24 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
+// errUnchanged ends a write that has nothing to change: it commits nothing and
+// publishes nothing, and its caller answers no error.
+var errUnchanged = errors.New("settings: nothing to write")
+
+// write runs fn in one transaction and, once it commits, notifies key. A
+// write fn refuses notifies nothing.
+func (s *Store) write(ctx context.Context, key string, fn func(stmts) error) error {
+	err := s.stmts.InTx(ctx, fn)
+	if errors.Is(err, errUnchanged) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	s.db.Notify(key)
+	return nil
+}
+
 // KubeRuleColumns are a kube_rules row's columns, in the order KubeRules
 // scans them and KubeRuleValues gives them: the table's one encoding, which
 // agent/chat reads and writes a chat's rows through.
