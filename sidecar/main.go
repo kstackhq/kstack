@@ -50,6 +50,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/logging"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
@@ -82,6 +83,13 @@ func main() {
 	if err != nil {
 		// configFromArgs has said why on stderr; the host shows a FATAL
 		// reason on its start screen.
+		fmt.Fprintf(os.Stdout, "FATAL %s\n", err)
+		os.Exit(2)
+	}
+	// Before the log, the first file opened: it opens in the resolved log
+	// folder.
+	if err := resolveFolders(&cfg); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintf(os.Stdout, "FATAL %s\n", err)
 		os.Exit(2)
 	}
@@ -119,11 +127,23 @@ func main() {
 // the host does, then opens the log there. A folder it cannot make leaves the
 // log on stderr, with the error, as a file Open cannot open does.
 func openLog(cfg config, level slog.Level) (*slog.Logger, func() error, error) {
-	if err := layout.MakeOwnerOnly(cfg.App.Layout, filepath.Dir(cfg.LogFile)); err != nil {
+	if err := layout.MakeOwnerOnly(cfg.App.Folders.Layout, filepath.Dir(cfg.LogFile)); err != nil {
 		logger, closeLog, _ := logging.Open("", true, level)
 		return logger, closeLog, fmt.Errorf("log directory: %w", err)
 	}
 	return logging.Open(cfg.LogFile, cfg.LogStderr, level)
+}
+
+// ownSocket is the sidecar's socket as SweepStale lists it: in the resolved
+// runtime folder when it sits in the runtime folder. The host names the
+// socket as it names that folder, so on macOS under /var where the folder
+// swept is under /private/var.
+func ownSocket(cfg config) string {
+	dir := filepath.Dir(cfg.Socket)
+	if realpath.Same(dir, cfg.App.Folders.Runtime) {
+		return filepath.Join(cfg.App.Folders.Runtime, filepath.Base(cfg.Socket))
+	}
+	return cfg.Socket
 }
 
 // run is main without the process: it takes the shutdown context, the parsed
@@ -145,14 +165,14 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 	defer removeSocket()
 	// A sidecar the host killed never ran its removal, so its socket is still
 	// here; this one's is bound by now, so it is told apart by name.
-	ipc.SweepStale(cfg.App.RuntimeDir, cfg.Socket)
+	ipc.SweepStale(cfg.App.Folders.Runtime, ownSocket(cfg))
 
 	slog.Info("sidecar starting",
 		"version", version.Version,
 		"socket", cfg.Socket,
 		"pid", os.Getpid(),
 		"host_pid", cfg.HostPID,
-		"data_dir", cfg.App.DataDir,
+		"data_dir", cfg.App.Folders.Data,
 		"oauth_issuer", cfg.App.OAuthIssuerURL,
 	)
 

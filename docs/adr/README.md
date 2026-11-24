@@ -285,9 +285,10 @@ usually just documentation in the wrong place.
 | 2026-11-21 | [Keep the tool settings as rows in app.db](2026-11-21-tool-settings-are-rows-in-app-db.md) | sidecar | Accepted |
 | 2026-11-21 | [Keep host.json in the Kstack config directory](2026-11-21-host-json-lives-under-the-kstack-config-directory.md) | host | Accepted |
 | 2026-11-21 | [Linux folders follow XDG](2026-11-21-linux-folders-follow-xdg.md) | host | Accepted |
-| 2026-11-22 | [Fence a linked subfolder of Kstack's directories](2026-11-22-a-linked-subfolder-of-kstacks-directories-is-fenced.md) | sidecar | Accepted |
+| 2026-11-22 | [Fence a linked subfolder of Kstack's directories](2026-11-22-a-linked-subfolder-of-kstacks-directories-is-fenced.md) | sidecar | Superseded by [2026-11-24-follow-a-link-to-a-kstack-folder-once-at-start-and-refuse-one-below-it](2026-11-24-follow-a-link-to-a-kstack-folder-once-at-start-and-refuse-one-below-it.md) |
 | 2026-11-22 | [Paths are compared as files](2026-11-22-paths-are-compared-as-files.md) | sidecar | Accepted |
 | 2026-11-22 | [Each folder kind has its own folder on every platform](2026-11-22-each-folder-kind-has-its-own-folder-on-every-platform.md) | host | Accepted |
 | 2026-11-23 | [Treat two mounts of one folder as one PATH folder](2026-11-23-two-mounts-of-one-folder-are-one-path-folder.md) | sidecar | Accepted |
 | 2026-11-23 | [The sidecar places Kstack's folders itself](2026-11-23-the-sidecar-places-kstacks-folders-itself.md) | cross-cutting | Accepted |
 | 2026-11-24 | [A stored PATH decision holds for its exact path](2026-11-24-a-stored-path-decision-holds-for-its-exact-path.md) | sidecar | Accepted |
+| 2026-11-24 | [Follow a link to a Kstack folder once, at start, and refuse one below it](2026-11-24-follow-a-link-to-a-kstack-folder-once-at-start-and-refuse-one-below-it.md) | cross-cutting | Accepted |

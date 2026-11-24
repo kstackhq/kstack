@@ -28,6 +28,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/grpc/authpb"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
+	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/filelock"
@@ -241,10 +242,6 @@ func newTestApp(t *testing.T) (*App, string) {
 
 	a, err := New(t.Context(), withDirs(t, Config{
 		KubeconfigPath: kubeconfig,
-		// A real data dir so app.db lands in the per-test temp dir — with an
-		// empty DataDir New would create app.db relative to the test's
-		// working directory (the package dir).
-		DataDir: t.TempDir(),
 	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Close() })
@@ -252,15 +249,24 @@ func newTestApp(t *testing.T) (*App, string) {
 	return a, kubeconfig
 }
 
-// withDirs gives a config the directories it leaves empty, each a temp
-// directory of its own, and no cloud platform unless it brings one, so no
-// test runs the machine's own gcloud.
+// withDirs gives a config the folders it leaves empty, from testFolders,
+// and no cloud platform unless it brings one, so no test runs the machine's
+// own gcloud.
 func withDirs(t *testing.T, cfg Config) Config {
 	t.Helper()
-	for _, dir := range []*string{&cfg.DataDir, &cfg.CacheDir, &cfg.RuntimeDir} {
-		if *dir == "" {
-			*dir = t.TempDir()
+	f := testFolders(t)
+	for _, dir := range []struct {
+		dst  *string
+		from string
+	}{
+		{&cfg.Folders.Data, f.Data}, {&cfg.Folders.Cache, f.Cache}, {&cfg.Folders.Runtime, f.Runtime},
+	} {
+		if *dir.dst == "" {
+			*dir.dst = dir.from
 		}
+	}
+	if cfg.Folders.Layout == (layout.Layout{}) {
+		cfg.Folders.Layout = f.Layout
 	}
 	if cfg.cloudPlatforms == nil {
 		cfg.cloudPlatforms = []bash.CloudPlatform{}
@@ -269,31 +275,6 @@ func withDirs(t *testing.T, cfg Config) Config {
 		cfg.Keyring = oskeyringtest.New()
 	}
 	return cfg
-}
-
-// Each directory is required and absolute: a relative one would name another
-// file from each working directory, and the fence and a chat's paths compare
-// absolute paths.
-func TestNewRefusesAnEmptyOrRelativeDirectory(t *testing.T) {
-	for _, name := range []string{"the data directory", "the cache directory", "--runtime-dir"} {
-		for _, dir := range []string{"", "relative"} {
-			t.Run(name+"="+dir, func(t *testing.T) {
-				t.Chdir(t.TempDir())
-				cfg := withDirs(t, Config{})
-				switch name {
-				case "the data directory":
-					cfg.DataDir = dir
-				case "the cache directory":
-					cfg.CacheDir = dir
-				case "--runtime-dir":
-					cfg.RuntimeDir = dir
-				}
-				_, err := New(t.Context(), cfg)
-				require.ErrorContains(t, err, name)
-				assert.NoDirExists(t, "relative")
-			})
-		}
-	}
 }
 
 // writeKubeconfig writes a kubeconfig at path naming each context over one
@@ -351,7 +332,7 @@ func startApp(t *testing.T, a *App) {
 // one place the resolver's chat service is set, and an unwired one panics rather
 // than refusing. The id is well-formed, so the refusal is the lookup's.
 func TestAppServesTheChatSurface(t *testing.T) {
-	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	srv := httptest.NewServer(a)
@@ -369,7 +350,7 @@ func TestAppTearsDownADeletedCluster(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "kubeconfig")
 	writeKubeconfig(t, path, "context-A", "context-B")
-	a, err := New(t.Context(), withDirs(t, Config{KubeconfigPath: path, DataDir: dir, AddFake: true}))
+	a, err := New(t.Context(), withDirs(t, Config{KubeconfigPath: path, Folders: Folders{Data: dir}, AddFake: true}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	startApp(t, a)
@@ -462,7 +443,7 @@ func TestAppTearsDownADeletedCluster(t *testing.T) {
 // pause — and the guards in cluster are the only thing that would stand between the
 // reordering and that.
 func TestAppStartsKubeconfigBeforeTheClusterService(t *testing.T) {
-	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
@@ -472,7 +453,7 @@ func TestAppStartsKubeconfigBeforeTheClusterService(t *testing.T) {
 // The logs service owns the log files and is built over the cluster service, so it
 // closes first; the cache pass still removes a cache's file through it after that.
 func TestAppAddsTheLogsServiceAfterTheClusterService(t *testing.T) {
-	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
@@ -482,7 +463,7 @@ func TestAppAddsTheLogsServiceAfterTheClusterService(t *testing.T) {
 // The Kstack Cloud connector holds app.db's statements and a revocation's goroutine,
 // so it is a part that closes before app.db does.
 func TestAppClosesTheKstackCloudConnectorBeforeAppDB(t *testing.T) {
-	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
@@ -492,7 +473,7 @@ func TestAppClosesTheKstackCloudConnectorBeforeAppDB(t *testing.T) {
 // The chat service is a part like the others: built by New, started and stopped
 // with the app.
 func TestAppStartsAndStopsWithTheChatService(t *testing.T) {
-	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
@@ -506,7 +487,7 @@ func TestAppStartsAndStopsWithTheChatService(t *testing.T) {
 // The memory service starts before the chat service and so stops after it: a
 // turn reads the index and saves through it until the chat service has stopped.
 func TestTheMemoryServiceOutlivesTheChatService(t *testing.T) {
-	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
@@ -607,7 +588,7 @@ func TestAppRejectsAnUnusableDataDir(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
 
-	_, err := New(t.Context(), withDirs(t, Config{DataDir: notADir}))
+	_, err := New(t.Context(), withDirs(t, Config{Folders: Folders{Data: notADir}}))
 	require.Error(t, err)
 }
 
@@ -629,22 +610,22 @@ func TestASecondAppOnTheDataDirectoryIsRefused(t *testing.T) {
 	assert.Equal(t, 0, partIndex(t, first, "data directory lock"))
 
 	second := cfg
-	second.CacheDir, second.RuntimeDir = t.TempDir(), t.TempDir()
+	second.Folders.Cache, second.Folders.Runtime = t.TempDir(), t.TempDir()
 	_, err = New(t.Context(), second)
-	require.EqualError(t, err, "another Kstack is using "+cfg.DataDir)
+	require.EqualError(t, err, "another Kstack is using "+cfg.Folders.Data)
 
 	require.NoError(t, first.Close())
-	requireUnlocked(t, cfg.DataDir)
+	requireUnlocked(t, cfg.Folders.Data)
 }
 
 // A lock file that cannot be opened stops the build before app.db opens.
 func TestALockFileThatCannotBeOpenedFailsNew(t *testing.T) {
 	cfg := withDirs(t, Config{})
-	require.NoError(t, os.Mkdir(filepath.Join(cfg.DataDir, "sidecar.lock"), 0o700))
+	require.NoError(t, os.Mkdir(filepath.Join(cfg.Folders.Data, "sidecar.lock"), 0o700))
 
 	_, err := New(t.Context(), cfg)
 	require.ErrorContains(t, err, "lock the data directory")
-	assert.NoFileExists(t, filepath.Join(cfg.DataDir, "app.db"))
+	assert.NoFileExists(t, filepath.Join(cfg.Folders.Data, "app.db"))
 }
 
 // The app opens app.db once, right after the lock in parts, so the reverse close
@@ -652,7 +633,7 @@ func TestALockFileThatCannotBeOpenedFailsNew(t *testing.T) {
 // when its last connection closes, so the sibling's absence shows the file was released.
 func TestAppOwnsTheDatabase(t *testing.T) {
 	dir := t.TempDir()
-	a, err := New(t.Context(), withDirs(t, Config{DataDir: dir}))
+	a, err := New(t.Context(), withDirs(t, Config{Folders: Folders{Data: dir}}))
 	require.NoError(t, err)
 	assert.Equal(t, 1, partIndex(t, a, "app.db"))
 
@@ -662,16 +643,16 @@ func TestAppOwnsTheDatabase(t *testing.T) {
 	assert.NoFileExists(t, wal)
 }
 
-// A directory a service cannot make fails the build and closes app.db: the
-// chats' for the chat service.
-func TestAppClosesTheDatabaseWhenADirectoryFails(t *testing.T) {
+// A subfolder that cannot be made fails the build before any service opens a
+// file, and releases the lock.
+func TestASubfolderThatCannotBeMadeFailsBeforeAnyService(t *testing.T) {
 	cfg := withDirs(t, Config{})
-	require.NoError(t, os.WriteFile(filepath.Join(cfg.DataDir, "chats"), nil, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(cfg.Folders.Data, "chats"), nil, 0o600))
 
 	_, err := New(t.Context(), cfg)
-	require.ErrorContains(t, err, "open the chats' directory")
-	assert.NoFileExists(t, filepath.Join(cfg.DataDir, "app.db-wal"))
-	requireUnlocked(t, cfg.DataDir)
+	require.ErrorContains(t, err, "chats is not a folder")
+	assert.NoFileExists(t, filepath.Join(cfg.Folders.Data, "app.db"))
+	requireUnlocked(t, cfg.Folders.Data)
 }
 
 // A constructor failing after the open closes the file. A service's statements fail
@@ -687,7 +668,7 @@ func TestAppClosesTheDatabaseWhenAConstructorFails(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, db.Close())
 
-			_, err = New(t.Context(), withDirs(t, Config{DataDir: dir}))
+			_, err = New(t.Context(), withDirs(t, Config{Folders: Folders{Data: dir}}))
 			require.ErrorContains(t, err, table)
 			assert.NoFileExists(t, path+"-wal")
 		})
@@ -709,7 +690,7 @@ func TestABadSettingsFileFailsNew(t *testing.T) {
 	file := filepath.Join(dir, "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte("{"), 0o600))
 
-	_, err := New(t.Context(), withDirs(t, Config{DataDir: dir}))
+	_, err := New(t.Context(), withDirs(t, Config{Folders: Folders{Data: dir}}))
 	require.ErrorContains(t, err, file)
 	assert.NoFileExists(t, filepath.Join(dir, "app.db"))
 	requireUnlocked(t, dir)
@@ -737,7 +718,7 @@ func TestTheFakeIsListedOnlyWhenAsked(t *testing.T) {
 	// The models are the catalogs flattened, so the providers are read off them in
 	// order, each named once however many models it lists.
 	providers := func(addFake bool) []string {
-		a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir(), LLMKeys: map[string]string{"anthropic": "sk-ant-test"}, AddFake: addFake}))
+		a, err := New(t.Context(), withDirs(t, Config{LLMKeys: map[string]string{"anthropic": "sk-ant-test"}, AddFake: addFake}))
 		require.NoError(t, err)
 		t.Cleanup(func() { assert.NoError(t, a.Close()) })
 		ts := serveApp(t, a)
@@ -786,7 +767,7 @@ func TestNoShellOffersNoNetwork(t *testing.T) {
 func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
 	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
-	svc := newSettingsService(store, nil, nil, sandbox.Status{}, nil, "timeout", "")
+	svc := newSettingsService(store, nil, nil, sandbox.Status{}, bash.Paths{}, "timeout")
 	assert.Empty(t, svc.PathFault())
 	assert.False(t, svc.Get().RunPath().Resolved)
 

@@ -38,13 +38,16 @@ import (
 // config is everything the command line decides: the app's own configuration
 // plus the two values main needs to bind the listener.
 type config struct {
-	App    app.Config
-	Socket string
+	App app.Config
+	// Folders is Kstack's folders as the command line names them, which
+	// resolveFolders resolves into App.Folders.
+	Folders app.Named
+	Socket  string
 	// Zero leaves the endpoint open to any process of this user, which is what
 	// a standalone dev run wants; the host always passes its own.
 	HostPID int
-	// LogFile is logFileName in the layout's log folder. LogStderr copies
-	// every record to stderr too.
+	// LogFile is logFileName in the resolved layout's log folder, set by
+	// resolveFolders. LogStderr copies every record to stderr too.
 	LogFile   string
 	LogStderr bool
 }
@@ -66,8 +69,8 @@ const devKeychainService = "Kstack-dev"
 //
 // The sidecar places every folder of Kstack's itself, from the roots getenv
 // names (layout.RootsFromEnv), as the host places its own from the same
-// environment, and logs in the layout's log folder; the host passes only the
-// runtime directory, which a squatted name can move.
+// environment; the host passes only the runtime directory, which a squatted
+// name can move. It reads no disk: resolveFolders follows the folders' links.
 //
 // On a bad flag or root the problem is already on stderr; the caller only
 // needs to exit.
@@ -77,7 +80,7 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 	fs.StringVar(&cfg.Socket, "socket", ipc.DefaultSocketPath(), "path to the IPC endpoint (Unix domain socket on Unix, named pipe on Windows) to listen on")
 	fs.IntVar(&cfg.HostPID, "host-pid", 0, "pid of the host process; the only process allowed to connect (0 allows any process of this user)")
 	fs.StringVar(&cfg.App.KubeconfigPath, "kubeconfig", "", "explicit kubeconfig path; empty uses the clientcmd default-loading rules ($KUBECONFIG / ~/.kube/config)")
-	fs.StringVar(&cfg.App.RuntimeDir, "runtime-dir", "", "directory for what lives for a session: the shell snapshot, a sandboxed run's files (required)")
+	fs.StringVar(&cfg.Folders.Runtime, "runtime-dir", "", "directory for what lives for a session: the shell snapshot, a sandboxed run's files (required)")
 	// The OAuth client is public (PKCE/loopback, no secret), so baking the
 	// production defaults into the binary leaks nothing.
 	fs.StringVar(&cfg.App.OAuthIssuerURL, "oauth-issuer", "https://oauth.kstack.sh", "OAuth issuer URL")
@@ -105,14 +108,15 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 		fmt.Fprintln(fs.Output(), err)
 		return config{}, err
 	}
-	cfg.App.Layout = layout.Of(layout.Current(), *dev, roots)
+	cfg.Folders.Platform = layout.Current()
+	cfg.Folders.Layout = layout.Of(cfg.Folders.Platform, *dev, roots)
+	cfg.Folders.Profile = roots.Home
 	// A dev profile's sign-ins stay apart from an installed release's, as
 	// its folders do; the host passes this name itself.
 	if *dev && cfg.App.KeychainService == "" {
 		cfg.App.KeychainService = devKeychainService
 	}
-	cfg.App.DataDir, cfg.App.CacheDir = cfg.App.Layout.Data, cfg.App.Layout.Cache
-	cfg.LogFile = filepath.Join(cfg.App.Layout.Logs, logFileName)
+	cfg.Folders.Data, cfg.Folders.Cache = cfg.Folders.Layout.Data, cfg.Folders.Layout.Cache
 	readProviders(&cfg, getenv)
 	cfg.App.AddFake = debugBuild
 	applyEnvOverrides(&cfg, getenv)
@@ -121,6 +125,19 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 		return config{}, err
 	}
 	return cfg, nil
+}
+
+// resolveFolders follows the links of every folder cfg names, checks them,
+// and makes the sidecar's own (app.ResolveFolders). The log file is then in
+// the resolved log folder.
+func resolveFolders(cfg *config) error {
+	folders, err := app.ResolveFolders(cfg.Folders)
+	if err != nil {
+		return err
+	}
+	cfg.App.Folders = folders
+	cfg.LogFile = filepath.Join(folders.Layout.Logs, logFileName)
+	return nil
 }
 
 // refuseDotDot refuses a directory the sidecar writes in that holds `..` on
@@ -135,9 +152,9 @@ func refuseDotDot(cfg config) error {
 		return nil
 	}
 	for _, d := range []struct{ name, path string }{
-		{"--runtime-dir", cfg.App.RuntimeDir},
-		{"the data directory", cfg.App.DataDir},
-		{"the cache directory", cfg.App.CacheDir},
+		{"--runtime-dir", cfg.Folders.Runtime},
+		{"the data directory", cfg.Folders.Data},
+		{"the cache directory", cfg.Folders.Cache},
 	} {
 		if slices.Contains(strings.Split(d.path, "/"), "..") {
 			return fmt.Errorf("%s is %q, which holds `..`", d.name, d.path)
@@ -196,9 +213,9 @@ func applyEnvOverrides(cfg *config, getenv func(string) string) {
 	set(&cfg.App.GitHubClientID, github.ClientIDVar)
 	set(&cfg.App.GoogleClientID, google.ClientIDVar)
 	set(&cfg.App.GoogleClientSecret, google.ClientSecretVar)
-	set(&cfg.App.DataDir, "KSTACK_DATA_DIR")
-	set(&cfg.App.CacheDir, "KSTACK_CACHE_DIR")
-	set(&cfg.App.RuntimeDir, "KSTACK_RUNTIME_DIR")
+	set(&cfg.Folders.Data, "KSTACK_DATA_DIR")
+	set(&cfg.Folders.Cache, "KSTACK_CACHE_DIR")
+	set(&cfg.Folders.Runtime, "KSTACK_RUNTIME_DIR")
 	set(&cfg.App.KeychainService, "KSTACK_KEYCHAIN_SERVICE")
 	set(&cfg.App.Faults, "KSTACK_FAULTS")
 	// setEach is set for a map: each variable that is set moves its id's entry.

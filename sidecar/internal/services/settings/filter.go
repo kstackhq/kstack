@@ -39,10 +39,11 @@ type pathDir struct {
 type zones struct {
 	never, broad, read, deny, noWrite []string
 	home                              string // "" for none
+	links                             []realpath.Link
 }
 
 func zonesOf(z Zones) zones {
-	return zones{never: z.Never, broad: sandbox.Broad(z.Home), read: z.Open.Read, deny: z.Open.Deny, noWrite: z.NoWrite, home: z.Home}
+	return zones{never: z.Never, broad: sandbox.Broad(z.Home), read: z.Open.Read, deny: z.Open.Deny, noWrite: z.NoWrite, home: z.Home, links: z.Links}
 }
 
 // open reports whether target is under a Read path and no Deny path: every

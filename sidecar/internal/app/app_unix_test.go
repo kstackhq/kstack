@@ -44,7 +44,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
-	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
@@ -151,119 +150,16 @@ func TestAppTakesTheSnapshotOnlyWhenAsked(t *testing.T) {
 	t.Setenv("SHELL", "")
 	t.Setenv("PATH", withBash)
 
-	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	assert.False(t, slices.ContainsFunc(a.rt.parts, func(p lifecycle.Part) bool { return p.Name == "shell snapshot" }))
 
 	stubLaunch(t, loginshell.Result{}, &loginshell.Fault{Reason: "no shell", ExitCode: -1})
-	a, err = New(t.Context(), withDirs(t, Config{DataDir: t.TempDir(), RunLoginShell: true}))
+	a, err = New(t.Context(), withDirs(t, Config{RunLoginShell: true}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	assert.Equal(t, len(a.rt.parts)-1, partIndex(t, a, "shell snapshot"))
-}
-
-// A directory the host did not make, as in a run without it, is made
-// owner-only.
-func TestNewMakesAMissingDirectoryOwnerOnly(t *testing.T) {
-	base := t.TempDir()
-	cfg := Config{
-		DataDir:    filepath.Join(base, "data"),
-		CacheDir:   filepath.Join(base, "cache"),
-		RuntimeDir: filepath.Join(base, "run"),
-	}
-	a, err := New(t.Context(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	assertPerm(t, 0o700, cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir)
-}
-
-// leaveOpen makes each of dirs 0755, as an earlier build left it.
-func leaveOpen(t *testing.T, dirs ...string) {
-	t.Helper()
-	for _, dir := range dirs {
-		require.NoError(t, os.MkdirAll(dir, 0o755))
-		require.NoError(t, os.Chmod(dir, 0o755))
-	}
-}
-
-func assertPerm(t *testing.T, want os.FileMode, dirs ...string) {
-	t.Helper()
-	for _, dir := range dirs {
-		info, err := os.Stat(dir)
-		require.NoError(t, err)
-		assert.Equal(t, want, info.Mode().Perm(), dir)
-	}
-}
-
-// An earlier build left the data and cache directories, and the app folder
-// above them, open: each is tightened before the sidecar writes in it.
-func TestNewTightensItsDirectoriesAndTheAppFolderAbove(t *testing.T) {
-	base := t.TempDir()
-	app := filepath.Join(base, "Kstack")
-	cfg := Config{
-		DataDir:    filepath.Join(app, "data"),
-		CacheDir:   filepath.Join(base, "cache"),
-		RuntimeDir: filepath.Join(base, "run"),
-	}
-	cfg.Layout = layout.Layout{App: app, Data: cfg.DataDir, Cache: cfg.CacheDir}
-	leaveOpen(t, app, cfg.DataDir, cfg.CacheDir)
-
-	a, err := New(t.Context(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	assertPerm(t, 0o700, app, cfg.DataDir, cfg.CacheDir)
-}
-
-// A debug build's override names a folder the developer chose, which may be
-// shared: it is used as it is, never tightened.
-func TestNewLeavesAnOverriddenDirectoryAsItIs(t *testing.T) {
-	base := t.TempDir()
-	cfg := Config{
-		DataDir:    filepath.Join(base, "shared-data"),
-		CacheDir:   filepath.Join(base, "shared-cache"),
-		RuntimeDir: filepath.Join(base, "run"),
-	}
-	cfg.Layout = layout.Layout{Data: filepath.Join(base, "data"), Cache: filepath.Join(base, "cache")}
-	leaveOpen(t, cfg.DataDir, cfg.CacheDir)
-
-	a, err := New(t.Context(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	assertPerm(t, 0o755, cfg.DataDir, cfg.CacheDir)
-}
-
-// An override spelling the layout's own folder another way is that folder, and
-// is tightened.
-func TestNewTightensTheLayoutsFolderSpelledAnotherWay(t *testing.T) {
-	base := t.TempDir()
-	data, cache := filepath.Join(base, "data"), filepath.Join(base, "cache")
-	cfg := Config{DataDir: data + "/", CacheDir: cache + "/.", RuntimeDir: filepath.Join(base, "run")}
-	cfg.Layout = layout.Layout{Data: data, Cache: cache}
-	leaveOpen(t, data, cache)
-
-	a, err := New(t.Context(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	assertPerm(t, 0o700, data, cache)
-}
-
-// An override reaching the layout's own folder through a link is that folder,
-// as another letter case on a case-insensitive volume is: it is tightened, and
-// the app folder holding it too.
-func TestNewTightensTheLayoutsFolderReachedThroughALink(t *testing.T) {
-	base := t.TempDir()
-	app := filepath.Join(base, "Kstack")
-	data, cache := filepath.Join(app, "data"), filepath.Join(base, "cache")
-	leaveOpen(t, app, data, cache)
-	require.NoError(t, os.Symlink(data, filepath.Join(base, "data-link")))
-	cfg := Config{DataDir: filepath.Join(base, "data-link"), CacheDir: cache, RuntimeDir: filepath.Join(base, "run")}
-	cfg.Layout = layout.Layout{App: app, Data: data, Cache: cache}
-
-	a, err := New(t.Context(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	assertPerm(t, 0o700, app, data)
 }
 
 // A sandboxed read of the chat's cluster runs as the model asks for it: no one
@@ -469,7 +365,7 @@ func TestStartSyncsTheLaunchPath(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
 
-	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	assert.False(t, slices.ContainsFunc(a.rt.parts, func(p lifecycle.Part) bool { return p.Name == "PATH sync" }))
@@ -478,7 +374,7 @@ func TestStartSyncsTheLaunchPath(t *testing.T) {
 	usrBin, err := filepath.EvalSymlinks("/usr/bin")
 	require.NoError(t, err)
 	stubLaunch(t, loginshell.Result{Path: []string{"/usr/bin", "bin"}}, nil)
-	a, err = New(t.Context(), withDirs(t, Config{DataDir: data, RunLoginShell: true}))
+	a, err = New(t.Context(), withDirs(t, Config{Folders: Folders{Data: data}, RunLoginShell: true}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	assert.Equal(t, partIndex(t, a, "shell snapshot")-1, partIndex(t, a, "PATH sync"))
@@ -513,7 +409,7 @@ func TestTheSandboxIsProbedOnce(t *testing.T) {
 	probes, probed := countProbes(t)
 	launches := stubLaunch(t, loginshell.Result{Path: []string{"/usr/bin"}}, nil)
 
-	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir(), RunLoginShell: true}))
+	a, err := New(t.Context(), withDirs(t, Config{RunLoginShell: true}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
@@ -553,7 +449,7 @@ func TestTheRefreshRunsInTheSandbox(t *testing.T) {
 	require.NoError(t, err)
 	sb := &refusingSandbox{never: []string{"/never"}}
 	kstackDirs := []string{t.TempDir(), t.TempDir(), t.TempDir()}
-	svc := newSettingsService(store, sb, nil, sandbox.Status{Available: true}, kstackDirs, "", filepath.Join(kstackDirs[1], "tmp"))
+	svc := newSettingsService(store, sb, nil, sandbox.Status{Available: true}, bash.Paths{DeniedDirs: kstackDirs, TmpDir: filepath.Join(kstackDirs[1], "tmp")}, "")
 
 	_, err = svc.RefreshPath(t.Context())
 	require.ErrorContains(t, err, "sandbox refused")
@@ -574,7 +470,7 @@ func TestNewStopsWhenItsContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	a, err := New(ctx, withDirs(t, Config{DataDir: t.TempDir(), RunLoginShell: true}))
+	a, err := New(ctx, withDirs(t, Config{RunLoginShell: true}))
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, a)
@@ -598,7 +494,6 @@ func TestNewTakesTheProviderKeysTheShellSets(t *testing.T) {
 	}
 
 	a, err := New(t.Context(), withDirs(t, Config{
-		DataDir:       t.TempDir(),
 		RunLoginShell: true,
 		LLMKeys:       map[string]string{"openai": "sk-openai-launch-0123456789"},
 	}))
@@ -626,7 +521,7 @@ func TestAQuitDuringTheProbeReleasesTheLock(t *testing.T) {
 
 	_, err := build(ctx, cfg)
 	require.ErrorIs(t, err, context.Canceled)
-	requireUnlocked(t, cfg.DataDir)
+	requireUnlocked(t, cfg.Folders.Data)
 }
 
 // fakeCloud is a cloud platform whose upstream is an httptest TLS server: a GET

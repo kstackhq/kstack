@@ -37,7 +37,7 @@ import (
 // The app keeps every service it built, so a caller reaches one through the
 // runtime rather than through a constructor's arguments.
 func TestNewKeepsTheRuntime(t *testing.T) {
-	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
@@ -58,7 +58,7 @@ func TestNewKeepsTheRuntime(t *testing.T) {
 // closes, so the sibling's absence shows app.db was released.
 func TestARuntimeClosesWhatItBuilt(t *testing.T) {
 	dir := t.TempDir()
-	rt, err := build(t.Context(), withDirs(t, Config{DataDir: dir}))
+	rt, err := build(t.Context(), withDirs(t, Config{Folders: Folders{Data: dir}}))
 	require.NoError(t, err)
 
 	wal := filepath.Join(dir, "app.db-wal")
@@ -72,7 +72,7 @@ func TestAnAppDBThatCannotOpenFailsTheBuild(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "app.db"), 0o700))
 
-	_, err := build(t.Context(), withDirs(t, Config{DataDir: dir}))
+	_, err := build(t.Context(), withDirs(t, Config{Folders: Folders{Data: dir}}))
 
 	assert.ErrorContains(t, err, "open app database")
 }
@@ -87,7 +87,7 @@ func TestANewerAppDBFailsTheBuildNamingTheVersions(t *testing.T) {
 	require.NoError(t, db.Close())
 	sqlitemigratetest.StampNewer(t, path)
 
-	_, err = build(t.Context(), withDirs(t, Config{DataDir: dir}))
+	_, err = build(t.Context(), withDirs(t, Config{Folders: Folders{Data: dir}}))
 
 	assert.EqualError(t, err, "app.db was written by a newer Kstack (schema 999; this build reads up to 5)")
 	requireUnlocked(t, dir)

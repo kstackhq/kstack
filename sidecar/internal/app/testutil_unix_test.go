@@ -226,9 +226,10 @@ func startE2E(t *testing.T, with ...func(*Config)) *e2e {
 	kubeconfig := filepath.Join(dir, "kubeconfig")
 	writeClusterKubeconfig(t, kubeconfig, cluster)
 	data := filepath.Join(dir, "data")
+	require.NoError(t, os.Mkdir(data, 0o700))
 	fake := llm.NewFake(0)
 	shellPath := append([]string{bin}, filepath.SplitList(loginshell.DefaultPath)...)
-	cfg := Config{KubeconfigPath: kubeconfig, DataDir: data, RuntimeDir: shortTemp(t), launchPath: shellPath, fake: fake}
+	cfg := Config{KubeconfigPath: kubeconfig, Folders: Folders{Data: data, Runtime: shortTemp(t)}, launchPath: shellPath, fake: fake}
 	for _, w := range with {
 		w(&cfg)
 	}

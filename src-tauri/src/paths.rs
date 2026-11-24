@@ -1006,6 +1006,28 @@ mod tests {
         assert_eq!(roots.is_err(), cfg!(target_os = "linux"));
     }
 
+    /// A junction and a directory symlink are each a link to `is_symlink`,
+    /// as they are to the sidecar's `realpath.IsLink`.
+    #[cfg(windows)]
+    #[test]
+    fn a_junction_and_a_directory_symlink_are_links() {
+        let scratch = crate::testutil::Scratch::new();
+        let target = scratch.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        for kind in ["/J", "/D"] {
+            let link = scratch.path().join(format!("link{}", &kind[1..]));
+            let out = std::process::Command::new("cmd")
+                .args(["/c", "mklink", kind])
+                .arg(&link)
+                .arg(&target)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{out:?}");
+            let meta = std::fs::symlink_metadata(&link).unwrap();
+            assert!(meta.file_type().is_symlink(), "{kind}");
+        }
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn a_linked_webview_dir_is_refused() {

@@ -62,8 +62,8 @@ Adding the mechanism is in [`TODO.md`](TODO.md), *Sidecar (Go)*.
 
 | Root | Resolved by | Holds |
 | --- | --- | --- |
-| `<data>` | the sidecar's `layout.Of`, made by `makeDirs` | what a user would lose |
-| `<cache>` | the sidecar's `layout.Of`, made by `makeDirs` | the cluster and log caches |
+| `<data>` | the sidecar's `layout.Of`, made by `app.ResolveFolders` | what a user would lose |
+| `<cache>` | the sidecar's `layout.Of`, made by `app.ResolveFolders` | the cluster and log caches |
 | `<config>` | `paths.rs` `app_config_dir` | `host.json` |
 | `<state>` | `paths.rs` `app_state_dir` | the window state, and on Linux and Windows the logs, in `logs/` |
 | OS keyring | service `<service>`: `Kstack` (`Kstack-dev` in debug; `KEYCHAIN_SERVICE` in `src-tauri/src/services/sidecar/service.rs`, and a sidecar run with `--dev` and no `--keychain-service`) | the Kstack account's, the ChatGPT plan's and the Google account's refresh tokens, the OpenRouter connector's key, the AWS connector's session, the saved provider API keys |

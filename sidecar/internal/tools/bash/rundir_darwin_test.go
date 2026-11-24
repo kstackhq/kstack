@@ -17,6 +17,7 @@ package bash
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,4 +38,18 @@ func TestARunsTMPDIRStartsWithXcrunsCache(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(d.tmp, "xcrun_db"))
 	require.NoError(t, err)
 	assert.Equal(t, "cache", string(b))
+}
+
+// The sidecar resolves the runtime folder, so on macOS a run's socket sits
+// under /private/var, eight bytes longer than $TMPDIR's /var. Under a 48-byte
+// $TMPDIR and a three-digit uid every runtime folder the host names fits but a
+// dev build's fresh folder beside a refused one, which did not fit under /var
+// either.
+func TestTheSocketPathFitsUnderAResolvedTMPDIR(t *testing.T) {
+	tmpdir := "/private/var/folders/" + strings.Repeat("x", 2) + "/" + strings.Repeat("x", 30) + "/T"
+	require.Len(t, tmpdir, len("/private")+48)
+	for _, name := range []string{"kstack-501", "kstack-dev-501", "kstack-501-XXXXXX"} {
+		assert.NoError(t, checkSocketPath(filepath.Join(tmpdir, name, "runs")), name)
+	}
+	assert.Error(t, checkSocketPath(filepath.Join(tmpdir, "kstack-dev-501-XXXXXX", "runs")))
 }

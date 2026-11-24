@@ -146,12 +146,15 @@ profile's ACL
 a folder out of the profile, to a drive whose ACL lets other accounts in, and telling that a
 folder is a junction says nothing about who can read its target.
 
-So on Windows every layout folder must resolve strictly inside the resolved user profile
-(`USERPROFILE`), or the start fails:
+So on Windows a layout folder that a link leads elsewhere must resolve strictly inside the
+resolved user profile (`USERPROFILE`), or the start fails:
 
 ```
 C:\Users\u\AppData\Local\Kstack leads to D:\big\Kstack, outside your profile; keep it inside C:\Users\u
 ```
+
+A folder no link leads elsewhere is where Windows names it. An administrator may redirect a
+known folder off the profile, as Folder Redirection does, and the check leaves it alone.
 
 The profile is the reason the ACL can be relied on, so the check is strict:
 

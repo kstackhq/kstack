@@ -33,11 +33,11 @@ var unreadableRoots = env{"LOCALAPPDATA": ""}
 // folders it makes are the test's.
 func scratchRoots(t *testing.T) env {
 	dir := t.TempDir()
-	return env{"LOCALAPPDATA": dir, "APPDATA": dir}
+	return env{"LOCALAPPDATA": dir, "APPDATA": dir, "USERPROFILE": dir}
 }
 
 func TestConfigFromArgsTakesAKstackPathHoldingDotDot(t *testing.T) {
 	dir := `C:\Users\x\link\..\run`
 	cfg := mustConfigFromArgs(t, []string{"--runtime-dir", dir}, noEnv)
-	require.Equal(t, dir, cfg.App.RuntimeDir)
+	require.Equal(t, dir, cfg.Folders.Runtime)
 }

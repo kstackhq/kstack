@@ -12,22 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package app
+//go:build !windows
+
+package realpath
 
 import (
-	"os/exec"
+	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// A subfolder that is a junction joins the fence as a symlink does.
-func TestAJunctionedSubfolderIsFenced(t *testing.T) {
-	cfg := Config{DataDir: t.TempDir(), CacheDir: t.TempDir(), RuntimeDir: t.TempDir()}
-	link := pathsOf(cfg).ChatsDir
-	out, err := exec.Command("cmd", "/c", "mklink", "/J", link, t.TempDir()).CombinedOutput()
-	require.NoError(t, err, string(out))
-
-	assert.Equal(t, []string{cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir, link}, pathsOf(cfg).Bash.DeniedDirs)
+// link makes a symbolic link at name to target.
+func link(t *testing.T, target, name string) {
+	t.Helper()
+	require.NoError(t, os.Symlink(target, name))
 }

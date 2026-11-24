@@ -15,13 +15,9 @@
 package app
 
 import (
-	"errors"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 
-	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -49,8 +45,8 @@ import (
 //	  shell/                               bash: the snapshot, and Windows' scripts
 //	  runs/<pid>-*/, runs/<pid>.lock       bash: a run's kubeconfig and socket, the lock
 //
-// A subfolder above that is a symlink or a Windows junction at start joins
-// the fence (pathsOf).
+// Each subfolder above that a service keeps its files in is made at start,
+// and must be a folder, not a link (makeSubfolders).
 type paths struct {
 	LockFile     string
 	AppDBFile    string
@@ -63,53 +59,35 @@ type paths struct {
 }
 
 func pathsOf(cfg Config) paths {
-	data, cache, runtime := cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir
+	data, cache, runtime := cfg.Folders.Data, cfg.Folders.Cache, cfg.Folders.Runtime
 	kstack := []string{data, cache, runtime}
 	// Every folder the layout names is fenced too: the host's config, state
 	// and logs, and the app folders that hold the kinds on macOS and Windows.
-	// Only an exact duplicate is dropped: one nested in another by name can
-	// resolve elsewhere through a link, and the fences resolve each path
-	// themselves.
-	for _, dir := range cfg.Layout.Dirs() {
+	// Only an exact duplicate is dropped.
+	for _, dir := range cfg.Folders.Layout.Dirs() {
 		if !slices.Contains(kstack, dir) {
 			kstack = append(kstack, dir)
 		}
-	}
-	// A subfolder that is a link holds Kstack's files where it leads, outside
-	// the directories above, so it is fenced too: the fences resolve each path
-	// they are given, so a link retargeted while Kstack runs is fenced where it
-	// leads now, and its former target is not. A link made while Kstack runs is
-	// not seen. A subfolder that cannot be read may be a link, so it is fenced.
-	var linked []string
-	sub := func(root, name string) string {
-		dir := filepath.Join(root, name)
-		info, err := os.Lstat(dir)
-		if errors.Is(err, fs.ErrNotExist) {
-			return dir
-		}
-		if err != nil || realpath.IsLink(info) {
-			linked = append(linked, dir)
-		}
-		return dir
 	}
 	p := paths{
 		LockFile:     filepath.Join(data, "sidecar.lock"),
 		AppDBFile:    filepath.Join(data, "app.db"),
 		SettingsFile: filepath.Join(data, "settings.json"),
-		ChatsDir:     sub(data, "chats"),
-		MonitorDir:   sub(data, "monitor"),
-		LogsDir:      sub(cache, "logs"),
+		ChatsDir:     filepath.Join(data, "chats"),
+		MonitorDir:   filepath.Join(data, "monitor"),
+		LogsDir:      filepath.Join(cache, "logs"),
 		Cluster: cluster.Paths{
 			BeehiveDBFile: filepath.Join(data, "beehive.db"),
-			KubestoreDir:  sub(cache, "kube"),
+			KubestoreDir:  filepath.Join(cache, "kube"),
 		},
 		Bash: bash.Paths{
-			ShellDir:   sub(runtime, "shell"),
-			RunsDir:    sub(runtime, "runs"),
-			TmpDir:     sub(cache, "tmp"),
-			KubectlDir: sub(cache, "kubectl"),
+			ShellDir:   filepath.Join(runtime, "shell"),
+			RunsDir:    filepath.Join(runtime, "runs"),
+			TmpDir:     filepath.Join(cache, "tmp"),
+			KubectlDir: filepath.Join(cache, "kubectl"),
 		},
 	}
-	p.Bash.DeniedDirs = slices.Concat(kstack, linked)
+	p.Bash.DeniedDirs = kstack
+	p.Bash.Links = cfg.Folders.Links
 	return p
 }

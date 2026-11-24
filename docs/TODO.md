@@ -948,15 +948,23 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   `background-color` leaves the theme-matching foreground open; a contrast floor on every kept
   colour would close it. Either land one or accept it as a **By decision** row with an ADR.
 
-- **Follow a link to a Kstack folder once, at start, and refuse one below it (medium; sandbox
-  owner).** A linked folder's own name is not fenced: with `~/.cache/kstack` linked elsewhere, a
-  read-write grant of `~/.cache` is accepted, and a sandboxed command can repoint the link for
-  the next start to follow. A subfolder linked while Kstack runs is not fenced until the next
-  start. Specified in `docs/specs/folder-links/` on
-  [#1191](https://github.com/kstackhq/kstack/pull/1191), for
-  [#1145](https://github.com/kstackhq/kstack/issues/1145): each program resolves its folders
-  once, a link below them fails the start, and no write is granted on or above the folder that
-  holds a followed link.
+- **Resolve the host's folders once, and fence each resolved folder once (low; host and
+  sidecar owners).** The sidecar resolves its folders once, refuses a link below them and grants
+  no write on or above a followed link's parent. The host still follows its folders' links each
+  time it names one, and a folder nested in another by name is fenced twice. Specified as steps 2
+  and 3 of `docs/specs/folder-links/`, for
+  [#1145](https://github.com/kstackhq/kstack/issues/1145).
+
+- **Let a link lead a Windows layout folder out of the profile (low; sidecar and host owners).**
+  A layout folder a link leads elsewhere must resolve inside the user profile, whose ACL keeps
+  it private
+  ([ADR](adr/2026-11-24-follow-a-link-to-a-kstack-folder-once-at-start-and-refuse-one-below-it.md)).
+  A junction to another drive fails the start until Kstack sets an ACL on such a folder itself.
+
+- **Check who can write the folders above Kstack's own (low; sidecar owner).** Kstack assumes
+  every folder on the path to a layout folder, and to a link's target, is writable only by the
+  user or root, and checks only the Unix runtime folder. A root under a folder another account
+  can write lets that account repoint a link Kstack follows.
 
 - **Measure what a run's check costs (easy; sandbox owner).** A run's check names each rule path
   as the kernel does (`Policy.compile`, `sidecar/internal/run/sandbox/policy.go`): Linux follows

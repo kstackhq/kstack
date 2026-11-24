@@ -394,3 +394,22 @@ func TestAFolderUnderOneThatCannotBeListedIsGranted(t *testing.T) {
 	assert.NoError(t, CheckFolder(svc, false, f.zones, nil))
 	assert.NoError(t, CheckStoredFolder(svc, true, f.zones, nil))
 }
+
+// A command that can write the folder holding a link Kstack followed could
+// repoint it, so that folder, and any above it, is granted read-only alone.
+func TestAWriteGrantOnOrAboveALinkParentIsRefused(t *testing.T) {
+	f := newGrantFixture(t)
+	parent := f.in("big/cache")
+	require.NoError(t, os.MkdirAll(parent, 0o755))
+	link := filepath.Join(parent, "kstack")
+	require.NoError(t, os.Symlink(f.in("code/svc"), link))
+	f.zones.Links = []realpath.Link{{Name: link, Parent: parent}}
+
+	err := CheckFolder(parent, true, f.zones, nil)
+	assert.Equal(t, "link-parent", ruleOf(t, err))
+	assert.Equal(t, "Kstack follows the link "+link+", and a command that can write "+parent+" could repoint it. Grant it read-only.", err.Error())
+	assert.Equal(t, "link-parent", ruleOf(t, CheckFolder(f.in("big"), true, f.zones, nil)), "a folder above one")
+	assert.Equal(t, "link-parent", ruleOf(t, CheckStoredFolder(parent, true, f.zones, nil)), "a stored grant")
+	assert.NoError(t, CheckFolder(parent, false, f.zones, nil), "read-only")
+	assert.NoError(t, CheckFolder(f.in("code"), true, f.zones, nil), "a folder beside it")
+}
