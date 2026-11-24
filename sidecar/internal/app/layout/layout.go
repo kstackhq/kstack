@@ -68,13 +68,14 @@ type Roots struct {
 type Layout struct {
 	// App is the folder macOS and Windows keep several kinds in.
 	App string `json:"app,omitempty"`
-	// ConfigApp is Windows' leaf on the roaming root, which holds the config.
-	ConfigApp string `json:"config_app,omitempty"`
-	Data      string `json:"data"`
-	Config    string `json:"config,omitempty"`
-	State     string `json:"state"`
-	Cache     string `json:"cache"`
-	Logs      string `json:"logs"`
+	// AppOnConfigRoot is Windows' app folder on the config root, which holds
+	// the config alone. It is App when the config root is the local data root.
+	AppOnConfigRoot string `json:"app_on_config_root,omitempty"`
+	Data            string `json:"data"`
+	Config          string `json:"config,omitempty"`
+	State           string `json:"state"`
+	Cache           string `json:"cache"`
+	Logs            string `json:"logs"`
 	// Runtime is Windows' alone: on Unix the host places it under the
 	// session's runtime root, which a squatted name can move.
 	Runtime string `json:"runtime,omitempty"`
@@ -82,7 +83,7 @@ type Layout struct {
 
 // fields is every folder of l, the sidecar's own first.
 func (l *Layout) fields() []*string {
-	return []*string{&l.Data, &l.Cache, &l.Logs, &l.Config, &l.State, &l.Runtime, &l.App, &l.ConfigApp}
+	return []*string{&l.Data, &l.Cache, &l.Logs, &l.Config, &l.State, &l.Runtime, &l.App, &l.AppOnConfigRoot}
 }
 
 // Dirs is every folder l names, the sidecar's data and cache first. Only an
@@ -118,8 +119,8 @@ func appDirName(platform Platform, dev bool) string {
 //   - macOS keeps the cache and the logs in the platform's folders for them;
 //     the data, config and state are subfolders of one app folder.
 //   - Windows keeps every local kind in one app folder under the local data
-//     root, the logs in the state, and the config in a leaf on the roaming
-//     root.
+//     root, the logs in the state, and the config in an app folder on the
+//     config root.
 func Of(platform Platform, dev bool, roots Roots) Layout {
 	leaf := appDirName(platform, dev)
 	app := filepath.Join(roots.LocalData, leaf)
@@ -148,16 +149,16 @@ func Of(platform Platform, dev bool, roots Roots) Layout {
 		}
 		return l
 	}
-	configApp := joinIf(roots.Config, leaf)
+	appOnConfigRoot := joinIf(roots.Config, leaf)
 	return Layout{
-		App:       app,
-		ConfigApp: configApp,
-		Data:      filepath.Join(app, "data"),
-		Config:    joinIf(configApp, "config"),
-		State:     filepath.Join(app, "state"),
-		Cache:     filepath.Join(app, "cache"),
-		Logs:      filepath.Join(app, "state", "logs"),
-		Runtime:   filepath.Join(app, "run"),
+		App:             app,
+		AppOnConfigRoot: appOnConfigRoot,
+		Data:            filepath.Join(app, "data"),
+		Config:          joinIf(appOnConfigRoot, "config"),
+		State:           filepath.Join(app, "state"),
+		Cache:           filepath.Join(app, "cache"),
+		Logs:            filepath.Join(app, "state", "logs"),
+		Runtime:         filepath.Join(app, "run"),
 	}
 }
 

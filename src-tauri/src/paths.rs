@@ -68,8 +68,9 @@ pub(crate) struct Layout {
     /// where each kind has a root. A per-user Windows install puts the
     /// release's executable in it too, so it is never deleted whole.
     pub(crate) app: Option<PathBuf>,
-    /// Windows' leaf on the config root, which holds the config alone.
-    pub(crate) config_app: Option<PathBuf>,
+    /// Windows' app folder on the config root, which holds the config alone.
+    /// It is `app` when the config root is the local data root.
+    pub(crate) app_on_config_root: Option<PathBuf>,
     pub(crate) data: PathBuf,
     /// `None` when the platform names no config root.
     pub(crate) config: Option<PathBuf>,
@@ -93,9 +94,9 @@ pub(crate) struct Layout {
 /// - Windows' cache root is its local data root, and it has no state or
 ///   runtime root, so those kinds are siblings in one app folder under
 ///   `%LOCALAPPDATA%`, whose ACL covers them. The logs sit in the state, as on
-///   Linux. The config roams, in `%APPDATA%`, as a subfolder of the leaf
-///   there: were that root the local data root, the config would still be a
-///   sibling of the other kinds.
+///   Linux. The config roams, in `%APPDATA%`, as a subfolder of the app
+///   folder on that root: were that root the local data root, the config
+///   would still be a sibling of the other kinds.
 fn layout_for(platform: Platform, dev: bool, roots: &Roots) -> Layout {
     let leaf = app_dir_name(platform, dev);
     let app = roots.local_data.join(leaf);
@@ -104,7 +105,7 @@ fn layout_for(platform: Platform, dev: bool, roots: &Roots) -> Layout {
             let state = roots.state.join(leaf);
             Layout {
                 app: None,
-                config_app: None,
+                app_on_config_root: None,
                 data: app,
                 config: roots.config.as_ref().map(|dir| dir.join(leaf)),
                 logs: state.join("logs"),
@@ -122,7 +123,7 @@ fn layout_for(platform: Platform, dev: bool, roots: &Roots) -> Layout {
             cache: roots.cache.join(leaf),
             logs: roots.home.join("Library/Logs").join(leaf),
             runtime: None,
-            config_app: None,
+            app_on_config_root: None,
             app: Some(app),
         },
         Platform::Windows => Layout {
@@ -131,7 +132,7 @@ fn layout_for(platform: Platform, dev: bool, roots: &Roots) -> Layout {
                 .config
                 .as_ref()
                 .map(|dir| dir.join(leaf).join("config")),
-            config_app: roots.config.as_ref().map(|dir| dir.join(leaf)),
+            app_on_config_root: roots.config.as_ref().map(|dir| dir.join(leaf)),
             state: app.join("state"),
             cache: app.join("cache"),
             logs: app.join("state").join("logs"),
@@ -1237,9 +1238,9 @@ mod tests {
         assert_eq!(layout.state, app.join("state"));
         assert_eq!(layout.logs, app.join("state").join("logs"));
         assert_eq!(layout.runtime, Some(app.join("run")));
-        let config_app = roots.config.unwrap().join(leaf);
-        assert_eq!(layout.config, Some(config_app.join("config")));
-        assert_eq!(layout.config_app, Some(config_app));
+        let app_on_config_root = roots.config.unwrap().join(leaf);
+        assert_eq!(layout.config, Some(app_on_config_root.join("config")));
+        assert_eq!(layout.app_on_config_root, Some(app_on_config_root));
         assert_eq!(layout.app, Some(app));
     }
 

@@ -88,14 +88,14 @@ func TestTheAppFolderIsKstacks(t *testing.T) {
 // from the app folder.
 func TestTheConfigsAppFolderIsKstacks(t *testing.T) {
 	app := filepath.FromSlash("/u/AppData/Local/Kstack")
-	configApp := filepath.FromSlash("/u/AppData/Roaming/Kstack")
-	data, config := filepath.Join(app, "data"), filepath.Join(configApp, "config")
+	appOnConfigRoot := filepath.FromSlash("/u/AppData/Roaming/Kstack")
+	data, config := filepath.Join(app, "data"), filepath.Join(appOnConfigRoot, "config")
 	cache, runtime := filepath.Join(app, "cache"), filepath.Join(app, "run")
-	cfg := Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{Config: config, App: app, ConfigApp: configApp}}
-	assert.Equal(t, []string{data, cache, runtime, config, app, configApp}, pathsOf(cfg).Bash.DeniedDirs,
+	cfg := Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{Config: config, App: app, AppOnConfigRoot: appOnConfigRoot}}
+	assert.Equal(t, []string{data, cache, runtime, config, app, appOnConfigRoot}, pathsOf(cfg).Bash.DeniedDirs,
 		"the config's folder is fenced beside the config, so nothing is written next to it")
 
-	cfg.Layout.ConfigApp = app
+	cfg.Layout.AppOnConfigRoot = app
 	assert.Equal(t, []string{data, cache, runtime, config, app}, pathsOf(cfg).Bash.DeniedDirs,
 		"one that is the app folder adds nothing")
 }

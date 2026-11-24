@@ -112,11 +112,11 @@ func cleanWindowState() error {
 
 // topDirs is each folder Kstack makes on a platform root: the data, cache,
 // config and state leaves on Linux, the app folder, cache and logs on macOS,
-// the app and roaming config folders on Windows. Each is deleted whole, so a
+// the app folders on the local data and config roots on Windows. Each is deleted whole, so a
 // linked one is unlinked rather than followed, and the folders inside it are
 // never visited on their own.
 func topDirs(l layout.Layout) []string {
-	holders := []string{l.App, l.ConfigApp, l.State}
+	holders := []string{l.App, l.AppOnConfigRoot, l.State}
 	var dirs []string
 	for _, dir := range l.Dirs() {
 		inside := slices.ContainsFunc(holders, func(holder string) bool {

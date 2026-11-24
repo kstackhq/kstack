@@ -109,7 +109,7 @@
     },
     "layout": {
       "app": "C:/Users/x/AppData/Local/Kstack-dev",
-      "config_app": "C:/Users/x/AppData/Roaming/Kstack-dev",
+      "app_on_config_root": "C:/Users/x/AppData/Roaming/Kstack-dev",
       "data": "C:/Users/x/AppData/Local/Kstack-dev/data",
       "config": "C:/Users/x/AppData/Roaming/Kstack-dev/config",
       "state": "C:/Users/x/AppData/Local/Kstack-dev/state",
@@ -131,7 +131,7 @@
     },
     "layout": {
       "app": "C:/Users/x/AppData/Local/Kstack",
-      "config_app": "C:/Users/x/AppData/Roaming/Kstack",
+      "app_on_config_root": "C:/Users/x/AppData/Roaming/Kstack",
       "data": "C:/Users/x/AppData/Local/Kstack/data",
       "config": "C:/Users/x/AppData/Roaming/Kstack/config",
       "state": "C:/Users/x/AppData/Local/Kstack/state",
@@ -153,7 +153,7 @@
     },
     "layout": {
       "app": "C:/Users/x/AppData/Local/Kstack-dev",
-      "config_app": "C:/Users/x/AppData/Local/Kstack-dev",
+      "app_on_config_root": "C:/Users/x/AppData/Local/Kstack-dev",
       "data": "C:/Users/x/AppData/Local/Kstack-dev/data",
       "config": "C:/Users/x/AppData/Local/Kstack-dev/config",
       "state": "C:/Users/x/AppData/Local/Kstack-dev/state",
