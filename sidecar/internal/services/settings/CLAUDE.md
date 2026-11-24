@@ -1,9 +1,9 @@
 # internal/services/settings — the user's settings
 
-**`<data>/settings.json` is the user's settings but the permissions and the cloud platform
-switches**: 0600 through `atomicjson`, in the data directory no sandboxed command reads, never
-synced. Keys are grouped by area (`sandbox`, then `executables`), `schemaVersion` 1; the old
-`permissions` group and cloud switches are kept, unread. `Settings` mirrors it; `Store` wraps
+**`<data>/settings.json` holds the user's `PATH`**; the rest are `app.db` rows. It is 0600
+through `atomicjson`, in the data directory no sandboxed command reads, never synced, grouped by
+area (`sandbox`), `schemaVersion` 1; the moved areas' keys are kept, unread. `Settings` mirrors
+it; `Store` wraps
 `jsonsettings.Store[Settings]` (`Get`, `Update`, `Subscribe` current-on-subscribe, `Held`,
 `Refused`). **A field's key is dotted inside its group** (`sandbox.path`); every `Field*`
 constant spells one, and `Held`, `Update`'s `fields`, a `Refusal` and the wire all use it. →
@@ -63,8 +63,8 @@ goroutine bounded by `SyncTimeout` and diffs in one `Update` naming `sandbox.pat
 open, unshared entry is `adopted`, any other new one `pending`, a changed `Target` is new again,
 and the shell's order wins. **While the field is held or `PathStrict` is set, every new entry is
 `pending`.** A removal holds under every `Dir` whose `Target` it names. A sync that changed the list probes every listed
-executable (`StartProbe`), after the write and never holding it; a probe that fails is a warning,
-not a startup error. `AdoptPath` (Include) refuses `ErrPathChanged` when a refresh moved the entry, and drops the
+executable (`StartProbe`), after the write and never holding it; a read of the executables that
+fails starts none and is a warning, not a startup error. `AdoptPath` (Include) refuses `ErrPathChanged` when a refresh moved the entry, and drops the
 removals kept under other `Dir`s for its exact `Target`; `DropPath` (Remove) sets `gone`.
 `RunCheck` (`checkrun.go`) applies the filter and adoption rule to a run's folder: an approval
 holds when the folder resolves to exactly its `Target`. Its callers bound it. → [ADR: `PATH` is the login shell's, filtered and
@@ -82,9 +82,10 @@ never re-run the zones function. Every disk read goes through `readWithin`, boun
 checked](../../../../docs/adr/2026-10-04-a-folder-grant-is-a-rule.md), [security
 record](../../../../docs/security/2026-10-04-path-grants.md).
 
-**`Executables` is the user's registered executables** (`executables.go`), probed beside
-`CuratedExecutables`. `CheckExecutable` is the one shape check, on register and on read-back. An
-executable only widens what is probed, so the read-back drops a refused one and holds nothing.
+**The registered executables are `executables` rows** (`executables.go`), probed beside
+`CuratedExecutables`. `CheckExecutable` checks a register and every read: a refused row is listed
+with its `Refusal`, never probed, and removable. A stored name is `ErrExecutableListed` before any
+check. A write notifies `appdb.KeyExecutables` (`WatchExecutables`).
 
 **The cloud platform switches are `sandbox_settings`' one row** (`cloudplatform.go`), each on by
 default ([ADR](../../../../docs/adr/2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md)).

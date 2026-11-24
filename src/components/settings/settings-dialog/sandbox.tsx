@@ -15,8 +15,8 @@
 // The Settings dialog's Sandbox tab: the status card, then Folders, Network,
 // PATH, Executables and Environment, each a titled card in a file beside this
 // one but Executables. On a machine with no sandbox, the status card alone. An
-// executable's path, version and error are its own text, so they are drawn
-// through VisibleText with the trailing spelled.
+// executable's path, version, error and refusal are its own text, so they are
+// drawn through VisibleText with the trailing spelled.
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { useState } from 'react';
@@ -36,8 +36,16 @@ import { SandboxNetwork } from './sandbox-network';
 import { SandboxPathSection } from './sandbox-path';
 import { SandboxStatus } from './sandbox-status';
 
+// A registered executable can share a curated one's name, so a row is keyed
+// by both.
+function executableKey({ registered, name }: SandboxExecutable): string {
+  return `${registered ? 'registered' : 'curated'}:${name}`;
+}
+
 function ExecutableRow({ executable }: { executable: SandboxExecutable }) {
-  const { name, probed, resolved, shim, target, ok, version, error } = executable;
+  const { name, probed, resolved, shim, target, ok, version, error, refusal } = executable;
+  // A refused executable is never probed: its refusal stands in for the result.
+  const failure = refusal ?? (probed && resolved && error);
   return (
     <li className="px-4 py-2 text-xs">
       <p className="flex gap-2">
@@ -46,7 +54,7 @@ function ExecutableRow({ executable }: { executable: SandboxExecutable }) {
         </span>
         {probed && resolved && <span className="text-muted-foreground">{ok ? 'ok' : 'failed'}</span>}
       </p>
-      {(!probed || !resolved) && <p className="text-muted-foreground">{error}</p>}
+      {!refusal && (!probed || !resolved) && <p className="text-muted-foreground">{error}</p>}
       {resolved && (
         <p className="font-mono break-all whitespace-pre-wrap text-muted-foreground" data-testid="resolved">
           <VisibleText text={resolved} trailing="end" />
@@ -65,9 +73,9 @@ function ExecutableRow({ executable }: { executable: SandboxExecutable }) {
           <VisibleText text={version} trailing="end" />
         </p>
       )}
-      {probed && resolved && error && (
+      {failure && (
         <p className="break-all whitespace-pre-wrap text-destructive">
-          <VisibleText text={error} trailing="end" />
+          <VisibleText text={failure} trailing="end" />
         </p>
       )}
     </li>
@@ -93,7 +101,7 @@ function RegisteredExecutables({ executables }: { executables: SandboxExecutable
       <p className="text-xs font-medium">Your executables</p>
       <ul className="divide-y" aria-label="Registered executables">
         {registered.map((executable) => (
-          <li key={executable.name} className="flex items-center gap-2 py-1.5 text-xs">
+          <li key={executableKey(executable)} className="flex items-center gap-2 py-1.5 text-xs">
             <span className="min-w-0 flex-1 font-mono break-all whitespace-pre-wrap">
               <VisibleText text={executable.invocation} trailing="end" />
             </span>
@@ -161,7 +169,7 @@ function SandboxExecutableSection({ executables }: { executables: SandboxExecuta
       )}
       <ul className="divide-y rounded-lg border" aria-label="Executables">
         {report?.map((executable) => (
-          <ExecutableRow key={executable.name} executable={executable} />
+          <ExecutableRow key={executableKey(executable)} executable={executable} />
         ))}
       </ul>
       <RegisteredExecutables executables={executables} />

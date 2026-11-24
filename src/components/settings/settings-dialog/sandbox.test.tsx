@@ -98,8 +98,13 @@ const probed = (name: string, extra: Partial<SandboxExecutable> = {}): SandboxEx
   ok: true,
   version: `${name} v1`,
   error: '',
+  refusal: null,
   ...extra,
 });
+
+// refused is a registered executable the shape check refuses, never probed.
+const refused = (name: string, invocation: string, refusal: string): SandboxExecutable =>
+  probed(name, { invocation, registered: true, probed: false, resolved: '', ok: false, version: '', refusal });
 
 beforeEach(() => {
   sandbox.current = {
@@ -308,6 +313,37 @@ describe('SandboxSettings: Executables', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add executable' }));
     expect(screen.getByRole('textbox', { name: 'Executable name' })).toHaveValue('kubectl');
     expect(screen.getByText('Kstack probes kubectl already.')).toBeInTheDocument();
+  });
+
+  it("draws a refused executable's reason in place of a probe result, and removes it", async () => {
+    const reason = "An invocation starts with the executable's name.";
+    withExecutables({ report: [probed('kubectl'), refused('stern', 'other --version', reason)] });
+    render(<SandboxSettings />);
+    const stern = executableRows()[1];
+    expect(within(stern).getByText(reason)).toBeInTheDocument();
+    expect(within(stern).queryByText('failed')).not.toBeInTheDocument();
+
+    const registered = within(screen.getByRole('list', { name: 'Registered executables' })).getAllByRole('listitem');
+    await userEvent.click(within(registered[0]).getByRole('button', { name: 'Remove' }));
+    expect(executables.current.remove).toHaveBeenCalledWith('stern');
+  });
+
+  it('draws a registered executable beside the curated one of its name, and removes the registered one', async () => {
+    const duplicateKey = vi.spyOn(console, 'error').mockImplementation(() => {});
+    withExecutables({
+      report: [probed('kubectl'), refused('kubectl', 'kubectl version', 'Kstack probes kubectl already.')],
+    });
+    render(<SandboxSettings />);
+    const [curated, registeredKubectl] = executableRows();
+    expect(within(curated).getByText('ok')).toBeInTheDocument();
+    expect(within(registeredKubectl).getByText('Kstack probes kubectl already.')).toBeInTheDocument();
+
+    const registered = within(screen.getByRole('list', { name: 'Registered executables' })).getAllByRole('listitem');
+    expect(registered).toHaveLength(1);
+    await userEvent.click(within(registered[0]).getByRole('button', { name: 'Remove' }));
+    expect(executables.current.remove).toHaveBeenCalledWith('kubectl');
+    expect(duplicateKey).not.toHaveBeenCalled();
+    duplicateKey.mockRestore();
   });
 
   it('holds Add and Remove while a change is in flight', () => {

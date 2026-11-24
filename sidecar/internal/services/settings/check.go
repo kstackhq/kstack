@@ -18,7 +18,7 @@ package settings
 // step. A check reads the value alone, never the disk or another service; it
 // removes from the settings every value it refuses and answers one Refusal for
 // each.
-var checks = []func(*Settings) []Refusal{checkPath, checkExecutables}
+var checks = []func(*Settings) []Refusal{checkPath}
 
 // strictest is how each field that restricts, keyed by its dotted key, is set
 // to its most restrictive state; each such field's step adds its line. When the

@@ -424,6 +424,26 @@ func sandboxExecutableErr(err error) error {
 	return err
 }
 
+// executablesReport is the probe's report over the registered executables,
+// read now.
+func (r *Resolver) executablesReport(ctx context.Context) ([]*model.SandboxExecutable, error) {
+	registered, err := r.Settings.Executables(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return sandboxExecutablesOf(r.Executables.Report(registered)), nil
+}
+
+// executablesAfter is a register's or a remove's answer once its write has
+// committed: the report, else savedUnread.
+func (r *Resolver) executablesAfter(ctx context.Context, done string) ([]*model.SandboxExecutable, error) {
+	report, err := r.executablesReport(ctx)
+	if err != nil {
+		return nil, savedUnread(done, err)
+	}
+	return report, nil
+}
+
 // sandboxConsoleErr is what the console's run resolver returns an error
 // through: a command already running is a conflict, a refusal in the user's
 // words is a validation error carrying them, and anything else stays opaque.
@@ -477,6 +497,9 @@ func sandboxExecutablesOf(reports []bash.ExecutableReport) []*model.SandboxExecu
 			Name: r.Name, Invocation: r.Invocation, Registered: r.Registered, Probed: r.Probed,
 			Resolved: r.Resolved, Shim: r.Shim, Target: r.Target, Ok: r.OK, Version: r.Version,
 			Error: r.Error,
+		}
+		if r.Refusal != "" {
+			out[i].Refusal = &r.Refusal
 		}
 	}
 	return out

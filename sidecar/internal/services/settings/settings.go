@@ -29,8 +29,7 @@ import (
 // Settings is the user's settings, one group per area. Each field is added by
 // the step that needs it.
 type Settings struct {
-	Sandbox     SandboxSettings `json:"sandbox,omitzero"`
-	Executables []Executable    `json:"executables,omitempty"` // the user's registered tools, in the order added
+	Sandbox SandboxSettings `json:"sandbox,omitzero"`
 }
 
 // SandboxSettings is the sandbox group: the user's PATH as a sandboxed run
@@ -54,8 +53,9 @@ type Refusal = jsonsettings.Refusal
 var ErrHeld = jsonsettings.ErrHeld
 
 // Store keeps Settings in one JSON file, and the approval modes, the always
-// rules, the always folder grants and the cloud platform switches in app.db.
-// It publishes each write of the permissions.
+// rules, the always folder grants, the cloud platform switches and the
+// registered executables in app.db. It publishes each write of the
+// permissions and of the executables.
 // Safe for concurrent use.
 type Store struct {
 	*jsonsettings.Store[Settings]

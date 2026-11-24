@@ -29,6 +29,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/services/toolsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -442,8 +443,13 @@ func (r *mutationResolver) SandboxExecutablesProbe(ctx context.Context) ([]*mode
 	if !r.probes() {
 		return nil, noSandboxExecutables()
 	}
-	r.Executables.StartProbe(r.registeredExecutables())
-	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+	// One read, so none fails once the probe has started.
+	registered, err := r.Settings.Executables(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r.Executables.StartProbe(registered)
+	return sandboxExecutablesOf(r.Executables.Report(registered)), nil
 }
 
 // SandboxConsoleRun is the resolver for the sandboxConsoleRun field.
@@ -475,21 +481,21 @@ func (r *mutationResolver) SandboxExecutableRegister(ctx context.Context, name s
 	if invocation != nil {
 		given = *invocation
 	}
-	if err := r.Settings.RegisterExecutable(name, given); err != nil {
+	if err := r.Settings.RegisterExecutable(ctx, name, given); err != nil {
 		return nil, sandboxExecutableErr(err)
 	}
-	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+	return r.executablesAfter(ctx, "The executable was registered")
 }
 
 // SandboxExecutableRemove is the resolver for the sandboxExecutableRemove field.
 func (r *mutationResolver) SandboxExecutableRemove(ctx context.Context, name string) ([]*model.SandboxExecutable, error) {
-	if err := r.Settings.RemoveExecutable(name); err != nil {
+	if err := r.Settings.RemoveExecutable(ctx, name); err != nil {
 		return nil, sandboxExecutableErr(err)
 	}
 	if !r.probes() {
 		return []*model.SandboxExecutable{}, nil
 	}
-	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+	return r.executablesAfter(ctx, "The executable was removed")
 }
 
 // EnvVarSet is the resolver for the envVarSet field. Its answer is read after
@@ -892,7 +898,7 @@ func (r *queryResolver) SandboxExecutables(ctx context.Context) ([]*model.Sandbo
 	if !r.probes() {
 		return []*model.SandboxExecutable{}, nil
 	}
-	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+	return r.executablesReport(ctx)
 }
 
 // EnvVars is the resolver for the envVars field.
@@ -1150,9 +1156,10 @@ func (r *subscriptionResolver) LogsFollow(ctx context.Context, id apimeta.Cluste
 }
 
 // SandboxExecutablesWatch is the resolver for the sandboxExecutablesWatch field: the
-// probe's state and the settings' registered tools, each a current-on-subscribe
-// receiver, folded into one report on either's change. A machine with no
-// sandbox answers one empty report.
+// probe's state, a current-on-subscribe receiver, and the registered
+// executables, read once and again on each ping, folded into one report on
+// either's change. A read that fails ends the watch with its reason. A machine
+// with no sandbox answers one empty report.
 func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error) {
 	out := make(chan *model.SandboxExecutablesReport)
 	send := func(report *model.SandboxExecutablesReport) bool {
@@ -1171,14 +1178,25 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 		}()
 		return out, nil
 	}
-	probe, settings := r.Executables.WatchProbe(), r.Settings.Subscribe()
+	// Subscribed before the first read, since a ping is not current-on-subscribe.
+	probe, pings := r.Executables.WatchProbe(), r.Settings.WatchExecutables()
 	go func() {
 		defer close(out)
 		defer probe.Close()
-		defer settings.Close()
+		defer pings.Close()
+		read := func() ([]settings.Executable, error) {
+			registered, err := r.Settings.Executables(ctx)
+			if err != nil {
+				recordWatchFailure(ctx, fmt.Errorf("read the executables: %w", err))
+			}
+			return registered, err
+		}
 		var state bash.ProbeState
-		registered := r.registeredExecutables()
-		probeC, settingsC := probe.Chan(), settings.Chan()
+		registered, err := read()
+		if err != nil {
+			return
+		}
+		probeC, pingsC := probe.Chan(), pings.Chan()
 		for {
 			select {
 			case <-ctx.Done():
@@ -1188,11 +1206,13 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 					return
 				}
 				state = st
-			case s, ok := <-settingsC:
-				if !ok { // coverage:ignore the settings store never closes its hub
+			case _, ok := <-pingsC:
+				if !ok { // coverage:ignore only the database closing under a subscriber
 					return
 				}
-				registered = s.Executables
+				if registered, err = read(); err != nil {
+					return
+				}
 			}
 			report := &model.SandboxExecutablesReport{Probing: state.Probing, Probes: state.Probes, Executables: sandboxExecutablesOf(bash.ReportOver(state.Last, registered))}
 			if !send(report) { // coverage:ignore only the subscriber leaving while a report is in flight

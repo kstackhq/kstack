@@ -307,6 +307,18 @@ func syncPath(ctx context.Context, svc *settings.Service, path []string) bool {
 	return changed
 }
 
+// probeExecutables reads the registered executables and starts a probe of
+// them. A read that fails starts none, the curated executables' included, and
+// is a warning, not a startup error.
+func probeExecutables(ctx context.Context, read func(context.Context) ([]settings.Executable, error), start func([]settings.Executable)) {
+	registered, err := read(ctx)
+	if err != nil {
+		slog.Warn("executables not read; no probe started", "err", err)
+		return
+	}
+	start(registered)
+}
+
 // sandboxStatusOf is whether sandboxed Bash is offered: a sandbox with no shell
 // has no command to confine.
 func sandboxStatusOf(shellFound bool, probed sandbox.Status) sandbox.Status {
