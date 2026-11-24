@@ -171,12 +171,21 @@ func (e *taskTool) startOne(tasks tools.Tasks) (string, string, error) {
 func taskCall() llm.Block { return llm.StagedCall("Task", `{}`) }
 
 // startTaskTurn sends a question whose answer starts one task, and returns the
-// answer once settled with the task.
+// answer once its turn has ended, kick included, with the task. The turn kicks
+// after it settles, so a test that waited only for the settle could have a task's
+// end start a notice turn from that kick, behind the task's own.
 func startTaskTurn(t *testing.T, s *service, tt *taskTool, chatID *ChatID, key string) (ChatMessage, *fakeTask) {
 	t.Helper()
+	// The turn is taken while the task's start holds it.
+	tt.holding, tt.hold = make(chan struct{}), make(chan struct{})
 	fakeOf(s).SetToolCalls(taskCall())
 	msg := send(t, s, chatID, key, "start it")
+	testutil.Wait(t, tt.holding, "the task's start")
+	turn := heldTurn(t, s, msg.ChatID)
+	close(tt.hold)
 	ft := testutil.Recv(t, tt.ready, "the task to start")
+	tt.holding, tt.hold = nil, nil
+	awaitTurnDone(t, turn)
 	return awaitSettled(t, s, msg.ChatID, msg.ID), ft
 }
 
