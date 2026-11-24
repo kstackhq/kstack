@@ -15,11 +15,9 @@
 package app
 
 import (
-	"os"
 	"path/filepath"
 	"slices"
 
-	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -88,34 +86,7 @@ func pathsOf(cfg Config) paths {
 			KubectlDir: filepath.Join(cache, "kubectl"),
 		},
 	}
-	p.Bash.DeniedDirs = fenceOf(kstack, insideByNameAndFile)
+	p.Bash.DeniedDirs = kstack
 	p.Bash.Links = cfg.Folders.Links
 	return p
-}
-
-// fenceOf is dirs less each one inside another of them (inside), so the
-// fence holds each resolved folder once.
-func fenceOf(dirs []string, inside func(p, dir string) bool) []string {
-	var fence []string
-	for _, dir := range dirs {
-		if !slices.ContainsFunc(dirs, func(other string) bool { return inside(dir, other) }) {
-			fence = append(fence, dir)
-		}
-	}
-	return fence
-}
-
-// insideByNameAndFile reports whether the resolved p is inside the resolved
-// dir both by name, as the sandbox denies by path, and as files, so no letter
-// case is folded. A second name of a folder, such as a bind mount, keeps its
-// own entry. Only two folders that both exist are compared: a folder dropped
-// by mistake is left unfenced.
-func insideByNameAndFile(p, dir string) bool {
-	return p != dir && realpath.Within(p, dir) && exists(p) && exists(dir) &&
-		realpath.Relation(p, dir) == realpath.Inside
-}
-
-func exists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }

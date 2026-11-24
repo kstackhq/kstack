@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
-	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
 // Each path is where the tree on paths puts it.
@@ -60,7 +59,7 @@ func TestTheLogDirectoryIsKstacks(t *testing.T) {
 	nested := filepath.Join(data, "logs")
 	p = pathsOf(Config{Folders: Folders{Data: data, Cache: cache, Runtime: runtime, Layout: layout.Layout{Logs: nested}}})
 	assert.Equal(t, []string{data, cache, runtime, nested}, p.Bash.DeniedDirs,
-		"one under the data directory by name that does not exist keeps its entry")
+		"one under the data directory keeps its entry, since the file tools compare folders as files")
 
 	p = pathsOf(Config{Folders: Folders{Data: data, Cache: cache, Runtime: runtime, Layout: layout.Layout{Logs: data}}})
 	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one that is the data directory adds nothing")
@@ -116,7 +115,7 @@ func TestTheConfigDirectoryIsKstacks(t *testing.T) {
 	nested := filepath.Join(data, "config")
 	p = pathsOf(Config{Folders: Folders{Data: data, Cache: cache, Runtime: runtime, Layout: layout.Layout{Config: nested}}})
 	assert.Equal(t, []string{data, cache, runtime, nested}, p.Bash.DeniedDirs,
-		"one under another by name that does not exist keeps its entry")
+		"one under another keeps its entry, since the file tools compare folders as files")
 }
 
 // A debug build can move the data and cache directories off the layout; the
@@ -128,32 +127,11 @@ func TestTheLayoutsDataAndCacheAreKstacks(t *testing.T) {
 	assert.Equal(t, []string{data, cache, runtime, l.Data, l.Cache}, p.Bash.DeniedDirs)
 }
 
-// fenceOf drops a folder inside another and keeps the order of the rest. One
-// inside does not place in another keeps its entry: in a case-sensitive
-// Windows folder, logs under state beside a State.
-func TestFenceOfDropsAFolderInsideAnother(t *testing.T) {
-	inside := func(p, dir string) bool { return p == "/state/logs" && dir == "/state" }
-
-	got := fenceOf([]string{"/data", "/state/logs", "/state", "/State/logs"}, inside)
-
-	assert.Equal(t, []string{"/data", "/state", "/State/logs"}, got)
-}
-
-// A folder that does not exist yet keeps its entry, even under one that
-// does: dropped by mistake, it would be left unfenced.
-func TestAMissingFolderIsInsideNoOther(t *testing.T) {
-	state := scratch(t)
-	logs := filepath.Join(state, "logs")
-
-	assert.False(t, insideByNameAndFile(logs, state))
-	require.NoError(t, os.Mkdir(logs, 0o700))
-	assert.True(t, insideByNameAndFile(logs, state))
-	assert.False(t, insideByNameAndFile(state, state))
-}
-
-// Every platform's layout, on real folders, is fenced with no folder inside
-// another: each resolved folder once.
-func TestTheFenceHoldsNoFolderInsideAnother(t *testing.T) {
+// Every platform's layout, resolved on real folders, is fenced whole: a
+// folder inside another keeps its own entry, since the file tools and the
+// grant zones compare folders as files, and a second name of a nested folder,
+// such as a bind mount's source, matches only the folder itself.
+func TestEveryResolvedFolderIsFenced(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		platform layout.Platform
@@ -176,9 +154,8 @@ func TestTheFenceHoldsNoFolderInsideAnother(t *testing.T) {
 			fence := pathsOf(Config{Folders: f}).Bash.DeniedDirs
 
 			for _, dir := range f.Layout.Dirs() {
-				assert.True(t, realpath.UnderAny(dir, fence), "%s is fenced", dir)
+				assert.Contains(t, fence, dir)
 			}
-			assert.Equal(t, fence, fenceOf(fence, insideByNameAndFile), "no folder in the fence is inside another")
 		})
 	}
 }

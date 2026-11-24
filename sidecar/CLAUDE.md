@@ -26,7 +26,7 @@ is the tree). Each owner gets its own `Paths` (`cluster.Paths`, `bash.Paths`), n
 **Each subtree has one owner**, which makes it 0700, sweeps and removes it.
 
 **`app.ResolveFolders` follows links once, before the log opens**, checks the layout, then
-makes the data and cache 0700. `Config.Folders` is resolved, each fenced once (`DeniedDirs`);
+makes the data and cache 0700. `Config.Folders` is resolved and fenced (`DeniedDirs`);
 `makeSubfolders` refuses a linked subfolder; nothing writes a link's parent. →
 [ADR](../docs/adr/2026-11-24-follow-a-link-to-a-kstack-folder-once-at-start-and-refuse-one-below-it.md),
 [ADR: each file in the platform's directory for its

@@ -162,6 +162,23 @@ func TestADenyIsCompiledOnlyWhereAReadOrWriteReachesIt(t *testing.T) {
 	assert.Equal(t, []string{keyrings, kube, filepath.Join(base, "srv")}, denied)
 }
 
+// A Kstack folder inside another is denied once, with the one around it.
+func TestAKstackFolderInsideAnotherIsDeniedOnce(t *testing.T) {
+	base := realpath.Resolved(t.TempDir())
+	d := mkdirs(t, base, "state/logs", "state", "data")
+	logs, state, data := d[0], d[1], d[2]
+	p := Policy{Files: FilePolicy{Read: []string{base}}, Always: AlwaysPolicy{Kstack: []string{logs, state, data}}}
+
+	var denied []string
+	for _, r := range compiledRules(t, p) {
+		if r.kind == ruleDeny {
+			denied = append(denied, r.at)
+		}
+	}
+
+	assert.Equal(t, []string{state, data}, denied)
+}
+
 func TestLimitsAreChecked(t *testing.T) {
 	assert.NoError(t, Policy{}.Check(), "no limits")
 	assert.NoError(t, Policy{Limits: Limits{CPUSeconds: 1, MemoryBytes: 1, OpenFiles: 1, Processes: 1}}.Check())

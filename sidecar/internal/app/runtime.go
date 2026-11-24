@@ -303,7 +303,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		shell: shell, fenced: p.Bash.DeniedDirs, hidden: rt.Settings.Hidden, umask: cfg.UserUmask,
 		memory: rt.Memory, clusters: rt.Cluster, logs: rt.Logs,
 	})
-	if err != nil { // coverage:ignore pathsOf always names Kstack's outermost folders
+	if err != nil { // coverage:ignore pathsOf always names Kstack's folders
 		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
 	}
 

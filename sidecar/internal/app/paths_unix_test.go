@@ -39,16 +39,3 @@ func TestLogsLinkedOutOfTheStateAreFencedAtTheirTarget(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, pathsOf(Config{Folders: f}).Bash.DeniedDirs, target)
 }
-
-// A second name of a folder, here through a link, as a bind mount gives one,
-// is not inside it by name: the sandbox denies by path, so it keeps its own
-// entry.
-func TestASecondNameOfAFolderKeepsItsEntry(t *testing.T) {
-	root := scratch(t)
-	state := filepath.Join(root, "state")
-	require.NoError(t, os.MkdirAll(filepath.Join(state, "logs"), 0o700))
-	alias := filepath.Join(root, "alias")
-	symlink(t, state, alias)
-
-	assert.False(t, insideByNameAndFile(filepath.Join(alias, "logs"), state))
-}
