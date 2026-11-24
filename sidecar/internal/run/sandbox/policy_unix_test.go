@@ -164,8 +164,8 @@ func TestTheLoginShellsPolicyAnswersAlike(t *testing.T) {
 	}, got)
 }
 
-// A Kstack directory nested in another by name, as the log directory sits in
-// the data directory on Linux, is accepted and denied with the one around it.
+// A Kstack directory nested in another is accepted and denied with the one
+// around it, though pathsOf hands a policy none.
 func TestANestedKstackPathIsAcceptedAndDenied(t *testing.T) {
 	s := confining(t)
 	base := testutil.GrantableDir(t)

@@ -37,7 +37,8 @@ func MakeOwnerOnly(l Layout, dir string) error {
 	return ownerOnly(dir)
 }
 
-// holderOf is the Kstack folder dir sits in, or empty when there is none.
+// holderOf is the Kstack folder dir sits in, or empty when there is none. l is
+// resolved, so names compare as text (Within).
 func holderOf(l Layout, dir string) string {
 	for _, holder := range []string{l.App, l.State} {
 		if holder != "" && holder != dir && realpath.Within(dir, holder) {

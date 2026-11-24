@@ -50,7 +50,7 @@ type FilePolicy struct {
 // open.
 type AlwaysPolicy struct {
 	Deny   []string // the denied-always list
-	Kstack []string // the data, cache and runtime directories
+	Kstack []string // Kstack's folders, each its outermost
 	Read   []string // the run's own paths it reads, each inside a Kstack path
 	Write  []string // and reads and writes
 	// LinkParents is the folder holding each link Kstack followed to its
