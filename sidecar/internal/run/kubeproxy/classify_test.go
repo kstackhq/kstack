@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
@@ -29,7 +30,7 @@ func classifyOf(method, target, contentType, body string) permissions.Action {
 	if contentType != "" {
 		r.Header.Set("Content-Type", contentType)
 	}
-	return classify(r, parsePath(r.URL.Path), []byte(body), "dev-eks")
+	return classify(r, parsePath(r.URL.Path), []byte(body), "c1", "dev-eks")
 }
 
 const (
@@ -92,6 +93,7 @@ func TestEveryRequestIsClassified(t *testing.T) {
 			assert.Equal(t, c.group, act.Group)
 			assert.Equal(t, c.kind, act.Kind)
 			assert.Equal(t, "dev-eks", act.Context)
+			assert.Equal(t, apimeta.ClusterID("c1"), act.ClusterID)
 		})
 	}
 	act := classifyOf("DELETE", "/api/v1/namespaces/team-a/pods/api", "", "")
@@ -200,7 +202,7 @@ func TestASummaryNamesTheTargetAsKubectlDoes(t *testing.T) {
 		assert.Equal(t, want, act.Summary)
 	}
 	r := httptest.NewRequest("DELETE", "http://"+Host+"/api/v1/nodes/n1", nil)
-	assert.Equal(t, "Delete nodes/n1", classify(r, parsePath(r.URL.Path), nil, "").Summary, "a record naming no context")
+	assert.Equal(t, "Delete nodes/n1", classify(r, parsePath(r.URL.Path), nil, "c1", "").Summary, "a record naming no context")
 }
 
 func TestTheDestructiveListIsInWords(t *testing.T) {

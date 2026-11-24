@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 )
 
 // Entries survive a reopen in order, with their states and sources; an entry
@@ -34,14 +36,14 @@ func TestPathEntriesPersist(t *testing.T) {
 		{Dir: a, Target: c, State: PathPending, Source: SourceShell, Shared: true},
 		{Dir: c, Target: c, State: PathGone, Source: SourceUser},
 	}
-	s, err := Open(file)
+	s, err := Open(file, appdbtest.Open(t))
 	require.NoError(t, err)
 	require.NoError(t, s.Update(func(v *Settings) error {
 		v.Sandbox.Path = entries
 		return nil
 	}, FieldPath))
 
-	s, err = Open(file)
+	s, err = Open(file, appdbtest.Open(t))
 	require.NoError(t, err)
 	assert.Equal(t, entries, s.Get().Sandbox.Path)
 	assert.Empty(t, s.Refused())
@@ -57,7 +59,7 @@ func TestPathEntriesPersist(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(file, raw, 0o600))
 
-	s, err = Open(file)
+	s, err = Open(file, appdbtest.Open(t))
 	require.NoError(t, err)
 	assert.Equal(t, entries, s.Get().Sandbox.Path, "the entries that passed load as they are")
 	refused := s.Refused()

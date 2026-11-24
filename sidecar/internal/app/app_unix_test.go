@@ -45,6 +45,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
@@ -484,7 +485,7 @@ func TestStartSyncsTheLaunchPath(t *testing.T) {
 	assert.Equal(t, partIndex(t, a, "shell snapshot")-1, partIndex(t, a, "PATH sync"))
 	startApp(t, a)
 
-	store, err := settings.Open(filepath.Join(data, "settings.json"))
+	store, err := settings.Open(filepath.Join(data, "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	assert.Equal(t, []settings.PathEntry{
 		{Dir: "/usr/bin", Target: usrBin, State: settings.PathAdopted, Source: settings.SourceShell},
@@ -549,7 +550,7 @@ func (s *refusingSandbox) System(string, string) sandbox.System { return sandbox
 // policy: the denied-always list, as it stands at each refresh, and Kstack's
 // directories shut.
 func TestTheRefreshRunsInTheSandbox(t *testing.T) {
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	sb := &refusingSandbox{never: []string{"/never"}}
 	kstackDirs := []string{t.TempDir(), t.TempDir(), t.TempDir()}

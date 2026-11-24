@@ -677,8 +677,6 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.ReadInside
       WriteInside:
         value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.WriteInside
-      NewHost:
-        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.NewHost
       UpstreamWrite:
         value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.UpstreamWrite
       Destructive:
@@ -719,17 +717,21 @@ models:
   PermissionModeSource:
     model: github.com/kstackhq/kstack/sidecar/internal/services/settings.ModeSource
     enum_values:
-      Refused:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/settings.SourceRefused
       Entry:
         value: github.com/kstackhq/kstack/sidecar/internal/services/settings.SourceEntry
       Default:
         value: github.com/kstackhq/kstack/sidecar/internal/services/settings.SourceDefault
-  # line binds to the rule's Line method.
-  PermissionRule:
+  # clusterID is null for a rule naming none, and line names the cluster by
+  # its record's kube-context, so both are resolved.
+  KubeRule:
     model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Rule
-  PermissionContextMode:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/settings.ContextModeState
+    fields:
+      clusterID:
+        resolver: true
+      line:
+        resolver: true
+  PermissionClusterMode:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/settings.ClusterModeState
 
   # --- Kstack account ---
   # The state binds to connectors.State, which holds no token; both fields are

@@ -123,13 +123,16 @@ const (
 	// KeyMemories: a memories row was inserted, rewritten or removed by a write of
 	// the memory service. A cascade from a clusters delete notifies KeyClusters alone.
 	KeyMemories = "memories"
+	// KeyPermissions: an approval_modes row, or a kube_rules or folder_grants row
+	// whose chat_id is NULL, was written by the settings store.
+	KeyPermissions = "permissions"
 )
 
 // MessagesKey: the chat's message rows changed. Re-read and diff.
 func MessagesKey(chatID string) string { return "messages/" + chatID }
 
-// GrantsKey: the chat's chat_grants rows changed: a grant written or revoked. A
-// cascade from a chat's delete notifies nothing here.
+// GrantsKey: the chat's kube_rules or folder_grants rows changed: a grant
+// written or revoked. A cascade from a chat's delete notifies nothing here.
 func GrantsKey(chatID string) string { return "grants/" + chatID }
 
 // Notify wakes every subscriber of key. Call it after a commit, never inside the

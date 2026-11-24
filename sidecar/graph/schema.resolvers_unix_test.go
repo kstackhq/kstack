@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
@@ -23,22 +23,11 @@ import (
 // a fresh folder holding a never-readable .ssh and a code folder.
 func newFolderServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
-	return newFolderServerWith(t, "")
-}
-
-// newFolderServerWith is newFolderServer over a settings file
-// holding body ("" for none).
-func newFolderServerWith(t *testing.T, body string) (*httptest.Server, string) {
-	t.Helper()
 	home := testutil.GrantableDir(t)
 	for _, d := range []string{".ssh", "code", "Documents"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(home, d), 0o755))
 	}
-	file := filepath.Join(t.TempDir(), "settings.json")
-	if body != "" {
-		require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
-	}
-	store, err := settings.Open(file)
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	security := settings.NewService(store, func() settings.Zones {
 		return settings.Zones{
@@ -79,7 +68,7 @@ func newChatOn(t *testing.T, srv *httptest.Server) string {
 	return sent["chatSend"].(map[string]any)["chatID"].(string)
 }
 
-const foldersFields = `{ always { id path write refused } chat { id path write refused } never closed wide rulesHeld }`
+const foldersFields = `{ always { id path write refusal } chat { id path write refusal } never closed wide }`
 
 func TestFolderGrantAndRevoke(t *testing.T) {
 	srv, home := newFolderServer(t)
@@ -92,7 +81,7 @@ func TestFolderGrantAndRevoke(t *testing.T) {
 	first := always[0].(map[string]any)
 	assert.Equal(t, code, first["path"])
 	assert.Equal(t, false, first["write"])
-	assert.Nil(t, first["refused"])
+	assert.Nil(t, first["refusal"])
 	assert.Equal(t, []any{filepath.Join(home, ".ssh")}, folders["never"])
 	assert.Equal(t, []any{filepath.Join(home, "Documents")}, folders["closed"])
 	assert.Contains(t, folders["wide"], home)
@@ -103,13 +92,12 @@ func TestFolderGrantAndRevoke(t *testing.T) {
 	assert.Equal(t, first["id"], always[0].(map[string]any)["id"])
 	assert.Equal(t, true, always[0].(map[string]any)["write"])
 
-	got = mutate(t, srv, `{ permissionSettings { rules { folder line } } }`)
-	assert.Equal(t, []any{map[string]any{"folder": code, "line": "Allow reads and writes of " + code}},
-		got["permissionSettings"].(map[string]any)["rules"], "the Permissions section lists it by its line")
+	got = mutate(t, srv, `{ permissionSettings { kubeRules { id } } }`)
+	assert.Empty(t, got["permissionSettings"].(map[string]any)["kubeRules"], "a folder grant is no rule")
 
-	got = mutate(t, srv, `mutation { folderRevoke(id: "`+first["id"].(string)+`") `+foldersFields+` }`)
+	got = mutate(t, srv, `mutation { folderRevoke(id: "`+first["id"].(string)+`", duration: Always) `+foldersFields+` }`)
 	assert.Empty(t, got["folderRevoke"].(map[string]any)["always"])
-	res := post(t, srv, `mutation { folderRevoke(id: "`+first["id"].(string)+`") { wide } }`)
+	res := post(t, srv, `mutation { folderRevoke(id: "`+first["id"].(string)+`", duration: Always) { wide } }`)
 	require.Len(t, res.Errors, 1)
 	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", res.Errors[0].Extensions["code"])
 }
@@ -125,16 +113,19 @@ func TestAChatsFolderGrantIsListedAndRemoved(t *testing.T) {
 	require.Len(t, chatFolders, 1)
 	id := chatFolders[0].(map[string]any)["id"].(string)
 
-	got = mutate(t, srv, `{ chatGrants(chatID: "`+chat+`") { id line folder } }`)
-	assert.Equal(t, []any{map[string]any{"id": id, "line": "Allow reads of " + code, "folder": code}}, got["chatGrants"])
+	got = mutate(t, srv, `{ chatKubeRules(chatID: "`+chat+`") { id } }`)
+	assert.Equal(t, []any{}, got["chatKubeRules"], "a folder grant is no rule")
 	got = mutate(t, srv, `{ sandboxFolders(chatID: "`+chat+`") `+foldersFields+` }`)
 	assert.Len(t, got["sandboxFolders"].(map[string]any)["chat"], 1, "the chat's folders are listed for it")
 
-	got = mutate(t, srv, `mutation { chatGrantRemove(chatID: "`+chat+`", id: "`+id+`") { id } }`)
-	assert.Equal(t, []any{}, got["chatGrantRemove"])
+	res := post(t, srv, `mutation { folderRevoke(id: "`+id+`", duration: Always) { wide } }`)
+	require.Len(t, res.Errors, 1)
+	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", res.Errors[0].Extensions["code"], "a chat's grant is no always one")
+	got = mutate(t, srv, `mutation { folderRevoke(chatID: "`+chat+`", id: "`+id+`", duration: Chat) `+foldersFields+` }`)
+	assert.Empty(t, got["folderRevoke"].(map[string]any)["chat"])
 	for name, query := range map[string]string{
-		"an unknown id":  `mutation { chatGrantRemove(chatID: "` + chat + `", id: "` + id + `") { id } }`,
-		"a deleted chat": `mutation { chatGrantRemove(chatID: "` + appdb.NewID() + `", id: "` + id + `") { id } }`,
+		"an unknown id":  `mutation { folderRevoke(chatID: "` + chat + `", id: "` + id + `", duration: Chat) { wide } }`,
+		"a deleted chat": `mutation { folderRevoke(chatID: "` + appdb.NewID() + `", id: "` + id + `", duration: Chat) { wide } }`,
 		"a chat's grant": `mutation { folderGrant(chatID: "` + appdb.NewID() + `", path: "` + code + `", write: false, duration: Chat) { wide } }`,
 	} {
 		res := post(t, srv, query)
@@ -142,9 +133,14 @@ func TestAChatsFolderGrantIsListedAndRemoved(t *testing.T) {
 		assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", res.Errors[0].Extensions["code"], name)
 	}
 	for _, chatID := range []string{"", `chatID: "", `} {
-		res := post(t, srv, `mutation { folderGrant(`+chatID+`path: "`+code+`", write: false, duration: Chat) { wide } }`)
-		require.Len(t, res.Errors, 1)
-		assert.Equal(t, "KSTACK_VALIDATION_ERROR", res.Errors[0].Extensions["code"], "a chat's grant names its chat")
+		for _, query := range []string{
+			`mutation { folderGrant(` + chatID + `path: "` + code + `", write: false, duration: Chat) { wide } }`,
+			`mutation { folderRevoke(` + chatID + `id: "` + id + `", duration: Chat) { wide } }`,
+		} {
+			res := post(t, srv, query)
+			require.Len(t, res.Errors, 1)
+			assert.Equal(t, "KSTACK_VALIDATION_ERROR", res.Errors[0].Extensions["code"], "a chat's grant names its chat")
+		}
 	}
 	got = mutate(t, srv, `{ sandboxFolders `+foldersFields+` }`)
 	assert.Empty(t, got["sandboxFolders"].(map[string]any)["always"], "and never widens to every chat")
@@ -184,7 +180,6 @@ func TestSandboxFoldersWatchFollowsEveryGrant(t *testing.T) {
 	first := foldersFrame(t, events, 0, 0)
 	assert.Equal(t, []any{filepath.Join(home, ".ssh")}, first["never"])
 	assert.Contains(t, first["wide"], home)
-	assert.Equal(t, false, first["rulesHeld"])
 
 	unscoped := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersWatch `+foldersFields+` }`)
 	defer unscoped.Body.Close()
@@ -201,10 +196,10 @@ func TestSandboxFoldersWatchFollowsEveryGrant(t *testing.T) {
 	granted := foldersFrame(t, events, 1, 1)
 	assert.Equal(t, true, granted["chat"].([]any)[0].(map[string]any)["write"])
 
-	mutate(t, srv, `mutation { chatGrantRemove(chatID: "`+chatID+`", id: "`+chatGrantID+`") { id } }`)
+	mutate(t, srv, `mutation { folderRevoke(chatID: "`+chatID+`", id: "`+chatGrantID+`", duration: Chat) { wide } }`)
 	foldersFrame(t, events, 1, 0)
 
-	mutate(t, srv, `mutation { folderRevoke(id: "`+alwaysID+`") { wide } }`)
+	mutate(t, srv, `mutation { folderRevoke(id: "`+alwaysID+`", duration: Always) { wide } }`)
 	foldersFrame(t, events, 0, 0)
 	foldersFrame(t, alone, 0, 0)
 }
@@ -238,28 +233,76 @@ func TestARefusedFolderIsDrawnRefused(t *testing.T) {
 	got := mutate(t, srv, `{ sandboxFolders `+foldersFields+` }`)
 	always := got["sandboxFolders"].(map[string]any)["always"].([]any)
 	require.Len(t, always, 1)
-	assert.Equal(t, "This folder does not exist.", always[0].(map[string]any)["refused"])
-}
-
-// A rule Kstack cannot read holds the rules field, which the folders say, so
-// Settings can draw Remove disabled rather than offer a revoke it refuses.
-func TestSandboxFoldersSayTheRulesAreHeld(t *testing.T) {
-	srv, home := newFolderServerWith(t, `{"permissions": {"rules": [{"id": "b", "effect": "deny", "class": 9}]}}`)
-	got := mutate(t, srv, `{ sandboxFolders `+foldersFields+` }`)
-	assert.Equal(t, true, got["sandboxFolders"].(map[string]any)["rulesHeld"])
-
-	res := post(t, srv, `mutation { folderGrant(path: "`+filepath.Join(home, "code")+`", write: false, duration: Always) { wide } }`)
-	require.Len(t, res.Errors, 1)
-	assert.Equal(t, "KSTACK_VALIDATION_ERROR", res.Errors[0].Extensions["code"])
-	assert.Equal(t, chat.RulesHeldReason, res.Errors[0].Message)
+	assert.Equal(t, "This folder does not exist.", always[0].(map[string]any)["refusal"])
 }
 
 func TestSandboxFoldersWithNoSandbox(t *testing.T) {
 	srv := newChatServer(t)
 	got := mutate(t, srv, `{ sandboxFolders `+foldersFields+` }`)
-	assert.Equal(t, map[string]any{"always": []any{}, "chat": []any{}, "never": []any{}, "closed": []any{}, "wide": []any{}, "rulesHeld": false}, got["sandboxFolders"])
+	assert.Equal(t, map[string]any{"always": []any{}, "chat": []any{}, "never": []any{}, "closed": []any{}, "wide": []any{}}, got["sandboxFolders"])
 
 	res := post(t, srv, `mutation { folderGrant(path: "/home/me/code", write: false, duration: Always) { wide } }`)
 	require.Len(t, res.Errors, 1)
 	assert.Equal(t, "KSTACK_VALIDATION_ERROR", res.Errors[0].Extensions["code"])
+}
+
+// A read of the folders that fails is the query's error, never empty lists,
+// and ends the watch with its reason, so the client reconnects.
+func TestSandboxFoldersFailWithTheirRead(t *testing.T) {
+	home := testutil.GrantableDir(t)
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
+	require.NoError(t, err)
+	security := settings.NewService(store, func() settings.Zones { return settings.Zones{Home: home} }, nil, "")
+	srv, db, _ := newChatServerOn(t, sandbox.Status{Available: true}, security)
+	chatID := newChatOn(t, srv)
+	_, err = db.Write.Exec(`DROP TABLE folder_grants`)
+	require.NoError(t, err)
+
+	res := post(t, srv, `{ sandboxFolders(chatID: "`+chatID+`") { wide } }`)
+	require.Len(t, res.Errors, 1)
+	assert.Contains(t, res.Errors[0].Message, "folder_grants")
+
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersWatch(chatID: "`+chatID+`") { wide } }`)
+	defer resp.Body.Close()
+	ev := testutil.Recv(t, sseEvents(t, resp), "the failure frame")
+	assert.Contains(t, ev.data, `"watchFailed":true`)
+	assert.Contains(t, ev.data, "read the sandbox folders")
+}
+
+// A grant or revoke whose write took, though the lists it answers could not be
+// read after, says the write took, so no one reads it as a refusal.
+func TestAFolderWriteThatTookSaysSoWhenTheListsFail(t *testing.T) {
+	home := testutil.GrantableDir(t)
+	code := filepath.Join(home, "code")
+	require.NoError(t, os.MkdirAll(code, 0o755))
+	settingsDB := appdbtest.Open(t)
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), settingsDB)
+	require.NoError(t, err)
+	security := settings.NewService(store, func() settings.Zones { return settings.Zones{Home: home} }, nil, "")
+	srv, _, _ := newChatServerOn(t, sandbox.Status{Available: true}, security)
+	// A row whose folder no read can scan, beside the index the grant's upsert needs.
+	for _, q := range []string{
+		`DROP TABLE folder_grants`,
+		`CREATE TABLE folder_grants (id, chat_id, folder, access, created_at)`,
+		`CREATE UNIQUE INDEX folder_grants_folder ON folder_grants (ifnull(chat_id, ''), folder)`,
+		`INSERT INTO folder_grants VALUES ('bad', NULL, NULL, 'read', 0)`,
+	} {
+		_, err := settingsDB.Write.Exec(q)
+		require.NoError(t, err)
+	}
+
+	res := post(t, srv, `mutation { folderGrant(path: "`+code+`", write: false, duration: Always) { wide } }`)
+	require.Len(t, res.Errors, 1)
+	assert.Equal(t, "KSTACK_SAVED_UNREAD", res.Errors[0].Extensions["code"])
+	assert.Contains(t, res.Errors[0].Message, "The folder was granted, but Kstack could not read the settings back")
+	var id string
+	require.NoError(t, settingsDB.Read.QueryRow(`SELECT id FROM folder_grants WHERE folder = ?`, code).Scan(&id))
+
+	res = post(t, srv, `mutation { folderRevoke(id: "`+id+`", duration: Always) { wide } }`)
+	require.Len(t, res.Errors, 1)
+	assert.Equal(t, "KSTACK_SAVED_UNREAD", res.Errors[0].Extensions["code"])
+	assert.Contains(t, res.Errors[0].Message, "The grant was removed, but Kstack could not read the settings back")
+	var n int
+	require.NoError(t, settingsDB.Read.QueryRow(`SELECT count(*) FROM folder_grants WHERE folder = ?`, code).Scan(&n))
+	assert.Zero(t, n)
 }

@@ -40,6 +40,17 @@ type ClusterPermissions struct {
 	Incomplete bool `json:"incomplete"`
 }
 
+// A rule to add. `clusterID` names a cluster Settings lists, and null is every cluster, which only a `Deny` or `Ask` rule may name. Every string is a pattern but `group`, and empty matches anything. A `namespace` of `[cluster]` is cluster-scoped objects alone.
+type KubeRuleInput struct {
+	Effect    permissions.Effect `json:"effect"`
+	Class     permissions.Class  `json:"class"`
+	ClusterID *apimeta.ClusterID `json:"clusterID,omitempty"`
+	Namespace string             `json:"namespace"`
+	Verb      string             `json:"verb"`
+	Group     string             `json:"group"`
+	Kind      string             `json:"kind"`
+}
+
 type LogRecordsPage struct {
 	Request *LogsFetchRequest `json:"request"`
 	// The first page's clock, which an open `until`'s `after` is measured from on every page.
@@ -197,29 +208,16 @@ type NonResourceRule struct {
 	NonResourceUrls []string `json:"nonResourceUrls"`
 }
 
-// A rule to add; every string is a pattern but `group`, and empty matches anything. A `namespace` of `[cluster]` is cluster-scoped objects alone.
-type PermissionRuleInput struct {
-	Effect    permissions.Effect `json:"effect"`
-	Class     permissions.Class  `json:"class"`
-	Context   string             `json:"context"`
-	Namespace string             `json:"namespace"`
-	Verb      string             `json:"verb"`
-	Group     string             `json:"group"`
-	Kind      string             `json:"kind"`
-}
-
 // The modes and rules sandboxed commands' cluster writes are decided by.
 type PermissionSettings struct {
-	// The mode of a context nothing else names.
+	// The mode of a cluster with none of its own.
 	DefaultMode permissions.Mode `json:"defaultMode"`
-	// Each known context's mode, by context.
-	Contexts []*settings.ContextModeState `json:"contexts"`
+	// The mode of each cluster with a kube-context that is not awaiting deletion.
+	Clusters []*settings.ClusterModeState `json:"clusters"`
 	// The user's always rules.
-	Rules []*permissions.Rule `json:"rules"`
+	KubeRules []*permissions.Rule `json:"kubeRules"`
 	// The writes that always ask, in words.
 	Destructive []string `json:"destructive"`
-	// The settings fields the file holds a value of that Kstack cannot read, by key: `permissions.defaultMode`, `permissions.modes`, `permissions.rules`.
-	Held []string `json:"held"`
 }
 
 // A provider the sidecar can send a turn to.
@@ -310,13 +308,13 @@ type SandboxExecutablesReport struct {
 
 // One folder a sandboxed command may read, or read and write.
 type SandboxFolder struct {
-	// The rule's id.
+	// The grant's id.
 	ID string `json:"id"`
 	// The folder, absolute and resolved. User text: draw it through VisibleText.
 	Path  string `json:"path"`
 	Write bool   `json:"write"`
-	// Why the folder fails its check now, so no run takes it; null when it passes.
-	Refused *string `json:"refused,omitempty"`
+	// Why the folder fails its check now, so no run takes it; null when it passes. User text: draw it through VisibleText.
+	Refusal *string `json:"refusal,omitempty"`
 }
 
 // The folders granted, and what no grant opens.
@@ -331,8 +329,6 @@ type SandboxFolders struct {
 	Closed []string `json:"closed"`
 	// The folders a read grant of which draws the wide warning, resolved: the home, each folder over it, and /Volumes on macOS.
 	Wide []string `json:"wide"`
-	// Whether the file's rules cannot be read, which refuses every always grant and revoke until the file is fixed or what Kstack cannot read is discarded.
-	RulesHeld bool `json:"rulesHeld"`
 }
 
 // One folder of the user's PATH, and what the sandbox does with it.
@@ -354,9 +350,9 @@ type Subscription struct {
 type GrantDuration string
 
 const (
-	// For one chat: a rule of the chat's, gone with it.
+	// For one chat: a grant of the chat's, gone with it.
 	GrantDurationChat GrantDuration = "Chat"
-	// For every chat: a rule in the settings file.
+	// For every chat.
 	GrantDurationAlways GrantDuration = "Always"
 )
 

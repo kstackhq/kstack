@@ -104,7 +104,7 @@ func TestEachConsoleCommandHasAWorkspaceOfItsOwn(t *testing.T) {
 func TestAConsoleCommandReadsTheAlwaysFolders(t *testing.T) {
 	tl, fake := consoleTool(t)
 	granted := testutil.GrantableDir(t)
-	tl.SetAlwaysFolders(func(context.Context) []session.Folder { return []session.Folder{{Path: granted}} })
+	tl.SetAlwaysFolders(func(context.Context) ([]session.Folder, error) { return []session.Folder{{Path: granted}}, nil })
 
 	consoleEnd(t, tl, ConsoleRequest{Command: "true"})
 

@@ -17,144 +17,127 @@ package chat
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"slices"
-	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
-// grantsFor is the rules that last for chatID's life, read on every decision
-// and never cached, so one written while a command runs applies to its next
-// write. A row that does not decode, or a read that fails, may have hidden a
-// Deny, so it reads as permissions.Refused: the chat's cluster writes are
-// refused until it is fixed.
-func (s *service) grantsFor(ctx context.Context, chatID ChatID) []permissions.Rule {
-	return grantsIn(ctx, s.store.Stmts(), chatID)
-}
-
-// grantsIn is grantsFor, read through st.
-func grantsIn(ctx context.Context, st stmts, chatID ChatID) []permissions.Rule {
-	rules, refused, err := readGrants(ctx, st, chatID)
+// chatRules is the Kubernetes rules that last for chatID's life, read on
+// every decision and never cached, so one written while a command runs
+// applies to its next write. A read that fails may have hidden a Deny, so it
+// reads as permissions.Unread: the chat's cluster writes and Secret reads are
+// refused until a read succeeds.
+func (s *service) chatRules(ctx context.Context, chatID ChatID) []permissions.Rule {
+	rules, err := readKubeRules(ctx, s.store.Stmts(), chatID)
 	if err != nil {
-		slog.Warn("chat grants not read", "chat", chatID, "err", err)
-		return []permissions.Rule{permissions.Refused}
-	}
-	if refused {
-		rules = append(rules, permissions.Refused)
+		slog.Warn("chat rules not read", "chat", chatID, "err", err)
+		return permissions.Unread()
 	}
 	return rules
 }
 
-// readGrants is chatID's rules in the order written, and whether a row did
-// not decode, which is logged and left out.
-func readGrants(ctx context.Context, st stmts, chatID ChatID) ([]permissions.Rule, bool, error) {
-	rows, err := st.Query(ctx, stmtSelectChatGrants, string(chatID))
+// alwaysRules is the always rules for a decision: permissions.Unread when
+// their read fails.
+func (s *service) alwaysRules(ctx context.Context) []permissions.Rule {
+	rules, err := s.settings.KubeRules(ctx)
 	if err != nil {
-		return nil, false, err
+		slog.Warn("always rules not read", "err", err)
+		return permissions.Unread()
 	}
-	defer rows.Close()
-	var rules []permissions.Rule
-	refused := false
-	for rows.Next() {
-		var raw string
-		var r permissions.Rule
-		err := rows.Scan(&raw)
-		if err == nil {
-			// A key Rule does not name could be a narrowing field the
-			// build cannot read, and dropping it would widen the grant.
-			dec := json.NewDecoder(strings.NewReader(raw))
-			dec.DisallowUnknownFields()
-			err = dec.Decode(&r)
-		}
-		if err != nil {
-			slog.Warn("chat grant not read", "chat", chatID, "err", err)
-			refused = true
-			continue
-		}
-		rules = append(rules, r)
-	}
-	return rules, refused, rows.Err()
+	return rules
 }
 
-// ErrGrantGone is a rule id the chat does not hold, or for RevokeFolder an id
-// that is no always folder grant.
-var ErrGrantGone = errors.New("chat: the chat holds no rule with this id")
-
-// ChatGrants is chatID's rules, each as Settings spells a rule; none for a
-// chat that is gone.
-func (s *service) ChatGrants(ctx context.Context, chatID ChatID) ([]permissions.Rule, error) {
-	rules, _, err := readGrants(ctx, s.store.Stmts(), chatID)
-	return rules, err
+// modeFor is cluster's mode for a decision: read-only when its read fails.
+func (s *service) modeFor(ctx context.Context, cluster apimeta.ClusterID) permissions.Mode {
+	st, err := s.settings.ModeFor(ctx, cluster)
+	if err != nil {
+		slog.Warn("approval mode not read", "cluster", cluster, "err", err)
+		return permissions.ReadOnly
+	}
+	return st.Mode
 }
 
-// addGrant writes rule as one of chatID's, and answers it as written. A rule
-// with no ID is written under a fresh one, the row's and the rule's, unless
-// the chat holds the same rule already, which it answers instead. A rule with
-// an ID replaces the chat's rule under it, so the id outlives the change.
-func (s *service) addGrant(ctx context.Context, chatID ChatID, rule permissions.Rule) (permissions.Rule, error) {
+// readKubeRules is chatID's Kubernetes rules in the order written.
+func readKubeRules(ctx context.Context, st stmts, chatID ChatID) ([]permissions.Rule, error) {
+	rows, err := st.Query(ctx, stmtSelectChatKubeRules, string(chatID))
+	if err != nil {
+		return nil, err
+	}
+	return settings.KubeRules(rows)
+}
+
+// readFolderGrants is chatID's folder grants in the order written, unchecked.
+func readFolderGrants(ctx context.Context, st stmts, chatID ChatID) ([]settings.FolderGrant, error) {
+	rows, err := st.Query(ctx, stmtSelectChatFolderGrants, string(chatID))
+	if err != nil {
+		return nil, err
+	}
+	return settings.FolderGrants(rows)
+}
+
+// ErrGrantGone is a rule or folder grant id the chat, or for an always
+// grant the settings, do not hold.
+var ErrGrantGone = errors.New("chat: no grant has this id")
+
+// ChatKubeRules is chatID's Kubernetes rules, each as Settings spells a rule;
+// none for a chat that is gone.
+func (s *service) ChatKubeRules(ctx context.Context, chatID ChatID) ([]permissions.Rule, error) {
+	return readKubeRules(ctx, s.store.Stmts(), chatID)
+}
+
+// addKubeRule writes rule as one of chatID's under a fresh id, and answers it
+// as written, unless the chat holds the same rule already, which it answers
+// instead, unwritten and with no ping: a settings.RuleRefusal for a rule
+// Kstack cannot apply. The lookup and the write are one transaction.
+func (s *service) addKubeRule(ctx context.Context, chatID ChatID, rule permissions.Rule) (permissions.Rule, error) {
+	if err := settings.CheckKubeRule(rule); err != nil {
+		return permissions.Rule{}, err
+	}
+	written := false
 	err := s.store.InTx(ctx, func(st stmts) error {
-		var err error
-		rule, err = s.putGrant(ctx, st, chatID, rule)
+		if err := requireChat(ctx, st, chatID); err != nil {
+			return err
+		}
+		held, err := readKubeRules(ctx, st, chatID)
+		if err != nil {
+			return err
+		}
+		if i := slices.IndexFunc(held, rule.Same); i >= 0 {
+			rule = held[i]
+			return nil
+		}
+		rule.ID = appdb.NewID()
+		args := append(settings.KubeRuleValues(rule), string(chatID), millis(normalizeTime(s.now())))
+		_, err = st.Exec(ctx, stmtInsertChatKubeRule, args...)
+		written = err == nil
 		return err
 	})
 	if err != nil {
 		return permissions.Rule{}, err
 	}
-	s.notify(grantsKey(chatID))
-	return rule, nil
-}
-
-// putGrant is addGrant inside st.
-func (s *service) putGrant(ctx context.Context, st stmts, chatID ChatID, rule permissions.Rule) (permissions.Rule, error) {
-	if _, ok, err := getChat(ctx, st, chatID); err != nil || !ok {
-		return permissions.Rule{}, cmp.Or(err, ErrChatGone)
-	}
-	held, _, err := readGrants(ctx, st, chatID)
-	if err != nil {
-		return permissions.Rule{}, err
-	}
-	if rule.ID == "" {
-		for _, h := range held {
-			if sameRule(h, rule) {
-				return h, nil
-			}
-		}
-		rule.ID = appdb.NewID()
-	} else if !slices.ContainsFunc(held, func(h permissions.Rule) bool { return h.ID == rule.ID }) {
-		return permissions.Rule{}, ErrGrantGone
-	}
-	b, err := json.Marshal(rule)
-	if err != nil { // coverage:ignore a Rule is strings and bools, which always marshal
-		return permissions.Rule{}, err
-	}
-	if _, err := st.Exec(ctx, stmtUpsertChatGrant, rule.ID, string(chatID), string(b), millis(normalizeTime(s.now()))); err != nil {
-		return permissions.Rule{}, err
+	if written {
+		s.notify(grantsKey(chatID))
 	}
 	return rule, nil
 }
 
-// RemoveChatGrant removes chatID's rule id, and answers the rules left:
-// ErrChatGone for a chat that is gone, ErrGrantGone for an id it does not hold.
-func (s *service) RemoveChatGrant(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error) {
+// RemoveChatKubeRule removes chatID's Kubernetes rule id, and answers the
+// rules left: ErrChatGone for a chat that is gone, ErrGrantGone for an id it
+// does not hold.
+func (s *service) RemoveChatKubeRule(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error) {
 	var left []permissions.Rule
 	err := s.store.InTx(ctx, func(st stmts) error {
-		if _, ok, err := getChat(ctx, st, chatID); err != nil || !ok {
-			return cmp.Or(err, ErrChatGone)
-		}
-		res, err := st.Exec(ctx, stmtDeleteChatGrant, string(chatID), id)
-		if err != nil {
+		if err := deleteChatRow(ctx, st, stmtDeleteChatKubeRule, chatID, id); err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil || n == 0 {
-			return cmp.Or(err, ErrGrantGone)
-		}
-		left, _, err = readGrants(ctx, st, chatID)
+		var err error
+		left, err = readKubeRules(ctx, st, chatID)
 		return err
 	})
 	if err != nil {
@@ -164,139 +147,150 @@ func (s *service) RemoveChatGrant(ctx context.Context, chatID ChatID, id string)
 	return left, nil
 }
 
-// WatchGrants is a ping receiver on chatID's rules.
+// requireChat is ErrChatGone for a chat that is gone.
+func requireChat(ctx context.Context, st stmts, chatID ChatID) error {
+	if _, ok, err := getChat(ctx, st, chatID); err != nil || !ok {
+		return cmp.Or(err, ErrChatGone)
+	}
+	return nil
+}
+
+// deleteChatRow deletes chatID's row id with stmt: ErrChatGone for a chat that
+// is gone, ErrGrantGone when it removed nothing.
+func deleteChatRow(ctx context.Context, st stmts, stmt stmtID, chatID ChatID, id string) error {
+	if err := requireChat(ctx, st, chatID); err != nil {
+		return err
+	}
+	res, err := st.Exec(ctx, stmt, string(chatID), id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil { // coverage:ignore modernc.org/sqlite's RowsAffected never fails
+		return err
+	}
+	if n == 0 {
+		return ErrGrantGone
+	}
+	return nil
+}
+
+// WatchGrants is a ping receiver on chatID's rules and folder grants.
 func (s *service) WatchGrants(chatID ChatID) GrantsNews {
 	return s.db.Subscribe(grantsKey(chatID))
 }
 
-// sameRule is whether a and b are one rule but for their ids.
-func sameRule(a, b permissions.Rule) bool {
-	a.ID, b.ID = "", ""
-	return a == b
-}
-
 // FoldersFor is foldersFor, for a run with no turn of its own.
-func (s *service) FoldersFor(ctx context.Context, chatID ChatID) []session.Folder {
+func (s *service) FoldersFor(ctx context.Context, chatID ChatID) ([]session.Folder, error) {
 	return s.foldersFor(ctx, chatID)
 }
 
 // foldersFor is the one builder of a session's folders: chatID's folder
 // grants, then the always ones, less every folder that fails its check now.
 // Each is read and checked live, so a grant written or revoked meanwhile
-// applies to the next read. None where no sandbox confines a run: there a
-// grant would open a folder to the file tools with nothing keeping the
-// denied-always list out.
-func (s *service) foldersFor(ctx context.Context, chatID ChatID) []session.Folder {
-	return s.foldersFrom(ctx, chatID, s.folderRules(ctx, s.store.Stmts(), chatID))
+// applies to the next read. A read that fails is an error, never an empty
+// list. None where no sandbox confines a run: there a grant would open a
+// folder to the file tools with nothing keeping the denied-always list out.
+func (s *service) foldersFor(ctx context.Context, chatID ChatID) ([]session.Folder, error) {
+	grants, err := s.folderGrantsIn(ctx, s.store.Stmts(), chatID)
+	if err != nil {
+		return nil, err
+	}
+	return s.checkedFolders(ctx, chatID, grants), nil
 }
 
-// foldersFrom is foldersFor over rules already read.
-func (s *service) foldersFrom(ctx context.Context, chatID ChatID, rules []permissions.Rule) []session.Folder {
+// checkedFolders is grants less every folder that fails its check now.
+func (s *service) checkedFolders(ctx context.Context, chatID ChatID, grants []settings.FolderGrant) []session.Folder {
 	var folders []session.Folder
-	for _, r := range rules {
-		write := r.Class == permissions.WriteInside
-		if err := s.settings.CheckStoredFolder(ctx, r.Folder, write); err != nil {
-			slog.Info("folder grant left out", "chat", chatID, "folder", r.Folder, "reason", err)
+	for _, g := range s.checkedFolderGrants(ctx, grants) {
+		if g.Refusal != "" {
+			slog.Info("folder grant left out", "chat", chatID, "folder", g.Path, "reason", g.Refusal)
 			continue
 		}
-		folders = append(folders, session.Folder{Path: r.Folder, Write: write})
+		folders = append(folders, session.Folder{Path: g.Path, Write: g.Write})
 	}
 	return folders
 }
 
-// folderRules is the folder grants a run of chatID reads: the chat's, then the
-// always ones, the chat's read through st. None without a sandbox. A held
-// rules field holds no Allow, so it grants no folder.
-func (s *service) folderRules(ctx context.Context, st stmts, chatID ChatID) []permissions.Rule {
+// folderGrantsIn is the folder grants a run of chatID reads, unchecked: the
+// chat's, read through st, then the always ones. None without a sandbox.
+func (s *service) folderGrantsIn(ctx context.Context, st stmts, chatID ChatID) ([]settings.FolderGrant, error) {
 	if !s.sandboxStatus.Available {
-		return nil
+		return nil, nil
 	}
-	var rules []permissions.Rule
+	var grants []settings.FolderGrant
 	if chatID != "" {
-		rules = grantsIn(ctx, st, chatID)
+		var err error
+		if grants, err = readFolderGrants(ctx, st, chatID); err != nil {
+			return nil, err
+		}
 	}
-	rules = append(rules, s.settings.Rules()...)
-	return slices.DeleteFunc(rules, func(r permissions.Rule) bool { return r.Folder == "" || r.Effect != permissions.Allow })
+	always, err := s.settings.FolderGrants(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return append(grants, always...), nil
 }
 
 // FolderGrant is one folder grant as Settings and the composer draw it:
-// Refused is why it fails its check now, so no run takes it; "" when it
+// Refusal is why it fails its check now, so no run takes it; "" when it
 // passes.
 type FolderGrant struct {
 	ID      string
 	Path    string
 	Write   bool
-	Refused string
+	Refusal string
 }
 
 // FolderGrants is the always grants and, with a chat, the chat's own, each
-// checked. While the rules field is held no always grant reaches a run
-// (Rules holds no Allow then), so each is listed refused for that reason; it
-// can be removed once the hold ends.
-func (s *service) FolderGrants(ctx context.Context, chatID ChatID) (always, chat []FolderGrant) {
+// checked. None on a machine with no sandbox. A read that fails is an error.
+func (s *service) FolderGrants(ctx context.Context, chatID ChatID) (always, chat []FolderGrant, err error) {
 	if !s.sandboxStatus.Available {
-		return nil, nil
+		return nil, nil, nil
 	}
-	always = s.checkedFolderGrants(ctx, s.settings.Get().Permissions.Rules)
-	if s.settings.Held(settings.FieldRules) {
-		for i := range always {
-			always[i].Refused = RulesHeldReason
-		}
+	stored, err := s.settings.FolderGrants(ctx)
+	if err != nil {
+		return nil, nil, err
 	}
+	always = s.checkedFolderGrants(ctx, stored)
 	if chatID != "" {
-		chat = s.checkedFolderGrants(ctx, s.grantsFor(ctx, chatID))
+		if stored, err = readFolderGrants(ctx, s.store.Stmts(), chatID); err != nil {
+			return nil, nil, err
+		}
+		chat = s.checkedFolderGrants(ctx, stored)
 	}
-	return always, chat
+	return always, chat, nil
 }
 
-// RulesHeldReason is why no always grant applies while the rules field is
-// held, in the user's words; the wire gives a refused grant or revoke the same
-// reason.
-const RulesHeldReason = "The settings file holds a rule Kstack cannot read: fix settings.json, or discard what Kstack cannot read in Settings."
-
-// checkedFolderGrants is the folder grants among rules, each checked.
-func (s *service) checkedFolderGrants(ctx context.Context, rules []permissions.Rule) []FolderGrant {
-	var grants []FolderGrant
-	for _, r := range rules {
-		if r.Folder == "" {
-			continue
-		}
-		g := FolderGrant{ID: r.ID, Path: r.Folder, Write: r.Class == permissions.WriteInside}
+// checkedFolderGrants is grants, each checked.
+func (s *service) checkedFolderGrants(ctx context.Context, grants []settings.FolderGrant) []FolderGrant {
+	out := make([]FolderGrant, 0, len(grants))
+	for _, g := range grants {
+		fg := FolderGrant{ID: g.ID, Path: g.Path, Write: g.Write}
 		if err := s.settings.CheckStoredFolder(ctx, g.Path, g.Write); err != nil {
-			g.Refused = err.Error()
+			fg.Refusal = err.Error()
 		}
-		grants = append(grants, g)
+		out = append(out, fg)
 	}
-	return grants
+	return out
 }
 
 // GrantFolder writes a folder grant, once it passes its check: in chatID's
-// rows, or with no chat in the always rules. A grant of a folder already
-// granted in the same place takes that grant's id, which replaces its mode.
-// The lookup and the write are one transaction, or one update under the
-// store's lock, so two grants of one folder at once leave one rule.
+// grants, or with no chat as an always grant. A grant of a folder already
+// granted in the same place keeps that grant's id and changes its access, an
+// upsert on the folder, so two grants of one folder at once leave one.
 func (s *service) GrantFolder(ctx context.Context, chatID ChatID, path string, write bool) error {
 	if err := s.settings.CheckFolder(ctx, path, write); err != nil {
 		return err
 	}
-	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.ReadInside, Folder: path}
-	if write {
-		rule.Class = permissions.WriteInside
-	}
-	grantsPath := func(r permissions.Rule) bool { return r.Folder == path }
 	if chatID == "" {
-		rule.ID = appdb.NewID()
-		return s.settings.PutRule(rule, grantsPath)
+		return s.settings.GrantFolder(ctx, path, write)
 	}
 	err := s.store.InTx(ctx, func(st stmts) error {
-		held, _, err := readGrants(ctx, st, chatID)
-		if err != nil {
+		if err := requireChat(ctx, st, chatID); err != nil {
 			return err
 		}
-		if i := slices.IndexFunc(held, grantsPath); i >= 0 {
-			rule.ID = held[i].ID
-		}
-		_, err = s.putGrant(ctx, st, chatID, rule)
+		_, err := st.Exec(ctx, stmtUpsertChatFolderGrant, appdb.NewID(), string(chatID), path, settings.FolderAccess(write), millis(normalizeTime(s.now())))
 		return err
 	})
 	if err != nil {
@@ -306,35 +300,45 @@ func (s *service) GrantFolder(ctx context.Context, chatID ChatID, path string, w
 	return nil
 }
 
-// RevokeFolder removes an always folder grant by id.
-func (s *service) RevokeFolder(id string) error {
-	for _, r := range s.settings.Get().Permissions.Rules {
-		if r.ID == id && r.Folder != "" {
-			return s.settings.RemoveRule(id)
+// RevokeFolder removes folder grant id: chatID's, or with no chat an always
+// one. ErrGrantGone for an id that is not one, ErrChatGone for a chat that is
+// gone.
+func (s *service) RevokeFolder(ctx context.Context, chatID ChatID, id string) error {
+	if chatID == "" {
+		err := s.settings.RevokeFolder(ctx, id)
+		if errors.Is(err, settings.ErrNoGrant) {
+			return ErrGrantGone
 		}
+		return err
 	}
-	return ErrGrantGone
+	if err := s.store.InTx(ctx, func(st stmts) error {
+		return deleteChatRow(ctx, st, stmtDeleteChatFolderGrant, chatID, id)
+	}); err != nil {
+		return err
+	}
+	s.notify(grantsKey(chatID))
+	return nil
 }
 
 // sessionFor is a chat's session: its policy read live on every write, so a
 // mode or rule changed in Settings applies to the next one, a running turn's
-// and a running subagent's included. The chat's grants come before the always
-// rules. Its network is the chat's switch, read at each command the same way,
-// else the turn's toggle. Its folders are read live too, and none applies
-// outside the sandbox.
+// and a running subagent's included. The mode is the action's cluster's; the
+// chat's rules come before the always rules. Its network is the chat's switch,
+// read at each command the same way, else the turn's toggle. Its folders are
+// read live too, and none applies outside the sandbox.
 func (s *service) sessionFor(chatID ChatID, outside, networkThisTurn bool) session.Session {
-	folders := func(ctx context.Context) []session.Folder { return s.foldersFor(ctx, chatID) }
+	folders := func(ctx context.Context) ([]session.Folder, error) { return s.foldersFor(ctx, chatID) }
 	if outside {
-		folders = func(context.Context) []session.Folder { return nil }
+		folders = func(context.Context) ([]session.Folder, error) { return nil, nil }
 	}
 	return session.Session{
 		Kind:    session.Chat,
 		Outside: outside,
 		Folders: folders,
-		Policy: func(ctx context.Context, kubeContext string) permissions.Policy {
+		Policy: func(ctx context.Context, cluster apimeta.ClusterID) permissions.Policy {
 			return permissions.Policy{
-				Mode:  s.settings.ModeFor(kubeContext).Mode,
-				Rules: append(s.grantsFor(ctx, chatID), s.settings.Rules()...),
+				Mode:  s.modeFor(ctx, cluster),
+				Rules: append(s.chatRules(ctx, chatID), s.alwaysRules(ctx)...),
 			}
 		},
 		Network: func(ctx context.Context) session.Network {

@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 )
 
 // macOS's filesystems open a folder under any casing of its name, and the
@@ -51,7 +53,7 @@ func TestAFolderSpelledInAnotherCaseIsRefused(t *testing.T) {
 
 func TestWideHoldsTheVolumesOnMacOS(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	s := NewService(store, func() Zones { return f.zones }, nil, "")
 	assert.Contains(t, s.WideFolders(t.Context()), "/Volumes")
@@ -65,7 +67,7 @@ func TestWideSpellsTheHomeAsTheDiskDoes(t *testing.T) {
 	if _, err := os.Stat(upper); err != nil {
 		t.Skip("the filesystem is case-sensitive")
 	}
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	s := NewService(store, func() Zones { return Zones{Home: upper} }, nil, "")
 

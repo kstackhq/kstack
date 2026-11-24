@@ -18,6 +18,7 @@ package bash
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,7 +39,7 @@ func grantedRun(t *testing.T, tl *Tool, folders []session.Folder) sandbox.Policy
 	tl.sandboxer = fake
 	rt := testRuntime(t)
 	if folders != nil {
-		rt.Session.Folders = func(context.Context) []session.Folder { return folders }
+		rt.Session.Folders = func(context.Context) ([]session.Folder, error) { return folders, nil }
 	}
 	text, isError := tl.Run(t.Context(), rt, command("true"))
 	require.False(t, isError, text)
@@ -113,8 +114,8 @@ func TestAGrantThatFailsTheCheckIsLeftOut(t *testing.T) {
 	require.NoError(t, os.RemoveAll(homeLink))
 	require.NoError(t, os.Symlink(base, homeLink))
 	rt := testRuntime(t)
-	rt.Session.Folders = func(context.Context) []session.Folder {
-		return []session.Folder{{Path: svc}, {Path: homeLink}}
+	rt.Session.Folders = func(context.Context) ([]session.Folder, error) {
+		return []session.Folder{{Path: svc}, {Path: homeLink}}, nil
 	}
 	text, isError := tl.Run(t.Context(), rt, command("true"))
 	require.False(t, isError, "the run starts: %s", text)
@@ -151,7 +152,7 @@ func grantedHome(t *testing.T, tl *Tool) (home, data string) {
 func runIn(t *testing.T, tl *Tool, line string, folders ...session.Folder) (string, bool) {
 	t.Helper()
 	rt := testRuntime(t)
-	rt.Session.Folders = func(context.Context) []session.Folder { return folders }
+	rt.Session.Folders = func(context.Context) ([]session.Folder, error) { return folders, nil }
 	return tl.Run(t.Context(), rt, command(line))
 }
 
@@ -199,4 +200,18 @@ func TestAReadWriteGrantIsWritten(t *testing.T) {
 	text, isError = runIn(t, tl, "echo hi > "+filepath.Join(ro, "x"), session.Folder{Path: ro})
 	assert.True(t, isError, text)
 	assert.NoFileExists(t, filepath.Join(ro, "x"), "a read grant is not written")
+}
+
+// A read of the granted folders that fails fails the run before anything
+// starts: it never runs with no grant.
+func TestAFoldersReadThatFailsFailsTheRun(t *testing.T) {
+	tl := tool(t)
+	fake := &fakeSandboxer{}
+	tl.sandboxer = fake
+	rt := testRuntime(t)
+	rt.Session.Folders = func(context.Context) ([]session.Folder, error) { return nil, errors.New("folders unread") }
+	text, isError := tl.Run(t.Context(), rt, command("true"))
+	assert.True(t, isError)
+	assert.Contains(t, text, "Kstack could not read the folders granted.")
+	assert.Empty(t, fake.seen())
 }

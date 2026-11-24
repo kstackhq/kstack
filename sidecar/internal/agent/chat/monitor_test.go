@@ -266,11 +266,11 @@ func TestTheMonitorsAskerRecordsAndNeverAsks(t *testing.T) {
 	assert.ErrorIs(t, err, errMonitorAsked)
 	assert.Zero(t, tableCount(t, s.db, "approvals"))
 
-	require.NoError(t, asker.Record(t.Context(), req, permissions.Denied, "this context is read-only"))
+	require.NoError(t, asker.Record(t.Context(), req, permissions.Denied, "this cluster is read-only"))
 	var status, reason string
 	require.NoError(t, s.db.Read.QueryRow(`SELECT status, reason FROM approvals WHERE tool_call_id = ?`, string(j.openTool.ID)).Scan(&status, &reason))
 	assert.Equal(t, string(ApprovalRefused), status)
-	assert.Equal(t, "this context is read-only", reason)
+	assert.Equal(t, "this cluster is read-only", reason)
 }
 
 // startsTask is a tool that starts a background task through its runtime, as

@@ -261,12 +261,12 @@ func TestAMonitorWriteIsRefusedAndRecorded(t *testing.T) {
 		assert.Contains(t, row.result, "Forbidden", "call %d", i)
 	}
 	for i := range writes {
-		assert.Contains(t, rows[i].result, "this context is read-only", "write %d", i)
+		assert.Contains(t, rows[i].result, "this cluster is read-only", "write %d", i)
 	}
 	assert.Empty(t, r.api.requests(), "nothing reached the cluster")
 	want := make([][2]string, len(writes))
 	for i := range want {
-		want[i] = [2]string{string(ApprovalRefused), "this context is read-only"}
+		want[i] = [2]string{string(ApprovalRefused), "this cluster is read-only"}
 	}
 	assert.Equal(t, want, refusedActions(t, r), "one refused row per write, none for the reads refused before classification")
 }
@@ -348,7 +348,7 @@ func TestAChatsFoldersNeverReachTheMonitor(t *testing.T) {
 
 	monitor := r.monitorRuns(t, "7", bashCall(read))[0]
 
-	assert.Empty(t, monitorSession().GrantedFolders(t.Context()))
+	assert.Empty(t, grantedFolders(t, monitorSession()))
 	assert.NotContains(t, monitor.result, "always-granted")
 	assert.NotContains(t, monitor.result, "chat-granted")
 }

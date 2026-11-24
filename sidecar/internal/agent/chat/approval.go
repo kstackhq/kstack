@@ -20,13 +20,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"slices"
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -395,20 +392,13 @@ func (s *service) Approve(ctx context.Context, id ApprovalID, d ApprovalDecision
 	return true, nil
 }
 
-// writeRule writes rule as chatID's for Chat, or into the settings for
-// Always, unless the same rule is held there already. While the settings hold
-// rules Kstack cannot read, an Always write is settings.ErrHeld.
+// writeRule writes rule as chatID's for Chat, or as an always rule for Always,
+// unless the same rule is held there already.
 func (s *service) writeRule(ctx context.Context, chatID ChatID, rule permissions.Rule, d ApprovalDecision) error {
 	if d == DecisionChat {
-		_, err := s.addGrant(ctx, chatID, rule)
+		_, err := s.addKubeRule(ctx, chatID, rule)
 		return err
 	}
-	return s.settings.Update(func(v *settings.Settings) error {
-		if slices.ContainsFunc(v.Permissions.Rules, func(r permissions.Rule) bool { return sameRule(r, rule) }) {
-			return nil
-		}
-		rule.ID = appdb.NewID()
-		v.Permissions.Rules = append(v.Permissions.Rules, rule)
-		return nil
-	})
+	_, err := s.settings.AddKubeRule(ctx, rule)
+	return err
 }
