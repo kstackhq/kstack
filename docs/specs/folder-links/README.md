@@ -153,8 +153,9 @@ resolved user profile (`USERPROFILE`), or the start fails:
 C:\Users\u\AppData\Local\Kstack leads to D:\big\Kstack, outside your profile; keep it inside C:\Users\u
 ```
 
-A folder no link leads elsewhere is where Windows names it. An administrator may redirect a
-known folder off the profile, as Folder Redirection does, and the check leaves it alone.
+A folder reached through no link is where Windows names it. An administrator may redirect a
+known folder off the profile, as Folder Redirection does, onto a mapped drive among others, and
+the check leaves it alone.
 
 The profile is the reason the ACL can be relied on, so the check is strict:
 

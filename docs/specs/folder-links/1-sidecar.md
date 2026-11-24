@@ -200,7 +200,7 @@ them before it looks inside, so what either may hold, the one folder may hold. `
 inside `App`, and `Data` inside `AppOnConfigRoot`, and both pass. The fixture's shared-roots
 layout is this case.
 
-On Windows the check also holds each layout folder
+On Windows the check also holds each layout folder a link leads elsewhere
 [strictly inside the profile](README.md#on-windows-a-layout-folder-stays-in-the-profile):
 `Inside`, never `Same`.
 
@@ -280,8 +280,8 @@ error. `sidecar/`'s own tests reach `Folders` through `configFromArgs` and `Reso
   changes no mode.
 - A cycle of links at a layout folder fails the start with an error that names the path.
 - On Windows, a layout folder joined to a folder outside the profile fails the start; one joined
-  inside it starts; a moved folder outside it starts. A layout folder that is the profile itself
-  fails, and so does one under a sibling of the profile that differs only in letter case. If CI's
+  inside it starts; a moved folder outside it starts, and so does one Windows itself names
+  outside it. A layout folder joined to the profile itself fails, and so does one under a sibling of the profile that differs only in letter case. If CI's
   Windows runner cannot make a case-sensitive directory, the comparison takes the file identity
   as a parameter and the test supplies it.
 - A read-write grant of a link parent, and of a folder above one, is refused; the same grant read-only
