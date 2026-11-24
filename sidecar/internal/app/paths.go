@@ -35,7 +35,6 @@ import (
 //	<data>/                                what a user would lose
 //	  sidecar.lock                         app: held while a sidecar runs; never deleted
 //	  app.db                               app
-//	  settings.json                        app: the user's settings
 //	  beehive.db                           cluster
 //	  chats/<chat id>/                     chat: results/, tasks/, workspace/
 //	  monitor/<cluster id>/                chat: a monitor's results/, workspace/, toolhome/
@@ -52,14 +51,13 @@ import (
 // A subfolder above that is a symlink or a Windows junction at start joins
 // the fence (pathsOf).
 type paths struct {
-	LockFile     string
-	AppDBFile    string
-	SettingsFile string
-	ChatsDir     string
-	MonitorDir   string
-	LogsDir      string
-	Cluster      cluster.Paths
-	Bash         bash.Paths
+	LockFile   string
+	AppDBFile  string
+	ChatsDir   string
+	MonitorDir string
+	LogsDir    string
+	Cluster    cluster.Paths
+	Bash       bash.Paths
 }
 
 func pathsOf(cfg Config) paths {
@@ -93,12 +91,11 @@ func pathsOf(cfg Config) paths {
 		return dir
 	}
 	p := paths{
-		LockFile:     filepath.Join(data, "sidecar.lock"),
-		AppDBFile:    filepath.Join(data, "app.db"),
-		SettingsFile: filepath.Join(data, "settings.json"),
-		ChatsDir:     sub(data, "chats"),
-		MonitorDir:   sub(data, "monitor"),
-		LogsDir:      sub(cache, "logs"),
+		LockFile:   filepath.Join(data, "sidecar.lock"),
+		AppDBFile:  filepath.Join(data, "app.db"),
+		ChatsDir:   sub(data, "chats"),
+		MonitorDir: sub(data, "monitor"),
+		LogsDir:    sub(cache, "logs"),
 		Cluster: cluster.Paths{
 			BeehiveDBFile: filepath.Join(data, "beehive.db"),
 			KubestoreDir:  sub(cache, "kube"),

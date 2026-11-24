@@ -3,6 +3,7 @@ title: Every cloud platform is on until the user turns it off
 date: 2026-11-18
 scope: sidecar
 status: Accepted
+amended_by: [Keep every setting as rows in app.db](2026-11-24-settings-are-rows-in-app-db.md)
 ---
 
 # Every cloud platform is on until the user turns it off

@@ -63,11 +63,10 @@ func (z *zoneFixture) dir(t *testing.T, rel string) string {
 	return dirWithMode(t, z.base, rel, 0o755)
 }
 
-// newTestService is a Service over a fresh file, judging by z.
+// newTestService is a Service over a fresh app.db, judging by z.
 func newTestService(t *testing.T, z *zoneFixture, resolve func(context.Context) ([]string, error)) *Service {
 	t.Helper()
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	return NewService(store, func() Zones { return z.zones }, resolve, nil, "")
 }
 
@@ -277,9 +276,7 @@ func TestTheShellsPathOutlivesARestart(t *testing.T) {
 	dir := z.dir(t, "open/bin")
 	db := appdbtest.Open(t)
 	open := func() *Service {
-		store, err := Open(filepath.Join(t.TempDir(), "settings.json"), db)
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, store.Close()) })
+		store := openStore(t, db)
 		return NewService(store, func() Zones { return z.zones }, nil, nil, "")
 	}
 	_, err := open().SetShellPath(t.Context(), []string{dir})
@@ -294,8 +291,7 @@ func TestARunPathExpandsTheSetting(t *testing.T) {
 	z := newZones(t)
 	z.zones.Home = z.home
 	fallback, shell, typed := z.dir(t, "open/default"), z.dir(t, "open/shell"), z.dir(t, "home/bin")
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	s := NewService(store, func() Zones { return z.zones }, nil, []string{fallback}, "")
 	ctx := t.Context()
 
@@ -332,10 +328,9 @@ func TestARefusedPathStartsNoRun(t *testing.T) {
 	z := newZones(t)
 	shell := z.dir(t, "open/shell")
 	db := appdbtest.Open(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), db)
-	require.NoError(t, err)
+	store := openStore(t, db)
 	s := NewService(store, func() Zones { return z.zones }, nil, nil, "")
-	_, err = s.SetShellPath(t.Context(), []string{shell})
+	_, err := s.SetShellPath(t.Context(), []string{shell})
 	require.NoError(t, err)
 	exec(t, db, `UPDATE sandbox_settings SET path = 'bin:$PATH'`)
 
@@ -354,12 +349,11 @@ func TestARunPathReadThatFailsIsAnError(t *testing.T) {
 	for _, table := range []string{"sandbox_settings", "shell_path"} {
 		z := newZones(t)
 		db := appdbtest.Open(t)
-		store, err := Open(filepath.Join(t.TempDir(), "settings.json"), db)
-		require.NoError(t, err)
+		store := openStore(t, db)
 		s := NewService(store, func() Zones { return z.zones }, nil, []string{z.open}, "")
 		exec(t, db, `DROP TABLE `+table)
 
-		_, err = s.RunPath(t.Context())
+		_, err := s.RunPath(t.Context())
 		assert.Error(t, err, table)
 		_, err = s.PathNoWrite(t.Context())
 		assert.Error(t, err, table)
@@ -373,11 +367,10 @@ func TestSettingsListsThePathsFolders(t *testing.T) {
 	z.zones.Home = z.home
 	open, closed, typed := z.dir(t, "open/bin"), z.dir(t, "home/closed"), z.dir(t, "home/bin")
 	db := appdbtest.Open(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), db)
-	require.NoError(t, err)
+	store := openStore(t, db)
 	s := NewService(store, func() Zones { return z.zones }, nil, nil, "")
 	ctx := t.Context()
-	_, err = s.SetShellPath(ctx, []string{open, closed})
+	_, err := s.SetShellPath(ctx, []string{open, closed})
 	require.NoError(t, err)
 	require.NoError(t, s.SetPath(ctx, "$PATH:~/bin"))
 

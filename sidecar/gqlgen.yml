@@ -628,8 +628,6 @@ models:
         resolver: true
 
   # --- Sandbox ---
-  SettingsRefusal:
-    model: github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings.Refusal
   EnvVar:
     model: github.com/kstackhq/kstack/sidecar/internal/services/envvars.Var
     fields:

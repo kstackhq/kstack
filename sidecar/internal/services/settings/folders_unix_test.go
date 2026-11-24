@@ -243,8 +243,7 @@ func TestAWriteGrantOnCodeThatRunsIsRefused(t *testing.T) {
 
 func TestNoSnapshotRefusesEveryFolder(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	s := NewService(store, nil, nil, nil, "")
 	for _, write := range []bool{false, true} {
 		assert.Equal(t, "no-sandbox", ruleOf(t, s.CheckFolder(t.Context(), f.in("code/svc"), write)))
@@ -262,15 +261,14 @@ func TestTheZonesAreASnapshot(t *testing.T) {
 	f := newGrantFixture(t)
 	filtered := f.in("proj/node_modules/.bin")
 	require.NoError(t, os.MkdirAll(filtered, 0o755))
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	var calls atomic.Int32
 	s := NewService(store, func() Zones {
 		calls.Add(1)
 		return f.zones
 	}, func(context.Context) ([]string, error) { return []string{filtered}, nil }, nil, "")
 
-	_, err = s.SetShellPath(t.Context(), []string{filtered})
+	_, err := s.SetShellPath(t.Context(), []string{filtered})
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), calls.Load())
 	for range 3 {
@@ -299,8 +297,7 @@ func TestTheZonesAreASnapshot(t *testing.T) {
 }
 
 func TestAFolderIsRefusedWhenTheSnapshotRunsPastTheBound(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	s := NewService(store, func() Zones {
@@ -309,14 +306,13 @@ func TestAFolderIsRefusedWhenTheSnapshotRunsPastTheBound(t *testing.T) {
 	}, nil, nil, "")
 	s.diskTimeout = time.Millisecond
 
-	err = s.CheckFolder(t.Context(), "/srv/code", false)
+	err := s.CheckFolder(t.Context(), "/srv/code", false)
 	assert.Equal(t, "timeout", ruleOf(t, err))
 }
 
 func TestTheSnapshotIsTakenOnFirstUse(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	var calls atomic.Int32
 	s := NewService(store, func() Zones {
 		calls.Add(1)
@@ -333,8 +329,7 @@ func TestTheSnapshotIsTakenOnFirstUse(t *testing.T) {
 
 func TestAClosedFolderOpensOnlyAFolderInsideIt(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	s := NewService(store, func() Zones { return f.zones }, nil, nil, "")
 	assert.Equal(t, []string{f.in("Documents")}, s.ClosedFolders(t.Context()))
 	assert.Equal(t, "closed", ruleOf(t, s.CheckFolder(t.Context(), f.in("Documents"), false)))
@@ -343,8 +338,7 @@ func TestAClosedFolderOpensOnlyAFolderInsideIt(t *testing.T) {
 
 func TestWideIsTheHomeAndEachFolderOverIt(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	s := NewService(store, func() Zones { return f.zones }, nil, nil, "")
 	wide := s.WideFolders(t.Context())
 	assert.Equal(t, f.home, wide[0])
@@ -367,8 +361,7 @@ func TestACheckResolvesTheZonesNow(t *testing.T) {
 	}
 	require.NoError(t, os.RemoveAll(f.in(".ssh")))
 	require.NoError(t, os.Symlink(f.in("dotfiles/ssh-a"), f.in(".ssh")))
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	s := NewService(store, func() Zones { return f.zones }, nil, nil, "")
 	assert.Equal(t, "never", ruleOf(t, s.CheckFolder(t.Context(), f.in("dotfiles/ssh-a"), false)))
 	assert.NoError(t, s.CheckFolder(t.Context(), f.in("dotfiles/ssh-b"), false))
@@ -400,10 +393,9 @@ func TestAWriteGrantOnAShellFolderIsRefusedWithoutPath(t *testing.T) {
 	f := newGrantFixture(t)
 	shell := f.in("tools/shell")
 	require.NoError(t, os.MkdirAll(shell, 0o755))
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	s := NewService(store, func() Zones { return f.zones }, nil, nil, "")
-	_, err = s.SetShellPath(t.Context(), []string{shell})
+	_, err := s.SetShellPath(t.Context(), []string{shell})
 	require.NoError(t, err)
 	require.NoError(t, s.SetPath(t.Context(), "~/code"))
 
@@ -413,8 +405,7 @@ func TestAWriteGrantOnAShellFolderIsRefusedWithoutPath(t *testing.T) {
 
 func TestAWriteGrantOnATypedPathFolderIsRefused(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	s := NewService(store, func() Zones { return f.zones }, nil, nil, "")
 	require.NoError(t, s.SetPath(t.Context(), "$PATH:~/code"))
 
@@ -427,12 +418,11 @@ func TestAWriteGrantOnATypedPathFolderIsRefused(t *testing.T) {
 func TestAFolderCheckReadThatFailsIsAnError(t *testing.T) {
 	f := newGrantFixture(t)
 	db := appdbtest.Open(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), db)
-	require.NoError(t, err)
+	store := openStore(t, db)
 	s := NewService(store, func() Zones { return f.zones }, nil, nil, "")
 	exec(t, db, `DROP TABLE shell_path`)
 
-	err = s.CheckStoredFolder(t.Context(), f.in("code/svc"), true)
+	err := s.CheckStoredFolder(t.Context(), f.in("code/svc"), true)
 	require.Error(t, err)
 	assert.False(t, errors.As(err, new(FolderRefusal)), "not a refusal")
 }

@@ -15,7 +15,6 @@
 package settings
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -55,7 +54,7 @@ func TestCheckExecutableRefusesEachBadShape(t *testing.T) {
 func openWithDB(t *testing.T) (*Store, *appdb.DB) {
 	t.Helper()
 	db := appdbtest.Open(t)
-	return openStore(t, filepath.Join(t.TempDir(), "settings.json"), db), db
+	return openStore(t, db), db
 }
 
 func executables(t *testing.T, s *Store) []Executable {
@@ -70,7 +69,7 @@ func executables(t *testing.T, s *Store) []Executable {
 // user's words and writes nothing.
 func TestRegisterAndRemoveAnExecutable(t *testing.T) {
 	t.Parallel()
-	s, _ := openFile(t, "")
+	s := newStore(t)
 	ctx := t.Context()
 
 	require.NoError(t, s.RegisterExecutable(ctx, "k9s", ""))
@@ -165,7 +164,7 @@ func TestAnExecutablesReadThatFailsPartwayAnswersNone(t *testing.T) {
 // A register or a remove pings once it commits; a refused one pings nothing.
 func TestEachExecutableWritePublishes(t *testing.T) {
 	t.Parallel()
-	s, _ := openFile(t, "")
+	s := newStore(t)
 	ctx := t.Context()
 	rx := s.WatchExecutables()
 	t.Cleanup(rx.Close)
@@ -183,13 +182,4 @@ func TestEachExecutableWritePublishes(t *testing.T) {
 	assert.Error(t, s.RemoveExecutable(ctx, "k9s"))
 	_, err := rx.TryRecv()
 	assert.ErrorIs(t, err, gobus.ErrEmpty, "a refused write pinged")
-}
-
-// The file's executables key stays in it, unread: neither a good entry nor a
-// bad one is listed or refused.
-func TestTheFilesExecutablesAreNotRead(t *testing.T) {
-	t.Parallel()
-	s, _ := openFile(t, `{"executables": [{"name": "k9s", "invocation": "k9s version"}, {"name": "bin/tool", "invocation": "bin/tool"}]}`)
-	assert.Empty(t, s.Refused())
-	assert.Empty(t, executables(t, s))
 }

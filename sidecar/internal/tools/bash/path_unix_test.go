@@ -185,7 +185,7 @@ func TestAClosedShellFolderIsFoundOnceTyped(t *testing.T) {
 	f := newPathFixture(t)
 	scripts := f.dir(t, "home/scripts")
 	require.NoError(t, os.WriteFile(filepath.Join(scripts, "hello"), []byte("#!/bin/sh\necho hi\n"), 0o755))
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
+	store, err := settings.Open(appdbtest.Open(t))
 	require.NoError(t, err)
 	svc := settings.NewService(store, func() settings.Zones {
 		return settings.Zones{Never: f.fake.never, Open: f.fake.system.Files}

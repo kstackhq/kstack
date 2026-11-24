@@ -9,7 +9,9 @@ schema changes only by a new migration](adr/2026-11-08-a-shipped-schema-changes-
 **A change to a persisted format updates its row here in the same commit.**
 
 `desktop/v0.0.1` is the first release. Every format it wrote is shipped: a build has to read it
-from now on.
+from now on. Two are the exception, dropped without an import by the maintainer's decision:
+`<data>/settings.json`, left on disk unread, and `app.db`'s `chat_grants` table
+([ADR](adr/2026-11-24-settings-are-rows-in-app-db.md)).
 
 ## Policy
 
@@ -40,7 +42,7 @@ Each kind of change has one shape. The tests named here are what fails when it i
 - **A JSON column**: rides `app.db`'s version, so the change is an `app.db` migration using
   SQLite's JSON functions. A rewrite SQL cannot express has no path yet (below). A new key a
   row may lack, read as its zero value, needs none: no stored row changes.
-- **A preference** (`settings.json`): a field's layout change bumps `schemaVersion` and upgrades
+- **A preference** (`host.json`): a field's layout change bumps `schemaVersion` and upgrades
   in the reader. A file a build cannot parse reads as defaults and its next write replaces it, so
   a new choice for a setting is a new field, never a new value of an old one.
 - **A disposable store**: no migration. A renamed `localStorage` key needs nothing; a renamed
@@ -96,7 +98,7 @@ is the doc comment on `paths` in `sidecar/internal/app/paths.go`.
 
 | Path | Kind | Holds |
 | --- | --- | --- |
-| `~/.local/share/kstack/` | `<data>` | `app.db`, `beehive.db`, `settings.json`, `chats/`, `monitor/`, `sidecar.lock` |
+| `~/.local/share/kstack/` | `<data>` | `app.db`, `beehive.db`, `chats/`, `monitor/`, `sidecar.lock` |
 | `~/.cache/kstack/` | `<cache>` | `kube/`, `logs/` (the log cache), `kubectl/`, `tmp/` |
 | `~/.config/kstack/` | `<config>` | `host.json` |
 | `~/.local/state/kstack/` | `<state>` | `window-state.json` |
@@ -108,7 +110,7 @@ is the doc comment on `paths` in `sidecar/internal/app/paths.go`.
 
 | Path | Kind | Holds |
 | --- | --- | --- |
-| `~/Library/Application Support/Kstack/data/` | `<data>` | `app.db`, `beehive.db`, `settings.json`, `chats/`, `monitor/`, `sidecar.lock` |
+| `~/Library/Application Support/Kstack/data/` | `<data>` | `app.db`, `beehive.db`, `chats/`, `monitor/`, `sidecar.lock` |
 | `~/Library/Application Support/Kstack/config/` | `<config>` | `host.json` |
 | `~/Library/Application Support/Kstack/state/` | `<state>` | `window-state.json` |
 | `~/Library/Caches/Kstack/` | `<cache>` | `kube/`, `logs/` (the log cache), `kubectl/`, `tmp/` |
@@ -120,7 +122,7 @@ is the doc comment on `paths` in `sidecar/internal/app/paths.go`.
 
 | Path | Kind | Holds |
 | --- | --- | --- |
-| `%LOCALAPPDATA%\Kstack\data\` | `<data>` | `app.db`, `beehive.db`, `settings.json`, `chats\`, `monitor\`, `sidecar.lock` |
+| `%LOCALAPPDATA%\Kstack\data\` | `<data>` | `app.db`, `beehive.db`, `chats\`, `monitor\`, `sidecar.lock` |
 | `%LOCALAPPDATA%\Kstack\cache\` | `<cache>` | `kube\`, `logs\` (the log cache), `kubectl\`, `tmp\` |
 | `%LOCALAPPDATA%\Kstack\state\` | `<state>` | `window-state.json` |
 | `%LOCALAPPDATA%\Kstack\state\logs\` | logs | `main.log`, `webview.log`, `sidecar.log` |
@@ -139,7 +141,6 @@ is the doc comment on `paths` in `sidecar/internal/app/paths.go`.
 | Cluster cache | `<cache>/kube/<cache id>.db` | `kubestore` | durable | `sqlitemigrate` | SQL migrations | refused; the cache reports `StoreFailed` with the message and the rest of the app runs | `kubestore` `TestAShippedMigrationIsNeverEdited`, `TestOpenRefusesANewerFile`, `TestMigration0002IndexesTheEventsByInvolvedNamespace` (`0002`); `kubesync` `TestArmReportsAStoreThatWillNotOpen` (any open failure reaches `StoreFailed`) |
 | Cluster cache `raw_json` | `kube/*.db` `objects.raw_json` | `kubestore/rawcodec.go` | durable | first byte (zlib `0x78`, JSON `{`) | a `kube/*.db` migration | with `kube/*.db` | `rawcodec_test.go` |
 | Log cache | `<cache>/logs/<cache id>.db` | `logstore` | durable | `sqlitemigrate` | SQL migrations | refused; `OpenOrCreate` returns the error to the caller | `logstore` `TestAShippedMigrationIsNeverEdited`, `TestOpenOrCreateRefusesANewerFile` |
-| Sidecar settings | `<data>/settings.json` | `lib/jsonsettings`, `services/settings` | preference | `schemaVersion` 1 | upgrade in `Open` (none written yet) | opened, and no field read: every setting is an `app.db` row, so nothing writes it | `TestAWriteStampsTheVersion`, `TestAWriteKeepsTheKeysNoFieldNames` |
 | Host file | `<config>/host.json` | `src-tauri/src/host_file.rs` | preference | `schemaVersion` 1 | none | read; a write drops unknown fields and stamps 1 (accepted gap, ADR; #824) | `update_stamps_current_version` |
 | Window state | `<state>/window-state.json`: the main window's `x`, `y`, `width`, `height` in logical px (the unmaximized frame) and `maximized`; `make clean` and `make clean-data` delete the dev build's | `src-tauri/src/window_state.rs` | disposable (the window opens at its default size) | `schemaVersion` 1 | none | ignored, as is a file that does not parse; the next write replaces it | `the_file_is_stamped_with_its_schema_version`, `a_missing_corrupt_or_differently_stamped_file_reads_as_nothing` |
 | Kstack sign-in token of `desktop/v0.0.1` | OS keyring, service `<service>`, account `auth-token`: the whole token as JSON | `services/connectors/kstackcloud` | disposable (sign in again) | none | deleted at every launch the keyring opens, never read | — | `TestNewDeletesTheOldEntry`, `TestAFailedDeleteOfTheOldEntryIsRetried`, `TestTheOldEntryIsDeletedOnlyFromAKeyringThatOpened` |

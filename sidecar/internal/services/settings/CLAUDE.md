@@ -1,10 +1,8 @@
 # internal/services/settings — the user's settings
 
-**Every setting is an `app.db` row.** `<data>/settings.json` is still opened, through
-`internal/lib/jsonsettings` (`Store` wraps `jsonsettings.Store[Settings]`), and read for no field:
-`Settings` is empty and `checks` and `strictest` (`check.go`) hold nothing, so nothing writes the
-file and its keys are kept, unread. `Refused()` answers `settingsRefused`, empty. →
-[ADR: settings are one file grouped by area](../../../../docs/adr/2026-10-07-settings-are-one-file-grouped-by-area.md).
+**Every setting is a typed row in `app.db`.** `Open(db)` prepares the store's statements. A row
+Kstack cannot use is refused and listed with its reason, never dropped; a failed read is an error,
+never the default. → [ADR: settings are rows in app.db](../../../../docs/adr/2026-11-24-settings-are-rows-in-app-db.md).
 
 **The modes, the always rules and the always folder grants are `app.db` rows** with `chat_id`
 NULL (`approval_modes`, `kube_rules`, `folder_grants`; `agent/chat` writes a chat's), in
