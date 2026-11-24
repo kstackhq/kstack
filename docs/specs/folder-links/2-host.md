@@ -55,7 +55,8 @@ then cannot be made does what it does today:
 
 - **The logs**: `logs` is `None`, the error is logged, and the host goes on, logging to stderr.
 - **The config**: no config root is `config: None`, with the preferences unavailable.
-- **The state**: the launch fails where it fails today.
+- **The state**: the launch fails where it fails today. On macOS the state holds the window
+  frame alone, so the host logs the error and goes on.
 
 ### Windows
 
@@ -110,7 +111,8 @@ meaning of "link" step 1 pinned, so a junction is refused on Windows.
 - A config folder with an open mode is tightened; an owner-only one is not chmodded
   (`an_owner_only_config_dir_is_not_chmodded`); one removed after start is made owner-only by the
   next write of `host.json`.
-- On Windows, a layout folder joined to a folder outside the profile fails the launch.
+- On Windows, a layout folder joined to a folder outside the profile fails the launch; one
+  Windows itself names outside it, on a mapped drive among others, launches.
 - A log folder that is no link and cannot be made leaves `logs` `None` and the launch going
   (`log_dir_fails_under_a_state_directory_that_cannot_be_made`, rewritten over `Folders`). A log
   folder that is a link to nothing still fails the launch.
@@ -129,11 +131,11 @@ All tasks start Planned.
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | Check WebView2 against a verbatim profile path. | Planned |
-| 2 | `paths.rs`: `Folders::make`, with the Unix and Windows resolve. | Planned |
-| 3 | `app.rs` and the callers: take `&Folders`. | Planned |
-| 4 | `paths.rs`, `host_file.rs`: the linked config folder. | Planned |
-| 5 | The webview junction test, and the docs below. | Planned |
+| 1 | Check WebView2 against a verbatim profile path. | Open: no Windows machine yet. `dunce` keeps every path non-verbatim, so WebView2 is never handed one |
+| 2 | `paths.rs`: `Folders::make`, with the Unix and Windows resolve. | Built |
+| 3 | `app.rs` and the callers: take `&Folders`. | Built |
+| 4 | `paths.rs`, `host_file.rs`: the linked config folder. | Built |
+| 5 | The webview junction test, and the docs below. | Built |
 
 ## When it lands
 

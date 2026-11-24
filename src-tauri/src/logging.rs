@@ -19,7 +19,7 @@
 
 use std::ffi::OsString;
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use tracing::{Event, Level, Metadata, Subscriber};
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
@@ -32,7 +32,6 @@ use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{reload, EnvFilter, Registry};
 
 use crate::log_rotate::RotatingFile;
-use crate::paths::{self, Roots};
 
 /// Swaps the file layer in once a path is known. Boxed because a
 /// `reload::Layer` implements `Layer<S>` for exactly the `S` it names, and
@@ -249,16 +248,7 @@ where
         .with_writer(writer)
 }
 
-/// The log directory, or `None` when it cannot be placed or made, which
-/// leaves the app on stderr. Asked once per launch, for the host's file layer.
-/// The sidecar logs in the same folder, placed from its own layout.
-pub fn log_dir(roots: &Roots) -> Option<PathBuf> {
-    paths::log_dir(roots)
-        .inspect_err(|err| tracing::error!(%err, "no log directory; logging to stderr only"))
-        .ok()
-}
-
-/// Points the process's log at files in `dir`, [`log_dir`]'s answer, returning
+/// Points the process's log at files in `dir`, `Folders::logs`, returning
 /// the guards that must outlive them.
 ///
 /// Never fails the caller: a desktop app that will not start because it cannot
@@ -689,7 +679,7 @@ mod tests {
     #[test]
     fn the_file_layer_joins_the_process_subscriber() {
         let scratch = crate::testutil::Scratch::new();
-        let roots = crate::testutil::roots(scratch.path());
+        let logs = crate::testutil::folders(scratch.path()).logs;
         let stderr = Capture::default();
         let sink = stderr.clone();
         let (subscriber, handle) =
@@ -697,12 +687,12 @@ mod tests {
 
         tracing::subscriber::with_default(subscriber, || {
             tracing::info!("before the file");
-            let guards = install_file_layer(&handle, log_dir(&roots).as_deref());
+            let guards = install_file_layer(&handle, logs.as_deref());
             tracing::info!("after the file");
             drop(guards);
         });
 
-        let file = read_log(&log_dir(&roots).unwrap(), "main.log");
+        let file = read_log(logs.as_ref().unwrap(), "main.log");
         assert!(!file.contains("before the file"), "got: {file}");
         assert!(file.contains("after the file"), "got: {file}");
         let terminal = stderr.text();
@@ -715,12 +705,12 @@ mod tests {
     fn a_log_directory_that_cannot_be_made_leaves_stderr_alone() {
         let scratch = crate::testutil::Scratch::new();
         let roots = crate::testutil::roots(scratch.path());
-        let logs = log_dir(&roots).unwrap();
-        std::fs::remove_dir(&logs).unwrap();
+        let logs = crate::paths::current_layout(&roots).logs;
+        std::fs::create_dir_all(logs.parent().unwrap()).unwrap();
         std::fs::write(&logs, "").unwrap();
         let (_, handle) = process_subscriber(std::io::sink, false, EnvFilter::new("info"));
 
-        assert_eq!(log_dir(&roots), None);
+        assert_eq!(crate::paths::Folders::make(&roots).unwrap().logs, None);
         assert!(install_file_layer(&handle, None).is_empty());
         assert!(install_file_layer(&handle, Some(&logs)).is_empty());
     }

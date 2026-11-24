@@ -48,7 +48,7 @@ pub async fn new_window<R: Runtime>(app: AppHandle<R>) -> Result<()> {
 /// docs/adr/2026-08-09-host-json-settings.md.
 #[tauri::command]
 pub fn update_host_file<R: Runtime>(app: AppHandle<R>, patch: HostFilePatch) -> Result<HostFile> {
-    let file = host_file::update(&host_file::path(&app)?, patch)?;
+    let file = host_file::update(&host_file::location(&app)?, patch)?;
     app.emit(host_file::UPDATED_EVENT, &file)?;
     Ok(file)
 }
@@ -369,7 +369,7 @@ mod tests {
         let file = invoke(&main, "update_host_file", patch).unwrap();
 
         assert_eq!(file["colorSchemePreference"], "dark");
-        let path = host_file::path(app.handle()).unwrap();
+        let path = host_file::location(app.handle()).unwrap().path;
         assert!(path.starts_with(scratch.path()), "{}", path.display());
         assert_eq!(serde_json::to_value(host_file::read(&path)).unwrap(), file);
         // Emitted before the command returned.

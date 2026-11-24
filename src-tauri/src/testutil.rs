@@ -28,7 +28,7 @@ use tauri::{
     App, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
-use crate::paths::Roots;
+use crate::paths::{Folders, Roots};
 use crate::services::sidecar::SidecarService;
 use crate::state::AppState;
 use crate::window_manager::Monitors;
@@ -43,7 +43,9 @@ impl Scratch {
         let dir = std::env::temp_dir().join(format!("kstack-app-test-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        Self(dir)
+        // As the kernel names it, so a test compares it with resolved paths
+        // (macOS's temp dir is under the link `/var`).
+        Self(dunce::canonicalize(&dir).unwrap())
     }
 
     pub fn path(&self) -> &Path {
@@ -82,7 +84,7 @@ pub fn bare_app(root: &Path) -> App<MockRuntime> {
         .invoke_handler(crate::invoke_handler())
         .build(context)
         .unwrap();
-    crate::host_file::manage(app.handle(), &roots(root));
+    crate::host_file::manage(app.handle(), &folders(root));
     app
 }
 
@@ -130,22 +132,28 @@ pub fn script_sidecar(root: &Path, script: &str) -> SidecarService {
         .plugin(tauri_plugin_shell::init())
         .build(mock_context(noop_assets()))
         .unwrap();
-    SidecarService::spawn(&roots(root), |_| {
+    SidecarService::spawn(&folders(root), |_| {
         Ok(shell.shell().command("sh").args(["-c", script]))
     })
     .unwrap()
 }
 
 /// Platform roots under `root`, so nothing a test makes lands in the user's
-/// own directories.
+/// own directories. `root` is the home, which holds them all, as Windows'
+/// profile holds every layout folder.
 pub fn roots(root: &Path) -> Roots {
     Roots {
         config: Some(root.join("config")),
         local_data: root.join("local"),
         cache: root.join("cache"),
-        home: root.join("home"),
+        home: root.to_path_buf(),
         state: root.join("state"),
     }
+}
+
+/// The host's folders over [`roots`] under `root`, made.
+pub fn folders(root: &Path) -> Folders {
+    Folders::make(&roots(root)).unwrap()
 }
 
 /// Opens a window directly, past the window manager.

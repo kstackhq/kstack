@@ -75,6 +75,8 @@ serde = { version = "1", features = ["derive", "rc"] }
 # `raw_value`: a log window's push is kept serialized (`log_windows.rs`).
 serde_json = { version = "1", features = ["raw_value"] }
 thiserror = "2.0.18"
+# Canonical paths without Windows' verbatim prefix (`paths.rs`).
+dunce = "1.0.5"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 # The host's log file: a daily-rolling appender written off-thread, so a slow

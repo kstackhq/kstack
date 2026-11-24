@@ -760,8 +760,8 @@ impl WindowManager {
 
         // One `host.json` read feeds both pre-paint paths below. A file with
         // no location degrades to defaults, never a failed build.
-        let host_file = host_file::path(app)
-            .map(|path| host_file::read(&path))
+        let host_file = host_file::location(app)
+            .map(|location| host_file::read(&location.path))
             .unwrap_or_default();
 
         // 1. Expose the file as `window.__KSTACK_HOST__` before any page
@@ -1110,8 +1110,7 @@ mod tests {
     fn a_window_opens_the_managed_webview_profile() {
         let scratch = Scratch::new();
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
-        crate::webview_profile::manage(app.handle(), &crate::testutil::roots(scratch.path()))
-            .unwrap();
+        crate::webview_profile::manage(app.handle(), &crate::testutil::folders(scratch.path()));
         let profile = crate::webview_profile::dir(app.handle()).unwrap();
         assert!(!profile.exists());
         let wm = WindowManager::new(CancellationToken::new(), OneMonitor(None), None);

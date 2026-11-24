@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::paths::{self, Roots};
+use crate::paths::Folders;
 
 /// Stamped into the file on every write; a file with another stamp is ignored.
 const SCHEMA_VERSION: u32 = 1;
@@ -30,9 +30,8 @@ const FILE_NAME: &str = "window-state.json";
 
 /// Where the main window's frame is kept across launches: in the state
 /// directory, so a dev build keeps its own and `make clean-data` resets it.
-/// `None` when the state directory cannot be made.
-pub fn path(roots: &Roots) -> Option<PathBuf> {
-    Some(paths::app_state_dir(roots).ok()?.join(FILE_NAME))
+pub fn path(folders: &Folders) -> PathBuf {
+    folders.state.join(FILE_NAME)
 }
 
 /// A window's outer position and inner size in logical px, each monitor's
@@ -107,7 +106,7 @@ pub fn next_saved(previous: Option<SavedFrame>, current: SavedFrame) -> SavedFra
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{roots, Scratch};
+    use crate::testutil::{folders, Scratch};
 
     const FRAME: Frame = Frame {
         x: 100.0,
@@ -130,12 +129,9 @@ mod tests {
     #[test]
     fn the_frame_is_kept_in_the_state_directory() {
         let scratch = Scratch::new();
-        let roots = roots(scratch.path());
-        let in_state_dir = paths::app_state_dir(&roots)
-            .unwrap()
-            .join("window-state.json");
+        let folders = folders(scratch.path());
 
-        assert_eq!(path(&roots), Some(in_state_dir));
+        assert_eq!(path(&folders), folders.state.join("window-state.json"));
     }
 
     #[test]
