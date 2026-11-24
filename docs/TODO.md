@@ -952,7 +952,8 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   owner).** A linked folder's own name is not fenced: with `~/.cache/kstack` linked elsewhere, a
   read-write grant of `~/.cache` is accepted, and a sandboxed command can repoint the link for
   the next start to follow. A subfolder linked while Kstack runs is not fenced until the next
-  start. Specified in `docs/specs/folder-links/`, for
+  start. Specified in `docs/specs/folder-links/` on
+  [#1191](https://github.com/kstackhq/kstack/pull/1191), for
   [#1145](https://github.com/kstackhq/kstack/issues/1145): each program resolves its folders
   once, a link below them fails the start, and no write is granted on or above the folder that
   holds a followed link.
