@@ -23,11 +23,13 @@ are all named in `appdb.go`. `NewID()` mints UUIDv7; `ValidateUUID` accepts only
 
 **`app/paths.go` names every path under the three directories** (its doc comment
 is the tree). Each owner gets its own `Paths` (`cluster.Paths`, `bash.Paths`), naming no other.
-**Each subtree has one owner**, which makes it 0700, sweeps and removes it. `makeDirs` makes the
-data and cache 0700, and the app folder above them (`layout.MakeOwnerOnly`). Every folder
-`Config.Layout` names is fenced (`bash.Paths.DeniedDirs`), the host's included, and a subfolder
-linked at start ([ADR](../docs/adr/2026-11-22-a-linked-subfolder-of-kstacks-directories-is-fenced.md)).
-→ [ADR: each file in the platform's directory for its
+**Each subtree has one owner**, which makes it 0700, sweeps and removes it.
+
+**`app.ResolveFolders` follows links once, before the log opens**, checks the layout, then
+makes the data and cache 0700. `Config.Folders` is resolved and fenced (`DeniedDirs`);
+`makeSubfolders` refuses a linked subfolder; nothing writes a link's parent. →
+[ADR](../docs/adr/2026-11-24-follow-a-link-to-a-kstack-folder-once-at-start-and-refuse-one-below-it.md),
+[ADR: each file in the platform's directory for its
 kind](../docs/adr/2026-09-27-kstacks-files-follow-the-platforms-directory-kinds.md).
 
 **One sidecar per data directory.** `build` locks `<data>/sidecar.lock` (`internal/lib/filelock`:

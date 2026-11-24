@@ -295,13 +295,13 @@ All tasks start Planned.
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | Measure a run's socket path under a resolved `$TMPDIR` on macOS, the four rows, and shorten the names below `runs`. | Planned |
-| 2 | `lib/realpath`: `Followed`, `Relation` and their tests. | Planned |
-| 3 | `app/layout`, `app`, `sidecar/main.go`: `Resolve`, `ResolveRuntime`, `ResolveFolders`, `Config.Folders`, `testFolders`, and the layout check. | Planned |
-| 4 | `app`, `lib/rootdir`: the subfolders made under a root at start; `sub` removed. | Planned |
-| 5 | `services/settings`, `run/sandbox`, `graph`: the link parents. | Planned |
-| 6 | The Windows tests of "link", in Go and Rust, and the OneDrive check, recorded. | Planned |
-| 7 | The ADR, the security record and the docs below. | Planned |
+| 1 | Measure a run's socket path under a resolved `$TMPDIR` on macOS, the four rows, and shorten the names below `runs`. | Built: the socket is `px`; the rows are pinned by `TestTheSocketPathFitsUnderAResolvedTMPDIR`, not yet measured on a Mac |
+| 2 | `lib/realpath`: `Followed`, `Relation` and their tests. | Built |
+| 3 | `app/layout`, `app`, `sidecar/main.go`: `Resolve`, `ResolveRuntime`, `ResolveFolders`, `Config.Folders`, `testFolders`, and the layout check. | Built |
+| 4 | `app`, `lib/rootdir`: the subfolders made under a root at start; `sub` removed. | Built |
+| 5 | `services/settings`, `run/sandbox`, `graph`: the link parents. | Built |
+| 6 | The Windows tests of "link", in Go and Rust, and the OneDrive check, recorded. | In progress: the tests are built; the OneDrive check is open |
+| 7 | The ADR, the security record and the docs below. | Built |
 
 ## When it lands
 

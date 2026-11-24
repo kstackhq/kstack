@@ -2,7 +2,7 @@
 title: Fence a linked subfolder of Kstack's directories
 date: 2026-11-22
 scope: sidecar
-status: Accepted
+status: Superseded by [2026-11-24-follow-a-link-to-a-kstack-folder-once-at-start-and-refuse-one-below-it](2026-11-24-follow-a-link-to-a-kstack-folder-once-at-start-and-refuse-one-below-it.md)
 ---
 
 # Fence a linked subfolder of Kstack's directories
