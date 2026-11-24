@@ -7,7 +7,7 @@
 #   always                     lint-md, lint-claude-md, lint-markers, cover-changed, then
 #                              test-changed for what cover-changed did not test
 #   sidecar/, cli/, tools/     lint-go, vet-go-changed
-#   src-tauri/, proto/         lint-rust, vet-rust
+#   src-tauri/, proto/, the layout fixture  lint-rust, vet-rust
 #   the webview and its config lint-ts, lint-tailwind
 #   design/, tools/designsync/, lint-design
 #   src/components/, layouts/,
@@ -40,7 +40,7 @@ cd "$(dirname "$0")/.."
 jobs=(lint-md lint-claude-md lint-markers)
 tests="cover-changed test-changed"
 if has '^(sidecar|cli|tools)/'; then jobs+=(lint-go vet-go-changed); fi
-if has '^(src-tauri|proto)/'; then
+if rust_changed; then
   jobs+=(lint-rust)
   tests="vet-rust $tests"
 fi

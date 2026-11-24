@@ -39,6 +39,10 @@ changed=$({
 
 has() { grep -qE "$1" <<<"$changed"; }
 
+# rust_changed: whether the host's suite has an input that changed. The
+# layout fixture sits in the sidecar's module, which Go's test cache tracks.
+rust_changed() { has '^(src-tauri|proto)/|^sidecar/internal/app/layout/testdata/'; }
+
 # A deleted file has nothing to check, and vitest refuses a path that isn't there.
 existing() { while read -r f; do [ -e "$f" ] && echo "$f"; done; }
 
@@ -58,10 +62,15 @@ vitest_scope() {
   [ -z "$js" ] || echo "related --run --passWithNoTests $js"
 }
 
-# go_dirs <mod>: the module's packages with a changed Go file, as ./<dir>. A
-# go.mod or go.sum change adds none: CI checks every package.
+# go_dirs <mod>: the module's packages with a changed Go file, as ./<dir>,
+# a deleted file's surviving package included. A go.mod or go.sum change adds
+# none: CI checks every package. A change to the layout fixture (testdata/)
+# checks the layout package too.
 go_dirs() {
-  grep -E "^$1/.*\.go$" <<<"$changed" | xargs -r -n1 dirname | sort -u | existing | sed "s|^$1|.|" || true
+  {
+    grep -E "^$1/.*\.go$" <<<"$changed" | xargs -r -n1 dirname
+    if [ "$1" = sidecar ] && has '^sidecar/internal/app/layout/testdata/'; then echo sidecar/internal/app/layout; fi
+  } | sort -u | existing | sed "s|^$1|.|" || true
 }
 
 # go_files <mod> <env> <pkg...>: each Go file the packages build under the

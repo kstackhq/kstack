@@ -12,7 +12,7 @@
 #   JS    the tests vitest relates to the changed files in src/ and lint/, or
 #         the whole suite when the toolchain changed. A changed file no test
 #         imports is listed whole.
-#   Rust  the whole suite, when src-tauri/ or proto/ changed. Uses the
+#   Rust  the whole suite, when its inputs changed (rust_changed). Uses the
 #         cargo-llvm-cov on PATH when it is the pinned version; otherwise
 #         downloads the release's prebuilt binary into the user cache, checked
 #         against its SHA-256.
@@ -185,7 +185,7 @@ fetch_llvm_cov() {
   PATH=$bin:$PATH
 }
 
-if has '^(src-tauri|proto)/'; then
+if rust_changed; then
   if [ "$(cd src-tauri && cargo llvm-cov --version 2>/dev/null || true)" != "cargo-llvm-cov $llvm_cov_version" ]; then
     fetch_llvm_cov
   fi

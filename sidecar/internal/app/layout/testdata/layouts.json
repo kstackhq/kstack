@@ -1,0 +1,185 @@
+[
+  {
+    "name": "linux dev",
+    "platform": "linux",
+    "dev": true,
+    "roots": {
+      "config": "/home/x/.config",
+      "local_data": "/home/x/.local/share",
+      "cache": "/home/x/.cache",
+      "home": "/home/x",
+      "state": "/home/x/.local/state"
+    },
+    "layout": {
+      "data": "/home/x/.local/share/kstack-dev",
+      "config": "/home/x/.config/kstack-dev",
+      "state": "/home/x/.local/state/kstack-dev",
+      "cache": "/home/x/.cache/kstack-dev",
+      "logs": "/home/x/.local/state/kstack-dev/logs"
+    }
+  },
+  {
+    "name": "linux release",
+    "platform": "linux",
+    "dev": false,
+    "roots": {
+      "config": "/home/x/.config",
+      "local_data": "/home/x/.local/share",
+      "cache": "/home/x/.cache",
+      "home": "/home/x",
+      "state": "/home/x/.local/state"
+    },
+    "layout": {
+      "data": "/home/x/.local/share/kstack",
+      "config": "/home/x/.config/kstack",
+      "state": "/home/x/.local/state/kstack",
+      "cache": "/home/x/.cache/kstack",
+      "logs": "/home/x/.local/state/kstack/logs"
+    }
+  },
+  {
+    "name": "macos dev",
+    "platform": "macos",
+    "dev": true,
+    "roots": {
+      "config": "/Users/x/Library/Application Support",
+      "local_data": "/Users/x/Library/Application Support",
+      "cache": "/Users/x/Library/Caches",
+      "home": "/Users/x",
+      "state": "/Users/x/.local/state"
+    },
+    "layout": {
+      "app": "/Users/x/Library/Application Support/Kstack-dev",
+      "data": "/Users/x/Library/Application Support/Kstack-dev/data",
+      "config": "/Users/x/Library/Application Support/Kstack-dev/config",
+      "state": "/Users/x/Library/Application Support/Kstack-dev/state",
+      "cache": "/Users/x/Library/Caches/Kstack-dev",
+      "logs": "/Users/x/Library/Logs/Kstack-dev"
+    }
+  },
+  {
+    "name": "macos release",
+    "platform": "macos",
+    "dev": false,
+    "roots": {
+      "config": "/Users/x/Library/Application Support",
+      "local_data": "/Users/x/Library/Application Support",
+      "cache": "/Users/x/Library/Caches",
+      "home": "/Users/x",
+      "state": "/Users/x/.local/state"
+    },
+    "layout": {
+      "app": "/Users/x/Library/Application Support/Kstack",
+      "data": "/Users/x/Library/Application Support/Kstack/data",
+      "config": "/Users/x/Library/Application Support/Kstack/config",
+      "state": "/Users/x/Library/Application Support/Kstack/state",
+      "cache": "/Users/x/Library/Caches/Kstack",
+      "logs": "/Users/x/Library/Logs/Kstack"
+    }
+  },
+  {
+    "name": "macos dev, no config root",
+    "platform": "macos",
+    "dev": true,
+    "roots": {
+      "config": null,
+      "local_data": "/Users/x/Library/Application Support",
+      "cache": "/Users/x/Library/Caches",
+      "home": "/Users/x",
+      "state": "/Users/x/.local/state"
+    },
+    "layout": {
+      "app": "/Users/x/Library/Application Support/Kstack-dev",
+      "data": "/Users/x/Library/Application Support/Kstack-dev/data",
+      "state": "/Users/x/Library/Application Support/Kstack-dev/state",
+      "cache": "/Users/x/Library/Caches/Kstack-dev",
+      "logs": "/Users/x/Library/Logs/Kstack-dev"
+    }
+  },
+  {
+    "name": "windows dev",
+    "platform": "windows",
+    "dev": true,
+    "roots": {
+      "config": "C:/Users/x/AppData/Roaming",
+      "local_data": "C:/Users/x/AppData/Local",
+      "cache": "C:/Users/x/AppData/Local",
+      "home": "C:/Users/x",
+      "state": "C:/Users/x/.local/state"
+    },
+    "layout": {
+      "app": "C:/Users/x/AppData/Local/Kstack-dev",
+      "config_app": "C:/Users/x/AppData/Roaming/Kstack-dev",
+      "data": "C:/Users/x/AppData/Local/Kstack-dev/data",
+      "config": "C:/Users/x/AppData/Roaming/Kstack-dev/config",
+      "state": "C:/Users/x/AppData/Local/Kstack-dev/state",
+      "cache": "C:/Users/x/AppData/Local/Kstack-dev/cache",
+      "logs": "C:/Users/x/AppData/Local/Kstack-dev/state/logs",
+      "runtime": "C:/Users/x/AppData/Local/Kstack-dev/run"
+    }
+  },
+  {
+    "name": "windows release",
+    "platform": "windows",
+    "dev": false,
+    "roots": {
+      "config": "C:/Users/x/AppData/Roaming",
+      "local_data": "C:/Users/x/AppData/Local",
+      "cache": "C:/Users/x/AppData/Local",
+      "home": "C:/Users/x",
+      "state": "C:/Users/x/.local/state"
+    },
+    "layout": {
+      "app": "C:/Users/x/AppData/Local/Kstack",
+      "config_app": "C:/Users/x/AppData/Roaming/Kstack",
+      "data": "C:/Users/x/AppData/Local/Kstack/data",
+      "config": "C:/Users/x/AppData/Roaming/Kstack/config",
+      "state": "C:/Users/x/AppData/Local/Kstack/state",
+      "cache": "C:/Users/x/AppData/Local/Kstack/cache",
+      "logs": "C:/Users/x/AppData/Local/Kstack/state/logs",
+      "runtime": "C:/Users/x/AppData/Local/Kstack/run"
+    }
+  },
+  {
+    "name": "windows dev, roaming root is the local one",
+    "platform": "windows",
+    "dev": true,
+    "roots": {
+      "config": "C:/Users/x/AppData/Local",
+      "local_data": "C:/Users/x/AppData/Local",
+      "cache": "C:/Users/x/AppData/Local",
+      "home": "C:/Users/x",
+      "state": "C:/Users/x/.local/state"
+    },
+    "layout": {
+      "app": "C:/Users/x/AppData/Local/Kstack-dev",
+      "config_app": "C:/Users/x/AppData/Local/Kstack-dev",
+      "data": "C:/Users/x/AppData/Local/Kstack-dev/data",
+      "config": "C:/Users/x/AppData/Local/Kstack-dev/config",
+      "state": "C:/Users/x/AppData/Local/Kstack-dev/state",
+      "cache": "C:/Users/x/AppData/Local/Kstack-dev/cache",
+      "logs": "C:/Users/x/AppData/Local/Kstack-dev/state/logs",
+      "runtime": "C:/Users/x/AppData/Local/Kstack-dev/run"
+    }
+  },
+  {
+    "name": "windows dev, no roaming root",
+    "platform": "windows",
+    "dev": true,
+    "roots": {
+      "config": null,
+      "local_data": "C:/Users/x/AppData/Local",
+      "cache": "C:/Users/x/AppData/Local",
+      "home": "C:/Users/x",
+      "state": "C:/Users/x/.local/state"
+    },
+    "layout": {
+      "app": "C:/Users/x/AppData/Local/Kstack-dev",
+      "data": "C:/Users/x/AppData/Local/Kstack-dev/data",
+      "state": "C:/Users/x/AppData/Local/Kstack-dev/state",
+      "cache": "C:/Users/x/AppData/Local/Kstack-dev/cache",
+      "logs": "C:/Users/x/AppData/Local/Kstack-dev/state/logs",
+      "runtime": "C:/Users/x/AppData/Local/Kstack-dev/run"
+    }
+  }
+]

@@ -28,6 +28,7 @@ use crate::error::{AppError, Result};
 /// The platform a layout is for. Each platform's [`layout`] is a pure function
 /// of it, so every platform's paths are tested on every OS.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(test, derive(serde::Deserialize), serde(rename_all = "lowercase"))]
 enum Platform {
     Linux,
     MacOs,
@@ -45,32 +46,23 @@ impl Platform {
     };
 }
 
-/// The leaf each of Kstack's directories takes under its platform root. Debug
-/// builds use a `-dev` sibling so a dev run never collides with an installed
-/// release. Linux names folders in lowercase; macOS and Windows show the
-/// product name.
-const fn app_dir_name(platform: Platform) -> &'static str {
-    match platform {
-        Platform::Linux => LOWERCASE_APP_DIR_NAME,
-        Platform::MacOs | Platform::Windows => PRODUCT_APP_DIR_NAME,
+/// The leaf each of Kstack's directories takes under its platform root. A
+/// dev build uses a `-dev` sibling so a dev run never collides with an
+/// installed release. Linux names folders in lowercase; macOS and Windows show
+/// the product name.
+const fn app_dir_name(platform: Platform, dev: bool) -> &'static str {
+    match (platform, dev) {
+        (Platform::Linux, true) => "kstack-dev",
+        (Platform::Linux, false) => "kstack",
+        (Platform::MacOs | Platform::Windows, true) => "Kstack-dev",
+        (Platform::MacOs | Platform::Windows, false) => "Kstack",
     }
 }
 
-const LOWERCASE_APP_DIR_NAME: &str = if cfg!(debug_assertions) {
-    "kstack-dev"
-} else {
-    "kstack"
-};
-
-const PRODUCT_APP_DIR_NAME: &str = if cfg!(debug_assertions) {
-    "Kstack-dev"
-} else {
-    "Kstack"
-};
-
 /// Where each kind of directory sits on one platform, whether or not it
 /// could be made.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(test, derive(serde::Deserialize), serde(deny_unknown_fields))]
 struct Layout {
     /// The folder macOS and Windows keep several kinds in. `None` on Linux,
     /// where each kind has a root. A per-user Windows install puts the
@@ -104,8 +96,8 @@ struct Layout {
 ///   Linux. The config roams, in `%APPDATA%`, as a subfolder of the leaf
 ///   there: were that root the local data root, the config would still be a
 ///   sibling of the other kinds.
-fn layout(platform: Platform, roots: &Roots) -> Layout {
-    let leaf = app_dir_name(platform);
+fn layout_for(platform: Platform, dev: bool, roots: &Roots) -> Layout {
+    let leaf = app_dir_name(platform, dev);
     let app = roots.local_data.join(leaf);
     match platform {
         Platform::Linux => {
@@ -149,6 +141,11 @@ fn layout(platform: Platform, roots: &Roots) -> Layout {
     }
 }
 
+/// `platform`'s layout for this build's profile.
+fn layout(platform: Platform, roots: &Roots) -> Layout {
+    layout_for(platform, cfg!(debug_assertions), roots)
+}
+
 /// This platform's layout.
 fn current_layout(roots: &Roots) -> Layout {
     layout(Platform::CURRENT, roots)
@@ -156,7 +153,9 @@ fn current_layout(roots: &Roots) -> Layout {
 
 /// The platform directories Kstack's own hang off, resolved once from the
 /// app. A test builds one over a scratch directory: Tauri's directory override
-/// does not reach these.
+/// does not reach these. The sidecar reads the same roots from the
+/// environment (`sidecar/internal/app/layout`).
+#[cfg_attr(test, derive(serde::Deserialize), serde(deny_unknown_fields))]
 pub struct Roots {
     /// `None` when the platform cannot name one: the preferences are then
     /// unavailable, never a failed launch.
@@ -1143,10 +1142,41 @@ mod tests {
         }
     }
 
+    /// One case of `sidecar/internal/app/layout/testdata/layouts.json`, which the sidecar's
+    /// `layout` package reads too, so the two layouts cannot drift.
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct LayoutCase {
+        name: String,
+        platform: Platform,
+        dev: bool,
+        roots: Roots,
+        layout: Layout,
+    }
+
+    #[test]
+    fn each_platforms_layout_is_the_fixtures() {
+        let cases: Vec<LayoutCase> = serde_json::from_str(include_str!(
+            "../../sidecar/internal/app/layout/testdata/layouts.json"
+        ))
+        .unwrap();
+        for case in &cases {
+            assert_eq!(
+                layout_for(case.platform, case.dev, &case.roots),
+                case.layout,
+                "{}",
+                case.name
+            );
+        }
+        for platform in [Platform::Linux, Platform::MacOs, Platform::Windows] {
+            assert!(cases.iter().any(|case| case.platform == platform));
+        }
+    }
+
     #[test]
     fn linux_gives_each_kind_a_leaf_on_its_own_root() {
         let roots = platform_roots(Platform::Linux);
-        let leaf = app_dir_name(Platform::Linux);
+        let leaf = app_dir_name(Platform::Linux, cfg!(debug_assertions));
 
         let layout = layout(Platform::Linux, &roots);
 
@@ -1167,7 +1197,7 @@ mod tests {
     #[test]
     fn macos_keeps_data_config_and_state_in_one_app_folder() {
         let roots = platform_roots(Platform::MacOs);
-        let leaf = app_dir_name(Platform::MacOs);
+        let leaf = app_dir_name(Platform::MacOs, cfg!(debug_assertions));
         let app = roots.local_data.join(leaf);
 
         let layout = layout(Platform::MacOs, &roots);
@@ -1188,7 +1218,9 @@ mod tests {
     #[test]
     fn macos_config_follows_the_app_folder() {
         let mut roots = platform_roots(Platform::MacOs);
-        let app = roots.local_data.join(app_dir_name(Platform::MacOs));
+        let app = roots
+            .local_data
+            .join(app_dir_name(Platform::MacOs, cfg!(debug_assertions)));
 
         roots.config = Some(PathBuf::from("/Users/x/elsewhere"));
         assert_eq!(
@@ -1248,7 +1280,7 @@ mod tests {
     #[test]
     fn windows_keeps_every_local_kind_side_by_side_in_one_app_folder() {
         let roots = platform_roots(Platform::Windows);
-        let leaf = app_dir_name(Platform::Windows);
+        let leaf = app_dir_name(Platform::Windows, cfg!(debug_assertions));
         let app = roots.local_data.join(leaf);
 
         let layout = layout(Platform::Windows, &roots);
@@ -1278,7 +1310,9 @@ mod tests {
     #[test]
     fn windows_config_on_the_local_root_is_a_subfolder_of_the_app_folder() {
         let roots = windows_shared_roots();
-        let app = roots.local_data.join(app_dir_name(Platform::Windows));
+        let app = roots
+            .local_data
+            .join(app_dir_name(Platform::Windows, cfg!(debug_assertions)));
 
         let layout = layout(Platform::Windows, &roots);
 

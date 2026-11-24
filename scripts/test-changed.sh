@@ -7,7 +7,8 @@
 #         using it. A change to the toolchain runs it all.
 #   Go    the packages with a changed Go file, in sidecar/ and cli/. A go.mod
 #         or go.sum change alone runs none. tools/ runs whole.
-#   Rust  the whole suite, and only when src-tauri/ or proto/ changed: it builds
+#   Rust  the whole suite, and only when its inputs changed (rust_changed in
+#         scripts/changed.sh): it builds
 #         the sidecar first, and is the slowest of the three.
 #
 # MEASURED=1 skips the suites scripts/cover-changed.sh runs, since its coverage
@@ -39,6 +40,6 @@ if has '^tools/'; then
   (cd tools && go test ./...)
 fi
 
-if has '^(src-tauri|proto)/' && [ "${MEASURED:-}" != 1 ]; then
+if rust_changed && [ "${MEASURED:-}" != 1 ]; then
   make test-rust
 fi

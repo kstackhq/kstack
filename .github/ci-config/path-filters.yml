@@ -26,6 +26,7 @@ rust:
   - *shared
   - .github/actions/stub-sidecar/**
   - proto/**
+  - sidecar/internal/app/layout/testdata/**
   - src-tauri/**
   - tools/coverignore/**
 typescript:
