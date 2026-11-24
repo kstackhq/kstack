@@ -260,7 +260,7 @@ turn](../../../docs/security/2026-09-22-bash-offered-to-every-turn.md).
 [Bash runs in a sandbox](../../../docs/security/2026-09-28-bash-runs-in-a-sandbox.md), [a run cannot
 replace its own paths](../../../docs/security/2026-09-30-a-run-cannot-replace-its-own-paths.md).
 
-- Its directory (`<runtime>/runs/<pid>-*`) holds `kubeconfig` and `proxy.sock` outside the
+- Its directory (`<runtime>/runs/<pid>-*`) holds `kubeconfig` and `px`, the forwarder's socket, outside the
   workspace; a socket path must fit (`checkSocketPath`). `TMPDIR` is `<cache>/tmp/<pid>-*`, on
   macOS seeded with xcrun's cache → [record](../../../docs/security/2026-09-30-a-run-starts-with-xcruns-cache.md).
   A gone sidecar's entries are swept by its lock → [ADR](../../../docs/adr/2026-10-17-a-run-directory-is-reclaimed-by-its-sidecars-lock.md).

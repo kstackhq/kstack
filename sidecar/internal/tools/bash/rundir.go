@@ -30,8 +30,10 @@ const (
 	// maxRunDirName is the longest name a run's directory can have: a pid of up
 	// to 7 digits, - and MkdirTemp's suffix of up to 10.
 	maxRunDirName = 7 + len("-") + 10
-	// socketName is the forwarder's socket in a run's directory.
-	socketName = "proxy.sock"
+	// socketName is the forwarder's socket in a run's directory, as short as a
+	// name gets: on macOS a socket's path can be at most 103 bytes, and the
+	// runtime folder above it is resolved, under /private/var.
+	socketName = "px"
 )
 
 // runDir is one sandboxed run's own directories, each 0700 and named for the
@@ -43,7 +45,7 @@ const (
 // its TMPDIR and the one directory of its own the command may write: on disk,
 // so a command fills it no further than it can fill its workspace.
 type runDir struct {
-	path string // under the runs directory as it was given, never resolved
+	path string // under the runs directory
 	tmp  string
 }
 
@@ -87,9 +89,8 @@ func newRunDir(runsDir, tmpDir string, pid int) (*runDir, error) {
 }
 
 // checkSocketPath refuses a runs directory under which the longest run's
-// socket path would pass what Go binds. The path is taken as given, never
-// resolved: on macOS the per-user temp directory is under /var, a link to the
-// longer /private/var.
+// socket path would pass what Go binds. The runs directory is under the
+// resolved runtime folder, so on macOS it is under /private/var, not /var.
 func checkSocketPath(runs string) error {
 	if n := len(runs) + len("/") + maxRunDirName + len("/"+socketName); n > maxSocketPath {
 		return fmt.Errorf("the runs directory %s is too long: a run's socket would be %d bytes under it, and a socket's path can be at most %d", runs, n, maxSocketPath)
