@@ -31,10 +31,10 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	require.FileExists(t, path)
 
-	// Migrations ran: the schema_migrations sequence is at version 6.
+	// Migrations ran: the schema_migrations sequence is at version 7.
 	var v int
 	require.NoError(t, db.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 6, v)
+	require.Equal(t, 7, v)
 	requireTables(t, db.Write.DB)
 	require.NoError(t, db.Close())
 
@@ -43,7 +43,7 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db2.Close() })
 	require.NoError(t, db2.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 6, v)
+	require.Equal(t, 7, v)
 	requireTables(t, db2.Write.DB)
 }
 
@@ -156,6 +156,7 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"memories wr=0 strict=1",
 		"messages wr=0 strict=1",
 		"oauth_connections wr=1 strict=1",
+		"sandbox_settings wr=0 strict=1",
 		"tool_calls wr=0 strict=1",
 		"tool_settings wr=0 strict=1",
 	}, tables)
@@ -417,6 +418,7 @@ var shippedMigrations = map[string]string{
 	"0004_env_vars.sql":               "d1b78060708e5ea46b55f65d43136c935d6166eb35358b7d92c5bc72a1231d86",
 	"0005_tool_settings.sql":          "286b5254057d5a29b9824f54136c3df82c039c06e94b014510b19a0ce9f9991c",
 	"0006_permissions.sql":            "fcf66896d5722db356388cd1a3cbb730b953883042d57abc0cd399aca02447bd",
+	"0007_sandbox_settings.sql":       "db603bed30aedfd2566805aa639bc4f8a98d199ca8da34d28c996227d1775a0b",
 }
 
 func TestAShippedMigrationIsNeverEdited(t *testing.T) {
@@ -758,4 +760,115 @@ func TestMigration0006AddsThePermissionTables(t *testing.T) {
 	assert.Zero(t, count(`approval_modes`), "a cluster's mode goes with it")
 	assert.Zero(t, count(`kube_rules WHERE cluster_id IS NOT NULL`), "a cluster's rules go with it")
 	assert.Equal(t, 1, count(`kube_rules`), "a rule for every cluster stays")
+}
+
+// 0007 keeps every earlier table's rows as they were and adds
+// sandbox_settings with its one row, every switch on.
+func TestMigration0007AddsTheSandboxSettings(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "app.db")
+	frozen := fstest.MapFS{}
+	for _, name := range []string{"0001_init.sql", "0002_oauth_connections.sql", "0003_oauth_connections_name.sql", "0004_env_vars.sql", "0005_tool_settings.sql", "0006_permissions.sql"} {
+		data, err := fs.ReadFile(migrationsFS, "migrations/"+name)
+		require.NoError(t, err)
+		frozen["migrations/"+name] = &fstest.MapFile{Data: data}
+	}
+	pool, err := sqlitepool.OpenWriter(path)
+	require.NoError(t, err)
+	_, err = sqlitemigrate.Apply(ctx, pool.DB, frozen, "migrations")
+	require.NoError(t, err)
+	for _, seed := range []string{
+		`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('c1', 'kubeconfig', 'ctx', 1, 2)`,
+		`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('h1', 'c1', 'chat', 3, 4)`,
+		`INSERT INTO messages (id, chat_id, seq, role, content, created_at) VALUES ('u1', 'h1', 0, 'user', '[{"type":"text","text":"hi"}]', 5)`,
+		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, trigger_message_id, provider, model, dialect, created_at) VALUES ('r1', 'chat', 'dev', 'chat', 'h1', 'u1', 'p', 'm', 'fake', 6)`,
+		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l1', 'r1', 0, 'p', 'm', 7)`,
+		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, created_at) VALUES ('t1', 'l1', 0, 'Bash', 8)`,
+		`INSERT INTO approvals (id, tool_call_id, created_at) VALUES ('a1', 't1', 9)`,
+		`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, started_at) VALUES ('b1', 'h1', 't1', '/o', 'running', 10)`,
+		`INSERT INTO memories (id, cluster_id, name, body, written_by, chat_id, created_at, updated_at) VALUES ('m1', 'c1', 'n', 'b', 'model', 'h1', 11, 12)`,
+		`INSERT INTO oauth_connections (provider, created_at, updated_at) VALUES ('google', 13, 14)`,
+		`INSERT INTO env_vars (id, cluster_id, name, value, target, created_at, updated_at) VALUES ('v1', NULL, 'HELM_NAMESPACE', 'apps', 'both', 15, 16)`,
+		`INSERT INTO tool_settings (tool_name, cluster_id, enabled, updated_at) VALUES ('Bash', 'c1', 0, 17)`,
+		`INSERT INTO approval_modes (cluster_id, mode, updated_at) VALUES ('c1', 'read-only', 18)`,
+		`INSERT INTO kube_rules (id, chat_id, effect, class, cluster_id, namespace, created_at) VALUES ('k1', 'h1', 'deny', 'destructive', NULL, 'apps', 19)`,
+		`INSERT INTO folder_grants (id, chat_id, folder, access, created_at) VALUES ('f1', NULL, '/srv/code', 'write', 20)`,
+	} {
+		_, err = pool.ExecContext(ctx, seed)
+		require.NoError(t, err, seed)
+	}
+	before := tableRows(t, pool.DB)
+	require.Len(t, before, 15, "a row in every earlier table")
+	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
+
+	db, err := Open(path, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	after := tableRows(t, db.Read.DB)
+	assert.Equal(t, 1, len(after["sandbox_settings"]))
+	delete(after, "sandbox_settings")
+	assert.Equal(t, before, after, "every earlier row survives as it was")
+
+	// count is how many rows of from there are.
+	count := func(from string) int {
+		t.Helper()
+		var n int
+		require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT count(*) FROM `+from).Scan(&n))
+		return n
+	}
+
+	var aws, github, gcp, azure int
+	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT aws_enabled, github_enabled, gcp_enabled, azure_enabled FROM sandbox_settings WHERE id = 1`).
+		Scan(&aws, &github, &gcp, &azure))
+	assert.Equal(t, []int{1, 1, 1, 1}, []int{aws, github, gcp, azure}, "every switch starts on")
+	assert.Equal(t, 1, count(`sandbox_settings`))
+
+	exec := func(q string) error {
+		_, err := db.Write.ExecContext(ctx, q)
+		return err
+	}
+	assert.Error(t, exec(`INSERT INTO sandbox_settings (id, updated_at) VALUES (2, 0)`), "a second row")
+	assert.Error(t, exec(`INSERT INTO sandbox_settings (id, updated_at) VALUES (1, 0)`), "the one row again")
+	for _, column := range []string{"aws_enabled", "github_enabled", "gcp_enabled", "azure_enabled"} {
+		assert.Error(t, exec(`UPDATE sandbox_settings SET `+column+` = 2`), "%s is 0 or 1", column)
+		require.NoError(t, exec(`UPDATE sandbox_settings SET `+column+` = 0`), column)
+	}
+}
+
+// tableRows is every row of every table in db but schema_migrations, keyed by
+// table, each row its values in column order, the rows by their first column:
+// some tables have no rowid.
+func tableRows(t *testing.T, db *sql.DB) map[string][][]any {
+	t.Helper()
+	var tables []string
+	names, err := db.Query(`SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'schema_migrations'`)
+	require.NoError(t, err)
+	for names.Next() {
+		var name string
+		require.NoError(t, names.Scan(&name))
+		tables = append(tables, name)
+	}
+	require.NoError(t, names.Err())
+	require.NoError(t, names.Close())
+
+	out := map[string][][]any{}
+	for _, table := range tables {
+		rows, err := db.Query(`SELECT * FROM ` + table + ` ORDER BY 1`)
+		require.NoError(t, err, table)
+		cols, err := rows.Columns()
+		require.NoError(t, err)
+		for rows.Next() {
+			row := make([]any, len(cols))
+			ptrs := make([]any, len(cols))
+			for i := range row {
+				ptrs[i] = &row[i]
+			}
+			require.NoError(t, rows.Scan(ptrs...))
+			out[table] = append(out[table], row)
+		}
+		require.NoError(t, rows.Err())
+		require.NoError(t, rows.Close())
+	}
+	return out
 }

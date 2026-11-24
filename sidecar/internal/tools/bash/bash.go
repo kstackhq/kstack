@@ -836,7 +836,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 	r := &sandboxedRun{boxer: boxer}
 	var cluster *target
 	var port int
-	platforms := t.cloud.platformsFor(rt)
+	platforms := t.cloud.platformsFor(ctx, rt)
 	if rt.ClusterID != "" {
 		tg, err := t.target(ctx, rt.ClusterID)
 		if err != nil {
@@ -890,7 +890,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		if cluster != nil {
 			run.KubeContext = cluster.scopeContext
 		}
-		if cloudVars, err = r.proxy.mount(ctx, platforms, rt, background, run); err != nil {
+		if cloudVars, err = r.proxy.mount(ctx, t.cloud, platforms, rt, background, run); err != nil {
 			r.end()
 			return nil, err
 		}
@@ -900,7 +900,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 			return nil, err
 		}
 		socket := r.dir.socket()
-		if err := r.proxy.serve(socket, t.cloud.on, cert); err != nil {
+		if err := r.proxy.serve(socket, cert); err != nil {
 			r.end()
 			return nil, err
 		}

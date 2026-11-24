@@ -413,10 +413,10 @@ func (r *mutationResolver) SandboxCloudAccessSet(ctx context.Context, target per
 	if !slices.Contains(r.CloudTargets, target) {
 		return nil, gqlerrors.NewValidationError("sandbox-cloud", "This build has no switch for that target.")
 	}
-	if err := r.Settings.SetCloud(target, on); err != nil { // coverage:ignore a listed cloud platform has a switch, so only the file's write fails
+	if err := r.Settings.SetCloudPlatformSwitch(ctx, target, on); err != nil {
 		return nil, err
 	}
-	return r.cloudAccess(), nil
+	return r.cloudAccess(ctx)
 }
 
 // SandboxPathInclude is the resolver for the sandboxPathInclude field.
@@ -866,7 +866,7 @@ func (r *queryResolver) SettingsRefused(ctx context.Context) ([]*jsonsettings.Re
 
 // SandboxCloudAccess is the resolver for the sandboxCloudAccess field.
 func (r *queryResolver) SandboxCloudAccess(ctx context.Context) ([]*model.CloudAccess, error) {
-	return r.cloudAccess(), nil
+	return r.cloudAccess(ctx)
 }
 
 // SandboxPath is the resolver for the sandboxPath field.

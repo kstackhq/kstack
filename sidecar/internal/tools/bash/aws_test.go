@@ -56,7 +56,7 @@ func awsAs(login AWSLogin, client *http.Client) CloudPlatform {
 
 // awsMount mounts AWS on a fresh run directory at port 4100.
 func awsMount(t *testing.T, region string) (CloudMount, CloudRun) {
-	run := CloudRun{Port: 4100, Dir: t.TempDir(), Session: session.Session{Kind: session.Chat}}
+	run := CloudRun{On: switchedOn, Port: 4100, Dir: t.TempDir(), Session: session.Session{Kind: session.Chat}}
 	m, err := awsAs(fakeAWSLogin{region}, nil).Mount(t.Context(), run)
 	require.NoError(t, err)
 	t.Cleanup(m.Grant.End)
@@ -121,7 +121,7 @@ func TestTheAWSMountFollowsTheClustersProfile(t *testing.T) {
 			return fakeAWSLogin{regions[profile]}
 		}, nil)
 	mount := func(kubeContext string) (CloudMount, string) {
-		run := CloudRun{Port: 4100, Dir: t.TempDir(), KubeContext: kubeContext, Session: session.Session{Kind: session.Chat}}
+		run := CloudRun{On: switchedOn, Port: 4100, Dir: t.TempDir(), KubeContext: kubeContext, Session: session.Session{Kind: session.Chat}}
 		m, err := platform.Mount(t.Context(), run)
 		require.NoError(t, err)
 		t.Cleanup(m.Grant.End)
@@ -162,7 +162,7 @@ func TestEachProfileHasItsOwnLoginAndBuckets(t *testing.T) {
 
 // A run directory that already holds an aws folder fails the mount.
 func TestAnAWSFolderAlreadyThereFailsTheMount(t *testing.T) {
-	run := CloudRun{Port: 4100, Dir: t.TempDir()}
+	run := CloudRun{On: switchedOn, Port: 4100, Dir: t.TempDir()}
 	require.NoError(t, os.Mkdir(filepath.Join(run.Dir, "aws"), 0o700))
 	_, err := awsAs(fakeAWSLogin{"eu-west-1"}, nil).Mount(t.Context(), run)
 	assert.ErrorIs(t, err, fs.ErrExist)
@@ -185,7 +185,7 @@ func (l hungLogin) Region() string {
 func TestAMountAbandonsAHungRegionRead(t *testing.T) {
 	login := hungLogin{release: make(chan struct{})}
 	t.Cleanup(func() { close(login.release) })
-	run := CloudRun{Port: 4100, Dir: t.TempDir()}
+	run := CloudRun{On: switchedOn, Port: 4100, Dir: t.TempDir()}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	mounted := make(chan error, 1)

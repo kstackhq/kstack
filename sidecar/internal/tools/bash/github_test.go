@@ -46,6 +46,7 @@ func TestGitHubsMountWritesItsFilesAndVariables(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	m, err := newTestGitHub(githubproxy.GitHub()).Mount(t.Context(), CloudRun{
+		On:   switchedOn,
 		Port: 6443, Dir: dir, Session: session.Session{Kind: session.Chat}, Refusal: "kstack: no",
 	})
 	require.NoError(t, err)
@@ -102,7 +103,7 @@ func TestAGitHubMountThatCannotWriteFails(t *testing.T) {
 	for _, planted := range []string{"gitconfig", "gh"} {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, planted), nil, 0o600))
-		_, err := newTestGitHub(githubproxy.GitHub()).Mount(t.Context(), CloudRun{Port: 6443, Dir: dir, Session: session.Session{Kind: session.Chat}})
+		_, err := newTestGitHub(githubproxy.GitHub()).Mount(t.Context(), CloudRun{On: switchedOn, Port: 6443, Dir: dir, Session: session.Session{Kind: session.Chat}})
 		assert.Error(t, err, planted)
 	}
 }

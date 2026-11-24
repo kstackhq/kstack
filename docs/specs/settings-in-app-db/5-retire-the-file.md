@@ -44,6 +44,9 @@ All tasks start Planned.
   their "the user must be able to edit by hand" and "nothing can move it into `app.db`" no
   longer apply. It records that `settings.json` and `chat_grants` were dropped without an
   import, by the maintainer's decision, and what an install lost.
+- **ADR** [every cloud platform is on until the user turns it off](../../adr/2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md):
+  its "a refused value reads off" describes `strictest`. Amend it to say a failed read of
+  `sandbox_settings` reads off.
 - **`CLAUDE.md`**: `sidecar/internal/services/settings/CLAUDE.md` opens with the tables, not the
   file; update the `settings.json` lines in `sidecar/CLAUDE.md`.
 - **[`persisted-data.md`](../../persisted-data.md)**: remove the *Sidecar settings* row and the

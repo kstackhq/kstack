@@ -1,8 +1,9 @@
 # internal/services/settings — the user's settings
 
-**`<data>/settings.json` is the user's settings but the permissions**: 0600 through `atomicjson`,
-in the data directory no sandboxed command reads, never synced. Keys are grouped by area
-(`sandbox`, then `executables`), `schemaVersion` 1; an old `permissions` group is kept, unread. `Settings` mirrors it; `Store` wraps
+**`<data>/settings.json` is the user's settings but the permissions and the cloud platform
+switches**: 0600 through `atomicjson`, in the data directory no sandboxed command reads, never
+synced. Keys are grouped by area (`sandbox`, then `executables`), `schemaVersion` 1; the old
+`permissions` group and cloud switches are kept, unread. `Settings` mirrors it; `Store` wraps
 `jsonsettings.Store[Settings]` (`Get`, `Update`, `Subscribe` current-on-subscribe, `Held`,
 `Refused`). **A field's key is dotted inside its group** (`sandbox.path`); every `Field*`
 constant spells one, and `Held`, `Update`'s `fields`, a `Refusal` and the wire all use it. →
@@ -85,9 +86,8 @@ record](../../../../docs/security/2026-10-04-path-grants.md).
 `CuratedExecutables`. `CheckExecutable` is the one shape check, on register and on read-back. An
 executable only widens what is probed, so the read-back drops a refused one and holds nothing.
 
-**`sandbox.aws`, `sandbox.github`, `sandbox.gcp` and `sandbox.azure` are each cloud platform's
-switch** (`cloud.go`, `cloudSwitch`), a `*bool`: unset is on, `false` off. Off restricts, so
-`strictest` holds a refused value as `false`. →
-[ADR](../../../../docs/adr/2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md). `CloudOn` reads one; `SetCloud` writes one, naming its
-field, and refuses `Cluster` (`ErrNoCloudSwitch`). A switch whose cloud platform the build lacks is
-read by nothing.
+**The cloud platform switches are `sandbox_settings`' one row** (`cloudplatform.go`), each on by
+default ([ADR](../../../../docs/adr/2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md)).
+`CloudPlatformSwitches` reads the row; a missing one is `ErrNoSandboxSettings`. A failed read is
+off everywhere but Settings, which answers the error. `SetCloudPlatformSwitch` never inserts the
+row, which would turn the others on. Nothing watches the switches.

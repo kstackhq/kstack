@@ -281,7 +281,7 @@ the SDK runs that one with the sidecar's own. The package is built for Unix alon
 
 **The user's Google access token, for `run/gcpproxy`.** `Source` runs `gcloud config config-helper`
 off the sidecar's `PATH`, as `gke-gcloud-auth-plugin` does: no earlier than a run's mount with
-`sandbox.gcp` on. It holds the token until a minute before expiry and a failure for 30 s, shares one
+Google Cloud's switch on. It holds the token until a minute before expiry and a failure for 30 s, shares one
 run among callers, and registers the token with `safe` until it expires. The read after a `Drop`
 forces gcloud to refresh, which otherwise answers its own cached token. Its stderr is never read.
 → [ADR](../docs/adr/2026-11-17-google-cloud-is-reached-with-the-active-gcloud-accounts-token.md).

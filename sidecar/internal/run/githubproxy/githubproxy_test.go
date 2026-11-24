@@ -29,6 +29,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -139,6 +140,7 @@ type harness struct {
 	git, api *upstream
 	tokens   *fakeTokens
 	grant    *runproxy.Grant
+	off      atomic.Bool // the grant's switch, on until a test turns it off
 	front    *httptest.Server
 }
 
@@ -149,7 +151,7 @@ func newHarness(t *testing.T, asker runproxy.Asker) *harness {
 
 func newHarnessWith(t *testing.T, asker runproxy.Asker, limits runproxy.Limits) *harness {
 	h := &harness{git: newUpstream(t), api: newUpstream(t), tokens: &fakeTokens{token: "users-own-token"}}
-	h.grant = runproxy.NewGrant(permissions.GitHub, session.Session{Kind: session.Chat}, asker, "kstack: nobody can be asked.", limits)
+	h.grant = runproxy.NewGrant(permissions.GitHub, func(context.Context) bool { return !h.off.Load() }, session.Session{Kind: session.Chat}, asker, "kstack: nobody can be asked.", limits)
 	t.Cleanup(h.grant.End)
 	client := h.git.srv.Client()
 	pool := client.Transport.(*http.Transport).TLSClientConfig.RootCAs
@@ -213,6 +215,18 @@ const (
 	apiURL = "http://" + APIHost
 	gitURL = "http://" + GitHost
 )
+
+// With the switch off, a request with the grant's token is refused 401, never
+// challenged, and nothing reaches GitHub.
+func TestASwitchedOffPlatformIsUnauthorized(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	h.off.Store(true)
+	resp, _ := h.do(t, http.MethodGet, apiURL+"/user", "", nil)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Empty(t, resp.Header.Get("Proxy-Authenticate"))
+	assert.Empty(t, h.api.seen)
+}
 
 func TestARequestWithoutTheGrantsTokenIsChallenged(t *testing.T) {
 	t.Parallel()

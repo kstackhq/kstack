@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -100,6 +101,7 @@ type received struct {
 type fixture struct {
 	t        *testing.T
 	grant    *runproxy.Grant
+	off      atomic.Bool // the grant's switch, on until a test turns it off
 	id       *identity
 	asker    *asker
 	buckets  *Buckets
@@ -115,7 +117,7 @@ func newFixture(t *testing.T) *fixture {
 		asker:  &asker{approve: true, asked: make(chan runproxy.Request, 8)},
 		answer: func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") },
 	}
-	f.grant = runproxy.NewGrant(permissions.AWS, session.Session{Kind: session.Chat}, f.asker, "",
+	f.grant = runproxy.NewGrant(permissions.AWS, func(context.Context) bool { return !f.off.Load() }, session.Session{Kind: session.Chat}, f.asker, "",
 		runproxy.Limits{QPS: 1000, Burst: 1000, Open: 8, Bodies: 8})
 	t.Cleanup(f.grant.End)
 	f.upstream = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -240,6 +242,15 @@ func (f *fixture) none() {
 		f.t.Fatalf("the upstream received %s %s", got.method, got.uri)
 	default:
 	}
+}
+
+// With the switch off, the run's own key id is refused 401 and nothing reaches
+// AWS.
+func TestASwitchedOffPlatformIsUnauthorized(t *testing.T) {
+	f := newFixture(t)
+	f.off.Store(true)
+	assert.Equal(t, http.StatusUnauthorized, f.serve(f.ec2()).Code)
+	f.none()
 }
 
 // Only the run's own key id opens the proxy; nothing else reaches AWS.
@@ -427,7 +438,7 @@ func TestASecretReadAsksAndIsRefusedUnderNoSecretData(t *testing.T) {
 			assert.Equal(t, http.StatusForbidden, f.serve(build(f.keyID())).Code)
 			assert.Equal(t, permissions.SecretRead, testutil.Recv(t, f.asker.asked, "the request").Action.Class)
 
-			g := runproxy.NewGrant(permissions.AWS, session.Session{Kind: session.Chat, NoSecretData: true}, f.asker, "",
+			g := runproxy.NewGrant(permissions.AWS, func(context.Context) bool { return !f.off.Load() }, session.Session{Kind: session.Chat, NoSecretData: true}, f.asker, "",
 				runproxy.Limits{QPS: 1000, Burst: 1000, Open: 8, Bodies: 8})
 			t.Cleanup(g.End)
 			w := httptest.NewRecorder()

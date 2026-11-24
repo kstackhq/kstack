@@ -28,7 +28,10 @@ beforeEach(() => {
 
 describe('useSandboxCloudAccess', () => {
   it('is undefined until the sidecar answers', () => {
-    expect(renderHook(() => useSandboxCloudAccess()).result.current).toBeUndefined();
+    expect(renderHook(() => useSandboxCloudAccess()).result.current).toEqual({
+      platforms: undefined,
+      readFailed: false,
+    });
   });
 
   it("answers the platforms sandboxed commands may reach, in the sidecar's order", () => {
@@ -42,6 +45,34 @@ describe('useSandboxCloudAccess', () => {
         ],
       },
     };
-    expect(renderHook(() => useSandboxCloudAccess()).result.current).toEqual(['AWS', 'GCP']);
+    expect(renderHook(() => useSandboxCloudAccess()).result.current).toEqual({
+      platforms: ['AWS', 'GCP'],
+      readFailed: false,
+    });
+  });
+
+  it('answers every platform off as an empty list, not a failure', () => {
+    state.current = { fetching: false, data: { sandboxCloudAccess: [{ target: 'AWS', on: false }] } };
+    expect(renderHook(() => useSandboxCloudAccess()).result.current).toEqual({ platforms: [], readFailed: false });
+  });
+
+  it('says the read failed, and answers no platforms', () => {
+    state.current = { fetching: false, error: new Error('could not read the switches') };
+    expect(renderHook(() => useSandboxCloudAccess()).result.current).toEqual({
+      platforms: undefined,
+      readFailed: true,
+    });
+  });
+
+  it('prefers a failed read over the platforms an earlier one answered', () => {
+    state.current = {
+      fetching: false,
+      data: { sandboxCloudAccess: [{ target: 'AWS', on: true }] },
+      error: new Error('could not read the switches'),
+    };
+    expect(renderHook(() => useSandboxCloudAccess()).result.current).toEqual({
+      platforms: undefined,
+      readFailed: true,
+    });
   });
 });

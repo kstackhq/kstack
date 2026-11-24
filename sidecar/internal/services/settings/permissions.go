@@ -175,7 +175,7 @@ func (s *Store) AddKubeRule(ctx context.Context, r permissions.Rule) (permission
 
 // RemoveKubeRule removes the always rule id: ErrNoRule when none has it.
 func (s *Store) RemoveKubeRule(ctx context.Context, id string) error {
-	return s.write(ctx, func(st stmts) error { return deleteRow(ctx, st, stmtDeleteKubeRule, id, ErrNoRule) })
+	return s.write(ctx, func(st stmts) error { return execOne(ctx, st, stmtDeleteKubeRule, ErrNoRule, id) })
 }
 
 // FolderGrants is the always folder grants in the order written, unchecked: a
@@ -195,7 +195,7 @@ func (s *Store) GrantFolder(ctx context.Context, path string, write bool) error 
 // RevokeFolder removes the always folder grant id: ErrNoGrant when none has
 // it.
 func (s *Store) RevokeFolder(ctx context.Context, id string) error {
-	return s.write(ctx, func(st stmts) error { return deleteRow(ctx, st, stmtDeleteFolderGrant, id, ErrNoGrant) })
+	return s.write(ctx, func(st stmts) error { return execOne(ctx, st, stmtDeleteFolderGrant, ErrNoGrant, id) })
 }
 
 // errUnchanged ends a write that has nothing to change: it commits nothing and

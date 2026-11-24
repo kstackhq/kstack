@@ -547,7 +547,7 @@ func newFakeCloud(t *testing.T) *fakeCloud {
 func (f *fakeCloud) Target() permissions.Target { return permissions.AWS }
 
 func (f *fakeCloud) Mount(_ context.Context, run bash.CloudRun) (bash.CloudMount, error) {
-	g := runproxy.NewGrant(permissions.AWS, run.Session, run.Asker, run.Refusal, runproxy.Limits{QPS: 100, Burst: 100, Open: 8, Bodies: 8})
+	g := runproxy.NewGrant(permissions.AWS, run.On, run.Session, run.Asker, run.Refusal, runproxy.Limits{QPS: 100, Burst: 100, Open: 8, Bodies: 8})
 	client := f.upstream.Client()
 	host := "127.0.0.1:" + strconv.Itoa(run.Port)
 	forward := func(w http.ResponseWriter, r *http.Request) error {
@@ -566,13 +566,8 @@ func (f *fakeCloud) Mount(_ context.Context, run bash.CloudRun) (bash.CloudMount
 		return err
 	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !g.Holds(r.Header.Get("X-Fake-Token")) {
-			g.Challenge(w)
-			return
-		}
-		r, done, ok := g.Enter(r)
+		r, done, ok := g.Admit(w, r, r.Header.Get("X-Fake-Token"))
 		if !ok {
-			g.Challenge(w)
 			return
 		}
 		defer done()

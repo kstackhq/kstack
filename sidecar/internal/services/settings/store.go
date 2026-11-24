@@ -194,11 +194,11 @@ func insertKubeRule(ctx context.Context, st stmts, r permissions.Rule, at int64)
 	return nil
 }
 
-// deleteRow deletes the row id with stmt: missing when it removed nothing.
-func deleteRow(ctx context.Context, st stmts, stmt stmtID, id string, missing error) error {
-	res, err := st.Exec(ctx, stmt, id)
+// execOne runs stmt over args: missing when it changed no row.
+func execOne(ctx context.Context, st stmts, stmt stmtID, missing error, args ...any) error {
+	res, err := st.Exec(ctx, stmt, args...)
 	if err != nil {
-		return fmt.Errorf("delete: %w", err)
+		return err
 	}
 	n, err := res.RowsAffected()
 	if err != nil { // coverage:ignore modernc.org/sqlite's RowsAffected never fails

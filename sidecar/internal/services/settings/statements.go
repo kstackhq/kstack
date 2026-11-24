@@ -31,10 +31,15 @@ const (
 	stmtSelectFolderGrants
 	stmtUpsertFolderGrant
 	stmtDeleteFolderGrant
+	stmtSelectCloudPlatformSwitches
+	stmtUpdateAWSSwitch
+	stmtUpdateGitHubSwitch
+	stmtUpdateGCPSwitch
+	stmtUpdateAzureSwitch
 )
 
-// statements are the store's, each over a row whose chat_id is NULL: a
-// chat's rows are agent/chat's. The text lives here and never at a call site.
+// statements are the store's. Those over a table with a chat_id touch only
+// rows whose chat_id is NULL: a chat's rows are agent/chat's. The text lives here and never at a call site.
 var statements = []sqlstmt.Statement{
 	// Whether a cluster not awaiting deletion has a kube-context. OnBoth,
 	// since a mode's write reads it in its transaction.
@@ -61,6 +66,13 @@ var statements = []sqlstmt.Statement{
 	stmtUpsertFolderGrant: sqlstmt.OnWriter(`INSERT INTO folder_grants (id, chat_id, folder, access, created_at) VALUES (?, NULL, ?, ?, ?)
 	ON CONFLICT (ifnull(chat_id, ''), folder) DO UPDATE SET access = excluded.access`),
 	stmtDeleteFolderGrant: sqlstmt.OnWriter(`DELETE FROM folder_grants WHERE chat_id IS NULL AND id = ?`),
+
+	stmtSelectCloudPlatformSwitches: sqlstmt.OnReader(`SELECT aws_enabled, github_enabled, gcp_enabled, azure_enabled
+	FROM sandbox_settings WHERE id = 1`),
+	stmtUpdateAWSSwitch:    sqlstmt.OnWriter(`UPDATE sandbox_settings SET aws_enabled = ?, updated_at = ? WHERE id = 1`),
+	stmtUpdateGitHubSwitch: sqlstmt.OnWriter(`UPDATE sandbox_settings SET github_enabled = ?, updated_at = ? WHERE id = 1`),
+	stmtUpdateGCPSwitch:    sqlstmt.OnWriter(`UPDATE sandbox_settings SET gcp_enabled = ?, updated_at = ? WHERE id = 1`),
+	stmtUpdateAzureSwitch:  sqlstmt.OnWriter(`UPDATE sandbox_settings SET azure_enabled = ?, updated_at = ? WHERE id = 1`),
 }
 
 type stmts = sqlstmt.Stmts[stmtID]

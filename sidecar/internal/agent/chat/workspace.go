@@ -15,6 +15,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 
@@ -48,11 +49,19 @@ type sandboxState struct {
 }
 
 // cloudTargetsOn is the words of the cloud targets the build has whose switch
-// is on.
-func (s *service) cloudTargetsOn() []string {
+// is on; none when the switches cannot be read, as a run then reaches none. A
+// machine with no sandbox draws no Sandbox section, so it reads nothing.
+func (s *service) cloudTargetsOn(ctx context.Context) []string {
+	if len(s.cloudTargets) == 0 || !s.sandboxStatus.Available {
+		return nil
+	}
+	sw, err := s.settings.CloudPlatformSwitches(ctx)
+	if err != nil {
+		return nil
+	}
 	var on []string
 	for _, target := range s.cloudTargets {
-		if s.settings.CloudOn(target) {
+		if sw.On(target) {
 			on = append(on, string(target))
 		}
 	}

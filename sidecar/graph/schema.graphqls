@@ -2377,7 +2377,7 @@ type Query {
   "Every value the settings file held that the sidecar left out at start, each with its reason. Fixed for the process's life, so this is a query and not a watch."
   settingsRefused: [SettingsRefusal!]!
 
-  "One row per cloud platform this build has, in a fixed order, each with whether sandboxed commands may reach it as the user. Off by default."
+  "One row per cloud platform this build has, in a fixed order, each with whether sandboxed commands may reach it as the user. On by default. A read of the switches that fails is an error."
   sandboxCloudAccess: [CloudAccess!]!
 
   "The frozen PATH sandboxed commands search, in the shell's order. Empty on a machine with no sandbox."
@@ -2497,7 +2497,7 @@ type Mutation {
   chatDelete(id: ChatID!): Boolean!
 
   # --- Sandbox ---
-  "Turns a cloud platform's switch on or off, and answers the list. Refuses `Cluster`, and a cloud platform this build lacks, with `KSTACK_VALIDATION_ERROR`."
+  "Turns a cloud platform's switch on or off, and answers the list. Refuses `Cluster`, and a cloud platform this build lacks, with `KSTACK_VALIDATION_ERROR`. A switch that cannot be written or read back is an error."
   sandboxCloudAccessSet(target: PermissionTarget!, on: Boolean!): [CloudAccess!]!
   "Include a pending or removed PATH entry, for `target`, the folder the user was shown. Refused KSTACK_VALIDATION_ERROR for a dir not listed or already included, one whose target has moved since, while the settings file holds an entry Kstack cannot read, or on a machine with no sandbox. Returns the whole list."
   sandboxPathInclude(dir: String!, target: String!): [SandboxPathEntry!]!
