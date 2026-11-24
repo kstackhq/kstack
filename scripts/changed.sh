@@ -64,11 +64,14 @@ vitest_scope() {
 
 # go_dirs <mod>: the module's packages with a changed Go file, as ./<dir>,
 # a deleted file's surviving package included. A go.mod or go.sum change adds
-# none: CI checks every package. A change to the layout fixture (testdata/)
-# checks the layout package too.
+# none: CI checks every package. A `go:build ignore` script (`go run` alone
+# builds it) is no package's file. A change to the layout fixture
+# (testdata/) checks the layout package too.
 go_dirs() {
   {
-    grep -E "^$1/.*\.go$" <<<"$changed" | xargs -r -n1 dirname
+    grep -E "^$1/.*\.go$" <<<"$changed" |
+      while read -r f; do [ "$(head -n1 "$f" 2>/dev/null)" = "//go:build ignore" ] || echo "$f"; done |
+      xargs -r -n1 dirname
     if [ "$1" = sidecar ] && has '^sidecar/internal/app/layout/testdata/'; then echo sidecar/internal/app/layout; fi
   } | sort -u | existing | sed "s|^$1|.|" || true
 }
