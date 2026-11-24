@@ -176,7 +176,7 @@ fn exited<R: Runtime>(app: &AppHandle<R>) {
         tracing::warn!("sidecar was still running at exit; killed it");
     }
 
-    state.window_manager.save_main_frame();
+    state.window_manager.save_frames();
 
     tracing::info!("shutdown complete");
 
@@ -224,14 +224,14 @@ fn window_destroyed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     forget_webview_log(app, label);
     log_windows::destroyed(app, label);
     if let Some(state) = app.try_state::<AppState>() {
-        state.window_manager.main_window_destroyed(label);
+        state.window_manager.window_destroyed(label);
     }
 }
 
 /// `label`'s window moved or resized.
 fn window_moved<R: Runtime>(app: &AppHandle<R>, label: &str) {
     if let Some(state) = app.try_state::<AppState>() {
-        state.window_manager.main_window_moved(app, label);
+        state.window_manager.window_moved(app, label);
     }
 }
 
@@ -239,6 +239,7 @@ fn window_moved<R: Runtime>(app: &AppHandle<R>, label: &str) {
 fn window_focused<R: Runtime>(app: &AppHandle<R>, label: &str) {
     if let Some(state) = app.try_state::<AppState>() {
         state.log_windows.focused(label);
+        state.window_manager.window_focused(app, label);
     }
 }
 
@@ -501,21 +502,26 @@ mod tests {
     /// The main window's last frame is saved when it is destroyed, so a
     /// rebuild or the next launch finds it.
     #[test]
-    fn the_main_windows_frame_is_saved_when_it_is_destroyed() {
+    fn a_windows_frame_is_saved_when_it_is_destroyed() {
+        use crate::window_state::read_main;
+
         let scratch = Scratch::new();
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let path = scratch.path().join("window-state.json");
         crate::testutil::window(&app, "main");
 
+        crate::testutil::window(&app, "logs-1");
+
         window_moved(app.handle(), "main");
+        window_moved(app.handle(), "logs-1");
+        window_destroyed(app.handle(), "window-1");
+        assert!(read_main(&path).is_none(), "keeps no frame");
+
         window_destroyed(app.handle(), "logs-1");
-        assert!(
-            crate::window_state::read(&path).is_none(),
-            "not the main window"
-        );
+        assert!(read_main(&path).is_none(), "not the main window");
 
         window_destroyed(app.handle(), "main");
-        assert!(crate::window_state::read(&path).is_some());
+        assert!(read_main(&path).is_some());
     }
 
     /// A live log window's focus and page load reach its app window.
