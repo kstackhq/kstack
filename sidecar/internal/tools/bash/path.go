@@ -23,6 +23,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
+	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
 // emptyPath is the PATH of a run that searches no folder. An empty PATH would
@@ -37,7 +38,7 @@ const emptyPath = "/nonexistent"
 func runPath(list []settings.PathFolder, open sandbox.FilePolicy, never []string, home string) (folders, reads []string) {
 	for _, f := range settings.NewRunCheck(open, never, home).Folders(list) {
 		if !f.Searched {
-			slog.Info("PATH folder left out of a run", "folder", f.Path, "origin", f.Origin, "reason", f.Reason)
+			slog.Info("PATH folder left out of a run", "folder", f.Path, "origin", string(f.Origin), "reason", f.Reason)
 			continue
 		}
 		folders = append(folders, f.Target)
@@ -67,8 +68,7 @@ func (t *Tool) readPath(ctx context.Context) (settings.RunPath, error) {
 		return settings.RunPath{}, refusal
 	}
 	if err != nil {
-		slog.Warn("PATH setting not read", "err", err)
-		return settings.RunPath{}, errors.New("Kstack could not read your PATH setting. Try again.")
+		return settings.RunPath{}, errors.New(tools.PathUnread(Name, err).Result)
 	}
 	return list, nil
 }

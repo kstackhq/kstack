@@ -2887,12 +2887,6 @@ func refusal(t *testing.T, errs []gqlError) (code, message string) {
 	return code, errs[0].Message
 }
 
-// jsonEscape is s as the inside of a GraphQL string literal.
-func jsonEscape(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b[1 : len(b)-1])
-}
-
 // newPermissionServer is a server over the cluster fixtures and settings over
 // an app.db holding their clusters, and a cloud cluster with no kube-context.
 func newPermissionServer(t *testing.T) *httptest.Server {
