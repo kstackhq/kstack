@@ -25,8 +25,17 @@ import (
 )
 
 func TestAJunctionIsALink(t *testing.T) {
+	name := filepath.Join(t.TempDir(), "link")
+	link(t, t.TempDir(), name)
+	info, err := os.Lstat(name)
+	require.NoError(t, err)
+	assert.True(t, IsLink(info))
+}
+
+// A directory symlink is a link too.
+func TestADirectorySymlinkIsALink(t *testing.T) {
 	link := filepath.Join(t.TempDir(), "link")
-	out, err := exec.Command("cmd", "/c", "mklink", "/J", link, t.TempDir()).CombinedOutput()
+	out, err := exec.Command("cmd", "/c", "mklink", "/D", link, t.TempDir()).CombinedOutput()
 	require.NoError(t, err, string(out))
 	info, err := os.Lstat(link)
 	require.NoError(t, err)

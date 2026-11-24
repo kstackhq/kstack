@@ -17,14 +17,11 @@
 package realpath
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 )
 
 // Within reports whether p is dir or lies under it, by their text alone. Text
@@ -96,12 +93,10 @@ func Canonical(paths []string) ([]string, error) {
 // its deepest folder that is, the rest kept as given.
 func canonical(p string) (string, error) {
 	at, err := KernelPath(p)
-	// ENOTDIR is a path through a file, which holds nothing.
-	missing := errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.ENOTDIR)
 	switch {
 	case err == nil:
 		return at, nil
-	case !missing:
+	case !isMissing(err):
 		return filepath.Clean(p), fmt.Errorf("the path of %s on disk: %w", p, err)
 	}
 	parent, name := split(p)

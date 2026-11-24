@@ -156,3 +156,11 @@ func TestCanonicalNamesTheHomeThroughItsFirmlink(t *testing.T) {
 	got := canonicalOf(t, home, onData)
 	assert.Equal(t, got[0], got[1])
 }
+
+// macOS's /var is a link to /private/var, which the root holds.
+func TestAPathUnderVarIsFollowedToPrivateVar(t *testing.T) {
+	got, links := followed(t, "/var/kstack-missing")
+
+	assert.Equal(t, "/private/var/kstack-missing", got)
+	assert.Equal(t, []Link{{Name: "/var", Parent: "/"}}, links)
+}
