@@ -2241,21 +2241,6 @@ func TestTheModelsQueryListsEveryProvidersCatalog(t *testing.T) {
 		"id":"fake-no-tools","label":"Fake model (no tools)","efforts":[],"defaultEffort":""}]}}`, string(raw))
 }
 
-// settingsRefused answers what the settings file's Open left out.
-func TestSettingsRefusedIsWhatOpenLeftOut(t *testing.T) {
-	refuse := func(*settings.Settings) []settings.Refusal {
-		return []settings.Refusal{{Field: "permissions.rules", Value: "Bash(rm *)", Reason: "is not a rule"}}
-	}
-	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t), settings.WithChecks(refuse))
-	require.NoError(t, err)
-	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Settings: settings.NewService(cfg, nil, nil, nil, "")}))
-	t.Cleanup(srv.Close)
-
-	raw := postGQL(t, srv.URL, `{"query":"{ settingsRefused { field value reason } }"}`)
-
-	assert.JSONEq(t, `{"data":{"settingsRefused":[{"field":"permissions.rules","value":"Bash(rm *)","reason":"is not a rule"}]}}`, string(raw))
-}
-
 // approvalDecide reaches the service, and a decision nothing waits on answers false
 // rather than an error.
 func TestApprovalDecideReachesTheService(t *testing.T) {
@@ -2899,7 +2884,7 @@ func newPermissionServer(t *testing.T) *httptest.Server {
 		_, err := db.Write.Exec(q)
 		require.NoError(t, err)
 	}
-	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), db)
+	cfg, err := settings.Open(db)
 	require.NoError(t, err)
 	// A cluster with no kube-context has no mode of its own, so Settings lists none for it.
 	clusters := append(clusterFixtures(), clusterFixture{id: "3"})
@@ -3013,11 +2998,9 @@ func TestAPermissionRefusalCarriesItsCode(t *testing.T) {
 // The settings read the clusters off the cluster service, so a list it cannot
 // answer fails the query rather than drawing no clusters.
 func TestPermissionSettingsFailsWithTheClusterList(t *testing.T) {
-	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
 	svc := newFakeClusterService(clusterFixtures())
 	svc.listErr = errors.New("store closed")
-	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Settings: settings.NewService(cfg, nil, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Settings: testSettings(t)}))
 	t.Cleanup(srv.Close)
 
 	_, code := refusalOf(t, srv, `{ permissionSettings { defaultMode } }`)
@@ -3029,7 +3012,7 @@ func TestPermissionSettingsFailsWithTheClusterList(t *testing.T) {
 // KSTACK_SAVED_UNREAD, never a refusal.
 func TestAPermissionChangeThatTookSaysSoWhenTheAnswerFails(t *testing.T) {
 	db := appdbtest.Open(t)
-	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), db)
+	cfg, err := settings.Open(db)
 	require.NoError(t, err)
 	svc := newFakeClusterService(clusterFixtures())
 	svc.listErr = errors.New("store closed")
@@ -3056,7 +3039,7 @@ func TestPermissionSettingsFailsWithTheirRead(t *testing.T) {
 		"the rules": {"kube_rules", clusterFixtures()},
 	} {
 		db := appdbtest.Open(t)
-		cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), db)
+		cfg, err := settings.Open(db)
 		require.NoError(t, err)
 		_, err = db.Write.Exec(`DROP TABLE ` + c.table)
 		require.NoError(t, err)
@@ -3254,7 +3237,7 @@ func (f *fakeProber) started() int {
 func sandboxExecutablesServer(t *testing.T, available bool) (*httptest.Server, *fakeProber, *appdb.DB) {
 	t.Helper()
 	db := appdbtest.Open(t)
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), db)
+	store, err := settings.Open(db)
 	require.NoError(t, err)
 	prober := newFakeProber()
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
@@ -3399,7 +3382,7 @@ func TestSandboxExecutablesAreEmptyWithNoSandbox(t *testing.T) {
 // With no sandbox, an executable registered on a machine that had one can still be
 // removed, and the answer is the empty report.
 func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
+	store, err := settings.Open(appdbtest.Open(t))
 	require.NoError(t, err)
 	require.NoError(t, store.RegisterExecutable(t.Context(), "k9s", ""))
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
@@ -3684,12 +3667,12 @@ func TestLogsFollowCarriesARefusal(t *testing.T) {
 	assert.NotContains(t, ev, `"watchFailed"`)
 }
 
-// newCloudServer is a resolver over a fresh settings file and app.db whose
+// newCloudServer is a resolver over a fresh app.db whose
 // build has the cloud platforms targets.
 func newCloudServer(t *testing.T, targets ...permissions.Target) (*httptest.Server, *settings.Store, *appdb.DB) {
 	t.Helper()
 	db := appdbtest.Open(t)
-	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), db)
+	cfg, err := settings.Open(db)
 	require.NoError(t, err)
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: newFakeClusterService(clusterFixtures()), Settings: settings.NewService(cfg, nil, nil, nil, ""), CloudTargets: targets,

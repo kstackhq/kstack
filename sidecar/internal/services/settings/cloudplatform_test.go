@@ -15,7 +15,6 @@
 package settings
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,7 +28,7 @@ var cloudPlatforms = []permissions.Target{permissions.AWS, permissions.GitHub, p
 
 func TestEachCloudPlatformStartsOn(t *testing.T) {
 	t.Parallel()
-	s, _ := openFile(t, "")
+	s := newStore(t)
 	sw, err := s.CloudPlatformSwitches(t.Context())
 	require.NoError(t, err)
 	for _, target := range cloudPlatforms {
@@ -41,7 +40,7 @@ func TestEachCloudPlatformStartsOn(t *testing.T) {
 // A write turns one switch, and leaves the others.
 func TestSetCloudPlatformSwitchWritesOneSwitch(t *testing.T) {
 	t.Parallel()
-	s, _ := openFile(t, "")
+	s := newStore(t)
 	ctx := t.Context()
 	for i, target := range cloudPlatforms {
 		require.NoError(t, s.SetCloudPlatformSwitch(ctx, target, false))
@@ -60,7 +59,7 @@ func TestSetCloudPlatformSwitchWritesOneSwitch(t *testing.T) {
 
 func TestTheClusterHasNoCloudPlatformSwitch(t *testing.T) {
 	t.Parallel()
-	s, _ := openFile(t, "")
+	s := newStore(t)
 	assert.ErrorIs(t, s.SetCloudPlatformSwitch(t.Context(), permissions.Cluster, false), ErrNoCloudPlatformSwitch)
 	sw, err := s.CloudPlatformSwitches(t.Context())
 	require.NoError(t, err)
@@ -72,7 +71,7 @@ func TestTheClusterHasNoCloudPlatformSwitch(t *testing.T) {
 func TestACloudPlatformSwitchReadThatFailsIsAnError(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
-	s := openStore(t, filepath.Join(t.TempDir(), "settings.json"), db)
+	s := openStore(t, db)
 	exec(t, db, `DROP TABLE sandbox_settings`)
 
 	_, err := s.CloudPlatformSwitches(t.Context())
@@ -85,7 +84,7 @@ func TestACloudPlatformSwitchReadThatFailsIsAnError(t *testing.T) {
 func TestAMissingSandboxSettingsRowIsAFailedRead(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
-	s := openStore(t, filepath.Join(t.TempDir(), "settings.json"), db)
+	s := openStore(t, db)
 	exec(t, db, `DELETE FROM sandbox_settings`)
 
 	_, err := s.CloudPlatformSwitches(t.Context())
@@ -94,17 +93,4 @@ func TestAMissingSandboxSettingsRowIsAFailedRead(t *testing.T) {
 	var n int
 	require.NoError(t, db.Read.QueryRow(`SELECT count(*) FROM sandbox_settings`).Scan(&n))
 	assert.Zero(t, n, "the write inserted nothing")
-}
-
-// The file's switch keys stay in it, unread: neither an off nor a value the
-// store cannot read reaches a switch or is refused.
-func TestTheFilesSwitchesAreNotRead(t *testing.T) {
-	t.Parallel()
-	s, file := openFile(t, `{"sandbox": {"github": false, "aws": "yes"}}`)
-	assert.Empty(t, s.Refused())
-	sw, err := s.CloudPlatformSwitches(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, CloudPlatformSwitches{AWS: true, GitHub: true, GCP: true, Azure: true}, sw)
-
-	assert.JSONEq(t, `{"sandbox": {"github": false, "aws": "yes"}}`, readFile(t, file), "nothing writes the file")
 }

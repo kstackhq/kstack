@@ -704,18 +704,6 @@ func TestAFaultSpecTheBuildCannotHonourFailsNew(t *testing.T) {
 	require.ErrorContains(t, err, "KSTACK_FAULTS: ")
 }
 
-// A settings file that is not a JSON object fails New naming it, and closes
-// what opened before it.
-func TestABadSettingsFileFailsNew(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "settings.json")
-	require.NoError(t, os.WriteFile(file, []byte("{"), 0o600))
-
-	_, err := New(t.Context(), withDirs(t, Config{DataDir: dir}))
-	require.ErrorContains(t, err, file)
-	requireUnlocked(t, dir)
-}
-
 // The catalog is the config's: each provider at the base URL a debug build
 // moved it to, then the fake when asked for.
 func TestTheCatalogIsTheConfigs(t *testing.T) {
@@ -785,7 +773,7 @@ func TestNoShellOffersNoNetwork(t *testing.T) {
 // On a machine with no sandbox the service stores no shell PATH and keeps no
 // fault, and a write that fails at Start is a warning, not a startup error.
 func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
+	store, err := settings.Open(appdbtest.Open(t))
 	require.NoError(t, err)
 	svc := newSettingsService(store, nil, nil, sandbox.Status{}, nil, "timeout", "")
 	assert.Empty(t, svc.PathFault())

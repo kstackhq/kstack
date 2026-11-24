@@ -15,23 +15,18 @@
 package settings
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 )
 
 // On a machine with no sandbox nothing reads or writes the shell's PATH.
 func TestAServiceWithNoSandboxChangesNothing(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
+	store := newStore(t)
 	s := NewService(store, nil, nil, nil, "")
 
 	assert.Empty(t, s.PathFault())
-	_, err = s.SetShellPath(t.Context(), []string{t.TempDir()})
+	_, err := s.SetShellPath(t.Context(), []string{t.TempDir()})
 	assert.ErrorIs(t, err, ErrNoSandbox)
 	assert.ErrorIs(t, s.RefreshPath(t.Context()), ErrNoSandbox)
 	assert.ErrorIs(t, s.SetPath(t.Context(), "$PATH"), ErrNoSandbox)

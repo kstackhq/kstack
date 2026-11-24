@@ -526,17 +526,12 @@ func sandboxExecutablesOf(reports []bash.ExecutableReport) []*model.SandboxExecu
 // refused it, a link's carrying the path it leads to, so the webview can offer
 // that one.
 func folderErr(err error) error {
-	var refusal settings.FolderRefusal
-	var shape settings.Refusal
-	switch {
-	case errors.As(err, &refusal):
+	if refusal, ok := errors.AsType[settings.FolderRefusal](err); ok {
 		e := gqlerrors.NewValidationError(refusal.Rule, refusal.Reason)
 		if refusal.Target != "" {
 			e.Extensions["target"] = refusal.Target
 		}
 		return e
-	case errors.As(err, &shape):
-		return gqlerrors.NewValidationError("folder", shape.Error())
 	}
 	return chatErr(err)
 }

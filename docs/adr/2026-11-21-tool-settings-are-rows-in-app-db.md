@@ -3,6 +3,7 @@ title: Keep the tool settings as rows in app.db
 date: 2026-11-21
 scope: sidecar
 status: Accepted
+amended_by: [Keep every setting as rows in app.db](2026-11-24-settings-are-rows-in-app-db.md)
 ---
 
 # Keep the tool settings as rows in app.db

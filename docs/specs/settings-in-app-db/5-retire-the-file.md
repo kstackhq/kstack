@@ -27,8 +27,8 @@ No build deletes `settings.json` from disk. There is no migration in this step.
 
 ## Done when
 
-- `git grep settings.json -- ':!docs/adr' ':!docs/security' ':!docs/specs' ':!.claude' ':!.gitignore'`
-  finds the file's name only in the register's note about the dropped formats.
+- Outside `docs/adr/`, `docs/security/` and `docs/specs/`, `<data>/settings.json` is named only
+  by the register's note about the dropped formats. (`.claude/settings.json` and `.vscode/settings.json` are other files.)
 - No code or doc outside `docs/adr/`, `docs/security/` and `docs/specs/` says "held" for a
   setting.
 
@@ -38,9 +38,9 @@ All tasks start Planned.
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | `services/settings`, `app`, `lib/jsonsettings`, and the test helpers in `graph`, `agent/chat` and `tools/bash`: delete the file's code. | Planned |
-| 2 | `graph`: remove `settingsRefused`, `folderErr`'s `Refusal` branch, and reword the descriptions. | Planned |
-| 3 | The docs below. | Planned |
+| 1 | `services/settings`, `app`, `lib/jsonsettings`, and the test helpers in `graph`, `agent/chat` and `tools/bash`: delete the file's code. | Done |
+| 2 | `graph`: remove `settingsRefused`, `folderErr`'s `Refusal` branch, and reword the descriptions. | Done |
+| 3 | The docs below. | Done |
 
 ## When it lands
 
@@ -52,15 +52,17 @@ All tasks start Planned.
   longer apply. It also amends
   [every cloud platform is on until the user turns it off](../../adr/2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md),
   whose "a refused value reads off" describes `strictest`: a failed read of `sandbox_settings`
-  reads off. It records that `settings.json` and `chat_grants` were dropped without an import, by
+  reads off, and [each persisted format carries its own version stamp](../../adr/2026-10-29-each-persisted-format-carries-its-own-version-stamp.md),
+  whose `schemaVersion` for `settings.json` no longer applies. It records that `settings.json` and `chat_grants` were dropped without an import, by
   the maintainer's decision, and what an install lost. The superseded ADR's status flips, each
   amended ADR gains an `amended_by` pointer, and the index in `docs/adr/README.md` follows.
 - **`CLAUDE.md`**: `sidecar/internal/services/settings/CLAUDE.md` opens with the tables, not the
   file, and links the new ADR in place of the superseded one. In `sidecar/CLAUDE.md`, the guides
   table's row for that guide and the `settings.json` bullet under *Persisted formats*. The root
   `CLAUDE.md`'s "every format `desktop/v0.0.1` wrote is shipped" points to the register's note.
-- **[`persisted-data.md`](../../persisted-data.md)**: remove the *Sidecar settings* row and the
-  preference rule under *How a change ships*; take `settings.json` out of the lists. Next to
+- **[`persisted-data.md`](../../persisted-data.md)**: remove the *Sidecar settings* row; the
+  preference rule under *How a change ships* names `host.json`, the one preference left; take
+  `settings.json` out of the lists. Next to
   "every format it wrote is shipped", name the two formats this sequence dropped and link the
   ADR, so the rule reads true for everything else.
 - **[`security-model.md`](../../security-model.md)**: remove what is left of the row about a
