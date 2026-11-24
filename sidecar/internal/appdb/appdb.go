@@ -129,6 +129,10 @@ const (
 	// KeyExecutables: an executables row was registered or removed by the
 	// settings store.
 	KeyExecutables = "executables"
+	// KeySandboxPath: the PATH setting was saved, or a read of the login shell
+	// retook the zones, whether or not shell_path changed. Folder checks read
+	// both, so a folder grant's answer may have changed.
+	KeySandboxPath = "sandbox-path"
 )
 
 // MessagesKey: the chat's message rows changed. Re-read and diff.

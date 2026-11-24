@@ -1171,7 +1171,9 @@ func TestANoticeTurnThatCannotWriteStartsNothing(t *testing.T) {
 			ft.exit(0)
 			testutil.Wait(t, done, "the row")
 
-			assert.Nil(t, s.turnOf(first.ChatID), "the slot is free")
+			// The notice turn the row's kick starts runs on, reserving the
+			// slot until its refused write releases it.
+			require.Eventually(t, func() bool { return s.turnOf(first.ChatID) == nil }, testutil.Timeout, time.Millisecond, "the slot is free")
 			msgs, err := s.transcript(t.Context(), first.ChatID)
 			require.NoError(t, err)
 			assert.Len(t, msgs, 2, "nothing filed")

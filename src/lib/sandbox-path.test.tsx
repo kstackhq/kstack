@@ -27,12 +27,20 @@ vi.mock('@/gql', () => ({ graphql: (source: string) => /(?:query|mutation) (\w+)
 
 const { useSandboxPath } = await import('./sandbox-path');
 
-const entry = (dir: string, state: string) => ({ dir, target: dir, state, source: 'Shell', shared: false });
-const listed = [entry('/opt/homebrew/bin', 'Adopted'), entry('/Users/ren/scripts', 'Pending')];
+const folder = (path: string, searched: boolean) => ({
+  path,
+  origin: 'Shell',
+  target: path,
+  searched,
+  reason: searched ? null : 'No sandboxed command reads this folder; type it into your PATH to include it.',
+  addable: !searched,
+  shared: false,
+});
+const folders = [folder('/opt/homebrew/bin', true), folder('/Users/ren/scripts', false)];
 
 const queried = {
   fetching: false,
-  data: { sandboxPath: listed, sandboxPathFault: 'timeout', sandboxPathResolved: true },
+  data: { sandboxPath: { value: '$PATH', refusal: null, folders }, sandboxPathFault: 'timeout' },
 };
 
 beforeEach(() => {
@@ -45,16 +53,17 @@ beforeEach(() => {
 });
 
 describe('useSandboxPath', () => {
-  it('reads the list and the fault', () => {
+  it('reads the setting, its folders and the fault', () => {
     const { result } = renderHook(() => useSandboxPath());
-    expect(result.current.entries).toEqual(listed);
+    expect(result.current.value).toBe('$PATH');
+    expect(result.current.refusal).toBeNull();
+    expect(result.current.folders).toEqual(folders);
     expect(result.current.fault).toBe('timeout');
-    expect(result.current.resolved).toBe(true);
   });
 
-  it('includes an entry, in flight until it answers, then asks for the list again', async () => {
+  it('saves a value, in flight until it answers, then asks for the setting again', async () => {
     let answer!: (value: unknown) => void;
-    mutations.SandboxPathInclude.mockImplementation(
+    mutations.SandboxPathSet.mockImplementation(
       () =>
         new Promise((resolve) => {
           answer = resolve;
@@ -62,61 +71,53 @@ describe('useSandboxPath', () => {
     );
     const { result } = renderHook(() => useSandboxPath());
 
+    let saved!: Promise<boolean>;
     act(() => {
-      void result.current.include('/Users/ren/scripts', '/Users/ren/scripts');
+      saved = result.current.save('~/bin:$PATH');
     });
-    expect(mutations.SandboxPathInclude).toHaveBeenCalledWith({
-      dir: '/Users/ren/scripts',
-      target: '/Users/ren/scripts',
-    });
-    expect(result.current.changing).toEqual(new Set(['/Users/ren/scripts']));
+    expect(mutations.SandboxPathSet).toHaveBeenCalledWith({ value: '~/bin:$PATH' });
+    expect(result.current.saving).toBe(true);
 
-    await act(async () => answer({ data: { sandboxPathInclude: [] } }));
-    expect(result.current.changing).toEqual(new Set());
+    await act(async () => answer({ data: { sandboxPathSet: { value: '~/bin:$PATH' } } }));
+    expect(await saved).toBe(true);
+    expect(result.current.saving).toBe(false);
+    expect(result.current.saveError).toBeNull();
     expect(reexecute).toHaveBeenCalledWith({ requestPolicy: 'network-only' });
   });
 
-  it("keeps a refused change's message", async () => {
-    mutations.SandboxPathRemove.mockResolvedValue({
-      error: { graphQLErrors: [{ message: 'That folder is already removed.' }] },
+  it("keeps a refused save's message, and answers that it was not taken", async () => {
+    mutations.SandboxPathSet.mockResolvedValue({
+      error: { graphQLErrors: [{ message: '"bin" is not a full path.' }] },
     });
     const { result } = renderHook(() => useSandboxPath());
-    await act(async () => result.current.remove('/opt/homebrew/bin'));
-    expect(mutations.SandboxPathRemove).toHaveBeenCalledWith({ dir: '/opt/homebrew/bin' });
-    expect(result.current.changeError).toBe('That folder is already removed.');
-    expect(result.current.changing).toEqual(new Set());
+    let taken!: boolean;
+    await act(async () => {
+      taken = await result.current.save('bin');
+    });
+    expect(taken).toBe(false);
+    expect(result.current.saveError).toBe('"bin" is not a full path.');
   });
 
-  it('settles overlapping changes each for its own dir', async () => {
-    let included!: (value: unknown) => void;
-    let removed!: (value: unknown) => void;
-    mutations.SandboxPathInclude.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          included = resolve;
-        }),
-    );
-    mutations.SandboxPathRemove.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          removed = resolve;
-        }),
-    );
-    const { result } = renderHook(() => useSandboxPath());
-
-    act(() => {
-      void result.current.remove('/opt/homebrew/bin');
-      void result.current.include('/Users/ren/scripts', '/Users/ren/scripts');
+  // A save whose write took, though the setting could not be read after, was
+  // taken: the message stays, and the caller treats it as saved.
+  it('takes a save answered KSTACK_SAVED_UNREAD, keeping its message', async () => {
+    mutations.SandboxPathSet.mockResolvedValue({
+      error: {
+        graphQLErrors: [
+          {
+            message: 'Your PATH was saved, but Kstack could not read the settings back.',
+            extensions: { code: 'KSTACK_SAVED_UNREAD' },
+          },
+        ],
+      },
     });
-    expect(result.current.changing).toEqual(new Set(['/opt/homebrew/bin', '/Users/ren/scripts']));
-
-    await act(async () => removed({ error: { graphQLErrors: [{ message: 'That folder is already removed.' }] } }));
-    expect(result.current.changing).toEqual(new Set(['/Users/ren/scripts']));
-
-    // The include that succeeds after it leaves the refusal on screen.
-    await act(async () => included({ data: { sandboxPathInclude: [] } }));
-    expect(result.current.changing).toEqual(new Set());
-    expect(result.current.changeError).toBe('That folder is already removed.');
+    const { result } = renderHook(() => useSandboxPath());
+    let taken!: boolean;
+    await act(async () => {
+      taken = await result.current.save('/opt/bin');
+    });
+    expect(taken).toBe(true);
+    expect(result.current.saveError).toBe('Your PATH was saved, but Kstack could not read the settings back.');
   });
 
   // The fault is the last read's, so a refresh reads it again whatever the answer.
@@ -129,15 +130,15 @@ describe('useSandboxPath', () => {
     expect(result.current.refreshError).toBe('Your shell did not answer: timeout.');
     expect(reexecute).toHaveBeenCalledWith({ requestPolicy: 'network-only' });
 
-    mutations.SandboxPathRefresh.mockResolvedValue({ data: { sandboxPathRefresh: listed } });
+    mutations.SandboxPathRefresh.mockResolvedValue({ data: { sandboxPathRefresh: { value: '$PATH' } } });
     await act(async () => result.current.refresh());
     expect(result.current.refreshError).toBeNull();
     expect(result.current.refreshing).toBe(false);
     expect(reexecute).toHaveBeenCalledTimes(2);
   });
 
-  // Another window can change the list, and each window caches its own, so
-  // the list is asked again on opening and whenever the window takes focus.
+  // Another window can change the setting, and each window caches its own, so
+  // it is asked again on opening and whenever the window takes focus.
   it('asks again on opening and on focus', () => {
     renderHook(() => useSandboxPath());
     expect(useQueryMock).toHaveBeenCalledWith(expect.objectContaining({ requestPolicy: 'cache-and-network' }));

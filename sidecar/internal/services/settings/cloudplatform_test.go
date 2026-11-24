@@ -106,7 +106,5 @@ func TestTheFilesSwitchesAreNotRead(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, CloudPlatformSwitches{AWS: true, GitHub: true, GCP: true, Azure: true}, sw)
 
-	require.NoError(t, s.Update(func(v *Settings) error { v.Sandbox.PathStrict = true; return nil }, FieldPathStrict))
-	assert.JSONEq(t, `{"sandbox": {"github": false, "aws": "yes", "pathStrict": true}, "schemaVersion": 1}`, readFile(t, file),
-		"a write keeps the keys")
+	assert.JSONEq(t, `{"sandbox": {"github": false, "aws": "yes"}}`, readFile(t, file), "nothing writes the file")
 }

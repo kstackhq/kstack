@@ -264,8 +264,10 @@ replace its own paths](../../../docs/security/2026-09-30-a-run-cannot-replace-it
   workspace; a socket path must fit (`checkSocketPath`). `TMPDIR` is `<cache>/tmp/<pid>-*`, on
   macOS seeded with xcrun's cache → [record](../../../docs/security/2026-09-30-a-run-starts-with-xcruns-cache.md).
   A gone sidecar's entries are swept by its lock → [ADR](../../../docs/adr/2026-10-17-a-run-directory-is-reclaimed-by-its-sidecars-lock.md).
-- **`PATH` is frozen at start** (`path.go`); with no entry it is `/nonexistent`, never empty (that
-  searches the working directory). → [ADR](../../../docs/adr/2026-10-02-path-is-the-login-shells-filtered-and-frozen.md).
+- **`PATH` is read once at start** (`path.go`, `readPath`), its search and its grant check from
+  one `RunPath`, each folder checked by its origin (`settings.RunCheck`); a failed read starts no
+  run. With no folder it is `/nonexistent`, never empty (that searches the working directory).
+  → [ADR](../../../docs/adr/2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md).
 - **The environment is one table** (`env.go`); nothing else of the process's passes. `ZDOTDIR` is
   the run directory, so `zsh -c` never sources a workspace `.zshenv`. The user's variables
   (`userEnv`, read before the run makes anything; a failed read fails it) follow `LANG` and `TZ`. A name the table sets joins

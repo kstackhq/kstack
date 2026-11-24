@@ -171,5 +171,5 @@ func testSettings(t *testing.T) *settings.Service {
 	t.Helper()
 	s, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
-	return settings.NewService(s, nil, nil, "")
+	return settings.NewService(s, nil, nil, nil, "")
 }

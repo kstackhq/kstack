@@ -2,7 +2,7 @@
 title: A stored PATH decision holds for its exact path
 date: 2026-11-24
 scope: sidecar
-status: Accepted
+status: Superseded by [2026-11-24-the-sandbox-path-is-one-setting-the-user-writes](2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md)
 ---
 
 # A stored PATH decision holds for its exact path

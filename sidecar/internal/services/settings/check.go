@@ -14,24 +14,11 @@
 
 package settings
 
-// checks is the read-back: one check per field, each added by the field's
-// step. A check reads the value alone, never the disk or another service; it
-// removes from the settings every value it refuses and answers one Refusal for
-// each.
-var checks = []func(*Settings) []Refusal{checkPath}
+// checks is the file's read-back: one check per field. The file has no field
+// left, so there is none.
+var checks []func(*Settings) []Refusal
 
-// strictest is how each field that restricts, keyed by its dotted key, is set
-// to its most restrictive state; each such field's step adds its line. When the
-// file holds a value of one the store refuses, the field answers that state
-// until the user fixes the file, never its zero value. A field not listed only
-// grants, so a refused value of it is dropped.
-var strictest = map[string]func(*Settings){
-	// A refused entry may have been a removal, so the field restricts. The
-	// entries that passed stay as they are: what makes the field strict is
-	// the sync's, while the store holds it.
-	FieldPath: func(*Settings) {},
-	// Resolved, so no default stands in for the list.
-	FieldPathResolved: func(v *Settings) { v.Sandbox.PathResolved = true },
-	// Strict, so the next sync adopts nothing new unasked.
-	FieldPathStrict: func(v *Settings) { v.Sandbox.PathStrict = true },
-}
+// strictest is how each field that restricts is set to its most restrictive
+// state while the file holds a value the store refuses. The file has no field
+// left, so there is none.
+var strictest = map[string]func(*Settings){}

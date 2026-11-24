@@ -17,7 +17,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SandboxFolder, SandboxFolders } from '@/lib/sandbox-folders';
-import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
+import type { SandboxPath, SandboxPathFolder } from '@/lib/sandbox-path';
 
 const { folders, mac } = vi.hoisted(() => ({ folders: { current: {} as SandboxFolders }, mac: { current: false } }));
 vi.mock('@/lib/sandbox-folders', () => ({ useSandboxFolders: () => folders.current }));
@@ -33,11 +33,13 @@ const folder = (path: string, extra: Partial<SandboxFolder> = {}): SandboxFolder
   ...extra,
 });
 
-const entry = (dir: string, state: SandboxPathEntry['state'], extra: Partial<SandboxPathEntry> = {}) => ({
-  dir,
-  target: dir,
-  state,
-  source: 'Shell' as const,
+const pathFolder = (path: string, extra: Partial<SandboxPathFolder> = {}): SandboxPathFolder => ({
+  path,
+  origin: 'Shell',
+  target: path,
+  searched: true,
+  reason: null,
+  addable: false,
   shared: false,
   ...extra,
 });
@@ -61,15 +63,15 @@ function withFolders(over: Partial<SandboxFolders> = {}) {
 
 function pathOf(over: Partial<SandboxPath> = {}): SandboxPath {
   return {
-    entries: [],
+    value: '$PATH',
+    refusal: null,
+    folders: [],
     fault: null,
-    resolved: true,
-    changing: new Set(),
+    saving: false,
     refreshing: false,
-    changeError: null,
+    saveError: null,
     refreshError: null,
-    include: vi.fn(async () => {}),
-    remove: vi.fn(async () => {}),
+    save: vi.fn(async () => true),
     refresh: vi.fn(async () => true),
     ...over,
   };
@@ -172,44 +174,27 @@ describe('SandboxFolderGroups', () => {
     ).toEqual(['/Users/ren/Documents', '/opt/homebrew/var']);
   });
 
-  it('switches each PATH folder: on is included, off is waiting or removed', async () => {
+  // The PATH card edits the setting; here are only the folders a command reads.
+  it('lists the PATH folders a command searches, read only', () => {
     const path = pathOf({
-      entries: [
-        entry('/opt/homebrew/bin', 'Adopted'),
-        entry('/Users/ren/bin', 'Pending', { shared: true }),
-        entry('/Users/ren/shims', 'Gone', { target: '/Users/ren/real' }),
+      folders: [
+        pathFolder('/opt/homebrew/bin'),
+        pathFolder('/Users/ren/bin', { origin: 'Typed', shared: true, target: '/Users/ren/real' }),
+        pathFolder('/Users/ren/.local/bin', { searched: false, reason: 'Not read.', addable: true }),
+        // A folder with no target draws as expanded.
+        pathFolder('/opt/tools', { target: null }),
       ],
     });
     render(<SandboxFolderGroups path={path} />);
 
     const rows = within(group(/^PATH · 3$/)).getAllByRole('listitem');
-    expect(within(rows[0]).getByRole('switch')).toBeChecked();
-    expect(within(rows[1]).getByRole('switch')).not.toBeChecked();
+    expect(rows.map((row) => within(row).getByTestId('folder').textContent)).toEqual([
+      '/opt/homebrew/bin',
+      '/Users/ren/real',
+      '/opt/tools',
+    ]);
     expect(within(rows[1]).getByText('shared with its group')).toBeInTheDocument();
-    expect(within(rows[2]).getByTestId('target').textContent).toBe('/Users/ren/real');
-
-    await userEvent.click(within(rows[0]).getByRole('switch'));
-    expect(path.remove).toHaveBeenCalledWith('/opt/homebrew/bin');
-    await userEvent.click(within(rows[2]).getByRole('switch'));
-    expect(path.include).toHaveBeenCalledWith('/Users/ren/shims', '/Users/ren/real');
-  });
-
-  it('holds a PATH switch while it changes or the list refreshes, and draws a refused change', () => {
-    const path = pathOf({
-      entries: [entry('/a', 'Adopted'), entry('/b', 'Pending')],
-      changing: new Set(['/b']),
-      changeError: 'moved',
-    });
-    const { unmount } = render(<SandboxFolderGroups path={path} />);
-    let rows = within(group(/^PATH · /)).getAllByRole('listitem');
-    expect(within(rows[0]).getByRole('switch')).not.toHaveAttribute('aria-disabled');
-    expect(within(rows[1]).getByRole('switch')).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByText('moved')).toBeInTheDocument();
-    unmount();
-
-    render(<SandboxFolderGroups path={pathOf({ entries: [entry('/a', 'Adopted')], refreshing: true })} />);
-    rows = within(group(/^PATH · /)).getAllByRole('listitem');
-    expect(within(rows[0]).getByRole('switch')).toHaveAttribute('aria-disabled', 'true');
+    expect(within(group(/^PATH · /)).queryByRole('switch')).toBeNull();
   });
 
   // Placeholder groups: their switches change nothing.
@@ -235,7 +220,7 @@ describe('SandboxFolderGroups', () => {
 
   it('draws empty groups before the sidecar answers', async () => {
     withFolders({ always: undefined, never: undefined, closed: undefined });
-    render(<SandboxFolderGroups path={pathOf({ entries: undefined })} />);
+    render(<SandboxFolderGroups path={pathOf({ folders: undefined })} />);
     expect(screen.getByRole('button', { name: 'Custom · 0' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'PATH · 0' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Closed folders' }));

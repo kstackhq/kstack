@@ -812,7 +812,7 @@ func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 		never: []string{filepath.Join(tl.home, ".ssh")},
 	}
 	tl.sandboxer = fake
-	tl.pathList, tl.fallbackPath = nil, nil
+	tl.pathList = nil
 	user := []string{"HELM_NAMESPACE=apps"}
 	tl.userEnv = func(_ context.Context, cluster apimeta.ClusterID, sandboxed bool) ([]string, error) {
 		assert.Equal(t, rt.ClusterID, cluster)

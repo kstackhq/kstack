@@ -126,7 +126,7 @@ func withSettingsOnItsDB(t *testing.T, s *service) {
 	for id, context := range map[string]string{"dev": "dev-eks", "prod": "prod-eu"} {
 		exec(t, s.db, `INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES (?, 'kubeconfig', ?, 0, 0)`, id, context)
 	}
-	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, "")
+	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, nil, "")
 }
 
 // A session's policy is the mode of the cluster the action runs on, read
@@ -379,7 +379,7 @@ func TestFoldersForAnswersNoneWithNoSnapshot(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, "")
+	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, nil, "")
 	s.sandboxStatus = sandbox.Status{Available: true}
 	require.NoError(t, s.settings.GrantFolder(t.Context(), testutil.GrantableDir(t), false))
 	assert.Empty(t, foldersFor(t, s, ""), "a service with no zones checks no folder")
@@ -406,6 +406,35 @@ func TestAFoldersReadThatFailsIsAnError(t *testing.T) {
 	assert.Error(t, err)
 	_, err = s.Send(t.Context(), &c.ID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi", nil)
 	assert.ErrorContains(t, err, "folder_grants", "a turn does not start")
+}
+
+// A read of the PATH that fails inside a grant's check is an error wherever
+// the grants are read, never a refusal on the grant: a failed query must not
+// look like a list of refused grants.
+func TestAFailedFolderCheckReadEndsTheWatch(t *testing.T) {
+	t.Parallel()
+
+	s := newTestService(t)
+	svc := filepath.Join(grantable(t, s), "code", "svc")
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	// Only a write grant is compared with the PATH.
+	exec(t, s.db, `DROP TABLE shell_path`)
+	seedFolderGrant(t, s.db, c.ID, "stored", svc, "write")
+	_, _, err := s.FolderGrants(t.Context(), c.ID)
+	assert.Error(t, err, "a chat's grant alone")
+
+	exec(t, s.db, `CREATE TABLE shell_path (id, path)`)
+	require.NoError(t, s.GrantFolder(t.Context(), "", svc, true))
+	exec(t, s.db, `DROP TABLE shell_path`)
+
+	for _, chatID := range []ChatID{"", c.ID} {
+		_, err := s.FoldersFor(t.Context(), chatID)
+		assert.Error(t, err)
+		_, _, err = s.FolderGrants(t.Context(), chatID)
+		assert.Error(t, err)
+	}
+	_, err = s.sessionFor(c.ID, false, false).GrantedFolders(t.Context())
+	assert.Error(t, err)
 }
 
 // An always grant stored unchecked fails its check where it is listed, and a

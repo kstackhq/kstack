@@ -24,9 +24,8 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
-// pathDir is one folder filterPath kept.
+// pathDir is one folder filterDir kept.
 type pathDir struct {
-	Dir    string // the entry as the shell gave it
 	Target string // the folder it resolved to
 	Shared bool   // writable by a group other than an administrators' one
 
@@ -52,27 +51,6 @@ func (z zones) open(target string) bool {
 	return realpath.UnderAny(target, z.read) && !realpath.UnderAny(target, z.deny)
 }
 
-// filterPath is entries less what no run should search, in the shell's
-// order, and how many each rule dropped. Every check is on the resolved path.
-func filterPath(entries []string, z zones) (kept []pathDir, dropped map[string]int) {
-	dropped = map[string]int{}
-	for _, dir := range entries {
-		d, rule := filterDir(dir, z)
-		// Compared as files: a folder that folds names is one folder in
-		// any spelling. And by Target, which a folder replaced between two
-		// reads of one entry shares.
-		if rule == "" && slices.ContainsFunc(kept, func(k pathDir) bool { return k.Target == d.Target || os.SameFile(k.info, d.info) }) {
-			rule = "duplicate"
-		}
-		if rule != "" {
-			dropped[rule]++
-			continue
-		}
-		kept = append(kept, d)
-	}
-	return kept, dropped
-}
-
 // filterDir is dir as a pathDir, or the rule that drops it: the sandbox's
 // rules for a folder a run may search, then this list's own.
 func filterDir(dir string, z zones) (pathDir, string) {
@@ -84,5 +62,5 @@ func filterDir(dir string, z zones) (pathDir, string) {
 		// A project's folder holds whatever its last install fetched.
 		return pathDir{}, "project"
 	}
-	return pathDir{Dir: dir, Target: target, Shared: shared(info), info: info}, ""
+	return pathDir{Target: target, Shared: shared(info), info: info}, ""
 }

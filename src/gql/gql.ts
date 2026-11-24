@@ -100,10 +100,9 @@ type Documents = {
     "\n  subscription SandboxFoldersWatch($chatID: ChatID) {\n    sandboxFoldersWatch(chatID: $chatID) {\n      always {\n        id\n        path\n        write\n        refusal\n      }\n      chat {\n        id\n        path\n        write\n        refusal\n      }\n      never\n      closed\n      wide\n    }\n  }\n": typeof types.SandboxFoldersWatchDocument,
     "\n  mutation FolderGrant($chatID: ChatID, $path: String!, $write: Boolean!, $duration: GrantDuration!) {\n    folderGrant(chatID: $chatID, path: $path, write: $write, duration: $duration) {\n      wide\n    }\n  }\n": typeof types.FolderGrantDocument,
     "\n  mutation FolderRevoke($chatID: ChatID, $id: String!, $duration: GrantDuration!) {\n    folderRevoke(chatID: $chatID, id: $id, duration: $duration) {\n      wide\n    }\n  }\n": typeof types.FolderRevokeDocument,
-    "\n  query SandboxPath {\n    sandboxPath {\n      dir\n      target\n      state\n      source\n      shared\n    }\n    sandboxPathFault\n    sandboxPathResolved\n  }\n": typeof types.SandboxPathDocument,
-    "\n  mutation SandboxPathInclude($dir: String!, $target: String!) {\n    sandboxPathInclude(dir: $dir, target: $target) {\n      dir\n    }\n  }\n": typeof types.SandboxPathIncludeDocument,
-    "\n  mutation SandboxPathRemove($dir: String!) {\n    sandboxPathRemove(dir: $dir) {\n      dir\n    }\n  }\n": typeof types.SandboxPathRemoveDocument,
-    "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      dir\n    }\n  }\n": typeof types.SandboxPathRefreshDocument,
+    "\n  query SandboxPath {\n    sandboxPath {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFault\n  }\n": typeof types.SandboxPathDocument,
+    "\n  mutation SandboxPathSet($value: String!) {\n    sandboxPathSet(value: $value) {\n      value\n    }\n  }\n": typeof types.SandboxPathSetDocument,
+    "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      value\n    }\n  }\n": typeof types.SandboxPathRefreshDocument,
     "\n  mutation ChatSandboxDisabledSet($id: ChatID!, $sandboxDisabled: Boolean!) {\n    chatSandboxDisabledSet(id: $id, sandboxDisabled: $sandboxDisabled) {\n      id\n      sandboxDisabled\n    }\n  }\n": typeof types.ChatSandboxDisabledSetDocument,
     "\n  query Sandbox {\n    sandbox {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n": typeof types.SandboxDocument,
     "\n  subscription ToolSettingsWatch {\n    toolSettingsWatch {\n      name\n      label\n      group\n      description\n      enabled\n      alwaysOn\n    }\n  }\n": typeof types.ToolSettingsWatchDocument,
@@ -196,10 +195,9 @@ const documents: Documents = {
     "\n  subscription SandboxFoldersWatch($chatID: ChatID) {\n    sandboxFoldersWatch(chatID: $chatID) {\n      always {\n        id\n        path\n        write\n        refusal\n      }\n      chat {\n        id\n        path\n        write\n        refusal\n      }\n      never\n      closed\n      wide\n    }\n  }\n": types.SandboxFoldersWatchDocument,
     "\n  mutation FolderGrant($chatID: ChatID, $path: String!, $write: Boolean!, $duration: GrantDuration!) {\n    folderGrant(chatID: $chatID, path: $path, write: $write, duration: $duration) {\n      wide\n    }\n  }\n": types.FolderGrantDocument,
     "\n  mutation FolderRevoke($chatID: ChatID, $id: String!, $duration: GrantDuration!) {\n    folderRevoke(chatID: $chatID, id: $id, duration: $duration) {\n      wide\n    }\n  }\n": types.FolderRevokeDocument,
-    "\n  query SandboxPath {\n    sandboxPath {\n      dir\n      target\n      state\n      source\n      shared\n    }\n    sandboxPathFault\n    sandboxPathResolved\n  }\n": types.SandboxPathDocument,
-    "\n  mutation SandboxPathInclude($dir: String!, $target: String!) {\n    sandboxPathInclude(dir: $dir, target: $target) {\n      dir\n    }\n  }\n": types.SandboxPathIncludeDocument,
-    "\n  mutation SandboxPathRemove($dir: String!) {\n    sandboxPathRemove(dir: $dir) {\n      dir\n    }\n  }\n": types.SandboxPathRemoveDocument,
-    "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      dir\n    }\n  }\n": types.SandboxPathRefreshDocument,
+    "\n  query SandboxPath {\n    sandboxPath {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFault\n  }\n": types.SandboxPathDocument,
+    "\n  mutation SandboxPathSet($value: String!) {\n    sandboxPathSet(value: $value) {\n      value\n    }\n  }\n": types.SandboxPathSetDocument,
+    "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      value\n    }\n  }\n": types.SandboxPathRefreshDocument,
     "\n  mutation ChatSandboxDisabledSet($id: ChatID!, $sandboxDisabled: Boolean!) {\n    chatSandboxDisabledSet(id: $id, sandboxDisabled: $sandboxDisabled) {\n      id\n      sandboxDisabled\n    }\n  }\n": types.ChatSandboxDisabledSetDocument,
     "\n  query Sandbox {\n    sandbox {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n": types.SandboxDocument,
     "\n  subscription ToolSettingsWatch {\n    toolSettingsWatch {\n      name\n      label\n      group\n      description\n      enabled\n      alwaysOn\n    }\n  }\n": types.ToolSettingsWatchDocument,
@@ -567,19 +565,15 @@ export function graphql(source: "\n  mutation FolderRevoke($chatID: ChatID, $id:
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query SandboxPath {\n    sandboxPath {\n      dir\n      target\n      state\n      source\n      shared\n    }\n    sandboxPathFault\n    sandboxPathResolved\n  }\n"): (typeof documents)["\n  query SandboxPath {\n    sandboxPath {\n      dir\n      target\n      state\n      source\n      shared\n    }\n    sandboxPathFault\n    sandboxPathResolved\n  }\n"];
+export function graphql(source: "\n  query SandboxPath {\n    sandboxPath {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFault\n  }\n"): (typeof documents)["\n  query SandboxPath {\n    sandboxPath {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFault\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  mutation SandboxPathInclude($dir: String!, $target: String!) {\n    sandboxPathInclude(dir: $dir, target: $target) {\n      dir\n    }\n  }\n"): (typeof documents)["\n  mutation SandboxPathInclude($dir: String!, $target: String!) {\n    sandboxPathInclude(dir: $dir, target: $target) {\n      dir\n    }\n  }\n"];
+export function graphql(source: "\n  mutation SandboxPathSet($value: String!) {\n    sandboxPathSet(value: $value) {\n      value\n    }\n  }\n"): (typeof documents)["\n  mutation SandboxPathSet($value: String!) {\n    sandboxPathSet(value: $value) {\n      value\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  mutation SandboxPathRemove($dir: String!) {\n    sandboxPathRemove(dir: $dir) {\n      dir\n    }\n  }\n"): (typeof documents)["\n  mutation SandboxPathRemove($dir: String!) {\n    sandboxPathRemove(dir: $dir) {\n      dir\n    }\n  }\n"];
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      dir\n    }\n  }\n"): (typeof documents)["\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      dir\n    }\n  }\n"];
+export function graphql(source: "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      value\n    }\n  }\n"): (typeof documents)["\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      value\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

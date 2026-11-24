@@ -767,7 +767,7 @@ func grantable(t *testing.T, s *service) string {
 	}
 	s.settings = settings.NewService(settingsStore(t, s.db), func() settings.Zones {
 		return settings.Zones{Never: []string{filepath.Join(home, ".ssh")}, Home: home, NoWrite: sandbox.NoWrite(home)}
-	}, nil, "")
+	}, nil, nil, "")
 	s.sandboxStatus = sandbox.Status{Available: true}
 	return home
 }
@@ -778,7 +778,7 @@ func testSettings(t *testing.T) *settings.Service {
 	t.Helper()
 	db := appdbtest.Open(t)
 	seedClusters(t, db, testClusterIDs...)
-	return settings.NewService(settingsStore(t, db), nil, nil, "")
+	return settings.NewService(settingsStore(t, db), nil, nil, nil, "")
 }
 
 // settingsStore is a settings store over a file not yet written and db.

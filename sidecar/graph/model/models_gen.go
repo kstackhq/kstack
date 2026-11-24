@@ -333,15 +333,29 @@ type SandboxFolders struct {
 	Wide []string `json:"wide"`
 }
 
-// One folder of the user's PATH, and what the sandbox does with it.
-type SandboxPathEntry struct {
-	// The folder as the shell gave it.
-	Dir string `json:"dir"`
-	// The folder dir resolved to when its state was set; the one the sandbox reads.
-	Target string            `json:"target"`
-	State  SandboxPathState  `json:"state"`
-	Source SandboxPathSource `json:"source"`
-	// Whether target was writable by a group other than an administrators' one, so others in it can add programs to it.
+// The PATH of every sandboxed command, as the user wrote it, and its folders.
+type SandboxPath struct {
+	// As written: folders joined by ':', where $PATH stands for the login shell's PATH and ~ or $HOME for the home. User text: draw it through VisibleText.
+	Value string `json:"value"`
+	// Why Kstack cannot use value, in the user's words; null when it can. While it is set, no sandboxed command starts. Draw it through VisibleText.
+	Refusal *string `json:"refusal,omitempty"`
+	// Each folder of value in order, as a command judges it now. Empty while value is refused, and on a machine with no sandbox.
+	Folders []*SandboxPathFolder `json:"folders"`
+}
+
+// One folder of the PATH setting, as a sandboxed command judges it now.
+type SandboxPathFolder struct {
+	// The folder as expanded. Shell or user text: draw it through VisibleText.
+	Path   string            `json:"path"`
+	Origin SandboxPathOrigin `json:"origin"`
+	// The folder path resolves to, canonical; null when it does not resolve to one a command may search. Draw it through VisibleText.
+	Target   *string `json:"target,omitempty"`
+	Searched bool    `json:"searched"`
+	// Why the folder is left out, in the user's words; null when it is searched. Draw it through VisibleText.
+	Reason *string `json:"reason,omitempty"`
+	// Whether typing target into the setting would include the folder: a shell folder left out only because no command reads it or its group can write it, that the setting does not type already.
+	Addable bool `json:"addable"`
+	// Whether a group other than an administrators' one can add programs to target.
 	Shared bool `json:"shared"`
 }
 
@@ -463,51 +477,51 @@ func (e LogsFollowFrameType) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Whose decision a PATH entry's state is.
-type SandboxPathSource string
+// Where a folder of the PATH setting came from.
+type SandboxPathOrigin string
 
 const (
-	// Kstack's, when it read the login shell's PATH.
-	SandboxPathSourceShell SandboxPathSource = "Shell"
-	// The user's, by Include or Remove.
-	SandboxPathSourceUser SandboxPathSource = "User"
+	// The login shell's PATH, spliced in for $PATH. Searched only when every sandboxed command reads it already and no group but an administrators' one can add programs to it.
+	SandboxPathOriginShell SandboxPathOrigin = "Shell"
+	// A folder the user typed: their read grant, held to a folder grant's checks.
+	SandboxPathOriginTyped SandboxPathOrigin = "Typed"
 )
 
-var AllSandboxPathSource = []SandboxPathSource{
-	SandboxPathSourceShell,
-	SandboxPathSourceUser,
+var AllSandboxPathOrigin = []SandboxPathOrigin{
+	SandboxPathOriginShell,
+	SandboxPathOriginTyped,
 }
 
-func (e SandboxPathSource) IsValid() bool {
+func (e SandboxPathOrigin) IsValid() bool {
 	switch e {
-	case SandboxPathSourceShell, SandboxPathSourceUser:
+	case SandboxPathOriginShell, SandboxPathOriginTyped:
 		return true
 	}
 	return false
 }
 
-func (e SandboxPathSource) String() string {
+func (e SandboxPathOrigin) String() string {
 	return string(e)
 }
 
-func (e *SandboxPathSource) UnmarshalGQL(v any) error {
+func (e *SandboxPathOrigin) UnmarshalGQL(v any) error {
 	str, ok := v.(string)
 	if !ok {
 		return fmt.Errorf("enums must be strings")
 	}
 
-	*e = SandboxPathSource(str)
+	*e = SandboxPathOrigin(str)
 	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid SandboxPathSource", str)
+		return fmt.Errorf("%s is not a valid SandboxPathOrigin", str)
 	}
 	return nil
 }
 
-func (e SandboxPathSource) MarshalGQL(w io.Writer) {
+func (e SandboxPathOrigin) MarshalGQL(w io.Writer) {
 	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
-func (e *SandboxPathSource) UnmarshalJSON(b []byte) error {
+func (e *SandboxPathOrigin) UnmarshalJSON(b []byte) error {
 	s, err := strconv.Unquote(string(b))
 	if err != nil {
 		return err
@@ -515,68 +529,7 @@ func (e *SandboxPathSource) UnmarshalJSON(b []byte) error {
 	return e.UnmarshalGQL(s)
 }
 
-func (e SandboxPathSource) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
-}
-
-// What the sandbox does with one folder of the user's PATH.
-type SandboxPathState string
-
-const (
-	// On the sandbox's PATH and readable in it.
-	SandboxPathStateAdopted SandboxPathState = "Adopted"
-	// Listed by the shell and waiting for the user: adopting it would open more to commands, or its group can add programs to it.
-	SandboxPathStatePending SandboxPathState = "Pending"
-	// Removed by the user, and kept so a launch does not adopt it again.
-	SandboxPathStateGone SandboxPathState = "Gone"
-)
-
-var AllSandboxPathState = []SandboxPathState{
-	SandboxPathStateAdopted,
-	SandboxPathStatePending,
-	SandboxPathStateGone,
-}
-
-func (e SandboxPathState) IsValid() bool {
-	switch e {
-	case SandboxPathStateAdopted, SandboxPathStatePending, SandboxPathStateGone:
-		return true
-	}
-	return false
-}
-
-func (e SandboxPathState) String() string {
-	return string(e)
-}
-
-func (e *SandboxPathState) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = SandboxPathState(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid SandboxPathState", str)
-	}
-	return nil
-}
-
-func (e SandboxPathState) MarshalGQL(w io.Writer) {
-	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *SandboxPathState) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
-		return err
-	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e SandboxPathState) MarshalJSON() ([]byte, error) {
+func (e SandboxPathOrigin) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

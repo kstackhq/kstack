@@ -300,18 +300,18 @@ func ReportOver(last []ExecutableReport, registered []settings.Executable) []Exe
 // now; once ctx ends, or the disk does not answer, each report is not probed
 // and says why.
 func (t *Tool) runProbe(ctx context.Context, registered []settings.Executable) []ExecutableReport {
-	var list settings.RunPath
-	if t.pathList != nil {
-		list = t.pathList()
-	}
 	reports := executableList(registered)
-	// System stats folders under the home, Never lists the other homes and
-	// runPath stats each entry.
-	path, err := onDisk(ctx, t.probe.diskTimeout, func() []string {
-		sys := t.sandboxer.System(t.home, t.shell)
-		path, _ := runPath(list, t.fallbackPath, sys.Files, slices.Concat(t.sandboxer.Never(t.home), t.denied), t.home)
-		return path
-	})
+	list, err := t.readPath(ctx)
+	var path []string
+	if err == nil {
+		// System stats folders under the home, Never lists the other homes
+		// and runPath stats each folder.
+		path, err = onDisk(ctx, t.probe.diskTimeout, func() []string {
+			sys := t.sandboxer.System(t.home, t.shell)
+			path, _ := runPath(list.Search, sys.Files, slices.Concat(t.sandboxer.Never(t.home), t.denied), t.home)
+			return path
+		})
+	}
 	for i := range reports {
 		if reports[i].Refusal != "" {
 			continue
