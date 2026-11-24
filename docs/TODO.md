@@ -948,13 +948,6 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   `background-color` leaves the theme-matching foreground open; a contrast floor on every kept
   colour would close it. Either land one or accept it as a **By decision** row with an ADR.
 
-- **Resolve the host's folders once, and fence each resolved folder once (low; host and
-  sidecar owners).** The sidecar resolves its folders once, refuses a link below them and grants
-  no write on or above a followed link's parent. The host still follows its folders' links each
-  time it names one, and a folder nested in another by name is fenced twice. Specified as steps 2
-  and 3 of `docs/specs/folder-links/`, for
-  [#1145](https://github.com/kstackhq/kstack/issues/1145).
-
 - **Let a link lead a Windows layout folder out of the profile (low; sidecar and host owners).**
   A layout folder a link leads elsewhere must resolve inside the user profile, whose ACL keeps
   it private

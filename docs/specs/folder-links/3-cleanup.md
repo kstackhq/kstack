@@ -46,8 +46,8 @@ All tasks start Planned.
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | `app`, `app/layout`: the drop in `pathsOf`, and the comments. | Planned |
-| 2 | The docs below. | Planned |
+| 1 | `app`, `app/layout`: the drop in `pathsOf`, and the comments. | Built |
+| 2 | The docs below. | Built |
 
 ## When it lands
 
