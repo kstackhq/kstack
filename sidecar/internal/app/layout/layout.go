@@ -86,9 +86,7 @@ func (l *Layout) fields() []*string {
 	return []*string{&l.Data, &l.Cache, &l.Logs, &l.Config, &l.State, &l.Runtime, &l.App, &l.AppOnConfigRoot}
 }
 
-// Dirs is every folder l names, the sidecar's data and cache first. Only an
-// exact duplicate is dropped: a folder nested in another by name can resolve
-// elsewhere through a link.
+// Dirs is every folder l names, the sidecar's data and cache first, each once.
 func (l Layout) Dirs() []string {
 	var dirs []string
 	for _, dir := range l.fields() {

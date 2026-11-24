@@ -50,7 +50,7 @@ type FilePolicy struct {
 // open.
 type AlwaysPolicy struct {
 	Deny   []string // the denied-always list
-	Kstack []string // the data, cache and runtime directories
+	Kstack []string // Kstack's folders; one inside another is denied with it
 	Read   []string // the run's own paths it reads, each inside a Kstack path
 	Write  []string // and reads and writes
 	// LinkParents is the folder holding each link Kstack followed to its
@@ -330,7 +330,7 @@ func (p Policy) rules(c canonicalPaths) []rule {
 	files := slices.Concat(
 		c.rules(p.Files.Write, ruleWrite, false), c.rules(p.Files.Read, ruleRead, false), c.rules(p.Files.Deny, ruleDeny, false))
 	sortRules(files)
-	always := slices.Concat(c.rules(p.Always.Deny, ruleDeny, false), c.rules(p.Always.Kstack, ruleDeny, false))
+	always := slices.Concat(c.rules(p.Always.Deny, ruleDeny, false), outermost(c.rules(p.Always.Kstack, ruleDeny, false)))
 	own := slices.Concat(c.rules(p.Always.Write, ruleWrite, true), c.rules(p.Always.Read, ruleRead, true))
 	sortRules(own)
 
@@ -357,6 +357,19 @@ func (c canonicalPaths) rules(paths []string, kind ruleKind, own bool) []rule {
 		rules[i] = rule{path: path, at: c[path], kind: kind, own: own}
 	}
 	return rules
+}
+
+// outermost is rules less each one inside another of them, so each Kstack
+// folder is denied once. A policy's canonical paths name no folder two ways,
+// so their text tells.
+func outermost(rules []rule) []rule {
+	var out []rule
+	for _, r := range rules {
+		if !slices.ContainsFunc(rules, func(o rule) bool { return o.at != r.at && realpath.Within(r.at, o.at) }) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // sortRules orders rules by their canonical paths, shallowest first, and among

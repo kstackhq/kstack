@@ -63,7 +63,6 @@ func pathsOf(cfg Config) paths {
 	kstack := []string{data, cache, runtime}
 	// Every folder the layout names is fenced too: the host's config, state
 	// and logs, and the app folders that hold the kinds on macOS and Windows.
-	// Only an exact duplicate is dropped.
 	for _, dir := range cfg.Folders.Layout.Dirs() {
 		if !slices.Contains(kstack, dir) {
 			kstack = append(kstack, dir)

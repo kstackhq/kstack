@@ -15,10 +15,12 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
 )
@@ -57,7 +59,7 @@ func TestTheLogDirectoryIsKstacks(t *testing.T) {
 	nested := filepath.Join(data, "logs")
 	p = pathsOf(Config{Folders: Folders{Data: data, Cache: cache, Runtime: runtime, Layout: layout.Layout{Logs: nested}}})
 	assert.Equal(t, []string{data, cache, runtime, nested}, p.Bash.DeniedDirs,
-		"one under the data directory by name is kept, since a link can lead it elsewhere")
+		"one under the data directory keeps its entry, since the file tools compare folders as files")
 
 	p = pathsOf(Config{Folders: Folders{Data: data, Cache: cache, Runtime: runtime, Layout: layout.Layout{Logs: data}}})
 	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one that is the data directory adds nothing")
@@ -113,7 +115,7 @@ func TestTheConfigDirectoryIsKstacks(t *testing.T) {
 	nested := filepath.Join(data, "config")
 	p = pathsOf(Config{Folders: Folders{Data: data, Cache: cache, Runtime: runtime, Layout: layout.Layout{Config: nested}}})
 	assert.Equal(t, []string{data, cache, runtime, nested}, p.Bash.DeniedDirs,
-		"one under another by name is kept, since a link can lead it elsewhere")
+		"one under another keeps its entry, since the file tools compare folders as files")
 }
 
 // A debug build can move the data and cache directories off the layout; the
@@ -123,4 +125,37 @@ func TestTheLayoutsDataAndCacheAreKstacks(t *testing.T) {
 	l := layout.Layout{Data: filepath.FromSlash("/l/data"), Cache: filepath.FromSlash("/l/cache")}
 	p := pathsOf(Config{Folders: Folders{Data: data, Cache: cache, Runtime: runtime, Layout: l}})
 	assert.Equal(t, []string{data, cache, runtime, l.Data, l.Cache}, p.Bash.DeniedDirs)
+}
+
+// Every platform's layout, resolved on real folders, is fenced whole: a
+// folder inside another keeps its own entry, since the file tools and the
+// grant zones compare folders as files, and a second name of a nested folder,
+// such as a bind mount's source, matches only the folder itself.
+func TestEveryResolvedFolderIsFenced(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		platform layout.Platform
+		roots    func(root string) layout.Roots
+	}{
+		{"linux", layout.Linux, linuxRoots},
+		{"macos", layout.MacOS, macOSRoots},
+		{"windows", layout.Windows, windowsRoots},
+		{"windows with one root", layout.Windows, sharedWindowsRoots},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := scratch(t)
+			n := namedOn(c.platform, root, c.roots(root))
+			for _, dir := range n.Layout.Dirs() {
+				require.NoError(t, os.MkdirAll(dir, 0o700))
+			}
+			f, err := ResolveFolders(n)
+			require.NoError(t, err)
+
+			fence := pathsOf(Config{Folders: f}).Bash.DeniedDirs
+
+			for _, dir := range f.Layout.Dirs() {
+				assert.Contains(t, fence, dir)
+			}
+		})
+	}
 }
