@@ -28,8 +28,8 @@ const (
 )
 
 // PathEntry is one folder of the user's PATH and what the sandbox does with
-// it. A state holds for its exact Target, not for Dir: the approval is of the
-// folder the entry resolved to.
+// it. An approval holds for its exact Target, the folder the entry resolved
+// to; a removal holds for that Target and for its own Dir, wherever it leads.
 type PathEntry struct {
 	Dir    string    `json:"dir"`              // as the shell gave it
 	Target string    `json:"target"`           // what Dir resolved to when the state was set

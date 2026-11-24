@@ -113,8 +113,8 @@ type pathView struct {
 // whether the list it wrote differs from the one it read. The disk is read on
 // a goroutine abandoned when ctx ends or syncTimeout passes, since a stat on
 // a dead network mount does not return; one that ends first changes nothing.
-// Syncs run one at a time, so an older read of the disk, and its snapshot,
-// never lands after a newer one.
+// The wait for an earlier sync and the read share one syncTimeout. Syncs run
+// one at a time, so one sync's read never lands after a later sync's.
 func (s *Service) SyncPath(ctx context.Context, resolved []string) (changed bool, err error) {
 	if s.zones == nil {
 		return false, ErrNoSandbox
