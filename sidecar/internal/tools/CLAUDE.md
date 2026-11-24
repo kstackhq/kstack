@@ -289,8 +289,8 @@ replace its own paths](../../../docs/security/2026-09-30-a-run-cannot-replace-it
 
 **A run with a cluster or a cloud platform serves its door on its socket** (`proxy.go`): one server
 routing by transport and `Host` to the cluster's grant (`upstream.go`) and each cloud platform's, anything else
-the cluster grant's 401. The door authenticates nothing; a cloud platform's route reads its switch
-on every request and refuses an upgrade. The claim watches the record and revokes on disable, mark or delete. A claim that
+the cluster grant's 401. The door authenticates nothing and refuses a cloud platform's upgrade; a
+cloud platform's grant's `Admit` checks the token, then the switch: off is `401`. The claim watches the record and revokes on disable, mark or delete. A claim that
 cannot be made still runs the command, answering each request not connectable. A background
 command's writes are refused. **The run ends in order** (`sandboxedRun.end`) — every grant, server,
 handlers joined, claim, directory — so no request reaches the user once `Run` returns. → [cluster
@@ -299,9 +299,9 @@ engine](../../../docs/security/2026-10-02-the-permissions-engine.md), [Secret da
 read](../../../docs/security/2026-10-05-secret-data-is-a-permissioned-read.md).
 
 **A cloud platform joins a run through `CloudPlatform`** (`cloud.go`), a list `app` hands `bash.New`
-in `Cloud` with each switch's reader: `builtCloudPlatforms` (`app/cloudplatforms_unix.go`), and none
+in `Cloud` beside their switches: `builtCloudPlatforms` (`app/cloudplatforms_unix.go`), and none
 on a machine with no sandbox. A run of a chat or a subagent mounts each cloud platform whose
-switch is on at its start; a monitor's and the probe's mount none. `Mount` gets the port, the run's
+switch is on at its start (none if unreadable); a monitor's and the probe's mount none. `Mount` gets the port, the run's
 directories and the grant's inputs (`cloudAskerFor`: the runtime's asker as `cloudAsker`, or a
 refusal naming the cloud platform), and answers routes, variables and a `runproxy.Grant`. Two routes
 on one host, two values for one variable, or a failed mount fail the run and end what was made; a

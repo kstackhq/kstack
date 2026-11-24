@@ -58,7 +58,9 @@ type Limits struct {
 
 // Grant is one run's access to one cloud platform, dead once End is called.
 type Grant struct {
-	target  permissions.Target
+	target permissions.Target
+	// on is the cloud platform's switch, read on every request that enters.
+	on      func(context.Context) bool
 	session session.Session
 	// asker puts a request to the user; nil refuses every request that would
 	// ask with refusal.
@@ -84,13 +86,16 @@ type Grant struct {
 }
 
 // NewGrant is a live grant to target for the run of sess, with a fresh
-// 256-bit token. Each request that asks goes to asker, or, with none, is
-// refused with refusal. A grant for the cluster is a wiring mistake: the
-// cluster's grant is kubeproxy's. So is a limit below one, which would refuse
-// every request the user approves.
-func NewGrant(target permissions.Target, sess session.Session, asker Asker, refusal string, limits Limits) *Grant {
+// 256-bit token, open while on answers true. Each request that asks goes to
+// asker, or, with none, is refused with refusal. A grant for the cluster is a
+// wiring mistake: the cluster's grant is kubeproxy's. So is no switch, and a
+// limit below one, which would refuse every request the user approves.
+func NewGrant(target permissions.Target, on func(context.Context) bool, sess session.Session, asker Asker, refusal string, limits Limits) *Grant {
 	if target == permissions.Cluster {
 		panic("runproxy: a grant names a cloud platform, never the cluster")
+	}
+	if on == nil {
+		panic("runproxy: a grant reads its cloud platform's switch")
 	}
 	if limits.QPS <= 0 || limits.Burst < 1 || limits.Open < 1 || limits.Bodies < 1 {
 		panic("runproxy: every limit admits at least one request")
@@ -99,7 +104,7 @@ func NewGrant(target permissions.Target, sess session.Session, asker Asker, refu
 	_, _ = rand.Read(b[:])
 	ctx, end := context.WithCancel(context.Background())
 	return &Grant{
-		target: target, session: sess, asker: asker, refusal: refusal,
+		target: target, on: on, session: sess, asker: asker, refusal: refusal,
 		token: hex.EncodeToString(b[:]), challenges: limits.Challenges,
 		limiter: rate.NewLimiter(limits.QPS, limits.Burst),
 		open:    semaphore.NewWeighted(int64(limits.Open)),
@@ -133,9 +138,43 @@ func (g *Grant) Challenge(w http.ResponseWriter) {
 	http.Error(w, unauthorized, http.StatusUnauthorized)
 }
 
-// Enter counts r in, unless the grant has ended: r's context then ends with
-// the grant, and Wait joins the handler until done is called.
+// Admit lets r in when token is the grant's and Enter takes it, answering
+// what Enter answers; otherwise it writes the refusal and answers false. A
+// request without the token is challenged and never reads the switch; one
+// Enter refuses gets 401 and never a challenge, which would only have the
+// client send the token again.
+func (g *Grant) Admit(w http.ResponseWriter, r *http.Request, token string) (_ *http.Request, done func(), ok bool) {
+	if !g.Holds(token) {
+		g.Challenge(w)
+		return r, func() {}, false
+	}
+	r, done, ok = g.Enter(r)
+	if !ok {
+		http.Error(w, unauthorized, http.StatusUnauthorized)
+	}
+	return r, done, ok
+}
+
+// Enter counts r in, unless the grant has ended or the cloud platform's switch
+// is off: r's context then ends with the grant, and Wait joins the handler
+// until done is called. The switch is read once r is counted in, so End
+// cancels the read and Wait joins it.
 func (g *Grant) Enter(r *http.Request) (_ *http.Request, done func(), ok bool) {
+	r, done, ok = g.join(r)
+	if !ok {
+		return r, done, false
+	}
+	// A read End cancelled may still answer on, so the grant is checked again.
+	if !g.on(r.Context()) || g.ctx.Err() != nil {
+		done()
+		return r, func() {}, false
+	}
+	return r, done, true
+}
+
+// join counts r in unless the grant has ended, its context ending with the
+// grant's.
+func (g *Grant) join(r *http.Request) (_ *http.Request, done func(), ok bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.ctx.Err() != nil {

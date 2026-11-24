@@ -68,7 +68,7 @@ func (p *azurePlatform) Target() permissions.Target { return permissions.Azure }
 // answers the sign-in sentence.
 func (p *azurePlatform) Mount(ctx context.Context, run CloudRun) (CloudMount, error) {
 	door := "127.0.0.1:" + strconv.Itoa(run.Port)
-	g := runproxy.NewGrant(permissions.Azure, run.Session, run.Asker, run.Refusal, cloudLimits)
+	g := runproxy.NewGrant(permissions.Azure, run.On, run.Session, run.Asker, run.Refusal, cloudLimits)
 	cfg := azureproxy.Config{Grant: g, Port: run.Port, Tokens: p.login, Transport: p.transport}
 	m := CloudMount{Grant: g}
 	waitCtx, cancel := context.WithTimeout(ctx, p.wait)

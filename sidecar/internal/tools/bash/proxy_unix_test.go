@@ -311,7 +311,7 @@ func TestTheGrantKeepsTheSession(t *testing.T) {
 func TestAProxyThatCannotListenFails(t *testing.T) {
 	p := &runProxy{grant: newClusterGrant(refused{}, session.Session{}, "7", "prod", nil, refusedNoAsker)}
 	t.Cleanup(p.end)
-	assert.Error(t, p.serve(filepath.Join(t.TempDir(), "missing", socketName), Cloud{}.on, nil))
+	assert.Error(t, p.serve(filepath.Join(t.TempDir(), "missing", socketName), nil))
 }
 
 // A run whose directory cannot be made releases its claim, and runs nothing.
@@ -615,7 +615,7 @@ func TestABackgroundGrantRefusesWrites(t *testing.T) {
 func TestTheProxyClosesBeforeItWaits(t *testing.T) {
 	socket := filepath.Join(shortTemp(t), socketName)
 	p := &runProxy{grant: newClusterGrant(refused{}, session.Session{}, "7", "prod", runtimeAsker{&fakeActionAsker{approve: true}}, "")}
-	require.NoError(t, p.serve(socket, Cloud{}.on, nil))
+	require.NoError(t, p.serve(socket, nil))
 	conn, err := net.Dial("unix", socket)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })

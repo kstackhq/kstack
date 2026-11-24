@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -142,6 +143,7 @@ func (a *asker) Record(context.Context, runproxy.Request, permissions.Decision, 
 // rig is a handler on a grant, served as the run's door serves it.
 type rig struct {
 	grant *runproxy.Grant
+	off   atomic.Bool // the grant's switch, on until a test turns it off
 	src   *fakeSource
 	up    *upstream
 	asker *asker
@@ -151,11 +153,21 @@ type rig struct {
 func newRig(t *testing.T, limits runproxy.Limits) *rig {
 	t.Helper()
 	r := &rig{src: &fakeSource{}, up: newUpstream(t), asker: newAsker()}
-	r.grant = runproxy.NewGrant(permissions.GCP, session.Session{Kind: session.Chat}, r.asker, "", limits)
+	r.grant = runproxy.NewGrant(permissions.GCP, func(context.Context) bool { return !r.off.Load() }, session.Session{Kind: session.Chat}, r.asker, "", limits)
 	t.Cleanup(r.grant.End)
 	r.door = httptest.NewServer(New(r.grant, r.src, r.up))
 	t.Cleanup(r.door.Close)
 	return r
+}
+
+// With the switch off, a request with the grant's token is refused 401 and
+// nothing reaches Google.
+func TestASwitchedOffPlatformIsUnauthorized(t *testing.T) {
+	r := newRig(t, roomy)
+	r.off.Store(true)
+	resp := r.get(t, "http://storage.gcp.kstack.invalid/storage/v1/b/bkt/o/notes.txt?alt=media")
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Empty(t, r.up.seen)
 }
 
 var roomy = runproxy.Limits{QPS: 1000, Burst: 1000, Open: 8, Bodies: 8}

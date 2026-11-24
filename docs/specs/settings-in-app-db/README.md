@@ -46,7 +46,8 @@ both the file and `app.db` until step 5:
 - A step moves its area's methods onto `app.db`, laid out as `envvars` is (`store.go`,
   `statements.go`), and deletes its fields from `Settings`. The methods keep their names and
   their meaning, except where the step's spec renames one.
-- A moved area publishes after each commit, current-on-subscribe, as `toolsettings` does.
+- A moved area publishes after each commit, current-on-subscribe, as `toolsettings` does,
+  unless its step says nothing watches it.
 - A step removes its own part of "held" from the code and the wire. `settingsRefused` reports
   the areas still in the file, and goes in step 5.
 - A step updates its area's rows in [`persisted-data.md`](../../persisted-data.md) and its

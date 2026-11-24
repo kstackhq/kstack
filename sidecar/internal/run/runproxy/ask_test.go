@@ -225,7 +225,7 @@ func TestAWaitThatEndsForwardsNothing(t *testing.T) {
 // nothing; a record that fails says so.
 func TestAFailedRecordForwardsNothing(t *testing.T) {
 	a := newFakeAsker()
-	g := NewGrant(permissions.AWS, session.Session{Kind: session.Chat, NoPrompts: true}, a, noAsker, testLimits)
+	g := NewGrant(permissions.AWS, switchedOn, session.Session{Kind: session.Chat, NoPrompts: true}, a, noAsker, testLimits)
 	t.Cleanup(g.End)
 	out, forwarded := decideNow(t, g, change())
 	assert.False(t, forwarded)
@@ -243,7 +243,7 @@ func TestAFailedRecordForwardsNothing(t *testing.T) {
 
 func TestNoSecretDataRefusesADataRead(t *testing.T) {
 	a := newFakeAsker()
-	g := NewGrant(permissions.AWS, session.Session{Kind: session.Chat, NoSecretData: true}, a, noAsker, testLimits)
+	g := NewGrant(permissions.AWS, switchedOn, session.Session{Kind: session.Chat, NoSecretData: true}, a, noAsker, testLimits)
 	t.Cleanup(g.End)
 	out, forwarded := decideNow(t, g, dataRead())
 	assert.False(t, forwarded)
@@ -268,7 +268,7 @@ func TestDecideKeepsACloudPlatformsFieldsAlone(t *testing.T) {
 		decideNow(t, g, req)
 		assert.Equal(t, want, testutil.Recv(t, a.asked, "the request").Action)
 
-		refusing := NewGrant(permissions.AWS, session.Session{NoPrompts: true}, a, noAsker, testLimits)
+		refusing := NewGrant(permissions.AWS, switchedOn, session.Session{NoPrompts: true}, a, noAsker, testLimits)
 		t.Cleanup(refusing.End)
 		decideNow(t, refusing, req)
 		assert.Equal(t, want, testutil.Recv(t, a.recorded, "the record").req.Action)

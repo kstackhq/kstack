@@ -17,12 +17,14 @@ package bash
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -50,6 +52,9 @@ type CloudRun struct {
 	Session session.Session
 	Asker   runproxy.Asker
 	Refusal string
+	// On is the cloud platform's switch, which its grant reads on every
+	// request.
+	On func(context.Context) bool
 }
 
 // CloudMount is what a cloud platform adds to one run.
@@ -70,17 +75,21 @@ type Route struct {
 	Handler http.Handler
 }
 
-// Cloud is the cloud platforms this build has, and each one's switch.
+// Cloud is the cloud platforms this build has, and their switches.
 type Cloud struct {
 	Platforms []CloudPlatform
-	// On reads a cloud platform's switch, at a run's start and on every
-	// request; nil reads every one off.
-	On func(permissions.Target) bool
+	// Switches reads every cloud platform's switch, at a run's start and on
+	// every request; nil reads every one off.
+	Switches func(context.Context) (settings.CloudPlatformSwitches, error)
 }
 
-// on is whether target's switch is on now.
-func (c Cloud) on(target permissions.Target) bool {
-	return c.On != nil && c.On(target)
+// switchOf is target's switch as its grant reads it: off when the switches
+// cannot be read.
+func (c Cloud) switchOf(target permissions.Target) func(context.Context) bool {
+	return func(ctx context.Context) bool {
+		sw, err := c.Switches(ctx)
+		return err == nil && sw.On(target)
+	}
 }
 
 // platformNames is each cloud platform in the user's words.
@@ -93,14 +102,20 @@ var platformNames = map[permissions.Target]string{
 
 // platformsFor is the cloud platforms a run of rt mounts: those whose switch is
 // on at its start, for a run a turn of the user's started, a chat's or a
-// subagent's. A monitor's, and the probe's, which names no kind, get none.
-func (c Cloud) platformsFor(rt tools.Runtime) []CloudPlatform {
-	if rt.Session.Kind != session.Chat && rt.Session.Kind != session.Subagent {
+// subagent's. A monitor's, and the probe's, which names no kind, get none. A
+// run whose switches cannot be read gets none, and logs why.
+func (c Cloud) platformsFor(ctx context.Context, rt tools.Runtime) []CloudPlatform {
+	if rt.Session.Kind != session.Chat && rt.Session.Kind != session.Subagent || len(c.Platforms) == 0 || c.Switches == nil {
+		return nil
+	}
+	sw, err := c.Switches(ctx)
+	if err != nil {
+		slog.Warn("could not read the cloud platform switches; the run reaches no cloud platform", "err", err)
 		return nil
 	}
 	var on []CloudPlatform
 	for _, p := range c.Platforms {
-		if c.on(p.Target()) {
+		if sw.On(p.Target()) {
 			on = append(on, p)
 		}
 	}
@@ -108,11 +123,13 @@ func (c Cloud) platformsFor(rt tools.Runtime) []CloudPlatform {
 }
 
 // mount adds each cloud platform's part of run to the door, its requests that
-// ask going as cloudAskerFor says, and answers the variables the mounts set. It
-// keeps the mounts made before one that fails, for end to end.
-func (p *runProxy) mount(ctx context.Context, platforms []CloudPlatform, rt tools.Runtime, background bool, run CloudRun) ([]string, error) {
+// ask going as cloudAskerFor says and its grant reading the platform's switch
+// in cloud, and answers the variables the mounts set. It keeps the mounts made
+// before one that fails, for end to end.
+func (p *runProxy) mount(ctx context.Context, cloud Cloud, platforms []CloudPlatform, rt tools.Runtime, background bool, run CloudRun) ([]string, error) {
 	for _, platform := range platforms {
 		run.Asker, run.Refusal = cloudAskerFor(rt, background, platform.Target())
+		run.On = cloud.switchOf(platform.Target())
 		m, err := platform.Mount(ctx, run)
 		if err != nil {
 			return nil, err

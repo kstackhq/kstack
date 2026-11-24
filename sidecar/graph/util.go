@@ -344,12 +344,16 @@ func valueOf[T any](p *T) T {
 }
 
 // cloudAccess is the build's cloud platforms, each with its switch.
-func (r *Resolver) cloudAccess() []*model.CloudAccess {
+func (r *Resolver) cloudAccess(ctx context.Context) ([]*model.CloudAccess, error) {
+	sw, err := r.Settings.CloudPlatformSwitches(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]*model.CloudAccess, 0, len(r.CloudTargets))
 	for _, target := range r.CloudTargets {
-		out = append(out, &model.CloudAccess{Target: target, On: r.Settings.CloudOn(target)})
+		out = append(out, &model.CloudAccess{Target: target, On: sw.On(target)})
 	}
-	return out
+	return out, nil
 }
 
 // sandboxPathErr is what every sandbox path resolver returns an error

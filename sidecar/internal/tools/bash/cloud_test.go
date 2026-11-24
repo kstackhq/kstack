@@ -33,6 +33,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -79,15 +80,10 @@ func (p *fakePlatform) Mount(_ context.Context, run CloudRun) (CloudMount, error
 	if p.onMount != nil {
 		p.onMount(run)
 	}
-	g := runproxy.NewGrant(p.target, run.Session, run.Asker, run.Refusal, cloudLimits)
+	g := runproxy.NewGrant(p.target, run.On, run.Session, run.Asker, run.Refusal, cloudLimits)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !g.Holds(r.Header.Get(tokenHeader)) {
-			g.Challenge(w)
-			return
-		}
-		r, done, ok := g.Enter(r)
+		r, done, ok := g.Admit(w, r, r.Header.Get(tokenHeader))
 		if !ok {
-			g.Challenge(w)
 			return
 		}
 		defer done()
@@ -123,10 +119,15 @@ func (p *fakePlatform) Mount(_ context.Context, run CloudRun) (CloudMount, error
 	return CloudMount{Routes: routes, Env: env, Grant: g}, nil
 }
 
-// switches is each cloud platform's switch as a test flips it.
+// switchedOn is a cloud platform's switch that is always on.
+func switchedOn(context.Context) bool { return true }
+
+// switches is each cloud platform's switch as a test flips it; err fails
+// every read.
 type switches struct {
-	mu sync.Mutex
-	on map[permissions.Target]bool
+	mu  sync.Mutex
+	on  map[permissions.Target]bool
+	err error
 }
 
 func switchesOn(targets ...permissions.Target) *switches {
@@ -137,10 +138,22 @@ func switchesOn(targets ...permissions.Target) *switches {
 	return s
 }
 
-func (s *switches) On(t permissions.Target) bool {
+// read is every switch, as Cloud.Switches reads them.
+func (s *switches) read(context.Context) (settings.CloudPlatformSwitches, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.on[t]
+	if s.err != nil {
+		return settings.CloudPlatformSwitches{}, s.err
+	}
+	on := s.on
+	return settings.CloudPlatformSwitches{AWS: on[permissions.AWS], GitHub: on[permissions.GitHub], GCP: on[permissions.GCP], Azure: on[permissions.Azure]}, nil
+}
+
+// fail makes every read fail with err.
+func (s *switches) fail(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.err = err
 }
 
 func (s *switches) set(t permissions.Target, on bool) {
@@ -179,7 +192,13 @@ func (a *answeringAsker) Record(context.Context, tools.ActionRequest, permission
 // grant.
 func mountFor(t *testing.T, p *fakePlatform) CloudMount {
 	t.Helper()
-	m, err := p.Mount(t.Context(), CloudRun{Session: session.Session{Kind: session.Chat}, Refusal: "kstack: no"})
+	return mountSwitched(t, p, switchesOn(p.target))
+}
+
+// mountSwitched is p mounted for a chat's run, its grant reading sw.
+func mountSwitched(t *testing.T, p *fakePlatform, sw *switches) CloudMount {
+	t.Helper()
+	m, err := p.Mount(t.Context(), CloudRun{Session: session.Session{Kind: session.Chat}, Refusal: "kstack: no", On: Cloud{Switches: sw.read}.switchOf(p.target)})
 	require.NoError(t, err)
 	t.Cleanup(m.Grant.End)
 	return m
@@ -268,7 +287,7 @@ func (grantlessPlatform) Mount(context.Context, CloudRun) (CloudMount, error) {
 // reach.
 func TestAMountWithNoGrantFailsTheRun(t *testing.T) {
 	p := &runProxy{}
-	_, err := p.mount(t.Context(), []CloudPlatform{grantlessPlatform{}}, tools.Runtime{}, false, CloudRun{})
+	_, err := p.mount(t.Context(), Cloud{}, []CloudPlatform{grantlessPlatform{}}, tools.Runtime{}, false, CloudRun{})
 	require.EqualError(t, err, "the AWS mount names no grant")
 	assert.Empty(t, p.mounts)
 	p.end()

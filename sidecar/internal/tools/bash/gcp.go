@@ -63,7 +63,7 @@ func (p *gcpPlatform) Target() permissions.Target { return permissions.GCP }
 // token is the grant's, each service's endpoint a route, and its proxy the
 // run's door, so no other tool's requests change. It writes no file.
 func (p *gcpPlatform) Mount(ctx context.Context, run CloudRun) (CloudMount, error) {
-	g := runproxy.NewGrant(permissions.GCP, run.Session, run.Asker, run.Refusal, cloudLimits)
+	g := runproxy.NewGrant(permissions.GCP, run.On, run.Session, run.Asker, run.Refusal, cloudLimits)
 	h := gcpproxy.New(g, gcpSource{p.login}, p.transport)
 	env := []string{"CLOUDSDK_AUTH_ACCESS_TOKEN=" + g.Token()}
 	var routes []Route

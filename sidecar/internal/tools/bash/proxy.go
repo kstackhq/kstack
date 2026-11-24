@@ -136,14 +136,14 @@ func (p *runProxy) hasTLSRoute() bool {
 	return false
 }
 
-// serve listens on socket and serves the door over the grants p holds, each
-// cloud platform's route reading on, and TLS with cert.
-func (p *runProxy) serve(socket string, on func(permissions.Target) bool, cert *runproxy.Certificate) error {
+// serve listens on socket and serves the door over the grants p holds, and
+// TLS with cert.
+func (p *runProxy) serve(socket string, cert *runproxy.Certificate) error {
 	var cluster http.Handler
 	if p.grant != nil {
 		cluster = p.grant
 	}
-	d, err := newDoor(cluster, p.mounts, on)
+	d, err := newDoor(cluster, p.mounts)
 	if err != nil {
 		return err
 	}
@@ -202,13 +202,11 @@ const refusedUpgrade = "kstack: the sandbox does not upgrade a connection to a c
 
 // door routes each request of a run by its transport and Host to that
 // route's handler, and answers anything else as the cluster's grant answers a
-// request it does not hold: an unknown host, a CONNECT, a cloud platform whose
-// switch is off. It reads nothing else of the request and authenticates
-// nothing: each grant checks its own token, so no route is trusted because of
-// its Host.
+// request it does not hold: an unknown host or a CONNECT. It reads nothing else
+// of the request and authenticates nothing: each grant checks its own token,
+// then its switch, so no route is trusted because of its Host.
 type door struct {
 	routes map[routeKey]doorRoute
-	on     func(permissions.Target) bool // a cloud platform's switch, now
 }
 
 // routeKey is what names a route: one Host is two routes, one per transport.
@@ -223,11 +221,10 @@ type doorRoute struct {
 	target  permissions.Target
 }
 
-// newDoor is the door over cluster, nil for a run with none, and mounts, each
-// cloud platform's route reading on. No two routes share a transport and Host, and
-// none takes the cluster's.
-func newDoor(cluster http.Handler, mounts []CloudMount, on func(permissions.Target) bool) (*door, error) {
-	d := &door{routes: map[routeKey]doorRoute{}, on: on}
+// newDoor is the door over cluster, nil for a run with none, and mounts. No two
+// routes share a transport and Host, and none takes the cluster's.
+func newDoor(cluster http.Handler, mounts []CloudMount) (*door, error) {
+	d := &door{routes: map[routeKey]doorRoute{}}
 	if cluster != nil {
 		d.routes[routeKey{host: kubeproxy.Host}] = doorRoute{handler: cluster, target: permissions.Cluster}
 	}
@@ -251,12 +248,11 @@ func transportOf(tls bool) string {
 	return " over plain HTTP"
 }
 
-// ServeHTTP hands r to its route. A cloud platform's route reads its switch on
-// every request, so one turned off while the run lives answers the door's 401
-// to the next; a request already past the door ends as it would have.
+// ServeHTTP hands r to its route. A cloud platform's switch is its grant's to
+// read, once the request holds the grant's token.
 func (d *door) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	route, ok := d.routes[routeKey{tls: runproxy.IsTLS(r), host: r.Host}]
-	if !ok || r.Method == http.MethodConnect || route.target != permissions.Cluster && !d.on(route.target) {
+	if !ok || r.Method == http.MethodConnect {
 		kubeproxy.Unauthorized(w)
 		return
 	}

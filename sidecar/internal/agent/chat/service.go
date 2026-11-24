@@ -522,8 +522,12 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 	}
 	// Read outside the transaction too, since checking each reads the disk. A
 	// turn outside the sandbox takes none; the transaction refuses a switch
-	// that differs from the row.
-	var folders []session.Folder
+	// that differs from the row. The cloud platform switches are read here too,
+	// so the transaction never holds the writer while it waits for a reader.
+	var (
+		folders []session.Folder
+		cloudOn []string
+	)
 	if !sandboxDisabled {
 		var existing ChatID
 		if chatID != nil {
@@ -532,6 +536,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 		if folders, err = s.foldersFor(ctx, existing); err != nil {
 			return ChatMessage{}, err
 		}
+		cloudOn = s.cloudTargetsOn(ctx)
 	}
 	at := normalizeTime(s.now())
 
@@ -601,7 +606,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 			block = withView(block, toolUseID, view, *snap)
 		}
 		question, err := questionBlocks(ctx, st, id, s.withSandbox(block, sandboxState{
-			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn, folders: folders, cloudTargetsOn: s.cloudTargetsOn(),
+			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn, folders: folders, cloudTargetsOn: cloudOn,
 		}), content)
 		if err != nil {
 			return err

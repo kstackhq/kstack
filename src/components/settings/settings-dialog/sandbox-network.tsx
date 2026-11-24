@@ -28,12 +28,13 @@ export function SandboxNetwork({
   networkAvailable: boolean | undefined;
   networkReason: string;
 }) {
-  const cloud = useSandboxCloudAccess();
+  const { platforms: cloud, readFailed } = useSandboxCloudAccess();
   return (
     <Group title="Network" lede="What a sandboxed command can reach.">
       <ul className="divide-y rounded-lg border">
         <NoteRow label="Your clusters">Through Kstack, under your Permissions settings.</NoteRow>
         <NoteRow label="Cloud platforms">
+          {readFailed && "Couldn't load cloud access."}
           {cloud &&
             (cloud.length > 0
               ? `${list.format(cloud.map((target) => CLOUD_PLATFORM_NAMES[target]))}, through Kstack. Your sign-in stays outside.`

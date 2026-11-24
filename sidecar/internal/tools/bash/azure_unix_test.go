@@ -84,7 +84,7 @@ func azureAccount(name string) azureproxy.Account {
 
 func azureRun(t *testing.T) CloudRun {
 	dir := t.TempDir()
-	return CloudRun{Port: 6443, Dir: dir, TmpDir: t.TempDir(), CAFile: filepath.Join(dir, "ca.pem"), Session: session.Session{Kind: session.Chat}, Refusal: "kstack: no"}
+	return CloudRun{On: switchedOn, Port: 6443, Dir: dir, TmpDir: t.TempDir(), CAFile: filepath.Join(dir, "ca.pem"), Session: session.Session{Kind: session.Chat}, Refusal: "kstack: no"}
 }
 
 // The mount writes az's three files under TMPDIR and sets four variables,
@@ -225,7 +225,7 @@ func TestNoAzureCredentialIsInTheRun(t *testing.T) {
 	tl := confiningTool(t)
 	withTool(t, tl, "curl")
 	login := fakeLogin{account: azureAccount("Pay-As-You-Go"), ok: true, token: usersToken}
-	tl.cloud = Cloud{Platforms: []CloudPlatform{NewAzure(login, transport)}, On: switchesOn(permissions.Azure).On}
+	tl.cloud = Cloud{Platforms: []CloudPlatform{NewAzure(login, transport)}, Switches: switchesOn(permissions.Azure).read}
 	rt := chatRuntime(t, session.Chat, nil)
 
 	text, isError := tl.Run(t.Context(), rt, command(

@@ -89,7 +89,7 @@ func TestANewerAppDBFailsTheBuildNamingTheVersions(t *testing.T) {
 
 	_, err = build(t.Context(), withDirs(t, Config{DataDir: dir}))
 
-	assert.EqualError(t, err, "app.db was written by a newer Kstack (schema 999; this build reads up to 6)")
+	assert.EqualError(t, err, "app.db was written by a newer Kstack (schema 999; this build reads up to 7)")
 	requireUnlocked(t, dir)
 }
 
