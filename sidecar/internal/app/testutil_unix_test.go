@@ -210,12 +210,16 @@ func requireSandbox(t *testing.T) {
 
 // startE2E starts the app over a fake cluster and waits for the cluster to be
 // identified, so a sandboxed run can claim its connection. Each of with changes
-// the app's Config before New. Without a sandbox, kubectl or jq,
+// the app's Config before New. Without a sandbox, kubectl, jq, curl or git,
 // testutil.RequireSandbox decides.
+//
+// git is linked so a run finds the git testutil.GitOrigin serves with, ahead
+// of macOS's /usr/bin/git: an xcrun shim, whose lookup can take tens of
+// seconds under the sandbox on a fresh runner.
 func startE2E(t *testing.T, with ...func(*Config)) *e2e {
 	t.Helper()
 	requireSandbox(t)
-	bin := toolsFolder(t, "kubectl", "jq", "curl")
+	bin := toolsFolder(t, "kubectl", "jq", "curl", "git")
 
 	cluster := serveFakeCluster(t)
 	dir := t.TempDir()
