@@ -2,7 +2,7 @@
 title: Keep the user's settings in one file, grouped by area
 date: 2026-10-07
 scope: sidecar
-status: Accepted
+status: Superseded by [2026-11-24-settings-are-rows-in-app-db](2026-11-24-settings-are-rows-in-app-db.md)
 ---
 
 # Keep the user's settings in one file, grouped by area

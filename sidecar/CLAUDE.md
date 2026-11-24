@@ -50,7 +50,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | --- | --- |
 | `internal/services/cluster/CLAUDE.md` | clusters, caches, kinds, cached data; the private leaves `kubeconn`, `kubesync`, `kubestore`; streams and watches |
 | `internal/services/logs/CLAUDE.md` | the log cache (`logstore`), the line vocabulary (`logline`), refusals (`refusal`), the kubelet reader (`kubelet`), pages, follows, tailers |
-| `internal/services/settings/CLAUDE.md` | `settings.json`, `jsonsettings`, the `PATH` setting, folder grants, executables |
+| `internal/services/settings/CLAUDE.md` | the settings' `app.db` tables: permissions, the cloud platform switches, the `PATH` setting, folder grants, executables |
 | `internal/llm/CLAUDE.md` | dialects, providers, the record's blocks, the wires, the fake |
 | `internal/run/CLAUDE.md` | the login shell, the session, the sandbox, permissions, the cluster proxy |
 | `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, LogsWatch, web search), `fileguard`, `logsinput` |
@@ -328,8 +328,6 @@ same commit.** What the sidecar's side of it looks like:
 - **A JSON column**: rides `app.db`'s version, so the change is an `app.db` migration.
 - **A path under `<data>` or `<cache>`**: never renamed, moved or removed. There is no app-level
   data migration yet, so the layout only grows: a new path is its owner's to create.
-- **`settings.json`**: a field's layout change bumps `schemaVersion` and upgrades in
-  `jsonsettings.Open`; a newer file is read and its keys kept.
 
 A refusal reaches the user. `sqlitemigrate` refuses a newer file with `*NewerSchemaError`, which `build`
 turns into *app.db was written by a newer Kstack (…)*; the error's own text is the reason, logged

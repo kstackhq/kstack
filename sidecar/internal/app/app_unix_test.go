@@ -470,7 +470,7 @@ func (s *refusingSandbox) System(string, string) sandbox.System { return sandbox
 // policy: the denied-always list, as it stands at each refresh, and Kstack's
 // directories shut.
 func TestTheRefreshRunsInTheSandbox(t *testing.T) {
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
+	store, err := settings.Open(appdbtest.Open(t))
 	require.NoError(t, err)
 	sb := &refusingSandbox{never: []string{"/never"}}
 	kstackDirs := []string{t.TempDir(), t.TempDir(), t.TempDir()}

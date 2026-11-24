@@ -30,7 +30,7 @@ func newFolderServer(t *testing.T) (*httptest.Server, string) {
 	for _, d := range []string{".ssh", "code", "Documents"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(home, d), 0o755))
 	}
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
+	store, err := settings.Open(appdbtest.Open(t))
 	require.NoError(t, err)
 	security := settings.NewService(store, func() settings.Zones {
 		return settings.Zones{
@@ -253,7 +253,7 @@ func TestSandboxFoldersWithNoSandbox(t *testing.T) {
 // and ends the watch with its reason, so the client reconnects.
 func TestSandboxFoldersFailWithTheirRead(t *testing.T) {
 	home := testutil.GrantableDir(t)
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
+	store, err := settings.Open(appdbtest.Open(t))
 	require.NoError(t, err)
 	security := settings.NewService(store, func() settings.Zones { return settings.Zones{Home: home} }, nil, nil, "")
 	srv, db, _ := newChatServerOn(t, sandbox.Status{Available: true}, security)
@@ -279,7 +279,7 @@ func TestAFolderWriteThatTookSaysSoWhenTheListsFail(t *testing.T) {
 	code := filepath.Join(home, "code")
 	require.NoError(t, os.MkdirAll(code, 0o755))
 	settingsDB := appdbtest.Open(t)
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), settingsDB)
+	store, err := settings.Open(settingsDB)
 	require.NoError(t, err)
 	security := settings.NewService(store, func() settings.Zones { return settings.Zones{Home: home} }, nil, nil, "")
 	srv, _, _ := newChatServerOn(t, sandbox.Status{Available: true}, security)
@@ -320,7 +320,7 @@ func sandboxPathServer(t *testing.T, available bool, resolve func(context.Contex
 		require.NoError(t, os.MkdirAll(filepath.Join(base, d), 0o755))
 	}
 	db = appdbtest.Open(t)
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), db)
+	store, err := settings.Open(db)
 	require.NoError(t, err)
 	svc = settings.NewService(store, nil, nil, nil, "")
 	if available {

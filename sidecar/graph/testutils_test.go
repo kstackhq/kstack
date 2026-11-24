@@ -7,7 +7,6 @@ package graph_test
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"sync"
 	"testing"
 
@@ -166,10 +165,11 @@ func (c refusingChat) WatchMessages(context.Context, chat.ChatID) (*chat.Stream[
 	return nil, c.err
 }
 
-// testSettings is a settings store over a file not yet written: every default.
+// testSettings is a settings service over a fresh app.db: every default.
 func testSettings(t *testing.T) *settings.Service {
 	t.Helper()
-	s, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
+	s, err := settings.Open(appdbtest.Open(t))
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	return settings.NewService(s, nil, nil, nil, "")
 }

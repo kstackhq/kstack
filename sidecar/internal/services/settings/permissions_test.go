@@ -15,8 +15,6 @@
 package settings
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/amorey/gobus"
@@ -29,20 +27,16 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-// openFile is a store over body, "" for no file, and a fresh app.db.
-func openFile(t *testing.T, body string) (*Store, string) {
+// newStore is a store over a fresh app.db, closed when the test ends.
+func newStore(t *testing.T) *Store {
 	t.Helper()
-	file := filepath.Join(t.TempDir(), "settings.json")
-	if body != "" {
-		require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
-	}
-	return openStore(t, file, appdbtest.Open(t)), file
+	return openStore(t, appdbtest.Open(t))
 }
 
-// openStore is a store over file and db, closed when the test ends.
-func openStore(t *testing.T, file string, db *appdb.DB, opts ...Option) *Store {
+// openStore is a store over db, closed when the test ends.
+func openStore(t *testing.T, db *appdb.DB) *Store {
 	t.Helper()
-	s, err := Open(file, db, opts...)
+	s, err := Open(db)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	return s
@@ -53,13 +47,6 @@ func exec(t *testing.T, db *appdb.DB, q string, args ...any) {
 	t.Helper()
 	_, err := db.Write.Exec(q, args...)
 	require.NoError(t, err)
-}
-
-func readFile(t *testing.T, file string) string {
-	t.Helper()
-	data, err := os.ReadFile(file)
-	require.NoError(t, err)
-	return string(data)
 }
 
 // seedCluster writes a clusters row: from the kubeconfig, under context, or a
@@ -81,7 +68,7 @@ func storeWithClusters(t *testing.T) (*Store, *appdb.DB) {
 	seedCluster(t, db, "dev", "dev-eks")
 	seedCluster(t, db, "prod", "prod-eu")
 	seedCluster(t, db, "cloud", "")
-	return openStore(t, filepath.Join(t.TempDir(), "settings.json"), db), db
+	return openStore(t, db), db
 }
 
 func modeOf(t *testing.T, s *Store, cluster apimeta.ClusterID) ClusterModeState {
@@ -374,19 +361,6 @@ func TestEachPermissionWritePublishes(t *testing.T) {
 	assert.Error(t, err)
 	_, err = rx.TryRecv()
 	assert.ErrorIs(t, err, gobus.ErrEmpty, "a refused write pinged")
-}
-
-// The file's permissions group is read by nothing and kept as it stands.
-func TestTheFilesPermissionsGroupIsReadByNothing(t *testing.T) {
-	t.Parallel()
-	group := `{"defaultMode": "read-only", "rules": [{"id": "x", "effect": "deny", "class": 9}]}`
-	s, file := openFile(t, `{"permissions": `+group+`}`)
-	assert.Empty(t, s.Refused())
-	mode, _, err := s.ClusterModes(t.Context(), nil)
-	require.NoError(t, err)
-	assert.Equal(t, permissions.Ask, mode)
-
-	assert.JSONEq(t, `{"permissions": `+group+`}`, readFile(t, file), "nothing writes the file")
 }
 
 // looseTable replaces table with one of the same columns and no constraints,

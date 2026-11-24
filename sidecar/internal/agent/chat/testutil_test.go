@@ -784,7 +784,7 @@ func testSettings(t *testing.T) *settings.Service {
 // settingsStore is a settings store over a file not yet written and db.
 func settingsStore(t *testing.T, db *appdb.DB) *settings.Store {
 	t.Helper()
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), db)
+	store, err := settings.Open(db)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	return store

@@ -19,7 +19,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
@@ -848,7 +847,6 @@ type ComplexityRoot struct {
 		SandboxFolders       func(childComplexity int, chatID *apimeta.ChatID) int
 		SandboxPath          func(childComplexity int) int
 		SandboxPathFault     func(childComplexity int) int
-		SettingsRefused      func(childComplexity int) int
 		ToolSettings         func(childComplexity int) int
 	}
 
@@ -958,12 +956,6 @@ type ComplexityRoot struct {
 
 	SearchAction struct {
 		Query func(childComplexity int) int
-	}
-
-	SettingsRefusal struct {
-		Field  func(childComplexity int) int
-		Reason func(childComplexity int) int
-		Value  func(childComplexity int) int
 	}
 
 	Subscription struct {
@@ -1202,7 +1194,6 @@ type QueryResolver interface {
 	ClusterCaches(ctx context.Context, clusterID *apimeta.ClusterID) ([]*cluster.ClusterCache, error)
 	ClusterCachedKind(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCachedKind, error)
 	ClusterCachedKinds(ctx context.Context, cacheID *apimeta.ObjectID) ([]*cluster.ClusterCachedKind, error)
-	SettingsRefused(ctx context.Context) ([]*jsonsettings.Refusal, error)
 	SandboxCloudAccess(ctx context.Context) ([]*model.CloudAccess, error)
 	SandboxPath(ctx context.Context) (*model.SandboxPath, error)
 	SandboxPathFault(ctx context.Context) (*string, error)
@@ -4659,12 +4650,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.SandboxPathFault(childComplexity), true
-	case "Query.settingsRefused":
-		if e.ComplexityRoot.Query.SettingsRefused == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.SettingsRefused(childComplexity), true
 	case "Query.toolSettings":
 		if e.ComplexityRoot.Query.ToolSettings == nil {
 			break
@@ -5064,25 +5049,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SearchAction.Query(childComplexity), true
-
-	case "SettingsRefusal.field":
-		if e.ComplexityRoot.SettingsRefusal.Field == nil {
-			break
-		}
-
-		return e.ComplexityRoot.SettingsRefusal.Field(childComplexity), true
-	case "SettingsRefusal.reason":
-		if e.ComplexityRoot.SettingsRefusal.Reason == nil {
-			break
-		}
-
-		return e.ComplexityRoot.SettingsRefusal.Reason(childComplexity), true
-	case "SettingsRefusal.value":
-		if e.ComplexityRoot.SettingsRefusal.Value == nil {
-			break
-		}
-
-		return e.ComplexityRoot.SettingsRefusal.Value(childComplexity), true
 
 	case "Subscription.awsConnectionWatch":
 		if e.ComplexityRoot.Subscription.AWSConnectionWatch == nil {
@@ -7270,18 +7236,6 @@ func (ec *executionContext) childFields_SearchAction(ctx context.Context, field 
 		return ec.fieldContext_SearchAction_query(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type SearchAction", field.Name)
-}
-
-func (ec *executionContext) childFields_SettingsRefusal(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "field":
-		return ec.fieldContext_SettingsRefusal_field(ctx, field)
-	case "value":
-		return ec.fieldContext_SettingsRefusal_value(ctx, field)
-	case "reason":
-		return ec.fieldContext_SettingsRefusal_reason(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type SettingsRefusal", field.Name)
 }
 
 func (ec *executionContext) childFields_ToolAction(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -21954,38 +21908,6 @@ func (ec *executionContext) fieldContext_Query_clusterCachedKinds(ctx context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _Query_settingsRefused(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_settingsRefused(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().SettingsRefused(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*jsonsettings.Refusal) graphql.Marshaler {
-			return ec.marshalNSettingsRefusal2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋjsonsettingsᚐRefusalᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_settingsRefused(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_SettingsRefusal(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _Query_sandboxCloudAccess(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24123,75 +24045,6 @@ func (ec *executionContext) _SearchAction_query(ctx context.Context, field graph
 }
 func (ec *executionContext) fieldContext_SearchAction_query(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("SearchAction", field, false, false, "String")
-}
-
-func (ec *executionContext) _SettingsRefusal_field(ctx context.Context, field graphql.CollectedField, obj *jsonsettings.Refusal) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SettingsRefusal_field(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Field, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_SettingsRefusal_field(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SettingsRefusal", field, false, false, "String")
-}
-
-func (ec *executionContext) _SettingsRefusal_value(ctx context.Context, field graphql.CollectedField, obj *jsonsettings.Refusal) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SettingsRefusal_value(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Value, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_SettingsRefusal_value(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SettingsRefusal", field, false, false, "String")
-}
-
-func (ec *executionContext) _SettingsRefusal_reason(ctx context.Context, field graphql.CollectedField, obj *jsonsettings.Refusal) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SettingsRefusal_reason(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Reason, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_SettingsRefusal_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SettingsRefusal", field, false, false, "String")
 }
 
 func (ec *executionContext) _Subscription_eventsWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
@@ -33414,12 +33267,6 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_clusterCachedKinds(ctx, field)
 				})
-		case "settingsRefused":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_settingsRefused(ctx, field)
-				})
 		case "sandboxCloudAccess":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
@@ -34262,49 +34109,6 @@ func (ec *executionContext) _SearchAction(ctx context.Context, sel ast.Selection
 			out.Values[i] = graphql.MarshalString("SearchAction")
 		case "query":
 			out.Values[i] = ec._SearchAction_query(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	if n := len(deferred.Defers); n > 0 {
-		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
-		ec.ProcessDeferredGroup(deferred)
-	}
-
-	return out
-}
-
-var settingsRefusalImplementors = []string{"SettingsRefusal"}
-
-func (ec *executionContext) _SettingsRefusal(ctx context.Context, sel ast.SelectionSet, obj *jsonsettings.Refusal) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, settingsRefusalImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferred := graphql.NewDeferredGroup(ctx)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("SettingsRefusal")
-		case "field":
-			out.Values[i] = ec._SettingsRefusal_field(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "value":
-			out.Values[i] = ec._SettingsRefusal_value(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "reason":
-			out.Values[i] = ec._SettingsRefusal_reason(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -37075,30 +36879,6 @@ func (ec *executionContext) marshalNSchedule2ᚖgithubᚗcomᚋkstackhqᚋkstack
 		return graphql.Null
 	}
 	return ec._Schedule(ctx, sel, v)
-}
-
-func (ec *executionContext) marshalNSettingsRefusal2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋjsonsettingsᚐRefusalᚄ(ctx context.Context, sel ast.SelectionSet, v []*jsonsettings.Refusal) graphql.Marshaler {
-	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
-		fc := graphql.GetFieldContext(ctx)
-		fc.Result = &v[i]
-		return ec.marshalNSettingsRefusal2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋjsonsettingsᚐRefusal(ctx, sel, v[i])
-	})
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
-func (ec *executionContext) marshalNSettingsRefusal2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋjsonsettingsᚐRefusal(ctx context.Context, sel ast.SelectionSet, v *jsonsettings.Refusal) graphql.Marshaler {
-	if v == nil {
-		graphql.AddInvalidNullError(ctx, "SettingsRefusal!")
-		return graphql.Null
-	}
-	return ec._SettingsRefusal(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNString2string(ctx context.Context, v any) (string, error) {

@@ -2333,16 +2333,6 @@ type SandboxConsole {
   run: SandboxConsoleRun
 }
 
-"One value the settings file held and the sidecar left out."
-type SettingsRefusal {
-  "The setting's key in the file, dotted inside a group: `sandbox.path`."
-  field: String!
-  "What the setting's section names the value by, else its JSON."
-  value: String!
-  "Why it was left out, in the user's words."
-  reason: String!
-}
-
 # --- Root operations ---
 # Every root field, grouped by the noun it belongs to.
 
@@ -2380,9 +2370,6 @@ type Query {
   clusterCachedKinds(cacheID: ObjectID): [ClusterCachedKind!]!
 
   # --- Sandbox ---
-  "Every value the settings file held that the sidecar left out at start, each with its reason. Fixed for the process's life, so this is a query and not a watch."
-  settingsRefused: [SettingsRefusal!]!
-
   "One row per cloud platform this build has, in a fixed order, each with whether sandboxed commands may reach it as the user. On by default. A read of the switches that fails is an error."
   sandboxCloudAccess: [CloudAccess!]!
 

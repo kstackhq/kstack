@@ -16,7 +16,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
@@ -856,16 +855,6 @@ func (r *queryResolver) ClusterCachedKinds(ctx context.Context, cacheID *apimeta
 		return r.ClusterSvc.CachedKinds().ListByCache(ctx, *cacheID)
 	}
 	return r.ClusterSvc.CachedKinds().List(ctx)
-}
-
-// SettingsRefused is the resolver for the settingsRefused field.
-func (r *queryResolver) SettingsRefused(ctx context.Context) ([]*jsonsettings.Refusal, error) {
-	refused := r.Settings.Refused()
-	out := make([]*jsonsettings.Refusal, len(refused))
-	for i := range refused {
-		out[i] = &refused[i]
-	}
-	return out, nil
 }
 
 // SandboxCloudAccess is the resolver for the sandboxCloudAccess field.

@@ -18,7 +18,6 @@ package settings
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/amorey/gobus"
@@ -109,7 +108,7 @@ func pathSetting(ctx context.Context, s *Store) (PathSetting, error) {
 // grammar refuses writes nothing.
 func TestThePathSettingRoundTrips(t *testing.T) {
 	t.Parallel()
-	s, _ := openFile(t, "")
+	s := newStore(t)
 	ctx := t.Context()
 	got, err := pathSetting(ctx, s)
 	require.NoError(t, err)
@@ -131,7 +130,7 @@ func TestThePathSettingRoundTrips(t *testing.T) {
 func TestARefusedPathSettingIsReadWithItsRefusal(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
-	s := openStore(t, filepath.Join(t.TempDir(), "settings.json"), db)
+	s := openStore(t, db)
 	exec(t, db, `UPDATE sandbox_settings SET path = 'bin:$PATH'`)
 
 	got, err := pathSetting(t.Context(), s)
@@ -145,7 +144,7 @@ func TestARefusedPathSettingIsReadWithItsRefusal(t *testing.T) {
 func TestAPathSettingReadThatFailsIsAnError(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
-	s := openStore(t, filepath.Join(t.TempDir(), "settings.json"), db)
+	s := openStore(t, db)
 	exec(t, db, `DELETE FROM sandbox_settings`)
 	_, err := pathSetting(t.Context(), s)
 	assert.ErrorIs(t, err, ErrNoSandboxSettings)
@@ -159,7 +158,7 @@ func TestAPathSettingReadThatFailsIsAnError(t *testing.T) {
 // A save pings once it commits; a refused one pings nothing.
 func TestASavedPathSettingPublishes(t *testing.T) {
 	t.Parallel()
-	s, _ := openFile(t, "")
+	s := newStore(t)
 	rx := s.WatchSandboxPath()
 	t.Cleanup(rx.Close)
 
@@ -176,7 +175,7 @@ func TestASavedPathSettingPublishes(t *testing.T) {
 // whether it changed the row, and an empty PATH is never stored.
 func TestTheShellPathRow(t *testing.T) {
 	t.Parallel()
-	s, _ := openFile(t, "")
+	s := newStore(t)
 	ctx := t.Context()
 	read := func() ([]string, bool) {
 		t.Helper()
@@ -211,25 +210,12 @@ func TestTheShellPathRow(t *testing.T) {
 	assert.Equal(t, []string{"/usr/bin", "/bin"}, dirs, "an empty PATH wrote nothing")
 }
 
-// The file's PATH keys stay in it, unread: neither a list nor a value the
-// store cannot read reaches the setting or is refused.
-func TestTheFilesPathIsNotRead(t *testing.T) {
-	t.Parallel()
-	body := `{"sandbox": {"path": [{"dir": "/opt/bin", "target": "/opt/bin", "state": "gone", "source": "user"}, {"dir": "bin"}], "pathStrict": true, "pathResolved": "yes"}}`
-	s, file := openFile(t, body)
-	assert.Empty(t, s.Refused())
-	got, err := pathSetting(t.Context(), s)
-	require.NoError(t, err)
-	assert.Equal(t, PathSetting{Value: "$PATH"}, got)
-	assert.JSONEq(t, body, readFile(t, file), "nothing writes the file")
-}
-
 // A shell PATH whose row cannot be read, or written, is an error, and
 // nothing changes.
 func TestAShellPathWriteThatFailsIsAnError(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
-	s := openStore(t, filepath.Join(t.TempDir(), "settings.json"), db)
+	s := openStore(t, db)
 	ctx := t.Context()
 	looseTable(t, db, "shell_path", `id INTEGER PRIMARY KEY, path TEXT NOT NULL CHECK (path = '/usr/bin')`)
 	_, changed, err := s.writeShellPath(ctx, []string{"/bin"})
@@ -246,7 +232,7 @@ func TestAShellPathWriteThatFailsIsAnError(t *testing.T) {
 func TestARunPathOverAMissingSettingsRowIsAFailedRead(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
-	s := openStore(t, filepath.Join(t.TempDir(), "settings.json"), db)
+	s := openStore(t, db)
 	exec(t, db, `DELETE FROM sandbox_settings`)
 	_, _, _, err := s.readPath(t.Context())
 	assert.ErrorIs(t, err, ErrNoSandboxSettings)

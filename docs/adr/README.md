@@ -188,7 +188,7 @@ usually just documentation in the wrong place.
 | 2026-10-06 | [Remove cloud settings sync until settings have a design](2026-10-06-remove-cloud-settings-sync.md) | sidecar | Accepted |
 | 2026-10-06 | [Build every service into one runtime, in order, and never hand it to a service](2026-10-06-the-runtime-is-built-in-order.md) | sidecar | Accepted |
 | 2026-10-07 | [Group the sidecar's packages into layers](2026-10-07-sidecar-folders-are-layers.md) | sidecar | Accepted |
-| 2026-10-07 | [Keep the user's settings in one file, grouped by area](2026-10-07-settings-are-one-file-grouped-by-area.md) | sidecar | Accepted |
+| 2026-10-07 | [Keep the user's settings in one file, grouped by area](2026-10-07-settings-are-one-file-grouped-by-area.md) | sidecar | Superseded by [2026-11-24-settings-are-rows-in-app-db](2026-11-24-settings-are-rows-in-app-db.md) |
 | 2026-10-08 | [A tool whose action is what its run showed records it at the run](2026-10-08-a-shown-tool-records-its-action-at-the-run.md) | cross-cutting | Accepted |
 | 2026-10-13 | [A macOS run leads its own session, so no run reads another process's launch strings](2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings.md) | sidecar | Accepted |
 | 2026-10-13 | [The sidecar's own mirror reads keep their connections](2026-10-13-the-sidecars-own-mirror-reads-keep-their-connections.md) | sidecar | Accepted |
@@ -294,3 +294,4 @@ usually just documentation in the wrong place.
 | 2026-11-24 | [Follow a link to a Kstack folder once, at start, and refuse one below it](2026-11-24-follow-a-link-to-a-kstack-folder-once-at-start-and-refuse-one-below-it.md) | cross-cutting | Accepted |
 | 2026-11-24 | [A folder grant is its own row, and a mode and a rule belong to a cluster](2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md) | sidecar | Accepted |
 | 2026-11-24 | [A sandboxed command's PATH is one setting the user writes](2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md) | sidecar, webview | Accepted |
+| 2026-11-24 | [Keep every setting as rows in app.db](2026-11-24-settings-are-rows-in-app-db.md) | sidecar | Accepted |

@@ -160,9 +160,9 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	// over the sandbox has stopped its own.
 	rt.add("sandbox", lifecycle.CloseFunc(sb.Close))
 
-	// The settings keep the permissions in app.db, so they open after it and
+	// The settings are rows in app.db, so they open after it and
 	// close before it.
-	settingsStore, err := settings.Open(p.SettingsFile, db)
+	settingsStore, err := settings.Open(db)
 	if err != nil {
 		return fail(err)
 	}

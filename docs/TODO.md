@@ -572,10 +572,11 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **Findings.** A view of what the runs found, its reports drawn as text.
 
 - **Rethink how settings sync (design first).** Settings live in two places today, and neither
-  syncs: `host.json` (the host's, such as the color scheme) and `settings.json`. Decide which
-  settings follow a user to another machine; whether a security setting may ever sync, and if so
-  only one that narrows, since a value from the cloud must never widen what a sandbox may do; and
-  how a synced value meets a file the user edits by hand. The sync design needs an ADR.
+  syncs: `host.json` (the host's, such as the color scheme) and `app.db`'s rows (the sidecar's).
+  Decide which settings follow a user to another machine; whether a security setting may ever
+  sync, and if so only one that narrows, since a value from the cloud must never widen what a
+  sandbox may do; and how the rows are scoped, since the `PATH` setting and the executables
+  describe one machine. The sync design needs an ADR.
   **Trigger:** the first setting that has to sync.
 
 - **Explore refactoring the login shell code.** Its three runs are spread over two packages and
@@ -1163,8 +1164,8 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
 - **Draw each cloud platform's switch in Settings.** `sandboxCloudAccess` and
   `sandboxCloudAccessSet` are served, and nothing draws them: the switches wait for the new settings
   panel. Each is on until the user turns it off
-  ([ADR](adr/2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md)), so today off is
-  a hand edit of `settings.json`. Each row says, for the named cloud platform: sandboxed commands
+  ([ADR](adr/2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md)), so today only
+  a `sandboxCloudAccessSet` call turns one off. Each row says, for the named cloud platform: sandboxed commands
   read your account without asking; what they read is sent to the model's provider; with network on
   a command can send it anywhere; a change asks first; nothing that answers a credential works.
   Then one line of the cloud platform's own, held by the webview beside its name. AWS's line: *An
