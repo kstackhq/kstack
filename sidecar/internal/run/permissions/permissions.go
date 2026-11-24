@@ -18,24 +18,45 @@
 // closed: the policy permits an action or denies it, a forbid wins over a
 // permit, and nothing matching is a denial. A prompt is a denial the user may
 // lift. A leaf: the proxy that enforces it imports it, and it imports nothing
-// of ours.
+// of ours but apimeta.
 package permissions
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+)
 
 // Class is how much an action can do, numbered as the agent-security note
-// numbers them. 1 and 2 are also the classes of a folder grant, and 3 is
-// unused: the network is a switch, not a list of hosts.
+// numbers them. The note's 3, a new host, has no class: the network is a
+// switch, not a list of hosts.
 type Class int
 
 const (
 	ReadInside    Class = 1 // read inside the sandbox
 	WriteInside   Class = 2 // write the workspace or a granted folder
-	NewHost       Class = 3 // reach a host not on the allowlist
 	UpstreamWrite Class = 4 // change the cluster
 	Destructive   Class = 5 // a curated list of high blast-radius writes
 	SecretRead    Class = 6 // read Kubernetes Secret data
 )
+
+// classNames are the classes a rule names, by the name a row stores them
+// under, so a stored rule does not depend on the numbering.
+var classNames = map[Class]string{UpstreamWrite: "upstream-write", Destructive: "destructive", SecretRead: "secret-read"}
+
+// Name is the name a rule of class c is stored under; "" for a class no rule
+// names.
+func (c Class) Name() string { return classNames[c] }
+
+// ClassNamed is the class stored as name, false for a name no rule class has.
+func ClassNamed(name string) (Class, bool) {
+	for c, n := range classNames {
+		if n == name {
+			return c, true
+		}
+	}
+	return 0, false
+}
 
 // Mode is which classes ask. ReadOnly refuses writes; Ask asks for every
 // write; Auto asks for class 5 alone. Showing Secret data, class 6, asks under
@@ -63,28 +84,26 @@ const (
 // a word of its own in a field a pattern otherwise fills.
 const ClusterScope = "[cluster]"
 
-// Rule is one line of policy. Context, Namespace, Verb and Kind are patterns
+// Rule is one line of policy. ClusterID names the one cluster it applies to,
+// and unset applies to every cluster. Namespace, Verb and Kind are patterns
 // (Match), and an unset one matches anything. Group is exact: "" is unset,
 // "core" the core group. Kind is the resource, or "deployments/scale" for a
-// subresource. Namespace is ClusterScope for
-// cluster-scoped objects. A rule naming a Folder is a folder grant: it matches
-// no action, and only the builder of a session's folders reads it.
+// subresource. Namespace is ClusterScope for cluster-scoped objects.
 type Rule struct {
-	ID        string `json:"id"`
-	Effect    Effect `json:"effect"`
-	Class     Class  `json:"class"`
-	Context   string `json:"context,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
-	Verb      string `json:"verb,omitempty"`
-	Group     string `json:"group,omitempty"`
-	Kind      string `json:"kind,omitempty"`
+	ID        string            `json:"id"`
+	Effect    Effect            `json:"effect"`
+	Class     Class             `json:"class"`
+	ClusterID apimeta.ClusterID `json:"clusterID,omitempty"`
+	Namespace string            `json:"namespace,omitempty"`
+	Verb      string            `json:"verb,omitempty"`
+	Group     string            `json:"group,omitempty"`
+	Kind      string            `json:"kind,omitempty"`
 	// Inside narrows Namespace to what is in the namespace, leaving out the
 	// Namespace object, which carries its own name as its namespace.
 	Inside bool `json:"inside,omitempty"`
 	// Command is a rule one command's answer added, kept in memory for that
 	// command alone and never stored.
-	Command bool   `json:"-"`
-	Folder  string `json:"folder,omitempty"` // classes 1 and 2: the folder, absolute and resolved
+	Command bool `json:"-"`
 }
 
 // Target is what an action acts on. The zero value is the chat's cluster.
@@ -104,15 +123,16 @@ type Action struct {
 	// Target is what the action acts on. A cloud platform's action carries its
 	// class and summary alone: every other field names a cluster's object,
 	// and rules and modes read them.
-	Target    Target `json:"target,omitempty"`
-	Class     Class  `json:"class"`
-	Context   string `json:"context"`   // the kube-context the grant was made for; "" for a record naming none
-	Namespace string `json:"namespace"` // "" for a cluster-scoped request
-	Verb      string `json:"verb"`      // get, create, update, patch, delete, deletecollection
-	Group     string `json:"group"`     // the API group, "core" for the core group
-	Kind      string `json:"kind"`      // the resource, "deployments/scale" for a subresource
-	Name      string `json:"name"`      // the object's name, when it has one
-	Summary   string `json:"summary"`   // one line for a request or a refusal, written by the classifier
+	Target    Target            `json:"target,omitempty"`
+	Class     Class             `json:"class"`
+	ClusterID apimeta.ClusterID `json:"clusterID,omitempty"` // the cluster the grant was made for, which rules match
+	Context   string            `json:"context"`             // its kube-context, which words name it by; "" for a record naming none
+	Namespace string            `json:"namespace"`           // "" for a cluster-scoped request
+	Verb      string            `json:"verb"`                // get, create, update, patch, delete, deletecollection
+	Group     string            `json:"group"`               // the API group, "core" for the core group
+	Kind      string            `json:"kind"`                // the resource, "deployments/scale" for a subresource
+	Name      string            `json:"name"`                // the object's name, when it has one
+	Summary   string            `json:"summary"`             // one line for a request or a refusal, written by the classifier
 	// DryRun is a request for a dry run. No rule names one, so a rule written
 	// from it would allow the real write.
 	DryRun bool `json:"dryRun"`
@@ -173,13 +193,13 @@ func (v Verdict) Outcome() Decision {
 // Grantable is whether an answer to act may write a rule that allows it. Only
 // an Unmatched verdict is lifted by an Allow. A dry run is not, since no rule
 // names one and a rule written from it would allow the real write; nor is an
-// action with no context, since an unset rule field matches every context.
+// action with no cluster, since a rule naming none matches every cluster.
 func Grantable(v Verdict, act Action) bool {
-	return v == Unmatched && !act.DryRun && act.Context != ""
+	return v == Unmatched && !act.DryRun && act.ClusterID != ""
 }
 
 // GrantRule is the rule a chat or always answer to act writes: an Allow of
-// its class in its context and namespace, each a literal. A cluster-scoped
+// its class on its cluster and in its namespace, a literal. A cluster-scoped
 // action, and a Namespace object, also name the group and resource: an unset
 // namespace matches every namespace, and a Namespace carries its own name as
 // its namespace, so naming that alone would allow every write inside it. Any
@@ -188,7 +208,7 @@ func Grantable(v Verdict, act Action) bool {
 // is Secret reads alone and no Secret is a Namespace object. The writer sets
 // the ID.
 func GrantRule(act Action) Rule {
-	r := Rule{Effect: Allow, Class: act.Class, Context: Literal(act.Context), Namespace: Literal(act.Namespace)}
+	r := Rule{Effect: Allow, Class: act.Class, ClusterID: act.ClusterID, Namespace: Literal(act.Namespace)}
 	if act.Class == SecretRead {
 		return r
 	}
@@ -218,6 +238,8 @@ func CommandRule(act Action) Rule {
 
 // Policy is what a session brings to a decision: the context's mode and the
 // rules that apply. Their order picks the reason alone, never the verdict.
+// A reason names a rule's cluster by the action's context, since a rule that
+// matches names the action's cluster or none.
 // NoPrompts and NoSecretData are the session's, copied on by the proxy that
 // reads the policy, so no rule or mode can lift them.
 type Policy struct {
@@ -261,13 +283,13 @@ func (p Policy) verdict(act Action) (Verdict, string) {
 		return Forbid, "a cloud platform's request always asks"
 	}
 	if r, ok := p.first(Deny, act); ok {
-		return Refuse, "a rule denies it: " + r.Line()
+		return Refuse, "a rule denies it: " + r.Line(act.Context)
 	}
-	if p.Mode == ReadOnly && act.Class >= NewHost && act.Class <= Destructive {
-		return Refuse, "this context is read-only"
+	if p.Mode == ReadOnly && (act.Class == UpstreamWrite || act.Class == Destructive) {
+		return Refuse, "this cluster is read-only"
 	}
 	if r, ok := p.first(AskFor, act); ok {
-		return Forbid, "a rule asks for it: " + r.Line()
+		return Forbid, "a rule asks for it: " + r.Line(act.Context)
 	}
 	if act.Class == Destructive {
 		return Forbid, "it always asks"
@@ -276,7 +298,7 @@ func (p Policy) verdict(act Action) (Verdict, string) {
 		return Permit, "it changes nothing in the cluster"
 	}
 	if r, ok := p.first(Allow, act); ok {
-		return Permit, "a rule allows it: " + r.Line()
+		return Permit, "a rule allows it: " + r.Line(act.Context)
 	}
 	if p.Mode == Auto {
 		return Permit, "auto mode"
@@ -294,7 +316,7 @@ func (p Policy) first(effect Effect, act Action) (Rule, bool) {
 	return Rule{}, false
 }
 
-// Refused stands in for a rule Kstack could not read, which may have been a
+// Refused stands in for rules Kstack could not read, which may have held a
 // Deny: every cluster write refused.
 var Refused = Rule{ID: "refused", Effect: Deny, Class: UpstreamWrite}
 
@@ -302,15 +324,25 @@ var Refused = Rule{ID: "refused", Effect: Deny, Class: UpstreamWrite}
 // class 6: every Secret read refused, so its data stays redacted.
 var RefusedSecrets = Rule{ID: "refused-secrets", Effect: Deny, Class: SecretRead}
 
-// Matches is whether r applies to act: a class that covers act's, and every
-// set field matching. Class 4 covers class 5, since a destructive write is a
-// cluster write. An Inside rule never matches a Namespace object, and a folder
-// grant matches nothing, so it never reaches a verdict. Every rule is a
-// cluster's, so none matches a cloud platform's action.
+// Unread is what a read of rules that failed answers: no rule it read, since
+// one read before the failure may be an Allow a later Deny narrowed, and
+// Refused and RefusedSecrets.
+func Unread() []Rule { return []Rule{Refused, RefusedSecrets} }
+
+// Same is whether r and o are one rule but for their ids.
+func (r Rule) Same(o Rule) bool {
+	r.ID, o.ID = "", ""
+	return r == o
+}
+
+// Matches is whether r applies to act: a class that covers act's, its cluster
+// or none, and every set field matching. Class 4 covers class 5, since a destructive write is a
+// cluster write. An Inside rule never matches a Namespace object. Every rule
+// is a cluster's, so none matches a cloud platform's action.
 func (r Rule) Matches(act Action) bool {
-	return r.Folder == "" && act.Target == Cluster &&
+	return act.Target == Cluster &&
 		(r.Class == act.Class || r.Class == UpstreamWrite && act.Class == Destructive) &&
-		matchSet(r.Context, act.Context) &&
+		(r.ClusterID == "" || r.ClusterID == act.ClusterID) &&
 		matchNamespace(r.Namespace, act.Namespace) &&
 		!(r.Inside && isNamespace(act)) &&
 		matchSet(r.Verb, act.Verb) &&
@@ -355,41 +387,30 @@ var (
 	classNouns  = map[Class]string{
 		ReadInside:    "reads inside the sandbox",
 		WriteInside:   "writes inside the sandbox",
-		NewHost:       "new hosts",
 		UpstreamWrite: "cluster writes",
 		Destructive:   "destructive cluster writes",
 		SecretRead:    "Secret reads",
 	}
 )
 
-// folderNouns is what a folder grant of each class lets a command do there.
-var folderNouns = map[Class]string{ReadInside: "reads", WriteInside: "reads and writes"}
-
-// quoted is s bare when it holds no space, " or \, else in quotes with " and \
-// escaped, so a line names one value however it is spelled.
-func quoted(s string) string {
-	if !strings.ContainsAny(s, ` "\`) {
-		return s
-	}
-	return quote(s)
-}
-
 // Line is the rule in the user's words: "Allow cluster writes in dev-eks /
 // team-a", "Deny destructive delete of core namespaces everywhere", "Deny
-// patch of core nodes cluster-wide in prod", or "Allow reads of /Users/me/code".
-// An Inside rule reads "inside" for "in". Each pattern field is drawn by field,
-// so a line reads one way whatever a value holds.
-func (r Rule) Line() string {
-	if r.Folder != "" {
-		return effectWords[r.Effect] + " " + folderNouns[r.Class] + " of " + quoted(r.Folder)
-	}
+// patch of core nodes cluster-wide in prod". cluster is the name of r's
+// cluster, read only when r names one. An Inside rule reads "inside" for
+// "in". Each field is drawn by field, so a line reads one way whatever a value
+// holds.
+func (r Rule) Line(cluster string) string {
 	if r.Command {
-		return r.scopeLine() + " for this command"
+		return r.scopeLine(cluster) + " for this command"
 	}
-	return r.scopeLine()
+	return r.scopeLine(cluster)
 }
 
-func (r Rule) scopeLine() string {
+func (r Rule) scopeLine(cluster string) string {
+	where := ""
+	if r.ClusterID != "" {
+		where = fieldWords(Literal(cluster))
+	}
 	what := classNouns[r.Class]
 	if r.Verb != "" || r.Group != "" || r.Kind != "" {
 		parts := []string{"writes", "of"}
@@ -419,31 +440,30 @@ func (r Rule) scopeLine() string {
 	switch {
 	case r.Namespace == ClusterScope:
 		line += " cluster-wide"
-		if r.Context != "" {
-			line += " in " + fieldWords(r.Context)
+		if where != "" {
+			line += " in " + where
 		}
 		return line
-	case r.Context == "" && r.Namespace == "":
+	case where == "" && r.Namespace == "":
 		return line + " everywhere"
 	case r.Namespace == "":
-		return line + " in " + fieldWords(r.Context)
+		return line + " in " + where
 	}
-	context := "any context"
-	if r.Context != "" {
-		context = fieldWords(r.Context)
+	if where == "" {
+		where = "any cluster"
 	}
 	in := " in "
 	if r.Inside {
 		in = " inside "
 	}
-	return line + in + context + " / " + fieldWords(r.Namespace)
+	return line + in + where + " / " + fieldWords(r.Namespace)
 }
 
 // fieldWords draws one pattern field of a line. Name characters alone are
 // drawn bare, a * or ? in them a glob. A literal holding a glob character, a
 // space, a " or a \ is drawn unescaped in quotes. Anything else is drawn as
 // written, in quotes, after "matching". So " / " outside quotes always
-// separates the context from the namespace.
+// separates the cluster from the namespace.
 func fieldWords(v string) string {
 	if !strings.ContainsAny(v, ` "\`) {
 		return v

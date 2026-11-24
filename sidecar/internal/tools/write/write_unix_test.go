@@ -19,6 +19,7 @@ package write
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -262,7 +263,7 @@ func newGranted(t *testing.T, folders func(home string) []session.Folder) grante
 	st := stamps{filepath.Join(home, "code/x.txt"): {Sum: sha256.Sum256([]byte("old")), Whole: true}}
 	rt := tools.Runtime{Files: st, Dir: chatDirIn(data)}
 	given := folders(home)
-	rt.Session.Folders = func(context.Context) []session.Folder { return given }
+	rt.Session.Folders = func(context.Context) ([]session.Folder, error) { return given, nil }
 	return granted{home: home, tl: tl, rt: rt}
 }
 
@@ -354,7 +355,7 @@ func TestARevokeBetweenApprovalAndRunChangesNothing(t *testing.T) {
 	})
 	a := approval(t, g.tl, g.rt, call(g.in("code/x.txt"), "new"))
 	require.NotNil(t, a.Folder)
-	g.rt.Session.Folders = func(context.Context) []session.Folder { panic("the run read the folders again") }
+	g.rt.Session.Folders = func(context.Context) ([]session.Folder, error) { panic("the run read the folders again") }
 	text, isError := g.write(t, g.in("code/x.txt"), "new", a)
 	require.False(t, isError, text)
 	assert.Equal(t, "new", readWritten(t, g.in("code/x.txt")))
@@ -386,4 +387,15 @@ func TestAGrantedCallAnswersAtItsEnd(t *testing.T) {
 	close(release)
 	testutil.Wait(t, returned, "the walk")
 	assert.NoFileExists(t, g.in("code/y.txt"))
+}
+
+// A read of the granted folders that fails fails the call.
+func TestAFoldersReadThatFailsFailsTheCall(t *testing.T) {
+	g := newGranted(t, func(string) []session.Folder { return nil })
+	unread := errors.New("folders unread")
+	g.rt.Session.Folders = func(context.Context) ([]session.Folder, error) { return nil, unread }
+	_, err := g.tl.Approval(t.Context(), g.rt, call(g.in("code/x.txt"), "new"))
+	var refused *tools.Refusal
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, "Kstack could not read the folders granted. Try again.", refused.Result)
 }

@@ -16,37 +16,39 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Two seams: the sandbox query and urql, whose queries answer from state and
-// whose mutations are one mock, told apart by the operation they send.
-const { sandboxState, settingsState, refusedState, mutateMock, queryArgs, reexecuteMock } = vi.hoisted(() => {
-  const sandbox: { current: { available: boolean | undefined } } = { current: { available: true } };
-  const settingsHeld: { current: unknown } = { current: undefined };
-  const refused: { current: unknown[] } = { current: [] };
-  const args: unknown[] = [];
-  return {
-    sandboxState: sandbox,
-    settingsState: settingsHeld,
-    refusedState: refused,
-    mutateMock: vi.fn(),
-    queryArgs: args,
-    reexecuteMock: vi.fn(),
-  };
-});
+// Three seams: the sandbox query, the clusters watch, and urql, whose query
+// answers from state and whose mutations are one mock, told apart by the
+// operation they send.
+const { sandboxState, clustersState, settingsState, queryErrorState, mutateMock, queryArgs, reexecuteMock } =
+  vi.hoisted(() => {
+    const sandbox: { current: { available: boolean | undefined } } = { current: { available: true } };
+    const queryError: { current: unknown } = { current: undefined };
+    const clusters: { current: unknown[] | null } = { current: null };
+    const settingsValue: { current: unknown } = { current: undefined };
+    const args: unknown[] = [];
+    return {
+      sandboxState: sandbox,
+      clustersState: clusters,
+      settingsState: settingsValue,
+      queryErrorState: queryError,
+      mutateMock: vi.fn(),
+      queryArgs: args,
+      reexecuteMock: vi.fn(),
+    };
+  });
 vi.mock('@/lib/sandbox', () => ({ useSandbox: () => ({ ...sandboxState.current, failed: false, retry: () => {} }) }));
+vi.mock('@/lib/clusters', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/clusters')>()),
+  useClusters: () => ({ clusters: clustersState.current, connected: true }),
+}));
 vi.mock('urql', () => ({
   useQuery: (args: { query: unknown }) => {
     queryArgs.push(args);
-    return [
-      {
-        data: JSON.stringify(args.query).includes('settingsRefused')
-          ? { settingsRefused: refusedState.current }
-          : { permissionSettings: settingsState.current },
-      },
-      reexecuteMock,
-    ];
+    const data = settingsState.current ? { permissionSettings: settingsState.current } : undefined;
+    return [{ data, error: queryErrorState.current }, reexecuteMock];
   },
   useMutation: (doc: unknown) => {
-    const name = /permission[A-Za-z]+/.exec(JSON.stringify(doc))![0];
+    const name = /(?:permission|kubeRule)[A-Za-z]*/.exec(JSON.stringify(doc))![0];
     return [{}, (vars: unknown) => mutateMock(name, vars)];
   },
 }));
@@ -58,7 +60,7 @@ const allow = {
   line: 'Allow cluster writes in dev-eks / team-a',
   effect: 'Allow',
   class: 'UpstreamWrite',
-  context: 'dev-eks',
+  clusterID: 'c1',
   namespace: 'team-a',
   verb: '',
   group: '',
@@ -68,18 +70,21 @@ const allow = {
 function settings(over: Record<string, unknown> = {}) {
   return {
     defaultMode: 'Ask',
-    contexts: [
-      { context: 'dev-eks', mode: 'Ask', source: 'Default', pattern: '', own: false },
-      { context: 'prod-eu', mode: 'ReadOnly', source: 'Refused', pattern: '', own: false },
-      { context: 'qa', mode: 'Auto', source: 'Entry', pattern: 'qa', own: true },
-      { context: 'staging', mode: 'Auto', source: 'Entry', pattern: 'stag*', own: false },
+    clusters: [
+      { clusterID: 'c1', mode: 'Ask', source: 'Default' },
+      { clusterID: 'c2', mode: 'ReadOnly', source: 'Entry' },
     ],
-    rules: [allow],
+    kubeRules: [allow],
     destructive: ['Deleting a namespace', 'Any change to roles'],
-    held: [],
     ...over,
   };
 }
+
+// A record of the clusters watch, named name or, with none, by its context.
+const cluster = (id: string, context: string, name: string | null = null) => ({
+  id,
+  spec: { name, source: { kubeconfig: { context } } },
+});
 
 const row = (context: string) => screen.getByRole('listitem', { name: context });
 const rules = () => screen.getByRole('group', { name: 'Rules' });
@@ -90,7 +95,8 @@ beforeEach(() => {
   queryArgs.length = 0;
   sandboxState.current = { available: true };
   settingsState.current = settings();
-  refusedState.current = [];
+  queryErrorState.current = undefined;
+  clustersState.current = [cluster('c1', 'dev-eks'), cluster('c2', 'prod-eu', 'Production')];
   mutateMock.mockResolvedValue({ data: {} });
 });
 
@@ -140,48 +146,124 @@ describe('PermissionSettings', () => {
     expect(mutateMock).toHaveBeenCalledWith('permissionDefaultModeSet', { mode: 'Auto' });
   });
 
-  it("draws each context's mode and where it comes from", () => {
+  it("draws each cluster's mode by its name off the clusters watch, and where it comes from", () => {
     render(<PermissionSettings />);
-    expect(screen.getByRole('group', { name: 'Contexts' })).toHaveTextContent(
-      'A context follows the default mode unless a pattern or its own entry sets one.',
+    expect(screen.getByRole('group', { name: 'Clusters' })).toHaveTextContent(
+      'A cluster follows the default mode unless you set one for it.',
     );
     expect(row('dev-eks')).toHaveTextContent('Default mode');
-    expect(row('prod-eu')).toHaveTextContent('read-only until the file is fixed');
-    expect(row('qa')).toHaveTextContent('Set for this context');
-    expect(row('staging')).toHaveTextContent('From pattern stag*');
-    expect(within(row('staging')).getByRole('combobox')).toHaveValue('Auto');
+    expect(row('Production (prod-eu)')).toHaveTextContent('Set for this cluster');
+    expect(within(row('Production (prod-eu)')).getByRole('combobox')).toHaveValue('ReadOnly');
   });
 
-  it("sets and clears a context's mode", async () => {
+  // The default mode and the rules need no cluster's name, so they draw while
+  // the clusters watch reconnects.
+  it('draws a mode only once the clusters watch delivers its cluster', () => {
+    clustersState.current = null;
+    const { unmount } = render(<PermissionSettings />);
+    expect(screen.getByRole('tab', { name: 'Ask', selected: true })).toBeInTheDocument();
+    expect(rules()).toHaveTextContent(allow.line);
+    expect(within(screen.getByRole('group', { name: 'Clusters' })).queryAllByRole('listitem')).toHaveLength(0);
+    unmount();
+
+    clustersState.current = [cluster('c2', 'prod-eu', 'Production')];
+    render(<PermissionSettings />);
+    expect(within(screen.getByRole('group', { name: 'Clusters' })).getAllByRole('listitem')).toHaveLength(1);
+  });
+
+  // Display names are the user's and need not be unique.
+  it('names each cluster by its context too, so two of one name are told apart', async () => {
+    const user = userEvent.setup();
+    clustersState.current = [cluster('c1', 'prod-a', 'Prod'), cluster('c2', 'prod-b', 'Prod')];
+    render(<PermissionSettings />);
+    expect(row('Prod (prod-a)')).toHaveTextContent('prod-a · Default mode');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Mode of Prod (prod-b)' }), 'Auto');
+    expect(mutateMock).toHaveBeenCalledWith('permissionModeSet', { clusterID: 'c2', mode: 'Auto' });
+  });
+
+  it('says why the permissions could not be read, and asks again', async () => {
+    const user = userEvent.setup();
+    settingsState.current = undefined;
+    queryErrorState.current = { graphQLErrors: [{ message: 'no such table: kube_rules' }] };
+    render(<PermissionSettings />);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Kstack could not read the permissions: no such table: kube_rules',
+    );
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(reexecuteMock).toHaveBeenCalledWith({ requestPolicy: 'network-only' });
+  });
+
+  it('draws nothing while the permissions are read', () => {
+    settingsState.current = undefined;
+    const { container } = render(<PermissionSettings />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  // An add that took, whose answer could not be read, is taken: the edit
+  // removes the rule it replaces, and the pane says what happened.
+  it('removes the original when an edit took though its answer could not be read', async () => {
+    const user = userEvent.setup();
+    mutateMock.mockResolvedValue({
+      error: {
+        graphQLErrors: [
+          {
+            message: 'The change was saved, but Kstack could not read the settings back.',
+            extensions: { code: 'KSTACK_SAVED_UNREAD' },
+          },
+        ],
+      },
+    });
+    render(<PermissionSettings />);
+
+    await user.click(actions());
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+    await user.type(screen.getByLabelText('Verb'), 'patch');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(mutateMock).toHaveBeenCalledWith('kubeRuleRemove', { id: 'r1' });
+    expect(await screen.findByRole('alert')).toHaveTextContent('The change was saved');
+  });
+
+  it("sets and clears a cluster's mode by its id", async () => {
     const user = userEvent.setup();
     render(<PermissionSettings />);
 
     await user.selectOptions(within(row('dev-eks')).getByRole('combobox'), 'Auto');
-    expect(mutateMock).toHaveBeenCalledWith('permissionModeSet', { context: 'dev-eks', mode: 'Auto' });
-    await user.click(within(row('qa')).getByRole('button', { name: 'Clear' }));
-    expect(mutateMock).toHaveBeenCalledWith('permissionModeClear', { context: 'qa' });
+    expect(mutateMock).toHaveBeenCalledWith('permissionModeSet', { clusterID: 'c1', mode: 'Auto' });
+    await user.click(within(row('Production (prod-eu)')).getByRole('button', { name: 'Clear' }));
+    expect(mutateMock).toHaveBeenCalledWith('permissionModeClear', { clusterID: 'c2' });
   });
 
-  // Clear removes a context's own entry; a pattern it matches is not its own.
-  it('offers Clear for an own entry alone', () => {
+  it('offers Clear for a mode of its own alone', () => {
     render(<PermissionSettings />);
-    expect(within(row('staging')).queryByRole('button', { name: 'Clear' })).toBeNull();
     expect(within(row('dev-eks')).queryByRole('button', { name: 'Clear' })).toBeNull();
   });
 
-  it('spells the context and its pattern out', () => {
-    settingsState.current = settings({
-      contexts: [{ context: 'prod\u202Eue', mode: 'Ask', source: 'Entry', pattern: 'prod\u202E*', own: false }],
-    });
+  it("spells the cluster's name out", () => {
+    clustersState.current = [cluster('c1', 'prod\u202Eue')];
+    settingsState.current = settings({ clusters: [{ clusterID: 'c1', mode: 'Ask', source: 'Default' }] });
     render(<PermissionSettings />);
 
     const marks = row('prod\u202Eue').querySelectorAll('mark');
-    expect(marks).toHaveLength(2);
-    marks.forEach((mark) => expect(mark).toHaveTextContent('\\u{202E}'));
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toHaveTextContent('\\u{202E}');
   });
 
   // Placeholder: no query yet says what applies to one context.
   it('draws the Showing filter held on All clusters, listing each context', () => {
+    // A record naming no context, as the watch can hold, lists none, and two
+    // clusters of one context, from two kubeconfig files, list it once.
+    clustersState.current = [
+      ...clustersState.current!,
+      { id: 'c3', spec: { name: 'Cloud', source: {} } },
+      cluster('c4', 'dev-eks', 'Dev again'),
+    ];
+    settingsState.current = settings({
+      clusters: [
+        ...settings().clusters,
+        { clusterID: 'c3', mode: 'Ask', source: 'Default' },
+        { clusterID: 'c4', mode: 'Ask', source: 'Default' },
+      ],
+    });
     render(<PermissionSettings />);
     const showing = screen.getByRole('combobox', { name: 'Showing' });
     expect(showing).toBeDisabled();
@@ -190,7 +272,7 @@ describe('PermissionSettings', () => {
       within(showing)
         .getAllByRole('option')
         .map((o) => o.textContent),
-    ).toEqual(['All clusters', 'dev-eks', 'prod-eu', 'qa', 'staging']);
+    ).toEqual(['All clusters', 'dev-eks', 'prod-eu']);
   });
 
   it('lists what always asks behind the Default mode info', async () => {
@@ -215,25 +297,26 @@ describe('PermissionSettings', () => {
     expect(rules()).toHaveTextContent('Allow cluster writes in dev-eks / team-a');
     await user.click(actions());
     await user.click(await screen.findByRole('menuitem', { name: 'Remove' }));
-    expect(mutateMock).toHaveBeenCalledWith('permissionRuleRemove', { id: 'r1' });
+    expect(mutateMock).toHaveBeenCalledWith('kubeRuleRemove', { id: 'r1' });
   });
 
-  it('adds a rule', async () => {
+  it('adds a rule on a cluster it names as the Clusters card does', async () => {
     const user = userEvent.setup();
     render(<PermissionSettings />);
 
     await user.click(screen.getByRole('button', { name: 'Add rule' }));
+    await user.selectOptions(screen.getByLabelText('Cluster'), 'Production (prod-eu)');
     await user.type(screen.getByLabelText('Resource'), 'deployments');
     await user.click(screen.getByRole('button', { name: 'Add' }));
-    expect(mutateMock).toHaveBeenCalledWith('permissionRuleAdd', {
-      input: expect.objectContaining({ effect: 'Allow', class: 'UpstreamWrite', kind: 'deployments' }),
+    expect(mutateMock).toHaveBeenCalledWith('kubeRuleAdd', {
+      input: expect.objectContaining({ effect: 'Allow', class: 'UpstreamWrite', clusterID: 'c2', kind: 'deployments' }),
     });
   });
 
   // urql's cache gives each rule a __typename, which the rule input refuses.
   it('edits a rule by adding the edit, then removing the original', async () => {
     const user = userEvent.setup();
-    settingsState.current = settings({ rules: [{ __typename: 'PermissionRule', ...allow }] });
+    settingsState.current = settings({ kubeRules: [{ __typename: 'KubeRule', ...allow }] });
     render(<PermissionSettings />);
 
     await user.click(actions());
@@ -242,12 +325,12 @@ describe('PermissionSettings', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(mutateMock.mock.calls).toEqual([
       [
-        'permissionRuleAdd',
+        'kubeRuleAdd',
         {
           input: {
             effect: 'Allow',
             class: 'UpstreamWrite',
-            context: 'dev-eks',
+            clusterID: 'c1',
             namespace: 'team-a',
             verb: 'patch',
             group: '',
@@ -255,7 +338,7 @@ describe('PermissionSettings', () => {
           },
         },
       ],
-      ['permissionRuleRemove', { id: 'r1' }],
+      ['kubeRuleRemove', { id: 'r1' }],
     ]);
   });
 
@@ -269,7 +352,7 @@ describe('PermissionSettings', () => {
     await user.type(screen.getByLabelText('Verb'), 'patch');
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('rules: a destructive rule cannot allow');
-    expect(mutateMock).not.toHaveBeenCalledWith('permissionRuleRemove', expect.anything());
+    expect(mutateMock).not.toHaveBeenCalledWith('kubeRuleRemove', expect.anything());
   });
 
   it('says why a mutation was refused', async () => {
@@ -282,95 +365,5 @@ describe('PermissionSettings', () => {
     await user.click(screen.getByRole('button', { name: 'Add rule' }));
     await user.click(screen.getByRole('button', { name: 'Add' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('rules: names a class its provider does not have');
-  });
-
-  it("draws a held field's refused values, holds its edits, and discards behind a confirm", async () => {
-    const user = userEvent.setup();
-    settingsState.current = settings({ held: ['permissions.rules'] });
-    refusedState.current = [
-      { field: 'permissions.rules', value: '{"id":"b","class":9}', reason: 'names a class its provider does not have' },
-      { field: 'permissions.modes', value: 'x', reason: 'not held, so not drawn' },
-    ];
-    render(<PermissionSettings />);
-
-    const held = screen.getByRole('region', { name: 'Rules Kstack cannot read' });
-    expect(held).toHaveTextContent('{"id":"b","class":9}');
-    expect(held).toHaveTextContent('names a class its provider does not have');
-    expect(held).toHaveTextContent(
-      'Every cluster write is refused, and Secret data stays redacted, until the file is fixed.',
-    );
-    expect(screen.queryByText('not held, so not drawn')).toBeNull();
-    expect(actions()).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Add rule' })).toBeDisabled();
-
-    await user.click(within(held).getByRole('button', { name: 'Discard what Kstack cannot read' }));
-    expect(mutateMock).not.toHaveBeenCalled();
-    expect(screen.getByRole('dialog')).toHaveTextContent('{"id":"b","class":9}');
-    await user.click(screen.getByRole('button', { name: 'Discard' }));
-    expect(mutateMock).toHaveBeenCalledWith('permissionDiscardRefused', { field: 'permissions.rules' });
-  });
-
-  it('discards held modes behind a confirm', async () => {
-    const user = userEvent.setup();
-    settingsState.current = settings({ held: ['permissions.modes'] });
-    refusedState.current = [{ field: 'permissions.modes', value: 'x', reason: 'names a mode there is not' }];
-    render(<PermissionSettings />);
-
-    const held = screen.getByRole('region', { name: 'Modes Kstack cannot read' });
-    await user.click(within(held).getByRole('button', { name: 'Discard what Kstack cannot read' }));
-    await user.click(screen.getByRole('button', { name: 'Discard' }));
-    expect(mutateMock).toHaveBeenCalledWith('permissionDiscardRefused', { field: 'permissions.modes' });
-  });
-
-  it('discards nothing when the confirm is cancelled or dismissed', async () => {
-    const user = userEvent.setup();
-    settingsState.current = settings({ held: ['permissions.modes'] });
-    refusedState.current = [{ field: 'permissions.modes', value: 'x', reason: 'names a mode there is not' }];
-    render(<PermissionSettings />);
-
-    const held = screen.getByRole('region', { name: 'Modes Kstack cannot read' });
-    const discard = within(held).getByRole('button', { name: 'Discard what Kstack cannot read' });
-    await user.click(discard);
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByText('Discard what Kstack cannot read?')).not.toBeInTheDocument();
-
-    await user.click(discard);
-    await user.keyboard('{Escape}');
-    expect(screen.queryByText('Discard what Kstack cannot read?')).not.toBeInTheDocument();
-    expect(mutateMock).not.toHaveBeenCalledWith('permissionDiscardRefused', expect.anything());
-  });
-
-  it('holds the context pickers while modes is held, and says why', () => {
-    settingsState.current = settings({ held: ['permissions.modes'] });
-    render(<PermissionSettings />);
-    expect(within(row('dev-eks')).getByRole('combobox')).toBeDisabled();
-    expect(screen.getByRole('region', { name: 'Modes Kstack cannot read' })).toHaveTextContent(
-      'Every context is read-only',
-    );
-  });
-
-  it('says why a default mode was refused, above its picker, while it is held', () => {
-    refusedState.current = [
-      { field: 'permissions.defaultMode', value: '"readonly"', reason: 'is not read-only, ask or auto' },
-    ];
-    settingsState.current = settings({ held: ['permissions.defaultMode'] });
-    const { unmount } = render(<PermissionSettings />);
-    expect(screen.getByText(/is not read-only, ask or auto/)).toBeInTheDocument();
-    unmount();
-
-    // Setting the default mode fixes it; the refusal at open is history.
-    settingsState.current = settings();
-    render(<PermissionSettings />);
-    expect(screen.queryByText(/is not read-only, ask or auto/)).toBeNull();
-  });
-
-  it('selects no default mode while it is held, so picking read-only sends it', async () => {
-    const user = userEvent.setup();
-    settingsState.current = settings({ defaultMode: 'ReadOnly', held: ['permissions.defaultMode'] });
-    render(<PermissionSettings />);
-
-    expect(screen.queryByRole('tab', { selected: true })).toBeNull();
-    await user.click(screen.getByRole('tab', { name: 'Read-only' }));
-    expect(mutateMock).toHaveBeenCalledWith('permissionDefaultModeSet', { mode: 'ReadOnly' });
   });
 });

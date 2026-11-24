@@ -18,6 +18,7 @@ package read
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -170,7 +171,7 @@ func TestAMissingFileInAGrantedFolderIsRefused(t *testing.T) {
 // newGrantedAt is g with its session granting folders.
 func newGrantedAt(t *testing.T, g granted, folders ...session.Folder) granted {
 	t.Helper()
-	g.rt.Session.Folders = func(context.Context) []session.Folder { return folders }
+	g.rt.Session.Folders = func(context.Context) ([]session.Folder, error) { return folders, nil }
 	return g
 }
 
@@ -182,9 +183,9 @@ func TestARevokeBetweenApprovalAndRunChangesNothing(t *testing.T) {
 	a := approval(t, g.tl, g.rt, g.in("code/x.txt"))
 	require.Equal(t, &home, a.Folder)
 
-	for name, folders := range map[string]func(context.Context) []session.Folder{
-		"emptied":         func(context.Context) []session.Folder { return nil },
-		"failing to read": func(context.Context) []session.Folder { panic("the run read the folders again") },
+	for name, folders := range map[string]func(context.Context) ([]session.Folder, error){
+		"emptied":         func(context.Context) ([]session.Folder, error) { return nil, nil },
+		"failing to read": func(context.Context) ([]session.Folder, error) { panic("the run read the folders again") },
 	} {
 		g.rt.Session.Folders = folders
 		text, isError := g.read(t, g.in("code/x.txt"), a)
@@ -271,4 +272,16 @@ func TestAGrantedCallAnswersAtItsEnd(t *testing.T) {
 	assert.Equal(t, cancelled, text)
 	close(release)
 	testutil.Wait(t, returned, "the walk")
+}
+
+// A read of the granted folders that fails fails the call: it never reads as
+// no grant, which would ask about a path the user granted.
+func TestAFoldersReadThatFailsFailsTheCall(t *testing.T) {
+	g := newGranted(t)
+	unread := errors.New("folders unread")
+	g.rt.Session.Folders = func(context.Context) ([]session.Folder, error) { return nil, unread }
+	_, err := g.tl.Approval(t.Context(), g.rt, call(g.in("code/x.txt")))
+	var refused *tools.Refusal
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, "Kstack could not read the folders granted. Try again.", refused.Result)
 }

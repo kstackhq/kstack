@@ -30,6 +30,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -37,9 +38,31 @@ import (
 // nothing.
 var errNothingToTell = errors.New("chat: no notice that starts a turn is waiting")
 
-// errFoldersMoved is a notice turn whose folder grants changed between their
-// read and its transaction: it reads them again.
+// errFoldersMoved is a notice turn whose folder grants, or whose sandbox
+// switch, changed between their read and its transaction: it reads them again.
 var errFoldersMoved = errors.New("chat: the chat's folder grants changed")
+
+// sandboxDisabled is whether chatID's commands run outside the sandbox now:
+// ErrChatGone for a chat that is gone.
+func (s *service) sandboxDisabled(ctx context.Context, chatID ChatID) (bool, error) {
+	c, ok, err := getChat(ctx, s.store.Stmts(), chatID)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, ErrChatGone
+	}
+	return c.SandboxDisabled, nil
+}
+
+// turnFolderGrants is the folder grants a turn of chatID reads through st:
+// none outside the sandbox, where a turn takes none.
+func (s *service) turnFolderGrants(ctx context.Context, st stmts, chatID ChatID, outside bool) ([]settings.FolderGrant, error) {
+	if outside {
+		return nil, nil
+	}
+	return s.folderGrantsIn(ctx, st, chatID)
+}
 
 // noticeLineMax is how many characters of a line a notice keeps.
 const noticeLineMax = 200
@@ -227,8 +250,15 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 // notices it carries.
 func (s *service) tryNoticeTurn(ctx context.Context, chatID ChatID) error {
 	at := normalizeTime(s.now())
-	rules := s.folderRules(ctx, s.store.Stmts(), chatID)
-	folders := s.foldersFrom(ctx, chatID, rules)
+	outside, err := s.sandboxDisabled(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	grants, err := s.turnFolderGrants(ctx, s.store.Stmts(), chatID, outside)
+	if err != nil {
+		return err
+	}
+	folders := s.checkedFolders(ctx, chatID, grants)
 	if s.onFoldersRead != nil {
 		s.onFoldersRead()
 	}
@@ -237,7 +267,7 @@ func (s *service) tryNoticeTurn(ctx context.Context, chatID ChatID) error {
 		t         *turn
 		assistant ChatMessage
 	)
-	err := s.store.InTx(ctx, func(st stmts) error {
+	err = s.store.InTx(ctx, func(st stmts) error {
 		waiting, err := waitingNotices(ctx, st, chatID, s.tools)
 		if err != nil {
 			return err
@@ -245,7 +275,18 @@ func (s *service) tryNoticeTurn(ctx context.Context, chatID ChatID) error {
 		if !startsTurn(waiting) {
 			return errNothingToTell
 		}
-		if !slices.Equal(s.folderRules(ctx, st, chatID), rules) {
+		c, err := s.checkChat(ctx, st, &chatID, "")
+		if err != nil {
+			return err
+		}
+		if c.SandboxDisabled != outside {
+			return errFoldersMoved
+		}
+		again, err := s.turnFolderGrants(ctx, st, chatID, outside)
+		if err != nil { // coverage:ignore the same read answered just before the transaction; only a race fails it here
+			return err
+		}
+		if !slices.Equal(again, grants) {
 			return errFoldersMoved
 		}
 		providerID, modelID, effort, err := lastAnswerRun(ctx, st, chatID)
@@ -255,10 +296,6 @@ func (s *service) tryNoticeTurn(ctx context.Context, chatID ChatID) error {
 		target, err := s.llmSvc.Resolve(providerID, modelID, effort)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
-		}
-		c, err := s.checkChat(ctx, st, &chatID, "")
-		if err != nil {
-			return err
 		}
 		newest, err := newestContext(ctx, st, chatID)
 		if err != nil {

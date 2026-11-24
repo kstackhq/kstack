@@ -77,7 +77,7 @@ func TestARunStartsWithItsRuntimeDirUnderTmp(t *testing.T) {
 	home, p := folders(t, "code")
 	tl.home = home
 	rt := testRuntime(t)
-	rt.Session.Folders = func(context.Context) []session.Folder { return []session.Folder{{Path: p[0]}} }
+	rt.Session.Folders = func(context.Context) ([]session.Folder, error) { return []session.Folder{{Path: p[0]}}, nil }
 	text, isError := tl.Run(t.Context(), rt, command("ls "+p[0]+" && echo ok"))
 	require.False(t, isError, text)
 	assert.Equal(t, "ok\n", text)

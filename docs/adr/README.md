@@ -292,3 +292,4 @@ usually just documentation in the wrong place.
 | 2026-11-23 | [The sidecar places Kstack's folders itself](2026-11-23-the-sidecar-places-kstacks-folders-itself.md) | cross-cutting | Accepted |
 | 2026-11-24 | [A stored PATH decision holds for its exact path](2026-11-24-a-stored-path-decision-holds-for-its-exact-path.md) | sidecar | Accepted |
 | 2026-11-24 | [Follow a link to a Kstack folder once, at start, and refuse one below it](2026-11-24-follow-a-link-to-a-kstack-folder-once-at-start-and-refuse-one-below-it.md) | cross-cutting | Accepted |
+| 2026-11-24 | [A folder grant is its own row, and a mode and a rule belong to a cluster](2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md) | sidecar | Accepted |

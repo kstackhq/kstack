@@ -15,17 +15,19 @@
 // The Settings dialog's Permissions pane: the approval modes and the rules a
 // sandboxed command's cluster writes are decided by. Drawn only on a machine
 // with a sandbox, since without one every command asks and nothing here
-// applies. Every context, pattern and rule line is user or cluster text, drawn
-// through VisibleText.
+// applies. A mode and a rule belong to a cluster, joined onto the clusters
+// watch by its id. Every cluster name, context and rule line is user or
+// cluster text, drawn through VisibleText.
 import { Button } from '@kubetail/ui/elements/button';
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
-import { useId, useState } from 'react';
+import { useId } from 'react';
 
-import { Dialog } from '@/components/primitives/dialog';
 import { VisibleText } from '@/components/primitives/visible-text';
 import type { PermissionMode, PermissionModeSource } from '@/gql/graphql';
+import { displayName, useClusters } from '@/lib/clusters';
+import type { Cluster } from '@/lib/clusters';
 import { usePermissionSettings } from '@/lib/permission-settings';
-import type { PermissionSettings as Permissions, Refusal } from '@/lib/permission-settings';
+import type { ClusterMode, PermissionSettings as Permissions } from '@/lib/permission-settings';
 import { useSandbox } from '@/lib/sandbox';
 
 import { Select } from './field';
@@ -49,23 +51,10 @@ const MODES: { value: PermissionMode; label: string; line: string }[] = [
   },
 ];
 
-// Where a mode comes from; an entry's is drawn as its pattern, or as the
-// context's own.
-const SOURCES: Record<Exclude<PermissionModeSource, 'Entry'>, string> = {
+// Where a cluster's mode comes from.
+const SOURCES: Record<PermissionModeSource, string> = {
+  Entry: 'Set for this cluster',
   Default: 'Default mode',
-  Refused: 'read-only until the file is fixed',
-};
-
-// What Kstack does while a field it cannot read is held.
-const HELD: Record<'modes' | 'rules', { title: string; meanwhile: string }> = {
-  modes: {
-    title: 'Modes Kstack cannot read',
-    meanwhile: 'Every context is read-only until the file is fixed.',
-  },
-  rules: {
-    title: 'Rules Kstack cannot read',
-    meanwhile: 'Every cluster write is refused, and Secret data stays redacted, until the file is fixed.',
-  },
 };
 
 export function PermissionSettings() {
@@ -84,9 +73,31 @@ export function PermissionSettings() {
 
 function PermissionPane() {
   const permissions = usePermissionSettings();
-  const { settings, refused, error, held } = permissions;
-  if (!settings) return null;
-  const contexts = settings.contexts.map((c) => c.context);
+  const { clusters } = useClusters();
+  const { settings, error, readError, retry } = permissions;
+  if (!settings) {
+    if (!readError) return null;
+    return (
+      <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
+        <span>
+          Kstack could not read the permissions: <VisibleText text={readError} />
+        </span>
+        <Button type="button" variant="outline" size="sm" onClick={retry}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+  // A mode waits for the clusters watch to deliver its cluster; the default
+  // mode and the rules do not.
+  const byID = new Map(clusters?.map((c) => [c.id, c]));
+  const rows = settings.clusters.flatMap((mode) => {
+    const cluster = byID.get(mode.clusterID);
+    return cluster ? [{ cluster, mode }] : [];
+  });
+  // Two clusters can name one context, from two kubeconfig files.
+  const contexts = [...new Set(rows.flatMap(({ cluster }) => cluster.spec.source.kubeconfig?.context ?? []))];
+  const ruleClusters = rows.map(({ cluster }) => ({ value: cluster.id, label: clusterLabel(cluster) }));
 
   return (
     <>
@@ -104,25 +115,14 @@ function PermissionPane() {
 
       <DefaultModePicker permissions={permissions} />
 
-      {held('modes') && (
-        <HeldField field="modes" refused={refused} onDiscard={() => permissions.discardRefused('modes')} />
-      )}
-      <ContextModes
-        contexts={settings.contexts}
-        disabled={held('modes')}
-        onSet={permissions.setMode}
-        onClear={permissions.clearMode}
-      />
+      <ClusterModes rows={rows} onSet={permissions.setMode} onClear={permissions.clearMode} />
 
       <ShowingFilter contexts={contexts} />
 
-      {held('rules') && (
-        <HeldField field="rules" refused={refused} onDiscard={() => permissions.discardRefused('rules')} />
-      )}
       <PermissionRules
-        rules={settings.rules}
+        rules={settings.kubeRules}
+        clusters={ruleClusters}
         contexts={contexts}
-        disabled={held('rules')}
         onAdd={permissions.addRule}
         onRemove={permissions.removeRule}
       />
@@ -133,23 +133,13 @@ function PermissionPane() {
   );
 }
 
-// The default mode: a refused one the file holds, then the current mode and
-// its picker.
+// The default mode and its picker.
 function DefaultModePicker({ permissions }: { permissions: Permissions }) {
-  const { settings, refused, held, setDefaultMode } = permissions;
+  const { settings, setDefaultMode } = permissions;
   if (!settings) return null;
-  const defaultHeld = held('defaultMode');
-  const defaultRefusal = defaultHeld ? refused.find((r) => r.field === 'defaultMode') : undefined;
-  // While held no mode is current, so picking read-only still sends it.
-  const current = defaultHeld ? undefined : MODES.find((m) => m.value === settings.defaultMode);
+  const current = MODES.find((m) => m.value === settings.defaultMode);
   return (
     <Group title="Default mode" info={<PermissionModeInfo destructive={settings.destructive} />}>
-      {defaultRefusal && (
-        <p className="text-sm text-destructive">
-          The file&apos;s default mode, <VisibleText text={defaultRefusal.value} />, {defaultRefusal.reason}: Kstack
-          reads it as read-only until you pick one.
-        </p>
-      )}
       <div className="flex items-center gap-3 rounded-lg border px-4 py-3 text-sm">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           {current && (
@@ -173,64 +163,71 @@ function DefaultModePicker({ permissions }: { permissions: Permissions }) {
   );
 }
 
-type ContextMode = {
-  context: string;
-  mode: PermissionMode;
-  source: PermissionModeSource;
-  pattern: string;
-  own: boolean;
-};
-
-function sourceOf(c: ContextMode) {
-  if (c.source !== 'Entry') return SOURCES[c.source];
-  if (c.own) return 'Set for this context';
-  return (
-    <>
-      From pattern <VisibleText text={c.pattern} />
-    </>
-  );
+// distinctContext is a cluster's kube-context where it differs from its name,
+// else ''.
+function distinctContext(cluster: Cluster): string {
+  const context = cluster.spec.source.kubeconfig?.context ?? '';
+  return context === displayName(cluster) ? '' : context;
 }
 
-// One row per known context: its mode, where the mode comes from, and a picker
-// that sets the context's own. Clear removes the context's own entry, never a
-// pattern it matches.
-function ContextModes({
-  contexts,
-  disabled,
+// clusterLabel is a cluster's name, and its context where that differs, since
+// two clusters can share a name.
+function clusterLabel(cluster: Cluster): string {
+  const context = distinctContext(cluster);
+  return context ? `${displayName(cluster)} (${context})` : displayName(cluster);
+}
+
+// One row per cluster with a kube-context: its name, its mode and where the
+// mode comes from, and a picker that sets the cluster's own. Clear returns it
+// to the default.
+function ClusterModes({
+  rows,
   onSet,
   onClear,
 }: {
-  contexts: ContextMode[];
-  disabled: boolean;
-  onSet: (context: string, mode: PermissionMode) => void;
-  onClear: (context: string) => void;
+  rows: { cluster: Cluster; mode: ClusterMode }[];
+  onSet: (clusterID: string, mode: PermissionMode) => void;
+  onClear: (clusterID: string) => void;
 }) {
   return (
-    <Group title="Contexts" lede="A context follows the default mode unless a pattern or its own entry sets one.">
+    <Group title="Clusters" lede="A cluster follows the default mode unless you set one for it.">
       <ul className="divide-y rounded-lg border text-sm">
-        {contexts.map((c) => (
-          <li key={c.context} aria-label={c.context} className="flex items-center gap-3 px-4 py-3">
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5 break-all">
-              <span className="font-mono">
-                <VisibleText text={c.context} />
-              </span>
-              <span className="text-xs text-muted-foreground">{sourceOf(c)}</span>
-            </div>
-            {c.own && (
-              <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => onClear(c.context)}>
-                Clear
-              </Button>
-            )}
-            <Select
-              className="w-36"
-              aria-label={`Mode of ${c.context}`}
-              options={MODES}
-              value={c.mode}
-              disabled={disabled}
-              onChange={(mode) => onSet(c.context, mode)}
-            />
-          </li>
-        ))}
+        {rows.map(({ cluster, mode }) => {
+          const context = distinctContext(cluster);
+          const label = clusterLabel(cluster);
+          return (
+            <li key={cluster.id} aria-label={label} className="flex items-center gap-3 px-4 py-3">
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5 break-all">
+                <span className="font-mono">
+                  <VisibleText text={displayName(cluster)} />
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {context && (
+                    <>
+                      <span className="font-mono">
+                        <VisibleText text={context} />
+                      </span>
+                      {' · '}
+                    </>
+                  )}
+                  {SOURCES[mode.source]}
+                </span>
+              </div>
+              {mode.source === 'Entry' && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => onClear(cluster.id)}>
+                  Clear
+                </Button>
+              )}
+              <Select
+                className="w-36"
+                aria-label={`Mode of ${label}`}
+                options={MODES}
+                value={mode.mode}
+                onChange={(value) => onSet(cluster.id, value)}
+              />
+            </li>
+          );
+        })}
       </ul>
     </Group>
   );
@@ -252,70 +249,5 @@ function ShowingFilter({ contexts }: { contexts: string[] }) {
         disabled
       />
     </div>
-  );
-}
-
-// A field of the file Kstack could not read: each refused value with its
-// reason, what Kstack does meanwhile, and the discard, confirmed first.
-function HeldField({
-  field,
-  refused,
-  onDiscard,
-}: {
-  field: 'modes' | 'rules';
-  refused: Refusal[];
-  onDiscard: () => void;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  const { title, meanwhile } = HELD[field];
-  const values = refused.filter((r) => r.field === field);
-  return (
-    <section aria-label={title} className="flex flex-col gap-1 rounded-md border border-destructive/50 p-2 text-sm">
-      <h4 className="font-medium">{title}</h4>
-      <ul>
-        {values.map((r) => (
-          <li key={r.value}>
-            <span className="font-mono break-all">
-              <VisibleText text={r.value} />
-            </span>{' '}
-            {r.reason}
-          </li>
-        ))}
-      </ul>
-      <p className="text-muted-foreground">{meanwhile}</p>
-      <div>
-        <Button type="button" variant="outline" size="sm" onClick={() => setConfirming(true)}>
-          Discard what Kstack cannot read
-        </Button>
-      </div>
-      <Dialog
-        open={confirming}
-        onOpenChange={(open) => !open && setConfirming(false)}
-        title="Discard what Kstack cannot read?"
-        description="Kstack rewrites the file without these values, and keeps the rest."
-      >
-        <ul className="mb-2 font-mono text-sm break-all">
-          {values.map((r) => (
-            <li key={r.value}>
-              <VisibleText text={r.value} />
-            </li>
-          ))}
-        </ul>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={() => {
-              setConfirming(false);
-              onDiscard();
-            }}
-          >
-            Discard
-          </Button>
-        </div>
-      </Dialog>
-    </section>
   );
 }

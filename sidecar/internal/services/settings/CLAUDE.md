@@ -1,10 +1,10 @@
-# internal/services/settings — the user's settings file
+# internal/services/settings — the user's settings
 
-**`<data>/settings.json` is the user's settings**: 0600 through `atomicjson`, in the data
-directory no sandboxed command reads, never synced. Keys are grouped by area (`sandbox`,
-`permissions`, then `executables`), `schemaVersion` 1. `Settings` mirrors it; `Store` wraps
+**`<data>/settings.json` is the user's settings but the permissions**: 0600 through `atomicjson`,
+in the data directory no sandboxed command reads, never synced. Keys are grouped by area
+(`sandbox`, then `executables`), `schemaVersion` 1; an old `permissions` group is kept, unread. `Settings` mirrors it; `Store` wraps
 `jsonsettings.Store[Settings]` (`Get`, `Update`, `Subscribe` current-on-subscribe, `Held`,
-`Refused`). **A field's key is dotted inside its group** (`permissions.rules`); every `Field*`
+`Refused`). **A field's key is dotted inside its group** (`sandbox.path`); every `Field*`
 constant spells one, and `Held`, `Update`'s `fields`, a `Refusal` and the wire all use it. →
 [ADR: settings are one file grouped by area](../../../../docs/adr/2026-10-07-settings-are-one-file-grouped-by-area.md).
 
@@ -30,13 +30,21 @@ constant spells one, and `Held`, `Update`'s `fields`, a `Refusal` and the wire a
 - The read-back is `checks` (`check.go`), one per field, each answering a `Refusal` per value
   removed. On `Open` refusals are logged and kept in `Refused()` (`settingsRefused`); on `Update` a
   refusal is the error and nothing is written. `WithChecks` is the test seam.
-- **Approval modes and always rules** (`permissions.go`): `ModeFor(context)` is read-only while
-  `permissions.modes` is held, else the first matching entry, else `DefaultMode()` (`Ask` when
-  unset). `Rules()` drops every `Allow` while `permissions.rules` is held, and adds
-  `permissions.Refused`/`RefusedSecrets`. The checks (`folderRuleRefusal`, `secretRuleRefusal`
-  and the rest) enforce the rule shapes; **a list element with a key its type does not name is
-  refused**, since a dropped narrowing field would widen the rule. → [the permissions
-  engine](../../../../docs/security/2026-10-02-the-permissions-engine.md).
+
+**The modes, the always rules and the always folder grants are `app.db` rows** with `chat_id`
+NULL (`approval_modes`, `kube_rules`, `folder_grants`; `agent/chat` writes a chat's), in
+`permissions.go`, `store.go` and `statements.go`. Each write is one
+transaction and then notifies `appdb.KeyPermissions` (`WatchPermissions`). → [ADR](../../../../docs/adr/2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md),
+[security record](../../../../docs/security/2026-11-24-permissions-in-app-db.md).
+
+- `ModeFor(ctx, cluster)` is the cluster's row, else the default row, else `Ask`. `SetMode` refuses
+  a cluster gone or marked (`ErrClusterGone`) or with no kube-context (`ErrNoKubeContext`).
+- `CheckKubeRule`, which both writers call first, refuses with a `RuleRefusal` exactly what the
+  table's `CHECK`s refuse, an `allow` naming no cluster among them. `AddKubeRule` refuses a
+  cluster as `SetMode` does, and answers a rule already held. `KubeRuleColumns`, `KubeRules` and `KubeRuleValues` (and `FolderGrant*`) are the
+  tables' one encoding, shared with `agent/chat`.
+- `GrantFolder` upserts on the folder, keeping its id; its caller checks the folder first.
+- A failed read is an error; its readers decide what it costs.
 
 **`Settings.Sandbox.Path` is the user's `PATH`, frozen** (`path.go`): a `PathEntry` per folder,
 with `Dir`, `Target`, `State` (`adopted`, `pending`, `gone`), `Source` (`shell`/`user`) and
@@ -62,15 +70,15 @@ holds when the folder resolves to exactly its `Target`. Its callers bound it. �
 frozen](../../../../docs/adr/2026-10-02-path-is-the-login-shells-filtered-and-frozen.md), [security
 record](../../../../docs/security/2026-10-02-path-from-the-login-shell.md).
 
-**A folder grant is a rule checked against the zones** (`folders.go`): `permissions.Rule.Folder`,
-class 1 read or 2 read-write, matching no action. `CheckFolder` answers a `FolderRefusal`; the
+**A folder grant is checked against the zones** (`folders.go`): a `FolderGrant`, read or
+read-write, on a folder. `CheckFolder` answers a `FolderRefusal`; the
 rules are in the function and `TestCheckFolderRefusesEachRule`. **A grant is its canonical
 path** (`realpath.Canonical`), **and is compared with the zones and `PATH` as files**
 (`realpath.Under`, `realpath.Same`), never by text: macOS opens `/Users/ME` as `/Users/me`. **The
 service holds the zones as a snapshot** taken by each `SyncPath`; checks re-resolve its paths but
 never re-run the zones function. Every disk read goes through `readWithin`, bounded by
-`SyncTimeout`. With no sandbox every folder is refused. → [ADR: a folder grant is a
-rule](../../../../docs/adr/2026-10-04-a-folder-grant-is-a-rule.md), [security
+`SyncTimeout`. With no sandbox every folder is refused. → [ADR: a folder grant is
+checked](../../../../docs/adr/2026-10-04-a-folder-grant-is-a-rule.md), [security
 record](../../../../docs/security/2026-10-04-path-grants.md).
 
 **`Executables` is the user's registered executables** (`executables.go`), probed beside

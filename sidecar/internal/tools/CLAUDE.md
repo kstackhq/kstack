@@ -278,7 +278,8 @@ replace its own paths](../../../docs/security/2026-09-30-a-run-cannot-replace-it
 - **Whatever can hang on a network mount is built on a goroutine abandoned when the context ends.**
 - The cluster's kubectl cache is keyed by `serverKey(uid)`; the kubeconfig names a fixed server →
   [ADR](../../../docs/adr/2026-10-17-a-sandboxed-kubeconfig-names-a-fixed-server.md).
-- The policy is `workspacePolicy`; folder grants are rechecked at the run (`grantRules`) →
+- The policy is `workspacePolicy`; folder grants are rechecked at the run (`grantRules`), and a
+  read of them that fails fails the run →
   [ADR](../../../docs/adr/2026-10-04-a-folder-grant-is-a-rule.md), [path
   grants](../../../docs/security/2026-10-04-path-grants.md). Limits →
   [ADR](../../../docs/adr/2026-10-02-process-limits-are-set-inside-the-run.md).
@@ -369,7 +370,8 @@ starts, then clears the `exec.Cmd`'s `Cancel`. The chat holds the task from ther
 
 **The file tools** (`internal/tools/read`, `write`, `edit`) classify a path **by name alone** in
 `Approval`, touching nothing on disk: unasked in the chat's directory (Read) or workspace (Write,
-Edit), and in a granted folder through `Fence.Walk` alone; refused elsewhere in Kstack's
+Edit), and in a granted folder through `Fence.Walk` alone (a read of the folders granted that fails
+refuses the call, `tools.FoldersUnread`); refused elsewhere in Kstack's
 directories; asked for the rest. **File work runs on a goroutine** (`fetch`, `write`, `edit`): a
 stat on a dead mount blocks where no context reaches. Refusals are words, never a Go error's text.
 Read redacts the whole file and sets the path's **stamp** (hash, `Whole` when shown unchanged);

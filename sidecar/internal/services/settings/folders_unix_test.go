@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
@@ -243,7 +244,7 @@ func TestAWriteGrantOnCodeThatRunsIsRefused(t *testing.T) {
 
 func TestNoSnapshotRefusesEveryFolder(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	s := NewService(store, nil, nil, "")
 	for _, write := range []bool{false, true} {
@@ -262,7 +263,7 @@ func TestTheZonesAreASnapshot(t *testing.T) {
 	f := newGrantFixture(t)
 	filtered := f.in("proj/node_modules/.bin")
 	require.NoError(t, os.MkdirAll(filtered, 0o755))
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	var calls atomic.Int32
 	s := NewService(store, func() Zones {
@@ -300,7 +301,7 @@ func TestTheZonesAreASnapshot(t *testing.T) {
 }
 
 func TestAFolderIsRefusedWhenTheSnapshotRunsPastTheBound(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
@@ -316,7 +317,7 @@ func TestAFolderIsRefusedWhenTheSnapshotRunsPastTheBound(t *testing.T) {
 
 func TestTheSnapshotIsTakenOnFirstUse(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	var calls atomic.Int32
 	s := NewService(store, func() Zones {
@@ -334,7 +335,7 @@ func TestTheSnapshotIsTakenOnFirstUse(t *testing.T) {
 
 func TestAClosedFolderOpensOnlyAFolderInsideIt(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	s := NewService(store, func() Zones { return f.zones }, nil, "")
 	assert.Equal(t, []string{f.in("Documents")}, s.ClosedFolders(t.Context()))
@@ -344,7 +345,7 @@ func TestAClosedFolderOpensOnlyAFolderInsideIt(t *testing.T) {
 
 func TestWideIsTheHomeAndEachFolderOverIt(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	s := NewService(store, func() Zones { return f.zones }, nil, "")
 	wide := s.WideFolders(t.Context())
@@ -368,7 +369,7 @@ func TestACheckResolvesTheZonesNow(t *testing.T) {
 	}
 	require.NoError(t, os.RemoveAll(f.in(".ssh")))
 	require.NoError(t, os.Symlink(f.in("dotfiles/ssh-a"), f.in(".ssh")))
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	s := NewService(store, func() Zones { return f.zones }, nil, "")
 	assert.Equal(t, "never", ruleOf(t, s.CheckFolder(t.Context(), f.in("dotfiles/ssh-a"), false)))

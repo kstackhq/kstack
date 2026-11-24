@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
@@ -73,7 +74,7 @@ func synced(t *testing.T, s *Service, resolved []string) {
 
 func newTestService(t *testing.T, z *zoneFixture, resolve func(context.Context) ([]string, error)) *Service {
 	t.Helper()
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	return NewService(store, func() Zones { return z.zones }, resolve, "")
 }
@@ -312,7 +313,7 @@ func heldService(t *testing.T, z *zoneFixture, kept string) (*Service, string) {
 	raw := `{"sandbox": {"path": [{"dir": "` + kept + `", "target": "` + kept + `", "state": "adopted", "source": "shell"},
 		{"dir": "bin", "target": "bin", "state": "gone", "source": "user"}]}, "count": 3}`
 	require.NoError(t, os.WriteFile(file, []byte(raw), 0o600))
-	store, err := Open(file)
+	store, err := Open(file, appdbtest.Open(t))
 	require.NoError(t, err)
 	require.True(t, store.Held(FieldPath))
 	return NewService(store, func() Zones { return z.zones }, nil, ""), file
@@ -332,7 +333,7 @@ func TestARefusedEntryHoldsTheSync(t *testing.T) {
 	synced(t, s, []string{kept, fresh})
 	assert.Equal(t, []string{kept + "=adopted/shell", fresh + "=pending/shell"}, statesOf(s.Get().Sandbox.Path))
 	assert.False(t, s.Held(FieldPath), "the sync's write ends the hold")
-	reopened, err := Open(file)
+	reopened, err := Open(file, appdbtest.Open(t))
 	require.NoError(t, err)
 	assert.Empty(t, reopened.Refused(), "the file is readable again")
 
@@ -375,7 +376,7 @@ func TestTheLastFaultIsKept(t *testing.T) {
 	z := newZones(t)
 	dir := z.dir(t, "open/bin")
 	answer := errors.New("exit")
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	s := NewService(store, func() Zones { return z.zones }, func(context.Context) ([]string, error) {
 		if answer != nil {
@@ -481,7 +482,7 @@ func TestSharedFollowsAnUnmovedFolder(t *testing.T) {
 func TestARefreshIsBounded(t *testing.T) {
 	z := newZones(t)
 	dir := z.dir(t, "open/bin")
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
@@ -516,7 +517,7 @@ func TestARemovalWhileHeldStaysStrictAcrossARestart(t *testing.T) {
 	_, err := s.DropPath(kept)
 	require.NoError(t, err)
 
-	store, err := Open(file)
+	store, err := Open(file, appdbtest.Open(t))
 	require.NoError(t, err)
 	s = NewService(store, func() Zones { return z.zones }, nil, "")
 	synced(t, s, []string{kept, fresh})
@@ -530,7 +531,7 @@ func TestRefusedPathMarksAnswerTheirSafeValue(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "settings.json")
 	for _, raw := range []string{`{"sandbox": {"pathResolved": "no", "pathStrict": 0}}`, `{"sandbox": {"pathResolved": null, "pathStrict": null}}`} {
 		require.NoError(t, os.WriteFile(file, []byte(raw), 0o600))
-		store, err := Open(file)
+		store, err := Open(file, appdbtest.Open(t))
 		require.NoError(t, err)
 		assert.True(t, store.Get().Sandbox.PathResolved, raw)
 		assert.True(t, store.Get().Sandbox.PathStrict, raw)
@@ -623,7 +624,7 @@ func TestEveryStateCombinationKeepsTheInvariants(t *testing.T) {
 			file := filepath.Join(t.TempDir(), "settings.json")
 			require.NoError(t, os.WriteFile(file, raw, 0o600))
 			open1 := func() *Service {
-				store, err := Open(file)
+				store, err := Open(file, appdbtest.Open(t))
 				require.NoError(t, err)
 				return NewService(store, func() Zones { return zones }, func(context.Context) ([]string, error) {
 					return nil, errors.New("timeout")
@@ -787,7 +788,7 @@ func TestSyncPathSaysWhetherItChanged(t *testing.T) {
 func TestSyncPathAnswersARefusedWrite(t *testing.T) {
 	z := newZones(t)
 	refusal := Refusal{Field: FieldPath, Reason: "refused by the test"}
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), WithChecks(func(st *Settings) []Refusal {
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t), WithChecks(func(st *Settings) []Refusal {
 		if st.Sandbox.PathResolved {
 			return []Refusal{refusal}
 		}

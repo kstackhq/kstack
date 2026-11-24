@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"google.golang.org/grpc"
@@ -683,8 +684,8 @@ func TestAFaultSpecTheBuildCannotHonourFailsNew(t *testing.T) {
 	require.ErrorContains(t, err, "KSTACK_FAULTS: ")
 }
 
-// A sandbox file that is not a JSON object fails New naming it, before app.db
-// opens.
+// A settings file that is not a JSON object fails New naming it, and closes
+// what opened before it.
 func TestABadSettingsFileFailsNew(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "settings.json")
@@ -692,7 +693,6 @@ func TestABadSettingsFileFailsNew(t *testing.T) {
 
 	_, err := New(t.Context(), withDirs(t, Config{Folders: Folders{Data: dir}}))
 	require.ErrorContains(t, err, file)
-	assert.NoFileExists(t, filepath.Join(dir, "app.db"))
 	requireUnlocked(t, dir)
 }
 
@@ -765,7 +765,7 @@ func TestNoShellOffersNoNetwork(t *testing.T) {
 // On a machine with no sandbox the service syncs nothing and keeps no fault,
 // and a sync that fails at Start is a warning, not a startup error.
 func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	svc := newSettingsService(store, nil, nil, sandbox.Status{}, bash.Paths{}, "timeout")
 	assert.Empty(t, svc.PathFault())

@@ -372,7 +372,7 @@ func TestTheDiffsRequestsAreBounded(t *testing.T) {
 		}
 	})
 	asker := make(fakeAsker, 1)
-	g := NewGrant(hanging.upstream(), askSession, "dev", asker, noAsker, 1000, 1000, 32)
+	g := NewGrant(hanging.upstream(), askSession, "c1", "dev", asker, noAsker, 1000, 1000, 32)
 	// The bound fires once the dry run reaches the server, so the read never
 	// races it.
 	g.previewBound = func(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -403,13 +403,13 @@ func TestTheDiffsRequestsAreBounded(t *testing.T) {
 
 	// The read spends the one token, and the next comes long past diffTimeout.
 	api, _ = objectServer(t, objectNow, nil)
-	g = NewGrant(api.upstream(), askSession, "dev", asker, noAsker, 0.001, 1, 32)
+	g = NewGrant(api.upstream(), askSession, "c1", "dev", asker, noAsker, 0.001, 1, 32)
 	s = serveGrant(t, g)
 	r = askedRequest(t, s, asker, "PUT", configMapPath, "application/json", objectNow)
 	assert.Equal(t, previewNoDryRun+"the cluster did not answer", r.DiffError)
 
 	api, _ = objectServer(t, objectNow, nil)
-	g = NewGrant(api.upstream(), askSession, "dev", asker, noAsker, 1000, 1000, 1)
+	g = NewGrant(api.upstream(), askSession, "c1", "dev", asker, noAsker, 1000, 1000, 1)
 	require.True(t, g.openRequests.TryAcquire(1))
 	s = serveGrant(t, g)
 	r = askedRequest(t, s, asker, "PUT", configMapPath, "application/json", objectNow)

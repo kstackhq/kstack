@@ -143,13 +143,6 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	cfg.googleProject, cfg.vertexBaseURL = findGoogleProject(cfg.Getenv)
 
-	// The settings hold no handle, so a failure leaves the sandbox and the lock to close.
-	settingsStore, err := settings.Open(p.SettingsFile)
-	if err != nil {
-		_ = sb.Close()
-		return fail(err)
-	}
-
 	// The app owns app.db and hands it to every service that writes or watches it.
 	// It closes after every service over it.
 	db, err := appdb.Open(p.AppDBFile, appdb.DefaultSweepInterval)
@@ -166,6 +159,14 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	// Its close ends every sandboxed run still going, after every service
 	// over the sandbox has stopped its own.
 	rt.add("sandbox", lifecycle.CloseFunc(sb.Close))
+
+	// The settings keep the permissions in app.db, so they open after it and
+	// close before it.
+	settingsStore, err := settings.Open(p.SettingsFile, db)
+	if err != nil {
+		return fail(err)
+	}
+	rt.add("settings", lifecycle.CloseFunc(settingsStore.Close))
 
 	// Shared cross-subsystem poke bus (wall-clock gap detector + host pokes via
 	// gRPC PokeService); see docs/adr/2026-08-09-poke-resync-fanout.md.
@@ -325,7 +326,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	// with the edge, so it closes before the service it reads.
 	if shell != nil {
 		// A probe or a console command has no chat, so its run reads the folders granted always alone.
-		shell.SetAlwaysFolders(func(ctx context.Context) []session.Folder { return rt.Chat.FoldersFor(ctx, "") })
+		shell.SetAlwaysFolders(func(ctx context.Context) ([]session.Folder, error) { return rt.Chat.FoldersFor(ctx, "") })
 		// Ends a running probe at Close.
 		rt.add("executable probe", lifecycle.CloseFunc(shell.Close))
 	}

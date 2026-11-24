@@ -565,8 +565,7 @@ func runOutcome(streamErr error) (RunStatus, string) {
 	case errors.Is(streamErr, context.Canceled), errors.Is(streamErr, context.DeadlineExceeded):
 		return RunCancelled, ""
 	}
-	var pe *llm.Error
-	if errors.As(streamErr, &pe) {
+	if pe, ok := errors.AsType[*llm.Error](streamErr); ok {
 		switch {
 		case pe.ContextFull():
 			return RunFailed, contextFullText

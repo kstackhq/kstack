@@ -27,6 +27,7 @@ import { ChevronRight } from 'lucide-react';
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation } from 'urql';
+import type { CombinedError } from 'urql';
 
 import { LogsReadCard, LogsViewCard, LogsWatchCard } from '@/components/chat/log-cards';
 import { ModelDescription } from '@/components/chat/model-description';
@@ -772,10 +773,15 @@ function SandboxActionLines({ call }: { call: ChatToolCall }) {
   );
 }
 
-// Why an Always answer was refused: the settings hold rules Kstack cannot read,
-// so the rule it adds could not be written. The request still waits.
-const HELD_RULES =
-  'Kstack cannot add a rule while settings.json holds rules it cannot read. Fix them in Settings, or approve once.';
+// Why a decision was refused: the sidecar's reason when it refused it, as a
+// rule an answer would write that Kstack cannot apply, else that it never
+// arrived.
+function refusedDecision(error: CombinedError): string {
+  const first = error.graphQLErrors[0];
+  const code = first?.extensions?.code;
+  if (code === 'KSTACK_VALIDATION_ERROR' || code === 'KSTACK_RECORD_NOT_FOUND') return first.message;
+  return 'The decision did not reach the sidecar. Try again.';
+}
 
 // One allow answer and the rule it adds under it, in the words Settings uses.
 function AllowAnswer({
@@ -1074,9 +1080,7 @@ function ApprovalRequest({
     const result = writesRule ? await approvalDecide(variables, chatGrantsContext) : await approvalDecide(variables);
     if (result.error) {
       setDecided(false);
-      const held =
-        decision === 'Always' && result.error.graphQLErrors[0]?.extensions?.code === 'KSTACK_VALIDATION_ERROR';
-      setFailure(held ? HELD_RULES : 'The decision did not reach the sidecar. Try again.');
+      setFailure(refusedDecision(result.error));
     }
   };
 

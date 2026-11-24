@@ -55,7 +55,7 @@ const SHELL_FOLDERS = ['/opt/homebrew', '/opt/homebrew/Cellar/zsh/5.9'];
 const SYSTEM_FOLDERS = ['/bin', '/sbin', '/usr/bin', '/usr/sbin', '/usr/lib', '/usr/share', '/etc', '/dev'];
 
 export function SandboxFolderGroups({ path }: { path: SandboxPath }) {
-  const { always, never, closed, wide, rulesHeld, revoking, revokeError, grant, revoke } = useSandboxFolders();
+  const { always, never, closed, wide, revoking, revokeError, grant, revoke } = useSandboxFolders();
   const [adding, setAdding] = useState(false);
   const home = wide?.[0];
 
@@ -85,9 +85,9 @@ export function SandboxFolderGroups({ path }: { path: SandboxPath }) {
               key={folder.id}
               folder={folder}
               home={home}
-              busy={rulesHeld || revoking.has(folder.id)}
+              busy={revoking.has(folder.id)}
               onAccess={(write) => grant(folder.path, write, 'Always')}
-              onRemove={() => revoke(folder.id)}
+              onRemove={() => revoke(folder.id, 'Always')}
             />
           ))}
         </FolderGroup>
@@ -225,7 +225,7 @@ function GrantedFolder({
   onRemove: () => void;
 }) {
   // Destructured: the HTML-sink lint refuses any `.write`.
-  const { path, write, refused } = folder;
+  const { path, write, refusal } = folder;
   return (
     <Row
       dir={path}
@@ -246,7 +246,11 @@ function GrantedFolder({
         </>
       }
     >
-      {refused && <p className="text-muted-foreground">{refused}</p>}
+      {refusal && (
+        <p className="text-muted-foreground">
+          <VisibleText text={refusal} />
+        </p>
+      )}
       {isMacOS() && guardedByMacOS(path, home) && (
         <p className="text-muted-foreground">macOS may ask you to let Kstack reach this folder.</p>
       )}
