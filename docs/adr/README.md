@@ -173,7 +173,7 @@ usually just documentation in the wrong place.
 | 2026-10-02 | [The sandbox's zones are Kstack's lists, and its environment one table](2026-10-02-the-sandboxs-zones-are-kstacks-lists.md) | sidecar | Accepted |
 | 2026-10-02 | [Bound a sandboxed run's processes with resource limits set inside the run](2026-10-02-process-limits-are-set-inside-the-run.md) | sidecar | Accepted |
 | 2026-10-02 | [Accept that a sandboxed command on macOS reads other processes' arguments](2026-10-02-a-macos-sandboxed-command-reads-other-processes-arguments.md) | sidecar | Superseded by [2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings](2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings.md) |
-| 2026-10-02 | [PATH is the login shell's, filtered and frozen](2026-10-02-path-is-the-login-shells-filtered-and-frozen.md) | sidecar, webview | Accepted |
+| 2026-10-02 | [PATH is the login shell's, filtered and frozen](2026-10-02-path-is-the-login-shells-filtered-and-frozen.md) | sidecar, webview | Superseded by [2026-11-24-the-sandbox-path-is-one-setting-the-user-writes](2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md) |
 | 2026-10-02 | [A sandboxed cluster write runs, asks or is refused by its class, the context's mode and the user's rules](2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md) | cross-cutting | Accepted |
 | 2026-10-03 | [A spec never reaches main](2026-10-03-a-spec-never-reaches-main.md) | repo | Accepted |
 | 2026-10-03 | [Authorization is binary, and a prompt is a denial the user may lift](2026-10-03-authorization-is-binary-and-a-prompt-is-a-denial-the-user-may-lift.md) | sidecar | Accepted |
@@ -290,5 +290,6 @@ usually just documentation in the wrong place.
 | 2026-11-22 | [Each folder kind has its own folder on every platform](2026-11-22-each-folder-kind-has-its-own-folder-on-every-platform.md) | host | Accepted |
 | 2026-11-23 | [Treat two mounts of one folder as one PATH folder](2026-11-23-two-mounts-of-one-folder-are-one-path-folder.md) | sidecar | Accepted |
 | 2026-11-23 | [The sidecar places Kstack's folders itself](2026-11-23-the-sidecar-places-kstacks-folders-itself.md) | cross-cutting | Accepted |
-| 2026-11-24 | [A stored PATH decision holds for its exact path](2026-11-24-a-stored-path-decision-holds-for-its-exact-path.md) | sidecar | Accepted |
+| 2026-11-24 | [A stored PATH decision holds for its exact path](2026-11-24-a-stored-path-decision-holds-for-its-exact-path.md) | sidecar | Superseded by [2026-11-24-the-sandbox-path-is-one-setting-the-user-writes](2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md) |
 | 2026-11-24 | [A folder grant is its own row, and a mode and a rule belong to a cluster](2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md) | sidecar | Accepted |
+| 2026-11-24 | [A sandboxed command's PATH is one setting the user writes](2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md) | sidecar, webview | Accepted |

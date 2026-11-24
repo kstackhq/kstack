@@ -17,6 +17,8 @@
 package bash
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,8 +43,8 @@ type pathFixture struct {
 
 func newPathFixture(t *testing.T) *pathFixture {
 	t.Helper()
-	base, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
+	// Not under /tmp, which a typed folder's check refuses on Linux.
+	base := testutil.GrantableDir(t)
 	f := &pathFixture{tl: tool(t), base: base}
 	f.open, f.home, f.never = f.dir(t, "open"), f.dir(t, "home"), f.dir(t, "never")
 	f.fake = &fakeSandboxer{
@@ -61,9 +63,21 @@ func (f *pathFixture) dir(t *testing.T, rel string) string {
 	return dir
 }
 
-// adopted is an entry the shell adopted for dir at target.
-func adopted(dir, target string, source settings.Source) settings.PathEntry {
-	return settings.PathEntry{Dir: dir, Target: target, State: settings.PathAdopted, Source: source}
+func shell(path string) settings.PathFolder {
+	return settings.PathFolder{Path: path, Origin: settings.OriginShell}
+}
+
+func typed(path string) settings.PathFolder {
+	return settings.PathFolder{Path: path, Origin: settings.OriginTyped}
+}
+
+// searching is a PATH list of folders, each also a NoWrite folder.
+func searching(folders ...settings.PathFolder) func(context.Context) (settings.RunPath, error) {
+	list := settings.RunPath{Search: folders}
+	for _, f := range folders {
+		list.NoWrite = append(list.NoWrite, f.Path)
+	}
+	return func(context.Context) (settings.RunPath, error) { return list, nil }
 }
 
 // runPathOf runs echo "$PATH" sandboxed and answers it and the run.
@@ -79,86 +93,51 @@ func (f *pathFixture) runPathOf(t *testing.T) (string, sandbox.Run) {
 func TestTheRunFreezesThePath(t *testing.T) {
 	f := newPathFixture(t)
 	inOpen, inHome := f.dir(t, "open/bin"), f.dir(t, "home/bin")
-	entries := []settings.PathEntry{
-		adopted(inOpen, inOpen, settings.SourceShell),
-		adopted(inHome, inHome, settings.SourceUser),
+	folders := []settings.PathFolder{shell(inOpen), typed(inHome)}
+	f.tl.pathList = func(context.Context) (settings.RunPath, error) {
+		return settings.RunPath{Search: folders}, nil
 	}
-	f.tl.pathList = func() settings.RunPath { return settings.RunPath{Entries: entries, Resolved: true} }
-	// A store changed while the run is built changes nothing it finds.
+	// A setting changed while the run is built changes nothing it finds.
 	release := make(chan struct{})
 	close(release)
-	f.fake.onSystem, f.fake.holdSys = func() { entries = nil }, release
+	f.fake.onSystem, f.fake.holdSys = func() { folders = nil }, release
 
 	path, r := f.runPathOf(t)
 	assert.Equal(t, inOpen+":"+inHome, path)
 	assert.Equal(t, []string{"/usr", "/bin", f.open, inHome}, r.Policy.Files.Read, "a Read rule for each folder System does not open")
 	assert.Contains(t, r.Env, "PATH="+inOpen+":"+inHome)
 
-	// A list the user emptied finds nothing: no default stands in for it.
+	// A setting with no folder finds nothing: no default stands in for it.
 	f.fake.onSystem = nil
-	removed := settings.PathEntry{Dir: inOpen, Target: inOpen, State: settings.PathGone, Source: settings.SourceUser}
-	entries = []settings.PathEntry{removed}
 	path, r = f.runPathOf(t)
 	assert.Equal(t, emptyPath, path)
 	assert.Equal(t, []string{"/usr", "/bin", f.open}, r.Policy.Files.Read)
 }
 
-// A list never resolved, as after a first launch whose shell failed, searches
-// the platform's default folders, each under the run's checks; a resolved list
-// that is empty searches nothing.
-func TestAnEmptyListSearchesTheCheckedDefault(t *testing.T) {
+// A setting that cannot be read, or that Kstack cannot use, starts no run.
+func TestARunWhosePathCannotBeReadDoesNotStart(t *testing.T) {
 	f := newPathFixture(t)
-	usable, world := f.dir(t, "open/bin"), f.dir(t, "open/world")
-	require.NoError(t, os.Chmod(world, 0o777))
-	link := filepath.Join(f.base, "bin")
-	require.NoError(t, os.Symlink(usable, link))
-	f.tl.fallbackPath = []string{usable, world, link, f.dir(t, "home/bin")}
-	f.tl.pathList = func() settings.RunPath { return settings.RunPath{} }
-
-	path, r := f.runPathOf(t)
-	assert.Equal(t, usable, path, "the world-writable, the duplicate and the closed are left out")
-	assert.Equal(t, []string{"/usr", "/bin", f.open}, r.Policy.Files.Read, "a default opens nothing")
-
-	f.tl.pathList = func() settings.RunPath { return settings.RunPath{Resolved: true} }
-	path, _ = f.runPathOf(t)
-	assert.Equal(t, emptyPath, path)
-}
-
-func TestTheRunLeavesOutAMovedEntry(t *testing.T) {
-	f := newPathFixture(t)
-	first, other := f.dir(t, "open/v1"), f.dir(t, "open/other")
-	link := filepath.Join(f.base, "current")
-	require.NoError(t, os.Symlink(f.dir(t, "home/v2"), link))
-	f.tl.pathList = func() settings.RunPath {
-		return settings.RunPath{Resolved: true, Entries: []settings.PathEntry{
-			adopted(link, first, settings.SourceShell),
-			adopted(other, other, settings.SourceShell),
-		}}
+	for err, says := range map[error]string{
+		errors.New("disk I/O error"):                              "could not read your PATH setting",
+		settings.PathRefusal("Your PATH setting cannot be used."): "Your PATH setting cannot be used.",
+	} {
+		f.tl.pathList = func(context.Context) (settings.RunPath, error) { return settings.RunPath{}, err }
+		text, isError := f.tl.Run(t.Context(), testRuntime(t), command(`echo hi`))
+		assert.True(t, isError)
+		assert.Contains(t, text, says)
+		assert.NotContains(t, text, "disk I/O", "the reason is logged, never shown")
 	}
-	log := testutil.CaptureLogs(t)
-
-	path, r := f.runPathOf(t)
-	assert.Equal(t, other, path)
-	assert.NotContains(t, r.Policy.Files.Read, filepath.Join(f.home, "v2"))
-	assert.Equal(t, 1, strings.Count(log.String(), link), log.String())
+	assert.Empty(t, f.fake.seen(), "nothing ran")
 }
 
-func TestTheRunLeavesOutAnEntryNoRuleOpens(t *testing.T) {
+func TestTheRunLeavesOutAFolderNoRuleOpens(t *testing.T) {
 	f := newPathFixture(t)
 	inNever := f.dir(t, "never/bin")
 	world := f.dir(t, "open/world")
 	require.NoError(t, os.Chmod(world, 0o777))
 	byShell, byUser := f.dir(t, "home/shell"), f.dir(t, "home/user")
 	kept := f.dir(t, "open/kept")
-	f.tl.pathList = func() settings.RunPath {
-		return settings.RunPath{Resolved: true, Entries: []settings.PathEntry{
-			adopted(inNever, inNever, settings.SourceUser),
-			adopted(world, world, settings.SourceUser),
-			adopted(byShell, byShell, settings.SourceShell),
-			adopted(byUser, byUser, settings.SourceUser),
-			adopted(kept, kept, settings.SourceShell),
-		}}
-	}
+	f.tl.pathList = searching(typed(inNever), typed(world), shell(byShell), typed(byUser), shell(kept))
 	log := testutil.CaptureLogs(t)
 
 	path, r := f.runPathOf(t)
@@ -169,39 +148,30 @@ func TestTheRunLeavesOutAnEntryNoRuleOpens(t *testing.T) {
 	}
 }
 
-// An adopted entry that is the home, or holds it, is left out of a run, as a
-// list stored before the check would have it: its Read rule would open all of
-// the home.
-func TestTheRunLeavesOutABroadEntry(t *testing.T) {
+// A typed folder that is the home, or holds it, is left out of a run: its
+// Read rule would open all of the home.
+func TestTheRunLeavesOutABroadFolder(t *testing.T) {
 	f := newPathFixture(t)
 	f.tl.home = f.home
 	inHome := f.dir(t, "home/bin")
-	f.tl.pathList = func() settings.RunPath {
-		return settings.RunPath{Resolved: true, Entries: []settings.PathEntry{
-			adopted(f.home, f.home, settings.SourceUser),
-			adopted(f.base, f.base, settings.SourceUser),
-			adopted(inHome, inHome, settings.SourceUser),
-		}}
-	}
+	f.tl.pathList = searching(typed(f.home), typed(f.base), typed(inHome))
 
 	path, r := f.runPathOf(t)
 	assert.Equal(t, inHome, path)
 	assert.Equal(t, []string{"/usr", "/bin", f.open, inHome}, r.Policy.Files.Read)
 }
 
+// A shell folder that leads into an open folder is searched there; once it
+// leads to a closed one, it is left out.
 func TestTheRunFollowsALinkIntoAnOpenFolder(t *testing.T) {
 	f := newPathFixture(t)
-	first, second := f.dir(t, "open/v1"), f.dir(t, "open/v2")
+	second := f.dir(t, "open/v2")
 	link := filepath.Join(f.base, "current")
 	require.NoError(t, os.Symlink(second, link))
-	entries := []settings.PathEntry{adopted(link, first, settings.SourceShell)}
-	f.tl.pathList = func() settings.RunPath { return settings.RunPath{Entries: entries, Resolved: true} }
-	log := testutil.CaptureLogs(t)
+	f.tl.pathList = searching(shell(link))
 
 	path, _ := f.runPathOf(t)
 	assert.Equal(t, second, path)
-	assert.Contains(t, log.String(), link)
-	assert.Equal(t, first, entries[0].Target, "the stored list is not written")
 
 	require.NoError(t, os.Remove(link))
 	require.NoError(t, os.Symlink(f.dir(t, "home/v3"), link))
@@ -209,9 +179,9 @@ func TestTheRunFollowsALinkIntoAnOpenFolder(t *testing.T) {
 	assert.Equal(t, emptyPath, path)
 }
 
-// Over the real service: a pending folder's program is not found until the
-// entry is adopted.
-func TestAPendingEntryIsNotOnThePath(t *testing.T) {
+// Over the real service: a closed folder of the shell's PATH is not searched
+// until the user types it into the setting.
+func TestAClosedShellFolderIsFoundOnceTyped(t *testing.T) {
 	f := newPathFixture(t)
 	scripts := f.dir(t, "home/scripts")
 	require.NoError(t, os.WriteFile(filepath.Join(scripts, "hello"), []byte("#!/bin/sh\necho hi\n"), 0o755))
@@ -219,33 +189,31 @@ func TestAPendingEntryIsNotOnThePath(t *testing.T) {
 	require.NoError(t, err)
 	svc := settings.NewService(store, func() settings.Zones {
 		return settings.Zones{Never: f.fake.never, Open: f.fake.system.Files}
-	}, nil, "")
-	_, err = svc.SyncPath(t.Context(), []string{scripts})
+	}, nil, nil, "")
+	_, err = svc.SetShellPath(t.Context(), []string{scripts})
 	require.NoError(t, err)
-	f.tl.pathList = func() settings.RunPath { return svc.Get().RunPath() }
+	f.tl.pathList = svc.RunPath
 
 	text, isError := f.tl.Run(t.Context(), testRuntime(t), command("command -v hello"))
 	assert.True(t, isError, text)
 
-	_, err = svc.AdoptPath(scripts, scripts)
-	require.NoError(t, err)
+	require.NoError(t, svc.SetPath(t.Context(), "$PATH:"+scripts))
 	text, isError = f.tl.Run(t.Context(), testRuntime(t), command("command -v hello"))
 	require.False(t, isError, text)
 	assert.Equal(t, filepath.Join(scripts, "hello")+"\n", text)
 }
 
-// An included folder that the system's list denies by name, a closed folder
-// itself, is opened: its Read rule takes the Deny's place.
-func TestAnIncludedClosedFolderIsOpened(t *testing.T) {
+// A typed folder inside a closed folder is searched, its Read rule opening it
+// alone; the closed folder itself, as a grant of it, is left out.
+func TestATypedFolderInsideAClosedOneIsOpened(t *testing.T) {
 	f := newPathFixture(t)
 	closed := f.dir(t, "open/Downloads")
+	inside := f.dir(t, "open/Downloads/bin")
 	f.fake.system.Files.Deny = []string{closed}
-	f.tl.pathList = func() settings.RunPath {
-		return settings.RunPath{Resolved: true, Entries: []settings.PathEntry{adopted(closed, closed, settings.SourceUser)}}
-	}
+	f.tl.pathList = searching(typed(closed), typed(inside))
 
 	path, r := f.runPathOf(t)
-	assert.Equal(t, closed, path)
-	assert.Contains(t, r.Policy.Files.Read, closed)
-	assert.NotContains(t, r.Policy.Files.Deny, closed)
+	assert.Equal(t, inside, path)
+	assert.Contains(t, r.Policy.Files.Read, inside)
+	assert.Contains(t, r.Policy.Files.Deny, closed)
 }

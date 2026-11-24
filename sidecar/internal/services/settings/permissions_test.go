@@ -386,8 +386,7 @@ func TestTheFilesPermissionsGroupIsReadByNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, permissions.Ask, mode)
 
-	require.NoError(t, s.Update(func(v *Settings) error { v.Sandbox.PathStrict = true; return nil }, FieldPathStrict))
-	assert.JSONEq(t, `{"permissions": `+group+`, "sandbox": {"pathStrict": true}, "schemaVersion": 1}`, readFile(t, file))
+	assert.JSONEq(t, `{"permissions": `+group+`}`, readFile(t, file), "nothing writes the file")
 }
 
 // looseTable replaces table with one of the same columns and no constraints,

@@ -240,7 +240,7 @@ func TestTheSandboxSectionNamesNoCloudPlatformWhenTheSwitchesCannotBeRead(t *tes
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
 	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
 	s.cloudTargets = []permissions.Target{permissions.AWS}
-	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, "")
+	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, nil, "")
 	_, err := s.db.Write.Exec(`DROP TABLE sandbox_settings`)
 	require.NoError(t, err)
 

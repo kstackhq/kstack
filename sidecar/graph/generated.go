@@ -753,9 +753,8 @@ type ComplexityRoot struct {
 		SandboxExecutableRegister       func(childComplexity int, name string, invocation *string) int
 		SandboxExecutableRemove         func(childComplexity int, name string) int
 		SandboxExecutablesProbe         func(childComplexity int) int
-		SandboxPathInclude              func(childComplexity int, dir string, target string) int
 		SandboxPathRefresh              func(childComplexity int) int
-		SandboxPathRemove               func(childComplexity int, dir string) int
+		SandboxPathSet                  func(childComplexity int, value string) int
 		ToolSettingSet                  func(childComplexity int, name string, enabled bool) int
 	}
 
@@ -849,7 +848,6 @@ type ComplexityRoot struct {
 		SandboxFolders       func(childComplexity int, chatID *apimeta.ChatID) int
 		SandboxPath          func(childComplexity int) int
 		SandboxPathFault     func(childComplexity int) int
-		SandboxPathResolved  func(childComplexity int) int
 		SettingsRefused      func(childComplexity int) int
 		ToolSettings         func(childComplexity int) int
 	}
@@ -929,12 +927,20 @@ type ComplexityRoot struct {
 		Wide   func(childComplexity int) int
 	}
 
-	SandboxPathEntry struct {
-		Dir    func(childComplexity int) int
-		Shared func(childComplexity int) int
-		Source func(childComplexity int) int
-		State  func(childComplexity int) int
-		Target func(childComplexity int) int
+	SandboxPath struct {
+		Folders func(childComplexity int) int
+		Refusal func(childComplexity int) int
+		Value   func(childComplexity int) int
+	}
+
+	SandboxPathFolder struct {
+		Addable  func(childComplexity int) int
+		Origin   func(childComplexity int) int
+		Path     func(childComplexity int) int
+		Reason   func(childComplexity int) int
+		Searched func(childComplexity int) int
+		Shared   func(childComplexity int) int
+		Target   func(childComplexity int) int
 	}
 
 	SandboxStatus struct {
@@ -1137,9 +1143,8 @@ type MutationResolver interface {
 	ChatNetworkEnabledSet(ctx context.Context, id apimeta.ChatID, enabled bool) (*chat.Chat, error)
 	ChatDelete(ctx context.Context, id apimeta.ChatID) (bool, error)
 	SandboxCloudAccessSet(ctx context.Context, target permissions.Target, on bool) ([]*model.CloudAccess, error)
-	SandboxPathInclude(ctx context.Context, dir string, target string) ([]*model.SandboxPathEntry, error)
-	SandboxPathRemove(ctx context.Context, dir string) ([]*model.SandboxPathEntry, error)
-	SandboxPathRefresh(ctx context.Context) ([]*model.SandboxPathEntry, error)
+	SandboxPathSet(ctx context.Context, value string) (*model.SandboxPath, error)
+	SandboxPathRefresh(ctx context.Context) (*model.SandboxPath, error)
 	SandboxExecutablesProbe(ctx context.Context) ([]*model.SandboxExecutable, error)
 	SandboxConsoleRun(ctx context.Context, command string, clusterID *apimeta.ClusterID, network bool) (int, error)
 	SandboxConsoleStop(ctx context.Context, number *int) (bool, error)
@@ -1199,9 +1204,8 @@ type QueryResolver interface {
 	ClusterCachedKinds(ctx context.Context, cacheID *apimeta.ObjectID) ([]*cluster.ClusterCachedKind, error)
 	SettingsRefused(ctx context.Context) ([]*jsonsettings.Refusal, error)
 	SandboxCloudAccess(ctx context.Context) ([]*model.CloudAccess, error)
-	SandboxPath(ctx context.Context) ([]*model.SandboxPathEntry, error)
+	SandboxPath(ctx context.Context) (*model.SandboxPath, error)
 	SandboxPathFault(ctx context.Context) (*string, error)
-	SandboxPathResolved(ctx context.Context) (bool, error)
 	SandboxExecutables(ctx context.Context) ([]*model.SandboxExecutable, error)
 	EnvVars(ctx context.Context, clusterID *apimeta.ClusterID) ([]*envvars.Var, error)
 	PermissionSettings(ctx context.Context) (*model.PermissionSettings, error)
@@ -4199,34 +4203,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SandboxExecutablesProbe(childComplexity), true
-	case "Mutation.sandboxPathInclude":
-		if e.ComplexityRoot.Mutation.SandboxPathInclude == nil {
-			break
-		}
-
-		args, err := ec.field_Mutation_sandboxPathInclude_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.Mutation.SandboxPathInclude(childComplexity, args["dir"].(string), args["target"].(string)), true
 	case "Mutation.sandboxPathRefresh":
 		if e.ComplexityRoot.Mutation.SandboxPathRefresh == nil {
 			break
 		}
 
 		return e.ComplexityRoot.Mutation.SandboxPathRefresh(childComplexity), true
-	case "Mutation.sandboxPathRemove":
-		if e.ComplexityRoot.Mutation.SandboxPathRemove == nil {
+	case "Mutation.sandboxPathSet":
+		if e.ComplexityRoot.Mutation.SandboxPathSet == nil {
 			break
 		}
 
-		args, err := ec.field_Mutation_sandboxPathRemove_args(ctx, rawArgs)
+		args, err := ec.field_Mutation_sandboxPathSet_args(ctx, rawArgs)
 		if err != nil {
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.SandboxPathRemove(childComplexity, args["dir"].(string)), true
+		return e.ComplexityRoot.Mutation.SandboxPathSet(childComplexity, args["value"].(string)), true
 	case "Mutation.toolSettingSet":
 		if e.ComplexityRoot.Mutation.ToolSettingSet == nil {
 			break
@@ -4666,12 +4659,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.SandboxPathFault(childComplexity), true
-	case "Query.sandboxPathResolved":
-		if e.ComplexityRoot.Query.SandboxPathResolved == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.SandboxPathResolved(childComplexity), true
 	case "Query.settingsRefused":
 		if e.ComplexityRoot.Query.SettingsRefused == nil {
 			break
@@ -4965,36 +4952,67 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SandboxFolders.Wide(childComplexity), true
 
-	case "SandboxPathEntry.dir":
-		if e.ComplexityRoot.SandboxPathEntry.Dir == nil {
+	case "SandboxPath.folders":
+		if e.ComplexityRoot.SandboxPath.Folders == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SandboxPathEntry.Dir(childComplexity), true
-	case "SandboxPathEntry.shared":
-		if e.ComplexityRoot.SandboxPathEntry.Shared == nil {
+		return e.ComplexityRoot.SandboxPath.Folders(childComplexity), true
+	case "SandboxPath.refusal":
+		if e.ComplexityRoot.SandboxPath.Refusal == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SandboxPathEntry.Shared(childComplexity), true
-	case "SandboxPathEntry.source":
-		if e.ComplexityRoot.SandboxPathEntry.Source == nil {
+		return e.ComplexityRoot.SandboxPath.Refusal(childComplexity), true
+	case "SandboxPath.value":
+		if e.ComplexityRoot.SandboxPath.Value == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SandboxPathEntry.Source(childComplexity), true
-	case "SandboxPathEntry.state":
-		if e.ComplexityRoot.SandboxPathEntry.State == nil {
+		return e.ComplexityRoot.SandboxPath.Value(childComplexity), true
+
+	case "SandboxPathFolder.addable":
+		if e.ComplexityRoot.SandboxPathFolder.Addable == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SandboxPathEntry.State(childComplexity), true
-	case "SandboxPathEntry.target":
-		if e.ComplexityRoot.SandboxPathEntry.Target == nil {
+		return e.ComplexityRoot.SandboxPathFolder.Addable(childComplexity), true
+	case "SandboxPathFolder.origin":
+		if e.ComplexityRoot.SandboxPathFolder.Origin == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SandboxPathEntry.Target(childComplexity), true
+		return e.ComplexityRoot.SandboxPathFolder.Origin(childComplexity), true
+	case "SandboxPathFolder.path":
+		if e.ComplexityRoot.SandboxPathFolder.Path == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxPathFolder.Path(childComplexity), true
+	case "SandboxPathFolder.reason":
+		if e.ComplexityRoot.SandboxPathFolder.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxPathFolder.Reason(childComplexity), true
+	case "SandboxPathFolder.searched":
+		if e.ComplexityRoot.SandboxPathFolder.Searched == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxPathFolder.Searched(childComplexity), true
+	case "SandboxPathFolder.shared":
+		if e.ComplexityRoot.SandboxPathFolder.Shared == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxPathFolder.Shared(childComplexity), true
+	case "SandboxPathFolder.target":
+		if e.ComplexityRoot.SandboxPathFolder.Target == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxPathFolder.Target(childComplexity), true
 
 	case "SandboxStatus.available":
 		if e.ComplexityRoot.SandboxStatus.Available == nil {
@@ -7188,20 +7206,36 @@ func (ec *executionContext) childFields_SandboxFolders(ctx context.Context, fiel
 	return nil, fmt.Errorf("no field named %q was found under type SandboxFolders", field.Name)
 }
 
-func (ec *executionContext) childFields_SandboxPathEntry(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+func (ec *executionContext) childFields_SandboxPath(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
-	case "dir":
-		return ec.fieldContext_SandboxPathEntry_dir(ctx, field)
-	case "target":
-		return ec.fieldContext_SandboxPathEntry_target(ctx, field)
-	case "state":
-		return ec.fieldContext_SandboxPathEntry_state(ctx, field)
-	case "source":
-		return ec.fieldContext_SandboxPathEntry_source(ctx, field)
-	case "shared":
-		return ec.fieldContext_SandboxPathEntry_shared(ctx, field)
+	case "value":
+		return ec.fieldContext_SandboxPath_value(ctx, field)
+	case "refusal":
+		return ec.fieldContext_SandboxPath_refusal(ctx, field)
+	case "folders":
+		return ec.fieldContext_SandboxPath_folders(ctx, field)
 	}
-	return nil, fmt.Errorf("no field named %q was found under type SandboxPathEntry", field.Name)
+	return nil, fmt.Errorf("no field named %q was found under type SandboxPath", field.Name)
+}
+
+func (ec *executionContext) childFields_SandboxPathFolder(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "path":
+		return ec.fieldContext_SandboxPathFolder_path(ctx, field)
+	case "origin":
+		return ec.fieldContext_SandboxPathFolder_origin(ctx, field)
+	case "target":
+		return ec.fieldContext_SandboxPathFolder_target(ctx, field)
+	case "searched":
+		return ec.fieldContext_SandboxPathFolder_searched(ctx, field)
+	case "reason":
+		return ec.fieldContext_SandboxPathFolder_reason(ctx, field)
+	case "addable":
+		return ec.fieldContext_SandboxPathFolder_addable(ctx, field)
+	case "shared":
+		return ec.fieldContext_SandboxPathFolder_shared(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SandboxPathFolder", field.Name)
 }
 
 func (ec *executionContext) childFields_SandboxStatus(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -8366,39 +8400,17 @@ func (ec *executionContext) field_Mutation_sandboxExecutableRemove_args(ctx cont
 	return args, nil
 }
 
-func (ec *executionContext) field_Mutation_sandboxPathInclude_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+func (ec *executionContext) field_Mutation_sandboxPathSet_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "dir",
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "value",
 		func(ctx context.Context, v any) (string, error) {
 			return ec.unmarshalNString2string(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
-	args["dir"] = arg0
-	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "target",
-		func(ctx context.Context, v any) (string, error) {
-			return ec.unmarshalNString2string(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["target"] = arg1
-	return args, nil
-}
-
-func (ec *executionContext) field_Mutation_sandboxPathRemove_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "dir",
-		func(ctx context.Context, v any) (string, error) {
-			return ec.unmarshalNString2string(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["dir"] = arg0
+	args["value"] = arg0
 	return args, nil
 }
 
@@ -19344,34 +19356,34 @@ func (ec *executionContext) fieldContext_Mutation_sandboxCloudAccessSet(ctx cont
 	return fc, nil
 }
 
-func (ec *executionContext) _Mutation_sandboxPathInclude(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+func (ec *executionContext) _Mutation_sandboxPathSet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Mutation_sandboxPathInclude(ctx, field)
+			return ec.fieldContext_Mutation_sandboxPathSet(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().SandboxPathInclude(ctx, fc.Args["dir"].(string), fc.Args["target"].(string))
+			return ec.Resolvers.Mutation().SandboxPathSet(ctx, fc.Args["value"].(string))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxPathEntry) graphql.Marshaler {
-			return ec.marshalNSandboxPathEntry2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathEntryᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxPath) graphql.Marshaler {
+			return ec.marshalNSandboxPath2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPath(ctx, selections, v)
 		},
 		true,
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_Mutation_sandboxPathInclude(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Mutation_sandboxPathSet(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Mutation",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_SandboxPathEntry(ctx, field)
+			return ec.childFields_SandboxPath(ctx, field)
 		},
 	}
 	defer func() {
@@ -19381,51 +19393,7 @@ func (ec *executionContext) fieldContext_Mutation_sandboxPathInclude(ctx context
 		}
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Mutation_sandboxPathInclude_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Mutation_sandboxPathRemove(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Mutation_sandboxPathRemove(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().SandboxPathRemove(ctx, fc.Args["dir"].(string))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxPathEntry) graphql.Marshaler {
-			return ec.marshalNSandboxPathEntry2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathEntryᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Mutation_sandboxPathRemove(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Mutation",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_SandboxPathEntry(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Mutation_sandboxPathRemove_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+	if fc.Args, err = ec.field_Mutation_sandboxPathSet_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -19444,8 +19412,8 @@ func (ec *executionContext) _Mutation_sandboxPathRefresh(ctx context.Context, fi
 			return ec.Resolvers.Mutation().SandboxPathRefresh(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxPathEntry) graphql.Marshaler {
-			return ec.marshalNSandboxPathEntry2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathEntryᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxPath) graphql.Marshaler {
+			return ec.marshalNSandboxPath2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPath(ctx, selections, v)
 		},
 		true,
 		true,
@@ -19458,7 +19426,7 @@ func (ec *executionContext) fieldContext_Mutation_sandboxPathRefresh(_ context.C
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_SandboxPathEntry(ctx, field)
+			return ec.childFields_SandboxPath(ctx, field)
 		},
 	}
 	return fc, nil
@@ -22062,8 +22030,8 @@ func (ec *executionContext) _Query_sandboxPath(ctx context.Context, field graphq
 			return ec.Resolvers.Query().SandboxPath(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxPathEntry) graphql.Marshaler {
-			return ec.marshalNSandboxPathEntry2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathEntryᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxPath) graphql.Marshaler {
+			return ec.marshalNSandboxPath2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPath(ctx, selections, v)
 		},
 		true,
 		true,
@@ -22076,7 +22044,7 @@ func (ec *executionContext) fieldContext_Query_sandboxPath(_ context.Context, fi
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_SandboxPathEntry(ctx, field)
+			return ec.childFields_SandboxPath(ctx, field)
 		},
 	}
 	return fc, nil
@@ -22103,29 +22071,6 @@ func (ec *executionContext) _Query_sandboxPathFault(ctx context.Context, field g
 }
 func (ec *executionContext) fieldContext_Query_sandboxPathFault(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Query", field, true, true, "String")
-}
-
-func (ec *executionContext) _Query_sandboxPathResolved(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_sandboxPathResolved(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().SandboxPathResolved(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
-			return ec.marshalNBoolean2bool(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_sandboxPathResolved(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("Query", field, true, true, "Boolean")
 }
 
 func (ec *executionContext) _Query_sandboxExecutables(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
@@ -23757,16 +23702,16 @@ func (ec *executionContext) fieldContext_SandboxFolders_wide(_ context.Context, 
 	return graphql.NewScalarFieldContext("SandboxFolders", field, false, false, "String")
 }
 
-func (ec *executionContext) _SandboxPathEntry_dir(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathEntry) (ret graphql.Marshaler) {
+func (ec *executionContext) _SandboxPath_value(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPath) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SandboxPathEntry_dir(ctx, field)
+			return ec.fieldContext_SandboxPath_value(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return obj.Dir, nil
+			return obj.Value, nil
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
@@ -23776,86 +23721,210 @@ func (ec *executionContext) _SandboxPathEntry_dir(ctx context.Context, field gra
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_SandboxPathEntry_dir(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SandboxPathEntry", field, false, false, "String")
+func (ec *executionContext) fieldContext_SandboxPath_value(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxPath", field, false, false, "String")
 }
 
-func (ec *executionContext) _SandboxPathEntry_target(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathEntry) (ret graphql.Marshaler) {
+func (ec *executionContext) _SandboxPath_refusal(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPath) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SandboxPathEntry_target(ctx, field)
+			return ec.fieldContext_SandboxPath_refusal(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Refusal, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxPath_refusal(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxPath", field, false, false, "String")
+}
+
+func (ec *executionContext) _SandboxPath_folders(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPath) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxPath_folders(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Folders, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxPathFolder) graphql.Marshaler {
+			return ec.marshalNSandboxPathFolder2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathFolderᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxPath_folders(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SandboxPath",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxPathFolder(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SandboxPathFolder_path(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathFolder) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxPathFolder_path(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Path, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxPathFolder_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxPathFolder", field, false, false, "String")
+}
+
+func (ec *executionContext) _SandboxPathFolder_origin(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathFolder) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxPathFolder_origin(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Origin, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v model.SandboxPathOrigin) graphql.Marshaler {
+			return ec.marshalNSandboxPathOrigin2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathOrigin(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxPathFolder_origin(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxPathFolder", field, false, false, "SandboxPathOrigin")
+}
+
+func (ec *executionContext) _SandboxPathFolder_target(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathFolder) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxPathFolder_target(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.Target, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
 		},
 		true,
-		true,
+		false,
 	)
 }
-func (ec *executionContext) fieldContext_SandboxPathEntry_target(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SandboxPathEntry", field, false, false, "String")
+func (ec *executionContext) fieldContext_SandboxPathFolder_target(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxPathFolder", field, false, false, "String")
 }
 
-func (ec *executionContext) _SandboxPathEntry_state(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathEntry) (ret graphql.Marshaler) {
+func (ec *executionContext) _SandboxPathFolder_searched(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathFolder) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SandboxPathEntry_state(ctx, field)
+			return ec.fieldContext_SandboxPathFolder_searched(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return obj.State, nil
+			return obj.Searched, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v model.SandboxPathState) graphql.Marshaler {
-			return ec.marshalNSandboxPathState2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathState(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
 		},
 		true,
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_SandboxPathEntry_state(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SandboxPathEntry", field, false, false, "SandboxPathState")
+func (ec *executionContext) fieldContext_SandboxPathFolder_searched(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxPathFolder", field, false, false, "Boolean")
 }
 
-func (ec *executionContext) _SandboxPathEntry_source(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathEntry) (ret graphql.Marshaler) {
+func (ec *executionContext) _SandboxPathFolder_reason(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathFolder) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SandboxPathEntry_source(ctx, field)
+			return ec.fieldContext_SandboxPathFolder_reason(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return obj.Source, nil
+			return obj.Reason, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v model.SandboxPathSource) graphql.Marshaler {
-			return ec.marshalNSandboxPathSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathSource(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
 		},
 		true,
-		true,
+		false,
 	)
 }
-func (ec *executionContext) fieldContext_SandboxPathEntry_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SandboxPathEntry", field, false, false, "SandboxPathSource")
+func (ec *executionContext) fieldContext_SandboxPathFolder_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxPathFolder", field, false, false, "String")
 }
 
-func (ec *executionContext) _SandboxPathEntry_shared(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathEntry) (ret graphql.Marshaler) {
+func (ec *executionContext) _SandboxPathFolder_addable(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathFolder) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SandboxPathEntry_shared(ctx, field)
+			return ec.fieldContext_SandboxPathFolder_addable(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Addable, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxPathFolder_addable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxPathFolder", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _SandboxPathFolder_shared(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathFolder) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxPathFolder_shared(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.Shared, nil
@@ -23868,8 +23937,8 @@ func (ec *executionContext) _SandboxPathEntry_shared(ctx context.Context, field 
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_SandboxPathEntry_shared(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SandboxPathEntry", field, false, false, "Boolean")
+func (ec *executionContext) fieldContext_SandboxPathFolder_shared(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxPathFolder", field, false, false, "Boolean")
 }
 
 func (ec *executionContext) _SandboxStatus_available(ctx context.Context, field graphql.CollectedField, obj *sandbox.Status) (ret graphql.Marshaler) {
@@ -32530,16 +32599,9 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "sandboxPathInclude":
+		case "sandboxPathSet":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
-				return ec._Mutation_sandboxPathInclude(ctx, field)
-			})
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "sandboxPathRemove":
-			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
-				return ec._Mutation_sandboxPathRemove(ctx, field)
+				return ec._Mutation_sandboxPathSet(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -33376,12 +33438,6 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_sandboxPathFault(ctx, field)
 				})
-		case "sandboxPathResolved":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_sandboxPathResolved(ctx, field)
-				})
 		case "sandboxExecutables":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
@@ -33996,39 +34052,92 @@ func (ec *executionContext) _SandboxFolders(ctx context.Context, sel ast.Selecti
 	return out
 }
 
-var sandboxPathEntryImplementors = []string{"SandboxPathEntry"}
+var sandboxPathImplementors = []string{"SandboxPath"}
 
-func (ec *executionContext) _SandboxPathEntry(ctx context.Context, sel ast.SelectionSet, obj *model.SandboxPathEntry) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, sandboxPathEntryImplementors)
+func (ec *executionContext) _SandboxPath(ctx context.Context, sel ast.SelectionSet, obj *model.SandboxPath) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sandboxPathImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := graphql.NewDeferredGroup(ctx)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("SandboxPathEntry")
-		case "dir":
-			out.Values[i] = ec._SandboxPathEntry_dir(ctx, field, obj)
+			out.Values[i] = graphql.MarshalString("SandboxPath")
+		case "value":
+			out.Values[i] = ec._SandboxPath_value(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "refusal":
+			out.Values[i] = ec._SandboxPath_refusal(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "folders":
+			out.Values[i] = ec._SandboxPath_folders(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var sandboxPathFolderImplementors = []string{"SandboxPathFolder"}
+
+func (ec *executionContext) _SandboxPathFolder(ctx context.Context, sel ast.SelectionSet, obj *model.SandboxPathFolder) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sandboxPathFolderImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SandboxPathFolder")
+		case "path":
+			out.Values[i] = ec._SandboxPathFolder_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "origin":
+			out.Values[i] = ec._SandboxPathFolder_origin(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		case "target":
-			out.Values[i] = ec._SandboxPathEntry_target(ctx, field, obj)
+			out.Values[i] = ec._SandboxPathFolder_target(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "searched":
+			out.Values[i] = ec._SandboxPathFolder_searched(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "state":
-			out.Values[i] = ec._SandboxPathEntry_state(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
+		case "reason":
+			out.Values[i] = ec._SandboxPathFolder_reason(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
-		case "source":
-			out.Values[i] = ec._SandboxPathEntry_source(ctx, field, obj)
+		case "addable":
+			out.Values[i] = ec._SandboxPathFolder_addable(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		case "shared":
-			out.Values[i] = ec._SandboxPathEntry_shared(ctx, field, obj)
+			out.Values[i] = ec._SandboxPathFolder_shared(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -36910,11 +37019,19 @@ func (ec *executionContext) marshalNSandboxFolders2ᚖgithubᚗcomᚋkstackhqᚋ
 	return ec._SandboxFolders(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNSandboxPathEntry2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathEntryᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.SandboxPathEntry) graphql.Marshaler {
+func (ec *executionContext) marshalNSandboxPath2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPath(ctx context.Context, sel ast.SelectionSet, v *model.SandboxPath) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "SandboxPath!")
+		return graphql.Null
+	}
+	return ec._SandboxPath(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSandboxPathFolder2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathFolderᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.SandboxPathFolder) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNSandboxPathEntry2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathEntry(ctx, sel, v[i])
+		return ec.marshalNSandboxPathFolder2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathFolder(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -36926,31 +37043,21 @@ func (ec *executionContext) marshalNSandboxPathEntry2ᚕᚖgithubᚗcomᚋkstack
 	return ret
 }
 
-func (ec *executionContext) marshalNSandboxPathEntry2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathEntry(ctx context.Context, sel ast.SelectionSet, v *model.SandboxPathEntry) graphql.Marshaler {
+func (ec *executionContext) marshalNSandboxPathFolder2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathFolder(ctx context.Context, sel ast.SelectionSet, v *model.SandboxPathFolder) graphql.Marshaler {
 	if v == nil {
-		graphql.AddInvalidNullError(ctx, "SandboxPathEntry!")
+		graphql.AddInvalidNullError(ctx, "SandboxPathFolder!")
 		return graphql.Null
 	}
-	return ec._SandboxPathEntry(ctx, sel, v)
+	return ec._SandboxPathFolder(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNSandboxPathSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathSource(ctx context.Context, v any) (model.SandboxPathSource, error) {
-	var res model.SandboxPathSource
+func (ec *executionContext) unmarshalNSandboxPathOrigin2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathOrigin(ctx context.Context, v any) (model.SandboxPathOrigin, error) {
+	var res model.SandboxPathOrigin
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNSandboxPathSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathSource(ctx context.Context, sel ast.SelectionSet, v model.SandboxPathSource) graphql.Marshaler {
-	return v
-}
-
-func (ec *executionContext) unmarshalNSandboxPathState2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathState(ctx context.Context, v any) (model.SandboxPathState, error) {
-	var res model.SandboxPathState
-	err := res.UnmarshalGQL(v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalNSandboxPathState2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathState(ctx context.Context, sel ast.SelectionSet, v model.SandboxPathState) graphql.Marshaler {
+func (ec *executionContext) marshalNSandboxPathOrigin2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathOrigin(ctx context.Context, sel ast.SelectionSet, v model.SandboxPathOrigin) graphql.Marshaler {
 	return v
 }
 

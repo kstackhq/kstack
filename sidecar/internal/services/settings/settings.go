@@ -26,24 +26,9 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
 )
 
-// Settings is the user's settings, one group per area. Each field is added by
-// the step that needs it.
-type Settings struct {
-	Sandbox SandboxSettings `json:"sandbox,omitzero"`
-}
-
-// SandboxSettings is the sandbox group: the user's PATH as a sandboxed run
-// searches it.
-type SandboxSettings struct {
-	Path []PathEntry `json:"path,omitempty"` // the user's PATH, frozen, in the shell's order
-	// PathResolved is set by the first sync: before it a run searches the
-	// platform's default PATH, after it the list alone.
-	PathResolved bool `json:"pathResolved,omitempty"`
-	// PathStrict is set by a Remove that ends the store's hold on path, and
-	// cleared by the next sync, which it makes file every new entry pending:
-	// the entry the store could not read may have been a removal.
-	PathStrict bool `json:"pathStrict,omitempty"`
-}
+// Settings is what the file holds that Kstack reads: nothing. The file is
+// kept, unread, until nothing opens it.
+type Settings struct{}
 
 // A Refusal is one value of the file Kstack left out, or an Update a check
 // refused.
@@ -52,10 +37,11 @@ type Refusal = jsonsettings.Refusal
 // ErrHeld is an Update that changes a held field without naming it.
 var ErrHeld = jsonsettings.ErrHeld
 
-// Store keeps Settings in one JSON file, and the approval modes, the always
-// rules, the always folder grants, the cloud platform switches and the
-// registered executables in app.db. It publishes each write of the
-// permissions and of the executables.
+// Store keeps the approval modes, the always rules, the always folder grants,
+// the sandbox settings, the PATH setting, the login shell's last PATH and the
+// registered executables in app.db, beside a settings file it reads nothing
+// from. It publishes each write of the permissions, the executables and the
+// PATH.
 // Safe for concurrent use.
 type Store struct {
 	*jsonsettings.Store[Settings]

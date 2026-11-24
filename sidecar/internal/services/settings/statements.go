@@ -40,6 +40,10 @@ const (
 	stmtSelectExecutableListed
 	stmtInsertExecutable
 	stmtDeleteExecutable
+	stmtSelectPath
+	stmtUpdatePath
+	stmtSelectShellPath
+	stmtUpsertShellPath
 )
 
 // statements are the store's. Those over a table with a chat_id touch only
@@ -84,6 +88,13 @@ var statements = []sqlstmt.Statement{
 	stmtSelectExecutableListed: sqlstmt.OnBoth(`SELECT EXISTS (SELECT 1 FROM executables WHERE name = ?)`),
 	stmtInsertExecutable:       sqlstmt.OnWriter(`INSERT INTO executables (name, invocation, created_at) VALUES (?, ?, ?)`),
 	stmtDeleteExecutable:       sqlstmt.OnWriter(`DELETE FROM executables WHERE name = ?`),
+
+	stmtSelectPath: sqlstmt.OnReader(`SELECT path FROM sandbox_settings WHERE id = 1`),
+	stmtUpdatePath: sqlstmt.OnWriter(`UPDATE sandbox_settings SET path = ?, updated_at = ? WHERE id = 1`),
+	// OnBoth, since a write compares the row it replaces in its transaction.
+	stmtSelectShellPath: sqlstmt.OnBoth(`SELECT path FROM shell_path WHERE id = 1`),
+	stmtUpsertShellPath: sqlstmt.OnWriter(`INSERT INTO shell_path (id, path) VALUES (1, ?)
+	ON CONFLICT (id) DO UPDATE SET path = excluded.path`),
 }
 
 type stmts = sqlstmt.Stmts[stmtID]

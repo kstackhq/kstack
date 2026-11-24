@@ -17,7 +17,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -2249,7 +2248,7 @@ func TestSettingsRefusedIsWhatOpenLeftOut(t *testing.T) {
 	}
 	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t), settings.WithChecks(refuse))
 	require.NoError(t, err)
-	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Settings: settings.NewService(cfg, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Settings: settings.NewService(cfg, nil, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 
 	raw := postGQL(t, srv.URL, `{"query":"{ settingsRefused { field value reason } }"}`)
@@ -2880,92 +2879,12 @@ func TestChatSandboxDisabledSetServesTheSwitchedChat(t *testing.T) {
 	assert.Contains(t, string(raw), `"code":"KSTACK_VALIDATION_ERROR"`)
 }
 
-// sandboxPathServer is a server over a Service whose sync reads open as every
-// run's, with pending outside it, and whose refresh answers resolve; with no
-// sandbox the Service has neither.
-func sandboxPathServer(t *testing.T, available bool, resolve func(context.Context) ([]string, error)) (srv *httptest.Server, open, pending string) {
-	t.Helper()
-	base, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
-	open, pending = filepath.Join(base, "open"), filepath.Join(base, "pending")
-	require.NoError(t, os.Mkdir(open, 0o755))
-	require.NoError(t, os.Mkdir(pending, 0o755))
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
-	require.NoError(t, err)
-	svc := settings.NewService(store, nil, nil, "")
-	if available {
-		zones := func() settings.Zones {
-			return settings.Zones{Open: sandbox.FilePolicy{Read: []string{open}}}
-		}
-		svc = settings.NewService(store, zones, resolve, "timeout")
-		_, err := svc.SyncPath(t.Context(), []string{open, pending})
-		require.NoError(t, err)
-	}
-	srv = httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Settings: svc, SandboxStatus: sandbox.Status{Available: available}}))
-	t.Cleanup(srv.Close)
-	return srv, open, pending
-}
-
 // refusal is errs' one error's code and message.
 func refusal(t *testing.T, errs []gqlError) (code, message string) {
 	t.Helper()
 	require.Len(t, errs, 1)
 	code, _ = errs[0].Extensions["code"].(string)
 	return code, errs[0].Message
-}
-
-func TestSandboxPathMutationsAnswerTheList(t *testing.T) {
-	srv, open, pending := sandboxPathServer(t, true, func(context.Context) ([]string, error) {
-		return nil, errors.New("no shell")
-	})
-	entry := func(dir, state, source string) map[string]any {
-		return map[string]any{"dir": dir, "target": dir, "state": state, "source": source, "shared": false}
-	}
-	const fields = `{ dir target state source shared }`
-
-	data, _ := mutation(t, srv.URL, `{ sandboxPath `+fields+` sandboxPathFault sandboxPathResolved }`)
-	assert.Equal(t, []any{entry(open, "Adopted", "Shell"), entry(pending, "Pending", "Shell")}, data["sandboxPath"])
-	assert.Equal(t, "timeout", data["sandboxPathFault"])
-	assert.Equal(t, true, data["sandboxPathResolved"])
-
-	data, _ = mutation(t, srv.URL, `mutation { sandboxPathInclude(dir: "`+jsonEscape(pending)+`", target: "`+jsonEscape(pending)+`") `+fields+` }`)
-	assert.Equal(t, []any{entry(open, "Adopted", "Shell"), entry(pending, "Adopted", "User")}, data["sandboxPathInclude"])
-	data, _ = mutation(t, srv.URL, `mutation { sandboxPathRemove(dir: "`+jsonEscape(open)+`") `+fields+` }`)
-	assert.Equal(t, []any{entry(open, "Gone", "User"), entry(pending, "Adopted", "User")}, data["sandboxPathRemove"])
-
-	for query, message := range map[string]string{
-		`mutation { sandboxPathInclude(dir: "` + jsonEscape(pending) + `", target: "` + jsonEscape(pending) + `") { dir } }`: "That folder is already included.",
-		`mutation { sandboxPathInclude(dir: "` + jsonEscape(pending) + `", target: "/elsewhere") { dir } }`:                  "That folder now leads somewhere else. Check it, then include it again.",
-		`mutation { sandboxPathRemove(dir: "/nowhere") { dir } }`:                                                            "That folder is not in the list.",
-		`mutation { sandboxPathRefresh { dir } }`:                                                                            "Your shell did not answer: no shell.",
-	} {
-		_, errs := mutation(t, srv.URL, query)
-		code, got := refusal(t, errs)
-		assert.Equal(t, "KSTACK_VALIDATION_ERROR", code, query)
-		assert.Equal(t, message, got, query)
-	}
-	data, _ = mutation(t, srv.URL, `{ sandboxPathFault }`)
-	assert.Equal(t, "no shell", data["sandboxPathFault"], "the refresh's fault replaces the launch's")
-}
-
-// A machine with no sandbox answers an empty list and no fault, and refuses
-// every change.
-func TestSandboxPathIsEmptyWithNoSandbox(t *testing.T) {
-	srv, open, _ := sandboxPathServer(t, false, nil)
-
-	data, _ := mutation(t, srv.URL, `{ sandboxPath { dir } sandboxPathFault sandboxPathResolved }`)
-	assert.Equal(t, []any{}, data["sandboxPath"])
-	assert.Nil(t, data["sandboxPathFault"])
-	assert.Equal(t, false, data["sandboxPathResolved"])
-	for _, query := range []string{
-		`mutation { sandboxPathInclude(dir: "` + jsonEscape(open) + `", target: "` + jsonEscape(open) + `") { dir } }`,
-		`mutation { sandboxPathRemove(dir: "` + jsonEscape(open) + `") { dir } }`,
-		`mutation { sandboxPathRefresh { dir } }`,
-	} {
-		_, errs := mutation(t, srv.URL, query)
-		code, _ := refusal(t, errs)
-		assert.Equal(t, "KSTACK_VALIDATION_ERROR", code, query)
-	}
 }
 
 // jsonEscape is s as the inside of a GraphQL string literal.
@@ -2990,7 +2909,7 @@ func newPermissionServer(t *testing.T) *httptest.Server {
 	require.NoError(t, err)
 	// A cluster with no kube-context has no mode of its own, so Settings lists none for it.
 	clusters := append(clusterFixtures(), clusterFixture{id: "3"})
-	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: newFakeClusterService(clusters), Settings: settings.NewService(cfg, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: newFakeClusterService(clusters), Settings: settings.NewService(cfg, nil, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -3104,7 +3023,7 @@ func TestPermissionSettingsFailsWithTheClusterList(t *testing.T) {
 	require.NoError(t, err)
 	svc := newFakeClusterService(clusterFixtures())
 	svc.listErr = errors.New("store closed")
-	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Settings: settings.NewService(cfg, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Settings: settings.NewService(cfg, nil, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 
 	_, code := refusalOf(t, srv, `{ permissionSettings { defaultMode } }`)
@@ -3120,7 +3039,7 @@ func TestAPermissionChangeThatTookSaysSoWhenTheAnswerFails(t *testing.T) {
 	require.NoError(t, err)
 	svc := newFakeClusterService(clusterFixtures())
 	svc.listErr = errors.New("store closed")
-	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Settings: settings.NewService(cfg, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Settings: settings.NewService(cfg, nil, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 
 	message, code := refusalOf(t, srv, `mutation { kubeRuleAdd(input: {effect: Deny, class: UpstreamWrite}) { defaultMode } }`)
@@ -3147,7 +3066,7 @@ func TestPermissionSettingsFailsWithTheirRead(t *testing.T) {
 		require.NoError(t, err)
 		_, err = db.Write.Exec(`DROP TABLE ` + c.table)
 		require.NoError(t, err)
-		srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: newFakeClusterService(c.clusters), Settings: settings.NewService(cfg, nil, nil, "")}))
+		srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: newFakeClusterService(c.clusters), Settings: settings.NewService(cfg, nil, nil, nil, "")}))
 		t.Cleanup(srv.Close)
 
 		message, code := refusalOf(t, srv, `{ permissionSettings { defaultMode } }`)
@@ -3345,7 +3264,7 @@ func sandboxExecutablesServer(t *testing.T, available bool) (*httptest.Server, *
 	require.NoError(t, err)
 	prober := newFakeProber()
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-		Settings:      settings.NewService(store, nil, nil, ""),
+		Settings:      settings.NewService(store, nil, nil, nil, ""),
 		SandboxStatus: sandbox.Status{Available: available},
 		Executables:   prober,
 	}))
@@ -3490,7 +3409,7 @@ func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.RegisterExecutable(t.Context(), "k9s", ""))
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-		Settings:    settings.NewService(store, nil, nil, ""),
+		Settings:    settings.NewService(store, nil, nil, nil, ""),
 		Executables: newFakeProber(),
 	}))
 	t.Cleanup(srv.Close)
@@ -3779,7 +3698,7 @@ func newCloudServer(t *testing.T, targets ...permissions.Target) (*httptest.Serv
 	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), db)
 	require.NoError(t, err)
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-		ClusterSvc: newFakeClusterService(clusterFixtures()), Settings: settings.NewService(cfg, nil, nil, ""), CloudTargets: targets,
+		ClusterSvc: newFakeClusterService(clusterFixtures()), Settings: settings.NewService(cfg, nil, nil, nil, ""), CloudTargets: targets,
 	}))
 	t.Cleanup(srv.Close)
 	return srv, cfg, db

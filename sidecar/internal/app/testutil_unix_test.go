@@ -183,8 +183,8 @@ func shortTemp(t *testing.T) string {
 // names, testutil.RequireSandbox decides.
 func toolsFolder(t *testing.T, names ...string) string {
 	t.Helper()
-	dir, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
+	// Not under /tmp, which a typed folder's check refuses on Linux.
+	dir := testutil.GrantableDir(t)
 	for _, name := range names {
 		bin, err := exec.LookPath(name)
 		if err != nil {
@@ -227,8 +227,7 @@ func startE2E(t *testing.T, with ...func(*Config)) *e2e {
 	writeClusterKubeconfig(t, kubeconfig, cluster)
 	data := filepath.Join(dir, "data")
 	fake := llm.NewFake(0)
-	shellPath := append([]string{bin}, filepath.SplitList(loginshell.DefaultPath)...)
-	cfg := Config{KubeconfigPath: kubeconfig, DataDir: data, RuntimeDir: shortTemp(t), launchPath: shellPath, fake: fake}
+	cfg := Config{KubeconfigPath: kubeconfig, DataDir: data, RuntimeDir: shortTemp(t), launchPath: filepath.SplitList(loginshell.DefaultPath), fake: fake}
 	for _, w := range with {
 		w(&cfg)
 	}
@@ -238,10 +237,9 @@ func startE2E(t *testing.T, with ...func(*Config)) *e2e {
 	startApp(t, a)
 	srv := httptest.NewServer(a)
 	t.Cleanup(srv.Close)
-	// No folder under the temp directory is open, so the sync leaves bin
-	// pending until the user includes it.
-	raw := graphql(t, srv.URL, `mutation { sandboxPathInclude(dir: "`+bin+`", target: "`+bin+`") { dir } }`)
-	require.Contains(t, raw, `"dir":"`+bin+`"`, raw)
+	// No run reads bin, so it is searched once the user types it.
+	raw := graphql(t, srv.URL, `mutation { sandboxPathSet(value: "`+bin+`:$PATH") { value } }`)
+	require.Contains(t, raw, `"value":"`+bin+`:$PATH"`, raw)
 
 	db, err := sql.Open("sqlite", "file:"+filepath.Join(data, "app.db")+"?mode=ro")
 	require.NoError(t, err)

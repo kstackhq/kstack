@@ -782,25 +782,23 @@ func TestNoShellOffersNoNetwork(t *testing.T) {
 	assert.Empty(t, got.NetworkReason)
 }
 
-// On a machine with no sandbox the service syncs nothing and keeps no fault,
-// and a sync that fails at Start is a warning, not a startup error.
+// On a machine with no sandbox the service stores no shell PATH and keeps no
+// fault, and a write that fails at Start is a warning, not a startup error.
 func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
 	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
 	svc := newSettingsService(store, nil, nil, sandbox.Status{}, nil, "timeout", "")
 	assert.Empty(t, svc.PathFault())
-	assert.False(t, svc.Get().RunPath().Resolved)
 
 	log := testutil.CaptureLogs(t)
-	assert.False(t, syncPath(t.Context(), svc, []string{t.TempDir()}), "nothing changed")
-	assert.Contains(t, log.String(), "PATH not synced")
-	assert.Empty(t, store.Get().Sandbox.Path)
+	assert.False(t, setShellPath(t.Context(), svc, []string{t.TempDir()}), "nothing changed")
+	assert.Contains(t, log.String(), "shell PATH not stored")
 }
 
-// A probe after a sync probes the registered executables as read; a read
-// that fails starts no probe, the curated executables' included, and is a
-// warning.
-func TestAProbeAfterASyncReadsTheRegisteredExecutables(t *testing.T) {
+// A probe after a read of the shell probes the registered executables as
+// read; a read that fails starts no probe, the curated executables' included,
+// and is a warning.
+func TestAProbeAfterAShellReadReadsTheRegisteredExecutables(t *testing.T) {
 	k9s := []settings.Executable{{Name: "k9s", Invocation: "k9s version"}}
 	var started [][]settings.Executable
 	start := func(registered []settings.Executable) { started = append(started, registered) }

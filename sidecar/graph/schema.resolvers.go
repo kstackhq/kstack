@@ -420,22 +420,20 @@ func (r *mutationResolver) SandboxCloudAccessSet(ctx context.Context, target per
 	return r.cloudAccess(ctx)
 }
 
-// SandboxPathInclude is the resolver for the sandboxPathInclude field.
-func (r *mutationResolver) SandboxPathInclude(ctx context.Context, dir string, target string) ([]*model.SandboxPathEntry, error) {
-	entries, err := r.Settings.AdoptPath(dir, target)
-	return sandboxPathOf(entries), sandboxPathErr(err)
-}
-
-// SandboxPathRemove is the resolver for the sandboxPathRemove field.
-func (r *mutationResolver) SandboxPathRemove(ctx context.Context, dir string) ([]*model.SandboxPathEntry, error) {
-	entries, err := r.Settings.DropPath(dir)
-	return sandboxPathOf(entries), sandboxPathErr(err)
+// SandboxPathSet is the resolver for the sandboxPathSet field.
+func (r *mutationResolver) SandboxPathSet(ctx context.Context, value string) (*model.SandboxPath, error) {
+	if err := r.Settings.SetPath(ctx, value); err != nil {
+		return nil, sandboxPathErr(err)
+	}
+	return r.sandboxPathAfter(ctx, "Your PATH was saved")
 }
 
 // SandboxPathRefresh is the resolver for the sandboxPathRefresh field.
-func (r *mutationResolver) SandboxPathRefresh(ctx context.Context) ([]*model.SandboxPathEntry, error) {
-	entries, err := r.Settings.RefreshPath(ctx)
-	return sandboxPathOf(entries), sandboxPathErr(err)
+func (r *mutationResolver) SandboxPathRefresh(ctx context.Context) (*model.SandboxPath, error) {
+	if err := r.Settings.RefreshPath(ctx); err != nil {
+		return nil, sandboxPathErr(err)
+	}
+	return r.sandboxPathAfter(ctx, "Your shell's PATH was read")
 }
 
 // SandboxExecutablesProbe is the resolver for the sandboxExecutablesProbe field.
@@ -876,8 +874,8 @@ func (r *queryResolver) SandboxCloudAccess(ctx context.Context) ([]*model.CloudA
 }
 
 // SandboxPath is the resolver for the sandboxPath field.
-func (r *queryResolver) SandboxPath(ctx context.Context) ([]*model.SandboxPathEntry, error) {
-	return sandboxPathOf(r.Settings.Path()), nil
+func (r *queryResolver) SandboxPath(ctx context.Context) (*model.SandboxPath, error) {
+	return r.sandboxPath(ctx)
 }
 
 // SandboxPathFault is the resolver for the sandboxPathFault field.
@@ -886,11 +884,6 @@ func (r *queryResolver) SandboxPathFault(ctx context.Context) (*string, error) {
 		return &fault, nil
 	}
 	return nil, nil
-}
-
-// SandboxPathResolved is the resolver for the sandboxPathResolved field.
-func (r *queryResolver) SandboxPathResolved(ctx context.Context) (bool, error) {
-	return r.Settings.PathResolved(), nil
 }
 
 // SandboxExecutables is the resolver for the sandboxExecutables field.
@@ -1224,27 +1217,39 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 }
 
 // SandboxFoldersWatch is the resolver for the sandboxFoldersWatch field: the
-// folders, read again on each settings value, each write of the always grants
-// and each ping of the chat's grants. The settings receiver is
-// current-on-subscribe, so its first value sends the first frame. With no
-// chat, nothing pings the grants. A read that fails ends the watch with its
-// reason, so the client reconnects and reads again.
+// folders, read once, then again on each save of the PATH or read of the
+// shell, each write of the always grants and each ping of the chat's grants.
+// No ping is current-on-subscribe, so the first frame is read before any.
+// With no chat, nothing pings the grants. A read that fails ends the watch
+// with its reason, so the client reconnects and reads again.
 func (r *subscriptionResolver) SandboxFoldersWatch(ctx context.Context, chatID *apimeta.ChatID) (<-chan *model.SandboxFolders, error) {
 	chat := valueOf(chatID)
-	settings, always, grants := r.Settings.Subscribe(), r.Settings.WatchPermissions(), r.ChatSvc.WatchGrants(chat)
+	// Subscribed before the first read, so a write between the two is not
+	// missed.
+	path, always, grants := r.Settings.WatchSandboxPath(), r.Settings.WatchPermissions(), r.ChatSvc.WatchGrants(chat)
 	out := make(chan *model.SandboxFolders)
 	go func() {
 		defer close(out)
-		defer settings.Close()
+		defer path.Close()
 		defer always.Close()
 		defer grants.Close()
-		settingsC, alwaysC, grantsC := settings.Chan(), always.Chan(), grants.Chan()
+		pathC, alwaysC, grantsC := path.Chan(), always.Chan(), grants.Chan()
 		for {
+			folders, err := r.sandboxFolders(ctx, chat)
+			if err != nil {
+				recordWatchFailure(ctx, fmt.Errorf("read the sandbox folders: %w", err))
+				return
+			}
+			select {
+			case out <- folders:
+			case <-ctx.Done(): // coverage:ignore only the subscriber leaving while a value is in flight
+				return
+			}
 			select {
 			case <-ctx.Done():
 				return
-			case _, ok := <-settingsC:
-				if !ok { // coverage:ignore the settings store never closes its hub
+			case _, ok := <-pathC:
+				if !ok { // coverage:ignore only the database closing under a subscriber
 					return
 				}
 			case _, ok := <-alwaysC:
@@ -1255,16 +1260,6 @@ func (r *subscriptionResolver) SandboxFoldersWatch(ctx context.Context, chatID *
 				if !ok { // coverage:ignore only the database closing under a subscriber
 					return
 				}
-			}
-			folders, err := r.sandboxFolders(ctx, chat)
-			if err != nil {
-				recordWatchFailure(ctx, fmt.Errorf("read the sandbox folders: %w", err))
-				return
-			}
-			select {
-			case out <- folders:
-			case <-ctx.Done(): // coverage:ignore only the subscriber leaving while a value is in flight
-				return
 			}
 		}
 	}()

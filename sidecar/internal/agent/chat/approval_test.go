@@ -1889,7 +1889,7 @@ func TestAlwaysWaitsWhenItsRuleCannotBeWritten(t *testing.T) {
 	t.Parallel()
 
 	s := startWriter(t, writerTool{})
-	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, "")
+	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, nil, "")
 	exec(t, s.db, `CREATE TRIGGER refuse_insert BEFORE INSERT ON kube_rules BEGIN SELECT RAISE(ABORT, 'refused'); END`)
 
 	msg := send(t, s, nil, "1", "hi")

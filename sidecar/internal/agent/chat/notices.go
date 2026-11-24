@@ -258,7 +258,10 @@ func (s *service) tryNoticeTurn(ctx context.Context, chatID ChatID) error {
 	if err != nil {
 		return err
 	}
-	folders := s.checkedFolders(ctx, chatID, grants)
+	folders, err := s.checkedFolders(ctx, chatID, grants)
+	if err != nil {
+		return err
+	}
 	if s.onFoldersRead != nil {
 		s.onFoldersRead()
 	}

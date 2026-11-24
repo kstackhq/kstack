@@ -45,6 +45,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
@@ -461,9 +462,10 @@ func TestASubagentsSandboxedCallRunsUnasked(t *testing.T) {
 	assert.Empty(t, row.approvalID)
 }
 
-// The PATH main read at launch is synced at Start, before the snapshot, on a
-// machine with a sandbox; with none read there is nothing to sync.
-func TestStartSyncsTheLaunchPath(t *testing.T) {
+// The PATH the launch read is stored at Start, before the snapshot, on a
+// machine with a sandbox, from the launch's one run of the shell; with none
+// read there is nothing to store.
+func TestTheLaunchRunsTheShellOnce(t *testing.T) {
 	requireSandbox(t)
 	t.Setenv("SHELL", "")
 	withBash := t.TempDir()
@@ -473,23 +475,45 @@ func TestStartSyncsTheLaunchPath(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	assert.False(t, slices.ContainsFunc(a.rt.parts, func(p lifecycle.Part) bool { return p.Name == "PATH sync" }))
+	assert.False(t, slices.ContainsFunc(a.rt.parts, func(p lifecycle.Part) bool { return p.Name == "shell PATH" }))
 
 	data := t.TempDir()
-	usrBin, err := filepath.EvalSymlinks("/usr/bin")
-	require.NoError(t, err)
-	stubLaunch(t, loginshell.Result{Path: []string{"/usr/bin", "bin"}}, nil)
+	runs := stubLaunch(t, loginshell.Result{Path: []string{"/usr/bin", "bin"}}, nil)
 	a, err = New(t.Context(), withDirs(t, Config{DataDir: data, RunLoginShell: true}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	assert.Equal(t, partIndex(t, a, "shell snapshot")-1, partIndex(t, a, "PATH sync"))
+	assert.Equal(t, partIndex(t, a, "shell snapshot")-1, partIndex(t, a, "shell PATH"))
 	startApp(t, a)
+	assert.Equal(t, 1, *runs, "the shell runs once")
 
-	store, err := settings.Open(filepath.Join(data, "settings.json"), appdbtest.Open(t))
+	list, err := a.rt.Settings.RunPath(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, []settings.PathEntry{
-		{Dir: "/usr/bin", Target: usrBin, State: settings.PathAdopted, Source: settings.SourceShell},
-	}, store.Get().Sandbox.Path)
+	assert.Equal(t, []settings.PathFolder{
+		{Path: "/usr/bin", Origin: settings.OriginShell}, {Path: "bin", Origin: settings.OriginShell},
+	}, list.Search, "stored as the shell answered")
+}
+
+// A launch whose shell answers no usable PATH, as either reader answers an
+// empty one, keeps the PATH an earlier launch stored.
+func TestAnEmptyShellPathKeepsTheLastRow(t *testing.T) {
+	requireSandbox(t)
+	t.Setenv("SHELL", "")
+	data := t.TempDir()
+	db, err := appdb.Open(filepath.Join(data, "app.db"), 0)
+	require.NoError(t, err)
+	_, err = db.Write.Exec(`INSERT INTO shell_path (id, path) VALUES (1, '/usr/bin')`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	stubLaunch(t, loginshell.Result{}, &loginshell.Fault{Reason: "bad output"})
+	a, err := New(t.Context(), withDirs(t, Config{DataDir: data, RunLoginShell: true}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	startApp(t, a)
+	assert.Equal(t, "bad output", a.rt.Settings.PathFault())
+	list, err := a.rt.Settings.RunPath(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []settings.PathFolder{{Path: "/usr/bin", Origin: settings.OriginShell}}, list.Search)
 }
 
 // countProbes replaces probeSandbox with one that counts its calls and keeps
@@ -556,10 +580,10 @@ func TestTheRefreshRunsInTheSandbox(t *testing.T) {
 	kstackDirs := []string{t.TempDir(), t.TempDir(), t.TempDir()}
 	svc := newSettingsService(store, sb, nil, sandbox.Status{Available: true}, kstackDirs, "", filepath.Join(kstackDirs[1], "tmp"))
 
-	_, err = svc.RefreshPath(t.Context())
+	err = svc.RefreshPath(t.Context())
 	require.ErrorContains(t, err, "sandbox refused")
 	sb.never = []string{"/never", "/home/new"}
-	_, err = svc.RefreshPath(t.Context())
+	err = svc.RefreshPath(t.Context())
 	require.ErrorContains(t, err, "sandbox refused")
 
 	require.Len(t, sb.runs, 2)
@@ -845,15 +869,14 @@ func startAzureE2E(t *testing.T, arm *fakeARM) *e2e {
 	if az == "" {
 		t.Skip("KSTACK_TEST_AZ names no az")
 	}
-	bin, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
+	// Not under /tmp, which a typed folder's check refuses on Linux.
+	bin := testutil.GrantableDir(t)
 	require.NoError(t, os.Symlink(az, filepath.Join(bin, "az")))
 	e := startE2E(t, func(c *Config) {
 		c.cloudPlatforms = []bash.CloudPlatform{bash.NewAzure(fakeAzLogin{}, testutil.DialAnywhere(arm.srv))}
-		c.launchPath = append([]string{bin}, c.launchPath...)
 	})
-	raw := graphql(t, e.url, `mutation { sandboxPathInclude(dir: "`+bin+`", target: "`+bin+`") { dir } }`)
-	require.Contains(t, raw, `"dir":"`+bin+`"`, raw)
+	raw := graphql(t, e.url, `mutation { sandboxPathSet(value: "`+bin+`:$PATH") { value } }`)
+	require.Contains(t, raw, `"value":"`+bin+`:$PATH"`, raw)
 	raw = graphql(t, e.url, `mutation { sandboxCloudAccessSet(target: Azure, on: true) { target on } }`)
 	require.Contains(t, raw, `{"target":"Azure","on":true}`, raw)
 	return e

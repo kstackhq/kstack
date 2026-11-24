@@ -57,49 +57,42 @@ func dirWithMode(t *testing.T, base, name string, mode os.FileMode) string {
 	return dir
 }
 
-func TestFilterPathDropsEachRule(t *testing.T) {
+func TestFilterDirDropsEachRule(t *testing.T) {
 	fakeGroups(t, "staff")
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
 	bin := dirWithMode(t, base, "bin", 0o755)
 	project := dirWithMode(t, base, "app/node_modules/.bin", 0o755)
-	again := filepath.Join(base, "again")
-	require.NoError(t, os.Symlink(bin, again))
 	group := dirWithMode(t, base, "group", 0o775)
 	groupSticky := dirWithMode(t, base, "group-sticky", 0o775|os.ModeSticky)
-	other := dirWithMode(t, base, "other", 0o755)
 
 	// The sandbox's rules are its own test's; one stands in to show its
-	// reason is counted beside the list's.
-	kept, dropped := filterPath([]string{other, "bin", project, bin, again, group, groupSticky}, zones{})
-
-	for i := range kept {
-		assert.NotNil(t, kept[i].info, "the folder the filter checked")
-		kept[i].info = nil
+	// reason is answered beside the list's.
+	for dir, rule := range map[string]string{"bin": "relative", project: "project"} {
+		_, got := filterDir(dir, zones{})
+		assert.Equal(t, rule, got, dir)
 	}
-	assert.Equal(t, []pathDir{
-		{Dir: other, Target: other},
-		{Dir: bin, Target: bin},
-		{Dir: group, Target: group, Shared: true},
-		{Dir: groupSticky, Target: groupSticky, Shared: true},
-	}, kept, "in the shell's order")
-	assert.Equal(t, map[string]int{"relative": 1, "project": 1, "duplicate": 1}, dropped)
+	for dir, shared := range map[string]bool{bin: false, group: true, groupSticky: true} {
+		d, rule := filterDir(dir, zones{})
+		assert.Empty(t, rule, dir)
+		assert.NotNil(t, d.info, "the folder the filter checked")
+		assert.Equal(t, dir, d.Target)
+		assert.Equal(t, shared, d.Shared, dir)
+	}
 }
 
 // A folder an administrators' group can write adds no writer, so it is not
 // shared; a group that cannot be looked up is.
-func TestFilterPathSharesNothingWithAnAdminGroup(t *testing.T) {
+func TestFilterDirSharesNothingWithAnAdminGroup(t *testing.T) {
 	group := dirWithMode(t, t.TempDir(), "group", 0o775)
 
 	fakeGroups(t, adminGroups[0])
-	kept, _ := filterPath([]string{group}, zones{})
-	require.Len(t, kept, 1)
-	assert.False(t, kept[0].Shared)
+	d, _ := filterDir(group, zones{})
+	assert.False(t, d.Shared)
 
 	fakeGroups(t, "")
-	kept, _ = filterPath([]string{group}, zones{})
-	require.Len(t, kept, 1)
-	assert.True(t, kept[0].Shared)
+	d, _ = filterDir(group, zones{})
+	assert.True(t, d.Shared)
 }
 
 // gid 0 is an administrators' group whatever it is called.
@@ -114,7 +107,7 @@ func TestGidZeroIsAnAdminGroup(t *testing.T) {
 func TestAGroupIsLookedUpOnce(t *testing.T) {
 	lookups := fakeGroups(t, "staff")
 	group := dirWithMode(t, t.TempDir(), "group", 0o775)
-	filterPath([]string{group}, zones{})
-	filterPath([]string{group}, zones{})
+	filterDir(group, zones{})
+	filterDir(group, zones{})
 	assert.Equal(t, 1, *lookups)
 }

@@ -55,7 +55,7 @@ func TestWideHoldsTheVolumesOnMacOS(t *testing.T) {
 	f := newGrantFixture(t)
 	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
-	s := NewService(store, func() Zones { return f.zones }, nil, "")
+	s := NewService(store, func() Zones { return f.zones }, nil, nil, "")
 	assert.Contains(t, s.WideFolders(t.Context()), "/Volumes")
 }
 
@@ -69,7 +69,7 @@ func TestWideSpellsTheHomeAsTheDiskDoes(t *testing.T) {
 	}
 	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), appdbtest.Open(t))
 	require.NoError(t, err)
-	s := NewService(store, func() Zones { return Zones{Home: upper} }, nil, "")
+	s := NewService(store, func() Zones { return Zones{Home: upper} }, nil, nil, "")
 
 	assert.Equal(t, f.home, s.WideFolders(t.Context())[0])
 }
