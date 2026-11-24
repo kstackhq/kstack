@@ -33,7 +33,7 @@ The table holds what the user chose for the sandbox as a whole. Today that is th
 platform switches, each on by default. The columns are named `enabled`, as `tool_settings`'s is.
 
 A new cloud platform is a new column, by a migration. So is a later sandbox setting that has one
-value for every command. What Kstack measures on the machine (step 4's `path_sync`) stays out of
+value for every command. What Kstack measures on the machine (step 4's `shell_path`) stays out of
 this table: it holds the user's choices alone.
 
 The Go struct `SandboxSettings` keeps the file's `PATH` fields until step 4. It is not this
