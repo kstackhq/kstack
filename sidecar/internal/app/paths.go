@@ -45,7 +45,7 @@ import (
 //	  kubectl/<cluster id>/<server>/       bash: the kubectl cache
 //	  tmp/<pid>-*/, tmp/<pid>.lock         bash: a sandboxed run's TMPDIR, the sidecar's lock
 //	<runtime>/                             what lives for a session
-//	  kstack-sidecar-<host pid>-<n>.sock   the host
+//	  kstack-sidecar-<host pid>-<n>.sock   the host; one a killed sidecar left is swept at start
 //	  shell/                               bash: the snapshot, and Windows' scripts
 //	  runs/<pid>-*/, runs/<pid>.lock       bash: a run's kubeconfig and socket, the lock
 //

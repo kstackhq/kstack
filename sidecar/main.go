@@ -143,6 +143,9 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 	// Named pipes vanish with their listener; only the UDS file needs cleanup.
 	removeSocket := func() { _ = os.Remove(cfg.Socket) }
 	defer removeSocket()
+	// A sidecar the host killed never ran its removal, so its socket is still
+	// here; this one's is bound by now, so it is told apart by name.
+	ipc.SweepStale(cfg.App.RuntimeDir, cfg.Socket)
 
 	slog.Info("sidecar starting",
 		"version", version.Version,
