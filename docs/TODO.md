@@ -948,6 +948,15 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   `background-color` leaves the theme-matching foreground open; a contrast floor on every kept
   colour would close it. Either land one or accept it as a **By decision** row with an ADR.
 
+- **Follow a link to a Kstack folder once, at start, and refuse one below it (medium; sandbox
+  owner).** A linked folder's own name is not fenced: with `~/.cache/kstack` linked elsewhere, a
+  read-write grant of `~/.cache` is accepted, and a sandboxed command can repoint the link for
+  the next start to follow. A subfolder linked while Kstack runs is not fenced until the next
+  start. Specified in `docs/specs/folder-links/`, for
+  [#1145](https://github.com/kstackhq/kstack/issues/1145): each program resolves its folders
+  once, a link below them fails the start, and no write is granted on or above the folder that
+  holds a followed link.
+
 - **Measure what a run's check costs (easy; sandbox owner).** A run's check names each rule path
   as the kernel does (`Policy.compile`, `sidecar/internal/run/sandbox/policy.go`): Linux follows
   its links, macOS asks the kernel for its full path, and the check for a folder named two ways
