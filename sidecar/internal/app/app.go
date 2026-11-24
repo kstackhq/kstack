@@ -7,14 +7,12 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"time"
 
@@ -24,7 +22,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/graph"
 	grpcserver "github.com/kstackhq/kstack/sidecar/grpc"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
-	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
@@ -61,15 +58,12 @@ type Config struct {
 	// KubeconfigPath is an explicit kubeconfig path; empty uses clientcmd's
 	// default-loading rules.
 	KubeconfigPath string
-	// DataDir holds what a user would lose, CacheDir what Kstack rebuilds, and
-	// RuntimeDir what lives for a session. Each is required and absolute. The
-	// data and cache are Layout's, unless a debug build moved them.
-	DataDir    string
-	CacheDir   string
-	RuntimeDir string
-	// Layout is every folder of Kstack's on this platform, the host's
-	// included. Each is fenced, so a grant of the home opens none of them.
-	Layout layout.Layout
+	// Folders is where Kstack keeps its files, from ResolveFolders: the data
+	// holds what a user would lose, the cache what Kstack rebuilds, and the
+	// runtime folder what lives for a session. Its layout is every folder of
+	// Kstack's on this platform, the host's included. Each is fenced, so a
+	// grant of the home opens none of them.
+	Folders Folders
 	// OAuthIssuerURL is Kstack's OAuth issuer, whose discovery document names
 	// the endpoints.
 	OAuthIssuerURL string
@@ -188,51 +182,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}, nil
 }
 
-// makeDirs refuses a directory that is empty or relative. It makes the
-// layout's data and cache directories owner-only, tightening the app folder
-// above them first. A debug override's folder, like the runtime directory, is
-// only made when it is missing: it may be a folder the developer shares.
-func makeDirs(cfg Config) error {
-	for _, d := range []struct {
-		name, path string
-		// layouts is the layout's folder of this kind, or empty for a kind
-		// the host places.
-		layouts string
-	}{
-		{"the data directory", cfg.DataDir, cfg.Layout.Data},
-		{"the cache directory", cfg.CacheDir, cfg.Layout.Cache},
-		{"--runtime-dir", cfg.RuntimeDir, ""},
-	} {
-		if !filepath.IsAbs(d.path) {
-			return fmt.Errorf("%s must be an absolute path, not %q", d.name, d.path)
-		}
-		var err error
-		if sameDir(d.path, d.layouts) {
-			// The layout's own spelling, so the folder holding it is found.
-			err = layout.MakeOwnerOnly(cfg.Layout, d.layouts)
-		} else {
-			err = os.MkdirAll(d.path, 0o700)
-		}
-		if err != nil {
-			return fmt.Errorf("make %s: %w", d.name, err)
-		}
-	}
-	return nil
-}
-
-// sameDir reports whether a and b name one folder: by name once cleaned, so
-// `<data>/` is <data> (refuseDotDot has refused a `..` the clean would take
-// out by name), or, when both exist, by identity, so a link or another
-// letter case on a case-insensitive volume is too.
-func sameDir(a, b string) bool {
-	if filepath.Clean(a) == filepath.Clean(b) {
-		return true
-	}
-	ai, errA := os.Stat(a)
-	bi, errB := os.Stat(b)
-	return errA == nil && errB == nil && os.SameFile(ai, bi)
-}
-
 // Protocols is what the http.Server mounting an App speaks: HTTP/1.1 for
 // GraphQL, and unencrypted HTTP/2 with prior knowledge for gRPC.
 func Protocols() *http.Protocols {
@@ -326,23 +275,25 @@ type sandboxer interface {
 
 // newSettingsService is the user's settings and the frozen PATH kept in
 // them. The sync judges an entry, and a grant a folder, by what a sandboxed run
-// of the bash tool's shell reads, and by the paths no rule opens, Kstack's
-// directories (denied) among them. Refresh PATH runs the login shell in sb as
-// the launch does, its TMPDIR under tmpDir. Each reads the denied-always list
+// of the bash tool's shell reads, by the paths no rule opens, Kstack's
+// directories (kstack.DeniedDirs) among them, and by the links Kstack
+// followed to them. Refresh PATH runs the login shell in sb as the launch
+// does, its TMPDIR under kstack.TmpDir. Each reads the denied-always list
 // afresh, as a run does: it lists the other users' homes, which can appear
 // while the sidecar runs. On a machine with no sandbox it syncs nothing, keeps
 // no fault and refuses every folder.
-func newSettingsService(store *settings.Store, sb sandboxer, shell *bash.Tool, status sandbox.Status, denied []string, fault, tmpDir string) *settings.Service {
+func newSettingsService(store *settings.Store, sb sandboxer, shell *bash.Tool, status sandbox.Status, kstack bash.Paths, fault string) *settings.Service {
 	if !status.Available {
 		return settings.NewService(store, nil, nil, "")
 	}
 	home, _ := os.UserHomeDir()
 	zones := func() settings.Zones {
 		return settings.Zones{
-			Never: slices.Concat(sb.Never(home), denied), Open: sb.System(home, shell.Shell()).Files, Home: home, NoWrite: sandbox.NoWrite(home),
+			Never: slices.Concat(sb.Never(home), kstack.DeniedDirs), Open: sb.System(home, shell.Shell()).Files, Home: home, NoWrite: sandbox.NoWrite(home),
+			Links: kstack.Links,
 		}
 	}
-	return settings.NewService(store, zones, shellPathResolver(sb, home, denied, tmpDir), fault)
+	return settings.NewService(store, zones, shellPathResolver(sb, home, kstack.DeniedDirs, kstack.TmpDir), fault)
 }
 
 // syncPath folds the launch's PATH into the stored list, and answers whether

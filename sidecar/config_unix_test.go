@@ -46,5 +46,5 @@ func TestConfigFromArgsRefusesARootHoldingDotDot(t *testing.T) {
 
 func TestConfigFromArgsTakesANameBeginningWithDots(t *testing.T) {
 	cfg := mustConfigFromArgs(t, []string{"--runtime-dir", "/home/x/..run"}, noEnv)
-	require.Equal(t, "/home/x/..run", cfg.App.RuntimeDir)
+	require.Equal(t, "/home/x/..run", cfg.Folders.Runtime)
 }

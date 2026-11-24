@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
@@ -262,16 +263,49 @@ func TestMainSendsARootItCannotUseAsFatal(t *testing.T) {
 	assert.Contains(t, out, `FATAL HOME is "home/x", not an absolute path`)
 }
 
-// A log file that cannot be opened leaves stderr as the log, which says so, and
-// the run's own exit code is main's. A home that is a file has no log folder.
-func TestMainLogsToStderrWhenTheLogFileCannotOpen(t *testing.T) {
-	notADir := filepath.Join(t.TempDir(), "file")
-	require.NoError(t, os.WriteFile(notADir, nil, 0o600))
+// A folder the sidecar cannot resolve stops it before the log opens, and the
+// reason reaches the host's start screen as FATAL.
+func TestMainSendsAFolderItCannotResolveAsFatal(t *testing.T) {
+	code, out := runMainAt(t, t.TempDir())
 
-	code, out := runMainAt(t, notADir, "--socket", unbindableEndpoint(t),
+	assert.Equal(t, 2, code, out)
+	assert.Contains(t, out, `FATAL the runtime directory must be an absolute path, not ""`)
+}
+
+// A log file that cannot be opened leaves stderr as the log, which says so, and
+// the run's own exit code is main's. A file where the log folder goes is no
+// log folder.
+func TestMainLogsToStderrWhenTheLogFileCannotOpen(t *testing.T) {
+	home := t.TempDir()
+	logs := layoutOver(env{"HOME": home}, debugBuild).Logs
+	require.NoError(t, os.MkdirAll(filepath.Dir(logs), 0o700))
+	require.NoError(t, os.WriteFile(logs, nil, 0o600))
+
+	code, out := runMainAt(t, home, "--socket", unbindableEndpoint(t),
 		"--runtime-dir", t.TempDir())
 
 	assert.Equal(t, 1, code, out)
 	assert.Contains(t, out, "no log file; logging to stderr only")
 	assert.Contains(t, out, "listen", "the run's error reaches stderr too")
+}
+
+// The host names its socket as it names the runtime folder, through any link
+// above it; SweepStale lists the resolved folder, so the sidecar's own socket
+// is named there too, and only when it sits in that folder.
+func TestOwnSocketIsNamedInTheResolvedRuntimeFolder(t *testing.T) {
+	root, err := realpath.Canonical([]string{t.TempDir()})
+	require.NoError(t, err)
+	target := filepath.Join(root[0], "private", "var")
+	require.NoError(t, os.MkdirAll(target, 0o700))
+	linked := filepath.Join(root[0], "var")
+	require.NoError(t, os.Symlink(target, linked))
+	runtime := filepath.Join(linked, "kstack-501")
+	sock := filepath.Join(runtime, "kstack-sidecar-1-1.sock")
+
+	cfg := runArgs(t, "--socket", sock, "--runtime-dir", runtime)
+	assert.Equal(t, filepath.Join(target, "kstack-501", "kstack-sidecar-1-1.sock"), ownSocket(cfg))
+
+	elsewhere := filepath.Join(t.TempDir(), "s.sock")
+	cfg.Socket = elsewhere
+	assert.Equal(t, elsewhere, ownSocket(cfg))
 }

@@ -97,16 +97,13 @@ type Runtime struct {
 // build makes every service, in order. A constructor failing closes every part
 // built before it, newest first.
 func build(ctx context.Context, cfg Config) (*Runtime, error) {
-	if err := makeDirs(cfg); err != nil {
-		return nil, err
-	}
 	p := pathsOf(cfg)
 
 	// One sidecar per data directory: the lock is taken before anything opens
 	// a file there. This text reaches the user.
 	lock, err := filelock.TryLock(p.LockFile)
 	if errors.Is(err, filelock.ErrLocked) {
-		return nil, fmt.Errorf("another Kstack is using %s", cfg.DataDir)
+		return nil, fmt.Errorf("another Kstack is using %s", cfg.Folders.Data)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("lock the data directory: %w", err)
@@ -118,6 +115,11 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	fail := func(err error) (*Runtime, error) {
 		rt.Close()
 		return nil, err
+	}
+	// Before any service: bash.New empties the shell folder, so a link there
+	// is refused, not followed.
+	if err := makeSubfolders(p); err != nil {
+		return fail(err)
 	}
 
 	sb, probed, err := probeSandbox(ctx)
@@ -288,7 +290,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.Shell = shell
 	rt.SandboxStatus = sandboxStatusOf(found, probed)
 	rt.CloudTargets = cloudTargets(platforms)
-	rt.Settings = newSettingsService(settingsStore, boxer, shell, rt.SandboxStatus, p.Bash.DeniedDirs, login.fault, p.Bash.TmpDir)
+	rt.Settings = newSettingsService(settingsStore, boxer, shell, rt.SandboxStatus, p.Bash, login.fault)
 
 	rt.Memory, err = memory.New(db, serverUIDLookup{clusters: rt.Cluster.Clusters()})
 	if err != nil {

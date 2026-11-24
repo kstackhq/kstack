@@ -37,19 +37,25 @@ var productionConfig = func() config {
 		keychain = "Kstack-dev"
 	}
 	return config{
+		Folders: namedOver(rootsEnv, l),
 		App: app.Config{
-			DataDir:         l.Data,
-			CacheDir:        l.Cache,
-			Layout:          l,
 			OAuthIssuerURL:  "https://oauth.kstack.sh",
 			OAuthClientID:   "kstack-desktop",
 			AddFake:         debugBuild,
 			KeychainService: keychain,
 		},
-		Socket:  ipc.DefaultSocketPath(),
-		LogFile: filepath.Join(l.Logs, "sidecar.log"),
+		Socket: ipc.DefaultSocketPath(),
 	}
 }()
+
+// namedOver is the folders configFromArgs names for l over e's roots.
+func namedOver(e env, l layout.Layout) app.Named {
+	roots, err := layout.RootsFromEnv(layout.Current(), e.get)
+	if err != nil {
+		panic(err)
+	}
+	return app.Named{Platform: layout.Current(), Layout: l, Data: l.Data, Cache: l.Cache, Profile: roots.Home}
+}
 
 func assertConfig(t *testing.T, want, got config, msgAndArgs ...any) {
 	t.Helper()
@@ -122,9 +128,9 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 		want.App.Faults = "get api=refused"
 		want.App.OAuthIssuerURL = "https://issuer.override"
 		want.App.OAuthClientID = "override"
-		want.App.DataDir = "/tmp/override"
-		want.App.CacheDir = "/tmp/override-cache"
-		want.App.RuntimeDir = "/tmp/override-run"
+		want.Folders.Data = "/tmp/override"
+		want.Folders.Cache = "/tmp/override-cache"
+		want.Folders.Runtime = "/tmp/override-run"
 		want.App.KeychainService = "Kstack-override"
 		want.App.GitHubClientID = "Ov23liOverride"
 		want.App.GoogleClientID = "google-override"
@@ -138,13 +144,12 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 }
 
 func TestConfigFromArgsReadsFlags(t *testing.T) {
+	folders := productionConfig.Folders
+	folders.Runtime = "/tmp/run"
 	want := config{
+		Folders: folders,
 		App: app.Config{
 			KubeconfigPath:     "/tmp/kubeconfig",
-			DataDir:            productionConfig.App.DataDir,
-			CacheDir:           productionConfig.App.CacheDir,
-			Layout:             productionConfig.App.Layout,
-			RuntimeDir:         "/tmp/run",
 			OAuthIssuerURL:     "https://issuer.example",
 			OAuthClientID:      "other",
 			GitHubClientID:     "Ov23liFlag",
@@ -156,7 +161,6 @@ func TestConfigFromArgsReadsFlags(t *testing.T) {
 		},
 		Socket:    "/tmp/sock",
 		HostPID:   42,
-		LogFile:   productionConfig.LogFile,
 		LogStderr: true,
 	}
 	cfg := mustConfigFromArgs(t, []string{
@@ -190,11 +194,11 @@ func TestConfigFromArgsTakesTheProfilesKeychainService(t *testing.T) {
 	}
 }
 
-// The sidecar logs in the layout's log folder, the one the host logs in, and
-// copies its records to stderr only when asked.
-func TestConfigFromArgsLogsInTheLayoutsLogFolder(t *testing.T) {
-	cfg := mustConfigFromArgs(t, nil, noEnv)
-	assert.Equal(t, filepath.Join(cfg.App.Layout.Logs, "sidecar.log"), cfg.LogFile)
+// The sidecar logs in the resolved layout's log folder, the one the host logs
+// in, and copies its records to stderr only when asked.
+func TestResolveFoldersLogsInTheLayoutsLogFolder(t *testing.T) {
+	cfg := runArgs(t, "--runtime-dir", t.TempDir())
+	assert.Equal(t, filepath.Join(cfg.App.Folders.Layout.Logs, "sidecar.log"), cfg.LogFile)
 	assert.False(t, cfg.LogStderr)
 }
 
@@ -204,9 +208,9 @@ func TestConfigFromArgsPlacesTheFoldersFromTheEnvironment(t *testing.T) {
 	cfg := mustConfigFromArgs(t, nil, noEnv)
 
 	want := layoutOver(rootsEnv, debugBuild)
-	assert.Equal(t, want, cfg.App.Layout)
-	assert.Equal(t, want.Data, cfg.App.DataDir)
-	assert.Equal(t, want.Cache, cfg.App.CacheDir)
+	assert.Equal(t, want, cfg.Folders.Layout)
+	assert.Equal(t, want.Data, cfg.Folders.Data)
+	assert.Equal(t, want.Cache, cfg.Folders.Cache)
 }
 
 func TestConfigFromArgsRejectsAHostFolderFlag(t *testing.T) {

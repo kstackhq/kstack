@@ -16,18 +16,20 @@ package app
 
 import (
 	"os/exec"
+	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// A subfolder that is a junction joins the fence as a symlink does.
-func TestAJunctionedSubfolderIsFenced(t *testing.T) {
-	cfg := Config{DataDir: t.TempDir(), CacheDir: t.TempDir(), RuntimeDir: t.TempDir()}
-	link := pathsOf(cfg).ChatsDir
+// A junction at a subfolder fails the start, as a symlink does on Unix.
+func TestAJunctionedSubfolderFailsTheStart(t *testing.T) {
+	f := testFolders(t)
+	link := filepath.Join(f.Cache, "kube")
 	out, err := exec.Command("cmd", "/c", "mklink", "/J", link, t.TempDir()).CombinedOutput()
 	require.NoError(t, err, string(out))
 
-	assert.Equal(t, []string{cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir, link}, pathsOf(cfg).Bash.DeniedDirs)
+	err = makeSubfolders(pathsOf(Config{Folders: f}))
+
+	require.EqualError(t, err, link+" is a link; link "+f.Cache+" instead")
 }
