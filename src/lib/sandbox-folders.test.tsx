@@ -31,18 +31,16 @@ vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
 // Each document is its name, so the mock can tell the mutations apart.
 vi.mock('@/gql', () => ({ graphql: (source: string) => /(?:query|subscription|mutation) (\w+)/.exec(source)![1] }));
 
-const { chatGrantsContext } = await import('./chat-grants');
 const { useSandboxFolders } = await import('./sandbox-folders');
 
-const code = { id: 'a', path: '/Users/ren/code', write: false, refused: null };
-const gone = { id: 'b', path: '/Users/ren/gone', write: true, refused: 'This folder does not exist.' };
+const code = { id: 'a', path: '/Users/ren/code', write: false, refusal: null };
+const gone = { id: 'b', path: '/Users/ren/gone', write: true, refusal: 'This folder does not exist.' };
 const folders = {
   always: [code],
   chat: [gone],
   never: ['/Users/ren/.ssh'],
   closed: ['/Users/ren/Documents'],
   wide: ['/Users/ren', '/Users'],
-  rulesHeld: true,
 };
 
 beforeEach(() => {
@@ -63,7 +61,6 @@ describe('useSandboxFolders', () => {
     const { result } = renderHook(() => useSandboxFolders('c1'));
     expect(result.current.always).toBeUndefined();
     expect(result.current.chat).toBeUndefined();
-    expect(result.current.rulesHeld).toBe(false);
   });
 
   it('follows the watch: the grants, the never-readable and closed lists and the wide folders', () => {
@@ -80,7 +77,6 @@ describe('useSandboxFolders', () => {
     expect(result.current.never).toEqual(['/Users/ren/.ssh']);
     expect(result.current.closed).toEqual(['/Users/ren/Documents']);
     expect(result.current.wide).toEqual(['/Users/ren', '/Users']);
-    expect(result.current.rulesHeld).toBe(true);
 
     // A grant or Remove made anywhere arrives as the next whole frame.
     watch.frames.push({ sandboxFoldersWatch: { ...folders, always: [], chat: [gone, code] } });
@@ -112,10 +108,12 @@ describe('useSandboxFolders', () => {
     act(() => {
       granted = result.current.grant('/Users/ren/code', true, 'Always');
     });
-    expect(mutations.FolderGrant).toHaveBeenCalledWith(
-      { chatID: null, path: '/Users/ren/code', write: true, duration: 'Always' },
-      chatGrantsContext,
-    );
+    expect(mutations.FolderGrant).toHaveBeenCalledWith({
+      chatID: null,
+      path: '/Users/ren/code',
+      write: true,
+      duration: 'Always',
+    });
     expect(result.current.granting).toBe(true);
 
     await act(async () => answer({ data: { folderGrant: {} } }));
@@ -123,17 +121,30 @@ describe('useSandboxFolders', () => {
     expect(result.current.granting).toBe(false);
   });
 
-  // A chat grant is a chat rule, so the chat's list of them is asked again.
-  it("names the chat on a grant for it, under the chat rules' context", async () => {
+  it('names the chat on a grant for it', async () => {
     mutations.FolderGrant.mockResolvedValue({ data: { folderGrant: {} } });
     const { result } = renderHook(() => useSandboxFolders('c1'));
     await act(async () => {
       await result.current.grant('/Users/ren/code', false, 'Chat');
     });
-    expect(mutations.FolderGrant).toHaveBeenCalledWith(
-      expect.objectContaining({ chatID: 'c1', duration: 'Chat' }),
-      chatGrantsContext,
-    );
+    expect(mutations.FolderGrant).toHaveBeenCalledWith(expect.objectContaining({ chatID: 'c1', duration: 'Chat' }));
+  });
+
+  // A grant that took though its answer could not be read is taken, so the
+  // form closes, and says what happened.
+  it('takes a grant whose answer could not be read', async () => {
+    mutations.FolderGrant.mockResolvedValue({
+      error: {
+        graphQLErrors: [{ message: 'The folder was granted, but…', extensions: { code: 'KSTACK_SAVED_UNREAD' } }],
+      },
+    });
+    const { result } = renderHook(() => useSandboxFolders());
+    let granted!: boolean;
+    await act(async () => {
+      granted = await result.current.grant('/Users/ren/code', false, 'Always');
+    });
+    expect(granted).toBe(true);
+    expect(result.current.grantError).toEqual({ message: 'The folder was granted, but…', target: null });
   });
 
   it("keeps a refused grant's reason, and a link's target", async () => {
@@ -170,9 +181,19 @@ describe('useSandboxFolders', () => {
   it('revokes a grant, in flight by its id, and keeps a refusal', async () => {
     mutations.FolderRevoke.mockResolvedValue({ error: { graphQLErrors: [{ message: 'Record not found' }] } });
     const { result } = renderHook(() => useSandboxFolders());
-    await act(async () => result.current.revoke('a'));
-    expect(mutations.FolderRevoke).toHaveBeenCalledWith({ id: 'a' });
+    await act(async () => result.current.revoke('a', 'Always'));
+    expect(mutations.FolderRevoke).toHaveBeenCalledWith({ chatID: null, id: 'a', duration: 'Always' });
     expect(result.current.revokeError).toBe('Record not found');
     expect(result.current.revoking).toEqual(new Set());
+  });
+
+  // A chat's folder grant is no rule: it is revoked with folderRevoke, naming
+  // the chat.
+  it("revokes a chat's grant as the chat's", async () => {
+    mutations.FolderRevoke.mockResolvedValue({ data: { folderRevoke: {} } });
+    const { result } = renderHook(() => useSandboxFolders('c1'));
+    await act(async () => result.current.revoke('b', 'Chat'));
+    expect(mutations.FolderRevoke).toHaveBeenCalledWith({ chatID: 'c1', id: 'b', duration: 'Chat' });
+    expect(result.current.revokeError).toBeNull();
   });
 });

@@ -30,7 +30,7 @@ const rules = [{ id: 'r1', line: 'Allow cluster writes in dev / web' }];
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useQueryMock.mockImplementation(() => [{ data: { chatGrants: rules } }, reexecute]);
+  useQueryMock.mockImplementation(() => [{ data: { chatKubeRules: rules } }, reexecute]);
   useMutationMock.mockImplementation(() => [{}, removeMock]);
 });
 
@@ -46,7 +46,7 @@ describe('useChatGrants', () => {
   it('is asked again when an approval writes a rule', () => {
     renderHook(() => useChatGrants('c1'));
     expect(useQueryMock).toHaveBeenCalledWith(expect.objectContaining({ context: chatGrantsContext }));
-    expect(chatGrantsContext.additionalTypenames).toEqual(['PermissionRule']);
+    expect(chatGrantsContext.additionalTypenames).toEqual(['KubeRule']);
   });
 
   it('removes a rule, in flight until it answers, then asks again', async () => {
@@ -64,7 +64,7 @@ describe('useChatGrants', () => {
     expect(removeMock).toHaveBeenCalledWith({ chatID: 'c1', id: 'r1' });
     expect(result.current.removing).toBe('r1');
 
-    await act(async () => answer({ data: { chatGrantRemove: [] } }));
+    await act(async () => answer({ data: { chatKubeRuleRemove: [] } }));
     expect(result.current.removing).toBeNull();
     expect(reexecute).toHaveBeenCalledWith({ requestPolicy: 'network-only' });
   });

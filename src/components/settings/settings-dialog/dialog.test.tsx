@@ -36,15 +36,17 @@ vi.mock('./clusters', () => ({
 
 vi.mock('./sandbox', () => ({ SandboxSettings: () => <p>The sandbox</p> }));
 
-// The Permissions pane draws over these two hooks; its own test covers the rest.
+// The Permissions pane draws over these hooks; its own test covers the rest.
 const { sandboxAvailable } = vi.hoisted(() => ({ sandboxAvailable: { current: true } }));
 vi.mock('@/lib/sandbox', () => ({ useSandbox: () => ({ available: sandboxAvailable.current }) }));
+vi.mock('@/lib/clusters', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/clusters')>()),
+  useClusters: () => ({ clusters: [], connected: true }),
+}));
 vi.mock('@/lib/permission-settings', () => ({
   usePermissionSettings: () => ({
-    settings: { defaultMode: 'Ask', contexts: [], rules: [], destructive: [], held: [] },
-    refused: [],
+    settings: { defaultMode: 'Ask', clusters: [], kubeRules: [], destructive: [] },
     error: null,
-    held: () => false,
   }),
 }));
 
