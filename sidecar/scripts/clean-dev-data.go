@@ -14,11 +14,14 @@
 // always ends in `-dev`, so an installed release's folders are never touched.
 // It is Go rather than shell so it runs on Windows too.
 //
-// It is for a dev app that has quit. It refuses while a dev sidecar holds the
-// data directory's lock or listens in the host's runtime directory, but it
-// does not guard against one starting while it runs, and it deletes each
-// root's own folder, so a root configured inside another Kstack folder through
-// a link is not followed.
+// It is for a dev app that has quit. It refuses while a sidecar holds the data
+// directory's lock, listens in the host's runtime directory or listens on the
+// default socket in the temp dir, and while the lock is not a file. Its
+// limits: it misses a standalone sidecar given its own -socket and data
+// directory; it does not guard against a sidecar starting while it runs; on
+// Linux, -window-state needs an absolute HOME even when XDG_STATE_HOME is set;
+// and it deletes each root's own folder, so a root configured inside another
+// Kstack folder through a link is not followed.
 package main
 
 import (
@@ -143,11 +146,18 @@ func refuseWhileRunning(l layout.Layout) error {
 	if err := refuseWhileListening(); err != nil {
 		return err
 	}
-	// Only a lock that is a file: opening a missing one, or a link to one,
-	// would make it, outside the dev folders too.
+	// The sidecar only ever makes the lock as a file. Opening anything else
+	// could make one, outside the dev folders too, so it is left to the user.
 	path := filepath.Join(l.Data, lockFile)
-	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a file; check it and remove it by hand", path)
 	}
 	lock, err := filelock.TryLock(path)
 	if errors.Is(err, filelock.ErrLocked) {
@@ -160,13 +170,15 @@ func refuseWhileRunning(l layout.Layout) error {
 }
 
 // refuseWhileListening looks for a live sidecar socket in the dev runtime
-// directory. A socket a crashed run left behind refuses the dial, so it does
-// not count.
+// directory, and in the temp dir, where a sidecar run by hand listens by
+// default (ipc.DefaultSocketPath). A socket a crashed run left behind refuses
+// the dial, so it does not count.
 func refuseWhileListening() error {
 	dirs, err := runtimeDirs()
 	if err != nil {
 		return err
 	}
+	dirs = append(dirs, os.TempDir())
 	for _, dir := range dirs {
 		socks, err := filepath.Glob(filepath.Join(dir, "kstack-sidecar-*.sock"))
 		if err != nil {
@@ -178,7 +190,7 @@ func refuseWhileListening() error {
 				continue
 			}
 			conn.Close()
-			return fmt.Errorf("a dev sidecar is listening on %s; quit `pnpm tauri dev` first", sock)
+			return fmt.Errorf("a sidecar is listening on %s; quit it first", sock)
 		}
 	}
 	return nil
