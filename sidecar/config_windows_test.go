@@ -20,10 +20,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Windows takes `..` out by name, as the fences do, so a path holding one
-// stands.
+// rootsEnv is the environment every config test's roots come from.
+var rootsEnv = env{
+	"LOCALAPPDATA": `C:\Users\x\AppData\Local`,
+	"APPDATA":      `C:\Users\x\AppData\Roaming`,
+}
+
+// unreadableRoots names no local data root.
+var unreadableRoots = env{"LOCALAPPDATA": ""}
+
+// scratchRoots puts every root a run reads under a scratch folder, so the
+// folders it makes are the test's.
+func scratchRoots(t *testing.T) env {
+	dir := t.TempDir()
+	return env{"LOCALAPPDATA": dir, "APPDATA": dir}
+}
+
 func TestConfigFromArgsTakesAKstackPathHoldingDotDot(t *testing.T) {
-	dir := `C:\Users\x\link\..\Kstack`
-	cfg := mustConfigFromArgs(t, []string{"--data-dir", dir}, noEnv)
-	require.Equal(t, dir, cfg.App.DataDir)
+	dir := `C:\Users\x\link\..\run`
+	cfg := mustConfigFromArgs(t, []string{"--runtime-dir", dir}, noEnv)
+	require.Equal(t, dir, cfg.App.RuntimeDir)
 }

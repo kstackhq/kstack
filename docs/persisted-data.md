@@ -62,14 +62,14 @@ Adding the mechanism is in [`TODO.md`](TODO.md), *Sidecar (Go)*.
 
 | Root | Resolved by | Holds |
 | --- | --- | --- |
-| `<data>` | `paths.rs` `app_data_dir` | what a user would lose |
-| `<cache>` | `paths.rs` `app_cache_dir` | the cluster and log caches |
+| `<data>` | the sidecar's `layout.Of`, made by `makeDirs` | what a user would lose |
+| `<cache>` | the sidecar's `layout.Of`, made by `makeDirs` | the cluster and log caches |
 | `<config>` | `paths.rs` `app_config_dir` | `host.json` |
 | `<state>` | `paths.rs` `app_state_dir` | the window state, and on Linux and Windows the logs, in `logs/` |
-| OS keyring | service `<service>`: `Kstack` (`Kstack-dev` in debug; `KEYCHAIN_SERVICE` in `src-tauri/src/services/sidecar/service.rs`) | the Kstack account's, the ChatGPT plan's and the Google account's refresh tokens, the OpenRouter connector's key, the AWS connector's session, the saved provider API keys |
+| OS keyring | service `<service>`: `Kstack` (`Kstack-dev` in debug; `KEYCHAIN_SERVICE` in `src-tauri/src/services/sidecar/service.rs`, and a sidecar run with `--dev` and no `--keychain-service`) | the Kstack account's, the ChatGPT plan's and the Google account's refresh tokens, the OpenRouter connector's key, the AWS connector's session, the saved provider API keys |
 | Webview storage | the webview's profile: `<state>/webview` on Linux and Windows (`paths.rs` `webview_dir`), WKWebView's own under the bundle id on macOS | `localStorage` under `kstack:*`, split by origin |
 
-Each resolves through `paths.rs` `layout`, which gives every kind its own folder on every platform:
+Each resolves through `paths.rs` `layout` and the sidecar's `layout.Of`, which `sidecar/internal/app/layout/testdata/layouts.json` holds to one answer, and which give every kind its own folder on every platform:
 none is another's, and none sits inside another's. On Linux that holds for the default XDG roots. An override can undo it: two roots set to one
 directory give their kinds one `kstack` folder, and a root set inside another's `kstack` folder
 puts its kind inside the other's. Each platform's folders are listed below. The

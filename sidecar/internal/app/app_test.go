@@ -275,21 +275,21 @@ func withDirs(t *testing.T, cfg Config) Config {
 // file from each working directory, and the fence and a chat's paths compare
 // absolute paths.
 func TestNewRefusesAnEmptyOrRelativeDirectory(t *testing.T) {
-	for _, flag := range []string{"--data-dir", "--cache-dir", "--runtime-dir"} {
+	for _, name := range []string{"the data directory", "the cache directory", "--runtime-dir"} {
 		for _, dir := range []string{"", "relative"} {
-			t.Run(flag+"="+dir, func(t *testing.T) {
+			t.Run(name+"="+dir, func(t *testing.T) {
 				t.Chdir(t.TempDir())
 				cfg := withDirs(t, Config{})
-				switch flag {
-				case "--data-dir":
+				switch name {
+				case "the data directory":
 					cfg.DataDir = dir
-				case "--cache-dir":
+				case "the cache directory":
 					cfg.CacheDir = dir
 				case "--runtime-dir":
 					cfg.RuntimeDir = dir
 				}
 				_, err := New(t.Context(), cfg)
-				require.ErrorContains(t, err, flag)
+				require.ErrorContains(t, err, name)
 				assert.NoDirExists(t, "relative")
 			})
 		}

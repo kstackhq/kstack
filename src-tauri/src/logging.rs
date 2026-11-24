@@ -250,9 +250,8 @@ where
 }
 
 /// The log directory, or `None` when it cannot be placed or made, which
-/// leaves the app on stderr. Asked once per launch: the host's file layer and
-/// the sidecar's `--log-file` both take this answer, so the sidecar fences
-/// the directory the host writes in.
+/// leaves the app on stderr. Asked once per launch, for the host's file layer.
+/// The sidecar logs in the same folder, placed from its own layout.
 pub fn log_dir(roots: &Roots) -> Option<PathBuf> {
     paths::log_dir(roots)
         .inspect_err(|err| tracing::error!(%err, "no log directory; logging to stderr only"))

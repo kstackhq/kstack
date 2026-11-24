@@ -25,6 +25,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/app"
+	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors/aws"
@@ -42,10 +43,18 @@ type config struct {
 	// Zero leaves the endpoint open to any process of this user, which is what
 	// a standalone dev run wants; the host always passes its own.
 	HostPID int
-	// Where records go. Empty and false is stderr alone, the standalone default.
+	// LogFile is logFileName in the layout's log folder. LogStderr copies
+	// every record to stderr too.
 	LogFile   string
 	LogStderr bool
 }
+
+// logFileName is the sidecar's log, beside the host's main.log.
+const logFileName = "sidecar.log"
+
+// devKeychainService is the keyring service a dev profile defaults to, the
+// host's KEYCHAIN_SERVICE in a debug build.
+const devKeychainService = "Kstack-dev"
 
 // configFromArgs parses the sidecar's command line. Endpoints are arguments,
 // never environment: the sidecar inherits the host's environment, and anything
@@ -55,23 +64,20 @@ type config struct {
 // getenv is the environment those reads see — os.Getenv from main, and a test's
 // own map, so a test never reads a key out of the shell running it.
 //
-// On a bad flag the problem is already on stderr, the flag package's or
-// refuseDotDot's; the caller only needs to exit.
+// The sidecar places every folder of Kstack's itself, from the roots getenv
+// names (layout.RootsFromEnv), as the host places its own from the same
+// environment, and logs in the layout's log folder; the host passes only the
+// runtime directory, which a squatted name can move.
+//
+// On a bad flag or root the problem is already on stderr; the caller only
+// needs to exit.
 func configFromArgs(args []string, getenv func(string) string) (config, error) {
 	var cfg config
 	fs := flag.NewFlagSet("kstack-sidecar", flag.ContinueOnError)
 	fs.StringVar(&cfg.Socket, "socket", ipc.DefaultSocketPath(), "path to the IPC endpoint (Unix domain socket on Unix, named pipe on Windows) to listen on")
 	fs.IntVar(&cfg.HostPID, "host-pid", 0, "pid of the host process; the only process allowed to connect (0 allows any process of this user)")
 	fs.StringVar(&cfg.App.KubeconfigPath, "kubeconfig", "", "explicit kubeconfig path; empty uses the clientcmd default-loading rules ($KUBECONFIG / ~/.kube/config)")
-	fs.StringVar(&cfg.App.DataDir, "data-dir", "", "directory for what a user would lose: app.db, the chats' files (required)")
-	fs.StringVar(&cfg.App.CacheDir, "cache-dir", "", "directory for what Kstack rebuilds: the mirror, the kubectl cache (required)")
 	fs.StringVar(&cfg.App.RuntimeDir, "runtime-dir", "", "directory for what lives for a session: the shell snapshot, a sandboxed run's files (required)")
-	fs.StringVar(&cfg.App.ConfigDir, "config-dir", "", "the host's config directory, which the file tools and the sandbox deny; empty when there is none")
-	fs.StringVar(&cfg.App.StateDir, "state-dir", "", "the host's state directory, denied like the config directory; empty when there is none")
-	fs.Func("app-dir", "a folder holding Kstack's directories, denied like the config directory; repeatable", func(dir string) error {
-		cfg.App.AppDirs = append(cfg.App.AppDirs, dir)
-		return nil
-	})
 	// The OAuth client is public (PKCE/loopback, no secret), so baking the
 	// production defaults into the binary leaks nothing.
 	fs.StringVar(&cfg.App.OAuthIssuerURL, "oauth-issuer", "https://oauth.kstack.sh", "OAuth issuer URL")
@@ -84,17 +90,29 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 	fs.StringVar(&cfg.App.GoogleClientSecret, "google-client-secret", "", "Google OAuth client secret")
 	// The host passes its install's name, so a dev run and an installed
 	// release never share one keychain entry.
-	fs.StringVar(&cfg.App.KeychainService, "keychain-service", "", "keyring service name; empty is the Kstack default")
-	fs.StringVar(&cfg.LogFile, "log-file", "", "append log records to this file, rotating it by size; empty logs to stderr")
+	fs.StringVar(&cfg.App.KeychainService, "keychain-service", "", "keyring service name; empty is the Kstack default, or Kstack-dev with --dev")
 	fs.BoolVar(&cfg.LogStderr, "log-stderr", false, "also write every record to stderr")
+	// The host passes its own build's profile, so its folders and the
+	// sidecar's take one leaf whatever either was built with.
+	dev := fs.Bool("dev", debugBuild, "use a dev build's folders (the `-dev` leaf); defaults to how this binary was built")
 
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
 	cfg.App.HostPID = cfg.HostPID
-	if cfg.LogFile != "" {
-		cfg.App.LogDir = filepath.Dir(cfg.LogFile)
+	roots, err := layout.RootsFromEnv(layout.Current(), getenv)
+	if err != nil {
+		fmt.Fprintln(fs.Output(), err)
+		return config{}, err
 	}
+	cfg.App.Layout = layout.Of(layout.Current(), *dev, roots)
+	// A dev profile's sign-ins stay apart from an installed release's, as
+	// its folders do; the host passes this name itself.
+	if *dev && cfg.App.KeychainService == "" {
+		cfg.App.KeychainService = devKeychainService
+	}
+	cfg.App.DataDir, cfg.App.CacheDir = cfg.App.Layout.Data, cfg.App.Layout.Cache
+	cfg.LogFile = filepath.Join(cfg.App.Layout.Logs, logFileName)
 	readProviders(&cfg, getenv)
 	cfg.App.AddFake = debugBuild
 	applyEnvOverrides(&cfg, getenv)
@@ -105,27 +123,24 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 	return cfg, nil
 }
 
-// refuseDotDot refuses a Kstack path holding `..` on Unix. The fences take a
-// `..` out by name, while the filesystem reads one after a link as the link
-// target's parent, so files written there could sit outside the fences. The
-// host refuses such a root before it starts the sidecar. Windows reads `..`
-// by name itself.
+// refuseDotDot refuses a directory the sidecar writes in that holds `..` on
+// Unix: the runtime directory, and the data and cache directories a debug
+// build's overrides can move. The fences take a `..` out by name, while the
+// filesystem reads one after a link as the link target's parent, so files
+// written there could sit outside the fences. The roots the layout hangs off
+// are refused likewise (layout.RootsFromEnv). Windows reads `..` by name
+// itself.
 func refuseDotDot(cfg config) error {
-	type flagPath struct{ flag, path string }
-	paths := []flagPath{
-		{"--data-dir", cfg.App.DataDir},
-		{"--cache-dir", cfg.App.CacheDir},
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	for _, d := range []struct{ name, path string }{
 		{"--runtime-dir", cfg.App.RuntimeDir},
-		{"--config-dir", cfg.App.ConfigDir},
-		{"--state-dir", cfg.App.StateDir},
-		{"--log-file", cfg.LogFile},
-	}
-	for _, dir := range cfg.App.AppDirs {
-		paths = append(paths, flagPath{"--app-dir", dir})
-	}
-	for _, p := range paths {
-		if runtime.GOOS != "windows" && slices.Contains(strings.Split(p.path, "/"), "..") {
-			return fmt.Errorf("%s is %q, which holds `..`", p.flag, p.path)
+		{"the data directory", cfg.App.DataDir},
+		{"the cache directory", cfg.App.CacheDir},
+	} {
+		if slices.Contains(strings.Split(d.path, "/"), "..") {
+			return fmt.Errorf("%s is %q, which holds `..`", d.name, d.path)
 		}
 	}
 	return nil

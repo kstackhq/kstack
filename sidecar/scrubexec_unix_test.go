@@ -90,8 +90,8 @@ const fakeKey = "sk-ant-test-0123456789abcdef"
 func TestTheReexecKeepsTheKeyOutOfTheLaunchStrings(t *testing.T) {
 	exe, err := os.Executable()
 	require.NoError(t, err)
-	cmd := exec.Command(exe, "--socket", "/nowhere", "--data-dir", t.TempDir())
-	cmd.Env = append(os.Environ(), childEnv+"=scrub", "ANTHROPIC_API_KEY="+fakeKey)
+	cmd := exec.Command(exe, "--socket", "/nowhere")
+	cmd.Env = append(os.Environ(), childEnv+"=scrub", "ANTHROPIC_API_KEY="+fakeKey, "HOME="+t.TempDir())
 	stdin, err := cmd.StdinPipe()
 	require.NoError(t, err)
 	stdout, err := cmd.StdoutPipe()

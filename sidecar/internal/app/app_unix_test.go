@@ -44,6 +44,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
+	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
@@ -174,11 +175,95 @@ func TestNewMakesAMissingDirectoryOwnerOnly(t *testing.T) {
 	a, err := New(t.Context(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	for _, dir := range []string{cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir} {
+	assertPerm(t, 0o700, cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir)
+}
+
+// leaveOpen makes each of dirs 0755, as an earlier build left it.
+func leaveOpen(t *testing.T, dirs ...string) {
+	t.Helper()
+	for _, dir := range dirs {
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.Chmod(dir, 0o755))
+	}
+}
+
+func assertPerm(t *testing.T, want os.FileMode, dirs ...string) {
+	t.Helper()
+	for _, dir := range dirs {
 		info, err := os.Stat(dir)
 		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), dir)
+		assert.Equal(t, want, info.Mode().Perm(), dir)
 	}
+}
+
+// An earlier build left the data and cache directories, and the app folder
+// above them, open: each is tightened before the sidecar writes in it.
+func TestNewTightensItsDirectoriesAndTheAppFolderAbove(t *testing.T) {
+	base := t.TempDir()
+	app := filepath.Join(base, "Kstack")
+	cfg := Config{
+		DataDir:    filepath.Join(app, "data"),
+		CacheDir:   filepath.Join(base, "cache"),
+		RuntimeDir: filepath.Join(base, "run"),
+	}
+	cfg.Layout = layout.Layout{App: app, Data: cfg.DataDir, Cache: cfg.CacheDir}
+	leaveOpen(t, app, cfg.DataDir, cfg.CacheDir)
+
+	a, err := New(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	assertPerm(t, 0o700, app, cfg.DataDir, cfg.CacheDir)
+}
+
+// A debug build's override names a folder the developer chose, which may be
+// shared: it is used as it is, never tightened.
+func TestNewLeavesAnOverriddenDirectoryAsItIs(t *testing.T) {
+	base := t.TempDir()
+	cfg := Config{
+		DataDir:    filepath.Join(base, "shared-data"),
+		CacheDir:   filepath.Join(base, "shared-cache"),
+		RuntimeDir: filepath.Join(base, "run"),
+	}
+	cfg.Layout = layout.Layout{Data: filepath.Join(base, "data"), Cache: filepath.Join(base, "cache")}
+	leaveOpen(t, cfg.DataDir, cfg.CacheDir)
+
+	a, err := New(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	assertPerm(t, 0o755, cfg.DataDir, cfg.CacheDir)
+}
+
+// An override spelling the layout's own folder another way is that folder, and
+// is tightened.
+func TestNewTightensTheLayoutsFolderSpelledAnotherWay(t *testing.T) {
+	base := t.TempDir()
+	data, cache := filepath.Join(base, "data"), filepath.Join(base, "cache")
+	cfg := Config{DataDir: data + "/", CacheDir: cache + "/.", RuntimeDir: filepath.Join(base, "run")}
+	cfg.Layout = layout.Layout{Data: data, Cache: cache}
+	leaveOpen(t, data, cache)
+
+	a, err := New(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	assertPerm(t, 0o700, data, cache)
+}
+
+// An override reaching the layout's own folder through a link is that folder,
+// as another letter case on a case-insensitive volume is: it is tightened, and
+// the app folder holding it too.
+func TestNewTightensTheLayoutsFolderReachedThroughALink(t *testing.T) {
+	base := t.TempDir()
+	app := filepath.Join(base, "Kstack")
+	data, cache := filepath.Join(app, "data"), filepath.Join(base, "cache")
+	leaveOpen(t, app, data, cache)
+	require.NoError(t, os.Symlink(data, filepath.Join(base, "data-link")))
+	cfg := Config{DataDir: filepath.Join(base, "data-link"), CacheDir: cache, RuntimeDir: filepath.Join(base, "run")}
+	cfg.Layout = layout.Layout{App: app, Data: data, Cache: cache}
+
+	a, err := New(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	assertPerm(t, 0o700, app, data)
 }
 
 // A sandboxed read of the chat's cluster runs as the model asks for it: no one

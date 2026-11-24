@@ -48,8 +48,17 @@ func read(t *testing.T, path string) string {
 	return string(b)
 }
 
+// logDir is a directory Open takes: owner-only, as the host makes the log folder.
+func logDir(t *testing.T) string {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestOpenWritesToTheFileAlone(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sidecar.log")
+	path := filepath.Join(logDir(t), "sidecar.log")
 	logger, errBuf, err := open(t, path, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -68,7 +77,7 @@ func TestOpenWritesToTheFileAlone(t *testing.T) {
 // Open is openTo on the process's stderr; with no stderr sink asked for, it writes the
 // file and leaves the test's output alone.
 func TestOpenWritesTheFileItIsGiven(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sidecar.log")
+	path := filepath.Join(logDir(t), "sidecar.log")
 	logger, closeLog, err := Open(path, false, slog.LevelInfo)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -85,7 +94,7 @@ func TestOpenWritesTheFileItIsGiven(t *testing.T) {
 }
 
 func TestOpenWritesToBothSinks(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sidecar.log")
+	path := filepath.Join(logDir(t), "sidecar.log")
 	logger, errBuf, err := open(t, path, true)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -101,7 +110,7 @@ func TestOpenWritesToBothSinks(t *testing.T) {
 	}
 }
 
-// The standalone default: no --log-file, so stderr is the whole log.
+// No path: stderr is the whole log.
 func TestOpenWithNoPathWritesToStderr(t *testing.T) {
 	logger, errBuf, err := open(t, "", true)
 	if err != nil {
@@ -119,7 +128,7 @@ func TestOpenWithNoPathWritesToStderr(t *testing.T) {
 // path would swallow every record forever. Open probes it instead, and still returns a
 // logger — a sidecar that cannot log is not a sidecar that should refuse to start.
 func TestOpenReportsAnUnusablePathAndStillLogs(t *testing.T) {
-	dir := t.TempDir()
+	dir := logDir(t)
 	if err := os.Mkdir(filepath.Join(dir, "taken"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -146,13 +155,26 @@ func TestOpenReportsAnUnusablePathAndStillLogs(t *testing.T) {
 }
 
 func TestOpenCreatesTheFileBeforeTheFirstRecord(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "logs", "sidecar.log")
+	path := filepath.Join(logDir(t), "sidecar.log")
 	if _, _, err := open(t, path, false); err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("the probe should have created the file: %v", err)
+	}
+}
+
+// The directory is the log's gate, so Open never makes one: a missing directory leaves the
+// log on stderr.
+func TestOpenRefusesAMissingDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+
+	if _, _, err := open(t, filepath.Join(dir, "sidecar.log"), false); err == nil {
+		t.Fatal("Open = nil error, want one")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("Open made the directory: %v", err)
 	}
 }
 

@@ -29,7 +29,7 @@ func TestMainRunsTheSubcommandItNames(t *testing.T) {
 		assert.Equal(t, initFailed, code, command)
 	}
 	for _, argv := range [][]string{
-		{"kstack-sidecar"}, {"kstack-sidecar", "--socket", "s"}, {"kstack-sidecar", "--log-file", InitCommand},
+		{"kstack-sidecar"}, {"kstack-sidecar", "--socket", "s"}, {"kstack-sidecar", "--kubeconfig", InitCommand},
 	} {
 		_, ok := Main(argv)
 		assert.False(t, ok, argv)

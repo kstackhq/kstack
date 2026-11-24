@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -61,7 +62,7 @@ func TestRunServesUntilStdinCloses(t *testing.T) {
 	stdin, hostEnd := net.Pipe() // hostEnd.Close() is the host exiting
 	out := &syncBuffer{}
 
-	cfg := runArgs(t, "--socket", sock, "--cache-dir", t.TempDir(), "--runtime-dir", t.TempDir(), "--data-dir", t.TempDir(), "--kubeconfig", filepath.Join(t.TempDir(), "none"))
+	cfg := runArgs(t, "--socket", sock, "--runtime-dir", t.TempDir(), "--kubeconfig", filepath.Join(t.TempDir(), "none"))
 
 	var code int
 	var done sync.WaitGroup
@@ -152,7 +153,7 @@ func runSidecar(t *testing.T, ctx context.Context, cfg config) (*http.Client, fu
 // sidecar down cleanly, the way stdin's EOF does.
 func TestRunShutsDownWhenItsContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	cfg := runArgs(t, "--socket", socketPath(t), "--cache-dir", t.TempDir(), "--runtime-dir", t.TempDir(), "--data-dir", t.TempDir(), "--kubeconfig", filepath.Join(t.TempDir(), "none"))
+	cfg := runArgs(t, "--socket", socketPath(t), "--runtime-dir", t.TempDir(), "--kubeconfig", filepath.Join(t.TempDir(), "none"))
 	_, end := runSidecar(t, ctx, cfg)
 
 	cancel()
@@ -166,7 +167,7 @@ func TestRunShutsDownWhenItsContextEnds(t *testing.T) {
 func TestRunExitsCleanlyWhenItsContextEndsDuringStartup(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	cfg := runArgs(t, "--socket", socketPath(t), "--cache-dir", t.TempDir(), "--runtime-dir", t.TempDir(), "--data-dir", t.TempDir(), "--kubeconfig", filepath.Join(t.TempDir(), "none"))
+	cfg := runArgs(t, "--socket", socketPath(t), "--runtime-dir", t.TempDir(), "--kubeconfig", filepath.Join(t.TempDir(), "none"))
 	out := &syncBuffer{}
 
 	code := run(ctx, cfg, strings.NewReader(""), out)
@@ -179,10 +180,18 @@ func TestRunExitsCleanlyWhenItsContextEndsDuringStartup(t *testing.T) {
 // reads childEnv) and answers its exit code and what it wrote.
 func runMain(t *testing.T, args ...string) (int, string) {
 	t.Helper()
+	return runMainAt(t, t.TempDir(), args...)
+}
+
+// runMainAt is runMain with home as HOME, the root of every folder the run
+// places: the XDG variables are cleared, so none names a folder outside it.
+func runMainAt(t *testing.T, home string, args ...string) (int, string) {
+	t.Helper()
 	exe, err := os.Executable()
 	require.NoError(t, err)
 	cmd := exec.Command(exe, args...)
-	cmd.Env = append(os.Environ(), childEnv+"=main")
+	cmd.Env = append(os.Environ(), childEnv+"=main", "HOME="+home,
+		"XDG_CONFIG_HOME=", "XDG_DATA_HOME=", "XDG_CACHE_HOME=", "XDG_STATE_HOME=")
 	out, err := cmd.CombinedOutput()
 	var exit *exec.ExitError
 	require.ErrorAs(t, err, &exit, "%s", out)
@@ -204,15 +213,63 @@ func TestMainExitsTwoOnABadFlag(t *testing.T) {
 	assert.Contains(t, out, "no-such-flag")
 }
 
+// -h prints the usage and exits 0, with no FATAL for a host to show.
+func TestMainExitsZeroOnHelp(t *testing.T) {
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	cmd := exec.Command(exe, "-h")
+	cmd.Env = append(os.Environ(), childEnv+"=main", "HOME="+t.TempDir())
+	out, err := cmd.CombinedOutput()
+
+	require.NoError(t, err, "%s", out)
+	assert.Contains(t, string(out), "-runtime-dir")
+	assert.NotContains(t, string(out), "FATAL")
+}
+
+// A sidecar with no host still logs to a file: it makes the layout's log
+// folder owner-only and writes sidecar.log there.
+func TestMainMakesTheLogFolderAndLogsThere(t *testing.T) {
+	home := t.TempDir()
+	logs := layoutOver(env{"HOME": home}, debugBuild).Logs
+
+	code, out := runMainAt(t, home, "--socket", unbindableEndpoint(t), "--runtime-dir", t.TempDir())
+
+	assert.Equal(t, 1, code, out)
+	info, err := os.Stat(logs)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	b, err := os.ReadFile(filepath.Join(logs, "sidecar.log"))
+	require.NoError(t, err)
+	assert.Contains(t, string(b), "listen", "the run's error reached the file")
+}
+
+// The host's build profile, not the sidecar's, picks the leaf.
+func TestMainTakesTheFoldersOfTheProfileItIsPassed(t *testing.T) {
+	home := t.TempDir()
+	for _, dev := range []bool{true, false} {
+		logs := layoutOver(env{"HOME": home}, dev).Logs
+		runMainAt(t, home, "--socket", unbindableEndpoint(t), "--runtime-dir", t.TempDir(), fmt.Sprintf("--dev=%t", dev))
+		assert.FileExists(t, filepath.Join(logs, "sidecar.log"), "dev=%t", dev)
+	}
+}
+
+// A root the sidecar cannot place folders on stops it before anything is
+// written, and the reason reaches the host's start screen as FATAL.
+func TestMainSendsARootItCannotUseAsFatal(t *testing.T) {
+	code, out := runMainAt(t, "home/x", "--runtime-dir", t.TempDir())
+
+	assert.Equal(t, 2, code, out)
+	assert.Contains(t, out, `FATAL HOME is "home/x", not an absolute path`)
+}
+
 // A log file that cannot be opened leaves stderr as the log, which says so, and
-// the run's own exit code is main's.
+// the run's own exit code is main's. A home that is a file has no log folder.
 func TestMainLogsToStderrWhenTheLogFileCannotOpen(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(notADir, nil, 0o600))
-	logFile := filepath.Join(notADir, "sidecar.log")
 
-	code, out := runMain(t, "--socket", unbindableEndpoint(t), "--log-file", logFile,
-		"--cache-dir", t.TempDir(), "--runtime-dir", t.TempDir(), "--data-dir", t.TempDir())
+	code, out := runMainAt(t, notADir, "--socket", unbindableEndpoint(t),
+		"--runtime-dir", t.TempDir())
 
 	assert.Equal(t, 1, code, out)
 	assert.Contains(t, out, "no log file; logging to stderr only")

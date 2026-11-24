@@ -23,19 +23,33 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/app"
+	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 )
 
 // What a bare command line yields: the production endpoints.
-var productionConfig = config{
-	App: app.Config{
-		OAuthIssuerURL: "https://oauth.kstack.sh",
-		OAuthClientID:  "kstack-desktop",
-		AddFake:        debugBuild,
-	},
-	Socket: ipc.DefaultSocketPath(),
-}
+// productionConfig is what an empty command line gives over rootsEnv.
+var productionConfig = func() config {
+	l := layoutOver(rootsEnv, debugBuild)
+	keychain := ""
+	if debugBuild {
+		keychain = "Kstack-dev"
+	}
+	return config{
+		App: app.Config{
+			DataDir:         l.Data,
+			CacheDir:        l.Cache,
+			Layout:          l,
+			OAuthIssuerURL:  "https://oauth.kstack.sh",
+			OAuthClientID:   "kstack-desktop",
+			AddFake:         debugBuild,
+			KeychainService: keychain,
+		},
+		Socket:  ipc.DefaultSocketPath(),
+		LogFile: filepath.Join(l.Logs, "sidecar.log"),
+	}
+}()
 
 func assertConfig(t *testing.T, want, got config, msgAndArgs ...any) {
 	t.Helper()
@@ -46,7 +60,24 @@ func assertConfig(t *testing.T, want, got config, msgAndArgs ...any) {
 // else, so a key exported in the shell running the tests is never read.
 type env map[string]string
 
-func (e env) get(name string) string { return e[name] }
+// get reads name from e, else from rootsEnv, so every test's environment
+// names the roots the sidecar places its folders on.
+func (e env) get(name string) string {
+	if v, ok := e[name]; ok {
+		return v
+	}
+	return rootsEnv[name]
+}
+
+// layoutOver is the layout a sidecar of the dev or release profile places on
+// e's roots.
+func layoutOver(e env, dev bool) layout.Layout {
+	roots, err := layout.RootsFromEnv(layout.Current(), e.get)
+	if err != nil {
+		panic(err)
+	}
+	return layout.Of(layout.Current(), dev, roots)
+}
 
 // noEnv is an environment with nothing in it.
 var noEnv = env{}
@@ -110,12 +141,10 @@ func TestConfigFromArgsReadsFlags(t *testing.T) {
 	want := config{
 		App: app.Config{
 			KubeconfigPath:     "/tmp/kubeconfig",
-			DataDir:            "/tmp/data",
-			CacheDir:           "/tmp/cache",
+			DataDir:            productionConfig.App.DataDir,
+			CacheDir:           productionConfig.App.CacheDir,
+			Layout:             productionConfig.App.Layout,
 			RuntimeDir:         "/tmp/run",
-			ConfigDir:          "/tmp/config",
-			StateDir:           "/tmp/state",
-			AppDirs:            []string{"/tmp/app", "/tmp/roaming"},
 			OAuthIssuerURL:     "https://issuer.example",
 			OAuthClientID:      "other",
 			GitHubClientID:     "Ov23liFlag",
@@ -124,43 +153,74 @@ func TestConfigFromArgsReadsFlags(t *testing.T) {
 			KeychainService:    "Kstack-dev",
 			AddFake:            debugBuild,
 			HostPID:            42,
-			LogDir:             filepath.Dir("/tmp/logs/sidecar.log"),
 		},
 		Socket:    "/tmp/sock",
 		HostPID:   42,
-		LogFile:   "/tmp/logs/sidecar.log",
+		LogFile:   productionConfig.LogFile,
 		LogStderr: true,
 	}
 	cfg := mustConfigFromArgs(t, []string{
 		"--socket", "/tmp/sock",
 		"--host-pid", "42",
 		"--kubeconfig", "/tmp/kubeconfig",
-		"--data-dir", "/tmp/data",
-		"--cache-dir", "/tmp/cache",
 		"--runtime-dir", "/tmp/run",
-		"--config-dir", "/tmp/config",
-		"--state-dir", "/tmp/state",
-		"--app-dir", "/tmp/app",
-		"--app-dir", "/tmp/roaming",
 		"--oauth-issuer", "https://issuer.example",
 		"--oauth-client-id", "other",
 		"--github-client-id", "Ov23liFlag",
 		"--google-client-id", "google-flag",
 		"--google-client-secret", "google-secret-flag",
 		"--keychain-service", "Kstack-dev",
-		"--log-file", "/tmp/logs/sidecar.log",
 		"--log-stderr",
 	}, noEnv)
 	assertConfig(t, want, cfg)
 }
 
-// Both are off by default, which is the standalone run and the test default: stderr is the
-// whole log and nothing writes a file the caller did not ask for.
-func TestConfigFromArgsLogsToStderrByDefault(t *testing.T) {
-	cfg := mustConfigFromArgs(t, nil, noEnv)
-	if cfg.LogFile != "" || cfg.LogStderr || cfg.App.LogDir != "" {
-		t.Errorf("log flags = (%q, %v, %q), want empty, false and empty", cfg.LogFile, cfg.LogStderr, cfg.App.LogDir)
+// A dev profile's sign-ins stay apart from the release's unless a name is
+// passed.
+func TestConfigFromArgsTakesTheProfilesKeychainService(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--dev=true"}, "Kstack-dev"},
+		{[]string{"--dev=false"}, ""},
+		{[]string{"--dev=true", "--keychain-service", "Other"}, "Other"},
+	} {
+		assert.Equal(t, c.want, mustConfigFromArgs(t, c.args, noEnv).App.KeychainService, c.args)
 	}
+}
+
+// The sidecar logs in the layout's log folder, the one the host logs in, and
+// copies its records to stderr only when asked.
+func TestConfigFromArgsLogsInTheLayoutsLogFolder(t *testing.T) {
+	cfg := mustConfigFromArgs(t, nil, noEnv)
+	assert.Equal(t, filepath.Join(cfg.App.Layout.Logs, "sidecar.log"), cfg.LogFile)
+	assert.False(t, cfg.LogStderr)
+}
+
+// The sidecar places every folder itself, from the roots in its environment:
+// the host names none but the runtime directory.
+func TestConfigFromArgsPlacesTheFoldersFromTheEnvironment(t *testing.T) {
+	cfg := mustConfigFromArgs(t, nil, noEnv)
+
+	want := layoutOver(rootsEnv, debugBuild)
+	assert.Equal(t, want, cfg.App.Layout)
+	assert.Equal(t, want.Data, cfg.App.DataDir)
+	assert.Equal(t, want.Cache, cfg.App.CacheDir)
+}
+
+func TestConfigFromArgsRejectsAHostFolderFlag(t *testing.T) {
+	for _, flag := range []string{"--data-dir", "--cache-dir", "--config-dir", "--state-dir", "--app-dir"} {
+		_, err := configFromArgs([]string{flag, "/tmp/x"}, noEnv.get)
+		assert.Error(t, err, flag)
+	}
+}
+
+// A root that cannot be read stops the start: the folders it would hold could
+// not be fenced.
+func TestConfigFromArgsRefusesAnUnreadableRoot(t *testing.T) {
+	_, err := configFromArgs(nil, unreadableRoots.get)
+	assert.Error(t, err)
 }
 
 func TestConfigFromArgsRejectsAnUnknownFlag(t *testing.T) {

@@ -3,7 +3,9 @@ title: Two processes, two log files
 date: 2026-09-08
 scope: cross-cutting
 status: Accepted
-amended_by: [JSON in both log files, text rendered by the host](2026-09-08-json-logs-rendered-by-the-host.md)
+amended_by:
+  - [JSON in both log files, text rendered by the host](2026-09-08-json-logs-rendered-by-the-host.md)
+  - [The sidecar places Kstack's folders itself](2026-11-23-the-sidecar-places-kstacks-folders-itself.md)
 ---
 
 # Two processes, two log files

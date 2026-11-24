@@ -2,10 +2,13 @@
 
 A Go binary the Tauri host starts. It serves GraphQL and a gRPC control channel and owns all
 Kubernetes logic. **No TCP**: it listens on a Unix socket (named pipe on Windows), prints
-`READY unix:<path>` and exits on `SIGINT`/`SIGTERM` or **stdin EOF**. `--data-dir`, `--cache-dir`
-and `--runtime-dir` are required and absolute, with no `..` on Unix; tests pass `t.TempDir()`.
+`READY unix:<path>` and exits on `SIGINT`/`SIGTERM` or **stdin EOF**. **It places Kstack's folders
+itself** (`internal/app/layout`, from its environment's roots), as the host places its own from the
+same roots; `layout/testdata/layouts.json` pins both. The host passes only
+`--runtime-dir`, required and absolute, with no `..` on Unix, and `--dev`, its profile. Run tests point the roots at
+`t.TempDir()` (`scratchRoots`). → [ADR](../docs/adr/2026-11-23-the-sidecar-places-kstacks-folders-itself.md).
 
-**`<data-dir>/app.db` belongs to `internal/appdb`, and the app owns it.** `build`
+**`<data>/app.db` belongs to `internal/appdb`, and the app owns it.** `build`
 (`internal/app/runtime.go`) opens it before any service, under the data directory's lock, and hands the `*appdb.DB` to each service that uses it;
 a service closes only the statements it prepared. `appdb.Open` gives a one-connection migrated
 writer and a `query_only` reader, plus a janitor. A service's statements are a `sqlstmt.Set` on
@@ -20,8 +23,9 @@ are all named in `appdb.go`. `NewID()` mints UUIDv7; `ValidateUUID` accepts only
 
 **`app/paths.go` names every path under the three directories** (its doc comment
 is the tree). Each owner gets its own `Paths` (`cluster.Paths`, `bash.Paths`), naming no other.
-**Each subtree has one owner**, which makes it 0700, sweeps and removes it. The host's
-log, config, state and app folders are fenced (`bash.Paths.DeniedDirs`), and a subfolder
+**Each subtree has one owner**, which makes it 0700, sweeps and removes it. `makeDirs` makes the
+data and cache 0700, and the app folder above them (`layout.MakeOwnerOnly`). Every folder
+`Config.Layout` names is fenced (`bash.Paths.DeniedDirs`), the host's included, and a subfolder
 linked at start ([ADR](../docs/adr/2026-11-22-a-linked-subfolder-of-kstacks-directories-is-fenced.md)).
 → [ADR: each file in the platform's directory for its
 kind](../docs/adr/2026-09-27-kstacks-files-follow-the-platforms-directory-kinds.md).
@@ -81,8 +85,9 @@ login shell **before anything reads the environment**. **`READY` promises a sock
 startup**: it prints after the bind, before `Start`.
 
 **Logging** (`internal/lib/logging`): one JSON object per line, keyed as the host keys its own;
-**nothing here formats a human-readable line**. A bad `--log-file` falls back to stderr and never
-stops the sidecar. → [ADR: JSON logs rendered by the
+**nothing here formats a human-readable line**. The sidecar writes `sidecar.log`, rotated by size, in
+the layout's log folder, which it makes owner-only (`openLog`); a folder or file it cannot make or
+open leaves it on stderr, and never stops it. → [ADR: JSON logs rendered by the
 host](../docs/adr/2026-09-08-json-logs-rendered-by-the-host.md), [ADR: two processes, two log
 files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 
@@ -141,7 +146,8 @@ Full picture: [`docs/security-model.md`](../docs/security-model.md).
   through `applyEnvOverrides`, a no-op without `-tags debug` (`make build-sidecar-dev` builds one, for a
   run with no host), via the `getenv` it is handed; `KSTACK_FAULTS`, which fails cluster requests,
   is among what it reads. `KSTACK_LOG_LEVEL` is the one variable a release build reads directly:
-  a log level redirects nothing.
+  a log level redirects nothing. **The folder roots** (`layout.RootsFromEnv`) are read in every
+  build too: the host places its own from the same variables.
   **Provider keys are the exception**: read in every build, registered with `safe.AddSecret`
   before the logger exists, then stripped from the process (`takeProviderKeys`); the shell's keys
   join `Config.LLMKeys` and are never set on the process. `config_test.go` pins it. → [provider
@@ -326,7 +332,7 @@ same commit.** What the sidecar's side of it looks like:
 A refusal reaches the user. `sqlitemigrate` refuses a newer file with `*NewerSchemaError`, which `build`
 turns into *app.db was written by a newer Kstack (…)*; the error's own text is the reason, logged
 as `app init`. When `app.New` fails, `run` also prints `FATAL <reason>` on stdout for whatever
-spawned it; the host shows it on the start screen. Tests make a newer file with
+spawned it, as `main` does for a bad flag or root; the host shows it on the start screen. Tests make a newer file with
 `sqlitemigrate/sqlitemigratetest`'s `StampNewer` and checksum a migration set with its
 `Checksums`.
 

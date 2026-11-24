@@ -7,6 +7,8 @@ amends:
   - [Keep each file in the platform's directory for its kind](2026-09-27-kstacks-files-follow-the-platforms-directory-kinds.md)
   - [Keep host.json in the Kstack config directory](2026-11-21-host-json-lives-under-the-kstack-config-directory.md)
   - [Linux folders follow XDG](2026-11-21-linux-folders-follow-xdg.md)
+amended_by:
+  - [The sidecar places Kstack's folders itself](2026-11-23-the-sidecar-places-kstacks-folders-itself.md)
 ---
 
 # Each folder kind has its own folder on every platform

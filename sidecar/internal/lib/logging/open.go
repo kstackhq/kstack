@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
@@ -76,12 +77,22 @@ func (b bothSinks) Write(p []byte) (int, error) {
 
 // probe does the first write's work up front. lumberjack opens the file on its first Write
 // and slog discards a handler's write error, so a path that cannot be opened would swallow
-// every record for the life of the process without a word. It also settles the modes:
-// lumberjack would create a missing directory 0755, and the log holds cluster names and
-// server hostnames.
+// every record for the life of the process without a word.
+//
+// The directory is the log's gate: the log holds cluster names and server hostnames. probe
+// never makes it, and on Unix refuses one other users can reach, so whoever made it owner-only
+// vouches for it. On Windows the profile's ACL is the gate.
 func probe(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	info, err := os.Stat(dir)
+	if err != nil {
 		return fmt.Errorf("log directory: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("log directory %s is not a directory", dir)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("log directory %s is open to other users (%#o)", dir, info.Mode().Perm())
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {

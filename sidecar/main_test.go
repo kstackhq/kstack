@@ -31,12 +31,13 @@ import (
 )
 
 // runArgs parses a command line the way main does, so a run test still starts
-// from arguments even though run itself takes a parsed config — over an empty
-// environment, so nothing of the shell's reaches the sidecar it starts, and over
-// a fake keyring, so it never asks the machine's.
+// from arguments even though run itself takes a parsed config — over an
+// environment naming only roots in a scratch folder, so nothing of the shell's
+// reaches the sidecar it starts and its folders are the test's, and over a fake
+// keyring, so it never asks the machine's.
 func runArgs(t *testing.T, args ...string) config {
 	t.Helper()
-	cfg, err := configFromArgs(args, noEnv.get)
+	cfg, err := configFromArgs(args, scratchRoots(t).get)
 	if err != nil {
 		t.Fatalf("configFromArgs(%v): %v", args, err)
 	}
@@ -52,13 +53,13 @@ func TestRunFailsWhenTheAppCannotBeComposed(t *testing.T) {
 	stdin, hold := io.Pipe()
 	t.Cleanup(func() { _ = hold.Close() })
 	var out strings.Builder
-	// No --data-dir: app.New rejects it.
+	// No --runtime-dir: app.New rejects it.
 	cfg := runArgs(t, "--socket", socketPath(t))
 	if code := run(t.Context(), cfg, stdin, &out); code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
 	line, rest, _ := strings.Cut(out.String(), "\n")
-	if !strings.HasPrefix(line, "FATAL ") || !strings.Contains(line, "--data-dir") {
+	if !strings.HasPrefix(line, "FATAL ") || !strings.Contains(line, "--runtime-dir") {
 		t.Errorf("stdout = %q, want one FATAL line naming the compose error", out.String())
 	}
 	if rest != "" || strings.Contains(out.String(), "READY") {
@@ -80,7 +81,8 @@ func TestRunFailsWhenTheDataDirectoryIsLocked(t *testing.T) {
 	stdin, hold := io.Pipe()
 	t.Cleanup(func() { _ = hold.Close() })
 	var out strings.Builder
-	cfg := runArgs(t, "--socket", socketPath(t), "--data-dir", data, "--cache-dir", t.TempDir(), "--runtime-dir", t.TempDir())
+	cfg := runArgs(t, "--socket", socketPath(t), "--runtime-dir", t.TempDir())
+	cfg.App.DataDir = data
 	if code := run(t.Context(), cfg, stdin, &out); code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
@@ -99,12 +101,12 @@ func TestAQuitDuringAFailedComposeLogsTheError(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	var out strings.Builder
-	// No --data-dir: app.New rejects it.
+	// No --runtime-dir: app.New rejects it.
 	cfg := runArgs(t, "--socket", socketPath(t))
 	if code := run(ctx, cfg, strings.NewReader(""), &out); code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}
-	if !strings.Contains(logs.String(), "--data-dir") {
+	if !strings.Contains(logs.String(), "--runtime-dir") {
 		t.Errorf("logs = %q, want the compose error", logs.String())
 	}
 }
@@ -112,7 +114,7 @@ func TestAQuitDuringAFailedComposeLogsTheError(t *testing.T) {
 // An endpoint that cannot be bound exits 1 before anything is printed.
 func TestRunFailsWhenTheEndpointCannotBeBound(t *testing.T) {
 	var out strings.Builder
-	cfg := runArgs(t, "--socket", unbindableEndpoint(t), "--cache-dir", t.TempDir(), "--runtime-dir", t.TempDir(), "--data-dir", t.TempDir())
+	cfg := runArgs(t, "--socket", unbindableEndpoint(t), "--runtime-dir", t.TempDir())
 	code := run(t.Context(), cfg, strings.NewReader(""), &out)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
@@ -129,7 +131,7 @@ func TestRunExitsCleanlyWhenTheContextEndedBeforeStart(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	var out strings.Builder
-	cfg := runArgs(t, "--socket", socketPath(t), "--cache-dir", t.TempDir(), "--runtime-dir", t.TempDir(), "--data-dir", t.TempDir())
+	cfg := runArgs(t, "--socket", socketPath(t), "--runtime-dir", t.TempDir())
 	if code := run(ctx, cfg, strings.NewReader(""), &out); code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}
@@ -182,7 +184,8 @@ func TestRunClosesTheAppWhenStartFails(t *testing.T) {
 	stdin, hold := io.Pipe()
 	t.Cleanup(func() { _ = hold.Close() })
 	var out strings.Builder
-	cfg := runArgs(t, "--socket", socketPath(t), "--cache-dir", t.TempDir(), "--runtime-dir", t.TempDir(), "--data-dir", dir)
+	cfg := runArgs(t, "--socket", socketPath(t), "--runtime-dir", t.TempDir())
+	cfg.App.DataDir = dir
 	if code := run(t.Context(), cfg, stdin, &out); code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
@@ -208,7 +211,8 @@ func TestAQuitDuringAFailedStartExitsCleanly(t *testing.T) {
 	t.Cleanup(func() { _ = hold.Close() })
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	cfg := runArgs(t, "--socket", socketPath(t), "--cache-dir", t.TempDir(), "--runtime-dir", t.TempDir(), "--data-dir", refusingStartDataDir(t))
+	cfg := runArgs(t, "--socket", socketPath(t), "--runtime-dir", t.TempDir())
+	cfg.App.DataDir = refusingStartDataDir(t)
 	if code := run(ctx, cfg, stdin, cancelOnWrite{cancel}); code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}

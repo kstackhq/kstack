@@ -63,23 +63,23 @@ const fn app_dir_name(platform: Platform, dev: bool) -> &'static str {
 /// could be made.
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(test, derive(serde::Deserialize), serde(deny_unknown_fields))]
-struct Layout {
+pub(crate) struct Layout {
     /// The folder macOS and Windows keep several kinds in. `None` on Linux,
     /// where each kind has a root. A per-user Windows install puts the
     /// release's executable in it too, so it is never deleted whole.
-    app: Option<PathBuf>,
+    pub(crate) app: Option<PathBuf>,
     /// Windows' leaf on the config root, which holds the config alone.
-    config_app: Option<PathBuf>,
-    data: PathBuf,
+    pub(crate) config_app: Option<PathBuf>,
+    pub(crate) data: PathBuf,
     /// `None` when the platform names no config root.
-    config: Option<PathBuf>,
-    state: PathBuf,
-    cache: PathBuf,
-    logs: PathBuf,
+    pub(crate) config: Option<PathBuf>,
+    pub(crate) state: PathBuf,
+    pub(crate) cache: PathBuf,
+    pub(crate) logs: PathBuf,
     /// Windows' alone: Unix keeps it under the session's runtime root
     /// ([`runtime_dir`]).
     #[cfg_attr(unix, allow(dead_code))]
-    runtime: Option<PathBuf>,
+    pub(crate) runtime: Option<PathBuf>,
 }
 
 /// Each kind takes a folder of its own, and none holds another's, so the
@@ -147,7 +147,7 @@ fn layout(platform: Platform, roots: &Roots) -> Layout {
 }
 
 /// This platform's layout.
-fn current_layout(roots: &Roots) -> Layout {
+pub(crate) fn current_layout(roots: &Roots) -> Layout {
     layout(Platform::CURRENT, roots)
 }
 
@@ -183,9 +183,9 @@ impl Roots {
 
     /// The roots, each refused when it holds `..` ([`plain_root`]), which
     /// fails the launch: the sidecar fences the config, state and log
-    /// directories by their paths, so one it is not given is unfenced. A root
-    /// is checked where a directory hangs off it: the state root on Linux,
-    /// the home on macOS, whose logs it holds.
+    /// directories by name, so the host's files could sit outside the fence.
+    /// A root is checked where a directory hangs off it: the state root on
+    /// Linux, the home on macOS, whose logs it holds.
     pub(crate) fn new(
         config: Option<PathBuf>,
         local_data: PathBuf,
@@ -239,16 +239,6 @@ fn plain_root(dir: PathBuf) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// The app's per-machine data directory, created owner-only.
-///
-/// Human-readable leaf on `local_data_dir`, not Tauri's bundle-id
-/// `app_local_data_dir` (Application Support convention is a display name).
-pub fn app_data_dir(roots: &Roots) -> Result<PathBuf> {
-    let layout = current_layout(roots);
-    ensure_app_dir_above(&layout, &layout.data)?;
-    owner_only(layout.data)
-}
-
 /// The app's state directory, created owner-only: what one machine keeps
 /// between runs and a user would not miss, the window frame and, on Linux and
 /// Windows, the logs and the webview's profile.
@@ -270,20 +260,6 @@ fn ensure_app_dir_above(layout: &Layout, dir: &Path) -> Result<()> {
         return Ok(());
     }
     ensure_data_dir(app)
-}
-
-/// The folders macOS and Windows keep the kinds in: the app folder, and on
-/// Windows the config's too. The sidecar fences them beside the kinds, so
-/// nothing is written among them.
-pub fn app_dirs_for(roots: &Roots) -> Vec<PathBuf> {
-    let layout = current_layout(roots);
-    layout.app.into_iter().chain(layout.config_app).collect()
-}
-
-/// Where the state directory sits, whether or not it could be made: the
-/// sidecar fences it either way.
-pub fn state_dir_for(roots: &Roots) -> PathBuf {
-    current_layout(roots).state
 }
 
 /// The app's config directory, created owner-only: what a user sets, which
@@ -325,14 +301,8 @@ fn is_owner_only_dir(_meta: &std::fs::Metadata) -> bool {
     false
 }
 
-/// Where the config directory sits, whether or not it could be made: the
-/// sidecar fences a directory that exists but could not be tightened too.
-pub fn config_dir_for(roots: &Roots) -> Option<PathBuf> {
-    current_layout(roots).config
-}
-
-/// Creates the sidecar's data directory owner-only, and tightens one an earlier build
-/// already created under the umask. On Windows the per-user `%LOCALAPPDATA%` ACL
+/// Creates `path` owner-only, and tightens one an earlier build already
+/// created under the umask. On Windows the per-user `%LOCALAPPDATA%` ACL
 /// already restricts it, so the plain create is enough.
 pub fn ensure_data_dir(path: &Path) -> Result<()> {
     #[cfg(unix)]
@@ -359,17 +329,9 @@ fn owner_only(dir: PathBuf) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// The app's cache directory, created owner-only: what Kstack rebuilds, the
-/// mirror, the kubectl cache and a sandboxed run's `TMPDIR`.
-pub fn app_cache_dir(roots: &Roots) -> Result<PathBuf> {
-    let layout = current_layout(roots);
-    ensure_app_dir_above(&layout, &layout.cache)?;
-    owner_only(layout.cache)
-}
-
-/// The app's log directory, created owner-only. `app.rs` asks once and hands
-/// the answer to both the host's log and the sidecar's, so the sidecar fences
-/// the directory the host writes in.
+/// The app's log directory, created owner-only. `app.rs` asks once, for the
+/// host's log; the sidecar logs in the same folder, placed from its own
+/// layout.
 ///
 /// Not Tauri's `app_log_dir`: it names the leaf by bundle id rather than the
 /// display name everything else here uses, and it has no debug variant, so a
@@ -634,23 +596,6 @@ mod tests {
         );
     }
 
-    /// The cache holds what Kstack rebuilds, so it is created owner-only like
-    /// the data it was built from. Unix only — Windows has no POSIX mode bits.
-    #[cfg(unix)]
-    #[test]
-    fn cache_dir_is_created_owner_only() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let scratch = crate::testutil::Scratch::new();
-        let roots = crate::testutil::roots(scratch.path());
-
-        let dir = app_cache_dir(&roots).expect("create");
-        assert_eq!(
-            std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
-            0o700
-        );
-    }
-
     /// Settings are the user's, like the data. Unix only — Windows has no POSIX
     /// mode bits.
     #[cfg(unix)]
@@ -676,7 +621,7 @@ mod tests {
         let target = scratch.path().join("dotfiles");
         std::fs::create_dir(&target).unwrap();
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let link = config_dir_for(&roots).unwrap();
+        let link = current_layout(&roots).config.unwrap();
         std::fs::create_dir_all(link.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink(&target, &link).unwrap();
 
@@ -938,8 +883,8 @@ mod tests {
         assert_eq!(plain_root(missing.clone()).unwrap(), missing);
     }
 
-    /// A refused root fails the launch, the config root included, since a
-    /// directory the sidecar is not given is not fenced. Only macOS hangs a
+    /// A refused root fails the launch, the config root included, since the
+    /// sidecar fences the config directory by name. Only macOS hangs a
     /// directory off the home.
     #[cfg(unix)]
     #[test]
@@ -1041,8 +986,8 @@ mod tests {
         );
     }
 
-    /// A state directory the sidecar is not given is not fenced, so on Linux
-    /// a refused state root fails the launch. Elsewhere it is not read.
+    /// The sidecar fences the state directory by name, so on Linux a refused
+    /// state root fails the launch. Elsewhere it is not read.
     #[cfg(unix)]
     #[test]
     fn a_refused_state_root_fails_the_launch_on_linux() {
@@ -1100,7 +1045,7 @@ mod tests {
         let scratch = crate::testutil::Scratch::new();
         let roots = crate::testutil::roots(scratch.path());
 
-        let named = state_dir_for(&roots);
+        let named = current_layout(&roots).state;
 
         assert!(!named.exists());
         assert_eq!(app_state_dir(&roots).unwrap(), named);
@@ -1238,7 +1183,7 @@ mod tests {
     fn log_dir_fails_under_a_state_directory_that_cannot_be_made() {
         let scratch = crate::testutil::Scratch::new();
         let roots = crate::testutil::roots(scratch.path());
-        let state = state_dir_for(&roots);
+        let state = current_layout(&roots).state;
         std::fs::create_dir_all(state.parent().unwrap()).unwrap();
         std::fs::write(&state, "").unwrap();
 
@@ -1264,7 +1209,7 @@ mod tests {
 
         let scratch = crate::testutil::Scratch::new();
         let roots = crate::testutil::roots(scratch.path());
-        let state = state_dir_for(&roots);
+        let state = current_layout(&roots).state;
         std::fs::create_dir_all(&state).unwrap();
         std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o755)).unwrap();
 
@@ -1354,12 +1299,6 @@ mod tests {
         let scratch = crate::testutil::Scratch::new();
         let roots = crate::testutil::roots(scratch.path());
 
-        let data = app_data_dir(&roots).unwrap();
-        assert_eq!(data, current_layout(&roots).data);
-        assert!(data.is_dir());
-        let cache = app_cache_dir(&roots).unwrap();
-        assert_eq!(cache, current_layout(&roots).cache);
-        assert!(cache.is_dir());
         let logs = log_dir(&roots).unwrap();
         assert_eq!(logs, current_layout(&roots).logs);
         assert!(logs.is_dir());

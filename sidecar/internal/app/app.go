@@ -24,6 +24,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/graph"
 	grpcserver "github.com/kstackhq/kstack/sidecar/grpc"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
+	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring"
@@ -61,22 +62,14 @@ type Config struct {
 	// default-loading rules.
 	KubeconfigPath string
 	// DataDir holds what a user would lose, CacheDir what Kstack rebuilds, and
-	// RuntimeDir what lives for a session. Each is required and absolute.
+	// RuntimeDir what lives for a session. Each is required and absolute. The
+	// data and cache are Layout's, unless a debug build moved them.
 	DataDir    string
 	CacheDir   string
 	RuntimeDir string
-	// LogDir is where the host logs, which is Kstack's own too: a grant of the
-	// home must not open it. Empty when the sidecar logs to stderr alone.
-	LogDir string
-	// ConfigDir is where the host keeps host.json, fenced like LogDir. Empty
-	// when the host has none.
-	ConfigDir string
-	// StateDir is where the host keeps the window frame and the webview's
-	// profile, fenced like LogDir. Empty when the host has none.
-	StateDir string
-	// AppDirs are the folders macOS and Windows keep these directories in,
-	// fenced so nothing is written among them. Empty on Linux.
-	AppDirs []string
+	// Layout is every folder of Kstack's on this platform, the host's
+	// included. Each is fenced, so a grant of the home opens none of them.
+	Layout layout.Layout
 	// OAuthIssuerURL is Kstack's OAuth issuer, whose discovery document names
 	// the endpoints.
 	OAuthIssuerURL string
@@ -195,22 +188,49 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}, nil
 }
 
-// makeDirs refuses a directory that is empty or relative, and makes each one
-// owner-only when it is missing, which only a run without the host needs.
+// makeDirs refuses a directory that is empty or relative. It makes the
+// layout's data and cache directories owner-only, tightening the app folder
+// above them first. A debug override's folder, like the runtime directory, is
+// only made when it is missing: it may be a folder the developer shares.
 func makeDirs(cfg Config) error {
-	for _, d := range []struct{ flag, path string }{
-		{"--data-dir", cfg.DataDir},
-		{"--cache-dir", cfg.CacheDir},
-		{"--runtime-dir", cfg.RuntimeDir},
+	for _, d := range []struct {
+		name, path string
+		// layouts is the layout's folder of this kind, or empty for a kind
+		// the host places.
+		layouts string
+	}{
+		{"the data directory", cfg.DataDir, cfg.Layout.Data},
+		{"the cache directory", cfg.CacheDir, cfg.Layout.Cache},
+		{"--runtime-dir", cfg.RuntimeDir, ""},
 	} {
 		if !filepath.IsAbs(d.path) {
-			return fmt.Errorf("%s must be an absolute path, not %q", d.flag, d.path)
+			return fmt.Errorf("%s must be an absolute path, not %q", d.name, d.path)
 		}
-		if err := os.MkdirAll(d.path, 0o700); err != nil {
-			return fmt.Errorf("make %s: %w", d.flag, err)
+		var err error
+		if sameDir(d.path, d.layouts) {
+			// The layout's own spelling, so the folder holding it is found.
+			err = layout.MakeOwnerOnly(cfg.Layout, d.layouts)
+		} else {
+			err = os.MkdirAll(d.path, 0o700)
+		}
+		if err != nil {
+			return fmt.Errorf("make %s: %w", d.name, err)
 		}
 	}
 	return nil
+}
+
+// sameDir reports whether a and b name one folder: by name once cleaned, so
+// `<data>/` is <data> (refuseDotDot has refused a `..` the clean would take
+// out by name), or, when both exist, by identity, so a link or another
+// letter case on a case-insensitive volume is too.
+func sameDir(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	ai, errA := os.Stat(a)
+	bi, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(ai, bi)
 }
 
 // Protocols is what the http.Server mounting an App speaks: HTTP/1.1 for

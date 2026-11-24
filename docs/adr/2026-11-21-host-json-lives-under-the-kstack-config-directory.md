@@ -5,6 +5,7 @@ scope: host
 status: Accepted
 amended_by:
   - [Each folder kind has its own folder on every platform](2026-11-22-each-folder-kind-has-its-own-folder-on-every-platform.md)
+  - [The sidecar places Kstack's folders itself](2026-11-23-the-sidecar-places-kstacks-folders-itself.md)
 ---
 
 # Keep host.json in the Kstack config directory

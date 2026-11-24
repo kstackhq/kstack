@@ -359,7 +359,7 @@ mod tests {
     fn manage_without_a_config_dir_sets_no_location() {
         let scratch = Scratch::new();
         let roots = roots(scratch.path());
-        let config = paths::config_dir_for(&roots).unwrap();
+        let config = paths::current_layout(&roots).config.unwrap();
         std::fs::create_dir_all(config.parent().unwrap()).unwrap();
         std::fs::write(&config, "not a directory").unwrap();
         let app = tauri::test::mock_app();

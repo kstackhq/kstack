@@ -130,7 +130,7 @@ pub fn script_sidecar(root: &Path, script: &str) -> SidecarService {
         .plugin(tauri_plugin_shell::init())
         .build(mock_context(noop_assets()))
         .unwrap();
-    SidecarService::spawn(&roots(root), None, |_| {
+    SidecarService::spawn(&roots(root), |_| {
         Ok(shell.shell().command("sh").args(["-c", script]))
     })
     .unwrap()

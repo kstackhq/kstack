@@ -22,20 +22,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The fences read `..` by name and the filesystem through links, so a Kstack
-// path holding one could put files outside them. The host refuses such a root
-// first; the sidecar does not rely on it.
-func TestConfigFromArgsRefusesAKstackPathHoldingDotDot(t *testing.T) {
-	for _, flag := range []string{"--data-dir", "--cache-dir", "--runtime-dir", "--config-dir", "--state-dir", "--app-dir", "--log-file"} {
-		t.Run(flag, func(t *testing.T) {
-			_, err := configFromArgs([]string{flag, "/home/x/link/../kstack"}, noEnv.get)
-			require.ErrorContains(t, err, flag)
-		})
-	}
+// rootsEnv is the environment every config test's roots come from.
+var rootsEnv = env{"HOME": "/home/x"}
+
+// unreadableRoots names no home.
+var unreadableRoots = env{"HOME": ""}
+
+// scratchRoots puts every root a run reads under a scratch folder, so the
+// folders it makes are the test's.
+func scratchRoots(t *testing.T) env {
+	return env{"HOME": t.TempDir()}
 }
 
-// A name that only begins with dots is an ordinary one.
+func TestConfigFromArgsRefusesARuntimeDirHoldingDotDot(t *testing.T) {
+	_, err := configFromArgs([]string{"--runtime-dir", "/home/x/link/../kstack"}, noEnv.get)
+	require.ErrorContains(t, err, "--runtime-dir")
+}
+
+func TestConfigFromArgsRefusesARootHoldingDotDot(t *testing.T) {
+	_, err := configFromArgs(nil, env{"HOME": "/home/x/link/.."}.get)
+	require.ErrorContains(t, err, "HOME")
+}
+
 func TestConfigFromArgsTakesANameBeginningWithDots(t *testing.T) {
-	cfg := mustConfigFromArgs(t, []string{"--data-dir", "/home/x/..data"}, noEnv)
-	require.Equal(t, "/home/x/..data", cfg.App.DataDir)
+	cfg := mustConfigFromArgs(t, []string{"--runtime-dir", "/home/x/..run"}, noEnv)
+	require.Equal(t, "/home/x/..run", cfg.App.RuntimeDir)
 }

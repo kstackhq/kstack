@@ -31,7 +31,7 @@ These work only in a sidecar built with `-tags debug`, which `tauri dev` and `ma
 | Variable | Effect |
 | --- | --- |
 | `KSTACK_OAUTH_ISSUER`, `KSTACK_OAUTH_CLIENT_ID` | Point sign-in at another OAuth server. |
-| `KSTACK_DATA_DIR`, `KSTACK_CACHE_DIR`, `KSTACK_RUNTIME_DIR` | Replace the directories the host passes. |
+| `KSTACK_DATA_DIR`, `KSTACK_CACHE_DIR`, `KSTACK_RUNTIME_DIR` | Move the sidecar's data and cache directories off its layout, and replace the runtime directory the host passes. The layout's own folders stay fenced. |
 | `KSTACK_KEYCHAIN_SERVICE` | Use another keychain entry. |
 | `KSTACK_<PROVIDER>_BASE_URL` | Move a model provider's base URL, the provider id upper-cased with `-` as `_` (`baseURLVar` in `sidecar/internal/agent/catalog/providers.go`). `KSTACK_CHATGPT_BASE_URL` also moves the resource the ChatGPT connector signs for, and `KSTACK_OPENROUTER_BASE_URL` what the OpenRouter connector's key signs and its key check. A keyed provider's value with no host stops the sidecar at launch (`FATAL`). |
 | `KSTACK_GOOGLE_CLIENT_ID`, `KSTACK_GOOGLE_CLIENT_SECRET` | Sign the Google connector in under another OAuth client. `KSTACK_GOOGLE_BASE_URL` moves the resource it signs for and the `google` row. |

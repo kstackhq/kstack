@@ -281,7 +281,7 @@ pub fn run() {
             crate::webview_profile::manage(app.handle(), &roots)?;
 
             let state = AppState::new(
-                SidecarService::spawn(&roots, log_dir.as_deref(), |args| {
+                SidecarService::spawn(&roots, |args| {
                     Ok(app.shell().sidecar("kstack-sidecar")?.args(args))
                 })?,
                 log_guards,

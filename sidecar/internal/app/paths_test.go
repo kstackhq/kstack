@@ -19,6 +19,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
 )
 
 // Each path is where the tree on paths puts it.
@@ -48,16 +50,16 @@ func TestEveryPathIsUnderItsKind(t *testing.T) {
 func TestTheLogDirectoryIsKstacks(t *testing.T) {
 	data, cache, runtime := filepath.FromSlash("/d"), filepath.FromSlash("/c"), filepath.FromSlash("/r")
 	logs := filepath.FromSlash("/u/Library/Logs/Kstack")
-	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: logs})
+	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{Logs: logs}})
 	assert.Equal(t, []string{data, cache, runtime, logs}, p.Bash.DeniedDirs,
 		"a log directory outside the three is one of Kstack's directories, which the file tools are fenced out of too")
 
 	nested := filepath.Join(data, "logs")
-	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: nested})
+	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{Logs: nested}})
 	assert.Equal(t, []string{data, cache, runtime, nested}, p.Bash.DeniedDirs,
 		"one under the data directory by name is kept, since a link can lead it elsewhere")
 
-	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: data})
+	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{Logs: data}})
 	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one that is the data directory adds nothing")
 }
 
@@ -65,11 +67,11 @@ func TestTheStateDirectoryIsKstacks(t *testing.T) {
 	data, cache, runtime := filepath.FromSlash("/d"), filepath.FromSlash("/c"), filepath.FromSlash("/r")
 	state := filepath.FromSlash("/u/.local/state/kstack")
 	logs := filepath.Join(state, "logs")
-	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: logs, StateDir: state})
+	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{Logs: logs, State: state}})
 	assert.Equal(t, []string{data, cache, runtime, logs, state}, p.Bash.DeniedDirs,
 		"the state directory holds the window frame and the webview's profile beside the logs")
 
-	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, StateDir: data})
+	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{State: data}})
 	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one that is the data directory adds nothing")
 }
 
@@ -77,7 +79,7 @@ func TestTheAppFolderIsKstacks(t *testing.T) {
 	app := filepath.FromSlash("/u/Library/Application Support/Kstack")
 	data, state := filepath.Join(app, "data"), filepath.Join(app, "state")
 	cache, runtime := filepath.FromSlash("/c"), filepath.FromSlash("/r")
-	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, StateDir: state, AppDirs: []string{app}})
+	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{State: state, App: app}})
 	assert.Equal(t, []string{data, cache, runtime, state, app}, p.Bash.DeniedDirs,
 		"the folder holding the kinds is fenced beside them, so nothing is written among them")
 }
@@ -89,11 +91,11 @@ func TestTheConfigsAppFolderIsKstacks(t *testing.T) {
 	configApp := filepath.FromSlash("/u/AppData/Roaming/Kstack")
 	data, config := filepath.Join(app, "data"), filepath.Join(configApp, "config")
 	cache, runtime := filepath.Join(app, "cache"), filepath.Join(app, "run")
-	cfg := Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, ConfigDir: config, AppDirs: []string{app, configApp}}
+	cfg := Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{Config: config, App: app, ConfigApp: configApp}}
 	assert.Equal(t, []string{data, cache, runtime, config, app, configApp}, pathsOf(cfg).Bash.DeniedDirs,
 		"the config's folder is fenced beside the config, so nothing is written next to it")
 
-	cfg.AppDirs = []string{app, app}
+	cfg.Layout.ConfigApp = app
 	assert.Equal(t, []string{data, cache, runtime, config, app}, pathsOf(cfg).Bash.DeniedDirs,
 		"one that is the app folder adds nothing")
 }
@@ -101,15 +103,24 @@ func TestTheConfigsAppFolderIsKstacks(t *testing.T) {
 func TestTheConfigDirectoryIsKstacks(t *testing.T) {
 	data, cache, runtime := filepath.FromSlash("/d"), filepath.FromSlash("/c"), filepath.FromSlash("/r")
 	config := filepath.FromSlash("/u/.config/Kstack")
-	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, ConfigDir: config})
+	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{Config: config}})
 	assert.Equal(t, []string{data, cache, runtime, config}, p.Bash.DeniedDirs,
 		"the config directory holds host.json, which the file tools are fenced out of")
 
-	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, ConfigDir: data})
+	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{Config: data}})
 	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one that is the data directory adds nothing")
 
 	nested := filepath.Join(data, "config")
-	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, ConfigDir: nested})
+	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: layout.Layout{Config: nested}})
 	assert.Equal(t, []string{data, cache, runtime, nested}, p.Bash.DeniedDirs,
 		"one under another by name is kept, since a link can lead it elsewhere")
+}
+
+// A debug build can move the data and cache directories off the layout; the
+// layout's own are still Kstack's.
+func TestTheLayoutsDataAndCacheAreKstacks(t *testing.T) {
+	data, cache, runtime := filepath.FromSlash("/d"), filepath.FromSlash("/c"), filepath.FromSlash("/r")
+	l := layout.Layout{Data: filepath.FromSlash("/l/data"), Cache: filepath.FromSlash("/l/cache")}
+	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, Layout: l})
+	assert.Equal(t, []string{data, cache, runtime, l.Data, l.Cache}, p.Bash.DeniedDirs)
 }

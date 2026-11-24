@@ -24,28 +24,35 @@ import (
 
 // The log holds cluster names and server hostnames. Windows has no mode bits: there the
 // inherited profile ACL is the whole protection.
-func TestOpenCreatesAnOwnerOnlyFileAndDirectory(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "logs")
-	path := filepath.Join(dir, "sidecar.log")
+func TestOpenCreatesAnOwnerOnlyFile(t *testing.T) {
+	path := filepath.Join(logDir(t), "sidecar.log")
 
 	if _, _, err := open(t, path, false); err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
-	for _, tt := range []struct {
-		name string
-		path string
-		want os.FileMode
-	}{
-		{"directory", dir, 0o700},
-		{"file", path, 0o600},
-	} {
-		info, err := os.Stat(tt.path)
-		if err != nil {
-			t.Fatalf("stat %s: %v", tt.name, err)
-		}
-		if got := info.Mode().Perm(); got != tt.want {
-			t.Errorf("%s mode = %#o, want %#o", tt.name, got, tt.want)
-		}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("file mode = %#o, want 0600", got)
+	}
+}
+
+// A directory other users can reach is not the log's gate, so the log stays on stderr and
+// no file is made there.
+func TestOpenRefusesADirectoryOthersCanReach(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "sidecar.log")
+
+	if _, _, err := open(t, path, false); err == nil {
+		t.Fatal("Open = nil error, want one")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("Open made the file: %v", err)
 	}
 }

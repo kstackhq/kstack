@@ -34,17 +34,20 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/app"
+	"github.com/kstackhq/kstack/sidecar/internal/app/layout"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/logging"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
@@ -72,8 +75,14 @@ func main() {
 	// The log flags decide where records go, so the command line is read before
 	// the logger exists. Nothing logs before it: configFromArgs doesn't, and the
 	// flag package prints a parse error to stderr itself.
-	cfg, err := configFromArgs(args[1:], getenv)
+	cfg, err := configFromArgs(args[1:], layout.KnownFolders(getenv))
+	if errors.Is(err, flag.ErrHelp) {
+		os.Exit(0)
+	}
 	if err != nil {
+		// configFromArgs has said why on stderr; the host shows a FATAL
+		// reason on its start screen.
+		fmt.Fprintf(os.Stdout, "FATAL %s\n", err)
 		os.Exit(2)
 	}
 	cfg.App.UserUmask = userUmask
@@ -81,7 +90,7 @@ func main() {
 	// inherits a provider key. A no-op after the re-exec.
 	takeProviderKeys()
 
-	logger, closeLog, logErr := logging.Open(cfg.LogFile, cfg.LogStderr, logging.ParseLevel(os.Getenv("KSTACK_LOG_LEVEL")))
+	logger, closeLog, logErr := openLog(cfg, logging.ParseLevel(os.Getenv("KSTACK_LOG_LEVEL")))
 	slog.SetDefault(logger)
 	if logErr != nil {
 		// Open handed back the stderr-only logger, so this reaches a terminal.
@@ -104,6 +113,17 @@ func main() {
 	// os.Exit runs no deferred call, so the file is closed by hand.
 	_ = closeLog()
 	os.Exit(code)
+}
+
+// openLog makes the log folder owner-only, and the Kstack folder above it, as
+// the host does, then opens the log there. A folder it cannot make leaves the
+// log on stderr, with the error, as a file Open cannot open does.
+func openLog(cfg config, level slog.Level) (*slog.Logger, func() error, error) {
+	if err := layout.MakeOwnerOnly(cfg.App.Layout, filepath.Dir(cfg.LogFile)); err != nil {
+		logger, closeLog, _ := logging.Open("", true, level)
+		return logger, closeLog, fmt.Errorf("log directory: %w", err)
+	}
+	return logging.Open(cfg.LogFile, cfg.LogStderr, level)
 }
 
 // run is main without the process: it takes the shutdown context, the parsed

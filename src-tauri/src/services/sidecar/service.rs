@@ -23,9 +23,7 @@ use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
 use tokio::sync::watch;
 
 use crate::error::{AppError, Result};
-use crate::paths::{
-    app_cache_dir, app_data_dir, app_dirs_for, config_dir_for, runtime_dir, state_dir_for, Roots,
-};
+use crate::paths::{current_layout, runtime_dir, Roots};
 
 use super::graphql::{FrameSink, GraphqlResponse, QueryClient, SubscriptionClient};
 use super::grpc::{AuthStateStream, GrpcClient};
@@ -39,9 +37,6 @@ const READY_MARKER: &[u8] = b"READY ";
 /// First-token marker the sidecar prints on stdout, followed by the reason,
 /// when it cannot compose the app; it exits 1 right after.
 const FATAL_MARKER: &[u8] = b"FATAL ";
-
-/// The sidecar's log, beside the host's `main.log` in the same directory.
-const SIDECAR_LOG_FILE: &str = "sidecar.log";
 
 /// How long [`SidecarService::ready`] waits for [`READY_MARKER`]. Startup is not
 /// a dial but a sum: on macOS and Linux the sidecar first runs the user's login
@@ -94,39 +89,21 @@ impl SidecarService {
     /// Spawns the sidecar; a background task drains its event stream (log
     /// forwarding + termination reporting). `sidecar` makes the command from
     /// its arguments: `app.rs` resolves the bundled binary, a test a stand-in.
-    /// `log_dir` is the directory the host logs in (`logging::log_dir`).
     pub fn spawn(
         roots: &Roots,
-        log_dir: Option<&Path>,
         sidecar: impl FnOnce(Vec<OsString>) -> Result<Command>,
     ) -> Result<Self> {
-        // Created up front, owner-only, so the sidecar makes its own beneath them.
-        let data = app_data_dir(roots)?;
-        let dirs = Dirs {
-            cache: app_cache_dir(roots)?,
-            runtime: runtime_dir(roots)?,
-            // Fenced from the sidecar's file tools, even when `host_file::manage`
-            // could not make or tighten it.
-            config: config_dir_for(roots),
-            state: state_dir_for(roots),
-            app: app_dirs_for(roots),
-            data,
-        };
-        let endpoint = Endpoint::pick(&dirs.runtime)?;
+        // The one folder the host places for the sidecar: a squatted name can
+        // move it. The sidecar places the rest itself.
+        let runtime = runtime_dir(roots)?;
+        let endpoint = Endpoint::pick(&runtime)?;
 
-        // The sidecar keeps its own log beside main.log. Without a log
-        // directory the flag is omitted and its records come back over the
-        // pipes instead.
-        let log_file = log_dir.map(|dir| dir.join(SIDECAR_LOG_FILE));
-        if log_file.is_none() {
-            tracing::warn!("no sidecar log file; forwarding its pipes");
-        }
-
-        let (mut rx, child) = sidecar(cmd_args(&endpoint, &dirs, log_file.as_deref()))?.spawn()?;
+        let (mut rx, child) = sidecar(cmd_args(&endpoint, &runtime))?.spawn()?;
         let pid = child.pid();
-        // The sidecar's own account of its startup is in the other file, so
-        // main.log records that it was spawned and says where to look.
-        tracing::info!(pid, log_file = ?log_file, "sidecar spawned");
+        // The sidecar's own account of its startup is in its `sidecar.log`,
+        // in the layout's log folder, so main.log records that it was spawned
+        // and says where to look.
+        tracing::info!(pid, log_dir = ?current_layout(roots).logs, "sidecar spawned");
 
         let state = Arc::new(Mutex::new(State {
             child: Some(child),
@@ -421,25 +398,12 @@ const OAUTH_CLIENT_ID: &str = "kstack-desktop";
 /// The OS-keychain service the sidecar stores sign-in under: the product name,
 /// as the entry is user-visible in Keychain Access and Credential Manager.
 /// Renaming it orphans every stored sign-in, so it is its own constant even
-/// though it matches the data-dir leaf today.
+/// though it matches the data directory's leaf today.
 const KEYCHAIN_SERVICE: &str = if cfg!(debug_assertions) {
     "Kstack-dev"
 } else {
     "Kstack"
 };
-
-/// The directories the sidecar keeps its files in, by kind: what a user would
-/// lose, what Kstack rebuilds, and what lives for a session.
-struct Dirs {
-    data: std::path::PathBuf,
-    cache: std::path::PathBuf,
-    runtime: std::path::PathBuf,
-    config: Option<std::path::PathBuf>,
-    /// The host's state directory, fenced like `config`.
-    state: std::path::PathBuf,
-    /// The folders macOS and Windows keep these in, fenced too.
-    app: Vec<std::path::PathBuf>,
-}
 
 /// CLI flags for the sidecar; a free function so the contract is unit-testable
 /// without the Tauri runtime.
@@ -448,18 +412,16 @@ struct Dirs {
 /// its sole client — the webview reaches it through us — so this closes the
 /// endpoint to every other process running as the user.
 ///
-/// `log_file` is where the sidecar keeps its own log. `None` leaves the flag
-/// off and the sidecar logs to stderr, which we forward.
+/// `--dev` is this build's profile, so the sidecar's folders take the host's
+/// leaf whatever the sidecar was built with.
 ///
-/// Paths go as the OS spells them: a lossy conversion would hand the sidecar a
-/// different directory than the host uses, and fence the wrong one.
-fn cmd_args(socket: &Endpoint, dirs: &Dirs, log_file: Option<&std::path::Path>) -> Vec<OsString> {
+/// `runtime` is the one folder the host places for the sidecar; it places the
+/// rest itself, its log file included. Paths go as the OS spells them: a lossy
+/// conversion would hand the sidecar a different directory than the host uses.
+fn cmd_args(socket: &Endpoint, runtime: &Path) -> Vec<OsString> {
     let mut args: Vec<OsString> = [
         ("--socket", socket.as_arg().into()),
-        ("--data-dir", dirs.data.clone().into()),
-        ("--cache-dir", dirs.cache.clone().into()),
-        ("--runtime-dir", dirs.runtime.clone().into()),
-        ("--state-dir", dirs.state.clone().into()),
+        ("--runtime-dir", runtime.into()),
         ("--host-pid", std::process::id().to_string().into()),
         ("--oauth-issuer", OAUTH_ISSUER.into()),
         ("--oauth-client-id", OAUTH_CLIENT_ID.into()),
@@ -468,19 +430,9 @@ fn cmd_args(socket: &Endpoint, dirs: &Dirs, log_file: Option<&std::path::Path>) 
     .into_iter()
     .flat_map(|(flag, value): (&str, OsString)| [flag.into(), value])
     .collect();
+    // A Go bool flag takes its value after `=` alone.
+    args.push(format!("--dev={}", cfg!(debug_assertions)).into());
 
-    if let Some(dir) = &dirs.config {
-        args.push("--config-dir".into());
-        args.push(dir.clone().into());
-    }
-    for dir in &dirs.app {
-        args.push("--app-dir".into());
-        args.push(dir.clone().into());
-    }
-    if let Some(path) = log_file {
-        args.push("--log-file".into());
-        args.push(path.into());
-    }
     // A developer's terminal wants both processes' records; a release build's
     // pipes stay quiet so nothing is stored twice.
     if cfg!(debug_assertions) {
@@ -644,27 +596,21 @@ mod tests {
         );
     }
 
-    /// Pins the host↔sidecar CLI contract (`--socket`, the directories,
+    /// Pins the host↔sidecar CLI contract (`--socket`, the runtime directory,
     /// `--host-pid`, and the endpoints); changing it without updating the
-    /// sidecar silently misroutes the cache or the socket, drops the peer
-    /// check, or leaves sign-in on an inherited environment variable.
+    /// sidecar silently misroutes the socket, drops the peer check, or leaves
+    /// sign-in on an inherited environment variable. The sidecar places every
+    /// other folder itself; `sidecar/internal/app/layout/testdata/layouts.json` pins where.
     #[test]
-    fn cmd_args_passes_the_directories_host_pid_and_endpoints() {
+    fn cmd_args_passes_the_runtime_directory_host_pid_and_endpoints() {
         let base = std::env::temp_dir();
         let path = Endpoint::pick(&base).expect("pick should succeed");
-        let dirs = test_dirs();
-        let log_file = std::path::PathBuf::from("/some/logs/sidecar.log");
+        let runtime = std::path::PathBuf::from("/some/app/run");
         let mut want = vec![
             "--socket".to_owned(),
             path.as_arg().to_owned(),
-            "--data-dir".to_owned(),
-            "/some/app/data".to_owned(),
-            "--cache-dir".to_owned(),
-            "/some/app/cache".to_owned(),
             "--runtime-dir".to_owned(),
             "/some/app/run".to_owned(),
-            "--state-dir".to_owned(),
-            "/some/app/state".to_owned(),
             "--host-pid".to_owned(),
             std::process::id().to_string(),
             "--oauth-issuer".to_owned(),
@@ -673,12 +619,7 @@ mod tests {
             OAUTH_CLIENT_ID.to_owned(),
             "--keychain-service".to_owned(),
             KEYCHAIN_SERVICE.to_owned(),
-            "--config-dir".to_owned(),
-            "/some/app/config".to_owned(),
-            "--app-dir".to_owned(),
-            "/some/app".to_owned(),
-            "--log-file".to_owned(),
-            log_file.to_string_lossy().into_owned(),
+            format!("--dev={}", cfg!(debug_assertions)),
         ];
         // Debug builds put the sidecar's records on the terminal beside the
         // host's; a release build's stderr stays quiet.
@@ -686,7 +627,7 @@ mod tests {
             want.push("--log-stderr".to_owned());
         }
         let want: Vec<OsString> = want.into_iter().map(OsString::from).collect();
-        assert_eq!(cmd_args(&path, &dirs, Some(&log_file)), want);
+        assert_eq!(cmd_args(&path, &runtime), want);
     }
 
     /// Linux paths are bytes, not UTF-8. The sidecar must fence the directory
@@ -698,62 +639,10 @@ mod tests {
 
         let base = std::env::temp_dir();
         let path = Endpoint::pick(&base).expect("pick should succeed");
-        let config = OsString::from_vec(b"/home/x/.config/\xffKstack".to_vec());
-        let dirs = Dirs {
-            config: Some(config.clone().into()),
-            ..test_dirs()
-        };
-        let args = cmd_args(&path, &dirs, None);
-        let at = args.iter().position(|a| a == "--config-dir").unwrap();
-        assert_eq!(args[at + 1], config);
-    }
-
-    fn test_dirs() -> Dirs {
-        Dirs {
-            data: "/some/app/data".into(),
-            cache: "/some/app/cache".into(),
-            runtime: "/some/app/run".into(),
-            config: Some("/some/app/config".into()),
-            state: "/some/app/state".into(),
-            app: vec!["/some/app".into()],
-        }
-    }
-
-    /// The host resolves the log directory, and it can fail. A sidecar with no
-    /// file logs to stderr, which the host forwards — never a spawn refused
-    /// because a log could not be placed.
-    #[test]
-    fn cmd_args_omits_the_log_file_when_there_is_none() {
-        let base = std::env::temp_dir();
-        let path = Endpoint::pick(&base).expect("pick should succeed");
-        let args = cmd_args(&path, &test_dirs(), None);
-        assert!(!args.iter().any(|a| a == "--log-file"), "got: {args:?}");
-    }
-
-    /// A config directory the host has no path for leaves its flag off.
-    #[test]
-    fn cmd_args_omits_the_config_dir_when_there_is_none() {
-        let base = std::env::temp_dir();
-        let path = Endpoint::pick(&base).expect("pick should succeed");
-        let dirs = Dirs {
-            config: None,
-            ..test_dirs()
-        };
-        let args = cmd_args(&path, &dirs, None);
-        assert!(!args.iter().any(|a| a == "--config-dir"), "got: {args:?}");
-    }
-
-    /// Linux has no app folder, which leaves its flag off.
-    #[test]
-    fn cmd_args_omits_the_app_dir_when_there_is_none() {
-        let base = std::env::temp_dir();
-        let path = Endpoint::pick(&base).expect("pick should succeed");
-        let dirs = Dirs {
-            app: Vec::new(),
-            ..test_dirs()
-        };
-        let args = cmd_args(&path, &dirs, None);
-        assert!(!args.iter().any(|a| a == "--app-dir"), "got: {args:?}");
+        let runtime = OsString::from_vec(b"/run/user/1/\xffkstack".to_vec());
+        let args = cmd_args(&path, std::path::Path::new(&runtime));
+        let at = args.iter().position(|a| a == "--runtime-dir").unwrap();
+        assert_eq!(args[at + 1], runtime);
     }
 
     #[test]
@@ -776,8 +665,7 @@ mod tests {
         use tauri_plugin_shell::ShellExt;
 
         let mut handed = Vec::new();
-        let logs = crate::logging::log_dir(roots);
-        let service = SidecarService::spawn(roots, logs.as_deref(), |args| {
+        let service = SidecarService::spawn(roots, |args| {
             handed = args;
             Ok(app.shell().command("sh").args(["-c", script]))
         })
@@ -792,13 +680,12 @@ mod tests {
     async fn a_spawned_sidecar_announces_ready_and_stops_on_eof() {
         let scratch = Scratch::new();
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
-        let (service, args) = spawn_script(
+        let (service, _) = spawn_script(
             &app,
             &roots(scratch.path()),
             "echo 'READY x'; echo 'a log line' >&2; cat >/dev/null",
         );
 
-        assert!(args.iter().any(|a| a == "--log-file"), "got: {args:?}");
         service.ready().await.unwrap();
         assert!(service.graceful_shutdown(Duration::from_secs(10)));
         assert!(service.graceful_shutdown(Duration::ZERO), "already stopped");
@@ -827,81 +714,26 @@ mod tests {
         assert!(!service.kill(), "idempotent");
     }
 
-    /// A log directory that cannot be made leaves the flag off; the spawn
-    /// goes ahead.
+    /// The sidecar places and fences every folder itself, and the host
+    /// makes none of the sidecar's: it is handed the runtime directory alone,
+    /// which a squatted name can move, and no log file.
     #[cfg(unix)]
     #[test]
-    fn a_sidecar_spawns_without_a_log_directory() {
+    fn the_sidecar_is_handed_no_folder_but_the_runtime_directory() {
         let scratch = Scratch::new();
         let app = mock_app(scratch.path(), SidecarService::without_process(None));
         let roots = roots(scratch.path());
-        let logs = crate::paths::log_dir(&roots).unwrap();
-        std::fs::remove_dir(&logs).unwrap();
-        std::fs::write(&logs, "").unwrap();
 
         let (service, args) = spawn_script(&app, &roots, "exit 0");
 
+        let flags: Vec<_> = args
+            .iter()
+            .filter_map(|a| a.to_str()?.strip_suffix("-dir"))
+            .collect();
+        assert_eq!(flags, ["--runtime"]);
         assert!(!args.iter().any(|a| a == "--log-file"), "got: {args:?}");
-        service.kill();
-    }
-
-    /// The sidecar logs in the directory it is handed, the one the host logs
-    /// in, and fences it.
-    #[cfg(unix)]
-    #[test]
-    fn the_sidecar_logs_in_the_directory_it_is_handed() {
-        use tauri_plugin_shell::ShellExt;
-
-        let scratch = Scratch::new();
-        let app = mock_app(scratch.path(), SidecarService::without_process(None));
-        let logs = scratch.path().join("the-hosts-logs");
-        let mut handed = Vec::new();
-
-        let service = SidecarService::spawn(&roots(scratch.path()), Some(&logs), |args| {
-            handed = args;
-            Ok(app.shell().command("sh").args(["-c", "exit 0"]))
-        })
-        .unwrap();
-
-        let at = handed.iter().position(|a| a == "--log-file").unwrap();
-        assert_eq!(handed[at + 1], logs.join(SIDECAR_LOG_FILE).into_os_string());
-        service.kill();
-    }
-
-    /// The config directory is fenced by its path, so one the host cannot make
-    /// or tighten is still passed: the file inside may yet be readable.
-    #[cfg(unix)]
-    #[test]
-    fn a_config_directory_the_host_cannot_prepare_is_still_fenced() {
-        let scratch = Scratch::new();
-        let app = mock_app(scratch.path(), SidecarService::without_process(None));
-        let roots = roots(scratch.path());
-        let config = crate::paths::app_config_dir(&roots).unwrap();
-        std::fs::remove_dir(&config).unwrap();
-        std::fs::write(&config, "").unwrap();
-        assert!(crate::paths::app_config_dir(&roots).is_err());
-
-        let (service, args) = spawn_script(&app, &roots, "exit 0");
-
-        let at = args.iter().position(|a| a == "--config-dir").unwrap();
-        assert_eq!(args[at + 1], config.into_os_string());
-        service.kill();
-    }
-
-    /// The window frame, and on Linux the webview's profile, sit in the state
-    /// directory, which the sidecar fences by the path it is handed.
-    #[cfg(unix)]
-    #[test]
-    fn the_state_directory_is_handed_to_the_sidecar() {
-        let scratch = Scratch::new();
-        let app = mock_app(scratch.path(), SidecarService::without_process(None));
-        let roots = roots(scratch.path());
-
-        let (service, args) = spawn_script(&app, &roots, "exit 0");
-
-        let at = args.iter().position(|a| a == "--state-dir").unwrap();
-        let state = crate::paths::state_dir_for(&roots);
-        assert_eq!(args[at + 1], state.into_os_string());
+        let layout = current_layout(&roots);
+        assert!(!layout.data.exists() && !layout.cache.exists());
         service.kill();
     }
 
