@@ -15,13 +15,13 @@
 package settings
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"os"
 )
 
 // pathDir is one folder filterPath kept.

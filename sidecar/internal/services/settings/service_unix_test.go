@@ -836,8 +836,8 @@ func TestARemovalDuringASyncHoldsUnderAnotherDir(t *testing.T) {
 	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathGone, Source: SourceUser}, entryOf(t, s, dir))
 }
 
-// A sync folds the stored list into the list it writes, so a second one reads
-// the disk only once the first has written it.
+// Syncs run one at a time, so a second one reads the disk only once the first
+// has written what it read.
 func TestASyncWaitsForTheOneBeforeIt(t *testing.T) {
 	z := newZones(t)
 	s := newTestService(t, z, nil)
@@ -845,12 +845,14 @@ func TestASyncWaitsForTheOneBeforeIt(t *testing.T) {
 	// Each sync reads the zones as it starts to read the disk; the first
 	// holds there until released.
 	reading := testutil.NewProbe[struct{}](2)
-	release := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
 	var first sync.Once
 	zones := s.zones
 	s.zones = func() Zones {
 		reading.Fire(struct{}{})
-		first.Do(func() { <-release })
+		first.Do(func() { <-gate })
 		return zones()
 	}
 
@@ -860,13 +862,8 @@ func TestASyncWaitsForTheOneBeforeIt(t *testing.T) {
 	go func() { _, err := s.SyncPath(t.Context(), []string{dir}); secondDone <- err }()
 	// A negative assertion: the second sync reads nothing while the first
 	// holds its read.
-	select {
-	case <-reading.Chan():
-		close(release)
-		t.Fatal("the second sync read before the first wrote")
-	case <-time.After(20 * time.Millisecond):
-	}
-	close(release)
+	testutil.NoRecv(t, reading.Chan(), 20*time.Millisecond, "the second sync's read before the first wrote")
+	release()
 
 	require.NoError(t, testutil.Recv(t, firstDone, "the first sync"))
 	require.NoError(t, testutil.Recv(t, secondDone, "the second sync"))

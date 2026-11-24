@@ -42,7 +42,7 @@ constant spells one, and `Held`, `Update`'s `fields`, a `Refusal` and the wire a
 with `Dir`, `Target`, `State` (`adopted`, `pending`, `gone`), `Source` (`shell`/`user`) and
 `Shared`. **A state holds for its exact `Target`, compared as text**: a folder in another
 spelling is a new folder, and no stored `Target` is read off the disk. A removal the shell no
-longer lists keeps its `Target`. → [ADR](../../../../docs/adr/2026-11-24-a-stored-path-decision-holds-for-its-exact-path.md). `filterPath` (`filter.go`) drops what
+longer lists keeps its `Target`; one it lists holds for its `Dir` wherever that leads. → [ADR](../../../../docs/adr/2026-11-24-a-stored-path-decision-holds-for-its-exact-path.md). `filterPath` (`filter.go`) drops what
 `sandbox.SearchFolder` refuses, `node_modules` and duplicates, and marks `Shared` a folder a
 non-admin group can write.
 

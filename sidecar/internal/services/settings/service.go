@@ -113,7 +113,8 @@ type pathView struct {
 // whether the list it wrote differs from the one it read. The disk is read on
 // a goroutine abandoned when ctx ends or syncTimeout passes, since a stat on
 // a dead network mount does not return; one that ends first changes nothing.
-// Syncs run one at a time.
+// Syncs run one at a time, so an older read of the disk, and its snapshot,
+// never lands after a newer one.
 func (s *Service) SyncPath(ctx context.Context, resolved []string) (changed bool, err error) {
 	if s.zones == nil {
 		return false, ErrNoSandbox
@@ -129,12 +130,8 @@ func (s *Service) SyncPath(ctx context.Context, resolved []string) (changed bool
 	case <-ctx.Done():
 		return false, ctx.Err()
 	}
-	viewed := make(chan pathView, 1)
-	go func() { viewed <- s.view(resolved) }()
-	var v pathView
-	select {
-	case v = <-viewed:
-	case <-ctx.Done():
+	v, ok := readWithin(ctx, s.syncTimeout, func() pathView { return s.view(resolved) })
+	if !ok {
 		return false, ctx.Err()
 	}
 	if len(v.dropped) > 0 {
@@ -309,7 +306,8 @@ func (s *Service) view(resolved []string) pathView {
 
 // diffPath folds fresh, in the shell's order, into stored. A stored state
 // holds for its exact Target: a folder in another spelling is another
-// folder. held files every new entry pending.
+// folder. A removal also holds for its own Dir, wherever it leads now. held
+// files every new entry pending.
 func diffPath(stored []PathEntry, fresh []freshDir, held bool) []PathEntry {
 	removed := map[string]bool{}
 	for _, e := range stored {
