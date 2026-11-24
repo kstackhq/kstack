@@ -43,7 +43,9 @@ impl Scratch {
         let dir = std::env::temp_dir().join(format!("kstack-app-test-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        Self(dir)
+        // As the kernel names it, so a test compares it with resolved paths
+        // (macOS's temp dir is under the link `/var`).
+        Self(dunce::canonicalize(&dir).unwrap())
     }
 
     pub fn path(&self) -> &Path {
@@ -137,13 +139,14 @@ pub fn script_sidecar(root: &Path, script: &str) -> SidecarService {
 }
 
 /// Platform roots under `root`, so nothing a test makes lands in the user's
-/// own directories.
+/// own directories. `root` is the home, which holds them all, as Windows'
+/// profile holds every layout folder.
 pub fn roots(root: &Path) -> Roots {
     Roots {
         config: Some(root.join("config")),
         local_data: root.join("local"),
         cache: root.join("cache"),
-        home: root.join("home"),
+        home: root.to_path_buf(),
         state: root.join("state"),
     }
 }
