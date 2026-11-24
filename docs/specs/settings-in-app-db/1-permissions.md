@@ -244,9 +244,9 @@ one pull request, since between tasks 2 and 3 the webview still speaks the old s
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | `appdb`, `run/permissions`, `agent/chat`: migration `0006` and its test, which builds the schema before it, migrates and checks each new table and each `CHECK`, that `chat_grants` is gone, and that every other table's seed survives. `Class` gains its stored name. A chat's rules and folder grants read and write their tables, and a failed read of a chat's rules adds `RefusedSecrets` (`grantsIn`). The wire is unchanged until task 2, so `agent/chat` still answers a chat's folder grant as a `Rule` naming its `Folder`, and `RemoveChatGrant` still removes one by id. `Rule` keeps `Folder` for that, and for the always grants still in the file. | Planned |
-| 2 | `services/settings`, `run/permissions`, `run/session`, `run/kubeproxy`, `tools`, `agent/chat`, `graph`: the modes, the always rules and the always folder grants on `app.db`, with the failed-read rules above, and a mode read by the action's cluster. `Rule` loses `Folder` and `NewHost` goes, with the schema and resolvers of *The wire*; `chatKubeRules` and `chatKubeRuleRemove` stop answering folder grants. | Planned |
-| 3 | `src/`: the webview. | Planned |
+| 1 | `appdb`, `run/permissions`, `agent/chat`: migration `0006` and its test, which builds the schema before it, migrates and checks each new table and each `CHECK`, that `chat_grants` is gone, and that every other table's seed survives. `Class` gains its stored name. A chat's rules and folder grants read and write their tables, and a failed read of a chat's rules adds `RefusedSecrets` (`grantsIn`). The wire is unchanged until task 2, so `agent/chat` still answers a chat's folder grant as a `Rule` naming its `Folder`, and `RemoveChatGrant` still removes one by id. `Rule` keeps `Folder` for that, and for the always grants still in the file. | Done |
+| 2 | `services/settings`, `run/permissions`, `run/session`, `run/kubeproxy`, `tools`, `agent/chat`, `graph`: the modes, the always rules and the always folder grants on `app.db`, with the failed-read rules above, and a mode read by the action's cluster. `Rule` loses `Folder` and `NewHost` goes, with the schema and resolvers of *The wire*; `chatKubeRules` and `chatKubeRuleRemove` stop answering folder grants. | Done |
+| 3 | `src/`: the webview. | Done |
 
 ## When it lands
 
