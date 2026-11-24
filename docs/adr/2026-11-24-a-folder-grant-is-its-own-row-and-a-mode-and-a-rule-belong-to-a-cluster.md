@@ -16,7 +16,7 @@ also had to say that such a rule matches no action. A mode and a rule were keyed
 kube-context pattern, though Kstack only ever wrote an entry naming one context exactly. A rule
 outlived its cluster, so a context added again under an old name inherited its `allow` rules. The file was built
 to survive a hand edit, and nobody edits it, so a value Kstack could not read held the whole
-field in its strictest state ([the settings sequence](../specs/settings-in-app-db/README.md)).
+field in its strictest state ([settings are rows in app.db](2026-11-24-settings-are-rows-in-app-db.md)).
 
 ## Decision
 
@@ -52,7 +52,7 @@ checks stand.
   once per cluster, and a cluster added later would start without it.
 - **Keep a folder grant a rule, in `kube_rules`.** The table's class and Secret-read `CHECK`s
   would each need a folder case, and every reader would still filter folders out.
-- **Copy the old rows into the tables.** Kstack has not shipped to users, [by decision](../specs/settings-in-app-db/README.md#no-import-by-decision).
+- **Copy the old rows into the tables.** Kstack has not shipped to users, [by decision](2026-11-24-settings-are-rows-in-app-db.md).
 
 ## Consequences
 
