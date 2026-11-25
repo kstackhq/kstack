@@ -15,6 +15,7 @@
 package githubproxy
 
 import (
+	"encoding/json"
 	"net/http"
 	"regexp"
 	"slices"
@@ -88,12 +89,16 @@ var permissionsWords = []string{
 	"rulesets", "environments", "organization-roles", "security-managers",
 }
 
+// spanningPaths are an owner's data reads that gather its repositories':
+// their alerts and their archives.
+var spanningPaths = []string{"/orgs/*/secret-scanning/...", "/orgs/*/migrations/*/archive"}
+
 // accessControlPaths are the changes that are an access control change: under
-// permissionsWords, a branch's protection, the Actions permissions, and the
-// user's own keys.
+// permissionsWords, a branch's protection, the Actions permissions, a
+// repository's transfer to another owner, and the user's own keys.
 var accessControlPaths = func() []string {
 	paths := []string{
-		"/repos/*/*/actions/permissions/...", "/orgs/*/actions/permissions/...",
+		"/repos/*/*/actions/permissions/...", "/orgs/*/actions/permissions/...", "/repos/*/*/transfer",
 		"/user/keys/...", "/user/gpg_keys/...", "/user/ssh_signing_keys/...",
 	}
 	for _, w := range permissionsWords {
@@ -118,6 +123,38 @@ var ordinary = []ordinaryRow{
 	{http.MethodPatch, "/repos/*/*/pulls/*"},
 }
 
+// accessFields are the fields of a change's body that say who may do what,
+// by the path the change is to: a repository's visibility, and whether a pull
+// request's base maintainers may push to its branch.
+var accessFields = []struct {
+	path   string
+	fields []string
+}{
+	{"/repos/*/*", []string{"private", "visibility"}},
+	{"/repos/*/*/pulls/*", []string{"maintainer_can_modify"}},
+}
+
+// withBody is v once the change's body is read: an access control change when
+// the body sets one of accessFields for its path. A body that is not a JSON
+// object sets none; GitHub refuses it.
+func (v verdict) withBody(path string, body []byte) verdict {
+	if v.act.AccessLevel != permissions.Write {
+		return v
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return v
+	}
+	segs := segmentsOf(path)
+	for _, a := range accessFields {
+		if matches(a.path, segs) && slices.ContainsFunc(a.fields, func(f string) bool { _, ok := fields[f]; return ok }) {
+			v.act.AccessLevel, v.act.Once = permissions.AccessControl, false
+			return v
+		}
+	}
+	return v
+}
+
 // classifyAPI is how the API host takes a request to path other than
 // GraphQL's, by its method and, for a release asset, its Accept. The levels
 // go reach, destructive, permissions, data read, read, write; a write
@@ -134,6 +171,7 @@ func classifyAPI(method, path, accept string) verdict {
 		act.AccessLevel = permissions.Read
 		if matchesAny(dataPaths, segs) || matches(releaseAsset, segs) && strings.Contains(strings.ToLower(accept), "application/octet-stream") {
 			act.AccessLevel = permissions.DataRead
+			act.Spans = matchesAny(spanningPaths, segs)
 		}
 	case method == http.MethodDelete && matchesAny(destructivePaths, segs):
 		act.AccessLevel = permissions.Destructive
@@ -160,8 +198,13 @@ func protectsABranch(segs []string) bool {
 // no scope: an id is an alias Kstack cannot read as an account.
 func apiAction(method string, raw, segs []string) permissions.Action {
 	act := permissions.Action{Service: "api", Operation: strings.ToLower(method), Resource: segs[0]}
-	if len(segs) >= 4 && segs[0] == "repos" {
+	switch {
+	case len(segs) >= 4 && segs[0] == "repos":
 		act.Resource = segs[3]
+	case len(segs) >= 3 && (segs[0] == "orgs" || segs[0] == "users"):
+		// An owner's resource is named as a repository's is, so one rule names
+		// both: secret-scanning, members.
+		act.Resource = segs[2]
 	}
 	switch {
 	case len(raw) >= 3 && raw[0] == "repos":

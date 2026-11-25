@@ -200,6 +200,7 @@ func (p *proxy) serveAPI(w http.ResponseWriter, r *http.Request) {
 			rt.refuse(w, status, runproxy.BodyRefusal(status))
 			return
 		}
+		v = v.withBody(r.URL.Path, body)
 		p.ask(w, r, rt, apiRequest(r, rt.upstream.Host, v.act, body), apiHeaders)
 	}
 }
@@ -224,6 +225,12 @@ func (p *proxy) serveGraphQL(w http.ResponseWriter, r *http.Request) {
 	g, ok := readGraphQL(body)
 	if !ok {
 		rt.refuse(w, http.StatusForbidden, refusedGraphQL)
+		return
+	}
+	if g.destructive() && g.changesAccess() {
+		// One request is decided at one level, which would leave a rule for the
+		// other unmatched.
+		rt.refuse(w, http.StatusForbidden, refusedGraphQLMixed)
 		return
 	}
 	if g.action().AccessLevel == permissions.Read {

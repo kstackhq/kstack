@@ -77,8 +77,9 @@ Each platform's proxy has its review: [a sandboxed command reaches AWS](../secur
 | CLOUD-65 | An access control change asks each time, but an Azure role assignment in a resource group. | **Enforced** | — |
 | CLOUD-66 | A request whose account the classifier cannot trust (none on the credentials, a route by id, a project number) asks each time. One reaching past a known account (another named in its body or a header, a bucket it does not own, another project billed) keeps that account's scope, so its mode and rules still refuse it, and asks each time. A request billing more than one project is refused. | **Enforced** | — |
 | CLOUD-67 | A data read in the account runs unasked under `auto`. | **Enforced** | — |
-| CLOUD-70 | A Cloud Storage ACL or predefined ACL change is an access control change, read from decoded fields. | **Enforced** | — |
-| CLOUD-72 | An Azure data read in no resource group gathers every group's data: a deny or ask for any group decides it, and only an allow reaching them all allows it. | **Enforced** | — |
+| CLOUD-70 | A GitHub change setting a repository's visibility or a pull request's maintainer edits, a repository's transfer, a GitHub GraphQL mutation that changes who may do what, and a Cloud Storage ACL or predefined ACL change are access control changes, read from decoded fields. A GraphQL document mixing one with a destructive mutation is refused. | **Enforced** | — |
+| CLOUD-72 | A data read that gathers several places (an Azure data read in no resource group, a GitHub owner's alerts or archives) is decided by a deny or ask for any place below it, and allowed only by an allow reaching them all. | **Enforced** | — |
+| CLOUD-71 | Opening a GitHub pull request keeps GitHub's default letting the base's maintainers push to its branch, and runs unasked under `auto` or an allow. Changing that afterward is an access control change. | **By decision** | The base's maintainers may push to a fork's branch the user opened the pull request from. |
 | CLOUD-68 | A change to who may reach an S3 bucket or key (its policy, ACL, public access block or ownership controls, or an ACL or grant header) and a change to an Azure role assignment, role or lock, at any scope, are access control changes, which an access control rule decides. | **Enforced** | — |
 | CLOUD-69 | An AWS request on a bucket the login owns is sent expecting that owner, so S3 refuses it if the bucket changed hands; a caller naming another owner asks. The list of owned buckets answers only for the login it was listed with, and a change is sent as the login that was decided on or not at all. | **Enforced** | A login with no account id sends no owner condition, so a bucket that changes hands within the list's minute is read unasked. |
 
@@ -508,12 +509,22 @@ Each platform's proxy has its review: [a sandboxed command reaches AWS](../secur
 
 ### CLOUD-70
 
-- **Where:** `sidecar/internal/run/gcpproxy/classify.go`
+- **Where:** `sidecar/internal/run/githubproxy/classify.go`, `sidecar/internal/run/githubproxy/graphql.go`, `sidecar/internal/run/gcpproxy/classify.go`
 - **Records:** [Target-neutral permissions](../security/2026-11-25-target-neutral-permissions.md)
+- `TestABodyThatChangesAccessIsAccessControl`, `TestARuleAndAModeDecideAGitHubAction` — a repository's visibility and a pull request's maintainer edits, by name or id; under `auto` they ask.
+- `TestAnAccessControlMutationIsAccessControl` — GraphQL's access control mutations.
 - `TestAStorageACLChangeIsAccessControl` — Cloud Storage's ACLs, by their path position, a predefined ACL or decoded metadata, a multipart upload's included.
+- `TestMaintainerEditsAreReadFromTheParsedInput` — GraphQL's maintainer edits, from the parsed input and its variables.
+
+### CLOUD-71
+
+- **Where:** `sidecar/internal/run/githubproxy/classify.go`, `sidecar/internal/run/githubproxy/graphql.go`
+- **Records:** [Permissions are access levels, a boundary, modes and rules](../adr/2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action.md)
+- `TestABodyThatChangesAccessIsAccessControl`, `TestMaintainerEditsAreReadFromTheParsedInput` — an update of the setting is access control.
 
 ### CLOUD-72
 
-- **Where:** `sidecar/internal/run/azureproxy/classify.go`, `sidecar/internal/run/permissions`
+- **Where:** `sidecar/internal/run/azureproxy/classify.go`, `sidecar/internal/run/githubproxy/classify.go`, `sidecar/internal/run/permissions`
 - **Records:** [Target-neutral permissions](../security/2026-11-25-target-neutral-permissions.md)
 - `TestASubscriptionWideDataReadSpansItsGroups`, `TestARuleAndAModeDecideAnAzureAction` — an Azure data read in no group, refused by a group's deny.
+- `TestAnOwnersAggregateDataReadSpansItsRepositories` — a GitHub owner's alerts and archives, refused by a repository's deny.

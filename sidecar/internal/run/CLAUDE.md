@@ -341,9 +341,10 @@ its `TokenSource`. → [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-re
   in GitHub's JSON on the API host and text on the Git host.
 - **The classifier** (`classify.go`, `graphql.go`): a read passes; a change, a push and
   `dataPaths` are decided; `credentialPaths` is refused (`reach`); a change to who may do what
-  (`accessControlPaths`) is `access-control`; a route by id has scope `""`. A path matches in any case, and one by id
-  (`/repositories/{id}`, `/organizations/{id}`) as its form by name. GraphQL is a JSON `POST` with
-  no query string, and any mutation makes its document a change.
+  (`accessControlPaths`) is `access-control`; a route by id has scope `""`; `withBody` reads `accessFields`; `spanningPaths` are `Spans`. A path matches in any case, and one by id (`/repositories/{id}`,
+  `/organizations/{id}`) as its form by name. GraphQL is a JSON `POST` with no query string; any
+  mutation makes its document a change (`accessControlWords`, a parsed `maintainerCanModify`:
+  `access-control`; mixed with destructive, refused).
 - **The push reader** (`push.go`) reads at most 64 KiB of pkt-lines (shallow lines, commands,
   options) in a body slot, refuses what it cannot read, then streams the pack unread. An answer
   GitHub breaks off is broken off to the client.

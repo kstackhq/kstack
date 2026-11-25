@@ -980,6 +980,29 @@ func TestARuleAndAModeDecideAGitHubAction(t *testing.T) {
 		testutil.Recv(t, h.api.seen, "the write")
 		assert.Empty(t, a.asked)
 	})
+	// An ordinary route whose body changes who may push asks, though auto
+	// would run the route's other edits.
+	t.Run("auto asks for a pull request's maintainer edits", func(t *testing.T) {
+		t.Parallel()
+		a := newFakeAsker()
+		a.answers <- false
+		h := newHarnessIn(t, a, limits, sessionIn(permissions.ModeAuto))
+		resp, _ := h.do(t, http.MethodPatch, apiURL+"/repos/o/r/pulls/1", `{"maintainer_can_modify":true}`, jsonType)
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		assert.Equal(t, permissions.AccessControl, testutil.Recv(t, a.asked, "the edit").Action.AccessLevel)
+		assert.Empty(t, h.api.seen)
+	})
+	t.Run("a document mixing a destructive and an access control mutation is refused", func(t *testing.T) {
+		t.Parallel()
+		a := newFakeAsker()
+		h := newHarnessIn(t, a, limits, sessionIn(permissions.ModeAsk))
+		doc := `mutation { deleteRef(input: {}) { clientMutationId } updateBranchProtectionRule(input: {}) { clientMutationId } }`
+		resp, body := h.do(t, http.MethodPost, apiURL+"/graphql", string(graphQLBody(t, doc, "")), jsonType)
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		assert.Equal(t, refusedGraphQLMixed, message(t, body))
+		assert.Empty(t, a.asked)
+		assert.Empty(t, h.api.seen)
+	})
 	t.Run("read-only denies", func(t *testing.T) {
 		t.Parallel()
 		a := newFakeAsker()

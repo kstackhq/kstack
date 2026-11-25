@@ -229,7 +229,7 @@ func TestEveryFieldIsFilled(t *testing.T) {
 		{http.MethodDelete, "/repos/o/r", permissions.Destructive, "o/r", "o", "api", "delete", "repos", false},
 		{http.MethodDelete, "/repos/o/r/git/refs/heads/main", permissions.Destructive, "o/r", "o", "api", "delete", "git", false},
 		{http.MethodGet, "/repos/o/r/actions/runs/1/logs", permissions.DataRead, "o/r", "o", "api", "get", "actions", false},
-		{http.MethodPut, "/orgs/o/memberships/u", permissions.AccessControl, "o", "o", "api", "put", "orgs", false},
+		{http.MethodPut, "/orgs/o/memberships/u", permissions.AccessControl, "o", "o", "api", "put", "memberships", false},
 		{http.MethodPost, "/user/keys", permissions.AccessControl, "", "", "api", "post", "user", false},
 		{http.MethodPost, "/gists", permissions.Write, "", "", "api", "post", "gists", true},
 		{http.MethodPut, "/user/starred/o/r", permissions.Write, "", "", "api", "put", "user", true},
@@ -252,6 +252,52 @@ func TestEveryFieldIsFilled(t *testing.T) {
 	assert.Equal(t, permissions.Action{
 		Service: "graphql", Operation: "mutation", Resource: "graphql", AccessLevel: permissions.Write, Once: true,
 	}, g.action())
+}
+
+// A change whose body sets who may do what is an access control change,
+// though its route is ordinary: a pull request's maintainer edits and a
+// repository's visibility, by name or by id.
+func TestABodyThatChangesAccessIsAccessControl(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ method, path, body string }{
+		{http.MethodPatch, "/repos/o/r/pulls/1", `{"maintainer_can_modify":true}`},
+		{http.MethodPatch, "/repos/o/r", `{"private":false}`},
+		{http.MethodPatch, "/repos/o/r", `{"visibility":"public"}`},
+		{http.MethodPatch, "/repositories/42", `{"visibility":"public"}`},
+		{http.MethodPost, "/repos/o/r/transfer", `{"new_owner":"them"}`},
+	} {
+		v := classifyAPI(c.method, c.path, "").withBody(c.path, []byte(c.body))
+		assert.Equal(t, permissions.AccessControl, v.act.AccessLevel, "%+v", c)
+	}
+	for _, c := range []struct{ method, path, body string }{
+		{http.MethodPatch, "/repos/o/r/pulls/1", `{"title":"t"}`},
+		{http.MethodPatch, "/repos/o/r", `{"description":"d"}`},
+		{http.MethodPatch, "/repos/o/r/issues/1", `{"private":true}`},
+		{http.MethodPatch, "/repos/o/r/pulls/1", `not json`},
+	} {
+		v := classifyAPI(c.method, c.path, "").withBody(c.path, []byte(c.body))
+		assert.Equal(t, permissions.Write, v.act.AccessLevel, "%+v", c)
+	}
+}
+
+// An owner's alerts and archives gather its repositories', so a rule for one
+// repository decides them; the owner's and a repository's alerts are one
+// resource.
+func TestAnOwnersAggregateDataReadSpansItsRepositories(t *testing.T) {
+	t.Parallel()
+	org := classifyAPI(http.MethodGet, "/orgs/o/secret-scanning/alerts", "").act
+	repo := classifyAPI(http.MethodGet, "/repos/o/r/secret-scanning/alerts", "").act
+	assert.True(t, org.Spans)
+	assert.Equal(t, repo.Resource, org.Resource)
+	assert.True(t, classifyAPI(http.MethodGet, "/orgs/o/migrations/1/archive", "").act.Spans)
+	assert.False(t, classifyAPI(http.MethodGet, "/orgs/o/hooks/1", "").act.Spans, "the owner's own webhooks")
+	assert.False(t, repo.Spans)
+
+	deny := permissions.Rule{ID: "d", Effect: permissions.Deny, AccessLevel: permissions.DataRead, Principal: "*", Target: "github",
+		Scope: "o/r", Service: "*", Operation: "*", Resource: "secret-scanning"}
+	org.Principal, org.Target = permissions.Chat, permissions.GitHub
+	v, _ := permissions.Policy{Mode: permissions.ModeAuto, Rules: []permissions.Rule{deny}}.Authorize(org)
+	assert.Equal(t, permissions.Denied, v.Outcome())
 }
 
 func TestAScopeIsLowerCase(t *testing.T) {
@@ -341,7 +387,6 @@ func TestOrdinaryIsExactlyTheTable(t *testing.T) {
 func TestAChangeOffTheOrdinaryTableAsksOnce(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ method, path string }{
-		{http.MethodPost, "/repos/o/r/transfer"},
 		{http.MethodPost, "/repos/o/r/pulls/2/reviews"},
 		{http.MethodPut, "/repos/o/r/pulls/2/merge"},
 		{http.MethodPost, "/repos/o/r/issues/1/comments/2/reactions"},
