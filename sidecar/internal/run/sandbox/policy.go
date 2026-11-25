@@ -91,6 +91,9 @@ type Limits struct {
 // process that traps SIGXCPU can say something before the kernel kills it.
 const cpuGrace = 5
 
+// cpuGraceSeconds is the grace s's runs take: cpuGrace, or a test's.
+func (s *Sandbox) cpuGraceSeconds() int { return cmp.Or(s.testCPUGrace, cpuGrace) }
+
 // check is why l cannot be enforced, or nil. sandbox-shell execs under memory
 // and process limits without restoring the open-files limit the Go runtime
 // raises, so either needs that limit set.

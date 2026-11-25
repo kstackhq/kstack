@@ -315,7 +315,7 @@ func (s *Sandbox) args(r Run, rules []rule, resolverAt string) []string {
 	}
 	args = append(args, init...)
 	args = append(args, s.self)
-	args = append(args, shellCommand(r.Policy.Limits)...)
+	args = append(args, shellCommand(r.Policy.Limits, s.cpuGraceSeconds())...)
 	args = append(args, r.Shell)
 	return append(args, r.Args...)
 }

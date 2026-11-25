@@ -66,6 +66,8 @@ $FIXTURE/app/kstack-sidecar
 sandbox-shell
 --cpu
 4840
+--cpu-grace
+5
 --files
 4096
 --memory

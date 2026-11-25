@@ -186,7 +186,7 @@ func (s *Sandbox) Port() (int, error) {
 // which sets r's limits and execs the shell.
 func (s *Sandbox) argv(r Run) (name string, args []string) {
 	init := slices.Insert(ForwarderArgs(r.Policy.Network.relay()), 1, s.lifelineArgs()...)
-	return s.self, slices.Concat(init, []string{s.self}, shellCommand(r.Policy.Limits), []string{r.Shell}, r.Args)
+	return s.self, slices.Concat(init, []string{s.self}, shellCommand(r.Policy.Limits, s.cpuGraceSeconds()), []string{r.Shell}, r.Args)
 }
 
 // profileText is the Seatbelt profile's fixed rules, with a marker line where

@@ -1475,8 +1475,10 @@ func TestCachesWatchHealthKeyedStateReadsAKindWithNoAnswerAsConnecting(t *testin
 // so the test reads until it is empty: the verdict moves once both have answered.
 func TestCachesWatchHealthKeyedStateNamesEveryKindThatHasNotAnswered(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
+	svc := serviceOver(t, d)
+	svc.stateWatchCadence = time.Millisecond
 
-	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(t.Context())
+	stream, err := svc.Caches().WatchHealthKeyedState(t.Context())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's verdict")

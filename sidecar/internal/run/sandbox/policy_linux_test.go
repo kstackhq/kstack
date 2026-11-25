@@ -23,10 +23,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A process that ignores SIGXCPU is killed at the hard limit, cpuGrace past
+// A process that ignores SIGXCPU is killed at the hard limit, the grace past
 // the soft one.
 func TestAnIgnoredSIGXCPUIsKilledAtTheHardLimit(t *testing.T) {
 	s := confining(t)
+	s.testCPUGrace = 1
 
 	code, _ := limitedRun(t, s, Limits{CPUSeconds: 1}, nil, "/bin/sh", "-c", "trap '' XCPU; while :; do :; done")
 

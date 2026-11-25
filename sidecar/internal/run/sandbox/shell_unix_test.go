@@ -91,7 +91,7 @@ func limitsOf(t *testing.T, first string, args ...string) string {
 func TestTheShellSetsTheLimits(t *testing.T) {
 	p := strconv.Itoa(ownProcesses(t))
 
-	got := limitsOf(t, "true", "--cpu", "7", "--files", "64", "--processes", p)
+	got := limitsOf(t, "true", "--cpu", "7", "--cpu-grace", "5", "--files", "64", "--processes", p)
 
 	assert.Contains(t, got, "cpu=7/12 files=64/64 processes="+p+"/"+p)
 }
@@ -162,7 +162,7 @@ func TestSetTimeAndFilesSetsTheCPULimit(t *testing.T) {
 	require.NoError(t, unix.Getrlimit(unix.RLIMIT_CPU, &own))
 	const far = 1 << 40 // seconds
 
-	require.NoError(t, setTimeAndFiles(shellArgs{cpu: far}))
+	require.NoError(t, setTimeAndFiles(shellArgs{cpu: far, cpuGrace: cpuGrace}))
 
 	var got unix.Rlimit
 	require.NoError(t, unix.Getrlimit(unix.RLIMIT_CPU, &got))

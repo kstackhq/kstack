@@ -762,8 +762,10 @@ func TestClusterCachedKindCollectionWatchIsCacheScoped(t *testing.T) {
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 
+	// The failsafe until the bookmark; then a negative window, bounded on purpose, for a
+	// record of another cache arriving after it.
 	seen := 0
-	deadline := time.After(time.Second)
+	deadline := time.After(testutil.Timeout)
 	for {
 		var frame struct {
 			Data struct {
@@ -791,6 +793,7 @@ func TestClusterCachedKindCollectionWatchIsCacheScoped(t *testing.T) {
 			// errored non-null field nulls its parent, so a null entity also rides
 			// ordinary frames.
 			if frame.Data.Watch.Type == string(cluster.CollectionWatchFrameBookmark) {
+				deadline = time.After(time.Second)
 				continue
 			}
 			seen++
@@ -822,8 +825,10 @@ func TestCollectionWatchClosesSnapshotWithBookmark(t *testing.T) {
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 
+	// The failsafe until the bookmark; then a negative window, bounded on purpose, for a second
+	// bookmark or a late Added.
 	added, bookmarks := 0, 0
-	deadline := time.After(time.Second)
+	deadline := time.After(testutil.Timeout)
 	for {
 		var frame struct {
 			Data struct {
@@ -847,6 +852,7 @@ func TestCollectionWatchClosesSnapshotWithBookmark(t *testing.T) {
 			switch frame.Data.Watch.Type {
 			case string(cluster.CollectionWatchFrameBookmark):
 				bookmarks++
+				deadline = time.After(time.Second)
 				if frame.Data.Watch.Cache != nil {
 					t.Errorf("the bookmark carries no entity, got: %v", frame.Data.Watch.Cache)
 				}
