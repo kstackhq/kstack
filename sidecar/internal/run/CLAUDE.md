@@ -285,7 +285,8 @@ under the header bound; `IsTLS` tells a handler.
   `Grantable` and the rule lines, and a `command` `Answer` adds `CommandRule`. A read never reaches
   it. A data read gives up the lock before `forward`, a change at its return. **Each proxy's
   classifier fills every field**, an account's scope canonical and lower case, and names in an
-  `ordinary` table the changes a mode or rule may allow; any other is `Once`.
+  `ordinary` table the changes a mode or rule may allow; any other is `Once`. One reaching past its
+  account keeps the scope and is `Once`.
 
 ## Azure's proxy (`azureproxy`)
 
@@ -295,8 +296,9 @@ the managed-identity endpoint, which answers the grant's token. `path.go` reads 
 Manager's grammar, its words ASCII, any case, and two polling paths (`GET`).
 `classify.go` refuses AKS run-command, access profiles, a credential action (by name, or listed:
 `publishxml`, `readonlykeys`, any method; `reach`) and an unnamed `list`/`get`; then data reads (the
-secret-metadata list, and an operation's result in its namespaces), reads, destructive,
-`Microsoft.Authorization` (`access-control`, `Confined` for a role assignment in a group), writes.
+secret-metadata list, and an operation's result in its namespaces), reads, `Microsoft.Authorization`
+at any scope (`access-control`, `Confined` for a role assignment in a group), destructive, writes;
+a data read in no group `Spans`.
 A change naming no subscription is refused; any other goes to `Decide`. Forwarding adds
 the user's token for the subscription's tenant; a `401` drops it and answers the
 sign-in sentence. `rewrite.go` points `Location`, `Azure-AsyncOperation`, `Operation-Location`

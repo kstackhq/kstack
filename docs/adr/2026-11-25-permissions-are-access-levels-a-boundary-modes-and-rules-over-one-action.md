@@ -26,9 +26,10 @@ target-neutral.** The action carries a principal, a target, a scope of `/`-separ
 whose first is the account (a cluster's record id, a cloud account the credentials vouch for),
 a service, an operation, a resource and one access level: `read`, `data-read`, `write`,
 `access-control`, `destructive` or `reach`. A classifier that cannot trust the account leaves the
-scope empty, and such an action asks each time. An action that reaches every scope below its own
-(`Spans`, a list across namespaces) is decided by a deny or ask for any of them, and allowed only
-by an allow reaching them all.
+scope empty, and such an action asks each time. One that reaches past a known account keeps that
+account's scope, so its mode and rules still refuse it, and asks each time. An action that reaches
+every scope below its own (`Spans`, a list across namespaces) is decided by a deny or ask for any of
+them, and allowed only by an allow reaching them all.
 
 **The verdict has three layers.** The boundary (`boundary`, `asks`) is Kstack's table of what
 each principal may ever do: a chat and its subagents may be allowed reads, data reads and

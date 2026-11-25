@@ -106,8 +106,8 @@ var ordinary = []ordinaryRow{
 // action is the request as the engine decides it, read from its path, its
 // query and its body. The scope is the path's own subscription and group, in
 // lower case; "" when the path names no subscription, whatever default the
-// proxy forwards with, or when the query or body names another subscription
-// or the body is not JSON.
+// proxy forwards with. A query or body naming another subscription, or a body
+// that is not JSON, asks each time.
 func action(method string, a armPath, v verdict, query url.Values, body []byte, sub Subscription) permissions.Action {
 	act := permissions.Action{
 		Target: permissions.Azure, AccountName: strings.ToLower(a.subscription),
@@ -117,16 +117,22 @@ func action(method string, a armPath, v verdict, query url.Values, body []byte, 
 	if ps := a.pairs(); len(ps) > 0 {
 		act.Name = ps[len(ps)-1].name
 	}
-	if a.subscription != "" && !namesAnotherSubscription(act.AccountName, query, body) {
+	if a.subscription != "" {
 		act.Scope = act.AccountName
 		if a.group != "" {
 			act.Scope += "/" + strings.ToLower(a.group)
 		}
+		// Reaching past the subscription keeps its scope, so its mode and rules
+		// still refuse, and asks each time.
+		act.Once = namesAnotherSubscription(act.AccountName, query, body)
+		// A data read in no group lists every group's, but for a deployment's,
+		// which a subscription holds of its own.
+		act.Spans = v.level == permissions.DataRead && a.group == "" && act.Service != "microsoft.resources"
 	}
 	types := a.types()
 	act.Confined = v.level == permissions.AccessControl && a.group != "" && len(types) > 0 && types[0] == "roleassignments"
-	if v.level == permissions.Write {
-		act.Once = !slices.Contains(ordinary, ordinaryRow{act.Service, act.Resource, act.Operation})
+	if v.level == permissions.Write && !slices.Contains(ordinary, ordinaryRow{act.Service, act.Resource, act.Operation}) {
+		act.Once = true
 	}
 	return act
 }
@@ -283,6 +289,11 @@ func expands(query url.Values, what string) bool {
 
 // destructive is whether a change is on the destructive list.
 func destructive(method string, a armPath, ns string, types []string) bool {
+	if ns == "microsoft.authorization" {
+		// A role assignment, a role or a lock: who may do what, which deleting
+		// changes without losing data, at any scope.
+		return false
+	}
 	if method == http.MethodDelete {
 		switch {
 		case a.group == "", a.isGroup():

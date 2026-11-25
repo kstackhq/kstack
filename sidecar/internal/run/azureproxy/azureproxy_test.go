@@ -718,6 +718,21 @@ func TestARuleAndAModeDecideAnAzureAction(t *testing.T) {
 		assert.Contains(t, refusal(t, w), "a rule denies it")
 		assert.Empty(t, h.upstream.requests())
 	})
+	// A subscription's role assignment is an access control change, which an
+	// access control deny refuses though a delete at that scope is otherwise
+	// destructive.
+	t.Run("an access control deny refuses a subscription's role assignment delete", func(t *testing.T) {
+		h := newHarness(t, runproxy.Limits{})
+		deny := permissions.Rule{ID: "d", Effect: permissions.Deny, AccessLevel: permissions.AccessControl, Principal: "*",
+			Target: "azure", Scope: "**", Service: "*", Operation: "*", Resource: "*"}
+		h.setPolicy(permissions.Policy{Mode: permissions.ModeAsk, Rules: []permissions.Rule{deny}})
+		w := serve(h.handler, h.request(http.MethodDelete,
+			"/subscriptions/"+sub+"/providers/Microsoft.Authorization/roleAssignments/ra?api-version=1", ""))
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, refusal(t, w), "a rule denies it")
+		assert.Empty(t, h.asker.asked)
+		assert.Empty(t, h.upstream.requests())
+	})
 	t.Run("a command answer allows the next", func(t *testing.T) {
 		h := newHarness(t, runproxy.Limits{})
 		h.asker.duration = permissions.DurationCommand
@@ -741,10 +756,33 @@ func TestARuleAndAModeDecideAnAzureAction(t *testing.T) {
 		target := site + "/config/appsettings/list?api-version=1"
 		done := serveAsync(h.handler, h.request(http.MethodPost, target, `{"x":"/subscriptions/`+sub2+`"}`))
 		req := testutil.Recv(t, h.asker.asked, "the read")
-		assert.Empty(t, req.Action.Scope)
+		assert.Equal(t, sub+"/rg", req.Action.Scope)
+		assert.True(t, req.Action.Once)
 		assert.False(t, req.Grantable)
 		h.asker.answers <- false
 		testutil.Recv(t, done, "the answer")
+	})
+	t.Run("a data read deny for one group refuses a subscription-wide list", func(t *testing.T) {
+		h := newHarness(t, runproxy.Limits{})
+		deny := permissions.Rule{ID: "d", Effect: permissions.Deny, AccessLevel: permissions.DataRead, Principal: "*",
+			Target: "azure", Scope: sub + "/rg", Service: "*", Operation: "*", Resource: "*"}
+		h.setPolicy(permissions.Policy{Mode: permissions.ModeAuto, Rules: []permissions.Rule{deny}})
+		w := serve(h.handler, h.request(http.MethodGet,
+			"/subscriptions/"+sub+"/providers/Microsoft.ContainerInstance/containerGroups?api-version=1", ""))
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, refusal(t, w), "a rule denies it")
+		assert.Empty(t, h.upstream.requests())
+	})
+	t.Run("a deny rule for the subscription refuses a change naming another", func(t *testing.T) {
+		h := newHarness(t, runproxy.Limits{})
+		deny := allowWrites
+		deny.Effect = permissions.Deny
+		h.setPolicy(permissions.Policy{Mode: permissions.ModeAuto, Rules: []permissions.Rule{deny}})
+		w := serve(h.handler, h.request(http.MethodPost, start+"&target=/subscriptions/"+sub2, ""))
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, refusal(t, w), "a rule denies it")
+		assert.Empty(t, h.asker.asked)
+		assert.Empty(t, h.upstream.requests())
 	})
 }
 

@@ -151,9 +151,10 @@ func TestEveryRequestIsClassified(t *testing.T) {
 		{"GET", compute + "/operationStatuses/op", isRead},
 		{"DELETE", "/subscriptions/" + sub + "/operationresults/abc", isRefused},
 		{"GET", "/subscriptions/" + sub + "/resourcegroups/rg/providers/Microsoft.Compute/virtualMachines/vm-1", isRead},
-		// Row 7: destructive, then permissions.
+		// Row 7: access control at any scope, then destructive.
 		{"DELETE", rg, isDestructive},
-		{"DELETE", "/subscriptions/" + sub + "/providers/Microsoft.Authorization/roleAssignments/ra", isDestructive},
+		{"DELETE", "/subscriptions/" + sub + "/providers/Microsoft.Authorization/roleAssignments/ra", isPermissions},
+		{"DELETE", "/subscriptions/" + sub + "/providers/Microsoft.Authorization/locks/l", isPermissions},
 		{"DELETE", "/providers/Microsoft.Management/managementGroups/mg", isDestructive},
 		{"PUT", rg + "/providers/Microsoft.Authorization/roleAssignments/ra", isPermissions},
 		{"PUT", compute + "/providers/Microsoft.Authorization/roleAssignments/ra", isPermissions},
@@ -251,9 +252,10 @@ func TestAScopeIsLowerCase(t *testing.T) {
 }
 
 // A request whose account Kstack cannot trust has scope "": a path that
-// names no subscription, whatever default the proxy forwards with, a body or
-// query naming another subscription, and a body that is not JSON.
-func TestAnAliasedOrForeignScopeIsEmpty(t *testing.T) {
+// names no subscription, whatever default the proxy forwards with. A body or
+// query naming another subscription, or a body that is not JSON, keeps the
+// path's scope, so its mode and rules still decide it, and asks each time.
+func TestAForeignRequestKeepsItsScopeAndAsksOnce(t *testing.T) {
 	const other = "00000000-0000-0000-0000-00000000000f"
 	for name, c := range map[string]struct{ method, target, body string }{
 		"another subscription in a body": {"PUT", rg + "/providers/Microsoft.Authorization/roleAssignments/ra",
@@ -263,15 +265,18 @@ func TestAnAliasedOrForeignScopeIsEmpty(t *testing.T) {
 		"another subscription in a query": {"POST", compute + "/start?target=/subscriptions/" + other, ""},
 		"a body that is not JSON":         {"PUT", compute, `<xml/>`},
 		"a body cut short":                {"PUT", compute, `{"a":`},
-		"no subscription in the path":     {"GET", "/providers/Microsoft.Web/sites?$expand=x", ""},
 	} {
 		p, query, _ := strings.Cut(c.target, "?")
 		a, ok := parsePath(c.method, p)
 		require.True(t, ok, name)
 		q, _ := url.ParseQuery(query)
 		act := action(c.method, a, classify(c.method, a, q), q, []byte(c.body), Subscription{ID: sub})
-		assert.Empty(t, act.Scope, name)
+		assert.Equal(t, sub+"/rg", act.Scope, name)
+		assert.True(t, act.Once, name)
 	}
+	a, ok := parsePath("GET", "/providers/Microsoft.Web/sites")
+	require.True(t, ok)
+	assert.Empty(t, action("GET", a, classify("GET", a, nil), nil, nil, Subscription{ID: sub}).Scope, "no subscription in the path")
 	for name, body := range map[string]string{
 		"its own subscription": `{"id":"/subscriptions/` + strings.ToUpper(sub) + `/resourceGroups/rg"}`,
 		"no body":              ``,
@@ -279,6 +284,17 @@ func TestAnAliasedOrForeignScopeIsEmpty(t *testing.T) {
 	} {
 		assert.Equal(t, sub+"/rg", actionOf(t, "PUT", compute, body).Scope, name)
 	}
+}
+
+// A data read in no resource group lists every group's, so a rule for one
+// group decides it; one in a group, or a subscription's own deployments, does
+// not span.
+func TestASubscriptionWideDataReadSpansItsGroups(t *testing.T) {
+	subscription := "/subscriptions/" + sub
+	assert.True(t, actionOf(t, "GET", subscription+"/providers/Microsoft.ContainerInstance/containerGroups", "").Spans)
+	assert.False(t, actionOf(t, "GET", rg+"/providers/Microsoft.ContainerInstance/containerGroups", "").Spans)
+	assert.False(t, actionOf(t, "GET", subscription+"/providers/Microsoft.Resources/deployments", "").Spans)
+	assert.False(t, actionOf(t, "GET", subscription+"/providers/Microsoft.Compute/virtualMachines", "").Spans, "a read")
 }
 
 func TestAccessControlChanges(t *testing.T) {
