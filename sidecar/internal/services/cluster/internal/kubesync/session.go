@@ -227,7 +227,7 @@ func (sess *session) start() error {
 // Level-triggered against the facts rather than edge-triggered on the connection: WatchState
 // keeps only the latest value per key, so a reader that falls behind skips the frame where
 // the connection went away, and the edge that matters with it.
-func (sess *session) wakeOnConnectionChange(ctx context.Context, connStateSub kubeconn.StateSubscription) {
+func (sess *session) wakeOnConnectionChange(ctx context.Context, connStateSub *kubeconn.StateWatch) {
 	defer connStateSub.Close()
 	for {
 		if _, err := connStateSub.RecvContext(ctx); err != nil {

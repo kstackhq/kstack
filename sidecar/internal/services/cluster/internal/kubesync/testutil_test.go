@@ -192,11 +192,11 @@ func (l *fakeLease) ConnFor(ctx context.Context, serverUID string) (*kubeconn.Co
 
 func (l *fakeLease) State() kubeconn.State { return kubeconn.State{} }
 
-func (l *fakeLease) WatchState() kubeconn.StateSubscription {
+func (l *fakeLease) WatchState() *kubeconn.StateWatch {
 	l.mu.Lock()
 	l.watches++
 	l.mu.Unlock()
-	return l.hub.Watch(l.contextName)
+	return kubeconn.NewStateWatch(l.State(), l.hub.Watch(l.contextName))
 }
 
 func (l *fakeLease) Departed() bool { return false }

@@ -170,14 +170,14 @@ func settled(t *testing.T, s *Service, contextName string) {
 
 // awaitState receives one claim's states until cond holds. The hub keeps only the latest value,
 // so frames in between may be skipped — cond must be a level, never an edge.
-func awaitState(t *testing.T, sub StateSubscription, cond func(State) bool) State {
+func awaitState(t *testing.T, sub *StateWatch, cond func(State) bool) State {
 	t.Helper()
 	ctx := within(t)
 	for {
-		ev, err := sub.RecvContext(ctx)
+		st, err := sub.RecvContext(ctx)
 		require.NoError(t, err, "state frame")
-		if cond(ev.Value) {
-			return ev.Value
+		if cond(st) {
+			return st
 		}
 	}
 }
@@ -711,12 +711,14 @@ func TestWatchStateIsKeyedByContext(t *testing.T) {
 	defer lease.Release()
 	sub := lease.WatchState()
 	defer sub.Close()
+	_, err := sub.RecvContext(within(t))
+	require.NoError(t, err, "the state on attach")
 
 	s.stateHub.Sender().Send("prod", State{ServerUID: Observation[string]{Value: "uid-1", LastSeenAt: runAt}})
 
-	ev, err := sub.RecvContext(within(t))
+	st, err := sub.RecvContext(within(t))
 	require.NoError(t, err)
-	assert.Equal(t, "uid-1", ev.Value.ServerUID.Value)
+	assert.Equal(t, "uid-1", st.ServerUID.Value)
 }
 
 // A state receiver is the caller's, not the claim's: releasing does not close it, which is why
@@ -729,13 +731,15 @@ func TestReleaseDoesNotCloseAStateWatcher(t *testing.T) {
 	lease := s.Acquire("prod")
 	watched := lease.WatchState()
 	defer watched.Close()
+	_, err := watched.RecvContext(within(t))
+	require.NoError(t, err, "the state on attach")
 
 	lease.Release()
 	s.stateHub.Sender().Send("prod", State{ServerUID: Observation[string]{Value: "uid-1", LastSeenAt: runAt}})
 
-	ev, err := watched.RecvContext(within(t))
-	require.NoError(t, err, "the receiver is still live, and still the caller's to close")
-	assert.Equal(t, "uid-1", ev.Value.ServerUID.Value)
+	st, err := watched.RecvContext(within(t))
+	require.NoError(t, err, "the watch is still live, and still the caller's to close")
+	assert.Equal(t, "uid-1", st.ServerUID.Value)
 }
 
 // The subscriptions are taken before Start returns, so a config sent straight after it is read
@@ -1075,7 +1079,7 @@ func TestRetryAndWaitReturnsOnARunItAskedFor(t *testing.T) {
 
 // awaitIdentified drains the claim's states until the UID probe has answered, which is what
 // stamps the connection.
-func awaitIdentified(t *testing.T, watched StateSubscription) {
+func awaitIdentified(t *testing.T, watched *StateWatch) {
 	t.Helper()
 	awaitState(t, watched, func(st State) bool { return st.ServerUID.Known() })
 }

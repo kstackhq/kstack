@@ -151,7 +151,7 @@ per context](../../../../docs/adr/2026-08-23-one-connection-per-context.md).
   keeps nothing. → [`docs/development-switches.md`](../../../../docs/development-switches.md#injected-faults).
 - Every non-stream request has an idle-read bound, never a deadline. → [ADR: idle-read
   bound](../../../../docs/adr/2026-09-02-idle-read-bound.md).
-- `WatchState` delivers nothing on attach — pair it with `State()`. Every value is a level.
+- `WatchState` is a state watch: the claim's `State` on attach, then each pass. Every value is a level.
 - Five `Observation[T]`s; a value survives a failure. `NotFound` and `Unsupported` are both a 404.
   → [ADR: probe engine](../../../../docs/adr/2026-08-24-probe-engine.md).
 - Reaching the server is `GET /api`. → [ADR: the connection probe dials

@@ -225,8 +225,8 @@ func (l *fakeLease) ListenForDataRateChanges() kubeconn.ConnectionChangeNotifica
 }
 
 // WatchState is the schedule watch's feed; a cluster pass reads State instead.
-func (l *fakeLease) WatchState() kubeconn.StateSubscription {
-	return l.svc.stateFeed().Watch(l.contextName)
+func (l *fakeLease) WatchState() *kubeconn.StateWatch {
+	return kubeconn.NewStateWatch(l.State(), l.svc.stateFeed().Watch(l.contextName))
 }
 
 func (l *fakeLease) Release() {

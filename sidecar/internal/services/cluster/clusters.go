@@ -538,9 +538,7 @@ func (a clustersAPI) WatchScheduleState(ctx context.Context, id ClusterID) (<-ch
 	if err != nil {
 		return nil, err
 	}
-	// Subscribed before the first read, so a pass landing between the two is delivered
-	// rather than dropped. The hub holds a level, so the cost of the overlap is at worst
-	// the same schedule twice.
+	// The watch's first value is the claim's state now; each pass after it is another.
 	states := lease.WatchState()
 
 	out := make(chan Schedule)
@@ -550,8 +548,11 @@ func (a clustersAPI) WatchScheduleState(ctx context.Context, id ClusterID) (<-ch
 		defer lease.Release()
 
 		sent := false
-		st := lease.State()
 		for {
+			st, err := states.RecvContext(ctx)
+			if err != nil {
+				return
+			}
 			sched := clusterSchedule(st)
 			// A state watch says nothing before its first measurement: the zero schedule of a
 			// claim whose first pass has not landed is not "nothing is scheduled".
@@ -560,16 +561,6 @@ func (a clustersAPI) WatchScheduleState(ctx context.Context, id ClusterID) (<-ch
 					return
 				}
 				sent = true
-			}
-
-			select {
-			case <-ctx.Done():
-				return
-			case ev, ok := <-states.Chan():
-				if !ok {
-					return
-				}
-				st = ev.Value
 			}
 		}
 	}()

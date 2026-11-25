@@ -135,11 +135,11 @@ type Service interface {
 // this interface — the resolver tests' fake among them. The Conn prefix belongs to this level,
 // where a bare State or Identity would read as a record's.
 type (
-	Lease                 = kubeconn.Lease
-	Connection            = kubeconn.Connection
-	ConnIdentity          = kubeconn.Identity
-	ConnState             = kubeconn.State
-	ConnStateSubscription = kubeconn.StateSubscription
+	Lease          = kubeconn.Lease
+	Connection     = kubeconn.Connection
+	ConnIdentity   = kubeconn.Identity
+	ConnState      = kubeconn.State
+	ConnStateWatch = kubeconn.StateWatch
 )
 
 // ErrIdentityMismatch is what Lease.ConnFor refuses a connection to another
