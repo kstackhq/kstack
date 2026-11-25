@@ -40,16 +40,6 @@ type ClusterPermissions struct {
 	Incomplete bool `json:"incomplete"`
 }
 
-type LogRecordsPage struct {
-	Request *LogsFetchRequest `json:"request"`
-	// The first page's clock, which an open `until`'s `after` is measured from on every page.
-	ResolvedAt time.Time         `json:"resolvedAt"`
-	Page       *LogRecordsPlace  `json:"page"`
-	Records    []*logline.Record `json:"records"`
-	// Never null: empty with nothing to say.
-	Notices []*tools.LogsNotice `json:"notices"`
-}
-
 // The page's place in the window, each a page cursor to pass back as `cursor`, null where there is
 // none. A page cursor is an opaque string that holds everything the next page needs, and it never
 // expires. `prev` goes on toward older lines and `next` toward newer; `follow` polls a live window's
@@ -100,6 +90,16 @@ type LogsFetchRequest struct {
 	PageSize        int            `json:"pageSize"`
 	MaxMessageBytes int            `json:"maxMessageBytes"`
 	MaxPageBytes    int            `json:"maxPageBytes"`
+}
+
+type LogsFetchResult struct {
+	Request *LogsFetchRequest `json:"request"`
+	// The first page's clock, which an open `until`'s `after` is measured from on every page.
+	ResolvedAt time.Time         `json:"resolvedAt"`
+	Page       *LogRecordsPlace  `json:"page"`
+	Records    []*logline.Record `json:"records"`
+	// Never null: empty with nothing to say.
+	Notices []*tools.LogsNotice `json:"notices"`
 }
 
 // How far the window extends past one end of the range, to show the lines around it: a number of lines, or a span as an ISO 8601 duration such as `PT5M`, at most seven days. Give one.

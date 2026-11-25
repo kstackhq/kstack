@@ -419,7 +419,7 @@ func countProbes(t *testing.T) (count *atomic.Int32, probed **sandbox.Sandbox) {
 	count, probed = new(atomic.Int32), new(*sandbox.Sandbox)
 	probe := probeSandbox
 	t.Cleanup(func() { probeSandbox = probe })
-	probeSandbox = func(ctx context.Context) (*sandbox.Sandbox, sandbox.Status, error) {
+	probeSandbox = func(ctx context.Context) (*sandbox.Sandbox, sandbox.State, error) {
 		count.Add(1)
 		sb, status, err := probe(ctx)
 		*probed = sb
@@ -474,7 +474,7 @@ func TestTheRefreshRunsInTheSandbox(t *testing.T) {
 	require.NoError(t, err)
 	sb := &refusingSandbox{never: []string{"/never"}}
 	kstackDirs := []string{t.TempDir(), t.TempDir(), t.TempDir()}
-	svc := newSettingsService(store, sb, nil, sandbox.Status{Available: true}, bash.Paths{DeniedDirs: kstackDirs, TmpDir: filepath.Join(kstackDirs[1], "tmp")}, "")
+	svc := newSettingsService(store, sb, nil, sandbox.State{Available: true}, bash.Paths{DeniedDirs: kstackDirs, TmpDir: filepath.Join(kstackDirs[1], "tmp")}, "")
 
 	err = svc.RefreshPath(t.Context())
 	require.ErrorContains(t, err, "sandbox refused")

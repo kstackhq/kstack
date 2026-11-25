@@ -39,7 +39,7 @@ func newFolderServer(t *testing.T) (*httptest.Server, string) {
 			Home:  home,
 		}
 	}, nil, nil, "")
-	srv, _, _ := newChatServerOn(t, sandbox.Status{Available: true}, security)
+	srv, _, _ := newChatServerOn(t, sandbox.State{Available: true}, security)
 	return srv, home
 }
 
@@ -95,8 +95,8 @@ func TestFolderGrantAndRevoke(t *testing.T) {
 	assert.Equal(t, first["id"], always[0].(map[string]any)["id"])
 	assert.Equal(t, true, always[0].(map[string]any)["write"])
 
-	got = mutate(t, srv, `{ permissionSettings { rules { id } } }`)
-	assert.Empty(t, got["permissionSettings"].(map[string]any)["rules"], "a folder grant is no rule")
+	got = mutate(t, srv, `{ permissionSettingsGet { rules { id } } }`)
+	assert.Empty(t, got["permissionSettingsGet"].(map[string]any)["rules"], "a folder grant is no rule")
 
 	got = mutate(t, srv, `mutation { folderRevoke(id: "`+first["id"].(string)+`", duration: Always) `+foldersFields+` }`)
 	assert.Empty(t, got["folderRevoke"].(map[string]any)["always"])
@@ -116,10 +116,10 @@ func TestAChatsFolderGrantIsListedAndRemoved(t *testing.T) {
 	require.Len(t, chatFolders, 1)
 	id := chatFolders[0].(map[string]any)["id"].(string)
 
-	got = mutate(t, srv, `{ chatPermissionRules(chatID: "`+chat+`") { id } }`)
-	assert.Equal(t, []any{}, got["chatPermissionRules"], "a folder grant is no rule")
-	got = mutate(t, srv, `{ sandboxFolders(chatID: "`+chat+`") `+foldersFields+` }`)
-	assert.Len(t, got["sandboxFolders"].(map[string]any)["chat"], 1, "the chat's folders are listed for it")
+	got = mutate(t, srv, `{ chatPermissionRulesGet(chatID: "`+chat+`") { id } }`)
+	assert.Equal(t, []any{}, got["chatPermissionRulesGet"], "a folder grant is no rule")
+	folders := firstFrame(t, srv.URL, `subscription { sandboxFoldersStateWatch(chatID: "`+chat+`") `+foldersFields+` }`)["sandboxFoldersStateWatch"]
+	assert.Len(t, folders.(map[string]any)["chat"], 1, "the chat's folders are listed for it")
 
 	res := post(t, srv, `mutation { folderRevoke(id: "`+id+`", duration: Always) { wide } }`)
 	require.Len(t, res.Errors, 1)
@@ -145,8 +145,8 @@ func TestAChatsFolderGrantIsListedAndRemoved(t *testing.T) {
 			assert.Equal(t, "KSTACK_VALIDATION_ERROR", res.Errors[0].Extensions["code"], "a chat's grant names its chat")
 		}
 	}
-	got = mutate(t, srv, `{ sandboxFolders `+foldersFields+` }`)
-	assert.Empty(t, got["sandboxFolders"].(map[string]any)["always"], "and never widens to every chat")
+	folders = firstFrame(t, srv.URL, `subscription { sandboxFoldersStateWatch `+foldersFields+` }`)["sandboxFoldersStateWatch"]
+	assert.Empty(t, folders.(map[string]any)["always"], "and never widens to every chat")
 }
 
 // foldersFrame is the first sandboxFoldersStateWatch frame on events whose always
@@ -233,37 +233,33 @@ func TestARefusedFolderIsDrawnRefused(t *testing.T) {
 	mutate(t, srv, `mutation { folderGrant(path: "`+gone+`", write: false, duration: Always) { wide } }`)
 	require.NoError(t, os.Remove(gone))
 
-	got := mutate(t, srv, `{ sandboxFolders `+foldersFields+` }`)
-	always := got["sandboxFolders"].(map[string]any)["always"].([]any)
+	folders := firstFrame(t, srv.URL, `subscription { sandboxFoldersStateWatch `+foldersFields+` }`)["sandboxFoldersStateWatch"]
+	always := folders.(map[string]any)["always"].([]any)
 	require.Len(t, always, 1)
 	assert.Equal(t, "This folder does not exist.", always[0].(map[string]any)["refusal"])
 }
 
 func TestSandboxFoldersWithNoSandbox(t *testing.T) {
 	srv := newChatServer(t)
-	got := mutate(t, srv, `{ sandboxFolders `+foldersFields+` }`)
-	assert.Equal(t, map[string]any{"always": []any{}, "chat": []any{}, "never": []any{}, "closed": []any{}, "wide": []any{}}, got["sandboxFolders"])
+	folders := firstFrame(t, srv.URL, `subscription { sandboxFoldersStateWatch `+foldersFields+` }`)["sandboxFoldersStateWatch"]
+	assert.Equal(t, map[string]any{"always": []any{}, "chat": []any{}, "never": []any{}, "closed": []any{}, "wide": []any{}}, folders)
 
 	res := post(t, srv, `mutation { folderGrant(path: "/home/me/code", write: false, duration: Always) { wide } }`)
 	require.Len(t, res.Errors, 1)
 	assert.Equal(t, "KSTACK_VALIDATION_ERROR", res.Errors[0].Extensions["code"])
 }
 
-// A read of the folders that fails is the query's error, never empty lists,
-// and ends the watch with its reason, so the client reconnects.
+// A read of the folders that fails ends the watch with its reason, never empty
+// lists, so the client reconnects.
 func TestSandboxFoldersFailWithTheirRead(t *testing.T) {
 	home := testutil.GrantableDir(t)
 	store, err := settings.Open(appdbtest.Open(t))
 	require.NoError(t, err)
 	security := settings.NewService(store, func() settings.Zones { return settings.Zones{Home: home} }, nil, nil, "")
-	srv, db, _ := newChatServerOn(t, sandbox.Status{Available: true}, security)
+	srv, db, _ := newChatServerOn(t, sandbox.State{Available: true}, security)
 	chatID := newChatOn(t, srv)
 	_, err = db.Write.Exec(`DROP TABLE folder_grants`)
 	require.NoError(t, err)
-
-	res := post(t, srv, `{ sandboxFolders(chatID: "`+chatID+`") { wide } }`)
-	require.Len(t, res.Errors, 1)
-	assert.Contains(t, res.Errors[0].Message, "folder_grants")
 
 	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersStateWatch(chatID: "`+chatID+`") { wide } }`)
 	defer resp.Body.Close()
@@ -282,7 +278,7 @@ func TestAFolderWriteThatTookSaysSoWhenTheListsFail(t *testing.T) {
 	store, err := settings.Open(settingsDB)
 	require.NoError(t, err)
 	security := settings.NewService(store, func() settings.Zones { return settings.Zones{Home: home} }, nil, nil, "")
-	srv, _, _ := newChatServerOn(t, sandbox.Status{Available: true}, security)
+	srv, _, _ := newChatServerOn(t, sandbox.State{Available: true}, security)
 	// A row whose folder no read can scan, beside the index the grant's upsert needs.
 	for _, q := range []string{
 		`DROP TABLE folder_grants`,
@@ -331,7 +327,7 @@ func sandboxPathServer(t *testing.T, available bool, resolve func(context.Contex
 		_, err := svc.SetShellPath(t.Context(), []string{filepath.Join(base, "open"), filepath.Join(base, "home/closed")})
 		require.NoError(t, err)
 	}
-	srv = httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Settings: svc, SandboxStatus: sandbox.Status{Available: available}}))
+	srv = httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Settings: svc, SandboxState: sandbox.State{Available: available}}))
 	t.Cleanup(srv.Close)
 	return srv, svc, db, base
 }
@@ -350,16 +346,16 @@ func TestSandboxPathAnswersTheSettingAndItsFolders(t *testing.T) {
 		return map[string]any{"path": path, "origin": origin, "target": path, "searched": searched, "reason": reason, "addable": addable, "shared": false}
 	}
 
-	res := post(t, srv, `{ sandboxPath `+sandboxPathFields+` sandboxPathFault }`)
+	res := post(t, srv, `{ sandboxPathGet `+sandboxPathFields+` sandboxPathFaultGet }`)
 	require.Empty(t, res.Errors)
-	path := res.Data["sandboxPath"].(map[string]any)
+	path := res.Data["sandboxPathGet"].(map[string]any)
 	assert.Equal(t, "$PATH", path["value"])
 	assert.Nil(t, path["refusal"])
 	assert.Equal(t, []any{
 		folder(open, "Shell", true, false, nil),
 		folder(closed, "Shell", false, true, "No sandboxed command reads this folder; type it into your PATH to include it."),
 	}, path["folders"])
-	assert.Equal(t, "timeout", res.Data["sandboxPathFault"])
+	assert.Equal(t, "timeout", res.Data["sandboxPathFaultGet"])
 
 	got := mutate(t, srv, `mutation { sandboxPathSet(value: "~/bin:$PATH") `+sandboxPathFields+` }`)
 	path = got["sandboxPathSet"].(map[string]any)
@@ -375,8 +371,8 @@ func TestSandboxPathAnswersTheSettingAndItsFolders(t *testing.T) {
 		assert.Equal(t, "KSTACK_VALIDATION_ERROR", res.Errors[0].Extensions["code"], query)
 		assert.Equal(t, message, res.Errors[0].Message, query)
 	}
-	res = post(t, srv, `{ sandboxPathFault }`)
-	assert.Equal(t, "no shell", res.Data["sandboxPathFault"], "the refresh's fault replaces the launch's")
+	res = post(t, srv, `{ sandboxPathFaultGet }`)
+	assert.Equal(t, "no shell", res.Data["sandboxPathFaultGet"], "the refresh's fault replaces the launch's")
 }
 
 // A machine with no sandbox answers the setting with no folders and no fault,
@@ -384,10 +380,10 @@ func TestSandboxPathAnswersTheSettingAndItsFolders(t *testing.T) {
 func TestSandboxPathHasNoFoldersWithNoSandbox(t *testing.T) {
 	srv, _, _, _ := sandboxPathServer(t, false, nil)
 
-	res := post(t, srv, `{ sandboxPath `+sandboxPathFields+` sandboxPathFault }`)
+	res := post(t, srv, `{ sandboxPathGet `+sandboxPathFields+` sandboxPathFaultGet }`)
 	require.Empty(t, res.Errors)
-	assert.Equal(t, map[string]any{"value": "$PATH", "refusal": nil, "folders": []any{}}, res.Data["sandboxPath"])
-	assert.Nil(t, res.Data["sandboxPathFault"])
+	assert.Equal(t, map[string]any{"value": "$PATH", "refusal": nil, "folders": []any{}}, res.Data["sandboxPathGet"])
+	assert.Nil(t, res.Data["sandboxPathFaultGet"])
 	for _, query := range []string{
 		`mutation { sandboxPathSet(value: "$PATH") { value } }`,
 		`mutation { sandboxPathRefresh { value } }`,
@@ -404,9 +400,9 @@ func TestARefusedSandboxPathIsAnsweredWithItsRefusal(t *testing.T) {
 	_, err := db.Write.Exec(`INSERT INTO settings (key, value, created_at, updated_at) VALUES ('sandbox.path', 'bin', 0, 0)`)
 	require.NoError(t, err)
 
-	res := post(t, srv, `{ sandboxPath `+sandboxPathFields+` }`)
+	res := post(t, srv, `{ sandboxPathGet `+sandboxPathFields+` }`)
 	require.Empty(t, res.Errors)
-	path := res.Data["sandboxPath"].(map[string]any)
+	path := res.Data["sandboxPathGet"].(map[string]any)
 	assert.Equal(t, `"bin" is not a full path.`, path["refusal"])
 	assert.Equal(t, []any{}, path["folders"])
 }
@@ -418,7 +414,7 @@ func TestASandboxPathReadThatFailsIsAnError(t *testing.T) {
 	_, err := db.Write.Exec(`DROP TABLE shell_path`)
 	require.NoError(t, err)
 
-	res := post(t, srv, `{ sandboxPath { value } }`)
+	res := post(t, srv, `{ sandboxPathGet { value } }`)
 	require.Len(t, res.Errors, 1)
 	res = post(t, srv, `mutation { sandboxPathSet(value: "/opt/bin") { value } }`)
 	require.Len(t, res.Errors, 1)
@@ -459,6 +455,6 @@ func TestSandboxPathRefreshAnswersTheSetting(t *testing.T) {
 	folders := got["sandboxPathRefresh"].(map[string]any)["folders"].([]any)
 	require.Len(t, folders, 1)
 	assert.Equal(t, bin, folders[0].(map[string]any)["path"])
-	res := post(t, srv, `{ sandboxPathFault }`)
-	assert.Nil(t, res.Data["sandboxPathFault"])
+	res := post(t, srv, `{ sandboxPathFaultGet }`)
+	assert.Nil(t, res.Data["sandboxPathFaultGet"])
 }

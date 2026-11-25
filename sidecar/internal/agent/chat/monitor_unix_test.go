@@ -170,7 +170,7 @@ func startSandboxRig(t *testing.T) sandboxRig {
 		t.Skip("no bash found on this machine")
 	}
 	box, lists := testBox(tool)
-	s, err := newService(openTestDB(t, data), chatsDirIn(data), monitorDirIn(data), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(openTestDB(t, data), chatsDirIn(data), monitorDirIn(data), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	startPrepared(t, s)
 	home := grantable(t, s)

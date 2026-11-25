@@ -78,8 +78,8 @@ type Runtime struct {
 	// ToolSettings is the user's settings of the model's tools.
 	ToolSettings *toolsettings.Service
 	// Shell is nil on a machine with no shell.
-	Shell         *bash.Tool
-	SandboxStatus sandbox.Status
+	Shell        *bash.Tool
+	SandboxState sandbox.State
 	// CloudTargets are the cloud platforms this build has, in Settings' order.
 	CloudTargets []permissions.Target
 	Settings     *settings.Service
@@ -290,9 +290,9 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		shell.SetCallDeadline(cfg.callDeadline)
 	}
 	rt.Shell = shell
-	rt.SandboxStatus = sandboxStatusOf(found, probed)
+	rt.SandboxState = sandboxStateOf(found, probed)
 	rt.CloudTargets = cloudTargets(platforms)
-	rt.Settings = newSettingsService(settingsStore, boxer, shell, rt.SandboxStatus, p.Bash, login.fault)
+	rt.Settings = newSettingsService(settingsStore, boxer, shell, rt.SandboxState, p.Bash, login.fault)
 
 	rt.Memory, err = memory.New(db, serverUIDLookup{clusters: rt.Cluster.Clusters()})
 	if err != nil {
@@ -317,7 +317,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.add("tool settings", lifecycle.CloseFunc(rt.ToolSettings.Close))
 
-	rt.Chat, err = chat.New(db, p.ChatsDir, p.MonitorDir, rt.LLM, clustercard.New(rt.Cluster), rt.Memory, rt.Tools, rt.Catalog, rt.SandboxStatus, rt.Settings, rt.CloudTargets)
+	rt.Chat, err = chat.New(db, p.ChatsDir, p.MonitorDir, rt.LLM, clustercard.New(rt.Cluster), rt.Memory, rt.Tools, rt.Catalog, rt.SandboxState, rt.Settings, rt.CloudTargets)
 	if err != nil {
 		return fail(err)
 	}
@@ -334,7 +334,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 
 	// Before the snapshot, so the first sandboxed run reads the shell's PATH
 	// this launch read. A launch whose read failed keeps the last one stored.
-	if login.path != nil && rt.SandboxStatus.Available {
+	if login.path != nil && rt.SandboxState.Available {
 		rt.add("shell PATH", lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
 			// Only when it changed, so nothing runs unasked on a machine
 			// whose tools did not; the executable probe part's Close ends it.
@@ -375,7 +375,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		ChatSvc:             rt.Chat,
 		MemorySvc:           rt.Memory,
 		LLMSvc:              rt.LLM,
-		SandboxStatus:       rt.SandboxStatus,
+		SandboxState:        rt.SandboxState,
 		Auth:                rt.KstackCloud,
 		ChatGPT:             rt.ChatGPT,
 		OpenRouter:          rt.OpenRouter,
@@ -397,9 +397,9 @@ func (rt *Runtime) resolver() *graph.Resolver {
 // cloudPlatformsFor is the cloud platforms a sandboxed run may reach: the
 // build's, over kc and the GitHub connector gh, or a test's in their place. A
 // machine with no sandbox has none, so it offers no switch.
-func cloudPlatformsFor(status sandbox.Status, configured []bash.CloudPlatform, kc *kubeconfig.Service, gh *github.Service) []bash.CloudPlatform {
+func cloudPlatformsFor(state sandbox.State, configured []bash.CloudPlatform, kc *kubeconfig.Service, gh *github.Service) []bash.CloudPlatform {
 	switch {
-	case !status.Available:
+	case !state.Available:
 		return nil
 	case configured != nil:
 		return configured

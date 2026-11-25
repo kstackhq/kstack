@@ -78,8 +78,10 @@ func scrubChild() int {
 	}
 	defer keys.Close()
 	<-keys.Restored()
+	states, stop := keys.WatchCredentialsState()
+	defer stop()
 	var ids []string
-	for _, st := range keys.States() {
+	for _, st := range <-states {
 		if st.Source == providercredentials.SourceEnvironmentKey {
 			ids = append(ids, st.ID)
 		}

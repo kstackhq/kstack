@@ -335,7 +335,7 @@ func TestTheSwitchIsReadLive(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	sess := s.sessionFor(c.ID, false, false)
 	assert.Empty(t, sess.Network(t.Context()))
@@ -382,7 +382,7 @@ func TestNoFolderAppliesWithoutASandbox(t *testing.T) {
 	require.NotEmpty(t, grantedFolders(t, s.sessionFor(c.ID, false, false)))
 
 	assert.Empty(t, grantedFolders(t, s.sessionFor(c.ID, true, false)), "a chat switched outside the sandbox gets none")
-	s.sandboxStatus = sandbox.Status{Reason: "no bwrap"}
+	s.sandboxState = sandbox.State{Reason: "no bwrap"}
 	assert.Empty(t, foldersFor(t, s, c.ID))
 	assert.Empty(t, grantedFolders(t, s.sessionFor(c.ID, false, false)))
 	listed, chat := folderGrants(t, s, c.ID)
@@ -395,7 +395,7 @@ func TestFoldersForAnswersNoneWithNoSnapshot(t *testing.T) {
 
 	s := newTestService(t)
 	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, nil, "")
-	s.sandboxStatus = sandbox.Status{Available: true}
+	s.sandboxState = sandbox.State{Available: true}
 	require.NoError(t, s.settings.GrantFolder(t.Context(), testutil.GrantableDir(t), false))
 	assert.Empty(t, foldersFor(t, s, ""), "a service with no zones checks no folder")
 }

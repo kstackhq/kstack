@@ -105,7 +105,7 @@ func TestStartTellsAPreStartWatchOfAStrandedRun(t *testing.T) {
 	c := seedChat(t, db, aChat("1", now))
 	stranded := seedTurn(t, db, c.ID, now)
 	setRunStatus(t, db, stranded.Run, RunRunning)
-	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 
 	w, err := s.WatchMessageCollection(t.Context(), c.ID)
@@ -128,7 +128,7 @@ func TestAFailedStartEndsThePreStartWatches(t *testing.T) {
 	t.Parallel()
 
 	db := openTestDB(t, t.TempDir())
-	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	w, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
@@ -174,7 +174,7 @@ func TestNewFailsWhenTheStatementsWillNotPrepare(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	require.NoError(t, db.Close())
 
-	_, err := New(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, tools.Box{}, noLists, sandbox.Status{}, testSettings(t), nil)
+	_, err := New(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, tools.Box{}, noLists, sandbox.State{}, testSettings(t), nil)
 
 	assert.ErrorContains(t, err, "prepare chat statements")
 }
@@ -186,7 +186,7 @@ func TestNewFailsWhenTheMonitorsDirectoryCannotBeMade(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(monitorDirIn(dir), nil, 0o600))
 
-	_, err := New(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, tools.Box{}, noLists, sandbox.Status{}, testSettings(t), nil)
+	_, err := New(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, tools.Box{}, noLists, sandbox.State{}, testSettings(t), nil)
 
 	assert.ErrorContains(t, err, "open the monitor's directory")
 }
@@ -197,7 +197,7 @@ func TestStartReportsAReconcileItCouldNotRun(t *testing.T) {
 	t.Parallel()
 
 	db := openTestDB(t, t.TempDir())
-	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	// The statements fail to close on the closed file; the directory is what matters.
 	t.Cleanup(func() { _ = s.Close() })
@@ -212,7 +212,7 @@ func TestStartReportsAReconcileItCouldNotRun(t *testing.T) {
 func TestAWatchBeforeStartIsAnswered(t *testing.T) {
 	t.Parallel()
 
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), testutil.Timeout)
@@ -231,7 +231,7 @@ func TestAWatchBeforeStartIsAnswered(t *testing.T) {
 func TestWorkArrivingAfterStopIsRefused(t *testing.T) {
 	t.Parallel()
 
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)
@@ -1478,7 +1478,7 @@ func TestASendDuringADeleteIsRefused(t *testing.T) {
 func TestStopCancelsTheTurnsAndSettlesThem(t *testing.T) {
 	t.Parallel()
 
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)
@@ -1500,7 +1500,7 @@ func TestASendAfterARestartContinuesTheSeq(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	first, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	first, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	stop, err := first.Start(t.Context())
 	require.NoError(t, err)
@@ -1654,7 +1654,7 @@ func TestASwitchTheStoreRefusesIsNotAMissingChat(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := newTestService(t)
-			s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+			s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 			c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 			refuse(t, s, "UPDATE", "chats")
 
@@ -1675,7 +1675,7 @@ func TestANetworkSwitchThatCannotReadTheChatWritesNothing(t *testing.T) {
 	t.Parallel()
 
 	s := startServiceOn(t, swapped(map[stmtID]string{stmtSelectChat: `SELECT 1, 2`}))
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 
 	_, err := s.SetNetworkEnabled(t.Context(), c.ID, true)
@@ -2115,7 +2115,7 @@ func TestAStartThatCannotCloseAStrandedCallFails(t *testing.T) {
 			require.NoError(t, err)
 			_, err = db.Write.Exec(tc.trigger)
 			require.NoError(t, err)
-			s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+			s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 			require.NoError(t, err)
 
 			_, err = s.Start(t.Context())
@@ -2633,7 +2633,7 @@ func TestTheSwitchIsWrittenAndWatched(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	s.sandboxStatus = sandbox.Status{Available: true}
+	s.sandboxState = sandbox.State{Available: true}
 	s.now = func() time.Time { return time.UnixMilli(5_000) }
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	w, err := s.WatchCollection(t.Context())
@@ -2666,7 +2666,7 @@ func TestASendThatSawTheOtherSwitchIsRefused(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	s.sandboxStatus = sandbox.Status{Available: true}
+	s.sandboxState = sandbox.State{Available: true}
 	first := sendAndSettle(t, s, nil, "1", "1", "hi")
 	_, err := s.SetSandboxDisabled(t.Context(), first.ChatID, true)
 	require.NoError(t, err)
@@ -2685,7 +2685,7 @@ func TestACreateThatSaysOutsideIsRefused(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	s.sandboxStatus = sandbox.Status{Available: true}
+	s.sandboxState = sandbox.State{Available: true}
 
 	_, err := s.Send(t.Context(), nil, ModeChat, "1", true, false, false, "fake", "fake", "high", reqID("1"), "hi", nil)
 	assert.ErrorIs(t, err, ErrChatSandboxChanged)
@@ -2697,7 +2697,7 @@ func TestAReplayIgnoresTheSwitch(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	s.sandboxStatus = sandbox.Status{Available: true}
+	s.sandboxState = sandbox.State{Available: true}
 	first := sendAndSettle(t, s, nil, "1", "1", "hi")
 	_, err := s.SetSandboxDisabled(t.Context(), first.ChatID, true)
 	require.NoError(t, err)
@@ -2729,7 +2729,7 @@ func TestTheNetworkSwitchIsTheChats(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 	s.now = func() time.Time { return time.UnixMilli(5_000) }
 	msg := sendAndSettle(t, s, nil, "1", "1", "hi")
 	created, _, err := s.Get(t.Context(), msg.ChatID)
@@ -2768,7 +2768,7 @@ func TestASendWithAStaleNetworkSwitchIsRefused(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 	first := sendAndSettle(t, s, nil, "1", "1", "hi")
 	_, err := s.SetNetworkEnabled(t.Context(), first.ChatID, true)
 	require.NoError(t, err)
@@ -2796,7 +2796,7 @@ func TestLeavingTheSandboxTurnsNetworkOff(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 	first := sendAndSettle(t, s, nil, "1", "1", "hi")
 	_, err := s.SetNetworkEnabled(t.Context(), first.ChatID, true)
 	require.NoError(t, err)
@@ -2835,7 +2835,7 @@ func TestNothingTurnsNetworkOnWhereItIsUnavailable(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkReason: "pasta not found"}
+	s.sandboxState = sandbox.State{Available: true, NetworkReason: "pasta not found"}
 	first := sendAndSettle(t, s, nil, "1", "1", "hi")
 
 	_, err := s.SetNetworkEnabled(t.Context(), first.ChatID, true)
@@ -2890,7 +2890,7 @@ func TestASendCarriesTheViewBeforeTheSandbox(t *testing.T) {
 	t.Parallel()
 
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 	first := sendAndSettle(t, s, nil, "1", "1", "tail webapp logs")
 	action := tailWebapp()
 	call := seedViewCall(t, s.db, first.ChatID, "toolu_view", &tools.Action{LogsView: &action})

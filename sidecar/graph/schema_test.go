@@ -2,6 +2,7 @@ package graph
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -29,5 +30,60 @@ func TestAuthProjectionCarriesNoTokens(t *testing.T) {
 		if !slices.Equal(got, tc.want) {
 			t.Fatalf("%s fields = %v, want %v — a field added here may be served straight off its Go type; if it carries no credential, add it to this list", tc.typeName, got, tc.want)
 		}
+	}
+}
+
+// A query with no caller is removed (docs/data-access.md): each field here has a document in the
+// webview.
+func TestEveryQueryFieldHasACaller(t *testing.T) {
+	var got []string
+	for _, f := range parsedSchema.Query.Fields {
+		if !strings.HasPrefix(f.Name, "__") {
+			got = append(got, f.Name)
+		}
+	}
+	slices.Sort(got)
+	want := []string{"chatPermissionRulesGet", "envVarsGet", "logsFetch", "permissionSettingsGet", "sandboxCloudAccessGet", "sandboxPathFaultGet", "sandboxPathGet", "sandboxStateGet"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("Query fields = %v, want %v", got, want)
+	}
+}
+
+// A query field ends in its contract's verb, and its description opens with the
+// contract (docs/data-access.md).
+func TestEveryQueryFieldIsNamedForItsContract(t *testing.T) {
+	opening := map[string]string{"Get": "A Get of ", "List": "A List of ", "Fetch": "A Fetch of "}
+	for _, f := range parsedSchema.Query.Fields {
+		if strings.HasPrefix(f.Name, "__") {
+			continue
+		}
+		var verb string
+		for v := range opening {
+			if strings.HasSuffix(f.Name, v) {
+				verb = v
+			}
+		}
+		if verb == "" {
+			t.Errorf("%s: ends in none of Get, List or Fetch", f.Name)
+			continue
+		}
+		if !strings.HasPrefix(f.Description, opening[verb]) {
+			t.Errorf("%s: description %q does not open with %q", f.Name, f.Description, opening[verb])
+		}
+	}
+}
+
+// A query's result type is named for its contract: a Get returns the value itself, a Fetch its
+// `<Noun>FetchResult`; and a noun of Kstack's own ends in State, never Status.
+func TestQueryResultTypesAreNamedForTheirContract(t *testing.T) {
+	results := map[string]string{}
+	for _, f := range parsedSchema.Query.Fields {
+		results[f.Name] = f.Type.Name()
+	}
+	if got := results["logsFetch"]; got != "LogsFetchResult" {
+		t.Errorf("logsFetch returns %s, want LogsFetchResult", got)
+	}
+	if got := results["sandboxStateGet"]; got != "SandboxState" {
+		t.Errorf("sandboxStateGet returns %s, want SandboxState", got)
 	}
 }

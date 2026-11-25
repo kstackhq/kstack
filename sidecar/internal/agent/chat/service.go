@@ -233,8 +233,8 @@ type service struct {
 	clusterCards ClusterCards
 	memories     Memories
 	lists        ToolLists
-	// sandboxStatus is whether sandboxed Bash is offered, which the switch needs.
-	sandboxStatus sandbox.Status
+	// sandboxState is whether sandboxed Bash is offered, which the switch needs.
+	sandboxState sandbox.State
 	// settings holds the modes, the always rules and the folders granted always
 	// each session decides by, and the zones a folder is checked against.
 	settings *settings.Service
@@ -313,13 +313,13 @@ type service struct {
 // that pick a turn's tools from it, whether the machine offers sandboxed Bash,
 // the user's settings a session's modes, rules and folders come from, and the
 // cloud targets the build has. Nothing runs until Start.
-func New(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, settingsSvc *settings.Service, cloudTargets []permissions.Target) (Service, error) {
-	return newService(db, chatsDir, monitorDir, llmSvc, clusterCards, memories, box, lists, sandboxStatus, settingsSvc, cloudTargets)
+func New(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxState sandbox.State, settingsSvc *settings.Service, cloudTargets []permissions.Target) (Service, error) {
+	return newService(db, chatsDir, monitorDir, llmSvc, clusterCards, memories, box, lists, sandboxState, settingsSvc, cloudTargets)
 }
 
 // newService is New returning the concrete type, for tests. A nil memories sends
 // no memory section.
-func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, settingsSvc *settings.Service, cloudTargets []permissions.Target) (*service, error) {
+func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxState sandbox.State, settingsSvc *settings.Service, cloudTargets []permissions.Target) (*service, error) {
 	chatsRoot, err := rootdir.MakeRoot(chatsDir)
 	if err != nil {
 		return nil, fmt.Errorf("open the chats' directory: %w", err)
@@ -345,7 +345,7 @@ func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, 
 		memories:           memories,
 		tools:              box,
 		lists:              lists,
-		sandboxStatus:      sandboxStatus,
+		sandboxState:       sandboxState,
 		settings:           settingsSvc,
 		cloudTargets:       cloudTargets,
 		turns:              map[ChatID]*turn{},
@@ -504,7 +504,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 	}
 	// After the lookup: a replay is answered by its key whatever the machine
 	// offers now.
-	if networkThisTurn && !s.sandboxStatus.NetworkAvailable {
+	if networkThisTurn && !s.sandboxState.NetworkAvailable {
 		return ChatMessage{}, ErrBadRequest
 	}
 	// After the lookup, never before: a check ahead of it would refuse a retry of
@@ -806,7 +806,7 @@ func (s *service) Rename(ctx context.Context, chatID ChatID, title string) (Chat
 
 // SetSandboxDisabled writes the chat's switch and returns the record it committed.
 func (s *service) SetSandboxDisabled(ctx context.Context, chatID ChatID, disabled bool) (Chat, error) {
-	if !s.sandboxStatus.Available {
+	if !s.sandboxState.Available {
 		return Chat{}, ErrBadRequest
 	}
 	var switched Chat
@@ -833,7 +833,7 @@ func (s *service) SetSandboxDisabled(ctx context.Context, chatID ChatID, disable
 // a chat outside the sandbox, so the switch is on only where it applies and a
 // chat back in the sandbox starts without it; turning it off is always accepted.
 func (s *service) SetNetworkEnabled(ctx context.Context, chatID ChatID, enabled bool) (Chat, error) {
-	if enabled && !s.sandboxStatus.NetworkAvailable {
+	if enabled && !s.sandboxState.NetworkAvailable {
 		return Chat{}, ErrBadRequest
 	}
 	var switched Chat

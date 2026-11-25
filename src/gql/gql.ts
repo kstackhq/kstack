@@ -29,7 +29,7 @@ type Documents = {
     "\n  subscription AuthStateWatch {\n    authStateWatch {\n      restoring\n      authenticated\n      identity {\n        sub\n        email\n        name\n      }\n    }\n  }\n": typeof types.AuthStateWatchDocument,
     "\n  mutation AuthLoginStart {\n    authLoginStart\n  }\n": typeof types.AuthLoginStartDocument,
     "\n  mutation AuthLogout {\n    authLogout\n  }\n": typeof types.AuthLogoutDocument,
-    "\n  query ChatPermissionRules($chatID: ChatID!) {\n    chatPermissionRules(chatID: $chatID) {\n      id\n      line\n    }\n  }\n": typeof types.ChatPermissionRulesDocument,
+    "\n  query ChatPermissionRulesGet($chatID: ChatID!) {\n    chatPermissionRulesGet(chatID: $chatID) {\n      id\n      line\n    }\n  }\n": typeof types.ChatPermissionRulesGetDocument,
     "\n  mutation ChatPermissionRuleRemove($chatID: ChatID!, $id: String!) {\n    chatPermissionRuleRemove(chatID: $chatID, id: $id) {\n      id\n    }\n  }\n": typeof types.ChatPermissionRuleRemoveDocument,
     "\n  mutation ChatSend(\n    $chatID: ChatID\n    $mode: ChatMode!\n    $clusterID: ClusterID!\n    $sandboxDisabled: Boolean!\n    $networkEnabled: Boolean!\n    $networkThisTurn: Boolean!\n    $providerID: String!\n    $modelID: String!\n    $effort: String!\n    $requestID: String!\n    $content: String!\n    $snapshot: LogsViewSnapshotInput\n  ) {\n    chatSend(\n      chatID: $chatID\n      mode: $mode\n      clusterID: $clusterID\n      sandboxDisabled: $sandboxDisabled\n      networkEnabled: $networkEnabled\n      networkThisTurn: $networkThisTurn\n      providerID: $providerID\n      modelID: $modelID\n      effort: $effort\n      requestID: $requestID\n      content: $content\n      snapshot: $snapshot\n    ) {\n      id\n      chatID\n      seq\n      status\n    }\n  }\n": typeof types.ChatSendDocument,
     "\n  subscription ChatCollectionWatch {\n    chatCollectionWatch {\n      type\n      chat {\n        id\n        title\n        mode\n        clusterID\n        createdAt\n        updatedAt\n        awaitingApproval\n        sandboxDisabled\n        networkEnabled\n      }\n    }\n  }\n": typeof types.ChatCollectionWatchDocument,
@@ -39,7 +39,7 @@ type Documents = {
     "\n  subscription ClusterCachedDataObjectCollectionWatch(\n    $id: ClusterID!\n    $cacheID: ObjectID!\n    $apiVersion: String!\n    $resource: String!\n  ) {\n    clusterCachedDataObjectCollectionWatch(id: $id, cacheID: $cacheID, apiVersion: $apiVersion, resource: $resource) {\n      type\n      cacheID\n      apiVersion\n      resource\n      object {\n        uid\n        apiVersion\n        kind\n        namespace\n        name\n        creationTimestamp\n        rawJSON\n      }\n    }\n  }\n": typeof types.ClusterCachedDataObjectCollectionWatchDocument,
     "\n  subscription ClusterCacheStatsStateWatch($id: ClusterID!, $cacheID: ObjectID!) {\n    clusterCacheStatsStateWatch(id: $id, cacheID: $cacheID) {\n      exists\n      bytes\n      dbBytes\n      walBytes\n      shmBytes\n      objectCount\n      kindCount\n    }\n  }\n": typeof types.ClusterCacheStatsStateWatchDocument,
     "\n  subscription ClusterScheduleStateWatch($id: ClusterID!) {\n    clusterScheduleStateWatch(id: $id) {\n      nextRequeueAt\n      probing\n      failures\n    }\n  }\n": typeof types.ClusterScheduleStateWatchDocument,
-    "\n  subscription ClusterDataRateTimeSeriesFeed($id: ClusterID!) {\n    clusterDataRateTimeSeriesFeed(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n": typeof types.ClusterDataRateTimeSeriesFeedDocument,
+    "\n  subscription ClusterDataRateSampleFeed($id: ClusterID!) {\n    clusterDataRateSampleFeed(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n": typeof types.ClusterDataRateSampleFeedDocument,
     "\n  mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {\n    clusterEnabledSet(id: $id, enabled: $enabled) {\n      id\n      spec {\n        enabled\n      }\n    }\n  }\n": typeof types.ClusterEnabledSetDocument,
     "\n  mutation ClusterSyncEnabledSet($id: ClusterID!, $syncEnabled: Boolean!) {\n    clusterSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n": typeof types.ClusterSyncEnabledSetDocument,
     "\n  mutation ClusterCacheClear($id: ObjectID!) {\n    clusterCacheClear(id: $id) {\n      id\n    }\n  }\n": typeof types.ClusterCacheClearDocument,
@@ -70,7 +70,7 @@ type Documents = {
     "\n  mutation GoogleConnect($fresh: Boolean!) {\n    googleConnect(fresh: $fresh)\n  }\n": typeof types.GoogleConnectDocument,
     "\n  mutation GoogleConnectCancel {\n    googleConnectCancel\n  }\n": typeof types.GoogleConnectCancelDocument,
     "\n  mutation GoogleDisconnect {\n    googleDisconnect\n  }\n": typeof types.GoogleDisconnectDocument,
-    "\n  query EnvVars($clusterID: ClusterID) {\n    envVars(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n": typeof types.EnvVarsDocument,
+    "\n  query EnvVarsGet($clusterID: ClusterID) {\n    envVarsGet(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n": typeof types.EnvVarsGetDocument,
     "\n  mutation EnvVarSet($clusterID: ClusterID, $name: String!, $value: String!, $target: EnvVarTarget!) {\n    envVarSet(clusterID: $clusterID, name: $name, value: $value, target: $target) {\n      name\n    }\n  }\n": typeof types.EnvVarSetDocument,
     "\n  mutation EnvVarRemove($clusterID: ClusterID, $name: String!) {\n    envVarRemove(clusterID: $clusterID, name: $name) {\n      name\n    }\n  }\n": typeof types.EnvVarRemoveDocument,
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": typeof types.LogsFetchDocument,
@@ -80,7 +80,7 @@ type Documents = {
     "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n": typeof types.MemoryDeleteDocument,
     "\n  subscription ModelsStateWatch {\n    modelsStateWatch {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": typeof types.ModelsStateWatchDocument,
     "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n": typeof types.ChatNetworkEnabledSetDocument,
-    "\n  query PermissionSettings {\n    permissionSettings {\n      targets {\n        target\n        defaultMode\n        accounts {\n          account\n          name\n          clusterID\n          mode\n          source\n        }\n      }\n      rules {\n        id\n        effect\n        accessLevel\n        principal\n        target\n        scope\n        service\n        operation\n        resource\n        line\n      }\n      alwaysAsks\n      accessControl\n    }\n  }\n": typeof types.PermissionSettingsDocument,
+    "\n  query PermissionSettingsGet {\n    permissionSettingsGet {\n      targets {\n        target\n        defaultMode\n        accounts {\n          account\n          name\n          clusterID\n          mode\n          source\n        }\n      }\n      rules {\n        id\n        effect\n        accessLevel\n        principal\n        target\n        scope\n        service\n        operation\n        resource\n        line\n      }\n      alwaysAsks\n      accessControl\n    }\n  }\n": typeof types.PermissionSettingsGetDocument,
     "\n  mutation PermissionDefaultModeSet($target: PermissionTarget!, $mode: PermissionMode!) {\n    permissionDefaultModeSet(target: $target, mode: $mode) {\n      alwaysAsks\n    }\n  }\n": typeof types.PermissionDefaultModeSetDocument,
     "\n  mutation PermissionModeSet($target: PermissionTarget!, $account: String!, $mode: PermissionMode!) {\n    permissionModeSet(target: $target, account: $account, mode: $mode) {\n      alwaysAsks\n    }\n  }\n": typeof types.PermissionModeSetDocument,
     "\n  mutation PermissionModeClear($target: PermissionTarget!, $account: String!) {\n    permissionModeClear(target: $target, account: $account) {\n      alwaysAsks\n    }\n  }\n": typeof types.PermissionModeClearDocument,
@@ -90,7 +90,7 @@ type Documents = {
     "\n  subscription ProviderCredentialsStateWatch {\n    providerCredentialsStateWatch {\n      id\n      label\n      keyVariable\n      source\n      hasEnvironmentKey\n      hasSavedKey\n      failure\n    }\n  }\n": typeof types.ProviderCredentialsStateWatchDocument,
     "\n  mutation ProviderKeySave($providerID: String!, $key: String!) {\n    providerKeySave(providerID: $providerID, key: $key)\n  }\n": typeof types.ProviderKeySaveDocument,
     "\n  mutation ProviderKeyDelete($providerID: String!) {\n    providerKeyDelete(providerID: $providerID)\n  }\n": typeof types.ProviderKeyDeleteDocument,
-    "\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n": typeof types.SandboxCloudAccessDocument,
+    "\n  query SandboxCloudAccessGet {\n    sandboxCloudAccessGet {\n      target\n      on\n    }\n  }\n": typeof types.SandboxCloudAccessGetDocument,
     "\n  subscription SandboxConsoleStateWatch {\n    sandboxConsoleStateWatch {\n      run {\n        number\n        command\n        clusterID\n        network\n        running\n        output\n        discarded\n        exitCode\n        notice\n        durationMs\n      }\n    }\n  }\n": typeof types.SandboxConsoleStateWatchDocument,
     "\n  mutation SandboxConsoleRun($command: String!, $clusterID: ClusterID, $network: Boolean!) {\n    sandboxConsoleRun(command: $command, clusterID: $clusterID, network: $network)\n  }\n": typeof types.SandboxConsoleRunDocument,
     "\n  mutation SandboxConsoleStop($number: Int) {\n    sandboxConsoleStop(number: $number)\n  }\n": typeof types.SandboxConsoleStopDocument,
@@ -101,11 +101,11 @@ type Documents = {
     "\n  subscription SandboxFoldersStateWatch($chatID: ChatID) {\n    sandboxFoldersStateWatch(chatID: $chatID) {\n      always {\n        id\n        path\n        write\n        refusal\n      }\n      chat {\n        id\n        path\n        write\n        refusal\n      }\n      never\n      closed\n      wide\n    }\n  }\n": typeof types.SandboxFoldersStateWatchDocument,
     "\n  mutation FolderGrant($chatID: ChatID, $path: String!, $write: Boolean!, $duration: GrantDuration!) {\n    folderGrant(chatID: $chatID, path: $path, write: $write, duration: $duration) {\n      wide\n    }\n  }\n": typeof types.FolderGrantDocument,
     "\n  mutation FolderRevoke($chatID: ChatID, $id: String!, $duration: GrantDuration!) {\n    folderRevoke(chatID: $chatID, id: $id, duration: $duration) {\n      wide\n    }\n  }\n": typeof types.FolderRevokeDocument,
-    "\n  query SandboxPath {\n    sandboxPath {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFault\n  }\n": typeof types.SandboxPathDocument,
+    "\n  query SandboxPathGet {\n    sandboxPathGet {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFaultGet\n  }\n": typeof types.SandboxPathGetDocument,
     "\n  mutation SandboxPathSet($value: String!) {\n    sandboxPathSet(value: $value) {\n      value\n    }\n  }\n": typeof types.SandboxPathSetDocument,
     "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      value\n    }\n  }\n": typeof types.SandboxPathRefreshDocument,
     "\n  mutation ChatSandboxDisabledSet($id: ChatID!, $sandboxDisabled: Boolean!) {\n    chatSandboxDisabledSet(id: $id, sandboxDisabled: $sandboxDisabled) {\n      id\n      sandboxDisabled\n    }\n  }\n": typeof types.ChatSandboxDisabledSetDocument,
-    "\n  query Sandbox {\n    sandbox {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n": typeof types.SandboxDocument,
+    "\n  query SandboxStateGet {\n    sandboxStateGet {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n": typeof types.SandboxStateGetDocument,
     "\n  subscription ToolSettingsStateWatch {\n    toolSettingsStateWatch {\n      name\n      label\n      group\n      description\n      enabled\n      alwaysOn\n    }\n  }\n": typeof types.ToolSettingsStateWatchDocument,
     "\n  mutation ToolSettingSet($name: String!, $enabled: Boolean!) {\n    toolSettingSet(name: $name, enabled: $enabled) {\n      name\n      enabled\n    }\n  }\n": typeof types.ToolSettingSetDocument,
 };
@@ -125,7 +125,7 @@ const documents: Documents = {
     "\n  subscription AuthStateWatch {\n    authStateWatch {\n      restoring\n      authenticated\n      identity {\n        sub\n        email\n        name\n      }\n    }\n  }\n": types.AuthStateWatchDocument,
     "\n  mutation AuthLoginStart {\n    authLoginStart\n  }\n": types.AuthLoginStartDocument,
     "\n  mutation AuthLogout {\n    authLogout\n  }\n": types.AuthLogoutDocument,
-    "\n  query ChatPermissionRules($chatID: ChatID!) {\n    chatPermissionRules(chatID: $chatID) {\n      id\n      line\n    }\n  }\n": types.ChatPermissionRulesDocument,
+    "\n  query ChatPermissionRulesGet($chatID: ChatID!) {\n    chatPermissionRulesGet(chatID: $chatID) {\n      id\n      line\n    }\n  }\n": types.ChatPermissionRulesGetDocument,
     "\n  mutation ChatPermissionRuleRemove($chatID: ChatID!, $id: String!) {\n    chatPermissionRuleRemove(chatID: $chatID, id: $id) {\n      id\n    }\n  }\n": types.ChatPermissionRuleRemoveDocument,
     "\n  mutation ChatSend(\n    $chatID: ChatID\n    $mode: ChatMode!\n    $clusterID: ClusterID!\n    $sandboxDisabled: Boolean!\n    $networkEnabled: Boolean!\n    $networkThisTurn: Boolean!\n    $providerID: String!\n    $modelID: String!\n    $effort: String!\n    $requestID: String!\n    $content: String!\n    $snapshot: LogsViewSnapshotInput\n  ) {\n    chatSend(\n      chatID: $chatID\n      mode: $mode\n      clusterID: $clusterID\n      sandboxDisabled: $sandboxDisabled\n      networkEnabled: $networkEnabled\n      networkThisTurn: $networkThisTurn\n      providerID: $providerID\n      modelID: $modelID\n      effort: $effort\n      requestID: $requestID\n      content: $content\n      snapshot: $snapshot\n    ) {\n      id\n      chatID\n      seq\n      status\n    }\n  }\n": types.ChatSendDocument,
     "\n  subscription ChatCollectionWatch {\n    chatCollectionWatch {\n      type\n      chat {\n        id\n        title\n        mode\n        clusterID\n        createdAt\n        updatedAt\n        awaitingApproval\n        sandboxDisabled\n        networkEnabled\n      }\n    }\n  }\n": types.ChatCollectionWatchDocument,
@@ -135,7 +135,7 @@ const documents: Documents = {
     "\n  subscription ClusterCachedDataObjectCollectionWatch(\n    $id: ClusterID!\n    $cacheID: ObjectID!\n    $apiVersion: String!\n    $resource: String!\n  ) {\n    clusterCachedDataObjectCollectionWatch(id: $id, cacheID: $cacheID, apiVersion: $apiVersion, resource: $resource) {\n      type\n      cacheID\n      apiVersion\n      resource\n      object {\n        uid\n        apiVersion\n        kind\n        namespace\n        name\n        creationTimestamp\n        rawJSON\n      }\n    }\n  }\n": types.ClusterCachedDataObjectCollectionWatchDocument,
     "\n  subscription ClusterCacheStatsStateWatch($id: ClusterID!, $cacheID: ObjectID!) {\n    clusterCacheStatsStateWatch(id: $id, cacheID: $cacheID) {\n      exists\n      bytes\n      dbBytes\n      walBytes\n      shmBytes\n      objectCount\n      kindCount\n    }\n  }\n": types.ClusterCacheStatsStateWatchDocument,
     "\n  subscription ClusterScheduleStateWatch($id: ClusterID!) {\n    clusterScheduleStateWatch(id: $id) {\n      nextRequeueAt\n      probing\n      failures\n    }\n  }\n": types.ClusterScheduleStateWatchDocument,
-    "\n  subscription ClusterDataRateTimeSeriesFeed($id: ClusterID!) {\n    clusterDataRateTimeSeriesFeed(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n": types.ClusterDataRateTimeSeriesFeedDocument,
+    "\n  subscription ClusterDataRateSampleFeed($id: ClusterID!) {\n    clusterDataRateSampleFeed(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n": types.ClusterDataRateSampleFeedDocument,
     "\n  mutation ClusterEnabledSet($id: ClusterID!, $enabled: Boolean!) {\n    clusterEnabledSet(id: $id, enabled: $enabled) {\n      id\n      spec {\n        enabled\n      }\n    }\n  }\n": types.ClusterEnabledSetDocument,
     "\n  mutation ClusterSyncEnabledSet($id: ClusterID!, $syncEnabled: Boolean!) {\n    clusterSyncEnabledSet(id: $id, syncEnabled: $syncEnabled) {\n      id\n      spec {\n        syncEnabled\n      }\n    }\n  }\n": types.ClusterSyncEnabledSetDocument,
     "\n  mutation ClusterCacheClear($id: ObjectID!) {\n    clusterCacheClear(id: $id) {\n      id\n    }\n  }\n": types.ClusterCacheClearDocument,
@@ -166,7 +166,7 @@ const documents: Documents = {
     "\n  mutation GoogleConnect($fresh: Boolean!) {\n    googleConnect(fresh: $fresh)\n  }\n": types.GoogleConnectDocument,
     "\n  mutation GoogleConnectCancel {\n    googleConnectCancel\n  }\n": types.GoogleConnectCancelDocument,
     "\n  mutation GoogleDisconnect {\n    googleDisconnect\n  }\n": types.GoogleDisconnectDocument,
-    "\n  query EnvVars($clusterID: ClusterID) {\n    envVars(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n": types.EnvVarsDocument,
+    "\n  query EnvVarsGet($clusterID: ClusterID) {\n    envVarsGet(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n": types.EnvVarsGetDocument,
     "\n  mutation EnvVarSet($clusterID: ClusterID, $name: String!, $value: String!, $target: EnvVarTarget!) {\n    envVarSet(clusterID: $clusterID, name: $name, value: $value, target: $target) {\n      name\n    }\n  }\n": types.EnvVarSetDocument,
     "\n  mutation EnvVarRemove($clusterID: ClusterID, $name: String!) {\n    envVarRemove(clusterID: $clusterID, name: $name) {\n      name\n    }\n  }\n": types.EnvVarRemoveDocument,
     "\n  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {\n    logsFetch(id: $id, request: $request) {\n      records {\n        timestamp\n        message\n        truncatedBytes\n        cursor\n        stream {\n          namespace\n          pod\n          container\n          previous\n        }\n        place {\n          node\n          region\n          zone\n          os\n          arch\n        }\n        gap {\n          after\n          before\n        }\n      }\n      page {\n        prev\n        next\n        follow\n      }\n      notices {\n        code\n        message\n      }\n    }\n  }\n": types.LogsFetchDocument,
@@ -176,7 +176,7 @@ const documents: Documents = {
     "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n": types.MemoryDeleteDocument,
     "\n  subscription ModelsStateWatch {\n    modelsStateWatch {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": types.ModelsStateWatchDocument,
     "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n": types.ChatNetworkEnabledSetDocument,
-    "\n  query PermissionSettings {\n    permissionSettings {\n      targets {\n        target\n        defaultMode\n        accounts {\n          account\n          name\n          clusterID\n          mode\n          source\n        }\n      }\n      rules {\n        id\n        effect\n        accessLevel\n        principal\n        target\n        scope\n        service\n        operation\n        resource\n        line\n      }\n      alwaysAsks\n      accessControl\n    }\n  }\n": types.PermissionSettingsDocument,
+    "\n  query PermissionSettingsGet {\n    permissionSettingsGet {\n      targets {\n        target\n        defaultMode\n        accounts {\n          account\n          name\n          clusterID\n          mode\n          source\n        }\n      }\n      rules {\n        id\n        effect\n        accessLevel\n        principal\n        target\n        scope\n        service\n        operation\n        resource\n        line\n      }\n      alwaysAsks\n      accessControl\n    }\n  }\n": types.PermissionSettingsGetDocument,
     "\n  mutation PermissionDefaultModeSet($target: PermissionTarget!, $mode: PermissionMode!) {\n    permissionDefaultModeSet(target: $target, mode: $mode) {\n      alwaysAsks\n    }\n  }\n": types.PermissionDefaultModeSetDocument,
     "\n  mutation PermissionModeSet($target: PermissionTarget!, $account: String!, $mode: PermissionMode!) {\n    permissionModeSet(target: $target, account: $account, mode: $mode) {\n      alwaysAsks\n    }\n  }\n": types.PermissionModeSetDocument,
     "\n  mutation PermissionModeClear($target: PermissionTarget!, $account: String!) {\n    permissionModeClear(target: $target, account: $account) {\n      alwaysAsks\n    }\n  }\n": types.PermissionModeClearDocument,
@@ -186,7 +186,7 @@ const documents: Documents = {
     "\n  subscription ProviderCredentialsStateWatch {\n    providerCredentialsStateWatch {\n      id\n      label\n      keyVariable\n      source\n      hasEnvironmentKey\n      hasSavedKey\n      failure\n    }\n  }\n": types.ProviderCredentialsStateWatchDocument,
     "\n  mutation ProviderKeySave($providerID: String!, $key: String!) {\n    providerKeySave(providerID: $providerID, key: $key)\n  }\n": types.ProviderKeySaveDocument,
     "\n  mutation ProviderKeyDelete($providerID: String!) {\n    providerKeyDelete(providerID: $providerID)\n  }\n": types.ProviderKeyDeleteDocument,
-    "\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n": types.SandboxCloudAccessDocument,
+    "\n  query SandboxCloudAccessGet {\n    sandboxCloudAccessGet {\n      target\n      on\n    }\n  }\n": types.SandboxCloudAccessGetDocument,
     "\n  subscription SandboxConsoleStateWatch {\n    sandboxConsoleStateWatch {\n      run {\n        number\n        command\n        clusterID\n        network\n        running\n        output\n        discarded\n        exitCode\n        notice\n        durationMs\n      }\n    }\n  }\n": types.SandboxConsoleStateWatchDocument,
     "\n  mutation SandboxConsoleRun($command: String!, $clusterID: ClusterID, $network: Boolean!) {\n    sandboxConsoleRun(command: $command, clusterID: $clusterID, network: $network)\n  }\n": types.SandboxConsoleRunDocument,
     "\n  mutation SandboxConsoleStop($number: Int) {\n    sandboxConsoleStop(number: $number)\n  }\n": types.SandboxConsoleStopDocument,
@@ -197,11 +197,11 @@ const documents: Documents = {
     "\n  subscription SandboxFoldersStateWatch($chatID: ChatID) {\n    sandboxFoldersStateWatch(chatID: $chatID) {\n      always {\n        id\n        path\n        write\n        refusal\n      }\n      chat {\n        id\n        path\n        write\n        refusal\n      }\n      never\n      closed\n      wide\n    }\n  }\n": types.SandboxFoldersStateWatchDocument,
     "\n  mutation FolderGrant($chatID: ChatID, $path: String!, $write: Boolean!, $duration: GrantDuration!) {\n    folderGrant(chatID: $chatID, path: $path, write: $write, duration: $duration) {\n      wide\n    }\n  }\n": types.FolderGrantDocument,
     "\n  mutation FolderRevoke($chatID: ChatID, $id: String!, $duration: GrantDuration!) {\n    folderRevoke(chatID: $chatID, id: $id, duration: $duration) {\n      wide\n    }\n  }\n": types.FolderRevokeDocument,
-    "\n  query SandboxPath {\n    sandboxPath {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFault\n  }\n": types.SandboxPathDocument,
+    "\n  query SandboxPathGet {\n    sandboxPathGet {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFaultGet\n  }\n": types.SandboxPathGetDocument,
     "\n  mutation SandboxPathSet($value: String!) {\n    sandboxPathSet(value: $value) {\n      value\n    }\n  }\n": types.SandboxPathSetDocument,
     "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      value\n    }\n  }\n": types.SandboxPathRefreshDocument,
     "\n  mutation ChatSandboxDisabledSet($id: ChatID!, $sandboxDisabled: Boolean!) {\n    chatSandboxDisabledSet(id: $id, sandboxDisabled: $sandboxDisabled) {\n      id\n      sandboxDisabled\n    }\n  }\n": types.ChatSandboxDisabledSetDocument,
-    "\n  query Sandbox {\n    sandbox {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n": types.SandboxDocument,
+    "\n  query SandboxStateGet {\n    sandboxStateGet {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n": types.SandboxStateGetDocument,
     "\n  subscription ToolSettingsStateWatch {\n    toolSettingsStateWatch {\n      name\n      label\n      group\n      description\n      enabled\n      alwaysOn\n    }\n  }\n": types.ToolSettingsStateWatchDocument,
     "\n  mutation ToolSettingSet($name: String!, $enabled: Boolean!) {\n    toolSettingSet(name: $name, enabled: $enabled) {\n      name\n      enabled\n    }\n  }\n": types.ToolSettingSetDocument,
 };
@@ -283,7 +283,7 @@ export function graphql(source: "\n  mutation AuthLogout {\n    authLogout\n  }\
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query ChatPermissionRules($chatID: ChatID!) {\n    chatPermissionRules(chatID: $chatID) {\n      id\n      line\n    }\n  }\n"): (typeof documents)["\n  query ChatPermissionRules($chatID: ChatID!) {\n    chatPermissionRules(chatID: $chatID) {\n      id\n      line\n    }\n  }\n"];
+export function graphql(source: "\n  query ChatPermissionRulesGet($chatID: ChatID!) {\n    chatPermissionRulesGet(chatID: $chatID) {\n      id\n      line\n    }\n  }\n"): (typeof documents)["\n  query ChatPermissionRulesGet($chatID: ChatID!) {\n    chatPermissionRulesGet(chatID: $chatID) {\n      id\n      line\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -323,7 +323,7 @@ export function graphql(source: "\n  subscription ClusterScheduleStateWatch($id:
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  subscription ClusterDataRateTimeSeriesFeed($id: ClusterID!) {\n    clusterDataRateTimeSeriesFeed(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n"): (typeof documents)["\n  subscription ClusterDataRateTimeSeriesFeed($id: ClusterID!) {\n    clusterDataRateTimeSeriesFeed(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n"];
+export function graphql(source: "\n  subscription ClusterDataRateSampleFeed($id: ClusterID!) {\n    clusterDataRateSampleFeed(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n"): (typeof documents)["\n  subscription ClusterDataRateSampleFeed($id: ClusterID!) {\n    clusterDataRateSampleFeed(id: $id) {\n      intervalSeconds\n      windowSeconds\n      samples {\n        at\n        receivedBytesPerSecond\n        sentBytesPerSecond\n      }\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -447,7 +447,7 @@ export function graphql(source: "\n  mutation GoogleDisconnect {\n    googleDisc
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query EnvVars($clusterID: ClusterID) {\n    envVars(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n"): (typeof documents)["\n  query EnvVars($clusterID: ClusterID) {\n    envVars(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n"];
+export function graphql(source: "\n  query EnvVarsGet($clusterID: ClusterID) {\n    envVarsGet(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n"): (typeof documents)["\n  query EnvVarsGet($clusterID: ClusterID) {\n    envVarsGet(clusterID: $clusterID) {\n      name\n      value\n      target\n      refusal\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -487,7 +487,7 @@ export function graphql(source: "\n  mutation ChatNetworkEnabledSet($id: ChatID!
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query PermissionSettings {\n    permissionSettings {\n      targets {\n        target\n        defaultMode\n        accounts {\n          account\n          name\n          clusterID\n          mode\n          source\n        }\n      }\n      rules {\n        id\n        effect\n        accessLevel\n        principal\n        target\n        scope\n        service\n        operation\n        resource\n        line\n      }\n      alwaysAsks\n      accessControl\n    }\n  }\n"): (typeof documents)["\n  query PermissionSettings {\n    permissionSettings {\n      targets {\n        target\n        defaultMode\n        accounts {\n          account\n          name\n          clusterID\n          mode\n          source\n        }\n      }\n      rules {\n        id\n        effect\n        accessLevel\n        principal\n        target\n        scope\n        service\n        operation\n        resource\n        line\n      }\n      alwaysAsks\n      accessControl\n    }\n  }\n"];
+export function graphql(source: "\n  query PermissionSettingsGet {\n    permissionSettingsGet {\n      targets {\n        target\n        defaultMode\n        accounts {\n          account\n          name\n          clusterID\n          mode\n          source\n        }\n      }\n      rules {\n        id\n        effect\n        accessLevel\n        principal\n        target\n        scope\n        service\n        operation\n        resource\n        line\n      }\n      alwaysAsks\n      accessControl\n    }\n  }\n"): (typeof documents)["\n  query PermissionSettingsGet {\n    permissionSettingsGet {\n      targets {\n        target\n        defaultMode\n        accounts {\n          account\n          name\n          clusterID\n          mode\n          source\n        }\n      }\n      rules {\n        id\n        effect\n        accessLevel\n        principal\n        target\n        scope\n        service\n        operation\n        resource\n        line\n      }\n      alwaysAsks\n      accessControl\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -527,7 +527,7 @@ export function graphql(source: "\n  mutation ProviderKeyDelete($providerID: Str
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n"): (typeof documents)["\n  query SandboxCloudAccess {\n    sandboxCloudAccess {\n      target\n      on\n    }\n  }\n"];
+export function graphql(source: "\n  query SandboxCloudAccessGet {\n    sandboxCloudAccessGet {\n      target\n      on\n    }\n  }\n"): (typeof documents)["\n  query SandboxCloudAccessGet {\n    sandboxCloudAccessGet {\n      target\n      on\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -571,7 +571,7 @@ export function graphql(source: "\n  mutation FolderRevoke($chatID: ChatID, $id:
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query SandboxPath {\n    sandboxPath {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFault\n  }\n"): (typeof documents)["\n  query SandboxPath {\n    sandboxPath {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFault\n  }\n"];
+export function graphql(source: "\n  query SandboxPathGet {\n    sandboxPathGet {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFaultGet\n  }\n"): (typeof documents)["\n  query SandboxPathGet {\n    sandboxPathGet {\n      value\n      refusal\n      folders {\n        path\n        origin\n        target\n        searched\n        reason\n        addable\n        shared\n      }\n    }\n    sandboxPathFaultGet\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -587,7 +587,7 @@ export function graphql(source: "\n  mutation ChatSandboxDisabledSet($id: ChatID
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Sandbox {\n    sandbox {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n"): (typeof documents)["\n  query Sandbox {\n    sandbox {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n"];
+export function graphql(source: "\n  query SandboxStateGet {\n    sandboxStateGet {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n"): (typeof documents)["\n  query SandboxStateGet {\n    sandboxStateGet {\n      available\n      reason\n      networkAvailable\n      networkReason\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

@@ -964,7 +964,7 @@ func TestASettleThatFailsUntilStopLeavesTheRunForTheNextStart(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)
@@ -1349,7 +1349,7 @@ func TestAStrandedAnswerKeepsItsLastCheckpoint(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	s.checkpointEvery = 0
 	stop, err := s.Start(t.Context())
@@ -1569,7 +1569,7 @@ func TestATurnsRuntimeCarriesItsChatsSwitch(t *testing.T) {
 		assert.NoError(t, err)
 	}
 	s = startServiceWithTool(t, runtimeTool{testTool: testTool{name: "where"}, before: flip})
-	s.sandboxStatus = sandbox.Status{Available: true}
+	s.sandboxState = sandbox.State{Available: true}
 	msg := sendAndSettle(t, s, nil, "1", "first", "hi")
 	_, err := s.SetSandboxDisabled(t.Context(), msg.ChatID, true)
 	require.NoError(t, err)

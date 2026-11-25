@@ -15,9 +15,9 @@
 // One cluster's live diagnostics, each a stream the Clusters dialog and the status popover
 // read: the cache's contents, the next connection check, and the connection's data rate.
 import { graphql } from '@/gql';
+import { sampleFeedReducer } from '@/lib/graphql/sample-feed';
+import type { SampleFeedFrame } from '@/lib/graphql/sample-feed';
 import { stateWatchReducer } from '@/lib/graphql/state-watch';
-import { timeSeriesFeedReducer } from '@/lib/graphql/time-series-feed';
-import type { TimeSeriesFeedFrame } from '@/lib/graphql/time-series-feed';
 import { perFrame, useFoldedSubscription } from '@/lib/graphql/use-folded-subscription';
 
 // The cache's contents as a state watch. NOT read off the ClusterCache record: that
@@ -101,12 +101,12 @@ export function useClusterScheduleStateWatch(clusterId: string): NextCheckState 
   };
 }
 
-// The connection's data rate as a time series feed: the sidecar's window first, then each new sample.
+// The connection's data rate as a sample feed: the sidecar's window first, then each new sample.
 // Unshared: a view mounting into a running shared stream would never see the window. Paused
 // for a disabled cluster, which the sidecar refuses rather than reads as idle.
-const ClusterDataRateTimeSeriesFeedDocument = graphql(`
-  subscription ClusterDataRateTimeSeriesFeed($id: ClusterID!) {
-    clusterDataRateTimeSeriesFeed(id: $id) {
+const ClusterDataRateSampleFeedDocument = graphql(`
+  subscription ClusterDataRateSampleFeed($id: ClusterID!) {
+    clusterDataRateSampleFeed(id: $id) {
       intervalSeconds
       windowSeconds
       samples {
@@ -119,13 +119,13 @@ const ClusterDataRateTimeSeriesFeedDocument = graphql(`
 `);
 
 type DataRateSample = { at: string; receivedBytesPerSecond: number; sentBytesPerSecond: number };
-type DataRateSeries = TimeSeriesFeedFrame<DataRateSample>;
+type DataRateSeries = SampleFeedFrame<DataRateSample>;
 
 // Null until the window arrives.
-export function useClusterDataRateTimeSeriesFeed(clusterId: string, pause: boolean): DataRateSeries | null {
-  const { data } = useFoldedSubscription<{ clusterDataRateTimeSeriesFeed: DataRateSeries }, DataRateSeries>(
-    { query: ClusterDataRateTimeSeriesFeedDocument, variables: { id: clusterId }, pause },
-    timeSeriesFeedReducer((resp) => resp.clusterDataRateTimeSeriesFeed),
+export function useClusterDataRateSampleFeed(clusterId: string, pause: boolean): DataRateSeries | null {
+  const { data } = useFoldedSubscription<{ clusterDataRateSampleFeed: DataRateSeries }, DataRateSeries>(
+    { query: ClusterDataRateSampleFeedDocument, variables: { id: clusterId }, pause },
+    sampleFeedReducer((resp) => resp.clusterDataRateSampleFeed),
     { unshared: true },
   );
   return data ?? null;

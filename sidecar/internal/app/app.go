@@ -283,8 +283,8 @@ type sandboxer interface {
 // afresh, as a run does: it lists the other users' homes, which can appear
 // while the sidecar runs. On a machine with no sandbox it stores no PATH, keeps
 // no fault and refuses every folder.
-func newSettingsService(store *settings.Store, sb sandboxer, shell *bash.Tool, status sandbox.Status, kstack bash.Paths, fault string) *settings.Service {
-	if !status.Available {
+func newSettingsService(store *settings.Store, sb sandboxer, shell *bash.Tool, state sandbox.State, kstack bash.Paths, fault string) *settings.Service {
+	if !state.Available {
 		return settings.NewService(store, nil, nil, nil, "")
 	}
 	home, _ := os.UserHomeDir()
@@ -320,11 +320,11 @@ func probeExecutables(ctx context.Context, read func(context.Context) ([]setting
 	start(registered)
 }
 
-// sandboxStatusOf is whether sandboxed Bash is offered: a sandbox with no shell
+// sandboxStateOf is whether sandboxed Bash is offered: a sandbox with no shell
 // has no command to confine.
-func sandboxStatusOf(shellFound bool, probed sandbox.Status) sandbox.Status {
+func sandboxStateOf(shellFound bool, probed sandbox.State) sandbox.State {
 	if !shellFound {
-		return sandbox.Status{Reason: "no shell was found"}
+		return sandbox.State{Reason: "no shell was found"}
 	}
 	return probed
 }

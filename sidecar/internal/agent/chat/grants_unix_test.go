@@ -89,7 +89,7 @@ func TestNoFolderAppliesWithoutASandboxThroughTheFileTools(t *testing.T) {
 	assert.Equal(t, tools.Approval{}, readA, "a closed path under a granted home asks")
 	require.NotNil(t, writeA.Folder, "a write in the read-write folder runs unasked")
 
-	s.sandboxStatus = sandbox.Status{Reason: "no bwrap"}
+	s.sandboxState = sandbox.State{Reason: "no bwrap"}
 	readA, writeA = fileApprovals(t, s, c.ID, filepath.Join(home, "code", "y"), filepath.Join(home, "code", "x"))
 	assert.Equal(t, tools.Approval{}, readA, "with no sandbox every folder asks")
 	assert.Equal(t, tools.Approval{}, writeA)

@@ -244,7 +244,7 @@ func TestTheViewSectionCountsTheSourcesPastItsShare(t *testing.T) {
 func TestWithoutViewCutsTheSection(t *testing.T) {
 	t.Parallel()
 
-	s := &service{sandboxStatus: sandbox.Status{Available: true}}
+	s := &service{sandboxState: sandbox.State{Available: true}}
 	card := "## Cluster\n\n```json\n{}\n```"
 	view := func(c string) string { return withView(c, "toolu_1", tailWebapp(), Snapshot{CallID: "c"}) }
 

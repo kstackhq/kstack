@@ -221,7 +221,7 @@ func (s *service) checkedFolders(ctx context.Context, chatID ChatID, grants []se
 // folderGrantsIn is the folder grants a run of chatID reads, unchecked: the
 // chat's, read through st, then the always ones. None without a sandbox.
 func (s *service) folderGrantsIn(ctx context.Context, st stmts, chatID ChatID) ([]settings.FolderGrant, error) {
-	if !s.sandboxStatus.Available {
+	if !s.sandboxState.Available {
 		return nil, nil
 	}
 	var grants []settings.FolderGrant
@@ -251,7 +251,7 @@ type FolderGrant struct {
 // FolderGrants is the always grants and, with a chat, the chat's own, each
 // checked. None on a machine with no sandbox. A read that fails is an error.
 func (s *service) FolderGrants(ctx context.Context, chatID ChatID) (always, chat []FolderGrant, err error) {
-	if !s.sandboxStatus.Available {
+	if !s.sandboxState.Available {
 		return nil, nil, nil
 	}
 	stored, err := s.settings.FolderGrants(ctx)

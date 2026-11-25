@@ -148,7 +148,7 @@ func TestADebugBaseURLMovesEveryModelOfTheRow(t *testing.T) {
 func TestEveryKeyedProviderResolves(t *testing.T) {
 	svc := llm.New(everyProvider(t)...)
 
-	for _, p := range svc.Providers() {
+	for _, p := range testutil.Current(t, svc.WatchProvidersState, "the providers") {
 		for _, m := range p.Catalog {
 			_, err := svc.Resolve(p.ID, m.ID, m.DefaultEffort)
 			assert.NoError(t, err, "%s/%s", p.ID, m.ID)

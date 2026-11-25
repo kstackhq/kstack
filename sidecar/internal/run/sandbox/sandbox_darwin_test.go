@@ -357,7 +357,7 @@ func TestWithoutSandboxExecThereIsNoSandbox(t *testing.T) {
 	s, v := probe(t.Context(), filepath.Join(t.TempDir(), "sandbox-exec"), testutil.Timeout)
 
 	assert.Nil(t, s)
-	assert.Equal(t, Status{Reason: "sandbox-exec not found"}, v)
+	assert.Equal(t, State{Reason: "sandbox-exec not found"}, v)
 }
 
 // A probe with no home to read or no directory to probe in has no sandbox, and
@@ -368,12 +368,12 @@ func TestAProbeWithoutItsDirectoriesSaysWhich(t *testing.T) {
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
 	s, v := probe(t.Context(), path, testutil.Timeout)
 	assert.Nil(t, s)
-	assert.Equal(t, Status{Reason: "cannot make a directory to probe in"}, v)
+	assert.Equal(t, State{Reason: "cannot make a directory to probe in"}, v)
 
 	t.Setenv("HOME", "")
 	s, v = probe(t.Context(), path, testutil.Timeout)
 	assert.Nil(t, s)
-	assert.Equal(t, Status{Reason: "cannot find the home directory"}, v)
+	assert.Equal(t, State{Reason: "cannot find the home directory"}, v)
 }
 
 // With no descriptor free under the open-files limit, no port can be taken.
@@ -399,7 +399,7 @@ func TestAProbeWithNoDescriptorFreeHasNoSandbox(t *testing.T) {
 	s, v := probe(t.Context(), path, testutil.Timeout)
 
 	assert.Nil(t, s)
-	assert.Equal(t, Status{Reason: "cannot make the runs' lifeline"}, v)
+	assert.Equal(t, State{Reason: "cannot make the runs' lifeline"}, v)
 }
 
 // A profile the launcher refuses fails the probe with its stderr's first line.
@@ -409,7 +409,7 @@ func TestAProbeThatFailsSaysWhy(t *testing.T) {
 	s, v := probe(t.Context(), path, testutil.Timeout)
 
 	assert.Nil(t, s)
-	assert.Equal(t, Status{Reason: "sandbox_apply: Operation not permitted"}, v)
+	assert.Equal(t, State{Reason: "sandbox_apply: Operation not permitted"}, v)
 }
 
 // A launcher that runs true under the profile is a sandbox that confines,
@@ -436,7 +436,7 @@ func TestAProbeThatTimesOutKeepsTheSandbox(t *testing.T) {
 
 	require.NotNil(t, s)
 	closing(t, s)
-	assert.Equal(t, Status{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within 10ms", NetworkAvailable: true}, v)
+	assert.Equal(t, State{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within 10ms", NetworkAvailable: true}, v)
 	assert.True(t, s.Confines())
 }
 

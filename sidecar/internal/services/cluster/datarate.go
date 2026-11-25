@@ -31,15 +31,15 @@ type ClusterDataRateSample struct {
 	SentBytesPerSecond     float64   `json:"sentBytesPerSecond"`
 }
 
-// ClusterDataRateTimeSeriesFeedFrame is one frame of the time series feed: the whole window first, then the
+// ClusterDataRateSampleFeedFrame is one frame of the sample feed: the whole window first, then the
 // samples since the frame before. Mirrors the schema type.
-type ClusterDataRateTimeSeriesFeedFrame struct {
+type ClusterDataRateSampleFeedFrame struct {
 	IntervalSeconds int                     `json:"intervalSeconds"`
 	WindowSeconds   int                     `json:"windowSeconds"`
 	Samples         []ClusterDataRateSample `json:"samples"`
 }
 
-// SubscribeDataRateTimeSeriesFeed streams the rate of the cluster's connection. The first frame
+// SubscribeDataRateSampleFeed streams the rate of the cluster's connection. The first frame
 // is the pool's ring, sent even if empty; each later one holds the samples newer than the last
 // sent, and a nudge with none sends nothing.
 //
@@ -48,14 +48,14 @@ type ClusterDataRateTimeSeriesFeedFrame struct {
 //
 // The claim is this stream's own, released when ctx ends, and refuses what AcquireConnection
 // refuses.
-func (a clustersAPI) SubscribeDataRateTimeSeriesFeed(ctx context.Context, id ClusterID) (<-chan ClusterDataRateTimeSeriesFeedFrame, error) {
+func (a clustersAPI) SubscribeDataRateSampleFeed(ctx context.Context, id ClusterID) (<-chan ClusterDataRateSampleFeedFrame, error) {
 	lease, err := a.s.AcquireConnection(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
 	nudges := lease.ListenForDataRateChanges()
-	out := make(chan ClusterDataRateTimeSeriesFeedFrame)
+	out := make(chan ClusterDataRateSampleFeedFrame)
 	go func() {
 		defer close(out)
 		defer lease.Release()
@@ -84,8 +84,8 @@ func (a clustersAPI) SubscribeDataRateTimeSeriesFeed(ctx context.Context, id Clu
 
 // frameOf is a frame of the feed carrying samples, stamped with the pool's cadence and
 // window so the client keeps what the ring keeps.
-func frameOf(samples []ClusterDataRateSample) ClusterDataRateTimeSeriesFeedFrame {
-	return ClusterDataRateTimeSeriesFeedFrame{
+func frameOf(samples []ClusterDataRateSample) ClusterDataRateSampleFeedFrame {
+	return ClusterDataRateSampleFeedFrame{
 		IntervalSeconds: int(kubeconn.DataRateInterval / time.Second),
 		WindowSeconds:   int(kubeconn.DataRateWindow / time.Second),
 		Samples:         samples,

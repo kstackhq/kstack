@@ -38,13 +38,13 @@ type Resolver struct {
 	ChatSvc chat.Service
 	// MemorySvc backs memory's watch and writes.
 	MemorySvc memory.Service
-	// LLMSvc answers the models query, every provider's catalog in picker order, and
+	// LLMSvc answers the models state watch, every provider's catalog in picker order, and
 	// labels a message's provider.
 	LLMSvc *llm.Service
-	// SandboxStatus answers the sandbox query: whether this machine offers
+	// SandboxState answers sandboxStateGet: whether this machine offers
 	// sandboxed Bash.
-	SandboxStatus sandbox.Status
-	// Auth is the Kstack Cloud connector, which backs the authState query and watch and
+	SandboxState sandbox.State
+	// Auth is the Kstack Cloud connector, which backs the auth state watch and
 	// the login and logout mutations: *kstackcloud.Service, or a test's fake.
 	Auth AuthConnector
 	// Settings is the user's settings, the approval modes and always grants
@@ -87,7 +87,6 @@ type Resolver struct {
 // ProviderCredentialStore is every provider's keys as the wire drives them. No
 // method returns a key.
 type ProviderCredentialStore interface {
-	States() []providercredentials.State
 	WatchCredentialsState() (<-chan []providercredentials.State, func())
 	Save(id, key string) error
 	Delete(id string) error
@@ -95,7 +94,6 @@ type ProviderCredentialStore interface {
 
 // AuthConnector is the Kstack Cloud connector as the wire drives it.
 type AuthConnector interface {
-	State() connectors.State
 	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error
 	Disconnect(ctx context.Context) error
@@ -103,7 +101,6 @@ type AuthConnector interface {
 
 // ChatGPTConnector is the ChatGPT connector as the wire drives it.
 type ChatGPTConnector interface {
-	State() connectors.State
 	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context, fresh bool) error
 	Cancel()
@@ -112,7 +109,6 @@ type ChatGPTConnector interface {
 
 // OpenRouterConnector is the OpenRouter connector as the wire drives it.
 type OpenRouterConnector interface {
-	State() connectors.State
 	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error
 	Cancel()
@@ -121,7 +117,6 @@ type OpenRouterConnector interface {
 
 // AWSConnector is the AWS connector as the wire drives it.
 type AWSConnector interface {
-	State() connectors.State
 	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error
 	Cancel()
@@ -130,7 +125,6 @@ type AWSConnector interface {
 
 // GitHubConnector is the GitHub connector as the wire drives it.
 type GitHubConnector interface {
-	State() connectors.State
 	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error
 	Cancel()
@@ -139,7 +133,6 @@ type GitHubConnector interface {
 
 // GoogleConnector is the Google connector as the wire drives it.
 type GoogleConnector interface {
-	State() connectors.State
 	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context, fresh bool) error
 	Cancel()
@@ -174,7 +167,7 @@ type SandboxConsole interface {
 
 // probes reports whether this machine probes executables: a sandbox and a shell.
 func (r *Resolver) probes() bool {
-	return r.SandboxStatus.Available && r.Executables != nil
+	return r.SandboxState.Available && r.Executables != nil
 }
 
 // scopeOf is a variable's scope off the wire: the cluster, or "" for every

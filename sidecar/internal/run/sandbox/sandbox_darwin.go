@@ -40,11 +40,11 @@ const probeTimeout = 5 * time.Second
 
 // Probe answers Seatbelt, available when sandbox-exec runs true under the
 // profile a run with no cluster gets, or ctx's error when it ended first.
-func Probe(ctx context.Context) (*Sandbox, Status, error) {
+func Probe(ctx context.Context) (*Sandbox, State, error) {
 	s, status := probe(ctx, "/usr/bin/sandbox-exec", probeTimeout)
 	if err := ctx.Err(); err != nil {
 		_ = s.Close()
-		return nil, Status{}, err
+		return nil, State{}, err
 	}
 	return s, status, nil
 }
@@ -53,27 +53,27 @@ func Probe(ctx context.Context) (*Sandbox, Status, error) {
 // runs out of time keeps the sandbox: it runs once, at startup, so a slow
 // start must not leave the whole session unconfined. A run that then fails
 // under the profile fails closed.
-func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, Status) {
+func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, State) {
 	if _, err := os.Stat(path); err != nil {
-		return nil, Status{Reason: "sandbox-exec not found"}
+		return nil, State{Reason: "sandbox-exec not found"}
 	}
 	self, err := os.Executable()
 	if err != nil { // coverage:ignore the kernel always knows a running process's own executable
-		return nil, Status{Reason: "cannot find its own executable"}
+		return nil, State{Reason: "cannot find its own executable"}
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, Status{Reason: "cannot find the home directory"}
+		return nil, State{Reason: "cannot find the home directory"}
 	}
 	dir, err := os.MkdirTemp("", "kstack-probe-")
 	if err != nil {
-		return nil, Status{Reason: "cannot make a directory to probe in"}
+		return nil, State{Reason: "cannot make a directory to probe in"}
 	}
 	defer os.RemoveAll(dir)
 
 	lifeline, held, err := newLifeline()
 	if err != nil {
-		return nil, Status{Reason: "cannot make the runs' lifeline"}
+		return nil, State{Reason: "cannot make the runs' lifeline"}
 	}
 	s := &Sandbox{self: self, launcher: path, lifeline: lifeline, held: held}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -91,12 +91,12 @@ func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, S
 	}
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return s, Status{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within " + timeout.String(), NetworkAvailable: true}
+		return s, State{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within " + timeout.String(), NetworkAvailable: true}
 	case err != nil:
 		_ = s.Close()
-		return nil, Status{Reason: probeFailure(stderr.String(), err)}
+		return nil, State{Reason: probeFailure(stderr.String(), err)}
 	}
-	return s, Status{Available: true, Reason: "Seatbelt", NetworkAvailable: true}
+	return s, State{Available: true, Reason: "Seatbelt", NetworkAvailable: true}
 }
 
 // probeFailure is why the probe's run failed: the first line of its stderr,

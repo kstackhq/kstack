@@ -32,7 +32,7 @@ markers](../../../docs/adr/2026-10-17-the-login-shell-is-read-by-markers-in-a-se
 run it in a **session**, not a process group; the marker starts with a letter and the separator
 is `\000`; stop at the last marker, never EOF; keep each value byte for byte; follow `printenv`
 with `|| true`. Any failure keeps the inherited environment, logs one fixed reason and never a
-value, and surfaces as `sandboxPathFault`.
+value, and surfaces as `sandboxPathFaultGet`.
 
 ## The session (`session`)
 

@@ -14,13 +14,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { timeSeriesFeedReducer, timeSeriesFeedSlots } from './time-series-feed';
+import { sampleFeedReducer, sampleFeedSlots } from './sample-feed';
 
-describe('timeSeriesFeedReducer', () => {
+describe('sampleFeedReducer', () => {
   type Point = { at: string; v: number };
   type Frame = { feed: { intervalSeconds: number; windowSeconds: number; samples: Point[] } };
   const frame = (...samples: Point[]): Frame => ({ feed: { intervalSeconds: 2, windowSeconds: 6, samples } });
-  const reduce = timeSeriesFeedReducer((data: Frame) => data.feed);
+  const reduce = sampleFeedReducer((data: Frame) => data.feed);
   const point = (v: number, at = `t${v}`): Point => ({ at, v });
 
   it('folds an empty first frame to an empty feed, not to nothing', () => {
@@ -46,14 +46,14 @@ describe('timeSeriesFeedReducer', () => {
   });
 });
 
-describe('timeSeriesFeedSlots', () => {
+describe('sampleFeedSlots', () => {
   it('rounds the window down to whole intervals', () => {
-    expect(timeSeriesFeedSlots({ intervalSeconds: 2, windowSeconds: 120, samples: [] })).toBe(120 / 2);
-    expect(timeSeriesFeedSlots({ intervalSeconds: 2, windowSeconds: 7, samples: [] })).toBe(3);
+    expect(sampleFeedSlots({ intervalSeconds: 2, windowSeconds: 120, samples: [] })).toBe(120 / 2);
+    expect(sampleFeedSlots({ intervalSeconds: 2, windowSeconds: 7, samples: [] })).toBe(3);
   });
 
   // slice(-0) would keep every point, so a window shorter than its interval keeps one.
   it('holds at least one point', () => {
-    expect(timeSeriesFeedSlots({ intervalSeconds: 5, windowSeconds: 2, samples: [] })).toBe(1);
+    expect(sampleFeedSlots({ intervalSeconds: 5, windowSeconds: 2, samples: [] })).toBe(1);
   });
 });

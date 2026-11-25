@@ -544,7 +544,8 @@ func (r *mutationResolver) ToolSettingSet(ctx context.Context, name string, enab
 	if err != nil {
 		return nil, err
 	}
-	return r.Query().ToolSettings(ctx)
+	list, err := r.ToolSettings.List(ctx)
+	return ptrSlice(list), err
 }
 
 // PermissionDefaultModeSet is the resolver for the permissionDefaultModeSet field.
@@ -825,107 +826,41 @@ func (r *providerCredentialStateResolver) Failure(ctx context.Context, obj *prov
 	return &obj.Failure, nil
 }
 
-// Models is the resolver for the models field.
-func (r *queryResolver) Models(ctx context.Context) ([]*model.Model, error) {
-	return modelsOf(r.LLMSvc.Providers()), nil
+// SandboxStateGet is the resolver for the sandboxStateGet field.
+func (r *queryResolver) SandboxStateGet(ctx context.Context) (*sandbox.State, error) {
+	return &r.Resolver.SandboxState, nil
 }
 
-// ProviderCredentials is the resolver for the providerCredentials field.
-func (r *queryResolver) ProviderCredentials(ctx context.Context) ([]*providercredentials.State, error) {
-	return ptrSlice(r.Resolver.ProviderCredentials.States()), nil
-}
-
-// Sandbox is the resolver for the sandbox field.
-func (r *queryResolver) Sandbox(ctx context.Context) (*sandbox.Status, error) {
-	return &r.Resolver.SandboxStatus, nil
-}
-
-// Cluster is the resolver for the cluster field. An id naming nothing is null per the
-// schema, not an error; one still being torn down resolves like any other, carrying
-// its deletionRequestedAt.
-func (r *queryResolver) Cluster(ctx context.Context, id apimeta.ClusterID) (*cluster.Cluster, error) {
-	return r.ClusterSvc.Clusters().Get(ctx, id)
-}
-
-// Clusters is the resolver for the clusters field. Nested objects resolve lazily
-// per-selection.
-func (r *queryResolver) Clusters(ctx context.Context) ([]*cluster.Cluster, error) {
-	return r.ClusterSvc.Clusters().List(ctx)
-}
-
-// ClusterCache is the resolver for the clusterCache field. An id naming nothing is
-// null per the schema, not an error.
-func (r *queryResolver) ClusterCache(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCache, error) {
-	return r.ClusterSvc.Caches().Get(ctx, id)
-}
-
-// ClusterCaches is the resolver for the clusterCaches field — every cache, or one
-// cluster's when scoped. A nil clusterID is the unscoped read, not a missing argument.
-func (r *queryResolver) ClusterCaches(ctx context.Context, clusterID *apimeta.ClusterID) ([]*cluster.ClusterCache, error) {
-	if clusterID != nil {
-		return r.ClusterSvc.Caches().ListByCluster(ctx, *clusterID)
-	}
-	return r.ClusterSvc.Caches().List(ctx)
-}
-
-// ClusterCachedKind is the resolver for the clusterCachedKind field. An id
-// naming nothing is null per the schema, not an error.
-func (r *queryResolver) ClusterCachedKind(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCachedKind, error) {
-	return r.ClusterSvc.CachedKinds().Get(ctx, id)
-}
-
-// ClusterCachedKinds is the resolver for the clusterCachedKinds field — every
-// per-kind record, or one cache's when scoped.
-func (r *queryResolver) ClusterCachedKinds(ctx context.Context, cacheID *apimeta.ObjectID) ([]*cluster.ClusterCachedKind, error) {
-	if cacheID != nil {
-		return r.ClusterSvc.CachedKinds().ListByCache(ctx, *cacheID)
-	}
-	return r.ClusterSvc.CachedKinds().List(ctx)
-}
-
-// SandboxCloudAccess is the resolver for the sandboxCloudAccess field.
-func (r *queryResolver) SandboxCloudAccess(ctx context.Context) ([]*model.CloudAccess, error) {
+// SandboxCloudAccessGet is the resolver for the sandboxCloudAccessGet field.
+func (r *queryResolver) SandboxCloudAccessGet(ctx context.Context) ([]*model.CloudAccess, error) {
 	return r.cloudAccess(ctx)
 }
 
-// SandboxPath is the resolver for the sandboxPath field.
-func (r *queryResolver) SandboxPath(ctx context.Context) (*model.SandboxPath, error) {
+// SandboxPathGet is the resolver for the sandboxPathGet field.
+func (r *queryResolver) SandboxPathGet(ctx context.Context) (*model.SandboxPath, error) {
 	return r.sandboxPath(ctx)
 }
 
-// SandboxPathFault is the resolver for the sandboxPathFault field.
-func (r *queryResolver) SandboxPathFault(ctx context.Context) (*string, error) {
+// SandboxPathFaultGet is the resolver for the sandboxPathFaultGet field.
+func (r *queryResolver) SandboxPathFaultGet(ctx context.Context) (*string, error) {
 	if fault := r.Settings.PathFault(); fault != "" {
 		return &fault, nil
 	}
 	return nil, nil
 }
 
-// SandboxExecutables is the resolver for the sandboxExecutables field.
-func (r *queryResolver) SandboxExecutables(ctx context.Context) ([]*model.SandboxExecutable, error) {
-	if !r.probes() {
-		return []*model.SandboxExecutable{}, nil
-	}
-	return r.executablesReport(ctx)
-}
-
-// EnvVars is the resolver for the envVars field.
-func (r *queryResolver) EnvVars(ctx context.Context, clusterID *apimeta.ClusterID) ([]*envvars.Var, error) {
+// EnvVarsGet is the resolver for the envVarsGet field.
+func (r *queryResolver) EnvVarsGet(ctx context.Context, clusterID *apimeta.ClusterID) ([]*envvars.Var, error) {
 	return r.envVars(ctx, scopeOf(clusterID))
 }
 
-// PermissionSettings is the resolver for the permissionSettings field.
-func (r *queryResolver) PermissionSettings(ctx context.Context) (*model.PermissionSettings, error) {
+// PermissionSettingsGet is the resolver for the permissionSettingsGet field.
+func (r *queryResolver) PermissionSettingsGet(ctx context.Context) (*model.PermissionSettings, error) {
 	return r.permissionSettings(ctx)
 }
 
-// SandboxFolders is the resolver for the sandboxFolders field.
-func (r *queryResolver) SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error) {
-	return r.sandboxFolders(ctx, valueOf(chatID))
-}
-
-// ChatPermissionRules is the resolver for the chatPermissionRules field.
-func (r *queryResolver) ChatPermissionRules(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error) {
+// ChatPermissionRulesGet is the resolver for the chatPermissionRulesGet field.
+func (r *queryResolver) ChatPermissionRulesGet(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error) {
 	rules, err := r.ChatSvc.ChatRules(ctx, chatID)
 	if err != nil {
 		return nil, chatErr(err)
@@ -933,14 +868,8 @@ func (r *queryResolver) ChatPermissionRules(ctx context.Context, chatID apimeta.
 	return rulePointers(rules), nil
 }
 
-// ToolSettings is the resolver for the toolSettings field.
-func (r *queryResolver) ToolSettings(ctx context.Context) ([]*toolsettings.Setting, error) {
-	list, err := r.Resolver.ToolSettings.List(ctx)
-	return ptrSlice(list), err
-}
-
 // LogsFetch is the resolver for the logsFetch field.
-func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, request model.LogsFetchInput) (*model.LogRecordsPage, error) {
+func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, request model.LogsFetchInput) (*model.LogsFetchResult, error) {
 	q, err := fetchRequestOf(request)
 	if err != nil {
 		return nil, logsErr(err)
@@ -950,42 +879,6 @@ func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, req
 		return nil, logsErr(err)
 	}
 	return pageOf(resp), nil
-}
-
-// AuthState is the resolver for the authState field.
-func (r *queryResolver) AuthState(ctx context.Context) (*connectors.State, error) {
-	state := r.Auth.State()
-	return &state, nil
-}
-
-// ChatGPTConnection is the resolver for the chatGPTConnection field.
-func (r *queryResolver) ChatGPTConnection(ctx context.Context) (*connectors.State, error) {
-	st := r.ChatGPT.State()
-	return &st, nil
-}
-
-// OpenRouterConnection is the resolver for the openRouterConnection field.
-func (r *queryResolver) OpenRouterConnection(ctx context.Context) (*connectors.State, error) {
-	st := r.OpenRouter.State()
-	return &st, nil
-}
-
-// AWSConnection is the resolver for the awsConnection field.
-func (r *queryResolver) AWSConnection(ctx context.Context) (*connectors.State, error) {
-	st := r.AWS.State()
-	return &st, nil
-}
-
-// GitHubConnection is the resolver for the gitHubConnection field.
-func (r *queryResolver) GitHubConnection(ctx context.Context) (*connectors.State, error) {
-	st := r.GitHub.State()
-	return &st, nil
-}
-
-// GoogleConnection is the resolver for the googleConnection field.
-func (r *queryResolver) GoogleConnection(ctx context.Context) (*connectors.State, error) {
-	st := r.Google.State()
-	return &st, nil
 }
 
 // ObjectEventFeed is the resolver for the objectEventFeed field — the live event feed of any
@@ -1030,9 +923,9 @@ func (r *subscriptionResolver) ClusterScheduleStateWatch(ctx context.Context, id
 	return ptrSubscription(ctx, ch), nil
 }
 
-// ClusterDataRateTimeSeriesFeed is the resolver for the clusterDataRateTimeSeriesFeed field.
-func (r *subscriptionResolver) ClusterDataRateTimeSeriesFeed(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.ClusterDataRateTimeSeriesFeedFrame, error) {
-	ch, err := r.ClusterSvc.Clusters().SubscribeDataRateTimeSeriesFeed(ctx, id)
+// ClusterDataRateSampleFeed is the resolver for the clusterDataRateSampleFeed field.
+func (r *subscriptionResolver) ClusterDataRateSampleFeed(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.ClusterDataRateSampleFeedFrame, error) {
+	ch, err := r.ClusterSvc.Clusters().SubscribeDataRateSampleFeed(ctx, id)
 	if err != nil {
 		return nil, err
 	}

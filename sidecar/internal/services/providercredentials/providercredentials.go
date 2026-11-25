@@ -321,13 +321,6 @@ func (s *Service) restoring(p *provider) bool {
 // restoringLocked says p's read or its connector has not landed (s.mu held).
 func (p *provider) restoringLocked() bool { return !p.read || !p.landed }
 
-// States is every provider's state, in Providers order.
-func (s *Service) States() []State {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.statesLocked()
-}
-
 // State is id's state.
 func (s *Service) State(id string) (State, bool) {
 	p, ok := s.byID[id]

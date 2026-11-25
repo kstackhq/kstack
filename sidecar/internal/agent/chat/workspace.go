@@ -52,7 +52,7 @@ type sandboxState struct {
 // is on; none when the switches cannot be read, as a run then reaches none. A
 // machine with no sandbox draws no Sandbox section, so it reads nothing.
 func (s *service) cloudTargetsOn(ctx context.Context) []string {
-	if len(s.cloudTargets) == 0 || !s.sandboxStatus.Available {
+	if len(s.cloudTargets) == 0 || !s.sandboxState.Available {
 		return nil
 	}
 	sw, err := s.settings.CloudPlatformSwitches(ctx)
@@ -78,7 +78,7 @@ const maxListedFolders = 20
 // outside it once the user switched the chat, where none applies. The block
 // goes again when what it says changes.
 func (s *service) withSandbox(card string, state sandboxState) string {
-	if !s.sandboxStatus.Available {
+	if !s.sandboxState.Available {
 		return card
 	}
 	if state.outside {
@@ -109,7 +109,7 @@ func (s *service) withSandbox(card string, state sandboxState) string {
 // commands have, the chat's switch over the turn's toggle.
 func (s *service) networkValue(state sandboxState) string {
 	switch {
-	case !s.sandboxStatus.NetworkAvailable:
+	case !s.sandboxState.NetworkAvailable:
 		return "unavailable on this machine"
 	case state.networkEnabled:
 		return "on for this chat"
@@ -128,7 +128,7 @@ const sandboxHeading = "## Sandbox\n\n```json\n"
 // unchanged when it already says so or has no such section.
 func (s *service) withSandboxReplaced(newest string, state sandboxState) string {
 	i := strings.LastIndex(newest, sandboxHeading)
-	if !s.sandboxStatus.Available || i < 0 || i > 0 && !strings.HasSuffix(newest[:i], "\n\n") {
+	if !s.sandboxState.Available || i < 0 || i > 0 && !strings.HasSuffix(newest[:i], "\n\n") {
 		return newest
 	}
 	if i == 0 {

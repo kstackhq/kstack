@@ -34,9 +34,9 @@ describe('useSandbox', () => {
   });
 
   it("answers the sidecar's word once it has answered", () => {
-    state.current = { fetching: false, data: { sandbox: { available: true } } };
+    state.current = { fetching: false, data: { sandboxStateGet: { available: true } } };
     expect(renderHook(() => useSandbox()).result.current.available).toBe(true);
-    state.current = { fetching: false, data: { sandbox: { available: false } } };
+    state.current = { fetching: false, data: { sandboxStateGet: { available: false } } };
     expect(renderHook(() => useSandbox()).result.current.available).toBe(false);
   });
 
@@ -46,7 +46,7 @@ describe('useSandbox', () => {
     expect(renderHook(() => useSandbox()).result.current.networkAvailable).toBeUndefined();
     state.current = {
       fetching: false,
-      data: { sandbox: { available: true, networkAvailable: false, networkReason: 'pasta not found' } },
+      data: { sandboxStateGet: { available: true, networkAvailable: false, networkReason: 'pasta not found' } },
     };
     const { result } = renderHook(() => useSandbox());
     expect(result.current.networkAvailable).toBe(false);
@@ -58,7 +58,7 @@ describe('useSandbox', () => {
     expect(renderHook(() => useSandbox()).result.current.reason).toBe('');
     state.current = {
       fetching: false,
-      data: { sandbox: { available: false, reason: 'user namespaces are disabled' } },
+      data: { sandboxStateGet: { available: false, reason: 'user namespaces are disabled' } },
     };
     expect(renderHook(() => useSandbox()).result.current.reason).toBe('user namespaces are disabled');
   });
@@ -73,7 +73,7 @@ describe('useSandbox', () => {
 
   it('is not failed while in flight or once answered', () => {
     expect(renderHook(() => useSandbox()).result.current.failed).toBe(false);
-    state.current = { fetching: false, data: { sandbox: { available: true } } };
+    state.current = { fetching: false, data: { sandboxStateGet: { available: true } } };
     expect(renderHook(() => useSandbox()).result.current.failed).toBe(false);
   });
 

@@ -546,7 +546,7 @@ describe('ClusterStatusPopover', () => {
     expect(download()).toHaveTextContent('—');
 
     await act(async () =>
-      push('clusterDataRateTimeSeriesFeed', {
+      push('clusterDataRateSampleFeed', {
         intervalSeconds: 2,
         windowSeconds: 120,
         samples: [rate(512, 64), rate(2048, 0)],
@@ -562,7 +562,7 @@ describe('ClusterStatusPopover', () => {
     // Past a minute, still in seconds.
     const at = new Date(Date.now() - 95_000).toISOString();
     await act(async () =>
-      push('clusterDataRateTimeSeriesFeed', {
+      push('clusterDataRateSampleFeed', {
         intervalSeconds: 2,
         windowSeconds: 4,
         samples: [{ ...rate(1024, 0), at }, rate(2048, 0)],

@@ -43,7 +43,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   // The answer is the scope's own unless a test says otherwise.
   useQueryMock.mockImplementation(({ variables }) => [
-    { fetching: false, data: { envVars: listed }, operation: { variables } },
+    { fetching: false, data: { envVarsGet: listed }, operation: { variables } },
     reexecute,
   ]);
   useMutationMock.mockImplementation((doc: string) => {
@@ -57,7 +57,7 @@ describe('useEnvVars', () => {
     const { result } = renderHook(() => useEnvVars('prod'));
     expect(result.current.vars).toEqual(listed);
     expect(useQueryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ query: 'EnvVars', variables: { clusterID: 'prod' } }),
+      expect.objectContaining({ query: 'EnvVarsGet', variables: { clusterID: 'prod' } }),
     );
   });
 
@@ -67,7 +67,7 @@ describe('useEnvVars', () => {
     const queries = sources.filter((s) => s.trim().startsWith('query'));
     expect(queries).toHaveLength(1);
     expect(queries[0].replaceAll(/\s+/g, ' ')).toContain(
-      'envVars(clusterID: $clusterID) { name value target refusal }',
+      'envVarsGet(clusterID: $clusterID) { name value target refusal }',
     );
   });
 
@@ -140,7 +140,7 @@ describe('useEnvVars', () => {
     useQueryMock.mockReturnValue([
       {
         fetching: true,
-        data: { envVars: listed },
+        data: { envVarsGet: listed },
         error: { graphQLErrors: [{ message: 'no app.db' }] },
         operation: { variables: { clusterID: 'prod' } },
       },

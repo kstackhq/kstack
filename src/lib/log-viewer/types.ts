@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // The contract between the window and whatever feeds it. Each type mirrors the wire's
-// (`LogRecord`, `LogRecordsPage`, `LogNotice`, `LogsTailFrame`) field for field.
+// (`LogRecord`, `LogsFetchResult`, `LogNotice`, `LogsTailFrame`) field for field.
 
 /** Opaque. The library hands a cursor back to the client that issued it and reads nothing from it. */
 export type Cursor = string;

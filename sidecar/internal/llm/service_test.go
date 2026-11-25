@@ -29,13 +29,13 @@ import (
 // New holds the providers it is given, in the order given, and resolves a send
 // on each by its id.
 func TestNewHoldsTheProvidersGiven(t *testing.T) {
-	assert.Empty(t, New().Providers())
+	assert.Empty(t, testutil.Current(t, New().WatchProvidersState, "the providers"))
 
 	f := NewFake(0)
 	chat := Provider{ID: "acme", Dialect: DialectChatCompletions, Catalog: []Model{{ID: "m"}}}
 	s := New(chat, FakeProvider(f))
 
-	assert.Equal(t, []string{"acme", "fake"}, providerIDs(s.Providers()))
+	assert.Equal(t, []string{"acme", "fake"}, providerIDs(testutil.Current(t, s.WatchProvidersState, "the providers")))
 	target, err := s.Resolve("acme", "m", "")
 	require.NoError(t, err)
 	assert.Equal(t, "acme", target.Provider.ID)
@@ -162,7 +162,7 @@ func TestServiceCatalogKeepsItsOrder(t *testing.T) {
 	b, a := Provider{ID: "b"}, Provider{ID: "a"}
 	s := New(b, a)
 
-	assert.Equal(t, []Provider{b, a}, s.Providers())
+	assert.Equal(t, []Provider{b, a}, testutil.Current(t, s.WatchProvidersState, "the providers"))
 }
 
 // A provider's dialect is the name that selects the code: each one reaches its own
@@ -613,7 +613,7 @@ func TestSetCatalogReplacesAProvidersModels(t *testing.T) {
 	target, err := svc.Resolve("plan", "fresh", "")
 	require.NoError(t, err)
 	assert.Equal(t, "fresh", target.Model.ID)
-	assert.Equal(t, []string{"plan", "other"}, providerIDs(svc.Providers()))
+	assert.Equal(t, []string{"plan", "other"}, providerIDs(testutil.Current(t, svc.WatchProvidersState, "the providers")))
 
 	// An empty catalog is held as none, so it equals the nil it replaces.
 	svc.SetCatalog("plan", []Model{})
@@ -622,7 +622,7 @@ func TestSetCatalogReplacesAProvidersModels(t *testing.T) {
 	assert.Nil(t, p.Catalog)
 
 	svc.SetCatalog("nobody", []Model{{ID: "x"}})
-	assert.Equal(t, []string{"plan", "other"}, providerIDs(svc.Providers()))
+	assert.Equal(t, []string{"plan", "other"}, providerIDs(testutil.Current(t, svc.WatchProvidersState, "the providers")))
 }
 
 // WatchProvidersState is a state watch of the providers: the current list on subscribe, then

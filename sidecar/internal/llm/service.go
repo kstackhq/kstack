@@ -63,14 +63,6 @@ func New(providers ...Provider) *Service {
 	return &Service{providers: providers, hub: hub, tx: hub.Sender()}
 }
 
-// Providers is every provider, in the order given. The slice is replaced on
-// every change, never written in place, so a caller may keep what it was handed.
-func (s *Service) Providers() []Provider {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.providers
-}
-
 // Provider is the provider under id.
 func (s *Service) Provider(id string) (Provider, bool) {
 	s.mu.Lock()

@@ -40,7 +40,7 @@ const folders = [folder('/opt/homebrew/bin', true), folder('/Users/ren/scripts',
 
 const queried = {
   fetching: false,
-  data: { sandboxPath: { value: '$PATH', refusal: null, folders }, sandboxPathFault: 'timeout' },
+  data: { sandboxPathGet: { value: '$PATH', refusal: null, folders }, sandboxPathFaultGet: 'timeout' },
 };
 
 beforeEach(() => {

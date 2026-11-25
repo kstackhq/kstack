@@ -22,7 +22,7 @@ import (
 )
 
 // DataRateInterval is the sampler's cadence, and DataRateWindow how far back a ring reaches at
-// that cadence. A frame of the time series feed carries both, so the client keeps what the ring keeps.
+// that cadence. A frame of the sample feed carries both, so the client keeps what the ring keeps.
 const (
 	DataRateInterval = 2 * time.Second
 	DataRateWindow   = 2 * time.Minute

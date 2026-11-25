@@ -8,7 +8,7 @@ Fetch API's contract for a reader new to it. → [ADR: a rich view
 is a tool call's action](../../../../docs/adr/2026-10-18-a-rich-view-is-a-tool-calls-action.md).
 
 Two words name two things. A **tail** is the cursor tail a caller opens (`TailFromCursor`,
-`cursorTail`, `tail.go`; [`docs/subscriptions.md`](../../../../docs/subscriptions.md)). A
+`cursorTail`, `tail.go`; [`docs/data-access.md`](../../../../docs/data-access.md)). A
 **tailer** is one stream's following read beneath it, shared by every tail of that stream.
 
 The package is layered. Each sub-package is a leaf of the one above it, and none imports `logs`:

@@ -57,7 +57,7 @@ type MonitorResult struct {
 func (s *service) RunMonitor(ctx context.Context, clusterID apimeta.ClusterID, target llm.Target, brief string) (MonitorResult, error) {
 	// A monitor never runs unconfined, and a machine with no sandbox has
 	// nothing to confine it.
-	if !s.sandboxStatus.Available {
+	if !s.sandboxState.Available {
 		return MonitorResult{}, ErrNoSandbox
 	}
 	brief = strings.TrimSpace(brief)

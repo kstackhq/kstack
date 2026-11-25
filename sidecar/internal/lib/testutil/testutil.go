@@ -106,6 +106,15 @@ func Recv[T any](t testing.TB, ch <-chan T, what string) T {
 	}
 }
 
+// Current is a state watch's first value: what it holds now. It stops the watch
+// before returning.
+func Current[T any](t testing.TB, watch func() (<-chan T, func()), what string) T {
+	t.Helper()
+	ch, stop := watch()
+	defer stop()
+	return Recv(t, ch, what)
+}
+
 // NoRecv asserts that nothing arrives on ch within window, and fails naming what did.
 //
 // A negative assertion has no event to wait for, so it needs a bound of its own rather

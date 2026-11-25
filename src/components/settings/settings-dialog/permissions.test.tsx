@@ -57,7 +57,7 @@ vi.mock('@/lib/clusters', async (importOriginal) => ({
 vi.mock('urql', () => ({
   useQuery: (args: { query: unknown }) => {
     queryArgs.push(args);
-    const data = settingsState.current ? { permissionSettings: settingsState.current } : undefined;
+    const data = settingsState.current ? { permissionSettingsGet: settingsState.current } : undefined;
     return [{ data, error: queryErrorState.current }, reexecuteMock];
   },
   useMutation: (doc: unknown) => {

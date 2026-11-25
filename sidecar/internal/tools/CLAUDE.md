@@ -6,7 +6,7 @@ Each package directly under `tools/` is one tool; `box.go`, `tool.go`, `save.go`
 confines a run (sandbox, permissions, proxy, session) is `internal/run/CLAUDE.md`; who calls a tool
 and files its rows is `internal/agent/CLAUDE.md`.
 
-Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+Every data access here is named for its contract: [`docs/data-access.md`](../../../docs/data-access.md).
 
 ## The box
 
@@ -234,8 +234,8 @@ construction. No capability ships yet.
 ## Bash (`tools/bash`)
 
 **A turn can run a command, once the user says so.** `app.go`'s `chatTools` is the one
-`tools.NewBox`; it offers Bash wherever `bash.New` finds a shell. `sandboxStatusOf` builds the one
-`sandbox.Status`: `NetworkAvailable` is true wherever the sandbox is on macOS and only with a
+`tools.NewBox`; it offers Bash wherever `bash.New` finds a shell. `sandboxStateOf` builds the one
+`sandbox.State`: `NetworkAvailable` is true wherever the sandbox is on macOS and only with a
 `pasta` that passed the probe on Linux, and a sandbox with no shell clears the network answer with
 it (`TestNoShellOffersNoNetwork`). Tests that want bash whatever the machine's login shell clear
 `SHELL` (the `tool` helper does). The tool's words are `bash/prompts/` (`schema.json`,

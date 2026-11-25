@@ -296,5 +296,6 @@ usually just documentation in the wrong place.
 | 2026-11-24 | [A sandboxed command's PATH is one setting the user writes](2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md) | sidecar, webview | Accepted |
 | 2026-11-24 | [Keep every setting as rows in app.db](2026-11-24-settings-are-rows-in-app-db.md) | sidecar | Accepted |
 | 2026-11-25 | [The security model is a file per subject, checked against the code](2026-11-25-the-security-model-is-a-file-per-subject-checked-against-the-code.md) | repo | Accepted |
-| 2026-11-25 | [Name every subscription for its family and kind](2026-11-25-name-every-subscription-for-its-family-and-kind.md) | cross-cutting | Accepted |
+| 2026-11-25 | [Name every subscription for its family and kind](2026-11-25-name-every-subscription-for-its-family-and-kind.md) | cross-cutting | Superseded by [2026-11-25-name-every-data-access-for-its-family-kind-and-operation](2026-11-25-name-every-data-access-for-its-family-kind-and-operation.md) |
 | 2026-11-25 | [Decide every target's request by access level, a boundary, a mode and rules over one action](2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action.md) | cross-cutting | Accepted |
+| 2026-11-25 | [Name every data access for its family, kind and operation](2026-11-25-name-every-data-access-for-its-family-kind-and-operation.md) | cross-cutting | Accepted |

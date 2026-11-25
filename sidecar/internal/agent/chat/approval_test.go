@@ -1044,7 +1044,7 @@ func TestAStrandedWaitClearsTheChatsMark(t *testing.T) {
 	setRunStatus(t, db, turn.Run, RunWaitingApproval)
 	require.NoError(t, db.Close())
 
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

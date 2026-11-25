@@ -248,22 +248,20 @@ func startE2E(t *testing.T, with ...func(*Config)) *e2e {
 
 	e := &e2e{url: srv.URL, fake: fake, cluster: cluster, db: db}
 	require.Eventually(t, func() bool {
-		var resp struct {
-			Data struct {
-				Clusters []struct {
-					ID     string `json:"id"`
-					Status struct {
-						Server struct {
-							UID *string `json:"uid"`
-						} `json:"server"`
-					} `json:"status"`
-				} `json:"clusters"`
-			} `json:"data"`
+		clusters, err := clusterSnapshot(srv.URL, `status { server { uid } }`)
+		if err != nil {
+			return false
 		}
-		raw := graphql(t, srv.URL, `{ clusters { id status { server { uid } } } }`)
-		require.NoError(t, json.Unmarshal([]byte(raw), &resp), raw)
-		for _, c := range resp.Data.Clusters {
-			if c.Status.Server.UID != nil && *c.Status.Server.UID == fakeUID {
+		for _, raw := range clusters {
+			var c struct {
+				ID     string `json:"id"`
+				Status struct {
+					Server struct {
+						UID *string `json:"uid"`
+					} `json:"server"`
+				} `json:"status"`
+			}
+			if json.Unmarshal(raw, &c) == nil && c.Status.Server.UID != nil && *c.Status.Server.UID == fakeUID {
 				e.clusterID = c.ID
 				return true
 			}

@@ -20,9 +20,9 @@ import { useQuery } from 'urql';
 
 import { graphql } from '@/gql';
 
-const SandboxDocument = graphql(`
-  query Sandbox {
-    sandbox {
+const SandboxStateGetDocument = graphql(`
+  query SandboxStateGet {
+    sandboxStateGet {
       available
       reason
       networkAvailable
@@ -49,11 +49,11 @@ export type Sandbox = {
 };
 
 export function useSandbox(): Sandbox {
-  const [{ data, error, fetching }, reexecute] = useQuery({ query: SandboxDocument });
-  const available = data?.sandbox.available;
-  const reason = data?.sandbox.reason ?? '';
-  const networkAvailable = data?.sandbox.networkAvailable;
-  const networkReason = data?.sandbox.networkReason ?? '';
+  const [{ data, error, fetching }, reexecute] = useQuery({ query: SandboxStateGetDocument });
+  const available = data?.sandboxStateGet.available;
+  const reason = data?.sandboxStateGet.reason ?? '';
+  const networkAvailable = data?.sandboxStateGet.networkAvailable;
+  const networkReason = data?.sandboxStateGet.networkReason ?? '';
   // Past the cache: what failed is what we are asking again for.
   const retry = useCallback(() => reexecute({ requestPolicy: 'network-only' }), [reexecute]);
   return useMemo(

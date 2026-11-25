@@ -342,7 +342,7 @@ type ComplexityRoot struct {
 		SentBytesPerSecond     func(childComplexity int) int
 	}
 
-	ClusterDataRateTimeSeriesFeedFrame struct {
+	ClusterDataRateSampleFeedFrame struct {
 		IntervalSeconds func(childComplexity int) int
 		Samples         func(childComplexity int) int
 		WindowSeconds   func(childComplexity int) int
@@ -542,14 +542,6 @@ type ComplexityRoot struct {
 		TruncatedBytes func(childComplexity int) int
 	}
 
-	LogRecordsPage struct {
-		Notices    func(childComplexity int) int
-		Page       func(childComplexity int) int
-		Records    func(childComplexity int) int
-		Request    func(childComplexity int) int
-		ResolvedAt func(childComplexity int) int
-	}
-
 	LogRecordsPlace struct {
 		Follow func(childComplexity int) int
 		Next   func(childComplexity int) int
@@ -575,6 +567,14 @@ type ComplexityRoot struct {
 		Since           func(childComplexity int) int
 		Sources         func(childComplexity int) int
 		Until           func(childComplexity int) int
+	}
+
+	LogsFetchResult struct {
+		Notices    func(childComplexity int) int
+		Page       func(childComplexity int) int
+		Records    func(childComplexity int) int
+		Request    func(childComplexity int) int
+		ResolvedAt func(childComplexity int) int
 	}
 
 	LogsPadding struct {
@@ -838,31 +838,14 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		AWSConnection        func(childComplexity int) int
-		AuthState            func(childComplexity int) int
-		ChatGPTConnection    func(childComplexity int) int
-		ChatPermissionRules  func(childComplexity int, chatID apimeta.ChatID) int
-		Cluster              func(childComplexity int, id apimeta.ClusterID) int
-		ClusterCache         func(childComplexity int, id apimeta.ObjectID) int
-		ClusterCachedKind    func(childComplexity int, id apimeta.ObjectID) int
-		ClusterCachedKinds   func(childComplexity int, cacheID *apimeta.ObjectID) int
-		ClusterCaches        func(childComplexity int, clusterID *apimeta.ClusterID) int
-		Clusters             func(childComplexity int) int
-		EnvVars              func(childComplexity int, clusterID *apimeta.ClusterID) int
-		GitHubConnection     func(childComplexity int) int
-		GoogleConnection     func(childComplexity int) int
-		LogsFetch            func(childComplexity int, id apimeta.ClusterID, request model.LogsFetchInput) int
-		Models               func(childComplexity int) int
-		OpenRouterConnection func(childComplexity int) int
-		PermissionSettings   func(childComplexity int) int
-		ProviderCredentials  func(childComplexity int) int
-		Sandbox              func(childComplexity int) int
-		SandboxCloudAccess   func(childComplexity int) int
-		SandboxExecutables   func(childComplexity int) int
-		SandboxFolders       func(childComplexity int, chatID *apimeta.ChatID) int
-		SandboxPath          func(childComplexity int) int
-		SandboxPathFault     func(childComplexity int) int
-		ToolSettings         func(childComplexity int) int
+		ChatPermissionRulesGet func(childComplexity int, chatID apimeta.ChatID) int
+		EnvVarsGet             func(childComplexity int, clusterID *apimeta.ClusterID) int
+		LogsFetch              func(childComplexity int, id apimeta.ClusterID, request model.LogsFetchInput) int
+		PermissionSettingsGet  func(childComplexity int) int
+		SandboxCloudAccessGet  func(childComplexity int) int
+		SandboxPathFaultGet    func(childComplexity int) int
+		SandboxPathGet         func(childComplexity int) int
+		SandboxStateGet        func(childComplexity int) int
 	}
 
 	ReadAction struct {
@@ -956,7 +939,7 @@ type ComplexityRoot struct {
 		Target   func(childComplexity int) int
 	}
 
-	SandboxStatus struct {
+	SandboxState struct {
 		Available        func(childComplexity int) int
 		NetworkAvailable func(childComplexity int) int
 		NetworkReason    func(childComplexity int) int
@@ -988,7 +971,7 @@ type ComplexityRoot struct {
 		ClusterCachedDataObjectCollectionWatch func(childComplexity int, id apimeta.ClusterID, cacheID apimeta.ObjectID, apiVersion string, resource string) int
 		ClusterCachedKindCollectionWatch       func(childComplexity int, cacheID apimeta.ObjectID) int
 		ClusterCollectionWatch                 func(childComplexity int) int
-		ClusterDataRateTimeSeriesFeed          func(childComplexity int, id apimeta.ClusterID) int
+		ClusterDataRateSampleFeed              func(childComplexity int, id apimeta.ClusterID) int
 		ClusterEventFeed                       func(childComplexity int, id apimeta.ClusterID, category *string) int
 		ClusterScheduleStateWatch              func(childComplexity int, id apimeta.ClusterID) int
 		GitHubConnectionStateWatch             func(childComplexity int) int
@@ -1205,38 +1188,21 @@ type ProviderCredentialStateResolver interface {
 	Failure(ctx context.Context, obj *providercredentials.State) (*providercredentials.Failure, error)
 }
 type QueryResolver interface {
-	Models(ctx context.Context) ([]*model.Model, error)
-	ProviderCredentials(ctx context.Context) ([]*providercredentials.State, error)
-	Sandbox(ctx context.Context) (*sandbox.Status, error)
-	Cluster(ctx context.Context, id apimeta.ClusterID) (*cluster.Cluster, error)
-	Clusters(ctx context.Context) ([]*cluster.Cluster, error)
-	ClusterCache(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCache, error)
-	ClusterCaches(ctx context.Context, clusterID *apimeta.ClusterID) ([]*cluster.ClusterCache, error)
-	ClusterCachedKind(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCachedKind, error)
-	ClusterCachedKinds(ctx context.Context, cacheID *apimeta.ObjectID) ([]*cluster.ClusterCachedKind, error)
-	SandboxCloudAccess(ctx context.Context) ([]*model.CloudAccess, error)
-	SandboxPath(ctx context.Context) (*model.SandboxPath, error)
-	SandboxPathFault(ctx context.Context) (*string, error)
-	SandboxExecutables(ctx context.Context) ([]*model.SandboxExecutable, error)
-	EnvVars(ctx context.Context, clusterID *apimeta.ClusterID) ([]*envvars.Var, error)
-	PermissionSettings(ctx context.Context) (*model.PermissionSettings, error)
-	SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error)
-	ChatPermissionRules(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
-	ToolSettings(ctx context.Context) ([]*toolsettings.Setting, error)
-	LogsFetch(ctx context.Context, id apimeta.ClusterID, request model.LogsFetchInput) (*model.LogRecordsPage, error)
-	AuthState(ctx context.Context) (*connectors.State, error)
-	ChatGPTConnection(ctx context.Context) (*connectors.State, error)
-	OpenRouterConnection(ctx context.Context) (*connectors.State, error)
-	AWSConnection(ctx context.Context) (*connectors.State, error)
-	GitHubConnection(ctx context.Context) (*connectors.State, error)
-	GoogleConnection(ctx context.Context) (*connectors.State, error)
+	SandboxStateGet(ctx context.Context) (*sandbox.State, error)
+	SandboxCloudAccessGet(ctx context.Context) ([]*model.CloudAccess, error)
+	SandboxPathGet(ctx context.Context) (*model.SandboxPath, error)
+	SandboxPathFaultGet(ctx context.Context) (*string, error)
+	EnvVarsGet(ctx context.Context, clusterID *apimeta.ClusterID) ([]*envvars.Var, error)
+	PermissionSettingsGet(ctx context.Context) (*model.PermissionSettings, error)
+	ChatPermissionRulesGet(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
+	LogsFetch(ctx context.Context, id apimeta.ClusterID, request model.LogsFetchInput) (*model.LogsFetchResult, error)
 }
 type SubscriptionResolver interface {
 	ObjectEventFeed(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *cluster.EventFeedFrame, error)
 	ClusterCollectionWatch(ctx context.Context) (<-chan *cluster.ClusterCollectionWatchFrame, error)
 	ClusterEventFeed(ctx context.Context, id apimeta.ClusterID, category *string) (<-chan *cluster.EventFeedFrame, error)
 	ClusterScheduleStateWatch(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.Schedule, error)
-	ClusterDataRateTimeSeriesFeed(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.ClusterDataRateTimeSeriesFeedFrame, error)
+	ClusterDataRateSampleFeed(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.ClusterDataRateSampleFeedFrame, error)
 	ClusterCacheCollectionWatch(ctx context.Context) (<-chan *cluster.ClusterCacheCollectionWatchFrame, error)
 	ClusterCacheHealthKeyedStateWatch(ctx context.Context) (<-chan *cluster.ClusterCacheHealth, error)
 	ClusterCachedKindCollectionWatch(ctx context.Context, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedKindCollectionWatchFrame, error)
@@ -2385,24 +2351,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ClusterDataRateSample.SentBytesPerSecond(childComplexity), true
 
-	case "ClusterDataRateTimeSeriesFeedFrame.intervalSeconds":
-		if e.ComplexityRoot.ClusterDataRateTimeSeriesFeedFrame.IntervalSeconds == nil {
+	case "ClusterDataRateSampleFeedFrame.intervalSeconds":
+		if e.ComplexityRoot.ClusterDataRateSampleFeedFrame.IntervalSeconds == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ClusterDataRateTimeSeriesFeedFrame.IntervalSeconds(childComplexity), true
-	case "ClusterDataRateTimeSeriesFeedFrame.samples":
-		if e.ComplexityRoot.ClusterDataRateTimeSeriesFeedFrame.Samples == nil {
+		return e.ComplexityRoot.ClusterDataRateSampleFeedFrame.IntervalSeconds(childComplexity), true
+	case "ClusterDataRateSampleFeedFrame.samples":
+		if e.ComplexityRoot.ClusterDataRateSampleFeedFrame.Samples == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ClusterDataRateTimeSeriesFeedFrame.Samples(childComplexity), true
-	case "ClusterDataRateTimeSeriesFeedFrame.windowSeconds":
-		if e.ComplexityRoot.ClusterDataRateTimeSeriesFeedFrame.WindowSeconds == nil {
+		return e.ComplexityRoot.ClusterDataRateSampleFeedFrame.Samples(childComplexity), true
+	case "ClusterDataRateSampleFeedFrame.windowSeconds":
+		if e.ComplexityRoot.ClusterDataRateSampleFeedFrame.WindowSeconds == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ClusterDataRateTimeSeriesFeedFrame.WindowSeconds(childComplexity), true
+		return e.ComplexityRoot.ClusterDataRateSampleFeedFrame.WindowSeconds(childComplexity), true
 
 	case "ClusterPermissions.incomplete":
 		if e.ComplexityRoot.ClusterPermissions.Incomplete == nil {
@@ -3080,37 +3046,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.LogRecord.TruncatedBytes(childComplexity), true
 
-	case "LogRecordsPage.notices":
-		if e.ComplexityRoot.LogRecordsPage.Notices == nil {
-			break
-		}
-
-		return e.ComplexityRoot.LogRecordsPage.Notices(childComplexity), true
-	case "LogRecordsPage.page":
-		if e.ComplexityRoot.LogRecordsPage.Page == nil {
-			break
-		}
-
-		return e.ComplexityRoot.LogRecordsPage.Page(childComplexity), true
-	case "LogRecordsPage.records":
-		if e.ComplexityRoot.LogRecordsPage.Records == nil {
-			break
-		}
-
-		return e.ComplexityRoot.LogRecordsPage.Records(childComplexity), true
-	case "LogRecordsPage.request":
-		if e.ComplexityRoot.LogRecordsPage.Request == nil {
-			break
-		}
-
-		return e.ComplexityRoot.LogRecordsPage.Request(childComplexity), true
-	case "LogRecordsPage.resolvedAt":
-		if e.ComplexityRoot.LogRecordsPage.ResolvedAt == nil {
-			break
-		}
-
-		return e.ComplexityRoot.LogRecordsPage.ResolvedAt(childComplexity), true
-
 	case "LogRecordsPlace.follow":
 		if e.ComplexityRoot.LogRecordsPlace.Follow == nil {
 			break
@@ -3221,6 +3156,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.LogsFetchRequest.Until(childComplexity), true
+
+	case "LogsFetchResult.notices":
+		if e.ComplexityRoot.LogsFetchResult.Notices == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsFetchResult.Notices(childComplexity), true
+	case "LogsFetchResult.page":
+		if e.ComplexityRoot.LogsFetchResult.Page == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsFetchResult.Page(childComplexity), true
+	case "LogsFetchResult.records":
+		if e.ComplexityRoot.LogsFetchResult.Records == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsFetchResult.Records(childComplexity), true
+	case "LogsFetchResult.request":
+		if e.ComplexityRoot.LogsFetchResult.Request == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsFetchResult.Request(childComplexity), true
+	case "LogsFetchResult.resolvedAt":
+		if e.ComplexityRoot.LogsFetchResult.ResolvedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsFetchResult.ResolvedAt(childComplexity), true
 
 	case "LogsPadding.lines":
 		if e.ComplexityRoot.LogsPadding.Lines == nil {
@@ -4552,119 +4518,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ProviderCredentialState.Source(childComplexity), true
 
-	case "Query.awsConnection":
-		if e.ComplexityRoot.Query.AWSConnection == nil {
+	case "Query.chatPermissionRulesGet":
+		if e.ComplexityRoot.Query.ChatPermissionRulesGet == nil {
 			break
 		}
 
-		return e.ComplexityRoot.Query.AWSConnection(childComplexity), true
-	case "Query.authState":
-		if e.ComplexityRoot.Query.AuthState == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.AuthState(childComplexity), true
-	case "Query.chatGPTConnection":
-		if e.ComplexityRoot.Query.ChatGPTConnection == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.ChatGPTConnection(childComplexity), true
-	case "Query.chatPermissionRules":
-		if e.ComplexityRoot.Query.ChatPermissionRules == nil {
-			break
-		}
-
-		args, err := ec.field_Query_chatPermissionRules_args(ctx, rawArgs)
+		args, err := ec.field_Query_chatPermissionRulesGet_args(ctx, rawArgs)
 		if err != nil {
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.ChatPermissionRules(childComplexity, args["chatID"].(apimeta.ChatID)), true
-	case "Query.cluster":
-		if e.ComplexityRoot.Query.Cluster == nil {
+		return e.ComplexityRoot.Query.ChatPermissionRulesGet(childComplexity, args["chatID"].(apimeta.ChatID)), true
+	case "Query.envVarsGet":
+		if e.ComplexityRoot.Query.EnvVarsGet == nil {
 			break
 		}
 
-		args, err := ec.field_Query_cluster_args(ctx, rawArgs)
+		args, err := ec.field_Query_envVarsGet_args(ctx, rawArgs)
 		if err != nil {
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.Cluster(childComplexity, args["id"].(apimeta.ClusterID)), true
-	case "Query.clusterCache":
-		if e.ComplexityRoot.Query.ClusterCache == nil {
-			break
-		}
-
-		args, err := ec.field_Query_clusterCache_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.Query.ClusterCache(childComplexity, args["id"].(apimeta.ObjectID)), true
-	case "Query.clusterCachedKind":
-		if e.ComplexityRoot.Query.ClusterCachedKind == nil {
-			break
-		}
-
-		args, err := ec.field_Query_clusterCachedKind_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.Query.ClusterCachedKind(childComplexity, args["id"].(apimeta.ObjectID)), true
-	case "Query.clusterCachedKinds":
-		if e.ComplexityRoot.Query.ClusterCachedKinds == nil {
-			break
-		}
-
-		args, err := ec.field_Query_clusterCachedKinds_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.Query.ClusterCachedKinds(childComplexity, args["cacheID"].(*apimeta.ObjectID)), true
-	case "Query.clusterCaches":
-		if e.ComplexityRoot.Query.ClusterCaches == nil {
-			break
-		}
-
-		args, err := ec.field_Query_clusterCaches_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.Query.ClusterCaches(childComplexity, args["clusterID"].(*apimeta.ClusterID)), true
-	case "Query.clusters":
-		if e.ComplexityRoot.Query.Clusters == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.Clusters(childComplexity), true
-	case "Query.envVars":
-		if e.ComplexityRoot.Query.EnvVars == nil {
-			break
-		}
-
-		args, err := ec.field_Query_envVars_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.Query.EnvVars(childComplexity, args["clusterID"].(*apimeta.ClusterID)), true
-	case "Query.gitHubConnection":
-		if e.ComplexityRoot.Query.GitHubConnection == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.GitHubConnection(childComplexity), true
-	case "Query.googleConnection":
-		if e.ComplexityRoot.Query.GoogleConnection == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.GoogleConnection(childComplexity), true
+		return e.ComplexityRoot.Query.EnvVarsGet(childComplexity, args["clusterID"].(*apimeta.ClusterID)), true
 
 	case "Query.logsFetch":
 		if e.ComplexityRoot.Query.LogsFetch == nil {
@@ -4677,77 +4552,36 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.LogsFetch(childComplexity, args["id"].(apimeta.ClusterID), args["request"].(model.LogsFetchInput)), true
-	case "Query.models":
-		if e.ComplexityRoot.Query.Models == nil {
+	case "Query.permissionSettingsGet":
+		if e.ComplexityRoot.Query.PermissionSettingsGet == nil {
 			break
 		}
 
-		return e.ComplexityRoot.Query.Models(childComplexity), true
-	case "Query.openRouterConnection":
-		if e.ComplexityRoot.Query.OpenRouterConnection == nil {
+		return e.ComplexityRoot.Query.PermissionSettingsGet(childComplexity), true
+	case "Query.sandboxCloudAccessGet":
+		if e.ComplexityRoot.Query.SandboxCloudAccessGet == nil {
 			break
 		}
 
-		return e.ComplexityRoot.Query.OpenRouterConnection(childComplexity), true
-	case "Query.permissionSettings":
-		if e.ComplexityRoot.Query.PermissionSettings == nil {
+		return e.ComplexityRoot.Query.SandboxCloudAccessGet(childComplexity), true
+	case "Query.sandboxPathFaultGet":
+		if e.ComplexityRoot.Query.SandboxPathFaultGet == nil {
 			break
 		}
 
-		return e.ComplexityRoot.Query.PermissionSettings(childComplexity), true
-	case "Query.providerCredentials":
-		if e.ComplexityRoot.Query.ProviderCredentials == nil {
+		return e.ComplexityRoot.Query.SandboxPathFaultGet(childComplexity), true
+	case "Query.sandboxPathGet":
+		if e.ComplexityRoot.Query.SandboxPathGet == nil {
 			break
 		}
 
-		return e.ComplexityRoot.Query.ProviderCredentials(childComplexity), true
-	case "Query.sandbox":
-		if e.ComplexityRoot.Query.Sandbox == nil {
+		return e.ComplexityRoot.Query.SandboxPathGet(childComplexity), true
+	case "Query.sandboxStateGet":
+		if e.ComplexityRoot.Query.SandboxStateGet == nil {
 			break
 		}
 
-		return e.ComplexityRoot.Query.Sandbox(childComplexity), true
-	case "Query.sandboxCloudAccess":
-		if e.ComplexityRoot.Query.SandboxCloudAccess == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.SandboxCloudAccess(childComplexity), true
-	case "Query.sandboxExecutables":
-		if e.ComplexityRoot.Query.SandboxExecutables == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.SandboxExecutables(childComplexity), true
-	case "Query.sandboxFolders":
-		if e.ComplexityRoot.Query.SandboxFolders == nil {
-			break
-		}
-
-		args, err := ec.field_Query_sandboxFolders_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.Query.SandboxFolders(childComplexity, args["chatID"].(*apimeta.ChatID)), true
-	case "Query.sandboxPath":
-		if e.ComplexityRoot.Query.SandboxPath == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.SandboxPath(childComplexity), true
-	case "Query.sandboxPathFault":
-		if e.ComplexityRoot.Query.SandboxPathFault == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.SandboxPathFault(childComplexity), true
-	case "Query.toolSettings":
-		if e.ComplexityRoot.Query.ToolSettings == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.ToolSettings(childComplexity), true
+		return e.ComplexityRoot.Query.SandboxStateGet(childComplexity), true
 
 	case "ReadAction.path":
 		if e.ComplexityRoot.ReadAction.Path == nil {
@@ -5091,30 +4925,30 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SandboxPathFolder.Target(childComplexity), true
 
-	case "SandboxStatus.available":
-		if e.ComplexityRoot.SandboxStatus.Available == nil {
+	case "SandboxState.available":
+		if e.ComplexityRoot.SandboxState.Available == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SandboxStatus.Available(childComplexity), true
-	case "SandboxStatus.networkAvailable":
-		if e.ComplexityRoot.SandboxStatus.NetworkAvailable == nil {
+		return e.ComplexityRoot.SandboxState.Available(childComplexity), true
+	case "SandboxState.networkAvailable":
+		if e.ComplexityRoot.SandboxState.NetworkAvailable == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SandboxStatus.NetworkAvailable(childComplexity), true
-	case "SandboxStatus.networkReason":
-		if e.ComplexityRoot.SandboxStatus.NetworkReason == nil {
+		return e.ComplexityRoot.SandboxState.NetworkAvailable(childComplexity), true
+	case "SandboxState.networkReason":
+		if e.ComplexityRoot.SandboxState.NetworkReason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SandboxStatus.NetworkReason(childComplexity), true
-	case "SandboxStatus.reason":
-		if e.ComplexityRoot.SandboxStatus.Reason == nil {
+		return e.ComplexityRoot.SandboxState.NetworkReason(childComplexity), true
+	case "SandboxState.reason":
+		if e.ComplexityRoot.SandboxState.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SandboxStatus.Reason(childComplexity), true
+		return e.ComplexityRoot.SandboxState.Reason(childComplexity), true
 
 	case "Schedule.failures":
 		if e.ComplexityRoot.Schedule.Failures == nil {
@@ -5261,17 +5095,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.ClusterCollectionWatch(childComplexity), true
-	case "Subscription.clusterDataRateTimeSeriesFeed":
-		if e.ComplexityRoot.Subscription.ClusterDataRateTimeSeriesFeed == nil {
+	case "Subscription.clusterDataRateSampleFeed":
+		if e.ComplexityRoot.Subscription.ClusterDataRateSampleFeed == nil {
 			break
 		}
 
-		args, err := ec.field_Subscription_clusterDataRateTimeSeriesFeed_args(ctx, rawArgs)
+		args, err := ec.field_Subscription_clusterDataRateSampleFeed_args(ctx, rawArgs)
 		if err != nil {
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Subscription.ClusterDataRateTimeSeriesFeed(childComplexity, args["id"].(apimeta.ClusterID)), true
+		return e.ComplexityRoot.Subscription.ClusterDataRateSampleFeed(childComplexity, args["id"].(apimeta.ClusterID)), true
 	case "Subscription.clusterEventFeed":
 		if e.ComplexityRoot.Subscription.ClusterEventFeed == nil {
 			break
@@ -6298,16 +6132,16 @@ func (ec *executionContext) childFields_ClusterDataRateSample(ctx context.Contex
 	return nil, fmt.Errorf("no field named %q was found under type ClusterDataRateSample", field.Name)
 }
 
-func (ec *executionContext) childFields_ClusterDataRateTimeSeriesFeedFrame(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+func (ec *executionContext) childFields_ClusterDataRateSampleFeedFrame(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "intervalSeconds":
-		return ec.fieldContext_ClusterDataRateTimeSeriesFeedFrame_intervalSeconds(ctx, field)
+		return ec.fieldContext_ClusterDataRateSampleFeedFrame_intervalSeconds(ctx, field)
 	case "windowSeconds":
-		return ec.fieldContext_ClusterDataRateTimeSeriesFeedFrame_windowSeconds(ctx, field)
+		return ec.fieldContext_ClusterDataRateSampleFeedFrame_windowSeconds(ctx, field)
 	case "samples":
-		return ec.fieldContext_ClusterDataRateTimeSeriesFeedFrame_samples(ctx, field)
+		return ec.fieldContext_ClusterDataRateSampleFeedFrame_samples(ctx, field)
 	}
-	return nil, fmt.Errorf("no field named %q was found under type ClusterDataRateTimeSeriesFeedFrame", field.Name)
+	return nil, fmt.Errorf("no field named %q was found under type ClusterDataRateSampleFeedFrame", field.Name)
 }
 
 func (ec *executionContext) childFields_ClusterPermissions(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -6674,22 +6508,6 @@ func (ec *executionContext) childFields_LogRecord(ctx context.Context, field gra
 	return nil, fmt.Errorf("no field named %q was found under type LogRecord", field.Name)
 }
 
-func (ec *executionContext) childFields_LogRecordsPage(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "request":
-		return ec.fieldContext_LogRecordsPage_request(ctx, field)
-	case "resolvedAt":
-		return ec.fieldContext_LogRecordsPage_resolvedAt(ctx, field)
-	case "page":
-		return ec.fieldContext_LogRecordsPage_page(ctx, field)
-	case "records":
-		return ec.fieldContext_LogRecordsPage_records(ctx, field)
-	case "notices":
-		return ec.fieldContext_LogRecordsPage_notices(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type LogRecordsPage", field.Name)
-}
-
 func (ec *executionContext) childFields_LogRecordsPlace(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "prev":
@@ -6742,6 +6560,22 @@ func (ec *executionContext) childFields_LogsFetchRequest(ctx context.Context, fi
 		return ec.fieldContext_LogsFetchRequest_maxPageBytes(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type LogsFetchRequest", field.Name)
+}
+
+func (ec *executionContext) childFields_LogsFetchResult(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "request":
+		return ec.fieldContext_LogsFetchResult_request(ctx, field)
+	case "resolvedAt":
+		return ec.fieldContext_LogsFetchResult_resolvedAt(ctx, field)
+	case "page":
+		return ec.fieldContext_LogsFetchResult_page(ctx, field)
+	case "records":
+		return ec.fieldContext_LogsFetchResult_records(ctx, field)
+	case "notices":
+		return ec.fieldContext_LogsFetchResult_notices(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type LogsFetchResult", field.Name)
 }
 
 func (ec *executionContext) childFields_LogsPadding(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -7322,18 +7156,18 @@ func (ec *executionContext) childFields_SandboxPathFolder(ctx context.Context, f
 	return nil, fmt.Errorf("no field named %q was found under type SandboxPathFolder", field.Name)
 }
 
-func (ec *executionContext) childFields_SandboxStatus(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+func (ec *executionContext) childFields_SandboxState(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "available":
-		return ec.fieldContext_SandboxStatus_available(ctx, field)
+		return ec.fieldContext_SandboxState_available(ctx, field)
 	case "reason":
-		return ec.fieldContext_SandboxStatus_reason(ctx, field)
+		return ec.fieldContext_SandboxState_reason(ctx, field)
 	case "networkAvailable":
-		return ec.fieldContext_SandboxStatus_networkAvailable(ctx, field)
+		return ec.fieldContext_SandboxState_networkAvailable(ctx, field)
 	case "networkReason":
-		return ec.fieldContext_SandboxStatus_networkReason(ctx, field)
+		return ec.fieldContext_SandboxState_networkReason(ctx, field)
 	}
-	return nil, fmt.Errorf("no field named %q was found under type SandboxStatus", field.Name)
+	return nil, fmt.Errorf("no field named %q was found under type SandboxState", field.Name)
 }
 
 func (ec *executionContext) childFields_Schedule(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -8568,7 +8402,7 @@ func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs
 	return args, nil
 }
 
-func (ec *executionContext) field_Query_chatPermissionRules_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+func (ec *executionContext) field_Query_chatPermissionRulesGet_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
@@ -8582,77 +8416,7 @@ func (ec *executionContext) field_Query_chatPermissionRules_args(ctx context.Con
 	return args, nil
 }
 
-func (ec *executionContext) field_Query_clusterCache_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
-		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["id"] = arg0
-	return args, nil
-}
-
-func (ec *executionContext) field_Query_clusterCachedKind_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
-		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["id"] = arg0
-	return args, nil
-}
-
-func (ec *executionContext) field_Query_clusterCachedKinds_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "cacheID",
-		func(ctx context.Context, v any) (*apimeta.ObjectID, error) {
-			return ec.unmarshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["cacheID"] = arg0
-	return args, nil
-}
-
-func (ec *executionContext) field_Query_clusterCaches_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "clusterID",
-		func(ctx context.Context, v any) (*apimeta.ClusterID, error) {
-			return ec.unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["clusterID"] = arg0
-	return args, nil
-}
-
-func (ec *executionContext) field_Query_cluster_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
-		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["id"] = arg0
-	return args, nil
-}
-
-func (ec *executionContext) field_Query_envVars_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+func (ec *executionContext) field_Query_envVarsGet_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "clusterID",
@@ -8685,20 +8449,6 @@ func (ec *executionContext) field_Query_logsFetch_args(ctx context.Context, rawA
 		return nil, err
 	}
 	args["request"] = arg1
-	return args, nil
-}
-
-func (ec *executionContext) field_Query_sandboxFolders_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
-		func(ctx context.Context, v any) (*apimeta.ChatID, error) {
-			return ec.unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["chatID"] = arg0
 	return args, nil
 }
 
@@ -8864,7 +8614,7 @@ func (ec *executionContext) field_Subscription_clusterCachedKindCollectionWatch_
 	return args, nil
 }
 
-func (ec *executionContext) field_Subscription_clusterDataRateTimeSeriesFeed_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+func (ec *executionContext) field_Subscription_clusterDataRateSampleFeed_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
@@ -13430,13 +13180,13 @@ func (ec *executionContext) fieldContext_ClusterDataRateSample_sentBytesPerSecon
 	return graphql.NewScalarFieldContext("ClusterDataRateSample", field, false, false, "Float")
 }
 
-func (ec *executionContext) _ClusterDataRateTimeSeriesFeedFrame_intervalSeconds(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterDataRateTimeSeriesFeedFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterDataRateSampleFeedFrame_intervalSeconds(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterDataRateSampleFeedFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_ClusterDataRateTimeSeriesFeedFrame_intervalSeconds(ctx, field)
+			return ec.fieldContext_ClusterDataRateSampleFeedFrame_intervalSeconds(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.IntervalSeconds, nil
@@ -13449,17 +13199,17 @@ func (ec *executionContext) _ClusterDataRateTimeSeriesFeedFrame_intervalSeconds(
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_ClusterDataRateTimeSeriesFeedFrame_intervalSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("ClusterDataRateTimeSeriesFeedFrame", field, false, false, "Int")
+func (ec *executionContext) fieldContext_ClusterDataRateSampleFeedFrame_intervalSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterDataRateSampleFeedFrame", field, false, false, "Int")
 }
 
-func (ec *executionContext) _ClusterDataRateTimeSeriesFeedFrame_windowSeconds(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterDataRateTimeSeriesFeedFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterDataRateSampleFeedFrame_windowSeconds(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterDataRateSampleFeedFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_ClusterDataRateTimeSeriesFeedFrame_windowSeconds(ctx, field)
+			return ec.fieldContext_ClusterDataRateSampleFeedFrame_windowSeconds(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.WindowSeconds, nil
@@ -13472,17 +13222,17 @@ func (ec *executionContext) _ClusterDataRateTimeSeriesFeedFrame_windowSeconds(ct
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_ClusterDataRateTimeSeriesFeedFrame_windowSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("ClusterDataRateTimeSeriesFeedFrame", field, false, false, "Int")
+func (ec *executionContext) fieldContext_ClusterDataRateSampleFeedFrame_windowSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterDataRateSampleFeedFrame", field, false, false, "Int")
 }
 
-func (ec *executionContext) _ClusterDataRateTimeSeriesFeedFrame_samples(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterDataRateTimeSeriesFeedFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterDataRateSampleFeedFrame_samples(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterDataRateSampleFeedFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_ClusterDataRateTimeSeriesFeedFrame_samples(ctx, field)
+			return ec.fieldContext_ClusterDataRateSampleFeedFrame_samples(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.Samples, nil
@@ -13495,9 +13245,9 @@ func (ec *executionContext) _ClusterDataRateTimeSeriesFeedFrame_samples(ctx cont
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_ClusterDataRateTimeSeriesFeedFrame_samples(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ClusterDataRateSampleFeedFrame_samples(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ClusterDataRateTimeSeriesFeedFrame",
+		Object:     "ClusterDataRateSampleFeedFrame",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -16125,157 +15875,6 @@ func (ec *executionContext) fieldContext_LogRecord_gap(_ context.Context, field 
 	return fc, nil
 }
 
-func (ec *executionContext) _LogRecordsPage_request(ctx context.Context, field graphql.CollectedField, obj *model.LogRecordsPage) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_LogRecordsPage_request(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Request, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.LogsFetchRequest) graphql.Marshaler {
-			return ec.marshalNLogsFetchRequest2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogsFetchRequest(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_LogRecordsPage_request(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "LogRecordsPage",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_LogsFetchRequest(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _LogRecordsPage_resolvedAt(ctx context.Context, field graphql.CollectedField, obj *model.LogRecordsPage) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_LogRecordsPage_resolvedAt(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.ResolvedAt, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
-			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_LogRecordsPage_resolvedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("LogRecordsPage", field, false, false, "Time")
-}
-
-func (ec *executionContext) _LogRecordsPage_page(ctx context.Context, field graphql.CollectedField, obj *model.LogRecordsPage) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_LogRecordsPage_page(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Page, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.LogRecordsPlace) graphql.Marshaler {
-			return ec.marshalNLogRecordsPlace2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogRecordsPlace(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_LogRecordsPage_page(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "LogRecordsPage",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_LogRecordsPlace(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _LogRecordsPage_records(ctx context.Context, field graphql.CollectedField, obj *model.LogRecordsPage) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_LogRecordsPage_records(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Records, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*logline.Record) graphql.Marshaler {
-			return ec.marshalNLogRecord2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐRecordᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_LogRecordsPage_records(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "LogRecordsPage",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_LogRecord(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _LogRecordsPage_notices(ctx context.Context, field graphql.CollectedField, obj *model.LogRecordsPage) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_LogRecordsPage_notices(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Notices, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*tools.LogsNotice) graphql.Marshaler {
-			return ec.marshalNLogNotice2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐLogsNoticeᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_LogRecordsPage_notices(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "LogRecordsPage",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_LogNotice(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _LogRecordsPlace_prev(ctx context.Context, field graphql.CollectedField, obj *model.LogRecordsPlace) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -16724,6 +16323,157 @@ func (ec *executionContext) _LogsFetchRequest_maxPageBytes(ctx context.Context, 
 }
 func (ec *executionContext) fieldContext_LogsFetchRequest_maxPageBytes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("LogsFetchRequest", field, false, false, "Int")
+}
+
+func (ec *executionContext) _LogsFetchResult_request(ctx context.Context, field graphql.CollectedField, obj *model.LogsFetchResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsFetchResult_request(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Request, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.LogsFetchRequest) graphql.Marshaler {
+			return ec.marshalNLogsFetchRequest2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogsFetchRequest(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsFetchResult_request(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LogsFetchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogsFetchRequest(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LogsFetchResult_resolvedAt(ctx context.Context, field graphql.CollectedField, obj *model.LogsFetchResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsFetchResult_resolvedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResolvedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsFetchResult_resolvedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsFetchResult", field, false, false, "Time")
+}
+
+func (ec *executionContext) _LogsFetchResult_page(ctx context.Context, field graphql.CollectedField, obj *model.LogsFetchResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsFetchResult_page(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Page, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.LogRecordsPlace) graphql.Marshaler {
+			return ec.marshalNLogRecordsPlace2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogRecordsPlace(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsFetchResult_page(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LogsFetchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogRecordsPlace(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LogsFetchResult_records(ctx context.Context, field graphql.CollectedField, obj *model.LogsFetchResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsFetchResult_records(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Records, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*logline.Record) graphql.Marshaler {
+			return ec.marshalNLogRecord2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐRecordᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsFetchResult_records(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LogsFetchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogRecord(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LogsFetchResult_notices(ctx context.Context, field graphql.CollectedField, obj *model.LogsFetchResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsFetchResult_notices(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Notices, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*tools.LogsNotice) graphql.Marshaler {
+			return ec.marshalNLogNotice2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐLogsNoticeᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsFetchResult_notices(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LogsFetchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogNotice(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _LogsPadding_lines(ctx context.Context, field graphql.CollectedField, obj *tools.LogsPadding) (ret graphql.Marshaler) {
@@ -22007,364 +21757,48 @@ func (ec *executionContext) fieldContext_ProviderCredentialState_failure(_ conte
 	return graphql.NewScalarFieldContext("ProviderCredentialState", field, true, true, "ProviderKeyFailure")
 }
 
-func (ec *executionContext) _Query_models(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+func (ec *executionContext) _Query_sandboxStateGet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_models(ctx, field)
+			return ec.fieldContext_Query_sandboxStateGet(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().Models(ctx)
+			return ec.Resolvers.Query().SandboxStateGet(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.Model) graphql.Marshaler {
-			return ec.marshalNModel2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐModelᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *sandbox.State) graphql.Marshaler {
+			return ec.marshalNSandboxState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋsandboxᚐState(ctx, selections, v)
 		},
 		true,
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_Query_models(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_sandboxStateGet(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Query",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_Model(ctx, field)
+			return ec.childFields_SandboxState(ctx, field)
 		},
 	}
 	return fc, nil
 }
 
-func (ec *executionContext) _Query_providerCredentials(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+func (ec *executionContext) _Query_sandboxCloudAccessGet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_providerCredentials(ctx, field)
+			return ec.fieldContext_Query_sandboxCloudAccessGet(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().ProviderCredentials(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*providercredentials.State) graphql.Marshaler {
-			return ec.marshalNProviderCredentialState2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋprovidercredentialsᚐStateᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_providerCredentials(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_ProviderCredentialState(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_sandbox(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_sandbox(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().Sandbox(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *sandbox.Status) graphql.Marshaler {
-			return ec.marshalNSandboxStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋsandboxᚐStatus(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_sandbox(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_SandboxStatus(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_cluster(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_cluster(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().Cluster(ctx, fc.Args["id"].(apimeta.ClusterID))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *cluster.Cluster) graphql.Marshaler {
-			return ec.marshalOCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_Query_cluster(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_Cluster(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_cluster_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_clusters(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_clusters(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().Clusters(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.Cluster) graphql.Marshaler {
-			return ec.marshalNCluster2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_clusters(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_Cluster(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_clusterCache(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_clusterCache(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().ClusterCache(ctx, fc.Args["id"].(apimeta.ObjectID))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCache) graphql.Marshaler {
-			return ec.marshalOClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCache(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_Query_clusterCache(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_ClusterCache(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_clusterCache_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_clusterCaches(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_clusterCaches(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().ClusterCaches(ctx, fc.Args["clusterID"].(*apimeta.ClusterID))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.ClusterCache) graphql.Marshaler {
-			return ec.marshalNClusterCache2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_clusterCaches(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_ClusterCache(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_clusterCaches_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_clusterCachedKind(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_clusterCachedKind(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().ClusterCachedKind(ctx, fc.Args["id"].(apimeta.ObjectID))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedKind) graphql.Marshaler {
-			return ec.marshalOClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKind(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_Query_clusterCachedKind(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_ClusterCachedKind(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_clusterCachedKind_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_clusterCachedKinds(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_clusterCachedKinds(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().ClusterCachedKinds(ctx, fc.Args["cacheID"].(*apimeta.ObjectID))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.ClusterCachedKind) graphql.Marshaler {
-			return ec.marshalNClusterCachedKind2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKindᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_clusterCachedKinds(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_ClusterCachedKind(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_clusterCachedKinds_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_sandboxCloudAccess(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_sandboxCloudAccess(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().SandboxCloudAccess(ctx)
+			return ec.Resolvers.Query().SandboxCloudAccessGet(ctx)
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*model.CloudAccess) graphql.Marshaler {
@@ -22374,7 +21808,7 @@ func (ec *executionContext) _Query_sandboxCloudAccess(ctx context.Context, field
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_Query_sandboxCloudAccess(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_sandboxCloudAccessGet(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Query",
 		Field:      field,
@@ -22387,16 +21821,16 @@ func (ec *executionContext) fieldContext_Query_sandboxCloudAccess(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _Query_sandboxPath(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+func (ec *executionContext) _Query_sandboxPathGet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_sandboxPath(ctx, field)
+			return ec.fieldContext_Query_sandboxPathGet(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().SandboxPath(ctx)
+			return ec.Resolvers.Query().SandboxPathGet(ctx)
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxPath) graphql.Marshaler {
@@ -22406,7 +21840,7 @@ func (ec *executionContext) _Query_sandboxPath(ctx context.Context, field graphq
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_Query_sandboxPath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_sandboxPathGet(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Query",
 		Field:      field,
@@ -22419,16 +21853,16 @@ func (ec *executionContext) fieldContext_Query_sandboxPath(_ context.Context, fi
 	return fc, nil
 }
 
-func (ec *executionContext) _Query_sandboxPathFault(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+func (ec *executionContext) _Query_sandboxPathFaultGet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_sandboxPathFault(ctx, field)
+			return ec.fieldContext_Query_sandboxPathFaultGet(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().SandboxPathFault(ctx)
+			return ec.Resolvers.Query().SandboxPathFaultGet(ctx)
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
@@ -22438,53 +21872,21 @@ func (ec *executionContext) _Query_sandboxPathFault(ctx context.Context, field g
 		false,
 	)
 }
-func (ec *executionContext) fieldContext_Query_sandboxPathFault(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_sandboxPathFaultGet(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Query", field, true, true, "String")
 }
 
-func (ec *executionContext) _Query_sandboxExecutables(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+func (ec *executionContext) _Query_envVarsGet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_sandboxExecutables(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().SandboxExecutables(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxExecutable) graphql.Marshaler {
-			return ec.marshalNSandboxExecutable2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutableᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_sandboxExecutables(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_SandboxExecutable(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_envVars(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_envVars(ctx, field)
+			return ec.fieldContext_Query_envVarsGet(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().EnvVars(ctx, fc.Args["clusterID"].(*apimeta.ClusterID))
+			return ec.Resolvers.Query().EnvVarsGet(ctx, fc.Args["clusterID"].(*apimeta.ClusterID))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*envvars.Var) graphql.Marshaler {
@@ -22494,7 +21896,7 @@ func (ec *executionContext) _Query_envVars(ctx context.Context, field graphql.Co
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_Query_envVars(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_envVarsGet(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Query",
 		Field:      field,
@@ -22511,23 +21913,23 @@ func (ec *executionContext) fieldContext_Query_envVars(ctx context.Context, fiel
 		}
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_envVars_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+	if fc.Args, err = ec.field_Query_envVarsGet_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
 	return fc, nil
 }
 
-func (ec *executionContext) _Query_permissionSettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+func (ec *executionContext) _Query_permissionSettingsGet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_permissionSettings(ctx, field)
+			return ec.fieldContext_Query_permissionSettingsGet(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().PermissionSettings(ctx)
+			return ec.Resolvers.Query().PermissionSettingsGet(ctx)
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.PermissionSettings) graphql.Marshaler {
@@ -22537,7 +21939,7 @@ func (ec *executionContext) _Query_permissionSettings(ctx context.Context, field
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_Query_permissionSettings(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_permissionSettingsGet(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Query",
 		Field:      field,
@@ -22550,61 +21952,17 @@ func (ec *executionContext) fieldContext_Query_permissionSettings(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _Query_sandboxFolders(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+func (ec *executionContext) _Query_chatPermissionRulesGet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_sandboxFolders(ctx, field)
+			return ec.fieldContext_Query_chatPermissionRulesGet(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().SandboxFolders(ctx, fc.Args["chatID"].(*apimeta.ChatID))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxFolders) graphql.Marshaler {
-			return ec.marshalNSandboxFolders2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolders(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_sandboxFolders(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_SandboxFolders(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_sandboxFolders_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_chatPermissionRules(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_chatPermissionRules(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().ChatPermissionRules(ctx, fc.Args["chatID"].(apimeta.ChatID))
+			return ec.Resolvers.Query().ChatPermissionRulesGet(ctx, fc.Args["chatID"].(apimeta.ChatID))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*permissions.Rule) graphql.Marshaler {
@@ -22614,7 +21972,7 @@ func (ec *executionContext) _Query_chatPermissionRules(ctx context.Context, fiel
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_Query_chatPermissionRules(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_chatPermissionRulesGet(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Query",
 		Field:      field,
@@ -22631,41 +21989,9 @@ func (ec *executionContext) fieldContext_Query_chatPermissionRules(ctx context.C
 		}
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_chatPermissionRules_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+	if fc.Args, err = ec.field_Query_chatPermissionRulesGet_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_toolSettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_toolSettings(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().ToolSettings(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*toolsettings.Setting) graphql.Marshaler {
-			return ec.marshalNToolSetting2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋtoolsettingsᚐSettingᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_toolSettings(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_ToolSetting(ctx, field)
-		},
 	}
 	return fc, nil
 }
@@ -22683,8 +22009,8 @@ func (ec *executionContext) _Query_logsFetch(ctx context.Context, field graphql.
 			return ec.Resolvers.Query().LogsFetch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["request"].(model.LogsFetchInput))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.LogRecordsPage) graphql.Marshaler {
-			return ec.marshalNLogRecordsPage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogRecordsPage(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *model.LogsFetchResult) graphql.Marshaler {
+			return ec.marshalNLogsFetchResult2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogsFetchResult(ctx, selections, v)
 		},
 		true,
 		true,
@@ -22697,7 +22023,7 @@ func (ec *executionContext) fieldContext_Query_logsFetch(ctx context.Context, fi
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_LogRecordsPage(ctx, field)
+			return ec.childFields_LogsFetchResult(ctx, field)
 		},
 	}
 	defer func() {
@@ -22710,198 +22036,6 @@ func (ec *executionContext) fieldContext_Query_logsFetch(ctx context.Context, fi
 	if fc.Args, err = ec.field_Query_logsFetch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_authState(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_authState(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().AuthState(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
-			return ec.marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_authState(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_AuthState(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_chatGPTConnection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_chatGPTConnection(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().ChatGPTConnection(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
-			return ec.marshalNChatGPTConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_chatGPTConnection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_ChatGPTConnection(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_openRouterConnection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_openRouterConnection(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().OpenRouterConnection(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
-			return ec.marshalNOpenRouterConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_openRouterConnection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_OpenRouterConnection(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_awsConnection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_awsConnection(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().AWSConnection(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
-			return ec.marshalNAWSConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_awsConnection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_AWSConnection(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_gitHubConnection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_gitHubConnection(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().GitHubConnection(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
-			return ec.marshalNGitHubConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_gitHubConnection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_GitHubConnection(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_googleConnection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_googleConnection(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().GoogleConnection(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *connectors.State) graphql.Marshaler {
-			return ec.marshalNGoogleConnection2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋconnectorsᚐState(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_googleConnection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_GoogleConnection(ctx, field)
-		},
 	}
 	return fc, nil
 }
@@ -24310,13 +23444,13 @@ func (ec *executionContext) fieldContext_SandboxPathFolder_shared(_ context.Cont
 	return graphql.NewScalarFieldContext("SandboxPathFolder", field, false, false, "Boolean")
 }
 
-func (ec *executionContext) _SandboxStatus_available(ctx context.Context, field graphql.CollectedField, obj *sandbox.Status) (ret graphql.Marshaler) {
+func (ec *executionContext) _SandboxState_available(ctx context.Context, field graphql.CollectedField, obj *sandbox.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SandboxStatus_available(ctx, field)
+			return ec.fieldContext_SandboxState_available(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.Available, nil
@@ -24329,17 +23463,17 @@ func (ec *executionContext) _SandboxStatus_available(ctx context.Context, field 
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_SandboxStatus_available(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SandboxStatus", field, false, false, "Boolean")
+func (ec *executionContext) fieldContext_SandboxState_available(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxState", field, false, false, "Boolean")
 }
 
-func (ec *executionContext) _SandboxStatus_reason(ctx context.Context, field graphql.CollectedField, obj *sandbox.Status) (ret graphql.Marshaler) {
+func (ec *executionContext) _SandboxState_reason(ctx context.Context, field graphql.CollectedField, obj *sandbox.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SandboxStatus_reason(ctx, field)
+			return ec.fieldContext_SandboxState_reason(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.Reason, nil
@@ -24352,17 +23486,17 @@ func (ec *executionContext) _SandboxStatus_reason(ctx context.Context, field gra
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_SandboxStatus_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SandboxStatus", field, false, false, "String")
+func (ec *executionContext) fieldContext_SandboxState_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxState", field, false, false, "String")
 }
 
-func (ec *executionContext) _SandboxStatus_networkAvailable(ctx context.Context, field graphql.CollectedField, obj *sandbox.Status) (ret graphql.Marshaler) {
+func (ec *executionContext) _SandboxState_networkAvailable(ctx context.Context, field graphql.CollectedField, obj *sandbox.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SandboxStatus_networkAvailable(ctx, field)
+			return ec.fieldContext_SandboxState_networkAvailable(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.NetworkAvailable, nil
@@ -24375,17 +23509,17 @@ func (ec *executionContext) _SandboxStatus_networkAvailable(ctx context.Context,
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_SandboxStatus_networkAvailable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SandboxStatus", field, false, false, "Boolean")
+func (ec *executionContext) fieldContext_SandboxState_networkAvailable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxState", field, false, false, "Boolean")
 }
 
-func (ec *executionContext) _SandboxStatus_networkReason(ctx context.Context, field graphql.CollectedField, obj *sandbox.Status) (ret graphql.Marshaler) {
+func (ec *executionContext) _SandboxState_networkReason(ctx context.Context, field graphql.CollectedField, obj *sandbox.State) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SandboxStatus_networkReason(ctx, field)
+			return ec.fieldContext_SandboxState_networkReason(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.NetworkReason, nil
@@ -24398,8 +23532,8 @@ func (ec *executionContext) _SandboxStatus_networkReason(ctx context.Context, fi
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_SandboxStatus_networkReason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SandboxStatus", field, false, false, "String")
+func (ec *executionContext) fieldContext_SandboxState_networkReason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxState", field, false, false, "String")
 }
 
 func (ec *executionContext) _Schedule_nextRequeueAt(ctx context.Context, field graphql.CollectedField, obj *cluster.Schedule) (ret graphql.Marshaler) {
@@ -24658,34 +23792,34 @@ func (ec *executionContext) fieldContext_Subscription_clusterScheduleStateWatch(
 	return fc, nil
 }
 
-func (ec *executionContext) _Subscription_clusterDataRateTimeSeriesFeed(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+func (ec *executionContext) _Subscription_clusterDataRateSampleFeed(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
 	return graphql.ResolveFieldStream(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Subscription_clusterDataRateTimeSeriesFeed(ctx, field)
+			return ec.fieldContext_Subscription_clusterDataRateSampleFeed(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Subscription().ClusterDataRateTimeSeriesFeed(ctx, fc.Args["id"].(apimeta.ClusterID))
+			return ec.Resolvers.Subscription().ClusterDataRateSampleFeed(ctx, fc.Args["id"].(apimeta.ClusterID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterDataRateTimeSeriesFeedFrame) graphql.Marshaler {
-			return ec.marshalNClusterDataRateTimeSeriesFeedFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterDataRateTimeSeriesFeedFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterDataRateSampleFeedFrame) graphql.Marshaler {
+			return ec.marshalNClusterDataRateSampleFeedFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterDataRateSampleFeedFrame(ctx, selections, v)
 		},
 		true,
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_Subscription_clusterDataRateTimeSeriesFeed(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Subscription_clusterDataRateSampleFeed(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Subscription",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_ClusterDataRateTimeSeriesFeedFrame(ctx, field)
+			return ec.childFields_ClusterDataRateSampleFeedFrame(ctx, field)
 		},
 	}
 	defer func() {
@@ -24695,7 +23829,7 @@ func (ec *executionContext) fieldContext_Subscription_clusterDataRateTimeSeriesF
 		}
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Subscription_clusterDataRateTimeSeriesFeed_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+	if fc.Args, err = ec.field_Subscription_clusterDataRateSampleFeed_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -30351,29 +29485,29 @@ func (ec *executionContext) _ClusterDataRateSample(ctx context.Context, sel ast.
 	return out
 }
 
-var clusterDataRateTimeSeriesFeedFrameImplementors = []string{"ClusterDataRateTimeSeriesFeedFrame"}
+var clusterDataRateSampleFeedFrameImplementors = []string{"ClusterDataRateSampleFeedFrame"}
 
-func (ec *executionContext) _ClusterDataRateTimeSeriesFeedFrame(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterDataRateTimeSeriesFeedFrame) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, clusterDataRateTimeSeriesFeedFrameImplementors)
+func (ec *executionContext) _ClusterDataRateSampleFeedFrame(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterDataRateSampleFeedFrame) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, clusterDataRateSampleFeedFrameImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := graphql.NewDeferredGroup(ctx)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("ClusterDataRateTimeSeriesFeedFrame")
+			out.Values[i] = graphql.MarshalString("ClusterDataRateSampleFeedFrame")
 		case "intervalSeconds":
-			out.Values[i] = ec._ClusterDataRateTimeSeriesFeedFrame_intervalSeconds(ctx, field, obj)
+			out.Values[i] = ec._ClusterDataRateSampleFeedFrame_intervalSeconds(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		case "windowSeconds":
-			out.Values[i] = ec._ClusterDataRateTimeSeriesFeedFrame_windowSeconds(ctx, field, obj)
+			out.Values[i] = ec._ClusterDataRateSampleFeedFrame_windowSeconds(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		case "samples":
-			out.Values[i] = ec._ClusterDataRateTimeSeriesFeedFrame_samples(ctx, field, obj)
+			out.Values[i] = ec._ClusterDataRateSampleFeedFrame_samples(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -31750,59 +30884,6 @@ func (ec *executionContext) _LogRecord(ctx context.Context, sel ast.SelectionSet
 	return out
 }
 
-var logRecordsPageImplementors = []string{"LogRecordsPage"}
-
-func (ec *executionContext) _LogRecordsPage(ctx context.Context, sel ast.SelectionSet, obj *model.LogRecordsPage) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, logRecordsPageImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferred := graphql.NewDeferredGroup(ctx)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("LogRecordsPage")
-		case "request":
-			out.Values[i] = ec._LogRecordsPage_request(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "resolvedAt":
-			out.Values[i] = ec._LogRecordsPage_resolvedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "page":
-			out.Values[i] = ec._LogRecordsPage_page(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "records":
-			out.Values[i] = ec._LogRecordsPage_records(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "notices":
-			out.Values[i] = ec._LogRecordsPage_notices(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	if n := len(deferred.Defers); n > 0 {
-		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
-		ec.ProcessDeferredGroup(deferred)
-	}
-
-	return out
-}
-
 var logRecordsPlaceImplementors = []string{"LogRecordsPlace"}
 
 func (ec *executionContext) _LogRecordsPlace(ctx context.Context, sel ast.SelectionSet, obj *model.LogRecordsPlace) graphql.Marshaler {
@@ -31957,6 +31038,59 @@ func (ec *executionContext) _LogsFetchRequest(ctx context.Context, sel ast.Selec
 			}
 		case "maxPageBytes":
 			out.Values[i] = ec._LogsFetchRequest_maxPageBytes(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var logsFetchResultImplementors = []string{"LogsFetchResult"}
+
+func (ec *executionContext) _LogsFetchResult(ctx context.Context, sel ast.SelectionSet, obj *model.LogsFetchResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, logsFetchResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LogsFetchResult")
+		case "request":
+			out.Values[i] = ec._LogsFetchResult_request(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resolvedAt":
+			out.Values[i] = ec._LogsFetchResult_resolvedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "page":
+			out.Values[i] = ec._LogsFetchResult_page(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "records":
+			out.Values[i] = ec._LogsFetchResult_records(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "notices":
+			out.Values[i] = ec._LogsFetchResult_notices(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -33754,155 +32888,53 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Query")
-		case "models":
+		case "sandboxStateGet":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_models(ctx, field)
+					return ec._Query_sandboxStateGet(ctx, field)
 				})
-		case "providerCredentials":
+		case "sandboxCloudAccessGet":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_providerCredentials(ctx, field)
+					return ec._Query_sandboxCloudAccessGet(ctx, field)
 				})
-		case "sandbox":
+		case "sandboxPathGet":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_sandbox(ctx, field)
+					return ec._Query_sandboxPathGet(ctx, field)
 				})
-		case "cluster":
+		case "sandboxPathFaultGet":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, false,
 				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_cluster(ctx, field)
+					return ec._Query_sandboxPathFaultGet(ctx, field)
 				})
-		case "clusters":
+		case "envVarsGet":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_clusters(ctx, field)
+					return ec._Query_envVarsGet(ctx, field)
 				})
-		case "clusterCache":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, false,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_clusterCache(ctx, field)
-				})
-		case "clusterCaches":
+		case "permissionSettingsGet":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_clusterCaches(ctx, field)
+					return ec._Query_permissionSettingsGet(ctx, field)
 				})
-		case "clusterCachedKind":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, false,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_clusterCachedKind(ctx, field)
-				})
-		case "clusterCachedKinds":
+		case "chatPermissionRulesGet":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_clusterCachedKinds(ctx, field)
-				})
-		case "sandboxCloudAccess":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_sandboxCloudAccess(ctx, field)
-				})
-		case "sandboxPath":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_sandboxPath(ctx, field)
-				})
-		case "sandboxPathFault":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, false,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_sandboxPathFault(ctx, field)
-				})
-		case "sandboxExecutables":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_sandboxExecutables(ctx, field)
-				})
-		case "envVars":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_envVars(ctx, field)
-				})
-		case "permissionSettings":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_permissionSettings(ctx, field)
-				})
-		case "sandboxFolders":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_sandboxFolders(ctx, field)
-				})
-		case "chatPermissionRules":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_chatPermissionRules(ctx, field)
-				})
-		case "toolSettings":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_toolSettings(ctx, field)
+					return ec._Query_chatPermissionRulesGet(ctx, field)
 				})
 		case "logsFetch":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_logsFetch(ctx, field)
-				})
-		case "authState":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_authState(ctx, field)
-				})
-		case "chatGPTConnection":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_chatGPTConnection(ctx, field)
-				})
-		case "openRouterConnection":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_openRouterConnection(ctx, field)
-				})
-		case "awsConnection":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_awsConnection(ctx, field)
-				})
-		case "gitHubConnection":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_gitHubConnection(ctx, field)
-				})
-		case "googleConnection":
-			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
-				true, true,
-				func(ctx context.Context) graphql.Marshaler {
-					return ec._Query_googleConnection(ctx, field)
 				})
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
@@ -34546,34 +33578,34 @@ func (ec *executionContext) _SandboxPathFolder(ctx context.Context, sel ast.Sele
 	return out
 }
 
-var sandboxStatusImplementors = []string{"SandboxStatus"}
+var sandboxStateImplementors = []string{"SandboxState"}
 
-func (ec *executionContext) _SandboxStatus(ctx context.Context, sel ast.SelectionSet, obj *sandbox.Status) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, sandboxStatusImplementors)
+func (ec *executionContext) _SandboxState(ctx context.Context, sel ast.SelectionSet, obj *sandbox.State) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sandboxStateImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := graphql.NewDeferredGroup(ctx)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("SandboxStatus")
+			out.Values[i] = graphql.MarshalString("SandboxState")
 		case "available":
-			out.Values[i] = ec._SandboxStatus_available(ctx, field, obj)
+			out.Values[i] = ec._SandboxState_available(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		case "reason":
-			out.Values[i] = ec._SandboxStatus_reason(ctx, field, obj)
+			out.Values[i] = ec._SandboxState_reason(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		case "networkAvailable":
-			out.Values[i] = ec._SandboxStatus_networkAvailable(ctx, field, obj)
+			out.Values[i] = ec._SandboxState_networkAvailable(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		case "networkReason":
-			out.Values[i] = ec._SandboxStatus_networkReason(ctx, field, obj)
+			out.Values[i] = ec._SandboxState_networkReason(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -34691,8 +33723,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_clusterEventFeed(ctx, fields[0])
 	case "clusterScheduleStateWatch":
 		return ec._Subscription_clusterScheduleStateWatch(ctx, fields[0])
-	case "clusterDataRateTimeSeriesFeed":
-		return ec._Subscription_clusterDataRateTimeSeriesFeed(ctx, fields[0])
+	case "clusterDataRateSampleFeed":
+		return ec._Subscription_clusterDataRateSampleFeed(ctx, fields[0])
 	case "clusterCacheCollectionWatch":
 		return ec._Subscription_clusterCacheCollectionWatch(ctx, fields[0])
 	case "clusterCacheHealthKeyedStateWatch":
@@ -35828,22 +34860,6 @@ func (ec *executionContext) marshalNCloudAccess2ᚖgithubᚗcomᚋkstackhqᚋkst
 	return ec._CloudAccess(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNCluster2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterᚄ(ctx context.Context, sel ast.SelectionSet, v []*cluster.Cluster) graphql.Marshaler {
-	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
-		fc := graphql.GetFieldContext(ctx)
-		fc.Result = &v[i]
-		return ec.marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx, sel, v[i])
-	})
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
 func (ec *executionContext) marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx context.Context, sel ast.SelectionSet, v *cluster.Cluster) graphql.Marshaler {
 	if v == nil {
 		graphql.AddInvalidNullError(ctx, "Cluster!")
@@ -36048,12 +35064,12 @@ func (ec *executionContext) marshalNClusterDataRateSample2ᚕgithubᚗcomᚋksta
 	return ret
 }
 
-func (ec *executionContext) marshalNClusterDataRateTimeSeriesFeedFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterDataRateTimeSeriesFeedFrame(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterDataRateTimeSeriesFeedFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterDataRateSampleFeedFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterDataRateSampleFeedFrame(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterDataRateSampleFeedFrame) graphql.Marshaler {
 	if v == nil {
-		graphql.AddInvalidNullError(ctx, "ClusterDataRateTimeSeriesFeedFrame!")
+		graphql.AddInvalidNullError(ctx, "ClusterDataRateSampleFeedFrame!")
 		return graphql.Null
 	}
-	return ec._ClusterDataRateTimeSeriesFeedFrame(ctx, sel, v)
+	return ec._ClusterDataRateSampleFeedFrame(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx context.Context, v any) (apimeta.ClusterID, error) {
@@ -36457,14 +35473,6 @@ func (ec *executionContext) marshalNLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstac
 	return ec._LogRecord(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNLogRecordsPage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogRecordsPage(ctx context.Context, sel ast.SelectionSet, v *model.LogRecordsPage) graphql.Marshaler {
-	if v == nil {
-		graphql.AddInvalidNullError(ctx, "LogRecordsPage!")
-		return graphql.Null
-	}
-	return ec._LogRecordsPage(ctx, sel, v)
-}
-
 func (ec *executionContext) marshalNLogRecordsPlace2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogRecordsPlace(ctx context.Context, sel ast.SelectionSet, v *model.LogRecordsPlace) graphql.Marshaler {
 	if v == nil {
 		graphql.AddInvalidNullError(ctx, "LogRecordsPlace!")
@@ -36488,6 +35496,14 @@ func (ec *executionContext) marshalNLogsFetchRequest2ᚖgithubᚗcomᚋkstackhq�
 		return graphql.Null
 	}
 	return ec._LogsFetchRequest(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNLogsFetchResult2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogsFetchResult(ctx context.Context, sel ast.SelectionSet, v *model.LogsFetchResult) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "LogsFetchResult!")
+		return graphql.Null
+	}
+	return ec._LogsFetchResult(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNLogsPadding2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐLogsPadding(ctx context.Context, sel ast.SelectionSet, v tools.LogsPadding) graphql.Marshaler {
@@ -37432,12 +36448,12 @@ func (ec *executionContext) marshalNSandboxPathOrigin2githubᚗcomᚋkstackhqᚋ
 	return v
 }
 
-func (ec *executionContext) marshalNSandboxStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋsandboxᚐStatus(ctx context.Context, sel ast.SelectionSet, v *sandbox.Status) graphql.Marshaler {
+func (ec *executionContext) marshalNSandboxState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋsandboxᚐState(ctx context.Context, sel ast.SelectionSet, v *sandbox.State) graphql.Marshaler {
 	if v == nil {
-		graphql.AddInvalidNullError(ctx, "SandboxStatus!")
+		graphql.AddInvalidNullError(ctx, "SandboxState!")
 		return graphql.Null
 	}
-	return ec._SandboxStatus(ctx, sel, v)
+	return ec._SandboxState(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNSchedule2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐSchedule(ctx context.Context, sel ast.SelectionSet, v *cluster.Schedule) graphql.Marshaler {
@@ -38298,22 +37314,6 @@ func (ec *executionContext) marshalOMemoryID2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	_ = ctx
 	res := graphql.MarshalString(string(*v))
 	return res
-}
-
-func (ec *executionContext) unmarshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx context.Context, v any) (*apimeta.ObjectID, error) {
-	if v == nil {
-		return nil, nil
-	}
-	var res = new(apimeta.ObjectID)
-	err := res.UnmarshalGQL(v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx context.Context, sel ast.SelectionSet, v *apimeta.ObjectID) graphql.Marshaler {
-	if v == nil {
-		return graphql.Null
-	}
-	return v
 }
 
 func (ec *executionContext) marshalOPermissionAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐPermissionAction(ctx context.Context, sel ast.SelectionSet, v *chat.PermissionAction) graphql.Marshaler {

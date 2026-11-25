@@ -48,7 +48,7 @@ const rate = (received: number, sent: number) => ({
 const rateWindow = (...samples: ReturnType<typeof rate>[]) =>
   JSON.stringify({
     type: 'next',
-    payload: { data: { clusterDataRateTimeSeriesFeed: { intervalSeconds: 2, windowSeconds: 120, samples } } },
+    payload: { data: { clusterDataRateSampleFeed: { intervalSeconds: 2, windowSeconds: 120, samples } } },
   });
 
 const subscriptionsTo = (field: string) =>
@@ -946,7 +946,7 @@ describe('ClusterSyncPanel', () => {
     expect(row).toHaveTextContent('Data rate—');
 
     await act(async () => {
-      channelFor('clusterDataRateTimeSeriesFeed').onmessage!(rateWindow(rate(512, 64), rate(2048, 0)));
+      channelFor('clusterDataRateSampleFeed').onmessage!(rateWindow(rate(512, 64), rate(2048, 0)));
     });
     expect(row).toHaveTextContent('↓ 2.0 KB/s · ↑ 0 B/s');
     // The window draws at once, beside the numbers.
@@ -959,7 +959,7 @@ describe('ClusterSyncPanel', () => {
     await user.click(await screen.findByRole('button', { name: 'Active' }));
 
     await act(async () => {
-      channelFor('clusterDataRateTimeSeriesFeed').onmessage!(rateWindow());
+      channelFor('clusterDataRateSampleFeed').onmessage!(rateWindow());
     });
     expect(screen.getByText('Data rate').parentElement).toHaveTextContent('Data rate—');
   });
@@ -975,16 +975,16 @@ describe('ClusterSyncPanel', () => {
     render(view());
     await flush();
     await act(async () => {
-      channelFor('clusterDataRateTimeSeriesFeed').onmessage!(rateWindow(rate(100, 0)));
+      channelFor('clusterDataRateSampleFeed').onmessage!(rateWindow(rate(100, 0)));
     });
 
     const second = render(view());
     await flush();
     await act(async () => {
-      channelFor('clusterDataRateTimeSeriesFeed').onmessage!(rateWindow(rate(100, 0), rate(4096, 0)));
+      channelFor('clusterDataRateSampleFeed').onmessage!(rateWindow(rate(100, 0), rate(4096, 0)));
     });
 
-    expect(subscriptionsTo('clusterDataRateTimeSeriesFeed')).toBe(2);
+    expect(subscriptionsTo('clusterDataRateSampleFeed')).toBe(2);
     expect(within(second.container).getByText('Data rate').parentElement).toHaveTextContent('↓ 4.0 KB/s · ↑ 0 B/s');
   });
 
@@ -996,9 +996,7 @@ describe('ClusterSyncPanel', () => {
     await user.click(await screen.findByRole('button', { name: 'Connecting' }));
 
     expect(screen.getByText('Data rate').parentElement).toHaveTextContent('Data rate—');
-    expect(() => channelFor('clusterDataRateTimeSeriesFeed')).toThrow(
-      'no subscription for clusterDataRateTimeSeriesFeed',
-    );
+    expect(() => channelFor('clusterDataRateSampleFeed')).toThrow('no subscription for clusterDataRateSampleFeed');
   });
 
   // The mutation resolves when the probe it asked for has finished, so the button binds to

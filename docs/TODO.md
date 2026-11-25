@@ -1157,7 +1157,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   Wanted once a cloud platform's users approve the same change often: a cloud platform's own rules,
   and a read-only mode among them.
 
-- **Draw each cloud platform's switch in Settings.** `sandboxCloudAccess` and
+- **Draw each cloud platform's switch in Settings.** `sandboxCloudAccessGet` and
   `sandboxCloudAccessSet` are served, and nothing draws them: the switches wait for the new settings
   panel. Each is on until the user turns it off
   ([ADR](adr/2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md)), so today only
