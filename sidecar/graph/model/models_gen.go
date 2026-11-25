@@ -40,17 +40,6 @@ type ClusterPermissions struct {
 	Incomplete bool `json:"incomplete"`
 }
 
-// A rule to add. `clusterID` names a cluster Settings lists, and null is every cluster, which only a `Deny` or `Ask` rule may name. Every string is a pattern but `group`, and empty matches anything. A `namespace` of `[cluster]` is cluster-scoped objects alone.
-type KubeRuleInput struct {
-	Effect    permissions.Effect `json:"effect"`
-	Class     permissions.Class  `json:"class"`
-	ClusterID *apimeta.ClusterID `json:"clusterID,omitempty"`
-	Namespace string             `json:"namespace"`
-	Verb      string             `json:"verb"`
-	Group     string             `json:"group"`
-	Kind      string             `json:"kind"`
-}
-
 type LogRecordsPage struct {
 	Request *LogsFetchRequest `json:"request"`
 	// The first page's clock, which an open `until`'s `after` is measured from on every page.
@@ -208,16 +197,45 @@ type NonResourceRule struct {
 	NonResourceUrls []string `json:"nonResourceUrls"`
 }
 
-// The modes and rules sandboxed commands' cluster writes are decided by.
+// One account and the mode its target's actions run under. `account` is what a rule's scope names first: a cluster's id, a cloud account; treat it as opaque. `clusterID` is set on Kubernetes, to join onto `clusterCollectionWatch`.
+type PermissionAccountMode struct {
+	Account string `json:"account"`
+	// The account in the user's words: a cluster's kube-context, else the account.
+	Name      string              `json:"name"`
+	ClusterID *apimeta.ClusterID  `json:"clusterID,omitempty"`
+	Mode      permissions.Mode    `json:"mode"`
+	Source    settings.ModeSource `json:"source"`
+}
+
+// A rule to add. A null `principal` or `target` is every one; a rule that allows names a target and an account by a literal first scope segment, and a Kubernetes one names a cluster Settings lists. `scope`, `service`, `operation` and `resource` are patterns, `*` by default.
+type PermissionRuleInput struct {
+	Effect      permissions.Effect      `json:"effect"`
+	AccessLevel permissions.AccessLevel `json:"accessLevel"`
+	Principal   *permissions.Principal  `json:"principal,omitempty"`
+	Target      *permissions.Target     `json:"target,omitempty"`
+	Scope       string                  `json:"scope"`
+	Service     string                  `json:"service"`
+	Operation   string                  `json:"operation"`
+	Resource    string                  `json:"resource"`
+}
+
+// The modes and rules sandboxed commands' requests are decided by.
 type PermissionSettings struct {
-	// The mode of a cluster with none of its own.
-	DefaultMode permissions.Mode `json:"defaultMode"`
-	// The mode of each cluster with a kube-context that is not awaiting deletion.
-	Clusters []*settings.ClusterModeState `json:"clusters"`
+	Targets []*PermissionTargetModes `json:"targets"`
 	// The user's always rules.
-	KubeRules []*permissions.Rule `json:"kubeRules"`
-	// The writes that always ask, in words.
-	Destructive []string `json:"destructive"`
+	Rules []*permissions.Rule `json:"rules"`
+	// The changes that always ask on a cluster, in words.
+	AlwaysAsks []string `json:"alwaysAsks"`
+	// The changes that ask unless a rule inside a namespace allows them, in words.
+	AccessControl []string `json:"accessControl"`
+}
+
+// A target's default mode and each account's. Kubernetes lists every cluster with a kube-context that is not awaiting deletion; a cloud platform lists the accounts with a mode of their own.
+type PermissionTargetModes struct {
+	Target permissions.Target `json:"target"`
+	// The mode of an account with none of its own.
+	DefaultMode permissions.Mode         `json:"defaultMode"`
+	Accounts    []*PermissionAccountMode `json:"accounts"`
 }
 
 // A provider the sidecar can send a turn to.

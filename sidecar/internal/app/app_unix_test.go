@@ -612,7 +612,7 @@ func (f *fakeCloud) Mount(_ context.Context, run bash.CloudRun) (bash.CloudMount
 			return
 		}
 		out := g.Decide(r.Context(), runproxy.Request{
-			Action: permissions.Action{Class: permissions.UpstreamWrite, Summary: "AWS: fake change"},
+			Action: permissions.Action{AccessLevel: permissions.Write, Once: true, Summary: "AWS: fake change"},
 			Sent: runproxy.Sent{
 				Host: f.upstream.Listener.Addr().String(), Method: r.Method, Path: r.URL.RequestURI(),
 				ContentType: r.Header.Get("Content-Type"), Body: body,
@@ -799,7 +799,7 @@ func TestAnAzChangeAsks(t *testing.T) {
 	w := e.clusterWriteWithin(t, azConverge, "pending")
 	require.NotNil(t, w.request.Cloud)
 	assert.Equal(t, permissions.Azure, w.request.Action.Target)
-	assert.Equal(t, permissions.Destructive, w.request.Action.Class)
+	assert.Equal(t, permissions.Destructive, w.request.Action.AccessLevel)
 	assert.Equal(t, "Azure: delete resource group rg in Pay-As-You-Go", w.request.Action.Summary)
 	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", decision: Deny) }`)
 	require.Contains(t, raw, `"approvalDecide":true`, raw)
@@ -1027,7 +1027,7 @@ func TestASandboxedGCPChangeAsks(t *testing.T) {
 	w := e.clusterWrite(t, "pending")
 	require.NotNil(t, w.request.Cloud)
 	assert.Equal(t, permissions.GCP, w.request.Action.Target)
-	assert.Equal(t, permissions.Destructive, w.request.Action.Class)
+	assert.Equal(t, permissions.Destructive, w.request.Action.AccessLevel)
 	assert.Equal(t, "DELETE", w.request.Cloud.Method)
 	assert.Contains(t, w.request.Cloud.Details, tools.Detail{Label: "Account", Value: "dev@example.com"})
 	assert.Empty(t, g.seen, "nothing reaches Google before the user decides")

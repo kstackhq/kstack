@@ -12,133 +12,258 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package permissions decides, for one classified cluster write or cloud
-// cloud platform request, whether it runs, asks or is refused: by its target and
-// class, the approval mode, and the rules. Authorization is binary and fails
-// closed: the policy permits an action or denies it, a forbid wins over a
-// permit, and nothing matching is a denial. A prompt is a denial the user may
-// lift. A leaf: the proxy that enforces it imports it, and it imports nothing
-// of ours but apimeta.
+// Package permissions decides, for one classified request a sandboxed command
+// sends, whatever it reaches, whether it runs, asks or is refused. A classifier
+// per target reduces a request to one Action; the boundary, the account's
+// mode and the rules decide it, and none of them branches on the target.
+// Authorization fails closed: a deny wins over an ask, an ask over an allow,
+// and an action nothing allows asks. A leaf: the proxies that enforce it
+// import it, and it imports nothing of ours.
 package permissions
 
 import (
+	"slices"
 	"strings"
-
-	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 )
 
-// Class is how much an action can do, numbered as the agent-security note
-// numbers them. The note's 3, a new host, has no class: the network is a
-// switch, not a list of hosts.
-type Class int
+// AccessLevel is how much an action can do, stored and served by name. An
+// action has exactly one: the first of Reach, Destructive, AccessControl,
+// DataRead, Write and Read that applies.
+type AccessLevel string
 
 const (
-	ReadInside    Class = 1 // read inside the sandbox
-	WriteInside   Class = 2 // write the workspace or a granted folder
-	UpstreamWrite Class = 4 // change the cluster
-	Destructive   Class = 5 // a curated list of high blast-radius writes
-	SecretRead    Class = 6 // read Kubernetes Secret data
+	Read          AccessLevel = "read"           // metadata, and what changes nothing
+	DataRead      AccessLevel = "data-read"      // Secret data, an object's contents, key material
+	Write         AccessLevel = "write"          // a change that can be undone
+	AccessControl AccessLevel = "access-control" // who may do what, and what sees every request
+	Destructive   AccessLevel = "destructive"    // loss that cannot be undone, or a broad outage
+	Reach         AccessLevel = "reach"          // exec, tunnels, credential minting
 )
 
-// classNames are the classes a rule names, by the name a row stores them
-// under, so a stored rule does not depend on the numbering.
-var classNames = map[Class]string{UpstreamWrite: "upstream-write", Destructive: "destructive", SecretRead: "secret-read"}
+// Levels is every access level.
+var Levels = []AccessLevel{Read, DataRead, Write, AccessControl, Destructive, Reach}
 
-// Name is the name a rule of class c is stored under; "" for a class no rule
-// names.
-func (c Class) Name() string { return classNames[c] }
-
-// ClassNamed is the class stored as name, false for a name no rule class has.
-func ClassNamed(name string) (Class, bool) {
-	for c, n := range classNames {
-		if n == name {
-			return c, true
-		}
-	}
-	return 0, false
+// LevelNamed is the level stored as name, false for a name no level has.
+func LevelNamed(name string) (AccessLevel, bool) {
+	l := AccessLevel(name)
+	return l, slices.Contains(Levels, l)
 }
 
-// Mode is which classes ask. ReadOnly refuses writes; Ask asks for every
-// write; Auto asks for class 5 alone. Showing Secret data, class 6, asks under
-// ReadOnly and Ask and runs unasked under Auto.
-type Mode string
+// covers is what each level's deny or ask rule reaches beyond itself: a
+// destructive change and an access control change are writes.
+var covers = map[AccessLevel][]AccessLevel{Write: {Destructive, AccessControl}}
 
-const (
-	ReadOnly Mode = "read-only"
-	Ask      Mode = "ask"
-	Auto     Mode = "auto"
-)
-
-// Effect is what a rule does to an action it matches. Deny wins over Ask, and
-// Ask over Allow.
-type Effect string
-
-const (
-	Allow  Effect = "allow"
-	Deny   Effect = "deny"
-	AskFor Effect = "ask" // always prompt, unless the mode refuses first
-)
-
-// ClusterScope is the Namespace of a rule over cluster-scoped objects alone.
-// No namespace name holds a bracket and no pattern character is one, so it is
-// a word of its own in a field a pattern otherwise fills.
-const ClusterScope = "[cluster]"
-
-// Rule is one line of policy. ClusterID names the one cluster it applies to,
-// and unset applies to every cluster. Namespace, Verb and Kind are patterns
-// (Match), and an unset one matches anything. Group is exact: "" is unset,
-// "core" the core group. Kind is the resource, or "deployments/scale" for a
-// subresource. Namespace is ClusterScope for cluster-scoped objects.
-type Rule struct {
-	ID        string            `json:"id"`
-	Effect    Effect            `json:"effect"`
-	Class     Class             `json:"class"`
-	ClusterID apimeta.ClusterID `json:"clusterID,omitempty"`
-	Namespace string            `json:"namespace,omitempty"`
-	Verb      string            `json:"verb,omitempty"`
-	Group     string            `json:"group,omitempty"`
-	Kind      string            `json:"kind,omitempty"`
-	// Inside narrows Namespace to what is in the namespace, leaving out the
-	// Namespace object, which carries its own name as its namespace.
-	Inside bool `json:"inside,omitempty"`
-	// Command is a rule one command's answer added, kept in memory for that
-	// command alone and never stored.
-	Command bool `json:"-"`
+// Covers is whether a deny or ask rule of level l matches an action of level o.
+func (l AccessLevel) Covers(o AccessLevel) bool {
+	return l == o || slices.Contains(covers[l], o)
 }
 
-// Target is what an action acts on. The zero value is the chat's cluster.
+// Principal is who sent an action: the kind of session its run holds.
+type Principal string
+
+const (
+	Chat     Principal = "chat"
+	Subagent Principal = "subagent"
+	Monitor  Principal = "monitor"
+	// Console is the Sandbox console's: a command the user typed in Settings.
+	Console Principal = "console"
+)
+
+// Principals is every principal.
+var Principals = []Principal{Chat, Subagent, Monitor, Console}
+
+// Target is what an action reaches. The zero value is no target.
 type Target string
 
 const (
-	Cluster Target = ""
-	AWS     Target = "aws"
-	GitHub  Target = "github"
-	GCP     Target = "gcp"
-	Azure   Target = "azure"
+	Kubernetes Target = "kubernetes"
+	AWS        Target = "aws"
+	Azure      Target = "azure"
+	GCP        Target = "gcp"
+	GitHub     Target = "github"
 )
 
-// Action is one classified request, as the proxy read it. It is stored with
-// the approval that records it.
+// Targets is every target.
+var Targets = []Target{Kubernetes, AWS, Azure, GCP, GitHub}
+
+// TargetNamed is the target named name, false for none.
+func TargetNamed(name string) (Target, bool) {
+	t := Target(name)
+	return t, slices.Contains(Targets, t)
+}
+
+// targetWords is how a line names a target before its account. A
+// Kubernetes account is a cluster, named alone.
+var targetWords = map[Target]string{AWS: "AWS", Azure: "Azure", GCP: "Google Cloud", GitHub: "GitHub"}
+
+// Action is one classified request, as its target's classifier read it. It is
+// stored with the approval that records it.
 type Action struct {
-	// Target is what the action acts on. A cloud platform's action carries its
-	// class and summary alone: every other field names a cluster's object,
-	// and rules and modes read them.
-	Target    Target            `json:"target,omitempty"`
-	Class     Class             `json:"class"`
-	ClusterID apimeta.ClusterID `json:"clusterID,omitempty"` // the cluster the grant was made for, which rules match
-	Context   string            `json:"context"`             // its kube-context, which words name it by; "" for a record naming none
-	Namespace string            `json:"namespace"`           // "" for a cluster-scoped request
-	Verb      string            `json:"verb"`                // get, create, update, patch, delete, deletecollection
-	Group     string            `json:"group"`               // the API group, "core" for the core group
-	Kind      string            `json:"kind"`                // the resource, "deployments/scale" for a subresource
-	Name      string            `json:"name"`                // the object's name, when it has one
-	Summary   string            `json:"summary"`             // one line for a request or a refusal, written by the classifier
+	Principal Principal `json:"principal"` // who sent it; the proxy stamps it
+	Target    Target    `json:"target"`
+	// Scope is a path of /-separated segments, the first the account: a
+	// cluster's record id, a cloud account. "" is an account the classifier
+	// could not trust, which asks each time. No segment holds /.
+	Scope       string      `json:"scope"`
+	AccountName string      `json:"accountName"` // the account in the user's words; never matched
+	Service     string      `json:"service"`     // the API group ("" for core), the cloud service
+	Operation   string      `json:"operation"`   // the verb or the operation's name
+	Resource    string      `json:"resource"`    // the resource's type, a path of segments
+	Name        string      `json:"name"`        // the object's name; never matched
+	AccessLevel AccessLevel `json:"accessLevel"`
+	// Confined is the classifier's word that the scope bounds what an
+	// access control action can grant, so a rule may allow it.
+	Confined bool `json:"confined"`
+	// Once is the classifier's word that the action asks each time: an
+	// operation no table of its names.
+	Once bool `json:"once"`
+	// Spans is the classifier's word that the action reaches every scope below
+	// its own, as a list across namespaces does: a deny or ask rule for any of
+	// them applies to it, and only an allow reaching them all allows it.
+	Spans   bool   `json:"spans"`
+	Summary string `json:"summary"` // one line, written by the classifier
 	// DryRun is a request for a dry run. No rule names one, so a rule written
 	// from it would allow the real write.
 	DryRun bool `json:"dryRun"`
 }
 
-// Decision is what Decide answers.
+// Account is act's account, its scope's first segment: "" for none.
+func (act Action) Account() string {
+	account, _, _ := strings.Cut(act.Scope, "/")
+	return account
+}
+
+// Effect is what a verdict or a rule does to an action.
+type Effect string
+
+const (
+	Allow Effect = "allow"
+	Ask   Effect = "ask"
+	Deny  Effect = "deny"
+)
+
+// Mode is an account's word on what runs unasked.
+type Mode string
+
+const (
+	ModeReadOnly Mode = "read-only"
+	ModeAsk      Mode = "ask"
+	ModeAuto     Mode = "auto"
+)
+
+// Modes is every mode.
+var Modes = []Mode{ModeReadOnly, ModeAsk, ModeAuto}
+
+// Rule is one line of policy. Principal and Target are a name or "*".
+// Service and Operation are patterns (Match); Scope and Resource are path
+// patterns (MatchPath). No empty pattern is a wildcard: an empty Service is
+// the core group.
+type Rule struct {
+	ID          string      `json:"id"`
+	Effect      Effect      `json:"effect"`
+	AccessLevel AccessLevel `json:"accessLevel"`
+	Principal   string      `json:"principal"`
+	Target      string      `json:"target"`
+	Scope       string      `json:"scope"`
+	Service     string      `json:"service"`
+	Operation   string      `json:"operation"`
+	Resource    string      `json:"resource"`
+	// Command is a rule one command's answer added, kept in memory for that
+	// command alone and never stored.
+	Command bool `json:"-"`
+}
+
+// Matches is whether r applies to act: an allow of act's level, or a deny or
+// ask whose level covers it; its principal and target or "*"; and each
+// pattern matching. For a spanning action a deny's or an ask's scope below it
+// matches too, and an allow's must reach everything below it.
+func (r Rule) Matches(act Action) bool {
+	level := r.AccessLevel == act.AccessLevel || r.Effect != Allow && r.AccessLevel.Covers(act.AccessLevel)
+	var scope bool
+	switch {
+	case !act.Spans:
+		scope = MatchPath(r.Scope, act.Scope)
+	case r.Effect == Allow:
+		scope = MatchPathAndBelow(r.Scope, act.Scope)
+	default:
+		scope = MatchPath(r.Scope, act.Scope) || MatchPathBelow(r.Scope, act.Scope)
+	}
+	return level &&
+		(r.Principal == "*" || r.Principal == string(act.Principal)) &&
+		(r.Target == "*" || r.Target == string(act.Target)) &&
+		scope &&
+		Match(r.Service, act.Service) &&
+		Match(r.Operation, act.Operation) &&
+		MatchPath(r.Resource, act.Resource)
+}
+
+// Same is whether r and o are one rule but for their ids.
+func (r Rule) Same(o Rule) bool {
+	r.ID, o.ID = "", ""
+	return r == o
+}
+
+// Account is the account r's first scope segment names, false when that
+// segment is a pattern Literal would not have written.
+func (r Rule) Account() (string, bool) {
+	first, _, _ := strings.Cut(r.Scope, "/")
+	return LiteralValue(first)
+}
+
+// Limit is the boundary's word on a principal's action at one level, Kstack's
+// and no setting. The limits order Free, Scoped, Once, Never, each more
+// restrictive than the one before.
+type Limit int
+
+const (
+	Free   Limit = iota // the mode and the rules decide
+	Scoped              // Free for a Confined action, else Once
+	Once                // no rule or mode allows it: it asks each time
+	Never               // denied
+)
+
+// boundary is each principal's limit at each level. A principal or level with
+// no row is Never.
+var boundary = map[Principal]map[AccessLevel]Limit{
+	Chat:     {Read: Free, DataRead: Free, Write: Free, AccessControl: Scoped, Destructive: Once, Reach: Never},
+	Subagent: {Read: Free, DataRead: Free, Write: Free, AccessControl: Scoped, Destructive: Once, Reach: Never},
+	Monitor:  {Read: Free, DataRead: Never, Write: Never, AccessControl: Never, Destructive: Never, Reach: Never},
+	Console:  {Read: Free, DataRead: Never, Write: Never, AccessControl: Never, Destructive: Never, Reach: Never},
+}
+
+// asks is whether a principal has someone to ask. One that does not is denied
+// what would ask.
+var asks = map[Principal]bool{Chat: true, Subagent: true, Monitor: false, Console: false}
+
+// limitOf is act's limit: its principal's at its level, Scoped resolved by
+// Confined, and no less than Once for an action marked Once or with no
+// account.
+func limitOf(act Action) Limit {
+	l, ok := boundary[act.Principal][act.AccessLevel]
+	if !ok {
+		return Never
+	}
+	if l == Scoped {
+		l = Once
+		if act.Confined {
+			l = Free
+		}
+	}
+	if (act.Once || act.Scope == "") && l < Once {
+		l = Once
+	}
+	return l
+}
+
+// modes is each mode's default effect at each level. A mode or level with no
+// row denies.
+var modes = map[Mode]map[AccessLevel]Effect{
+	ModeReadOnly: {Read: Allow, DataRead: Ask, Write: Deny, AccessControl: Deny, Destructive: Deny, Reach: Deny},
+	ModeAsk:      {Read: Allow, DataRead: Ask, Write: Ask, AccessControl: Ask, Destructive: Ask, Reach: Deny},
+	ModeAuto:     {Read: Allow, DataRead: Allow, Write: Allow, AccessControl: Ask, Destructive: Ask, Reach: Deny},
+}
+
+// Decision is what a proxy does with a verdict.
 type Decision string
 
 const (
@@ -158,152 +283,113 @@ const (
 	DurationAlways  Duration = "always"
 )
 
-// Verdict is what the policy says of an action before anyone is asked:
-// permitted, or denied in one of three ways. The strongest of what matched
-// wins, so a forbid beats a permit, and the verdicts are numbered in that
-// order: the greatest that applies is the answer, and the zero value is the
-// default denial.
-type Verdict int
+// Answer is the user's decision on an action that asked: approved or not, and
+// for how long.
+type Answer struct {
+	Approved bool
+	Duration Duration
+}
 
-const (
-	// Unmatched: nothing matched. The default denial, which an answer lifts
-	// once and a grant lifts for good.
-	Unmatched Verdict = iota
-	// Permit: a permit matched and no forbid did. The action runs.
-	Permit
-	// Forbid: a forbid an answer lifts once and no grant lifts, since a
-	// forbid wins over any permit: an AskFor rule, or class 5.
-	Forbid
-	// Refuse: a forbid no answer lifts: a Deny rule, or the mode.
-	Refuse
-)
+// Verdict is what the policy says of an action before anyone is asked.
+type Verdict struct {
+	Effect Effect
+	// Grantable is an Ask an answer may write a rule for.
+	Grantable bool
+}
 
-// Outcome is what the proxies do with a verdict: a permit runs, a refusal is
-// refused, and either other denial is put to the user.
+// Outcome is what the proxies do with v: an allow runs, an ask is put to the
+// user, and anything else is refused.
 func (v Verdict) Outcome() Decision {
-	switch v {
-	case Permit:
+	switch v.Effect {
+	case Allow:
 		return Allowed
-	case Refuse:
-		return Denied
+	case Ask:
+		return Prompted
 	}
-	return Prompted
+	return Denied
 }
 
-// Grantable is whether an answer to act may write a rule that allows it. Only
-// an Unmatched verdict is lifted by an Allow. A dry run is not, since no rule
-// names one and a rule written from it would allow the real write; nor is an
-// action with no cluster, since a rule naming none matches every cluster.
-func Grantable(v Verdict, act Action) bool {
-	return v == Unmatched && !act.DryRun && act.ClusterID != ""
-}
-
-// GrantRule is the rule a chat or always answer to act writes: an Allow of
-// its class on its cluster and in its namespace, a literal. A cluster-scoped
-// action, and a Namespace object, also name the group and resource: an unset
-// namespace matches every namespace, and a Namespace carries its own name as
-// its namespace, so naming that alone would allow every write inside it. Any
-// other action's rule is Inside, so allowing what is in a namespace never
-// allows changing the Namespace itself. A Secret read's names neither: class 6
-// is Secret reads alone and no Secret is a Namespace object. The writer sets
-// the ID.
-func GrantRule(act Action) Rule {
-	r := Rule{Effect: Allow, Class: act.Class, ClusterID: act.ClusterID, Namespace: Literal(act.Namespace)}
-	if act.Class == SecretRead {
-		return r
+// rank orders verdicts from the most restrictive: deny, an ask no answer may
+// grant, a grantable ask, allow.
+func (v Verdict) rank() int {
+	switch {
+	case v.Effect == Allow:
+		return 3
+	case v.Effect == Ask && v.Grantable:
+		return 2
+	case v.Effect == Ask:
+		return 1
 	}
-	if act.Namespace == "" || isNamespace(act) {
-		r.Group, r.Kind = act.Group, Literal(act.Kind)
-	} else {
-		r.Inside = true
-	}
-	return r
+	return 0
 }
 
-// isNamespace is whether act writes a Namespace object or its subresource.
-func isNamespace(act Action) bool {
-	resource, _, _ := strings.Cut(act.Kind, "/")
-	return act.Group == "core" && resource == "namespaces"
-}
-
-// CommandRule is the rule a command answer to act adds for the rest of the
-// command: GrantRule's, naming the verb and the resource as well, since the
-// user saw one change and allows its repeats. Naming the resource leaves the
-// Namespace out unless act wrote one, so it is never Inside.
-func CommandRule(act Action) Rule {
-	r := GrantRule(act)
-	r.Verb, r.Group, r.Kind, r.Command, r.Inside = Literal(act.Verb), act.Group, Literal(act.Kind), true, false
-	return r
-}
-
-// Policy is what a session brings to a decision: the context's mode and the
+// Policy is what a session brings to a decision: the account's mode and the
 // rules that apply. Their order picks the reason alone, never the verdict.
-// A reason names a rule's cluster by the action's context, since a rule that
-// matches names the action's cluster or none.
-// NoPrompts and NoSecretData are the session's, copied on by the proxy that
-// reads the policy, so no rule or mode can lift them.
 type Policy struct {
 	Mode  Mode
 	Rules []Rule
-	// NoPrompts refuses what would otherwise ask.
-	NoPrompts bool
-	// NoSecretData refuses every class 6 read, ahead of every rule.
-	NoSecretData bool
 }
 
-// Decide answers what happens to act under p, and why, in the user's words:
-// the policy's verdict, then what the proxies do with it.
+// Decide answers what happens to act under p, and why, in the user's words.
 func (p Policy) Decide(act Action) (Decision, string) {
 	v, why := p.Authorize(act)
 	return v.Outcome(), why
 }
 
 // Authorize is the policy's verdict on act, and the reason in the user's
-// words: the strongest of what matched, a rule's line when a rule decided it.
-// A session that never reads Secret data refuses class 6 first, and one that
-// never asks refuses what would have asked, so neither puts anything to the
-// user.
+// words. A principal with nobody to ask is denied what would ask, and a
+// subagent is never wider than its parent: its verdict is the more
+// restrictive of its own and the same action's as the chat's.
 func (p Policy) Authorize(act Action) (Verdict, string) {
-	if p.NoSecretData && act.Class == SecretRead {
-		return Refuse, "this session never reads Secret data"
-	}
-	v, why := p.verdict(act)
-	if p.NoPrompts && (v == Unmatched || v == Forbid) {
-		return Refuse, "this session never asks: " + why
+	v, why := p.authorize(act)
+	if act.Principal == Subagent {
+		parent := act
+		parent.Principal = Chat
+		if pv, pwhy := p.authorize(parent); pv.rank() < v.rank() {
+			return pv, pwhy
+		}
 	}
 	return v, why
 }
 
-// verdict is Authorize's verdict before the session's two flags. The checks
-// run strongest first, so the first that applies is the verdict, and which
-// rules match decides it whatever their order. A cloud platform's action always
-// asks: a mode is the user's word on one kube-context, and no rule reaches it.
+func (p Policy) authorize(act Action) (Verdict, string) {
+	v, why := p.verdict(act)
+	if v.Effect == Ask && !asks[act.Principal] {
+		return Verdict{Effect: Deny}, "this session never asks: " + why
+	}
+	return v, why
+}
+
+// verdict takes the first step that applies, so which rules match decides it,
+// whatever their order.
 func (p Policy) verdict(act Action) (Verdict, string) {
-	if act.Target != Cluster {
-		return Forbid, "a cloud platform's request always asks"
+	limit := limitOf(act)
+	mode, ok := modes[p.Mode][act.AccessLevel]
+	if !ok {
+		mode = Deny
+	}
+	if limit == Never {
+		return Verdict{Effect: Deny}, "it is never allowed"
 	}
 	if r, ok := p.first(Deny, act); ok {
-		return Refuse, "a rule denies it: " + r.Line(act.Context)
+		return Verdict{Effect: Deny}, "a rule denies it: " + r.Line(act.AccountName)
 	}
-	if p.Mode == ReadOnly && (act.Class == UpstreamWrite || act.Class == Destructive) {
-		return Refuse, "this cluster is read-only"
+	if mode == Deny {
+		return Verdict{Effect: Deny}, "this account is read-only"
 	}
-	if r, ok := p.first(AskFor, act); ok {
-		return Forbid, "a rule asks for it: " + r.Line(act.Context)
+	if r, ok := p.first(Ask, act); ok {
+		return Verdict{Effect: Ask}, "a rule asks for it: " + r.Line(act.AccountName)
 	}
-	if act.Class == Destructive {
-		return Forbid, "it always asks"
-	}
-	if act.Class == ReadInside || act.Class == WriteInside {
-		return Permit, "it changes nothing in the cluster"
+	if limit == Once {
+		return Verdict{Effect: Ask}, "it always asks"
 	}
 	if r, ok := p.first(Allow, act); ok {
-		return Permit, "a rule allows it: " + r.Line(act.Context)
+		return Verdict{Effect: Allow}, "a rule allows it: " + r.Line(act.AccountName)
 	}
-	if p.Mode == Auto {
-		return Permit, "auto mode"
+	if mode == Allow {
+		return Verdict{Effect: Allow}, string(p.Mode) + " mode"
 	}
-	return Unmatched, string(p.Mode) + " mode"
+	return Verdict{Effect: Ask, Grantable: !act.DryRun && GrantRule(act).Storable()}, string(p.Mode) + " mode"
 }
 
 // first is the first rule of effect that matches act.
@@ -316,182 +402,204 @@ func (p Policy) first(effect Effect, act Action) (Rule, bool) {
 	return Rule{}, false
 }
 
-// Refused stands in for rules Kstack could not read, which may have held a
-// Deny: every cluster write refused.
-var Refused = Rule{ID: "refused", Effect: Deny, Class: UpstreamWrite}
+// GrantRule is the rule a chat or always answer to act writes: an allow of
+// its level on its target, for every principal, since the user approved the
+// action whoever sent it, in its scope as a literal, and for a spanning action
+// everything below it too. An action whose scope is
+// one segment, its account alone, also names its service and resource, since
+// a rule over a whole account's objects would be too wide. The writer sets
+// the ID.
+func GrantRule(act Action) Rule {
+	r := Rule{
+		Effect: Allow, AccessLevel: act.AccessLevel, Principal: "*", Target: string(act.Target),
+		Scope: Literal(act.Scope), Service: "*", Operation: "*", Resource: "*",
+	}
+	if act.Spans {
+		// What it was asked for reaches every scope below its own.
+		r.Scope += "/**"
+	}
+	if !strings.Contains(act.Scope, "/") {
+		r.Service, r.Resource = Literal(act.Service), Literal(act.Resource)
+	}
+	return r
+}
 
-// RefusedSecrets stands beside Refused, since a class 4 rule does not cover
-// class 6: every Secret read refused, so its data stays redacted.
-var RefusedSecrets = Rule{ID: "refused-secrets", Effect: Deny, Class: SecretRead}
+// Storable is whether r has every pattern a stored rule needs: a rule naming
+// an empty scope, operation or resource is refused on write.
+func (r Rule) Storable() bool {
+	return r.Scope != "" && r.Operation != "" && r.Resource != ""
+}
+
+// CommandRule is the rule a command answer to act adds for the rest of the
+// command: GrantRule's, naming the service, operation and resource as well,
+// since the user saw one change and allows its repeats.
+func CommandRule(act Action) Rule {
+	r := GrantRule(act)
+	r.Service, r.Operation, r.Resource, r.Command = Literal(act.Service), Literal(act.Operation), Literal(act.Resource), true
+	return r
+}
+
+// GrantLines are the rules each allow answer to act adds, in words: a command
+// answer's, and a chat or always answer's.
+func GrantLines(act Action) (command, chat string) {
+	return CommandRule(act).Line(act.AccountName), GrantRule(act).Line(act.AccountName)
+}
+
+// Refused stands in for rules Kstack could not read, which may have held a
+// deny: every write, everywhere, refused.
+var Refused = Rule{ID: "refused", Effect: Deny, AccessLevel: Write, Principal: "*", Target: "*", Scope: "*", Service: "*", Operation: "*", Resource: "*"}
+
+// RefusedData stands beside Refused, since a write rule does not cover a data
+// read.
+var RefusedData = Rule{ID: "refused-data", Effect: Deny, AccessLevel: DataRead, Principal: "*", Target: "*", Scope: "*", Service: "*", Operation: "*", Resource: "*"}
 
 // Unread is what a read of rules that failed answers: no rule it read, since
-// one read before the failure may be an Allow a later Deny narrowed, and
-// Refused and RefusedSecrets.
-func Unread() []Rule { return []Rule{Refused, RefusedSecrets} }
-
-// Same is whether r and o are one rule but for their ids.
-func (r Rule) Same(o Rule) bool {
-	r.ID, o.ID = "", ""
-	return r == o
-}
-
-// Matches is whether r applies to act: a class that covers act's, its cluster
-// or none, and every set field matching. Class 4 covers class 5, since a destructive write is a
-// cluster write. An Inside rule never matches a Namespace object. Every rule
-// is a cluster's, so none matches a cloud platform's action.
-func (r Rule) Matches(act Action) bool {
-	return act.Target == Cluster &&
-		(r.Class == act.Class || r.Class == UpstreamWrite && act.Class == Destructive) &&
-		(r.ClusterID == "" || r.ClusterID == act.ClusterID) &&
-		matchNamespace(r.Namespace, act.Namespace) &&
-		!(r.Inside && isNamespace(act)) &&
-		matchSet(r.Verb, act.Verb) &&
-		(r.Group == "" || r.Group == act.Group) &&
-		matchKind(r.Kind, act.Kind)
-}
-
-// matchSet is whether a rule field matches: unset matches anything.
-func matchSet(pattern, value string) bool {
-	return pattern == "" || Match(pattern, value)
-}
-
-// matchNamespace is whether a rule's Namespace matches: unset matches
-// anything, ClusterScope an action in no namespace, and a pattern an action in
-// one, so a rule for "*" covers every namespace and nothing cluster-scoped.
-func matchNamespace(pattern, namespace string) bool {
-	switch {
-	case pattern == "":
-		return true
-	case pattern == ClusterScope:
-		return namespace == ""
-	}
-	return namespace != "" && Match(pattern, namespace)
-}
-
-// matchKind is whether a rule's Kind matches. A bare * matches every kind,
-// subresources included. Any other Kind with no / matches the resource alone,
-// since * crosses /, and covers its scale, which writes the object's own
-// replicas, so "deployments" covers "deployments/scale". Any other subresource
-// does something else under the same verb (a create of pods/eviction removes a
-// pod), so a rule names it to cover it.
-func matchKind(pattern, kind string) bool {
-	if pattern == "" || pattern == "*" || strings.Contains(pattern, "/") {
-		return matchSet(pattern, kind)
-	}
-	resource, sub, _ := strings.Cut(kind, "/")
-	return (sub == "" || sub == "scale") && Match(pattern, resource)
-}
+// one read before the failure may be an allow a later deny narrowed, and
+// Refused and RefusedData.
+func Unread() []Rule { return []Rule{Refused, RefusedData} }
 
 var (
-	effectWords = map[Effect]string{Allow: "Allow", Deny: "Deny", AskFor: "Ask for"}
-	classNouns  = map[Class]string{
-		ReadInside:    "reads inside the sandbox",
-		WriteInside:   "writes inside the sandbox",
-		UpstreamWrite: "cluster writes",
-		Destructive:   "destructive cluster writes",
-		SecretRead:    "Secret reads",
+	effectWords = map[Effect]string{Allow: "Allow", Deny: "Deny", Ask: "Ask for"}
+	levelNouns  = map[AccessLevel]string{
+		Read:          "reads",
+		DataRead:      "data reads",
+		Write:         "writes",
+		AccessControl: "access control changes",
+		Destructive:   "destructive changes",
+		Reach:         "reach",
 	}
+	// levelWords lead a line that names what a rule covers.
+	levelWords = map[AccessLevel]string{DataRead: "data", AccessControl: "access control", Destructive: "destructive"}
 )
 
-// Line is the rule in the user's words: "Allow cluster writes in dev-eks /
-// team-a", "Deny destructive delete of core namespaces everywhere", "Deny
-// patch of core nodes cluster-wide in prod". cluster is the name of r's
-// cluster, read only when r names one. An Inside rule reads "inside" for
-// "in". Each field is drawn by field, so a line reads one way whatever a value
-// holds.
-func (r Rule) Line(cluster string) string {
-	if r.Command {
-		return r.scopeLine(cluster) + " for this command"
+// Line is the rule in the user's words: <effect> <what> [by <principal>]
+// <where>, as "Allow writes in dev-eks / team-a" or "Allow writes in AWS
+// 123456789012 / eu-west-1". account is the user's name for the account r's
+// first scope segment names, read only when that segment is a literal; ""
+// draws the segment itself. Each field is drawn by fieldWords, so " / "
+// outside quotes always separates scope segments.
+func (r Rule) Line(account string) string {
+	line := effectWords[r.Effect] + " " + r.what()
+	if r.Principal != "*" {
+		line += " by " + fieldWords(r.Principal)
 	}
-	return r.scopeLine(cluster)
+	line += " " + r.where(account)
+	if r.Command {
+		line += " for this command"
+	}
+	return line
 }
 
-func (r Rule) scopeLine(cluster string) string {
-	where := ""
-	if r.ClusterID != "" {
-		where = fieldWords(Literal(cluster))
+// what is the line's object: the level's noun, or what the rule names of it.
+func (r Rule) what() string {
+	if r.Service == "*" && r.Operation == "*" && r.Resource == "*" {
+		return levelNouns[r.AccessLevel]
 	}
-	what := classNouns[r.Class]
-	if r.Verb != "" || r.Group != "" || r.Kind != "" {
-		parts := []string{"writes", "of"}
-		if r.Class == SecretRead {
-			parts[0] = "reads"
-		}
-		if r.Verb != "" {
-			parts[0] = fieldWords(r.Verb)
-		}
-		if r.Class == Destructive {
-			parts = append([]string{"destructive"}, parts...)
-		}
-		if r.Group != "" {
-			parts = append(parts, r.Group)
-		}
-		switch {
-		case r.Kind != "":
-			parts = append(parts, fieldWords(r.Kind))
-		case r.Group != "":
-			parts = append(parts, "resources")
-		default:
-			parts = append(parts, "anything")
-		}
-		what = strings.Join(parts, " ")
+	var parts []string
+	// An operation names a data read's verb itself: "get of core secrets".
+	if w, ok := levelWords[r.AccessLevel]; ok && (r.AccessLevel != DataRead || r.Operation == "*") {
+		parts = append(parts, w)
 	}
-	line := effectWords[r.Effect] + " " + what
 	switch {
-	case r.Namespace == ClusterScope:
-		line += " cluster-wide"
-		if where != "" {
-			line += " in " + where
+	case r.Operation != "*":
+		parts = append(parts, fieldWords(r.Operation))
+	case r.AccessLevel == Read || r.AccessLevel == DataRead:
+		parts = append(parts, "reads")
+	default:
+		parts = append(parts, "writes")
+	}
+	parts = append(parts, "of")
+	switch {
+	case r.Service == "" && (r.Target == string(Kubernetes) || r.Target == "*"):
+		parts = append(parts, "core")
+	case r.Service != "*":
+		parts = append(parts, fieldWords(r.Service))
+	}
+	switch {
+	case r.Resource != "*":
+		parts = append(parts, fieldWords(r.Resource))
+	case r.Service != "*":
+		parts = append(parts, "resources")
+	default:
+		parts = append(parts, "anything")
+	}
+	return strings.Join(parts, " ")
+}
+
+// where is the line's place: its target, its account and the rest of its
+// scope.
+func (r Rule) where(account string) string {
+	segs := strings.Split(r.Scope, "/")
+	below := false
+	if last := len(segs) - 1; segs[last] == "**" {
+		segs, below = segs[:last], true
+	}
+	target := Target(r.Target)
+	if len(segs) == 0 || len(segs) == 1 && segs[0] == "*" {
+		switch {
+		case r.Target == "*":
+			return "everywhere"
+		case target == Kubernetes:
+			return "in every cluster"
 		}
-		return line
-	case where == "" && r.Namespace == "":
-		return line + " everywhere"
-	case r.Namespace == "":
-		return line + " in " + where
+		return "in every " + targetWords[target] + " account"
 	}
-	if where == "" {
-		where = "any cluster"
+	var words []string
+	if name, ok := LiteralValue(segs[0]); ok {
+		if account != "" {
+			name = account
+		}
+		word := fieldWords(Literal(name))
+		if t, ok := targetWords[target]; ok {
+			word = t + " " + word
+		}
+		words = append(words, word)
+	} else {
+		word := "any account"
+		switch {
+		case target == Kubernetes:
+			word = "any cluster"
+		case r.Target != "*":
+			word = "any " + targetWords[target] + " account"
+		}
+		if segs[0] != "*" {
+			word += " " + matchingWords(segs[0])
+		}
+		words = append(words, word)
 	}
-	in := " in "
-	if r.Inside {
-		in = " inside "
+	for _, s := range segs[1:] {
+		words = append(words, fieldWords(s))
 	}
-	return line + in + where + " / " + fieldWords(r.Namespace)
+	where := strings.Join(words, " / ")
+	if below {
+		return "anywhere in " + where
+	}
+	return "in " + where
 }
 
 // fieldWords draws one pattern field of a line. Name characters alone are
 // drawn bare, a * or ? in them a glob. A literal holding a glob character, a
 // space, a " or a \ is drawn unescaped in quotes. Anything else is drawn as
-// written, in quotes, after "matching". So " / " outside quotes always
-// separates the cluster from the namespace.
+// written, in quotes, after "matching". An empty field is drawn as "".
 func fieldWords(v string) string {
+	if v == "" {
+		return `""`
+	}
 	if !strings.ContainsAny(v, ` "\`) {
 		return v
 	}
-	if plain, ok := unescapeLiteral(v); ok {
+	if plain, ok := LiteralValue(v); ok {
 		return quote(plain)
 	}
 	return "matching " + quote(v)
 }
 
-// unescapeLiteral is the value pattern matches alone, false for a pattern
-// Literal would not have written.
-func unescapeLiteral(pattern string) (string, bool) {
-	var b strings.Builder
-	escaped := false
-	for _, r := range pattern {
-		switch {
-		case escaped:
-			escaped = false
-		case r == '\\':
-			escaped = true
-			continue
-		case r == '*' || r == '?':
-			return "", false
-		}
-		b.WriteRune(r)
+// matchingWords draws a pattern that is not a literal as what it matches.
+func matchingWords(pattern string) string {
+	if w := fieldWords(pattern); strings.HasPrefix(w, "matching ") {
+		return w
 	}
-	return b.String(), !escaped && Literal(b.String()) == pattern
+	return "matching " + pattern
 }
 
 // quote is s in double quotes, each " and \ inside preceded by \.

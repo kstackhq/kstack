@@ -20,21 +20,22 @@ field and its control: no migration, no statement. `tools.go` exports the tools'
 for `toolsettings` and `agent/chat`. → [ADR](../../../../docs/adr/2026-11-24-settings-are-rows-in-app-db.md),
 [security record](../../../../docs/security/2026-11-25-settings-in-app-db.md).
 
-**The modes are `permissions.approval_mode` settings; the always rules and folder grants are
-`app.db` rows** with `chat_id` NULL (`kube_rules`, `folder_grants`; `agent/chat` writes a chat's), in
-`permissions.go`, `store.go` and `statements.go`. Each write is one
-transaction and then notifies `appdb.KeyPermissions` (`ListenForPermissionChanges`). → [ADR](../../../../docs/adr/2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md),
-[security record](../../../../docs/security/2026-11-25-settings-in-app-db.md).
+**The modes, the always rules and folder grants are `app.db` rows**: `permission_modes` by target
+and account, `permission_rules` and `folder_grants` with `chat_id` NULL (a chat's are
+`agent/chat`'s), in `permissions.go`, `store.go` and `statements.go`. Each write is one transaction, then
+notifies `appdb.KeyPermissions` (`ListenForPermissionChanges`). → [ADR](../../../../docs/adr/2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action.md),
+[security record](../../../../docs/security/2026-11-25-target-neutral-permissions.md).
 
-- `ModeFor(ctx, cluster)` is the cluster's row, else the default row, else `Ask`; a mode Kstack
-  cannot use is read-only. `SetMode` refuses a cluster gone or marked (`ErrClusterGone`) or with no
-  kube-context (`ErrNoKubeContext`). `ClearMode` writes NULL in the cluster's row.
-- `CheckKubeRule`, which both writers call first, refuses with a `RuleRefusal` exactly what the
-  table's `CHECK`s refuse, an `allow` naming no cluster among them. `AddKubeRule` refuses a
-  cluster as `SetMode` does, and answers a rule already held. `KubeRuleColumns`, `KubeRules` and `KubeRuleValues` (and `FolderGrant*`) are the
-  tables' one encoding, shared with `agent/chat`.
-- `GrantFolder` upserts on the folder, keeping its id; its caller checks the folder first.
-- A failed read is an error; its readers decide what it costs.
+- `ModeFor` is the account's row, else the target's `*` row, else `ask`; one Kstack cannot use
+  is read-only. `SetMode` and `ClearMode` take a listed cluster's id
+  (`ErrClusterGone`, `ErrNoKubeContext`), a cloud account with no `/`, or `*`; else a `ModeRefusal`.
+  `canonicalScope` lowers a cloud account or scope, as classifiers do.
+- `CheckRule`, run on every write and read, refuses with a `RuleRefusal` what no rule may hold; a
+  stored row it refuses reads as `permissions.Unread()` under its id. `AddRule` and
+  `UpdateRule` check a cluster as `SetMode` does and answer a rule already held.
+  `RuleColumns`, `ScanRules`, `RuleValues` and `FolderGrant*` are the encoding `agent/chat` shares.
+- `GrantFolder` upserts on the folder, keeping its id; its caller checks the folder.
+- A failed read is an error.
 
 **The `PATH` is one string, the `sandbox.path` setting** (`path.go`), written as in a shell's
 startup file, `$PATH` by default. `parsePath` splits it before expanding: each element is exactly

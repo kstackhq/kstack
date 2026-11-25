@@ -260,17 +260,18 @@ func TestTheMonitorsAskerRecordsAndNeverAsks(t *testing.T) {
 	require.NoError(t, j.LLMCallStarted(t.Context(), "fake"))
 	require.NoError(t, j.ToolCallStarted(t.Context(), bashCall("kubectl delete pod x"), tools.Approval{Sandboxed: true}))
 	asker := monitorAsker{j: j}
-	req := tools.ActionRequest{Action: permissions.Action{Class: permissions.UpstreamWrite, Verb: "delete", Kind: "pods", Summary: "Delete pods/x"}}
+	req := tools.ActionRequest{Action: permissions.Action{Principal: permissions.Monitor, Target: permissions.Kubernetes, AccessLevel: permissions.Write,
+		Operation: "delete", Resource: "pods", Summary: "Delete pods/x"}}
 
 	_, err := asker.Ask(t.Context(), req)
 	assert.ErrorIs(t, err, errMonitorAsked)
 	assert.Zero(t, tableCount(t, s.db, "approvals"))
 
-	require.NoError(t, asker.Record(t.Context(), req, permissions.Denied, "this cluster is read-only"))
+	require.NoError(t, asker.Record(t.Context(), req, permissions.Denied, "it is never allowed"))
 	var status, reason string
 	require.NoError(t, s.db.Read.QueryRow(`SELECT status, reason FROM approvals WHERE tool_call_id = ?`, string(j.openTool.ID)).Scan(&status, &reason))
 	assert.Equal(t, string(ApprovalRefused), status)
-	assert.Equal(t, "this cluster is read-only", reason)
+	assert.Equal(t, "it is never allowed", reason)
 }
 
 // startsTask is a tool that starts a background task through its runtime, as

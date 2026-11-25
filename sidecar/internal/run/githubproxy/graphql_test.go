@@ -48,7 +48,7 @@ func TestAQueryIsARead(t *testing.T) {
 		g, ok := readGraphQL(graphQLBody(t, q, ""))
 		require.True(t, ok, q)
 		assert.Empty(t, g.mutations, q)
-		assert.Zero(t, g.class(), q)
+		assert.Equal(t, permissions.Read, g.action().AccessLevel, q)
 	}
 }
 
@@ -63,7 +63,61 @@ func TestAnyMutationIsAChange(t *testing.T) {
 		require.True(t, ok, op)
 		assert.Equal(t, []string{"createIssue", "addComment"}, g.mutations, op)
 		assert.Equal(t, op, g.operation)
-		assert.Equal(t, permissions.UpstreamWrite, g.class(), op)
+		assert.Equal(t, permissions.Write, g.action().AccessLevel, op)
+	}
+}
+
+// A mutation that changes who may do what is an access control change, by
+// its name or by a pull request's maintainer edits.
+func TestAnAccessControlMutationIsAccessControl(t *testing.T) {
+	t.Parallel()
+	for _, q := range []string{
+		`mutation { updateBranchProtectionRule(input: {}) { clientMutationId } }`,
+		`mutation { createRepositoryRuleset(input: {}) { clientMutationId } }`,
+		`mutation { updateTeamsRepository(input: {}) { clientMutationId } }`,
+		`mutation { removeOutsideCollaborator(input: {}) { clientMutationId } }`,
+		`mutation { createIssue(input: {}) { clientMutationId } a: deleteBranchProtectionRule(input: {}) { clientMutationId } }`,
+		`mutation { updatePullRequest(input: {pullRequestId: "x", maintainerCanModify: true}) { clientMutationId } }`,
+	} {
+		g, ok := readGraphQL(graphQLBody(t, q, ""))
+		require.True(t, ok, q)
+		assert.Equal(t, permissions.AccessControl, g.action().AccessLevel, q)
+	}
+	g, ok := readGraphQL(graphQLBody(t, `mutation { updatePullRequest(input: {title: "t"}) { clientMutationId } }`, ""))
+	require.True(t, ok)
+	assert.Equal(t, permissions.Write, g.action().AccessLevel, "a pull request's other edits")
+}
+
+// A pull request's maintainer edits are read from the parsed input, written
+// in the document, through a variable or its default; only true opens them,
+// and the word in any other field is no setting.
+func TestMaintainerEditsAreReadFromTheParsedInput(t *testing.T) {
+	t.Parallel()
+	const update = `updatePullRequest(input: $in) { clientMutationId }`
+	for name, c := range map[string]struct {
+		body string
+		want permissions.AccessLevel
+	}{
+		"written":       {`{"query":"mutation { updatePullRequest(input: {maintainerCanModify: true}) { clientMutationId } }"}`, permissions.AccessControl},
+		"written false": {`{"query":"mutation { updatePullRequest(input: {maintainerCanModify: false}) { clientMutationId } }"}`, permissions.Write},
+		"a flag variable": {`{"query":"mutation($m: Boolean!) { updatePullRequest(input: {maintainerCanModify: $m}) { clientMutationId } }","variables":{"m":true}}`,
+			permissions.AccessControl},
+		"an input variable": {`{"query":"mutation($in: UpdatePullRequestInput!) { ` + update + ` }","variables":{"in":{"maintainerCanModify":true}}}`,
+			permissions.AccessControl},
+		"an escaped key": {`{"query":"mutation($in: UpdatePullRequestInput!) { ` + update + ` }","variables":{"in":{"\u006daintainerCanModify":true}}}`,
+			permissions.AccessControl},
+		"a default": {`{"query":"mutation($m: Boolean = true) { updatePullRequest(input: {maintainerCanModify: $m}) { clientMutationId } }"}`,
+			permissions.AccessControl},
+		"the word in a title": {`{"query":"mutation($in: UpdatePullRequestInput!) { ` + update + ` }","variables":{"in":{"title":"maintainerCanModify"}}}`,
+			permissions.Write},
+		"no input":            {`{"query":"mutation { updatePullRequest { clientMutationId } }"}`, permissions.Write},
+		"a variable not sent": {`{"query":"mutation { updatePullRequest(input: {maintainerCanModify: $m}) { clientMutationId } }"}`, permissions.Write},
+		"a default that does not resolve": {`{"query":"mutation($m: Boolean = 99999999999999999999999) { updatePullRequest(input: {maintainerCanModify: $m}) { clientMutationId } }"}`,
+			permissions.Write},
+	} {
+		g, ok := readGraphQL([]byte(c.body))
+		require.True(t, ok, name)
+		assert.Equal(t, c.want, g.action().AccessLevel, name)
 	}
 }
 
@@ -81,28 +135,29 @@ func TestAMutationIsReadThroughFragmentsAndAliases(t *testing.T) {
 		g, ok := readGraphQL(graphQLBody(t, q, ""))
 		require.True(t, ok, q)
 		assert.Contains(t, g.mutations, "deleteRef", q)
-		assert.Equal(t, permissions.Destructive, g.class(), q)
+		assert.Equal(t, permissions.Destructive, g.action().AccessLevel, q)
 	}
 }
 
 func TestAGraphQLBodyThatDoesNotReadIsRefused(t *testing.T) {
 	t.Parallel()
 	for name, body := range map[string]string{
-		"empty":                          ``,
-		"not an object":                  `[{"query":"{ viewer { login } }"}]`,
-		"a duplicate key":                `{"query":"{ viewer { login } }","query":"mutation { deleteRef(input:{}) { clientMutationId } }"}`,
-		"no query":                       `{"variables":{}}`,
-		"a non-string query":             `{"query":{"text":"x"}}`,
-		"a non-string operation":         `{"query":"{ viewer { login } }","operationName":1}`,
-		"trailing data":                  `{"query":"{ viewer { login } }"} {}`,
-		"cut short":                      `{"query":"{ viewer { login } }"`,
-		"a subscription":                 `{"query":"subscription { x }"}`,
-		"a document that does not parse": `{"query":"{ viewer { "}`,
-		"no operation":                   `{"query":"fragment F on Query { viewer { login } }"}`,
-		"a key that is not a string":     `{1:2}`,
-		"a value that does not parse":    `{"query":"{ viewer { login } }","extensions":}`,
-		"a missing fragment inside":      `{"query":"mutation { ... on Mutation { ...Gone } }"}`,
-		"a missing fragment":             `{"query":"mutation { ...Gone }"}`,
+		"empty":                            ``,
+		"not an object":                    `[{"query":"{ viewer { login } }"}]`,
+		"a duplicate key":                  `{"query":"{ viewer { login } }","query":"mutation { deleteRef(input:{}) { clientMutationId } }"}`,
+		"no query":                         `{"variables":{}}`,
+		"a non-string query":               `{"query":{"text":"x"}}`,
+		"a non-string operation":           `{"query":"{ viewer { login } }","operationName":1}`,
+		"trailing data":                    `{"query":"{ viewer { login } }"} {}`,
+		"cut short":                        `{"query":"{ viewer { login } }"`,
+		"a subscription":                   `{"query":"subscription { x }"}`,
+		"a document that does not parse":   `{"query":"{ viewer { "}`,
+		"no operation":                     `{"query":"fragment F on Query { viewer { login } }"}`,
+		"a key that is not a string":       `{1:2}`,
+		"a value that does not parse":      `{"query":"{ viewer { login } }","extensions":}`,
+		"a missing fragment inside":        `{"query":"mutation { ... on Mutation { ...Gone } }"}`,
+		"a missing fragment":               `{"query":"mutation { ...Gone }"}`,
+		"variables that are not an object": `{"query":"{ viewer { login } }","variables":1}`,
 	} {
 		_, ok := readGraphQL([]byte(body))
 		assert.False(t, ok, name)

@@ -172,8 +172,8 @@ func (p *proxy) isResourceManager(resource string) bool {
 }
 
 // resourceManager serves a request for Resource Manager: the path policy,
-// the classifier, the subscription, then a read forwards and anything else
-// is put to the user.
+// the classifier, the subscription, then a read forwards unasked and anything
+// else is decided.
 func (p *proxy) resourceManager(w http.ResponseWriter, r *http.Request) {
 	a, ok := parsePath(r.Method, r.URL.Path)
 	query, err := url.ParseQuery(r.URL.RawQuery)
@@ -195,8 +195,8 @@ func (p *proxy) resourceManager(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusForbidden, refusedOutsideSubscription)
 		return
 	}
-	if v.class != 0 {
-		p.decide(w, r, a, v, sub)
+	if v.level != permissions.Read {
+		p.decide(w, r, a, v, query, sub)
 		return
 	}
 	release, status := p.Grant.Slot(r.Context())
@@ -208,9 +208,9 @@ func (p *proxy) resourceManager(w http.ResponseWriter, r *http.Request) {
 	p.forward(w, r, sub.TenantID, nil)
 }
 
-// decide puts a request that is not a plain read to the user, with its body,
-// and forwards it once approved.
-func (p *proxy) decide(w http.ResponseWriter, r *http.Request, a armPath, v verdict, sub Subscription) {
+// decide has the grant decide a request that is not a plain read, with its
+// body, and forwards it once it may run.
+func (p *proxy) decide(w http.ResponseWriter, r *http.Request, a armPath, v verdict, query url.Values, sub Subscription) {
 	body, release, status := p.Grant.Body(w, r)
 	defer release()
 	if status != 0 {
@@ -218,7 +218,7 @@ func (p *proxy) decide(w http.ResponseWriter, r *http.Request, a armPath, v verd
 		return
 	}
 	req := runproxy.Request{
-		Action: permissions.Action{Class: v.class, Summary: summary(r.Method, a, v, sub)},
+		Action: action(r.Method, a, v, query, body, sub),
 		Sent: runproxy.Sent{
 			Host: p.upstream.Host, Method: r.Method, Path: r.URL.RequestURI(),
 			ContentType: r.Header.Get("Content-Type"), Body: body, Details: details(r, a, sub),

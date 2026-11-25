@@ -21,9 +21,14 @@ type stmtID int
 
 const (
 	stmtSelectClusterKubeContext stmtID = iota
-	stmtSelectKubeRules
-	stmtInsertKubeRule
-	stmtDeleteKubeRule
+	stmtSelectRules
+	stmtInsertRule
+	stmtUpdateRule
+	stmtDeleteRule
+	stmtSelectAccountModes
+	stmtSelectModes
+	stmtUpsertMode
+	stmtDeleteMode
 	stmtSelectFolderGrants
 	stmtUpsertFolderGrant
 	stmtDeleteFolderGrant
@@ -47,10 +52,21 @@ var statements = []sqlstmt.Statement{
 	stmtSelectClusterKubeContext: sqlstmt.OnBoth(`SELECT source = 'kubeconfig' AND ifnull(source_key, '') <> ''
 	FROM clusters WHERE id = ? AND delete_requested_at IS NULL`),
 	// OnBoth, since a rule's write reads the rules in its transaction.
-	stmtSelectKubeRules: sqlstmt.OnBoth(`SELECT ` + KubeRuleColumns + ` FROM kube_rules WHERE chat_id IS NULL ORDER BY created_at, id`),
-	stmtInsertKubeRule: sqlstmt.OnWriter(`INSERT INTO kube_rules (chat_id, ` + KubeRuleColumns + `, created_at)
-	VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-	stmtDeleteKubeRule: sqlstmt.OnWriter(`DELETE FROM kube_rules WHERE chat_id IS NULL AND id = ?`),
+	stmtSelectRules: sqlstmt.OnBoth(`SELECT ` + RuleColumns + ` FROM permission_rules WHERE chat_id IS NULL ORDER BY created_at, id`),
+	stmtInsertRule: sqlstmt.OnWriter(`INSERT INTO permission_rules (chat_id, ` + RuleColumns + `, created_at, updated_at)
+	VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+	// An edit keeps the rule's id and created_at, so it keeps its place.
+	stmtUpdateRule: sqlstmt.OnWriter(`UPDATE permission_rules SET effect = ?, access_level = ?, principal = ?, target = ?,
+	scope = ?, service = ?, operation = ?, resource = ?, updated_at = ? WHERE chat_id IS NULL AND id = ?`),
+	stmtDeleteRule: sqlstmt.OnWriter(`DELETE FROM permission_rules WHERE chat_id IS NULL AND id = ?`),
+
+	// An account's row and its target's default: target, account.
+	stmtSelectAccountModes: sqlstmt.OnReader(`SELECT account, mode FROM permission_modes WHERE target = ?1 AND account IN (?2, '*')`),
+	stmtSelectModes:        sqlstmt.OnReader(`SELECT target, account, mode FROM permission_modes ORDER BY target, account`),
+	// A row's first write sets created_at; every write moves updated_at.
+	stmtUpsertMode: sqlstmt.OnWriter(`INSERT INTO permission_modes (target, account, mode, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)
+	ON CONFLICT (target, account) DO UPDATE SET mode = excluded.mode, updated_at = excluded.updated_at`),
+	stmtDeleteMode: sqlstmt.OnWriter(`DELETE FROM permission_modes WHERE target = ? AND account = ?`),
 
 	stmtSelectFolderGrants: sqlstmt.OnReader(`SELECT ` + FolderGrantColumns + ` FROM folder_grants WHERE chat_id IS NULL ORDER BY created_at, id`),
 	// A folder granted again keeps its row's id and created_at, and changes its access.

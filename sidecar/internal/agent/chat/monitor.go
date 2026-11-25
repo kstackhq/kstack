@@ -204,10 +204,10 @@ func (m *monitor) settle() {
 // errMonitorAsked is an ask that reached a monitor run, which has nobody to ask.
 var errMonitorAsked = errors.New("chat: a monitor run asks nobody")
 
-// monitorAsker records what the proxy decided and never asks. Ask is unreachable
-// under NoPrompts, which turns every verdict the user could lift into a refusal;
-// an Ask that reached it anyway answers an error, which the proxy refuses the
-// write on and forwards nothing.
+// monitorAsker records what the proxy decided and never asks. Ask is unreachable,
+// since the monitor's principal asks nobody, which turns every verdict the user
+// could lift into a refusal; an Ask that reached it anyway answers an error,
+// which the proxy refuses the request on and forwards nothing.
 type monitorAsker struct{ j *runJournal }
 
 func (a monitorAsker) Ask(context.Context, tools.ActionRequest) (tools.Answer, error) {

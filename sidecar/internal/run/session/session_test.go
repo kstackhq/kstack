@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
@@ -41,11 +40,21 @@ func TestNarrowKeepsTheParentsIdentity(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, folders, read, "a subagent reads its parent's folders")
 	}
-	t.Run("NoPromptsAndNoSecretData", func(t *testing.T) {
-		got := Narrow(Session{Kind: Monitor, NoPrompts: true, NoSecretData: true})
-		assert.True(t, got.NoPrompts)
-		assert.True(t, got.NoSecretData)
-	})
+}
+
+// Only a chat spawns a subagent; a narrowed session of another kind keeps
+// its kind, so its boundary row holds.
+func TestNarrowOfAMonitorStaysAMonitor(t *testing.T) {
+	for _, kind := range []Kind{Monitor, Console, Subagent} {
+		assert.Equal(t, kind, Narrow(Session{Kind: kind}).Kind)
+	}
+	assert.Equal(t, Subagent, Narrow(Session{Kind: Chat}).Kind)
+}
+
+// Kind is the principal a proxy stamps on every action.
+func TestAKindIsAPrincipal(t *testing.T) {
+	assert.Equal(t, permissions.Chat, Chat)
+	assert.Equal(t, permissions.Principals, []Kind{Chat, Subagent, Monitor, Console})
 }
 
 func TestASessionWithNoFoldersReadsNone(t *testing.T) {
@@ -64,12 +73,17 @@ func TestAFoldersReadThatFailsIsAnError(t *testing.T) {
 
 // A subagent decides by its parent's mode and rules.
 func TestNarrowKeepsThePolicy(t *testing.T) {
-	policy := permissions.Policy{Mode: permissions.Auto, Rules: []permissions.Rule{permissions.Refused}}
-	parent := Session{Kind: Chat, Policy: func(context.Context, apimeta.ClusterID) permissions.Policy { return policy }}
+	policy := permissions.Policy{Mode: permissions.ModeAuto, Rules: []permissions.Rule{permissions.Refused}}
+	var read []string
+	parent := Session{Kind: Chat, Policy: func(_ context.Context, target permissions.Target, account string) permissions.Policy {
+		read = append(read, string(target)+":"+account)
+		return policy
+	}}
 
 	got := Narrow(parent)
 
-	assert.Equal(t, policy, got.Policy(t.Context(), "dev"))
+	assert.Equal(t, policy, got.Policy(t.Context(), permissions.AWS, "123456789012"))
+	assert.Equal(t, []string{"aws:123456789012"}, read)
 }
 
 // A subagent has its parent's network, the turn's toggle included, for its
@@ -85,4 +99,34 @@ func TestNarrowKeepsTheNetwork(t *testing.T) {
 // A session made without sessionFor has no network, ever.
 func TestTheZeroSessionHasNoNetwork(t *testing.T) {
 	assert.Nil(t, Session{Kind: Monitor}.Network)
+}
+
+// A session with no Policy is read-only: its command's rules allow nothing.
+func TestASessionWithNoPolicyIsReadOnly(t *testing.T) {
+	allow := permissions.Rule{Effect: permissions.Allow}
+
+	got := Session{Kind: Chat}.PolicyFor(t.Context(), permissions.Kubernetes, "c1", []permissions.Rule{allow})
+
+	assert.Equal(t, permissions.Policy{Mode: permissions.ModeReadOnly}, got)
+}
+
+// The policy is read for the action's target and account, and the command's
+// rules follow the session's without being written into its slice.
+func TestPolicyForJoinsTheCommandsRules(t *testing.T) {
+	held := make([]permissions.Rule, 1, 4)
+	held[0] = permissions.Rule{ID: "held"}
+	var target permissions.Target
+	var account string
+	s := Session{Kind: Chat, Policy: func(_ context.Context, tg permissions.Target, a string) permissions.Policy {
+		target, account = tg, a
+		return permissions.Policy{Mode: permissions.ModeAsk, Rules: held}
+	}}
+
+	got := s.PolicyFor(t.Context(), permissions.AWS, "123456789012", []permissions.Rule{{ID: "command"}})
+
+	assert.Equal(t, permissions.AWS, target)
+	assert.Equal(t, "123456789012", account)
+	assert.Equal(t, permissions.ModeAsk, got.Mode)
+	assert.Equal(t, []permissions.Rule{{ID: "held"}, {ID: "command"}}, got.Rules)
+	assert.Equal(t, permissions.Rule{}, held[:2][1], "the session's slice is not written past its length")
 }

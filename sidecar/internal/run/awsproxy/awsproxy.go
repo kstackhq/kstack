@@ -78,7 +78,8 @@ type request struct {
 	row     service
 	body    []byte
 	op      operation
-	foreign bool // it names a bucket the login does not own
+	foreign bool   // it names a bucket the login does not own
+	owner   string // the account its bucket is sent as owned by, or ""
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -118,28 +119,53 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		refuse(w, req, http.StatusForbidden, req.op.refusal)
 		return
 	}
-	if req.op.bucket != "" && !p.up.Buckets.owns(r.Context(), cred.region, req.op.bucket, p.listBuckets) {
+	// A bucket's owner, the decision and a read's forward are read off one
+	// reading of the credentials, so all name one login.
+	creds, err := p.up.Identity.Credentials(r.Context())
+	if err != nil {
+		refuse(w, req, http.StatusForbidden, noLoginRefusal(err))
+		return
+	}
+	// A caller's expected owner other than the login's account names another
+	// owner than the one the list vouches for.
+	expected := r.Header.Get("X-Amz-Expected-Bucket-Owner")
+	if req.op.bucket != "" && (expected != "" && expected != creds.AccountID ||
+		!p.up.Buckets.owns(r.Context(), creds, cred.region, req.op.bucket, p.listBuckets)) {
 		// Its owner's log would record the read, so it asks.
 		req.foreign = true
-		if req.op.class == 0 {
-			req.op.class = permissions.UpstreamWrite
+		if req.op.level == permissions.Read {
+			req.op.level, req.op.once = permissions.Write, true
 		}
 	}
-
-	if req.op.class == 0 {
+	if req.op.bucket != "" && !req.foreign {
+		// S3 refuses the request if the bucket changed hands since the list.
+		req.owner = creds.AccountID
+	}
+	if req.op.level == permissions.Read {
 		release, status := p.grant.Slot(r.Context())
 		defer release()
 		if status != 0 {
 			refuse(w, req, status, runproxy.SlotRefusal(status))
 			return
 		}
-		p.forward(w, req)
+		p.forward(w, req, creds)
 		return
 	}
-	out := p.grant.Decide(r.Context(), runproxy.Request{
-		Action: permissions.Action{Class: req.op.class, Summary: req.summary()},
-		Sent:   req.sent(),
-	}, func() error { p.forward(w, req); return nil })
+	// The forward reads the credentials again, since a session can expire
+	// while the user decides, and sends nothing as another login: another
+	// account, or with no account id, another access key.
+	out := p.grant.Decide(r.Context(), runproxy.Request{Action: req.action(creds), Sent: req.sent()}, func() error {
+		fresh, err := p.up.Identity.Credentials(r.Context())
+		switch {
+		case err != nil:
+			refuse(w, req, http.StatusForbidden, noLoginRefusal(err))
+		case loginOf(fresh) != loginOf(creds):
+			refuse(w, req, http.StatusForbidden, loginChanged)
+		default:
+			p.forward(w, req, fresh)
+		}
+		return nil
+	})
 	if !out.Forwarded {
 		refuse(w, req, out.Status, out.Message)
 	}

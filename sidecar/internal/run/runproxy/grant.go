@@ -76,6 +76,9 @@ type Grant struct {
 	// is forwarded; waiters bounds the requests waiting for it.
 	lock    *semaphore.Weighted
 	waiters *semaphore.Weighted
+	// commandRules are the rules the command's answers added, for the rest of
+	// the command. Guarded by lock.
+	commandRules []permissions.Rule
 	// ctx ends with the grant, and every request in flight with it.
 	ctx context.Context
 	end context.CancelFunc
@@ -91,7 +94,7 @@ type Grant struct {
 // wiring mistake: the cluster's grant is kubeproxy's. So is no switch, and a
 // limit below one, which would refuse every request the user approves.
 func NewGrant(target permissions.Target, on func(context.Context) bool, sess session.Session, asker Asker, refusal string, limits Limits) *Grant {
-	if target == permissions.Cluster {
+	if _, ok := permissions.TargetNamed(string(target)); !ok || target == permissions.Kubernetes {
 		panic("runproxy: a grant names a cloud platform, never the cluster")
 	}
 	if on == nil {

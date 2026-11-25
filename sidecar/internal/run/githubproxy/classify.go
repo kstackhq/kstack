@@ -15,6 +15,7 @@
 package githubproxy
 
 import (
+	"encoding/json"
 	"net/http"
 	"regexp"
 	"slices"
@@ -24,10 +25,11 @@ import (
 )
 
 // verdict is what the classifier makes of a request: refused with refusal,
-// or a read (class 0), or one that asks in class.
+// or its action, whose level is Read for a read. A credential's refusal
+// carries the reach level; any other refusal none.
 type verdict struct {
 	refusal string
-	class   permissions.Class
+	act     permissions.Action
 }
 
 // A path pattern matches segment by segment: * is any one segment, and a
@@ -77,31 +79,140 @@ var dataPaths = []string{
 // releaseAsset is a release asset, a data read when Accept asks for its bytes.
 const releaseAsset = "/repos/*/*/releases/assets/*"
 
-// destructivePaths are the deletes that are class 5.
+// destructivePaths are the deletes that are destructive.
 var destructivePaths = []string{"/repos/*/*", "/repos/*/*/git/refs/..."}
 
+// permissionsWords are what a change under a repository or an organization
+// changes who may do what through, or what sees every request.
+var permissionsWords = []string{
+	"collaborators", "outside_collaborators", "teams", "members", "memberships", "invitations", "keys", "hooks",
+	"rulesets", "environments", "organization-roles", "security-managers",
+}
+
+// spanningPaths are an owner's data reads that gather its repositories':
+// their alerts and their archives.
+var spanningPaths = []string{"/orgs/*/secret-scanning/...", "/orgs/*/migrations/*/archive"}
+
+// accessControlPaths are the changes that are an access control change: under
+// permissionsWords, a branch's protection, the Actions permissions, a
+// repository's transfer to another owner, and the user's own keys.
+var accessControlPaths = func() []string {
+	paths := []string{
+		"/repos/*/*/actions/permissions/...", "/orgs/*/actions/permissions/...", "/repos/*/*/transfer",
+		"/user/keys/...", "/user/gpg_keys/...", "/user/ssh_signing_keys/...",
+	}
+	for _, w := range permissionsWords {
+		paths = append(paths, "/repos/*/*/"+w+"/...", "/orgs/*/"+w+"/...")
+	}
+	return paths
+}()
+
+// ordinaryRow is one change a mode or a rule may allow: a method and a path
+// pattern on the API host, matched segment by segment and no deeper.
+type ordinaryRow struct{ method, path string }
+
+// ordinary are the changes a mode or a rule may allow. Any other change asks
+// each time. Adding a row is a security change.
+var ordinary = []ordinaryRow{
+	{http.MethodPost, "/repos/*/*/issues"},
+	{http.MethodPost, "/repos/*/*/issues/*/comments"},
+	{http.MethodPost, "/repos/*/*/issues/*/labels"},
+	{http.MethodPost, "/repos/*/*/pulls"},
+	{http.MethodPost, "/repos/*/*/pulls/*/comments"},
+	{http.MethodPatch, "/repos/*/*/issues/*"},
+	{http.MethodPatch, "/repos/*/*/pulls/*"},
+}
+
+// accessFields are the fields of a change's body that say who may do what,
+// by the path the change is to: a repository's visibility, and whether a pull
+// request's base maintainers may push to its branch.
+var accessFields = []struct {
+	path   string
+	fields []string
+}{
+	{"/repos/*/*", []string{"private", "visibility"}},
+	{"/repos/*/*/pulls/*", []string{"maintainer_can_modify"}},
+}
+
+// withBody is v once the change's body is read: an access control change when
+// the body sets one of accessFields for its path. A body that is not a JSON
+// object sets none; GitHub refuses it.
+func (v verdict) withBody(path string, body []byte) verdict {
+	if v.act.AccessLevel != permissions.Write {
+		return v
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return v
+	}
+	segs := segmentsOf(path)
+	for _, a := range accessFields {
+		if matches(a.path, segs) && slices.ContainsFunc(a.fields, func(f string) bool { _, ok := fields[f]; return ok }) {
+			v.act.AccessLevel, v.act.Once = permissions.AccessControl, false
+			return v
+		}
+	}
+	return v
+}
+
 // classifyAPI is how the API host takes a request to path other than
-// GraphQL's, by its method and, for a release asset, its Accept.
+// GraphQL's, by its method and, for a release asset, its Accept. The levels
+// go reach, destructive, permissions, data read, read, write; a write
+// ordinary does not name asks each time.
 func classifyAPI(method, path, accept string) verdict {
 	segs := segmentsOf(path)
-	if matchesAny(credentialPaths, segs) {
-		return verdict{refusal: refusedCredential}
-	}
-	switch method {
-	case http.MethodGet, http.MethodHead:
+	raw := strings.Split(strings.ToLower(strings.TrimPrefix(path, "/")), "/")
+	act := apiAction(method, raw, segs)
+	switch {
+	case matchesAny(credentialPaths, segs):
+		act.AccessLevel = permissions.Reach
+		return verdict{refusal: refusedCredential, act: act}
+	case method == http.MethodGet || method == http.MethodHead:
+		act.AccessLevel = permissions.Read
 		if matchesAny(dataPaths, segs) || matches(releaseAsset, segs) && strings.Contains(strings.ToLower(accept), "application/octet-stream") {
-			return verdict{class: permissions.SecretRead}
+			act.AccessLevel = permissions.DataRead
+			act.Spans = matchesAny(spanningPaths, segs)
 		}
-		return verdict{}
-	case http.MethodDelete:
-		if matchesAny(destructivePaths, segs) {
-			return verdict{class: permissions.Destructive}
-		}
-		return verdict{class: permissions.UpstreamWrite}
-	case http.MethodPost, http.MethodPut, http.MethodPatch:
-		return verdict{class: permissions.UpstreamWrite}
+	case method == http.MethodDelete && matchesAny(destructivePaths, segs):
+		act.AccessLevel = permissions.Destructive
+	case method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete:
+		return verdict{refusal: refusedMethod}
+	case matchesAny(accessControlPaths, segs) || protectsABranch(segs):
+		act.AccessLevel = permissions.AccessControl
+	default:
+		act.AccessLevel = permissions.Write
+		act.Once = !slices.ContainsFunc(ordinary, func(o ordinaryRow) bool { return o.method == method && matches(o.path, raw) })
 	}
-	return verdict{refusal: refusedMethod}
+	return verdict{act: act}
+}
+
+// protectsABranch is whether segs is under a branch's protection.
+func protectsABranch(segs []string) bool {
+	return len(segs) > 5 && matches("/repos/*/*/branches/...", segs) && slices.Contains(segs[5:], "protection")
+}
+
+// apiAction is the action an API request names, from its path's raw segments
+// and segs as the lists read them: its owner and repository as written by
+// name, in lower case, the method, and the resource, the first segment after
+// the repository, else the first. A route by id and one naming no owner have
+// no scope: an id is an alias Kstack cannot read as an account.
+func apiAction(method string, raw, segs []string) permissions.Action {
+	act := permissions.Action{Service: "api", Operation: strings.ToLower(method), Resource: segs[0]}
+	switch {
+	case len(segs) >= 4 && segs[0] == "repos":
+		act.Resource = segs[3]
+	case len(segs) >= 3 && (segs[0] == "orgs" || segs[0] == "users"):
+		// An owner's resource is named as a repository's is, so one rule names
+		// both: secret-scanning, members.
+		act.Resource = segs[2]
+	}
+	switch {
+	case len(raw) >= 3 && raw[0] == "repos":
+		act.Scope, act.AccountName = raw[1]+"/"+raw[2], raw[1]
+	case len(raw) >= 2 && (raw[0] == "orgs" || raw[0] == "users"):
+		act.Scope, act.AccountName = raw[1], raw[1]
+	}
+	return act
 }
 
 // segmentsOf is path's segments as the lists read them: in lower case, so no
@@ -161,6 +272,22 @@ const (
 // gitPath is a smart HTTP request's path: the owner, the repository with
 // any .git, and the request.
 var gitPath = regexp.MustCompile(`^/([A-Za-z0-9-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/(info/refs|git-upload-pack|git-receive-pack)$`)
+
+// gitAction is a push's action: its repository, in lower case, and a
+// destructive change when it deletes a ref. No push is on ordinary, so each
+// asks each time.
+func gitAction(repo string, p push) permissions.Action {
+	repo = strings.ToLower(repo)
+	owner, _, _ := strings.Cut(repo, "/")
+	act := permissions.Action{
+		Scope: repo, AccountName: owner, Service: "git", Operation: "push", Resource: "git-receive-pack",
+		AccessLevel: permissions.Write, Once: true,
+	}
+	if p.deletes() {
+		act.AccessLevel, act.Once = permissions.Destructive, false
+	}
+	return act
+}
 
 // classifyGit is the repository, as owner/repo, and the service of a request
 // to the Git host, if it is one of Git's smart HTTP requests.

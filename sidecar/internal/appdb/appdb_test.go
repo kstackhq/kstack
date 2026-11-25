@@ -151,11 +151,12 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"env_vars wr=0 strict=1",
 		"executables wr=0 strict=1",
 		"folder_grants wr=0 strict=1",
-		"kube_rules wr=0 strict=1",
 		"llm_calls wr=0 strict=1",
 		"memories wr=0 strict=1",
 		"messages wr=0 strict=1",
 		"oauth_connections wr=1 strict=1",
+		"permission_modes wr=0 strict=1",
+		"permission_rules wr=0 strict=1",
 		"settings wr=0 strict=1",
 		"shell_path wr=0 strict=1",
 		"tool_calls wr=0 strict=1",
@@ -184,11 +185,10 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"CREATE UNIQUE INDEX env_vars_name ON env_vars (ifnull(cluster_id, ''), name)",
 		"CREATE INDEX folder_grants_chat_idx ON folder_grants (chat_id, created_at, id)",
 		"CREATE UNIQUE INDEX folder_grants_folder ON folder_grants (ifnull(chat_id, ''), folder)",
-		"CREATE INDEX kube_rules_chat_idx ON kube_rules (chat_id, created_at, id)",
-		"CREATE INDEX kube_rules_cluster_idx ON kube_rules (cluster_id)",
 		"CREATE UNIQUE INDEX llm_calls_run_idx ON llm_calls (run_id, seq)",
 		"CREATE UNIQUE INDEX memories_name ON memories (ifnull(cluster_id, ''), name)",
 		"CREATE INDEX messages_run_idx ON messages (run_id)",
+		"CREATE INDEX permission_rules_chat_idx ON permission_rules (chat_id, created_at, id)",
 		"CREATE UNIQUE INDEX settings_scope_key ON settings (ifnull(cluster_id, ''), key)",
 		"CREATE UNIQUE INDEX tool_calls_llm_call_idx ON tool_calls (llm_call_id, seq)",
 		"CREATE INDEX tool_calls_spawned_idx ON tool_calls (spawned_run_id)",
@@ -416,7 +416,7 @@ var shippedMigrations = map[string]string{
 	"0003_oauth_connections_name.sql": "e734c075633be2f4a9dc8e43a460185a422d962116f7b7038ea5977773df1808",
 	"0004_env_vars.sql":               "d1b78060708e5ea46b55f65d43136c935d6166eb35358b7d92c5bc72a1231d86",
 	"0005_tool_settings.sql":          "286b5254057d5a29b9824f54136c3df82c039c06e94b014510b19a0ce9f9991c",
-	"0006_settings.sql":               "69ae7e8982d08138f542b0c65babe469266fbc4b249efa6897f59f7e274967f7",
+	"0006_settings.sql":               "7feb0670a84d58bd12cea5edc8843bb8e8992a8ce6233162ca4e8bec101a4f9a",
 }
 
 func TestAShippedMigrationIsNeverEdited(t *testing.T) {
@@ -632,8 +632,7 @@ func TestMigration0005AddsTheToolSettings(t *testing.T) {
 }
 
 // 0006 keeps every earlier table's rows, drops chat_grants and tool_settings
-// without copying their rows, by decision, and adds the settings tables,
-// empty.
+// without copying their rows, by decision, and adds the settings tables, empty.
 func TestMigration0006AddsTheSettingsTables(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "app.db")
@@ -670,7 +669,9 @@ func TestMigration0006AddsTheSettingsTables(t *testing.T) {
 
 	db := openThrough(t, path, "0006_settings.sql")
 
-	assert.Equal(t, before, tableRows(t, db), "every other row survives as it was, and the new tables start empty")
+	after := tableRows(t, db)
+	assert.Equal(t, before, after, "every other row survives as it was, and the new tables start empty")
+
 	// count is how many rows of from there are.
 	count := func(from string) int {
 		t.Helper()
@@ -702,39 +703,36 @@ func TestMigration0006AddsTheSettingsTables(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT typeof(value) FROM settings WHERE key = 'x.int'`).Scan(&kind))
 	assert.Equal(t, "integer", kind, "an integer stays an integer")
 
-	rule := func(id string, chat any, effect, class string, cols map[string]any) error {
-		q := `INSERT INTO kube_rules (id, chat_id, effect, class, cluster_id, namespace, verb, api_group, kind, inside, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
-		get := func(k string, def any) any {
-			if v, ok := cols[k]; ok {
-				return v
-			}
-			return def
-		}
-		return exec(q, id, chat, effect, class, get("cluster_id", nil), get("namespace", ""), get("verb", ""), get("api_group", ""), get("kind", ""), get("inside", 0))
+	rule := func(id string, chat any, target, scope string) error {
+		return exec(`INSERT INTO permission_rules (id, chat_id, effect, access_level, principal, target, scope, service, operation, resource, created_at, updated_at)
+			VALUES (?, ?, 'allow', 'write', '*', ?, ?, '*', '*', '*', 0, 0)`, id, chat, target, scope)
 	}
-	require.NoError(t, rule("r1", nil, "allow", "upstream-write", map[string]any{"cluster_id": "c1"}), "an always rule")
-	require.NoError(t, rule("r2", "h1", "deny", "destructive", nil), "a chat's rule")
-	require.NoError(t, rule("r3", nil, "allow", "secret-read", map[string]any{"cluster_id": "c1", "verb": "get", "api_group": "core", "kind": "secrets"}), "a Secret read rule naming what a Secret read is")
-	require.NoError(t, rule("r4", nil, "ask", "upstream-write", nil), "a rule for every cluster that restricts")
+	require.NoError(t, rule("r1", nil, "kubernetes", "c1"), "a cluster's cluster-scoped rule")
+	require.NoError(t, rule("r2", nil, "kubernetes", "c1/web"), "a cluster's namespace rule")
+	require.NoError(t, rule("r3", "h1", "kubernetes", "c1/**"), "a chat's rule")
+	require.NoError(t, rule("r4", nil, "kubernetes", "c10/web"), "another cluster whose id starts the same")
+	require.NoError(t, rule("r5", nil, "aws", "c1"), "another target's account of the same name")
+	require.NoError(t, rule("r6", nil, "kubernetes", "*/web"), "a rule for every cluster")
+	require.NoError(t, rule("r7", nil, "kubernetes", "c_/web"), "a scope LIKE would take for the cluster's")
 	for name, err := range map[string]error{
-		"the empty id":              rule("", nil, "deny", "upstream-write", nil),
-		"Refused's id":              rule("refused", nil, "deny", "upstream-write", nil),
-		"RefusedSecrets' id":        rule("refused-secrets", nil, "deny", "secret-read", nil),
-		"an unknown effect":         rule("x1", nil, "permit", "upstream-write", nil),
-		"a folder class":            rule("x2", nil, "allow", "read-inside", nil),
-		"an allow of destructive":   rule("x3", nil, "allow", "destructive", nil),
-		"inside is 0 or 1":          rule("x4", nil, "deny", "upstream-write", map[string]any{"inside": 2}),
-		"a Secret read inside":      rule("x5", nil, "deny", "secret-read", map[string]any{"inside": 1}),
-		"a Secret read [cluster]":   rule("x6", nil, "deny", "secret-read", map[string]any{"namespace": "[cluster]"}),
-		"a Secret read's verb":      rule("x7", nil, "deny", "secret-read", map[string]any{"verb": "delete"}),
-		"a Secret read's group":     rule("x8", nil, "deny", "secret-read", map[string]any{"api_group": "apps"}),
-		"a Secret read's resource":  rule("x9", nil, "deny", "secret-read", map[string]any{"kind": "configmaps"}),
-		"a chat that is gone":       rule("x10", "h2", "deny", "upstream-write", nil),
-		"an allow on every cluster": rule("x11", nil, "allow", "upstream-write", nil),
-		"a cluster that is gone":    rule("x12", nil, "deny", "upstream-write", map[string]any{"cluster_id": "c2"}),
+		"the empty id":        rule("", nil, "kubernetes", "c1"),
+		"a second id":         rule("r1", nil, "kubernetes", "c1"),
+		"a chat that is gone": rule("x1", "h2", "kubernetes", "c1"),
+		"a NULL scope": exec(`INSERT INTO permission_rules (id, effect, access_level, principal, target, scope, service, operation, resource, created_at, updated_at)
+			VALUES ('x2', 'allow', 'write', '*', 'kubernetes', NULL, '*', '*', '*', 0, 0)`),
 	} {
 		assert.Error(t, err, name)
 	}
+
+	mode := func(target, account, mode string) error {
+		return exec(`INSERT INTO permission_modes (target, account, mode, created_at, updated_at) VALUES (?, ?, ?, 0, 0)`, target, account, mode)
+	}
+	require.NoError(t, mode("kubernetes", "*", "ask"), "the target's default")
+	require.NoError(t, mode("kubernetes", "c1", "auto"), "a cluster's")
+	require.NoError(t, mode("kubernetes", "c10", "auto"), "another cluster's")
+	require.NoError(t, mode("aws", "c1", "read-only"), "another target's account of the same name")
+	assert.Error(t, mode("kubernetes", "c1", "ask"), "a second row of one account")
+	assert.Zero(t, count(`sqlite_schema WHERE name = 'kube_rules'`), "kube_rules is not created")
 
 	grant := func(id string, chat any, folder, access string) error {
 		return exec(`INSERT INTO folder_grants (id, chat_id, folder, access, created_at) VALUES (?, ?, ?, ?, 0)`, id, chat, folder, access)
@@ -762,12 +760,20 @@ func TestMigration0006AddsTheSettingsTables(t *testing.T) {
 	assert.Error(t, exec(`INSERT OR REPLACE INTO shell_path (id, path) VALUES (1, NULL)`), "a path is NOT NULL")
 
 	require.NoError(t, exec(`DELETE FROM chats WHERE id = 'h1'`))
-	assert.Zero(t, count(`kube_rules WHERE chat_id IS NOT NULL`), "a chat's rules go with it")
+	assert.Zero(t, count(`permission_rules WHERE chat_id IS NOT NULL`), "a chat's rules go with it")
 	assert.Zero(t, count(`folder_grants WHERE chat_id IS NOT NULL`), "a chat's folder grants go with it")
 	require.NoError(t, exec(`DELETE FROM clusters WHERE id = 'c1'`))
 	assert.Zero(t, count(`settings WHERE cluster_id IS NOT NULL`), "a cluster's settings go with it")
-	assert.Zero(t, count(`kube_rules WHERE cluster_id IS NOT NULL`), "a cluster's rules go with it")
-	assert.Equal(t, 1, count(`kube_rules`), "a rule for every cluster stays")
+	// ids is the ids of from's rows, in order.
+	ids := func(q string) string {
+		t.Helper()
+		var s string
+		require.NoError(t, db.QueryRowContext(ctx, q).Scan(&s))
+		return s
+	}
+	assert.Equal(t, "r4,r5,r6,r7", ids(`SELECT group_concat(id) FROM (SELECT id FROM permission_rules ORDER BY id)`), "a cluster's rules go with it, and no other")
+	assert.Equal(t, "aws:c1,kubernetes:*,kubernetes:c10", ids(`SELECT group_concat(target || ':' || account) FROM (SELECT * FROM permission_modes ORDER BY 1, 2)`), "a cluster's mode goes with it, and no other")
+
 }
 
 // tableRows is every row of every table in db but schema_migrations, keyed by

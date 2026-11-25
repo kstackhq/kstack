@@ -120,9 +120,9 @@ func TestADiffForAPatch(t *testing.T) {
 // no webhook unasked.
 func TestOnlyAPromptedWriteIsPreviewed(t *testing.T) {
 	for name, sess := range map[string]sessionCase{
-		"auto":      {permissions.Auto, nil},
-		"a deny":    {permissions.Auto, []permissions.Rule{{ID: "d", Effect: permissions.Deny, Class: permissions.UpstreamWrite}}},
-		"read-only": {permissions.ReadOnly, nil},
+		"auto":      {permissions.ModeAuto, nil},
+		"a deny":    {permissions.ModeAuto, []permissions.Rule{rule(permissions.Deny, permissions.Write, "*")}},
+		"read-only": {permissions.ModeReadOnly, nil},
 	} {
 		api, _ := objectServer(t, objectNow, nil)
 		s := serveIn(t, api.upstream(), sessionIn(sess.mode, sess.rules...), newRecordingAsker())

@@ -22,7 +22,7 @@ import { Dialog } from '@/components/primitives/dialog';
 import { Input } from '@/components/primitives/text-entry';
 
 import { Field, Select } from './field';
-import { CLASSES } from './permission-rule-form';
+import { LEVELS } from './permission-rule-form';
 
 const VERBS = ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete', 'deletecollection'];
 
@@ -38,7 +38,7 @@ export function TestRequest({ contexts }: { contexts: string[] }) {
       <Dialog open={open} onOpenChange={setOpen} title="Test a request" className="sm:max-w-2xl">
         <div className="flex flex-col gap-4 text-sm">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Applies to">{(id) => <Select id={id} options={CLASSES} />}</Field>
+            <Field label="Applies to">{(id) => <Select id={id} options={LEVELS} />}</Field>
             <Field label="Context">{(id) => <Select id={id} options={optionsOf(contexts)} />}</Field>
           </div>
           <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-3">

@@ -3,6 +3,8 @@ title: A folder grant is its own row, and a mode and a rule belong to a cluster
 date: 2026-11-24
 scope: sidecar
 status: Accepted
+amended_by:
+  - [Decide every target's request by access level, a boundary, a mode and rules over one action](2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action.md)
 ---
 
 # A folder grant is its own row, and a mode and a rule belong to a cluster

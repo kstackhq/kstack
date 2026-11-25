@@ -264,8 +264,13 @@ models:
     model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.CloudRequest
   RequestDetail:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.Detail
+  # principal is "" on a stored action that names none, which the wire
+  # serves as null.
   PermissionAction:
     model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.PermissionAction
+    fields:
+      principal:
+        resolver: true
 
   # --- Memory ---
   # The memory types bind 1:1 into internal/services/memory, like the chat ones.
@@ -668,24 +673,37 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/services/toolsettings.GroupAgents
 
   # --- Permissions ---
-  PermissionClass:
-    model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Class
+  PermissionAccessLevel:
+    model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.AccessLevel
     enum_values:
-      ReadInside:
-        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.ReadInside
-      WriteInside:
-        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.WriteInside
-      UpstreamWrite:
-        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.UpstreamWrite
+      Read:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Read
+      DataRead:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.DataRead
+      Write:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Write
+      AccessControl:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.AccessControl
       Destructive:
         value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Destructive
-      SecretRead:
-        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.SecretRead
+      Reach:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Reach
+  PermissionPrincipal:
+    model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Principal
+    enum_values:
+      Chat:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Chat
+      Subagent:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Subagent
+      Monitor:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Monitor
+      Console:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Console
   PermissionTarget:
     model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Target
     enum_values:
-      Cluster:
-        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Cluster
+      Kubernetes:
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Kubernetes
       AWS:
         value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.AWS
       GitHub:
@@ -698,11 +716,11 @@ models:
     model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Mode
     enum_values:
       ReadOnly:
-        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.ReadOnly
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.ModeReadOnly
       Ask:
-        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Ask
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.ModeAsk
       Auto:
-        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Auto
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.ModeAuto
   PermissionEffect:
     model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Effect
     enum_values:
@@ -711,7 +729,7 @@ models:
       Deny:
         value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Deny
       Ask:
-        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.AskFor
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Ask
   PermissionModeSource:
     model: github.com/kstackhq/kstack/sidecar/internal/services/settings.ModeSource
     enum_values:
@@ -719,17 +737,18 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/services/settings.SourceEntry
       Default:
         value: github.com/kstackhq/kstack/sidecar/internal/services/settings.SourceDefault
-  # clusterID is null for a rule naming none, and line names the cluster by
-  # its record's kube-context, so both are resolved.
-  KubeRule:
+  # principal and target are "*" for every one, which the wire serves as
+  # null, and line names a cluster by its record's kube-context, so all three
+  # are resolved.
+  PermissionRule:
     model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Rule
     fields:
-      clusterID:
+      principal:
+        resolver: true
+      target:
         resolver: true
       line:
         resolver: true
-  PermissionClusterMode:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/settings.ClusterModeState
 
   # --- Kstack account ---
   # The state binds to connectors.State, which holds no token; both fields are

@@ -16,271 +16,348 @@ package permissions
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// patch is a patch of the deployment api in dev / team-a, of class c.
-func patch(c Class) Action {
-	return Action{Class: c, ClusterID: "dev", Context: "dev", Namespace: "team-a", Verb: "patch", Group: "apps", Kind: "deployments", Name: "api"}
+// patch is the chat's patch of the deployment api in dev / team-a, at level l.
+func patch(l AccessLevel) Action {
+	return Action{
+		Principal: Chat, Target: Kubernetes, Scope: "dev/team-a", AccountName: "dev",
+		Service: "apps", Operation: "patch", Resource: "deployments", Name: "api", AccessLevel: l,
+	}
 }
 
-func TestDecideFollowsTheModeTable(t *testing.T) {
-	trusted := []Rule{{ID: "t", Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: "team-a"}}
+// rule is a rule of effect and level over everything.
+func rule(e Effect, l AccessLevel) Rule {
+	return Rule{ID: string(e), Effect: e, AccessLevel: l, Principal: "*", Target: "*", Scope: "*", Service: "*", Operation: "*", Resource: "*"}
+}
+
+func TestAccessLevelsAreNamed(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, []AccessLevel{Read, DataRead, Write, AccessControl, Destructive, Reach}, Levels)
+	for name, l := range map[string]AccessLevel{
+		"read": Read, "data-read": DataRead, "write": Write, "access-control": AccessControl, "destructive": Destructive, "reach": Reach,
+	} {
+		assert.Equal(t, name, string(l))
+		got, ok := LevelNamed(name)
+		assert.True(t, ok, name)
+		assert.Equal(t, l, got)
+	}
+	for _, name := range []string{"", "Write", "upstream-write", "secret-read"} {
+		_, ok := LevelNamed(name)
+		assert.False(t, ok, name)
+	}
+}
+
+func TestCoversIsData(t *testing.T) {
+	t.Parallel()
+	for _, l := range Levels {
+		for _, o := range Levels {
+			want := l == o || l == Write && (o == Destructive || o == AccessControl)
+			assert.Equal(t, want, l.Covers(o), "%s covers %s", l, o)
+		}
+	}
+}
+
+func TestPrincipalsAreEveryPrincipal(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, []Principal{Chat, Subagent, Monitor, Console}, Principals)
+}
+
+func TestTargetsAreNamed(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, []Target{Kubernetes, AWS, Azure, GCP, GitHub}, Targets)
+	assert.Equal(t, Target("kubernetes"), Kubernetes)
+	for _, tg := range Targets {
+		got, ok := TargetNamed(string(tg))
+		assert.True(t, ok)
+		assert.Equal(t, tg, got)
+	}
+	var none Target
+	_, ok := TargetNamed(string(none))
+	assert.False(t, ok, "the zero value is no target")
+	_, ok = TargetNamed("cluster")
+	assert.False(t, ok)
+}
+
+func TestARuleMatchesByLevelPrincipalTargetAndPatterns(t *testing.T) {
+	t.Parallel()
+	act := patch(Write)
 	for name, c := range map[string]struct {
-		policy Policy
-		want   map[Class]Decision
+		edit func(*Rule)
+		want bool
 	}{
-		"read-only": {Policy{Mode: ReadOnly}, map[Class]Decision{
-			ReadInside: Allowed, WriteInside: Allowed, UpstreamWrite: Denied, Destructive: Denied, SecretRead: Prompted,
-		}},
-		"ask": {Policy{Mode: Ask}, map[Class]Decision{
-			ReadInside: Allowed, WriteInside: Allowed, UpstreamWrite: Prompted, Destructive: Prompted, SecretRead: Prompted,
-		}},
-		"trusted": {Policy{Mode: Ask, Rules: trusted}, map[Class]Decision{
-			ReadInside: Allowed, WriteInside: Allowed, UpstreamWrite: Allowed, Destructive: Prompted, SecretRead: Prompted,
-		}},
-		"auto": {Policy{Mode: Auto}, map[Class]Decision{
-			ReadInside: Allowed, WriteInside: Allowed, UpstreamWrite: Allowed, Destructive: Prompted, SecretRead: Allowed,
-		}},
+		"everything":            {func(*Rule) {}, true},
+		"its principal":         {func(r *Rule) { r.Principal = "chat" }, true},
+		"another principal":     {func(r *Rule) { r.Principal = "subagent" }, false},
+		"its target":            {func(r *Rule) { r.Target = "kubernetes" }, true},
+		"another target":        {func(r *Rule) { r.Target = "aws" }, false},
+		"its scope":             {func(r *Rule) { r.Scope = "dev/team-a" }, true},
+		"its account below":     {func(r *Rule) { r.Scope = "dev/**" }, true},
+		"its account alone":     {func(r *Rule) { r.Scope = "dev" }, false},
+		"another namespace":     {func(r *Rule) { r.Scope = "dev/team-b" }, false},
+		"its service":           {func(r *Rule) { r.Service = "apps" }, true},
+		"the core group":        {func(r *Rule) { r.Service = "" }, false},
+		"its operation":         {func(r *Rule) { r.Operation = "patch" }, true},
+		"another operation":     {func(r *Rule) { r.Operation = "delete" }, false},
+		"its resource":          {func(r *Rule) { r.Resource = "deployments" }, true},
+		"another resource":      {func(r *Rule) { r.Resource = "pods" }, false},
+		"a resource's subparts": {func(r *Rule) { r.Resource = "deployments/*" }, false},
+		"another level":         {func(r *Rule) { r.AccessLevel = DataRead }, false},
 	} {
-		for class, want := range c.want {
-			got, _ := c.policy.Decide(patch(class))
-			assert.Equal(t, want, got, "%s, class %d", name, class)
+		r := rule(Deny, Write)
+		c.edit(&r)
+		assert.Equal(t, c.want, r.Matches(act), name)
+	}
+	core := patch(Write)
+	core.Service = ""
+	r := rule(Deny, Write)
+	r.Service = ""
+	assert.True(t, r.Matches(core), "an empty service is the core group")
+}
+
+func TestAnAllowRuleMatchesItsOwnLevelAlone(t *testing.T) {
+	t.Parallel()
+	for _, l := range Levels {
+		for _, o := range Levels {
+			assert.Equal(t, l == o, rule(Allow, l).Matches(patch(o)), "allow %s on %s", l, o)
 		}
 	}
 }
 
-func TestClassFiveAsksInEveryMode(t *testing.T) {
-	allow := []Rule{{ID: "a", Effect: Allow, Class: UpstreamWrite}}
-	for _, mode := range []Mode{Ask, Auto} {
-		for _, rules := range [][]Rule{nil, allow} {
-			got, why := Policy{Mode: mode, Rules: rules}.Decide(patch(Destructive))
-			assert.Equal(t, Prompted, got, "%s", mode)
-			assert.Equal(t, "it always asks", why)
+// A list across namespaces reaches each of them: a deny or an ask for any one
+// decides it, and only an allow reaching them all allows it.
+func TestARuleForAScopeBelowDecidesASpanningAction(t *testing.T) {
+	t.Parallel()
+	list := Action{Principal: Chat, Target: Kubernetes, Scope: "c1", Service: "", Operation: "list", Resource: "secrets",
+		AccessLevel: DataRead, Spans: true}
+	at := func(effect Effect, scope string) Rule {
+		return Rule{ID: "r", Effect: effect, AccessLevel: DataRead, Principal: "*", Target: "kubernetes",
+			Scope: scope, Service: "*", Operation: "*", Resource: "*"}
+	}
+	for _, c := range []struct {
+		rule Rule
+		want Decision
+	}{
+		{at(Deny, "c1/prod"), Denied},
+		{at(Ask, "c1/prod"), Prompted},
+		{at(Deny, "c2/prod"), Allowed},
+		{at(Allow, "c1/dev"), Allowed},
+	} {
+		v, _ := Policy{Mode: ModeAuto, Rules: []Rule{c.rule}}.Authorize(list)
+		assert.Equal(t, c.want, v.Outcome(), "%+v", c.rule)
+	}
+	v, _ := Policy{Mode: ModeAsk, Rules: []Rule{at(Allow, "c1/dev")}}.Authorize(list)
+	assert.Equal(t, Prompted, v.Outcome(), "an allow for one namespace does not allow them all")
+	v, _ = Policy{Mode: ModeAsk, Rules: []Rule{at(Allow, "c1")}}.Authorize(list)
+	assert.Equal(t, Prompted, v.Outcome(), "nor does one for the cluster's own objects alone")
+	v, _ = Policy{Mode: ModeAsk, Rules: []Rule{at(Allow, "c1/**")}}.Authorize(list)
+	assert.Equal(t, Allowed, v.Outcome(), "an allow for every namespace does")
+	v, _ = Policy{Mode: ModeAsk, Rules: []Rule{GrantRule(list)}}.Authorize(list)
+	assert.Equal(t, Allowed, v.Outcome(), "and so does the rule an answer to it writes")
+	assert.Equal(t, "c1/**", GrantRule(list).Scope)
+	list.Spans = false
+	v, _ = Policy{Mode: ModeAuto, Rules: []Rule{at(Deny, "c1/prod")}}.Authorize(list)
+	assert.Equal(t, Allowed, v.Outcome(), "an action at the cluster alone is not below")
+}
+
+func TestAWriteRuleCoversDestructiveAndAccessControl(t *testing.T) {
+	t.Parallel()
+	for _, e := range []Effect{Deny, Ask} {
+		for _, o := range []AccessLevel{Write, Destructive, AccessControl} {
+			assert.True(t, rule(e, Write).Matches(patch(o)), "%s write on %s", e, o)
+		}
+		for _, o := range []AccessLevel{Read, DataRead, Reach} {
+			assert.False(t, rule(e, Write).Matches(patch(o)), "%s write on %s", e, o)
 		}
 	}
-	got, why := Policy{Mode: ReadOnly, Rules: allow}.Decide(patch(Destructive))
-	assert.Equal(t, Denied, got)
-	assert.Equal(t, "this cluster is read-only", why)
+	assert.False(t, rule(Deny, Destructive).Matches(patch(Write)), "a destructive rule leaves a write alone")
 }
 
-func TestDenyWinsOverAskWinsOverAllow(t *testing.T) {
-	rule := func(e Effect) Rule { return Rule{ID: string(e), Effect: e, Class: UpstreamWrite} }
-	for _, c := range []struct {
-		rules []Rule
-		want  Decision
-		why   string
-	}{
-		{[]Rule{rule(Allow), rule(AskFor), rule(Deny)}, Denied, "a rule denies it: Deny cluster writes everywhere"},
-		{[]Rule{rule(Allow), rule(AskFor)}, Prompted, "a rule asks for it: Ask for cluster writes everywhere"},
-		{[]Rule{rule(Allow)}, Allowed, "a rule allows it: Allow cluster writes everywhere"},
-	} {
-		got, why := Policy{Mode: Auto, Rules: c.rules}.Decide(patch(UpstreamWrite))
-		assert.Equal(t, c.want, got)
-		assert.Equal(t, c.why, why)
+func TestANamespacesRuleDoesNotCoverTheNamespaceObject(t *testing.T) {
+	t.Parallel()
+	ns := Action{Principal: Chat, Target: Kubernetes, Scope: "dev", Service: "", Operation: "patch", Resource: "namespaces", Name: "team-a", AccessLevel: Write}
+	for _, scope := range []string{"dev/team-a", "dev/*", "*/*"} {
+		r := rule(Deny, Write)
+		r.Scope = scope
+		assert.False(t, r.Matches(ns), scope)
+		assert.True(t, r.Matches(patch(Write)), scope)
 	}
+	scale := patch(Write)
+	scale.Resource = "deployments/scale"
+	r := rule(Deny, Write)
+	r.Resource = "deployments"
+	assert.False(t, r.Matches(scale), "a resource does not cover its scale")
+	r.Resource = "deployments/scale"
+	assert.True(t, r.Matches(scale))
 }
 
-func TestAClassFourRuleCoversClassFive(t *testing.T) {
-	for _, c := range []struct {
-		effect Effect
-		want   Decision
-	}{{Deny, Denied}, {AskFor, Prompted}, {Allow, Prompted}} {
-		rules := []Rule{{ID: "r", Effect: c.effect, Class: UpstreamWrite, ClusterID: "dev", Namespace: "team-a"}}
-		got, _ := Policy{Mode: Auto, Rules: rules}.Decide(patch(Destructive))
-		assert.Equal(t, c.want, got, "%s", c.effect)
-	}
-	rules := []Rule{{ID: "r", Effect: Deny, Class: Destructive}}
-	got, _ := Policy{Mode: Auto, Rules: rules}.Decide(patch(UpstreamWrite))
-	assert.Equal(t, Allowed, got, "a class 5 rule leaves class 4 alone")
-}
-
-func TestARuleMatchesByGroupAndSubresource(t *testing.T) {
-	allow := func(group, kind string) Policy {
-		return Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, Group: group, Kind: kind}}}
-	}
-	pods := Action{Class: UpstreamWrite, Verb: "delete", Group: "example.com", Kind: "pods"}
-	got, _ := allow("core", "pods").Decide(pods)
-	assert.Equal(t, Prompted, got, "core pods is not another group's pods")
-	pods.Group = "core"
-	got, _ = allow("core", "pods").Decide(pods)
-	assert.Equal(t, Allowed, got)
-
-	scale := Action{Class: UpstreamWrite, Verb: "patch", Group: "apps", Kind: "deployments/scale"}
-	got, _ = allow("apps", "deployments").Decide(scale)
-	assert.Equal(t, Allowed, got, "a resource covers its scale")
-	status := Action{Class: UpstreamWrite, Verb: "update", Group: "apps", Kind: "deployments/status"}
-	got, _ = allow("apps", "deployments").Decide(status)
-	assert.Equal(t, Prompted, got, "a resource does not cover its other subresources")
-	eviction := Action{Class: UpstreamWrite, Verb: "create", Group: "core", Kind: "pods/eviction"}
-	got, _ = allow("core", "pods").Decide(eviction)
-	assert.Equal(t, Prompted, got, "a create of pods is not an eviction")
-	got, _ = allow("core", "pods*").Decide(eviction)
-	assert.Equal(t, Prompted, got, "a glob with no / stops at the resource")
-	got, _ = allow("core", "*").Decide(eviction)
-	assert.Equal(t, Allowed, got, "a bare * is every kind, subresources included")
-	deny := Policy{Mode: Auto, Rules: []Rule{{ID: "r", Effect: Deny, Class: UpstreamWrite, Kind: "*"}}}
-	got, _ = deny.Decide(eviction)
-	assert.Equal(t, Denied, got, "a Deny of * reaches an eviction")
-	got, _ = allow("apps", "deploy*").Decide(scale)
-	assert.Equal(t, Allowed, got, "a glob with no / still covers the scale")
-	got, _ = allow("core", "pods/*").Decide(eviction)
-	assert.Equal(t, Allowed, got, "a glob with a / reaches subresources")
-	got, _ = allow("core", "pods/eviction").Decide(eviction)
-	assert.Equal(t, Allowed, got, "a rule that names the subresource covers it")
-	deploy := Action{Class: UpstreamWrite, Verb: "patch", Group: "apps", Kind: "deployments"}
-	got, _ = allow("apps", "deployments/scale").Decide(deploy)
-	assert.Equal(t, Prompted, got, "a subresource does not cover its resource")
-
-	got, _ = allow("", "").Decide(deploy)
-	assert.Equal(t, Allowed, got, "an unset field matches anything")
-	scoped := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, ClusterID: "prod"}}}
-	got, _ = scoped.Decide(patch(UpstreamWrite))
-	assert.Equal(t, Prompted, got, "a set field refuses another value")
-}
-
-func TestASetNamespaceSkipsAClusterScopedWrite(t *testing.T) {
-	node := Action{Class: UpstreamWrite, ClusterID: "dev", Context: "dev", Verb: "patch", Group: "core", Kind: "nodes"}
-	anyNamespace := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: "*"}}}
-	got, _ := anyNamespace.Decide(node)
-	assert.Equal(t, Prompted, got, "* is every namespace, not none")
-	got, _ = anyNamespace.Decide(patch(UpstreamWrite))
-	assert.Equal(t, Allowed, got)
-
-	unset := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, ClusterID: "dev"}}}
-	got, _ = unset.Decide(node)
-	assert.Equal(t, Allowed, got, "an unset namespace still covers a cluster-scoped write")
-}
-
-func TestAClusterScopeMatchesOnlyAClusterScopedWrite(t *testing.T) {
-	node := Action{Class: UpstreamWrite, ClusterID: "dev", Context: "dev", Verb: "patch", Group: "core", Kind: "nodes"}
-	cluster := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: ClusterScope}}}
-	got, _ := cluster.Decide(node)
-	assert.Equal(t, Allowed, got)
-	got, _ = cluster.Decide(patch(UpstreamWrite))
-	assert.Equal(t, Prompted, got, "a namespaced write is not cluster-scoped")
-
-	named := Action{Class: UpstreamWrite, ClusterID: "dev", Context: "dev", Namespace: ClusterScope, Verb: "patch", Group: "core", Kind: "pods"}
-	got, _ = cluster.Decide(named)
-	assert.Equal(t, Prompted, got, "the word is a scope, never a namespace's name")
-}
-
-func TestARuleRoundTripsThroughJSON(t *testing.T) {
-	rule := Rule{ID: "r1", Effect: Deny, Class: UpstreamWrite, ClusterID: "prod-eu", Namespace: "team-a", Verb: "delete", Group: "core", Kind: "pods"}
-	b, err := json.Marshal(rule)
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"id":"r1","effect":"deny","class":4,"clusterID":"prod-eu","namespace":"team-a","verb":"delete","group":"core","kind":"pods"}`, string(b))
-
-	var back Rule
-	require.NoError(t, json.Unmarshal([]byte(`{"id":"r1","effect":"allow","class":4}`), &back))
-	b, err = json.Marshal(back)
-	require.NoError(t, err)
-	assert.Equal(t, `{"id":"r1","effect":"allow","class":4}`, string(b), "an unset field is left out")
-}
-
-func TestARuleReadsAsALine(t *testing.T) {
-	for want, rule := range map[string]Rule{
-		"Allow cluster writes in dev-eks / team-a":              {Effect: Allow, Class: UpstreamWrite, ClusterID: "dev-eks", Namespace: "team-a"},
-		"Deny destructive delete of core namespaces in prod-eu": {Effect: Deny, Class: Destructive, ClusterID: "prod-eu", Verb: "delete", Group: "core", Kind: "namespaces"},
-		"Ask for destructive cluster writes everywhere":         {Effect: AskFor, Class: Destructive},
-		"Deny Secret reads in any cluster / kube-system":        {Effect: Deny, Class: SecretRead, Namespace: "kube-system"},
-		"Deny delete of anything everywhere":                    {Effect: Deny, Class: UpstreamWrite, Verb: "delete"},
-		"Deny writes of apps resources everywhere":              {Effect: Deny, Class: UpstreamWrite, Group: "apps"},
-		"Deny writes of deployments everywhere":                 {Effect: Deny, Class: UpstreamWrite, Kind: "deployments"},
-		"Deny destructive writes of deployments everywhere":     {Effect: Deny, Class: Destructive, Kind: "deployments"},
-		"Deny patch of core nodes cluster-wide in prod":         {Effect: Deny, Class: UpstreamWrite, ClusterID: "prod", Namespace: ClusterScope, Verb: "patch", Group: "core", Kind: "nodes"},
-		"Deny cluster writes cluster-wide":                      {Effect: Deny, Class: UpstreamWrite, Namespace: ClusterScope},
-	} {
-		assert.Equal(t, want, line(rule))
+func TestEveryPrincipalHasEveryLevel(t *testing.T) {
+	t.Parallel()
+	for _, p := range Principals {
+		for _, l := range Levels {
+			_, ok := boundary[p][l]
+			assert.True(t, ok, "%s %s", p, l)
+		}
+		_, ok := asks[p]
+		assert.True(t, ok, "%s asks", p)
 	}
 }
 
-func TestAReasonSaysWhatDecided(t *testing.T) {
-	for want, c := range map[string]struct {
-		policy Policy
-		act    Action
-	}{
-		"it changes nothing in the cluster": {Policy{Mode: ReadOnly}, patch(ReadInside)},
-		"it always asks":                    {Policy{Mode: Auto}, patch(Destructive)},
-		"auto mode":                         {Policy{Mode: Auto}, patch(UpstreamWrite)},
-		"ask mode":                          {Policy{Mode: Ask}, patch(UpstreamWrite)},
-		"this cluster is read-only":         {Policy{Mode: ReadOnly}, patch(UpstreamWrite)},
-	} {
-		_, why := c.policy.Decide(c.act)
-		assert.Equal(t, want, why)
+func TestEveryModeHasEveryLevel(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, []Mode{ModeReadOnly, ModeAsk, ModeAuto}, Modes)
+	for _, m := range Modes {
+		for _, l := range Levels {
+			_, ok := modes[m][l]
+			assert.True(t, ok, "%s %s", m, l)
+		}
 	}
 }
 
-func TestTheZeroVerdictIsADenial(t *testing.T) {
-	var v Verdict
-	assert.Equal(t, Unmatched, v)
-	assert.Less(t, Unmatched, Permit)
-	assert.Less(t, Permit, Forbid)
-	assert.Less(t, Forbid, Refuse)
+func TestAPrincipalOrLevelWithNoRowIsNever(t *testing.T) {
+	t.Parallel()
+	act := patch(Write)
+	act.Principal = ""
+	assert.Equal(t, Never, limitOf(act))
+	act = patch("upstream-write")
+	assert.Equal(t, Never, limitOf(act))
+	v, why := Policy{Mode: ModeAuto}.Authorize(act)
+	assert.Equal(t, Verdict{Effect: Deny}, v)
+	assert.Equal(t, "it is never allowed", why)
 }
 
-func TestOutcomeOfEveryVerdict(t *testing.T) {
-	for v, want := range map[Verdict]Decision{
-		Permit:    Allowed,
-		Unmatched: Prompted,
-		Forbid:    Prompted,
-		Refuse:    Denied,
-	} {
-		assert.Equal(t, want, v.Outcome(), "verdict %d", v)
+// orderedTable states the spec's order as a priority list: the first step
+// that applies decides. It is a second statement of verdict, so a change to
+// one changes the other in the same commit.
+func orderedTable(p Policy, act Action) (Verdict, string) {
+	limit := map[Principal]map[AccessLevel]Limit{
+		Chat:     {Read: Free, DataRead: Free, Write: Free, AccessControl: Scoped, Destructive: Once, Reach: Never},
+		Subagent: {Read: Free, DataRead: Free, Write: Free, AccessControl: Scoped, Destructive: Once, Reach: Never},
+		Monitor:  {Read: Free, DataRead: Never, Write: Never, AccessControl: Never, Destructive: Never, Reach: Never},
+		Console:  {Read: Free, DataRead: Never, Write: Never, AccessControl: Never, Destructive: Never, Reach: Never},
+	}[act.Principal][act.AccessLevel]
+	if limit == Scoped {
+		limit = Once
+		if act.Confined {
+			limit = Free
+		}
 	}
+	if (act.Once || act.Scope == "") && limit < Once {
+		limit = Once
+	}
+	mode := map[Mode]map[AccessLevel]Effect{
+		ModeReadOnly: {Read: Allow, DataRead: Ask, Write: Deny, AccessControl: Deny, Destructive: Deny, Reach: Deny},
+		ModeAsk:      {Read: Allow, DataRead: Ask, Write: Ask, AccessControl: Ask, Destructive: Ask, Reach: Deny},
+		ModeAuto:     {Read: Allow, DataRead: Allow, Write: Allow, AccessControl: Ask, Destructive: Ask, Reach: Deny},
+	}[p.Mode][act.AccessLevel]
+	matching := func(e Effect) (Rule, bool) {
+		for _, r := range p.Rules {
+			if r.Effect == e && r.Matches(act) {
+				return r, true
+			}
+		}
+		return Rule{}, false
+	}
+	switch r, deny := matching(Deny); {
+	case limit == Never:
+		return Verdict{Effect: Deny}, "it is never allowed"
+	case deny:
+		return Verdict{Effect: Deny}, "a rule denies it: " + r.Line(act.AccountName)
+	case mode == Deny:
+		return Verdict{Effect: Deny}, "this account is read-only"
+	}
+	if r, ok := matching(Ask); ok {
+		return Verdict{Effect: Ask}, "a rule asks for it: " + r.Line(act.AccountName)
+	}
+	if limit == Once {
+		return Verdict{Effect: Ask}, "it always asks"
+	}
+	if r, ok := matching(Allow); ok {
+		return Verdict{Effect: Allow}, "a rule allows it: " + r.Line(act.AccountName)
+	}
+	if mode == Allow {
+		return Verdict{Effect: Allow}, string(p.Mode) + " mode"
+	}
+	return Verdict{Effect: Ask, Grantable: !act.DryRun}, string(p.Mode) + " mode"
 }
 
-// orderedTable states the policy as a priority list: the first branch that
-// applies decides. It is a second statement of the same policy as Authorize,
-// so a change to the table changes this list in the same commit.
-func orderedTable(p Policy, act Action) (Decision, string) {
-	if act.Class == ReadInside || act.Class == WriteInside {
-		return Allowed, "it changes nothing in the cluster"
+// tableAuthorize is Authorize restated over orderedTable: a principal that
+// does not ask is denied what would ask, and a subagent takes the stricter
+// of its verdict and the chat's.
+func tableAuthorize(p Policy, act Action) (Verdict, string) {
+	once := func(act Action) (Verdict, string) {
+		v, why := orderedTable(p, act)
+		if v.Effect == Ask && (act.Principal == Monitor || act.Principal == Console) {
+			return Verdict{Effect: Deny}, "this session never asks: " + why
+		}
+		return v, why
 	}
-	if r, ok := p.first(Deny, act); ok {
-		return Denied, "a rule denies it: " + line(r)
+	v, why := once(act)
+	if act.Principal == Subagent {
+		parent := act
+		parent.Principal = Chat
+		pv, pwhy := once(parent)
+		rank := func(v Verdict) int {
+			switch {
+			case v.Effect == Deny:
+				return 0
+			case v.Effect == Ask && !v.Grantable:
+				return 1
+			case v.Effect == Ask:
+				return 2
+			}
+			return 3
+		}
+		if rank(pv) < rank(v) {
+			return pv, pwhy
+		}
 	}
-	if p.Mode == ReadOnly && act.Class != SecretRead {
-		return Denied, "this cluster is read-only"
-	}
-	if r, ok := p.first(AskFor, act); ok {
-		return Prompted, "a rule asks for it: " + line(r)
-	}
-	if act.Class == Destructive {
-		return Prompted, "it always asks"
-	}
-	if r, ok := p.first(Allow, act); ok {
-		return Allowed, "a rule allows it: " + line(r)
-	}
-	if p.Mode == Auto {
-		return Allowed, "auto mode"
-	}
-	return Prompted, string(p.Mode) + " mode"
+	return v, why
 }
 
-func TestTheVerdictMatchesTheOrderedTable(t *testing.T) {
-	// Each effect is absent, or one rule of class 4 or 5: the classes a rule
-	// can have.
-	choices := []Class{0, UpstreamWrite, Destructive}
-	for _, mode := range []Mode{ReadOnly, Ask, Auto} {
-		for _, class := range []Class{ReadInside, WriteInside, UpstreamWrite, Destructive, SecretRead} {
-			for _, deny := range choices {
-				for _, ask := range choices {
-					for _, allow := range choices {
-						var rules []Rule
-						for e, c := range map[Effect]Class{Deny: deny, AskFor: ask, Allow: allow} {
-							if c != 0 {
-								rules = append(rules, Rule{ID: string(e), Effect: e, Class: c})
+// ruleChoices are what a test policy holds for one effect: none, or one rule
+// at a level a rule may name, for every principal or one.
+var ruleChoices = []*Rule{
+	nil,
+	{AccessLevel: Write, Principal: "*"},
+	{AccessLevel: Destructive, Principal: "*"},
+	{AccessLevel: DataRead, Principal: "*"},
+	{AccessLevel: Write, Principal: "chat"},
+}
+
+// eachCase calls f with every policy and action the ordered table covers.
+func eachCase(t *testing.T, f func(p Policy, act Action)) {
+	t.Helper()
+	for _, mode := range Modes {
+		for _, deny := range ruleChoices {
+			for _, ask := range ruleChoices {
+				for _, allow := range ruleChoices {
+					var rules []Rule
+					for e, c := range map[Effect]*Rule{Deny: deny, Ask: ask, Allow: allow} {
+						if c != nil {
+							r := rule(e, c.AccessLevel)
+							r.Principal = c.Principal
+							rules = append(rules, r)
+						}
+					}
+					p := Policy{Mode: mode, Rules: rules}
+					for _, principal := range Principals {
+						for _, level := range Levels {
+							for bits := range 16 {
+								act := patch(level)
+								act.Principal = principal
+								act.Once, act.Confined, act.DryRun = bits&1 != 0, bits&2 != 0, bits&8 != 0
+								if bits&4 != 0 {
+									act.Scope = ""
+								}
+								f(p, act)
 							}
 						}
-						p := Policy{Mode: mode, Rules: rules}
-						want, wantWhy := orderedTable(p, patch(class))
-						v, why := p.Authorize(patch(class))
-						assert.Equal(t, want, v.Outcome(), "%s, class %d, rules %v", mode, class, rules)
-						assert.Equal(t, wantWhy, why, "%s, class %d, rules %v", mode, class, rules)
 					}
 				}
 			}
@@ -288,366 +365,409 @@ func TestTheVerdictMatchesTheOrderedTable(t *testing.T) {
 	}
 }
 
-func TestAForbidOnAFolderClassRefuses(t *testing.T) {
-	// The table refuses a rule of class 1. Should one reach the engine
-	// anyway, a forbid still wins.
-	for _, c := range []struct {
-		effect Effect
-		want   Verdict
-		why    string
-	}{
-		{Deny, Refuse, "a rule denies it: Deny reads inside the sandbox everywhere"},
-		{AskFor, Forbid, "a rule asks for it: Ask for reads inside the sandbox everywhere"},
-		{Allow, Permit, "it changes nothing in the cluster"},
-	} {
-		rules := []Rule{{ID: "r", Effect: c.effect, Class: ReadInside}}
-		got, why := Policy{Mode: Auto, Rules: rules}.Authorize(patch(ReadInside))
-		assert.Equal(t, c.want, got, "%s", c.effect)
-		assert.Equal(t, c.why, why, "%s", c.effect)
-	}
+func TestTheVerdictMatchesTheOrderedTable(t *testing.T) {
+	t.Parallel()
+	eachCase(t, func(p Policy, act Action) {
+		want, wantWhy := tableAuthorize(p, act)
+		got, why := p.Authorize(act)
+		if want != got || wantWhy != why {
+			t.Errorf("%s, %+v, rules %v: got %+v %q, want %+v %q", p.Mode, act, p.Rules, got, why, want, wantWhy)
+		}
+	})
 }
 
 func TestAVerdictIsOrderIndependent(t *testing.T) {
-	rule := func(e Effect) Rule { return Rule{ID: string(e), Effect: e, Class: UpstreamWrite} }
+	t.Parallel()
 	for _, rules := range [][]Rule{
-		{rule(Deny), rule(AskFor), rule(Allow)},
-		{rule(Deny), rule(Allow), rule(AskFor)},
-		{rule(AskFor), rule(Deny), rule(Allow)},
-		{rule(AskFor), rule(Allow), rule(Deny)},
-		{rule(Allow), rule(Deny), rule(AskFor)},
-		{rule(Allow), rule(AskFor), rule(Deny)},
+		{rule(Deny, Write), rule(Ask, Write), rule(Allow, Write)},
+		{rule(Deny, Write), rule(Allow, Write), rule(Ask, Write)},
+		{rule(Ask, Write), rule(Deny, Write), rule(Allow, Write)},
+		{rule(Ask, Write), rule(Allow, Write), rule(Deny, Write)},
+		{rule(Allow, Write), rule(Deny, Write), rule(Ask, Write)},
+		{rule(Allow, Write), rule(Ask, Write), rule(Deny, Write)},
 	} {
-		got, why := Policy{Mode: Auto, Rules: rules}.Authorize(patch(UpstreamWrite))
-		assert.Equal(t, Refuse, got, "%v", rules)
-		assert.Equal(t, "a rule denies it: Deny cluster writes everywhere", why, "%v", rules)
+		got, why := Policy{Mode: ModeAuto, Rules: rules}.Authorize(patch(Write))
+		assert.Equal(t, Verdict{Effect: Deny}, got, "%v", rules)
+		assert.Equal(t, "a rule denies it: Deny writes everywhere", why, "%v", rules)
 	}
 }
 
-func TestAForbidWinsOverAPermit(t *testing.T) {
-	rule := func(e Effect) Rule { return Rule{ID: string(e), Effect: e, Class: UpstreamWrite} }
-	got, _ := Policy{Mode: Ask, Rules: []Rule{rule(Allow), rule(AskFor)}}.Authorize(patch(UpstreamWrite))
-	assert.Equal(t, Forbid, got)
-	got, _ = Policy{Mode: Ask, Rules: []Rule{rule(Allow), rule(Deny)}}.Authorize(patch(UpstreamWrite))
-	assert.Equal(t, Refuse, got)
-	got, _ = Policy{Mode: Auto, Rules: []Rule{rule(Allow)}}.Authorize(patch(Destructive))
-	assert.Equal(t, Forbid, got)
-}
-
-func TestAnUnmatchedActionIsTheDefaultDenial(t *testing.T) {
-	got, why := Policy{Mode: Ask}.Authorize(patch(UpstreamWrite))
-	assert.Equal(t, Unmatched, got)
-	assert.Equal(t, Prompted, got.Outcome())
-	assert.Equal(t, "ask mode", why)
-	got, _ = Policy{Mode: Auto}.Authorize(patch(UpstreamWrite))
-	assert.Equal(t, Permit, got)
-}
-
-func TestReadOnlyRefusesClassesFourAndFive(t *testing.T) {
-	for class, want := range map[Class]Verdict{
-		ReadInside:    Permit,
-		WriteInside:   Permit,
-		UpstreamWrite: Refuse,
-		Destructive:   Refuse,
-		SecretRead:    Unmatched,
+func TestDecideFollowsTheModeTable(t *testing.T) {
+	t.Parallel()
+	for mode, want := range map[Mode]map[AccessLevel]Decision{
+		ModeReadOnly: {Read: Allowed, DataRead: Prompted, Write: Denied, AccessControl: Denied, Destructive: Denied, Reach: Denied},
+		ModeAsk:      {Read: Allowed, DataRead: Prompted, Write: Prompted, AccessControl: Prompted, Destructive: Prompted, Reach: Denied},
+		ModeAuto:     {Read: Allowed, DataRead: Allowed, Write: Allowed, AccessControl: Prompted, Destructive: Prompted, Reach: Denied},
 	} {
-		got, _ := Policy{Mode: ReadOnly}.Authorize(patch(class))
-		assert.Equal(t, want, got, "class %d", class)
+		for l, d := range want {
+			got, _ := Policy{Mode: mode}.Decide(patch(l))
+			assert.Equal(t, d, got, "%s %s", mode, l)
+		}
 	}
 }
 
-func TestAnActionRoundTripsAsJSON(t *testing.T) {
-	act := patch(UpstreamWrite)
-	act.Summary, act.DryRun = "Patch deployments/api in team-a on dev", true
-	b, err := json.Marshal(act)
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"class":4,"clusterID":"dev","context":"dev","namespace":"team-a","verb":"patch","group":"apps","kind":"deployments",
-		"name":"api","summary":"Patch deployments/api in team-a on dev","dryRun":true}`, string(b))
-
-	var back Action
-	require.NoError(t, json.Unmarshal(b, &back))
-	assert.Equal(t, act, back)
-}
-
-func TestAClusterNameReadsAsWritten(t *testing.T) {
-	r := Rule{Effect: Allow, Class: UpstreamWrite, ClusterID: "c1"}
-	assert.Equal(t, `Allow cluster writes in "dev*"`, r.Line("dev*"), "a glob character is the name's own")
-	assert.Equal(t, `Allow cluster writes in dev-eks`, r.Line("dev-eks"))
-	assert.Equal(t, `Allow cluster writes everywhere`, Rule{Effect: Allow, Class: UpstreamWrite}.Line("dev-eks"), "a rule naming no cluster reads no name")
-}
-
-func TestALineReadsOneWay(t *testing.T) {
-	rules := map[string]Rule{
-		`Allow cluster writes in "a / b"`:               {Effect: Allow, Class: UpstreamWrite, ClusterID: "a / b"},
-		`Allow cluster writes in a / b`:                 {Effect: Allow, Class: UpstreamWrite, ClusterID: "a", Namespace: "b"},
-		`Allow cluster writes in "a b*"`:                {Effect: Allow, Class: UpstreamWrite, ClusterID: "a b*"},
-		`Allow cluster writes in "say \"hi\""`:          {Effect: Allow, Class: UpstreamWrite, ClusterID: `say "hi"`},
-		`Allow cluster writes in "back\\slash"`:         {Effect: Allow, Class: UpstreamWrite, ClusterID: `back\slash`},
-		`Allow delete of core "my pods" in dev / web`:   {Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: "web", Verb: "delete", Group: "core", Kind: Literal("my pods")},
-		`Allow cluster writes in dev / matching "a b?"`: {Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: "a b?"},
-	}
-	seen := map[string]bool{}
-	for want, rule := range rules {
-		line := line(rule)
-		assert.Equal(t, want, line)
-		assert.False(t, seen[line], "two rules share %q", line)
-		seen[line] = true
+func TestOutcomeOfEveryEffect(t *testing.T) {
+	t.Parallel()
+	for v, want := range map[Verdict]Decision{
+		{Effect: Allow}:                  Allowed,
+		{Effect: Ask}:                    Prompted,
+		{Effect: Ask, Grantable: true}:   Prompted,
+		{Effect: Deny}:                   Denied,
+		{Effect: "something"}:            Denied,
+		{Effect: Deny, Grantable: false}: Denied,
+	} {
+		assert.Equal(t, want, v.Outcome(), "%+v", v)
 	}
 }
 
-func TestGrantableIsUnmatched(t *testing.T) {
-	write := patch(UpstreamWrite)
-	for v, want := range map[Verdict]bool{Unmatched: true, Permit: false, Forbid: false, Refuse: false} {
-		assert.Equal(t, want, Grantable(v, write), "verdict %d", v)
-	}
-	forbid, _ := Policy{Mode: Ask}.Authorize(patch(Destructive))
-	assert.False(t, Grantable(forbid, patch(Destructive)), "class 5 is a forbid")
-	askFor := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: AskFor, Class: UpstreamWrite}}}
-	v, _ := askFor.Authorize(write)
-	assert.False(t, Grantable(v, write), "an AskFor rule is a forbid")
-	v, _ = Policy{Mode: ReadOnly}.Authorize(write)
-	assert.False(t, Grantable(v, write), "read-only refuses")
+func TestReachIsNeverAllowed(t *testing.T) {
+	t.Parallel()
+	eachCase(t, func(p Policy, act Action) {
+		if act.AccessLevel != Reach {
+			return
+		}
+		allow := rule(Allow, Reach)
+		p.Rules = append(p.Rules, allow)
+		v, why := p.Authorize(act)
+		if v.Effect != Deny || why != "it is never allowed" {
+			t.Errorf("%s, %+v: %+v %q", p.Mode, act, v, why)
+		}
+	})
+}
 
-	v, _ = Policy{Mode: Ask}.Authorize(write)
-	assert.True(t, Grantable(v, write), "a class 4 write nothing names")
-	noCluster := write
-	noCluster.ClusterID = ""
-	assert.False(t, Grantable(Unmatched, noCluster), "a rule from an action with no cluster reaches every cluster")
+func TestAnUnnamedOperationAsksOnceAndIsNotGranted(t *testing.T) {
+	t.Parallel()
+	act := patch(Write)
+	act.Once = true
+	for _, mode := range Modes {
+		for _, rules := range [][]Rule{nil, {rule(Allow, Write)}, {CommandRule(act)}, {GrantRule(act)}} {
+			v, why := Policy{Mode: mode, Rules: rules}.Authorize(act)
+			if mode == ModeReadOnly {
+				assert.Equal(t, Verdict{Effect: Deny}, v)
+				assert.Equal(t, "this account is read-only", why)
+				continue
+			}
+			assert.Equal(t, Verdict{Effect: Ask}, v, "%s %v", mode, rules)
+			assert.Equal(t, "it always asks", why)
+		}
+	}
+	v, _ := Policy{Mode: ModeAuto, Rules: []Rule{rule(Deny, Write)}}.Authorize(act)
+	assert.Equal(t, Deny, v.Effect, "a deny rule stops it as a write")
+}
+
+func TestAnActionWithNoAccountAsksOnce(t *testing.T) {
+	t.Parallel()
+	act := patch(Write)
+	act.Scope = ""
+	for _, mode := range []Mode{ModeAsk, ModeAuto} {
+		for _, rules := range [][]Rule{nil, {rule(Allow, Write)}} {
+			v, why := Policy{Mode: mode, Rules: rules}.Authorize(act)
+			assert.Equal(t, Verdict{Effect: Ask}, v, "%s", mode)
+			assert.Equal(t, "it always asks", why)
+		}
+	}
+	data := patch(DataRead)
+	data.Scope = ""
+	v, _ := Policy{Mode: ModeAuto}.Authorize(data)
+	assert.Equal(t, Verdict{Effect: Ask}, v, "a data read with no account asks too")
+}
+
+func TestOnlyAConfinedAccessControlActionIsGrantable(t *testing.T) {
+	t.Parallel()
+	iam := Action{Principal: Chat, Target: AWS, Scope: "123456789012/global", AccountName: "123456789012", Service: "iam", Operation: "AttachRolePolicy", AccessLevel: AccessControl}
+	setIam := Action{Principal: Chat, Target: GCP, Scope: "my-project", AccountName: "my-project", Service: "cloudresourcemanager", Operation: "setiampolicy", Resource: "projects", AccessLevel: AccessControl}
+	for _, act := range []Action{iam, setIam} {
+		for _, mode := range []Mode{ModeAsk, ModeAuto} {
+			for _, rules := range [][]Rule{nil, {rule(Allow, AccessControl)}, {GrantRule(act)}} {
+				v, why := Policy{Mode: mode, Rules: rules}.Authorize(act)
+				assert.Equal(t, Verdict{Effect: Ask}, v, "%s %s", act.Target, mode)
+				assert.Equal(t, "it always asks", why)
+			}
+		}
+		v, _ := Policy{Mode: ModeReadOnly}.Authorize(act)
+		assert.Equal(t, Deny, v.Effect)
+	}
+	confined := iam
+	confined.Confined = true
+	v, _ := Policy{Mode: ModeAsk}.Authorize(confined)
+	assert.Equal(t, Verdict{Effect: Ask, Grantable: true}, v)
+	v, _ = Policy{Mode: ModeAsk, Rules: []Rule{GrantRule(confined)}}.Authorize(confined)
+	assert.Equal(t, Verdict{Effect: Allow}, v)
+}
+
+func TestAnAccessControlWriteIsGrantedInsideAScopeAlone(t *testing.T) {
+	t.Parallel()
+	role := Action{Principal: Chat, Target: Kubernetes, Scope: "dev/team-a", AccountName: "dev", Service: "rbac.authorization.k8s.io", Operation: "create", Resource: "roles", AccessLevel: AccessControl, Confined: true}
+	v, _ := Policy{Mode: ModeAsk}.Authorize(role)
+	assert.Equal(t, Verdict{Effect: Ask, Grantable: true}, v, "a Role in a namespace")
+	v, _ = Policy{Mode: ModeAsk, Rules: []Rule{GrantRule(role)}}.Authorize(role)
+	assert.Equal(t, Allow, v.Effect)
+	v, _ = Policy{Mode: ModeAuto}.Authorize(role)
+	assert.Equal(t, Verdict{Effect: Ask, Grantable: true}, v, "auto asks for permissions")
+
+	clusterRole := Action{Principal: Chat, Target: Kubernetes, Scope: "dev", AccountName: "dev", Service: "rbac.authorization.k8s.io", Operation: "create", Resource: "clusterroles", AccessLevel: AccessControl}
+	v, why := Policy{Mode: ModeAsk, Rules: []Rule{rule(Allow, AccessControl)}}.Authorize(clusterRole)
+	assert.Equal(t, Verdict{Effect: Ask}, v, "a ClusterRole asks once")
+	assert.Equal(t, "it always asks", why)
+}
+
+func TestTheMonitorNeverWritesOrReadsData(t *testing.T) {
+	t.Parallel()
+	for _, l := range []AccessLevel{DataRead, Write, AccessControl, Destructive, Reach} {
+		assert.Equal(t, Never, boundary[Monitor][l], l)
+		act := patch(l)
+		act.Principal = Monitor
+		for _, mode := range Modes {
+			v, why := Policy{Mode: mode, Rules: []Rule{rule(Allow, l)}}.Authorize(act)
+			assert.Equal(t, Verdict{Effect: Deny}, v, "%s %s", mode, l)
+			assert.Equal(t, "it is never allowed", why)
+		}
+	}
+	assert.Equal(t, Free, boundary[Monitor][Read])
+}
+
+func TestTheConsoleNeverAsks(t *testing.T) {
+	t.Parallel()
+	assert.False(t, asks[Console])
+	assert.False(t, asks[Monitor])
+	assert.True(t, asks[Chat])
+	assert.True(t, asks[Subagent])
+	for _, l := range []AccessLevel{DataRead, Write, AccessControl, Destructive, Reach} {
+		assert.Equal(t, Never, boundary[Console][l], l)
+	}
+	// A level the boundary frees for the console that still asks is denied.
+	act := patch(Read)
+	act.Principal, act.Scope = Console, ""
+	v, why := Policy{Mode: ModeAuto}.Authorize(act)
+	assert.Equal(t, Verdict{Effect: Deny}, v)
+	assert.Equal(t, "this session never asks: it always asks", why)
+}
+
+func TestASubagentIsNeverWiderThanItsParent(t *testing.T) {
+	t.Parallel()
+	rank := func(v Verdict) int {
+		switch {
+		case v.Effect == Deny:
+			return 0
+		case v.Effect == Ask && !v.Grantable:
+			return 1
+		case v.Effect == Ask:
+			return 2
+		}
+		return 3
+	}
+	eachCase(t, func(p Policy, act Action) {
+		if act.Principal != Subagent {
+			return
+		}
+		sub, _ := p.Authorize(act)
+		act.Principal = Chat
+		chat, _ := p.Authorize(act)
+		if rank(sub) > rank(chat) {
+			t.Errorf("%s, %+v, rules %v: subagent %+v wider than chat %+v", p.Mode, act, p.Rules, sub, chat)
+		}
+	})
+	// A deny for the chat reaches its subagents.
+	deny := rule(Deny, Write)
+	deny.Principal = "chat"
+	act := patch(Write)
+	act.Principal = Subagent
+	v, why := Policy{Mode: ModeAuto, Rules: []Rule{deny}}.Authorize(act)
+	assert.Equal(t, Verdict{Effect: Deny}, v)
+	assert.Equal(t, "a rule denies it: Deny writes by chat everywhere", why)
 }
 
 func TestADryRunIsNotGrantable(t *testing.T) {
-	write := patch(UpstreamWrite)
-	assert.True(t, Grantable(Unmatched, write))
+	t.Parallel()
+	write := patch(Write)
+	v, _ := Policy{Mode: ModeAsk}.Authorize(write)
+	assert.True(t, v.Grantable)
 	write.DryRun = true
-	assert.False(t, Grantable(Unmatched, write))
+	v, _ = Policy{Mode: ModeAsk}.Authorize(write)
+	assert.Equal(t, Verdict{Effect: Ask}, v)
 }
 
-// allows is whether r, as the one rule of an Ask policy, lets act run.
-func allows(r Rule, act Action) bool {
-	v, _ := Policy{Mode: Ask, Rules: []Rule{r}}.Authorize(act)
-	return v == Permit
+func TestAnActionThatNamesNoRuleIsNotGrantable(t *testing.T) {
+	t.Parallel()
+	// A one-segment scope's rule names the resource; one with none cannot be
+	// stored, so nothing may be written for it.
+	act := Action{Principal: Chat, Target: Azure, Scope: "sub-1", AccountName: "sub-1", Service: "microsoft.compute", Operation: "write", AccessLevel: Write}
+	v, _ := Policy{Mode: ModeAsk}.Authorize(act)
+	assert.Equal(t, Verdict{Effect: Ask}, v)
+	act.Resource = "virtualmachines"
+	v, _ = Policy{Mode: ModeAsk}.Authorize(act)
+	assert.Equal(t, Verdict{Effect: Ask, Grantable: true}, v)
 }
 
-func TestAGrantRuleNamesTheActionsCluster(t *testing.T) {
-	act := patch(UpstreamWrite)
+func TestAGrantRuleNamesTheActionsScope(t *testing.T) {
+	t.Parallel()
+	act := patch(Write)
 	r := GrantRule(act)
-	assert.Equal(t, Rule{Effect: Allow, Class: UpstreamWrite, ClusterID: "dev", Namespace: "team-a", Inside: true}, r)
-	assert.True(t, allows(r, act))
+	assert.Equal(t, Rule{Effect: Allow, AccessLevel: Write, Principal: "*", Target: "kubernetes", Scope: "dev/team-a", Service: "*", Operation: "*", Resource: "*"}, r)
+	assert.True(t, r.Matches(act))
+	sub := act
+	sub.Principal = Subagent
+	assert.True(t, r.Matches(sub), "a chat's grant reaches its subagents")
 	other := act
-	other.ClusterID = "c2"
-	assert.False(t, allows(r, other), "another cluster, whatever its context's name")
+	other.Scope = "dev/team-b"
+	assert.False(t, r.Matches(other))
 
-	inside := GrantRule(patch(UpstreamWrite))
-	assert.Equal(t, "Allow cluster writes inside dev / team-a", line(inside))
-	label := Action{Class: UpstreamWrite, ClusterID: "dev", Context: "dev", Namespace: "team-a", Verb: "patch", Group: "core", Kind: "namespaces", Name: "team-a"}
-	assert.False(t, allows(inside, label), "a grant for what is in team-a leaves the Namespace out")
-	label.Kind = "namespaces/finalize"
-	assert.False(t, allows(inside, label), "and its subresources")
-
-	ns := Action{Class: UpstreamWrite, ClusterID: "dev-eks", Context: "dev-eks", Namespace: "team-a", Verb: "patch", Group: "core", Kind: "namespaces", Name: "team-a"}
+	ns := Action{Principal: Chat, Target: Kubernetes, Scope: "dev*", AccountName: "dev", Service: "", Operation: "patch", Resource: "nodes", AccessLevel: Write}
 	r = GrantRule(ns)
-	assert.Equal(t, "core", r.Group)
-	assert.Equal(t, "namespaces", r.Kind)
-	assert.True(t, allows(r, ns))
-	pod := Action{Class: UpstreamWrite, ClusterID: "dev-eks", Context: "dev-eks", Namespace: "team-a", Verb: "delete", Group: "core", Kind: "pods", Name: "api"}
-	assert.False(t, allows(r, pod), "a Namespace's grant is the object, not what is in it")
-	assert.Equal(t, "Allow writes of core namespaces in dev-eks / team-a", line(r))
-	finalize := ns
-	finalize.Kind = "namespaces/finalize"
-	assert.Equal(t, "namespaces/finalize", GrantRule(finalize).Kind, "a Namespace's subresource names it too")
-}
+	assert.Equal(t, Rule{Effect: Allow, AccessLevel: Write, Principal: "*", Target: "kubernetes", Scope: `dev\*`, Service: "", Operation: "*", Resource: "nodes"}, r)
+	pod := ns
+	pod.Resource = "pods"
+	assert.False(t, r.Matches(pod), "a one-segment scope's grant names its resource")
 
-func TestAClusterScopedGrantNamesTheResource(t *testing.T) {
-	node := Action{Class: UpstreamWrite, ClusterID: "dev-eks", Context: "dev-eks", Verb: "patch", Group: "core", Kind: "nodes", Name: "n1"}
-	r := GrantRule(node)
-	assert.Equal(t, Rule{Effect: Allow, Class: UpstreamWrite, ClusterID: "dev-eks", Group: "core", Kind: "nodes"}, r)
-	other := node
-	other.Name = "n2"
-	assert.True(t, allows(r, other))
-	for _, ns := range []string{"", "team-a"} {
-		pod := Action{Class: UpstreamWrite, ClusterID: "dev-eks", Context: "dev-eks", Namespace: ns, Verb: "patch", Group: "core", Kind: "pods"}
-		assert.False(t, allows(r, pod), "a pod write in %q", ns)
-	}
-	role := Action{Class: UpstreamWrite, ClusterID: "dev-eks", Context: "dev-eks", Verb: "patch", Group: "rbac.authorization.k8s.io", Kind: "clusterroles"}
-	assert.False(t, allows(r, role))
+	scale := patch(Write)
+	scale.Resource = "deployments/scale"
+	assert.True(t, GrantRule(patch(Write)).Matches(scale), "a namespace's grant is every write in it")
 }
 
 func TestACommandRuleNamesTheChange(t *testing.T) {
-	del := Action{Class: UpstreamWrite, ClusterID: "c1", Context: "dev*", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods", Name: "a"}
+	t.Parallel()
+	del := Action{Principal: Chat, Target: Kubernetes, Scope: "c1/web", AccountName: "dev*", Service: "", Operation: "delete", Resource: "pods", Name: "a", AccessLevel: Write}
 	r := CommandRule(del)
 	assert.True(t, r.Command)
 	other := del
 	other.Name = "b"
-	assert.True(t, allows(r, other), "another pod's delete")
-	for name, act := range map[string]Action{
-		"a deployment's delete":           {Class: UpstreamWrite, ClusterID: "c1", Namespace: "web", Verb: "delete", Group: "apps", Kind: "deployments"},
-		"a patch of a pod":                {Class: UpstreamWrite, ClusterID: "c1", Namespace: "web", Verb: "patch", Group: "core", Kind: "pods"},
-		"a pod delete on another cluster": {Class: UpstreamWrite, ClusterID: "c2", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods"},
+	assert.True(t, r.Matches(other), "another pod's delete")
+	for name, edit := range map[string]func(*Action){
+		"a deployment's delete":           func(a *Action) { a.Service, a.Resource = "apps", "deployments" },
+		"a patch of a pod":                func(a *Action) { a.Operation = "patch" },
+		"a pod delete on another cluster": func(a *Action) { a.Scope = "c2/web" },
 	} {
-		assert.False(t, allows(r, act), name)
+		act := del
+		edit(&act)
+		assert.False(t, r.Matches(act), name)
 	}
-	assert.Equal(t, `Allow delete of core pods in "dev*" / web for this command`, r.Line(del.Context))
+	assert.Equal(t, `Allow delete of core pods in "dev*" / web for this command`, r.Line(del.AccountName))
 
 	b, err := json.Marshal(r)
 	require.NoError(t, err)
 	assert.NotContains(t, string(b), "ommand")
 	var back Rule
-	require.NoError(t, json.Unmarshal([]byte(`{"id":"r","effect":"allow","class":4,"command":true,"Command":true}`), &back))
+	require.NoError(t, json.Unmarshal([]byte(`{"id":"r","effect":"allow","command":true,"Command":true}`), &back))
 	assert.False(t, back.Command, "a stored rule is never a command's")
 }
 
-func TestNoSecretDataRefusesClassSixAheadOfEveryRule(t *testing.T) {
-	allow := []Rule{{ID: "a", Effect: Allow, Class: SecretRead}}
-	for _, mode := range []Mode{ReadOnly, Ask, Auto} {
-		for _, rules := range [][]Rule{nil, allow} {
-			got, why := Policy{Mode: mode, Rules: rules, NoSecretData: true}.Authorize(patch(SecretRead))
-			assert.Equal(t, Refuse, got, "%s, %d rules", mode, len(rules))
-			assert.Equal(t, "this session never reads Secret data", why)
-		}
-	}
-	got, _ := Policy{Mode: Auto, NoSecretData: true}.Authorize(patch(UpstreamWrite))
-	assert.Equal(t, Permit, got, "class 4 is unchanged")
-}
-
-func TestNoPromptsRefusesWhatWouldAsk(t *testing.T) {
-	got, why := Policy{Mode: Ask, NoPrompts: true}.Authorize(patch(UpstreamWrite))
-	assert.Equal(t, Refuse, got)
-	assert.Equal(t, "this session never asks: ask mode", why)
-	assert.False(t, Grantable(got, patch(UpstreamWrite)))
-
-	got, why = Policy{Mode: Auto, NoPrompts: true}.Authorize(patch(Destructive))
-	assert.Equal(t, Refuse, got)
-	assert.Equal(t, "this session never asks: it always asks", why)
-	assert.False(t, Grantable(got, patch(Destructive)))
-
-	got, why = Policy{Mode: Auto, NoPrompts: true}.Authorize(patch(UpstreamWrite))
-	assert.Equal(t, Permit, got)
-	assert.Equal(t, "auto mode", why)
-}
-
-func TestASecretReadGrantNamesItsScope(t *testing.T) {
-	get := Action{Class: SecretRead, ClusterID: "dev-eks", Context: "dev-eks", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets", Name: "db"}
-	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, ClusterID: "dev-eks", Namespace: "team-a"}, GrantRule(get))
-	list := Action{Class: SecretRead, ClusterID: "dev-eks", Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets"}
-	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, ClusterID: "dev-eks"}, GrantRule(list))
-
-	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, ClusterID: "dev-eks", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets", Command: true}, CommandRule(get))
-	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, ClusterID: "dev-eks", Verb: "list", Group: "core", Kind: "secrets", Command: true}, CommandRule(list))
-
-	other := get
-	other.Name, other.Verb = "api", "list"
-	assert.True(t, allows(GrantRule(get), other), "a namespace's grant is every Secret read in it")
-	other.Namespace = "team-b"
-	assert.False(t, allows(GrantRule(get), other))
-	assert.True(t, allows(GrantRule(list), other), "a cluster-wide read's grant is every Secret read in the context")
-}
-
-func TestAClassSixRuleReadsAsReads(t *testing.T) {
-	list := Action{Class: SecretRead, ClusterID: "dev-eks", Context: "dev-eks", Namespace: "team-a", Verb: "list", Group: "core", Kind: "secrets"}
-	wide := Action{Class: SecretRead, ClusterID: "dev-eks", Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets"}
-	for want, rule := range map[string]Rule{
-		"Allow Secret reads in dev-eks / team-a":                          GrantRule(list),
-		"Allow Secret reads in dev-eks":                                   GrantRule(wide),
-		"Allow list of core secrets in dev-eks / team-a for this command": CommandRule(list),
-		"Allow reads of core secrets in dev-eks":                          {Effect: Allow, Class: SecretRead, ClusterID: "dev-eks", Group: "core", Kind: "secrets"},
-	} {
-		assert.Equal(t, want, line(rule))
-		assert.NotContains(t, line(rule), "writes")
-	}
-}
-
-// awsCall is a cloud platform action of class c, as Decide leaves it: a target,
-// a class and a summary.
-func awsCall(c Class) Action {
-	return Action{Target: AWS, Class: c, Summary: "AWS: call ec2:TerminateInstances"}
-}
-
-// A cloud platform's change, destructive change and data read ask under every
-// mode, and no answer to one may write a rule.
-func TestACloudPlatformActionAlwaysAsks(t *testing.T) {
-	for _, mode := range []Mode{ReadOnly, Ask, Auto} {
-		for _, c := range []Class{UpstreamWrite, Destructive, SecretRead} {
-			v, why := Policy{Mode: mode}.Authorize(awsCall(c))
-			assert.Equal(t, Forbid, v, "%s, class %d", mode, c)
-			assert.Equal(t, "a cloud platform's request always asks", why)
-			assert.False(t, Grantable(v, awsCall(c)))
-		}
-	}
-}
-
-// No rule the user wrote for a cluster, and neither stand-in for one Kstack
-// could not read, reaches a cloud platform's action.
-func TestNoRuleReachesACloudPlatformAction(t *testing.T) {
-	for _, r := range []Rule{
-		{ID: "a", Effect: Allow, Class: UpstreamWrite},
-		{ID: "d", Effect: Deny, Class: UpstreamWrite},
-		{ID: "k", Effect: AskFor, Class: UpstreamWrite},
-		{ID: "s", Effect: Allow, Class: SecretRead},
-		Refused, RefusedSecrets,
-	} {
-		for _, c := range []Class{UpstreamWrite, SecretRead} {
-			assert.False(t, r.Matches(awsCall(c)), r.ID)
-			v, _ := Policy{Mode: Auto, Rules: []Rule{r}}.Authorize(awsCall(c))
-			assert.Equal(t, Forbid, v, r.ID)
-		}
-	}
-}
-
-func TestNoPromptsRefusesACloudPlatformAction(t *testing.T) {
-	v, why := Policy{Mode: Auto, NoPrompts: true}.Authorize(awsCall(UpstreamWrite))
-	assert.Equal(t, Refuse, v)
-	assert.Equal(t, "this session never asks: a cloud platform's request always asks", why)
-}
-
-func TestNoSecretDataRefusesACloudPlatformDataRead(t *testing.T) {
-	v, why := Policy{Mode: Auto, NoSecretData: true}.Authorize(awsCall(SecretRead))
-	assert.Equal(t, Refuse, v)
-	assert.Equal(t, "this session never reads Secret data", why)
-}
-
-// A cluster action's JSON carries no target, so a stored row reads as it did.
-func TestAClusterActionStoresNoTarget(t *testing.T) {
-	b, err := json.Marshal(patch(UpstreamWrite))
-	require.NoError(t, err)
-	assert.NotContains(t, string(b), "target")
-	b, err = json.Marshal(awsCall(UpstreamWrite))
-	require.NoError(t, err)
-	assert.Contains(t, string(b), `"target":"aws"`)
-}
-
-func TestAClassIsStoredByName(t *testing.T) {
+func TestUnreadRulesRefuseWritesAndDataReads(t *testing.T) {
 	t.Parallel()
-	for class, name := range map[Class]string{UpstreamWrite: "upstream-write", Destructive: "destructive", SecretRead: "secret-read"} {
-		assert.Equal(t, name, class.Name())
-		got, ok := ClassNamed(name)
-		assert.True(t, ok, name)
-		assert.Equal(t, class, got)
+	p := Policy{Mode: ModeAuto, Rules: Unread()}
+	for _, l := range []AccessLevel{Write, Destructive, AccessControl, DataRead} {
+		for _, target := range Targets {
+			act := patch(l)
+			act.Target = target
+			got, _ := p.Authorize(act)
+			assert.Equal(t, Deny, got.Effect, "%s %s", target, l)
+		}
 	}
-	for _, name := range []string{"", "read-inside", "Destructive"} {
-		_, ok := ClassNamed(name)
-		assert.False(t, ok, name)
-	}
+	assert.Equal(t, DataRead, RefusedData.AccessLevel)
+	assert.False(t, Write.Covers(DataRead))
 }
 
-func TestSameIgnoresTheID(t *testing.T) {
+func TestRuleSame(t *testing.T) {
 	t.Parallel()
-	a := Rule{ID: "a", Effect: Allow, Class: UpstreamWrite, ClusterID: "dev"}
+	a := rule(Allow, Write)
 	b := a
 	b.ID = "b"
 	assert.True(t, a.Same(b))
-	b.Namespace = "web"
+	b.Scope = "web"
 	assert.False(t, a.Same(b))
 }
 
-// A read of the rules that failed allows nothing, and refuses every cluster
-// write and Secret read.
-func TestUnreadRulesRefuseWritesAndSecretReads(t *testing.T) {
+func TestTheLineOfARule(t *testing.T) {
 	t.Parallel()
-	p := Policy{Mode: Auto, Rules: Unread()}
-	for _, class := range []Class{UpstreamWrite, Destructive, SecretRead} {
-		got, _ := p.Authorize(patch(class))
-		assert.Equal(t, Refuse, got, "class %d", class)
+	r := func(e Effect, l AccessLevel, target, scope string, edit func(*Rule)) Rule {
+		x := Rule{Effect: e, AccessLevel: l, Principal: "*", Target: target, Scope: scope, Service: "*", Operation: "*", Resource: "*"}
+		if edit != nil {
+			edit(&x)
+		}
+		return x
+	}
+	for _, c := range []struct {
+		want, account string
+		rule          Rule
+	}{
+		{"Allow writes in dev-eks / team-a", "dev-eks", r(Allow, Write, "kubernetes", "c1/team-a", nil)},
+		{"Deny destructive delete of core namespaces in dev-eks", "dev-eks", r(Deny, Destructive, "kubernetes", "c1", func(x *Rule) { x.Service, x.Operation, x.Resource = "", "delete", "namespaces" })},
+		{"Ask for writes by subagent everywhere", "", r(Ask, Write, "*", "*", func(x *Rule) { x.Principal = "subagent" })},
+		{"Allow writes in AWS 123456789012 / eu-west-1", "123456789012", r(Allow, Write, "aws", "123456789012/eu-west-1", nil)},
+		{"Allow patch of apps deployments in dev-eks / team-a for this command", "dev-eks", r(Allow, Write, "kubernetes", "c1/team-a", func(x *Rule) {
+			x.Service, x.Operation, x.Resource, x.Command = "apps", "patch", "deployments", true
+		})},
+		{"Allow writes anywhere in dev-eks", "dev-eks", r(Allow, Write, "kubernetes", "c1/**", nil)},
+		{"Deny writes in any cluster / kube-system", "", r(Deny, Write, "kubernetes", "*/kube-system", nil)},
+		{"Deny data reads in every cluster", "", r(Deny, DataRead, "kubernetes", "*", nil)},
+		{"Deny data reads in every Azure account", "", r(Deny, DataRead, "azure", "**", nil)},
+		{"Allow writes in Azure sub-1 / rg", "sub-1", r(Allow, Write, "azure", "sub-1/rg", nil)},
+		{"Allow writes in Google Cloud my-project", "my-project", r(Allow, Write, "gcp", "my-project", nil)},
+		{"Allow writes in GitHub kstackhq / kstack", "kstackhq", r(Allow, Write, "github", "kstackhq/kstack", nil)},
+		{"Deny access control changes everywhere", "", r(Deny, AccessControl, "*", "*", nil)},
+		{"Deny writes of apps resources everywhere", "", r(Deny, Write, "*", "*", func(x *Rule) { x.Service = "apps" })},
+		{"Deny delete of anything everywhere", "", r(Deny, Write, "*", "*", func(x *Rule) { x.Operation = "delete" })},
+		{"Deny writes of deployments everywhere", "", r(Deny, Write, "*", "*", func(x *Rule) { x.Resource = "deployments" })},
+		{"Allow data reads of core secrets in dev-eks", "dev-eks", r(Allow, DataRead, "kubernetes", "c1", func(x *Rule) { x.Service, x.Resource = "", "secrets" })},
+		{`Allow writes in "dev*"`, "dev*", r(Allow, Write, "kubernetes", "c1", nil)},
+		{`Allow writes in "a / b"`, "a / b", r(Allow, Write, "kubernetes", "c1", nil)},
+		{`Allow writes in "say \"hi\""`, `say "hi"`, r(Allow, Write, "kubernetes", "c1", nil)},
+		{`Allow writes in "back\\slash"`, `back\slash`, r(Allow, Write, "kubernetes", "c1", nil)},
+		{`Allow delete of core "my pods" in dev / web`, "dev", r(Allow, Write, "kubernetes", "c1/web", func(x *Rule) { x.Service, x.Operation, x.Resource = "", "delete", Literal("my pods") })},
+		{`Allow writes in dev / matching "a b?"`, "dev", r(Allow, Write, "kubernetes", "c1/a b?", nil)},
+		{`Allow writes in c1`, "", r(Allow, Write, "kubernetes", "c1", nil)},
+		{"Deny writes in any account / x", "", r(Deny, Write, "*", "*/x", nil)},
+		{"Deny writes in any AWS account / eu-west-1", "", r(Deny, Write, "aws", "*/eu-west-1", nil)},
+		{"Deny writes in any cluster matching prod-* / web", "", r(Deny, Write, "kubernetes", "prod-*/web", nil)},
+		{"Ask for writes in any GitHub account matching kstack?", "", r(Ask, Write, "github", "kstack?", nil)},
+		{`Deny writes in any account matching "a b*" / x`, "", r(Deny, Write, "*", "a b*/x", nil)},
+	} {
+		assert.Equal(t, c.want, c.rule.Line(c.account))
 	}
 }
 
-// line is r in the user's words, naming its cluster by its id.
-func line(r Rule) string { return r.Line(string(r.ClusterID)) }
+func TestAnActionRoundTripsAsJSON(t *testing.T) {
+	t.Parallel()
+	act := patch(Write)
+	act.Summary, act.DryRun, act.Confined, act.Once, act.Spans = "Patch deployments/api in team-a on dev", true, true, true, true
+	b, err := json.Marshal(act)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"principal":"chat","target":"kubernetes","scope":"dev/team-a","accountName":"dev","service":"apps",
+		"operation":"patch","resource":"deployments","name":"api","accessLevel":"write","confined":true,"once":true,"spans":true,
+		"summary":"Patch deployments/api in team-a on dev","dryRun":true}`, string(b))
+	var back Action
+	require.NoError(t, json.Unmarshal(b, &back))
+	assert.Equal(t, act, back)
+}
+
+func TestAReasonSaysWhatDecided(t *testing.T) {
+	t.Parallel()
+	for want, c := range map[string]struct {
+		policy Policy
+		act    Action
+	}{
+		"it always asks":            {Policy{Mode: ModeAuto}, patch(Destructive)},
+		"auto mode":                 {Policy{Mode: ModeAuto}, patch(Write)},
+		"ask mode":                  {Policy{Mode: ModeAsk}, patch(Write)},
+		"this account is read-only": {Policy{Mode: ModeReadOnly}, patch(Write)},
+		"it is never allowed":       {Policy{Mode: ModeAuto}, patch(Reach)},
+	} {
+		_, why := c.policy.Decide(c.act)
+		assert.Equal(t, want, why, fmt.Sprint(c.act.AccessLevel))
+	}
+}
+
+func TestAnActionsAccountIsItsFirstScopeSegment(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "dev", Action{Scope: "dev/team-a"}.Account())
+	assert.Equal(t, "dev", Action{Scope: "dev"}.Account())
+	assert.Empty(t, Action{}.Account())
+}
+
+func TestGrantLinesAreTheTwoRulesInWords(t *testing.T) {
+	t.Parallel()
+	act := patch(Write)
+	command, chat := GrantLines(act)
+	assert.Equal(t, CommandRule(act).Line(act.AccountName), command)
+	assert.Equal(t, GrantRule(act).Line(act.AccountName), chat)
+	assert.NotEqual(t, command, chat)
+}

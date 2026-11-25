@@ -42,7 +42,7 @@ func TestASummaryNamesTheCloudPlatformAndWhere(t *testing.T) {
 		method, path, _ := strings.Cut(target, " ")
 		a, ok := parsePath(method, path)
 		require.True(t, ok, target)
-		assert.Equal(t, want, summary(method, a, verdict{class: permissions.UpstreamWrite}, payg), target)
+		assert.Equal(t, want, summary(method, a, verdict{level: permissions.Write}, payg), target)
 	}
 }
 

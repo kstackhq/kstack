@@ -116,27 +116,38 @@ func (u *upstream) RoundTrip(r *http.Request) (*http.Response, error) {
 	return u.srv.Client().Transport.RoundTrip(out)
 }
 
-// asker hands each request to the test and answers what it is told.
+// asker hands each request to the test and answers what it is told, once
+// unless told otherwise; it keeps each record.
 type asker struct {
-	asked   chan runproxy.Request
-	answers chan bool
+	asked    chan runproxy.Request
+	answers  chan bool
+	duration permissions.Duration
+	records  chan record
+}
+
+// record is one decision recorded with nobody asked.
+type record struct {
+	req    runproxy.Request
+	d      permissions.Decision
+	reason string
 }
 
 func newAsker() *asker {
-	return &asker{asked: make(chan runproxy.Request, 8), answers: make(chan bool, 8)}
+	return &asker{asked: make(chan runproxy.Request, 8), answers: make(chan bool, 8), records: make(chan record, 16), duration: permissions.DurationOnce}
 }
 
-func (a *asker) Ask(ctx context.Context, r runproxy.Request) (bool, error) {
+func (a *asker) Ask(ctx context.Context, r runproxy.Request) (permissions.Answer, error) {
 	a.asked <- r
 	select {
 	case ok := <-a.answers:
-		return ok, nil
+		return permissions.Answer{Approved: ok, Duration: a.duration}, nil
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return permissions.Answer{}, ctx.Err()
 	}
 }
 
-func (a *asker) Record(context.Context, runproxy.Request, permissions.Decision, string) error {
+func (a *asker) Record(_ context.Context, r runproxy.Request, d permissions.Decision, reason string) error {
+	a.records <- record{r, d, reason}
 	return nil
 }
 
@@ -148,12 +159,29 @@ type rig struct {
 	up    *upstream
 	asker *asker
 	door  *httptest.Server
+
+	mu       sync.Mutex
+	policy   permissions.Policy // every account's, ask until a test sets it
+	accounts []string           // each account the grant read a policy for
+}
+
+// setPolicy makes p every account's policy from now on.
+func (r *rig) setPolicy(p permissions.Policy) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.policy = p
 }
 
 func newRig(t *testing.T, limits runproxy.Limits) *rig {
 	t.Helper()
-	r := &rig{src: &fakeSource{}, up: newUpstream(t), asker: newAsker()}
-	r.grant = runproxy.NewGrant(permissions.GCP, func(context.Context) bool { return !r.off.Load() }, session.Session{Kind: session.Chat}, r.asker, "", limits)
+	r := &rig{src: &fakeSource{}, up: newUpstream(t), asker: newAsker(), policy: permissions.Policy{Mode: permissions.ModeAsk}}
+	sess := session.Session{Kind: session.Chat, Policy: func(_ context.Context, target permissions.Target, account string) permissions.Policy {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.accounts = append(r.accounts, string(target)+" "+account)
+		return r.policy
+	}}
+	r.grant = runproxy.NewGrant(permissions.GCP, func(context.Context) bool { return !r.off.Load() }, sess, r.asker, "", limits)
 	t.Cleanup(r.grant.End)
 	r.door = httptest.NewServer(New(r.grant, r.src, r.up))
 	t.Cleanup(r.door.Close)
@@ -287,7 +315,7 @@ func TestAChangeAsksWithItsAccount(t *testing.T) {
 	go func() { done <- r.send(t, http.MethodDelete, target, r.grant.Token(), nil, header) }()
 	req := testutil.Recv(t, r.asker.asked, "the request")
 	assert.Equal(t, permissions.GCP, req.Action.Target)
-	assert.Equal(t, permissions.Destructive, req.Action.Class)
+	assert.Equal(t, permissions.Destructive, req.Action.AccessLevel)
 	assert.Equal(t, "Google Cloud: DELETE container projects/p/locations/us-central1/clusters/dev", req.Action.Summary)
 	assert.Equal(t, runproxy.Sent{
 		Host: "container.googleapis.com", Method: http.MethodDelete, Path: "/v1/projects/p/locations/us-central1/clusters/dev",
@@ -310,7 +338,7 @@ func TestAnObjectReadAsks(t *testing.T) {
 	done := make(chan *http.Response, 1)
 	go func() { done <- r.get(t, "http://storage.gcp.kstack.invalid/storage/v1/b/bkt/o/notes.txt?alt=media") }()
 	req := testutil.Recv(t, r.asker.asked, "the request")
-	assert.Equal(t, permissions.SecretRead, req.Action.Class)
+	assert.Equal(t, permissions.DataRead, req.Action.AccessLevel)
 	r.asker.answers <- true
 	assert.Equal(t, http.StatusOK, testutil.Recv(t, done, "the answer").StatusCode)
 }
@@ -322,7 +350,7 @@ func TestAnInstanceReadAsks(t *testing.T) {
 		done <- r.get(t, "http://compute.gcp.kstack.invalid/compute/v1/projects/p/zones/z/instances/i/serialPort")
 	}()
 	req := testutil.Recv(t, r.asker.asked, "the request")
-	assert.Equal(t, permissions.SecretRead, req.Action.Class)
+	assert.Equal(t, permissions.DataRead, req.Action.AccessLevel)
 	r.asker.answers <- false
 	refusal(t, testutil.Recv(t, done, "the denial"))
 }
@@ -523,9 +551,11 @@ func TestAnUpstreamFailureIsA403(t *testing.T) {
 
 func TestASummaryReadsPastTheVersion(t *testing.T) {
 	assert.Equal(t, "Google Cloud: POST compute projects/p/zones/z/instances",
-		summary(serviceNamed("compute"), http.MethodPost, []string{"compute", "beta", "projects", "p", "zones", "z", "instances"}))
+		summary("compute", http.MethodPost, []string{"compute", "beta", "projects", "p", "zones", "z", "instances"}))
 	assert.Equal(t, "Google Cloud: DELETE storage b/bkt/o/dir/x",
-		summary(serviceNamed("storage"), http.MethodDelete, []string{"storage", "v1", "b", "bkt", "o", "dir/x"}))
+		summary("storage", http.MethodDelete, []string{"storage", "v1", "b", "bkt", "o", "dir/x"}))
+	assert.Equal(t, "Google Cloud: GET storage b/bkt",
+		summary("storage", http.MethodGet, []string{"b", "bkt"}), "a path naming no version")
 }
 
 // A change runs as the account the user approved: a token refreshed for it
@@ -548,4 +578,140 @@ func TestAnApprovedChangeRunsAsTheApprovedAccount(t *testing.T) {
 	r.asker.answers <- true
 	assert.Equal(t, refusedAccountChanged, refusal(t, testutil.Recv(t, done, "the refusal")))
 	assert.Empty(t, r.up.seen, "nothing is sent as another account")
+}
+
+const (
+	myProject   = "http://compute.gcp.kstack.invalid/compute/v1/projects/my-project"
+	startVM     = myProject + "/zones/us-central1-a/instances/vm/start"
+	serialPort  = myProject + "/zones/us-central1-a/instances/vm/serialPort"
+	jsonHeaders = "application/json"
+)
+
+// post sends a POST of body to target with the grant's token.
+func (r *rig) post(t *testing.T, target, body string) *http.Response {
+	t.Helper()
+	return r.send(t, http.MethodPost, target, r.grant.Token(), strings.NewReader(body), http.Header{"Content-Type": {jsonHeaders}})
+}
+
+// gcpRule is a rule of effect on Google Cloud's writes in my-project.
+func gcpRule(effect permissions.Effect, level permissions.AccessLevel) permissions.Rule {
+	return permissions.Rule{ID: string(effect), Effect: effect, AccessLevel: level, Principal: "*", Target: "gcp",
+		Scope: "my-project/**", Service: "*", Operation: "*", Resource: "*"}
+}
+
+func TestARuleAndAModeDecideAGCPAction(t *testing.T) {
+	t.Run("auto forwards a write unasked and records it", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.setPolicy(permissions.Policy{Mode: permissions.ModeAuto})
+		assert.Equal(t, http.StatusOK, r.post(t, startVM, "").StatusCode)
+		rec := testutil.Recv(t, r.asker.records, "the record")
+		assert.Equal(t, permissions.Allowed, rec.d)
+		assert.Equal(t, "auto mode", rec.reason)
+		testutil.Recv(t, r.up.seen, "the write")
+		assert.Empty(t, r.asker.asked)
+		assert.Equal(t, []string{"gcp my-project"}, r.accounts)
+	})
+	t.Run("a write billed to another project asks under auto", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.setPolicy(permissions.Policy{Mode: permissions.ModeAuto})
+		done := make(chan *http.Response, 1)
+		go func() {
+			done <- r.send(t, http.MethodPost, startVM, r.grant.Token(), strings.NewReader(""),
+				http.Header{"Content-Type": {jsonHeaders}, "X-Goog-User-Project": {"other-project"}})
+		}()
+		req := testutil.Recv(t, r.asker.asked, "the request")
+		assert.Equal(t, "my-project/us-central1-a", req.Action.Scope)
+		assert.True(t, req.Action.Once)
+		r.asker.answers <- false
+		testutil.Recv(t, done, "the answer")
+	})
+	t.Run("a deny rule for the project refuses a write naming another project", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.setPolicy(permissions.Policy{Mode: permissions.ModeAuto, Rules: []permissions.Rule{gcpRule(permissions.Deny, permissions.Write)}})
+		w := r.post(t, myProject+"/zones/us-central1-a/instances/vm/setLabels", `{"labels":{"a":"projects/other-project"}}`)
+		assert.Contains(t, refusal(t, w), "a rule denies it")
+		assert.Empty(t, r.asker.asked)
+		assert.Empty(t, r.up.seen)
+	})
+	t.Run("read-only denies", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.setPolicy(permissions.Policy{Mode: permissions.ModeReadOnly})
+		assert.Contains(t, refusal(t, r.post(t, startVM, "")), "this account is read-only")
+		assert.Equal(t, permissions.Denied, testutil.Recv(t, r.asker.records, "the record").d)
+		assert.Empty(t, r.up.seen)
+	})
+	t.Run("an allow rule forwards", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.setPolicy(permissions.Policy{Mode: permissions.ModeAsk, Rules: []permissions.Rule{gcpRule(permissions.Allow, permissions.Write)}})
+		assert.Equal(t, http.StatusOK, r.post(t, startVM, "").StatusCode)
+		assert.Equal(t, "a rule allows it: Allow writes anywhere in Google Cloud my-project", testutil.Recv(t, r.asker.records, "the record").reason)
+		testutil.Recv(t, r.up.seen, "the write")
+	})
+	t.Run("a deny rule refuses", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.setPolicy(permissions.Policy{Mode: permissions.ModeAuto, Rules: []permissions.Rule{gcpRule(permissions.Deny, permissions.Write)}})
+		assert.Contains(t, refusal(t, r.post(t, startVM, "")), "a rule denies it")
+		assert.Empty(t, r.up.seen)
+	})
+	t.Run("a command answer allows the next", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.asker.duration = permissions.DurationCommand
+		done := make(chan *http.Response, 1)
+		go func() { done <- r.post(t, startVM, "") }()
+		req := testutil.Recv(t, r.asker.asked, "the request")
+		assert.True(t, req.Grantable)
+		assert.Equal(t, "Allow writes in Google Cloud my-project / us-central1-a", req.ChatRule)
+		r.asker.answers <- true
+		assert.Equal(t, http.StatusOK, testutil.Recv(t, done, "the answer").StatusCode)
+		testutil.Recv(t, r.up.seen, "the first write")
+		assert.Equal(t, http.StatusOK, r.post(t, startVM, "").StatusCode, "the next runs unasked")
+		assert.Equal(t, permissions.Allowed, testutil.Recv(t, r.asker.records, "the record").d)
+		assert.Empty(t, r.asker.asked)
+	})
+	t.Run("an in-project data read forwards unasked under auto", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.setPolicy(permissions.Policy{Mode: permissions.ModeAuto})
+		assert.Equal(t, http.StatusOK, r.get(t, serialPort).StatusCode)
+		rec := testutil.Recv(t, r.asker.records, "the record")
+		assert.Equal(t, permissions.Allowed, rec.d)
+		assert.Equal(t, permissions.DataRead, rec.req.Action.AccessLevel)
+		assert.Empty(t, r.asker.asked)
+	})
+	t.Run("a data read in no project asks once", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.setPolicy(permissions.Policy{Mode: permissions.ModeAuto})
+		done := make(chan *http.Response, 1)
+		go func() { done <- r.get(t, "http://storage.gcp.kstack.invalid/storage/v1/b/bkt/o/notes.txt?alt=media") }()
+		req := testutil.Recv(t, r.asker.asked, "the request")
+		assert.False(t, req.Grantable)
+		r.asker.answers <- false
+		refusal(t, testutil.Recv(t, done, "the denial"))
+	})
+	t.Run("a write naming another project asks once", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.setPolicy(permissions.Policy{Mode: permissions.ModeAuto})
+		done := make(chan *http.Response, 1)
+		go func() {
+			done <- r.post(t, myProject+"/zones/us-central1-a/instances/vm/setLabels", `{"labels":{"a":"projects/other-project"}}`)
+		}()
+		req := testutil.Recv(t, r.asker.asked, "the request")
+		assert.Equal(t, "my-project/us-central1-a", req.Action.Scope)
+		assert.True(t, req.Action.Once)
+		assert.False(t, req.Grantable)
+		r.asker.answers <- false
+		refusal(t, testutil.Recv(t, done, "the denial"))
+	})
+}
+
+// The action decided and recorded holds every field the classifier filled.
+func TestNoProxyDropsAFieldBeforeTheDecision(t *testing.T) {
+	r := newRig(t, roomy)
+	r.setPolicy(permissions.Policy{Mode: permissions.ModeAuto})
+	require.Equal(t, http.StatusOK, r.post(t, startVM, "").StatusCode)
+	got := testutil.Recv(t, r.asker.records, "the record").req.Action
+	assert.Equal(t, permissions.Action{
+		Principal: permissions.Chat, Target: permissions.GCP, Scope: "my-project/us-central1-a", AccountName: "my-project",
+		Service: "compute", Operation: "start", Resource: "instances", Name: "vm", AccessLevel: permissions.Write,
+		Summary: "Google Cloud: POST compute projects/my-project/zones/us-central1-a/instances/vm/start",
+	}, got)
 }

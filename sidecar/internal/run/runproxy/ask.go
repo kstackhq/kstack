@@ -15,7 +15,9 @@
 package runproxy
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -44,10 +46,16 @@ const (
 	unauthorized      = "kstack: unauthorized"
 )
 
-// Request is one classified action, held for the user or refused unasked.
+// Request is one classified action, held for the user or decided unasked.
 type Request struct {
 	Action permissions.Action
-	Sent   Sent
+	// Grantable is whether an answer may write a rule that allows it.
+	Grantable bool
+	// CommandRule and ChatRule are the rules each allow answer adds, as
+	// Rule.Line draws them; empty when the action is not grantable.
+	CommandRule string
+	ChatRule    string
+	Sent        Sent
 }
 
 // Sent is the request as the user is shown it.
@@ -69,13 +77,13 @@ type Detail struct {
 	Value string
 }
 
-// Asker puts a request to the user and records one refused unasked. From
+// Asker puts a request to the user and records one decided unasked. From
 // Ask, a context error is a wait that ended with no decision; any other error
 // is a request or answer that could not be recorded. From Record, an error is
 // a record that could not be written; reason is the decision in the user's
 // words.
 type Asker interface {
-	Ask(ctx context.Context, r Request) (approved bool, err error)
+	Ask(ctx context.Context, r Request) (permissions.Answer, error)
 	Record(ctx context.Context, r Request, d permissions.Decision, reason string) error
 }
 
@@ -91,20 +99,21 @@ func refused(status int, message string) Outcome {
 	return Outcome{Status: status, Message: message}
 }
 
-// Decide puts req to the user and calls forward once they approve it. It
-// keeps the action's class and summary alone and stamps the grant's target,
-// so no field that names a cluster's object is decided, recorded or drawn for
-// a cloud platform; what a classifier read goes in req.Sent.Details. A grant
-// with no asker, and a request that cannot be shown, are refused before any
-// queue. The rest wait for the grant's lock, so the user sees one at a time and
-// the cloud platform sees changes in the order decided. The verdict reads no
-// mode and no rule, only the session's two flags: a refusal is recorded, and
-// anything else asks. A data read gives up the lock once approved, so a long
+// Decide decides req and calls forward once it may run. It stamps the
+// grant's target and its session's kind on the action and keeps every other
+// field the classifier filled. A grant with no asker, and a request that
+// cannot be shown, are refused before any queue, so what is recorded is what
+// was sent. The rest wait for the grant's lock, so the user sees one at a time
+// and the cloud platform sees changes in the order decided. The verdict is
+// the session's policy for the action's account plus the command's rules: an
+// allow is recorded, then forwarded; a deny is recorded and refused; an ask
+// goes to the user. A data read gives up the lock once it may run, so a long
 // download holds no other request; a change holds it until forward returns.
-// Only an approval takes a slot and the limiter, so a request waiting on the
+// Only what runs takes a slot and the limiter, so a request waiting on the
 // user holds neither.
 func (g *Grant) Decide(ctx context.Context, req Request, forward func() error) Outcome {
-	req.Action = permissions.Action{Target: g.target, Class: req.Action.Class, Summary: req.Action.Summary}
+	req.Action.Target, req.Action.Principal = g.target, g.session.Kind
+	req.Grantable, req.CommandRule, req.ChatRule = false, "", ""
 	if g.asker == nil {
 		return refused(http.StatusForbidden, g.refusal)
 	}
@@ -121,24 +130,38 @@ func (g *Grant) Decide(ctx context.Context, req Request, forward func() error) O
 	}
 	unlock := sync.OnceFunc(func() { g.lock.Release(1) })
 	defer unlock()
-	p := permissions.Policy{NoPrompts: g.session.NoPrompts, NoSecretData: g.session.NoSecretData}
-	if v, reason := p.Authorize(req.Action); v == permissions.Refuse {
-		if err := g.asker.Record(ctx, req, permissions.Denied, reason); err != nil {
+	v, reason := g.policy(ctx, req.Action).Authorize(req.Action)
+	switch d := v.Outcome(); d {
+	case permissions.Allowed:
+		if err := g.asker.Record(ctx, req, d, reason); err != nil {
+			slog.Warn("an allowed cloud platform request was not recorded", "err", err)
+			return refused(http.StatusForbidden, refusedUnrecorded)
+		}
+	case permissions.Denied:
+		if err := g.asker.Record(ctx, req, d, reason); err != nil {
 			slog.Warn("a refused cloud platform request was not recorded", "err", err)
 			return refused(http.StatusForbidden, refusedUnrecorded)
 		}
 		return refused(http.StatusForbidden, "kstack: "+req.Action.Summary+" is not allowed: "+reason)
+	default:
+		if v.Grantable {
+			req.Grantable = true
+			req.CommandRule, req.ChatRule = permissions.GrantLines(req.Action)
+		}
+		answer, err := g.asker.Ask(ctx, req)
+		switch {
+		case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+			return refused(http.StatusForbidden, refusedUnanswered)
+		case err != nil:
+			return refused(http.StatusForbidden, refusedUnrecorded)
+		case !answer.Approved:
+			return refused(http.StatusForbidden, refusedDenied)
+		}
+		if answer.Duration == permissions.DurationCommand && req.Grantable {
+			g.commandRules = append(g.commandRules, permissions.CommandRule(req.Action))
+		}
 	}
-	approved, err := g.asker.Ask(ctx, req)
-	switch {
-	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
-		return refused(http.StatusForbidden, refusedUnanswered)
-	case err != nil:
-		return refused(http.StatusForbidden, refusedUnrecorded)
-	case !approved:
-		return refused(http.StatusForbidden, refusedDenied)
-	}
-	if req.Action.Class == permissions.SecretRead {
+	if req.Action.AccessLevel == permissions.DataRead {
 		unlock()
 	}
 	release, status := g.Slot(ctx)
@@ -147,6 +170,13 @@ func (g *Grant) Decide(ctx context.Context, req Request, forward func() error) O
 	}
 	defer release()
 	return Outcome{Forwarded: true, Err: forward()}
+}
+
+// policy is the session's policy for act's account, read now, so a change
+// made meanwhile applies. Called under the lock, which guards the command's
+// rules.
+func (g *Grant) policy(ctx context.Context, act permissions.Action) permissions.Policy {
+	return g.session.PolicyFor(ctx, g.target, act.Account(), g.commandRules)
 }
 
 // unshowable is why s cannot be put to the user, or "": a body that is not
@@ -167,6 +197,28 @@ func unshowable(s Sent) string {
 		}
 	}
 	return ""
+}
+
+// AnyJSONString is whether body is not one JSON value, or hit holds for any of
+// its keys or strings, read token by token so a duplicate key or an escape
+// cannot hide one.
+func AnyJSONString(body []byte, hit func(string) bool) bool {
+	// A decoder answers io.EOF for a value cut short, so the whole is checked
+	// first.
+	if !json.Valid(body) {
+		return true
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	for {
+		tok, err := dec.Token()
+		if err != nil { // io.EOF: json.Valid passed the body, so it is read whole
+			return false
+		}
+		if s, ok := tok.(string); ok && hit(s) {
+			return true
+		}
+	}
 }
 
 // IsForm is whether contentType names a URL-encoded form, read as leniently as

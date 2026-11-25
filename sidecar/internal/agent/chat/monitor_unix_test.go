@@ -272,12 +272,12 @@ func TestAMonitorWriteIsRefusedAndRecorded(t *testing.T) {
 		assert.Contains(t, row.result, "Forbidden", "call %d", i)
 	}
 	for i := range writes {
-		assert.Contains(t, rows[i].result, "this cluster is read-only", "write %d", i)
+		assert.Contains(t, rows[i].result, "it is never allowed", "write %d", i)
 	}
 	assert.Empty(t, r.api.requests(), "nothing reached the cluster")
 	want := make([][2]string, len(writes))
 	for i := range want {
-		want[i] = [2]string{string(ApprovalRefused), "this cluster is read-only"}
+		want[i] = [2]string{string(ApprovalRefused), "it is never allowed"}
 	}
 	assert.Equal(t, want, refusedActions(t, r), "one refused row per write, none for the reads refused before classification")
 }
@@ -295,7 +295,7 @@ func TestAMonitorReadsASecretRedactedAndRecorded(t *testing.T) {
 		assert.Contains(t, row.result, "W3JlZGFjdGVkXQ==", "read %d is redacted", i)
 		assert.NotContains(t, row.result, "aHVudGVyMg==", "read %d", i)
 	}
-	refused := [2]string{string(ApprovalRefused), "this session never reads Secret data"}
+	refused := [2]string{string(ApprovalRefused), "it is never allowed"}
 	assert.Equal(t, [][2]string{refused, refused}, refusedActions(t, r))
 }
 

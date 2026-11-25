@@ -1355,19 +1355,18 @@ func readStoredWrite(t *testing.T, status ApprovalStatus, stored string) Sandbox
 	return calls[0].SandboxActions[0]
 }
 
-// Stored cluster writes read the same forever: never edit this table. Its
-// shape is the gate's, not a tool's.
+// Stored cluster writes read the same forever: never edit this table. Its shape is the gate's, not a tool's.
 func TestClusterWritesReadOldRowsTheSame(t *testing.T) {
 	t.Parallel()
 
 	for stored, want := range map[string]SandboxAction{
-		`{"action":{"class":5,"context":"prod","namespace":"web","verb":"delete","group":"core","kind":"pods","name":"x","summary":"Delete pod web/x","dryRun":false},"grantable":false,"commandRule":"","chatRule":"","write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/x","subresource":"","contentType":"","body":"","dryRun":false},"diff":"","diffCut":false,"diffError":""}`: {
+		`{"action":{"principal":"","target":"kubernetes","accessLevel":"destructive","scope":"","accountName":"prod","service":"","operation":"delete","resource":"pods","name":"x","summary":"Delete pod web/x","dryRun":false,"confined":false,"once":false},"grantable":false,"commandRule":"","chatRule":"","write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/x","subresource":"","contentType":"","body":"","dryRun":false},"diff":"","diffCut":false,"diffError":""}`: {
 			Write: &ClusterWrite{ClusterWrite: tools.ClusterWrite{Method: "DELETE", Path: "/api/v1/namespaces/web/pods/x"}},
 			Action: &PermissionAction{Action: permissions.Action{
-				Class: permissions.Destructive, Context: "prod", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods", Name: "x", Summary: "Delete pod web/x",
+				Target: permissions.Kubernetes, AccessLevel: permissions.Destructive, AccountName: "prod", Operation: "delete", Resource: "pods", Name: "x", Summary: "Delete pod web/x",
 			}},
 		},
-		`{"action":{"class":4,"context":"prod","namespace":"web","verb":"patch","group":"apps","kind":"deployments/scale","name":"api","summary":"Scale deployment web/api","dryRun":false},"grantable":true,"commandRule":"patch deployments/scale in web","chatRule":"patch deployments/scale in web","write":{"method":"PATCH","path":"/apis/apps/v1/namespaces/web/deployments/api/scale","subresource":"scale","contentType":"application/merge-patch+json","body":"{\"spec\":{\"replicas\":3}}","dryRun":false},"diff":"-replicas: 1\n+replicas: 3\n","diffCut":false,"diffError":""}`: {
+		`{"action":{"principal":"","target":"kubernetes","accessLevel":"write","scope":"","accountName":"prod","service":"apps","operation":"patch","resource":"deployments/scale","name":"api","summary":"Scale deployment web/api","dryRun":false,"confined":false,"once":false},"grantable":true,"commandRule":"patch deployments/scale in web","chatRule":"patch deployments/scale in web","write":{"method":"PATCH","path":"/apis/apps/v1/namespaces/web/deployments/api/scale","subresource":"scale","contentType":"application/merge-patch+json","body":"{\"spec\":{\"replicas\":3}}","dryRun":false},"diff":"-replicas: 1\n+replicas: 3\n","diffCut":false,"diffError":""}`: {
 			Write: &ClusterWrite{
 				ClusterWrite: tools.ClusterWrite{
 					Method: "PATCH", Path: "/apis/apps/v1/namespaces/web/deployments/api/scale", Subresource: "scale",
@@ -1377,8 +1376,8 @@ func TestClusterWritesReadOldRowsTheSame(t *testing.T) {
 			},
 			Action: &PermissionAction{
 				Action: permissions.Action{
-					Class: permissions.UpstreamWrite, Context: "prod", Namespace: "web", Verb: "patch", Group: "apps", Kind: "deployments/scale", Name: "api",
-					Summary: "Scale deployment web/api",
+					Target: permissions.Kubernetes, AccessLevel: permissions.Write, AccountName: "prod", Service: "apps", Operation: "patch",
+					Resource: "deployments/scale", Name: "api", Summary: "Scale deployment web/api",
 				},
 				Grantable: true, CommandRule: "patch deployments/scale in web", ChatRule: "patch deployments/scale in web",
 			},
@@ -1412,7 +1411,7 @@ func aCloudRequest(call ToolCallID, millis int64) approval {
 	return approval{
 		ID: newApprovalID(), ToolCallID: call, Status: ApprovalPending, CreatedAt: time.UnixMilli(millis).UTC(),
 		Request: &tools.ActionRequest{
-			Action: permissions.Action{Target: permissions.AWS, Class: permissions.UpstreamWrite, Summary: "AWS: call ec2:TerminateInstances"},
+			Action: permissions.Action{Target: permissions.AWS, AccessLevel: permissions.Write, Once: true, Summary: "AWS: call ec2:TerminateInstances"},
 			Cloud: &tools.CloudRequest{
 				Host: "ec2.amazonaws.com", Method: "POST", Path: "/", ContentType: "application/x-www-form-urlencoded",
 				Body: "Action=TerminateInstances", Details: []tools.Detail{{Label: "Region", Value: "eu-west-1"}},
@@ -1466,7 +1465,7 @@ func TestACallsActionsKeepTheirOrder(t *testing.T) {
 func TestADecidedCloudRequestCarriesNoBody(t *testing.T) {
 	t.Parallel()
 
-	stored := `{"action":{"target":"aws","class":4,"summary":"AWS: call ec2:TerminateInstances"},"cloud":{"host":"ec2.amazonaws.com","method":"POST","path":"/","contentType":"text/plain","body":"Action=TerminateInstances","details":[{"label":"Region","value":"eu-west-1"}]}}`
+	stored := `{"action":{"target":"aws","accessLevel":"destructive","summary":"AWS: call ec2:TerminateInstances"},"cloud":{"host":"ec2.amazonaws.com","method":"POST","path":"/","contentType":"text/plain","body":"Action=TerminateInstances","details":[{"label":"Region","value":"eu-west-1"}]}}`
 	got := readStoredWrite(t, ApprovalDenied, stored)
 	require.NotNil(t, got.Cloud)
 	assert.Equal(t, tools.CloudRequest{Host: "ec2.amazonaws.com", Method: "POST", Path: "/", Details: []tools.Detail{{Label: "Region", Value: "eu-west-1"}}}, got.Cloud.CloudRequest)

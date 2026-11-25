@@ -15,6 +15,7 @@
 package gcpproxy
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -82,5 +83,18 @@ func TestAMethodOverrideInTheQueryIsRefused(t *testing.T) {
 		assert.Equal(t, refusedMethodOverride, refusal(t, r.get(t, clusters+"/dev?"+key+"=DELETE")), key)
 	}
 	assert.Empty(t, r.asker.asked)
+	assert.Empty(t, r.up.seen)
+}
+
+// A request names one project to bill at most, so the one classified is the
+// one sent, whatever its spelling.
+func TestAProjectBilledTwiceIsRefused(t *testing.T) {
+	r := newRig(t, roomy)
+	for _, query := range []string{"userProject=a&userProject=b", "userProject=a&$userproject=b", "USERPROJECT=a&userProject=a"} {
+		assert.Equal(t, refusedBilledTwice, refusal(t, r.get(t, clusters+"/dev?"+query)), query)
+	}
+	twice := r.send(t, http.MethodGet, clusters+"/dev", r.grant.Token(), nil,
+		http.Header{"X-Goog-User-Project": {"my-project", "other-project"}})
+	assert.Equal(t, refusedBilledTwice, refusal(t, twice))
 	assert.Empty(t, r.up.seen)
 }

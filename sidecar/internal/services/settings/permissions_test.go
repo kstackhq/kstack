@@ -16,6 +16,7 @@ package settings
 
 import (
 	"testing"
+	"time"
 
 	"github.com/amorey/gobus"
 	"github.com/stretchr/testify/assert"
@@ -71,79 +72,128 @@ func storeWithClusters(t *testing.T) (*Store, *appdb.DB) {
 	return openStore(t, db), db
 }
 
-func modeOf(t *testing.T, s *Store, cluster apimeta.ClusterID) ClusterModeState {
+func modeOf(t *testing.T, s *Store, target permissions.Target, account string) ModeState {
 	t.Helper()
-	st, err := s.ModeFor(t.Context(), cluster)
+	st, err := s.ModeFor(t.Context(), target, account)
 	require.NoError(t, err)
 	return st
 }
 
-// A cluster's mode is its own row, else the default row, else ask.
-func TestAClusterWithNoModeOfItsOwnTakesTheDefault(t *testing.T) {
+const k8s = permissions.Kubernetes
+
+// An account's mode is its own row, else its target's default row, else ask.
+func TestAModeIsItsAccountsThenItsTargetsThenAsk(t *testing.T) {
 	t.Parallel()
 	s, db := storeWithClusters(t)
 	ctx := t.Context()
 
-	assert.Equal(t, ClusterModeState{ClusterID: "dev", Mode: permissions.Ask, Source: SourceDefault}, modeOf(t, s, "dev"))
-	mode, _, err := s.ClusterModes(ctx, nil)
-	require.NoError(t, err)
-	assert.Equal(t, permissions.Ask, mode)
+	assert.Equal(t, ModeState{Mode: permissions.ModeAsk, Source: SourceDefault}, modeOf(t, s, k8s, "dev"))
+	assert.Equal(t, ModeState{Mode: permissions.ModeAsk, Source: SourceDefault}, modeOf(t, s, permissions.AWS, "123456789012"))
 
-	require.NoError(t, s.SetDefaultMode(ctx, permissions.Auto))
-	require.NoError(t, s.SetDefaultMode(ctx, permissions.Auto), "a second write keeps one default")
-	assert.Equal(t, ClusterModeState{ClusterID: "dev", Mode: permissions.Auto, Source: SourceDefault}, modeOf(t, s, "dev"))
-	assert.Equal(t, ClusterModeState{ClusterID: "cloud", Mode: permissions.Auto, Source: SourceDefault}, modeOf(t, s, "cloud"),
+	require.NoError(t, s.SetMode(ctx, k8s, "*", permissions.ModeAuto))
+	require.NoError(t, s.SetMode(ctx, k8s, "*", permissions.ModeAuto), "a second write keeps one default")
+	assert.Equal(t, ModeState{Mode: permissions.ModeAuto, Source: SourceDefault}, modeOf(t, s, k8s, "dev"))
+	assert.Equal(t, ModeState{Mode: permissions.ModeAuto, Source: SourceDefault}, modeOf(t, s, k8s, "cloud"),
 		"a cluster with no kube-context takes the default")
+	assert.Equal(t, permissions.ModeAsk, modeOf(t, s, permissions.AWS, "123456789012").Mode, "another target's default is its own")
 
-	require.NoError(t, s.SetMode(ctx, "prod", permissions.ReadOnly))
-	require.NoError(t, s.SetMode(ctx, "prod", permissions.Ask), "a second write changes the cluster's one row")
-	assert.Equal(t, ClusterModeState{ClusterID: "prod", Mode: permissions.Ask, Source: SourceEntry}, modeOf(t, s, "prod"))
-	assert.Equal(t, permissions.Auto, modeOf(t, s, "dev").Mode, "another cluster keeps the default")
+	require.NoError(t, s.SetMode(ctx, k8s, "prod", permissions.ModeReadOnly))
+	require.NoError(t, s.SetMode(ctx, k8s, "prod", permissions.ModeAsk), "a second write changes the one row")
+	assert.Equal(t, ModeState{Mode: permissions.ModeAsk, Source: SourceEntry}, modeOf(t, s, k8s, "prod"))
+	assert.Equal(t, permissions.ModeAuto, modeOf(t, s, k8s, "dev").Mode, "another cluster keeps the default")
 
-	require.NoError(t, s.ClearMode(ctx, "prod"))
-	assert.Equal(t, ClusterModeState{ClusterID: "prod", Mode: permissions.Auto, Source: SourceDefault}, modeOf(t, s, "prod"))
-	require.NoError(t, s.ClearMode(ctx, "prod"), "clearing a mode the cluster does not have")
-	var value any
-	require.NoError(t, db.Read.QueryRow(`SELECT value FROM settings WHERE key = 'permissions.approval_mode' AND cluster_id = 'prod'`).Scan(&value))
-	assert.Nil(t, value, "a cleared mode keeps its row, as NULL")
-	_, states, err := s.ClusterModes(ctx, []apimeta.ClusterID{"prod"})
+	require.NoError(t, s.SetMode(ctx, permissions.AWS, "123456789012", permissions.ModeAuto))
+	assert.Equal(t, ModeState{Mode: permissions.ModeAuto, Source: SourceEntry}, modeOf(t, s, permissions.AWS, "123456789012"))
+	assert.Equal(t, ModeState{Mode: permissions.ModeAuto, Source: SourceDefault}, modeOf(t, s, k8s, "123456789012"), "an account is its target's")
+
+	rows, err := s.Modes(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, []ClusterModeState{{ClusterID: "prod", Mode: permissions.Auto, Source: SourceDefault}}, states)
+	assert.ElementsMatch(t, []ModeRow{
+		{Target: k8s, Account: "*", Mode: permissions.ModeAuto},
+		{Target: k8s, Account: "prod", Mode: permissions.ModeAsk},
+		{Target: permissions.AWS, Account: "123456789012", Mode: permissions.ModeAuto},
+	}, rows)
+
+	require.NoError(t, s.ClearMode(ctx, k8s, "prod"))
+	assert.Equal(t, ModeState{Mode: permissions.ModeAuto, Source: SourceDefault}, modeOf(t, s, k8s, "prod"))
+	require.NoError(t, s.ClearMode(ctx, k8s, "prod"), "clearing a mode the account does not have")
+	require.NoError(t, s.ClearMode(ctx, k8s, "*"))
+	assert.Equal(t, permissions.ModeAsk, modeOf(t, s, k8s, "dev").Mode)
+	require.NoError(t, s.ClearMode(ctx, permissions.AWS, "123456789012"))
+	var n int
+	require.NoError(t, db.Read.QueryRow(`SELECT count(*) FROM permission_modes`).Scan(&n))
+	assert.Zero(t, n, "a cleared mode is no row")
 }
 
-// A mode Kstack cannot use is read-only: in a cluster's row for that cluster,
-// in the default's for every cluster that takes the default.
+// A cloud account is stored and read in lower case, as its classifier spells
+// it, so a mode typed in another case still applies. A Kubernetes account is
+// a cluster's id, kept as it is.
+func TestACloudAccountIsSpelledAsItsClassifierSpellsIt(t *testing.T) {
+	t.Parallel()
+	s, db := storeWithClusters(t)
+	ctx := t.Context()
+	require.NoError(t, s.SetMode(ctx, permissions.GitHub, "KStackHQ", permissions.ModeReadOnly))
+	assert.Equal(t, ModeState{Mode: permissions.ModeReadOnly, Source: SourceEntry}, modeOf(t, s, permissions.GitHub, "kstackhq"),
+		"the lookup the proxy makes")
+	rows, err := s.Modes(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []ModeRow{{Target: permissions.GitHub, Account: "kstackhq", Mode: permissions.ModeReadOnly}}, rows)
+	require.NoError(t, s.ClearMode(ctx, permissions.GitHub, "KSTACKHQ"))
+	assert.Equal(t, SourceDefault, modeOf(t, s, permissions.GitHub, "kstackhq").Source)
+
+	seedCluster(t, db, "Mixed", "mixed-ctx")
+	require.NoError(t, s.SetMode(ctx, k8s, "Mixed", permissions.ModeAuto))
+	assert.Equal(t, SourceEntry, modeOf(t, s, k8s, "Mixed").Source)
+	assert.Equal(t, SourceDefault, modeOf(t, s, k8s, "mixed").Source, "a cluster's id is opaque")
+}
+
+// A mode Kstack cannot use is read-only: in an account's row for that
+// account, in the default's for every account that takes it.
 func TestAModeKstackCannotUseIsReadOnly(t *testing.T) {
 	t.Parallel()
 	s, db := storeWithClusters(t)
 	ctx := t.Context()
-	exec(t, db, `INSERT INTO settings (key, cluster_id, value, created_at, updated_at) VALUES ('permissions.approval_mode', 'prod', 'sometimes', 0, 0)`)
-	assert.Equal(t, ClusterModeState{ClusterID: "prod", Mode: permissions.ReadOnly, Source: SourceEntry}, modeOf(t, s, "prod"))
-	assert.Equal(t, permissions.Ask, modeOf(t, s, "dev").Mode, "another cluster keeps the default")
+	exec(t, db, `INSERT INTO permission_modes (target, account, mode, created_at, updated_at) VALUES ('kubernetes', 'prod', 'sometimes', 0, 0)`)
+	assert.Equal(t, ModeState{Mode: permissions.ModeReadOnly, Source: SourceEntry}, modeOf(t, s, k8s, "prod"))
+	assert.Equal(t, permissions.ModeAsk, modeOf(t, s, k8s, "dev").Mode, "another cluster keeps the default")
 
-	exec(t, db, `INSERT INTO settings (key, value, created_at, updated_at) VALUES ('permissions.approval_mode', 7, 0, 0)`)
-	assert.Equal(t, ClusterModeState{ClusterID: "dev", Mode: permissions.ReadOnly, Source: SourceDefault}, modeOf(t, s, "dev"))
-	mode, states, err := s.ClusterModes(ctx, []apimeta.ClusterID{"dev", "prod"})
+	exec(t, db, `INSERT INTO permission_modes (target, account, mode, created_at, updated_at) VALUES ('aws', '*', '', 0, 0)`)
+	assert.Equal(t, ModeState{Mode: permissions.ModeReadOnly, Source: SourceDefault}, modeOf(t, s, permissions.AWS, "123456789012"))
+	rows, err := s.Modes(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, permissions.ReadOnly, mode)
-	assert.Equal(t, []ClusterModeState{modeOf(t, s, "dev"), modeOf(t, s, "prod")}, states)
+	for _, r := range rows {
+		assert.Equal(t, permissions.ModeReadOnly, r.Mode, "%+v", r)
+	}
 }
 
-// A mode belongs to a cluster Settings lists: one with a kube-context that is
-// not awaiting deletion.
-func TestAModeIsRefusedForAClusterSettingsDoesNotList(t *testing.T) {
+// A Kubernetes mode belongs to a cluster Settings lists: one with a
+// kube-context that is not awaiting deletion. A cloud account is any
+// non-empty literal with no /.
+func TestAModeIsRefusedForAnAccountSettingsCannotList(t *testing.T) {
 	t.Parallel()
 	s, db := storeWithClusters(t)
 	ctx := t.Context()
 	exec(t, db, `UPDATE clusters SET delete_requested_at = 1 WHERE id = 'prod'`)
 
-	assert.ErrorIs(t, s.SetMode(ctx, "gone", permissions.Auto), ErrClusterGone)
-	assert.ErrorIs(t, s.SetMode(ctx, "prod", permissions.Auto), ErrClusterGone, "a cluster awaiting deletion")
-	assert.ErrorIs(t, s.SetMode(ctx, "cloud", permissions.Auto), ErrNoKubeContext)
-	assert.ErrorIs(t, s.ClearMode(ctx, "gone"), ErrClusterGone)
-	assert.ErrorIs(t, s.ClearMode(ctx, "prod"), ErrClusterGone)
+	assert.ErrorIs(t, s.SetMode(ctx, k8s, "gone", permissions.ModeAuto), ErrClusterGone)
+	assert.ErrorIs(t, s.SetMode(ctx, k8s, "prod", permissions.ModeAuto), ErrClusterGone, "a cluster awaiting deletion")
+	assert.ErrorIs(t, s.SetMode(ctx, k8s, "cloud", permissions.ModeAuto), ErrNoKubeContext)
+	assert.ErrorIs(t, s.ClearMode(ctx, k8s, "gone"), ErrClusterGone)
+	for name, err := range map[string]error{
+		"an empty account":     s.SetMode(ctx, permissions.AWS, "", permissions.ModeAuto),
+		"a / in an account":    s.SetMode(ctx, permissions.AWS, "a/b", permissions.ModeAuto),
+		"a glob in an account": s.SetMode(ctx, permissions.GitHub, "kstack*", permissions.ModeAuto),
+		"no target":            s.SetMode(ctx, "", "a", permissions.ModeAuto),
+		"an unknown target":    s.SetMode(ctx, "cluster", "a", permissions.ModeAuto),
+		"an unknown mode":      s.SetMode(ctx, permissions.AWS, "a", "sometimes"),
+		"clear no target":      s.ClearMode(ctx, "cluster", "a"),
+		"clear no account":     s.ClearMode(ctx, permissions.AWS, ""),
+	} {
+		var r ModeRefusal
+		assert.ErrorAs(t, err, &r, name)
+	}
 	var n int
-	require.NoError(t, db.Read.QueryRow(`SELECT count(*) FROM settings`).Scan(&n))
+	require.NoError(t, db.Read.QueryRow(`SELECT count(*) FROM permission_modes`).Scan(&n))
 	assert.Zero(t, n)
 }
 
@@ -152,162 +202,341 @@ func TestAModeIsRefusedForAClusterSettingsDoesNotList(t *testing.T) {
 func TestAModesReadThatFailsIsAnError(t *testing.T) {
 	t.Parallel()
 	s, db := storeWithClusters(t)
-	exec(t, db, `DROP TABLE settings`)
+	exec(t, db, `DROP TABLE permission_modes`)
 
-	_, err := s.ModeFor(t.Context(), "dev")
+	_, err := s.ModeFor(t.Context(), k8s, "dev")
 	assert.Error(t, err)
-	_, _, err = s.ClusterModes(t.Context(), []apimeta.ClusterID{"dev"})
+	_, err = s.Modes(t.Context())
 	assert.Error(t, err)
 }
 
-// Settings' list reads every mode once, and resolves each cluster as ModeFor
-// does: its own row, else the one default.
-func TestClusterModesResolveEachClusterFromOneRead(t *testing.T) {
-	t.Parallel()
-	s, _ := storeWithClusters(t)
-	ctx := t.Context()
-	require.NoError(t, s.SetDefaultMode(ctx, permissions.Auto))
-	require.NoError(t, s.SetMode(ctx, "prod", permissions.ReadOnly))
-
-	mode, states, err := s.ClusterModes(ctx, []apimeta.ClusterID{"dev", "prod"})
-	require.NoError(t, err)
-	assert.Equal(t, permissions.Auto, mode)
-	assert.Equal(t, []ClusterModeState{modeOf(t, s, "dev"), modeOf(t, s, "prod")}, states)
-	assert.Equal(t, ClusterModeState{ClusterID: "prod", Mode: permissions.ReadOnly, Source: SourceEntry}, states[1])
-}
-
-func kubeRules(t *testing.T, s *Store) []permissions.Rule {
+func rules(t *testing.T, s *Store) []permissions.Rule {
 	t.Helper()
-	rules, err := s.KubeRules(t.Context())
+	rules, err := s.Rules(t.Context())
 	require.NoError(t, err)
 	return rules
 }
 
+// rule is an allow of writes in scope on Kubernetes, naming everything else
+// by "*".
+func rule(scope string) permissions.Rule {
+	return permissions.Rule{Effect: permissions.Allow, AccessLevel: permissions.Write, Principal: "*", Target: "kubernetes",
+		Scope: scope, Service: "*", Operation: "*", Resource: "*"}
+}
+
 // The always rules are added in order, every field kept, a rule already held
 // is not written twice, and one is removed by id.
-func TestAlwaysRulesAreAddedListedAndRemoved(t *testing.T) {
+func TestAlwaysRulesAreAddedOnceAndRemoved(t *testing.T) {
 	t.Parallel()
 	s, _ := storeWithClusters(t)
 	ctx := t.Context()
-	assert.Empty(t, kubeRules(t, s))
+	assert.Empty(t, rules(t, s))
 
-	deny := permissions.Rule{Effect: permissions.Deny, Class: permissions.Destructive, ClusterID: "prod", Namespace: "team-a",
-		Verb: "delete", Group: "apps", Kind: "deployments", Inside: true}
-	allow := permissions.Rule{ID: "mine", Effect: permissions.Allow, Class: permissions.SecretRead, ClusterID: "dev", Verb: "get"}
-	added, err := s.AddKubeRule(ctx, deny)
+	deny := permissions.Rule{Effect: permissions.Deny, AccessLevel: permissions.Destructive, Principal: "subagent", Target: "*",
+		Scope: "*/team-a", Service: "apps", Operation: "delete", Resource: "deployments"}
+	allow := permissions.Rule{ID: "mine", Effect: permissions.Allow, AccessLevel: permissions.DataRead, Principal: "chat", Target: "aws",
+		Scope: "123456789012/**", Service: "", Operation: "GetObject", Resource: "object"}
+	added, err := s.AddRule(ctx, deny)
 	require.NoError(t, err)
 	require.NotEmpty(t, added.ID, "a rule with no id gets one")
 	deny.ID = added.ID
-	_, err = s.AddKubeRule(ctx, allow)
+	_, err = s.AddRule(ctx, allow)
 	require.NoError(t, err)
-	assert.Equal(t, []permissions.Rule{deny, allow}, kubeRules(t, s))
+	assert.Equal(t, []permissions.Rule{deny, allow}, rules(t, s))
 
 	again := deny
 	again.ID = ""
-	held, err := s.AddKubeRule(ctx, again)
+	held, err := s.AddRule(ctx, again)
 	require.NoError(t, err)
 	assert.Equal(t, deny, held, "the rule already held answers")
-	assert.Len(t, kubeRules(t, s), 2)
+	assert.Len(t, rules(t, s), 2)
 
-	require.NoError(t, s.RemoveKubeRule(ctx, deny.ID))
-	assert.Equal(t, []permissions.Rule{allow}, kubeRules(t, s))
-	assert.ErrorIs(t, s.RemoveKubeRule(ctx, deny.ID), ErrNoRule)
+	require.NoError(t, s.RemoveRule(ctx, deny.ID))
+	assert.Equal(t, []permissions.Rule{allow}, rules(t, s))
+	assert.ErrorIs(t, s.RemoveRule(ctx, deny.ID), ErrNoRule)
 }
 
-// A rule belongs to a cluster Settings lists, as a mode does, and goes with
-// its cluster.
+// stamps is the created_at and updated_at of the always rule id.
+func stamps(t *testing.T, db *appdb.DB, id string) (created, updated int64) {
+	t.Helper()
+	require.NoError(t, db.Read.QueryRow(`SELECT created_at, updated_at FROM permission_rules WHERE id = ?`, id).Scan(&created, &updated))
+	return created, updated
+}
+
+// An edit keeps the rule's id and its place, changes every other field, and
+// moves updated_at alone; an edit that changes nothing writes nothing.
+func TestAnAlwaysRuleIsEditedInPlace(t *testing.T) {
+	t.Parallel()
+	s, db := storeWithClusters(t)
+	ctx := t.Context()
+	s.now = func() time.Time { return time.UnixMilli(1) }
+	first, err := s.AddRule(ctx, rule("dev/team-a"))
+	require.NoError(t, err)
+	second, err := s.AddRule(ctx, rule("prod/team-b"))
+	require.NoError(t, err)
+
+	s.now = func() time.Time { return time.UnixMilli(2) }
+	edit := permissions.Rule{Effect: permissions.Ask, AccessLevel: permissions.DataRead, Principal: "chat", Target: "aws",
+		Scope: "123456789012/**", Service: "s3", Operation: "GetObject", Resource: "object"}
+	edited, err := s.UpdateRule(ctx, first.ID, edit)
+	require.NoError(t, err)
+	edit.ID = first.ID
+	assert.Equal(t, edit, edited)
+	assert.Equal(t, []permissions.Rule{edit, second}, rules(t, s), "the edited rule keeps its place")
+	created, updated := stamps(t, db, first.ID)
+	assert.Equal(t, [2]int64{1, 2}, [2]int64{created, updated})
+
+	s.now = func() time.Time { return time.UnixMilli(3) }
+	same, err := s.UpdateRule(ctx, first.ID, edit)
+	require.NoError(t, err)
+	assert.Equal(t, edit, same)
+	_, updated = stamps(t, db, first.ID)
+	assert.Equal(t, int64(2), updated, "an edit that changes nothing writes nothing")
+}
+
+// An edit into a rule another one already is removes the edited rule and
+// answers the one held.
+func TestAnEditIntoAHeldRuleLeavesTheHeldOne(t *testing.T) {
+	t.Parallel()
+	s, _ := storeWithClusters(t)
+	ctx := t.Context()
+	first, err := s.AddRule(ctx, rule("dev/team-a"))
+	require.NoError(t, err)
+	second, err := s.AddRule(ctx, rule("prod/team-b"))
+	require.NoError(t, err)
+
+	held, err := s.UpdateRule(ctx, first.ID, rule("prod/team-b"))
+	require.NoError(t, err)
+	assert.Equal(t, second, held)
+	assert.Equal(t, []permissions.Rule{second}, rules(t, s))
+}
+
+// An edit is refused as an add is, and for an id no always rule has; a
+// refused edit leaves the rule as it was.
+func TestAnEditIsRefusedAsAnAddIs(t *testing.T) {
+	t.Parallel()
+	s, db := storeWithClusters(t)
+	ctx := t.Context()
+	held, err := s.AddRule(ctx, rule("dev/team-a"))
+	require.NoError(t, err)
+
+	_, err = s.UpdateRule(ctx, "gone", rule("dev/team-b"))
+	assert.ErrorIs(t, err, ErrNoRule)
+	_, err = s.UpdateRule(ctx, held.ID, rule("gone/team-a"))
+	assert.ErrorIs(t, err, ErrClusterGone)
+	_, err = s.UpdateRule(ctx, held.ID, rule("cloud/team-a"))
+	assert.ErrorIs(t, err, ErrNoKubeContext)
+	exec(t, db, `INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('h1', 'dev', 'chat', 0, 0)`)
+	exec(t, db, `INSERT INTO permission_rules (id, chat_id, effect, access_level, principal, target, scope, service, operation, resource, created_at, updated_at)
+		VALUES ('theirs', 'h1', 'allow', 'write', '*', 'kubernetes', 'dev', '*', '*', '*', 0, 0)`)
+	_, err = s.UpdateRule(ctx, "theirs", rule("dev/team-b"))
+	assert.ErrorIs(t, err, ErrNoRule, "a chat's rule is not an always rule")
+	assert.Equal(t, []permissions.Rule{held}, rules(t, s))
+}
+
+// A row Go cannot read is edited into a rule it can, by its stand-ins' id.
+func TestARowGoCannotReadIsEditedByItsID(t *testing.T) {
+	t.Parallel()
+	s, db := storeWithClusters(t)
+	exec(t, db, `INSERT INTO permission_rules (id, chat_id, effect, access_level, principal, target, scope, service, operation, resource, created_at, updated_at)
+		VALUES ('x1', NULL, 'permit', 'write', '*', 'kubernetes', 'dev', '*', '*', '*', 0, 0)`)
+	edited, err := s.UpdateRule(t.Context(), "x1", rule("dev/team-a"))
+	require.NoError(t, err)
+	assert.Equal(t, []permissions.Rule{edited}, rules(t, s))
+}
+
+// A rule's scope is stored as the classifiers spell it: lower case off
+// Kubernetes, a cluster's id as it is.
+func TestARuleScopeIsSpelledAsItsClassifierSpellsIt(t *testing.T) {
+	t.Parallel()
+	s, db := storeWithClusters(t)
+	ctx := t.Context()
+	seedCluster(t, db, "Mixed", "mixed-ctx")
+	deny := permissions.Rule{Effect: permissions.Deny, AccessLevel: permissions.Write, Principal: "*", Target: "github",
+		Scope: "KStackHQ/**", Service: "*", Operation: "*", Resource: "*"}
+	added, err := s.AddRule(ctx, deny)
+	require.NoError(t, err)
+	assert.Equal(t, "kstackhq/**", added.Scope)
+	kube, err := s.AddRule(ctx, rule("Mixed/web"))
+	require.NoError(t, err)
+	assert.Equal(t, "Mixed/web", kube.Scope)
+
+	deny.Scope = "KStackHQ/Kstack"
+	edited, err := s.UpdateRule(ctx, added.ID, deny)
+	require.NoError(t, err)
+	assert.Equal(t, "kstackhq/kstack", edited.Scope)
+	assert.Equal(t, []string{"kstackhq/kstack", "Mixed/web"}, []string{rules(t, s)[0].Scope, rules(t, s)[1].Scope})
+}
+
+// A Kubernetes rule naming a cluster names one Settings lists, as a mode
+// does, and goes with its cluster.
 func TestARuleNamesAClusterSettingsListsAndGoesWithIt(t *testing.T) {
 	t.Parallel()
 	s, db := storeWithClusters(t)
 	ctx := t.Context()
-	allow := func(cluster apimeta.ClusterID) permissions.Rule {
-		return permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: cluster}
-	}
-	_, err := s.AddKubeRule(ctx, allow("gone"))
+	_, err := s.AddRule(ctx, rule("gone"))
 	assert.ErrorIs(t, err, ErrClusterGone)
-	_, err = s.AddKubeRule(ctx, allow("cloud"))
+	_, err = s.AddRule(ctx, rule("cloud/team-a"))
 	assert.ErrorIs(t, err, ErrNoKubeContext)
 	exec(t, db, `UPDATE clusters SET delete_requested_at = 1 WHERE id = 'prod'`)
-	_, err = s.AddKubeRule(ctx, allow("prod"))
+	_, err = s.AddRule(ctx, rule("prod/**"))
 	assert.ErrorIs(t, err, ErrClusterGone, "a cluster awaiting deletion")
-	assert.Empty(t, kubeRules(t, s))
+	assert.Empty(t, rules(t, s))
 
-	_, err = s.AddKubeRule(ctx, allow("dev"))
+	_, err = s.AddRule(ctx, rule("dev/team-a"))
 	require.NoError(t, err)
+	deny := rule("*/team-a")
+	deny.Effect = permissions.Deny
+	_, err = s.AddRule(ctx, deny)
+	require.NoError(t, err, "a rule for every cluster names none")
 	exec(t, db, `DELETE FROM clusters WHERE id = 'dev'`)
-	assert.Empty(t, kubeRules(t, s), "a deleted cluster's rules go with it")
+	deny.ID = rules(t, s)[0].ID
+	assert.Equal(t, []permissions.Rule{deny}, rules(t, s), "a deleted cluster's rules go with it")
 }
 
 // badRules are rules Kstack cannot apply, each with the reason a write is
 // refused with.
 var badRules = map[string]struct {
-	rule   permissions.Rule
+	edit   func(*permissions.Rule)
 	reason string
 }{
-	"the refused id": {permissions.Rule{ID: "refused", Effect: permissions.Deny, Class: permissions.UpstreamWrite},
-		"has the id Kstack keeps for its own rule"},
-	"the refused-secrets id": {permissions.Rule{ID: "refused-secrets", Effect: permissions.Deny, Class: permissions.SecretRead},
-		"has the id Kstack keeps for its own rule"},
-	"an unknown effect": {permissions.Rule{ID: "b", Effect: "permit", Class: permissions.UpstreamWrite},
-		"has an effect other than allow, deny or ask"},
-	"a folder class": {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.ReadInside},
-		"names a class no rule decides: only 4 (cluster writes), 5 (destructive cluster writes) and 6 (Secret reads)"},
-	"no class": {permissions.Rule{ID: "b", Effect: permissions.Deny},
-		"names a class no rule decides: only 4 (cluster writes), 5 (destructive cluster writes) and 6 (Secret reads)"},
-	"an allow of a destructive write": {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.Destructive},
-		"allows a destructive write, which always asks"},
-	"a Secret read inside": {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead, Namespace: "team-a", Inside: true},
-		"is a Secret read rule marked inside, which only a cluster write rule may be"},
-	"a cluster-scoped Secret read": {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead, Namespace: permissions.ClusterScope},
-		"is a Secret read rule naming [cluster], though every Secret is in a namespace"},
-	"a Secret read's write verb": {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead, Verb: "delete"},
-		"is a Secret read rule naming a verb other than get, list or watch"},
-	"a Secret read's other group": {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead, Group: "apps"},
-		"is a Secret read rule naming a group other than core"},
-	"a Secret read's other kind": {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead, Kind: "configmaps"},
-		"is a Secret read rule naming a resource other than secrets"},
-	"an allow on every cluster": {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.UpstreamWrite, Namespace: "team-a"},
-		"allows on every cluster, which only a deny or ask rule may"},
-	"a Secret read's allow on every cluster": {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead},
-		"allows on every cluster, which only a deny or ask rule may"},
+	"the refused id":      {func(r *permissions.Rule) { r.ID, r.Effect = "refused", permissions.Deny }, "has the id Kstack keeps for its own rule"},
+	"the refused-data id": {func(r *permissions.Rule) { r.ID, r.Effect = "refused-data", permissions.Deny }, "has the id Kstack keeps for its own rule"},
+	"an unknown effect":   {func(r *permissions.Rule) { r.Effect = "permit" }, "has an effect other than allow, deny or ask"},
+	"an unknown level":    {func(r *permissions.Rule) { r.AccessLevel = "upstream-write" }, "names an access level Kstack does not know"},
+	"no level":            {func(r *permissions.Rule) { r.AccessLevel = "" }, "names an access level Kstack does not know"},
+	"a read":              {func(r *permissions.Rule) { r.AccessLevel = permissions.Read }, "names reads or reach, which no rule decides"},
+	"reach":               {func(r *permissions.Rule) { r.Effect, r.AccessLevel = permissions.Deny, permissions.Reach }, "names reads or reach, which no rule decides"},
+	"an unknown principal": {func(r *permissions.Rule) { r.Principal = "user" },
+		"names a principal other than anyone, chat or subagent: the boundary alone decides the monitor and the console"},
+	"the monitor": {func(r *permissions.Rule) { r.Effect, r.Principal = permissions.Deny, "monitor" },
+		"names a principal other than anyone, chat or subagent: the boundary alone decides the monitor and the console"},
+	"no principal": {func(r *permissions.Rule) { r.Principal = "" },
+		"names a principal other than anyone, chat or subagent: the boundary alone decides the monitor and the console"},
+	"an unknown target":       {func(r *permissions.Rule) { r.Target = "cluster" }, "names a target Kstack does not know"},
+	"no target":               {func(r *permissions.Rule) { r.Target = "" }, "names a target Kstack does not know"},
+	"an empty scope":          {func(r *permissions.Rule) { r.Scope = "" }, "has an empty scope, operation or resource"},
+	"an empty operation":      {func(r *permissions.Rule) { r.Operation = "" }, "has an empty scope, operation or resource"},
+	"an empty resource":       {func(r *permissions.Rule) { r.Resource = "" }, "has an empty scope, operation or resource"},
+	"a ** inside a scope":     {func(r *permissions.Rule) { r.Scope = "dev/**/x" }, "has a ** that is not a path's last segment"},
+	"a ** inside a resource":  {func(r *permissions.Rule) { r.Resource = "**/scale" }, "has a ** that is not a path's last segment"},
+	"an allow of destructive": {func(r *permissions.Rule) { r.AccessLevel = permissions.Destructive }, "allows a destructive change, which always asks"},
+	"an allow for a subagent": {func(r *permissions.Rule) { r.Principal = "subagent" }, "allows for a subagent, which its parent's verdict would never let win"},
+	"an allow on every target": {func(r *permissions.Rule) { r.Target = "*" },
+		"allows on every target or account, which only a deny or ask rule may"},
+	"an allow on every account": {func(r *permissions.Rule) { r.Scope = "*/team-a" },
+		"allows on every target or account, which only a deny or ask rule may"},
+	"an allow on accounts by glob": {func(r *permissions.Rule) { r.Scope = "de?/team-a" },
+		"allows on every target or account, which only a deny or ask rule may"},
+	"an allow everywhere": {func(r *permissions.Rule) { r.Scope = "**" },
+		"allows on every target or account, which only a deny or ask rule may"},
 }
 
-// A rule Kstack cannot apply is refused in the user's words, and nothing is
-// written.
-func TestARuleKstackCannotApplyIsRefused(t *testing.T) {
+// badRule is a valid allow, edited by edit.
+func badRule(edit func(*permissions.Rule)) permissions.Rule {
+	r := rule("dev/team-a")
+	r.ID = "b"
+	edit(&r)
+	return r
+}
+
+func TestTheGoCheckRefusesWhatNoRuleMayHold(t *testing.T) {
 	t.Parallel()
 	s, _ := storeWithClusters(t)
 	for name, c := range badRules {
-		_, err := s.AddKubeRule(t.Context(), c.rule)
-		var r RuleRefusal
-		require.ErrorAs(t, err, &r, name)
-		assert.Equal(t, c.reason, string(r), name)
+		r := badRule(c.edit)
+		err := CheckRule(r)
+		var refusal RuleRefusal
+		require.ErrorAs(t, err, &refusal, name)
+		assert.Equal(t, c.reason, string(refusal), name)
+		_, err = s.AddRule(t.Context(), r)
+		assert.ErrorAs(t, err, &refusal, name)
+		_, err = s.UpdateRule(t.Context(), "b", r)
+		assert.ErrorAs(t, err, &refusal, name)
 	}
-	assert.Empty(t, kubeRules(t, s))
+	assert.Empty(t, rules(t, s))
+	for _, r := range []permissions.Rule{
+		rule("dev"), rule("dev/**"), rule(`dev/team-*`),
+		{Effect: permissions.Ask, AccessLevel: permissions.AccessControl, Principal: "*", Target: "*", Scope: "**", Service: "*", Operation: "*", Resource: "*"},
+		{Effect: permissions.Deny, AccessLevel: permissions.Write, Principal: "subagent", Target: "gcp", Scope: "*", Service: "", Operation: "x", Resource: "a/**"},
+		{Effect: permissions.Allow, AccessLevel: permissions.AccessControl, Principal: "chat", Target: "azure", Scope: `sub\*/rg`, Service: "*", Operation: "*", Resource: "*"},
+	} {
+		assert.NoError(t, CheckRule(r), "%+v", r)
+	}
 }
 
-// The Go check and the table's CHECKs refuse the same rules, so no rule
-// passes one and fails the other.
-func TestTheGoCheckAndTheTableRefuseTheSameRules(t *testing.T) {
+// A rule a row holds that the Go check refuses reads as both refusals in its
+// place, so a row Kstack cannot read denies rather than allows.
+func TestARowGoCannotReadDenies(t *testing.T) {
 	t.Parallel()
-	s, _ := storeWithClusters(t)
-	rules := []permissions.Rule{
-		{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "dev", Namespace: permissions.ClusterScope, Inside: true},
-		{ID: "b", Effect: permissions.AskFor, Class: permissions.Destructive, Verb: "delete"},
-		{ID: "c", Effect: permissions.Deny, Class: permissions.SecretRead, Namespace: "team-a", Verb: "list", Group: "core", Kind: "secrets"},
-		{ID: "d", Effect: permissions.Allow, Class: permissions.SecretRead, ClusterID: "dev", Verb: "watch"},
+	s, db := storeWithClusters(t)
+	good, err := s.AddRule(t.Context(), rule("dev/team-a"))
+	require.NoError(t, err)
+	for _, c := range []string{
+		`('x1', NULL, 'permit', 'write', '*', 'kubernetes', 'dev', '*', '*', '*', 9000000000001, 0)`,
+		`('x2', NULL, 'allow', 'write', '*', '*', '**', '*', '*', '*', 9000000000002, 0)`,
+		`('x3', NULL, 'allow', 'upstream-write', '*', 'kubernetes', 'dev', '*', '*', '*', 9000000000003, 0)`,
+	} {
+		exec(t, db, `INSERT INTO permission_rules (id, chat_id, effect, access_level, principal, target, scope, service, operation, resource, created_at, updated_at) VALUES `+c)
 	}
-	for _, c := range badRules {
-		rules = append(rules, c.rule)
-	}
-	for i, r := range rules {
-		// Each row its own id, but for the two the table refuses.
-		if r.ID != permissions.Refused.ID && r.ID != permissions.RefusedSecrets.ID {
-			r.ID = appdb.NewID()
+	want := []permissions.Rule{good}
+	for _, id := range []string{"x1", "x2", "x3"} {
+		for _, standIn := range permissions.Unread() {
+			standIn.ID = id
+			want = append(want, standIn)
 		}
-		err := insertKubeRule(t.Context(), s.stmts.Stmts(), r, int64(i))
-		assert.Equal(t, ruleRefusal(r) != "", err != nil, "%+v: the Go check says %q, the table %v", r, ruleRefusal(r), err)
 	}
+	assert.Equal(t, want, rules(t, s))
+
+	// The stand-ins carry their row's id, so the user can remove the row.
+	for _, id := range []string{"x1", "x2", "x3"} {
+		require.NoError(t, s.RemoveRule(t.Context(), id))
+	}
+	assert.Equal(t, []permissions.Rule{good}, rules(t, s))
+}
+
+// A stand-in for a row Kstack cannot read is no rule the user wrote: a deny
+// equal to one is written, and survives the row's removal, and editing the
+// row into one repairs it.
+func TestAStandInIsNoRuleAWriteMatches(t *testing.T) {
+	t.Parallel()
+	s, db := storeWithClusters(t)
+	ctx := t.Context()
+	bad := func(id string) {
+		exec(t, db, `INSERT INTO permission_rules (id, chat_id, effect, access_level, principal, target, scope, service, operation, resource, created_at, updated_at)
+			VALUES (?, NULL, 'permit', 'write', '*', '*', '*', '*', '*', '*', 0, 0)`, id)
+	}
+	denyWrites := permissions.Refused
+	denyWrites.ID = ""
+
+	bad("x1")
+	added, err := s.AddRule(ctx, denyWrites)
+	require.NoError(t, err)
+	assert.NotEqual(t, "x1", added.ID, "the deny is written, not matched to the stand-in")
+	require.NoError(t, s.RemoveRule(ctx, "x1"))
+	assert.Equal(t, []permissions.Rule{added}, rules(t, s), "the deny outlives the row")
+
+	require.NoError(t, s.RemoveRule(ctx, added.ID))
+	bad("x2")
+	edited, err := s.UpdateRule(ctx, "x2", denyWrites)
+	require.NoError(t, err)
+	assert.Equal(t, "x2", edited.ID)
+	assert.Equal(t, []permissions.Rule{edited}, rules(t, s), "the row is repaired, not left as it was")
+}
+
+// A rule round-trips through its row, every field kept.
+func TestARuleRoundTripsThroughItsRow(t *testing.T) {
+	t.Parallel()
+	s, db := storeWithClusters(t)
+	r := permissions.Rule{ID: "r1", Effect: permissions.Ask, AccessLevel: permissions.DataRead, Principal: "subagent", Target: "github",
+		Scope: `kstack\*/**`, Service: "api", Operation: "get", Resource: "contents"}
+	exec(t, db, `INSERT INTO permission_rules (`+RuleColumns+`, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`, RuleValues(r)...)
+	rows, err := db.Read.Query(`SELECT ` + RuleColumns + ` FROM permission_rules`)
+	require.NoError(t, err)
+	got, err := ScanRules(rows)
+	require.NoError(t, err)
+	assert.Equal(t, []permissions.Rule{r}, got)
+	assert.Equal(t, []permissions.Rule{r}, rules(t, s))
 }
 
 // A read of the rules that fails is an error, which a decision reads as
@@ -315,10 +544,12 @@ func TestTheGoCheckAndTheTableRefuseTheSameRules(t *testing.T) {
 func TestARulesReadThatFailsIsAnError(t *testing.T) {
 	t.Parallel()
 	s, db := storeWithClusters(t)
-	exec(t, db, `DROP TABLE kube_rules`)
-	_, err := s.KubeRules(t.Context())
+	exec(t, db, `DROP TABLE permission_rules`)
+	_, err := s.Rules(t.Context())
 	assert.Error(t, err)
-	_, err = s.AddKubeRule(t.Context(), permissions.Rule{Effect: permissions.Deny, Class: permissions.UpstreamWrite})
+	_, err = s.AddRule(t.Context(), rule("dev"))
+	assert.Error(t, err)
+	_, err = s.UpdateRule(t.Context(), "r1", rule("dev"))
 	assert.Error(t, err)
 }
 
@@ -371,17 +602,17 @@ func TestEachPermissionWritePublishes(t *testing.T) {
 		require.NoError(t, err, what)
 	}
 
-	published("the default mode", s.SetDefaultMode(ctx, permissions.Auto))
-	published("a cluster's mode", s.SetMode(ctx, "dev", permissions.Auto))
-	published("a cluster's mode cleared", s.ClearMode(ctx, "dev"))
-	rule, err := s.AddKubeRule(ctx, permissions.Rule{Effect: permissions.Deny, Class: permissions.UpstreamWrite})
+	published("the default mode", s.SetMode(ctx, k8s, "*", permissions.ModeAuto))
+	published("a cluster's mode", s.SetMode(ctx, k8s, "dev", permissions.ModeAuto))
+	published("a cluster's mode cleared", s.ClearMode(ctx, k8s, "dev"))
+	added, err := s.AddRule(ctx, rule("dev"))
 	published("a rule", err)
-	published("a rule removed", s.RemoveKubeRule(ctx, rule.ID))
+	published("a rule removed", s.RemoveRule(ctx, added.ID))
 	published("a folder grant", s.GrantFolder(ctx, "/srv/code", false))
 	published("a folder grant revoked", s.RevokeFolder(ctx, folderGrants(t, s)[0].ID))
 
-	assert.ErrorIs(t, s.SetMode(ctx, "gone", permissions.Auto), ErrClusterGone)
-	_, err = s.AddKubeRule(ctx, permissions.Rule{Effect: permissions.Allow, Class: permissions.Destructive})
+	assert.ErrorIs(t, s.SetMode(ctx, k8s, "gone", permissions.ModeAuto), ErrClusterGone)
+	_, err = s.AddRule(ctx, badRule(func(r *permissions.Rule) { r.AccessLevel = permissions.Destructive }))
 	assert.Error(t, err)
 	_, err = rx.TryRecv()
 	assert.ErrorIs(t, err, gobus.ErrEmpty, "a refused write pinged")
@@ -401,18 +632,25 @@ func looseTable(t *testing.T, db *appdb.DB, table, columns string) {
 func TestAReadThatFailsPartwayAnswersNone(t *testing.T) {
 	t.Parallel()
 	s, db := storeWithClusters(t)
-	looseTable(t, db, "kube_rules", `id, chat_id, effect, class, cluster_id, namespace, verb, api_group, kind, inside, created_at`)
+	looseTable(t, db, "permission_rules", `id, chat_id, effect, access_level, principal, target, scope, service, operation, resource, created_at`)
 	looseTable(t, db, "folder_grants", `id, chat_id, folder, access, created_at`)
+	looseTable(t, db, "permission_modes", `target, account, mode, created_at, updated_at`)
 	for _, q := range []string{
-		`INSERT INTO kube_rules VALUES ('a', NULL, 'deny', 'upstream-write', NULL, '', '', '', '', 0, 1), ('b', NULL, 'deny', 'upstream-write', NULL, '', '', '', '', 'maybe', 2)`,
+		`INSERT INTO permission_rules VALUES ('a', NULL, 'deny', 'write', '*', '*', '*', '*', '*', '*', 1), ('b', NULL, 'deny', 'write', '*', '*', NULL, '*', '*', '*', 9000000000002)`,
 		`INSERT INTO folder_grants VALUES ('a', NULL, '/srv/code', 'read', 1), ('b', NULL, NULL, 'read', 2)`,
+		`INSERT INTO permission_modes VALUES ('kubernetes', '*', 'ask', 1, 1), ('kubernetes', 'dev', NULL, 2, 2)`,
 	} {
 		exec(t, db, q)
 	}
-
-	rules, err := s.KubeRules(t.Context())
+	_, err := s.ModeFor(t.Context(), k8s, "dev")
 	assert.Error(t, err)
-	assert.Nil(t, rules)
+	modes, err := s.Modes(t.Context())
+	assert.Error(t, err)
+	assert.Nil(t, modes)
+
+	read, err := s.Rules(t.Context())
+	assert.Error(t, err)
+	assert.Nil(t, read)
 	grants, err := s.FolderGrants(t.Context())
 	assert.Error(t, err)
 	assert.Nil(t, grants)
@@ -423,14 +661,15 @@ func TestAWriteThatFailsReachesTheCaller(t *testing.T) {
 	t.Parallel()
 	s, db := storeWithClusters(t)
 	ctx := t.Context()
-	require.NoError(t, s.SetMode(ctx, "dev", permissions.Auto))
+	require.NoError(t, s.SetMode(ctx, k8s, "dev", permissions.ModeAuto))
 	require.NoError(t, s.GrantFolder(ctx, "/srv/code", false))
 	grant := folderGrants(t, s)[0]
 	for _, q := range []string{
-		`CREATE TRIGGER refuse_mode_write BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'refused'); END`,
-		`CREATE TRIGGER refuse_mode_update BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+		`CREATE TRIGGER refuse_mode_write BEFORE INSERT ON permission_modes BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+		`CREATE TRIGGER refuse_mode_update BEFORE UPDATE ON permission_modes BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+		`CREATE TRIGGER refuse_mode_delete BEFORE DELETE ON permission_modes BEGIN SELECT RAISE(ABORT, 'refused'); END`,
 		`CREATE TRIGGER refuse_grant_write BEFORE INSERT ON folder_grants BEGIN SELECT RAISE(ABORT, 'refused'); END`,
-		`CREATE TRIGGER refuse_rule_write BEFORE INSERT ON kube_rules BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+		`CREATE TRIGGER refuse_rule_write BEFORE INSERT ON permission_rules BEGIN SELECT RAISE(ABORT, 'refused'); END`,
 		`CREATE TRIGGER refuse_grant_delete BEFORE DELETE ON folder_grants BEGIN SELECT RAISE(ABORT, 'refused'); END`,
 	} {
 		exec(t, db, q)
@@ -439,13 +678,13 @@ func TestAWriteThatFailsReachesTheCaller(t *testing.T) {
 	t.Cleanup(rx.Close)
 
 	for name, err := range map[string]error{
-		"the default mode": s.SetDefaultMode(ctx, permissions.ReadOnly),
-		"a cluster's mode": s.SetMode(ctx, "prod", permissions.ReadOnly),
-		"a mode cleared":   s.ClearMode(ctx, "dev"),
+		"the default mode": s.SetMode(ctx, k8s, "*", permissions.ModeReadOnly),
+		"a cluster's mode": s.SetMode(ctx, k8s, "prod", permissions.ModeReadOnly),
+		"a mode cleared":   s.ClearMode(ctx, k8s, "dev"),
 		"a folder grant":   s.GrantFolder(ctx, "/srv/data", true),
 		"a grant revoked":  s.RevokeFolder(ctx, grant.ID),
 		"a rule": func() error {
-			_, err := s.AddKubeRule(ctx, permissions.Rule{Effect: permissions.Deny, Class: permissions.UpstreamWrite})
+			_, err := s.AddRule(ctx, rule("dev"))
 			return err
 		}(),
 	} {
@@ -460,7 +699,7 @@ func TestAModeWhoseClusterCannotBeReadIsAnError(t *testing.T) {
 	t.Parallel()
 	s, db := storeWithClusters(t)
 	exec(t, db, `ALTER TABLE clusters RENAME TO clusters_gone`)
-	err := s.SetMode(t.Context(), "dev", permissions.Auto)
+	err := s.SetMode(t.Context(), k8s, "dev", permissions.ModeAuto)
 	assert.Error(t, err)
 	assert.NotErrorIs(t, err, ErrClusterGone)
 }

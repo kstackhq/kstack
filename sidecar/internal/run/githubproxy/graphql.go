@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"io"
 	"slices"
+	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/parser"
@@ -26,24 +27,54 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-// destructiveMutations are the mutations that are class 5.
+// destructiveMutations are the mutations that are destructive.
 var destructiveMutations = []string{"deleteRef"}
+
+// accessControlWords mark a mutation that changes who may do what, read in
+// its name: branch protection and rulesets, collaborators, teams' access,
+// IP allow lists, admins, roles, permissions and members' settings.
+var accessControlWords = []string{
+	"BranchProtectionRule", "RepositoryRuleset", "Collaborator", "TeamsRepository", "IpAllowList",
+	"Admin", "Role", "Permission", "MembersCan",
+}
 
 // graphQL is what the proxy reads of a GraphQL request.
 type graphQL struct {
 	mutations []string // every mutation's top-level fields, in order
 	operation string   // operationName, as sent
+	// maintainerEdits is whether a pull request's update sets whether its
+	// base's maintainers may push to its branch.
+	maintainerEdits bool
 }
 
-// class is the request's class: a read with no mutation, else a change.
-func (g graphQL) class() permissions.Class {
+// destructive is whether g holds a destructive mutation.
+func (g graphQL) destructive() bool {
+	return slices.ContainsFunc(g.mutations, func(f string) bool { return slices.Contains(destructiveMutations, f) })
+}
+
+// changesAccess is whether g holds a mutation that changes who may do what.
+func (g graphQL) changesAccess() bool {
+	named := slices.ContainsFunc(g.mutations, func(f string) bool {
+		return slices.ContainsFunc(accessControlWords, func(w string) bool { return strings.Contains(f, w) })
+	})
+	return named || g.maintainerEdits
+}
+
+// action is the request's action: a read with no mutation, else a change.
+// It names no scope, since a mutation names its objects in its body, and no
+// mutation is on ordinary, so each asks each time.
+func (g graphQL) action() permissions.Action {
+	act := permissions.Action{Service: "graphql", Operation: "query", Resource: "graphql", AccessLevel: permissions.Read}
 	switch {
 	case len(g.mutations) == 0:
-		return 0
-	case slices.ContainsFunc(g.mutations, func(f string) bool { return slices.Contains(destructiveMutations, f) }):
-		return permissions.Destructive
+	case g.destructive():
+		act.Operation, act.AccessLevel = "mutation", permissions.Destructive
+	case g.changesAccess():
+		act.Operation, act.AccessLevel = "mutation", permissions.AccessControl
+	default:
+		act.Operation, act.AccessLevel, act.Once = "mutation", permissions.Write, true
 	}
-	return permissions.UpstreamWrite
+	return act
 }
 
 // readGraphQL reads body as GitHub would, or refuses it: one JSON object, no
@@ -51,7 +82,7 @@ func (g graphQL) class() permissions.Class {
 // document that parses and holds queries and mutations alone. Any mutation in
 // the document makes the request a change, whichever operation it selects.
 func readGraphQL(body []byte) (graphQL, bool) {
-	query, operation, ok := readBody(body)
+	query, operation, variables, ok := readBody(body)
 	if !ok {
 		return graphQL{}, false
 	}
@@ -68,7 +99,12 @@ func readGraphQL(body []byte) (graphQL, bool) {
 			if !ok {
 				return graphQL{}, false
 			}
-			g.mutations = append(g.mutations, fields...)
+			for _, f := range fields {
+				g.mutations = append(g.mutations, f.Name)
+				if f.Name == "updatePullRequest" && setsMaintainerEdits(f, op, variables) {
+					g.maintainerEdits = true
+				}
+			}
 		default:
 			return graphQL{}, false
 		}
@@ -77,34 +113,38 @@ func readGraphQL(body []byte) (graphQL, bool) {
 }
 
 // readBody is body's query and operationName.
-func readBody(body []byte) (query, operation string, ok bool) {
+func readBody(body []byte) (query, operation string, variables map[string]any, ok bool) {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-		return "", "", false
+		return "", "", nil, false
 	}
 	var q *string
 	seen := map[string]bool{}
 	for dec.More() {
 		tok, err := dec.Token()
 		if err != nil {
-			return "", "", false
+			return "", "", nil, false
 		}
 		key := tok.(string) // an object's key is a string, or Token fails
 		if seen[key] {
-			return "", "", false
+			return "", "", nil, false
 		}
 		seen[key] = true
 		switch key {
 		case "query":
 			var text string
 			if dec.Decode(&text) != nil {
-				return "", "", false
+				return "", "", nil, false
 			}
 			q = &text
+		case "variables":
+			if dec.Decode(&variables) != nil {
+				return "", "", nil, false
+			}
 		case "operationName":
 			var name *string
 			if dec.Decode(&name) != nil {
-				return "", "", false
+				return "", "", nil, false
 			}
 			if name != nil {
 				operation = *name
@@ -112,29 +152,29 @@ func readBody(body []byte) (query, operation string, ok bool) {
 		default:
 			var skip json.RawMessage
 			if dec.Decode(&skip) != nil {
-				return "", "", false
+				return "", "", nil, false
 			}
 		}
 	}
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
-		return "", "", false
+		return "", "", nil, false
 	}
 	if _, err := dec.Token(); err != io.EOF || q == nil {
-		return "", "", false
+		return "", "", nil, false
 	}
-	return *q, operation, true
+	return *q, operation, variables, true
 }
 
 // fieldsOf is set's top-level field names, read through its inline fragments
 // and the fragments it spreads, each once; false for a spread of a fragment
 // the document does not hold.
-func fieldsOf(set ast.SelectionSet, fragments ast.FragmentDefinitionList, spread map[string]bool) ([]string, bool) {
-	var fields []string
+func fieldsOf(set ast.SelectionSet, fragments ast.FragmentDefinitionList, spread map[string]bool) ([]*ast.Field, bool) {
+	var fields []*ast.Field
 	for _, sel := range set {
 		var inner ast.SelectionSet
 		switch s := sel.(type) {
 		case *ast.Field:
-			fields = append(fields, s.Name)
+			fields = append(fields, s)
 			continue
 		case *ast.InlineFragment:
 			inner = s.SelectionSet
@@ -156,4 +196,43 @@ func fieldsOf(set ast.SelectionSet, fragments ast.FragmentDefinitionList, spread
 		fields = append(fields, more...)
 	}
 	return fields, true
+}
+
+// setsMaintainerEdits is whether f, an updatePullRequest, lets the base's
+// maintainers push to the branch: its input's maintainerCanModify is true,
+// written in the document or through a variable of op.
+func setsMaintainerEdits(f *ast.Field, op *ast.OperationDefinition, variables map[string]any) bool {
+	input := f.Arguments.ForName("input")
+	if input == nil {
+		return false
+	}
+	if input.Value.Kind == ast.Variable {
+		object, _ := variableOf(input.Value.Raw, op, variables).(map[string]any)
+		return object["maintainerCanModify"] == true
+	}
+	flag := input.Value.Children.ForName("maintainerCanModify")
+	switch {
+	case flag == nil:
+		return false
+	case flag.Kind == ast.Variable:
+		return variableOf(flag.Raw, op, variables) == true
+	}
+	return flag.Kind == ast.BooleanValue && flag.Raw == "true"
+}
+
+// variableOf is the value op's variable name takes: the one sent, else its
+// default as GitHub reads it.
+func variableOf(name string, op *ast.OperationDefinition, variables map[string]any) any {
+	if v, ok := variables[name]; ok {
+		return v
+	}
+	def := op.VariableDefinitions.ForName(name)
+	if def == nil || def.DefaultValue == nil {
+		return nil
+	}
+	value, err := def.DefaultValue.Value(nil)
+	if err != nil {
+		return nil
+	}
+	return value
 }

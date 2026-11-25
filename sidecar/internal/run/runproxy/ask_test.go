@@ -15,6 +15,7 @@
 package runproxy
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -34,6 +35,7 @@ import (
 // answer is what the fake asker answers one Ask with.
 type answer struct {
 	approved bool
+	duration permissions.Duration
 	err      error
 }
 
@@ -55,13 +57,13 @@ func newFakeAsker() *fakeAsker {
 	return &fakeAsker{asked: make(chan Request, 16), answers: make(chan answer, 16), recorded: make(chan recorded, 16)}
 }
 
-func (a *fakeAsker) Ask(ctx context.Context, r Request) (bool, error) {
+func (a *fakeAsker) Ask(ctx context.Context, r Request) (permissions.Answer, error) {
 	a.asked <- r
 	select {
 	case ans := <-a.answers:
-		return ans.approved, ans.err
+		return permissions.Answer{Approved: ans.approved, Duration: cmp.Or(ans.duration, permissions.DurationOnce)}, ans.err
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return permissions.Answer{}, ctx.Err()
 	}
 }
 
@@ -70,19 +72,25 @@ func (a *fakeAsker) Record(_ context.Context, r Request, d permissions.Decision,
 	return a.recordErr
 }
 
-// change is a class 4 request with a shown body.
+// change is a write in an account, with a shown body.
 func change() Request {
 	return Request{
-		Action: permissions.Action{Class: permissions.UpstreamWrite, Summary: "AWS: call ec2:TerminateInstances"},
-		Sent:   Sent{Host: "ec2.amazonaws.com", Method: "POST", Path: "/", ContentType: "application/json", Body: []byte(`{"InstanceIds":["i-1"]}`)},
+		Action: permissions.Action{
+			AccessLevel: permissions.Write, Scope: "123456789012/us-east-1", AccountName: "123456789012",
+			Service: "ec2", Operation: "StartInstances", Summary: "AWS: call ec2:StartInstances",
+		},
+		Sent: Sent{Host: "ec2.amazonaws.com", Method: "POST", Path: "/", ContentType: "application/json", Body: []byte(`{"InstanceIds":["i-1"]}`)},
 	}
 }
 
-// dataRead is a class 6 request with no body.
+// dataRead is a data read in an account, with no body.
 func dataRead() Request {
 	return Request{
-		Action: permissions.Action{Class: permissions.SecretRead, Summary: "AWS: read s3://b/k"},
-		Sent:   Sent{Host: "b.s3.amazonaws.com", Method: "GET", Path: "/k"},
+		Action: permissions.Action{
+			AccessLevel: permissions.DataRead, Scope: "123456789012/us-east-1", AccountName: "123456789012",
+			Service: "s3", Operation: "GetObject", Resource: "object", Summary: "AWS: read s3://b/k",
+		},
+		Sent: Sent{Host: "b.s3.amazonaws.com", Method: "GET", Path: "/k"},
 	}
 }
 
@@ -225,12 +233,12 @@ func TestAWaitThatEndsForwardsNothing(t *testing.T) {
 // nothing; a record that fails says so.
 func TestAFailedRecordForwardsNothing(t *testing.T) {
 	a := newFakeAsker()
-	g := NewGrant(permissions.AWS, switchedOn, session.Session{Kind: session.Chat, NoPrompts: true}, a, noAsker, testLimits)
+	g := NewGrant(permissions.AWS, switchedOn, policySession(session.Console, permissions.ModeAsk), a, noAsker, testLimits)
 	t.Cleanup(g.End)
 	out, forwarded := decideNow(t, g, change())
 	assert.False(t, forwarded)
 	assert.Equal(t, http.StatusForbidden, out.Status)
-	assert.Equal(t, "kstack: AWS: call ec2:TerminateInstances is not allowed: this session never asks: a cloud platform's request always asks", out.Message)
+	assert.Equal(t, "kstack: AWS: call ec2:StartInstances is not allowed: it is never allowed", out.Message)
 	rec := testutil.Recv(t, a.recorded, "the record")
 	assert.Equal(t, permissions.Denied, rec.d)
 	assert.Empty(t, a.asked)
@@ -241,9 +249,9 @@ func TestAFailedRecordForwardsNothing(t *testing.T) {
 	assert.Equal(t, Outcome{Status: http.StatusForbidden, Message: refusedUnrecorded}, out)
 }
 
-func TestNoSecretDataRefusesADataRead(t *testing.T) {
+func TestTheMonitorNeverReadsData(t *testing.T) {
 	a := newFakeAsker()
-	g := NewGrant(permissions.AWS, switchedOn, session.Session{Kind: session.Chat, NoSecretData: true}, a, noAsker, testLimits)
+	g := NewGrant(permissions.AWS, switchedOn, policySession(session.Monitor, permissions.ModeAuto), a, noAsker, testLimits)
 	t.Cleanup(g.End)
 	out, forwarded := decideNow(t, g, dataRead())
 	assert.False(t, forwarded)
@@ -251,28 +259,166 @@ func TestNoSecretDataRefusesADataRead(t *testing.T) {
 	assert.Empty(t, a.asked)
 }
 
-// An action a classifier left as the cluster's, or named another cloud platform
-// for, is decided, recorded and asked as the grant's, carrying its class and
-// summary and no field of a cluster's object.
-func TestDecideKeepsACloudPlatformsFieldsAlone(t *testing.T) {
-	want := permissions.Action{Target: permissions.AWS, Class: permissions.UpstreamWrite, Summary: "AWS: call ec2:TerminateInstances"}
-	for _, target := range []permissions.Target{permissions.Cluster, permissions.GitHub} {
+// Decide stamps the grant's target and its session's kind, and keeps every
+// other field the classifier filled, so what is decided, recorded and asked
+// is what was classified.
+func TestDecideKeepsEveryField(t *testing.T) {
+	act := permissions.Action{
+		Principal: permissions.Monitor, Target: permissions.GitHub, Scope: "123456789012/us-east-1", AccountName: "123456789012",
+		Service: "ec2", Operation: "StartInstances", Resource: "instance", Name: "i-1", AccessLevel: permissions.Write,
+		Confined: true, Once: true, Summary: "AWS: call ec2:StartInstances", DryRun: true,
+	}
+	want := act
+	want.Principal, want.Target = permissions.Chat, permissions.AWS
+	a := newFakeAsker()
+	g := newTestGrant(t, a, testLimits)
+	req := change()
+	req.Action = act
+	a.answers <- answer{approved: true}
+	decideNow(t, g, req)
+	assert.Equal(t, want, testutil.Recv(t, a.asked, "the request").Action)
+
+	denying := NewGrant(permissions.AWS, switchedOn, policySession(session.Chat, permissions.ModeReadOnly), a, noAsker, testLimits)
+	t.Cleanup(denying.End)
+	decideNow(t, denying, req)
+	assert.Equal(t, want, testutil.Recv(t, a.recorded, "the record").req.Action)
+}
+
+func TestDecideFollowsThePolicy(t *testing.T) {
+	t.Run("allow", func(t *testing.T) {
+		a := newFakeAsker()
+		g := NewGrant(permissions.AWS, switchedOn, policySession(session.Chat, permissions.ModeAuto), a, noAsker, testLimits)
+		t.Cleanup(g.End)
+		out, forwarded := decideNow(t, g, change())
+		assert.True(t, forwarded)
+		assert.True(t, out.Forwarded)
+		rec := testutil.Recv(t, a.recorded, "the record")
+		assert.Equal(t, permissions.Allowed, rec.d)
+		assert.Equal(t, "auto mode", rec.reason)
+		assert.Empty(t, a.asked)
+
+		a.recordErr = errors.New("disk full")
+		out, forwarded = decideNow(t, g, change())
+		assert.False(t, forwarded, "an allow that could not be recorded sends nothing")
+		assert.Equal(t, Outcome{Status: http.StatusForbidden, Message: refusedUnrecorded}, out)
+	})
+	t.Run("deny", func(t *testing.T) {
+		a := newFakeAsker()
+		g := NewGrant(permissions.AWS, switchedOn, policySession(session.Chat, permissions.ModeReadOnly), a, noAsker, testLimits)
+		t.Cleanup(g.End)
+		out, forwarded := decideNow(t, g, change())
+		assert.False(t, forwarded)
+		assert.Equal(t, Outcome{Status: http.StatusForbidden, Message: "kstack: AWS: call ec2:StartInstances is not allowed: this account is read-only"}, out)
+		assert.Equal(t, permissions.Denied, testutil.Recv(t, a.recorded, "the record").d)
+		assert.Empty(t, a.asked)
+	})
+	t.Run("ask", func(t *testing.T) {
 		a := newFakeAsker()
 		g := newTestGrant(t, a, testLimits)
-		req := change()
-		req.Action = permissions.Action{
-			Target: target, Class: permissions.UpstreamWrite, Summary: want.Summary,
-			Context: "prod", Namespace: "dev", Verb: "delete", Group: "ec2", Kind: "instances", Name: "i-1", DryRun: true,
-		}
 		a.answers <- answer{approved: true}
-		decideNow(t, g, req)
-		assert.Equal(t, want, testutil.Recv(t, a.asked, "the request").Action)
+		decideNow(t, g, change())
+		asked := testutil.Recv(t, a.asked, "the request")
+		assert.True(t, asked.Grantable)
+		assert.Equal(t, "Allow StartInstances of ec2 \"\" in AWS 123456789012 / us-east-1 for this command", asked.CommandRule)
+		assert.Equal(t, "Allow writes in AWS 123456789012 / us-east-1", asked.ChatRule)
 
-		refusing := NewGrant(permissions.AWS, switchedOn, session.Session{NoPrompts: true}, a, noAsker, testLimits)
-		t.Cleanup(refusing.End)
-		decideNow(t, refusing, req)
-		assert.Equal(t, want, testutil.Recv(t, a.recorded, "the record").req.Action)
-	}
+		once := change()
+		once.Action.Once = true
+		a.answers <- answer{approved: true}
+		decideNow(t, g, once)
+		asked = testutil.Recv(t, a.asked, "the request")
+		assert.False(t, asked.Grantable)
+		assert.Empty(t, asked.CommandRule)
+		assert.Empty(t, asked.ChatRule)
+	})
+	t.Run("no policy", func(t *testing.T) {
+		a := newFakeAsker()
+		g := NewGrant(permissions.AWS, switchedOn, session.Session{Kind: session.Chat}, a, noAsker, testLimits)
+		t.Cleanup(g.End)
+		out, _ := decideNow(t, g, change())
+		assert.Equal(t, "kstack: AWS: call ec2:StartInstances is not allowed: this account is read-only", out.Message)
+	})
+}
+
+// The policy is read for the grant's target and the action's account.
+func TestDecideReadsTheAccountsPolicy(t *testing.T) {
+	var read []string
+	sess := session.Session{Kind: session.Chat, Policy: func(_ context.Context, target permissions.Target, account string) permissions.Policy {
+		read = append(read, string(target)+" "+account)
+		return permissions.Policy{Mode: permissions.ModeAuto}
+	}}
+	a := newFakeAsker()
+	g := NewGrant(permissions.AWS, switchedOn, sess, a, noAsker, testLimits)
+	t.Cleanup(g.End)
+	decideNow(t, g, change())
+	noAccount := change()
+	noAccount.Action.Scope = ""
+	a.answers <- answer{approved: false}
+	decideNow(t, g, noAccount)
+	assert.Equal(t, []string{"aws 123456789012", "aws "}, read)
+}
+
+func TestACommandAnswerAllowsTheNextRequest(t *testing.T) {
+	a := newFakeAsker()
+	g := newTestGrant(t, a, testLimits)
+	a.answers <- answer{approved: true, duration: permissions.DurationCommand}
+	_, forwarded := decideNow(t, g, change())
+	assert.True(t, forwarded)
+	testutil.Recv(t, a.asked, "the first request")
+
+	_, forwarded = decideNow(t, g, change())
+	assert.True(t, forwarded, "the command's rule allows its repeat")
+	assert.Empty(t, a.asked)
+	rec := testutil.Recv(t, a.recorded, "the record")
+	assert.Equal(t, permissions.Allowed, rec.d)
+	assert.Contains(t, rec.reason, "for this command")
+
+	other := change()
+	other.Action.Operation = "StopInstances"
+	a.answers <- answer{approved: false}
+	decideNow(t, g, other)
+	testutil.Recv(t, a.asked, "another operation asks")
+
+	// An answer for the command to an action no answer may grant adds nothing.
+	once := change()
+	once.Action.Once = true
+	a.answers <- answer{approved: true, duration: permissions.DurationCommand}
+	decideNow(t, g, once)
+	testutil.Recv(t, a.asked, "the once action")
+	a.answers <- answer{approved: false}
+	decideNow(t, g, once)
+	testutil.Recv(t, a.asked, "the once action again")
+}
+
+func TestAnAllowedDataReadGivesUpTheLock(t *testing.T) {
+	a := newFakeAsker()
+	g := NewGrant(permissions.AWS, switchedOn, policySession(session.Chat, permissions.ModeAuto), a, noAsker, testLimits)
+	t.Cleanup(g.End)
+	read := decide(t.Context(), g, dataRead())
+	testutil.Recv(t, read.forwards, "the read's forward")
+	assert.Equal(t, permissions.Allowed, testutil.Recv(t, a.recorded, "the record").d)
+	next := decide(t.Context(), g, change())
+	testutil.Recv(t, next.forwards, "a change forwards while the read does")
+	close(next.release)
+	testutil.Recv(t, next.outcome, "the change's outcome")
+	close(read.release)
+	assert.True(t, testutil.Recv(t, read.outcome, "the read's outcome").Forwarded)
+}
+
+// An allowed change holds the lock until it is forwarded, as an approved one
+// does.
+func TestAnAllowedChangeHoldsTheLock(t *testing.T) {
+	a := newFakeAsker()
+	g := NewGrant(permissions.AWS, switchedOn, policySession(session.Chat, permissions.ModeAuto), a, noAsker, testLimits)
+	t.Cleanup(g.End)
+	first := decide(t.Context(), g, change())
+	testutil.Recv(t, first.forwards, "the change's forward")
+	second := decide(t.Context(), g, change())
+	// A negative assertion: the lock is held while the change forwards.
+	testutil.NoRecv(t, second.forwards, 50*time.Millisecond, "a second change while the first forwards")
+	close(first.release)
+	testutil.Recv(t, second.forwards, "the second change's forward")
+	close(second.release)
 }
 
 func TestRequestsAskOneAtATime(t *testing.T) {
@@ -398,4 +544,21 @@ func TestAnApprovalTheLimiterRefusesIsUnauthorized(t *testing.T) {
 	})
 	assert.False(t, forwarded)
 	assert.Equal(t, Outcome{Status: http.StatusUnauthorized, Message: unauthorized}, out)
+}
+
+func TestAnyJSONStringReadsEveryKeyAndString(t *testing.T) {
+	t.Parallel()
+	hit := func(s string) bool { return s == "x" }
+	for body, want := range map[string]bool{
+		`{"a":"b","c":[1,null,true]}`: false,
+		`{"x":1}`:                     true,
+		`{"a":["b","x"]}`:             true,
+		`{"a":"x"}`:                   true,
+		`{"a":"b","a":"x"}`:           true,
+		`{"a":`:                       true,
+		`{} {}`:                       true,
+		``:                            true,
+	} {
+		assert.Equal(t, want, AnyJSONString([]byte(body), hit), body)
+	}
 }

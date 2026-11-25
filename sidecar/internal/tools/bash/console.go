@@ -310,7 +310,7 @@ func (t *Tool) consoleResult(ctx context.Context, req ConsoleRequest, network se
 	rt := tools.Runtime{
 		ClusterID: req.ClusterID,
 		Dir:       dir,
-		Session:   session.Session{Kind: session.Console, Folders: t.alwaysFolders, NoPrompts: true},
+		Session:   session.Session{Kind: session.Console, Folders: t.alwaysFolders},
 	}
 	workspace := tools.WorkspacePath(dir)
 	setup, cancel := context.WithTimeoutCause(ctx, t.console.setup, errConsoleSetup)

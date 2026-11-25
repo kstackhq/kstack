@@ -15,12 +15,14 @@
 package azureproxy
 
 import (
+	"bytes"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 )
 
 // What the classifier refuses unasked.
@@ -30,11 +32,13 @@ const (
 	refusedUnnamed    = "kstack: this Azure list or get action is not known to answer no secret, so it is refused."
 )
 
-// verdict is one request's reading: a refusal, or its class, 0 for a read.
+// verdict is one request's reading: its access level, and a refusal the
+// proxy answers itself. A refusal of a credential or of reaching a machine is
+// the reach level; any other refusal has none.
 type verdict struct {
 	refusal string
-	class   permissions.Class
-	// reads is what a class 6 read answers, in the user's words.
+	level   permissions.AccessLevel
+	// reads is what a data read answers, in the user's words.
 	reads string
 }
 
@@ -58,18 +62,18 @@ func classify(method string, a armPath, query url.Values) verdict {
 	aksCluster := ns == "microsoft.containerservice" && len(types) > 0 && types[0] == "managedclusters"
 	switch {
 	case aksCluster && (final == "runcommand" || slices.Contains(types, "commandresults")):
-		return verdict{refusal: refusedRunCommand}
+		return verdict{refusal: refusedRunCommand, level: permissions.Reach}
 	case aksCluster && slices.Contains(types, "accessprofiles"),
 		slices.Contains(credentialActions[ns], final):
-		return verdict{refusal: refusedCredential}
+		return verdict{refusal: refusedCredential, level: permissions.Reach}
 	}
 	if reads := secretMetadata(method, a, ns, types, query); reads != "" {
-		return verdict{class: permissions.SecretRead, reads: reads}
+		return verdict{level: permissions.DataRead, reads: reads}
 	}
 	if method == http.MethodPost {
 		for _, w := range credentialWords {
 			if strings.Contains(final, w) {
-				return verdict{refusal: refusedCredential}
+				return verdict{refusal: refusedCredential, level: permissions.Reach}
 			}
 		}
 		if strings.HasPrefix(final, "list") || strings.HasPrefix(final, "get") {
@@ -78,11 +82,118 @@ func classify(method string, a armPath, query url.Values) verdict {
 	}
 	switch {
 	case method == http.MethodGet || method == http.MethodHead:
-		return verdict{}
+		return verdict{level: permissions.Read}
 	case destructive(method, a, ns, types):
-		return verdict{class: permissions.Destructive}
+		return verdict{level: permissions.Destructive}
+	case ns == "microsoft.authorization":
+		return verdict{level: permissions.AccessControl}
 	}
-	return verdict{class: permissions.UpstreamWrite}
+	return verdict{level: permissions.Write}
+}
+
+// ordinaryRow is one change a mode or a rule may allow: its service,
+// resource and operation as action reads them.
+type ordinaryRow struct{ service, resource, operation string }
+
+// ordinary are the changes a mode or a rule may allow. Any other write asks
+// each time. Adding a row is a security change.
+var ordinary = []ordinaryRow{
+	{"microsoft.compute", "virtualmachines", "start"},
+	{"microsoft.compute", "virtualmachines", "restart"},
+	{"microsoft.resources", "tags", "write"}, // a PUT or PATCH
+}
+
+// action is the request as the engine decides it, read from its path, its
+// query and its body. The scope is the path's own subscription and group, in
+// lower case; "" when the path names no subscription, whatever default the
+// proxy forwards with. A query or body naming another subscription, or a body
+// that is not JSON, asks each time.
+func action(method string, a armPath, v verdict, query url.Values, body []byte, sub Subscription) permissions.Action {
+	act := permissions.Action{
+		Target: permissions.Azure, AccountName: strings.ToLower(a.subscription),
+		Service: strings.ToLower(a.namespace()), Operation: operation(method, a), Resource: resourceType(method, a),
+		AccessLevel: v.level, Summary: summary(method, a, v, sub),
+	}
+	if ps := a.pairs(); len(ps) > 0 {
+		act.Name = ps[len(ps)-1].name
+	}
+	if a.subscription != "" {
+		act.Scope = act.AccountName
+		if a.group != "" {
+			act.Scope += "/" + strings.ToLower(a.group)
+		}
+		// Reaching past the subscription keeps its scope, so its mode and rules
+		// still refuse, and asks each time.
+		act.Once = namesAnotherSubscription(act.AccountName, query, body)
+		// A data read in no group lists every group's, but for a deployment's,
+		// which a subscription holds of its own.
+		act.Spans = v.level == permissions.DataRead && a.group == "" && act.Service != "microsoft.resources"
+	}
+	types := a.types()
+	act.Confined = v.level == permissions.AccessControl && a.group != "" && len(types) > 0 && types[0] == "roleassignments"
+	if v.level == permissions.Write && !slices.Contains(ordinary, ordinaryRow{act.Service, act.Resource, act.Operation}) {
+		act.Once = true
+	}
+	return act
+}
+
+// operation is what a request does, as a rule names it: write for a PUT or
+// PATCH, delete, read for a GET or HEAD, and a POST's action by name.
+func operation(method string, a armPath) string {
+	switch method {
+	case http.MethodPut, http.MethodPatch:
+		return "write"
+	case http.MethodDelete:
+		return "delete"
+	case http.MethodPost:
+		return strings.ToLower(a.last)
+	}
+	return "read"
+}
+
+// resourceType is the last scope's type path in lower case, a collection's
+// type included and a POST's action left out.
+func resourceType(method string, a armPath) string {
+	ts := a.types()
+	if a.last != "" && len(a.scopes) > 0 && method == http.MethodPost {
+		ts = ts[:len(ts)-1]
+	}
+	return strings.Join(ts, "/")
+}
+
+// namesAnotherSubscription is whether a query value, or a key or string of
+// body read token by token, names /subscriptions/ of one other than own, or
+// body is not one JSON value. An empty body names nothing.
+func namesAnotherSubscription(own string, query url.Values, body []byte) bool {
+	for _, values := range query {
+		if slices.ContainsFunc(values, func(v string) bool { return mentionsOther(own, v) }) {
+			return true
+		}
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return false
+	}
+	return runproxy.AnyJSONString(body, func(s string) bool { return mentionsOther(own, s) })
+}
+
+// mentionsOther is whether s names /subscriptions/ followed by an id that is
+// not own, in any case.
+func mentionsOther(own, s string) bool {
+	const marker = "/subscriptions/"
+	s = strings.ToLower(s)
+	for {
+		i := strings.Index(s, marker)
+		if i < 0 {
+			return false
+		}
+		s = s[i+len(marker):]
+		id := s[:strings.IndexFunc(s+"/", func(r rune) bool {
+			return !(r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r == '-')
+		})]
+		if id != "" && id != own {
+			return true
+		}
+	}
 }
 
 // types is the last scope's types, then its trailing segment, lower-cased.
@@ -176,8 +287,13 @@ func expands(query url.Values, what string) bool {
 	return false
 }
 
-// destructive is whether a change is on the class 5 list.
+// destructive is whether a change is on the destructive list.
 func destructive(method string, a armPath, ns string, types []string) bool {
+	if ns == "microsoft.authorization" {
+		// A role assignment, a role or a lock: who may do what, which deleting
+		// changes without losing data, at any scope.
+		return false
+	}
 	if method == http.MethodDelete {
 		switch {
 		case a.group == "", a.isGroup():
@@ -186,5 +302,5 @@ func destructive(method string, a armPath, ns string, types []string) bool {
 			return true
 		}
 	}
-	return ns == "microsoft.authorization" || slices.Contains(types, "runcommand") || slices.Contains(types, "runcommands")
+	return slices.Contains(types, "runcommand") || slices.Contains(types, "runcommands")
 }

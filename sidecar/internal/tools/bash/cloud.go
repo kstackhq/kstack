@@ -160,9 +160,8 @@ func cloudAskerFor(rt tools.Runtime, background bool, target permissions.Target)
 // neither package imports the other.
 type cloudAsker struct{ a tools.ActionAsker }
 
-func (a cloudAsker) Ask(ctx context.Context, r runproxy.Request) (bool, error) {
-	answer, err := a.a.Ask(ctx, cloudRequestOf(r))
-	return answer.Approved, err
+func (a cloudAsker) Ask(ctx context.Context, r runproxy.Request) (permissions.Answer, error) {
+	return a.a.Ask(ctx, cloudRequestOf(r))
 }
 
 func (a cloudAsker) Record(ctx context.Context, r runproxy.Request, d permissions.Decision, reason string) error {
@@ -176,7 +175,7 @@ func cloudRequestOf(r runproxy.Request) tools.ActionRequest {
 	for _, d := range r.Sent.Details {
 		details = append(details, tools.Detail{Label: d.Label, Value: d.Value})
 	}
-	return tools.ActionRequest{Action: r.Action, Cloud: &tools.CloudRequest{
+	return tools.ActionRequest{Action: r.Action, Grantable: r.Grantable, CommandRule: r.CommandRule, ChatRule: r.ChatRule, Cloud: &tools.CloudRequest{
 		Host: r.Sent.Host, Method: r.Sent.Method, Path: r.Sent.Path, ContentType: r.Sent.ContentType,
 		Body: string(r.Sent.Body), Unshown: r.Sent.Unshown, Details: details,
 	}}

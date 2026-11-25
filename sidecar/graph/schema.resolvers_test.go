@@ -2174,7 +2174,7 @@ func TestChatReadRefusalsCarryTheirCode(t *testing.T) {
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ChatSvc: refusingChat{err: chat.ErrChatGone}}))
 	defer srv.Close()
 
-	_, code := refusalOf(t, srv, `{ chatKubeRules(chatID: "`+appdb.NewID()+`") { id } }`)
+	_, code := refusalOf(t, srv, `{ chatPermissionRules(chatID: "`+appdb.NewID()+`") { id } }`)
 	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
 
 	for _, query := range []string{
@@ -2326,17 +2326,17 @@ func TestToolCallCarriesItsSandboxActions(t *testing.T) {
 	require.NoError(t, err)
 	ids := []string{appdb.NewID(), appdb.NewID(), appdb.NewID(), appdb.NewID()}
 	for i, row := range []struct{ status, request string }{
-		{"approved", `{"write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/a","subresource":"","contentType":"","body":"","dryRun":false}}`},
-		{"abandoned", `{"write":{"method":"PATCH","path":"/apis/apps/v1/namespaces/web/deployments/b?dryRun=All","subresource":"","contentType":"application/merge-patch+json","body":"{}","dryRun":true}}`},
-		{"pending", `{"action":{"target":"aws","class":4},"cloud":{"host":"ec2.amazonaws.com","method":"POST","path":"/","contentType":"text/plain","body":"Action=X","details":[{"label":"Region","value":"eu-west-1"}]}}`},
-		{"pending", `{"write":{"method":"POST","path":"/api/v1/namespaces/web/pods/c/eviction","subresource":"eviction","contentType":"application/json","body":"{\"kind\":\"Eviction\"}","dryRun":false}}`},
+		{"approved", `{"action":{"target":"kubernetes"},"write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/a","subresource":"","contentType":"","body":"","dryRun":false}}`},
+		{"abandoned", `{"action":{"target":"kubernetes"},"write":{"method":"PATCH","path":"/apis/apps/v1/namespaces/web/deployments/b?dryRun=All","subresource":"","contentType":"application/merge-patch+json","body":"{}","dryRun":true}}`},
+		{"pending", `{"action":{"target":"aws","accessLevel":"write"},"cloud":{"host":"ec2.amazonaws.com","method":"POST","path":"/","contentType":"text/plain","body":"Action=X","details":[{"label":"Region","value":"eu-west-1"}]}}`},
+		{"pending", `{"action":{"target":"kubernetes"},"write":{"method":"POST","path":"/api/v1/namespaces/web/pods/c/eviction","subresource":"eviction","contentType":"application/json","body":"{\"kind\":\"Eviction\"}","dryRun":false}}`},
 	} {
 		_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, created_at) VALUES (?, ?, 'action', ?, ?, ?)`,
 			ids[i], callID, row.request, row.status, 10+i)
 		require.NoError(t, err)
 	}
 
-	cluster := map[string]any{"target": "Cluster"}
+	cluster := map[string]any{"target": "Kubernetes"}
 	assert.Equal(t, []any{
 		map[string]any{"approval": map[string]any{"id": ids[0], "status": "Approved"}, "action": cluster, "request": map[string]any{
 			"method": "DELETE", "path": "/api/v1/namespaces/web/pods/a", "subresource": "", "contentType": "", "body": "", "dryRun": false,
@@ -2898,13 +2898,16 @@ func newPermissionServer(t *testing.T) *httptest.Server {
 	require.NoError(t, err)
 	// A cluster with no kube-context has no mode of its own, so Settings lists none for it.
 	clusters := append(clusterFixtures(), clusterFixture{id: "3"})
-	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: newFakeClusterService(clusters), Settings: settings.NewService(cfg, nil, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
+		ClusterSvc: newFakeClusterService(clusters), Settings: settings.NewService(cfg, nil, nil, nil, ""),
+		CloudTargets: []permissions.Target{permissions.AWS, permissions.GitHub, permissions.GCP, permissions.Azure},
+	}))
 	t.Cleanup(srv.Close)
 	return srv
 }
 
-const permissionSettingsFields = `defaultMode clusters { clusterID mode source }
-	kubeRules { effect class clusterID namespace verb group kind line }`
+const permissionSettingsFields = `targets { target defaultMode accounts { account name clusterID mode source } }
+	rules { effect accessLevel principal target scope service operation resource line }`
 
 // refusalOf posts query and answers its one error's message and code.
 func refusalOf(t *testing.T, srv *httptest.Server, query string) (string, string) {
@@ -2922,87 +2925,122 @@ func refusalOf(t *testing.T, srv *httptest.Server, query string) (string, string
 	return resp.Errors[0].Message, resp.Errors[0].Extensions.Code
 }
 
-// permissionSettings answers each cluster's mode by its id and where it comes
-// from, the always rules, and the class 5 list in words.
+// targetOf is the modes of target in a permission settings answer.
+func targetOf(t *testing.T, settings any, target string) map[string]any {
+	t.Helper()
+	for _, m := range settings.(map[string]any)["targets"].([]any) {
+		if m := m.(map[string]any); m["target"] == target {
+			return m
+		}
+	}
+	t.Fatalf("no target %s", target)
+	return nil
+}
+
+// permissionSettings answers each target's default mode and its accounts'
+// modes, the always rules, and the two lists in words.
 func TestPermissionSettingsShowsModesAndRules(t *testing.T) {
 	srv := newPermissionServer(t)
-	mutate(t, srv, `mutation { permissionModeSet(clusterID: "1", mode: ReadOnly) { defaultMode } }`)
-	mutate(t, srv, `mutation { kubeRuleAdd(input: {effect: Deny, class: Destructive, clusterID: "1", verb: "delete", group: "core", kind: "namespaces"}) { defaultMode } }`)
+	mutate(t, srv, `mutation { permissionModeSet(target: Kubernetes, account: "1", mode: ReadOnly) { rules { id } } }`)
+	mutate(t, srv, `mutation { permissionModeSet(target: AWS, account: "123456789012", mode: Auto) { rules { id } } }`)
+	mutate(t, srv, `mutation { permissionRuleAdd(input: {effect: Deny, accessLevel: Destructive, target: Kubernetes, scope: "1", service: "", operation: "delete", resource: "namespaces"}) { rules { id } } }`)
 
-	data := mutate(t, srv, `{ permissionSettings { `+permissionSettingsFields+` destructive } }`)
+	data := mutate(t, srv, `{ permissionSettings { `+permissionSettingsFields+` alwaysAsks accessControl } }`)
 
 	got := data["permissionSettings"].(map[string]any)
-	assert.Equal(t, "Ask", got["defaultMode"])
+	kube := targetOf(t, got, "Kubernetes")
+	assert.Equal(t, "Ask", kube["defaultMode"])
 	assert.ElementsMatch(t, []any{
-		map[string]any{"clusterID": "1", "mode": "ReadOnly", "source": "Entry"},
-		map[string]any{"clusterID": "2", "mode": "Ask", "source": "Default"},
-	}, got["clusters"])
+		map[string]any{"account": "1", "name": "prod", "clusterID": "1", "mode": "ReadOnly", "source": "Entry"},
+		map[string]any{"account": "2", "name": "staging", "clusterID": "2", "mode": "Ask", "source": "Default"},
+	}, kube["accounts"])
+	aws := targetOf(t, got, "AWS")
+	assert.Equal(t, []any{map[string]any{"account": "123456789012", "name": "123456789012", "clusterID": nil, "mode": "Auto", "source": "Entry"}}, aws["accounts"])
 	assert.Equal(t, []any{map[string]any{
-		"effect": "Deny", "class": "Destructive", "clusterID": "1", "namespace": "",
-		"verb": "delete", "group": "core", "kind": "namespaces",
+		"effect": "Deny", "accessLevel": "Destructive", "principal": nil, "target": "Kubernetes", "scope": "1",
+		"service": "", "operation": "delete", "resource": "namespaces",
 		"line": "Deny destructive delete of core namespaces in prod",
-	}}, got["kubeRules"])
-	assert.NotEmpty(t, got["destructive"])
+	}}, got["rules"])
+	assert.NotEmpty(t, got["alwaysAsks"])
+	assert.NotEmpty(t, got["accessControl"])
 }
 
 // Each mutation writes the settings and answers them as they now stand.
 func TestPermissionMutationsWriteTheSettings(t *testing.T) {
 	srv := newPermissionServer(t)
-	modeOf := func(data map[string]any, field, cluster string) map[string]any {
-		for _, c := range data[field].(map[string]any)["clusters"].([]any) {
-			if m := c.(map[string]any); m["clusterID"] == cluster {
+	modeOf := func(data map[string]any, field, target, account string) map[string]any {
+		for _, c := range targetOf(t, data[field], target)["accounts"].([]any) {
+			if m := c.(map[string]any); m["account"] == account {
 				return m
 			}
 		}
 		return nil
 	}
+	const accounts = `targets { target defaultMode accounts { account mode source } }`
 
-	data := mutate(t, srv, `mutation { permissionModeSet(clusterID: "1", mode: Auto) { clusters { clusterID mode source } } }`)
-	assert.Equal(t, map[string]any{"clusterID": "1", "mode": "Auto", "source": "Entry"}, modeOf(data, "permissionModeSet", "1"))
+	data := mutate(t, srv, `mutation { permissionModeSet(target: Kubernetes, account: "1", mode: Auto) { `+accounts+` } }`)
+	assert.Equal(t, map[string]any{"account": "1", "mode": "Auto", "source": "Entry"}, modeOf(data, "permissionModeSet", "Kubernetes", "1"))
 
-	data = mutate(t, srv, `mutation { kubeRuleAdd(input: {effect: Allow, class: UpstreamWrite, clusterID: "2", namespace: "web"}) {
-		kubeRules { id line } } }`)
-	rules := data["kubeRuleAdd"].(map[string]any)["kubeRules"].([]any)
+	data = mutate(t, srv, `mutation { permissionRuleAdd(input: {effect: Allow, accessLevel: Write, target: Kubernetes, scope: "2/web"}) {
+		rules { id line } } }`)
+	rules := data["permissionRuleAdd"].(map[string]any)["rules"].([]any)
 	require.Len(t, rules, 1)
 	added := rules[0].(map[string]any)
-	assert.Equal(t, "Allow cluster writes in staging / web", added["line"])
+	assert.Equal(t, "Allow writes in staging / web", added["line"])
 	assert.NoError(t, appdb.ValidateUUID(added["id"].(string)), "the store mints the id")
 
-	data = mutate(t, srv, `mutation { kubeRuleRemove(id: "`+added["id"].(string)+`") { kubeRules { id } } }`)
-	assert.Empty(t, data["kubeRuleRemove"].(map[string]any)["kubeRules"])
+	data = mutate(t, srv, `mutation { permissionRuleUpdate(id: "`+added["id"].(string)+`", input: {effect: Ask, accessLevel: Write, target: Kubernetes, scope: "2/api"}) {
+		rules { id line } } }`)
+	assert.Equal(t, []any{map[string]any{"id": added["id"], "line": "Ask for writes in staging / api"}},
+		data["permissionRuleUpdate"].(map[string]any)["rules"], "an edit keeps the rule's id")
 
-	data = mutate(t, srv, `mutation { kubeRuleAdd(input: {effect: Deny, class: SecretRead}) { kubeRules { clusterID line } } }`)
-	assert.Equal(t, []any{map[string]any{"clusterID": nil, "line": "Deny Secret reads everywhere"}}, data["kubeRuleAdd"].(map[string]any)["kubeRules"])
+	data = mutate(t, srv, `mutation { permissionRuleRemove(id: "`+added["id"].(string)+`") { rules { id } } }`)
+	assert.Empty(t, data["permissionRuleRemove"].(map[string]any)["rules"])
 
-	data = mutate(t, srv, `mutation { permissionModeClear(clusterID: "1") { clusters { clusterID mode source } } }`)
-	assert.Equal(t, map[string]any{"clusterID": "1", "mode": "Ask", "source": "Default"}, modeOf(data, "permissionModeClear", "1"))
+	data = mutate(t, srv, `mutation { permissionRuleAdd(input: {effect: Deny, accessLevel: DataRead, principal: Subagent}) { rules { principal target line } } }`)
+	assert.Equal(t, []any{map[string]any{"principal": "Subagent", "target": nil, "line": "Deny data reads by subagent everywhere"}},
+		data["permissionRuleAdd"].(map[string]any)["rules"])
 
-	data = mutate(t, srv, `mutation { permissionDefaultModeSet(mode: Auto) { defaultMode clusters { clusterID mode source } } }`)
-	assert.Equal(t, "Auto", data["permissionDefaultModeSet"].(map[string]any)["defaultMode"])
-	assert.Equal(t, map[string]any{"clusterID": "2", "mode": "Auto", "source": "Default"}, modeOf(data, "permissionDefaultModeSet", "2"))
+	data = mutate(t, srv, `mutation { permissionModeClear(target: Kubernetes, account: "1") { `+accounts+` } }`)
+	assert.Equal(t, map[string]any{"account": "1", "mode": "Ask", "source": "Default"}, modeOf(data, "permissionModeClear", "Kubernetes", "1"))
+
+	data = mutate(t, srv, `mutation { permissionDefaultModeSet(target: Kubernetes, mode: Auto) { `+accounts+` } }`)
+	assert.Equal(t, "Auto", targetOf(t, data["permissionDefaultModeSet"], "Kubernetes")["defaultMode"])
+	assert.Equal(t, map[string]any{"account": "2", "mode": "Auto", "source": "Default"}, modeOf(data, "permissionDefaultModeSet", "Kubernetes", "2"))
+	assert.Equal(t, "Ask", targetOf(t, data["permissionDefaultModeSet"], "GitHub")["defaultMode"], "another target's default is its own")
+
+	data = mutate(t, srv, `mutation { permissionModeSet(target: GitHub, account: "kstackhq", mode: ReadOnly) { `+accounts+` } }`)
+	assert.Equal(t, map[string]any{"account": "kstackhq", "mode": "ReadOnly", "source": "Entry"}, modeOf(data, "permissionModeSet", "GitHub", "kstackhq"))
+	data = mutate(t, srv, `mutation { permissionModeClear(target: GitHub, account: "kstackhq") { `+accounts+` } }`)
+	assert.Empty(t, targetOf(t, data["permissionModeClear"], "GitHub")["accounts"], "a cloud account with no mode is not listed")
 }
 
-// A rule Kstack cannot apply, an unknown rule, and a mode for a cluster
+// A rule Kstack cannot apply, an unknown rule, and a mode for an account
 // Settings does not list are refused, each saying why.
 func TestAPermissionRefusalCarriesItsCode(t *testing.T) {
 	srv := newPermissionServer(t)
 	for query, want := range map[string]struct{ code, message string }{
-		`mutation { kubeRuleAdd(input: {effect: Allow, class: Destructive}) { defaultMode } }`:                  {"KSTACK_VALIDATION_ERROR", "allows a destructive write"},
-		`mutation { kubeRuleAdd(input: {effect: Allow, class: ReadInside}) { defaultMode } }`:                   {"KSTACK_VALIDATION_ERROR", "names a class no rule decides"},
-		`mutation { kubeRuleRemove(id: "nope") { defaultMode } }`:                                               {"KSTACK_VALIDATION_ERROR", "no rule has this id"},
-		`mutation { permissionModeSet(clusterID: "9", mode: Auto) { defaultMode } }`:                            {"KSTACK_RECORD_NOT_FOUND", ""},
-		`mutation { permissionModeClear(clusterID: "9") { defaultMode } }`:                                      {"KSTACK_RECORD_NOT_FOUND", ""},
-		`mutation { permissionModeSet(clusterID: "3", mode: Auto) { defaultMode } }`:                            {"KSTACK_VALIDATION_ERROR", "kube-context"},
-		`mutation { kubeRuleAdd(input: {effect: Allow, class: UpstreamWrite}) { defaultMode } }`:                {"KSTACK_VALIDATION_ERROR", "allows on every cluster"},
-		`mutation { kubeRuleAdd(input: {effect: Deny, class: UpstreamWrite, clusterID: "9"}) { defaultMode } }`: {"KSTACK_RECORD_NOT_FOUND", ""},
-		`mutation { kubeRuleAdd(input: {effect: Deny, class: UpstreamWrite, clusterID: "3"}) { defaultMode } }`: {"KSTACK_VALIDATION_ERROR", "kube-context"},
+		`mutation { permissionRuleAdd(input: {effect: Allow, accessLevel: Destructive, target: Kubernetes, scope: "1"}) { rules { id } } }`:         {"KSTACK_VALIDATION_ERROR", "allows a destructive change"},
+		`mutation { permissionRuleAdd(input: {effect: Allow, accessLevel: Read, target: Kubernetes, scope: "1"}) { rules { id } } }`:                {"KSTACK_VALIDATION_ERROR", "names reads or reach"},
+		`mutation { permissionRuleRemove(id: "nope") { rules { id } } }`:                                                                            {"KSTACK_VALIDATION_ERROR", "no rule has this id"},
+		`mutation { permissionRuleUpdate(id: "nope", input: {effect: Deny, accessLevel: Write}) { rules { id } } }`:                                 {"KSTACK_VALIDATION_ERROR", "no rule has this id"},
+		`mutation { permissionRuleUpdate(id: "nope", input: {effect: Allow, accessLevel: Read, target: Kubernetes, scope: "1"}) { rules { id } } }`: {"KSTACK_VALIDATION_ERROR", "names reads or reach"},
+		`mutation { permissionModeSet(target: Kubernetes, account: "9", mode: Auto) { rules { id } } }`:                                             {"KSTACK_RECORD_NOT_FOUND", ""},
+		`mutation { permissionModeClear(target: Kubernetes, account: "9") { rules { id } } }`:                                                       {"KSTACK_RECORD_NOT_FOUND", ""},
+		`mutation { permissionModeSet(target: Kubernetes, account: "3", mode: Auto) { rules { id } } }`:                                             {"KSTACK_VALIDATION_ERROR", "kube-context"},
+		`mutation { permissionModeSet(target: AWS, account: "a/b", mode: Auto) { rules { id } } }`:                                                  {"KSTACK_VALIDATION_ERROR", "an account is one name"},
+		`mutation { permissionModeSet(target: AWS, account: "*", mode: Auto) { rules { id } } }`:                                                    {"KSTACK_VALIDATION_ERROR", "an account is one name"},
+		`mutation { permissionModeClear(target: AWS, account: "*") { rules { id } } }`:                                                              {"KSTACK_VALIDATION_ERROR", "an account is one name"},
+		`mutation { permissionRuleAdd(input: {effect: Allow, accessLevel: Write}) { rules { id } } }`:                                               {"KSTACK_VALIDATION_ERROR", "allows on every target or account"},
+		`mutation { permissionRuleAdd(input: {effect: Deny, accessLevel: Write, target: Kubernetes, scope: "9/**"}) { rules { id } } }`:             {"KSTACK_RECORD_NOT_FOUND", ""},
+		`mutation { permissionRuleAdd(input: {effect: Deny, accessLevel: Write, target: Kubernetes, scope: "3"}) { rules { id } } }`:                {"KSTACK_VALIDATION_ERROR", "kube-context"},
 	} {
 		message, code := refusalOf(t, srv, query)
 		assert.Equal(t, want.code, code, query)
 		assert.Contains(t, message, want.message, query)
 	}
-	data := mutate(t, srv, `{ permissionSettings { kubeRules { id } } }`)
-	assert.Empty(t, data["permissionSettings"].(map[string]any)["kubeRules"], "nothing was written")
+	data := mutate(t, srv, `{ permissionSettings { rules { id } } }`)
+	assert.Empty(t, data["permissionSettings"].(map[string]any)["rules"], "nothing was written")
 }
 
 // The settings read the clusters off the cluster service, so a list it cannot
@@ -3013,7 +3051,7 @@ func TestPermissionSettingsFailsWithTheClusterList(t *testing.T) {
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Settings: testSettings(t)}))
 	t.Cleanup(srv.Close)
 
-	_, code := refusalOf(t, srv, `{ permissionSettings { defaultMode } }`)
+	_, code := refusalOf(t, srv, `{ permissionSettings { rules { id } } }`)
 
 	assert.NotEqual(t, "KSTACK_VALIDATION_ERROR", code)
 }
@@ -3029,11 +3067,11 @@ func TestAPermissionChangeThatTookSaysSoWhenTheAnswerFails(t *testing.T) {
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Settings: settings.NewService(cfg, nil, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 
-	message, code := refusalOf(t, srv, `mutation { kubeRuleAdd(input: {effect: Deny, class: UpstreamWrite}) { defaultMode } }`)
+	message, code := refusalOf(t, srv, `mutation { permissionRuleAdd(input: {effect: Deny, accessLevel: Write}) { rules { id } } }`)
 
 	assert.Equal(t, "KSTACK_SAVED_UNREAD", code)
 	assert.Contains(t, message, "The change was saved")
-	rules, err := cfg.KubeRules(t.Context())
+	rules, err := cfg.Rules(t.Context())
 	require.NoError(t, err)
 	assert.Len(t, rules, 1, "the rule took")
 }
@@ -3045,8 +3083,8 @@ func TestPermissionSettingsFailsWithTheirRead(t *testing.T) {
 		table    string
 		clusters []clusterFixture
 	}{
-		"the modes": {"settings", clusterFixtures()},
-		"the rules": {"kube_rules", clusterFixtures()},
+		"the modes": {"permission_modes", clusterFixtures()},
+		"the rules": {"permission_rules", clusterFixtures()},
 	} {
 		db := appdbtest.Open(t)
 		cfg, err := settings.Open(db)
@@ -3056,7 +3094,7 @@ func TestPermissionSettingsFailsWithTheirRead(t *testing.T) {
 		srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: newFakeClusterService(c.clusters), Settings: settings.NewService(cfg, nil, nil, nil, "")}))
 		t.Cleanup(srv.Close)
 
-		message, code := refusalOf(t, srv, `{ permissionSettings { defaultMode } }`)
+		message, code := refusalOf(t, srv, `{ permissionSettings { rules { id } } }`)
 		assert.NotEqual(t, "KSTACK_VALIDATION_ERROR", code, name)
 		assert.Contains(t, message, c.table, name)
 	}
@@ -3071,7 +3109,7 @@ func TestAClusterWriteCarriesItsAction(t *testing.T) {
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 	query := `subscription { chatMessageCollectionWatch(chatID: "` + chatID + `") {
-		message { seq status toolCalls { sandboxActions { action { summary class context namespace verb group kind grantable commandRule chatRule } } } } } }`
+		message { seq status toolCalls { sandboxActions { action { target summary accessLevel principal scope accountName service operation resource name once grantable commandRule chatRule } } } } } }`
 	settled := func(f map[string]any) bool {
 		msg, ok := f["message"].(map[string]any)
 		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
@@ -3083,9 +3121,10 @@ func TestAClusterWriteCarriesItsAction(t *testing.T) {
 	var callID string
 	require.NoError(t, db.Read.QueryRow(`SELECT id FROM tool_calls`).Scan(&callID))
 	_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, created_at) VALUES (?, ?, 'action', ?, 'denied', 1)`,
-		appdb.NewID(), callID, `{"action":{"class":4,"context":"dev","namespace":"web","verb":"delete","group":"core","kind":"pods","name":"x",
-		"summary":"Delete pods/x in web on dev","dryRun":false},"grantable":true,
-		"commandRule":"Allow delete of core pods in dev / web for this command","chatRule":"Allow cluster writes in dev / web",
+		appdb.NewID(), callID, `{"action":{"principal":"","target":"kubernetes","accessLevel":"write","scope":"","accountName":"dev",
+		"service":"","operation":"delete","resource":"pods","name":"x","summary":"Delete pods/x in web on dev","dryRun":false,
+		"confined":false,"once":false},"grantable":true,
+		"commandRule":"Allow delete of core pods in dev / web for this command","chatRule":"Allow writes in dev / web",
 		"write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/x"}}`)
 	require.NoError(t, err)
 
@@ -3094,9 +3133,10 @@ func TestAClusterWriteCarriesItsAction(t *testing.T) {
 	f := awaitChatFrame(t, events, settled)
 	writes := f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["sandboxActions"].([]any)
 	assert.Equal(t, []any{map[string]any{"action": map[string]any{
-		"summary": "Delete pods/x in web on dev", "class": "UpstreamWrite", "context": "dev", "namespace": "web",
-		"verb": "delete", "group": "core", "kind": "pods", "grantable": true,
-		"commandRule": "Allow delete of core pods in dev / web for this command", "chatRule": "Allow cluster writes in dev / web",
+		"target": "Kubernetes", "summary": "Delete pods/x in web on dev", "accessLevel": "Write", "principal": nil,
+		"scope": "", "accountName": "dev", "service": "", "operation": "delete", "resource": "pods", "name": "x",
+		"once": false, "grantable": true,
+		"commandRule": "Allow delete of core pods in dev / web for this command", "chatRule": "Allow writes in dev / web",
 	}}}, writes)
 }
 
@@ -3104,37 +3144,55 @@ func TestAClusterWriteCarriesItsAction(t *testing.T) {
 // fails fails the line, and a rule naming no cluster reads none.
 func TestARulesLineFailsWithItsClustersRead(t *testing.T) {
 	wantErr := errors.New("store closed")
-	rules := (&graph.Resolver{ClusterSvc: errClusterService{err: wantErr}}).KubeRule()
+	rules := (&graph.Resolver{ClusterSvc: errClusterService{err: wantErr}}).PermissionRule()
+	rule := func(effect permissions.Effect, target, scope string) *permissions.Rule {
+		return &permissions.Rule{Effect: effect, AccessLevel: permissions.Write, Principal: "*", Target: target, Scope: scope, Service: "*", Operation: "*", Resource: "*"}
+	}
 
-	_, err := rules.Line(t.Context(), &permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1"})
+	_, err := rules.Line(t.Context(), rule(permissions.Allow, "kubernetes", "1/**"))
 	assert.ErrorIs(t, err, wantErr)
-	line, err := rules.Line(t.Context(), &permissions.Rule{Effect: permissions.Deny, Class: permissions.UpstreamWrite})
+	line, err := rules.Line(t.Context(), rule(permissions.Deny, "*", "*"))
 	require.NoError(t, err)
-	assert.Equal(t, "Deny cluster writes everywhere", line)
+	assert.Equal(t, "Deny writes everywhere", line)
+	line, err = rules.Line(t.Context(), rule(permissions.Allow, "aws", "123456789012/eu-west-1"))
+	require.NoError(t, err)
+	assert.Equal(t, "Allow writes in AWS 123456789012 / eu-west-1", line, "a cloud account is named by itself")
 }
 
-// chatKubeRules lists a chat's rules by their lines, and chatKubeRuleRemove answers
-// the list without the one removed; an id the chat does not hold and a chat
-// that is gone are each not found.
-func TestChatKubeRulesListAndRemove(t *testing.T) {
+// An action's principal is null for a stored action that names none.
+func TestAnActionsPrincipalIsNullWhenItNamesNone(t *testing.T) {
+	actions := (&graph.Resolver{}).PermissionAction()
+	got, err := actions.Principal(t.Context(), &chat.PermissionAction{Action: permissions.Action{Principal: permissions.Subagent}})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, permissions.Subagent, *got)
+	got, err = actions.Principal(t.Context(), &chat.PermissionAction{})
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+// chatPermissionRules lists a chat's rules by their lines, and
+// chatPermissionRuleRemove answers the list without the one removed; an id the
+// chat does not hold and a chat that is gone are each not found.
+func TestChatPermissionRulesListAndRemove(t *testing.T) {
 	srv, db, _ := newChatServerOver(t)
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 	id := appdb.NewID()
-	_, err := db.Write.Exec(`INSERT INTO kube_rules (id, chat_id, effect, class, cluster_id, namespace, created_at)
-		VALUES (?, ?, 'allow', 'upstream-write', '1', 'web', 1)`, id, chatID)
+	_, err := db.Write.Exec(`INSERT INTO permission_rules (id, chat_id, effect, access_level, principal, target, scope, service, operation, resource, created_at, updated_at)
+		VALUES (?, ?, 'allow', 'write', '*', 'kubernetes', '1/web', '*', '*', '*', 1, 1)`, id, chatID)
 	require.NoError(t, err)
 
-	data := mutate(t, srv, `query { chatKubeRules(chatID: "`+chatID+`") { id clusterID line } }`)
-	assert.Equal(t, []any{map[string]any{"id": id, "clusterID": "1", "line": "Allow cluster writes in 1 / web"}}, data["chatKubeRules"], "a cluster the service does not list is named by its id")
+	data := mutate(t, srv, `query { chatPermissionRules(chatID: "`+chatID+`") { id scope line } }`)
+	assert.Equal(t, []any{map[string]any{"id": id, "scope": "1/web", "line": "Allow writes in 1 / web"}}, data["chatPermissionRules"], "a cluster the service does not list is named by its id")
 
-	_, code := refusalOf(t, srv, `mutation { chatKubeRuleRemove(chatID: "`+chatID+`", id: "`+appdb.NewID()+`") { id } }`)
+	_, code := refusalOf(t, srv, `mutation { chatPermissionRuleRemove(chatID: "`+chatID+`", id: "`+appdb.NewID()+`") { id } }`)
 	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
-	data = mutate(t, srv, `mutation { chatKubeRuleRemove(chatID: "`+chatID+`", id: "`+id+`") { id } }`)
-	assert.Equal(t, []any{}, data["chatKubeRuleRemove"])
+	data = mutate(t, srv, `mutation { chatPermissionRuleRemove(chatID: "`+chatID+`", id: "`+id+`") { id } }`)
+	assert.Equal(t, []any{}, data["chatPermissionRuleRemove"])
 
-	_, code = refusalOf(t, srv, `mutation { chatKubeRuleRemove(chatID: "`+appdb.NewID()+`", id: "`+id+`") { id } }`)
+	_, code = refusalOf(t, srv, `mutation { chatPermissionRuleRemove(chatID: "`+appdb.NewID()+`", id: "`+id+`") { id } }`)
 	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
 }
 
@@ -3726,7 +3784,7 @@ func TestSandboxCloudAccessListsTheBuildsCloudPlatforms(t *testing.T) {
 // either.
 func TestSandboxCloudAccessSetRefusesWhatHasNoSwitch(t *testing.T) {
 	srv, cfg, _ := newCloudServer(t, permissions.AWS)
-	for _, target := range []string{"Cluster", "GitHub"} {
+	for _, target := range []string{"Kubernetes", "GitHub"} {
 		message, code := refusalOf(t, srv, `mutation { sandboxCloudAccessSet(target: `+target+`, on: false) { target } }`)
 		assert.Equal(t, "KSTACK_VALIDATION_ERROR", code, target)
 		assert.Equal(t, "This build has no switch for that target.", message, target)

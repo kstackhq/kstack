@@ -34,7 +34,7 @@ func TestEachCloudPlatformStartsOn(t *testing.T) {
 	for _, target := range cloudPlatforms {
 		assert.True(t, sw.On(target), target)
 	}
-	assert.False(t, sw.On(permissions.Cluster), "the cluster has no switch")
+	assert.False(t, sw.On(permissions.Kubernetes), "the cluster has no switch")
 }
 
 // A write turns one switch, and leaves the others.
@@ -60,7 +60,7 @@ func TestSetCloudPlatformSwitchWritesOneSwitch(t *testing.T) {
 func TestTheClusterHasNoCloudPlatformSwitch(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
-	assert.ErrorIs(t, s.SetCloudPlatformSwitch(t.Context(), permissions.Cluster, false), ErrNoCloudPlatformSwitch)
+	assert.ErrorIs(t, s.SetCloudPlatformSwitch(t.Context(), permissions.Kubernetes, false), ErrNoCloudPlatformSwitch)
 	sw, err := s.CloudPlatformSwitches(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, CloudPlatformSwitches{AWS: true, GitHub: true, GCP: true, Azure: true}, sw, "nothing was written")

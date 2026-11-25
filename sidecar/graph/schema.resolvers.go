@@ -253,19 +253,6 @@ func (r *googleConnectionResolver) Failure(ctx context.Context, obj *connectors.
 	return &obj.Failure, nil
 }
 
-// ClusterID is the resolver for the clusterID field.
-func (r *kubeRuleResolver) ClusterID(ctx context.Context, obj *permissions.Rule) (*apimeta.ClusterID, error) {
-	if obj.ClusterID == "" {
-		return nil, nil
-	}
-	return &obj.ClusterID, nil
-}
-
-// Line is the resolver for the line field.
-func (r *kubeRuleResolver) Line(ctx context.Context, obj *permissions.Rule) (string, error) {
-	return r.ruleLine(ctx, *obj)
-}
-
 // ProviderKeySave is the resolver for the providerKeySave field.
 func (r *mutationResolver) ProviderKeySave(ctx context.Context, providerID string, key string) (bool, error) {
 	if err := r.ProviderCredentials.Save(providerID, key); err != nil {
@@ -561,38 +548,46 @@ func (r *mutationResolver) ToolSettingSet(ctx context.Context, name string, enab
 }
 
 // PermissionDefaultModeSet is the resolver for the permissionDefaultModeSet field.
-func (r *mutationResolver) PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.SetDefaultMode(ctx, mode))
+func (r *mutationResolver) PermissionDefaultModeSet(ctx context.Context, target permissions.Target, mode permissions.Mode) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.Settings.SetMode(ctx, target, "*", mode))
 }
 
 // PermissionModeSet is the resolver for the permissionModeSet field.
-func (r *mutationResolver) PermissionModeSet(ctx context.Context, clusterID apimeta.ClusterID, mode permissions.Mode) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.SetMode(ctx, clusterID, mode))
+func (r *mutationResolver) PermissionModeSet(ctx context.Context, target permissions.Target, account string, mode permissions.Mode) (*model.PermissionSettings, error) {
+	if account == "*" {
+		return nil, gqlerrors.NewValidationError("permission", "an account is one name, with no / and no * or ?")
+	}
+	return r.permissionsAfter(ctx, r.Settings.SetMode(ctx, target, account, mode))
 }
 
 // PermissionModeClear is the resolver for the permissionModeClear field.
-func (r *mutationResolver) PermissionModeClear(ctx context.Context, clusterID apimeta.ClusterID) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.ClearMode(ctx, clusterID))
+func (r *mutationResolver) PermissionModeClear(ctx context.Context, target permissions.Target, account string) (*model.PermissionSettings, error) {
+	if account == "*" {
+		return nil, gqlerrors.NewValidationError("permission", "an account is one name, with no / and no * or ?")
+	}
+	return r.permissionsAfter(ctx, r.Settings.ClearMode(ctx, target, account))
 }
 
-// KubeRuleAdd is the resolver for the kubeRuleAdd field.
-func (r *mutationResolver) KubeRuleAdd(ctx context.Context, input model.KubeRuleInput) (*model.PermissionSettings, error) {
-	rule := permissions.Rule{
-		Effect: input.Effect, Class: input.Class, ClusterID: valueOf(input.ClusterID),
-		Namespace: input.Namespace, Verb: input.Verb, Group: input.Group, Kind: input.Kind,
-	}
-	_, err := r.Settings.AddKubeRule(ctx, rule)
+// PermissionRuleAdd is the resolver for the permissionRuleAdd field.
+func (r *mutationResolver) PermissionRuleAdd(ctx context.Context, input model.PermissionRuleInput) (*model.PermissionSettings, error) {
+	_, err := r.Settings.AddRule(ctx, ruleOf(input))
 	return r.permissionsAfter(ctx, err)
 }
 
-// KubeRuleRemove is the resolver for the kubeRuleRemove field.
-func (r *mutationResolver) KubeRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.RemoveKubeRule(ctx, id))
+// PermissionRuleUpdate is the resolver for the permissionRuleUpdate field.
+func (r *mutationResolver) PermissionRuleUpdate(ctx context.Context, id string, input model.PermissionRuleInput) (*model.PermissionSettings, error) {
+	_, err := r.Settings.UpdateRule(ctx, id, ruleOf(input))
+	return r.permissionsAfter(ctx, err)
 }
 
-// ChatKubeRuleRemove is the resolver for the chatKubeRuleRemove field.
-func (r *mutationResolver) ChatKubeRuleRemove(ctx context.Context, chatID apimeta.ChatID, id string) ([]*permissions.Rule, error) {
-	rules, err := r.ChatSvc.RemoveChatKubeRule(ctx, chatID, id)
+// PermissionRuleRemove is the resolver for the permissionRuleRemove field.
+func (r *mutationResolver) PermissionRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.Settings.RemoveRule(ctx, id))
+}
+
+// ChatPermissionRuleRemove is the resolver for the chatPermissionRuleRemove field.
+func (r *mutationResolver) ChatPermissionRuleRemove(ctx context.Context, chatID apimeta.ChatID, id string) ([]*permissions.Rule, error) {
+	rules, err := r.ChatSvc.RemoveChatRule(ctx, chatID, id)
 	if err != nil {
 		return nil, chatErr(err)
 	}
@@ -783,6 +778,37 @@ func (r *openRouterConnectionResolver) Failure(ctx context.Context, obj *connect
 	return &obj.Failure, nil
 }
 
+// Principal is the resolver for the principal field.
+func (r *permissionActionResolver) Principal(ctx context.Context, obj *chat.PermissionAction) (*permissions.Principal, error) {
+	if obj.Action.Principal == "" {
+		return nil, nil
+	}
+	return &obj.Action.Principal, nil
+}
+
+// Principal is the resolver for the principal field.
+func (r *permissionRuleResolver) Principal(ctx context.Context, obj *permissions.Rule) (*permissions.Principal, error) {
+	if obj.Principal == "*" {
+		return nil, nil
+	}
+	p := permissions.Principal(obj.Principal)
+	return &p, nil
+}
+
+// Target is the resolver for the target field.
+func (r *permissionRuleResolver) Target(ctx context.Context, obj *permissions.Rule) (*permissions.Target, error) {
+	if obj.Target == "*" {
+		return nil, nil
+	}
+	t := permissions.Target(obj.Target)
+	return &t, nil
+}
+
+// Line is the resolver for the line field.
+func (r *permissionRuleResolver) Line(ctx context.Context, obj *permissions.Rule) (string, error) {
+	return r.ruleLine(ctx, *obj)
+}
+
 // KeyVariable is the resolver for the keyVariable field.
 func (r *providerCredentialStateResolver) KeyVariable(ctx context.Context, obj *providercredentials.State) (*string, error) {
 	if obj.KeyVar == "" {
@@ -898,9 +924,9 @@ func (r *queryResolver) SandboxFolders(ctx context.Context, chatID *apimeta.Chat
 	return r.sandboxFolders(ctx, valueOf(chatID))
 }
 
-// ChatKubeRules is the resolver for the chatKubeRules field.
-func (r *queryResolver) ChatKubeRules(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error) {
-	rules, err := r.ChatSvc.ChatKubeRules(ctx, chatID)
+// ChatPermissionRules is the resolver for the chatPermissionRules field.
+func (r *queryResolver) ChatPermissionRules(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error) {
+	rules, err := r.ChatSvc.ChatRules(ctx, chatID)
 	if err != nil {
 		return nil, chatErr(err)
 	}
@@ -1378,9 +1404,6 @@ func (r *Resolver) GitHubConnection() GitHubConnectionResolver { return &gitHubC
 // GoogleConnection returns GoogleConnectionResolver implementation.
 func (r *Resolver) GoogleConnection() GoogleConnectionResolver { return &googleConnectionResolver{r} }
 
-// KubeRule returns KubeRuleResolver implementation.
-func (r *Resolver) KubeRule() KubeRuleResolver { return &kubeRuleResolver{r} }
-
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
@@ -1388,6 +1411,12 @@ func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 func (r *Resolver) OpenRouterConnection() OpenRouterConnectionResolver {
 	return &openRouterConnectionResolver{r}
 }
+
+// PermissionAction returns PermissionActionResolver implementation.
+func (r *Resolver) PermissionAction() PermissionActionResolver { return &permissionActionResolver{r} }
+
+// PermissionRule returns PermissionRuleResolver implementation.
+func (r *Resolver) PermissionRule() PermissionRuleResolver { return &permissionRuleResolver{r} }
 
 // ProviderCredentialState returns ProviderCredentialStateResolver implementation.
 func (r *Resolver) ProviderCredentialState() ProviderCredentialStateResolver {
@@ -1416,9 +1445,10 @@ type (
 	envVarResolver                  struct{ *Resolver }
 	gitHubConnectionResolver        struct{ *Resolver }
 	googleConnectionResolver        struct{ *Resolver }
-	kubeRuleResolver                struct{ *Resolver }
 	mutationResolver                struct{ *Resolver }
 	openRouterConnectionResolver    struct{ *Resolver }
+	permissionActionResolver        struct{ *Resolver }
+	permissionRuleResolver          struct{ *Resolver }
 	providerCredentialStateResolver struct{ *Resolver }
 	queryResolver                   struct{ *Resolver }
 	subscriptionResolver            struct{ *Resolver }

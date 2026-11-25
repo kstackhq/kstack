@@ -45,9 +45,17 @@ vi.mock('@/lib/clusters', async (importOriginal) => ({
 }));
 vi.mock('@/lib/permission-settings', () => ({
   usePermissionSettings: () => ({
-    settings: { defaultMode: 'Ask', clusters: [], kubeRules: [], destructive: [] },
+    settings: {
+      targets: [{ target: 'Kubernetes', defaultMode: 'Ask', accounts: [] }],
+      rules: [],
+      alwaysAsks: [],
+      accessControl: [],
+    },
     error: null,
   }),
+}));
+vi.mock('@/lib/sandbox-cloud-access', () => ({
+  useSandboxCloudAccess: () => ({ platforms: [], readFailed: false }),
 }));
 
 vi.mock('./connectors', () => ({ ConnectorsSettings: () => <p>The connectors</p> }));

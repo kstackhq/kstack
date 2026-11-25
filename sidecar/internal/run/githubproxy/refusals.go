@@ -22,6 +22,7 @@ const (
 	refusedMethod       = "kstack: this method does not reach GitHub from the sandbox."
 	refusedCredential   = "kstack: this request answers a credential, so the sandbox never sends it."
 	refusedGraphQL      = "kstack: this GraphQL request cannot be read as GitHub would read it, so it was not sent."
+	refusedGraphQLMixed = "kstack: this GraphQL request mixes a destructive mutation with one that changes access; send them apart."
 	refusedGitRoute     = "kstack: only Git's smart HTTP protocol reaches GitHub from the sandbox."
 	refusedPush         = "kstack: this push cannot be read, so it was not sent."
 	refusedPushTooLarge = "kstack: this push names too many refs to show at once. Push fewer refs at a time."

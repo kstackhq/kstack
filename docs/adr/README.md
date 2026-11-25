@@ -174,7 +174,7 @@ usually just documentation in the wrong place.
 | 2026-10-02 | [Bound a sandboxed run's processes with resource limits set inside the run](2026-10-02-process-limits-are-set-inside-the-run.md) | sidecar | Accepted |
 | 2026-10-02 | [Accept that a sandboxed command on macOS reads other processes' arguments](2026-10-02-a-macos-sandboxed-command-reads-other-processes-arguments.md) | sidecar | Superseded by [2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings](2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings.md) |
 | 2026-10-02 | [PATH is the login shell's, filtered and frozen](2026-10-02-path-is-the-login-shells-filtered-and-frozen.md) | sidecar, webview | Superseded by [2026-11-24-the-sandbox-path-is-one-setting-the-user-writes](2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md) |
-| 2026-10-02 | [A sandboxed cluster write runs, asks or is refused by its class, the context's mode and the user's rules](2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md) | cross-cutting | Accepted |
+| 2026-10-02 | [A sandboxed cluster write runs, asks or is refused by its class, the context's mode and the user's rules](2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md) | cross-cutting | Superseded by [2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action](2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action.md) |
 | 2026-10-03 | [A spec never reaches main](2026-10-03-a-spec-never-reaches-main.md) | repo | Accepted |
 | 2026-10-03 | [Authorization is binary, and a prompt is a denial the user may lift](2026-10-03-authorization-is-binary-and-a-prompt-is-a-denial-the-user-may-lift.md) | sidecar | Accepted |
 | 2026-10-04 | [Run the login shell in the sandbox](2026-10-04-the-login-shell-runs-in-the-sandbox.md) | sidecar | Accepted |
@@ -297,3 +297,4 @@ usually just documentation in the wrong place.
 | 2026-11-24 | [Keep every setting as rows in app.db](2026-11-24-settings-are-rows-in-app-db.md) | sidecar | Accepted |
 | 2026-11-25 | [The security model is a file per subject, checked against the code](2026-11-25-the-security-model-is-a-file-per-subject-checked-against-the-code.md) | repo | Accepted |
 | 2026-11-25 | [Name every subscription for its family and kind](2026-11-25-name-every-subscription-for-its-family-and-kind.md) | cross-cutting | Accepted |
+| 2026-11-25 | [Decide every target's request by access level, a boundary, a mode and rules over one action](2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action.md) | cross-cutting | Accepted |

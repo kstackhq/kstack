@@ -3232,12 +3232,15 @@ describe('ChatTranscript', () => {
       action: {
         target: 'AWS',
         summary: 'AWS: call ec2:TerminateInstances in eu-west-1',
-        class: 'UpstreamWrite',
-        context: '',
-        namespace: '',
-        verb: 'TerminateInstances',
-        group: 'ec2',
-        kind: '',
+        accessLevel: 'Write',
+        principal: 'Chat',
+        scope: '123456789012/eu-west-1',
+        accountName: '123456789012',
+        service: 'ec2',
+        operation: 'TerminateInstances',
+        resource: '',
+        name: '',
+        once: true,
         grantable: false,
         commandRule: '',
         chatRule: '',
@@ -3291,7 +3294,7 @@ describe('ChatTranscript', () => {
     it('labels a data read, and names each cloud platform in words', () => {
       draw([
         waitingOn([
-          cloudRequest({ action: { ...cloudRequest().action!, class: 'SecretRead' } }),
+          cloudRequest({ action: { ...cloudRequest().action!, accessLevel: 'DataRead' } }),
           cloudRequest({
             approval: { id: 'c-2', status: 'Pending', duration: null },
             action: { ...cloudRequest().action!, target: 'GCP' },
@@ -3319,11 +3322,31 @@ describe('ChatTranscript', () => {
       expect(within(request).getByRole('button', { name: 'Approve once' })).toBeEnabled();
     });
 
-    // A rule is always a cluster's, so a cloud platform's request offers no
-    // allow answer even when marked grantable.
-    it('offers no allow answer on a grantable cloud platform request', () => {
-      const action = { ...cloudRequest().action!, grantable: true, commandRule: 'c', chatRule: 'r' };
+    // A grantable cloud platform request offers every duration, as a
+    // cluster write does, each with the rule it adds through VisibleText.
+    it('offers every allow answer on a grantable cloud platform request', () => {
+      const action = {
+        ...cloudRequest().action!,
+        once: false,
+        grantable: true,
+        commandRule: 'Allow StartInstances of ec2 "" in AWS 123456789012 / eu-west-1 for this command',
+        chatRule: 'Allow writes in AWS 123456789012 / eu-west-1\u{202E}',
+      };
       draw([waitingOn([cloudRequest({ action })])]);
+      const request = screen.getByRole('group', { name: 'AWS change awaiting approval' });
+      expect(
+        within(request)
+          .getAllByRole('button')
+          .map((b) => b.textContent),
+      ).toEqual(['Approve once', 'Allow for this command', 'Allow for this chat', 'Always allow', 'Deny']);
+      expect(within(request).getByRole('button', { name: 'Always allow' }).parentElement).toHaveTextContent(
+        'Allow writes in AWS 123456789012 / eu-west-1\\u{202E}',
+      );
+    });
+
+    // One no answer may grant offers Once and Deny alone.
+    it('offers no allow answer on a cloud platform request that is not grantable', () => {
+      draw([waitingOn([cloudRequest()])]);
       const request = screen.getByRole('group', { name: 'AWS change awaiting approval' });
       expect(
         within(request)
@@ -3334,7 +3357,7 @@ describe('ChatTranscript', () => {
 
     // A request it cannot draw is still headed by its target and class.
     it('heads a data read it cannot draw as a data read', () => {
-      const action = { ...cloudRequest().action!, class: 'SecretRead' as const };
+      const action = { ...cloudRequest().action!, accessLevel: 'DataRead' as const };
       draw([waitingOn([cloudRequest({ action, request: null })])]);
       const request = screen.getByRole('group', { name: 'AWS data read awaiting approval' });
       expect(request).toHaveTextContent("This request can't be shown.");
@@ -3407,17 +3430,20 @@ describe('ChatTranscript', () => {
       const { approval, action, reason, ...request }: FlatWrite = {
         approval: { id: 'w-1', status: 'Pending', duration: null },
         action: {
-          target: 'Cluster',
+          target: 'Kubernetes',
           summary: 'Delete pods/x in web on dev',
-          class: 'UpstreamWrite',
-          context: 'dev',
-          namespace: 'web',
-          verb: 'delete',
-          group: 'core',
-          kind: 'pods',
+          accessLevel: 'Write',
+          principal: 'Chat',
+          scope: 'c1/web',
+          accountName: 'dev',
+          service: '',
+          operation: 'delete',
+          resource: 'pods',
+          name: 'x',
+          once: false,
           grantable: true,
           commandRule: 'Allow delete of core pods in dev / web for this command',
-          chatRule: 'Allow cluster writes in dev / web',
+          chatRule: 'Allow writes in dev / web',
         },
         method: 'DELETE',
         path: '/api/v1/namespaces/web/pods/x',
@@ -3563,9 +3589,7 @@ describe('ChatTranscript', () => {
         'Allow delete of core pods in dev / web for this command',
       );
       ['Allow for this chat', 'Always allow'].forEach((name) => {
-        expect(screen.getByRole('button', { name }).parentElement).toHaveTextContent(
-          'Allow cluster writes in dev / web',
-        );
+        expect(screen.getByRole('button', { name }).parentElement).toHaveTextContent('Allow writes in dev / web');
       });
 
       await act(async () => {
@@ -3584,7 +3608,7 @@ describe('ChatTranscript', () => {
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name }));
       });
-      expect(sendMock).toHaveBeenLastCalledWith({ id: 'w-1', decision }, { additionalTypenames: ['KubeRule'] });
+      expect(sendMock).toHaveBeenLastCalledWith({ id: 'w-1', decision }, { additionalTypenames: ['PermissionRule'] });
     });
 
     it('sends Deny as Deny', async () => {
@@ -3605,7 +3629,9 @@ describe('ChatTranscript', () => {
 
     it('offers Approve once and Deny alone for an action no rule may allow', () => {
       draw([
-        waitingOn([clusterWrite({ action: { ...clusterWrite().action!, class: 'Destructive', grantable: false } })]),
+        waitingOn([
+          clusterWrite({ action: { ...clusterWrite().action!, accessLevel: 'Destructive', grantable: false } }),
+        ]),
       ]);
       const names = within(request())
         .getAllByRole('button')
@@ -3642,12 +3668,12 @@ describe('ChatTranscript', () => {
       draw([
         waitingOn([
           clusterWrite({
-            action: { ...clusterWrite().action!, chatRule: 'Allow cluster writes in "say \\"hi\\"\u200b"' },
+            action: { ...clusterWrite().action!, chatRule: 'Allow writes in "say \\"hi\\"\u200b"' },
           }),
         ]),
       ]);
       const line = screen.getByRole('button', { name: 'Allow for this chat' }).parentElement!;
-      expect(line).toHaveTextContent('Allow cluster writes in "say \\"hi\\"');
+      expect(line).toHaveTextContent('Allow writes in "say \\"hi\\"');
       expect(line.querySelector('mark')).not.toBeNull();
     });
 
@@ -3797,17 +3823,20 @@ describe('ChatTranscript', () => {
     const secretRead = (over: Partial<FlatWrite> = {}): ChatSandboxAction =>
       clusterWrite({
         action: {
-          target: 'Cluster',
+          target: 'Kubernetes',
           summary: 'Show Secret db in web on dev',
-          class: 'SecretRead',
-          context: 'dev',
-          namespace: 'web',
-          verb: 'get',
-          group: 'core',
-          kind: 'secrets',
+          accessLevel: 'DataRead',
+          principal: 'Chat',
+          scope: 'c1/web',
+          accountName: 'dev',
+          service: '',
+          operation: 'get',
+          resource: 'secrets',
+          name: 'db',
+          once: false,
           grantable: true,
           commandRule: 'Allow get of core secrets in dev / web for this command',
-          chatRule: 'Allow Secret reads in dev / web',
+          chatRule: 'Allow data reads in dev / web',
         },
         method: 'GET',
         path: '/api/v1/namespaces/web/secrets/db',
@@ -3833,7 +3862,7 @@ describe('ChatTranscript', () => {
           .map((b) => b.textContent),
       ).toEqual(['Approve once', 'Allow for this command', 'Allow for this chat', 'Always allow', 'Deny']);
       expect(screen.getByRole('button', { name: 'Allow for this chat' }).parentElement).toHaveTextContent(
-        'Allow Secret reads in dev / web',
+        'Allow data reads in dev / web',
       );
     });
 
@@ -3842,12 +3871,17 @@ describe('ChatTranscript', () => {
         waitingOn([
           secretRead({
             path: '/api/v1/secrets',
-            action: { ...secretRead().action!, namespace: '', verb: 'list', chatRule: 'Allow Secret reads in dev' },
+            action: {
+              ...secretRead().action!,
+              scope: 'c1',
+              operation: 'list',
+              chatRule: 'Allow data reads of core secrets in dev',
+            },
           }),
         ]),
       ]);
       expect(screen.getByRole('button', { name: 'Always allow' }).parentElement).toHaveTextContent(
-        /^Always allowAllow Secret reads in dev$/,
+        /^Always allowAllow data reads of core secrets in dev$/,
       );
     });
 

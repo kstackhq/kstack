@@ -119,10 +119,15 @@ func TestLogsReadActionKeepsTheWindow(t *testing.T) {
 }
 
 // A cloud request round-trips through the approval's request column, and a
-// stored cluster request, written before it existed, reads as it did.
+// stored cluster request, in the keys migration 0006 writes, reads back.
 func TestACloudRequestRoundTripsAsJSON(t *testing.T) {
 	in := ActionRequest{
-		Action: permissions.Action{Target: permissions.AWS, Class: permissions.UpstreamWrite, Summary: "AWS: call ec2:TerminateInstances in eu-west-1"},
+		Action: permissions.Action{
+			Principal: permissions.Chat, Target: permissions.AWS, Scope: "123456789012/eu-west-1", AccountName: "123456789012",
+			Service: "ec2", Operation: "TerminateInstances", AccessLevel: permissions.Write, Once: true,
+			Summary: "AWS: call ec2:TerminateInstances in eu-west-1",
+		},
+		Grantable: false,
 		Cloud: &CloudRequest{
 			Host: "ec2.eu-west-1.amazonaws.com", Method: "POST", Path: "/?a=1", ContentType: "application/x-www-form-urlencoded",
 			Body: "Action=TerminateInstances", Details: []Detail{{Label: "Region", Value: "eu-west-1"}},
@@ -133,11 +138,16 @@ func TestACloudRequestRoundTripsAsJSON(t *testing.T) {
 	var out ActionRequest
 	require.NoError(t, json.Unmarshal(b, &out))
 	assert.Equal(t, in, out)
-	assert.NotContains(t, string(b), `"write"`)
+	assert.NotContains(t, string(b), `"write":`)
 
 	var stored ActionRequest
-	require.NoError(t, json.Unmarshal([]byte(`{"action":{"class":4,"verb":"delete"},"write":{"method":"DELETE","path":"/api/v1/namespaces/a/pods/b"}}`), &stored))
+	require.NoError(t, json.Unmarshal([]byte(`{"action":{"principal":"","target":"kubernetes","accessLevel":"write","scope":"",
+		"accountName":"dev","service":"","operation":"delete","resource":"pods","name":"b","summary":"Delete pods/b in a on dev",
+		"dryRun":false,"confined":false,"once":false},"write":{"method":"DELETE","path":"/api/v1/namespaces/a/pods/b"}}`), &stored))
 	assert.Nil(t, stored.Cloud)
-	assert.Equal(t, permissions.Cluster, stored.Action.Target)
+	assert.Equal(t, permissions.Action{
+		Target: permissions.Kubernetes, AccessLevel: permissions.Write, AccountName: "dev",
+		Operation: "delete", Resource: "pods", Name: "b", Summary: "Delete pods/b in a on dev",
+	}, stored.Action)
 	assert.Equal(t, "DELETE", stored.Write.Method)
 }

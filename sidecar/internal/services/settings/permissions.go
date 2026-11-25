@@ -19,27 +19,35 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-// ModeSource is where a cluster's mode comes from.
+// ModeSource is where an account's mode comes from.
 type ModeSource string
 
 const (
-	// SourceEntry is the cluster's own row.
+	// SourceEntry is the account's own row.
 	SourceEntry ModeSource = "entry"
-	// SourceDefault is the default mode.
+	// SourceDefault is its target's default.
 	SourceDefault ModeSource = "default"
 )
 
-// ClusterModeState is one cluster's mode, as Settings shows it.
-type ClusterModeState struct {
-	ClusterID apimeta.ClusterID
-	Mode      permissions.Mode
-	Source    ModeSource
+// ModeState is one account's mode and where it comes from.
+type ModeState struct {
+	Mode   permissions.Mode
+	Source ModeSource
+}
+
+// ModeRow is one row of the modes: an account's, or with Account "*" its
+// target's default.
+type ModeRow struct {
+	Target  permissions.Target
+	Account string
+	Mode    permissions.Mode
 }
 
 var (
@@ -60,6 +68,11 @@ type RuleRefusal string
 
 func (r RuleRefusal) Error() string { return string(r) }
 
+// ModeRefusal is why a mode cannot be written, in the user's words.
+type ModeRefusal string
+
+func (r ModeRefusal) Error() string { return string(r) }
+
 // FolderGrant is one folder grant as stored: its folder, absolute and
 // resolved, and whether it grants writes.
 type FolderGrant struct {
@@ -68,113 +81,162 @@ type FolderGrant struct {
 	Write bool
 }
 
-// modeEntry is the approval mode: the default's row and each cluster's own.
-// Read-only is the strictest: a mode Kstack cannot use refuses every cluster
-// write.
-var modeEntry = Entry[permissions.Mode]{
-	Key:        "permissions.approval_mode",
-	Default:    permissions.Ask,
-	Strictest:  new(permissions.ReadOnly),
-	PerCluster: true,
-	Check:      checkMode,
-}
+// defaultAccount is the account a target's default mode is stored under.
+const defaultAccount = "*"
 
-func checkMode(mode permissions.Mode) error {
-	switch mode {
-	case permissions.ReadOnly, permissions.Ask, permissions.Auto:
-		return nil
+// readMode is a stored mode: read-only for one Kstack cannot use.
+func readMode(stored string) permissions.Mode {
+	if mode := permissions.Mode(stored); slices.Contains(permissions.Modes, mode) {
+		return mode
 	}
-	return fmt.Errorf("no approval mode is named %q", mode)
+	return permissions.ModeReadOnly
 }
 
-// ModeFor is cluster's mode and where it comes from: its own row, else the
-// default row, else Ask. A read that fails is an error, which a decision reads
-// as read-only.
-func (s *Store) ModeFor(ctx context.Context, cluster apimeta.ClusterID) (ClusterModeState, error) {
-	mode, scope, err := readSetting(ctx, s.stmts.Stmts(), modeEntry, cluster)
+// ModeFor is the mode of target's account and where it comes from: its own
+// row, else the target's default row, else ask. A mode Kstack cannot use is
+// read-only. A read that fails is an error, which a decision reads as
+// read-only.
+func (s *Store) ModeFor(ctx context.Context, target permissions.Target, account string) (ModeState, error) {
+	account = canonicalScope(string(target), account)
+	rows, err := s.stmts.Stmts().Query(ctx, stmtSelectAccountModes, string(target), account)
 	if err != nil {
-		return ClusterModeState{}, err
+		return ModeState{}, fmt.Errorf("select modes: %w", err)
 	}
-	return modeState(cluster, mode, scope), nil
-}
-
-// modeState is cluster's mode, its own (SourceEntry) only when its own row
-// holds it.
-func modeState(cluster apimeta.ClusterID, mode permissions.Mode, scope settingScope) ClusterModeState {
-	st := ClusterModeState{ClusterID: cluster, Mode: mode, Source: SourceDefault}
-	if scope == scopeOwn {
-		st.Source = SourceEntry
-	}
-	return st
-}
-
-// ClusterModes is the default mode, Ask when unset, and each of clusters'
-// modes as ModeFor answers it, from one read of the modes, so every cluster
-// that takes the default shows the same one.
-func (s *Store) ClusterModes(ctx context.Context, clusters []apimeta.ClusterID) (permissions.Mode, []ClusterModeState, error) {
-	stored, err := selectSettingScopes(ctx, s.stmts.Stmts(), modeEntry.Key)
+	found, err := scanAll(rows, func() (ModeRow, error) {
+		var r ModeRow
+		var mode string
+		if err := rows.Scan(&r.Account, &mode); err != nil {
+			return ModeRow{}, fmt.Errorf("scan mode: %w", err)
+		}
+		r.Mode = readMode(mode)
+		return r, nil
+	})
 	if err != nil {
-		return "", nil, err
+		return ModeState{}, err
 	}
-	defaultMode, _ := modeEntry.valueFor(stored, "")
-	states := make([]ClusterModeState, 0, len(clusters))
-	for _, c := range clusters {
-		mode, scope := modeEntry.valueFor(stored, c)
-		states = append(states, modeState(c, mode, scope))
-	}
-	return defaultMode, states, nil
-}
-
-// SetDefaultMode sets the default mode.
-func (s *Store) SetDefaultMode(ctx context.Context, mode permissions.Mode) error {
-	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
-		return writeSetting(ctx, st, modeEntry, "", mode, s.now().UnixMilli())
-	})
-}
-
-// SetMode sets cluster's own mode: ErrClusterGone for a cluster that is gone
-// or awaiting deletion, ErrNoKubeContext for one with no kube-context.
-func (s *Store) SetMode(ctx context.Context, cluster apimeta.ClusterID, mode permissions.Mode) error {
-	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
-		if err := requireKubeContext(ctx, st, cluster); err != nil {
-			return err
+	st := ModeState{Mode: permissions.ModeAsk, Source: SourceDefault}
+	for _, r := range found {
+		if r.Account == account {
+			return ModeState{Mode: r.Mode, Source: SourceEntry}, nil
 		}
-		return writeSetting(ctx, st, modeEntry, cluster, mode, s.now().UnixMilli())
-	})
-}
-
-// ClearMode puts cluster back on the default mode, writing NULL in its own
-// row: ErrClusterGone for a cluster that is gone or awaiting deletion.
-func (s *Store) ClearMode(ctx context.Context, cluster apimeta.ClusterID) error {
-	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
-		if _, err := clusterHasKubeContext(ctx, st, cluster); err != nil {
-			return err
-		}
-		return resetSetting(ctx, st, modeEntry, cluster, s.now().UnixMilli())
-	})
-}
-
-// KubeRules is the always rules in the order written. A read that fails is an
-// error, which a decision reads as permissions.Unread.
-func (s *Store) KubeRules(ctx context.Context) ([]permissions.Rule, error) {
-	return selectKubeRules(ctx, s.stmts.Stmts())
-}
-
-// AddKubeRule writes r as an always rule, under a fresh id when it has none,
-// and answers it as written: a RuleRefusal for a rule Kstack cannot apply,
-// ErrClusterGone or ErrNoKubeContext for a cluster as SetMode refuses it, and
-// the rule held already, unwritten, when the rules hold the same one.
-func (s *Store) AddKubeRule(ctx context.Context, r permissions.Rule) (permissions.Rule, error) {
-	if err := CheckKubeRule(r); err != nil {
-		return permissions.Rule{}, err
+		st.Mode = r.Mode
 	}
-	err := s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
-		if r.ClusterID != "" {
-			if err := requireKubeContext(ctx, st, r.ClusterID); err != nil {
+	return st, nil
+}
+
+// Modes is every row of the modes, each mode Kstack cannot use read-only.
+func (s *Store) Modes(ctx context.Context) ([]ModeRow, error) {
+	rows, err := s.stmts.Stmts().Query(ctx, stmtSelectModes)
+	if err != nil {
+		return nil, fmt.Errorf("select modes: %w", err)
+	}
+	return scanAll(rows, func() (ModeRow, error) {
+		var r ModeRow
+		var target, mode string
+		if err := rows.Scan(&target, &r.Account, &mode); err != nil {
+			return ModeRow{}, fmt.Errorf("scan mode: %w", err)
+		}
+		r.Target, r.Mode = permissions.Target(target), readMode(mode)
+		return r, nil
+	})
+}
+
+// SetMode sets the mode of target's account, "*" for the target's default.
+// A Kubernetes account is a cluster Settings lists: ErrClusterGone for one
+// that is gone or awaiting deletion, ErrNoKubeContext for one with no
+// kube-context. A cloud account is any literal with no /, stored in lower
+// case. Anything else is a ModeRefusal.
+func (s *Store) SetMode(ctx context.Context, target permissions.Target, account string, mode permissions.Mode) error {
+	account = canonicalScope(string(target), account)
+	if !slices.Contains(permissions.Modes, mode) {
+		return ModeRefusal(fmt.Sprintf("no mode is named %q", mode))
+	}
+	if err := checkAccount(target, account); err != nil {
+		return err
+	}
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
+		if target == permissions.Kubernetes && account != defaultAccount {
+			if err := requireKubeContext(ctx, st, apimeta.ClusterID(account)); err != nil {
 				return err
 			}
 		}
-		held, err := selectKubeRules(ctx, st)
+		if _, err := st.Exec(ctx, stmtUpsertMode, string(target), account, string(mode), s.now().UnixMilli()); err != nil {
+			return fmt.Errorf("write mode: %w", err)
+		}
+		return nil
+	})
+}
+
+// ClearMode removes the mode of target's account, putting it back on the
+// target's default, or the default back on ask: ErrClusterGone for a
+// Kubernetes account that is gone or awaiting deletion.
+func (s *Store) ClearMode(ctx context.Context, target permissions.Target, account string) error {
+	account = canonicalScope(string(target), account)
+	if err := checkAccount(target, account); err != nil {
+		return err
+	}
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
+		if target == permissions.Kubernetes && account != defaultAccount {
+			if _, err := clusterHasKubeContext(ctx, st, apimeta.ClusterID(account)); err != nil {
+				return err
+			}
+		}
+		if _, err := st.Exec(ctx, stmtDeleteMode, string(target), account); err != nil {
+			return fmt.Errorf("delete mode: %w", err)
+		}
+		return nil
+	})
+}
+
+// canonicalScope is scope, or an account, as the classifiers spell it for
+// target: lower case, but for Kubernetes, whose account is a cluster's record
+// id. A rule or a mode spelled otherwise would never match.
+func canonicalScope(target, scope string) string {
+	if target == string(permissions.Kubernetes) {
+		return scope
+	}
+	return strings.ToLower(scope)
+}
+
+// checkAccount refuses a target Kstack does not know, and an account that is
+// neither "*" nor a non-empty literal with no /.
+func checkAccount(target permissions.Target, account string) error {
+	if _, ok := permissions.TargetNamed(string(target)); !ok {
+		return ModeRefusal(fmt.Sprintf("no target is named %q", target))
+	}
+	if account == defaultAccount {
+		return nil
+	}
+	if _, ok := permissions.LiteralValue(account); account == "" || strings.Contains(account, "/") || !ok {
+		return ModeRefusal("an account is one name, with no / and no * or ?")
+	}
+	return nil
+}
+
+// Rules is the always rules in the order written, each row CheckRule refuses
+// read as permissions.Unread in its place. A read that fails is an error,
+// which a decision reads as permissions.Unread.
+func (s *Store) Rules(ctx context.Context) ([]permissions.Rule, error) {
+	return selectRules(ctx, s.stmts.Stmts())
+}
+
+// AddRule writes r as an always rule, under a fresh id when it has none and
+// its scope as canonicalScope spells it, and answers it as written: a RuleRefusal for a rule Kstack cannot apply,
+// ErrClusterGone or ErrNoKubeContext for a Kubernetes rule naming a cluster
+// as SetMode refuses it, and the rule held already, unwritten, when the rules
+// hold the same one.
+func (s *Store) AddRule(ctx context.Context, r permissions.Rule) (permissions.Rule, error) {
+	r.Scope = canonicalScope(r.Target, r.Scope)
+	if err := CheckRule(r); err != nil {
+		return permissions.Rule{}, err
+	}
+	err := s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
+		if cluster, ok := ruleCluster(r); ok {
+			if err := requireKubeContext(ctx, st, cluster); err != nil {
+				return err
+			}
+		}
+		held, err := selectRuleRows(ctx, st)
 		if err != nil {
 			return err
 		}
@@ -185,7 +247,7 @@ func (s *Store) AddKubeRule(ctx context.Context, r permissions.Rule) (permission
 		if r.ID == "" {
 			r.ID = appdb.NewID()
 		}
-		return insertKubeRule(ctx, st, r, s.now().UnixMilli())
+		return insertRule(ctx, st, r, s.now().UnixMilli())
 	})
 	if err != nil {
 		return permissions.Rule{}, err
@@ -193,9 +255,58 @@ func (s *Store) AddKubeRule(ctx context.Context, r permissions.Rule) (permission
 	return r, nil
 }
 
-// RemoveKubeRule removes the always rule id: ErrNoRule when none has it.
-func (s *Store) RemoveKubeRule(ctx context.Context, id string) error {
-	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error { return execOne(ctx, st, stmtDeleteKubeRule, ErrNoRule, id) })
+// ruleCluster is the cluster a Kubernetes rule names, false for a rule naming
+// none: another target's, or one whose first scope segment is a pattern.
+func ruleCluster(r permissions.Rule) (apimeta.ClusterID, bool) {
+	if r.Target != string(permissions.Kubernetes) {
+		return "", false
+	}
+	cluster, ok := r.Account()
+	return apimeta.ClusterID(cluster), ok
+}
+
+// UpdateRule replaces the always rule id with r, keeping its id and its place,
+// and answers it as written. It refuses as AddRule does, and answers
+// ErrNoRule when no always rule has id. When another always rule is the same
+// as r, id is removed and that rule answered.
+func (s *Store) UpdateRule(ctx context.Context, id string, r permissions.Rule) (permissions.Rule, error) {
+	r.Scope = canonicalScope(r.Target, r.Scope)
+	if err := CheckRule(r); err != nil {
+		return permissions.Rule{}, err
+	}
+	r.ID = id
+	err := s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
+		if cluster, ok := ruleCluster(r); ok {
+			if err := requireKubeContext(ctx, st, cluster); err != nil {
+				return err
+			}
+		}
+		held, err := selectRuleRows(ctx, st)
+		if err != nil {
+			return err
+		}
+		i := slices.IndexFunc(held, func(h permissions.Rule) bool { return h.ID == id })
+		if i < 0 {
+			return ErrNoRule
+		}
+		if held[i] == r {
+			return errUnchanged
+		}
+		if j := slices.IndexFunc(held, func(h permissions.Rule) bool { return h.ID != id && h.Same(r) }); j >= 0 {
+			r = held[j]
+			return execOne(ctx, st, stmtDeleteRule, ErrNoRule, id)
+		}
+		return execOne(ctx, st, stmtUpdateRule, ErrNoRule, append(RuleValues(r)[1:], s.now().UnixMilli(), id)...)
+	})
+	if err != nil {
+		return permissions.Rule{}, err
+	}
+	return r, nil
+}
+
+// RemoveRule removes the always rule id: ErrNoRule when none has it.
+func (s *Store) RemoveRule(ctx context.Context, id string) error {
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error { return execOne(ctx, st, stmtDeleteRule, ErrNoRule, id) })
 }
 
 // FolderGrants is the always folder grants in the order written, unchecked: a
@@ -224,15 +335,12 @@ func (s *Store) ListenForPermissionChanges() ChangeNotifications {
 	return s.db.ListenForChanges(appdb.KeyPermissions)
 }
 
-var validEffects = map[permissions.Effect]bool{permissions.Allow: true, permissions.Deny: true, permissions.AskFor: true}
+var validEffects = []permissions.Effect{permissions.Allow, permissions.Deny, permissions.Ask}
 
-// secretReadVerbs are the verbs a Secret read is classified with.
-var secretReadVerbs = map[string]bool{"": true, "get": true, "list": true, "watch": true}
-
-// CheckKubeRule is why r cannot be written, as a RuleRefusal, or nil: what
-// kube_rules' CHECKs refuse, in the user's words. Every writer of the table
-// checks a rule here first.
-func CheckKubeRule(r permissions.Rule) error {
+// CheckRule is why r cannot be written, as a RuleRefusal, or nil. Every
+// writer of permission_rules checks a rule here first, and every read of one
+// runs it too.
+func CheckRule(r permissions.Rule) error {
 	if reason := ruleRefusal(r); reason != "" {
 		return RuleRefusal(reason)
 	}
@@ -241,41 +349,40 @@ func CheckKubeRule(r permissions.Rule) error {
 
 // ruleRefusal is why r cannot be written, or "".
 func ruleRefusal(r permissions.Rule) string {
+	_, levelKnown := permissions.LevelNamed(string(r.AccessLevel))
+	_, targetKnown := permissions.TargetNamed(r.Target)
+	_, accountNamed := r.Account()
 	switch {
-	case r.ID == permissions.Refused.ID || r.ID == permissions.RefusedSecrets.ID:
+	case r.ID == permissions.Refused.ID || r.ID == permissions.RefusedData.ID:
 		return "has the id Kstack keeps for its own rule"
-	case !validEffects[r.Effect]:
+	case !slices.Contains(validEffects, r.Effect):
 		return "has an effect other than allow, deny or ask"
-	case r.Class.Name() == "": // a class kube_rules stores
-		return "names a class no rule decides: only 4 (cluster writes), 5 (destructive cluster writes) and 6 (Secret reads)"
-	case r.Effect == permissions.Allow && r.Class == permissions.Destructive:
-		return "allows a destructive write, which always asks"
-	}
-	if r.Class == permissions.SecretRead {
-		if reason := secretRuleRefusal(r); reason != "" {
-			return reason
-		}
-	}
-	if r.Effect == permissions.Allow && r.ClusterID == "" {
-		return "allows on every cluster, which only a deny or ask rule may"
+	case !levelKnown:
+		return "names an access level Kstack does not know"
+	case r.AccessLevel == permissions.Read || r.AccessLevel == permissions.Reach:
+		return "names reads or reach, which no rule decides"
+	case r.Principal != "*" && r.Principal != string(permissions.Chat) && r.Principal != string(permissions.Subagent):
+		return "names a principal other than anyone, chat or subagent: the boundary alone decides the monitor and the console"
+	case r.Target != "*" && !targetKnown:
+		return "names a target Kstack does not know"
+	case !r.Storable():
+		return "has an empty scope, operation or resource"
+	case innerDoubleStar(r.Scope) || innerDoubleStar(r.Resource):
+		return "has a ** that is not a path's last segment"
+	case r.Effect != permissions.Allow:
+		return ""
+	case r.AccessLevel == permissions.Destructive:
+		return "allows a destructive change, which always asks"
+	case r.Principal == string(permissions.Subagent):
+		return "allows for a subagent, which its parent's verdict would never let win"
+	case r.Target == "*" || !accountNamed:
+		return "allows on every target or account, which only a deny or ask rule may"
 	}
 	return ""
 }
 
-// secretRuleRefusal is why a Secret read rule cannot be written, or "": it may
-// name what a Secret read is classified with, and nothing else.
-func secretRuleRefusal(r permissions.Rule) string {
-	switch {
-	case r.Inside:
-		return "is a Secret read rule marked inside, which only a cluster write rule may be"
-	case r.Namespace == permissions.ClusterScope:
-		return "is a Secret read rule naming [cluster], though every Secret is in a namespace"
-	case !secretReadVerbs[r.Verb]:
-		return "is a Secret read rule naming a verb other than get, list or watch"
-	case r.Group != "" && r.Group != "core":
-		return "is a Secret read rule naming a group other than core"
-	case r.Kind != "" && r.Kind != "secrets":
-		return "is a Secret read rule naming a resource other than secrets"
-	}
-	return ""
+// innerDoubleStar is whether path has a ** segment before its last.
+func innerDoubleStar(path string) bool {
+	segs := strings.Split(path, "/")
+	return slices.Contains(segs[:len(segs)-1], "**")
 }

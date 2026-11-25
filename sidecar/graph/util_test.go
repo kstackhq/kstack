@@ -12,6 +12,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
@@ -103,15 +104,14 @@ func TestEnvVarErrNamesTheRefusal(t *testing.T) {
 	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", e.Extensions["code"])
 }
 
-// A setting's refusal is a validation error in the user's words, the way
-// every other permission refusal is.
-func TestPermissionsAfterNamesASettingRefusal(t *testing.T) {
-	refusal := settings.SettingRefusal{Key: "permissions.approval_mode", Reason: errors.New(`no approval mode is named "sometimes"`)}
-	_, err := (&Resolver{}).permissionsAfter(context.Background(), refusal)
+// A mode's refusal is a validation error in the user's words, the way every
+// other permission refusal is.
+func TestPermissionsAfterNamesAModeRefusal(t *testing.T) {
+	_, err := (&Resolver{}).permissionsAfter(context.Background(), settings.ModeRefusal(`no mode is named "sometimes"`))
 	var e *gqlerror.Error
 	require.ErrorAs(t, err, &e)
 	assert.Equal(t, "KSTACK_VALIDATION_ERROR", e.Extensions["code"])
-	assert.Equal(t, `no approval mode is named "sometimes"`, e.Message, "the reason alone, never the key")
+	assert.Equal(t, `no mode is named "sometimes"`, e.Message)
 }
 
 // A failure that is no refusal stays opaque through the executable, variable and
@@ -290,4 +290,16 @@ func TestFrameOfEachKind(t *testing.T) {
 func TestProviderKeyErrPassesAnUnknownErrorThrough(t *testing.T) {
 	err := errors.New("boom")
 	assert.Same(t, err, providerKeyErr(err))
+}
+
+// A row Kstack cannot apply reads as two rules under its id; the wire lists it
+// once.
+func TestRulePointersListEachIDOnce(t *testing.T) {
+	rules := []permissions.Rule{{ID: "a"}, {ID: "bad", AccessLevel: permissions.Write}, {ID: "bad", AccessLevel: permissions.DataRead}, {ID: "c"}}
+
+	got := rulePointers(rules)
+
+	if len(got) != 3 || got[0].ID != "a" || got[1].AccessLevel != permissions.Write || got[2].ID != "c" {
+		t.Fatalf("rulePointers = %v", got)
+	}
 }

@@ -11,23 +11,22 @@ Editing a rule from Settings is reviewed in [the Permissions pane is reachable](
 | ID | Protection | Status | Residual |
 | --- | --- | --- | --- |
 | KUBE-1 | A sandboxed command reaches the chat's cluster alone, and a read passes. | **Enforced** | — |
-| KUBE-2 | `exec`, `attach`, `port-forward`, `proxy`, impersonation and a service account token come back `Forbidden` and never reach the server. | **Enforced** | — |
-| KUBE-3 | Every write is classified and decided under the write lock. It runs, waits on the user or is refused as `permissions.Decide` answers for its class, the cluster's mode and the user's rules. | **Enforced** | — |
-| KUBE-4 | The verdict matches the ordered table over every rule that can exist, and holds under any order of the rules. | **Enforced** | — |
+| KUBE-2 | `exec`, `attach`, `port-forward`, `proxy`, impersonation and a service account token come back `Forbidden` and never reach the server. They are the `reach` level, which no mode or rule allows. | **Enforced** | — |
+| KUBE-3 | Every write is classified and decided under the write lock. It runs, waits on the user or is refused as `permissions.Authorize` answers for its access level, the boundary, the cluster's mode and the user's rules. A write no table names asks each time, and so does a write to a Namespace object, which no namespace's rule covers. | **Enforced** | — |
+| KUBE-4 | The verdict matches the ordered table over every principal, level, mode, limit and rule that can exist, and holds under any order of the rules. | **Enforced** | — |
 | KUBE-5 | An allowed write is recorded before it is forwarded, and one whose record fails forwards nothing. | **Enforced** | — |
-| KUBE-6 | A refused write is a `Forbidden` naming the mode or the rule. | **Enforced** | — |
-| KUBE-7 | A destructive write is never allowed unasked. | **Enforced** | — |
-| KUBE-8 | A mode or rules Kstack cannot read refuse. The mode is read-only, `Refused` refuses every cluster write and `RefusedSecrets` every Secret read. | **Enforced** | — |
+| KUBE-6 | A refused write is a `Forbidden` naming the boundary, the mode or the rule. | **Enforced** | — |
+| KUBE-7 | A destructive change is never allowed unasked, and an access control change only inside a namespace. | **Enforced** | — |
+| KUBE-8 | A mode or rules Kstack cannot read refuse. The mode is read-only, `Refused` refuses every write and `RefusedData` every data read. | **Enforced** | — |
 | KUBE-9 | A write that asks reaches the server only once `Asker` approves, as the bytes shown. | **Enforced** | — |
 | KUBE-10 | Writes ask one at a time. | **Enforced** | — |
 | KUBE-11 | A write whose wait ends forwards nothing. | **Enforced** | — |
 | KUBE-12 | A background task and a run with no asker refuse every write unasked, whatever the mode or rules. | **Enforced** | — |
 | KUBE-13 | End to end, a sandboxed delete waits on one request and reaches the server once approved, and a denial comes back `Forbidden`. | **Enforced** | — |
-| KUBE-14 | A request's allow answers write a rule only where a grant lifts the verdict: `Unmatched`, not a dry run, with a cluster. Kstack refuses them on any other request, a call's own included. | **Enforced** | — |
-| KUBE-15 | No rule or mode decides a cloud platform's action. Each asks, Once or Deny. | **Enforced** | — |
-| KUBE-16 | A chat or always rule names the action's cluster by its record and its namespace as a literal. A cluster-scoped action's or a Namespace's rule names the group and resource too, and any other leaves the Namespace object out. A rule goes with its cluster. | **Enforced** | — |
-| KUBE-17 | A chat's rule is a `kube_rules` row listed and removed beside the composer, and an always rule is in Settings. Each is written before the decision lands, and once. | **Enforced** | — |
-| KUBE-18 | A command's rule names the verb and the resource too, and ends with the command's grant. | **Enforced** | — |
+| KUBE-14 | A request's allow answers write a rule only where the verdict is a grantable ask: not a dry run, not marked to ask each time, with an account. Kstack refuses them on any other request, a call's own included. | **Enforced** | — |
+| KUBE-16 | A chat or always rule allows the action's level in its scope as a literal, for every principal. A scope of one segment names the service and resource too. A Kubernetes rule goes with its cluster. | **Enforced** | — |
+| KUBE-17 | A chat's rule is a `permission_rules` row listed and removed beside the composer, and an always rule is in Settings. Each is written before the decision lands, and once. | **Enforced** | — |
+| KUBE-18 | A command's rule names the service, operation and resource too, and ends with the command's grant. | **Enforced** | — |
 | KUBE-19 | A cluster write's request names the classified action and the classifier's summary, written from the parsed path. | **Enforced** | — |
 | KUBE-20 | For a `PUT` or `PATCH` of a named object that asks, the request shows a diff of the object now against a dry run of the exact bytes, on a stable group version alone. | **Enforced** | `managedFields` is dropped from the diff. |
 | KUBE-21 | The diff redacts Secret values and every last-applied annotation. | **Enforced** | — |
@@ -40,11 +39,11 @@ Editing a rule from Settings is reviewed in [the Permissions pane is reachable](
 | KUBE-28 | A denial, an abandoned wait, a read with no one to ask and one whose record fails pass redacted with a 200. | **Enforced** | — |
 | KUBE-29 | A metadata-only read of a Secret asks no one and passes redacted. | **Enforced** | — |
 | KUBE-30 | Rules Kstack cannot read keep Secret data redacted. | **Enforced** | — |
-| KUBE-31 | A session marked `NoSecretData` never reads Secret data, ahead of every rule and under every mode. | **Enforced** | — |
-| KUBE-32 | A session marked `NoPrompts` never asks. | **Enforced** | — |
-| KUBE-33 | `NoSecretData` and `NoPrompts` are the session's alone, which the proxy copies onto the policy it reads. A chat's session carries neither, and the monitor's carries both. | **Enforced** | — |
-| KUBE-34 | A stored permission rule is one Kstack can apply. `kube_rules`' `CHECK`s refuse the ids Kstack keeps, an `allow` of a destructive write, an `allow` naming no cluster, a class no rule decides and a Secret read rule naming more than a Secret read. The Go check refuses the same rules in the user's words. | **Enforced** | — |
-| KUBE-35 | A failed read of the rules allows nothing and refuses every cluster write and Secret read. A failed read of a mode is read-only. | **Enforced** | — |
+| KUBE-31 | The monitor and the Sandbox console read and nothing else, and never ask. The boundary is Kstack's table by principal and level, which no mode or rule lifts. | **Enforced** | — |
+| KUBE-32 | A principal that does not ask is refused what would ask. | **Enforced** | — |
+| KUBE-33 | A narrowed monitor stays a monitor. A chat's session asks and reads Secret data as its rules decide, and the monitor's is read-only and asks nobody. | **Enforced** | — |
+| KUBE-34 | A stored permission rule is one Kstack can apply. `settings.CheckRule` refuses on every write, in the user's words, a reserved id, an effect, level, principal or target Go does not know, a rule of reads or reach, an empty scope, operation or resource, a `**` before a path's end, a rule naming the monitor or the console, and an `allow` of a destructive change, for a subagent, on every target or on an account named by a pattern. A stored row it refuses denies every write and data read. | **Enforced** | — |
+| KUBE-35 | A failed read of the rules allows nothing and refuses every write and data read. A failed read of a mode is read-only. | **Enforced** | — |
 | KUBE-36 | A failed read of the folder grants fails what needed them. | **Enforced** | — |
 | KUBE-37 | A monitor run changes nothing and asks no one. Its session is read-only at the proxy, never reads Secret data, never asks, and has no network and no folder grant. | **Enforced** | — |
 | KUBE-38 | Every write and every Secret read a monitor run sends is refused at the proxy and recorded. | **Enforced** | — |
@@ -62,7 +61,9 @@ Editing a rule from Settings is reviewed in [the Permissions pane is reachable](
 | KUBE-50 | A stored tool setting Kstack cannot use turns its tool off. | **Enforced** | — |
 | KUBE-51 | Cluster reads leave the machine on the model's word. Everything the user's credentials can read, less Secret values the user has not allowed showing, can reach the provider with no per-call approval. | **By decision** | — |
 | KUBE-52 | A helm release passes redacted inside. Its chart, default values, rendered notes and other objects' manifests pass, and so does a Secret typed `helm.sh/release.v1` by hand, all but its `config` and its manifests' Secrets, unless the user allowed showing them. A release write runs once its command read no Secret data redacted in its namespace. | **By decision** | An audit of what else carries secrets is in TODO. |
-| KUBE-53 | No kube-context's mode reaches a cloud platform, so a read-only context does not stop a cloud platform's change. | **By decision** | — |
+| KUBE-56 | A list or watch of Secrets across every namespace spans them: a deny or ask rule for any namespace decides it, so a deny keeps the whole list redacted, and only an allow reaching every namespace allows it. | **Enforced** | — |
+| KUBE-54 | A subagent is never wider than its chat. | **Enforced** | — |
+| KUBE-55 | An action with no account asks each time. | **Enforced** | — |
 
 ## Evidence
 
@@ -79,19 +80,23 @@ Editing a rule from Settings is reviewed in [the Permissions pane is reachable](
 - **Where:** `sidecar/internal/run/kubeproxy`, `sidecar/internal/run/permissions`, `sidecar/internal/tools/bash/upstream.go`, `sidecar/internal/tools/bash/proxy.go`
 - **Records:** [The permissions engine](../security/2026-10-02-the-permissions-engine.md), [The prompt names the action](../security/2026-10-04-the-prompt-names-the-action.md)
 - `TestEachRefusalIsAForbiddenStatus` — each refusal is a `Forbidden`, the token among them.
+- `TestEachRefusalIsReach`, `TestReachIsNeverAllowed` — each refusal is the `reach` level, which nothing allows.
 
 ### KUBE-3
 
 - **Where:** `sidecar/internal/run/kubeproxy`, `sidecar/internal/run/permissions`
 - **Records:** [The permissions engine](../security/2026-10-02-the-permissions-engine.md), [The prompt names the action](../security/2026-10-04-the-prompt-names-the-action.md)
-- `TestEveryRequestIsClassified`, `TestAScaleIsClassFourOnlyInAPlainForm` — every write is classified.
+- `TestEveryRequestIsClassified`, `TestAScaleIsWriteOnlyInAPlainForm`, `TestRBACAndAdmissionAreAccessControl` — every write is classified.
+- `TestBuiltinNamesEveryServedKind`, `TestAnUnnamedOperationAsksOnceAndIsNotGranted` — a write no table names asks each time.
+- `TestAWriteToANamespaceObjectAsksOnce`, `TestANamespacesRuleDoesNotCoverTheNamespaceObject` — a write to a Namespace object asks each time.
 - `TestDecideRunsUnderTheWriteLock`, `TestDecideFollowsTheModeTable` — the write is decided under the write lock.
 
 ### KUBE-4
 
 - **Where:** `sidecar/internal/run/permissions`
 - **Records:** [The permissions engine](../security/2026-10-02-the-permissions-engine.md), [The prompt names the action](../security/2026-10-04-the-prompt-names-the-action.md)
-- `TestTheVerdictMatchesTheOrderedTable`, `TestAVerdictIsOrderIndependent` — the verdict matches the ordered table over every rule that can exist, and holds under any order of the rules.
+- `TestTheVerdictMatchesTheOrderedTable`, `TestAVerdictIsOrderIndependent` — the verdict matches the ordered table over every principal, level, mode, limit and rule that can exist, and holds under any order of the rules.
+- `TestEveryModeHasEveryLevel`, `TestEveryPrincipalHasEveryLevel` — the tables are total.
 
 ### KUBE-5
 
@@ -103,19 +108,20 @@ Editing a rule from Settings is reviewed in [the Permissions pane is reachable](
 
 - **Where:** `sidecar/internal/run/kubeproxy`, `sidecar/internal/run/permissions`
 - **Records:** [The permissions engine](../security/2026-10-02-the-permissions-engine.md), [The prompt names the action](../security/2026-10-04-the-prompt-names-the-action.md)
-- `TestADeniedWriteIsAForbiddenStatus`, `TestAReadOnlyContextRefusesEveryWrite` — a refused write is a `Forbidden` naming the mode or the rule.
+- `TestADeniedWriteIsAForbiddenStatus`, `TestAReadOnlyContextRefusesEveryWrite` — a refused write is a `Forbidden` naming the boundary, the mode or the rule.
 
 ### KUBE-7
 
 - **Where:** `sidecar/internal/run/permissions`
 - **Records:** [The permissions engine](../security/2026-10-02-the-permissions-engine.md), [The prompt names the action](../security/2026-10-04-the-prompt-names-the-action.md)
-- `TestClassFiveAsksInEveryMode`, `TestAClassFourRuleCoversClassFive` — a destructive write is never allowed unasked.
+- `TestAWriteRuleCoversDestructiveAndAccessControl`, `TestAnAllowRuleMatchesItsOwnLevelAlone` — a destructive change is never allowed unasked.
+- `TestAnAccessControlWriteIsGrantedInsideAScopeAlone`, `TestOnlyAConfinedAccessControlActionIsGrantable` — an access control change is allowed only inside a namespace.
 
 ### KUBE-8
 
 - **Where:** `sidecar/internal/run/kubeproxy`, `sidecar/internal/run/permissions`, `sidecar/internal/tools/bash/upstream.go`, `sidecar/internal/tools/bash/proxy.go`
 - **Records:** [The permissions engine](../security/2026-10-02-the-permissions-engine.md), [The prompt names the action](../security/2026-10-04-the-prompt-names-the-action.md)
-- `TestAPolicyThatCannotBeReadRefuses`, `TestAModeKstackCannotUseIsReadOnly`, `TestAGrantsReadThatFailsRefuses`, `TestUnreadRulesRefuseWritesAndSecretReads` — a mode or rules Kstack cannot read refuse.
+- `TestAPolicyThatCannotBeReadRefuses`, `TestAModeKstackCannotUseIsReadOnly`, `TestAGrantsReadThatFailsRefuses`, `TestUnreadRulesRefuseWritesAndDataReads` — a mode or rules Kstack cannot read refuse.
 
 ### KUBE-9
 
@@ -151,19 +157,13 @@ Editing a rule from Settings is reviewed in [the Permissions pane is reachable](
 
 - **Where:** `sidecar/internal/run/kubeproxy`, `sidecar/internal/run/permissions`
 - **Records:** [The permissions engine](../security/2026-10-02-the-permissions-engine.md), [The prompt names the action](../security/2026-10-04-the-prompt-names-the-action.md)
-- `TestGrantableIsUnmatched`, `TestADryRunIsNotGrantable`, `TestADryRunAsksWithNoGrant`, `TestAnUngrantableActionTakesOnceOrDenyAlone`, `TestACallsOwnApprovalTakesOnceOrDenyAlone` — the allow answers write a rule only where a grant lifts the verdict, and Kstack refuses them on any other request, a call's own included.
-
-### KUBE-15
-
-- **Where:** `sidecar/internal/run/permissions`
-- **Records:** [The permissions engine](../security/2026-10-02-the-permissions-engine.md), [The prompt names the action](../security/2026-10-04-the-prompt-names-the-action.md)
-- `TestNoRuleReachesACloudPlatformAction`, `TestACloudPlatformActionAlwaysAsks` — no rule or mode decides a cloud platform's action, and each asks.
+- `TestADryRunIsNotGrantable`, `TestADryRunAsksWithNoGrant`, `TestAnUngrantableActionTakesOnceOrDenyAlone`, `TestACallsOwnApprovalTakesOnceOrDenyAlone` — the allow answers write a rule only where the verdict is a grantable ask, and Kstack refuses them on any other request, a call's own included.
 
 ### KUBE-16
 
 - **Where:** `sidecar/internal/run/kubeproxy`, `sidecar/internal/run/permissions`
 - **Records:** [The permissions engine](../security/2026-10-02-the-permissions-engine.md), [The prompt names the action](../security/2026-10-04-the-prompt-names-the-action.md)
-- `TestAGrantRuleNamesTheActionsCluster`, `TestARuleNamesAClusterSettingsListsAndGoesWithIt`, `TestAClusterScopedGrantNamesTheResource` — what a chat or always rule names, and that a rule goes with its cluster.
+- `TestAGrantRuleNamesTheActionsScope`, `TestARuleNamesAClusterSettingsListsAndGoesWithIt` — what a chat or always rule names, and that a Kubernetes rule goes with its cluster.
 
 ### KUBE-17
 
@@ -175,7 +175,7 @@ Editing a rule from Settings is reviewed in [the Permissions pane is reachable](
 
 - **Where:** `sidecar/internal/run/kubeproxy`, `sidecar/internal/run/permissions`
 - **Records:** [The permissions engine](../security/2026-10-02-the-permissions-engine.md), [The prompt names the action](../security/2026-10-04-the-prompt-names-the-action.md)
-- `TestACommandRuleNamesTheChange`, `TestACommandAnswerAllowsTheRestOfTheCommand`, `TestACommandRuleEndsWithTheGrant` — a command's rule names the verb and the resource too, and ends with the command's grant.
+- `TestACommandRuleNamesTheChange`, `TestACommandAnswerAllowsTheRestOfTheCommand`, `TestACommandRuleEndsWithTheGrant` — a command's rule names the service, operation and resource too, and ends with the command's grant.
 
 ### KUBE-19
 
@@ -229,7 +229,7 @@ Editing a rule from Settings is reviewed in [the Permissions pane is reachable](
 
 - **Where:** `sidecar/internal/run/kubeproxy/secretread.go`, `sidecar/internal/run/kubeproxy/redact*.go`, `sidecar/internal/run/permissions`
 - **Records:** [Secret data is a permissioned read](../security/2026-10-05-secret-data-is-a-permissioned-read.md)
-- `TestSecretDataIsRedactedWithoutTheGrant`, `TestAPromptedSecretReadWaitsForTheDecision`, `TestAnAllowedSecretReadPassesUnredacted`, `TestAWatchAndAWholeTableAreClassSix`, `TestASecretReadWaitsItsTurnBehindAWrite`, `TestACommandAnswerCoversTheReadsThatFollow`, `TestAClusterWideListAsksForTheContext`, `TestASecretReadGrantNamesItsScope` — Secret data is redacted unless `Authorize` permits the read.
+- `TestSecretDataIsRedactedWithoutTheGrant`, `TestAPromptedSecretReadWaitsForTheDecision`, `TestAnAllowedSecretReadPassesUnredacted`, `TestAWatchAndAWholeTableAreDataReads`, `TestASecretReadWaitsItsTurnBehindAWrite`, `TestACommandAnswerCoversTheReadsThatFollow`, `TestAClusterWideListAsksForTheContext`, `TestAGrantRuleNamesTheActionsScope` — Secret data is redacted unless `Authorize` permits the read.
 - `TestASandboxedRunReadsASecretRedacted` — end to end.
 
 ### KUBE-27
@@ -254,40 +254,41 @@ Editing a rule from Settings is reviewed in [the Permissions pane is reachable](
 
 - **Where:** `sidecar/internal/run/kubeproxy/secretread.go`, `sidecar/internal/run/permissions`
 - **Records:** [Secret data is a permissioned read](../security/2026-10-05-secret-data-is-a-permissioned-read.md)
-- `TestAPolicyThatCannotBeReadRefuses`, `TestUnreadRulesRefuseWritesAndSecretReads` — rules Kstack cannot read keep it redacted.
+- `TestAPolicyThatCannotBeReadRefuses`, `TestUnreadRulesRefuseWritesAndDataReads` — rules Kstack cannot read keep it redacted.
 
 ### KUBE-31
 
-- **Where:** `sidecar/internal/run/session`, `sidecar/internal/run/permissions`, `sidecar/internal/run/kubeproxy/write.go`
-- **Records:** [Secret data is a permissioned read](../security/2026-10-05-secret-data-is-a-permissioned-read.md)
-- `TestNoSecretDataRefusesClassSixAheadOfEveryRule`, `TestSecretDataIsRedactedWithoutTheGrant` — `NoSecretData` refuses a Secret data read ahead of every rule.
+- **Where:** `sidecar/internal/run/permissions`, `sidecar/internal/run/session`, `sidecar/internal/tools/bash/console.go`
+- **Records:** [Secret data is a permissioned read](../security/2026-10-05-secret-data-is-a-permissioned-read.md), [Target-neutral permissions](../security/2026-11-25-target-neutral-permissions.md)
+- `TestTheMonitorNeverWritesOrReadsData`, `TestTheConsoleNeverAsks`, `TestEveryPrincipalHasEveryLevel` — the boundary by principal and level.
+- `TestSecretDataIsRedactedWithoutTheGrant`, `TestAMonitorWriteIsRefusedAndRecorded` — at the proxy.
 
 ### KUBE-32
 
-- **Where:** `sidecar/internal/run/session`, `sidecar/internal/run/permissions`, `sidecar/internal/run/kubeproxy/write.go`
-- **Records:** [Secret data is a permissioned read](../security/2026-10-05-secret-data-is-a-permissioned-read.md)
-- `TestNoPromptsRefusesWhatWouldAsk` — `NoPrompts` refuses what would ask.
+- **Where:** `sidecar/internal/run/permissions`
+- **Records:** [Target-neutral permissions](../security/2026-11-25-target-neutral-permissions.md)
+- `TestTheConsoleNeverAsks`, `TestTheMonitorNeverWritesOrReadsData` — a principal that does not ask is refused what would ask.
 
 ### KUBE-33
 
-- **Where:** `sidecar/internal/run/session`, `sidecar/internal/run/permissions`, `sidecar/internal/run/kubeproxy/write.go`
-- **Records:** [Secret data is a permissioned read](../security/2026-10-05-secret-data-is-a-permissioned-read.md)
-- `TestNarrowKeepsTheParentsIdentity` — the marks are the session's alone.
-- `TestAChatsSessionAsksAndReadsSecretData` — a chat's session carries neither.
-- `TestTheMonitorSessionIsReadOnlyAndAsksNobody` — the monitor's carries both.
+- **Where:** `sidecar/internal/run/session`, `sidecar/internal/agent/chat/grants.go`
+- **Records:** [Secret data is a permissioned read](../security/2026-10-05-secret-data-is-a-permissioned-read.md), [Target-neutral permissions](../security/2026-11-25-target-neutral-permissions.md)
+- `TestNarrowOfAMonitorStaysAMonitor`, `TestNarrowKeepsTheParentsIdentity` — a narrowed session keeps its principal.
+- `TestTheMonitorSessionIsReadOnlyAndAsksNobody` — the monitor's session.
 
 ### KUBE-34
 
-- **Where:** `sidecar/internal/appdb/migrations/0006_settings.sql`, `sidecar/internal/services/settings/permissions.go`
-- **Records:** [Record](../security/2026-11-25-settings-in-app-db.md)
-- `TestMigration0006AddsTheSettingsTables` — the table and its `CHECK`s.
-- `TestTheGoCheckAndTheTableRefuseTheSameRules` — the Go check and the table refuse the same rules.
+- **Where:** `sidecar/internal/appdb/migrations/0006_settings.sql`, `sidecar/internal/services/settings/permissions.go`, `sidecar/internal/services/settings/store.go`
+- **Records:** [Record](../security/2026-11-25-settings-in-app-db.md), [Target-neutral permissions](../security/2026-11-25-target-neutral-permissions.md)
+- `TestMigration0006AddsTheSettingsTables` — the tables.
+- `TestTheGoCheckRefusesWhatNoRuleMayHold` — the Go check.
+- `TestARowGoCannotReadDenies` — a stored row the check refuses denies.
 
 ### KUBE-35
 
 - **Where:** `sidecar/internal/services/settings/permissions.go`, `sidecar/internal/agent/chat/grants.go`
 - **Records:** [Record](../security/2026-11-25-settings-in-app-db.md)
-- `TestAPolicyThatCannotBeReadRefuses`, `TestAGrantsReadThatFailsRefuses` — a failed read of the rules or of a mode refuses.
+- `TestAPolicyThatCannotBeReadRefuses`, `TestAGrantsReadThatFailsRefuses`, `TestAModeKstackCannotUseIsReadOnly` — a failed read of the rules or of a mode refuses.
 
 ### KUBE-36
 
@@ -401,8 +402,21 @@ Editing a rule from Settings is reviewed in [the Permissions pane is reachable](
 - `TestAHelmReleaseWriteFollowsWhatTheCommandRead`, `TestARedactedReleaseIsRefusedUnderTheGrant` — the writes, under [Secret data is a permissioned read](../adr/2026-10-05-secret-data-is-a-permissioned-read.md).
 - Note: an audit of what else carries secrets is in [TODO](../TODO.md#security).
 
-### KUBE-53
+### KUBE-54
 
 - **Where:** `sidecar/internal/run/permissions`
-- **Records:** [the run's door](../adr/2026-11-17-a-sandboxed-command-reaches-a-cloud-platform-through-a-proxy-on-its-runs-one-relay.md)
-- `TestACloudPlatformActionAlwaysAsks` — each change asks.
+- **Records:** [Target-neutral permissions](../security/2026-11-25-target-neutral-permissions.md)
+- `TestASubagentIsNeverWiderThanItsParent` — a subagent's verdict is never wider than its chat's.
+
+### KUBE-55
+
+- **Where:** `sidecar/internal/run/permissions`
+- **Records:** [Target-neutral permissions](../security/2026-11-25-target-neutral-permissions.md)
+- `TestAnActionWithNoAccountAsksOnce` — an action with no account asks each time.
+
+### KUBE-56
+
+- **Where:** `sidecar/internal/run/permissions`, `sidecar/internal/run/kubeproxy/classify.go`
+- **Records:** [Target-neutral permissions](../security/2026-11-25-target-neutral-permissions.md)
+- `TestARuleForAScopeBelowDecidesASpanningAction`, `TestAPatternBelowAPath`, `TestAPatternAtAndBelowAPath` — a deny or ask below a spanning action decides it, an allow of the cluster alone does not allow it, and an answer to it grants every namespace.
+- `TestADenyForOneNamespaceRedactsAClusterWideList` — end to end, under `auto`.
