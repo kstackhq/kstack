@@ -99,6 +99,14 @@ func refused(status int, message string) Outcome {
 	return Outcome{Status: status, Message: message}
 }
 
+// waiting tells waitersMoved, when set, that delta requests started or stopped
+// waiting for the lock.
+func (g *Grant) waiting(delta int) {
+	if g.waitersMoved != nil {
+		g.waitersMoved(delta)
+	}
+}
+
 // Decide decides req and calls forward once it may run. It stamps the
 // grant's target and its session's kind on the action and keeps every other
 // field the classifier filled. A grant with no asker, and a request that
@@ -123,7 +131,9 @@ func (g *Grant) Decide(ctx context.Context, req Request, forward func() error) O
 	if !g.waiters.TryAcquire(1) {
 		return refused(http.StatusTooManyRequests, refusedQueued)
 	}
+	g.waiting(1)
 	err := g.lock.Acquire(ctx, 1)
+	g.waiting(-1)
 	g.waiters.Release(1)
 	if err != nil {
 		return refused(http.StatusForbidden, refusedUnanswered)

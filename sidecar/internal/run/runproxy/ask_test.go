@@ -20,6 +20,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -439,6 +440,8 @@ func TestRequestsAskOneAtATime(t *testing.T) {
 func TestAFullQueueIs429(t *testing.T) {
 	a := newFakeAsker()
 	g := newTestGrant(t, a, testLimits)
+	var waiting atomic.Int32
+	g.waitersMoved = func(delta int) { waiting.Add(int32(delta)) }
 	first := decide(t.Context(), g, change())
 	testutil.Recv(t, a.asked, "the first request")
 	ctx, cancel := context.WithCancel(t.Context())
@@ -446,14 +449,7 @@ func TestAFullQueueIs429(t *testing.T) {
 	for range maxQueued {
 		decide(ctx, g, change())
 	}
-	// Each queued request holds a waiter slot once its goroutine runs.
-	require.Eventually(t, func() bool {
-		if g.waiters.TryAcquire(1) {
-			g.waiters.Release(1)
-			return false
-		}
-		return true
-	}, testutil.Timeout, time.Millisecond)
+	require.Eventually(t, func() bool { return waiting.Load() == maxQueued }, testutil.Timeout, time.Millisecond, "the queue to fill")
 	out, forwarded := decideNow(t, g, change())
 	assert.False(t, forwarded)
 	assert.Equal(t, Outcome{Status: http.StatusTooManyRequests, Message: refusedQueued}, out)
