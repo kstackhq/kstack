@@ -34,6 +34,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -3940,10 +3941,14 @@ func TestARestartBetweenTheResolveAndTheReadFilesNothing(t *testing.T) {
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(0, "old"))
 	svc, f := serviceOver(t, webMirror(t), s)
-	// On web-1's own read, since each stream checks its instance as it writes.
-	s.OnRequest = func(int) {
-		if len(s.RequestsOf("prod/web-1/app")) == 1 {
-			restartWeb1(t, f, s, logstest.Stamped(time.Minute, "new"))
+	// On web-1's own first read, since each stream checks its instance as it writes.
+	var restart sync.Once
+	s.OnRequest = func(n int) {
+		s.Mu.Lock()
+		key := s.Keys[n]
+		s.Mu.Unlock()
+		if key == "prod/web-1/app" {
+			restart.Do(func() { restartWeb1(t, f, s, logstest.Stamped(time.Minute, "new")) })
 		}
 	}
 
