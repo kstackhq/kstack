@@ -32,7 +32,7 @@ The open PRs titled `📜 Spec:` are the proposals; the open PRs from `wip/*` ar
 
 Whether something is worth building is settled before its spec, in an issue, or in a Discussion
 for an open-ended proposal. A security spec's gap keeps its line in [`TODO.md`](../TODO.md#security),
-linking the PR, and its row in [`security-model.md`](../security-model.md); the spec's own
+linking the PR, and its row in the [security model](../security-model.md); the spec's own
 *When it lands* section says where the row moves.
 
 ## Naming
