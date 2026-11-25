@@ -355,6 +355,7 @@ its `TokenSource`. → [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-re
 `services.go` is the table: six services, each one upstream host and its path prefixes, routed as
 `<service>.gcp.kstack.invalid`. `request.go` reads a path by decoded segment and refuses an encoded
 `/` or `.` outside a storage object's name. `classify.go` answers read, change, data read,
-`access-control` (`setIamPolicy`, `iam`) or refused (`reach`); a project only as an id is an account. `redact.go` blanks secrets in `compute`'s and `container`'s 2xx answers and fails
+`access-control` (`setIamPolicy`, `iam`, a storage ACL) or refused (`reach`); a project only as an
+id is an account; billing another (`X-Goog-User-Project`, `userProject`, each once) is `Once`. `redact.go` blanks secrets in `compute`'s and `container`'s 2xx answers and fails
 closed. **Every refusal is Google's 403**, a grant's 429 included, since `gcloud` retries a 429 and
 a 5xx. → [ADR](../../../docs/adr/2026-11-17-google-cloud-is-reached-with-the-active-gcloud-accounts-token.md).

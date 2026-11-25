@@ -75,8 +75,9 @@ Each platform's proxy has its review: [a sandboxed command reaches AWS](../secur
 | CLOUD-63 | No file is uploaded to S3 from the sandbox, and a login that cannot list its buckets is asked for every bucket read. | **By decision** | — |
 | CLOUD-64 | A cloud platform's request is decided as a cluster's, by its account's mode and the rules. A change a mode or a rule may allow is one its platform's `ordinary` table names; any other asks each time. | **Enforced** | — |
 | CLOUD-65 | An access control change asks each time, but an Azure role assignment in a resource group. | **Enforced** | — |
-| CLOUD-66 | A request whose account the classifier cannot trust (none on the credentials, a route by id, a project number) asks each time. An AWS request reaching past its account (another named in its body or a header, a bucket it does not own) keeps that account's scope, so its mode and rules still refuse it, and asks each time. | **Enforced** | — |
+| CLOUD-66 | A request whose account the classifier cannot trust (none on the credentials, a route by id, a project number) asks each time. An AWS or Google Cloud request reaching past its account (another named in its body or a header, a bucket it does not own, another project billed) keeps that account's scope, so its mode and rules still refuse it, and asks each time. A request billing more than one project is refused. | **Enforced** | — |
 | CLOUD-67 | A data read in the account runs unasked under `auto`. | **Enforced** | — |
+| CLOUD-70 | A Cloud Storage ACL or predefined ACL change is an access control change, read from decoded fields. | **Enforced** | — |
 | CLOUD-68 | A change to who may reach an S3 bucket or key (its policy, ACL, public access block or ownership controls, or an ACL or grant header) is an access control change, which an access control rule decides. | **Enforced** | — |
 | CLOUD-69 | An AWS request on a bucket the login owns is sent expecting that owner, so S3 refuses it if the bucket changed hands; a caller naming another owner asks. The list of owned buckets answers only for the login it was listed with, and a change is sent as the login that was decided on or not at all. | **Enforced** | A login with no account id sends no owner condition, so a bucket that changes hands within the list's minute is read unasked. |
 
@@ -477,7 +478,9 @@ Each platform's proxy has its review: [a sandboxed command reaches AWS](../secur
 - **Where:** `sidecar/internal/run/runproxy/ask.go`, `sidecar/internal/run/awsproxy`, `sidecar/internal/run/azureproxy`, `sidecar/internal/run/gcpproxy`, `sidecar/internal/run/githubproxy`
 - **Records:** [Target-neutral permissions](../security/2026-11-25-target-neutral-permissions.md)
 - `TestAnAliasedOrForeignScopeIsEmpty`, `TestAScopeIsLowerCase`, `TestAGlobalAWSServiceHasOneScope` — the account a request names.
+- `TestARuleAndAModeDecideAGCPAction` — a write billed to another project asks under `auto`.
 - `TestAForeignRequestKeepsItsScopeAndAsksOnce`, `TestARuleAndAModeDecideAnAWSAction` — a request reaching past its account keeps the account's mode and rules.
+- `TestAProjectBilledTwiceIsRefused` — one project billed at most.
 
 ### CLOUD-67
 
@@ -500,4 +503,10 @@ Each platform's proxy has its review: [a sandboxed command reaches AWS](../secur
 - Note: STS's `GetCallerIdentity` would give a static-key login its account; see [TODO](../TODO.md#security).
 - `TestAListAnswersOnlyForItsLogin` — the list of owned buckets is the login's.
 - `TestALoginThatChangedAccountSendsNothing`, `TestALoginWithNoAccountWhoseKeyChangedSendsNothing` — a change is sent as the login decided on.
+
+### CLOUD-70
+
+- **Where:** `sidecar/internal/run/gcpproxy/classify.go`
+- **Records:** [Target-neutral permissions](../security/2026-11-25-target-neutral-permissions.md)
+- `TestAStorageACLChangeIsAccessControl` — Cloud Storage's ACLs, by their path position, a predefined ACL or decoded metadata, a multipart upload's included.
 

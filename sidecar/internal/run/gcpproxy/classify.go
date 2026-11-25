@@ -15,7 +15,12 @@
 package gcpproxy
 
 import (
+	"bytes"
 	"cmp"
+	"encoding/json"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -50,10 +55,11 @@ const (
 )
 
 // classify reads a request on the service named svc, its path's decoded
-// segments, its query and its body: the first rule that applies decides. A
+// segments, its query, its headers and its body: the first rule that applies
+// decides. A
 // request the grant decides carries its action; a read carries none, since
 // it skips the decision.
-func classify(svc, method string, segs []string, q url.Values, body []byte) verdict {
+func classify(svc, method string, segs []string, q url.Values, header http.Header, body []byte) verdict {
 	last := segs[len(segs)-1]
 	res := resource(svc, segs)
 	var l permissions.AccessLevel
@@ -70,14 +76,14 @@ func classify(svc, method string, segs []string, q url.Values, body []byte) verd
 		return verdict{kind: read, level: permissions.Read}
 	case method == http.MethodPost && svc == "logging" && slices.Equal(segs, []string{"v2", "entries:list"}):
 		return verdict{kind: read, level: permissions.Read}
-	case changesAccessControl(svc, method, res):
+	case changesAccessControl(svc, method, res), svc == "storage" && changesStorageAccess(res, q, header, body):
 		l = permissions.AccessControl
 	case isDestructive(svc, method, res):
 		l = permissions.Destructive
 	default:
 		l = permissions.Write
 	}
-	return verdict{kind: asks, level: l, act: action(svc, method, segs, body, l)}
+	return verdict{kind: asks, level: l, act: action(svc, method, segs, q, header.Get("X-Goog-User-Project"), body, l)}
 }
 
 // ordinary are the changes a mode or a rule may allow, by service, then
@@ -89,22 +95,26 @@ var ordinary = map[string]map[string][]string{
 
 // action is the action a request the grant decides carries. Its scope is
 // the project named as an id, then the location, both in lower case; a
-// project named any other way, a path that names none, and a body that names
-// another project or is not JSON give no scope.
-func action(svc, method string, segs []string, body []byte, l permissions.AccessLevel) permissions.Action {
+// project named any other way and a path that names none give no scope. A
+// body that names another project or is not JSON, and a request billed to
+// another project, ask each time.
+func action(svc, method string, segs []string, q url.Values, quota string, body []byte, l permissions.AccessLevel) permissions.Action {
 	p := parsePath(svc, segs)
 	act := permissions.Action{
 		Service: svc, Operation: strings.ToLower(cmp.Or(p.method, method)), Resource: strings.Join(p.types, "/"),
 		Name: p.name, AccessLevel: l, AccountName: p.project, Summary: summary(svc, method, segs),
 	}
-	if projectID.MatchString(p.project) && !foreign(body, p.project) {
+	if projectID.MatchString(p.project) {
 		act.Scope = p.project
 		if p.location != "" {
 			act.Scope += "/" + p.location
 		}
+		// Reaching past the project keeps its scope, so its mode and rules still
+		// refuse, and asks each time.
+		act.Once = foreign(body, p.project) || billsAnotherProject(p.project, quota, q)
 	}
-	if l == permissions.Write {
-		act.Once = method != http.MethodPost || !slices.Contains(ordinary[svc][act.Resource], act.Operation)
+	if l == permissions.Write && (method != http.MethodPost || !slices.Contains(ordinary[svc][act.Resource], act.Operation)) {
+		act.Once = true
 	}
 	return act
 }
@@ -184,22 +194,78 @@ func foreign(body []byte, project string) bool {
 	return runproxy.AnyJSONString(body, func(s string) bool { return namesAnotherProject(s, project) })
 }
 
+// storageAccessKeys are the keys of a bucket's or an object's metadata that
+// say who may reach it.
+var storageAccessKeys = []string{"acl", "defaultObjectAcl", "iamConfiguration"}
+
+// changesStorageAccess is whether a storage change says who may reach a bucket
+// or an object: a write under a bucket's acl or defaultObjectAcl or an
+// object's acl, a predefined ACL, or metadata naming an access key. Metadata
+// that cannot be read is taken to name one.
+func changesStorageAccess(segs []string, q url.Values, header http.Header, body []byte) bool {
+	// storage/v1/b/{bucket}/acl, …/defaultObjectAcl, …/o/{object}/acl: a
+	// bucket or an object may itself be named acl.
+	n := len(segs)
+	if n > 4 && segs[2] == "b" && (segs[4] == "acl" || segs[4] == "defaultObjectAcl") ||
+		n > 6 && segs[2] == "b" && segs[4] == "o" && segs[6] == "acl" {
+		return true
+	}
+	if len(systemValues(q, "predefinedacl")) > 0 || len(systemValues(q, "predefineddefaultobjectacl")) > 0 {
+		return true
+	}
+	keys, ok := storageMetadata(q, header, body)
+	return !ok || slices.ContainsFunc(storageAccessKeys, func(k string) bool { _, named := keys[k]; return named })
+}
+
+// storageMetadata is the top-level keys of the metadata a storage change
+// sends: its JSON body, or a multipart upload's first part. A media upload
+// and an empty body send none. False is metadata that does not decode.
+func storageMetadata(q url.Values, header http.Header, body []byte) (map[string]json.RawMessage, bool) {
+	if hasSystemValue(q, "media", "uploadtype") || len(body) == 0 {
+		return nil, true
+	}
+	mediaType, params, _ := mime.ParseMediaType(header.Get("Content-Type"))
+	if mediaType == "multipart/related" {
+		part, err := multipart.NewReader(bytes.NewReader(body), params["boundary"]).NextPart()
+		if err != nil {
+			return nil, false
+		}
+		if body, err = io.ReadAll(part); err != nil {
+			return nil, false
+		}
+	}
+	var keys map[string]json.RawMessage
+	return keys, json.Unmarshal(body, &keys) == nil
+}
+
+// billsAnotherProject is whether a request charges a project other than
+// project: its quota project, or the userProject parameter.
+func billsAnotherProject(project, quota string, q url.Values) bool {
+	for _, billed := range append([]string{quota}, systemValues(q, "userproject")...) {
+		if billed != "" && strings.ToLower(billed) != project {
+			return true
+		}
+	}
+	return false
+}
+
 // namesAnotherProject is whether s holds projects/ followed by a name other
-// than project.
+// than project. s is lowered once: lowering can change its length in bytes.
 func namesAnotherProject(s, project string) bool {
+	s = strings.ToLower(s)
 	for {
-		i := strings.Index(strings.ToLower(s), "projects/")
+		i := strings.Index(s, "projects/")
 		if i < 0 {
 			return false
 		}
 		s = s[i+len("projects/"):]
 		end := strings.IndexFunc(s, func(r rune) bool {
-			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.')
+			return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.')
 		})
 		if end < 0 {
 			end = len(s)
 		}
-		if strings.ToLower(s[:end]) != project {
+		if s[:end] != project {
 			return true
 		}
 	}

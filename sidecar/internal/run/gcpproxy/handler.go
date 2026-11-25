@@ -148,7 +148,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		refuse(w, runproxy.BodyRefusal(status))
 		return
 	}
-	v := classify(svc.name, r.Method, segs, q, body)
+	v := classify(svc.name, r.Method, segs, q, r.Header, body)
 	switch {
 	case v.kind == refused:
 		refuse(w, v.why)

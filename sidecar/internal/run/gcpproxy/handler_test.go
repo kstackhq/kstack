@@ -611,6 +611,28 @@ func TestARuleAndAModeDecideAGCPAction(t *testing.T) {
 		assert.Empty(t, r.asker.asked)
 		assert.Equal(t, []string{"gcp my-project"}, r.accounts)
 	})
+	t.Run("a write billed to another project asks under auto", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.setPolicy(permissions.Policy{Mode: permissions.ModeAuto})
+		done := make(chan *http.Response, 1)
+		go func() {
+			done <- r.send(t, http.MethodPost, startVM, r.grant.Token(), strings.NewReader(""),
+				http.Header{"Content-Type": {jsonHeaders}, "X-Goog-User-Project": {"other-project"}})
+		}()
+		req := testutil.Recv(t, r.asker.asked, "the request")
+		assert.Equal(t, "my-project/us-central1-a", req.Action.Scope)
+		assert.True(t, req.Action.Once)
+		r.asker.answers <- false
+		testutil.Recv(t, done, "the answer")
+	})
+	t.Run("a deny rule for the project refuses a write naming another project", func(t *testing.T) {
+		r := newRig(t, roomy)
+		r.setPolicy(permissions.Policy{Mode: permissions.ModeAuto, Rules: []permissions.Rule{gcpRule(permissions.Deny, permissions.Write)}})
+		w := r.post(t, myProject+"/zones/us-central1-a/instances/vm/setLabels", `{"labels":{"a":"projects/other-project"}}`)
+		assert.Contains(t, refusal(t, w), "a rule denies it")
+		assert.Empty(t, r.asker.asked)
+		assert.Empty(t, r.up.seen)
+	})
 	t.Run("read-only denies", func(t *testing.T) {
 		r := newRig(t, roomy)
 		r.setPolicy(permissions.Policy{Mode: permissions.ModeReadOnly})
@@ -673,7 +695,8 @@ func TestARuleAndAModeDecideAGCPAction(t *testing.T) {
 			done <- r.post(t, myProject+"/zones/us-central1-a/instances/vm/setLabels", `{"labels":{"a":"projects/other-project"}}`)
 		}()
 		req := testutil.Recv(t, r.asker.asked, "the request")
-		assert.Empty(t, req.Action.Scope)
+		assert.Equal(t, "my-project/us-central1-a", req.Action.Scope)
+		assert.True(t, req.Action.Once)
 		assert.False(t, req.Grantable)
 		r.asker.answers <- false
 		refusal(t, testutil.Recv(t, done, "the denial"))

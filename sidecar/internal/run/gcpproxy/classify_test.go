@@ -41,7 +41,7 @@ func classifyBody(t *testing.T, service, method, target, body string) verdict {
 	require.Empty(t, why, target)
 	q, err := url.ParseQuery(query)
 	require.NoError(t, err)
-	return classify(service, method, segs, q, []byte(body))
+	return classify(service, method, segs, q, http.Header{}, []byte(body))
 }
 
 // level is the verdict of a request that asks at l.
@@ -176,27 +176,116 @@ func TestAScopeIsLowerCase(t *testing.T) {
 	assert.Equal(t, "my-project", v.act.AccountName)
 }
 
-func TestAnAliasedOrForeignScopeIsEmpty(t *testing.T) {
+// A project Kstack cannot read as an id gives no scope. A request that also
+// reaches past its project keeps the project's scope, so its mode and rules
+// still decide it, and asks each time, though its operation is ordinary.
+func TestAForeignRequestKeepsItsScopeAndAsksOnce(t *testing.T) {
 	for _, c := range []struct{ name, service, method, target, body string }{
 		{"a project number", "compute", http.MethodPost, "/compute/v1/projects/123456789012/zones/z/instances/vm/start", ""},
 		{"projects/-", "container", http.MethodPost, "/v1/projects/-/locations/l/clusters", "{}"},
 		{"a project too short", "compute", http.MethodPost, "/compute/v1/projects/p/zones/z/instances/vm/start", ""},
 		{"a storage object", "storage", http.MethodPost, "/upload/storage/v1/b/bkt/o?uploadType=media&name=x", "hello"},
 		{"a path naming no project", "logging", http.MethodPost, "/v2/entries:write", `{"logName":"projects/my-project/logs/x"}`},
-		{"another project in a body", "compute", http.MethodPost, project + "/zones/z/instances",
-			`{"name":"vm","networkInterfaces":[{"network":"projects/other-project/global/networks/default"}]}`},
-		{"another project in a key", "compute", http.MethodPost, project + "/zones/z/instances", `{"projects/other-project":1}`},
-		{"a project number in a body", "compute", http.MethodPost, project + "/zones/z/instances", `{"network":"projects/123456789/global/networks/n"}`},
-		{"a body that is not JSON", "compute", http.MethodPost, project + "/zones/z/instances", `name=vm`},
-		{"a body cut short", "compute", http.MethodPost, project + "/zones/z/instances", `{"name":`},
 	} {
 		v := classifyBody(t, c.service, c.method, c.target, c.body)
 		require.Equal(t, asks, v.kind, c.name)
 		assert.Empty(t, v.act.Scope, c.name)
 	}
-	for _, body := range []string{"", `{"name":"vm","network":"projects/my-project/global/networks/default"}`, `{"labels":{"a":"b"}}`} {
-		v := classifyBody(t, "compute", http.MethodPost, project+"/zones/z/instances", body)
+	start := project + "/zones/z/instances/vm/start"
+	for _, c := range []struct{ name, body string }{
+		{"another project in a body", `{"networkInterfaces":[{"network":"projects/other-project/global/networks/default"}]}`},
+		{"another project in a key", `{"projects/other-project":1}`},
+		{"a project number in a body", `{"network":"projects/123456789/global/networks/n"}`},
+		{"a body that is not JSON", `name=vm`},
+		{"a body cut short", `{"name":`},
+		// Ⱥ lowers from two bytes to three, so an offset in the lowered string
+		// runs past the end of this one.
+		{"a reference after text that lowers longer", `{"n":"ȺȺȺȺȺȺȺȺȺȺprojects/"}`},
+	} {
+		v := classifyBody(t, "compute", http.MethodPost, start, c.body)
+		require.Equal(t, asks, v.kind, c.name)
+		assert.Equal(t, "my-project/z", v.act.Scope, c.name)
+		assert.True(t, v.act.Once, c.name)
+	}
+	// A request billed to another project charges it, so it asks too.
+	for _, c := range []struct{ quota, query string }{
+		{"other-project", ""}, {"", "userProject=other-project"}, {"", "$USERPROJECT=other-project"},
+	} {
+		segs, why := checkPath(serviceNamed("compute"), start)
+		require.Empty(t, why)
+		q, err := url.ParseQuery(c.query)
+		require.NoError(t, err)
+		v := classify("compute", http.MethodPost, segs, q, http.Header{"X-Goog-User-Project": {c.quota}}, nil)
+		assert.Equal(t, "my-project/z", v.act.Scope, "%+v", c)
+		assert.True(t, v.act.Once, "%+v", c)
+	}
+	for _, quota := range []string{"", "my-project", "My-Project"} {
+		segs, _ := checkPath(serviceNamed("compute"), start)
+		v := classify("compute", http.MethodPost, segs, url.Values{}, http.Header{"X-Goog-User-Project": {quota}}, nil)
+		assert.False(t, v.act.Once, "an ordinary start billed to its own project, quota %q", quota)
+	}
+	for _, body := range []string{
+		"", `{"name":"vm","network":"projects/my-project/global/networks/default"}`, `{"labels":{"a":"b"}}`,
+		`{"network":"ȺȺȺȺ projects/my-project/global/networks/default"}`,
+	} {
+		v := classifyBody(t, "compute", http.MethodPost, start, body)
 		assert.Equal(t, "my-project/z", v.act.Scope, body)
+		assert.False(t, v.act.Once, body)
+	}
+}
+
+// A storage change to who may reach a bucket or an object is an access
+// control change: by its path, a predefined ACL or its metadata's decoded
+// keys, a multipart upload's included.
+func TestAStorageACLChangeIsAccessControl(t *testing.T) {
+	for _, c := range []struct{ name, method, target, body string }{
+		{"a bucket's ACL entry", http.MethodPut, "/storage/v1/b/bkt/acl/allUsers", `{"role":"READER"}`},
+		{"a bucket's ACL insert", http.MethodPost, "/storage/v1/b/bkt/acl", `{"entity":"allUsers","role":"READER"}`},
+		{"a default object ACL", http.MethodDelete, "/storage/v1/b/bkt/defaultObjectAcl/allUsers", ""},
+		{"an object's ACL", http.MethodPatch, "/storage/v1/b/bkt/o/obj/acl/allUsers", `{"role":"READER"}`},
+		{"a predefined ACL", http.MethodPatch, "/storage/v1/b/bkt?predefinedAcl=publicRead", `{}`},
+		{"a predefined default object ACL", http.MethodPatch, "/storage/v1/b/bkt?predefinedDefaultObjectAcl=publicRead", `{}`},
+		{"a bucket's metadata", http.MethodPatch, "/storage/v1/b/bkt", `{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false}}}`},
+		{"an object's metadata", http.MethodPatch, "/storage/v1/b/bkt/o/obj", `{"acl":[{"entity":"allUsers","role":"READER"}]}`},
+		{"an escaped key", http.MethodPatch, "/storage/v1/b/bkt/o/obj", `{"\u0061cl":[]}`},
+		{"metadata that does not decode", http.MethodPatch, "/storage/v1/b/bkt/o/obj", `{"acl":`},
+	} {
+		v := classifyBody(t, "storage", c.method, c.target, c.body)
+		assert.Equal(t, permissions.AccessControl, v.act.AccessLevel, c.name)
+	}
+	for _, c := range []struct {
+		name, method, target, body string
+		want                       permissions.AccessLevel
+	}{
+		{"other metadata", http.MethodPatch, "/storage/v1/b/bkt/o/obj", `{"metadata":{"a":"b"}}`, permissions.Write},
+		{"an object holding the word", http.MethodPost, "/upload/storage/v1/b/bkt/o?uploadType=media&name=x", `{"acl":[]}`, permissions.Write},
+		{"a bucket named acl", http.MethodDelete, "/storage/v1/b/acl", "", permissions.Destructive},
+		{"an object named acl", http.MethodPatch, "/storage/v1/b/bkt/o/acl", `{"metadata":{}}`, permissions.Write},
+	} {
+		v := classifyBody(t, "storage", c.method, c.target, c.body)
+		assert.Equal(t, c.want, v.act.AccessLevel, c.name)
+	}
+	assert.Equal(t, read, classifyBody(t, "storage", http.MethodGet, "/storage/v1/b/bkt/acl", "").kind, "a read of an ACL")
+
+	multipart := func(metadata string) verdict {
+		segs, why := checkPath(serviceNamed("storage"), "/upload/storage/v1/b/bkt/o")
+		require.Empty(t, why)
+		body := "--b\r\nContent-Type: application/json\r\n\r\n" + metadata + "\r\n--b\r\nContent-Type: text/plain\r\n\r\nacl\r\n--b--\r\n"
+		return classify("storage", http.MethodPost, segs, url.Values{"uploadType": {"multipart"}},
+			http.Header{"Content-Type": {`multipart/related; boundary=b`}}, []byte(body))
+	}
+	assert.Equal(t, permissions.AccessControl, multipart(`{"name":"x","acl":[]}`).act.AccessLevel, "an upload's metadata")
+	assert.Equal(t, permissions.Write, multipart(`{"name":"x"}`).act.AccessLevel, "an upload whose data holds the word")
+	// An upload whose metadata cannot be read is taken to set access.
+	segs, why := checkPath(serviceNamed("storage"), "/upload/storage/v1/b/bkt/o")
+	require.Empty(t, why)
+	for name, body := range map[string]string{
+		"no part":          "no boundary here",
+		"a part cut short": "--b\r\nContent-Type: application/json\r\n\r\n{\"name\":\"x\"}",
+	} {
+		v := classify("storage", http.MethodPost, segs, url.Values{"uploadType": {"multipart"}},
+			http.Header{"Content-Type": {`multipart/related; boundary=b`}}, []byte(body))
+		assert.Equal(t, permissions.AccessControl, v.act.AccessLevel, name)
 	}
 }
 

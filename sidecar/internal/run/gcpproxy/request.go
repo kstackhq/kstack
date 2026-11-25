@@ -28,6 +28,7 @@ const (
 	refusedQueryKey       = "kstack: a credential in the query is not sent to Google Cloud."
 	refusedMethodOverride = "kstack: a method override in the query is not sent to Google Cloud; send the method itself."
 	refusedAlt            = "kstack: this service's answers are read as JSON alone, so it was not sent."
+	refusedBilledTwice    = "kstack: this request names more than one project to bill, so it was not sent."
 )
 
 // checkPath is escaped, a request's path as sent, read as svc reads it: each
@@ -62,12 +63,16 @@ func encodesADot(raw string) bool {
 
 // checkRequest reads what the classifier does not: the query, which must
 // parse and carry no credential and no method override, and for a rewritten
-// service an alt other than json. A method override would run what the
-// classifier read as one method as another.
+// service an alt other than json; and the project it bills, named once at
+// most. A method override would run what the classifier read as one method
+// as another, and a second project billed would not be the one classified.
 func checkRequest(svc service, r *http.Request) (url.Values, string) {
 	q, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
 		return nil, refusedQuery
+	}
+	if len(r.Header.Values("X-Goog-User-Project")) > 1 || len(systemValues(q, "userproject")) > 1 {
+		return nil, refusedBilledTwice
 	}
 	for name := range q {
 		switch systemParameter(name) {
