@@ -417,19 +417,23 @@ func TestEditRefusesAnOversizedResultBeforeBuildingIt(t *testing.T) {
 	assert.False(t, isError, text)
 }
 
-// The uniqueness check stops at a second match. The bound is wall-clock, and
-// the one in this package: the scan takes milliseconds, while walking every
-// overlap of this input is about 10¹³ byte comparisons, so a 10s window sits
-// orders of magnitude from either.
+// The uniqueness check is linear: past the count, one scan finds the match
+// and one probes for an overlap, however many places old overlaps itself.
+// Here it overlaps at every one of 2¹⁹ offsets.
 func TestEditUniquenessIsLinear(t *testing.T) {
-	tl, rt, st, _ := chat(t)
-	path := file(t, st, strings.Repeat("a", tools.FileLimit-1))
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
+	text, old := strings.Repeat("a", 1<<20-1), strings.Repeat("a", 1<<19)
+	scans := 0
+	index := func(s, substr string) int {
+		scans++
+		if scans > 2 {
+			t.Fatalf("scan %d: the overlap check walks the matches", scans)
+		}
+		return strings.Index(s, substr)
+	}
 
-	text, isError := tl.Run(ctx, rt, call(path, strings.Repeat("a", 4<<20), "b"))
-	assert.True(t, isError)
-	assert.True(t, strings.HasPrefix(text, "The string to replace matches in overlapping places"), text[:min(len(text), 80)])
+	n, err := matches(text, old, false, index)
+	assert.ErrorIs(t, err, errOverlap)
+	assert.Equal(t, 1, n)
 }
 
 // An edit the call answers as done stamps the new bytes, keeping the matched

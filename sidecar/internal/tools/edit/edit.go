@@ -262,7 +262,7 @@ func (t *Tool) editFile(ctx context.Context, rt tools.Runtime, path string, fold
 			return edited{}, errSame
 		}
 	}
-	n, err := matches(text, from, in.All)
+	n, err := matches(text, from, in.All, strings.Index)
 	if err != nil {
 		return edited{}, matchRefusal(err, text, n, from, in.Old)
 	}
@@ -288,9 +288,10 @@ var (
 
 // matches is how many occurrences of old in text the edit replaces: every
 // non-overlapping one with all, else one, which must be the only match and
-// have no other overlapping it. The overlap probe is one more Index, never a
-// walk of every overlap, which costs len(old) per match.
-func matches(text, old string, all bool) (int, error) {
+// have no other overlapping it. Past the count, it finds the match and probes
+// for an overlap with two scans, so its work is linear in len(text). old is
+// never empty, which check refuses. index is strings.Index.
+func matches(text, old string, all bool, index func(s, substr string) int) (int, error) {
 	n := strings.Count(text, old)
 	switch {
 	case n == 0:
@@ -299,7 +300,7 @@ func matches(text, old string, all bool) (int, error) {
 		return n, nil
 	case n > 1:
 		return n, errSeveral
-	case strings.Contains(text[strings.Index(text, old)+1:], old):
+	case index(text[index(text, old)+1:], old) >= 0:
 		return 1, errOverlap
 	}
 	return 1, nil
