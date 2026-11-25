@@ -729,6 +729,8 @@ cache a user opened. Nothing else on the wire carries a per-kind verdict.
 type ClusterCacheSyncState {
   "The cache this detail is for."
   cacheID: ObjectID!
+  "False when the pair subscribed to names no live cache; the rest of the detail is then empty."
+  exists: Boolean!
   "How the kind-discovery sweep is doing. Its own verdict, and not any kind's: a cluster whose `/apis` document will not load has no kinds to report the failure through."
   discovery: ClusterCacheDiscoveryStatus!
   "Every mirrored kind, sorted by `apiVersion` then `resource`, so a rendered list is stable across ticks."
@@ -2637,10 +2639,10 @@ type Subscription {
   "A collection watch of one cache's per-kind sync records, keyed by `kind.id`. Cache-scoped, since there is one record per synced kind."
   clusterCachedKindCollectionWatch(cacheID: ObjectID!): ClusterCachedKindCollectionWatchFrame!
 
-  "A state watch of one cache's on-disk contents. A subscription, not a `ClusterCache` field, which would freeze at subscribe time."
+  "A state watch of one cache's on-disk contents. A subscription, not a `ClusterCache` field, which would freeze at subscribe time. A pair naming no live cache gets one value with `exists` false."
   clusterCacheStatsStateWatch(id: ClusterID!, cacheID: ObjectID!): ClusterCacheStats!
 
-  "A state watch of one cache's sync detail — the discovery verdict and a row per mirrored kind. Re-read on a cadence rather than on a change notification: its counts and freshness stamps move while every record under it sits still. Holds silent for a pair naming no live cache."
+  "A state watch of one cache's sync detail — the discovery verdict and a row per mirrored kind. Re-read on a cadence rather than on a change notification: its counts and freshness stamps move while every record under it sits still. A pair naming no live cache gets one value with `exists` false."
   clusterCacheSyncStateWatch(id: ClusterID!, cacheID: ObjectID!): ClusterCacheSyncState!
 
   # --- Cluster data ---

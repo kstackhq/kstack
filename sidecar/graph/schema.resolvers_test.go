@@ -1373,7 +1373,7 @@ func TestClusterCacheSyncStateWatchServesEveryKind(t *testing.T) {
 	srv := newTestServer(t, clusterFixtures())
 
 	resp := openSSESubscription(t, srv.URL, "",
-		`subscription { clusterCacheSyncStateWatch(id: "1", cacheID: "`+strconv.FormatInt(int64(fixtureCacheID("1")), 10)+`") { cacheID discovery { reason } kinds { apiVersion resource reason restarts objectCount } } }`)
+		`subscription { clusterCacheSyncStateWatch(id: "1", cacheID: "`+strconv.FormatInt(int64(fixtureCacheID("1")), 10)+`") { cacheID exists discovery { reason } kinds { apiVersion resource reason restarts objectCount } } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 
@@ -1383,6 +1383,7 @@ func TestClusterCacheSyncStateWatchServesEveryKind(t *testing.T) {
 			Data struct {
 				Status struct {
 					CacheID   string           `json:"cacheID"`
+					Exists    bool             `json:"exists"`
 					Discovery map[string]any   `json:"discovery"`
 					Kinds     []map[string]any `json:"kinds"`
 				} `json:"clusterCacheSyncStateWatch"`
@@ -1398,6 +1399,9 @@ func TestClusterCacheSyncStateWatchServesEveryKind(t *testing.T) {
 			}
 			if err := json.Unmarshal([]byte(ev.data), &frame); err != nil {
 				t.Fatalf("decode sync status frame %s: %v", ev.data, err)
+			}
+			if !frame.Data.Status.Exists {
+				t.Error("a live cache's detail says it does not exist")
 			}
 			if got := frame.Data.Status.Discovery["reason"]; got != "Discovered" {
 				t.Errorf("discovery reason = %v, want Discovered", got)

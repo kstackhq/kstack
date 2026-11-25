@@ -405,6 +405,7 @@ func (f fakeCaches) WatchSyncState(ctx context.Context, _ cluster.ClusterID, cac
 	f.s.mu.Lock()
 	status := cluster.ClusterCacheSyncState{
 		CacheID:   cacheID,
+		Exists:    true,
 		Discovery: cluster.ClusterCacheDiscoveryStatus{Reason: "Discovered"},
 	}
 	for i := range f.s.cachedKinds {

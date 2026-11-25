@@ -228,6 +228,7 @@ function useObjectEventFeedDiscovery(cacheId: string): EventFeedHistory<EventRun
 const ClusterCacheSyncStateWatchDocument = graphql(`
   subscription ClusterCacheSyncStateWatch($id: ClusterID!, $cacheID: ObjectID!) {
     clusterCacheSyncStateWatch(id: $id, cacheID: $cacheID) {
+      exists
       discovery {
         reason
         message
@@ -252,18 +253,19 @@ type KindSyncStatus = {
 };
 
 type CacheSyncState = {
+  exists: boolean;
   discovery: { reason: string; message: string };
   kinds: KindSyncStatus[];
 };
 
 // A state watch: each frame replaces the last outright. null until the first frame, which is what
-// keeps a still-arriving detail from rendering as "no kinds".
+// keeps a still-arriving detail from rendering as "no kinds", and for a cache that is gone.
 function useClusterCacheSyncStateWatch(clusterId: string, cacheId: string): CacheSyncState | null {
   const { data } = useFoldedSubscription<{ clusterCacheSyncStateWatch: CacheSyncState }, CacheSyncState>(
     { query: ClusterCacheSyncStateWatchDocument, variables: { id: clusterId, cacheID: cacheId } },
     stateWatchReducer((resp) => resp.clusterCacheSyncStateWatch),
   );
-  return data ?? null;
+  return data?.exists ? data : null;
 }
 
 // One cache's per-kind sync records — cache-scoped (one per synced kind; a

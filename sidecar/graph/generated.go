@@ -248,6 +248,7 @@ type ComplexityRoot struct {
 	ClusterCacheSyncState struct {
 		CacheID   func(childComplexity int) int
 		Discovery func(childComplexity int) int
+		Exists    func(childComplexity int) int
 		Kinds     func(childComplexity int) int
 	}
 
@@ -2000,6 +2001,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ClusterCacheSyncState.Discovery(childComplexity), true
+	case "ClusterCacheSyncState.exists":
+		if e.ComplexityRoot.ClusterCacheSyncState.Exists == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ClusterCacheSyncState.Exists(childComplexity), true
 	case "ClusterCacheSyncState.kinds":
 		if e.ComplexityRoot.ClusterCacheSyncState.Kinds == nil {
 			break
@@ -6018,6 +6025,8 @@ func (ec *executionContext) childFields_ClusterCacheSyncState(ctx context.Contex
 	switch field.Name {
 	case "cacheID":
 		return ec.fieldContext_ClusterCacheSyncState_cacheID(ctx, field)
+	case "exists":
+		return ec.fieldContext_ClusterCacheSyncState_exists(ctx, field)
 	case "discovery":
 		return ec.fieldContext_ClusterCacheSyncState_discovery(ctx, field)
 	case "kinds":
@@ -11787,6 +11796,29 @@ func (ec *executionContext) _ClusterCacheSyncState_cacheID(ctx context.Context, 
 }
 func (ec *executionContext) fieldContext_ClusterCacheSyncState_cacheID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ClusterCacheSyncState", field, false, false, "ObjectID")
+}
+
+func (ec *executionContext) _ClusterCacheSyncState_exists(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheSyncState) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ClusterCacheSyncState_exists(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Exists, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ClusterCacheSyncState_exists(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterCacheSyncState", field, false, false, "Boolean")
 }
 
 func (ec *executionContext) _ClusterCacheSyncState_discovery(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheSyncState) (ret graphql.Marshaler) {
@@ -29272,6 +29304,11 @@ func (ec *executionContext) _ClusterCacheSyncState(ctx context.Context, sel ast.
 			out.Values[i] = graphql.MarshalString("ClusterCacheSyncState")
 		case "cacheID":
 			out.Values[i] = ec._ClusterCacheSyncState_cacheID(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "exists":
+			out.Values[i] = ec._ClusterCacheSyncState_exists(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

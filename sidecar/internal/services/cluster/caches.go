@@ -182,7 +182,9 @@ func RefusedCacheWide(reason string) bool {
 // Where ClusterCacheHealth folds a cache into one verdict for a fleet view, this expands one
 // cache for the panel a user opened.
 type ClusterCacheSyncState struct {
-	CacheID   ClusterCacheID
+	CacheID ClusterCacheID
+	// Exists is false for a pair naming no live cache, whose detail is otherwise empty.
+	Exists    bool
 	Discovery ClusterCacheDiscoveryStatus
 	// Kinds is every mirrored kind, sorted by (APIVersion, Resource) so a rendered list is
 	// stable across ticks.
@@ -367,10 +369,9 @@ func (a cachesAPI) WatchCollectionByCluster(ctx context.Context, clusterID Clust
 // event, and every watcher pays for each tick.
 const defaultStateWatchCadence = 5 * time.Second
 
-// WatchStatsState measures one cache's file and contents. A state watch carries no bookmark and
-// emits nothing before its first measurement, so a pair naming no live cache holds
-// silent rather than claiming an answer — a caller holding a bad id got it from a watch
-// frame, and drops the subscription itself.
+// WatchStatsState measures one cache's file and contents. A pair naming no live cache gets one
+// reading that says there is none (Exists false), and nothing after it: a caller holding such a
+// pair got it from a frame that has since moved on, and drops the subscription itself.
 //
 // It re-measures on the store's own change pings and on a cadence, because the two
 // cover different halves: pings carry the writes, and the file's size moves with
@@ -383,7 +384,7 @@ func (a cachesAPI) WatchStatsState(ctx context.Context, clusterID ClusterID, cac
 
 	return NewStream(ctx, func(ctx context.Context, out chan<- ClusterCacheStats) error {
 		if !live {
-			<-ctx.Done()
+			sendAbsent(ctx, out, ClusterCacheStats{})
 			return nil
 		}
 		ticker := time.NewTicker(a.s.stateWatchCadence)
@@ -618,12 +619,21 @@ func kindRefOf(spec ClusterCachedKindSpec) KindRef {
 
 // compareKindRefs orders kinds by apiVersion, then resource, so rendered lists are
 // stable across ticks.
+// sendAbsent is a state watch's one reading for a pair naming no live cache: its value now,
+// which nothing will change, held until the subscriber leaves.
+func sendAbsent[T any](ctx context.Context, out chan<- T, absent T) {
+	if sendFrame(ctx, out, absent) {
+		<-ctx.Done()
+	}
+}
+
 func compareKindRefs(a, b KindRef) int {
 	return cmp.Or(cmp.Compare(a.APIVersion, b.APIVersion), cmp.Compare(a.Resource, b.Resource))
 }
 
 // WatchSyncState streams one cache's sync detail as a state watch: the discovery verdict and a
-// row per mirrored kind. The only thing on the wire that carries a per-kind verdict.
+// row per mirrored kind. The only thing on the wire that carries a per-kind verdict. A pair
+// naming no live cache gets one reading with Exists false, as WatchStatsState does.
 //
 // It re-reads on the cadence and never on a signal, because its counts and freshness stamps
 // move with no reason change — the only thing the sync seam signals on — so a state watch waiting
@@ -636,7 +646,7 @@ func (a cachesAPI) WatchSyncState(ctx context.Context, clusterID ClusterID, cach
 
 	return NewStream(ctx, func(ctx context.Context, out chan<- ClusterCacheSyncState) error {
 		if !live {
-			<-ctx.Done()
+			sendAbsent(ctx, out, ClusterCacheSyncState{CacheID: cacheID})
 			return nil
 		}
 		ticker := time.NewTicker(a.s.stateWatchCadence)
@@ -716,7 +726,7 @@ func (a cachesAPI) readSyncState(ctx context.Context, cacheID ClusterCacheID) (C
 		return ClusterCacheSyncState{}, err
 	}
 
-	status := ClusterCacheSyncState{CacheID: cacheID}
+	status := ClusterCacheSyncState{CacheID: cacheID, Exists: true}
 	if discovery, ok := a.s.kubesyncSvc.GetDiscoveryState(int64(cacheID)); ok {
 		status.Discovery = ClusterCacheDiscoveryStatus{Reason: discovery.Reason, Message: discovery.Message}
 	}
@@ -918,7 +928,7 @@ func sameHealth(a, b ClusterCacheHealth) bool {
 // sameSyncState is equality for the state watch's dedupe. Hand-written because the row carries
 // optional times as pointers, which == would compare by address.
 func sameSyncState(a, b ClusterCacheSyncState) bool {
-	return a.CacheID == b.CacheID && a.Discovery == b.Discovery &&
+	return a.CacheID == b.CacheID && a.Exists == b.Exists && a.Discovery == b.Discovery &&
 		slices.EqualFunc(a.Kinds, b.Kinds, sameKindSyncStatus)
 }
 

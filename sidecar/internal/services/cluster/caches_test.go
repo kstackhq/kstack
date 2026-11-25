@@ -671,10 +671,10 @@ func TestCachesWatchStatsStateDoesNotHoldAnIdleCacheOpen(t *testing.T) {
 	assert.False(t, cacheIsOpen(mgr, int64(cache.ID)), "the state watch opened an idle cache's file")
 }
 
-// A state watch carries no bookmark, so an id pair that names nothing holds silent rather
-// than claiming an answer — a caller holding a bad id got it from a watch frame and
-// drops the subscription itself.
-func TestCachesWatchStatsStateHoldsSilentForAMismatchedPair(t *testing.T) {
+// A pair naming no live cache still gets its first value at once: a reading that says there is
+// no cache, and nothing after it. A caller holding such a pair got it from a frame that has
+// since moved on, and drops the subscription itself.
+func TestCachesWatchStatsStateSendsOneAbsentReadingForAMismatchedPair(t *testing.T) {
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
 	other := createCluster(t, d, "staging")
@@ -684,7 +684,9 @@ func TestCachesWatchStatsStateHoldsSilentForAMismatchedPair(t *testing.T) {
 	stream, err := serviceOver(t, d).Caches().WatchStatsState(context.Background(), clusterIDOf(cluster), ClusterCacheID(cache.ID))
 
 	require.NoError(t, err)
-	testutil.NoRecv(t, stream.Frames, quietWindow, "a frame for another cluster's cache")
+	got := testutil.Recv(t, stream.Frames, "the absent reading")
+	assert.Equal(t, ClusterCacheStats{}, got, "a reading of another cluster's cache")
+	testutil.NoRecv(t, stream.Frames, quietWindow, "a frame after the absent reading")
 }
 
 // The state watch re-emits only when the measurement moved: it is re-read on a cadence, and
@@ -1274,9 +1276,9 @@ func syncingCacheWithKinds(t *testing.T) (deps, ClusterCacheID) {
 	return d, ClusterCacheID(cache.ID)
 }
 
-// watchSyncStatus opens the sync-detail state watch and ends it before the test's temp dir goes:
+// watchSyncState opens the sync-detail state watch and ends it before the test's temp dir goes:
 // the pump reopens the cache's file every tick, and Windows removes no open file.
-func watchSyncStatus(t *testing.T, svc *service, clusterID ClusterID, cacheID ClusterCacheID) *Stream[ClusterCacheSyncState] {
+func watchSyncState(t *testing.T, svc *service, clusterID ClusterID, cacheID ClusterCacheID) *Stream[ClusterCacheSyncState] {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	stream, err := svc.Caches().WatchSyncState(ctx, clusterID, cacheID)
@@ -1605,7 +1607,7 @@ func TestCachesWatchSyncStateServesTheDiscoveryReasonAndEveryKind(t *testing.T) 
 		Reason: kubesync.ReasonSyncFailed, Message: "forbidden", Restarts: 3,
 	})
 
-	stream := watchSyncStatus(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
+	stream := watchSyncState(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's sync detail")
 	assert.Equal(t, kubesync.ReasonPartial, got.Discovery.Reason)
@@ -1629,7 +1631,7 @@ func TestCachesWatchSyncStateCarriesAStoreFailure(t *testing.T) {
 		Reason: kubesync.ReasonStoreFailed, Message: "disk full",
 	})
 
-	stream := watchSyncStatus(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
+	stream := watchSyncState(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's sync detail")
 	assert.Equal(t, kubesync.ReasonStoreFailed, got.Discovery.Reason)
@@ -1644,9 +1646,10 @@ func TestCachesWatchSyncStateReadsAPausedKindOffItsRecord(t *testing.T) {
 	writeCatalog(t, d, cacheID, kindRow("v1", "Pod", "pods"))
 	pauseKind(t, d, beehive.ObjectID(cacheID), "v1", "pods")
 
-	stream := watchSyncStatus(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
+	stream := watchSyncState(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's sync detail")
+	assert.True(t, got.Exists, "a live cache's detail")
 	require.Len(t, got.Kinds, 2)
 	assert.Equal(t, ReasonPaused, got.Kinds[1].Reason, "the reason comes off the record, not the seam")
 	assert.Equal(t, 0, got.Kinds[1].ObjectCount, "and the count still answers")
@@ -1660,7 +1663,7 @@ func TestCachesWatchSyncStateEmitsOnlyOnAChange(t *testing.T) {
 
 	svc := serviceOver(t, d)
 	svc.stateWatchCadence = time.Millisecond
-	stream := watchSyncStatus(t, svc, ownerClusterOf(t, d, cacheID), cacheID)
+	stream := watchSyncState(t, svc, ownerClusterOf(t, d, cacheID), cacheID)
 	testutil.Recv(t, stream.Frames, "the first detail")
 
 	// A negative assertion has no event to wait for, so it takes a bounded window — many
@@ -1679,21 +1682,25 @@ func TestCachesWatchSyncStateCountsRowsFromTheStore(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	writeCatalog(t, d, cacheID, kindRow("v1", "Pod", "pods"))
 
-	stream := watchSyncStatus(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
+	stream := watchSyncState(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's sync detail")
+	assert.True(t, got.Exists, "a live cache's detail")
 	require.Len(t, got.Kinds, 2)
 	assert.Equal(t, 0, got.Kinds[1].ObjectCount, "a kind the catalog knows and nothing has cached")
 }
 
-// A pair naming no live cache holds silent rather than claiming an answer, the way every
-// state watch in this family does: the caller held a bad id and drops the subscription itself.
-func TestCachesWatchSyncStateHoldsSilentForAMismatchedPair(t *testing.T) {
+// A pair naming no live cache gets one reading that says so, the way the stats state watch
+// does, and nothing after it.
+func TestCachesWatchSyncStateSendsOneAbsentReadingForAMismatchedPair(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 
-	stream := watchSyncStatus(t, serviceOver(t, d), ClusterID("999"), cacheID)
+	stream := watchSyncState(t, serviceOver(t, d), ClusterID("999"), cacheID)
 
-	testutil.NoRecv(t, stream.Frames, 50*time.Millisecond, "a verdict for a cache that is not this cluster's")
+	got := testutil.Recv(t, stream.Frames, "the absent reading")
+	assert.False(t, got.Exists, "a cache that is not this cluster's")
+	assert.Empty(t, got.Kinds)
+	testutil.NoRecv(t, stream.Frames, 50*time.Millisecond, "a frame after the absent reading")
 }
 
 // **A relayed value needs a depends_on edge; the owner edge is not one.** The switch this pass
@@ -2590,7 +2597,7 @@ func TestCachesSyncStatusIsOneReadingOfTheStateWatch(t *testing.T) {
 	got, ok, err := svc.Caches().SyncState(context.Background(), ownerClusterOf(t, d, cacheID), cacheID)
 	require.NoError(t, err)
 	require.True(t, ok)
-	stream := watchSyncStatus(t, svc, ownerClusterOf(t, d, cacheID), cacheID)
+	stream := watchSyncState(t, svc, ownerClusterOf(t, d, cacheID), cacheID)
 	want := testutil.Recv(t, stream.Frames, "the state watch's first frame")
 
 	assert.Equal(t, want, got)

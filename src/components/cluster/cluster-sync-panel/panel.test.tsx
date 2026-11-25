@@ -415,6 +415,7 @@ function pushSyncStatus(
   kinds: { apiVersion: string; resource: string; reason: string; message?: string }[],
   discoveryReason = 'Discovered',
   discoveryMessage = '',
+  exists = true,
 ) {
   channelFor('clusterCacheSyncStateWatch').onmessage!(
     JSON.stringify({
@@ -422,6 +423,7 @@ function pushSyncStatus(
       payload: {
         data: {
           clusterCacheSyncStateWatch: {
+            exists,
             discovery: { reason: discoveryReason, message: discoveryMessage },
             kinds: kinds.map((k) => ({ message: '', objectCount: 0, ...k })),
           },
@@ -1167,6 +1169,17 @@ describe('ClusterSyncPanel', () => {
 
     expect(await screen.findByText(/StoreFailed/)).toBeInTheDocument();
     expect(await screen.findByText(/disk full/)).toBeInTheDocument();
+  });
+
+  // A detail for a cache that is gone is no detail: the row is about to leave with its cache,
+  // and drawing the absent reading would show a verdict for nothing.
+  it('draws nothing from a detail that says its cache does not exist', async () => {
+    const user = await openWith([{ uuid: 'u-gone', name: 'prod', enabled: true, present: true }]);
+    await user.click(await screen.findByRole('button', { name: /current/i }));
+
+    await act(async () => pushSyncStatus([], 'StoreFailed', 'disk full', false));
+
+    expect(screen.queryByText(/StoreFailed/)).not.toBeInTheDocument();
   });
 
   // A store that will not open clears on its own never, and nothing syncs until someone
