@@ -32,7 +32,7 @@ import { VisibleText } from '@/components/primitives/visible-text';
 import {
   type NextCheckState,
   useClusterCacheStatsStateWatch,
-  useClusterDataRateTimeSeriesFeed,
+  useClusterDataRateSampleFeed,
   useClusterScheduleStateWatch,
 } from '@/lib/cluster-diagnostics';
 import {
@@ -157,7 +157,7 @@ function ConnectionSection({ cluster }: { cluster: Cluster }) {
     connected && connected.status !== 'Unknown' && !connected.unconfirmed
       ? Date.parse(connected.transitionedAt)
       : Number.NaN;
-  const rates = useClusterDataRateTimeSeriesFeed(cluster.id, !cluster.spec.enabled);
+  const rates = useClusterDataRateSampleFeed(cluster.id, !cluster.spec.enabled);
   const rate = rates?.samples.at(-1);
 
   return (

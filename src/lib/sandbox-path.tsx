@@ -22,12 +22,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery } from 'urql';
 
 import { graphql } from '@/gql';
-import type { SandboxPathQuery } from '@/gql/graphql';
+import type { SandboxPathGetQuery } from '@/gql/graphql';
 import { refusalOf, savedUnread } from '@/lib/graphql/refusal';
 
-const SandboxPathDocument = graphql(`
-  query SandboxPath {
-    sandboxPath {
+const SandboxPathGetDocument = graphql(`
+  query SandboxPathGet {
+    sandboxPathGet {
       value
       refusal
       folders {
@@ -40,7 +40,7 @@ const SandboxPathDocument = graphql(`
         shared
       }
     }
-    sandboxPathFault
+    sandboxPathFaultGet
   }
 `);
 
@@ -60,7 +60,7 @@ const SandboxPathRefreshMutation = graphql(`
   }
 `);
 
-export type SandboxPathFolder = SandboxPathQuery['sandboxPath']['folders'][number];
+export type SandboxPathFolder = SandboxPathGetQuery['sandboxPathGet']['folders'][number];
 
 export type SandboxPath = {
   /** The setting as written; undefined until the sidecar has answered. */
@@ -84,7 +84,7 @@ export type SandboxPath = {
 };
 
 export function useSandboxPath(): SandboxPath {
-  const [{ data }, reexecute] = useQuery({ query: SandboxPathDocument, requestPolicy: 'cache-and-network' });
+  const [{ data }, reexecute] = useQuery({ query: SandboxPathGetDocument, requestPolicy: 'cache-and-network' });
   const [, saveMutation] = useMutation(SandboxPathSetMutation);
   const [, refreshMutation] = useMutation(SandboxPathRefreshMutation);
   const [saving, setSaving] = useState(false);
@@ -121,10 +121,10 @@ export function useSandboxPath(): SandboxPath {
   }, [refreshMutation, askAgain]);
 
   return {
-    value: data?.sandboxPath.value,
-    refusal: data?.sandboxPath.refusal,
-    folders: data?.sandboxPath.folders,
-    fault: data?.sandboxPathFault,
+    value: data?.sandboxPathGet.value,
+    refusal: data?.sandboxPathGet.refusal,
+    folders: data?.sandboxPathGet.folders,
+    fault: data?.sandboxPathFaultGet,
     saving,
     refreshing,
     saveError,

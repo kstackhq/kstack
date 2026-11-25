@@ -63,6 +63,17 @@ func TestRecvReturnsTheValue(t *testing.T) {
 	assert.Equal(t, 42, Recv(t, ch, "an int"))
 }
 
+func TestCurrentReadsTheFirstValueAndStops(t *testing.T) {
+	stopped := false
+	watch := func() (<-chan int, func()) {
+		ch := make(chan int, 1)
+		ch <- 7
+		return ch, func() { stopped = true }
+	}
+	assert.Equal(t, 7, Current(t, watch, "the value"))
+	assert.True(t, stopped)
+}
+
 func TestRecvClosedAcceptsAClosedChannel(t *testing.T) {
 	ch := make(chan int)
 	close(ch)

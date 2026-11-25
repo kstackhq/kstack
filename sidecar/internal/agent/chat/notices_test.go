@@ -40,7 +40,7 @@ func TestANoticeTurnSaysWhereCommandsRunWhenTheSwitchMoved(t *testing.T) {
 
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
-	s.sandboxStatus = sandbox.Status{Available: true}
+	s.sandboxState = sandbox.State{Available: true}
 	first, ft := startTaskTurn(t, s, tt, nil, "1")
 	sandboxed := newestContextOf(t, s, first.ChatID)
 
@@ -62,7 +62,7 @@ func TestANoticeTurnSaysTheNetworkWhenTheSwitchMoved(t *testing.T) {
 
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 	first, ft := startTaskTurn(t, s, tt, nil, "1")
 	off := newestContextOf(t, s, first.ChatID)
 
@@ -83,7 +83,7 @@ func TestANoticeTurnCarriesNoContextWhenTheSwitchStayed(t *testing.T) {
 
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
-	s.sandboxStatus = sandbox.Status{Available: true}
+	s.sandboxState = sandbox.State{Available: true}
 	first, ft := startTaskTurn(t, s, tt, nil, "1")
 
 	ft.exit(0)
@@ -273,7 +273,7 @@ func TestANoticeTurnDropsTheView(t *testing.T) {
 
 			tt := newTaskTool()
 			s := startServiceWithTool(t, tt)
-			s.sandboxStatus = sandbox.Status{Available: true}
+			s.sandboxState = sandbox.State{Available: true}
 			first := send(t, s, nil, "1", "tail it")
 			awaitSettled(t, s, first.ChatID, first.ID)
 			action := tailWebapp()

@@ -38,7 +38,7 @@ describe('useSandboxCloudAccess', () => {
     state.current = {
       fetching: false,
       data: {
-        sandboxCloudAccess: [
+        sandboxCloudAccessGet: [
           { target: 'AWS', on: true },
           { target: 'GitHub', on: false },
           { target: 'GCP', on: true },
@@ -52,7 +52,7 @@ describe('useSandboxCloudAccess', () => {
   });
 
   it('answers every platform off as an empty list, not a failure', () => {
-    state.current = { fetching: false, data: { sandboxCloudAccess: [{ target: 'AWS', on: false }] } };
+    state.current = { fetching: false, data: { sandboxCloudAccessGet: [{ target: 'AWS', on: false }] } };
     expect(renderHook(() => useSandboxCloudAccess()).result.current).toEqual({ platforms: [], readFailed: false });
   });
 
@@ -67,7 +67,7 @@ describe('useSandboxCloudAccess', () => {
   it('prefers a failed read over the platforms an earlier one answered', () => {
     state.current = {
       fetching: false,
-      data: { sandboxCloudAccess: [{ target: 'AWS', on: true }] },
+      data: { sandboxCloudAccessGet: [{ target: 'AWS', on: true }] },
       error: new Error('could not read the switches'),
     };
     expect(renderHook(() => useSandboxCloudAccess()).result.current).toEqual({

@@ -2,7 +2,7 @@
 
 The log panel, the log windows, the log viewer and its headless core, and the transcript's log cards (`components/chat/log-cards/`). Also owns `src/lib/`'s `logs-view.tsx`, `log-windows.tsx`, `log-window-push.ts`, `logs-client.ts`, `log-viewport.ts` and `log-viewer/`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md). How each card draws in the transcript is in the chat guide ([`../chat/CLAUDE.md`](../chat/CLAUDE.md), *Tool calls*).
 
-Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+Every data access here is named for its contract: [`docs/data-access.md`](../../../docs/data-access.md).
 
 ## The focused view
 

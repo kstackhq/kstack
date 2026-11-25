@@ -33,7 +33,7 @@ import {
   type CacheContents,
   parseTimeOrNull,
   useClusterCacheStatsStateWatch,
-  useClusterDataRateTimeSeriesFeed,
+  useClusterDataRateSampleFeed,
   useClusterScheduleStateWatch,
 } from '@/lib/cluster-diagnostics';
 import {
@@ -460,7 +460,7 @@ export function NextCheck({ clusterId }: { clusterId: string }) {
 export function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; connFailed: boolean }) {
   const detail = connectionDetail(cluster);
   const attempts = useClusterEventFeedConnection(cluster.id);
-  const rates = useClusterDataRateTimeSeriesFeed(cluster.id, !cluster.spec.enabled);
+  const rates = useClusterDataRateSampleFeed(cluster.id, !cluster.spec.enabled);
   const rate = rates?.samples.at(-1);
 
   return (

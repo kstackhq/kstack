@@ -48,9 +48,9 @@ func TestTheContextBlockMatchesItsGolden(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = root.Close() })
 	s := &service{
-		sandboxStatus: sandbox.Status{Available: true, NetworkAvailable: true},
-		memories:      sampleMemories{},
-		chatsRoot:     root,
+		sandboxState: sandbox.State{Available: true, NetworkAvailable: true},
+		memories:     sampleMemories{},
+		chatsRoot:    root,
 	}
 	chatID := ChatID("0195f1a0-5b6e-7c3d-8e4f-0a1b2c3d4e5f")
 

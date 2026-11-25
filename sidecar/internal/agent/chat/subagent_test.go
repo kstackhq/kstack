@@ -1628,7 +1628,7 @@ func TestASubagentsRuntimeCarriesItsParentsSwitch(t *testing.T) {
 	t.Parallel()
 
 	s := startServiceWithAgent(t, runtimeTool{testTool: testTool{name: "where"}})
-	s.sandboxStatus = sandbox.Status{Available: true}
+	s.sandboxState = sandbox.State{Available: true}
 	first := sendAndSettle(t, s, nil, "2", "first", "hi")
 	_, err := s.SetSandboxDisabled(t.Context(), first.ChatID, true)
 	require.NoError(t, err)
@@ -1662,7 +1662,7 @@ func TestTheTurnsToggleReachesItsCommandsAndItsSubagents(t *testing.T) {
 	t.Parallel()
 
 	s := startServiceWithAgent(t, networkTool{testTool{name: "net"}})
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 	fakeOf(s).SetToolCalls(llm.StagedCall("net", `{}`), agentCall("Look."))
 	subagentFake(s, "Look.").SetToolCalls(llm.StagedCall("net", `{}`))
 

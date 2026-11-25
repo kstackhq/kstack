@@ -88,44 +88,6 @@ func twoCachesTwoResources(t *testing.T) (deps, ClusterCacheID) {
 	return d, ClusterCacheID(one.ID)
 }
 
-func TestCachedKindsGet(t *testing.T) {
-	d := newTestDeps(t)
-	cluster := createCluster(t, d, "prod")
-	cache := createCache(t, d.cacheClient, cluster, "uid-1")
-	obj := createKind(t, d, cache.ID, deploymentsSpec)
-
-	got, err := serviceOver(t, d).CachedKinds().Get(context.Background(), ClusterCachedKindID(obj.ID))
-
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, ClusterCachedKindID(obj.ID), got.ID)
-	assert.Equal(t, deploymentsSpec, got.Spec)
-	assert.Equal(t, ObjectRef{ID: ObjectID(cache.ID), Kind: "ClusterCache"}, got.Owner,
-		"the owner is the cache — the join key a client already holds from the cache stream")
-}
-
-// An unknown id is not an error: a caller holds ids from watch frames, and a record
-// collected in between is an ordinary race rather than a bad request.
-func TestCachedKindsGetUnknownIsNotAnError(t *testing.T) {
-	d := newTestDeps(t)
-
-	got, err := serviceOver(t, d).CachedKinds().Get(context.Background(), 404)
-
-	require.NoError(t, err)
-	assert.Nil(t, got)
-}
-
-func TestCachedKindsList(t *testing.T) {
-	d, _ := twoCachesTwoResources(t)
-
-	got, err := serviceOver(t, d).CachedKinds().List(context.Background())
-
-	require.NoError(t, err)
-	require.Len(t, got, 2)
-	assert.Equal(t, []string{"deployments", "pods"}, []string{got[0].Spec.Resource, got[1].Spec.Resource},
-		"creation order, the same order every family's list promises")
-}
-
 // watchKinds opens the unscoped stream for the test's life.
 func watchKinds(t *testing.T, d deps) *Stream[ClusterCachedKindCollectionWatchFrame] {
 	t.Helper()
@@ -237,6 +199,8 @@ func TestCachedKindsListByCache(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "deployments", got[0].Spec.Resource, "the other cache's kinds are not this cache's")
+	assert.Equal(t, ObjectRef{ID: ObjectID(one), Kind: "ClusterCache"}, got[0].Owner,
+		"the owner is the cache — the join key a client already holds from the cache stream")
 }
 
 // A cache nothing has discovered kinds for owns none, which reads empty rather than

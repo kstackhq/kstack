@@ -163,27 +163,6 @@ func toClusterCachedKinds(objs []*beehive.Object[ClusterCachedKindSpec, ClusterC
 	return kinds, nil
 }
 
-func (a cachedKindsAPI) Get(ctx context.Context, id ClusterCachedKindID) (*ClusterCachedKind, error) {
-	obj, err := a.s.kindClient.Get(ctx, beehive.ObjectID(id), beehive.LoadOwner())
-	if err != nil {
-		// A caller holds ids from watch frames, so a record collected in between is an
-		// ordinary race rather than a bad request.
-		if errors.Is(err, beehive.ErrNotFound) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get cached kind %d: %w", id, err)
-	}
-	return toClusterCachedKind(obj)
-}
-
-func (a cachedKindsAPI) List(ctx context.Context) ([]*ClusterCachedKind, error) {
-	objs, err := a.s.kindClient.List(ctx, beehive.LoadOwner())
-	if err != nil {
-		return nil, fmt.Errorf("list cached kinds: %w", err)
-	}
-	return toClusterCachedKinds(objs)
-}
-
 func (a cachedKindsAPI) WatchCollectionByID(ctx context.Context, id ClusterCachedKindID) (*Stream[ClusterCachedKindCollectionWatchFrame], error) {
 	src, err := a.s.kindClient.Watch(ctx, beehive.ObjectID(id), loadKindOwner)
 	if err != nil {

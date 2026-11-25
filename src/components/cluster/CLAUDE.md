@@ -2,7 +2,7 @@
 
 The context omnibox (in `components/shell/`) and what it opens: the cluster picker, the status popover and the sync panel; and memory. Also owns `src/lib/`'s `cluster-health.ts`, `cluster-diagnostics.ts`, `cluster-mutations.ts`, `kube-config.tsx`, `memories.tsx` and `memory-writes.ts`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md).
 
-Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+Every data access here is named for its contract: [`docs/data-access.md`](../../../docs/data-access.md).
 
 ## The context omnibox
 

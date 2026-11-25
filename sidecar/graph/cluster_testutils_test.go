@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kstackhq/kstack/sidecar/graph"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
@@ -587,44 +589,12 @@ func (f fakeCaches) Get(_ context.Context, id cluster.ClusterCacheID) (*cluster.
 	return nil, nil
 }
 
-func (f fakeCaches) List(context.Context) ([]*cluster.ClusterCache, error) {
-	var out []*cluster.ClusterCache
-	for _, c := range f.s.cacheSnapshot() {
-		out = append(out, &c)
-	}
-	return out, nil
-}
-
 func (f fakeCaches) ListByCluster(_ context.Context, clusterID cluster.ClusterID) ([]*cluster.ClusterCache, error) {
 	var out []*cluster.ClusterCache
 	for _, c := range f.s.cacheSnapshot() {
 		if c.ClusterID == clusterID {
 			out = append(out, &c)
 		}
-	}
-	return out, nil
-}
-
-func (f fakeCachedKinds) Get(_ context.Context, id cluster.ClusterCachedKindID) (*cluster.ClusterCachedKind, error) {
-	f.s.mu.Lock()
-	defer f.s.mu.Unlock()
-	for i := range f.s.cachedKinds {
-		if f.s.cachedKinds[i].ID == id {
-			gs := f.s.cachedKinds[i]
-			return &gs, nil
-		}
-	}
-	return nil, nil
-}
-
-// List is every record, unscoped.
-func (f fakeCachedKinds) List(context.Context) ([]*cluster.ClusterCachedKind, error) {
-	f.s.mu.Lock()
-	defer f.s.mu.Unlock()
-	var out []*cluster.ClusterCachedKind
-	for i := range f.s.cachedKinds {
-		gs := f.s.cachedKinds[i]
-		out = append(out, &gs)
 	}
 	return out, nil
 }
@@ -658,8 +628,8 @@ func (f fakeClusters) WatchScheduleState(ctx context.Context, _ cluster.ClusterI
 	return ch, nil
 }
 
-// fakeDataRateFrame is the window every fake time series feed opens with.
-var fakeDataRateFrame = cluster.ClusterDataRateTimeSeriesFeedFrame{
+// fakeDataRateFrame is the window every fake sample feed opens with.
+var fakeDataRateFrame = cluster.ClusterDataRateSampleFeedFrame{
 	IntervalSeconds: 2,
 	WindowSeconds:   120,
 	Samples: []cluster.ClusterDataRateSample{
@@ -667,9 +637,9 @@ var fakeDataRateFrame = cluster.ClusterDataRateTimeSeriesFeedFrame{
 	},
 }
 
-// SubscribeDataRateTimeSeriesFeed sends the window on subscribe, then open until ctx ends.
-func (f fakeClusters) SubscribeDataRateTimeSeriesFeed(ctx context.Context, _ cluster.ClusterID) (<-chan cluster.ClusterDataRateTimeSeriesFeedFrame, error) {
-	ch := make(chan cluster.ClusterDataRateTimeSeriesFeedFrame)
+// SubscribeDataRateSampleFeed sends the window on subscribe, then open until ctx ends.
+func (f fakeClusters) SubscribeDataRateSampleFeed(ctx context.Context, _ cluster.ClusterID) (<-chan cluster.ClusterDataRateSampleFeedFrame, error) {
+	ch := make(chan cluster.ClusterDataRateSampleFeedFrame)
 	go func() {
 		defer close(ch)
 		select {
@@ -832,32 +802,52 @@ func newTestServer(t *testing.T, fixtures []clusterFixture) *httptest.Server {
 	return srv
 }
 
-// clustersQueryData creates a test server from the default fixtures, POSTs
-// query, decodes data, and fails the test on any GraphQL errors.
-func clustersQueryData(t *testing.T, query string) map[string]any {
+// collectionSnapshot opens a collection watch and returns its snapshot: the item of
+// each frame before the Bookmark, keyed by its id. field is the subscription's field and
+// item the frame's item field.
+func collectionSnapshot(t *testing.T, srvURL, subscription, field, item string) map[string]map[string]any {
 	t.Helper()
-	srv := newTestServer(t, clusterFixtures())
+	resp := openSSESubscription(t, srvURL, "", subscription)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	got := map[string]map[string]any{}
+	for {
+		ev := nextSSE(t, events)
+		if ev.event != "next" {
+			continue
+		}
+		var frame struct {
+			Data   map[string]map[string]any  `json:"data"`
+			Errors []struct{ Message string } `json:"errors"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(ev.data), &frame), ev.data)
+		require.Empty(t, frame.Errors, ev.data)
+		if frame.Data[field]["type"] == "Bookmark" {
+			return got
+		}
+		record := frame.Data[field][item].(map[string]any)
+		got[record["id"].(string)] = record
+	}
+}
 
-	body, _ := json.Marshal(map[string]string{"query": query})
-	raw := postGQL(t, srv.URL, string(body))
+// clusterSnapshot is clusterCollectionWatch's snapshot, each cluster selecting selection.
+func clusterSnapshot(t *testing.T, srvURL, selection string) map[string]map[string]any {
+	t.Helper()
+	return collectionSnapshot(t, srvURL,
+		`subscription { clusterCollectionWatch { type cluster { id `+selection+` } } }`,
+		"clusterCollectionWatch", "cluster")
+}
 
-	var resp struct {
-		Data   map[string]any
-		Errors []struct{ Message string }
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		t.Fatalf("decode response %s: %v", raw, err)
-	}
-	if len(resp.Errors) > 0 {
-		t.Fatalf("unexpected GraphQL errors: %+v", resp.Errors)
-	}
-	return resp.Data
+// cacheSnapshot is clusterCacheCollectionWatch's snapshot, each cache selecting selection.
+func cacheSnapshot(t *testing.T, srvURL, selection string) map[string]map[string]any {
+	t.Helper()
+	return collectionSnapshot(t, srvURL,
+		`subscription { clusterCacheCollectionWatch { type cache { id `+selection+` } } }`,
+		"clusterCacheCollectionWatch", "cache")
 }
 
 // firstCacheFrame opens clusterCacheCollectionWatch and returns the `cache` payload of the
-// first Added frame for cluster "1", decoded to a generic map — the cache-side
-// analogue of clustersQueryData, used by the wire-shape tests; cache status is
-// exposed through clusterCacheCollectionWatch, not the Cluster query.
+// first Added frame for cluster "1", decoded to a generic map, for the wire-shape tests.
 func firstCacheFrame(t *testing.T, srvURL string) map[string]any {
 	t.Helper()
 	resp := openSSESubscription(t, srvURL, "",
@@ -961,7 +951,7 @@ func (e errClusters) WatchScheduleState(context.Context, cluster.ClusterID) (<-c
 	return nil, e.err
 }
 
-func (e errClusters) SubscribeDataRateTimeSeriesFeed(context.Context, cluster.ClusterID) (<-chan cluster.ClusterDataRateTimeSeriesFeedFrame, error) {
+func (e errClusters) SubscribeDataRateSampleFeed(context.Context, cluster.ClusterID) (<-chan cluster.ClusterDataRateSampleFeedFrame, error) {
 	return nil, e.err
 }
 
@@ -988,8 +978,6 @@ func (e errClusters) SubscribeEventFeed(context.Context, cluster.ClusterID, *str
 func (e errCaches) Get(context.Context, cluster.ClusterCacheID) (*cluster.ClusterCache, error) {
 	return nil, e.err
 }
-
-func (e errCaches) List(context.Context) ([]*cluster.ClusterCache, error) { return nil, e.err }
 
 func (e errCaches) ListByCluster(context.Context, cluster.ClusterID) ([]*cluster.ClusterCache, error) {
 	return nil, e.err
@@ -1021,14 +1009,6 @@ func (e errCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCac
 
 func (e errCaches) SyncState(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncState, bool, error) {
 	return cluster.ClusterCacheSyncState{}, false, e.err
-}
-
-func (e errCachedKinds) Get(context.Context, cluster.ClusterCachedKindID) (*cluster.ClusterCachedKind, error) {
-	return nil, e.err
-}
-
-func (e errCachedKinds) List(context.Context) ([]*cluster.ClusterCachedKind, error) {
-	return nil, e.err
 }
 
 func (e errCachedKinds) ListByCache(context.Context, cluster.ClusterCacheID) ([]*cluster.ClusterCachedKind, error) {

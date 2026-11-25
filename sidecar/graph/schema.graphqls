@@ -460,8 +460,8 @@ type ClusterDataRateSample {
   sentBytesPerSecond: Float!
 }
 
-"One frame of `clusterDataRateTimeSeriesFeed`."
-type ClusterDataRateTimeSeriesFeedFrame {
+"One frame of `clusterDataRateSampleFeed`."
+type ClusterDataRateSampleFeedFrame {
   "Seconds between samples. The same on every frame."
   intervalSeconds: Int!
   "How far back the feed reaches. The same on every frame. The client keeps the last window ÷ interval points."
@@ -1089,7 +1089,7 @@ type Chat {
 }
 
 "Whether sandboxed Bash is offered on this machine. It is fixed for the sidecar's life, so this is a query and not a watch."
-type SandboxStatus {
+type SandboxState {
   available: Boolean!
   "What the probe found, such as Seatbelt or bwrap at /usr/bin/bwrap, or why there is none, in the sidecar's words."
   reason: String!
@@ -1765,7 +1765,7 @@ type LogNotice {
   message: String!
 }
 
-type LogRecordsPage {
+type LogsFetchResult {
   request: LogsFetchRequest!
   "The first page's clock, which an open `until`'s `after` is measured from on every page."
   resolvedAt: Time!
@@ -2367,97 +2367,38 @@ type SandboxConsole {
 # Every root field, grouped by the noun it belongs to.
 
 type Query {
-  # --- Model ---
-  "Every model the sidecar can answer with, in catalog order — the first entry is what a picker starts on. The ChatGPT plan's models come and go with its connection; modelsStateWatch follows them."
-  models: [Model!]!
-
-  # --- Provider credentials ---
-  "Every provider, in picker order; live updates via providerCredentialsStateWatch."
-  providerCredentials: [ProviderCredentialState!]!
+  # Every field is named for its contract (Get, List or Fetch), and its description opens
+  # with it. The contracts are docs/data-access.md.
 
   # --- Sandbox ---
-  "Whether this machine offers sandboxed Bash, and why."
-  sandbox: SandboxStatus!
+  "A Get of whether this machine offers sandboxed Bash, and why."
+  sandboxStateGet: SandboxState!
 
-  # --- Cluster ---
-  "A single cluster by id; null if not tracked."
-  cluster(id: ClusterID!): Cluster
+  "A Get of one row per cloud platform this build has, in a fixed order, each with whether sandboxed commands may reach it as the user. On by default. A read of the switches that fails is an error."
+  sandboxCloudAccessGet: [CloudAccess!]!
 
-  "Every tracked cluster — those in the kubeconfig plus any with a leftover cache. Sorted by `spec.name`, falling back to the kube-context for a cluster the user has not named."
-  clusters: [Cluster!]!
+  "A Get of the PATH of every sandboxed command, and each of its folders. A read that fails is an error, never $PATH."
+  sandboxPathGet: SandboxPath!
 
-  # --- ClusterCache ---
-  "A single cache by its own id, not its cluster's; null if unknown."
-  clusterCache(id: ObjectID!): ClusterCache
+  "A Get of why the last read of the login shell's PATH failed, at launch or on refresh; null once one answers, and on a machine with no sandbox."
+  sandboxPathFaultGet: String
 
-  "Every cache, or one cluster's when `clusterID` is given — the set `Cluster.caches` serves."
-  clusterCaches(clusterID: ClusterID): [ClusterCache!]!
+  "A Get of one scope's variables in the order added, a refused one with its refusal: a cluster's, or with no `clusterID` every cluster's. A command gets every cluster's, its chat's cluster's value in place of one of the same name, of the targets that reach it."
+  envVarsGet(clusterID: ClusterID): [EnvVar!]!
 
-  "A single synced-kind record by its own id, not its cache's; null if unknown."
-  clusterCachedKind(id: ObjectID!): ClusterCachedKind
+  "A Get of the permission modes and rules, as Settings shows them."
+  permissionSettingsGet: PermissionSettings!
 
-  "Every per-kind sync record — hundreds unscoped — or one cache's when `cacheID` is given; the set `ClusterCache.cachedKinds` serves."
-  clusterCachedKinds(cacheID: ObjectID): [ClusterCachedKind!]!
-
-  # --- Sandbox ---
-  "One row per cloud platform this build has, in a fixed order, each with whether sandboxed commands may reach it as the user. On by default. A read of the switches that fails is an error."
-  sandboxCloudAccess: [CloudAccess!]!
-
-  "The PATH of every sandboxed command, and each of its folders. A read that fails is an error, never $PATH."
-  sandboxPath: SandboxPath!
-
-  "Why the last read of the login shell's PATH failed, at launch or on refresh; null once one answers, and on a machine with no sandbox."
-  sandboxPathFault: String
-
-  "Every executable the sandbox probe checks, the curated ones then the user's, a refused one with its refusal, as the last probe found each. Empty on a machine with no sandbox. A read of the registered executables that fails is an error."
-  sandboxExecutables: [SandboxExecutable!]!
-
-  "One scope's variables in the order added, a refused one with its refusal: a cluster's, or with no `clusterID` every cluster's. A command gets every cluster's, its chat's cluster's value in place of one of the same name, of the targets that reach it."
-  envVars(clusterID: ClusterID): [EnvVar!]!
-
-  "The permission modes and rules, as Settings shows them."
-  permissionSettings: PermissionSettings!
-
-  "The folders granted, always and for `chatID`, each with why it fails its check now. Empty lists on a machine with no sandbox."
-  sandboxFolders(chatID: ChatID): SandboxFolders!
-
-  "The chat's own rules, each as Settings spells a rule. Empty for a chat with none."
-  chatPermissionRules(chatID: ChatID!): [PermissionRule!]!
-
-  # --- Tools ---
-  "Every tool a chat can be offered on this machine, in the order Settings draws them, each with its setting; live updates via toolSettingsStateWatch."
-  toolSettings: [ToolSetting!]!
+  "A Get of the chat's own rules, each as Settings spells a rule. Empty for a chat with none."
+  chatPermissionRulesGet(chatID: ChatID!): [PermissionRule!]!
 
   # --- Logs ---
   """
-  One page of a window of a view's lines on the cluster, oldest first. A first page
-  names what to read and when; the next page that way is one of the page's cursors,
+  A Fetch of one page of a window of a view's lines on the cluster, oldest first. A first
+  page names what to read and when; the next page that way is one of the page's cursors,
   sent back as it came. A refusal is a validation error whose `rule` is its code.
   """
-  logsFetch(id: ClusterID!, request: LogsFetchInput!): LogRecordsPage!
-
-  # --- Cloud account ---
-  "Current authentication state; live updates via authStateWatch."
-  authState: AuthState!
-
-  # --- ChatGPT connector ---
-  "The ChatGPT connector's state; live updates via chatGPTConnectionStateWatch."
-  chatGPTConnection: ChatGPTConnection!
-  # --- OpenRouter connector ---
-  "The OpenRouter connector's state; live updates via openRouterConnectionStateWatch."
-  openRouterConnection: OpenRouterConnection!
-
-  # --- AWS connector ---
-  "The AWS connector's state; live updates via awsConnectionStateWatch."
-  awsConnection: AWSConnection!
-
-  # --- GitHub connector ---
-  "The GitHub connector's state; live updates via gitHubConnectionStateWatch."
-  gitHubConnection: GitHubConnection!
-
-  # --- Google connector ---
-  "The Google connector's state; live updates via googleConnectionStateWatch."
-  googleConnection: GoogleConnection!
+  logsFetch(id: ClusterID!, request: LogsFetchInput!): LogsFetchResult!
 }
 
 type Mutation {
@@ -2639,8 +2580,8 @@ type Mutation {
 }
 
 type Subscription {
-  # Every field is named for its kind, and its description opens with it. The kinds and
-  # what each delivers are docs/subscriptions.md. None of them ends on its own but the
+  # Every field is named for its contract, and its description opens with it. The
+  # contracts and what each delivers are docs/data-access.md. None of them ends on its own but the
   # cursor tail, whose last frame is `Ended`.
 
   # --- Any object ---
@@ -2657,8 +2598,8 @@ type Subscription {
   "A state watch of a cluster's next reconcile — what keeps a disconnected cluster's countdown live, since scheduling fires no object watch."
   clusterScheduleStateWatch(id: ClusterID!): Schedule!
 
-  "A time series feed of a cluster's connection data rate. The first frame arrives at once and holds the whole window, possibly none. Each later frame holds the samples since the one before. Every tick is sent, zeros included. A replaced or missing connection reads as zero. Refused for a disabled cluster or one being deleted."
-  clusterDataRateTimeSeriesFeed(id: ClusterID!): ClusterDataRateTimeSeriesFeedFrame!
+  "A sample feed of a cluster's connection data rate. The first frame arrives at once and holds the whole window, possibly none. Each later frame holds the samples since the one before. Every tick is sent, zeros included. A replaced or missing connection reads as zero. Refused for a disabled cluster or one being deleted."
+  clusterDataRateSampleFeed(id: ClusterID!): ClusterDataRateSampleFeedFrame!
 
   # --- ClusterCache ---
   "A collection watch of cache records, keyed by `cache.id` and joined onto clusters by `clusterID`. Carries no ordering guarantee against `clusterCollectionWatch`."
@@ -2728,7 +2669,7 @@ type Subscription {
   # --- Sandbox ---
   "A state watch of the executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables. A read of the registered executables that fails ends the watch with its reason."
   sandboxExecutablesStateWatch: SandboxExecutablesReport!
-  "A state watch of the folders granted, as `sandboxFolders` answers them, a fresh value on each write of the settings or the always grants and, with a chat, on each write or revoke of the chat's grants. A folder changing on disk sends nothing."
+  "A state watch of the folders granted, always and for `chatID`, each with why it fails its check now, a fresh value on each write of the settings or the always grants and, with a chat, on each write or revoke of the chat's grants. A folder changing on disk sends nothing. Empty lists on a machine with no sandbox."
   sandboxFoldersStateWatch(chatID: ChatID): SandboxFolders!
   "A state watch of the Sandbox console's last command: a fresh value as it starts, about every quarter second while it writes, and as it ends."
   sandboxConsoleStateWatch: SandboxConsole!
@@ -2755,14 +2696,14 @@ type Subscription {
   awsConnectionStateWatch: AWSConnection!
 
   # --- Model ---
-  "A state watch of every model the sidecar can answer with, as the models query lists them, a fresh list each time a provider's catalog changes."
+  "A state watch of every model the sidecar can answer with, in catalog order (the first entry is what a picker starts on), a fresh list each time a provider's catalog changes. The ChatGPT plan's models come and go with its connection."
   modelsStateWatch: [Model!]!
 
   # --- Provider credentials ---
-  "A state watch of every provider: the latest list after each change, so changes close together arrive as one."
+  "A state watch of every provider, in picker order: the latest list after each change, so changes close together arrive as one."
   providerCredentialsStateWatch: [ProviderCredentialState!]!
 
   # --- Tools ---
-  "A state watch of every tool with its setting, as toolSettings lists them: the latest list after each change."
+  "A state watch of every tool a chat can be offered on this machine, with its setting, in the order Settings draws them: the latest list after each change."
   toolSettingsStateWatch: [ToolSetting!]!
 }

@@ -4,7 +4,7 @@
 is an error, never the default. A setting with structure has a table of its own, where a row
 Kstack cannot use is refused and listed with its reason, never dropped. → [ADR: settings are rows in app.db](../../../../docs/adr/2026-11-24-settings-are-rows-in-app-db.md).
 
-Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../../docs/subscriptions.md).
+Every data access here is named for its contract: [`docs/data-access.md`](../../../../docs/data-access.md).
 
 **A single-value setting is a row of `settings`** (`scalar.go`): a dotted key, a scope
 (`cluster_id` NULL for every cluster) and a `value` of any kind. It belongs there when it is one

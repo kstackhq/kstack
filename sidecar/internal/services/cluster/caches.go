@@ -284,24 +284,6 @@ func (a cachesAPI) Get(ctx context.Context, id ClusterCacheID) (*ClusterCache, e
 	return toClusterCache(obj), nil
 }
 
-func (a cachesAPI) List(ctx context.Context) ([]*ClusterCache, error) {
-	objs, err := a.s.cacheClient.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list cluster caches: %w", err)
-	}
-	return toClusterCaches(objs), nil
-}
-
-// toClusterCaches projects a whole read. beehive lists by id, which is creation order,
-// and that is the order this family promises — so nothing here sorts.
-func toClusterCaches(objs []*beehive.Object[ClusterCacheSpec, ClusterCacheStatus]) []*ClusterCache {
-	caches := make([]*ClusterCache, 0, len(objs))
-	for _, obj := range objs {
-		caches = append(caches, toClusterCache(obj))
-	}
-	return caches
-}
-
 func (a cachesAPI) WatchCollectionByID(ctx context.Context, id ClusterCacheID) (*Stream[ClusterCacheCollectionWatchFrame], error) {
 	src, err := a.s.cacheClient.Watch(ctx, beehive.ObjectID(id))
 	if err != nil {

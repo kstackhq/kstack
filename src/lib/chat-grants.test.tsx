@@ -30,7 +30,7 @@ const rules = [{ id: 'r1', line: 'Allow cluster writes in dev / web' }];
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useQueryMock.mockImplementation(() => [{ data: { chatPermissionRules: rules } }, reexecute]);
+  useQueryMock.mockImplementation(() => [{ data: { chatPermissionRulesGet: rules } }, reexecute]);
   useMutationMock.mockImplementation(() => [{}, removeMock]);
 });
 

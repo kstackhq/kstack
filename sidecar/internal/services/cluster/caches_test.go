@@ -151,18 +151,6 @@ func twoClustersThreeCaches(t *testing.T) (deps, ClusterID) {
 	return d, clusterIDOf(one)
 }
 
-// Creation order, which is what a UID migration needs: the superseded cache reads
-// ahead of the one that replaced it, so a consumer walking the list sees the turnover
-// in the order it happened.
-func TestCachesList(t *testing.T) {
-	d, _ := twoClustersThreeCaches(t)
-
-	got, err := serviceOver(t, d).Caches().List(context.Background())
-
-	require.NoError(t, err)
-	assert.Equal(t, []string{"uid-1", "uid-2", "uid-3"}, uidsOf(got))
-}
-
 // One cluster's caches, in the same order — what Cluster.caches serves, and what a
 // migration turns into a two-element list.
 func TestCachesListByCluster(t *testing.T) {

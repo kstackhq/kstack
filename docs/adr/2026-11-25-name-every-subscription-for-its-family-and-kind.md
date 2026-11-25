@@ -2,7 +2,7 @@
 title: Name every subscription for its family and kind
 date: 2026-11-25
 scope: cross-cutting
-status: Accepted
+status: Superseded by [2026-11-25-name-every-data-access-for-its-family-kind-and-operation](2026-11-25-name-every-data-access-for-its-family-kind-and-operation.md)
 ---
 
 # Name every subscription for its family and kind
@@ -22,7 +22,7 @@ and each webview provider wrote its own fold.
 ## Decision
 
 Every subscription is one of eight kinds in four families, and its name says which.
-[`docs/subscriptions.md`](../subscriptions.md) states each kind's delivery and the subscriber's
+`docs/subscriptions.md` states each kind's delivery and the subscriber's
 job.
 
 | Family | Verb | Kinds |

@@ -29,12 +29,12 @@ import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-execut
 import { useSandboxPath } from '@/lib/sandbox-path';
 
 import { Group } from './group';
+import { SandboxCard } from './sandbox-card';
 import { SandboxConsole } from './sandbox-console';
 import { SandboxEnvironment } from './sandbox-environment';
 import { SandboxFolderGroups } from './sandbox-folders';
 import { SandboxNetwork } from './sandbox-network';
 import { SandboxPathSection } from './sandbox-path';
-import { SandboxStatus } from './sandbox-status';
 
 // A registered executable can share a curated one's name, so a row is keyed
 // by both.
@@ -205,7 +205,7 @@ export function SandboxSettings() {
   return (
     <>
       {/* Placeholder: awaits a global sandbox setting and its mutation, so the switch is on and disabled. */}
-      <SandboxStatus sandbox={sandbox} on onTry={() => setConsoleOpen(true)} />
+      <SandboxCard sandbox={sandbox} on onTry={() => setConsoleOpen(true)} />
       {sandbox.available && (
         <>
           <SandboxSections networkAvailable={sandbox.networkAvailable} networkReason={sandbox.networkReason} />

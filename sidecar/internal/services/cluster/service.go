@@ -78,9 +78,9 @@ import (
 // off its own sub-interface; only the connection surface, which reads no beehive
 // object, sits at the top level.
 //
-// Every method that keeps delivering is named for its family and kind, as
-// docs/subscriptions.md states: Watch…Collection, Watch…State, Watch…KeyedState,
-// Subscribe…EventFeed, Subscribe…TimeSeriesFeed. Each ends when ctx ends.
+// Every method that keeps delivering is named for its contract, as
+// docs/data-access.md states: Watch…Collection, Watch…State, Watch…KeyedState,
+// Subscribe…EventFeed, Subscribe…SampleFeed. Each ends when ctx ends.
 //
 // WatchCollectionByID runs the same protocol as WatchCollection, over one id: snapshot,
 // one Bookmark, then changes. Absence is never an error — an id holding nothing gets the
@@ -196,9 +196,9 @@ type Clusters interface {
 	// Refuses the records AcquireConnection refuses: an unprobed cluster has no
 	// cadence.
 	WatchScheduleState(ctx context.Context, id ClusterID) (<-chan Schedule, error)
-	// SubscribeDataRateTimeSeriesFeed streams the rate of a cluster's connection: the pool's
+	// SubscribeDataRateSampleFeed streams the rate of a cluster's connection: the pool's
 	// last samples, then each new one. Refuses what WatchScheduleState refuses.
-	SubscribeDataRateTimeSeriesFeed(ctx context.Context, id ClusterID) (<-chan ClusterDataRateTimeSeriesFeedFrame, error)
+	SubscribeDataRateSampleFeed(ctx context.Context, id ClusterID) (<-chan ClusterDataRateSampleFeedFrame, error)
 	// SetEnabled enables or disables a cluster and returns the updated record.
 	SetEnabled(ctx context.Context, id ClusterID, enabled bool) (*Cluster, error)
 	// SetSyncEnabled toggles a cluster's sync and returns the updated record.
@@ -224,9 +224,6 @@ type Clusters interface {
 type Caches interface {
 	// Get returns one cache by id, or (nil, nil) when the id names nothing.
 	Get(ctx context.Context, id ClusterCacheID) (*ClusterCache, error)
-	// List returns every cache in creation order. Which one is active is the caller's
-	// live join (CacheIsActive), not a property here.
-	List(ctx context.Context) ([]*ClusterCache, error)
 
 	// WatchCollectionByID streams one cache as a collection watch. Bookmark-only until the
 	// cluster has been probed and its cache created, so a caller may open this on a cache a
@@ -236,7 +233,8 @@ type Caches interface {
 	// Clusters().WatchCollection; the caller joins caches onto clusters by ClusterID.
 	WatchCollection(ctx context.Context) (*Stream[ClusterCacheCollectionWatchFrame], error)
 
-	// ListByCluster returns one cluster's caches, in the same order.
+	// ListByCluster returns one cluster's caches in creation order. Which one is
+	// active is the caller's live join (CacheIsActive), not a property here.
 	ListByCluster(ctx context.Context, clusterID ClusterID) ([]*ClusterCache, error)
 	// WatchCollectionByCluster streams one cluster's caches as a collection watch — what a
 	// view scoped to a single cluster opens instead of filtering WatchCollection.
@@ -270,11 +268,6 @@ type Caches interface {
 // This family is the fleet's largest by an order of magnitude: a record per served
 // kind per cache, so hundreds per cluster. Scope every read that can be scoped.
 type CachedKinds interface {
-	// Get returns one record by id, or (nil, nil) when the id names nothing.
-	Get(ctx context.Context, id ClusterCachedKindID) (*ClusterCachedKind, error)
-	// List returns every per-kind sync record in creation order.
-	List(ctx context.Context) ([]*ClusterCachedKind, error)
-
 	// WatchCollectionByID streams one per-kind record as a collection watch. Bookmark-only
 	// until the kind is discovered; a kind the cluster stops serving is Deleted.
 	WatchCollectionByID(ctx context.Context, id ClusterCachedKindID) (*Stream[ClusterCachedKindCollectionWatchFrame], error)

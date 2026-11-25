@@ -59,7 +59,7 @@ func TestStatesFollowTheRows(t *testing.T) {
 	assert.Equal(t, []State{
 		{ID: routerID, Label: "Router", KeyVar: "ROUTER_API_KEY", Source: SourceNone},
 		{ID: twinID, Label: "Twin", KeyVar: "TWIN_API_KEY", Source: SourceEnvironmentKey, HasEnvironmentKey: true},
-	}, s.States())
+	}, testutil.Current(t, s.WatchCredentialsState, "the credentials"))
 	_, ok := s.State("nope")
 	assert.False(t, ok)
 	assert.Nil(t, s.Signer("nope"))
@@ -138,7 +138,7 @@ func TestWatchCredentialsStateSendsTheWholeValue(t *testing.T) {
 	s := newService(t, Config{})
 	frames, cancel := s.WatchCredentialsState()
 	defer cancel()
-	assert.Equal(t, s.States(), testutil.Recv(t, frames, "the current list"))
+	assert.Equal(t, []State{state(t, s, routerID), state(t, s, twinID)}, testutil.Recv(t, frames, "the current list"))
 	require.NoError(t, s.Save(twinID, savedKey))
 	frame := testutil.Recv(t, frames, "the change")
 	assert.Equal(t, SourceSavedKey, frame[1].Source)
@@ -157,7 +157,7 @@ func TestConcurrentChangesPublishTheLatestList(t *testing.T) {
 		}
 		wg.Wait()
 		frames, cancel := s.WatchCredentialsState()
-		assert.Equal(t, s.States(), testutil.Recv(t, frames, "the latest list"))
+		assert.Equal(t, []State{state(t, s, routerID), state(t, s, twinID)}, testutil.Recv(t, frames, "the latest list"))
 		cancel()
 	}
 }

@@ -167,7 +167,7 @@ func TestRunMonitorRefuses(t *testing.T) {
 		want  error
 	}{
 		"no sandbox": {
-			setup: func(_ *testing.T, s *service) { s.sandboxStatus = sandbox.Status{Reason: "no bwrap"} },
+			setup: func(_ *testing.T, s *service) { s.sandboxState = sandbox.State{Reason: "no bwrap"} },
 			want:  ErrNoSandbox,
 		},
 		"a marked cluster":      {setup: func(t *testing.T, s *service) { markCluster(t, s.db, "7") }, want: ErrClusterGone},

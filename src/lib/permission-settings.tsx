@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The permission modes and rules: the one reader of the `permissionSettings`
+// The permission modes and rules: the one reader of the `permissionSettingsGet`
 // query and the five mutations over modes and always rules, for the Settings
 // section.
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -25,14 +25,14 @@ import type {
   PermissionEffect,
   PermissionMode,
   PermissionPrincipal,
-  PermissionSettingsQuery,
+  PermissionSettingsGetQuery,
   PermissionTarget,
 } from '@/gql/graphql';
 import { refusalOf, savedUnread } from '@/lib/graphql/refusal';
 
-const PermissionSettingsDocument = graphql(`
-  query PermissionSettings {
-    permissionSettings {
+const PermissionSettingsGetDocument = graphql(`
+  query PermissionSettingsGet {
+    permissionSettingsGet {
       targets {
         target
         defaultMode
@@ -110,7 +110,7 @@ const RuleRemoveMutation = graphql(`
   }
 `);
 
-export type PermissionSettingsValue = PermissionSettingsQuery['permissionSettings'];
+export type PermissionSettingsValue = PermissionSettingsGetQuery['permissionSettingsGet'];
 
 export type TargetModes = PermissionSettingsValue['targets'][number];
 
@@ -157,7 +157,7 @@ export function usePermissionSettings(): PermissionSettings {
   // window can change the settings, and the clusters watch can learn a cluster,
   // and neither reaches this window's cache.
   const [{ data, error: queryError }, reexecute] = useQuery({
-    query: PermissionSettingsDocument,
+    query: PermissionSettingsGetDocument,
     requestPolicy: 'cache-and-network',
   });
   const refresh = useCallback(() => reexecute({ requestPolicy: 'network-only' }), [reexecute]);
@@ -173,7 +173,7 @@ export function usePermissionSettings(): PermissionSettings {
   const [, updateRule] = useMutation(RuleUpdateMutation);
   const [, removeRule] = useMutation(RuleRemoveMutation);
 
-  const settings = data?.permissionSettings;
+  const settings = data?.permissionSettingsGet;
   const readError = refusalOf(queryError);
   return useMemo(() => {
     // Every mutation answers the settings it left, so urql's cache asks the

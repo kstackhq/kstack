@@ -6,7 +6,7 @@ turn gets is `internal/agent/catalog` (`internal/agent/CLAUDE.md`).
 → [ADR: the llm package wires itself](../../../docs/adr/2026-09-21-llm-is-one-package.md),
 [ADR: the catalog is its own package](../../../docs/adr/2026-09-24-the-catalog-is-its-own-package.md).
 
-Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+Every data access here is named for its contract: [`docs/data-access.md`](../../../docs/data-access.md).
 
 ```
 internal/llm/

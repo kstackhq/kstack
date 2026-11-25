@@ -30,22 +30,23 @@ import (
 	"testing"
 
 	"github.com/kstackhq/kstack/sidecar/graph"
+	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/logging"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
-	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-// TestAuthStateQuery is the canary: a fresh server (signed-out fake auth)
-// should answer `{ authState { authenticated } }` with the signed-out state.
-// If this passes, the gqlgen wiring (schema -> resolver -> handler) is intact.
-func TestAuthStateQuery(t *testing.T) {
-	h := graph.NewServer(context.Background(), &graph.Resolver{Auth: newFakeAuth(oauth.Identity{})})
+// TestSandboxStateGet is the canary: a fresh server with no sandbox should answer
+// `{ sandboxStateGet { available } }` with false. If this passes, the gqlgen wiring
+// (schema -> resolver -> handler) is intact.
+func TestSandboxStateGet(t *testing.T) {
+	h := graph.NewServer(context.Background(), &graph.Resolver{})
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
-	body := strings.NewReader(`{"query":"{ authState { authenticated } }"}`)
+	body := strings.NewReader(`{"query":"{ sandboxStateGet { available } }"}`)
 	resp, err := http.Post(ts.URL+"/graphql", "application/json", body)
 	if err != nil {
 		t.Fatalf("POST /graphql: %v", err)
@@ -55,16 +56,16 @@ func TestAuthStateQuery(t *testing.T) {
 	raw, _ := io.ReadAll(resp.Body)
 	var out struct {
 		Data struct {
-			AuthState struct {
-				Authenticated bool `json:"authenticated"`
-			} `json:"authState"`
+			Sandbox *struct {
+				Available bool `json:"available"`
+			} `json:"sandboxStateGet"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(bytes.NewReader(raw)).Decode(&out); err != nil {
 		t.Fatalf("decode %s: %v", raw, err)
 	}
-	if out.Data.AuthState.Authenticated {
-		t.Fatalf("want authenticated=false, got true (raw=%s)", raw)
+	if out.Data.Sandbox == nil || out.Data.Sandbox.Available {
+		t.Fatalf("want available=false (raw=%s)", raw)
 	}
 }
 
@@ -233,16 +234,11 @@ func TestGracefulShutdownEndsSSEStream(t *testing.T) {
 	}
 }
 
-// ctxClusters lists no cluster, and fails once its context has ended, so a
-// query shows whether it ran under the streams context.
-type (
-	ctxClusterService struct{ cluster.Service }
-	ctxClusters       struct{ cluster.Clusters }
-)
+// ctxChat reads no rule, and fails once its context has ended, so a query
+// shows whether it ran under the streams context.
+type ctxChat struct{ chat.Service }
 
-func (ctxClusterService) Clusters() cluster.Clusters { return ctxClusters{} }
-
-func (ctxClusters) List(ctx context.Context) ([]*cluster.Cluster, error) {
+func (ctxChat) ChatRules(ctx context.Context, _ chat.ChatID) ([]permissions.Rule, error) {
 	return nil, ctx.Err()
 }
 
@@ -251,18 +247,18 @@ func (ctxClusters) List(ctx context.Context) ([]*cluster.Cluster, error) {
 func TestEndingTheStreamsLeavesAQuery(t *testing.T) {
 	streams, endStreams := context.WithCancel(context.Background())
 	endStreams()
-	ts := httptest.NewServer(graph.NewServer(streams, &graph.Resolver{ClusterSvc: ctxClusterService{}}))
+	ts := httptest.NewServer(graph.NewServer(streams, &graph.Resolver{ChatSvc: ctxChat{}}))
 	defer ts.Close()
 
 	resp, err := http.Post(ts.URL+"/graphql", "application/json",
-		strings.NewReader(`{"query":"{ clusters { id } }"}`))
+		strings.NewReader(`{"query":"{ chatPermissionRulesGet(chatID: \"`+appdb.NewID()+`\") { id } }"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(raw), `"clusters":[]`) || strings.Contains(string(raw), `"errors"`) {
-		t.Fatalf("query after the streams ended = %s, want no clusters", raw)
+	if !strings.Contains(string(raw), `"chatPermissionRulesGet":[]`) || strings.Contains(string(raw), `"errors"`) {
+		t.Fatalf("query after the streams ended = %s, want no rules", raw)
 	}
 }
 

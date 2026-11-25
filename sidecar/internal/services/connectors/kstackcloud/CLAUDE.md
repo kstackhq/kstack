@@ -1,12 +1,12 @@
 # internal/services/connectors/kstackcloud — the Kstack Cloud connector
 
 **The Kstack Cloud account, signed in to by the OAuth engine under a fixed client.** It backs the
-wire's `authState`, `authLoginStart`, `authLogout` and the gRPC `AuthService`, and signs no
+wire's `authStateWatch`, `authLoginStart`, `authLogout` and the gRPC `AuthService`, and signs no
 request: the engine is an unexported field, and the provider has no API base.
 → [ADR](../../../../../docs/adr/2026-11-19-the-kstack-sign-in-is-a-connector-on-the-oauth-engine.md),
 [security record](../../../../../docs/security/2026-11-19-the-kstack-sign-in-on-the-engine.md).
 
-Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../../../docs/subscriptions.md).
+Every data access here is named for its contract: [`docs/data-access.md`](../../../../../docs/data-access.md).
 
 - **A goroutine deletes `auth-token` once the engine has restored**, whose read opened the
   keyring, and only if `oskeyring.Opened` answers nil: a dismissed prompt is not raised again.

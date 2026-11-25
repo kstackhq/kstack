@@ -19,9 +19,9 @@ import { useQuery } from 'urql';
 import { graphql } from '@/gql';
 import type { PermissionTarget } from '@/gql/graphql';
 
-const SandboxCloudAccessDocument = graphql(`
-  query SandboxCloudAccess {
-    sandboxCloudAccess {
+const SandboxCloudAccessGetDocument = graphql(`
+  query SandboxCloudAccessGet {
+    sandboxCloudAccessGet {
       target
       on
     }
@@ -37,10 +37,10 @@ export type SandboxCloudAccess = {
 
 export function useSandboxCloudAccess(): SandboxCloudAccess {
   // Each opening asks again: another window can turn a platform on or off.
-  const [{ data, error }] = useQuery({ query: SandboxCloudAccessDocument, requestPolicy: 'cache-and-network' });
+  const [{ data, error }] = useQuery({ query: SandboxCloudAccessGetDocument, requestPolicy: 'cache-and-network' });
   const readFailed = error !== undefined;
   // A failed read hides the platforms an earlier one answered: they may be stale.
-  const rows = readFailed ? undefined : data?.sandboxCloudAccess;
+  const rows = readFailed ? undefined : data?.sandboxCloudAccessGet;
   return useMemo(
     () => ({ platforms: rows?.filter((row) => row.on).map((row) => row.target), readFailed }),
     [rows, readFailed],

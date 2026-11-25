@@ -49,10 +49,10 @@ var systemBwraps = []string{"/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwra
 // through the whole chain, then the first pasta that runs one with the
 // internet, each the system's before Kstack's own. It answers ctx's error when
 // ctx ended first.
-func Probe(ctx context.Context) (*Sandbox, Status, error) {
+func Probe(ctx context.Context) (*Sandbox, State, error) {
 	self, err := os.Executable()
 	if err != nil { // coverage:ignore os.Executable reads /proc/self/exe, which always resolves on Linux
-		return nil, Status{Reason: "cannot find its own executable"}, nil
+		return nil, State{Reason: "cannot find its own executable"}, nil
 	}
 	dir := filepath.Dir(self)
 	s, v := probe(ctx, self, programPaths(dir, "bwrap", systemBwraps), probeBound)
@@ -62,23 +62,23 @@ func Probe(ctx context.Context) (*Sandbox, Status, error) {
 	}
 	if err := ctx.Err(); err != nil {
 		_ = s.Close()
-		return nil, Status{}, err
+		return nil, State{}, err
 	}
 	return s, v, nil
 }
 
 // probe tries each of bwraps in order and answers the first that passes, or
 // every one's reason.
-func probe(ctx context.Context, self string, bwraps []string, bound time.Duration) (*Sandbox, Status) {
+func probe(ctx context.Context, self string, bwraps []string, bound time.Duration) (*Sandbox, State) {
 	if len(bwraps) == 0 {
-		return nil, Status{Reason: "bwrap not found"}
+		return nil, State{Reason: "bwrap not found"}
 	}
 	var uts unix.Utsname
 	perNamespace := unix.Uname(&uts) == nil && countsPerNamespace(unix.ByteSliceToString(uts.Release[:]))
 	s := &Sandbox{self: self, perNamespace: perNamespace}
 	var err error
 	if s.lifeline, s.held, err = newLifeline(); err != nil {
-		return nil, Status{Reason: "cannot make the runs' lifeline"}
+		return nil, State{Reason: "cannot make the runs' lifeline"}
 	}
 	var reasons []string
 	for _, bwrap := range bwraps {
@@ -90,10 +90,10 @@ func probe(ctx context.Context, self string, bwraps []string, bound time.Duratio
 		}
 		own, _ := os.ReadFile("/proc/self/uid_map")
 		s.ownUserNS = ownNamespace(uidMap, firstLine(string(own)))
-		return s, Status{Available: true, Reason: "bwrap at " + bwrap}
+		return s, State{Available: true, Reason: "bwrap at " + bwrap}
 	}
 	_ = s.Close()
-	return nil, Status{Reason: strings.Join(reasons, "; ")}
+	return nil, State{Reason: strings.Join(reasons, "; ")}
 }
 
 // try runs a shell through s, as a run with no cluster: bwrap, the forwarder,

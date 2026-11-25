@@ -79,26 +79,21 @@ import (
 
 // --- Cluster ---
 
-// The clusters query maps the beehive records including the nil → null
+// The cluster collection watch maps the beehive records including the nil → null
 // convention for unset/never-probed pointer fields.
-func TestClustersQuery(t *testing.T) {
-	data := clustersQueryData(t, `{ clusters {
-		id
+func TestClusterCollectionWatchMapsTheRecords(t *testing.T) {
+	srv := newTestServer(t, clusterFixtures())
+	clusters := clusterSnapshot(t, srv.URL, `
 		updatedAt
 		spec { name syncEnabled enabled monitoringEnabled source { kubeconfig { context } } }
 		status {
 			source { kubeconfig { cluster { name entry { server insecureSkipTLSVerify } } user { name } isPresent isDefault } }
 			server { uid version endpoint }
 			principal { username groups }
-		}
-	} }`)
+		}`)
+	require.Len(t, clusters, 2)
 
-	clusters, ok := data["clusters"].([]any)
-	if !ok || len(clusters) != 2 {
-		t.Fatalf("want 2 clusters, got: %v", data["clusters"])
-	}
-
-	probed := clusters[0].(map[string]any)
+	probed := clusters["1"]
 	spec := probed["spec"].(map[string]any)
 	if spec["name"] != "Production" || spec["syncEnabled"] != true || spec["enabled"] != true {
 		t.Errorf("probed cluster spec: %v", spec)
@@ -121,7 +116,7 @@ func TestClustersQuery(t *testing.T) {
 		t.Errorf("probed kubeconfig cluster: %v", c)
 	}
 
-	unprobed := clusters[1].(map[string]any)
+	unprobed := clusters["2"]
 	if name := unprobed["spec"].(map[string]any)["name"]; name != nil {
 		t.Errorf("unset name should be null, got: %v", name)
 	}
@@ -154,30 +149,10 @@ func TestClusterEventsResolver(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	query := `{ cluster(id: "` + string(id) + `") {
-		events(category: "connection") { id category type reason message count firstAt lastAt }
-	} }`
-	body, _ := json.Marshal(map[string]string{"query": query})
-	raw := postGQL(t, srv.URL, string(body))
-
-	var resp struct {
-		Data struct {
-			Cluster struct {
-				Events []map[string]any `json:"events"`
-			} `json:"cluster"`
-		}
-		Errors []struct{ Message string }
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		t.Fatalf("decode %s: %v", raw, err)
-	}
-	if len(resp.Errors) > 0 {
-		t.Fatalf("unexpected GraphQL errors: %+v", resp.Errors)
-	}
-	if len(resp.Data.Cluster.Events) != 1 {
-		t.Fatalf("want 1 event, got %d: %s", len(resp.Data.Cluster.Events), raw)
-	}
-	ev := resp.Data.Cluster.Events[0]
+	events := clusterSnapshot(t, srv.URL,
+		`events(category: "connection") { id category type reason message count firstAt lastAt }`)[string(id)]["events"].([]any)
+	require.Len(t, events, 1)
+	ev := events[0].(map[string]any)
 	if ev["id"] != "1" {
 		t.Errorf("id: want the run's decimal-string id, got %v", ev["id"])
 	}
@@ -189,35 +164,6 @@ func TestClusterEventsResolver(t *testing.T) {
 	}
 	if ev["count"] != float64(3) {
 		t.Errorf("count: want 3, got %v", ev["count"])
-	}
-}
-
-// The cluster query returns the record for a tracked id.
-func TestClusterQueryByID(t *testing.T) {
-	data := clustersQueryData(t, `{ cluster(id: "2") {
-		id
-		spec { source { kubeconfig { context } } }
-		status { source { kubeconfig { isPresent } } }
-	} }`)
-
-	cl, ok := data["cluster"].(map[string]any)
-	if !ok || cl["id"] != "2" {
-		t.Fatalf("want cluster 2, got: %v", data["cluster"])
-	}
-	spec := cl["spec"].(map[string]any)
-	if kcSrc := spec["source"].(map[string]any)["kubeconfig"].(map[string]any); kcSrc["context"] != "staging" {
-		t.Errorf("spec source: %v", spec)
-	}
-	if kc := cl["status"].(map[string]any)["source"].(map[string]any)["kubeconfig"].(map[string]any); kc["isPresent"] != false {
-		t.Errorf("kubeconfig: %v", kc)
-	}
-}
-
-// An untracked id resolves to null, not a GraphQL error.
-func TestClusterQueryNotFound(t *testing.T) {
-	data := clustersQueryData(t, `{ cluster(id: "999") { id } }`)
-	if data["cluster"] != nil {
-		t.Fatalf("want null cluster, got: %v", data["cluster"])
 	}
 }
 
@@ -280,10 +226,8 @@ func TestClusterEnabledSetMutation(t *testing.T) {
 		t.Fatalf("mutation result: %s", raw)
 	}
 
-	raw = string(postGQL(t, srv.URL, `{"query":"{ cluster(id: \"1\") { spec { enabled } } }"}`))
-	if !strings.Contains(raw, `"enabled":false`) {
-		t.Fatalf("change not visible to reads: %s", raw)
-	}
+	spec := clusterSnapshot(t, srv.URL, `spec { enabled }`)["1"]["spec"].(map[string]any)
+	assert.Equal(t, false, spec["enabled"], "the change is visible to a new watch")
 }
 
 // clusterSyncEnabledSet writes through the beehive store and returns the
@@ -297,10 +241,8 @@ func TestClusterSyncEnabledSetMutation(t *testing.T) {
 		t.Fatalf("mutation result: %s", raw)
 	}
 
-	raw = string(postGQL(t, srv.URL, `{"query":"{ cluster(id: \"1\") { spec { syncEnabled } } }"}`))
-	if !strings.Contains(raw, `"syncEnabled":false`) {
-		t.Fatalf("change not visible to reads: %s", raw)
-	}
+	spec := clusterSnapshot(t, srv.URL, `spec { syncEnabled }`)["1"]["spec"].(map[string]any)
+	assert.Equal(t, false, spec["syncEnabled"], "the change is visible to a new watch")
 }
 
 // clusterMonitoringEnabledSet is the third toggle, stored and served like the
@@ -314,14 +256,12 @@ func TestClusterMonitoringEnabledSetMutation(t *testing.T) {
 		t.Fatalf("mutation result: %s", raw)
 	}
 
-	raw = string(postGQL(t, srv.URL, `{"query":"{ cluster(id: \"1\") { spec { monitoringEnabled } } }"}`))
-	if !strings.Contains(raw, `"monitoringEnabled":true`) {
-		t.Fatalf("change not visible to reads: %s", raw)
-	}
+	spec := clusterSnapshot(t, srv.URL, `spec { monitoringEnabled }`)["1"]["spec"].(map[string]any)
+	assert.Equal(t, true, spec["monitoringEnabled"], "the change is visible to a new watch")
 }
 
-// clusterDelete marks the cluster for deletion; the record is no longer
-// visible via the cluster query. An unknown id is a GraphQL error.
+// clusterDelete marks the cluster for deletion; the record leaves the cluster
+// collection watch. An unknown id is a GraphQL error.
 func TestClusterDeleteMutation(t *testing.T) {
 	srv := newTestServer(t, clusterFixtures())
 
@@ -330,10 +270,7 @@ func TestClusterDeleteMutation(t *testing.T) {
 		t.Fatalf("delete result: %s", raw)
 	}
 
-	raw = string(postGQL(t, srv.URL, `{"query":"{ cluster(id: \"2\") { id } }"}`))
-	if !strings.Contains(raw, `"cluster":null`) {
-		t.Fatalf("deleted cluster still readable: %s", raw)
-	}
+	assert.NotContains(t, clusterSnapshot(t, srv.URL, ""), "2", "the deleted cluster is gone")
 
 	raw = string(postGQL(t, srv.URL, `{"query":"mutation { clusterDelete(id: \"999\") }"}`))
 	if !strings.Contains(raw, `"errors"`) {
@@ -380,25 +317,8 @@ func TestClusterEphemeralFields(t *testing.T) {
 	srv := newTestServer(t, clusterFixtures())
 
 	// The cluster's own conditions are an empty list (never null).
-	body, _ := json.Marshal(map[string]string{"query": `{ cluster(id: "1") { conditions { type status reason } } }`})
-	raw := postGQL(t, srv.URL, string(body))
-	var resp struct {
-		Data struct {
-			Cluster struct {
-				Conditions []any `json:"conditions"`
-			} `json:"cluster"`
-		} `json:"data"`
-		Errors []struct{ Message string } `json:"errors"`
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		t.Fatalf("decode %s: %v", raw, err)
-	}
-	if len(resp.Errors) > 0 {
-		t.Fatalf("unexpected GraphQL errors: %+v", resp.Errors)
-	}
-	if resp.Data.Cluster.Conditions == nil || len(resp.Data.Cluster.Conditions) != 0 {
-		t.Errorf("conditions should be an empty list, got: %v", resp.Data.Cluster.Conditions)
-	}
+	conds := clusterSnapshot(t, srv.URL, `conditions { type status reason }`)["1"]["conditions"]
+	assert.Equal(t, []any{}, conds, "conditions should be an empty list")
 
 	// The cache resolves its conditions on a bare fixture. It has no status block: the
 	// kind measures nothing itself.
@@ -430,45 +350,18 @@ func TestConditionsAndSyncStatusOnWire(t *testing.T) {
 
 	srv := newTestServer(t, fixtures)
 
-	// The cluster's own conditions ride the cluster query.
-	body, _ := json.Marshal(map[string]string{"query": `{ cluster(id: "1") {
-		conditions { type status reason message liveness transitionedAt updatedAt }
-	} }`})
-	raw := postGQL(t, srv.URL, string(body))
-
-	type wireCondition struct {
-		Type           string  `json:"type"`
-		Status         string  `json:"status"`
-		Reason         string  `json:"reason"`
-		Message        string  `json:"message"`
-		Liveness       bool    `json:"liveness"`
-		TransitionedAt *string `json:"transitionedAt"`
-		UpdatedAt      *string `json:"updatedAt"`
-	}
-	var resp struct {
-		Data struct {
-			Cluster struct {
-				Conditions []wireCondition `json:"conditions"`
-			} `json:"cluster"`
-		} `json:"data"`
-		Errors []struct{ Message string } `json:"errors"`
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		t.Fatalf("decode response %s: %v", raw, err)
-	}
-	if len(resp.Errors) > 0 {
-		t.Fatalf("unexpected GraphQL errors: %+v", resp.Errors)
-	}
-
-	conds := resp.Data.Cluster.Conditions
-	if len(conds) != 1 {
-		t.Fatalf("conditions: %+v", conds)
-	}
-	if conds[0].Type != "Connected" || conds[0].Status != "False" ||
-		conds[0].Reason != "ProbeFailed" || conds[0].Message != "connection refused" ||
-		!conds[0].Liveness || conds[0].TransitionedAt == nil || conds[0].UpdatedAt == nil {
-		t.Errorf("Connected condition on the wire: %+v", conds[0])
-	}
+	// The cluster's own conditions ride the cluster collection watch.
+	conds := clusterSnapshot(t, srv.URL,
+		`conditions { type status reason message liveness transitionedAt updatedAt }`)["1"]["conditions"].([]any)
+	require.Len(t, conds, 1)
+	c := conds[0].(map[string]any)
+	assert.Equal(t, "Connected", c["type"])
+	assert.Equal(t, "False", c["status"])
+	assert.Equal(t, "ProbeFailed", c["reason"])
+	assert.Equal(t, "connection refused", c["message"])
+	assert.Equal(t, true, c["liveness"])
+	assert.NotNil(t, c["transitionedAt"])
+	assert.NotNil(t, c["updatedAt"])
 
 	// The cache's coarse Synced condition rides clusterCacheCollectionWatch. Freshness does not:
 	// the sync children report it, out of band from the object graph.
@@ -485,126 +378,39 @@ func TestConditionsAndSyncStatusOnWire(t *testing.T) {
 
 // --- ClusterCache ---
 
-// The plural root fields serve the same records as the nested ones, scoped by an
-// OPTIONAL parent id: omit it for the whole fleet, pass it for one parent. The fixture
-// gives each cluster one cache and each cache one sync record, so the two forms are
-// distinguishable by count.
-func TestPluralRootFieldsScopeOptionally(t *testing.T) {
-	fix := clusterFixtures()
-	srv := newTestServer(t, fix)
-	clusterID := string(fix[0].id)
-	cacheID := strconv.FormatInt(int64(fixtureCacheID(fix[0].id)), 10)
-
-	tests := []struct {
-		name      string
-		query     string
-		field     string
-		wantCount int
-	}{
-		{"caches unscoped", `{ clusterCaches { id } }`, "clusterCaches", len(fix)},
-		{"caches scoped", `{ clusterCaches(clusterID: "` + clusterID + `") { id } }`, "clusterCaches", 1},
-		{"syncs unscoped", `{ clusterCachedKinds { id } }`, "clusterCachedKinds", len(fix)},
-		{"syncs scoped", `{ clusterCachedKinds(cacheID: "` + cacheID + `") { id } }`, "clusterCachedKinds", 1},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			body, _ := json.Marshal(map[string]string{"query": tt.query})
-			raw := postGQL(t, srv.URL, string(body))
-
-			var resp struct {
-				Data   map[string][]map[string]any
-				Errors []struct{ Message string }
-			}
-			if err := json.Unmarshal(raw, &resp); err != nil {
-				t.Fatalf("decode %s: %v", raw, err)
-			}
-			if len(resp.Errors) > 0 {
-				t.Fatalf("unexpected GraphQL errors: %+v", resp.Errors)
-			}
-			if got := len(resp.Data[tt.field]); got != tt.wantCount {
-				t.Fatalf("want %d records, got %d: %s", tt.wantCount, got, raw)
-			}
-		})
-	}
-}
-
 // ClusterCache.syncs completes the navigable path Cluster → caches → syncs.
 func TestClusterCacheSyncsResolver(t *testing.T) {
 	fix := clusterFixtures()
 	srv := newTestServer(t, fix)
 	cacheID := fixtureCacheID(fix[0].id)
 
-	query := `{ clusterCache(id: "` + strconv.FormatInt(int64(cacheID), 10) + `") {
-		cachedKinds { id owner { id kind } spec { apiVersion resource } }
-	} }`
-	body, _ := json.Marshal(map[string]string{"query": query})
-	raw := postGQL(t, srv.URL, string(body))
-
-	var resp struct {
-		Data struct {
-			ClusterCache struct {
-				CachedKinds []map[string]any `json:"cachedKinds"`
-			} `json:"clusterCache"`
-		}
-		Errors []struct{ Message string }
+	got := cacheSnapshot(t, srv.URL, `cachedKinds { id owner { id kind } spec { apiVersion resource } }`)[strconv.FormatInt(int64(cacheID), 10)]["cachedKinds"].([]any)
+	require.Len(t, got, 1, "this cache's one record")
+	kind := got[0].(map[string]any)
+	if kind["id"] != strconv.FormatInt(int64(fixtureKindID(fix[0].id)), 10) {
+		t.Errorf("id: want the sync record's own id, got %v", kind["id"])
 	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		t.Fatalf("decode %s: %v", raw, err)
-	}
-	if len(resp.Errors) > 0 {
-		t.Fatalf("unexpected GraphQL errors: %+v", resp.Errors)
-	}
-	got := resp.Data.ClusterCache.CachedKinds
-	if len(got) != 1 {
-		t.Fatalf("want this cache's one record, got %d: %s", len(got), raw)
-	}
-	if got[0]["id"] != strconv.FormatInt(int64(fixtureKindID(fix[0].id)), 10) {
-		t.Errorf("id: want the sync record's own id, got %v", got[0]["id"])
-	}
-	if ownerOf(got[0])["id"] != strconv.FormatInt(int64(cacheID), 10) {
-		t.Errorf("owner: want the cache's id, got %v", ownerOf(got[0]))
+	if ownerOf(kind)["id"] != strconv.FormatInt(int64(cacheID), 10) {
+		t.Errorf("owner: want the cache's id, got %v", ownerOf(kind))
 	}
 }
 
-// Cluster.caches is the navigable path down the owner chain — the only way into a
-// cache by query without already holding its id. Asserted on the wire because a
-// resolver that isn't wired returns an empty list rather than failing.
+// Cluster.caches is the navigable path down the owner chain. Asserted on the wire
+// because a resolver that isn't wired returns an empty list rather than failing.
 func TestClusterCachesResolver(t *testing.T) {
 	fix := clusterFixtures()
 	srv := newTestServer(t, fix)
 	id := fix[0].id
 
-	query := `{ cluster(id: "` + string(id) + `") {
-		caches { id clusterID spec { serverUid } }
-	} }`
-	body, _ := json.Marshal(map[string]string{"query": query})
-	raw := postGQL(t, srv.URL, string(body))
-
-	var resp struct {
-		Data struct {
-			Cluster struct {
-				Caches []map[string]any `json:"caches"`
-			} `json:"cluster"`
-		}
-		Errors []struct{ Message string }
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		t.Fatalf("decode %s: %v", raw, err)
-	}
-	if len(resp.Errors) > 0 {
-		t.Fatalf("unexpected GraphQL errors: %+v", resp.Errors)
-	}
-	got := resp.Data.Cluster.Caches
-	if len(got) != 1 {
-		t.Fatalf("want this cluster's one cache, got %d: %s", len(got), raw)
-	}
+	got := clusterSnapshot(t, srv.URL, `caches { id clusterID spec { serverUid } }`)[string(id)]["caches"].([]any)
+	require.Len(t, got, 1, "this cluster's one cache")
+	cache := got[0].(map[string]any)
 	// Its own id, not its cluster's — the two differ in the fixture on purpose.
-	if got[0]["id"] != strconv.FormatInt(int64(fixtureCacheID(id)), 10) {
-		t.Errorf("id: want the cache's own id, got %v", got[0]["id"])
+	if cache["id"] != strconv.FormatInt(int64(fixtureCacheID(id)), 10) {
+		t.Errorf("id: want the cache's own id, got %v", cache["id"])
 	}
-	if got[0]["clusterID"] != string(id) {
-		t.Errorf("clusterID: want the parent's id, got %v", got[0]["clusterID"])
+	if cache["clusterID"] != string(id) {
+		t.Errorf("clusterID: want the parent's id, got %v", cache["clusterID"])
 	}
 }
 
@@ -613,23 +419,25 @@ func TestClusterCachesResolver(t *testing.T) {
 // records, e.g. SyncStopped), `ClusterCachedKind.events` one synced kind's (where
 // each worker report lands). One table because the wire mapping under test —
 // cluster.Event → the generic Event shape, enum included — is identical; only the record it
-// hangs off differs. Reaching either also exercises its root lookup, which is the only
-// way into these records by query.
+// hangs off differs.
 func TestCacheEventTimelineResolvers(t *testing.T) {
 	now := time.Now().UTC()
+	const events = `events(category: "sync") { id category type reason message count firstAt lastAt }`
 	tests := []struct {
 		name string
-		// field is the root lookup; lookupID derives the record's own id from its
-		// cluster's, since the two are deliberately different in the fixture.
-		field    string
+		// lookupID derives the record's own id from its cluster's, since the two are
+		// deliberately different in the fixture.
 		lookupID func(cluster.ClusterID) cluster.ObjectID
+		snapshot func(t *testing.T, srvURL string, id cluster.ClusterID) map[string]map[string]any
 		seed     func(*fakeClusterService, cluster.ClusterID, cluster.Event)
 		event    cluster.Event
 		wantEnum string
 	}{{
 		name:     "cache timeline",
-		field:    "clusterCache",
 		lookupID: func(id cluster.ClusterID) cluster.ObjectID { return cluster.ObjectID(fixtureCacheID(id)) },
+		snapshot: func(t *testing.T, srvURL string, _ cluster.ClusterID) map[string]map[string]any {
+			return cacheSnapshot(t, srvURL, events)
+		},
 		seed: func(f *fakeClusterService, id cluster.ClusterID, ev cluster.Event) {
 			f.cacheEvents = map[cluster.ClusterCacheID][]cluster.Event{fixtureCacheID(id): {ev}}
 		},
@@ -640,8 +448,13 @@ func TestCacheEventTimelineResolvers(t *testing.T) {
 		wantEnum: "Warning",
 	}, {
 		name:     "per-kind sync timeline",
-		field:    "clusterCachedKind",
 		lookupID: func(id cluster.ClusterID) cluster.ObjectID { return cluster.ObjectID(fixtureKindID(id)) },
+		snapshot: func(t *testing.T, srvURL string, id cluster.ClusterID) map[string]map[string]any {
+			cacheID := strconv.FormatInt(int64(fixtureCacheID(id)), 10)
+			return collectionSnapshot(t, srvURL,
+				`subscription { clusterCachedKindCollectionWatch(cacheID: "`+cacheID+`") { type kind { id `+events+` } } }`,
+				"clusterCachedKindCollectionWatch", "kind")
+		},
 		seed: func(f *fakeClusterService, id cluster.ClusterID, ev cluster.Event) {
 			f.syncEvents = map[cluster.ClusterCachedKindID][]cluster.Event{fixtureKindID(id): {ev}}
 		},
@@ -665,36 +478,17 @@ func TestCacheEventTimelineResolvers(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
-			query := `{ ` + tt.field + `(id: "` + strconv.FormatInt(int64(id), 10) + `") {
-				events(category: "sync") { id category type reason message count firstAt lastAt }
-			} }`
-			body, _ := json.Marshal(map[string]string{"query": query})
-			raw := postGQL(t, srv.URL, string(body))
-
-			var resp struct {
-				Data map[string]struct {
-					Events []map[string]any `json:"events"`
-				}
-				Errors []struct{ Message string }
+			got := tt.snapshot(t, srv.URL, fix[0].id)[strconv.FormatInt(int64(id), 10)]["events"].([]any)
+			require.Len(t, got, 1)
+			event := got[0].(map[string]any)
+			if event["type"] != tt.wantEnum {
+				t.Errorf("type: want %s enum, got %v", tt.wantEnum, event["type"])
 			}
-			if err := json.Unmarshal(raw, &resp); err != nil {
-				t.Fatalf("decode %s: %v", raw, err)
+			if event["reason"] != tt.event.Reason || event["category"] != "sync" {
+				t.Errorf("reason/category: %v", event)
 			}
-			if len(resp.Errors) > 0 {
-				t.Fatalf("unexpected GraphQL errors: %+v", resp.Errors)
-			}
-			got := resp.Data[tt.field].Events
-			if len(got) != 1 {
-				t.Fatalf("want 1 event, got %d: %s", len(got), raw)
-			}
-			if got[0]["type"] != tt.wantEnum {
-				t.Errorf("type: want %s enum, got %v", tt.wantEnum, got[0]["type"])
-			}
-			if got[0]["reason"] != tt.event.Reason || got[0]["category"] != "sync" {
-				t.Errorf("reason/category: %v", got[0])
-			}
-			if got[0]["count"] != float64(2) {
-				t.Errorf("count: want 2, got %v", got[0]["count"])
+			if event["count"] != float64(2) {
+				t.Errorf("count: want 2, got %v", event["count"])
 			}
 		})
 	}
@@ -927,11 +721,7 @@ func TestClusterCachedDataKindsResolverPassesTheNamespace(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	query := `{ clusterCache(id: "` + strconv.FormatInt(int64(fixtureCacheID(fix[0].id)), 10) + `") {
-		kinds(namespace: "prod") { kind }
-	} }`
-	body, _ := json.Marshal(map[string]string{"query": query})
-	postGQL(t, srv.URL, string(body))
+	cacheSnapshot(t, srv.URL, `kinds(namespace: "prod") { kind }`)
 
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
@@ -958,58 +748,17 @@ func TestClusterCachedDataKindsResolver(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	query := `{ clusterCache(id: "` + strconv.FormatInt(int64(fixtureCacheID(id)), 10) + `") {
-		kinds { apiVersion kind resource scope isCRD }
-	} }`
-	body, _ := json.Marshal(map[string]string{"query": query})
-	raw := postGQL(t, srv.URL, string(body))
-
-	var resp struct {
-		Data struct {
-			ClusterCache struct {
-				Kinds []map[string]any `json:"kinds"`
-			} `json:"clusterCache"`
-		}
-		Errors []struct{ Message string }
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		t.Fatalf("decode %s: %v", raw, err)
-	}
-	if len(resp.Errors) > 0 {
-		t.Fatalf("unexpected GraphQL errors: %+v", resp.Errors)
-	}
-	if len(resp.Data.ClusterCache.Kinds) != 2 {
-		t.Fatalf("want 2 kinds, got %d: %s", len(resp.Data.ClusterCache.Kinds), raw)
-	}
-	k := resp.Data.ClusterCache.Kinds[0]
+	kinds := cacheSnapshot(t, srv.URL, `kinds { apiVersion kind resource scope isCRD }`)[strconv.FormatInt(int64(fixtureCacheID(id)), 10)]["kinds"].([]any)
+	require.Len(t, kinds, 2)
+	k := kinds[0].(map[string]any)
 	if k["apiVersion"] != "apps/v1" || k["kind"] != "Deployment" || k["resource"] != "deployments" {
 		t.Errorf("first kind: %v", k)
 	}
 	if k["scope"] != "Namespaced" || k["isCRD"] != false {
 		t.Errorf("first kind scope/isCRD: %v", k)
 	}
-	if resp.Data.ClusterCache.Kinds[1]["isCRD"] != true {
-		t.Errorf("second kind should be a CRD: %v", resp.Data.ClusterCache.Kinds[1])
-	}
-
-	// An unknown id resolves the record to null rather than erroring, so the catalog
-	// is never reached — where the root field used to answer with an empty list.
-	q2 := `{ clusterCache(id: "99999") { kinds { kind } } }`
-	b2, _ := json.Marshal(map[string]string{"query": q2})
-	raw2 := postGQL(t, srv.URL, string(b2))
-	var resp2 struct {
-		Data struct {
-			ClusterCache *struct {
-				Kinds []map[string]any `json:"kinds"`
-			} `json:"clusterCache"`
-		}
-		Errors []struct{ Message string }
-	}
-	if err := json.Unmarshal(raw2, &resp2); err != nil {
-		t.Fatalf("decode %s: %v", raw2, err)
-	}
-	if len(resp2.Errors) > 0 || resp2.Data.ClusterCache != nil {
-		t.Fatalf("unknown cache should resolve to null, got %s", raw2)
+	if kinds[1].(map[string]any)["isCRD"] != true {
+		t.Errorf("second kind should be a CRD: %v", kinds[1])
 	}
 }
 
@@ -1233,18 +982,13 @@ func postGQL(t *testing.T, url, body string) []byte {
 // The fakes (memCredStore/fakeOAuthFlow/fakeLoopback) live in testutils_test.go;
 // the postGQL / SSE helpers are defined above + in server_test.go.
 
-// The authState query reflects a signed-out auth service (no stale identity).
-func TestAuthStateQuerySignedOut(t *testing.T) {
+// The auth state watch starts on a signed-out auth service with no stale identity.
+func TestAuthStateWatchSignedOut(t *testing.T) {
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: newFakeAuth(oauth.Identity{})}))
 	defer srv.Close()
 
-	raw := string(postGQL(t, srv.URL, `{"query":"{ authState { authenticated identity { sub } } }"}`))
-	if !strings.Contains(raw, `"identity":null`) {
-		t.Fatalf("want signed-out auth state (null identity), got: %s", raw)
-	}
-	if !strings.Contains(raw, `"authenticated":false`) {
-		t.Fatalf("want authenticated false, got: %s", raw)
-	}
+	data := firstFrame(t, srv.URL, `subscription { authStateWatch { authenticated identity { sub } } }`)
+	assert.Equal(t, map[string]any{"authenticated": false, "identity": nil}, data["authStateWatch"])
 }
 
 // A connector that has not read the keyring yet is restoring, and says
@@ -1255,9 +999,8 @@ func TestAuthStateWhileRestoring(t *testing.T) {
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 	defer srv.Close()
 
-	data, errs := mutation(t, srv.URL, `query { authState { restoring authenticated identity { sub } } }`)
-	require.Empty(t, errs)
-	assert.Equal(t, map[string]any{"restoring": true, "authenticated": false, "identity": nil}, data["authState"])
+	data := firstFrame(t, srv.URL, `subscription { authStateWatch { restoring authenticated identity { sub } } }`)
+	assert.Equal(t, map[string]any{"restoring": true, "authenticated": false, "identity": nil}, data["authStateWatch"])
 	for _, op := range []string{`mutation { authLoginStart }`, `mutation { authLogout }`} {
 		_, errs := mutation(t, srv.URL, op)
 		require.Len(t, errs, 1, op)
@@ -1265,20 +1008,17 @@ func TestAuthStateWhileRestoring(t *testing.T) {
 	}
 }
 
-// The authState query reflects the current signed-in identity.
-func TestAuthStateQuerySignedIn(t *testing.T) {
+// The auth state watch starts on the current signed-in identity.
+func TestAuthStateWatchSignedIn(t *testing.T) {
 	svc := signedInFakeAuth(oauth.Identity{UserID: "u1", Email: "a@x.com", Name: "Ada"})
 
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 	defer srv.Close()
 
-	raw := string(postGQL(t, srv.URL, `{"query":"{ authState { authenticated identity { sub email name } } }"}`))
-	if !strings.Contains(raw, `"identity":{"sub":"u1","email":"a@x.com","name":"Ada"}`) {
-		t.Fatalf("want signed-in identity, got: %s", raw)
-	}
-	if !strings.Contains(raw, `"authenticated":true`) {
-		t.Fatalf("want authenticated true, got: %s", raw)
-	}
+	data := firstFrame(t, srv.URL, `subscription { authStateWatch { authenticated identity { sub email name } } }`)
+	assert.Equal(t, map[string]any{
+		"authenticated": true, "identity": map[string]any{"sub": "u1", "email": "a@x.com", "name": "Ada"},
+	}, data["authStateWatch"])
 }
 
 // authStateWatch emits the current snapshot first, then a fresh snapshot on change.
@@ -1533,38 +1273,30 @@ func TestResolverErrorsReachTheCaller(t *testing.T) {
 	// Each case calls one resolver and reports only its error; the values are
 	// asserted by the tests above, on a service that works.
 	calls := map[string]func() error{
-		"Cluster.caches":                             func() error { _, err := r.Cluster().Caches(ctx, cl); return err },
-		"Cluster.events":                             func() error { _, err := r.Cluster().Events(ctx, cl, nil, nil); return err },
-		"ClusterCache.kinds":                         func() error { _, err := r.ClusterCache().Kinds(ctx, cache, ""); return err },
-		"ClusterCache.cachedKinds":                   func() error { _, err := r.ClusterCache().CachedKinds(ctx, cache); return err },
-		"ClusterCache.events":                        func() error { _, err := r.ClusterCache().Events(ctx, cache, nil, nil); return err },
-		"ClusterCachedKind.events":                   func() error { _, err := r.ClusterCachedKind().Events(ctx, kind, nil, nil); return err },
-		"Query.cluster":                              func() error { _, err := r.Query().Cluster(ctx, id); return err },
-		"Query.clusters":                             func() error { _, err := r.Query().Clusters(ctx); return err },
-		"Query.clusterCache":                         func() error { _, err := r.Query().ClusterCache(ctx, objID); return err },
-		"Query.clusterCaches":                        func() error { _, err := r.Query().ClusterCaches(ctx, nil); return err },
-		"Query.clusterCaches(scoped)":                func() error { _, err := r.Query().ClusterCaches(ctx, &id); return err },
-		"Query.clusterCachedKind":                    func() error { _, err := r.Query().ClusterCachedKind(ctx, objID); return err },
-		"Query.clusterCachedKinds":                   func() error { _, err := r.Query().ClusterCachedKinds(ctx, nil); return err },
-		"Query.clusterCachedKinds(scoped)":           func() error { _, err := r.Query().ClusterCachedKinds(ctx, &objID); return err },
-		"Mutation.clusterEnabledSet":                 func() error { _, err := r.Mutation().ClusterEnabledSet(ctx, id, true); return err },
-		"Mutation.clusterSyncEnabledSet":             func() error { _, err := r.Mutation().ClusterSyncEnabledSet(ctx, id, true); return err },
-		"Mutation.clusterMonitoringSet":              func() error { _, err := r.Mutation().ClusterMonitoringEnabledSet(ctx, id, true); return err },
-		"Mutation.clusterConnectionRetry":            func() error { _, err := r.Mutation().ClusterConnectionRetry(ctx, id); return err },
-		"Mutation.clusterDelete":                     func() error { _, err := r.Mutation().ClusterDelete(ctx, id); return err },
-		"Mutation.clusterCacheClear":                 func() error { _, err := r.Mutation().ClusterCacheClear(ctx, objID); return err },
-		"Mutation.clusterCachedKindSyncSet":          func() error { _, err := r.Mutation().ClusterCachedKindSyncEnabledSet(ctx, objID, true); return err },
-		"Mutation.authLogout":                        func() error { _, err := r.Mutation().AuthLogout(ctx); return err },
-		"Subscription.objectEventFeed":               func() error { _, err := r.Subscription().ObjectEventFeed(ctx, objID, nil); return err },
-		"Subscription.clusterCollectionWatch":        func() error { _, err := r.Subscription().ClusterCollectionWatch(ctx); return err },
-		"Subscription.clusterEventFeed":              func() error { _, err := r.Subscription().ClusterEventFeed(ctx, id, nil); return err },
-		"Subscription.clusterScheduleStateWatch":     func() error { _, err := r.Subscription().ClusterScheduleStateWatch(ctx, id); return err },
-		"Subscription.clusterDataRateTimeSeriesFeed": func() error { _, err := r.Subscription().ClusterDataRateTimeSeriesFeed(ctx, id); return err },
-		"Subscription.clusterCacheCollectionWatch":   func() error { _, err := r.Subscription().ClusterCacheCollectionWatch(ctx); return err },
-		"Subscription.cacheHealthWatch":              func() error { _, err := r.Subscription().ClusterCacheHealthKeyedStateWatch(ctx); return err },
-		"Subscription.cachedKindsWatch":              func() error { _, err := r.Subscription().ClusterCachedKindCollectionWatch(ctx, objID); return err },
-		"Subscription.cacheStatsWatch":               func() error { _, err := r.Subscription().ClusterCacheStatsStateWatch(ctx, id, objID); return err },
-		"Subscription.cacheSyncStatusWatch":          func() error { _, err := r.Subscription().ClusterCacheSyncStateWatch(ctx, id, objID); return err },
+		"Cluster.caches":                           func() error { _, err := r.Cluster().Caches(ctx, cl); return err },
+		"Cluster.events":                           func() error { _, err := r.Cluster().Events(ctx, cl, nil, nil); return err },
+		"ClusterCache.kinds":                       func() error { _, err := r.ClusterCache().Kinds(ctx, cache, ""); return err },
+		"ClusterCache.cachedKinds":                 func() error { _, err := r.ClusterCache().CachedKinds(ctx, cache); return err },
+		"ClusterCache.events":                      func() error { _, err := r.ClusterCache().Events(ctx, cache, nil, nil); return err },
+		"ClusterCachedKind.events":                 func() error { _, err := r.ClusterCachedKind().Events(ctx, kind, nil, nil); return err },
+		"Mutation.clusterEnabledSet":               func() error { _, err := r.Mutation().ClusterEnabledSet(ctx, id, true); return err },
+		"Mutation.clusterSyncEnabledSet":           func() error { _, err := r.Mutation().ClusterSyncEnabledSet(ctx, id, true); return err },
+		"Mutation.clusterMonitoringSet":            func() error { _, err := r.Mutation().ClusterMonitoringEnabledSet(ctx, id, true); return err },
+		"Mutation.clusterConnectionRetry":          func() error { _, err := r.Mutation().ClusterConnectionRetry(ctx, id); return err },
+		"Mutation.clusterDelete":                   func() error { _, err := r.Mutation().ClusterDelete(ctx, id); return err },
+		"Mutation.clusterCacheClear":               func() error { _, err := r.Mutation().ClusterCacheClear(ctx, objID); return err },
+		"Mutation.clusterCachedKindSyncSet":        func() error { _, err := r.Mutation().ClusterCachedKindSyncEnabledSet(ctx, objID, true); return err },
+		"Mutation.authLogout":                      func() error { _, err := r.Mutation().AuthLogout(ctx); return err },
+		"Subscription.objectEventFeed":             func() error { _, err := r.Subscription().ObjectEventFeed(ctx, objID, nil); return err },
+		"Subscription.clusterCollectionWatch":      func() error { _, err := r.Subscription().ClusterCollectionWatch(ctx); return err },
+		"Subscription.clusterEventFeed":            func() error { _, err := r.Subscription().ClusterEventFeed(ctx, id, nil); return err },
+		"Subscription.clusterScheduleStateWatch":   func() error { _, err := r.Subscription().ClusterScheduleStateWatch(ctx, id); return err },
+		"Subscription.clusterDataRateSampleFeed":   func() error { _, err := r.Subscription().ClusterDataRateSampleFeed(ctx, id); return err },
+		"Subscription.clusterCacheCollectionWatch": func() error { _, err := r.Subscription().ClusterCacheCollectionWatch(ctx); return err },
+		"Subscription.cacheHealthWatch":            func() error { _, err := r.Subscription().ClusterCacheHealthKeyedStateWatch(ctx); return err },
+		"Subscription.cachedKindsWatch":            func() error { _, err := r.Subscription().ClusterCachedKindCollectionWatch(ctx, objID); return err },
+		"Subscription.cacheStatsWatch":             func() error { _, err := r.Subscription().ClusterCacheStatsStateWatch(ctx, id, objID); return err },
+		"Subscription.cacheSyncStatusWatch":        func() error { _, err := r.Subscription().ClusterCacheSyncStateWatch(ctx, id, objID); return err },
 		"Subscription.cachedDataKindsWatch": func() error {
 			_, err := r.Subscription().ClusterCachedDataKindCollectionWatch(ctx, id, objID, "")
 			return err
@@ -1670,10 +1402,10 @@ func TestStateWatchesAndEventFeedsCarryTheirFirstValue(t *testing.T) {
 }
 
 // The frame reaches the wire as the service sent it, interval and window included.
-func TestClusterDataRateTimeSeriesFeedMapsTheFrame(t *testing.T) {
+func TestClusterDataRateSampleFeedMapsTheFrame(t *testing.T) {
 	r := &graph.Resolver{ClusterSvc: newFakeClusterService(clusterFixtures())}
 
-	frames, err := r.Subscription().ClusterDataRateTimeSeriesFeed(t.Context(), "1")
+	frames, err := r.Subscription().ClusterDataRateSampleFeed(t.Context(), "1")
 	require.NoError(t, err)
 
 	assert.Equal(t, fakeDataRateFrame, *testutil.Recv(t, frames, "the window"))
@@ -1704,10 +1436,10 @@ func newChatServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// newSandboxedChatServer is newChatServer on a machine whose sandbox is status.
-func newSandboxedChatServer(t *testing.T, status sandbox.Status) *httptest.Server {
+// newSandboxedChatServer is newChatServer on a machine whose sandbox is state.
+func newSandboxedChatServer(t *testing.T, state sandbox.State) *httptest.Server {
 	t.Helper()
-	srv, _, _ := newChatServerWith(t, status)
+	srv, _, _ := newChatServerWith(t, state)
 	return srv
 }
 
@@ -1715,17 +1447,17 @@ func newSandboxedChatServer(t *testing.T, status sandbox.Status) *httptest.Serve
 // the store by closing it, and the fake, for one that stages a reply.
 func newChatServerOver(t *testing.T) (*httptest.Server, *appdb.DB, *llm.Fake) {
 	t.Helper()
-	return newChatServerWith(t, sandbox.Status{})
+	return newChatServerWith(t, sandbox.State{})
 }
 
-// newChatServerWith is newChatServerOver on a machine whose sandbox is status.
-func newChatServerWith(t *testing.T, status sandbox.Status) (*httptest.Server, *appdb.DB, *llm.Fake) {
+// newChatServerWith is newChatServerOver on a machine whose sandbox is state.
+func newChatServerWith(t *testing.T, state sandbox.State) (*httptest.Server, *appdb.DB, *llm.Fake) {
 	t.Helper()
-	return newChatServerOn(t, status, testSettings(t))
+	return newChatServerOn(t, state, testSettings(t))
 }
 
 // newChatServerOn is newChatServerWith over the settings store svc.
-func newChatServerOn(t *testing.T, status sandbox.Status, svc *settings.Service) (*httptest.Server, *appdb.DB, *llm.Fake) {
+func newChatServerOn(t *testing.T, state sandbox.State, svc *settings.Service) (*httptest.Server, *appdb.DB, *llm.Fake) {
 	t.Helper()
 	db := appdbtest.Open(t)
 	_, err := db.Write.Exec(`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('1', 'kubeconfig', 'ctx', 0, 0)`)
@@ -1737,7 +1469,7 @@ func newChatServerOn(t *testing.T, status sandbox.Status, svc *settings.Service)
 	// answering one fixed view; the rest is read alone, so no call runs while stored
 	// calls still show.
 	box := tools.NewBox([]tools.Tool{agent.New(), anthropicwebsearch.New(time.Now), openedView{logsview.New(nil)}}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memorytool.New(nil), kubequery.New(nil), logsread.New(nil, nil), logswatch.New(nil, nil))
-	chatSvc, err := chat.New(db, filepath.Join(t.TempDir(), "chats"), filepath.Join(t.TempDir(), "monitor"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, svc, nil)
+	chatSvc, err := chat.New(db, filepath.Join(t.TempDir(), "chats"), filepath.Join(t.TempDir(), "monitor"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, state, svc, nil)
 	require.NoError(t, err)
 	stop, err := chatSvc.Start(t.Context())
 	require.NoError(t, err)
@@ -1747,7 +1479,7 @@ func newChatServerOn(t *testing.T, status sandbox.Status, svc *settings.Service)
 	})
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: newFakeClusterService(nil), ChatSvc: chatSvc, LLMSvc: llmSvc, Auth: newFakeAuth(oauth.Identity{}),
-		SandboxStatus: status, Settings: svc,
+		SandboxState: state, Settings: svc,
 	}))
 	t.Cleanup(srv.Close)
 	return srv, db, fake
@@ -2180,7 +1912,7 @@ func TestChatReadRefusalsCarryTheirCode(t *testing.T) {
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ChatSvc: refusingChat{err: chat.ErrChatGone}}))
 	defer srv.Close()
 
-	_, code := refusalOf(t, srv, `{ chatPermissionRules(chatID: "`+appdb.NewID()+`") { id } }`)
+	_, code := refusalOf(t, srv, `{ chatPermissionRulesGet(chatID: "`+appdb.NewID()+`") { id } }`)
 	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
 
 	for _, query := range []string{
@@ -2244,17 +1976,18 @@ func TestAChatCollectionWatchOverAFailedStoreEndsWithItsReason(t *testing.T) {
 	}
 }
 
-// The models query is every provider's catalog under its provider, dialect included.
-func TestTheModelsQueryListsEveryProvidersCatalog(t *testing.T) {
+// The models state watch is every provider's catalog under its provider, dialect included.
+func TestTheModelsStateWatchListsEveryProvidersCatalog(t *testing.T) {
 	srv := newChatServer(t)
 
-	raw := postGQL(t, srv.URL, `{"query":"{ models { provider { id label llmDialect } id label efforts defaultEffort } }"}`)
+	data := firstFrame(t, srv.URL, `subscription { modelsStateWatch { provider { id label llmDialect } id label efforts defaultEffort } }`)
 
-	assert.JSONEq(t, `{"data":{"models":[{
+	got, _ := json.Marshal(data)
+	assert.JSONEq(t, `{"modelsStateWatch":[{
 		"provider":{"id":"fake","label":"Fake","llmDialect":"Fake"},
 		"id":"fake","label":"Fake model","efforts":["low","high"],"defaultEffort":"low"},{
 		"provider":{"id":"fake","label":"Fake","llmDialect":"Fake"},
-		"id":"fake-no-tools","label":"Fake model (no tools)","efforts":[],"defaultEffort":""}]}}`, string(raw))
+		"id":"fake-no-tools","label":"Fake model (no tools)","efforts":[],"defaultEffort":""}]}`, string(got))
 }
 
 // approvalDecide reaches the service, and a decision nothing waits on answers false
@@ -2827,22 +2560,22 @@ func TestALogsViewCallServesWhenItResolved(t *testing.T) {
 	}}}, frame["message"].(map[string]any)["toolCalls"])
 }
 
-// The sandbox query answers the status the app built, reason and all.
-func TestTheSandboxQueryAnswersTheStatus(t *testing.T) {
-	srv := newSandboxedChatServer(t, sandbox.Status{Available: true, Reason: "bwrap at /usr/bin/bwrap", NetworkReason: "pasta not found"})
+// sandboxStateGet answers the state the app built, reason and all.
+func TestSandboxStateGetAnswersTheState(t *testing.T) {
+	srv := newSandboxedChatServer(t, sandbox.State{Available: true, Reason: "bwrap at /usr/bin/bwrap", NetworkReason: "pasta not found"})
 
-	data := mutate(t, srv, `{ sandbox { available reason networkAvailable networkReason } }`)
+	data := mutate(t, srv, `{ sandboxStateGet { available reason networkAvailable networkReason } }`)
 
 	assert.Equal(t, map[string]any{
 		"available": true, "reason": "bwrap at /usr/bin/bwrap", "networkAvailable": false, "networkReason": "pasta not found",
-	}, data["sandbox"])
+	}, data["sandboxStateGet"])
 }
 
 // The network switch answers the chat it committed, and the send carries the
 // switch its sender saw and the turn's toggle: a stale switch is refused, and
 // so is the toggle where network is unavailable.
 func TestChatNetworkEnabledSetServesTheSwitchedChat(t *testing.T) {
-	srv := newSandboxedChatServer(t, sandbox.Status{Available: true, NetworkAvailable: true})
+	srv := newSandboxedChatServer(t, sandbox.State{Available: true, NetworkAvailable: true})
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: true,
 		providerID: "fake", modelID: "fake", effort: "high", requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
@@ -2855,7 +2588,7 @@ func TestChatNetworkEnabledSetServesTheSwitchedChat(t *testing.T) {
 	raw = postGQL(t, srv.URL, `{"query":"mutation { chatSend(chatID: \"`+chatID+`\", mode: Chat, clusterID: \"1\", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: \"fake\", modelID: \"fake\", effort: \"high\", requestID: \"`+appdb.NewID()+`\", content: \"and?\") { id } }"}`)
 	assert.Contains(t, string(raw), `"code":"KSTACK_CHAT_NETWORK_CHANGED"`)
 
-	none := newSandboxedChatServer(t, sandbox.Status{Available: true, NetworkReason: "pasta not found"})
+	none := newSandboxedChatServer(t, sandbox.State{Available: true, NetworkReason: "pasta not found"})
 	raw = postGQL(t, none.URL, `{"query":"mutation { chatSend(mode: Chat, clusterID: \"1\", sandboxDisabled: false, networkEnabled: false, networkThisTurn: true, providerID: \"fake\", modelID: \"fake\", effort: \"high\", requestID: \"`+appdb.NewID()+`\", content: \"hi\") { id } }"}`)
 	assert.Contains(t, string(raw), `"code":"KSTACK_VALIDATION_ERROR"`)
 }
@@ -2863,7 +2596,7 @@ func TestChatNetworkEnabledSetServesTheSwitchedChat(t *testing.T) {
 // The switch answers the chat it committed, and is refused on a machine with no
 // sandbox.
 func TestChatSandboxDisabledSetServesTheSwitchedChat(t *testing.T) {
-	srv := newSandboxedChatServer(t, sandbox.Status{Available: true})
+	srv := newSandboxedChatServer(t, sandbox.State{Available: true})
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
@@ -2951,9 +2684,9 @@ func TestPermissionSettingsShowsModesAndRules(t *testing.T) {
 	mutate(t, srv, `mutation { permissionModeSet(target: AWS, account: "123456789012", mode: Auto) { rules { id } } }`)
 	mutate(t, srv, `mutation { permissionRuleAdd(input: {effect: Deny, accessLevel: Destructive, target: Kubernetes, scope: "1", service: "", operation: "delete", resource: "namespaces"}) { rules { id } } }`)
 
-	data := mutate(t, srv, `{ permissionSettings { `+permissionSettingsFields+` alwaysAsks accessControl } }`)
+	data := mutate(t, srv, `{ permissionSettingsGet { `+permissionSettingsFields+` alwaysAsks accessControl } }`)
 
-	got := data["permissionSettings"].(map[string]any)
+	got := data["permissionSettingsGet"].(map[string]any)
 	kube := targetOf(t, got, "Kubernetes")
 	assert.Equal(t, "Ask", kube["defaultMode"])
 	assert.ElementsMatch(t, []any{
@@ -3045,8 +2778,8 @@ func TestAPermissionRefusalCarriesItsCode(t *testing.T) {
 		assert.Equal(t, want.code, code, query)
 		assert.Contains(t, message, want.message, query)
 	}
-	data := mutate(t, srv, `{ permissionSettings { rules { id } } }`)
-	assert.Empty(t, data["permissionSettings"].(map[string]any)["rules"], "nothing was written")
+	data := mutate(t, srv, `{ permissionSettingsGet { rules { id } } }`)
+	assert.Empty(t, data["permissionSettingsGet"].(map[string]any)["rules"], "nothing was written")
 }
 
 // The settings read the clusters off the cluster service, so a list it cannot
@@ -3057,7 +2790,7 @@ func TestPermissionSettingsFailsWithTheClusterList(t *testing.T) {
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Settings: testSettings(t)}))
 	t.Cleanup(srv.Close)
 
-	_, code := refusalOf(t, srv, `{ permissionSettings { rules { id } } }`)
+	_, code := refusalOf(t, srv, `{ permissionSettingsGet { rules { id } } }`)
 
 	assert.NotEqual(t, "KSTACK_VALIDATION_ERROR", code)
 }
@@ -3100,7 +2833,7 @@ func TestPermissionSettingsFailsWithTheirRead(t *testing.T) {
 		srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: newFakeClusterService(c.clusters), Settings: settings.NewService(cfg, nil, nil, nil, "")}))
 		t.Cleanup(srv.Close)
 
-		message, code := refusalOf(t, srv, `{ permissionSettings { rules { id } } }`)
+		message, code := refusalOf(t, srv, `{ permissionSettingsGet { rules { id } } }`)
 		assert.NotEqual(t, "KSTACK_VALIDATION_ERROR", code, name)
 		assert.Contains(t, message, c.table, name)
 	}
@@ -3190,8 +2923,8 @@ func TestChatPermissionRulesListAndRemove(t *testing.T) {
 		VALUES (?, ?, 'allow', 'write', '*', 'kubernetes', '1/web', '*', '*', '*', 1, 1)`, id, chatID)
 	require.NoError(t, err)
 
-	data := mutate(t, srv, `query { chatPermissionRules(chatID: "`+chatID+`") { id scope line } }`)
-	assert.Equal(t, []any{map[string]any{"id": id, "scope": "1/web", "line": "Allow writes in 1 / web"}}, data["chatPermissionRules"], "a cluster the service does not list is named by its id")
+	data := mutate(t, srv, `query { chatPermissionRulesGet(chatID: "`+chatID+`") { id scope line } }`)
+	assert.Equal(t, []any{map[string]any{"id": id, "scope": "1/web", "line": "Allow writes in 1 / web"}}, data["chatPermissionRulesGet"], "a cluster the service does not list is named by its id")
 
 	_, code := refusalOf(t, srv, `mutation { chatPermissionRuleRemove(chatID: "`+chatID+`", id: "`+appdb.NewID()+`") { id } }`)
 	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
@@ -3315,9 +3048,9 @@ func sandboxExecutablesServer(t *testing.T, available bool) (*httptest.Server, *
 	require.NoError(t, err)
 	prober := newFakeProber()
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
-		Settings:      settings.NewService(store, nil, nil, nil, ""),
-		SandboxStatus: sandbox.Status{Available: available},
-		Executables:   prober,
+		Settings:     settings.NewService(store, nil, nil, nil, ""),
+		SandboxState: sandbox.State{Available: available},
+		Executables:  prober,
 	}))
 	t.Cleanup(srv.Close)
 	return srv, prober, db
@@ -3354,7 +3087,7 @@ func namesOf(tools any) []string {
 	return names
 }
 
-// The query, the probe, register and remove each answer the whole report in
+// The watch, the probe, register and remove each answer the whole report in
 // the list's order: an executable listed since the last probe unprobed. The probe
 // answers the report as it stands and its end reaches the watch, which
 // carries whether one runs and re-draws when the registered tools change.
@@ -3363,20 +3096,18 @@ func TestSandboxExecutableMutationsAnswerTheReport(t *testing.T) {
 	srv, prober, _ := sandboxExecutablesServer(t, true)
 	curated := []string{"kubectl", "helm", "kustomize", "git", "jq", "yq"}
 
-	data, _ := mutation(t, srv.URL, `{ sandboxExecutables `+sandboxExecutableFields+` }`)
-	assert.Equal(t, curated, namesOf(data["sandboxExecutables"]))
-	first := data["sandboxExecutables"].([]any)[0].(map[string]any)
-	assert.Equal(t, false, first["probed"])
-	assert.Equal(t, "not probed yet", first["error"])
-
 	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesStateWatch { probing probes executables `+sandboxExecutableFields+` } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
-	assert.Equal(t, float64(0), executablesReport(t, events, false, curated)["probes"])
+	report := executablesReport(t, events, false, curated)
+	assert.Equal(t, float64(0), report["probes"])
+	first := report["executables"].([]any)[0].(map[string]any)
+	assert.Equal(t, false, first["probed"])
+	assert.Equal(t, "not probed yet", first["error"])
 
-	data, _ = mutation(t, srv.URL, `mutation { sandboxExecutablesProbe `+sandboxExecutableFields+` }`)
+	data, _ := mutation(t, srv.URL, `mutation { sandboxExecutablesProbe `+sandboxExecutableFields+` }`)
 	assert.Equal(t, false, data["sandboxExecutablesProbe"].([]any)[0].(map[string]any)["probed"], "the report as it stands")
-	report := executablesReport(t, events, true, curated)
+	report = executablesReport(t, events, true, curated)
 	assert.Equal(t, false, report["executables"].([]any)[0].(map[string]any)["probed"])
 	assert.Equal(t, float64(1), report["probes"])
 
@@ -3433,13 +3164,10 @@ func TestSandboxExecutablesStateWatchEndsWithTheProbersFeed(t *testing.T) {
 	testutil.WaitClosed(t, events, "the watch to end with the feed")
 }
 
-// A machine with no sandbox answers no tools, on the query and the watch,
-// and refuses the probe and a register.
+// A machine with no sandbox watches no tools, and refuses the probe and a register.
 func TestSandboxExecutablesAreEmptyWithNoSandbox(t *testing.T) {
 	srv, _, _ := sandboxExecutablesServer(t, false)
 
-	data, _ := mutation(t, srv.URL, `{ sandboxExecutables { name } }`)
-	assert.Equal(t, []any{}, data["sandboxExecutables"])
 	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesStateWatch { probing executables { name } } }`)
 	defer resp.Body.Close()
 	executablesReport(t, sseEvents(t, resp), false, nil)
@@ -3480,11 +3208,15 @@ func TestARefusedExecutableIsListedWithItsRefusal(t *testing.T) {
 	_, err := db.Write.Exec(`INSERT INTO executables (name, invocation, created_at) VALUES ('kubectl', 'kubectl version', 1)`)
 	require.NoError(t, err)
 
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesStateWatch { probing executables `+sandboxExecutableFields+` } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	names := []string{"kubectl", "helm", "kustomize", "git", "jq", "yq", "kubectl"}
+	executablesReport(t, events, false, names)
 	mutation(t, srv.URL, `mutation { sandboxExecutablesProbe { name } }`)
+	executablesReport(t, events, true, names)
 	prober.finish()
-	data, _ := mutation(t, srv.URL, `{ sandboxExecutables `+sandboxExecutableFields+` }`)
-	tools := data["sandboxExecutables"].([]any)
-	assert.Equal(t, []string{"kubectl", "helm", "kustomize", "git", "jq", "yq", "kubectl"}, namesOf(tools))
+	tools := executablesReport(t, events, false, names)["executables"].([]any)
 	assert.Equal(t, map[string]any{
 		"name": "kubectl", "invocation": "kubectl version", "registered": true, "probed": false,
 		"resolved": "", "shim": false, "target": "", "ok": false, "version": "", "error": "",
@@ -3496,12 +3228,12 @@ func TestARefusedExecutableIsListedWithItsRefusal(t *testing.T) {
 	_, got := refusal(t, errs)
 	assert.Equal(t, "That executable is already listed.", got)
 
-	data, _ = mutation(t, srv.URL, `mutation { sandboxExecutableRemove(name: "kubectl") { name registered } }`)
+	data, _ := mutation(t, srv.URL, `mutation { sandboxExecutableRemove(name: "kubectl") { name registered } }`)
 	assert.Equal(t, []string{"kubectl", "helm", "kustomize", "git", "jq", "yq"}, namesOf(data["sandboxExecutableRemove"]))
 }
 
-// A read of the executables that fails is an error on the query and the
-// probe, which starts no probe; a register or a remove whose write took
+// A read of the executables that fails is an error on the probe, which
+// starts no probe; a register or a remove whose write took
 // answers KSTACK_SAVED_UNREAD; and a watch's read on the register's ping ends
 // it with the reason.
 func TestAnExecutablesReadThatFailsIsAnError(t *testing.T) {
@@ -3521,9 +3253,7 @@ func TestAnExecutablesReadThatFailsIsAnError(t *testing.T) {
 		require.NoError(t, err, q)
 	}
 
-	_, errs := mutation(t, srv.URL, `{ sandboxExecutables { name } }`)
-	assert.NotEmpty(t, errs, "the query")
-	_, errs = mutation(t, srv.URL, `mutation { sandboxExecutablesProbe { name } }`)
+	_, errs := mutation(t, srv.URL, `mutation { sandboxExecutablesProbe { name } }`)
 	assert.NotEmpty(t, errs, "the probe")
 	assert.Zero(t, prober.started(), "no probe started")
 
@@ -3768,11 +3498,11 @@ func switches(t *testing.T, cfg *settings.Store) settings.CloudPlatformSwitches 
 // answers the list.
 func TestSandboxCloudAccessListsTheBuildsCloudPlatforms(t *testing.T) {
 	srv, cfg, _ := newCloudServer(t, permissions.AWS, permissions.GCP)
-	data := mutate(t, srv, `{ sandboxCloudAccess { target on } }`)
+	data := mutate(t, srv, `{ sandboxCloudAccessGet { target on } }`)
 	assert.Equal(t, []any{
 		map[string]any{"target": "AWS", "on": true},
 		map[string]any{"target": "GCP", "on": true},
-	}, data["sandboxCloudAccess"])
+	}, data["sandboxCloudAccessGet"])
 
 	data = mutate(t, srv, `mutation { sandboxCloudAccessSet(target: GCP, on: false) { target on } }`)
 	assert.Equal(t, []any{
@@ -3783,7 +3513,7 @@ func TestSandboxCloudAccessListsTheBuildsCloudPlatforms(t *testing.T) {
 	assert.True(t, switches(t, cfg).AWS)
 
 	empty, _, _ := newCloudServer(t)
-	assert.Equal(t, []any{}, mutate(t, empty, `{ sandboxCloudAccess { target on } }`)["sandboxCloudAccess"])
+	assert.Equal(t, []any{}, mutate(t, empty, `{ sandboxCloudAccessGet { target on } }`)["sandboxCloudAccessGet"])
 }
 
 // The cluster has no switch, and a cloud platform the build lacks has none
@@ -3804,7 +3534,7 @@ func TestSandboxCloudAccessAnswersAFailedRead(t *testing.T) {
 	srv, _, db := newCloudServer(t, permissions.AWS)
 	_, err := db.Write.Exec(`DROP TABLE settings`)
 	require.NoError(t, err)
-	for _, q := range []string{`{ sandboxCloudAccess { target on } }`, `mutation { sandboxCloudAccessSet(target: AWS, on: false) { target on } }`} {
+	for _, q := range []string{`{ sandboxCloudAccessGet { target on } }`, `mutation { sandboxCloudAccessSet(target: AWS, on: false) { target on } }`} {
 		body, _ := json.Marshal(map[string]string{"query": q})
 		var resp struct {
 			Data   map[string]any
@@ -3849,18 +3579,18 @@ func disabledTools(t *testing.T, settings *toolsettings.Service) []string {
 	return off
 }
 
-// toolSettings lists every tool with its setting, on until turned off;
+// toolSettingsStateWatch lists every tool with its setting, on until turned off;
 // toolSettingSet writes the setting and answers the list.
 func TestToolSettingsListsEveryToolWithItsSetting(t *testing.T) {
 	srv, settings := newToolServer(t)
-	data := mutate(t, srv, `{ toolSettings { name label group description enabled alwaysOn } }`)
+	listed := firstFrame(t, srv.URL, `subscription { toolSettingsStateWatch { name label group description enabled alwaysOn } }`)["toolSettingsStateWatch"]
 	assert.Equal(t, []any{
 		map[string]any{"name": "Bash", "label": "Bash", "group": "Commands", "description": "Run shell commands.", "enabled": true, "alwaysOn": false},
 		map[string]any{"name": "TaskStop", "label": "TaskStop", "group": "Commands", "description": "Stop a task.", "enabled": true, "alwaysOn": true},
 		map[string]any{"name": "web_search", "label": "WebSearch", "group": "Web", "description": "Search the web.", "enabled": true, "alwaysOn": false},
-	}, data["toolSettings"])
+	}, listed)
 
-	data = mutate(t, srv, `mutation { toolSettingSet(name: "web_search", enabled: false) { name enabled } }`)
+	data := mutate(t, srv, `mutation { toolSettingSet(name: "web_search", enabled: false) { name enabled } }`)
 	assert.Equal(t, []any{
 		map[string]any{"name": "Bash", "enabled": true},
 		map[string]any{"name": "TaskStop", "enabled": true},
@@ -3900,14 +3630,12 @@ func TestToolSettingSetRefusesToTurnOffAnAlwaysOnTool(t *testing.T) {
 	assert.Empty(t, disabledTools(t, settings))
 }
 
-// A setting that cannot be read or written reaches the caller as an error.
+// A setting that cannot be written reaches the caller as an error.
 func TestToolSettingsReportAStoreItCannotReach(t *testing.T) {
 	srv, settings := newToolServer(t)
 	require.NoError(t, settings.Close())
-	for _, q := range []string{`{ toolSettings { name } }`, `mutation { toolSettingSet(name: "Bash", enabled: false) { name } }`} {
-		message, _ := refusalOf(t, srv, q)
-		assert.NotEmpty(t, message, q)
-	}
+	message, _ := refusalOf(t, srv, `mutation { toolSettingSet(name: "Bash", enabled: false) { name } }`)
+	assert.NotEmpty(t, message)
 }
 
 // fakeChatGPT is the ChatGPT connector as the wire sees it: a state the test
@@ -3992,23 +3720,20 @@ func TestChatGPTConnectionProjectsTheState(t *testing.T) {
 	var opened []string
 	srv := chatGPTServer(t, f, &opened)
 
-	data, errs := mutation(t, srv.URL, `query { chatGPTConnection { `+chatGPTFields+` } }`)
-	require.Empty(t, errs)
+	data := firstFrame(t, srv.URL, `subscription { chatGPTConnectionStateWatch { `+chatGPTFields+` } }`)
 	assert.Equal(t, map[string]any{
 		"phase": "Connected", "email": "ada@example.com", "failure": nil, "registered": true, "revocationUnconfirmed": false,
-	}, data["chatGPTConnection"])
+	}, data["chatGPTConnectionStateWatch"])
 
 	f.publish(connectors.State{Phase: connectors.Connected})
-	data, errs = mutation(t, srv.URL, `query { chatGPTConnection { email } }`)
-	require.Empty(t, errs)
-	assert.Equal(t, map[string]any{"email": nil}, data["chatGPTConnection"], "no email is null, never empty")
+	data = firstFrame(t, srv.URL, `subscription { chatGPTConnectionStateWatch { email } }`)
+	assert.Equal(t, map[string]any{"email": nil}, data["chatGPTConnectionStateWatch"], "no email is null, never empty")
 
 	f.publish(connectors.State{Phase: connectors.Failed, Email: "ada@example.com", Failure: connectors.SessionEnded, RevocationUnconfirmed: true})
-	data, errs = mutation(t, srv.URL, `query { chatGPTConnection { `+chatGPTFields+` } }`)
-	require.Empty(t, errs)
+	data = firstFrame(t, srv.URL, `subscription { chatGPTConnectionStateWatch { `+chatGPTFields+` } }`)
 	assert.Equal(t, map[string]any{
 		"phase": "Failed", "email": nil, "failure": "SessionEnded", "registered": false, "revocationUnconfirmed": true,
-	}, data["chatGPTConnection"])
+	}, data["chatGPTConnectionStateWatch"])
 }
 
 // A state watch: the current state, then each change.
@@ -4091,15 +3816,13 @@ func TestGoogleConnectionProjectsTheState(t *testing.T) {
 		},
 	} {
 		f.publish(c.st)
-		data, errs := mutation(t, srv.URL, `query { googleConnection { `+googleFields+` } }`)
-		require.Empty(t, errs)
-		assert.Equal(t, c.want, data["googleConnection"], c.st)
+		data := firstFrame(t, srv.URL, `subscription { googleConnectionStateWatch { `+googleFields+` } }`)
+		assert.Equal(t, c.want, data["googleConnectionStateWatch"], c.st)
 	}
 
 	none := googleServer(t, fakeGoogle{newFakeChatGPT(connectors.State{Phase: connectors.SignedOut}), ""})
-	data, errs := mutation(t, none.URL, `query { googleConnection { project } }`)
-	require.Empty(t, errs)
-	assert.Equal(t, map[string]any{"project": nil}, data["googleConnection"], "no project is null, never empty")
+	data := firstFrame(t, none.URL, `subscription { googleConnectionStateWatch { project } }`)
+	assert.Equal(t, map[string]any{"project": nil}, data["googleConnectionStateWatch"], "no project is null, never empty")
 }
 
 // A state watch: the current state, then each change.
@@ -4249,22 +3972,20 @@ func TestOpenRouterConnectionProjectsTheState(t *testing.T) {
 	f := newFakeOpenRouter(connectors.State{Phase: connectors.Connected, Failure: connectors.Refused, Session: 3})
 	srv := openRouterServer(t, f, func(string) error { return nil })
 
-	data, errs := mutation(t, srv.URL, `query { openRouterConnection { phase failure } }`)
-	require.Empty(t, errs)
-	assert.Equal(t, map[string]any{"phase": "Connected", "failure": nil}, data["openRouterConnection"])
+	data := firstFrame(t, srv.URL, `subscription { openRouterConnectionStateWatch { phase failure } }`)
+	assert.Equal(t, map[string]any{"phase": "Connected", "failure": nil}, data["openRouterConnectionStateWatch"])
 
 	for _, st := range []connectors.State{
 		{Phase: connectors.Failed, Failure: connectors.NotDeleted},
 		{Phase: connectors.Failed, Failure: connectors.KeyRejected},
 	} {
 		f.publish(st)
-		data, errs = mutation(t, srv.URL, `query { openRouterConnection { phase failure } }`)
-		require.Empty(t, errs)
+		data = firstFrame(t, srv.URL, `subscription { openRouterConnectionStateWatch { phase failure } }`)
 		var failure any
 		if st.Failure != "" {
 			failure = string(st.Failure)
 		}
-		assert.Equal(t, map[string]any{"phase": string(st.Phase), "failure": failure}, data["openRouterConnection"])
+		assert.Equal(t, map[string]any{"phase": string(st.Phase), "failure": failure}, data["openRouterConnectionStateWatch"])
 	}
 }
 
@@ -4337,14 +4058,12 @@ func TestAWSConnectionProjectsTheState(t *testing.T) {
 	f := newFakeOpenRouter(connectors.State{Phase: connectors.Connected, Subject: arn, Failure: connectors.Refused})
 	srv := awsServer(t, f)
 
-	data, errs := mutation(t, srv.URL, `query { awsConnection { phase arn failure } }`)
-	require.Empty(t, errs)
-	assert.Equal(t, map[string]any{"phase": "Connected", "arn": arn, "failure": nil}, data["awsConnection"])
+	data := firstFrame(t, srv.URL, `subscription { awsConnectionStateWatch { phase arn failure } }`)
+	assert.Equal(t, map[string]any{"phase": "Connected", "arn": arn, "failure": nil}, data["awsConnectionStateWatch"])
 
 	f.publish(connectors.State{Phase: connectors.Failed, Failure: connectors.SessionEnded, Subject: arn})
-	data, errs = mutation(t, srv.URL, `query { awsConnection { phase arn failure } }`)
-	require.Empty(t, errs)
-	assert.Equal(t, map[string]any{"phase": "Failed", "arn": nil, "failure": "SessionEnded"}, data["awsConnection"])
+	data = firstFrame(t, srv.URL, `subscription { awsConnectionStateWatch { phase arn failure } }`)
+	assert.Equal(t, map[string]any{"phase": "Failed", "arn": nil, "failure": "SessionEnded"}, data["awsConnectionStateWatch"])
 }
 
 // A state watch: the current state, then each change.
@@ -4411,7 +4130,7 @@ func gitHubServer(t *testing.T, f *fakeGitHub, open func(string) error) *httptes
 func TestGitHubConnectionProjectsTheState(t *testing.T) {
 	f := newFakeOpenRouter(connectors.State{Phase: connectors.Connected, Name: "octocat", UserCode: "WDJB-MJHT", Failure: connectors.Refused})
 	srv := gitHubServer(t, f, func(string) error { return nil })
-	const query = `query { gitHubConnection { phase login userCode failure } }`
+	const query = `subscription { gitHubConnectionStateWatch { phase login userCode failure } }`
 
 	for _, c := range []struct {
 		st   connectors.State
@@ -4429,9 +4148,8 @@ func TestGitHubConnectionProjectsTheState(t *testing.T) {
 		},
 	} {
 		f.publish(c.st)
-		data, errs := mutation(t, srv.URL, query)
-		require.Empty(t, errs)
-		assert.Equal(t, c.want, data["gitHubConnection"], c.st)
+		data := firstFrame(t, srv.URL, query)
+		assert.Equal(t, c.want, data["gitHubConnectionStateWatch"], c.st)
 	}
 }
 
@@ -4527,15 +4245,13 @@ func TestEveryConnectorValueIsOnTheWire(t *testing.T) {
 
 	for _, p := range phases {
 		f.publish(connectors.State{Phase: connectors.Phase(p)})
-		data, errs := mutation(t, srv.URL, `query { openRouterConnection { phase } }`)
-		require.Empty(t, errs, p)
-		assert.Equal(t, map[string]any{"phase": p}, data["openRouterConnection"], p)
+		data := firstFrame(t, srv.URL, `subscription { openRouterConnectionStateWatch { phase } }`)
+		assert.Equal(t, map[string]any{"phase": p}, data["openRouterConnectionStateWatch"], p)
 	}
 	for _, fl := range failures {
 		f.publish(connectors.State{Phase: connectors.Failed, Failure: connectors.Failure(fl)})
-		data, errs := mutation(t, srv.URL, `query { openRouterConnection { failure } }`)
-		require.Empty(t, errs, fl)
-		assert.Equal(t, map[string]any{"failure": fl}, data["openRouterConnection"], fl)
+		data := firstFrame(t, srv.URL, `subscription { openRouterConnectionStateWatch { failure } }`)
+		assert.Equal(t, map[string]any{"failure": fl}, data["openRouterConnectionStateWatch"], fl)
 	}
 }
 
@@ -4594,14 +4310,13 @@ func startProviderCredentialsServer(t *testing.T, k *oskeyringtest.Keyring) (*ht
 	return srv, keys
 }
 
-// The query lists every provider with where its credential comes from, and no
+// The state watch lists every provider with where its credential comes from, and no
 // key. One that takes no key has no key variable.
 func TestProviderCredentialsProjectTheState(t *testing.T) {
 	srv, _ := providerCredentialsServer(t, oskeyringtest.New())
 
-	data, errs := mutation(t, srv.URL, `query { providerCredentials { id label keyVariable source hasEnvironmentKey hasSavedKey failure } }`)
-	require.Empty(t, errs)
-	rows := data["providerCredentials"].([]any)
+	data := firstFrame(t, srv.URL, `subscription { providerCredentialsStateWatch { id label keyVariable source hasEnvironmentKey hasSavedKey failure } }`)
+	rows := data["providerCredentialsStateWatch"].([]any)
 	require.Len(t, rows, len(catalog.Providers(nil, "")))
 	assert.Equal(t, map[string]any{
 		"id": "anthropic", "label": "Anthropic", "keyVariable": "ANTHROPIC_API_KEY",
@@ -4675,9 +4390,8 @@ func TestProviderKeysWhileRestoring(t *testing.T) {
 	t.Cleanup(k.Hold(oskeyringtest.Get))
 	srv, _ := startProviderCredentialsServer(t, k)
 
-	data, errs := mutation(t, srv.URL, `query { providerCredentials { id source hasEnvironmentKey hasSavedKey } }`)
-	require.Empty(t, errs)
-	assert.Contains(t, data["providerCredentials"], map[string]any{"id": "anthropic", "source": "Restoring", "hasEnvironmentKey": true, "hasSavedKey": false})
+	data := firstFrame(t, srv.URL, `subscription { providerCredentialsStateWatch { id source hasEnvironmentKey hasSavedKey } }`)
+	assert.Contains(t, data["providerCredentialsStateWatch"], map[string]any{"id": "anthropic", "source": "Restoring", "hasEnvironmentKey": true, "hasSavedKey": false})
 	for _, op := range []string{
 		`mutation { providerKeySave(providerID: "groq", key: "key-0123456789abcdef") }`,
 		`mutation { providerKeyDelete(providerID: "groq") }`,
@@ -4704,7 +4418,9 @@ func TestProviderKeySaveReturnsAndLogsNoKey(t *testing.T) {
 		bodies = append(bodies, string(postGQL(t, srv.URL, `{"query":"mutation { providerKeySave(providerID: \"groq\", key: \"`+key+`\") }"}`)))
 		k.FailSet = errors.New("locked")
 	}
-	bodies = append(bodies, string(postGQL(t, srv.URL, `{"query":"{ providerCredentials { id source hasSavedKey } }"}`)))
+	data := firstFrame(t, srv.URL, `subscription { providerCredentialsStateWatch { id source hasSavedKey } }`)
+	watched, _ := json.Marshal(data)
+	bodies = append(bodies, string(watched))
 	for _, key := range []string{saved, refused} {
 		for _, body := range bodies {
 			assert.NotContains(t, body, key)
@@ -4735,8 +4451,8 @@ func envVarServer(t *testing.T) (*httptest.Server, *appdb.DB) {
 func TestEnvVarMutationsAnswerTheirScopesList(t *testing.T) {
 	srv, _ := envVarServer(t)
 
-	data, _ := mutation(t, srv.URL, `{ envVars { name } }`)
-	assert.Equal(t, []any{}, data["envVars"])
+	data, _ := mutation(t, srv.URL, `{ envVarsGet { name } }`)
+	assert.Equal(t, []any{}, data["envVarsGet"])
 
 	mutation(t, srv.URL, `mutation { envVarSet(name: "HELM_NAMESPACE", value: "apps", target: Both) { name } }`)
 	data, _ = mutation(t, srv.URL, `mutation { envVarSet(name: "AWS_PROFILE", value: "dev", target: Outside) { clusterID name value target refusal } }`)
@@ -4748,8 +4464,8 @@ func TestEnvVarMutationsAnswerTheirScopesList(t *testing.T) {
 	data, _ = mutation(t, srv.URL, `mutation { envVarSet(clusterID: "prod", name: "HELM_NAMESPACE", value: "prod-apps", target: Sandbox) { clusterID name value target } }`)
 	prod := []any{map[string]any{"clusterID": "prod", "name": "HELM_NAMESPACE", "value": "prod-apps", "target": "Sandbox"}}
 	assert.Equal(t, prod, data["envVarSet"])
-	data, _ = mutation(t, srv.URL, `{ envVars(clusterID: "prod") { clusterID name value target } }`)
-	assert.Equal(t, prod, data["envVars"])
+	data, _ = mutation(t, srv.URL, `{ envVarsGet(clusterID: "prod") { clusterID name value target } }`)
+	assert.Equal(t, prod, data["envVarsGet"])
 
 	data, _ = mutation(t, srv.URL, `mutation { envVarRemove(name: "HELM_NAMESPACE") { name } }`)
 	assert.Equal(t, []any{map[string]any{"name": "AWS_PROFILE"}}, data["envVarRemove"])
@@ -4769,8 +4485,8 @@ func TestEnvVarMutationsAnswerTheirScopesList(t *testing.T) {
 		assert.Equal(t, want[0], code, query)
 		assert.Equal(t, want[1], got, query)
 	}
-	data, _ = mutation(t, srv.URL, `{ envVars { name target } }`)
-	assert.Equal(t, []any{map[string]any{"name": "AWS_PROFILE", "target": "Outside"}}, data["envVars"], "a refusal writes nothing")
+	data, _ = mutation(t, srv.URL, `{ envVarsGet { name target } }`)
+	assert.Equal(t, []any{map[string]any{"name": "AWS_PROFILE", "target": "Outside"}}, data["envVarsGet"], "a refusal writes nothing")
 }
 
 // A stored row the check refuses is listed with its reason, and removed like
@@ -4780,8 +4496,8 @@ func TestARefusedVariableIsListedWithItsReason(t *testing.T) {
 	_, err := db.Write.Exec(`INSERT INTO env_vars (id, name, value, target, created_at, updated_at) VALUES (?, 'PATH', '/evil', 'both', 0, 0)`, appdb.NewID())
 	require.NoError(t, err)
 
-	data, _ := mutation(t, srv.URL, `{ envVars { name value refusal } }`)
-	assert.Equal(t, []any{map[string]any{"name": "PATH", "value": "/evil", "refusal": "Kstack sets PATH itself."}}, data["envVars"])
+	data, _ := mutation(t, srv.URL, `{ envVarsGet { name value refusal } }`)
+	assert.Equal(t, []any{map[string]any{"name": "PATH", "value": "/evil", "refusal": "Kstack sets PATH itself."}}, data["envVarsGet"])
 
 	data, errs := mutation(t, srv.URL, `mutation { envVarRemove(name: "PATH") { name } }`)
 	assert.Empty(t, errs)
@@ -4793,7 +4509,7 @@ func TestEnvVarsOverAFailedStoreIsAnError(t *testing.T) {
 	srv, db := envVarServer(t)
 	require.NoError(t, db.Close())
 
-	data, errs := mutation(t, srv.URL, `{ envVars { name } }`)
+	data, errs := mutation(t, srv.URL, `{ envVarsGet { name } }`)
 	assert.NotEmpty(t, errs)
 	assert.Nil(t, data)
 }

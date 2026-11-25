@@ -119,6 +119,22 @@ func mutation(t *testing.T, srvURL, mutation string) (map[string]any, []gqlError
 	return resp.Data, resp.Errors
 }
 
+// firstFrame opens a subscription and returns its first frame's data, failing the test
+// on any error: for a state watch, the whole value as it is now.
+func firstFrame(t *testing.T, srvURL, subscription string) map[string]any {
+	t.Helper()
+	resp := openSSESubscription(t, srvURL, "", subscription)
+	defer resp.Body.Close()
+	ev := nextSSE(t, sseEvents(t, resp))
+	var frame struct {
+		Data   map[string]any
+		Errors []gqlError
+	}
+	require.NoError(t, json.Unmarshal([]byte(ev.data), &frame), ev.data)
+	require.Empty(t, frame.Errors, ev.data)
+	return frame.Data
+}
+
 // refusingChat answers every send, cancel, decision, stop, rules read and watch with err, for the refusals the real service gives
 // only under conditions a resolver test cannot set up. The embedded Service is nil,
 // so any other call panics, and a test leaning on it by accident fails on its code.

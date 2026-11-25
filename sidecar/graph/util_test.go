@@ -227,7 +227,7 @@ func TestPageOfAFirstPage(t *testing.T) {
 	})
 
 	last := logs.PageFromLast
-	assert.Equal(t, &model.LogRecordsPage{
+	assert.Equal(t, &model.LogsFetchResult{
 		Request: &model.LogsFetchRequest{
 			Sources: ptrSlice(scope.Sources), Filters: ptrSlice(scope.Filters), Grep: "error", Since: &since,
 			Before: &tools.LogsPadding{Span: "PT5M"}, After: &tools.LogsPadding{Lines: 20},

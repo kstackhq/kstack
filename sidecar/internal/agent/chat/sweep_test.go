@@ -37,7 +37,7 @@ func TestStopEndsAnUnreadSweepReport(t *testing.T) {
 
 	dir := t.TempDir()
 	box, lists := testBox()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	s.onSwept = make(chan struct{})
 	stop, err := s.Start(t.Context())
@@ -172,7 +172,7 @@ func TestTheClusterReadsReportAStorageFault(t *testing.T) {
 func TestStartAfterStopRefusesTheSweeper(t *testing.T) {
 	t.Parallel()
 
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, s.Close()) })
 	require.NoError(t, s.stop(t.Context()))
@@ -233,7 +233,7 @@ func TestTheStartSweepLeavesAChatsDirectoryItCannotList(t *testing.T) {
 	// CaptureLogs swaps the process's default logger, so this test stays serial.
 
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.monitorRoot.Close() })
 	require.NoError(t, s.chatsRoot.Close())
@@ -250,7 +250,7 @@ func TestAMonitorSweepLeavesADirectoryItCannotList(t *testing.T) {
 	// CaptureLogs swaps the process's default logger, so this test stays serial.
 
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.chatsRoot.Close(); _ = s.store.Close() })
 	require.NoError(t, s.monitorRoot.Close())
@@ -276,7 +276,7 @@ func TestTheStartSweepRemovesTheDirectoriesOfGoneChats(t *testing.T) {
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(results, "stray"), nil, 0o600))
 
-	s, err := newService(db, chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
+	s, err := newService(db, chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.State{}, testSettings(t), nil)
 	require.NoError(t, err)
 	startPrepared(t, s)
 

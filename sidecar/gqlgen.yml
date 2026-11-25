@@ -129,8 +129,8 @@ models:
   ClusterCollectionWatchFrame:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCollectionWatchFrame
 
-  ClusterDataRateTimeSeriesFeedFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterDataRateTimeSeriesFeedFrame
+  ClusterDataRateSampleFeedFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterDataRateSampleFeedFrame
 
   ClusterDataRateSample:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterDataRateSample
@@ -556,8 +556,8 @@ models:
   Chat:
     model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.Chat
 
-  SandboxStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/run/sandbox.Status
+  SandboxState:
+    model: github.com/kstackhq/kstack/sidecar/internal/run/sandbox.State
 
   # The stored vocabulary is lower-case (the Messages API's own), so each enum member
   # binds to the constant that carries it.

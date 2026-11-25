@@ -104,9 +104,9 @@ func (r Run) check() ([]rule, error) {
 	return rules, nil
 }
 
-// Status is whether this machine has a sandbox for commands to run through,
+// State is whether this machine has a sandbox for commands to run through,
 // and why not. Whether that sandbox confines them is Sandbox.Confines.
-type Status struct {
+type State struct {
 	Available bool
 	Reason    string
 	// NetworkAvailable is whether a sandboxed command can be given the

@@ -6,7 +6,7 @@ runs its turn in the background and serves the record). The loop imports `llm` a
 `chat` imports the loop. `sidecar/CLAUDE.md` is the whole sidecar; `internal/tools/CLAUDE.md`
 is each tool; `internal/llm/CLAUDE.md` is the wires.
 
-Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+Every data access here is named for its contract: [`docs/data-access.md`](../../../docs/data-access.md).
 
 ## Catalog (`internal/agent/catalog`)
 

@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 )
 
@@ -56,7 +57,7 @@ func TestEveryModelReadsItsSecondTurnFromTheCache(t *testing.T) {
 	system := cachedPrefix()
 	msgs := []llm.Message{{Role: "user", Blocks: []llm.Block{llm.TextBlock("Are you ready?")}}}
 
-	for _, p := range svc.Providers() {
+	for _, p := range testutil.Current(t, svc.WatchProvidersState, "the providers") {
 		for _, m := range p.Catalog {
 			name := p.ID + "/" + m.ID
 			reason, skip := unchecked[name]

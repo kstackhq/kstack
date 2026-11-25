@@ -20,12 +20,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery } from 'urql';
 
 import { graphql } from '@/gql';
-import type { EnvVarsQuery, EnvVarTarget } from '@/gql/graphql';
+import type { EnvVarsGetQuery, EnvVarTarget } from '@/gql/graphql';
 import { refusalOf } from '@/lib/graphql/refusal';
 
-const EnvVarsDocument = graphql(`
-  query EnvVars($clusterID: ClusterID) {
-    envVars(clusterID: $clusterID) {
+const EnvVarsGetDocument = graphql(`
+  query EnvVarsGet($clusterID: ClusterID) {
+    envVarsGet(clusterID: $clusterID) {
       name
       value
       target
@@ -50,7 +50,7 @@ const EnvVarRemoveMutation = graphql(`
   }
 `);
 
-export type EnvVar = EnvVarsQuery['envVars'][number];
+export type EnvVar = EnvVarsGetQuery['envVarsGet'][number];
 export type { EnvVarTarget };
 
 export type EnvVars = {
@@ -70,7 +70,7 @@ export type EnvVars = {
 /** The variables of one cluster's chats, or with null every cluster's. */
 export function useEnvVars(clusterID: string | null): EnvVars {
   const [{ data, error: loadError, operation }, reexecute] = useQuery({
-    query: EnvVarsDocument,
+    query: EnvVarsGetDocument,
     variables: { clusterID },
     requestPolicy: 'cache-and-network',
   });
@@ -116,7 +116,7 @@ export function useEnvVars(clusterID: string | null): EnvVars {
   );
 
   return {
-    vars: answered ? data?.envVars : undefined,
+    vars: answered ? data?.envVarsGet : undefined,
     loadError: answered ? refusalOf(loadError) : null,
     changing,
     removeError: removeError.clusterID === clusterID ? removeError.text : null,

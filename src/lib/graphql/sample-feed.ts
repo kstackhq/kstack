@@ -12,30 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The fold every time series feed shares. See docs/subscriptions.md, *Time series feed*.
+// The fold every sample feed shares. See docs/data-access.md, *Sample feed*.
 import { perFrame } from './use-folded-subscription';
 import type { SubscriptionReducer } from './use-folded-subscription';
 
-// One frame of a time series feed: the whole retained window first, then the samples since.
-export type TimeSeriesFeedFrame<Sample> = { intervalSeconds: number; windowSeconds: number; samples: Sample[] };
+// One frame of a sample feed: the whole retained window first, then the samples since.
+export type SampleFeedFrame<Sample> = { intervalSeconds: number; windowSeconds: number; samples: Sample[] };
 
 // How many samples a feed holds: its window at its interval, and never fewer than one, so a
 // chart and the fold agree on the count.
-export function timeSeriesFeedSlots({ intervalSeconds, windowSeconds }: TimeSeriesFeedFrame<unknown>): number {
+export function sampleFeedSlots({ intervalSeconds, windowSeconds }: SampleFeedFrame<unknown>): number {
   return Math.max(1, Math.floor(windowSeconds / intervalSeconds));
 }
 
-// Appends each frame's samples and keeps the last timeSeriesFeedSlots. It reads no
+// Appends each frame's samples and keeps the last sampleFeedSlots. It reads no
 // timestamps, so a wall clock that steps cannot drop or reorder a sample. The first frame
 // folds to a feed even when empty, which is how a reader tells "empty" from "not yet".
-export function timeSeriesFeedReducer<Data, Sample>(
-  select: (data: Data) => TimeSeriesFeedFrame<Sample>,
-): SubscriptionReducer<Data, TimeSeriesFeedFrame<Sample>> {
+export function sampleFeedReducer<Data, Sample>(
+  select: (data: Data) => SampleFeedFrame<Sample>,
+): SubscriptionReducer<Data, SampleFeedFrame<Sample>> {
   return perFrame((prev, data) => {
     const frame = select(data);
     return {
       ...frame,
-      samples: [...(prev?.samples ?? []), ...frame.samples].slice(-timeSeriesFeedSlots(frame)),
+      samples: [...(prev?.samples ?? []), ...frame.samples].slice(-sampleFeedSlots(frame)),
     };
   });
 }

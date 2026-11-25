@@ -26,7 +26,7 @@ import { VisibleText } from '@/components/primitives/visible-text';
 import { isLinux, isMacOS } from '@/lib/platform';
 import type { Sandbox } from '@/lib/sandbox';
 
-type SandboxStatusProps = {
+type SandboxCardProps = {
   sandbox: Sandbox;
   on: boolean;
   /** Without one the switch is drawn disabled. */
@@ -34,7 +34,7 @@ type SandboxStatusProps = {
   onTry: () => void;
 };
 
-export function SandboxStatus({ sandbox, on, onSwitch, onTry }: SandboxStatusProps) {
+export function SandboxCard({ sandbox, on, onSwitch, onTry }: SandboxCardProps) {
   const [confirming, setConfirming] = useState(false);
   const { available, reason, failed, retry } = sandbox;
 

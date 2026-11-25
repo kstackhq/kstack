@@ -270,8 +270,8 @@ func spanOf(s string) (time.Duration, error) {
 }
 
 // pageOf is the service's page on the wire.
-func pageOf(resp logs.FetchResponse) *model.LogRecordsPage {
-	return &model.LogRecordsPage{
+func pageOf(resp logs.FetchResponse) *model.LogsFetchResult {
+	return &model.LogsFetchResult{
 		Request:    fetchRequestOut(resp.Request),
 		ResolvedAt: resp.ResolvedAt,
 		Page:       &model.LogRecordsPlace{Prev: resp.Page.Prev, Next: resp.Page.Next, Follow: resp.Page.Follow},
@@ -593,7 +593,7 @@ func (r *Resolver) sandboxFolders(ctx context.Context, chatID apimeta.ChatID) (*
 		Always: sandboxFoldersOf(always), Chat: sandboxFoldersOf(chat),
 		Never: []string{}, Closed: []string{}, Wide: []string{},
 	}
-	if r.SandboxStatus.Available {
+	if r.SandboxState.Available {
 		out.Never = append(out.Never, r.Settings.NeverReadable(ctx)...)
 		out.Closed = append(out.Closed, r.Settings.ClosedFolders(ctx)...)
 		out.Wide = append(out.Wide, r.Settings.WideFolders(ctx)...)

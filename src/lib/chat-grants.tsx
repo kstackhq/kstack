@@ -21,11 +21,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery } from 'urql';
 
 import { graphql } from '@/gql';
-import type { ChatPermissionRulesQuery } from '@/gql/graphql';
+import type { ChatPermissionRulesGetQuery } from '@/gql/graphql';
 
-const ChatPermissionRulesDocument = graphql(`
-  query ChatPermissionRules($chatID: ChatID!) {
-    chatPermissionRules(chatID: $chatID) {
+const ChatPermissionRulesGetDocument = graphql(`
+  query ChatPermissionRulesGet($chatID: ChatID!) {
+    chatPermissionRulesGet(chatID: $chatID) {
       id
       line
     }
@@ -48,7 +48,7 @@ const ChatPermissionRuleRemoveMutation = graphql(`
  */
 export const chatGrantsContext = { additionalTypenames: ['PermissionRule'] };
 
-export type ChatGrant = ChatPermissionRulesQuery['chatPermissionRules'][number];
+export type ChatGrant = ChatPermissionRulesGetQuery['chatPermissionRulesGet'][number];
 
 export type ChatGrants = {
   /** Undefined until the sidecar has answered. */
@@ -62,7 +62,7 @@ export type ChatGrants = {
 
 export function useChatGrants(chatID: string): ChatGrants {
   const [{ data }, reexecute] = useQuery({
-    query: ChatPermissionRulesDocument,
+    query: ChatPermissionRulesGetDocument,
     variables: { chatID },
     context: chatGrantsContext,
     requestPolicy: 'cache-and-network',
@@ -89,5 +89,5 @@ export function useChatGrants(chatID: string): ChatGrants {
     [askAgain, chatID, removeMutation],
   );
 
-  return { rules: data?.chatPermissionRules, removing, error, remove };
+  return { rules: data?.chatPermissionRulesGet, removing, error, remove };
 }

@@ -58,7 +58,7 @@ func TestTheContextSaysWhereCommandsRun(t *testing.T) {
 	t.Parallel()
 
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
 	context := newestContextOf(t, s, first.ChatID)
@@ -82,7 +82,7 @@ func TestTheContextSaysWhereCommandsRun(t *testing.T) {
 func TestWithSandboxReplacedSwapsTheLastSection(t *testing.T) {
 	t.Parallel()
 
-	s := &service{sandboxStatus: sandbox.Status{Available: true, NetworkAvailable: true}}
+	s := &service{sandboxState: sandbox.State{Available: true, NetworkAvailable: true}}
 	card := "## Cluster\n\n```json\n{}\n```"
 	off, chat := sandboxState{}, sandboxState{networkEnabled: true}
 	outside := sandboxState{outside: true}
@@ -122,7 +122,7 @@ func TestTheContextSaysTheNetwork(t *testing.T) {
 	t.Parallel()
 
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
 	assert.Equal(t, "off", sandboxSectionOf(t, s, first.ChatID)["network"])
@@ -151,7 +151,7 @@ func TestTheContextSaysTheNetwork(t *testing.T) {
 	assert.Equal(t, map[string]string{"commands": "outside"}, sandboxSectionOf(t, s, first.ChatID), "outside, there is no network line")
 
 	none := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
-	none.sandboxStatus = sandbox.Status{Available: true, NetworkReason: "pasta not found"}
+	none.sandboxState = sandbox.State{Available: true, NetworkReason: "pasta not found"}
 	msg := sendAndSettle(t, none, nil, "1", "1", "one")
 	assert.Equal(t, "unavailable on this machine", sandboxSectionOf(t, none, msg.ChatID)["network"])
 }
@@ -159,7 +159,7 @@ func TestTheContextSaysTheNetwork(t *testing.T) {
 func TestTheSandboxSectionListsAtMostTwentyFolders(t *testing.T) {
 	t.Parallel()
 
-	s := &service{sandboxStatus: sandbox.Status{Available: true}}
+	s := &service{sandboxState: sandbox.State{Available: true}}
 	var folders []session.Folder
 	for i := range 22 {
 		folders = append(folders, session.Folder{Path: fmt.Sprintf("/f/%02d", i), Write: i%2 == 1})
@@ -211,7 +211,7 @@ func TestTheSandboxSectionNamesTheCloudPlatformsOn(t *testing.T) {
 	t.Parallel()
 
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 	s.cloudTargets = []permissions.Target{permissions.AWS, permissions.GCP}
 
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
@@ -239,7 +239,7 @@ func TestTheSandboxSectionNamesNoCloudPlatformWhenTheSwitchesCannotBeRead(t *tes
 	t.Parallel()
 
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
-	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.sandboxState = sandbox.State{Available: true, NetworkAvailable: true}
 	s.cloudTargets = []permissions.Target{permissions.AWS}
 	// The switches read from a file of their own, so the chat's own reads of
 	// settings still answer.

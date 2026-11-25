@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 )
 
@@ -45,7 +46,7 @@ const maxRounds = 3
 // key is skipped by name.
 func TestAChatSwitchesAcrossEveryDialect(t *testing.T) {
 	svc := llm.New(New(Config{Credentials: newKeys(t, liveKeys(t), nil)}).Providers()...)
-	walk := []string{"anthropic", "openai", chatCompletionsVendor(svc), "anthropic"}
+	walk := []string{"anthropic", "openai", chatCompletionsVendor(t, svc), "anthropic"}
 
 	var history []llm.Message
 	for i, providerID := range walk {
@@ -81,9 +82,10 @@ func TestAChatSwitchesAcrossEveryDialect(t *testing.T) {
 // chatCompletionsVendor is the walk's Chat Completions step: Gemini when it is
 // keyed, else the first keyed provider on that dialect, else "gemini" to be
 // skipped by name.
-func chatCompletionsVendor(svc *llm.Service) string {
+func chatCompletionsVendor(t *testing.T, svc *llm.Service) string {
+	t.Helper()
 	var first string
-	for _, p := range svc.Providers() {
+	for _, p := range testutil.Current(t, svc.WatchProvidersState, "the providers") {
 		if p.Dialect != llm.DialectChatCompletions || len(p.Catalog) == 0 {
 			continue
 		}
@@ -103,7 +105,7 @@ func chatCompletionsVendor(svc *llm.Service) string {
 // toolTarget is providerID's first model that takes tools, at its default effort.
 func toolTarget(t *testing.T, svc *llm.Service, providerID string) (llm.Target, bool) {
 	t.Helper()
-	for _, p := range svc.Providers() {
+	for _, p := range testutil.Current(t, svc.WatchProvidersState, "the providers") {
 		if p.ID != providerID {
 			continue
 		}

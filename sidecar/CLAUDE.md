@@ -61,7 +61,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | `internal/services/connectors/aws/CLAUDE.md` | the AWS connector: `aws login`'s sign-in, a DPoP-bound session in the keyring, an `aws.CredentialsProvider` |
 | `internal/services/connectors/github/CLAUDE.md` | the GitHub connector: the device flow, a token in the keyring for the proxy |
 | `internal/services/connectors/google/CLAUDE.md` | the Google connector: Google's sign-in on the engine, signing Vertex AI in the user's project |
-| `internal/services/connectors/kstackcloud/CLAUDE.md` | the Kstack Cloud connector: the Kstack Cloud account on the engine, behind `authState` and the tray |
+| `internal/services/connectors/kstackcloud/CLAUDE.md` | the Kstack Cloud connector: the Kstack Cloud account on the engine, behind `authStateWatch` and the tray |
 
 ## Layout
 
@@ -300,23 +300,24 @@ cd sidecar && go tool gqlgen generate
 
 Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-edit `generated.go`/`models_gen.go`.** Re-run the frontend `pnpm codegen`. Renaming a schema file is a two-pass regen: delete the old `*.resolvers.go` between passes and check no body came through as `panic("not implemented")`.
 
-## Subscriptions
+## Queries and subscriptions
 
-An API that keeps delivering after the call returns is one of eight kinds, and is named for it. Choose the kind first; [`docs/subscriptions.md`](../docs/subscriptions.md) states each one's delivery and the subscriber's job.
+A data access (a query, or an API that keeps delivering after the call returns) has a contract, and is named for it. Choose the contract first; [`docs/data-access.md`](../docs/data-access.md) states each one.
 
-| Kind | Go method | GraphQL field |
+| Contract | Go method | GraphQL field |
 | --- | --- | --- |
+| Get, List, Fetch | `Get<Noun>`, `List<Noun>s`, `Fetch<Noun>` | `<noun>Get`, `<noun>List`, `<noun>Fetch` |
 | Collection watch | `Watch<Noun>Collection` | `<noun>CollectionWatch` |
 | State, keyed state watch | `Watch<Noun>State`, `…KeyedState` | `<noun>StateWatch`, `…KeyedStateWatch` |
-| Event, time series feed | `Subscribe<Noun>EventFeed`, `…TimeSeriesFeed` | `<noun>EventFeed`, `…TimeSeriesFeed` |
+| Event, sample feed | `Subscribe<Noun>EventFeed`, `…SampleFeed` | `<noun>EventFeed`, `…SampleFeed` |
 | Cursor tail | `Tail<Noun>FromCursor` | `<noun>Tail` |
 | Change, broadcast notification | `ListenFor<Noun>Changes`, `…Notifications` | none: they stay in the sidecar |
 
 - A method drops a noun its receiver names (`Caches().WatchCollectionByCluster`); a scope is a `By<Scope>` suffix in Go and an argument in GraphQL.
-- `Watch`, `Subscribe`, `Tail` and `Listen` are reserved for these. A poller or file watcher takes another verb.
+- A service method that opens with `Get`, `List`, `Fetch`, `Watch`, `Tail` or `Listen`, or a feed method with `Subscribe`, has that verb's contract. A poller or file watcher takes another verb.
 - A state watch sends its value on subscribe. A change notification sends nothing until a change, so listen before the first read.
 - A Watch, Feed or Tail that can fail returns `*Stream[T]`; its resolver goes through `subscriptionStream`, which turns `Err()` into the `subscriptionFailed` frame. Every one ends with its `ctx`.
-- A field's description opens with its kind.
+- A field's description opens with its contract. A query with no caller is removed.
 
 ## Patterns
 

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -318,6 +319,79 @@ func postGraphQL(srvURL, query string) (string, error) {
 	return string(raw), err
 }
 
+// firstFrame opens subscription on the app and returns the data of its first
+// frame: a state watch's value as it is now.
+func firstFrame(t *testing.T, srvURL, subscription string) string {
+	t.Helper()
+	frames, closeFrames, err := subscribe(srvURL, subscription)
+	require.NoError(t, err)
+	defer closeFrames()
+	return testutil.Recv(t, frames, "the first frame")
+}
+
+// clusterSnapshot is the cluster collection watch's snapshot, each cluster
+// selecting id and selection, answering its error for a condition that runs off
+// the test's goroutine.
+func clusterSnapshot(srvURL, selection string) ([]json.RawMessage, error) {
+	frames, closeFrames, err := subscribe(srvURL, `subscription { clusterCollectionWatch { type cluster { id `+selection+` } } }`)
+	if err != nil {
+		return nil, err
+	}
+	defer closeFrames()
+	var clusters []json.RawMessage
+	for data := range frames {
+		var frame struct {
+			Data struct {
+				Watch struct {
+					Type    string          `json:"type"`
+					Cluster json.RawMessage `json:"cluster"`
+				} `json:"clusterCollectionWatch"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(data), &frame); err != nil {
+			return nil, err
+		}
+		if frame.Data.Watch.Type == "Bookmark" {
+			return clusters, nil
+		}
+		clusters = append(clusters, frame.Data.Watch.Cluster)
+	}
+	return nil, errors.New("the watch ended before its Bookmark")
+}
+
+// subscribe opens subscription on the app and sends the data of each frame on
+// frames until stop is called.
+func subscribe(srvURL, subscription string) (frames <-chan string, stop func(), err error) {
+	body, _ := json.Marshal(map[string]string{"query": subscription})
+	req, err := http.NewRequest(http.MethodPost, srvURL+"/graphql", bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	out := make(chan string)
+	done := make(chan struct{})
+	go func() {
+		defer close(out)
+		sc := bufio.NewScanner(resp.Body)
+		sc.Buffer(nil, 1<<20)
+		for sc.Scan() {
+			if data, ok := strings.CutPrefix(sc.Text(), "data: "); ok {
+				select {
+				case out <- data:
+				case <-done:
+					return
+				}
+			}
+		}
+	}()
+	return out, func() { close(done); _ = resp.Body.Close() }, nil
+}
+
 // startApp starts a and registers its stop.
 func startApp(t *testing.T, a *App) {
 	t.Helper()
@@ -363,30 +437,31 @@ func TestAppTearsDownADeletedCluster(t *testing.T) {
 	// pass sit between a write and its effect.
 	const converge = 10 * time.Second
 	clusterFor := func(contextName string) (id string, present bool, ok bool) {
-		var resp struct {
-			Data struct {
-				Clusters []struct {
-					ID   string `json:"id"`
-					Spec struct {
-						Source struct {
-							Kubeconfig *struct {
-								Context string `json:"context"`
-							} `json:"kubeconfig"`
-						} `json:"source"`
-					} `json:"spec"`
-					Status struct {
-						Source struct {
-							Kubeconfig *struct {
-								IsPresent bool `json:"isPresent"`
-							} `json:"kubeconfig"`
-						} `json:"source"`
-					} `json:"status"`
-				} `json:"clusters"`
-			} `json:"data"`
+		clusters, err := clusterSnapshot(srv.URL, `spec { source { kubeconfig { context } } } status { source { kubeconfig { isPresent } } }`)
+		if err != nil {
+			return "", false, false
 		}
-		raw := graphql(t, srv.URL, `{ clusters { id spec { source { kubeconfig { context } } } status { source { kubeconfig { isPresent } } } } }`)
-		require.NoError(t, json.Unmarshal([]byte(raw), &resp), raw)
-		for _, c := range resp.Data.Clusters {
+		for _, raw := range clusters {
+			var c struct {
+				ID   string `json:"id"`
+				Spec struct {
+					Source struct {
+						Kubeconfig *struct {
+							Context string `json:"context"`
+						} `json:"kubeconfig"`
+					} `json:"source"`
+				} `json:"spec"`
+				Status struct {
+					Source struct {
+						Kubeconfig *struct {
+							IsPresent bool `json:"isPresent"`
+						} `json:"kubeconfig"`
+					} `json:"source"`
+				} `json:"status"`
+			}
+			if json.Unmarshal(raw, &c) != nil {
+				return "", false, false
+			}
 			if c.Spec.Source.Kubeconfig != nil && c.Spec.Source.Kubeconfig.Context == contextName {
 				observed := c.Status.Source.Kubeconfig
 				return c.ID, observed != nil && observed.IsPresent, true
@@ -522,7 +597,7 @@ func partIndex(t *testing.T, a *App, name string) int {
 }
 
 // With no OAuth config (the standalone/test default), the account surface is
-// wired through composition but degraded: the authState query answers signed-out
+// wired through composition but degraded: the auth state watch answers signed-out
 // instead of panicking. This is also the canary that the composed App is a
 // working http.Handler with the GraphQL surface wired through composition.
 func TestAppAuthStateDegradesSignedOut(t *testing.T) {
@@ -530,13 +605,9 @@ func TestAppAuthStateDegradesSignedOut(t *testing.T) {
 	ts := httptest.NewServer(a)
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/graphql", "application/json",
-		strings.NewReader(`{"query":"{ authState { authenticated identity { sub } } }"}`))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	assert.Contains(t, string(raw), `"identity":null`)
-	assert.Contains(t, string(raw), `"authenticated":false`)
+	frame := firstFrame(t, ts.URL, `subscription { authStateWatch { authenticated identity { sub } } }`)
+	assert.Contains(t, frame, `"identity":null`)
+	assert.Contains(t, frame, `"authenticated":false`)
 }
 
 // TestAppShutdownEndsBothTransports pins main's shutdown order: with a live SSE
@@ -713,10 +784,10 @@ func TestTheFakeIsListedOnlyWhenAsked(t *testing.T) {
 		ts := serveApp(t, a)
 		var body struct {
 			Data struct {
-				Models []struct{ Provider struct{ ID string } }
+				Models []struct{ Provider struct{ ID string } } `json:"modelsStateWatch"`
 			}
 		}
-		require.NoError(t, json.Unmarshal([]byte(graphql(t, ts.URL, `{ models { provider { id } } }`)), &body))
+		require.NoError(t, json.Unmarshal([]byte(firstFrame(t, ts.URL, `subscription { modelsStateWatch { provider { id } } }`)), &body))
 		var ids []string
 		for _, m := range body.Data.Models {
 			if len(ids) == 0 || ids[len(ids)-1] != m.Provider.ID {
@@ -732,21 +803,21 @@ func TestTheFakeIsListedOnlyWhenAsked(t *testing.T) {
 
 // Sandboxed Bash is offered where a shell was found and the probe found a
 // sandbox; the reason is the probe's, or that there is no shell.
-func TestTheSandboxStatusIsTheShellAndTheProbe(t *testing.T) {
-	found := sandbox.Status{Available: true, Reason: "bwrap at /usr/bin/bwrap"}
-	missing := sandbox.Status{Reason: "bwrap was not found"}
+func TestTheSandboxStateIsTheShellAndTheProbe(t *testing.T) {
+	found := sandbox.State{Available: true, Reason: "bwrap at /usr/bin/bwrap"}
+	missing := sandbox.State{Reason: "bwrap was not found"}
 
-	assert.Equal(t, sandbox.Status{Available: true, Reason: "bwrap at /usr/bin/bwrap"}, sandboxStatusOf(true, found))
-	assert.Equal(t, sandbox.Status{Reason: "bwrap was not found"}, sandboxStatusOf(true, missing))
-	assert.Equal(t, sandbox.Status{Reason: "no shell was found"}, sandboxStatusOf(false, found))
+	assert.Equal(t, sandbox.State{Available: true, Reason: "bwrap at /usr/bin/bwrap"}, sandboxStateOf(true, found))
+	assert.Equal(t, sandbox.State{Reason: "bwrap was not found"}, sandboxStateOf(true, missing))
+	assert.Equal(t, sandbox.State{Reason: "no shell was found"}, sandboxStateOf(false, found))
 }
 
 // A sandbox with no shell confines no command, so it offers no network either.
 func TestNoShellOffersNoNetwork(t *testing.T) {
-	found := sandbox.Status{Available: true, Reason: "bwrap at /usr/bin/bwrap", NetworkAvailable: true}
+	found := sandbox.State{Available: true, Reason: "bwrap at /usr/bin/bwrap", NetworkAvailable: true}
 
-	assert.Equal(t, found, sandboxStatusOf(true, found))
-	got := sandboxStatusOf(false, found)
+	assert.Equal(t, found, sandboxStateOf(true, found))
+	got := sandboxStateOf(false, found)
 	assert.False(t, got.NetworkAvailable)
 	assert.Empty(t, got.NetworkReason)
 }
@@ -756,7 +827,7 @@ func TestNoShellOffersNoNetwork(t *testing.T) {
 func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
 	store, err := settings.Open(appdbtest.Open(t))
 	require.NoError(t, err)
-	svc := newSettingsService(store, nil, nil, sandbox.Status{}, bash.Paths{}, "timeout")
+	svc := newSettingsService(store, nil, nil, sandbox.State{}, bash.Paths{}, "timeout")
 	assert.Empty(t, svc.PathFault())
 
 	log := testutil.CaptureLogs(t)

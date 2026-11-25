@@ -92,7 +92,7 @@ within a timeline only. → [ADR: event timelines](../../../../docs/adr/2026-09-
   cache-wide and still withhold a `Connecting` cache. → [ADR: a Connecting cache answers from the
   kinds that have
   listed](../../../../docs/adr/2026-11-03-a-connecting-cache-answers-from-the-kinds-that-have-listed.md).
-- The data-rate time series feed (`datarate.go`, `Clusters().SubscribeDataRateTimeSeriesFeed`) streams the pool's ring
+- The data-rate sample feed (`datarate.go`, `Clusters().SubscribeDataRateSampleFeed`) streams the pool's ring
   through its own claim: it subscribes to `Lease.ListenForDataRateChanges`, sends `Lease.DataRates` whole
   (even empty), then on each nudge the samples numbered above the last one sent. → [ADR: a series
   is a third kind of stream](../../../../docs/adr/2026-11-02-a-series-is-a-third-kind-of-stream-and-the-pool-owns-its-clock.md).
@@ -105,7 +105,7 @@ within a timeline only. → [ADR: event timelines](../../../../docs/adr/2026-09-
 Four families: `Clusters()`, `Caches()`, `CachedKinds()`, `CachedData()`. The scope is the entry
 point, never an argument. Every GraphQL type binds 1:1 in `gqlgen.yml`; resolvers are one-liners.
 
-- Every collection watch closes its snapshot with one `CollectionWatchFrameBookmark` (nil item). → [`docs/subscriptions.md`](../../../../docs/subscriptions.md).
+- Every collection watch closes its snapshot with one `CollectionWatchFrameBookmark` (nil item). → [`docs/data-access.md`](../../../../docs/data-access.md).
 - State watches are their own subscriptions, never a field on a record.
 - `Cluster.caches` is a set; activeness is a live join (`CacheIsActive`).
 - **`Clusters().ReadActive` is the one reading of a cluster at one identity**; `read` may run

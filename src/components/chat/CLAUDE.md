@@ -2,7 +2,7 @@
 
 The chat panes, composer, transcript and list. Also owns `src/lib/`'s `chats.tsx`, `chat-outbox.tsx`, `models.tsx`, `chat-switch.tsx`, `chat-grants.tsx`, `sandbox.tsx`, `held-still.ts` and `visible-text.ts`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md). Memory is in the cluster guide ([`../cluster/CLAUDE.md`](../cluster/CLAUDE.md)); where a log card's view goes is in the logs guide ([`../logs/CLAUDE.md`](../logs/CLAUDE.md)).
 
-Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+Every data access here is named for its contract: [`docs/data-access.md`](../../../docs/data-access.md).
 
 ## Panes
 
@@ -49,7 +49,7 @@ The chat's panes are top-level files in `components/chat/`: `chat-pane.tsx`, `ch
 
 **A send names the switches its sender saw.** `chatSend` carries the chat's `sandboxDisabled` and `networkEnabled` as the list watch has them (`false` for a new chat), and the sidecar refuses a mismatch. So Send and Ask again wait for the list to deliver the chat, and from a switch's press until the watch shows its committed value (`useChatSwitch`, `src/lib/chat-switch.tsx`, held in `ChatSwitchProvider` at `AppLayout`; wrapped by `useSandboxSwitch` and `useNetworkSwitch`). → [ADR: leaving the sandbox is the user's switch](../../../docs/adr/2026-09-30-leaving-the-sandbox-is-the-users-switch-for-a-chat.md).
 
-- `useSandbox` (`src/lib/sandbox.tsx`) is the one reader of the `sandbox` query: `available`, `networkAvailable` and their reasons, `true`/`false`/undefined.
+- `useSandbox` (`src/lib/sandbox.tsx`) is the one reader of the `sandboxStateGet` query: `available`, `networkAvailable` and their reasons, `true`/`false`/undefined.
 - **`SandboxPopover`** (`chat-composer/sandbox-popover.tsx`, machine with a sandbox) is the *Sandbox* button in the composer's settings row: it names where the chat's commands run, off the watch (*Outside the sandbox* for an open chat that left it), and opens a popup that holds only a placeholder for now. **No control in the app leaves the sandbox**: `SandboxSwitch` (`chat-composer/sandbox-switch.tsx`; leaving confirms in a `Dialog`, returning is immediate) is mounted nowhere until the popup takes it. A chat starts sandboxed. → [outside the sandbox is the user's choice](../../../docs/security/2026-09-30-outside-the-sandbox-is-the-users-choice.md).
 - **`NetworkSwitch`** (`chat-composer/network-switch.tsx`, open chat, in the sandbox, drawn only while its network is on): off is immediate; on confirms. Nothing in the app turns network on yet. The outbox entry's `networkThisTurn` is the per-message toggle: `submit` sends it, a held send keeps it, the accepted draft send clears it, Ask again ignores it. Nothing in the composer sets it yet. → [network is the user's switch](../../../docs/security/2026-10-04-network-is-the-users-switch.md).
 - **`ChatGrants`** (`chat-composer/grants.tsx`) lists the chat's own rules, then its folder grants (`useSandboxFolders(chatID)`); a folder's Remove is `folderRevoke` as the chat's. `useChatGrants` (`src/lib/chat-grants.tsx`) re-asks after a removal, on focus, and after a `Chat`/`Always` decision. **Every query or mutation that can change the rule list carries `chatGrantsContext`** (`additionalTypenames: ['PermissionRule']`) — an empty list gives urql's cache nothing to key on.

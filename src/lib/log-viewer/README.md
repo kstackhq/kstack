@@ -23,7 +23,7 @@ here draws a row.
 back as it came. A line's cursor names it, and a line whose cursor is held is a repeat, dropped.
 A page cursor names where the page that way goes on. A line's cursor travels only in `seen`.
 
-The types mirror the wire's `LogRecord`, `LogRecordsPage`, `LogNotice` and `LogsTailFrame`
+The types mirror the wire's `LogRecord`, `LogsFetchResult`, `LogNotice` and `LogsTailFrame`
 field for field. `LogLine.truncatedBytes` is what the server cut off the message, 0 when whole.
 
 **A line may carry a hole.** `LogLine.gap` is the stamps of the last known line before a range of

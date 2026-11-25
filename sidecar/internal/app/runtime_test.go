@@ -97,7 +97,7 @@ func TestANewerAppDBFailsTheBuildNamingTheVersions(t *testing.T) {
 // interface: a nil *bash.Tool stored in one is not nil, and the resolver would
 // call through it.
 func TestTheResolverHasNoProberWithoutAShell(t *testing.T) {
-	rt := &Runtime{SandboxStatus: sandbox.Status{Available: true}}
+	rt := &Runtime{SandboxState: sandbox.State{Available: true}}
 
 	assert.True(t, rt.resolver().Executables == nil)
 }
@@ -131,12 +131,12 @@ func TestCloudTargetsKeepTheBuildsOrder(t *testing.T) {
 // With a sandbox the cloud platforms are the build's, or a test's in their
 // place; without one there are none.
 func TestCloudPlatformsNeedASandbox(t *testing.T) {
-	sandboxed := sandbox.Status{Available: true}
+	sandboxed := sandbox.State{Available: true}
 	configured := []bash.CloudPlatform{targetOnly(permissions.AWS)}
 	assert.Equal(t, cloudTargets(builtCloudPlatforms(nil, nil)), cloudTargets(cloudPlatformsFor(sandboxed, nil, nil, nil)))
 	assert.Equal(t, []permissions.Target{permissions.AWS}, cloudTargets(cloudPlatformsFor(sandboxed, configured, nil, nil)))
-	assert.Empty(t, cloudPlatformsFor(sandbox.Status{Reason: "no bwrap"}, nil, nil, nil))
-	assert.Empty(t, cloudPlatformsFor(sandbox.Status{}, configured, nil, nil))
+	assert.Empty(t, cloudPlatformsFor(sandbox.State{Reason: "no bwrap"}, nil, nil, nil))
+	assert.Empty(t, cloudPlatformsFor(sandbox.State{}, configured, nil, nil))
 }
 
 // targetOnly is a cloud platform that names its target and mounts nothing.
@@ -250,13 +250,13 @@ func TestTheStateWatchListsEveryProviderTheCatalogHolds(t *testing.T) {
 		rt := a.rt
 
 		var held, listed []string
-		for _, p := range rt.LLM.Providers() {
+		for _, p := range testutil.Current(t, rt.LLM.WatchProvidersState, "the providers") {
 			if p.ID != "fake" {
 				held = append(held, p.ID)
 				assert.Equal(t, rt.ProviderCredentials.Signer(p.ID), p.Signer, p.ID)
 			}
 		}
-		for _, st := range rt.ProviderCredentials.States() {
+		for _, st := range testutil.Current(t, rt.ProviderCredentials.WatchCredentialsState, "the credentials") {
 			listed = append(listed, st.ID)
 		}
 		assert.Equal(t, held, listed)
@@ -299,8 +299,8 @@ func TestTheWireReachesTheOpenRouterConnector(t *testing.T) {
 	awaitRestored(t, a.rt)
 	ts := serveApp(t, a)
 
-	assert.JSONEq(t, `{"data":{"openRouterConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ openRouterConnection { phase } }`))
-	assert.Contains(t, graphql(t, ts.URL, `{ providerCredentials { id source } }`), `{"id":"openrouter","source":"EnvironmentKey"}`)
+	assert.JSONEq(t, `{"data":{"openRouterConnectionStateWatch":{"phase":"SignedOut"}}}`, firstFrame(t, ts.URL, `subscription { openRouterConnectionStateWatch { phase } }`))
+	assert.Contains(t, firstFrame(t, ts.URL, `subscription { providerCredentialsStateWatch { id source } }`), `{"id":"openrouter","source":"EnvironmentKey"}`)
 }
 
 // The wire reaches the app's AWS connector, once the keyring is read.
@@ -311,7 +311,7 @@ func TestTheWireReachesTheAWSConnector(t *testing.T) {
 	awaitRestored(t, a.rt)
 	ts := serveApp(t, a)
 
-	assert.JSONEq(t, `{"data":{"awsConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ awsConnection { phase } }`))
+	assert.JSONEq(t, `{"data":{"awsConnectionStateWatch":{"phase":"SignedOut"}}}`, firstFrame(t, ts.URL, `subscription { awsConnectionStateWatch { phase } }`))
 }
 
 // The wire reaches the app's GitHub connector, once the keyring is read.
@@ -322,7 +322,7 @@ func TestTheWireReachesTheGitHubConnector(t *testing.T) {
 	awaitRestored(t, a.rt)
 	ts := serveApp(t, a)
 
-	assert.JSONEq(t, `{"data":{"gitHubConnection":{"phase":"SignedOut"}}}`, graphql(t, ts.URL, `{ gitHubConnection { phase } }`))
+	assert.JSONEq(t, `{"data":{"gitHubConnectionStateWatch":{"phase":"SignedOut"}}}`, firstFrame(t, ts.URL, `subscription { gitHubConnectionStateWatch { phase } }`))
 }
 
 // The wire reaches the app's Google connector, once the keyring is read.
@@ -334,7 +334,7 @@ func TestTheWireReachesTheGoogleConnector(t *testing.T) {
 	awaitRestored(t, a.rt)
 	ts := serveApp(t, a)
 
-	assert.JSONEq(t, `{"data":{"googleConnection":{"phase":"SignedOut","project":"my-project"}}}`, graphql(t, ts.URL, `{ googleConnection { phase project } }`))
+	assert.JSONEq(t, `{"data":{"googleConnectionStateWatch":{"phase":"SignedOut","project":"my-project"}}}`, firstFrame(t, ts.URL, `subscription { googleConnectionStateWatch { phase project } }`))
 }
 
 // googleEnv is an environment naming project as GOOGLE_CLOUD_PROJECT.
@@ -435,8 +435,9 @@ func TestTheLaunchDoesNotWaitForTheKeyring(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, everyConnectorIs(connectors.Restoring), connectorPhases(a.rt))
-	require.NotEmpty(t, a.rt.ProviderCredentials.States())
-	for _, st := range a.rt.ProviderCredentials.States() {
+	credentials := testutil.Current(t, a.rt.ProviderCredentials.WatchCredentialsState, "the credentials")
+	require.NotEmpty(t, credentials)
+	for _, st := range credentials {
 		assert.Equal(t, providercredentials.SourceRestoring, st.Source, st.ID)
 	}
 	testutil.WaitReturn(t, func() { assert.NoError(t, a.Close()) }, "Close")
@@ -498,8 +499,9 @@ func TestADismissedPromptIsAskedOnce(t *testing.T) {
 	awaitRestored(t, a.rt)
 
 	assert.Equal(t, everyConnectorIs(connectors.SignedOut), connectorPhases(a.rt))
-	require.NotEmpty(t, a.rt.ProviderCredentials.States())
-	for _, st := range a.rt.ProviderCredentials.States() {
+	credentials := testutil.Current(t, a.rt.ProviderCredentials.WatchCredentialsState, "the credentials")
+	require.NotEmpty(t, credentials)
+	for _, st := range credentials {
 		assert.False(t, st.HasSavedKey, st.ID)
 	}
 	assert.Equal(t, []oskeyringtest.Call{{Kind: oskeyringtest.Get, Account: "keyring-probe"}}, k.Calls()[seeded:])
