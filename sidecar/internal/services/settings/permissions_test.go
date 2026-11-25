@@ -81,7 +81,7 @@ func modeOf(t *testing.T, s *Store, cluster apimeta.ClusterID) ClusterModeState 
 // A cluster's mode is its own row, else the default row, else ask.
 func TestAClusterWithNoModeOfItsOwnTakesTheDefault(t *testing.T) {
 	t.Parallel()
-	s, _ := storeWithClusters(t)
+	s, db := storeWithClusters(t)
 	ctx := t.Context()
 
 	assert.Equal(t, ClusterModeState{ClusterID: "dev", Mode: permissions.Ask, Source: SourceDefault}, modeOf(t, s, "dev"))
@@ -103,6 +103,30 @@ func TestAClusterWithNoModeOfItsOwnTakesTheDefault(t *testing.T) {
 	require.NoError(t, s.ClearMode(ctx, "prod"))
 	assert.Equal(t, ClusterModeState{ClusterID: "prod", Mode: permissions.Auto, Source: SourceDefault}, modeOf(t, s, "prod"))
 	require.NoError(t, s.ClearMode(ctx, "prod"), "clearing a mode the cluster does not have")
+	var value any
+	require.NoError(t, db.Read.QueryRow(`SELECT value FROM settings WHERE key = 'permissions.approval_mode' AND cluster_id = 'prod'`).Scan(&value))
+	assert.Nil(t, value, "a cleared mode keeps its row, as NULL")
+	_, states, err := s.ClusterModes(ctx, []apimeta.ClusterID{"prod"})
+	require.NoError(t, err)
+	assert.Equal(t, []ClusterModeState{{ClusterID: "prod", Mode: permissions.Auto, Source: SourceDefault}}, states)
+}
+
+// A mode Kstack cannot use is read-only: in a cluster's row for that cluster,
+// in the default's for every cluster that takes the default.
+func TestAModeKstackCannotUseIsReadOnly(t *testing.T) {
+	t.Parallel()
+	s, db := storeWithClusters(t)
+	ctx := t.Context()
+	exec(t, db, `INSERT INTO settings (key, cluster_id, value, created_at, updated_at) VALUES ('permissions.approval_mode', 'prod', 'sometimes', 0, 0)`)
+	assert.Equal(t, ClusterModeState{ClusterID: "prod", Mode: permissions.ReadOnly, Source: SourceEntry}, modeOf(t, s, "prod"))
+	assert.Equal(t, permissions.Ask, modeOf(t, s, "dev").Mode, "another cluster keeps the default")
+
+	exec(t, db, `INSERT INTO settings (key, value, created_at, updated_at) VALUES ('permissions.approval_mode', 7, 0, 0)`)
+	assert.Equal(t, ClusterModeState{ClusterID: "dev", Mode: permissions.ReadOnly, Source: SourceDefault}, modeOf(t, s, "dev"))
+	mode, states, err := s.ClusterModes(ctx, []apimeta.ClusterID{"dev", "prod"})
+	require.NoError(t, err)
+	assert.Equal(t, permissions.ReadOnly, mode)
+	assert.Equal(t, []ClusterModeState{modeOf(t, s, "dev"), modeOf(t, s, "prod")}, states)
 }
 
 // A mode belongs to a cluster Settings lists: one with a kube-context that is
@@ -119,7 +143,7 @@ func TestAModeIsRefusedForAClusterSettingsDoesNotList(t *testing.T) {
 	assert.ErrorIs(t, s.ClearMode(ctx, "gone"), ErrClusterGone)
 	assert.ErrorIs(t, s.ClearMode(ctx, "prod"), ErrClusterGone)
 	var n int
-	require.NoError(t, db.Read.QueryRow(`SELECT count(*) FROM approval_modes`).Scan(&n))
+	require.NoError(t, db.Read.QueryRow(`SELECT count(*) FROM settings`).Scan(&n))
 	assert.Zero(t, n)
 }
 
@@ -128,7 +152,7 @@ func TestAModeIsRefusedForAClusterSettingsDoesNotList(t *testing.T) {
 func TestAModesReadThatFailsIsAnError(t *testing.T) {
 	t.Parallel()
 	s, db := storeWithClusters(t)
-	exec(t, db, `DROP TABLE approval_modes`)
+	exec(t, db, `DROP TABLE settings`)
 
 	_, err := s.ModeFor(t.Context(), "dev")
 	assert.Error(t, err)
@@ -403,8 +427,8 @@ func TestAWriteThatFailsReachesTheCaller(t *testing.T) {
 	require.NoError(t, s.GrantFolder(ctx, "/srv/code", false))
 	grant := folderGrants(t, s)[0]
 	for _, q := range []string{
-		`CREATE TRIGGER refuse_mode_write BEFORE INSERT ON approval_modes BEGIN SELECT RAISE(ABORT, 'refused'); END`,
-		`CREATE TRIGGER refuse_mode_delete BEFORE DELETE ON approval_modes BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+		`CREATE TRIGGER refuse_mode_write BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+		`CREATE TRIGGER refuse_mode_update BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'refused'); END`,
 		`CREATE TRIGGER refuse_grant_write BEFORE INSERT ON folder_grants BEGIN SELECT RAISE(ABORT, 'refused'); END`,
 		`CREATE TRIGGER refuse_rule_write BEFORE INSERT ON kube_rules BEGIN SELECT RAISE(ABORT, 'refused'); END`,
 		`CREATE TRIGGER refuse_grant_delete BEFORE DELETE ON folder_grants BEGIN SELECT RAISE(ABORT, 'refused'); END`,

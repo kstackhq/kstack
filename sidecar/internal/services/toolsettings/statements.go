@@ -16,22 +16,22 @@
 // app's DB (sqlstmt.Set).
 package toolsettings
 
-import "github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
+import (
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
+)
 
 // stmtID indexes statements.
 type stmtID int
 
 const (
-	stmtSelectDisabled stmtID = iota
+	stmtSelectToolSettings stmtID = iota
 	stmtUpsert
 )
 
 var statements = []sqlstmt.Statement{
-	stmtSelectDisabled: sqlstmt.OnReader(`SELECT tool_name FROM tool_settings
-	WHERE cluster_id IS NULL AND enabled = 0 ORDER BY tool_name`),
-	stmtUpsert: sqlstmt.OnWriter(`INSERT INTO tool_settings (tool_name, cluster_id, enabled, updated_at)
-	VALUES (?, NULL, ?, ?)
-	ON CONFLICT (ifnull(cluster_id, ''), tool_name) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at`),
+	stmtSelectToolSettings: sqlstmt.OnReader(settings.SelectToolSettings),
+	stmtUpsert:             sqlstmt.OnWriter(settings.UpsertToolSetting),
 }
 
 type stmts = sqlstmt.Stmts[stmtID]

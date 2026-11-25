@@ -149,18 +149,24 @@ type PathSetting struct {
 	Refusal string
 }
 
-// selectPath is the PATH setting, a refused one with its refusal. A read
-// that fails is an error, never $PATH.
+// pathEntry is the PATH setting. It has no strictest value: a stored value
+// Kstack cannot use is read with its refusal, which starts no run.
+var pathEntry = Entry[string]{Key: "sandbox.path", Default: "$PATH", Check: CheckPath}
+
+// selectPath is the PATH setting, $PATH with no row, a refused one with its
+// refusal. A read that fails is an error, never $PATH.
 func selectPath(ctx context.Context, st stmts) (PathSetting, error) {
-	var value string
-	err := st.QueryRow(ctx, stmtSelectPath).Scan(&value)
-	if errors.Is(err, sql.ErrNoRows) {
-		return PathSetting{}, ErrNoSandboxSettings
-	}
+	scopes, err := selectScopedSetting(ctx, st, pathEntry.Key, "")
 	if err != nil {
 		return PathSetting{}, fmt.Errorf("select path setting: %w", err)
 	}
-	return pathSettingOf(value), nil
+	switch value := scopes[""].(type) {
+	case nil:
+		return pathSettingOf(pathEntry.Default), nil
+	case string:
+		return pathSettingOf(value), nil
+	}
+	return PathSetting{Refusal: "The stored PATH is not text."}, nil
 }
 
 // pathSettingOf is value with the grammar's refusal of it.
@@ -172,17 +178,14 @@ func pathSettingOf(value string) PathSetting {
 	return setting
 }
 
-// SetPath saves the PATH setting, once the grammar passes it. It updates the
-// one row and never inserts it.
+// SetPath saves the PATH setting, once the grammar passes it: its refusal is
+// a PathRefusal, which the wire maps.
 func (s *Store) SetPath(ctx context.Context, value string) error {
 	if err := CheckPath(value); err != nil {
 		return err
 	}
 	return s.write(ctx, appdb.KeySandboxPath, func(st stmts) error {
-		if err := execOne(ctx, st, stmtUpdatePath, ErrNoSandboxSettings, value, s.now().UnixMilli()); err != nil {
-			return fmt.Errorf("write path setting: %w", err)
-		}
-		return nil
+		return writeSetting(ctx, st, pathEntry, "", value, s.now().UnixMilli())
 	})
 }
 

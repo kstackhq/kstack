@@ -50,7 +50,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | --- | --- |
 | `internal/services/cluster/CLAUDE.md` | clusters, caches, kinds, cached data; the private leaves `kubeconn`, `kubesync`, `kubestore`; streams and watches |
 | `internal/services/logs/CLAUDE.md` | the log cache (`logstore`), the line vocabulary (`logline`), refusals (`refusal`), the kubelet reader (`kubelet`), pages, follows, tailers |
-| `internal/services/settings/CLAUDE.md` | the settings' `app.db` tables: permissions, the cloud platform switches, the `PATH` setting, folder grants, executables |
+| `internal/services/settings/CLAUDE.md` | the settings' `app.db` tables: `settings` (the switches, the `PATH`, the modes, the tools), rules, folder grants, executables |
 | `internal/llm/CLAUDE.md` | dialects, providers, the record's blocks, the wires, the fake |
 | `internal/run/CLAUDE.md` | the login shell, the session, the sandbox, permissions, the cluster proxy |
 | `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, LogsWatch, web search), `fileguard`, `logsinput` |
@@ -202,9 +202,9 @@ same name. A sandboxed run reads it at its start; a command outside the sandbox 
 
 ## Tool settings (`internal/services/toolsettings`)
 
-**`tool_settings`, a row per tool per scope overriding on.** Only every cluster's scope is
-written; turning a tool back on keeps its row. A row for a tool the box lacks, or turning off one
-listed `AlwaysOn` (TaskStop), is ignored. The chat
+**A `tools.<name>.enabled` row of `settings` per tool, overriding on.** Only every cluster's
+scope is written; turning a tool back on keeps its row; a value Kstack cannot use is off. A row
+for a tool the box lacks, or turning off one listed `AlwaysOn` (TaskStop), is ignored. The chat
 service reads it where it reserves a turn. → [ADR](../docs/adr/2026-11-21-tool-settings-are-rows-in-app-db.md),
 [security record](../docs/security/2026-11-20-the-user-turns-tools-off.md).
 

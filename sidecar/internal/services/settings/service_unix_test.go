@@ -332,7 +332,7 @@ func TestARefusedPathStartsNoRun(t *testing.T) {
 	s := NewService(store, func() Zones { return z.zones }, nil, nil, "")
 	_, err := s.SetShellPath(t.Context(), []string{shell})
 	require.NoError(t, err)
-	exec(t, db, `UPDATE sandbox_settings SET path = 'bin:$PATH'`)
+	exec(t, db, `INSERT INTO settings (key, value, created_at, updated_at) VALUES ('sandbox.path', 'bin:$PATH', 0, 0)`)
 
 	_, err = s.RunPath(t.Context())
 	assert.IsType(t, PathRefusal(""), err)
@@ -346,7 +346,7 @@ func TestARefusedPathStartsNoRun(t *testing.T) {
 // A read that fails, of either row, is an error: never the setting over the
 // default folders, never $PATH.
 func TestARunPathReadThatFailsIsAnError(t *testing.T) {
-	for _, table := range []string{"sandbox_settings", "shell_path"} {
+	for _, table := range []string{"settings", "shell_path"} {
 		z := newZones(t)
 		db := appdbtest.Open(t)
 		store := openStore(t, db)
@@ -382,7 +382,7 @@ func TestSettingsListsThePathsFolders(t *testing.T) {
 	assert.Equal(t, []bool{true, false, true}, []bool{folders[0].Searched, folders[1].Searched, folders[2].Searched})
 	assert.True(t, folders[1].Addable)
 
-	exec(t, db, `UPDATE sandbox_settings SET path = 'bin'`)
+	exec(t, db, `UPDATE settings SET value = 'bin' WHERE key = 'sandbox.path'`)
 	setting, folders, err = s.PathFolders(ctx)
 	require.NoError(t, err)
 	assert.NotEmpty(t, setting.Refusal)

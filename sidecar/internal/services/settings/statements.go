@@ -21,29 +21,22 @@ type stmtID int
 
 const (
 	stmtSelectClusterKubeContext stmtID = iota
-	stmtSelectMode
-	stmtSelectModes
-	stmtUpsertMode
-	stmtDeleteMode
 	stmtSelectKubeRules
 	stmtInsertKubeRule
 	stmtDeleteKubeRule
 	stmtSelectFolderGrants
 	stmtUpsertFolderGrant
 	stmtDeleteFolderGrant
-	stmtSelectCloudPlatformSwitches
-	stmtUpdateAWSSwitch
-	stmtUpdateGitHubSwitch
-	stmtUpdateGCPSwitch
-	stmtUpdateAzureSwitch
 	stmtSelectExecutables
 	stmtSelectExecutableListed
 	stmtInsertExecutable
 	stmtDeleteExecutable
-	stmtSelectPath
-	stmtUpdatePath
 	stmtSelectShellPath
 	stmtUpsertShellPath
+	stmtSelectCloudPlatformSwitches
+	stmtSelectScopedSetting
+	stmtSelectSettingScopes
+	stmtUpsertSetting
 )
 
 // statements are the store's. Those over a table with a chat_id touch only
@@ -53,16 +46,6 @@ var statements = []sqlstmt.Statement{
 	// since a mode's write reads it in its transaction.
 	stmtSelectClusterKubeContext: sqlstmt.OnBoth(`SELECT source = 'kubeconfig' AND ifnull(source_key, '') <> ''
 	FROM clusters WHERE id = ? AND delete_requested_at IS NULL`),
-	// The cluster's own row first, then the default's, through the index on
-	// ifnull(cluster_id, ''), which spells the default ''.
-	stmtSelectMode: sqlstmt.OnReader(`SELECT cluster_id IS NOT NULL, mode FROM approval_modes
-	WHERE ifnull(cluster_id, '') IN (?, '') ORDER BY cluster_id IS NULL LIMIT 1`),
-	stmtSelectModes: sqlstmt.OnReader(`SELECT ifnull(cluster_id, ''), mode FROM approval_modes`),
-	// A cluster of '' is the default's row.
-	stmtUpsertMode: sqlstmt.OnWriter(`INSERT INTO approval_modes (cluster_id, mode, updated_at) VALUES (nullif(?, ''), ?, ?)
-	ON CONFLICT (ifnull(cluster_id, '')) DO UPDATE SET mode = excluded.mode, updated_at = excluded.updated_at`),
-	stmtDeleteMode: sqlstmt.OnWriter(`DELETE FROM approval_modes WHERE ifnull(cluster_id, '') = ?`),
-
 	// OnBoth, since a rule's write reads the rules in its transaction.
 	stmtSelectKubeRules: sqlstmt.OnBoth(`SELECT ` + KubeRuleColumns + ` FROM kube_rules WHERE chat_id IS NULL ORDER BY created_at, id`),
 	stmtInsertKubeRule: sqlstmt.OnWriter(`INSERT INTO kube_rules (chat_id, ` + KubeRuleColumns + `, created_at)
@@ -75,13 +58,6 @@ var statements = []sqlstmt.Statement{
 	ON CONFLICT (ifnull(chat_id, ''), folder) DO UPDATE SET access = excluded.access`),
 	stmtDeleteFolderGrant: sqlstmt.OnWriter(`DELETE FROM folder_grants WHERE chat_id IS NULL AND id = ?`),
 
-	stmtSelectCloudPlatformSwitches: sqlstmt.OnReader(`SELECT aws_enabled, github_enabled, gcp_enabled, azure_enabled
-	FROM sandbox_settings WHERE id = 1`),
-	stmtUpdateAWSSwitch:    sqlstmt.OnWriter(`UPDATE sandbox_settings SET aws_enabled = ?, updated_at = ? WHERE id = 1`),
-	stmtUpdateGitHubSwitch: sqlstmt.OnWriter(`UPDATE sandbox_settings SET github_enabled = ?, updated_at = ? WHERE id = 1`),
-	stmtUpdateGCPSwitch:    sqlstmt.OnWriter(`UPDATE sandbox_settings SET gcp_enabled = ?, updated_at = ? WHERE id = 1`),
-	stmtUpdateAzureSwitch:  sqlstmt.OnWriter(`UPDATE sandbox_settings SET azure_enabled = ?, updated_at = ? WHERE id = 1`),
-
 	// rowid orders two added in the same millisecond.
 	stmtSelectExecutables: sqlstmt.OnReader(`SELECT name, invocation FROM executables ORDER BY created_at, rowid`),
 	// OnBoth, since a register reads it in its transaction.
@@ -89,12 +65,28 @@ var statements = []sqlstmt.Statement{
 	stmtInsertExecutable:       sqlstmt.OnWriter(`INSERT INTO executables (name, invocation, created_at) VALUES (?, ?, ?)`),
 	stmtDeleteExecutable:       sqlstmt.OnWriter(`DELETE FROM executables WHERE name = ?`),
 
-	stmtSelectPath: sqlstmt.OnReader(`SELECT path FROM sandbox_settings WHERE id = 1`),
-	stmtUpdatePath: sqlstmt.OnWriter(`UPDATE sandbox_settings SET path = ?, updated_at = ? WHERE id = 1`),
 	// OnBoth, since a write compares the row it replaces in its transaction.
 	stmtSelectShellPath: sqlstmt.OnBoth(`SELECT path FROM shell_path WHERE id = 1`),
 	stmtUpsertShellPath: sqlstmt.OnWriter(`INSERT INTO shell_path (id, path) VALUES (1, ?)
 	ON CONFLICT (id) DO UPDATE SET path = excluded.path`),
+
+	// The four switches for every cluster, by their keys (cloudPlatformSwitchKeys).
+	stmtSelectCloudPlatformSwitches: sqlstmt.OnReader(`SELECT key, value FROM settings
+	WHERE ifnull(cluster_id, '') = '' AND key IN (?, ?, ?, ?)`),
+	// The settings reads below are OnBoth, so a caller reads inside its own write.
+	// One key for one cluster and for every cluster, through the index on
+	// ifnull(cluster_id, ''), which spells every cluster ''.
+	stmtSelectScopedSetting: sqlstmt.OnBoth(`SELECT ifnull(cluster_id, ''), value FROM settings
+	WHERE ifnull(cluster_id, '') IN (?, '') AND key = ?`),
+	stmtSelectSettingScopes: sqlstmt.OnBoth(`SELECT ifnull(cluster_id, ''), value FROM settings WHERE key = ?`),
+	stmtUpsertSetting:       sqlstmt.OnWriter(upsertSettingQuery),
 }
+
+// upsertSettingQuery writes a key's value in a scope: key, cluster (empty for
+// every cluster), value, time. A row's first write sets created_at; every write
+// moves updated_at.
+const upsertSettingQuery = `INSERT INTO settings (key, cluster_id, value, created_at, updated_at)
+	VALUES (?1, nullif(?2, ''), ?3, ?4, ?4)
+	ON CONFLICT (ifnull(cluster_id, ''), key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
 
 type stmts = sqlstmt.Stmts[stmtID]

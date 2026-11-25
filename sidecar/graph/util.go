@@ -645,6 +645,9 @@ func (r *Resolver) permissionsAfter(ctx context.Context, err error) (*model.Perm
 	if refusal, ok := errors.AsType[settings.RuleRefusal](err); ok {
 		return nil, gqlerrors.NewValidationError("permission", refusal.Error())
 	}
+	if refusal, ok := errors.AsType[settings.SettingRefusal](err); ok {
+		return nil, gqlerrors.NewValidationError("permission", refusal.Reason.Error())
+	}
 	switch {
 	case errors.Is(err, settings.ErrClusterGone):
 		return nil, gqlerrors.Clone(gqlerrors.ErrRecordNotFound)

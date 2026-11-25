@@ -17,29 +17,23 @@ package toolsettings
 import (
 	"context"
 	"fmt"
+
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
-// disabled is the names of the tools turned off for every cluster, sorted.
+// disabled is the names of the tools turned off for every cluster, sorted: a
+// row whose value Kstack cannot use turns its tool off.
 func disabled(ctx context.Context, st stmts) ([]string, error) {
-	rows, err := st.Query(ctx, stmtSelectDisabled)
+	rows, err := st.Query(ctx, stmtSelectToolSettings)
 	if err != nil {
 		return nil, fmt.Errorf("select disabled tools: %w", err)
 	}
-	defer rows.Close()
-	var names []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil { // coverage:ignore tool_name is a STRICT TEXT NOT NULL column
-			return nil, fmt.Errorf("scan disabled tool: %w", err)
-		}
-		names = append(names, name)
-	}
-	return names, rows.Err()
+	return settings.OffTools(rows)
 }
 
 // upsert writes the setting of the tool named name for every cluster.
 func upsert(ctx context.Context, st stmts, name string, enabled bool, at int64) error {
-	if _, err := st.Exec(ctx, stmtUpsert, name, enabled, at); err != nil {
+	if _, err := st.Exec(ctx, stmtUpsert, settings.ToolSettingValues(name, enabled, at)...); err != nil {
 		return fmt.Errorf("write setting of %s: %w", name, err)
 	}
 	return nil

@@ -168,7 +168,7 @@ func TestAPolicyThatCannotBeReadRefuses(t *testing.T) {
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	_, err := s.settings.AddKubeRule(t.Context(), permissions.Rule{Effect: permissions.Allow, Class: permissions.SecretRead, ClusterID: "dev"})
 	require.NoError(t, err)
-	for _, table := range []string{"approval_modes", "kube_rules"} {
+	for _, table := range []string{"settings", "kube_rules"} {
 		exec(t, s.db, `DROP TABLE `+table)
 	}
 

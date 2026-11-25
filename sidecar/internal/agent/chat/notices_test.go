@@ -127,7 +127,7 @@ func TestANoticeTurnWhoseReadFailsStartsNothing(t *testing.T) {
 	for _, tc := range []struct{ name, corrupt string }{
 		{name: "no answer names a run", corrupt: `UPDATE messages SET run_id = NULL`},
 		{name: "the newest context does not parse", corrupt: `UPDATE messages SET content = '[' WHERE role = 'user'`},
-		{name: "the tool settings do not read", corrupt: `DROP TABLE tool_settings`},
+		{name: "the tool settings do not read", corrupt: `DROP TABLE settings`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tt := newTaskTool()

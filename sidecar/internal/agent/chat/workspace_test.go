@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
@@ -240,8 +241,11 @@ func TestTheSandboxSectionNamesNoCloudPlatformWhenTheSwitchesCannotBeRead(t *tes
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
 	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
 	s.cloudTargets = []permissions.Target{permissions.AWS}
-	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, nil, "")
-	_, err := s.db.Write.Exec(`DROP TABLE sandbox_settings`)
+	// The switches read from a file of their own, so the chat's own reads of
+	// settings still answer.
+	unread := appdbtest.Open(t)
+	s.settings = settings.NewService(settingsStore(t, unread), nil, nil, nil, "")
+	_, err := unread.Write.Exec(`DROP TABLE settings`)
 	require.NoError(t, err)
 
 	sent := sendAndSettle(t, s, nil, "1", "1", "one")

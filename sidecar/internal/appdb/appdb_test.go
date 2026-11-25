@@ -31,10 +31,10 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	require.FileExists(t, path)
 
-	// Migrations ran: the schema_migrations sequence is at version 9.
+	// Migrations ran: the schema_migrations sequence is at version 10.
 	var v int
 	require.NoError(t, db.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 9, v)
+	require.Equal(t, 10, v)
 	requireTables(t, db.Write.DB)
 	require.NoError(t, db.Close())
 
@@ -43,7 +43,7 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db2.Close() })
 	require.NoError(t, db2.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 9, v)
+	require.Equal(t, 10, v)
 	requireTables(t, db2.Write.DB)
 }
 
@@ -144,7 +144,6 @@ func requireTables(t *testing.T, db *sql.DB) {
 	require.NoError(t, rows.Err())
 	require.Equal(t, []string{
 		"agent_runs wr=0 strict=1",
-		"approval_modes wr=0 strict=1",
 		"approvals wr=1 strict=1",
 		"background_tasks wr=1 strict=1",
 		"chats wr=1 strict=1",
@@ -157,10 +156,9 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"memories wr=0 strict=1",
 		"messages wr=0 strict=1",
 		"oauth_connections wr=1 strict=1",
-		"sandbox_settings wr=0 strict=1",
+		"settings wr=0 strict=1",
 		"shell_path wr=0 strict=1",
 		"tool_calls wr=0 strict=1",
-		"tool_settings wr=0 strict=1",
 	}, tables)
 
 	idx, err := db.Query(`SELECT sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name`)
@@ -179,7 +177,6 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"CREATE INDEX agent_runs_parent_idx ON agent_runs (parent_run_id)",
 		"CREATE INDEX agent_runs_queued_idx ON agent_runs (id) WHERE status = 'queued'",
 		"CREATE INDEX agent_runs_waiting_idx ON agent_runs (chat_id) WHERE status = 'waiting_approval'",
-		"CREATE UNIQUE INDEX approval_modes_cluster ON approval_modes (ifnull(cluster_id, ''))",
 		"CREATE INDEX approvals_actions_idx ON approvals (tool_call_id) WHERE kind = 'action'",
 		"CREATE UNIQUE INDEX approvals_call_idx ON approvals (tool_call_id) WHERE kind = 'call'",
 		"CREATE INDEX approvals_pending_idx ON approvals (id) WHERE status = 'pending'",
@@ -192,9 +189,9 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"CREATE UNIQUE INDEX llm_calls_run_idx ON llm_calls (run_id, seq)",
 		"CREATE UNIQUE INDEX memories_name ON memories (ifnull(cluster_id, ''), name)",
 		"CREATE INDEX messages_run_idx ON messages (run_id)",
+		"CREATE UNIQUE INDEX settings_scope_key ON settings (ifnull(cluster_id, ''), key)",
 		"CREATE UNIQUE INDEX tool_calls_llm_call_idx ON tool_calls (llm_call_id, seq)",
 		"CREATE INDEX tool_calls_spawned_idx ON tool_calls (spawned_run_id)",
-		"CREATE UNIQUE INDEX tool_settings_tool_name ON tool_settings (ifnull(cluster_id, ''), tool_name)",
 	}, indexes)
 }
 
@@ -423,6 +420,7 @@ var shippedMigrations = map[string]string{
 	"0007_sandbox_settings.sql":       "db603bed30aedfd2566805aa639bc4f8a98d199ca8da34d28c996227d1775a0b",
 	"0008_executables.sql":            "7b0f92ae83d0c4e79bfbf420a11b4a76bee0a08e5e3ed44eb9ff16895f45cade",
 	"0009_path.sql":                   "72a2fe0e32012ef25fe5975fb62a49409eafc8174b63b77c8e688f1386e8ac02",
+	"0010_settings.sql":               "bd0d9140d63497ff4e89f65a883aa26eb161d617b6fc9e6b2d527f3e3a43ef9f",
 }
 
 func TestAShippedMigrationIsNeverEdited(t *testing.T) {
@@ -443,16 +441,14 @@ func TestMigration0002AddsTheOAuthConnections(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
 
-	db, err := Open(path, 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	db := openThrough(t, path, "0002_oauth_connections.sql")
 
 	var id string
-	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT id FROM clusters`).Scan(&id))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT id FROM clusters`).Scan(&id))
 	assert.Equal(t, "c", id)
-	_, err = db.Write.ExecContext(ctx, `INSERT INTO oauth_connections (provider, created_at, updated_at) VALUES ('chatgpt', 0, 0)`)
+	_, err = db.ExecContext(ctx, `INSERT INTO oauth_connections (provider, created_at, updated_at) VALUES ('chatgpt', 0, 0)`)
 	require.NoError(t, err)
-	_, err = db.Write.ExecContext(ctx, `INSERT INTO oauth_connections (provider, created_at, updated_at) VALUES ('chatgpt', 0, 0)`)
+	_, err = db.ExecContext(ctx, `INSERT INTO oauth_connections (provider, created_at, updated_at) VALUES ('chatgpt', 0, 0)`)
 	assert.Error(t, err, "one row per provider")
 }
 
@@ -476,17 +472,15 @@ func TestMigration0003AddsTheName(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
 
-	db, err := Open(path, 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	db := openThrough(t, path, "0003_oauth_connections_name.sql")
 
 	var clientID, subject, email, session string
 	var name *string
-	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT client_id, subject, email, session_id, name FROM oauth_connections`).
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT client_id, subject, email, session_id, name FROM oauth_connections`).
 		Scan(&clientID, &subject, &email, &session, &name))
 	assert.Equal(t, []string{"c", "user-1", "ada@example.com", "s1"}, []string{clientID, subject, email, session})
 	assert.Nil(t, name, "a row 0002 wrote has no name")
-	_, err = db.Write.ExecContext(ctx, `UPDATE oauth_connections SET name = 'Ada' WHERE provider = 'chatgpt'`)
+	_, err = db.ExecContext(ctx, `UPDATE oauth_connections SET name = 'Ada' WHERE provider = 'chatgpt'`)
 	require.NoError(t, err)
 }
 
@@ -519,16 +513,14 @@ func TestMigration0004AddsTheUsersVariables(t *testing.T) {
 	}
 	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
 
-	db, err := Open(path, 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	db := openThrough(t, path, "0004_env_vars.sql")
 
 	var cwd, env string
-	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT cwd, env FROM tool_calls WHERE id = 't1'`).Scan(&cwd, &env))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT cwd, env FROM tool_calls WHERE id = 't1'`).Scan(&cwd, &env))
 	assert.Equal(t, []string{"/w", ""}, []string{cwd, env}, "a call 0003 wrote was shown no variables")
 
 	insert := func(id string, cluster any, target string) error {
-		_, err := db.Write.ExecContext(ctx, `INSERT INTO env_vars (id, cluster_id, name, value, target, created_at, updated_at)
+		_, err := db.ExecContext(ctx, `INSERT INTO env_vars (id, cluster_id, name, value, target, created_at, updated_at)
 			VALUES (?, ?, 'HELM_NAMESPACE', 'apps', ?, 0, 0)`, id, cluster, target)
 		return err
 	}
@@ -537,10 +529,10 @@ func TestMigration0004AddsTheUsersVariables(t *testing.T) {
 	require.NoError(t, insert("cluster", "c1", "outside"), "the name again, in a cluster")
 	assert.Error(t, insert("nowhere", "c1", "chat"), "a target outside the list")
 
-	_, err = db.Write.ExecContext(ctx, `DELETE FROM clusters WHERE id = 'c1'`)
+	_, err = db.ExecContext(ctx, `DELETE FROM clusters WHERE id = 'c1'`)
 	require.NoError(t, err)
 	var ids string
-	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT group_concat(id) FROM env_vars`).Scan(&ids))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT group_concat(id) FROM env_vars`).Scan(&ids))
 	assert.Equal(t, "every", ids, "the cluster's row goes with it")
 }
 
@@ -619,16 +611,14 @@ func TestMigration0005AddsTheToolSettings(t *testing.T) {
 	}
 	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
 
-	db, err := Open(path, 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	db := openThrough(t, path, "0005_tool_settings.sql")
 
 	var value string
-	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT value FROM env_vars WHERE id = 'v1'`).Scan(&value))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT value FROM env_vars WHERE id = 'v1'`).Scan(&value))
 	assert.Equal(t, "apps", value, "0004's row survives")
 
 	insert := func(cluster any, enabled int) error {
-		_, err := db.Write.ExecContext(ctx, `INSERT INTO tool_settings (tool_name, cluster_id, enabled, updated_at)
+		_, err := db.ExecContext(ctx, `INSERT INTO tool_settings (tool_name, cluster_id, enabled, updated_at)
 			VALUES ('Bash', ?, ?, 0)`, cluster, enabled)
 		return err
 	}
@@ -638,10 +628,10 @@ func TestMigration0005AddsTheToolSettings(t *testing.T) {
 	assert.Error(t, insert("c2", 0), "a cluster that does not exist")
 	assert.Error(t, insert(nil, 2), "enabled is 0 or 1")
 
-	_, err = db.Write.ExecContext(ctx, `DELETE FROM clusters WHERE id = 'c1'`)
+	_, err = db.ExecContext(ctx, `DELETE FROM clusters WHERE id = 'c1'`)
 	require.NoError(t, err)
 	var scopes string
-	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT group_concat(ifnull(cluster_id, 'every')) FROM tool_settings`).Scan(&scopes))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT group_concat(ifnull(cluster_id, 'every')) FROM tool_settings`).Scan(&scopes))
 	assert.Equal(t, "every", scopes, "the cluster's row goes with it")
 }
 
@@ -672,26 +662,24 @@ func TestMigration0006AddsThePermissionTables(t *testing.T) {
 	}
 	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
 
-	db, err := Open(path, 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	db := openThrough(t, path, "0006_permissions.sql")
 
 	// count is how many rows of from there are.
 	count := func(from string) int {
 		t.Helper()
 		var n int
-		require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT count(*) FROM `+from).Scan(&n))
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM `+from).Scan(&n))
 		return n
 	}
 	assert.Zero(t, count(`sqlite_schema WHERE name = 'chat_grants'`), "chat_grants is gone")
 	var value string
-	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT value FROM env_vars WHERE id = 'v1'`).Scan(&value))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT value FROM env_vars WHERE id = 'v1'`).Scan(&value))
 	assert.Equal(t, "apps", value, "0004's row survives")
 	assert.Equal(t, 1, count(`tool_settings`), "0005's row survives")
 	assert.Equal(t, 1, count(`chats`), "0001's rows survive")
 
 	exec := func(q string, args ...any) error {
-		_, err := db.Write.ExecContext(ctx, q, args...)
+		_, err := db.ExecContext(ctx, q, args...)
 		return err
 	}
 
@@ -754,7 +742,7 @@ func TestMigration0006AddsThePermissionTables(t *testing.T) {
 	require.NoError(t, exec(`INSERT INTO folder_grants (id, chat_id, folder, access, created_at) VALUES ('f8', NULL, '/srv/code', 'write', 1)
 		ON CONFLICT (ifnull(chat_id, ''), folder) DO UPDATE SET access = excluded.access`))
 	var id, access string
-	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT id, access FROM folder_grants WHERE chat_id IS NULL`).Scan(&id, &access))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT id, access FROM folder_grants WHERE chat_id IS NULL`).Scan(&id, &access))
 	assert.Equal(t, []string{"f1", "write"}, []string{id, access}, "a grant again keeps its row")
 
 	require.NoError(t, exec(`DELETE FROM chats WHERE id = 'h1'`))
@@ -805,11 +793,9 @@ func TestMigration0007AddsTheSandboxSettings(t *testing.T) {
 	require.Len(t, before, 15, "a row in every earlier table")
 	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
 
-	db, err := Open(path, 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	db := openThrough(t, path, "0007_sandbox_settings.sql")
 
-	after := tableRows(t, db.Read.DB)
+	after := tableRows(t, db)
 	assert.Equal(t, 1, len(after["sandbox_settings"]))
 	delete(after, "sandbox_settings")
 	assert.Equal(t, before, after, "every earlier row survives as it was")
@@ -818,18 +804,18 @@ func TestMigration0007AddsTheSandboxSettings(t *testing.T) {
 	count := func(from string) int {
 		t.Helper()
 		var n int
-		require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT count(*) FROM `+from).Scan(&n))
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM `+from).Scan(&n))
 		return n
 	}
 
 	var aws, github, gcp, azure int
-	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT aws_enabled, github_enabled, gcp_enabled, azure_enabled FROM sandbox_settings WHERE id = 1`).
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT aws_enabled, github_enabled, gcp_enabled, azure_enabled FROM sandbox_settings WHERE id = 1`).
 		Scan(&aws, &github, &gcp, &azure))
 	assert.Equal(t, []int{1, 1, 1, 1}, []int{aws, github, gcp, azure}, "every switch starts on")
 	assert.Equal(t, 1, count(`sandbox_settings`))
 
 	exec := func(q string) error {
-		_, err := db.Write.ExecContext(ctx, q)
+		_, err := db.ExecContext(ctx, q)
 		return err
 	}
 	assert.Error(t, exec(`INSERT INTO sandbox_settings (id, updated_at) VALUES (2, 0)`), "a second row")
@@ -917,20 +903,18 @@ func TestMigration0008AddsTheExecutables(t *testing.T) {
 	require.Len(t, before, 16, "a row in every earlier table")
 	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
 
-	db, err := Open(path, 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	db := openThrough(t, path, "0008_executables.sql")
 
 	// A later migration adds sandbox_settings' path column, so its row is
 	// compared by the columns this one knew.
-	after := tableRows(t, db.Read.DB)
+	after := tableRows(t, db)
 	assert.Equal(t, before["sandbox_settings"][0], after["sandbox_settings"][0][:len(before["sandbox_settings"][0])])
 	delete(before, "sandbox_settings")
 	delete(after, "sandbox_settings")
 	assert.Equal(t, before, after, "every earlier row survives as it was, and executables starts empty")
 
 	exec := func(q string) error {
-		_, err := db.Write.ExecContext(ctx, q)
+		_, err := db.ExecContext(ctx, q)
 		return err
 	}
 	require.NoError(t, exec(`INSERT INTO executables (name, invocation, created_at) VALUES ('k9s', 'k9s version', 22)`))
@@ -978,27 +962,180 @@ func TestMigration0009AddsThePathSetting(t *testing.T) {
 	require.Len(t, before, 17, "a row in every earlier table")
 	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
 
-	db, err := Open(path, 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	db := openThrough(t, path, "0009_path.sql")
 
-	after := tableRows(t, db.Read.DB)
+	after := tableRows(t, db)
 	delete(before, "sandbox_settings")
 	delete(after, "sandbox_settings")
 	assert.Equal(t, before, after, "every earlier row survives as it was, and shell_path starts empty")
 
 	var github bool
 	var value string
-	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT github_enabled, path FROM sandbox_settings WHERE id = 1`).Scan(&github, &value))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT github_enabled, path FROM sandbox_settings WHERE id = 1`).Scan(&github, &value))
 	assert.False(t, github, "the switch survives")
 	assert.Equal(t, "$PATH", value, "the setting starts as the shell's PATH")
 
 	exec := func(q string) error {
-		_, err := db.Write.ExecContext(ctx, q)
+		_, err := db.ExecContext(ctx, q)
 		return err
 	}
 	require.NoError(t, exec(`INSERT INTO shell_path (id, path) VALUES (1, '/usr/bin:/bin')`))
 	assert.Error(t, exec(`INSERT INTO shell_path (id, path) VALUES (2, '/bin')`), "one row at most")
 	assert.Error(t, exec(`INSERT OR REPLACE INTO shell_path (id, path) VALUES (1, NULL)`), "a path is NOT NULL")
 	assert.Error(t, exec(`UPDATE sandbox_settings SET path = NULL`), "the setting is NOT NULL")
+}
+
+// frozenThrough is every migration up to and including last, read from the
+// embedded set.
+func frozenThrough(t *testing.T, last string) fstest.MapFS {
+	t.Helper()
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	require.NoError(t, err)
+	frozen := fstest.MapFS{}
+	for _, e := range entries {
+		if e.Name() > last {
+			break
+		}
+		data, err := fs.ReadFile(migrationsFS, "migrations/"+e.Name())
+		require.NoError(t, err)
+		frozen["migrations/"+e.Name()] = &fstest.MapFile{Data: data}
+	}
+	require.Contains(t, frozen, "migrations/"+last)
+	return frozen
+}
+
+// openThrough is a writer on the file at path, migrated through last and no
+// further, for a test of a migration a later one changes. It closes when the
+// test ends.
+func openThrough(t *testing.T, path, last string) *sql.DB {
+	t.Helper()
+	pool, err := sqlitepool.OpenWriter(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool)) })
+	_, err = sqlitemigrate.Apply(context.Background(), pool.DB, frozenThrough(t, last), "migrations")
+	require.NoError(t, err)
+	return pool.DB
+}
+
+// settingsRow is one settings row: its key, scope ("" for every cluster),
+// value and times.
+type settingsRow struct {
+	Key, Cluster     string
+	Value            any
+	Created, Updated int64
+}
+
+func settingsRows(t *testing.T, db *sql.DB) []settingsRow {
+	t.Helper()
+	rows, err := db.Query(`SELECT key, ifnull(cluster_id, ''), value, created_at, updated_at FROM settings ORDER BY key, cluster_id`)
+	require.NoError(t, err)
+	defer rows.Close()
+	var out []settingsRow
+	for rows.Next() {
+		var r settingsRow
+		require.NoError(t, rows.Scan(&r.Key, &r.Cluster, &r.Value, &r.Created, &r.Updated))
+		out = append(out, r)
+	}
+	require.NoError(t, rows.Err())
+	return out
+}
+
+// 0010 moves every single-value setting into settings and drops the three
+// tables that held them. Every other row survives as it was.
+func TestMigration0010MovesTheSingleValueSettings(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "app.db")
+	pool, err := sqlitepool.OpenWriter(path)
+	require.NoError(t, err)
+	_, err = sqlitemigrate.Apply(ctx, pool.DB, frozenThrough(t, "0009_path.sql"), "migrations")
+	require.NoError(t, err)
+	for _, seed := range []string{
+		`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('c1', 'kubeconfig', 'ctx', 1, 2)`,
+		`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('h1', 'c1', 'chat', 3, 4)`,
+		`INSERT INTO messages (id, chat_id, seq, role, content, created_at) VALUES ('u1', 'h1', 0, 'user', '[{"type":"text","text":"hi"}]', 5)`,
+		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, trigger_message_id, provider, model, dialect, created_at) VALUES ('r1', 'chat', 'dev', 'chat', 'h1', 'u1', 'p', 'm', 'fake', 6)`,
+		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l1', 'r1', 0, 'p', 'm', 7)`,
+		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, created_at) VALUES ('t1', 'l1', 0, 'Bash', 8)`,
+		`INSERT INTO approvals (id, tool_call_id, created_at) VALUES ('a1', 't1', 9)`,
+		`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, started_at) VALUES ('b1', 'h1', 't1', '/o', 'running', 10)`,
+		`INSERT INTO memories (id, cluster_id, name, body, written_by, chat_id, created_at, updated_at) VALUES ('m1', 'c1', 'n', 'b', 'model', 'h1', 11, 12)`,
+		`INSERT INTO oauth_connections (provider, created_at, updated_at) VALUES ('google', 13, 14)`,
+		`INSERT INTO env_vars (id, cluster_id, name, value, target, created_at, updated_at) VALUES ('v1', NULL, 'HELM_NAMESPACE', 'apps', 'both', 15, 16)`,
+		`INSERT INTO kube_rules (id, chat_id, effect, class, cluster_id, namespace, created_at) VALUES ('k1', 'h1', 'deny', 'destructive', NULL, 'apps', 19)`,
+		`INSERT INTO folder_grants (id, chat_id, folder, access, created_at) VALUES ('f1', NULL, '/srv/code', 'write', 20)`,
+		`INSERT INTO executables (name, invocation, created_at) VALUES ('k9s', 'k9s version', 22)`,
+		`INSERT INTO shell_path (id, path) VALUES (1, '/usr/bin:/bin')`,
+	} {
+		_, err = pool.ExecContext(ctx, seed)
+		require.NoError(t, err, seed)
+	}
+	before := tableRows(t, pool.DB)
+	delete(before, "sandbox_settings") // the row 0007 wrote, in a table 0010 drops
+	for _, seed := range []string{
+		`INSERT INTO tool_settings (tool_name, cluster_id, enabled, updated_at) VALUES ('Bash', NULL, 0, 30), ('WebFetch', NULL, 1, 31), ('Read', 'c1', 0, 32)`,
+		`INSERT INTO approval_modes (cluster_id, mode, updated_at) VALUES (NULL, 'auto', 33), ('c1', 'read-only', 34)`,
+		`UPDATE sandbox_settings SET github_enabled = 0, path = '/opt/bin:$PATH', updated_at = 35`,
+	} {
+		_, err = pool.ExecContext(ctx, seed)
+		require.NoError(t, err, seed)
+	}
+	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
+
+	db, err := Open(path, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	after := tableRows(t, db.Read.DB)
+	delete(after, "settings")
+	assert.Equal(t, before, after, "every other row survives as it was, and the three tables are gone")
+	assert.Equal(t, []settingsRow{
+		{Key: "permissions.approval_mode", Cluster: "", Value: "auto", Created: 33, Updated: 33},
+		{Key: "permissions.approval_mode", Cluster: "c1", Value: "read-only", Created: 34, Updated: 34},
+		{Key: "sandbox.github.enabled", Value: int64(0), Created: 35, Updated: 35},
+		{Key: "sandbox.path", Value: "/opt/bin:$PATH", Created: 35, Updated: 35},
+		{Key: "tools.Bash.enabled", Value: int64(0), Created: 30, Updated: 30},
+		{Key: "tools.WebFetch.enabled", Value: int64(1), Created: 31, Updated: 31},
+	}, settingsRows(t, db.Read.DB), "a switch that was on and the cluster's tool setting carry no row")
+
+	exec := func(q string, args ...any) error {
+		_, err := db.Write.ExecContext(ctx, q, args...)
+		return err
+	}
+	insert := func(key string, cluster, value any) error {
+		return exec(`INSERT INTO settings (key, cluster_id, value, created_at, updated_at) VALUES (?, ?, ?, 0, 0)`, key, cluster, value)
+	}
+	assert.Error(t, insert("tools.Bash.enabled", nil, 1), "a second row of one key for every cluster")
+	require.NoError(t, insert("tools.Bash.enabled", "c1", 1), "the key again, in a cluster")
+	assert.Error(t, insert("tools.Bash.enabled", "c1", 0), "a second row of one key in a cluster")
+	assert.Error(t, insert("x.y", "c2", 1), "a cluster that does not exist")
+	assert.Error(t, insert("", nil, 1), "an empty key")
+	assert.Error(t, insert("x.real", nil, 1.5), "a real")
+	assert.Error(t, insert("x.blob", nil, []byte{1}), "a blob")
+	require.NoError(t, insert("x.null", nil, nil), "a NULL is the default, chosen")
+	require.NoError(t, insert("x.int", nil, int64(7)))
+	var kind string
+	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT typeof(value) FROM settings WHERE key = 'x.int'`).Scan(&kind))
+	assert.Equal(t, "integer", kind, "an integer stays an integer")
+
+	require.NoError(t, exec(`DELETE FROM clusters WHERE id = 'c1'`))
+	var n int
+	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT count(*) FROM settings WHERE cluster_id IS NOT NULL`).Scan(&n))
+	assert.Zero(t, n, "a cluster's rows go with it")
+}
+
+// A PATH and switches left as the migration that made them wrote them carry
+// no row: their old row cannot tell a default from a choice.
+func TestMigration0010CarriesNoDefault(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "app.db")
+	pool, err := sqlitepool.OpenWriter(path)
+	require.NoError(t, err)
+	_, err = sqlitemigrate.Apply(ctx, pool.DB, frozenThrough(t, "0009_path.sql"), "migrations")
+	require.NoError(t, err)
+	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
+
+	db, err := Open(path, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	assert.Empty(t, settingsRows(t, db.Read.DB))
 }

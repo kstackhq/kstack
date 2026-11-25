@@ -123,8 +123,8 @@ const (
 	// KeyMemories: a memories row was inserted, rewritten or removed by a write of
 	// the memory service. A cascade from a clusters delete notifies KeyClusters alone.
 	KeyMemories = "memories"
-	// KeyPermissions: an approval_modes row, or a kube_rules or folder_grants row
-	// whose chat_id is NULL, was written by the settings store.
+	// KeyPermissions: an approval mode's settings row, or a kube_rules or
+	// folder_grants row whose chat_id is NULL, was written by the settings store.
 	KeyPermissions = "permissions"
 	// KeyExecutables: an executables row was registered or removed by the
 	// settings store.
