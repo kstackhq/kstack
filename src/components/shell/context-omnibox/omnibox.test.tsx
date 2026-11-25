@@ -83,10 +83,12 @@ function serveContexts(
   names: string[],
   over: { context?: string; phase?: string; clusterEntry?: Record<string, unknown> | null } = {},
 ) {
+  const context = over.context ?? names[0] ?? '';
   useActiveKubeContextMock.mockReturnValue({
-    context: over.context ?? names[0] ?? '',
+    context,
     contexts: names.map((name) => ({ name, cluster: name, user: name, clusterEntry: null })),
-    active: { name: over.context ?? names[0] ?? '', clusterEntry: over.clusterEntry ?? null },
+    noneSelected: context === '' && names.length > 0,
+    active: { name: context, clusterEntry: over.clusterEntry ?? null },
     phase: over.phase ?? 'live',
     setContext,
   });
@@ -332,21 +334,36 @@ describe('ContextOmnibox', () => {
   it.each([
     { phase: 'connecting' as const, words: 'Connecting…', name: 'Cluster: connecting' },
     { phase: 'live' as const, words: 'No kubeconfig', name: 'Cluster: no kubeconfig' },
-  ])('drops "$words" in a narrow box, keeping it as the name', ({ phase, words, name }) => {
-    serveContexts([], { phase });
+    { phase: 'live' as const, words: 'No cluster selected', name: 'Cluster: none selected', listed: ['prod'] },
+  ])('drops "$words" in a narrow box, keeping it as the name', ({ phase, words, name, listed = [] }) => {
+    serveContexts(listed, { phase, context: '' });
     render(<ContextOmnibox />);
     expect(screen.getByText(words)).toHaveClass('@max-[14rem]:hidden');
     expect(screen.getByRole('button', { name })).toBeInTheDocument();
   });
 
-  // The picker still opens, so a user with no kubeconfig reaches the dialog's orphaned caches.
-  it('says there is no kubeconfig once connected with nothing in it, and still opens the picker', async () => {
-    serveContexts([], { phase: 'live' });
+  // The picker still opens: a user with no kubeconfig reaches the dialog's orphaned
+  // caches, and one whose window resolves no cluster picks one there.
+  it.each([
+    {
+      what: 'there is no kubeconfig once connected with nothing in it',
+      listed: [],
+      name: 'Cluster: no kubeconfig',
+      words: 'No kubeconfig',
+    },
+    {
+      what: 'no cluster is selected when contexts are listed and none resolves',
+      listed: ['prod', 'staging'],
+      name: 'Cluster: none selected',
+      words: 'No cluster selected',
+    },
+  ])('says $what, and still opens the picker', async ({ listed, name, words }) => {
+    serveContexts(listed, { context: '', phase: 'live' });
     const user = userEvent.setup();
     render(<ContextOmnibox />);
 
-    const empty = screen.getByRole('button', { name: 'Cluster: no kubeconfig' });
-    expect(empty).toHaveTextContent('No kubeconfig');
+    const empty = screen.getByRole('button', { name });
+    expect(empty).toHaveTextContent(words);
     // No cluster, no status: the bare icon is the picker's.
     expect(screen.queryByRole('button', { name: /^cluster status/i })).not.toBeInTheDocument();
     expect(within(empty).getByTestId('cluster-glyph')).toBeInTheDocument();

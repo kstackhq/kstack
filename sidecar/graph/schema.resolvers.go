@@ -288,6 +288,13 @@ func (r *mutationResolver) ClusterMonitoringEnabledSet(ctx context.Context, id a
 	return c, clusterErr(err)
 }
 
+// ClusterDefaultSet is the resolver for the clusterDefaultSet field. The previous
+// default's change reaches the webview through the cluster watch.
+func (r *mutationResolver) ClusterDefaultSet(ctx context.Context, id apimeta.ClusterID, isDefault bool) (*cluster.Cluster, error) {
+	c, err := r.ClusterSvc.Clusters().SetDefault(ctx, id, isDefault)
+	return c, clusterErr(err)
+}
+
 // ClusterConnectionRetry is the resolver for the clusterConnectionRetry field. It
 // resolves when the probe it asked for has finished, so the request is held open for
 // that long. What the probe found lands on the record's conditions and reaches the

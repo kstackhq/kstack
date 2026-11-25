@@ -33,6 +33,7 @@ import { VisibleText } from '@/components/primitives/visible-text';
 import { useClusterCacheStatsStateWatch } from '@/lib/cluster-diagnostics';
 import {
   ClusterCacheClearMutation,
+  ClusterDefaultSetMutation,
   ClusterDeleteMutation,
   ClusterEnabledSetMutation,
   ClusterSyncEnabledSetMutation,
@@ -95,6 +96,7 @@ function ClusterRow({ cluster }: { cluster: Cluster }) {
           >
             <VisibleText text={title} />
           </span>
+          {spec.isDefault && <Badge>Default</Badge>}
           {!spec.enabled && <Badge>Disabled</Badge>}
           {spec.enabled && !spec.syncEnabled && <Badge>Sync paused</Badge>}
         </div>
@@ -119,6 +121,7 @@ function ClusterRow({ cluster }: { cluster: Cluster }) {
 
 function RowMenu({ cluster, title, onDisk }: { cluster: Cluster; title: string; onDisk: boolean }) {
   const { id, spec, activeCache } = cluster;
+  const [, setDefault] = useMutation(ClusterDefaultSetMutation);
   const [, setSyncEnabled] = useMutation(ClusterSyncEnabledSetMutation);
   const [, setEnabled] = useMutation(ClusterEnabledSetMutation);
   const [, clearCache] = useMutation(ClusterCacheClearMutation);
@@ -131,11 +134,16 @@ function RowMenu({ cluster, title, onDisk }: { cluster: Cluster; title: string; 
         <Ellipsis className="size-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="bottom">
-        {/* Sync means nothing on a disabled cluster. */}
+        {/* A disabled cluster can be neither the default nor synced. */}
         {spec.enabled && (
-          <DropdownMenuItem onClick={() => void setSyncEnabled({ id, syncEnabled: !spec.syncEnabled })}>
-            {spec.syncEnabled ? 'Pause syncing' : 'Resume syncing'}
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuItem onClick={() => void setDefault({ id, isDefault: !spec.isDefault })}>
+              {spec.isDefault ? 'Remove as default' : 'Set as default'}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void setSyncEnabled({ id, syncEnabled: !spec.syncEnabled })}>
+              {spec.syncEnabled ? 'Pause syncing' : 'Resume syncing'}
+            </DropdownMenuItem>
+          </>
         )}
         <DropdownMenuItem onClick={() => void setEnabled({ id, enabled: !spec.enabled })}>
           {spec.enabled ? 'Disable' : 'Enable'}

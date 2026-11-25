@@ -299,3 +299,4 @@ usually just documentation in the wrong place.
 | 2026-11-25 | [Name every subscription for its family and kind](2026-11-25-name-every-subscription-for-its-family-and-kind.md) | cross-cutting | Superseded by [2026-11-25-name-every-data-access-for-its-family-kind-and-operation](2026-11-25-name-every-data-access-for-its-family-kind-and-operation.md) |
 | 2026-11-25 | [Decide every target's request by access level, a boundary, a mode and rules over one action](2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action.md) | cross-cutting | Accepted |
 | 2026-11-25 | [Name every data access for its family, kind and operation](2026-11-25-name-every-data-access-for-its-family-kind-and-operation.md) | cross-cutting | Accepted |
+| 2026-11-25 | [A window fixes its cluster, and Kstack never falls back from an unreachable one](2026-11-25-a-window-fixes-its-cluster-and-never-falls-back.md) | cross-cutting | Accepted |

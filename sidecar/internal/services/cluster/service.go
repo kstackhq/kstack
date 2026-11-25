@@ -207,6 +207,11 @@ type Clusters interface {
 	// cluster and returns the updated record. The toggle is stored and served; nothing
 	// runs on it yet.
 	SetMonitoringEnabled(ctx context.Context, id ClusterID, enabled bool) (*Cluster, error)
+	// SetDefault makes a cluster the user's default, clearing the one before, or stops
+	// it being the default, and returns the updated record. A call that changes nothing
+	// writes nothing. Making a cluster the default is refused (ErrCannotBeDefault) unless
+	// it is enabled and its kubeconfig declares it.
+	SetDefault(ctx context.Context, id ClusterID, isDefault bool) (*Cluster, error)
 
 	// ListEvents and SubscribeEventFeed are the cluster's own timeline, the top-level pair
 	// resolved by ClusterID. Absence is empty, or the Bookmark alone.

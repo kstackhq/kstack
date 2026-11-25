@@ -31,6 +31,8 @@ Around it:
 
 ## The kubeconfig mirror
 
+`KubeConfig.defaultContext` is the usable default cluster, else `current-context`, else `''` → [ADR](../../../docs/adr/2026-11-25-a-window-fixes-its-cluster-and-never-falls-back.md).
+
 **The sidecar mirrors the kubeconfig and draws no verdicts over it.** `status.source.kubeconfig.cluster` is `{ name, entry }` (`entry`: `server`, `insecureSkipTLSVerify`; null when undefined). `user` is the name alone — an authInfo entry holds credentials. **`tlsUnverifiedReason` in `src/lib/kube-config.tsx` is the one place that derives the badge**; a second inline copy is how the plain-`http` arm goes missing. → [ADR: status mirrors the kubeconfig](../../../docs/adr/2026-09-03-status-mirrors-the-kubeconfig.md).
 
 ## Memory

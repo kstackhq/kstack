@@ -116,7 +116,7 @@ var chatRefusals = []struct {
 // clusterRefusals maps the cluster service's named errors onto wire codes: an id
 // naming nothing is not found; a record its source still declares, or one that
 // will not be connected, disagrees with the record's own state, the same shape as a
-// turn already in flight.
+// turn already in flight; a cluster that cannot be the default is a bad request.
 var clusterRefusals = []struct {
 	err  error
 	wire *gqlerror.Error
@@ -124,6 +124,7 @@ var clusterRefusals = []struct {
 	{cluster.ErrNotFound, gqlerrors.ErrRecordNotFound},
 	{cluster.ErrDeclaredBySource, gqlerrors.ErrConflict},
 	{cluster.ErrNotConnectable, gqlerrors.ErrConflict},
+	{cluster.ErrCannotBeDefault, gqlerrors.ErrValidationError},
 }
 
 // clusterErr is what every cluster mutation returns an error through.

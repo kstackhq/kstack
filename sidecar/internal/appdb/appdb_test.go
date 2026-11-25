@@ -31,10 +31,10 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	require.FileExists(t, path)
 
-	// Migrations ran: the schema_migrations sequence is at version 6.
+	// Migrations ran: the schema_migrations sequence is at version 7.
 	var v int
 	require.NoError(t, db.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 6, v)
+	require.Equal(t, 7, v)
 	requireTables(t, db.Write.DB)
 	require.NoError(t, db.Close())
 
@@ -43,7 +43,7 @@ func TestOpenCreatesMigratesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db2.Close() })
 	require.NoError(t, db2.Write.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v))
-	require.Equal(t, 6, v)
+	require.Equal(t, 7, v)
 	requireTables(t, db2.Write.DB)
 }
 
@@ -182,6 +182,7 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"CREATE UNIQUE INDEX approvals_call_idx ON approvals (tool_call_id) WHERE kind = 'call'",
 		"CREATE INDEX approvals_pending_idx ON approvals (id) WHERE status = 'pending'",
 		"CREATE INDEX background_tasks_chat_idx ON background_tasks (chat_id)",
+		"CREATE UNIQUE INDEX clusters_one_default ON clusters (is_default) WHERE is_default = 1",
 		"CREATE UNIQUE INDEX env_vars_name ON env_vars (ifnull(cluster_id, ''), name)",
 		"CREATE INDEX folder_grants_chat_idx ON folder_grants (chat_id, created_at, id)",
 		"CREATE UNIQUE INDEX folder_grants_folder ON folder_grants (ifnull(chat_id, ''), folder)",
@@ -417,6 +418,7 @@ var shippedMigrations = map[string]string{
 	"0004_env_vars.sql":               "d1b78060708e5ea46b55f65d43136c935d6166eb35358b7d92c5bc72a1231d86",
 	"0005_tool_settings.sql":          "286b5254057d5a29b9824f54136c3df82c039c06e94b014510b19a0ce9f9991c",
 	"0006_settings.sql":               "7feb0670a84d58bd12cea5edc8843bb8e8992a8ce6233162ca4e8bec101a4f9a",
+	"0007_cluster_default.sql":        "d19ab4b83253a18f5fe772a0e91668ef4b7ac56b7cf76bf53a761eaaa64e15bb",
 }
 
 func TestAShippedMigrationIsNeverEdited(t *testing.T) {
@@ -774,6 +776,41 @@ func TestMigration0006AddsTheSettingsTables(t *testing.T) {
 	assert.Equal(t, "r4,r5,r6,r7", ids(`SELECT group_concat(id) FROM (SELECT id FROM permission_rules ORDER BY id)`), "a cluster's rules go with it, and no other")
 	assert.Equal(t, "aws:c1,kubernetes:*,kubernetes:c10", ids(`SELECT group_concat(target || ':' || account) FROM (SELECT * FROM permission_modes ORDER BY 1, 2)`), "a cluster's mode goes with it, and no other")
 
+}
+
+// A file 0006 built keeps its clusters, each unmarked, and gains the default's
+// column: at most one row is marked, and the mark is 0 or 1.
+func TestMigration0007AddsTheClusterDefault(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "app.db")
+	pool, err := sqlitepool.OpenWriter(path)
+	require.NoError(t, err)
+	_, err = sqlitemigrate.Apply(ctx, pool.DB, frozenThrough(t, "0006_settings.sql"), "migrations")
+	require.NoError(t, err)
+	for _, seed := range []string{
+		`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('c1', 'kubeconfig', 'a', 1, 2)`,
+		`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('c2', 'kubeconfig', 'b', 3, 4)`,
+	} {
+		_, err = pool.ExecContext(ctx, seed)
+		require.NoError(t, err, seed)
+	}
+	require.NoError(t, sqlitepool.CloseAll(sqlitepool.CloseBudget, pool))
+
+	db := openThrough(t, path, "0007_cluster_default.sql")
+
+	var marked int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM clusters WHERE is_default <> 0`).Scan(&marked))
+	assert.Zero(t, marked, "an existing row is not the default")
+
+	mark := func(id string, value int) error {
+		_, err := db.ExecContext(ctx, `UPDATE clusters SET is_default = ? WHERE id = ?`, value, id)
+		return err
+	}
+	require.NoError(t, mark("c1", 1))
+	assert.Error(t, mark("c2", 1), "a second default")
+	assert.Error(t, mark("c2", 2), "is_default is 0 or 1")
+	require.NoError(t, mark("c1", 0))
+	require.NoError(t, mark("c2", 1), "the default moves once the first is cleared")
 }
 
 // tableRows is every row of every table in db but schema_migrations, keyed by

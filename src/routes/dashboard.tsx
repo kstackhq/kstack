@@ -21,6 +21,7 @@ import { EventsTable } from '@/components/dashboard/events-table';
 import { ObjectsTable } from '@/components/dashboard/objects-table';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { VisibleText } from '@/components/primitives/visible-text';
+import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { useClusterCachedDataEvents } from '@/lib/cluster-cached-data-events';
 import { useClusterCachedDataKinds } from '@/lib/cluster-cached-data-kinds';
 import { useClusterCachedDataObjects } from '@/lib/cluster-cached-data-objects';
@@ -52,9 +53,11 @@ type HeldKind = { cacheID: string | undefined; resource: string; kind: ServerKin
 
 // Each resource is a page under the breadcrumb bar, a note over a panel: `events` → `EventsPage`; a resolved
 // discovered kind → `KindPage`; anything else → `PlaceholderPage`. Label and kind resolve
-// against the same live catalog the sidebar uses.
+// against the same live catalog the sidebar uses. A window on no cluster, with contexts
+// to pick from, draws one note in place of every page.
 function Dashboard() {
   const { resource } = Route.useSearch();
+  const { noneSelected } = useActiveKubeContext();
   const { kinds, active, cacheID, phase } = useClusterCachedDataKinds();
   const resolved = resolveDashboardResource(resource);
   // The catalog re-emits on count churn — memoize so a Modified frame doesn't rescan it
@@ -75,7 +78,9 @@ function Dashboard() {
   const label = dashboardResourceLabel(kind ? [kind] : [], resolved);
 
   let page;
-  if (resolved === 'events') {
+  if (noneSelected) {
+    page = <Note>No cluster selected. Pick one from the cluster menu at the top of the window.</Note>;
+  } else if (resolved === 'events') {
     page = <EventsPage />;
   } else if (kind) {
     page = <KindPage kind={kind} label={label} />;

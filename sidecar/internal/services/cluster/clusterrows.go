@@ -25,7 +25,8 @@ import (
 
 // ClusterRow mirrors one clusters row. SourceKey is the kube-context of a
 // kubeconfig row and nil for a cloud one; Name is nil until the user sets one;
-// DeleteRequestedAt is nil until the user deletes the cluster.
+// IsDefault marks the user's default cluster, at most one row; DeleteRequestedAt is
+// nil until the user deletes the cluster.
 type ClusterRow struct {
 	ID                ClusterID
 	Source            string
@@ -34,6 +35,7 @@ type ClusterRow struct {
 	Enabled           bool
 	SyncEnabled       bool
 	MonitoringEnabled bool
+	IsDefault         bool
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	DeleteRequestedAt *time.Time
@@ -58,7 +60,7 @@ func scanClusterRow(s scanner) (ClusterRow, error) {
 		deleteRequestedAt    sql.NullInt64
 	)
 	err := s.Scan(&r.ID, &r.Source, &r.SourceKey, &r.Name, &r.Enabled, &r.SyncEnabled, &r.MonitoringEnabled,
-		&createdAt, &updatedAt, &deleteRequestedAt)
+		&r.IsDefault, &createdAt, &updatedAt, &deleteRequestedAt)
 	if err != nil {
 		return ClusterRow{}, err
 	}
@@ -123,7 +125,7 @@ func listClusters(ctx context.Context, st stmts) ([]ClusterRow, error) {
 	return out, nil
 }
 
-// setClusterToggle writes one toggle column — stmt is one of the three toggle
+// setClusterToggle writes one toggle column — stmt is one of the toggle
 // statements — and returns the row as written. A row it could not write, absent
 // or marked, is ErrNotFound.
 func setClusterToggle(ctx context.Context, st stmts, stmt stmtID, id ClusterID, on bool, at time.Time) (ClusterRow, error) {
@@ -135,6 +137,34 @@ func setClusterToggle(ctx context.Context, st stmts, stmt stmtID, id ClusterID, 
 		return ClusterRow{}, fmt.Errorf("update cluster %s: %w", id, err)
 	}
 	return r, nil
+}
+
+// setClusterDefault makes the row the default, clearing the one before, or stops it
+// being the default, and reports whether it wrote. It runs inside a transaction, so
+// the read and both writes see one state. A call that changes nothing writes nothing
+// and returns the row. An absent or marked row is ErrNotFound; a row canBeDefault
+// refuses cannot be made the default, ErrCannotBeDefault.
+func setClusterDefault(ctx context.Context, st stmts, id ClusterID, on bool, at time.Time, canBeDefault func(ClusterRow) bool) (ClusterRow, bool, error) {
+	row, ok, err := getCluster(ctx, st, id)
+	if err != nil {
+		return ClusterRow{}, false, err
+	}
+	if !ok || row.DeleteRequestedAt != nil {
+		return ClusterRow{}, false, fmt.Errorf("update cluster %s: %w", id, ErrNotFound)
+	}
+	if row.IsDefault == on {
+		return row, false, nil
+	}
+	if on {
+		if !canBeDefault(row) {
+			return ClusterRow{}, false, fmt.Errorf("update cluster %s: %w", id, ErrCannotBeDefault)
+		}
+		if _, err := st.Exec(ctx, stmtClearClusterDefault, millis(at)); err != nil {
+			return ClusterRow{}, false, fmt.Errorf("clear the default: %w", err)
+		}
+	}
+	row, err = setClusterToggle(ctx, st, stmtSetClusterDefault, id, on, at)
+	return row, err == nil, err
 }
 
 // markCluster asks for the row's deletion and reports whether this call was the one

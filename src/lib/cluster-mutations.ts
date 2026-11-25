@@ -39,6 +39,17 @@ export const ClusterSyncEnabledSetMutation = graphql(`
   }
 `);
 
+export const ClusterDefaultSetMutation = graphql(`
+  mutation ClusterDefaultSet($id: ClusterID!, $isDefault: Boolean!) {
+    clusterDefaultSet(id: $id, isDefault: $isDefault) {
+      id
+      spec {
+        isDefault
+      }
+    }
+  }
+`);
+
 export const ClusterCacheClearMutation = graphql(`
   mutation ClusterCacheClear($id: ObjectID!) {
     clusterCacheClear(id: $id) {

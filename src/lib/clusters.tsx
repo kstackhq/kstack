@@ -62,6 +62,7 @@ const ClusterCollectionWatchDocument = graphql(`
           name
           syncEnabled
           enabled
+          isDefault
           source {
             kubeconfig {
               context

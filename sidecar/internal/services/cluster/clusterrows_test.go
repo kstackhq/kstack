@@ -63,8 +63,8 @@ func importRow(t *testing.T, st *sqlstmt.Set[stmtID], contextName string) Cluste
 	return row
 }
 
-// A fresh import takes SQL's defaults: enabled, syncing, not monitored, unnamed,
-// unmarked, both stamps at the import time.
+// A fresh import takes SQL's defaults: enabled, syncing, not monitored, not the
+// default, unnamed, unmarked, both stamps at the import time.
 func TestInsertClusterIfAbsentTakesTheDefaults(t *testing.T) {
 	_, st := openTestStore(t)
 	row := importRow(t, st, "dev")
@@ -76,6 +76,7 @@ func TestInsertClusterIfAbsentTakesTheDefaults(t *testing.T) {
 	require.True(t, row.Enabled)
 	require.True(t, row.SyncEnabled)
 	require.False(t, row.MonitoringEnabled)
+	require.False(t, row.IsDefault)
 	require.Equal(t, t0, row.CreatedAt)
 	require.Equal(t, t0, row.UpdatedAt)
 	require.Nil(t, row.DeleteRequestedAt)
@@ -249,4 +250,183 @@ func TestClusterRowsReportAStorageFault(t *testing.T) {
 	} {
 		assert.Error(t, op(), name)
 	}
+}
+
+// setDefault runs setClusterDefault in its own transaction, as the service does,
+// letting any enabled row be the default.
+func setDefault(t *testing.T, st *sqlstmt.Set[stmtID], id ClusterID, on bool, at time.Time) (ClusterRow, error) {
+	t.Helper()
+	var row ClusterRow
+	err := st.InTx(context.Background(), func(s stmts) error {
+		var err error
+		row, _, err = setClusterDefault(context.Background(), s, id, on, at, func(r ClusterRow) bool { return r.Enabled })
+		return err
+	})
+	return row, err
+}
+
+// makeDefault makes id the default at t0, a test's starting state.
+func makeDefault(t *testing.T, st *sqlstmt.Set[stmtID], id ClusterID) {
+	t.Helper()
+	_, err := setDefault(t, st, id, true, t0)
+	require.NoError(t, err)
+}
+
+// reread is the row as stored now.
+func reread(t *testing.T, st *sqlstmt.Set[stmtID], id ClusterID) ClusterRow {
+	t.Helper()
+	row, ok, err := getCluster(context.Background(), st.Stmts(), id)
+	require.NoError(t, err)
+	require.True(t, ok)
+	return row
+}
+
+// Setting the default clears the one before, and both stamps move, so the watch
+// sends a change for each.
+func TestSetClusterDefaultMovesTheDefault(t *testing.T) {
+	_, st := openTestStore(t)
+	a, b := importRow(t, st, "a"), importRow(t, st, "b")
+	at := t0.Add(time.Second)
+
+	got, err := setDefault(t, st, a.ID, true, at)
+	require.NoError(t, err)
+	require.True(t, got.IsDefault)
+	require.Equal(t, at, got.UpdatedAt)
+
+	later := at.Add(time.Second)
+	got, err = setDefault(t, st, b.ID, true, later)
+	require.NoError(t, err)
+	require.True(t, got.IsDefault)
+	old := reread(t, st, a.ID)
+	require.False(t, old.IsDefault)
+	require.Equal(t, later, old.UpdatedAt)
+}
+
+// Clearing the default leaves no row the default.
+func TestSetClusterDefaultClears(t *testing.T) {
+	_, st := openTestStore(t)
+	a := importRow(t, st, "a")
+	makeDefault(t, st, a.ID)
+
+	got, err := setDefault(t, st, a.ID, false, t0.Add(time.Second))
+	require.NoError(t, err)
+	require.False(t, got.IsDefault)
+	require.False(t, reread(t, st, a.ID).IsDefault)
+}
+
+// A call that changes nothing writes nothing: the stamp stays, so no change is sent.
+func TestSetClusterDefaultThatChangesNothingWritesNothing(t *testing.T) {
+	_, st := openTestStore(t)
+	a, b := importRow(t, st, "a"), importRow(t, st, "b")
+	at := t0.Add(time.Second)
+	_, err := setDefault(t, st, a.ID, true, at)
+	require.NoError(t, err)
+
+	got, err := setDefault(t, st, a.ID, true, at.Add(time.Second))
+	require.NoError(t, err)
+	require.True(t, got.IsDefault)
+	require.Equal(t, at, got.UpdatedAt, "setting the default again")
+
+	got, err = setDefault(t, st, b.ID, false, at.Add(time.Second))
+	require.NoError(t, err)
+	require.False(t, got.IsDefault)
+	require.Equal(t, t0, got.UpdatedAt, "clearing a cluster that isn't the default")
+}
+
+// A marked row is closed to the default as to every toggle, and an absent one is
+// not found; one the predicate refuses cannot become the default.
+func TestSetClusterDefaultRefusals(t *testing.T) {
+	ctx := context.Background()
+	_, st := openTestStore(t)
+	marked, disabled := importRow(t, st, "marked"), importRow(t, st, "disabled")
+	_, err := markCluster(ctx, st.Stmts(), marked.ID, t0)
+	require.NoError(t, err)
+	_, err = setClusterToggle(ctx, st.Stmts(), stmtSetClusterEnabled, disabled.ID, false, t0)
+	require.NoError(t, err)
+
+	_, err = setDefault(t, st, marked.ID, true, t0)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = setDefault(t, st, marked.ID, false, t0)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = setDefault(t, st, ClusterID(appdb.NewID()), true, t0)
+	require.ErrorIs(t, err, ErrNotFound)
+
+	_, err = setDefault(t, st, disabled.ID, true, t0.Add(time.Second))
+	require.ErrorIs(t, err, ErrCannotBeDefault)
+	require.False(t, reread(t, st, disabled.ID).IsDefault)
+}
+
+// Marking the default for deletion clears it in the same write, so another can be
+// the default while it is torn down.
+func TestMarkingTheDefaultClearsIt(t *testing.T) {
+	ctx := context.Background()
+	_, st := openTestStore(t)
+	a, b := importRow(t, st, "a"), importRow(t, st, "b")
+	makeDefault(t, st, a.ID)
+
+	_, err := markCluster(ctx, st.Stmts(), a.ID, t0.Add(time.Second))
+	require.NoError(t, err)
+	require.False(t, reread(t, st, a.ID).IsDefault)
+
+	got, err := setDefault(t, st, b.ID, true, t0.Add(2*time.Second))
+	require.NoError(t, err)
+	require.True(t, got.IsDefault)
+}
+
+// Disabling the default clears it, and enabling the cluster again leaves it clear.
+func TestDisablingTheDefaultClearsIt(t *testing.T) {
+	ctx := context.Background()
+	_, st := openTestStore(t)
+	a := importRow(t, st, "a")
+	makeDefault(t, st, a.ID)
+
+	got, err := setClusterToggle(ctx, st.Stmts(), stmtSetClusterEnabled, a.ID, false, t0.Add(time.Second))
+	require.NoError(t, err)
+	require.False(t, got.IsDefault)
+
+	got, err = setClusterToggle(ctx, st.Stmts(), stmtSetClusterEnabled, a.ID, true, t0.Add(2*time.Second))
+	require.NoError(t, err)
+	require.False(t, got.IsDefault)
+}
+
+// Enabling a cluster that is already the default keeps it the default.
+func TestEnablingTheDefaultKeepsIt(t *testing.T) {
+	ctx := context.Background()
+	_, st := openTestStore(t)
+	a := importRow(t, st, "a")
+	makeDefault(t, st, a.ID)
+
+	got, err := setClusterToggle(ctx, st.Stmts(), stmtSetClusterEnabled, a.ID, true, t0.Add(time.Second))
+	require.NoError(t, err)
+	require.True(t, got.IsDefault)
+}
+
+// The importer leaves a returning context's row alone, so an archived default is
+// the default again when its context comes back.
+func TestAReturningDefaultIsStillTheDefault(t *testing.T) {
+	ctx := context.Background()
+	_, st := openTestStore(t)
+	a := importRow(t, st, "a")
+	makeDefault(t, st, a.ID)
+
+	require.NoError(t, st.InTx(ctx, func(s stmts) error {
+		_, err := insertClusterIfAbsent(ctx, s, appdb.NewID(), "a", t0.Add(time.Minute))
+		return err
+	}))
+	require.True(t, reread(t, st, a.ID).IsDefault)
+}
+
+// A clear that fails rolls the whole write back: the old default stays.
+func TestSetClusterDefaultRollsBackAFailedClear(t *testing.T) {
+	db, st := openTestStore(t)
+	a, b := importRow(t, st, "a"), importRow(t, st, "b")
+	makeDefault(t, st, a.ID)
+	_, err := db.Write.Exec(`CREATE TRIGGER refuse_clear BEFORE UPDATE OF is_default ON clusters
+		WHEN NEW.is_default = 0 BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+	require.NoError(t, err)
+
+	_, err = setDefault(t, st, b.ID, true, t0.Add(time.Second))
+	require.ErrorContains(t, err, "refused")
+	require.True(t, reread(t, st, a.ID).IsDefault)
+	require.False(t, reread(t, st, b.ID).IsDefault)
 }

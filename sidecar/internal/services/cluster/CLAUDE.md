@@ -41,6 +41,10 @@ policy](../../../../docs/adr/2026-08-28-arming-is-policy-never-interest.md).
 - **Deletion is the mark.** `Clusters().Delete` marks and returns (refusing a row its source still
   declares, `ErrDeclaredBySource`; the toggles refuse a marked row as `ErrNotFound`); the mirror tears down and the
   row goes last. The connection gate reads the mark off the **row** (`connectableContext`).
+- **One default cluster.** `spec.isDefault` is `clusters.is_default`, at most one row by a partial
+  unique index. `SetDefault` clears the old default and sets the new one in one transaction, and
+  refuses (`ErrCannotBeDefault`) a disabled cluster or one its kubeconfig does not declare. Marking
+  a row for deletion or disabling it clears its default; an archived row keeps it.
 - **A failed `Connected` carries the probe's `kubeconn.Reason`** (`Unreachable`, `TLSInvalid`,
   `Unauthorized`, …), `ProbeFailed` when unclassified; the webview names each. → [ADR: Connected
   carries the probe's class of

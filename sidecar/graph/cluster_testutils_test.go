@@ -688,6 +688,23 @@ func (f fakeClusters) SetMonitoringEnabled(_ context.Context, id cluster.Cluster
 	return &cp, nil
 }
 
+func (f fakeClusters) SetDefault(_ context.Context, id cluster.ClusterID, isDefault bool) (*cluster.Cluster, error) {
+	f.s.mu.Lock()
+	defer f.s.mu.Unlock()
+	c, ok := f.s.clusters[id]
+	if !ok {
+		return nil, cluster.ErrNotFound
+	}
+	if isDefault {
+		for _, other := range f.s.clusters {
+			other.Spec.IsDefault = false
+		}
+	}
+	c.Spec.IsDefault = isDefault
+	cp := *c
+	return &cp, nil
+}
+
 func (f *fakeClusterService) RetryConnection(_ context.Context, id cluster.ClusterID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -963,6 +980,10 @@ func (e errClusters) SetSyncEnabled(context.Context, cluster.ClusterID, bool) (*
 	return nil, e.err
 }
 func (e errClusters) SetMonitoringEnabled(context.Context, cluster.ClusterID, bool) (*cluster.Cluster, error) {
+	return nil, e.err
+}
+
+func (e errClusters) SetDefault(context.Context, cluster.ClusterID, bool) (*cluster.Cluster, error) {
 	return nil, e.err
 }
 

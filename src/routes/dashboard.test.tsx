@@ -75,6 +75,9 @@ vi.mock('@/components/dashboard/objects-table/table', () => ({
 
 const { focusObject } = vi.hoisted(() => ({ focusObject: vi.fn() }));
 vi.mock('@/lib/object-view', () => ({ useObjectView: () => ({ set: focusObject }) }));
+// Whether the window is on no cluster while contexts are listed.
+const { kubeContext } = vi.hoisted(() => ({ kubeContext: { noneSelected: false } }));
+vi.mock('@/lib/active-kube-context', () => ({ useActiveKubeContext: () => kubeContext }));
 
 const { useClusterCachedDataObjectsMock, useClusterCachedDataEventsMock } = vi.hoisted(() => ({
   useClusterCachedDataObjectsMock: vi.fn(),
@@ -134,6 +137,7 @@ const pod = (uid: string, namespace: string) => ({ uid, namespace, name: uid });
 const event = (uid: string, involvedNamespace: string) => ({ uid, involvedNamespace });
 
 beforeEach(() => {
+  kubeContext.noneSelected = false;
   focusObject.mockClear();
   useClusterCachedDataObjectsMock.mockReturnValue({ objects: [], active: true, phase: 'live' });
   useClusterCachedDataEventsMock.mockReturnValue({ events: [], active: true, phase: 'live' });
@@ -220,6 +224,15 @@ describe('dashboard route', () => {
     await render('/dashboard?resource=ingresses', [KIND]);
     expect(screen.getByText(/this cluster does not serve ingresses/i)).toBeInTheDocument();
     expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
+  });
+
+  // Contexts are listed but none resolves: every page gives way to the one note.
+  it.each(['events', 'deployments', 'overview'])('says no cluster is selected in place of %s', async (resource) => {
+    kubeContext.noneSelected = true;
+    await render(`/dashboard?resource=${resource}`, [KIND]);
+    expect(screen.getByText(/no cluster selected/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('events-table')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('objects-table')).not.toBeInTheDocument();
   });
 
   it('says a kind is not synced while the cluster has no active cache', async () => {

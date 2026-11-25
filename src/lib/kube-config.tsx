@@ -46,7 +46,11 @@ export function tlsUnverifiedReason(entry: KubeClusterEntry | null): 'skip-verif
 }
 
 export type KubeConfig = {
+  // The kubeconfig's `current-context`, when it names a switchable context; else ''.
   currentContext: string;
+  // What a window with no cluster of its own opens on: the user's default cluster,
+  // else `currentContext`.
+  defaultContext: string;
   contexts: KubeContextInfo[];
 };
 
@@ -69,11 +73,13 @@ export function KubeConfigProvider({ children }: { children: React.ReactNode }) 
     const present = clusters.filter(
       (c) => c.spec.enabled && c.status.source.kubeconfig?.isPresent && c.spec.source.kubeconfig,
     );
+    const currentContext =
+      present.find((c) => c.status.source.kubeconfig?.isDefault)?.spec.source.kubeconfig?.context ?? '';
     return {
       connected,
       kubeConfig: {
-        currentContext:
-          present.find((c) => c.status.source.kubeconfig?.isDefault)?.spec.source.kubeconfig?.context ?? '',
+        currentContext,
+        defaultContext: present.find((c) => c.spec.isDefault)?.spec.source.kubeconfig?.context ?? currentContext,
         contexts: present.map((c) => ({
           name: c.spec.source.kubeconfig?.context ?? '',
           cluster: c.status.source.kubeconfig?.cluster.name ?? '',

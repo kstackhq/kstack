@@ -129,6 +129,9 @@ type ClusterSpec struct {
 	Enabled           bool
 	SyncEnabled       bool
 	MonitoringEnabled bool
+	// IsDefault marks the user's default cluster, which a new window opens on. At most
+	// one record is the default.
+	IsDefault bool
 	// Source says where this record comes from and how credentials resolve; the
 	// matching observation lives on ClusterStatus.Source, rewritten each reconcile.
 	Source ClusterSpecSource
@@ -170,6 +173,7 @@ func specOf(row ClusterRow) ClusterSpec {
 		Enabled:           row.Enabled,
 		SyncEnabled:       row.SyncEnabled,
 		MonitoringEnabled: row.MonitoringEnabled,
+		IsDefault:         row.IsDefault,
 	}
 	if row.Source == SourceKubeconfig && row.SourceKey != nil {
 		spec.Source.Kubeconfig = &ClusterSpecSourceKubeconfig{Context: *row.SourceKey}
@@ -595,6 +599,34 @@ func (a clustersAPI) SetSyncEnabled(ctx context.Context, id ClusterID, enabled b
 
 func (a clustersAPI) SetMonitoringEnabled(ctx context.Context, id ClusterID, enabled bool) (*Cluster, error) {
 	return a.setToggle(ctx, stmtSetClusterMonitoringEnabled, id, enabled)
+}
+
+func (a clustersAPI) SetDefault(ctx context.Context, id ClusterID, isDefault bool) (*Cluster, error) {
+	obj, err := a.s.runtimeObject(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// A window resolves only the kubeconfig's enabled contexts, so a default it cannot
+	// find would be a choice that does nothing.
+	canBeDefault := func(row ClusterRow) bool {
+		return row.Enabled && sourceDeclares(a.s.kubeconfigSvc, row, obj)
+	}
+	var (
+		row   ClusterRow
+		wrote bool
+	)
+	err = a.s.store.InTx(ctx, func(st stmts) error {
+		var err error
+		row, wrote, err = setClusterDefault(ctx, st, id, isDefault, normalizeTime(a.s.now()), canBeDefault)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if wrote {
+		a.s.db.Notify(appdb.KeyClusters)
+	}
+	return toCluster(row, obj), nil
 }
 
 // setToggle writes one toggle to the row, wakes the watchers and the mirror, and
