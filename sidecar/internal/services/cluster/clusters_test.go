@@ -1530,6 +1530,101 @@ func TestClustersSetMonitoringEnabled(t *testing.T) {
 	assert.Equal(t, t0.Add(time.Hour), got.UpdatedAt)
 }
 
+// SetDefault returns the record as the default, and wakes the watchers.
+func TestClustersSetDefault(t *testing.T) {
+	d, _ := newClusterStatusDeps(t)
+	d.kubeconfigSvc = fakeKubeconfigService{cfg: cfgWith("prod"), loaded: true}
+	obj := createCluster(t, d, "prod")
+	sub := d.db.ListenForChanges(appdb.KeyClusters)
+	defer sub.Close()
+
+	got, err := serviceOver(t, d).Clusters().SetDefault(context.Background(), clusterIDOf(obj), true)
+
+	require.NoError(t, err)
+	assert.True(t, got.Spec.IsDefault)
+	assert.Equal(t, "prod", got.Spec.Source.Kubeconfig.Context, "the rest of the spec is untouched")
+	testutil.Recv(t, sub.Chan(), "the clusters signal")
+}
+
+// Only a cluster the kubeconfig declares can become the default: an archived one or
+// one from another source is refused, and nothing changes.
+func TestClustersSetDefaultRefusesAClusterTheKubeconfigDoesNotDeclare(t *testing.T) {
+	d, _ := newClusterStatusDeps(t)
+	d.kubeconfigSvc = fakeKubeconfigService{cfg: cfgWith("staging"), loaded: true}
+	svc := serviceOver(t, d)
+	archived := createCluster(t, d, "prod")
+	_, err := d.db.Write.Exec(`INSERT INTO clusters (id, source, created_at, updated_at) VALUES ('cloud-1', 'cloud', 0, 0)`)
+	require.NoError(t, err)
+
+	for _, id := range []ClusterID{clusterIDOf(archived), "cloud-1"} {
+		_, err := svc.Clusters().SetDefault(context.Background(), id, true)
+		require.ErrorIs(t, err, ErrCannotBeDefault, id)
+		got, _, err := getCluster(context.Background(), d.store.Stmts(), id)
+		require.NoError(t, err)
+		assert.False(t, got.IsDefault, id)
+	}
+}
+
+// An archived default can still be cleared.
+func TestClustersSetDefaultClearsAnArchivedDefault(t *testing.T) {
+	d, _ := newClusterStatusDeps(t)
+	d.kubeconfigSvc = fakeKubeconfigService{cfg: cfgWith("prod"), loaded: true}
+	obj := createCluster(t, d, "prod")
+	_, err := serviceOver(t, d).Clusters().SetDefault(context.Background(), clusterIDOf(obj), true)
+	require.NoError(t, err)
+
+	d.kubeconfigSvc = fakeKubeconfigService{cfg: cfgWith("staging"), loaded: true}
+	got, err := serviceOver(t, d).Clusters().SetDefault(context.Background(), clusterIDOf(obj), false)
+
+	require.NoError(t, err)
+	assert.False(t, got.Spec.IsDefault)
+}
+
+// A disabled cluster cannot become the default, and nothing changes.
+func TestClustersSetDefaultRefusesADisabledCluster(t *testing.T) {
+	d, _ := newClusterStatusDeps(t)
+	d.kubeconfigSvc = fakeKubeconfigService{cfg: cfgWith("prod"), loaded: true}
+	svc := serviceOver(t, d)
+	obj := createCluster(t, d, "prod")
+	_, err := svc.Clusters().SetEnabled(context.Background(), clusterIDOf(obj), false)
+	require.NoError(t, err)
+
+	_, err = svc.Clusters().SetDefault(context.Background(), clusterIDOf(obj), true)
+
+	require.ErrorIs(t, err, ErrCannotBeDefault)
+}
+
+// A store that will not answer is reported, whichever read fails: the row's or the
+// runtime object's.
+func TestClustersSetDefaultReportsAReadThatFailed(t *testing.T) {
+	t.Run("row", func(t *testing.T) {
+		d := newTestDeps(t)
+		obj := createCluster(t, d, "prod")
+		_, err := d.db.Write.Exec(`ALTER TABLE clusters RENAME COLUMN name TO display_name`)
+		require.NoError(t, err)
+
+		_, err = serviceOver(t, d).Clusters().SetDefault(context.Background(), clusterIDOf(obj), true)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrNotFound)
+	})
+	t.Run("runtime object", func(t *testing.T) {
+		d, closeStore := newTestDepsWithABreakableStore(t)
+		obj := createCluster(t, d, "prod")
+		closeStore()
+
+		_, err := serviceOver(t, d).Clusters().SetDefault(context.Background(), clusterIDOf(obj), true)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrNotFound)
+	})
+}
+
+// An unknown id is the boundary's not-found sentinel, as for every toggle.
+func TestClustersSetDefaultReportsAnUnknownID(t *testing.T) {
+	_, err := serviceOver(t, newTestDeps(t)).Clusters().SetDefault(context.Background(), ClusterID("404"), true)
+
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
 // A setter wakes the watchers, so a toggle reaches every window.
 func TestClustersSettersNotifyTheWatchers(t *testing.T) {
 	d := newTestDeps(t)

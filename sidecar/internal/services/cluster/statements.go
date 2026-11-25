@@ -26,6 +26,8 @@ const (
 	stmtSetClusterEnabled
 	stmtSetClusterSyncEnabled
 	stmtSetClusterMonitoringEnabled
+	stmtClearClusterDefault
+	stmtSetClusterDefault
 	stmtMarkCluster
 	stmtDeleteMarkedCluster
 	stmtSelectCluster
@@ -35,7 +37,7 @@ const (
 
 // clusterColumns is the column list every read scans, in scanClusterRow's order.
 const clusterColumns = `id, source, source_key, name, enabled, sync_enabled, monitoring_enabled,
-	created_at, updated_at, delete_requested_at`
+	is_default, created_at, updated_at, delete_requested_at`
 
 // Every write that may touch nothing RETURNs what it wrote, so the row — or no
 // row — comes back from the write itself rather than from a read a concurrent
@@ -47,15 +49,22 @@ var statements = []sqlstmt.Statement{
 	VALUES (?, 'kubeconfig', ?, ?, ?) ON CONFLICT (source, source_key) DO NOTHING RETURNING id`),
 
 	// A toggle refuses a marked row: the user's choices are closed once its
-	// deletion is asked for.
-	stmtSetClusterEnabled: sqlstmt.OnWriter(`UPDATE clusters SET enabled = ?, updated_at = ?
-	WHERE id = ? AND delete_requested_at IS NULL RETURNING ` + clusterColumns),
+	// deletion is asked for. A disabled cluster is never the default, so disabling
+	// clears is_default.
+	stmtSetClusterEnabled: sqlstmt.OnWriter(`UPDATE clusters SET enabled = ?1, is_default = is_default AND ?1, updated_at = ?2
+	WHERE id = ?3 AND delete_requested_at IS NULL RETURNING ` + clusterColumns),
 	stmtSetClusterSyncEnabled: sqlstmt.OnWriter(`UPDATE clusters SET sync_enabled = ?, updated_at = ?
 	WHERE id = ? AND delete_requested_at IS NULL RETURNING ` + clusterColumns),
 	stmtSetClusterMonitoringEnabled: sqlstmt.OnWriter(`UPDATE clusters SET monitoring_enabled = ?, updated_at = ?
 	WHERE id = ? AND delete_requested_at IS NULL RETURNING ` + clusterColumns),
-	// A repeat is a no-op that keeps the first stamp.
-	stmtMarkCluster: sqlstmt.OnWriter(`UPDATE clusters SET delete_requested_at = ?, updated_at = ?
+	// The default's two writes run in one transaction, the clear first, so the
+	// one-default index never sees two marked rows.
+	stmtClearClusterDefault: sqlstmt.OnWriter(`UPDATE clusters SET is_default = 0, updated_at = ? WHERE is_default = 1`),
+	stmtSetClusterDefault: sqlstmt.OnWriter(`UPDATE clusters SET is_default = ?, updated_at = ?
+	WHERE id = ? AND delete_requested_at IS NULL RETURNING ` + clusterColumns),
+	// A repeat is a no-op that keeps the first stamp. A marked row is never the
+	// default, so marking clears is_default.
+	stmtMarkCluster: sqlstmt.OnWriter(`UPDATE clusters SET delete_requested_at = ?, is_default = 0, updated_at = ?
 	WHERE id = ? AND delete_requested_at IS NULL RETURNING id`),
 	// Only a marked row goes, and only once no chat is filed under it: the
 	// chat sweeper empties the cluster first, and the FK cascade is the backstop.

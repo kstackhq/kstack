@@ -73,7 +73,7 @@ describe('useKubeConfig', () => {
 
     await act(async () => {
       pushClusters(channelFor, [
-        { id: 'a', name: 'prod', enabled: true, present: true, isDefault: true },
+        { id: 'a', name: 'prod', enabled: true, present: true, current: true },
         { id: 'b', name: 'staging', enabled: false, present: true },
         { id: 'c', name: 'gone', enabled: true, present: false },
       ]);
@@ -91,6 +91,44 @@ describe('useKubeConfig', () => {
     ]);
     expect(kubeConfig.currentContext).toBe('prod');
   });
+
+  // The window opens on the user's default cluster first, the kubeconfig's current
+  // context second, and on nothing when neither is usable.
+  it.each([
+    { what: 'the default cluster wins over the current context', defaultID: 'b', currentID: 'a', expected: 'staging' },
+    {
+      what: 'a disabled default cluster falls to the current context',
+      defaultID: 'c',
+      currentID: 'a',
+      expected: 'prod',
+    },
+    {
+      what: 'an archived default cluster falls to the current context',
+      defaultID: 'd',
+      currentID: 'a',
+      expected: 'prod',
+    },
+    { what: 'no default cluster falls to the current context', defaultID: undefined, currentID: 'a', expected: 'prod' },
+    { what: "neither gives ''", defaultID: undefined, currentID: undefined, expected: '' },
+  ])('defaultContext: $what', async ({ defaultID, currentID, expected }) => {
+    renderProvider();
+    await flush();
+
+    await act(async () => {
+      pushClusters(
+        channelFor,
+        [
+          { id: 'a', name: 'prod' },
+          { id: 'b', name: 'staging' },
+          { id: 'c', name: 'off', enabled: false },
+          { id: 'd', name: 'gone', present: false },
+        ].map((r) => ({ ...r, current: r.id === currentID, isDefault: r.id === defaultID })),
+      );
+    });
+
+    expect(JSON.parse(screen.getByTestId('probe').textContent ?? '').defaultContext).toBe(expected);
+  });
+
   // Every switcher reads this context; a value that moved on each draw would draw them all.
   it('hands its readers the same value while the clusters stand still', async () => {
     const seen: unknown[] = [];
@@ -111,7 +149,7 @@ describe('useKubeConfig', () => {
     const view = render(tree());
     await flush();
     await act(async () => {
-      pushClusters(channelFor, [{ id: 'a', name: 'prod', enabled: true, present: true, isDefault: true }]);
+      pushClusters(channelFor, [{ id: 'a', name: 'prod', enabled: true, present: true, current: true }]);
     });
 
     const before = seen.length;

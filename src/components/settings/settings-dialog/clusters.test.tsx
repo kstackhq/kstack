@@ -47,6 +47,7 @@ type Row = {
   name?: string;
   enabled?: boolean;
   syncEnabled?: boolean;
+  isDefault?: boolean;
   present?: boolean;
   server?: string | null;
   user?: string;
@@ -59,6 +60,7 @@ function cluster({
   name = '',
   enabled = true,
   syncEnabled = true,
+  isDefault = false,
   present = true,
   server = `https://${context}.example:6443`,
   user = `${context}-user`,
@@ -68,7 +70,7 @@ function cluster({
   const kubeconfig = c.status.source.kubeconfig!;
   return {
     ...c,
-    spec: { ...c.spec, name, enabled, syncEnabled },
+    spec: { ...c.spec, name, enabled, syncEnabled, isDefault },
     status: {
       ...c.status,
       source: {
@@ -208,6 +210,20 @@ describe('ClustersSettings', () => {
     expect(within(paused).getByText('paused')).toHaveClass('text-popover-foreground');
   });
 
+  it("marks the default's row alone, an archived one too", () => {
+    state.clusters = [
+      cluster({ context: 'prod', isDefault: true }),
+      cluster({ context: 'staging' }),
+      cluster({ context: 'old', present: false, isDefault: true }),
+    ];
+    render(<ClustersSettings />);
+
+    const [prod, staging] = within(group('Kubeconfig')).getAllByRole('listitem');
+    expect(within(prod).getByText('Default')).toBeInTheDocument();
+    expect(within(staging).queryByText('Default')).toBeNull();
+    expect(within(within(group('Archived')).getByRole('listitem')).getByText('Default')).toBeInTheDocument();
+  });
+
   it("shows the cache's size, and a dash with no cache or nothing on disk", () => {
     state.clusters = [cluster({ context: 'a' }), cluster({ context: 'b', cache: false }), cluster({ context: 'c' })];
     useClusterCacheStatsStateWatch.mockImplementation((_id: string, cacheID: string) =>
@@ -251,10 +267,14 @@ describe('ClustersSettings', () => {
       render(<ClustersSettings />);
 
       const { user, items } = await openMenu('prod');
-      expect(items()).toEqual(['Pause syncing', 'Disable', 'Reset cache']);
+      expect(items()).toEqual(['Set as default', 'Pause syncing', 'Disable', 'Reset cache']);
       expect(within(screen.getByRole('menu')).getByRole('separator')).toBeInTheDocument();
 
-      await user.click(screen.getByRole('menuitem', { name: 'Pause syncing' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Set as default' }));
+      expect(mutations.ClusterDefaultSet).toHaveBeenCalledWith({ id: 'id-prod', isDefault: true });
+
+      await user.click(screen.getByRole('button', { name: 'Actions for prod' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Pause syncing' }));
       expect(mutations.ClusterSyncEnabledSet).toHaveBeenCalledWith({ id: 'id-prod', syncEnabled: false });
 
       await user.click(screen.getByRole('button', { name: 'Actions for prod' }));
@@ -264,6 +284,15 @@ describe('ClustersSettings', () => {
       await user.click(screen.getByRole('button', { name: 'Actions for prod' }));
       await user.click(await screen.findByRole('menuitem', { name: 'Reset cache' }));
       expect(mutations.ClusterCacheClear).toHaveBeenCalledWith({ id: 'cache-prod' });
+    });
+
+    it("offers Remove as default on the default's row", async () => {
+      state.clusters = [cluster({ context: 'prod', isDefault: true })];
+      render(<ClustersSettings />);
+
+      const { user } = await openMenu('prod');
+      await user.click(screen.getByRole('menuitem', { name: 'Remove as default' }));
+      expect(mutations.ClusterDefaultSet).toHaveBeenCalledWith({ id: 'id-prod', isDefault: false });
     });
 
     it('offers Resume on a paused row', async () => {

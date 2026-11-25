@@ -31,6 +31,7 @@ import { AppDialogs } from '@/components/shell/app-dialogs';
 import { ConnectionStatus } from '@/components/shell/connection-status';
 import { LeftSidebar } from '@/components/shell/left-sidebar';
 import { RightSidebar, pageMinWidth } from '@/components/shell/right-sidebar';
+import { useFixWindowContext } from '@/lib/active-kube-context';
 import type { AppMode } from '@/lib/app-mode';
 import { ChatOutboxProvider } from '@/lib/chat-outbox';
 import { ChatSwitchProvider } from '@/lib/chat-switch';
@@ -66,6 +67,7 @@ export function AppLayout() {
       <ChatSwitchProvider>
         <DialogProvider>
           <ConnectionStatus />
+          <FixWindowContext />
           {/* Both sidebars' states wrap the bar and the row alike: their toggles are
           in one, their panels in the other. The library's provider owns the left
           sidebar's narrow-window state and `Cmd/Ctrl+B`; it hardcodes `min-h-svh`,
@@ -120,4 +122,10 @@ export function AppLayout() {
       </ChatSwitchProvider>
     </ChatOutboxProvider>
   );
+}
+
+// A leaf of its own, so the cluster watch's batches re-render it alone, not the layout.
+function FixWindowContext() {
+  useFixWindowContext();
+  return null;
 }

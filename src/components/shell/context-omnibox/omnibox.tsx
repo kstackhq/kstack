@@ -65,11 +65,11 @@ function ServerGlyph({ health }: { health?: Health }) {
 // pill's 4px beside it, and the 2px above and below it in the chip and the pill's 3px past
 // that. The insets count from inside the button's own 1px transparent border (the
 // library's, for its focus ring). Under 14rem the chip's padding goes, leaving the name
-// room. Nothing while the kubeconfig has no context: the trigger draws the bare icon then.
+// room. Nothing while the window is on no cluster: the trigger draws the bare icon then.
 function StatusButton({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
-  const { context, contexts } = useActiveKubeContext();
+  const { context } = useActiveKubeContext();
   const { clusters } = useClusters();
-  if (contexts.length === 0) return null;
+  if (context === '') return null;
 
   const cluster = clusterForContext(clusters, context);
   const health = contextHealth(clusters, context);
@@ -99,8 +99,8 @@ function StatusButton({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> 
 // and empty states draw their icon alone, their words left to the button's name. With no
 // cluster it also draws the bare icon, where the status button would be.
 function ClusterTrigger({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
-  const { context, active, contexts, phase } = useActiveKubeContext();
-  const hasCluster = contexts.length > 0;
+  const { context, active, noneSelected, phase } = useActiveKubeContext();
+  const hasCluster = context !== '';
 
   let name: string;
   let label: ReactNode;
@@ -126,6 +126,9 @@ function ClusterTrigger({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
         <span className={COMPACT_HIDDEN}>Connecting…</span>
       </span>
     );
+  } else if (noneSelected) {
+    name = 'Cluster: none selected';
+    label = <span className={cn('text-xs text-muted-foreground', COMPACT_HIDDEN)}>No cluster selected</span>;
   } else {
     name = 'Cluster: no kubeconfig';
     label = <span className={cn('text-xs text-muted-foreground', COMPACT_HIDDEN)}>No kubeconfig</span>;

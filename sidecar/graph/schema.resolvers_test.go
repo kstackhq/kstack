@@ -260,6 +260,21 @@ func TestClusterMonitoringEnabledSetMutation(t *testing.T) {
 	assert.Equal(t, true, spec["monitoringEnabled"], "the change is visible to a new watch")
 }
 
+// clusterDefaultSet makes the cluster the default and returns it as the default; the
+// change is visible to a new watch.
+func TestClusterDefaultSetMutation(t *testing.T) {
+	srv := newTestServer(t, clusterFixtures())
+
+	raw := string(postGQL(t, srv.URL,
+		`{"query":"mutation { clusterDefaultSet(id: \"1\", isDefault: true) { id spec { isDefault } } }"}`))
+	if !strings.Contains(raw, `"isDefault":true`) || strings.Contains(raw, `"errors"`) {
+		t.Fatalf("mutation result: %s", raw)
+	}
+
+	spec := clusterSnapshot(t, srv.URL, `spec { isDefault }`)["1"]["spec"].(map[string]any)
+	assert.Equal(t, true, spec["isDefault"], "the change is visible to a new watch")
+}
+
 // clusterDelete marks the cluster for deletion; the record leaves the cluster
 // collection watch. An unknown id is a GraphQL error.
 func TestClusterDeleteMutation(t *testing.T) {
@@ -1227,6 +1242,7 @@ func TestClusterRefusalsCarryTheirCode(t *testing.T) {
 		{cluster.ErrNotFound, "KSTACK_RECORD_NOT_FOUND"},
 		{cluster.ErrDeclaredBySource, "KSTACK_CONFLICT"},
 		{cluster.ErrNotConnectable, "KSTACK_CONFLICT"},
+		{cluster.ErrCannotBeDefault, "KSTACK_VALIDATION_ERROR"},
 	} {
 		t.Run(tc.code, func(t *testing.T) {
 			srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
@@ -1237,6 +1253,7 @@ func TestClusterRefusalsCarryTheirCode(t *testing.T) {
 			for _, q := range []string{
 				`mutation { clusterEnabledSet(id: "1", enabled: true) { id } }`,
 				`mutation { clusterSyncEnabledSet(id: "1", syncEnabled: true) { id } }`,
+				`mutation { clusterDefaultSet(id: "1", isDefault: true) { id } }`,
 				`mutation { clusterConnectionRetry(id: "1") }`,
 				`mutation { clusterDelete(id: "1") }`,
 			} {
@@ -1282,6 +1299,7 @@ func TestResolverErrorsReachTheCaller(t *testing.T) {
 		"Mutation.clusterEnabledSet":               func() error { _, err := r.Mutation().ClusterEnabledSet(ctx, id, true); return err },
 		"Mutation.clusterSyncEnabledSet":           func() error { _, err := r.Mutation().ClusterSyncEnabledSet(ctx, id, true); return err },
 		"Mutation.clusterMonitoringSet":            func() error { _, err := r.Mutation().ClusterMonitoringEnabledSet(ctx, id, true); return err },
+		"Mutation.clusterDefaultSet":               func() error { _, err := r.Mutation().ClusterDefaultSet(ctx, id, true); return err },
 		"Mutation.clusterConnectionRetry":          func() error { _, err := r.Mutation().ClusterConnectionRetry(ctx, id); return err },
 		"Mutation.clusterDelete":                   func() error { _, err := r.Mutation().ClusterDelete(ctx, id); return err },
 		"Mutation.clusterCacheClear":               func() error { _, err := r.Mutation().ClusterCacheClear(ctx, objID); return err },

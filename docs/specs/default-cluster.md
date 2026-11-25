@@ -70,9 +70,10 @@ The rules, in `services/cluster`:
 - **An archived cluster keeps its mark.** If its context comes back to the kubeconfig, the same
   record returns and is the default again.
 
-`clusterDefaultSet` refuses, with `KSTACK_VALIDATION_ERROR`:
+`clusterDefaultSet` refuses a row marked for deletion with `KSTACK_RECORD_NOT_FOUND`, as the
+other toggles do (`delete_requested_at IS NULL`). It refuses, with `KSTACK_VALIDATION_ERROR`
+(`ErrCannotBeDefault`):
 
-- a row marked for deletion, like the other toggles (`delete_requested_at IS NULL`);
 - `isDefault: true` on a disabled cluster;
 - `isDefault: true` on a cloud cluster;
 - `isDefault: true` on an archived cluster, one its kubeconfig no longer declares.
@@ -90,7 +91,7 @@ type ClusterSpec {
 
 type Mutation {
   # …
-  "Make a cluster the default, or stop it being one. Setting it clears the previous default, whose change arrives on `clusterCollectionWatch`; a call that changes nothing writes nothing. Refused (KSTACK_VALIDATION_ERROR) for a cluster marked for deletion, and, when setting, for a disabled, archived or cloud cluster. Returns the cluster."
+  "Make a cluster the default, or stop it being one. Setting it clears the previous default, whose change arrives on `clusterCollectionWatch`; a call that changes nothing writes nothing. Refused (KSTACK_RECORD_NOT_FOUND) for a cluster marked for deletion, as every toggle is, and (KSTACK_VALIDATION_ERROR), when setting, for a disabled, archived or cloud cluster. Returns the cluster."
   clusterDefaultSet(id: ClusterID!, isDefault: Boolean!): Cluster!
 }
 ```
@@ -169,12 +170,12 @@ for this cluster yet".
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | Migration `0007`; `ClusterSpec.IsDefault`; `SetDefault` and its refusals; marking and disabling clear the mark | `appdb/migrations/0007_cluster_default.sql`, `services/cluster/{clusters,service,statements}.go`, their tests | — | Planned |
-| 2 | `spec.isDefault`, `clusterDefaultSet` | `sidecar/graph/schema.graphqls`, `sidecar/graph/schema.resolvers.go`, generated code, their tests | 1 | Planned |
-| 3 | `KubeConfig.defaultContext`; `useActiveKubeContext` reads it; `useFixWindowContext` fixes the window's cluster | `src/lib/kube-config.tsx`, `src/lib/active-kube-context.tsx`, `src/lib/clusters.tsx`, `src/layouts/app-layout.tsx`, their tests | 2 | Planned |
-| 4 | The "No cluster selected" states | `src/components/shell/context-omnibox/omnibox.tsx`, `src/routes/dashboard.tsx`, their tests; the Figma components and `design/components.json` | 3 | Planned |
-| 5 | The badge and the menu items | `src/components/settings/settings-dialog/clusters.tsx`, `src/lib/cluster-mutations.ts`, their tests; the Figma components and `design/components.json` | 2 | Planned |
-| 6 | Docs, per *When it lands* | see there | 1–5 | Planned |
+| 1 | Migration `0007`; `ClusterSpec.IsDefault`; `SetDefault` and its refusals; marking and disabling clear the mark | `appdb/migrations/0007_cluster_default.sql`, `services/cluster/{clusters,service,statements}.go`, their tests | — | Done |
+| 2 | `spec.isDefault`, `clusterDefaultSet` | `sidecar/graph/schema.graphqls`, `sidecar/graph/schema.resolvers.go`, generated code, their tests | 1 | Done |
+| 3 | `KubeConfig.defaultContext`; `useActiveKubeContext` reads it; `useFixWindowContext` fixes the window's cluster | `src/lib/kube-config.tsx`, `src/lib/active-kube-context.tsx`, `src/lib/clusters.tsx`, `src/layouts/app-layout.tsx`, their tests | 2 | Done |
+| 4 | The "No cluster selected" states | `src/components/shell/context-omnibox/omnibox.tsx`, `src/routes/dashboard.tsx`, their tests; the Figma components and `design/components.json` | 3 | Code done; Figma pending |
+| 5 | The badge and the menu items | `src/components/settings/settings-dialog/clusters.tsx`, `src/lib/cluster-mutations.ts`, their tests; the Figma components and `design/components.json` | 2 | Code done; Figma pending |
+| 6 | Docs, per *When it lands* | see there | 1–5 | Done, but `design/` |
 
 **Order:** 1, then 2, then 3 and 5 in either order, then 4, then 6.
 

@@ -369,6 +369,7 @@ type ComplexityRoot struct {
 
 	ClusterSpec struct {
 		Enabled           func(childComplexity int) int
+		IsDefault         func(childComplexity int) int
 		MonitoringEnabled func(childComplexity int) int
 		Name              func(childComplexity int) int
 		Source            func(childComplexity int) int
@@ -708,6 +709,7 @@ type ComplexityRoot struct {
 		ClusterCacheClear               func(childComplexity int, id apimeta.ObjectID) int
 		ClusterCachedKindSyncEnabledSet func(childComplexity int, id apimeta.ObjectID, syncEnabled bool) int
 		ClusterConnectionRetry          func(childComplexity int, id apimeta.ClusterID) int
+		ClusterDefaultSet               func(childComplexity int, id apimeta.ClusterID, isDefault bool) int
 		ClusterDelete                   func(childComplexity int, id apimeta.ClusterID) int
 		ClusterEnabledSet               func(childComplexity int, id apimeta.ClusterID, enabled bool) int
 		ClusterMonitoringEnabledSet     func(childComplexity int, id apimeta.ClusterID, monitoringEnabled bool) int
@@ -1115,6 +1117,7 @@ type MutationResolver interface {
 	ClusterEnabledSet(ctx context.Context, id apimeta.ClusterID, enabled bool) (*cluster.Cluster, error)
 	ClusterSyncEnabledSet(ctx context.Context, id apimeta.ClusterID, syncEnabled bool) (*cluster.Cluster, error)
 	ClusterMonitoringEnabledSet(ctx context.Context, id apimeta.ClusterID, monitoringEnabled bool) (*cluster.Cluster, error)
+	ClusterDefaultSet(ctx context.Context, id apimeta.ClusterID, isDefault bool) (*cluster.Cluster, error)
 	ClusterConnectionRetry(ctx context.Context, id apimeta.ClusterID) (bool, error)
 	ClusterDelete(ctx context.Context, id apimeta.ClusterID) (bool, error)
 	ClusterCacheClear(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCache, error)
@@ -2444,6 +2447,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ClusterSpec.Enabled(childComplexity), true
+	case "ClusterSpec.isDefault":
+		if e.ComplexityRoot.ClusterSpec.IsDefault == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ClusterSpec.IsDefault(childComplexity), true
 	case "ClusterSpec.monitoringEnabled":
 		if e.ComplexityRoot.ClusterSpec.MonitoringEnabled == nil {
 			break
@@ -3812,6 +3821,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ClusterConnectionRetry(childComplexity, args["id"].(apimeta.ClusterID)), true
+	case "Mutation.clusterDefaultSet":
+		if e.ComplexityRoot.Mutation.ClusterDefaultSet == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_clusterDefaultSet_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ClusterDefaultSet(childComplexity, args["id"].(apimeta.ClusterID), args["isDefault"].(bool)), true
 	case "Mutation.clusterDelete":
 		if e.ComplexityRoot.Mutation.ClusterDelete == nil {
 			break
@@ -6192,6 +6212,8 @@ func (ec *executionContext) childFields_ClusterSpec(ctx context.Context, field g
 		return ec.fieldContext_ClusterSpec_syncEnabled(ctx, field)
 	case "monitoringEnabled":
 		return ec.fieldContext_ClusterSpec_monitoringEnabled(ctx, field)
+	case "isDefault":
+		return ec.fieldContext_ClusterSpec_isDefault(ctx, field)
 	case "source":
 		return ec.fieldContext_ClusterSpec_source(ctx, field)
 	}
@@ -7837,6 +7859,28 @@ func (ec *executionContext) field_Mutation_clusterConnectionRetry_args(ctx conte
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_clusterDefaultSet_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "isDefault",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["isDefault"] = arg1
 	return args, nil
 }
 
@@ -13619,6 +13663,29 @@ func (ec *executionContext) fieldContext_ClusterSpec_monitoringEnabled(_ context
 	return graphql.NewScalarFieldContext("ClusterSpec", field, false, false, "Boolean")
 }
 
+func (ec *executionContext) _ClusterSpec_isDefault(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterSpec) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ClusterSpec_isDefault(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.IsDefault, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ClusterSpec_isDefault(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterSpec", field, false, false, "Boolean")
+}
+
 func (ec *executionContext) _ClusterSpec_source(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -18462,6 +18529,50 @@ func (ec *executionContext) fieldContext_Mutation_clusterMonitoringEnabledSet(ct
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_clusterMonitoringEnabledSet_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_clusterDefaultSet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_clusterDefaultSet(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ClusterDefaultSet(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["isDefault"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.Cluster) graphql.Marshaler {
+			return ec.marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_clusterDefaultSet(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Cluster(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_clusterDefaultSet_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -29694,6 +29805,11 @@ func (ec *executionContext) _ClusterSpec(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "isDefault":
+			out.Values[i] = ec._ClusterSpec_isDefault(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "source":
 			out.Values[i] = ec._ClusterSpec_source(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -31875,6 +31991,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "clusterMonitoringEnabledSet":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_clusterMonitoringEnabledSet(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "clusterDefaultSet":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_clusterDefaultSet(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++

@@ -81,6 +81,9 @@ export type ClusterRow = {
   syncEnabled?: boolean;
   enabled?: boolean;
   present?: boolean;
+  // The kubeconfig's current context.
+  current?: boolean;
+  // The user's default cluster.
   isDefault?: boolean;
   // The cluster entry the context names; null puts the record in the state a
   // kubeconfig naming an undefined entry produces.
@@ -98,6 +101,7 @@ export function clusterOf(r: ClusterRow) {
       name: r.name,
       syncEnabled: r.syncEnabled ?? true,
       enabled: r.enabled ?? true,
+      isDefault: r.isDefault ?? false,
       source: { kubeconfig: { context: r.name } },
     },
     status: {
@@ -112,7 +116,7 @@ export function clusterOf(r: ClusterRow) {
           },
           user: { name: `${r.name}-user` },
           isPresent: r.present ?? true,
-          isDefault: r.isDefault ?? false,
+          isDefault: r.current ?? false,
         },
       },
       server: { uid: `uid-${r.id}` },
@@ -137,7 +141,7 @@ export function clusterRecord({
   return {
     id,
     deletionRequestedAt: null,
-    spec: { name: '', syncEnabled: true, enabled: true, source: { kubeconfig: { context } } },
+    spec: { name: '', syncEnabled: true, enabled: true, isDefault: false, source: { kubeconfig: { context } } },
     status: {
       source: {
         kubeconfig: {
@@ -213,6 +217,16 @@ export function pushClusters(channelFor: (queryPart: string) => FakeChannel, row
     );
   });
   pushCollectionWatchBookmark(channelFor, 'clusterCollectionWatch', 'cluster');
+}
+
+// Sends one row's change on `clusterCollectionWatch`, after its snapshot.
+export function pushClusterModified(channelFor: (queryPart: string) => FakeChannel, row: ClusterRow) {
+  channelFor('clusterCollectionWatch').onmessage!(
+    JSON.stringify({
+      type: 'next',
+      payload: { data: { clusterCollectionWatch: { type: 'Modified', cluster: clusterOf(row) } } },
+    }),
+  );
 }
 
 // Shared fake for '@tauri-apps/api/window', reached via `getCurrentWindow`.

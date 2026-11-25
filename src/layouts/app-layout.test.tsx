@@ -73,6 +73,8 @@ vi.mock('@/components/chat/chat-nav', () => ({
 // The layout mounts the chat outbox, whose send wants a client. Nothing here sends.
 // The focused object is bound to the active cluster.
 vi.mock('@/lib/active-cluster', () => ({ useActiveCluster: () => ({ clusterID: 'c1' }) }));
+const { fixWindowContext } = vi.hoisted(() => ({ fixWindowContext: vi.fn() }));
+vi.mock('@/lib/active-kube-context', () => ({ useFixWindowContext: fixWindowContext }));
 vi.mock('urql', () => ({ useMutation: () => [{}, vi.fn()] }));
 vi.mock('@/gql', () => ({ graphql: () => ({}) }));
 // The kind catalog's provider subscribes; record what it was told instead, and mark
@@ -339,6 +341,11 @@ describe('AppLayout', () => {
     const panel = screen.getByTestId('right-sidebar');
     expect(Array.from(row.children).indexOf(panel)).toBe(row.children.length - 1);
     expect(pageOf(container).contains(panel)).toBe(false);
+  });
+
+  it("fixes the window's cluster in its param", async () => {
+    await renderWithRouter(buildTree(), '/chat');
+    expect(fixWindowContext).toHaveBeenCalled();
   });
 
   it('renders the connection-status banner', async () => {

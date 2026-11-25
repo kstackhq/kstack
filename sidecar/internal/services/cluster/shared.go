@@ -52,6 +52,11 @@ var ErrIdentityMoved = errors.New("cluster: the cluster's identity moved under t
 // cluster at the source, or disable it. graph maps it to KSTACK_CONFLICT.
 var ErrDeclaredBySource = errors.New("cluster: cluster is still declared by its source")
 
+// ErrCannotBeDefault is the sentinel for making a cluster the default when it cannot
+// be one: disabled, from a source other than the kubeconfig, or no longer declared by
+// it. graph maps it to KSTACK_VALIDATION_ERROR.
+var ErrCannotBeDefault = errors.New("cluster: cluster cannot be the default")
+
 // ErrNotConnectable is the sentinel for a record that exists and will not be connected:
 // disabled, awaiting deletion, or from a source that carries no credentials. Told apart
 // from ErrNotFound because the remedy is the record's own state rather than a bad id — a

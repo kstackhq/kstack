@@ -286,6 +286,8 @@ type ClusterSpec {
   syncEnabled: Boolean!
   "Whether the background monitor may schedule runs against this cluster. Off by default, since a run spends model calls; stored and served, and nothing runs on it yet."
   monitoringEnabled: Boolean!
+  "Whether the user picked this cluster as the default: a new window opens on it. At most one cluster is the default."
+  isDefault: Boolean!
   "Where this record comes from and how its credentials resolve."
   source: ClusterSpecSource!
 }
@@ -2417,6 +2419,9 @@ type Mutation {
 
   "Let the background monitor run against this cluster, or stop it. Returns the updated record."
   clusterMonitoringEnabledSet(id: ClusterID!, monitoringEnabled: Boolean!): Cluster!
+
+  "Make a cluster the default, or stop it being one. Setting it clears the previous default, whose change arrives on `clusterCollectionWatch`; a call that changes nothing writes nothing. Refused (KSTACK_RECORD_NOT_FOUND) for a cluster marked for deletion, as every toggle is, and (KSTACK_VALIDATION_ERROR), when setting, for a disabled, archived or cloud cluster. Returns the cluster."
+  clusterDefaultSet(id: ClusterID!, isDefault: Boolean!): Cluster!
 
   "Force an immediate reconnection attempt, resetting any backoff. Resolves once the probe it asked for has finished — not when it was scheduled — so a caller can show the retry as busy for exactly that long. What the probe found arrives on the cluster's conditions. Returns true."
   clusterConnectionRetry(id: ClusterID!): Boolean!
