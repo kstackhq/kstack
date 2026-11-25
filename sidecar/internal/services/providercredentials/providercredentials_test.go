@@ -133,10 +133,10 @@ func TestTheLaunchStateHasTheConnectorsSession(t *testing.T) {
 	await(t, s, routerID, "the session ends", signedBy(SourceNone))
 }
 
-func TestSubscribeIsAGauge(t *testing.T) {
+func TestWatchCredentialsStateSendsTheWholeValue(t *testing.T) {
 	t.Parallel()
 	s := newService(t, Config{})
-	frames, cancel := s.Subscribe()
+	frames, cancel := s.WatchCredentialsState()
 	defer cancel()
 	assert.Equal(t, s.States(), testutil.Recv(t, frames, "the current list"))
 	require.NoError(t, s.Save(twinID, savedKey))
@@ -144,7 +144,7 @@ func TestSubscribeIsAGauge(t *testing.T) {
 	assert.Equal(t, SourceSavedKey, frame[1].Source)
 }
 
-// Every change is built and sent under one lock, so the gauge never ends on a
+// Every change is built and sent under one lock, so the state watch never ends on a
 // list older than the providers.
 func TestConcurrentChangesPublishTheLatestList(t *testing.T) {
 	t.Parallel()
@@ -156,7 +156,7 @@ func TestConcurrentChangesPublishTheLatestList(t *testing.T) {
 			wg.Go(func() { assert.NoError(t, s.Delete(id)) })
 		}
 		wg.Wait()
-		frames, cancel := s.Subscribe()
+		frames, cancel := s.WatchCredentialsState()
 		assert.Equal(t, s.States(), testutil.Recv(t, frames, "the latest list"))
 		cancel()
 	}
@@ -177,11 +177,11 @@ func awaitValue(t *testing.T, values <-chan uint64, want uint64, passing ...uint
 
 // A keyed provider's catalog is the same under every credential: its value
 // stays 1 while its connector connects and disconnects over a key.
-func TestWatchCredentialIsOneForAKeyedProvider(t *testing.T) {
+func TestWatchCredentialGenerationStateIsOneForAKeyedProvider(t *testing.T) {
 	t.Parallel()
 	c := newFakeConnector()
 	s := newService(t, Config{Connectors: map[string]Connector{routerID: c}})
-	values, cancel := s.WatchCredential(routerID)
+	values, cancel := s.WatchCredentialGenerationState(routerID)
 	defer cancel()
 
 	awaitValue(t, values, 0)
@@ -200,11 +200,11 @@ func TestWatchCredentialIsOneForAKeyedProvider(t *testing.T) {
 
 // A provider with no key carries its connector's session, so a second session
 // is a new value with no 0 between.
-func TestWatchCredentialIsTheSessionForAProviderWithNoKey(t *testing.T) {
+func TestWatchCredentialGenerationStateIsTheSessionForAProviderWithNoKey(t *testing.T) {
 	t.Parallel()
 	c := newFakeConnector()
 	s := newService(t, Config{Providers: []Provider{planProvider}, Connectors: map[string]Connector{planID: c}})
-	values, cancel := s.WatchCredential(planID)
+	values, cancel := s.WatchCredentialGenerationState(planID)
 	defer cancel()
 
 	awaitValue(t, values, 0)
@@ -242,7 +242,7 @@ func TestSyncCatalogsFollowsTheCredential(t *testing.T) {
 		llm.Provider{ID: routerID, Dialect: llm.DialectChatCompletions},
 		llm.Provider{ID: twinID, Dialect: llm.DialectChatCompletions},
 	)
-	frames, cancel := models.Subscribe()
+	frames, cancel := models.WatchProvidersState()
 	defer cancel()
 	testutil.Recv(t, frames, "the first frame")
 
@@ -353,9 +353,9 @@ func TestHasCredentialWhileRestoring(t *testing.T) {
 	t.Parallel()
 	k, release := held(t, savedEntry, oskeyringtest.Get)
 	s := startService(t, Config{Keyring: k, EnvKeys: map[string]string{routerID: envKey}})
-	router, cancelRouter := s.WatchCredential(routerID)
+	router, cancelRouter := s.WatchCredentialGenerationState(routerID)
 	defer cancelRouter()
-	twin, cancelTwin := s.WatchCredential(twinID)
+	twin, cancelTwin := s.WatchCredentialGenerationState(twinID)
 	defer cancelTwin()
 
 	assert.True(t, state(t, s, routerID).HasCredential())

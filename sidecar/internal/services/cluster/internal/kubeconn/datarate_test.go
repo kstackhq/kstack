@@ -239,7 +239,7 @@ func TestASampleNudgesItsContext(t *testing.T) {
 	s, clock := sampledPool()
 	lease := s.Acquire("prod")
 	defer lease.Release()
-	nudges := lease.WatchDataRates()
+	nudges := lease.ListenForDataRateChanges()
 	defer nudges.Close()
 
 	tickAt(s, clock, 0)
@@ -257,7 +257,7 @@ func TestTheBaselineNudgesNobody(t *testing.T) {
 	s, clock := sampledPool()
 	lease := s.Acquire("prod")
 	defer lease.Release()
-	nudges := lease.WatchDataRates()
+	nudges := lease.ListenForDataRateChanges()
 	defer nudges.Close()
 
 	tickAt(s, clock, 0)
@@ -275,7 +275,7 @@ func TestAContextReclaimedMidTickGetsNothingFromThatTick(t *testing.T) {
 	old := s.Acquire("prod")
 	tickAt(s, clock, 0)
 	// Keyed by context, so it hears whatever holds the name next.
-	nudges := old.WatchDataRates()
+	nudges := old.ListenForDataRateChanges()
 	defer nudges.Close()
 
 	var fresh Lease
@@ -306,7 +306,7 @@ func TestStartSamplesOnEachTickUntilStopped(t *testing.T) {
 	}
 	lease := s.Acquire("prod")
 	defer lease.Release()
-	nudges := lease.WatchDataRates()
+	nudges := lease.ListenForDataRateChanges()
 	defer nudges.Close()
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)

@@ -23,7 +23,7 @@ import (
 )
 
 // fakeAuth is the Kstack Cloud connector as the resolvers use it: State and
-// Subscribe over a latest-value hub, Connect signing in as loginAs, and
+// WatchState over a latest-value hub, Connect signing in as loginAs, and
 // Disconnect signing out.
 type fakeAuth struct {
 	mu      sync.Mutex
@@ -84,7 +84,7 @@ func (f *fakeAuth) Disconnect(context.Context) error {
 	return nil
 }
 
-func (f *fakeAuth) Subscribe() (<-chan connectors.State, func()) {
+func (f *fakeAuth) WatchState() (<-chan connectors.State, func()) {
 	rx := f.hub.Receiver()
 	return rx.Chan(), rx.Close
 }
@@ -157,11 +157,11 @@ func (c refusingChat) ChatKubeRules(context.Context, chat.ChatID) ([]permissions
 	return nil, c.err
 }
 
-func (c refusingChat) WatchList(context.Context) (*chat.Stream[chat.ChatWatchFrame], error) {
+func (c refusingChat) WatchCollection(context.Context) (*chat.Stream[chat.ChatCollectionWatchFrame], error) {
 	return nil, c.err
 }
 
-func (c refusingChat) WatchMessages(context.Context, chat.ChatID) (*chat.Stream[chat.ChatMessageWatchFrame], error) {
+func (c refusingChat) WatchMessageCollection(context.Context, chat.ChatID) (*chat.Stream[chat.ChatMessageCollectionWatchFrame], error) {
 	return nil, c.err
 }
 

@@ -19,12 +19,12 @@ import { Provider as UrqlProvider } from 'urql';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import type { ClusterDetail } from '@/lib/dialog';
-import { clusterRecord, flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
+import { clusterRecord, flushSubscriptionsSynchronously, mockTauriCore } from '@/test-utils';
 
 // Mocks ---------------------------------------------------------------
 
 // Frames pushed here are asserted on immediately.
-flushWatchesSynchronously();
+flushSubscriptionsSynchronously();
 
 const { invokeMock, channels, channelFor, factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
@@ -39,7 +39,7 @@ const { DialogProvider, useDialog } = await import('@/lib/dialog');
 
 const flush = () => act(async () => {});
 
-// One data-rate sample, and a frame of the series carrying samples.
+// One data-rate sample, and a frame of the feed carrying samples.
 const rate = (received: number, sent: number) => ({
   at: '2026-11-02T12:00:00Z',
   receivedBytesPerSecond: received,
@@ -48,7 +48,7 @@ const rate = (received: number, sent: number) => ({
 const rateWindow = (...samples: ReturnType<typeof rate>[]) =>
   JSON.stringify({
     type: 'next',
-    payload: { data: { clusterDataRateWatch: { intervalSeconds: 2, windowSeconds: 120, samples } } },
+    payload: { data: { clusterDataRateTimeSeriesFeed: { intervalSeconds: 2, windowSeconds: 120, samples } } },
   });
 
 const subscriptionsTo = (field: string) =>
@@ -136,21 +136,21 @@ function healthOf(r: Row): {
 // the snapshot). It marks the registry streams connected, so the panel reads
 // "connected, empty" rather than "still connecting" — the distinction under test.
 function openStreams() {
-  channelFor('clustersWatch').onmessage!(JSON.stringify({ type: 'open' }));
-  channelFor('clusterCachesWatch').onmessage!(JSON.stringify({ type: 'open' }));
-  channelFor('clusterCacheHealthWatch').onmessage!(JSON.stringify({ type: 'open' }));
+  channelFor('clusterCollectionWatch').onmessage!(JSON.stringify({ type: 'open' }));
+  channelFor('clusterCacheCollectionWatch').onmessage!(JSON.stringify({ type: 'open' }));
+  channelFor('clusterCacheHealthKeyedStateWatch').onmessage!(JSON.stringify({ type: 'open' }));
 }
 
-// Push each row as an Added change on the three delta streams: a Cluster change on
-// clustersWatch, plus (for a probed row) its ClusterCache change on
-// clusterCachesWatch and that cache's folded sync verdict on
+// Push each row as an Added change on the three subscriptions: a Cluster change on
+// clusterCollectionWatch, plus (for a probed row) its ClusterCache change on
+// clusterCacheCollectionWatch and that cache's folded sync verdict on
 // clusterCacheEventsSyncsWatch. The provider joins them down the chain — cache onto
 // cluster by spec.serverUid, sync onto cache by its owner — which is what gives a row its
 // activeCache and its sync state.
 function pushClusters(rows: Row[]) {
-  const clusterCh = channelFor('clustersWatch');
-  const cacheCh = channelFor('clusterCachesWatch');
-  const healthCh = channelFor('clusterCacheHealthWatch');
+  const clusterCh = channelFor('clusterCollectionWatch');
+  const cacheCh = channelFor('clusterCacheCollectionWatch');
+  const healthCh = channelFor('clusterCacheHealthKeyedStateWatch');
   rows.forEach((r, i) => {
     const id = r.uuid || `pending-${i}`;
     clusterCh.onmessage!(
@@ -158,7 +158,7 @@ function pushClusters(rows: Row[]) {
         type: 'next',
         payload: {
           data: {
-            clustersWatch: {
+            clusterCollectionWatch: {
               type: 'Added',
               cluster: {
                 id,
@@ -202,7 +202,7 @@ function pushClusters(rows: Row[]) {
         type: 'next',
         payload: {
           data: {
-            clusterCachesWatch: {
+            clusterCacheCollectionWatch: {
               type: 'Added',
               cache: {
                 id: `cache-${r.uuid}`,
@@ -211,7 +211,7 @@ function pushClusters(rows: Row[]) {
                 // No status/conditions/stats here: the panel reads freshness and the
                 // verdict off the sync record below, and the whole of the cache's
                 // contents (existence, size, counts) streams per row via
-                // clusterCacheStatsWatch. The query selects nothing else.
+                // clusterCacheStatsStateWatch. The query selects nothing else.
               },
             },
           },
@@ -223,7 +223,7 @@ function pushClusters(rows: Row[]) {
         type: 'next',
         payload: {
           data: {
-            clusterCacheHealthWatch: {
+            clusterCacheHealthKeyedStateWatch: {
               cacheID: `cache-${r.uuid}`,
               ...healthOf(r),
               lastUpdateAt: r.lastUpdateAt ?? null,
@@ -235,19 +235,25 @@ function pushClusters(rows: Row[]) {
     );
   });
   // Close both delta snapshots. The provider holds the cluster list back until the
-  // clustersWatch Bookmark, so without this the panel stays in its connecting state.
-  // (clusterCacheHealthWatch is a latest-value gauge, not a delta watch — no
+  // clusterCollectionWatch Bookmark, so without this the panel stays in its connecting state.
+  // (clusterCacheHealthKeyedStateWatch is a state watch, not a collection watch — no
   // Bookmark rides it.)
   clusterCh.onmessage!(
-    JSON.stringify({ type: 'next', payload: { data: { clustersWatch: { type: 'Bookmark', cluster: null } } } }),
+    JSON.stringify({
+      type: 'next',
+      payload: { data: { clusterCollectionWatch: { type: 'Bookmark', cluster: null } } },
+    }),
   );
   cacheCh.onmessage!(
-    JSON.stringify({ type: 'next', payload: { data: { clusterCachesWatch: { type: 'Bookmark', cache: null } } } }),
+    JSON.stringify({
+      type: 'next',
+      payload: { data: { clusterCacheCollectionWatch: { type: 'Bookmark', cache: null } } },
+    }),
   );
 }
 
-// Push one run on the cluster's connection timeline, which rides clusterEventsWatch;
-// the cache-side timelines ride eventsWatch. The channel is picked by operation name.
+// Push one run on the cluster's connection timeline, which rides clusterEventFeed;
+// the cache-side timelines ride objectEventFeed. The channel is picked by operation name.
 function pushConnectionEvent(ev: {
   id: string;
   type: 'Normal' | 'Warning';
@@ -257,15 +263,15 @@ function pushConnectionEvent(ev: {
   firstAt: string;
   lastAt: string;
 }) {
-  channelFor('ClusterConnectionEvents').onmessage!(
-    JSON.stringify({ type: 'next', payload: { data: { clusterEventsWatch: { type: 'Run', event: ev } } } }),
+  channelFor('ClusterEventFeedConnection').onmessage!(
+    JSON.stringify({ type: 'next', payload: { data: { clusterEventFeed: { type: 'Run', event: ev } } } }),
   );
 }
 
 // Close an event timeline's snapshot. Until this lands the timeline is still
 // arriving, so a consumer must not render its empty state.
 function pushEventBookmark(operation: string) {
-  const field = operation === 'ClusterConnectionEvents' ? 'clusterEventsWatch' : 'eventsWatch';
+  const field = operation === 'ClusterEventFeedConnection' ? 'clusterEventFeed' : 'objectEventFeed';
   channelFor(operation).onmessage!(
     JSON.stringify({ type: 'next', payload: { data: { [field]: { type: 'Bookmark', event: null } } } }),
   );
@@ -283,15 +289,15 @@ function pushSyncEvent(ev: {
   firstAt: string;
   lastAt: string;
 }) {
-  channelFor('ClusterSyncEvents').onmessage!(
+  channelFor('ObjectEventFeedSync').onmessage!(
     JSON.stringify({
       type: 'next',
-      payload: { data: { eventsWatch: { type: 'Run', event: ev } } },
+      payload: { data: { objectEventFeed: { type: 'Run', event: ev } } },
     }),
   );
 }
 
-// The cache-contents gauge. It is a subscription, not a field on the cache record: the
+// The cache-contents state watch. It is a subscription, not a field on the cache record: the
 // record stops changing once the sync settles, so a field there froze at whatever the
 // cache held when the window subscribed.
 function pushCacheStats(
@@ -300,22 +306,22 @@ function pushCacheStats(
   bytes = 0,
   parts = { dbBytes: bytes, walBytes: 0, shmBytes: 0 },
 ) {
-  channelFor('clusterCacheStatsWatch').onmessage!(
+  channelFor('clusterCacheStatsStateWatch').onmessage!(
     JSON.stringify({
       type: 'next',
-      payload: { data: { clusterCacheStatsWatch: { exists: true, bytes, objectCount, kindCount, ...parts } } },
+      payload: { data: { clusterCacheStatsStateWatch: { exists: true, bytes, objectCount, kindCount, ...parts } } },
     }),
   );
 }
 
-// The gauge for ONE cache. Each row subscribes with its own cacheID, so a multi-cluster
+// The state watch for ONE cache. Each row subscribes with its own cacheID, so a multi-cluster
 // test can't use channelFor (which takes the last match) — this matches on the
 // subscription's variables instead.
 function pushCacheStatsFor(cacheId: string, bytes: number) {
   const subs = invokeMock.mock.calls.filter(([cmd]) => cmd === 'graphql_subscribe');
   const idx = subs.findIndex(([, arg]) => {
     const a = arg as { query: string; variables?: Record<string, unknown> };
-    return a.query.includes('clusterCacheStatsWatch') && a.variables?.cacheID === cacheId;
+    return a.query.includes('clusterCacheStatsStateWatch') && a.variables?.cacheID === cacheId;
   });
   if (idx < 0) throw new Error(`no stats subscription for ${cacheId}`);
   channels[idx].onmessage!(
@@ -323,7 +329,7 @@ function pushCacheStatsFor(cacheId: string, bytes: number) {
       type: 'next',
       payload: {
         data: {
-          clusterCacheStatsWatch: {
+          clusterCacheStatsStateWatch: {
             exists: true,
             bytes,
             dbBytes: bytes,
@@ -351,12 +357,12 @@ function lastMutation(name: string): Record<string, unknown> | undefined {
 
 // Push a cache's folded verdict directly, for the fields the row fixture doesn't vary.
 function pushHealth(cacheId: string, over: Record<string, unknown>) {
-  channelFor('clusterCacheHealthWatch').onmessage!(
+  channelFor('clusterCacheHealthKeyedStateWatch').onmessage!(
     JSON.stringify({
       type: 'next',
       payload: {
         data: {
-          clusterCacheHealthWatch: {
+          clusterCacheHealthKeyedStateWatch: {
             cacheID: cacheId,
             status: 'True',
             reason: 'Watching',
@@ -376,12 +382,12 @@ function pushHealth(cacheId: string, over: Record<string, unknown>) {
 
 // One per-kind sync record on the cache-scoped stream.
 function pushCachedKind(id: string, resource: string, reason: string, apiVersion = 'v1') {
-  channelFor('clusterCachedKindsWatch').onmessage!(
+  channelFor('clusterCachedKindCollectionWatch').onmessage!(
     JSON.stringify({
       type: 'next',
       payload: {
         data: {
-          clusterCachedKindsWatch: {
+          clusterCachedKindCollectionWatch: {
             type: 'Added',
             kind: {
               id,
@@ -403,19 +409,19 @@ function pushCachedKind(id: string, resource: string, reason: string, apiVersion
   );
 }
 
-// The per-cache sync-detail gauge. The only thing on the wire that carries a per-kind
+// The per-cache sync-detail state watch. The only thing on the wire that carries a per-kind
 // verdict — the rollup names its offenders but not why each one is failing.
 function pushSyncStatus(
   kinds: { apiVersion: string; resource: string; reason: string; message?: string }[],
   discoveryReason = 'Discovered',
   discoveryMessage = '',
 ) {
-  channelFor('clusterCacheSyncStatusWatch').onmessage!(
+  channelFor('clusterCacheSyncStateWatch').onmessage!(
     JSON.stringify({
       type: 'next',
       payload: {
         data: {
-          clusterCacheSyncStatusWatch: {
+          clusterCacheSyncStateWatch: {
             discovery: { reason: discoveryReason, message: discoveryMessage },
             kinds: kinds.map((k) => ({ message: '', objectCount: 0, ...k })),
           },
@@ -436,19 +442,19 @@ function pushDiscoveryEvent(ev: {
   firstAt: string;
   lastAt: string;
 }) {
-  channelFor('ClusterDiscoveryEvents').onmessage!(
-    JSON.stringify({ type: 'next', payload: { data: { eventsWatch: { type: 'Run', event: ev } } } }),
+  channelFor('ObjectEventFeedDiscovery').onmessage!(
+    JSON.stringify({ type: 'next', payload: { data: { objectEventFeed: { type: 'Run', event: ev } } } }),
   );
 }
 
-// Push one frame on the per-cluster clusterScheduleWatch gauge (the next-attempt
+// Push one frame on the per-cluster clusterScheduleStateWatch state watch (the next-attempt
 // time + the in-flight `probing` flag). Call after a row's diagnostics are open
 // (mounts the schedule subscription).
 function pushSchedule(nextRequeueAt: string | null, probing = false) {
-  channelFor('clusterScheduleWatch').onmessage!(
+  channelFor('clusterScheduleStateWatch').onmessage!(
     JSON.stringify({
       type: 'next',
-      payload: { data: { clusterScheduleWatch: { nextRequeueAt, probing, failures: 0 } } },
+      payload: { data: { clusterScheduleStateWatch: { nextRequeueAt, probing, failures: 0 } } },
     }),
   );
 }
@@ -571,12 +577,12 @@ describe('ClusterSyncPanel', () => {
 
   afterEach(cleanup);
 
-  it('subscribes to clustersWatch', async () => {
+  it('subscribes to clusterCollectionWatch', async () => {
     renderPanel();
     await flush();
     expect(invokeMock).toHaveBeenCalledWith(
       'graphql_subscribe',
-      expect.objectContaining({ query: expect.stringContaining('clustersWatch') }),
+      expect.objectContaining({ query: expect.stringContaining('clusterCollectionWatch') }),
     );
   });
 
@@ -592,7 +598,7 @@ describe('ClusterSyncPanel', () => {
     const user = userEvent.setup();
     renderPanel();
     await flush();
-    // No `open`/`next` on clustersWatch: the transport is still dialing, so nothing
+    // No `open`/`next` on clusterCollectionWatch: the transport is still dialing, so nothing
     // has been reported. This must read as connecting, not as an empty registry.
     await user.click(screen.getByRole('button', { name: /clusters/i }));
     expect(await screen.findByText(/connecting…/i)).toBeInTheDocument();
@@ -604,10 +610,10 @@ describe('ClusterSyncPanel', () => {
     expect(await screen.findByText('prod-us')).toBeInTheDocument();
     expect(screen.queryByText(/reconnecting…/i)).not.toBeInTheDocument();
 
-    // The host closes the clustersWatch SSE stream: the registry stays loaded (the
+    // The host closes the clusterCollectionWatch SSE stream: the registry stays loaded (the
     // hook holds last-known data through the outage), so the table persists, flagged.
     await act(async () => {
-      channelFor('clustersWatch').onmessage!(JSON.stringify({ type: 'closed' }));
+      channelFor('clusterCollectionWatch').onmessage!(JSON.stringify({ type: 'closed' }));
     });
     expect(await screen.findByText(/reconnecting…/i)).toBeInTheDocument();
     expect(screen.getByText('prod-us')).toBeInTheDocument();
@@ -852,16 +858,17 @@ describe('ClusterSyncPanel', () => {
     expect(screen.getByText('Stopped', { selector: '[data-tone]' })).toHaveAttribute('data-tone', 'muted');
   });
 
-  it('requests connection diagnostics in the clustersWatch subscription', async () => {
+  it('requests connection diagnostics in the clusterCollectionWatch subscription', async () => {
     renderPanel();
     await flush();
     const sub = invokeMock.mock.calls.find(
-      ([cmd, arg]) => cmd === 'graphql_subscribe' && (arg as { query: string }).query.includes('clustersWatch'),
+      ([cmd, arg]) =>
+        cmd === 'graphql_subscribe' && (arg as { query: string }).query.includes('clusterCollectionWatch'),
     )?.[1] as { query: string };
     expect(sub.query).toContain('message');
     expect(sub.query).toContain('transitionedAt');
     // The probe history and the next-attempt countdown are not inlined on
-    // the list — they stream per-row via eventsWatch / clusterScheduleWatch.
+    // the list — they stream per-row via objectEventFeed / clusterScheduleStateWatch.
     expect(sub.query).not.toContain('connectionAttempts');
     expect(sub.query).not.toContain('nextAttemptAt');
   });
@@ -880,10 +887,10 @@ describe('ClusterSyncPanel', () => {
     ]);
 
     // The Disconnected label is an interactive trigger (only the error state is).
-    // Opening it mounts the per-row eventsWatch + clusterScheduleWatch subs.
+    // Opening it mounts the per-row objectEventFeed + clusterScheduleStateWatch subs.
     await user.click(await screen.findByRole('button', { name: /disconnected/i }));
 
-    // The next-attempt countdown streams in on the schedule gauge (decoupled from
+    // The next-attempt countdown streams in on the schedule state watch (decoupled from
     // the list), and the probe history on the events stream (bare runs, newest
     // first by lastAt), with `ok` derived from the generic event type.
     await act(async () => {
@@ -909,7 +916,7 @@ describe('ClusterSyncPanel', () => {
     });
 
     // The popover surfaces the connection timestamps, the countdown to the next
-    // scheduled retry (streamed from the schedule gauge), and the recent-attempt
+    // scheduled retry (streamed from the schedule state watch), and the recent-attempt
     // log (which carries the probe errors).
     expect(await screen.findByText(/uptime/i)).toBeInTheDocument();
     expect(screen.getByText(/next check/i)).toBeInTheDocument();
@@ -937,7 +944,7 @@ describe('ClusterSyncPanel', () => {
     expect(row).toHaveTextContent('Data rate—');
 
     await act(async () => {
-      channelFor('clusterDataRateWatch').onmessage!(rateWindow(rate(512, 64), rate(2048, 0)));
+      channelFor('clusterDataRateTimeSeriesFeed').onmessage!(rateWindow(rate(512, 64), rate(2048, 0)));
     });
     expect(row).toHaveTextContent('↓ 2.0 KB/s · ↑ 0 B/s');
     // The window draws at once, beside the numbers.
@@ -950,7 +957,7 @@ describe('ClusterSyncPanel', () => {
     await user.click(await screen.findByRole('button', { name: 'Active' }));
 
     await act(async () => {
-      channelFor('clusterDataRateWatch').onmessage!(rateWindow());
+      channelFor('clusterDataRateTimeSeriesFeed').onmessage!(rateWindow());
     });
     expect(screen.getByText('Data rate').parentElement).toHaveTextContent('Data rate—');
   });
@@ -966,20 +973,20 @@ describe('ClusterSyncPanel', () => {
     render(view());
     await flush();
     await act(async () => {
-      channelFor('clusterDataRateWatch').onmessage!(rateWindow(rate(100, 0)));
+      channelFor('clusterDataRateTimeSeriesFeed').onmessage!(rateWindow(rate(100, 0)));
     });
 
     const second = render(view());
     await flush();
     await act(async () => {
-      channelFor('clusterDataRateWatch').onmessage!(rateWindow(rate(100, 0), rate(4096, 0)));
+      channelFor('clusterDataRateTimeSeriesFeed').onmessage!(rateWindow(rate(100, 0), rate(4096, 0)));
     });
 
-    expect(subscriptionsTo('clusterDataRateWatch')).toBe(2);
+    expect(subscriptionsTo('clusterDataRateTimeSeriesFeed')).toBe(2);
     expect(within(second.container).getByText('Data rate').parentElement).toHaveTextContent('↓ 4.0 KB/s · ↑ 0 B/s');
   });
 
-  // The sidecar refuses a disabled cluster's gauge, and that refusal would reach the error bus.
+  // The sidecar refuses a disabled cluster's state watch, and that refusal would reach the error bus.
   it('asks no data rate of a disabled cluster', async () => {
     const user = await openWith([
       { uuid: '', name: 'minikube', enabled: false, disabled: true, present: true, connected: 'Unknown' },
@@ -987,7 +994,9 @@ describe('ClusterSyncPanel', () => {
     await user.click(await screen.findByRole('button', { name: 'Connecting' }));
 
     expect(screen.getByText('Data rate').parentElement).toHaveTextContent('Data rate—');
-    expect(() => channelFor('clusterDataRateWatch')).toThrow('no subscription for clusterDataRateWatch');
+    expect(() => channelFor('clusterDataRateTimeSeriesFeed')).toThrow(
+      'no subscription for clusterDataRateTimeSeriesFeed',
+    );
   });
 
   // The mutation resolves when the probe it asked for has finished, so the button binds to
@@ -1078,7 +1087,7 @@ describe('ClusterSyncPanel', () => {
     // Subscribed, nothing delivered: still loading, so no verdict either way.
     expect(screen.queryByText(/no sync events yet/i)).not.toBeInTheDocument();
 
-    await act(async () => pushEventBookmark('ClusterSyncEvents'));
+    await act(async () => pushEventBookmark('ObjectEventFeedSync'));
 
     // Now the emptiness is a real answer.
     expect(await screen.findByText(/no sync events yet/i)).toBeInTheDocument();
@@ -1363,7 +1372,7 @@ describe('ClusterSyncPanel', () => {
     expect(screen.queryByText(/possibly stale/i)).not.toBeInTheDocument();
   });
 
-  it('summarises cache contents from the live gauge, thousands-grouped', async () => {
+  it('summarises cache contents from the state watch, thousands-grouped', async () => {
     const user = await openWith([{ uuid: 'u-big', name: 'prod', enabled: true, present: true }]);
 
     await user.click(await screen.findByRole('button', { name: /current/i }));
@@ -1376,12 +1385,12 @@ describe('ClusterSyncPanel', () => {
   // The row's size cell and the expanded detail both want the cache's contents. They used
   // to subscribe separately with identical variables, which urql resolves to ONE operation —
   // and a subscription's second subscriber joins mid-stream with no replay. So a detail
-  // opened after the gauge had already delivered sat on null forever, and the "N objects
+  // opened after the state watch had already delivered sat on null forever, and the "N objects
   // across M kinds" row never appeared.
-  it('shows the cache summary when the detail is opened after the gauge has delivered', async () => {
+  it('shows the cache summary when the detail is opened after the state watch has delivered', async () => {
     const user = await openWith([{ uuid: 'u-late', name: 'prod', enabled: true, present: true }]);
 
-    // The gauge delivers while only the always-mounted size cell is listening.
+    // The state watch delivers while only the always-mounted size cell is listening.
     act(() => pushCacheStats(2203, 120, 1_300_000));
     expect(await screen.findByText('1.2 MB')).toBeInTheDocument();
 
@@ -1643,7 +1652,7 @@ describe('ClusterSyncPanel', () => {
     const subs = invokeMock.mock.calls.filter(([cmd]) => cmd === 'graphql_subscribe');
     const events = subs
       .map(([, arg]) => arg as { query: string; variables?: Record<string, unknown> })
-      .filter((a) => a.query.includes('ClusterSyncEvents'));
+      .filter((a) => a.query.includes('ObjectEventFeedSync'));
     expect(events.at(-1)?.variables?.id).toBe('g-crd');
   });
 
@@ -1657,7 +1666,7 @@ describe('ClusterSyncPanel', () => {
     await act(async () => pushSchedule(new Date(Date.now() + 15_000).toISOString()));
     expect(await screen.findByText(/in \d+s/i)).toBeInTheDocument();
 
-    // The gauge reports the zero time (null) while the scheduled reconcile is
+    // The state watch reports the zero time (null) while the scheduled reconcile is
     // dispatched — but the controller asserts the probe is running (probing:
     // true). That is the in-flight case: show "checking…", not a blank countdown.
     await act(async () => pushSchedule(null, true));
@@ -1782,7 +1791,7 @@ describe('ClusterSyncPanel', () => {
     );
   });
 
-  // Whether there is anything to clear comes off the live contents gauge, not the cache
+  // Whether there is anything to clear comes off the live contents state watch, not the cache
   // record: the record settles and stops changing, so a file created after the window
   // subscribed would leave a populated cache visible in the size cell but unclearable.
   it('clearing a cache fires clusterCacheClear, and is disabled until a cache file exists', async () => {

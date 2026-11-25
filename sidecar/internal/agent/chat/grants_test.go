@@ -272,7 +272,7 @@ func TestAChatsGrantWritesPingItsKey(t *testing.T) {
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	other := seedChat(t, s.db, aChat("1", time.Now()))
-	rx := s.WatchGrants(c.ID)
+	rx := s.ListenForGrantChanges(c.ID)
 	t.Cleanup(rx.Close)
 	pinged := func(what string) {
 		t.Helper()

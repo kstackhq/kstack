@@ -19,4 +19,4 @@ export { lineTime } from './line-time';
 export { compareTimestamps, containerKey, previousNanosecond } from './lines';
 export { CORE_INITIAL_STATE, LogWindow, resumeOf } from './window';
 export type { CoreState, Edge, EdgeState, Effect, LogWindowOptions } from './window';
-export type { Anchor, Client, Cursor, FetchQuery, FollowFrame, LogLine, Notice, Page } from './types';
+export type { Anchor, Client, Cursor, FetchQuery, TailFrame, LogLine, Notice, Page } from './types';

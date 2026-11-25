@@ -26,24 +26,24 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
-// scriptedGauge is a gauge read the test answers one call at a time. Each call reports
+// scriptedStateWatch is a state watch read the test answers one call at a time. Each call reports
 // itself on calls with its own answer channel, so an answer meant for one read can never
 // reach another, then returns the answer or ctx's error.
-type scriptedGauge struct {
-	calls chan gaugeCall
+type scriptedStateWatch struct {
+	calls chan stateWatchCall
 }
 
-type gaugeCall struct {
+type stateWatchCall struct {
 	ctx    context.Context
-	answer chan gaugeReading[int]
+	answer chan stateWatchReading[int]
 }
 
-func newScriptedGauge() *scriptedGauge {
-	return &scriptedGauge{calls: make(chan gaugeCall, 8)}
+func newScriptedStateWatch() *scriptedStateWatch {
+	return &scriptedStateWatch{calls: make(chan stateWatchCall, 8)}
 }
 
-func (s *scriptedGauge) read(ctx context.Context) (int, error) {
-	call := gaugeCall{ctx: ctx, answer: make(chan gaugeReading[int], 1)}
+func (s *scriptedStateWatch) read(ctx context.Context) (int, error) {
+	call := stateWatchCall{ctx: ctx, answer: make(chan stateWatchReading[int], 1)}
 	s.calls <- call
 	select {
 	case a := <-call.answer:
@@ -54,19 +54,19 @@ func (s *scriptedGauge) read(ctx context.Context) (int, error) {
 }
 
 // answer waits for the next read and answers it with value.
-func (s *scriptedGauge) answer(t *testing.T, value int) {
+func (s *scriptedStateWatch) answer(t *testing.T, value int) {
 	t.Helper()
-	testutil.Recv(t, s.calls, "the gauge to read").answer <- gaugeReading[int]{value: value}
+	testutil.Recv(t, s.calls, "the state watch to read").answer <- stateWatchReading[int]{value: value}
 }
 
 // fail waits for the next read and fails it with err.
-func (s *scriptedGauge) fail(t *testing.T, err error) {
+func (s *scriptedStateWatch) fail(t *testing.T, err error) {
 	t.Helper()
-	testutil.Recv(t, s.calls, "the gauge to read").answer <- gaugeReading[int]{err: err}
+	testutil.Recv(t, s.calls, "the state watch to read").answer <- stateWatchReading[int]{err: err}
 }
 
 // nextReading is the subscription's next reading, within testutil's failsafe.
-func nextReading(t *testing.T, sub *gaugeSubscription[int]) (int, error) {
+func nextReading(t *testing.T, sub *stateWatchSeat[int]) (int, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), testutil.Timeout)
 	defer cancel()
@@ -76,7 +76,7 @@ func nextReading(t *testing.T, sub *gaugeSubscription[int]) (int, error) {
 }
 
 // mustReading is the subscription's next reading, which must be a value.
-func mustReading(t *testing.T, sub *gaugeSubscription[int]) int {
+func mustReading(t *testing.T, sub *stateWatchSeat[int]) int {
 	t.Helper()
 	v, err := nextReading(t, sub)
 	require.NoError(t, err)
@@ -89,9 +89,9 @@ const noTick = time.Hour
 // A join to an idle loop asks it for a read, and the joiner's first reading is that one,
 // not the one before it joined. One joiner only: a second joining after the loop has begun
 // the first's read is owed a read of its own.
-func TestSharedGaugeReadsForAJoinerToAnIdleLoop(t *testing.T) {
-	s := newScriptedGauge()
-	g := newSharedGauge(s.read)
+func TestSharedStateWatchReadsForAJoinerToAnIdleLoop(t *testing.T) {
+	s := newScriptedStateWatch()
+	g := newSharedStateWatch(s.read)
 
 	first := g.subscribe(noTick)
 	t.Cleanup(first.Close)
@@ -110,19 +110,19 @@ func TestSharedGaugeReadsForAJoinerToAnIdleLoop(t *testing.T) {
 
 // A join during an open read is served by the read after it, not the open one, which may
 // have listed before the join; every joiner shares that read.
-func TestSharedGaugeReadsAfreshForAJoinerDuringARead(t *testing.T) {
-	s := newScriptedGauge()
-	g := newSharedGauge(s.read)
+func TestSharedStateWatchReadsAfreshForAJoinerDuringARead(t *testing.T) {
+	s := newScriptedStateWatch()
+	g := newSharedStateWatch(s.read)
 
 	first := g.subscribe(noTick)
 	t.Cleanup(first.Close)
-	open := testutil.Recv(t, s.calls, "the gauge to read")
+	open := testutil.Recv(t, s.calls, "the state watch to read")
 
 	second := g.subscribe(noTick)
 	t.Cleanup(second.Close)
 	third := g.subscribe(noTick)
 	t.Cleanup(third.Close)
-	open.answer <- gaugeReading[int]{value: 7}
+	open.answer <- stateWatchReading[int]{value: 7}
 	assert.Equal(t, 7, mustReading(t, first))
 
 	s.answer(t, 8)
@@ -135,19 +135,19 @@ func TestSharedGaugeReadsAfreshForAJoinerDuringARead(t *testing.T) {
 }
 
 // Every tick's reading reaches every subscriber.
-func TestSharedGaugeSendsEachReadingToEverySubscriber(t *testing.T) {
-	s := newScriptedGauge()
-	g := newSharedGauge(s.read)
+func TestSharedStateWatchSendsEachReadingToEverySubscriber(t *testing.T) {
+	s := newScriptedStateWatch()
+	g := newSharedStateWatch(s.read)
 
 	first := g.subscribe(time.Millisecond)
 	t.Cleanup(first.Close)
-	open := testutil.Recv(t, s.calls, "the gauge to read")
+	open := testutil.Recv(t, s.calls, "the state watch to read")
 
 	// Joined while read 1 is open, so the join's read is 2 and the ticks' are 3 on: the
 	// test answers every read, so the ticker can never start one the test did not expect.
 	second := g.subscribe(time.Millisecond)
 	t.Cleanup(second.Close)
-	open.answer <- gaugeReading[int]{value: 1}
+	open.answer <- stateWatchReading[int]{value: 1}
 	assert.Equal(t, 1, mustReading(t, first))
 
 	for value := 2; value <= 4; value++ {
@@ -159,13 +159,13 @@ func TestSharedGaugeSendsEachReadingToEverySubscriber(t *testing.T) {
 
 // The loop runs while anyone holds it: the last subscriber leaving cancels its read, and
 // the next subscriber starts a new loop.
-func TestSharedGaugeStopsWithItsLastSubscriber(t *testing.T) {
-	s := newScriptedGauge()
-	g := newSharedGauge(s.read)
+func TestSharedStateWatchStopsWithItsLastSubscriber(t *testing.T) {
+	s := newScriptedStateWatch()
+	g := newSharedStateWatch(s.read)
 
 	first := g.subscribe(noTick)
 	second := g.subscribe(noTick)
-	readCtx := testutil.Recv(t, s.calls, "the gauge to read").ctx
+	readCtx := testutil.Recv(t, s.calls, "the state watch to read").ctx
 
 	first.Close()
 	assert.NoError(t, readCtx.Err(), "the loop stopped while a subscriber still held it")
@@ -180,9 +180,9 @@ func TestSharedGaugeStopsWithItsLastSubscriber(t *testing.T) {
 }
 
 // A failed read ends the run for everyone in it, and a later subscriber starts a fresh one.
-func TestSharedGaugeFailureEndsItsRun(t *testing.T) {
-	s := newScriptedGauge()
-	g := newSharedGauge(s.read)
+func TestSharedStateWatchEndsItsRunOnAFailedRead(t *testing.T) {
+	s := newScriptedStateWatch()
+	g := newSharedStateWatch(s.read)
 	boom := errors.New("store down")
 
 	failed := g.subscribe(noTick)
@@ -199,18 +199,18 @@ func TestSharedGaugeFailureEndsItsRun(t *testing.T) {
 
 // A subscriber that joins during the read that fails gets the failure too, not a bare
 // close: the error is the run's last word, whenever the subscriber joined.
-func TestSharedGaugeFailureReachesAJoinerDuringTheRead(t *testing.T) {
-	s := newScriptedGauge()
-	g := newSharedGauge(s.read)
+func TestSharedStateWatchFailsAJoinerDuringTheRead(t *testing.T) {
+	s := newScriptedStateWatch()
+	g := newSharedStateWatch(s.read)
 	boom := errors.New("store down")
 
 	first := g.subscribe(noTick)
 	t.Cleanup(first.Close)
-	open := testutil.Recv(t, s.calls, "the gauge to read")
+	open := testutil.Recv(t, s.calls, "the state watch to read")
 
 	joiner := g.subscribe(noTick)
 	t.Cleanup(joiner.Close)
-	open.answer <- gaugeReading[int]{err: boom}
+	open.answer <- stateWatchReading[int]{err: boom}
 
 	_, err := nextReading(t, first)
 	assert.ErrorIs(t, err, boom)
@@ -219,13 +219,13 @@ func TestSharedGaugeFailureReachesAJoinerDuringTheRead(t *testing.T) {
 }
 
 // Next reports the subscriber's own ctx ending, and leaves the loop running for the rest.
-func TestSharedGaugeNextEndsWithItsContext(t *testing.T) {
-	s := newScriptedGauge()
-	g := newSharedGauge(s.read)
+func TestSharedStateWatchNextEndsWithItsContext(t *testing.T) {
+	s := newScriptedStateWatch()
+	g := newSharedStateWatch(s.read)
 
 	sub := g.subscribe(noTick)
 	t.Cleanup(sub.Close)
-	readCtx := testutil.Recv(t, s.calls, "the gauge to read").ctx
+	readCtx := testutil.Recv(t, s.calls, "the state watch to read").ctx
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -235,14 +235,14 @@ func TestSharedGaugeNextEndsWithItsContext(t *testing.T) {
 }
 
 // A second Close is a no-op: it must not take another subscriber's seat.
-func TestSharedGaugeCloseIsIdempotent(t *testing.T) {
-	s := newScriptedGauge()
-	g := newSharedGauge(s.read)
+func TestSharedStateWatchCloseIsIdempotent(t *testing.T) {
+	s := newScriptedStateWatch()
+	g := newSharedStateWatch(s.read)
 
 	first := g.subscribe(noTick)
 	second := g.subscribe(noTick)
 	t.Cleanup(second.Close)
-	readCtx := testutil.Recv(t, s.calls, "the gauge to read").ctx
+	readCtx := testutil.Recv(t, s.calls, "the state watch to read").ctx
 
 	first.Close()
 	first.Close()

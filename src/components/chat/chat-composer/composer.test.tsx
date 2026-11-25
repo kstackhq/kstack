@@ -39,9 +39,9 @@ vi.mock('urql', () => ({
   useQuery: () => [catalog.current, reexecute],
 }));
 // The chat's folders arrive on a watch, which answers nothing here.
-vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
-  useWatchSubscription: () => ({ data: undefined, connected: true }),
+vi.mock('@/lib/graphql/use-folded-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-folded-subscription')>()),
+  useFoldedSubscription: () => ({ data: undefined, connected: true }),
 }));
 vi.mock('@/lib/connectors', () => ({ CHATGPT_ID: 'chatgpt', useOpenChatGPTUsage: () => openUsage }));
 vi.mock('@/lib/models', async (importOriginal) => ({
@@ -49,7 +49,7 @@ vi.mock('@/lib/models', async (importOriginal) => ({
   // The catalog's watch, as the stub's last frame: none until it holds models.
   useModels: () => {
     const { data } = catalog.current as { data?: { models: import('@/lib/models').Model[] } };
-    return { models: data?.models ?? [], loaded: data !== undefined };
+    return { models: data?.models ?? [], snapshotComplete: data !== undefined };
   },
 }));
 vi.mock('@/gql', () => ({

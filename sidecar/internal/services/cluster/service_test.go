@@ -323,7 +323,7 @@ func TestTheConnectionSurfaceRefusesTheSameRecords(t *testing.T) {
 
 			_, acquireErr := svc.AcquireConnection(context.Background(), id)
 			retryErr := svc.RetryConnection(context.Background(), id)
-			_, scheduleErr := svc.Clusters().WatchSchedule(context.Background(), id)
+			_, scheduleErr := svc.Clusters().WatchScheduleState(context.Background(), id)
 
 			assert.ErrorIs(t, acquireErr, tt.want)
 			assert.ErrorIs(t, retryErr, tt.want)
@@ -399,61 +399,61 @@ func TestEveryEntryPointReportsAStorageFault(t *testing.T) {
 	require.NoError(t, err)
 	s := serviceOver(t, d)
 	ops := map[string]func() error{
-		"Clusters.Get":            func() error { _, err := s.Clusters().Get(ctx, ClusterID("1")); return err },
-		"Clusters.List":           func() error { _, err := s.Clusters().List(ctx); return err },
-		"Clusters.Watch":          func() error { _, err := s.Clusters().Watch(ctx, ClusterID("1")); return err },
-		"Clusters.WatchList":      func() error { _, err := s.Clusters().WatchList(ctx); return err },
-		"Clusters.Delete":         func() error { return s.Clusters().Delete(ctx, ClusterID("1")) },
-		"Clusters.ListEvents":     func() error { _, err := s.Clusters().ListEvents(ctx, ClusterID("1"), nil, nil); return err },
-		"Clusters.WatchEvents":    func() error { _, err := s.Clusters().WatchEvents(ctx, ClusterID("1"), nil); return err },
-		"Caches.Get":              func() error { _, err := s.Caches().Get(ctx, 1); return err },
-		"Caches.List":             func() error { _, err := s.Caches().List(ctx); return err },
-		"Caches.Watch":            func() error { _, err := s.Caches().Watch(ctx, 1); return err },
-		"Caches.WatchList":        func() error { _, err := s.Caches().WatchList(ctx); return err },
-		"Caches.ListByCluster":    func() error { _, err := s.Caches().ListByCluster(ctx, ClusterID("1")); return err },
-		"Caches.WatchByCluster":   func() error { _, err := s.Caches().WatchByCluster(ctx, ClusterID("1")); return err },
-		"Caches.WatchStats":       func() error { _, err := s.Caches().WatchStats(ctx, ClusterID("1"), 2); return err },
-		"Caches.WatchSyncStatus":  func() error { _, err := s.Caches().WatchSyncStatus(ctx, ClusterID("1"), 2); return err },
-		"Caches.Clear":            func() error { _, err := s.Caches().Clear(ctx, 1); return err },
-		"Caches.Health":           func() error { _, _, err := s.Caches().Health(ctx, ClusterID("1"), 2); return err },
-		"Caches.SyncStatus":       func() error { _, _, err := s.Caches().SyncStatus(ctx, ClusterID("1"), 2); return err },
-		"CachedKinds.Get":         func() error { _, err := s.CachedKinds().Get(ctx, 1); return err },
-		"CachedKinds.List":        func() error { _, err := s.CachedKinds().List(ctx); return err },
-		"CachedKinds.Watch":       func() error { _, err := s.CachedKinds().Watch(ctx, 1); return err },
-		"CachedKinds.WatchList":   func() error { _, err := s.CachedKinds().WatchList(ctx); return err },
-		"CachedKinds.ListByCache": func() error { _, err := s.CachedKinds().ListByCache(ctx, 1); return err },
-		"CachedKinds.WatchByCache": func() error {
-			_, err := s.CachedKinds().WatchByCache(ctx, 1)
+		"Clusters.Get":                    func() error { _, err := s.Clusters().Get(ctx, ClusterID("1")); return err },
+		"Clusters.List":                   func() error { _, err := s.Clusters().List(ctx); return err },
+		"Clusters.WatchCollectionByID":    func() error { _, err := s.Clusters().WatchCollectionByID(ctx, ClusterID("1")); return err },
+		"Clusters.WatchCollection":        func() error { _, err := s.Clusters().WatchCollection(ctx); return err },
+		"Clusters.Delete":                 func() error { return s.Clusters().Delete(ctx, ClusterID("1")) },
+		"Clusters.ListEvents":             func() error { _, err := s.Clusters().ListEvents(ctx, ClusterID("1"), nil, nil); return err },
+		"Clusters.SubscribeEventFeed":     func() error { _, err := s.Clusters().SubscribeEventFeed(ctx, ClusterID("1"), nil); return err },
+		"Caches.Get":                      func() error { _, err := s.Caches().Get(ctx, 1); return err },
+		"Caches.List":                     func() error { _, err := s.Caches().List(ctx); return err },
+		"Caches.WatchCollectionByID":      func() error { _, err := s.Caches().WatchCollectionByID(ctx, 1); return err },
+		"Caches.WatchCollection":          func() error { _, err := s.Caches().WatchCollection(ctx); return err },
+		"Caches.ListByCluster":            func() error { _, err := s.Caches().ListByCluster(ctx, ClusterID("1")); return err },
+		"Caches.WatchCollectionByCluster": func() error { _, err := s.Caches().WatchCollectionByCluster(ctx, ClusterID("1")); return err },
+		"Caches.WatchStatsState":          func() error { _, err := s.Caches().WatchStatsState(ctx, ClusterID("1"), 2); return err },
+		"Caches.WatchSyncState":           func() error { _, err := s.Caches().WatchSyncState(ctx, ClusterID("1"), 2); return err },
+		"Caches.Clear":                    func() error { _, err := s.Caches().Clear(ctx, 1); return err },
+		"Caches.Health":                   func() error { _, _, err := s.Caches().Health(ctx, ClusterID("1"), 2); return err },
+		"Caches.SyncState":                func() error { _, _, err := s.Caches().SyncState(ctx, ClusterID("1"), 2); return err },
+		"CachedKinds.Get":                 func() error { _, err := s.CachedKinds().Get(ctx, 1); return err },
+		"CachedKinds.List":                func() error { _, err := s.CachedKinds().List(ctx); return err },
+		"CachedKinds.WatchCollectionByID": func() error { _, err := s.CachedKinds().WatchCollectionByID(ctx, 1); return err },
+		"CachedKinds.WatchCollection":     func() error { _, err := s.CachedKinds().WatchCollection(ctx); return err },
+		"CachedKinds.ListByCache":         func() error { _, err := s.CachedKinds().ListByCache(ctx, 1); return err },
+		"CachedKinds.WatchCollectionByCache": func() error {
+			_, err := s.CachedKinds().WatchCollectionByCache(ctx, 1)
 			return err
 		},
-		"CachedKinds.Clear":          func() error { _, err := s.CachedKinds().Clear(ctx, 1); return err },
-		"CachedKinds.SetSyncEnabled": func() error { _, err := s.CachedKinds().SetSyncEnabled(ctx, 1, true); return err },
-		"CachedData.ListKinds":       func() error { _, err := s.CachedData().ListKinds(ctx, ClusterID("1"), 2, ""); return err },
-		"CachedData.WatchKinds":      func() error { _, err := s.CachedData().WatchKinds(ctx, ClusterID("1"), 2, ""); return err },
-		"CachedData.WatchObjects": func() error {
-			_, err := s.CachedData().WatchObjects(ctx, ClusterID("1"), 2, "v1", "pods")
+		"CachedKinds.Clear":              func() error { _, err := s.CachedKinds().Clear(ctx, 1); return err },
+		"CachedKinds.SetSyncEnabled":     func() error { _, err := s.CachedKinds().SetSyncEnabled(ctx, 1, true); return err },
+		"CachedData.ListKinds":           func() error { _, err := s.CachedData().ListKinds(ctx, ClusterID("1"), 2, ""); return err },
+		"CachedData.WatchKindCollection": func() error { _, err := s.CachedData().WatchKindCollection(ctx, ClusterID("1"), 2, ""); return err },
+		"CachedData.WatchObjectCollection": func() error {
+			_, err := s.CachedData().WatchObjectCollection(ctx, ClusterID("1"), 2, "v1", "pods")
 			return err
 		},
-		"CachedData.WatchObjectsIn": func() error {
-			_, err := s.CachedData().WatchObjectsIn(ctx, ClusterID("1"), 2, "v1", "pods", []string{"prod"})
+		"CachedData.WatchObjectCollectionByNamespaces": func() error {
+			_, err := s.CachedData().WatchObjectCollectionByNamespaces(ctx, ClusterID("1"), 2, "v1", "pods", []string{"prod"})
 			return err
 		},
-		"CachedData.WatchEvents": func() error { _, err := s.CachedData().WatchEvents(ctx, ClusterID("1"), 2); return err },
-		"ListEvents":             func() error { _, err := s.ListEvents(ctx, 1, nil, nil); return err },
-		"WatchEvents":            func() error { _, err := s.WatchEvents(ctx, 1, nil); return err },
+		"CachedData.WatchEventCollection": func() error { _, err := s.CachedData().WatchEventCollection(ctx, ClusterID("1"), 2); return err },
+		"ListEvents":                      func() error { _, err := s.ListEvents(ctx, 1, nil, nil); return err },
+		"SubscribeObjectEventFeed":        func() error { _, err := s.SubscribeObjectEventFeed(ctx, 1, nil); return err },
 	}
 	for name, op := range ops {
 		t.Run(name, func(t *testing.T) { assert.Error(t, op()) })
 	}
 }
 
-// WatchHealth is a gauge: it hands back a stream and folds afterwards, so its fault lands
+// WatchHealthKeyedState hands back a stream and folds afterwards, so its fault lands
 // on the stream rather than at the call. Reported and not swallowed — a fleet whose health
 // cannot be read is not a healthy one.
-func TestWatchHealthReportsAStorageFaultOnItsStream(t *testing.T) {
+func TestWatchHealthKeyedStateReportsAStorageFaultOnItsStream(t *testing.T) {
 	s := serviceOver(t, newTestDepsOverAClosedStore(t))
 
-	stream, err := s.Caches().WatchHealth(context.Background())
+	stream, err := s.Caches().WatchHealthKeyedState(context.Background())
 
 	require.NoError(t, err)
 	testutil.WaitClosed(t, stream.Frames, "the fold to give up on an unreadable store")

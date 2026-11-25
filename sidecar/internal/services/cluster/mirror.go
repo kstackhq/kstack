@@ -69,7 +69,7 @@ func newClusterMirror(d deps, resync, rewatch, retry time.Duration) *clusterMirr
 // collected object, which is what lets a marked row go.
 func (m *clusterMirror) Start(ctx context.Context) (func(context.Context) error, error) {
 	loopCtx, stopLoop := context.WithCancel(context.Background())
-	rows := m.db.Subscribe(appdb.KeyClusters)
+	rows := m.db.ListenForChanges(appdb.KeyClusters)
 	objs, err := m.clusterClient.WatchList(loopCtx)
 	if err != nil {
 		stopLoop()

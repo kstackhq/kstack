@@ -639,10 +639,10 @@ func awaitCall(t *testing.T, s *service, chatID ChatID, id MessageID, name strin
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	st, err := s.WatchMessages(ctx, chatID)
+	st, err := s.WatchMessageCollection(ctx, chatID)
 	require.NoError(t, err)
 	var call ToolCall
-	f := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	f := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		if f.Message == nil || f.Message.ID != id {
 			return false
 		}

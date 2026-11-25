@@ -30,7 +30,7 @@ import (
 )
 
 // MaxStreams is the most containers one view reads at once: each is its own
-// request to the API server, held open for as long as a follow runs.
+// request to the API server, held open for as long as a tail runs.
 const MaxStreams = 100
 
 // The mirror reads' bounds. No statement reads more than MaxStreams plus one rows,
@@ -71,9 +71,9 @@ const (
 // "<ns>/<name>", whether or not it has a log to read, defaults its default container,
 // places where it runs now, and current the runtime id of each of its containers'
 // current instance, by "<ns>/<pod>/<container>". noNodes is a label filter the
-// read could not apply for want of nodes, which a page or a follow answers only
-// when the file holds nothing of the view either. For a follow, starting is whether a container the view
-// reads has no log yet, which the follow waits for.
+// read could not apply for want of nodes, which a page or a tail answers only
+// when the file holds nothing of the view either. For a tail, starting is whether a container the view
+// reads has no log yet, which the tail waits for.
 type target struct {
 	cacheID    cluster.ClusterCacheID
 	serverUID  string
@@ -113,7 +113,7 @@ type stream struct {
 // replaced under the same name has a new one; the runtime id of the instance read,
 // since a restart starts a new one, which names the stream in each line's cursor;
 // and the container's state, since a running container's log can still grow and
-// a finished one's cannot. A follow reopens a stream whose generation moved.
+// a finished one's cannot. A tail reopens a stream whose generation moved.
 type generation struct {
 	uid      string
 	instance string
@@ -139,10 +139,10 @@ func (st stream) run() logline.Cursor {
 }
 
 // resolve reads view over one reading of cluster id's active cache, and for a
-// follow whether a container of it is starting. A cache missing or withholding its
+// tail whether a container of it is starting. A cache missing or withholding its
 // rows is refused as the LogsView tool refuses it, and so is a kind the cache does
 // not mirror and a view of more than MaxStreams containers.
-func resolve(ctx context.Context, svc cluster.Service, id cluster.ClusterID, scope Scope, follow bool) (target, error) {
+func resolve(ctx context.Context, svc cluster.Service, id cluster.ClusterID, scope Scope, forTail bool) (target, error) {
 	var t target
 	err := svc.CachedData().ReadActive(ctx, id, maxRows, maxBytes, func(q cluster.CacheReading, active cluster.ActiveCluster) error {
 		r := reading{q}
@@ -164,7 +164,7 @@ func resolve(ctx context.Context, svc cluster.Service, id cluster.ClusterID, sco
 			return err
 		}
 		starting := false
-		if follow {
+		if forTail {
 			if starting, err = r.starting(scope); err != nil {
 				return err
 			}

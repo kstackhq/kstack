@@ -14,7 +14,7 @@
 
 // Cluster-registry dialog, grouped into Active (in the current kubeconfig) and
 // Orphaned (leftover cache, context gone). Mutations write through; the resulting
-// clustersWatch push updates the table.
+// clusterCollectionWatch push updates the table.
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@kubetail/ui/elements/table';
@@ -28,13 +28,13 @@ import { Dialog } from '@/components/primitives/dialog';
 import { RelativeTime } from '@/components/primitives/relative-time';
 import { RetryButton } from '@/components/primitives/retry-button';
 import { graphql } from '@/gql';
-import type { ClusterCachedKindsSubscription } from '@/gql/graphql';
+import type { ClusterCachedKindCollectionWatchSubscription } from '@/gql/graphql';
 import {
   type CacheContents,
   parseTimeOrNull,
-  useCacheContents,
-  useDataRate,
-  useNextCheck,
+  useClusterCacheStatsStateWatch,
+  useClusterDataRateTimeSeriesFeed,
+  useClusterScheduleStateWatch,
 } from '@/lib/cluster-diagnostics';
 import {
   type Group,
@@ -58,15 +58,17 @@ import {
 import {
   type Cluster,
   type ClusterCacheHealth,
-  type Keyed,
-  applyChange,
   displayName,
   formatBytes,
   formatRate,
   useClusters,
 } from '@/lib/clusters';
 import { type AppDialogProps, useDialogHost } from '@/lib/dialog';
-import { perFrame, useWatchSubscription, watchPhase } from '@/lib/graphql/use-watch-subscription';
+import { collectionWatchReducer } from '@/lib/graphql/collection-watch';
+import { eventFeedReducer } from '@/lib/graphql/event-feed';
+import type { EventFeedHistory } from '@/lib/graphql/event-feed';
+import { stateWatchReducer } from '@/lib/graphql/state-watch';
+import { useFoldedSubscription, subscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 import { EVENTS_GVR, gvrKey } from '@/lib/gvr';
 import { humanDuration, humanMinutes } from '@/lib/human-duration';
 
@@ -84,11 +86,11 @@ const ClusterCachedKindSyncEnabledSetMutation = graphql(`
 `);
 
 // Connection-probe history (event-log category "connection") — decoupled from
-// clustersWatch so probe chatter never re-emits the registry. Subscribed only
+// clusterCollectionWatch so probe chatter never re-emits the registry. Subscribed only
 // while a row's diagnostics are open.
-const ClusterConnectionEventsSubscription = graphql(`
-  subscription ClusterConnectionEvents($id: ClusterID!) {
-    clusterEventsWatch(id: $id, category: "connection") {
+const ClusterEventFeedConnectionDocument = graphql(`
+  subscription ClusterEventFeedConnection($id: ClusterID!) {
+    clusterEventFeed(id: $id, category: "connection") {
       type
       event {
         id
@@ -114,28 +116,19 @@ type EventRun = {
   lastAt: string;
 };
 
-// A raw Event off a *EventsWatch subscription, before `ok` is derived.
+// A raw Event off an event feed, before `ok` is derived.
 type RawEvent = Omit<EventRun, 'ok'> & { type: string };
 
 // One frame: a run, or the bookmark closing the snapshot (which carries none).
 type RawEventFrame = { type: string; event: RawEvent | null };
 
-// A timeline plus whether its snapshot is complete. Reading `runs` before `synced`
-// shows a still-arriving history as the whole of it — an empty one especially.
-type Timeline = { runs: EventRun[]; synced: boolean };
-
-// The server prunes each timeline past this many runs. The stream is append-only —
-// a prune is never announced — so a long-lived subscription would otherwise keep
-// runs the server has already dropped. Mirrors maxEventRuns in the sidecar.
+// The server prunes each history past this many runs, and never announces a prune, so a
+// long-lived subscription would otherwise keep runs the server has already dropped.
+// Mirrors maxEventRuns in the sidecar.
 const MAX_EVENT_RUNS = 20;
 
-// Upsert by run id, newest-first by lastAt, oldest beyond the retention bound dropped.
-function foldFrame(prev: Timeline | undefined, frame: RawEventFrame): Timeline {
-  const base = prev ?? { runs: [], synced: false };
-  if (frame.type === 'Bookmark') return { ...base, synced: true };
-  if (!frame.event) return base;
-  const ev = frame.event;
-  const run: EventRun = {
+function runOf(ev: RawEvent): EventRun {
+  return {
     id: ev.id,
     ok: ev.type === 'Normal',
     reason: ev.reason,
@@ -144,28 +137,38 @@ function foldFrame(prev: Timeline | undefined, frame: RawEventFrame): Timeline {
     firstAt: ev.firstAt,
     lastAt: ev.lastAt,
   };
-  const next = base.runs.filter((a) => a.id !== run.id);
-  next.push(run);
-  next.sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1));
-  return { ...base, runs: next.slice(0, MAX_EVENT_RUNS) };
 }
 
-const EMPTY_TIMELINE: Timeline = { runs: [], synced: false };
-
-function useConnectionAttempts(clusterId: string): EventRun[] {
-  const { data } = useWatchSubscription<{ clusterEventsWatch: RawEventFrame }, Timeline>(
-    { query: ClusterConnectionEventsSubscription, variables: { id: clusterId } },
-    perFrame((prev, resp) => foldFrame(prev, resp.clusterEventsWatch)),
+// Newest first by lastAt, oldest beyond the retention bound dropped.
+function eventRunReducer<Data>(frameOf: (data: Data) => RawEventFrame) {
+  return eventFeedReducer(
+    (data: Data) => {
+      const { type, event } = frameOf(data);
+      return { type, event: event && runOf(event) };
+    },
+    { compare: (a, b) => Date.parse(b.lastAt) - Date.parse(a.lastAt), cap: MAX_EVENT_RUNS },
   );
-  return data?.runs ?? [];
+}
+
+const reduceClusterEvents = eventRunReducer((data: { clusterEventFeed: RawEventFrame }) => data.clusterEventFeed);
+const reduceObjectEvents = eventRunReducer((data: { objectEventFeed: RawEventFrame }) => data.objectEventFeed);
+
+const EMPTY_HISTORY: EventFeedHistory<EventRun> = { events: [], snapshotComplete: false };
+
+function useClusterEventFeedConnection(clusterId: string): EventRun[] {
+  const { data } = useFoldedSubscription(
+    { query: ClusterEventFeedConnectionDocument, variables: { id: clusterId } },
+    reduceClusterEvents,
+  );
+  return data?.events ?? [];
 }
 
 // Sync-event history, keyed by a ClusterCachedKind record's id (each kind's
 // worker logs to its own record), not the cache's. Subscribed only while sync
 // detail is open, one kind at a time.
-const ClusterSyncEventsSubscription = graphql(`
-  subscription ClusterSyncEvents($id: ObjectID!) {
-    eventsWatch(id: $id, category: "sync") {
+const ObjectEventFeedSyncDocument = graphql(`
+  subscription ObjectEventFeedSync($id: ObjectID!) {
+    objectEventFeed(id: $id, category: "sync") {
       type
       event {
         id
@@ -183,19 +186,19 @@ const ClusterSyncEventsSubscription = graphql(`
 // One kind's sync-transition log; paused until there's an id (a placeholder
 // subscription would carry nothing). Returns the timeline, not bare runs: the empty
 // state must not render before the bookmark says the history really is empty.
-function useSyncEvents(syncId: string | undefined): Timeline {
-  const { data } = useWatchSubscription<{ eventsWatch: RawEventFrame }, Timeline>(
-    { query: ClusterSyncEventsSubscription, variables: { id: syncId ?? '' }, pause: !syncId },
-    perFrame((prev, resp) => foldFrame(prev, resp.eventsWatch)),
+function useObjectEventFeedSync(syncId: string | undefined): EventFeedHistory<EventRun> {
+  const { data } = useFoldedSubscription(
+    { query: ObjectEventFeedSyncDocument, variables: { id: syncId ?? '' }, pause: !syncId },
+    reduceObjectEvents,
   );
-  return data ?? EMPTY_TIMELINE;
+  return data ?? EMPTY_HISTORY;
 }
 
 // Kind-discovery history, keyed by the CACHE's record id: what the cluster serves is the
 // cache's own fact, where each kind's sync transitions live on that kind's record.
-const ClusterDiscoveryEventsSubscription = graphql(`
-  subscription ClusterDiscoveryEvents($id: ObjectID!) {
-    eventsWatch(id: $id, category: "discovery") {
+const ObjectEventFeedDiscoveryDocument = graphql(`
+  subscription ObjectEventFeedDiscovery($id: ObjectID!) {
+    objectEventFeed(id: $id, category: "discovery") {
       type
       event {
         id
@@ -210,22 +213,21 @@ const ClusterDiscoveryEventsSubscription = graphql(`
   }
 `);
 
-// One cache's discovery log; paused until there's a cache, since a placeholder
-// subscription would carry nothing.
-function useDiscoveryEvents(cacheId: string | undefined): Timeline {
-  const { data } = useWatchSubscription<{ eventsWatch: RawEventFrame }, Timeline>(
-    { query: ClusterDiscoveryEventsSubscription, variables: { id: cacheId ?? '' }, pause: !cacheId },
-    perFrame((prev, resp) => foldFrame(prev, resp.eventsWatch)),
+// One cache's discovery log.
+function useObjectEventFeedDiscovery(cacheId: string): EventFeedHistory<EventRun> {
+  const { data } = useFoldedSubscription(
+    { query: ObjectEventFeedDiscoveryDocument, variables: { id: cacheId } },
+    reduceObjectEvents,
   );
-  return data ?? EMPTY_TIMELINE;
+  return data ?? EMPTY_HISTORY;
 }
 
 // One cache's sync detail — the discovery verdict, and a row per mirrored kind carrying its
 // OWN reason. The rollup above it names the offenders but not why each is failing, and a
 // cache's kinds fail independently, so this is the only thing that can say.
-const ClusterCacheSyncStatusSubscription = graphql(`
-  subscription ClusterCacheSyncStatus($id: ClusterID!, $cacheID: ObjectID!) {
-    clusterCacheSyncStatusWatch(id: $id, cacheID: $cacheID) {
+const ClusterCacheSyncStateWatchDocument = graphql(`
+  subscription ClusterCacheSyncStateWatch($id: ClusterID!, $cacheID: ObjectID!) {
+    clusterCacheSyncStateWatch(id: $id, cacheID: $cacheID) {
       discovery {
         reason
         message
@@ -249,17 +251,17 @@ type KindSyncStatus = {
   objectCount: number;
 };
 
-type CacheSyncStatus = {
+type CacheSyncState = {
   discovery: { reason: string; message: string };
   kinds: KindSyncStatus[];
 };
 
-// A gauge: each frame replaces the last outright. null until the first frame, which is what
+// A state watch: each frame replaces the last outright. null until the first frame, which is what
 // keeps a still-arriving detail from rendering as "no kinds".
-function useCacheSyncStatus(clusterId: string, cacheId: string): CacheSyncStatus | null {
-  const { data } = useWatchSubscription<{ clusterCacheSyncStatusWatch: CacheSyncStatus }, CacheSyncStatus>(
-    { query: ClusterCacheSyncStatusSubscription, variables: { id: clusterId, cacheID: cacheId } },
-    perFrame((_prev, resp) => resp.clusterCacheSyncStatusWatch),
+function useClusterCacheSyncStateWatch(clusterId: string, cacheId: string): CacheSyncState | null {
+  const { data } = useFoldedSubscription<{ clusterCacheSyncStateWatch: CacheSyncState }, CacheSyncState>(
+    { query: ClusterCacheSyncStateWatchDocument, variables: { id: clusterId, cacheID: cacheId } },
+    stateWatchReducer((resp) => resp.clusterCacheSyncStateWatch),
   );
   return data ?? null;
 }
@@ -268,9 +270,9 @@ function useCacheSyncStatus(clusterId: string, cacheId: string): CacheSyncStatus
 // cluster-wide stream would be a hundred-plus records per cache). Identity only,
 // no conditions: the verdict comes from the sidecar's rollup (see syncStatus), and
 // this stream is only asked which record owns the timeline worth showing.
-const ClusterCachedKindsSubscription = graphql(`
-  subscription ClusterCachedKinds($cacheID: ObjectID!) {
-    clusterCachedKindsWatch(cacheID: $cacheID) {
+const ClusterCachedKindCollectionWatchDocument = graphql(`
+  subscription ClusterCachedKindCollectionWatch($cacheID: ObjectID!) {
+    clusterCachedKindCollectionWatch(cacheID: $cacheID) {
       type
       kind {
         id
@@ -284,25 +286,25 @@ const ClusterCachedKindsSubscription = graphql(`
 `);
 
 // NonNullable: null only on a Bookmark, folded away in the reducer below.
-type CachedKind = NonNullable<ClusterCachedKindsSubscription['clusterCachedKindsWatch']['kind']>;
+type CachedKind = NonNullable<ClusterCachedKindCollectionWatchSubscription['clusterCachedKindCollectionWatch']['kind']>;
 
-// The cache's kind syncs, id-keyed through the registry's shared delta fold.
-function useCachedKinds(cacheId: string): CachedKind[] {
-  const { data } = useWatchSubscription<
-    { clusterCachedKindsWatch: { type: string; kind: CachedKind | null } },
-    Keyed<CachedKind>
-  >({ query: ClusterCachedKindsSubscription, variables: { cacheID: cacheId } }, (prev, frames) => {
-    const items = new Map(prev);
-    frames.forEach(({ clusterCachedKindsWatch: { type, kind } }) => {
-      // The Bookmark carries no record; the row renders per-kind detail, not an
-      // empty state, so it needs no snapshot-complete gate. A change with no record is
-      // a server-side field error — equally unfoldable.
-      if (type === 'Bookmark' || !kind) return;
-      applyChange(items, type, kind.id, kind);
-    });
-    return items;
-  });
-  return useMemo(() => (data ? [...data.values()] : []), [data]);
+// The kind syncs render per-kind detail, not an empty state, so they need no
+// snapshot-complete gate.
+const reduceCachedKinds = collectionWatchReducer(
+  ({ clusterCachedKindCollectionWatch: { type, kind } }: ClusterCachedKindCollectionWatchSubscription) => ({
+    type,
+    item: kind,
+  }),
+);
+
+// The cache's kind syncs, id-keyed.
+function useClusterCachedKindCollectionWatch(cacheId: string): CachedKind[] {
+  const { data } = useFoldedSubscription(
+    { query: ClusterCachedKindCollectionWatchDocument, variables: { cacheID: cacheId } },
+    reduceCachedKinds,
+  );
+  const items = data?.items;
+  return useMemo(() => (items ? [...items.values()] : []), [items]);
 }
 
 // Single source for the colSpan numbers below.
@@ -437,7 +439,7 @@ function EventRunList({
 // The next check: a countdown, "checking…" with a spinner while a probe runs, or a dash when
 // none is due. Always something, so the row it fills never reflows.
 export function NextCheck({ clusterId }: { clusterId: string }) {
-  const { atMs, probing } = useNextCheck(clusterId);
+  const { atMs, probing } = useClusterScheduleStateWatch(clusterId);
   if (probing) {
     return (
       <span className="inline-flex items-center gap-1">
@@ -455,8 +457,8 @@ export function NextCheck({ clusterId }: { clusterId: string }) {
 // popover would be unclickable.
 export function ConnectionDetail({ cluster, connFailed }: { cluster: Cluster; connFailed: boolean }) {
   const detail = connectionDetail(cluster);
-  const attempts = useConnectionAttempts(cluster.id);
-  const rates = useDataRate(cluster.id, !cluster.spec.enabled);
+  const attempts = useClusterEventFeedConnection(cluster.id);
+  const rates = useClusterDataRateTimeSeriesFeed(cluster.id, !cluster.spec.enabled);
   const rate = rates?.samples.at(-1);
 
   return (
@@ -556,11 +558,11 @@ export function SyncDetail({
   cacheId: string;
   contents: CacheContents | null;
 }) {
-  const kindSyncs = useCachedKinds(cacheId);
-  const cacheSync = useCacheSyncStatus(clusterId, cacheId);
+  const kindSyncs = useClusterCachedKindCollectionWatch(cacheId);
+  const cacheSync = useClusterCacheSyncStateWatch(clusterId, cacheId);
   const timelineKind = timelineSyncFor(kindSyncs, health);
-  const events = useSyncEvents(timelineKind?.id);
-  const discoveryEvents = useDiscoveryEvents(cacheId);
+  const syncHistory = useObjectEventFeedSync(timelineKind?.id);
+  const discoveryHistory = useObjectEventFeedDiscovery(cacheId);
   // Each offender with its own reason — which the rollup cannot carry, since it folds a
   // hundred kinds into one verdict. A kind with no reason yet has not answered, and a kind
   // still starting has not failed: a cache being armed, cleared, or resumed reports every one
@@ -622,22 +624,22 @@ export function SyncDetail({
       {pausedKinds.length > 0 ? (
         <PausedKindList kinds={pausedKinds} idOf={idOf} onSetSyncEnabled={setSyncEnabled} />
       ) : null}
-      {events.runs.length > 0 ? (
+      {syncHistory.events.length > 0 ? (
         <EventRunList
           title={timelineKind ? `Recent sync events — ${timelineKind.spec.resource}` : 'Recent sync events'}
-          runs={events.runs}
+          runs={syncHistory.events}
           labelOf={(e) => e.reason}
           showDuration={false}
         />
       ) : (
         // Only once the bookmark says the history really is empty — before that a
         // still-arriving timeline would read as "none".
-        events.synced && <p className="text-xs text-muted-foreground">No sync events yet.</p>
+        syncHistory.snapshotComplete && <p className="text-xs text-muted-foreground">No sync events yet.</p>
       )}
-      {discoveryEvents.runs.length > 0 ? (
+      {discoveryHistory.events.length > 0 ? (
         <EventRunList
           title="Recent kind discovery"
-          runs={discoveryEvents.runs}
+          runs={discoveryHistory.events}
           labelOf={(e) => e.reason}
           showDuration={false}
         />
@@ -847,7 +849,7 @@ function ClusterRow({
   // and a second subscriber joins mid-stream with no replay — the later mount would
   // sit on null until the next frame.
   const { activeCache } = cluster;
-  const contents = useCacheContents(cluster.id, activeCache?.id ?? '', !activeCache);
+  const contents = useClusterCacheStatsStateWatch(cluster.id, activeCache?.id ?? '', !activeCache);
   const connection = connectionStatus(cluster, group);
   const status = syncStatus(cluster, group);
   const overall = overallStatus(connection, status);
@@ -999,15 +1001,15 @@ export function ClusterSyncPanel({ open, onOpenChange }: AppDialogProps) {
   const rows = clusters ?? [];
   const groups = GROUPS.map((g) => ({ ...g, clusters: rows.filter(g.match) })).filter((g) => g.clusters.length > 0);
 
-  // `clusters !== null` IS the snapshot-complete signal watchPhase wants (the provider
+  // `clusters !== null` IS the snapshot-complete signal subscriptionPhase wants (the provider
   // holds the list back until the Bookmark), so "No clusters yet." below can only be
   // reached once the fleet is genuinely known.
-  const phase = watchPhase(clusters !== null, connected);
+  const phase = subscriptionPhase(clusters !== null, connected);
   // Read once as the dialog mounts: it mounts per open, and the detail is that open's.
   const host = useDialogHost();
   const [detail] = useState(host?.clusterDetail ?? null);
 
-  // Actions write through; the clustersWatch push is the source of truth. A failure needs
+  // Actions write through; the clusterCollectionWatch push is the source of truth. A failure needs
   // no handling here — the client's errorReportExchange puts every operation error on the
   // bus, so a second report at the call site would show one failure twice.
   const [, clusterEnabledSetMut] = useMutation(ClusterEnabledSetMutation);

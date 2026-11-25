@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The event log every record kind shares: the point read, the timeline watch, and the
+// The event log every record kind shares: the point read, the event feed, and the
 // projection between them. Not a kind's file and not a family's, because an event
 // carries no kind — beehive reads a timeline by id alone, so one code path serves
 // Cluster, ClusterCache and ClusterCachedKind alike.
@@ -74,7 +74,7 @@ func (s *service) ListEvents(ctx context.Context, id ObjectID, category *string,
 	return events, nil
 }
 
-func (s *service) WatchEvents(ctx context.Context, id ObjectID, category *string) (*Stream[EventWatchFrame], error) {
+func (s *service) SubscribeObjectEventFeed(ctx context.Context, id ObjectID, category *string) (*Stream[EventFeedFrame], error) {
 	// Any registered kind's client serves any id's timeline: beehive checks
 	// registration against the CALLER's kind, not the target's, and the read itself is
 	// kind-agnostic. The cluster client is picked because every id reaches this method
@@ -86,7 +86,7 @@ func (s *service) WatchEvents(ctx context.Context, id ObjectID, category *string
 	if err != nil {
 		return nil, fmt.Errorf("watch object %d events: %w", id, err)
 	}
-	return NewStream(ctx, func(ctx context.Context, out chan<- EventWatchFrame) error {
+	return NewStream(ctx, func(ctx context.Context, out chan<- EventFeedFrame) error {
 		// Forwarded in beehive's order — newest-first — because the client upserts by
 		// Event.ID rather than appending.
 		for _, ev := range src.Runs {
@@ -94,7 +94,7 @@ func (s *service) WatchEvents(ctx context.Context, id ObjectID, category *string
 				return nil
 			}
 		}
-		if !sendFrame(ctx, out, EventWatchFrame{Type: EventFrameBookmark}) {
+		if !sendFrame(ctx, out, EventFeedFrame{Type: EventFeedFrameBookmark}) {
 			return nil
 		}
 		for ev := range src.Events {
@@ -117,9 +117,9 @@ func terminalErr(err error) error {
 	return err
 }
 
-func runFrame(ev beehive.Event) EventWatchFrame {
+func runFrame(ev beehive.Event) EventFeedFrame {
 	served := toEvent(ev)
-	return EventWatchFrame{Type: EventFrameRun, Event: &served}
+	return EventFeedFrame{Type: EventFeedFrameRun, Event: &served}
 }
 
 // ListEvents is the cluster's timeline, read off its runtime object. A cluster with
@@ -132,22 +132,22 @@ func (a clustersAPI) ListEvents(ctx context.Context, id ClusterID, category *str
 	return a.s.ListEvents(ctx, ObjectID(obj.ID), category, limit)
 }
 
-// WatchEvents is the cluster's timeline watch. A cluster with no object is the
+// SubscribeEventFeed is the cluster's event feed. A cluster with no object is the
 // Bookmark alone, held open until the caller is done: an object created later has an
 // id of its own, so this stream would never carry its runs anyway, and a stream that
 // ended would be a drop the client reconnects on for as long as the object is absent.
-func (a clustersAPI) WatchEvents(ctx context.Context, id ClusterID, category *string) (*Stream[EventWatchFrame], error) {
+func (a clustersAPI) SubscribeEventFeed(ctx context.Context, id ClusterID, category *string) (*Stream[EventFeedFrame], error) {
 	obj, err := a.s.runtimeObject(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if obj == nil {
-		return NewStream(ctx, func(ctx context.Context, out chan<- EventWatchFrame) error {
-			if sendFrame(ctx, out, EventWatchFrame{Type: EventFrameBookmark}) {
+		return NewStream(ctx, func(ctx context.Context, out chan<- EventFeedFrame) error {
+			if sendFrame(ctx, out, EventFeedFrame{Type: EventFeedFrameBookmark}) {
 				<-ctx.Done()
 			}
 			return nil
 		}), nil
 	}
-	return a.s.WatchEvents(ctx, ObjectID(obj.ID), category)
+	return a.s.SubscribeObjectEventFeed(ctx, ObjectID(obj.ID), category)
 }

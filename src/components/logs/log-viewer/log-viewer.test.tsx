@@ -17,7 +17,7 @@ import { StrictMode } from 'react';
 import { Client as UrqlClient, Provider as UrqlProvider } from 'urql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Client, FetchQuery, FollowFrame, LogLine, Page } from '@/lib/log-viewer';
+import type { Client, FetchQuery, TailFrame, LogLine, Page } from '@/lib/log-viewer';
 import {
   EMPTY_LOG_VIEWPORT,
   type LogViewport,
@@ -145,7 +145,7 @@ const START = { prev: null };
 const END = { next: null, follow: 'live-end' };
 
 type Fetch = { query: FetchQuery; resolve: (p: Page) => void; reject: (error: unknown) => void };
-type Follow = { onFrame: (frame: FollowFrame) => void; onFailed: (error: unknown) => void; closed: boolean };
+type Follow = { onFrame: (frame: TailFrame) => void; onFailed: (error: unknown) => void; closed: boolean };
 
 function scripted() {
   const fetches: Fetch[] = [];
@@ -156,7 +156,7 @@ function scripted() {
       new Promise<Page>((resolve, reject) => {
         fetches.push({ query, resolve, reject });
       }),
-    follow: (_cursor, _seen, onFrame, onFailed) => {
+    tail: (_cursor, _seen, onFrame, onFailed) => {
       if (refusal.next) {
         const error = refusal.next;
         refusal.next = null;

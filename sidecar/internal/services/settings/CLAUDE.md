@@ -21,7 +21,7 @@ for `toolsettings` and `agent/chat`. → [ADR](../../../../docs/adr/2026-11-24-s
 **The modes are `permissions.approval_mode` settings; the always rules and folder grants are
 `app.db` rows** with `chat_id` NULL (`kube_rules`, `folder_grants`; `agent/chat` writes a chat's), in
 `permissions.go`, `store.go` and `statements.go`. Each write is one
-transaction and then notifies `appdb.KeyPermissions` (`WatchPermissions`). → [ADR](../../../../docs/adr/2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md),
+transaction and then notifies `appdb.KeyPermissions` (`ListenForPermissionChanges`). → [ADR](../../../../docs/adr/2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md),
 [security record](../../../../docs/security/2026-11-25-settings-in-app-db.md).
 
 - `ModeFor(ctx, cluster)` is the cluster's row, else the default row, else `Ask`; a mode Kstack
@@ -41,7 +41,7 @@ value, naming the element, for `$PATH` mixed with text, any other `$`, a relativ
 home itself, an empty element or a NUL. **`ExpandPath` splices the shell's `PATH` in already split**,
 so nothing it lists is ever typed, and joins a typed folder to the canonical home. A `PathFolder`
 carries its `Origin` (`OriginShell`, `OriginTyped`). `SetPath` upserts it and notifies
-`appdb.KeySandboxPath` (`WatchSandboxPath`); a stored value the grammar refuses is read with its
+`appdb.KeySandboxPath` (`ListenForSandboxPathChanges`); a stored value the grammar refuses is read with its
 `Refusal`, one that is not text as an empty value with its own. → [ADR](../../../../docs/adr/2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md),
 [security record](../../../../docs/security/2026-11-25-settings-in-app-db.md).
 
@@ -81,7 +81,7 @@ record](../../../../docs/security/2026-10-04-path-grants.md).
 **The registered executables are `executables` rows** (`executables.go`), probed beside
 `CuratedExecutables`. `CheckExecutable` checks a register and every read: a refused row is listed
 with its `Refusal`, never probed, and removable. A stored name is `ErrExecutableListed` before any
-check. A write notifies `appdb.KeyExecutables` (`WatchExecutables`).
+check. A write notifies `appdb.KeyExecutables` (`ListenForExecutableChanges`).
 
 **The cloud platform switches are `sandbox.<platform>.enabled` settings** (`cloudplatform.go`),
 each on by default ([ADR](../../../../docs/adr/2026-11-18-every-cloud-platform-is-on-until-the-user-turns-it-off.md)).

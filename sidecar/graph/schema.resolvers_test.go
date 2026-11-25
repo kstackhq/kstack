@@ -221,14 +221,14 @@ func TestClusterQueryNotFound(t *testing.T) {
 	}
 }
 
-// clustersWatch is a delta watch: the snapshot arrives as one Added change per
+// clusterCollectionWatch is a collection watch: the snapshot arrives as one Added change per
 // cluster (not a single list frame), then the stream holds open (no completion)
 // until the subscriber goes away.
-func TestClustersWatchEmitsSnapshotAndStaysOpen(t *testing.T) {
+func TestClusterCollectionWatchEmitsSnapshotAndStaysOpen(t *testing.T) {
 	srv := newTestServer(t, clusterFixtures())
 
 	resp := openSSESubscription(t, srv.URL, "",
-		"subscription { clustersWatch { type cluster { id spec { name } } } }")
+		"subscription { clusterCollectionWatch { type cluster { id spec { name } } } }")
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 
@@ -374,7 +374,7 @@ func TestClusterConnectionRetryMutation(t *testing.T) {
 
 // The status condition lists and the cache object resolve without panicking
 // or erroring on bare fixtures: the cluster carries no conditions (empty arrays
-// on the wire, never null) and the cache — streamed via clusterCachesWatch —
+// on the wire, never null) and the cache — streamed via clusterCacheCollectionWatch —
 // has no on-disk files (exists=false, bytes=0, objectCount=0, kindCount=0).
 func TestClusterEphemeralFields(t *testing.T) {
 	srv := newTestServer(t, clusterFixtures())
@@ -470,7 +470,7 @@ func TestConditionsAndSyncStatusOnWire(t *testing.T) {
 		t.Errorf("Connected condition on the wire: %+v", conds[0])
 	}
 
-	// The cache's coarse Synced condition rides clusterCachesWatch. Freshness does not:
+	// The cache's coarse Synced condition rides clusterCacheCollectionWatch. Freshness does not:
 	// the sync children report it, out of band from the object graph.
 	cache := firstCacheFrame(t, srv.URL)
 	syncConds, _ := cache["conditions"].([]any)
@@ -750,14 +750,14 @@ func TestClusterCachedKindSyncEnabledSetMutation(t *testing.T) {
 	}
 }
 
-// TestClusterCachedKindsWatchIsCacheScoped pins the scoping on the wire: the stream is
+// TestClusterCachedKindCollectionWatchIsCacheScoped pins the scoping on the wire: the stream is
 // opened for one cache and must carry only that cache's kinds. The fixture gives each
 // cache one record, so a leak shows up as a second frame.
-func TestClusterCachedKindsWatchIsCacheScoped(t *testing.T) {
+func TestClusterCachedKindCollectionWatchIsCacheScoped(t *testing.T) {
 	srv := newTestServer(t, clusterFixtures())
 
 	resp := openSSESubscription(t, srv.URL, "",
-		`subscription { clusterCachedKindsWatch(cacheID: "`+strconv.FormatInt(int64(fixtureCacheID("1")), 10)+`") { type kind { id owner { id kind } `+
+		`subscription { clusterCachedKindCollectionWatch(cacheID: "`+strconv.FormatInt(int64(fixtureCacheID("1")), 10)+`") { type kind { id owner { id kind } `+
 			`spec { apiVersion kind resource namespaced } conditions { type status reason } } } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
@@ -770,7 +770,7 @@ func TestClusterCachedKindsWatchIsCacheScoped(t *testing.T) {
 				Watch struct {
 					Type string         `json:"type"`
 					Kind map[string]any `json:"kind"`
-				} `json:"clusterCachedKindsWatch"`
+				} `json:"clusterCachedKindCollectionWatch"`
 			} `json:"data"`
 		}
 		select {
@@ -790,7 +790,7 @@ func TestClusterCachedKindsWatchIsCacheScoped(t *testing.T) {
 			// Detect the snapshot boundary by type, never by a missing entity: an
 			// errored non-null field nulls its parent, so a null entity also rides
 			// ordinary frames.
-			if frame.Data.Watch.Type == string(cluster.DeltaFrameBookmark) {
+			if frame.Data.Watch.Type == string(cluster.CollectionWatchFrameBookmark) {
 				continue
 			}
 			seen++
@@ -811,14 +811,14 @@ func TestClusterCachedKindsWatchIsCacheScoped(t *testing.T) {
 	}
 }
 
-// TestDeltaWatchClosesSnapshotWithBookmark pins the boundary a consumer waits on before
+// TestCollectionWatchClosesSnapshotWithBookmark pins the boundary a consumer waits on before
 // rendering an empty state: exactly one Bookmark, after the Added frames, carrying no
 // entity. Without it a still-listing collection is indistinguishable from an empty one.
-func TestDeltaWatchClosesSnapshotWithBookmark(t *testing.T) {
+func TestCollectionWatchClosesSnapshotWithBookmark(t *testing.T) {
 	srv := newTestServer(t, clusterFixtures())
 
 	resp := openSSESubscription(t, srv.URL, "",
-		`subscription { clusterCachesWatch { type cache { id } } }`)
+		`subscription { clusterCacheCollectionWatch { type cache { id } } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 
@@ -830,7 +830,7 @@ func TestDeltaWatchClosesSnapshotWithBookmark(t *testing.T) {
 				Watch struct {
 					Type  string         `json:"type"`
 					Cache map[string]any `json:"cache"`
-				} `json:"clusterCachesWatch"`
+				} `json:"clusterCacheCollectionWatch"`
 			} `json:"data"`
 		}
 		select {
@@ -845,7 +845,7 @@ func TestDeltaWatchClosesSnapshotWithBookmark(t *testing.T) {
 				t.Fatalf("decode cache frame %s: %v", ev.data, err)
 			}
 			switch frame.Data.Watch.Type {
-			case string(cluster.DeltaFrameBookmark):
+			case string(cluster.CollectionWatchFrameBookmark):
 				bookmarks++
 				if frame.Data.Watch.Cache != nil {
 					t.Errorf("the bookmark carries no entity, got: %v", frame.Data.Watch.Cache)
@@ -853,7 +853,7 @@ func TestDeltaWatchClosesSnapshotWithBookmark(t *testing.T) {
 				if bookmarks == 1 && added != len(clusterFixtures()) {
 					t.Errorf("bookmark closed the snapshot after %d of %d records", added, len(clusterFixtures()))
 				}
-			case string(cluster.DeltaFrameAdded):
+			case string(cluster.CollectionWatchFrameAdded):
 				if bookmarks > 0 {
 					t.Error("an Added frame arrived after the snapshot closed")
 				}
@@ -868,13 +868,13 @@ func TestDeltaWatchClosesSnapshotWithBookmark(t *testing.T) {
 	}
 }
 
-// TestClusterCacheStatsWatchServesGauge pins that the cache summary is reachable as a
+// TestClusterCacheStatsStateWatchServesTheStats pins that the cache summary is reachable as a
 // stream — the only shape that keeps reporting once the cache record itself settles.
-func TestClusterCacheStatsWatchServesGauge(t *testing.T) {
+func TestClusterCacheStatsStateWatchServesTheStats(t *testing.T) {
 	srv := newTestServer(t, clusterFixtures())
 
 	resp := openSSESubscription(t, srv.URL, "",
-		`subscription { clusterCacheStatsWatch(id: "1", cacheID: "`+strconv.FormatInt(int64(fixtureCacheID("1")), 10)+`") { exists bytes objectCount kindCount } }`)
+		`subscription { clusterCacheStatsStateWatch(id: "1", cacheID: "`+strconv.FormatInt(int64(fixtureCacheID("1")), 10)+`") { exists bytes objectCount kindCount } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 
@@ -882,7 +882,7 @@ func TestClusterCacheStatsWatchServesGauge(t *testing.T) {
 	for {
 		var frame struct {
 			Data struct {
-				Stats map[string]any `json:"clusterCacheStatsWatch"`
+				Stats map[string]any `json:"clusterCacheStatsStateWatch"`
 			} `json:"data"`
 		}
 		select {
@@ -1007,10 +1007,10 @@ func TestClusterCachedDataKindsResolver(t *testing.T) {
 	}
 }
 
-// clusterCachedDataObjectsWatch wires the subscription resolver to the service: the fake with
+// clusterCachedDataObjectCollectionWatch wires the subscription resolver to the service: the fake with
 // no seeded objects opens an empty-until-ctx stream, so the SSE dial succeeds and the
 // stream stays open with no frames rather than erroring.
-func TestClusterCachedDataObjectsWatchOpensWithoutError(t *testing.T) {
+func TestClusterCachedDataObjectCollectionWatchOpensWithoutError(t *testing.T) {
 	fix := clusterFixtures()
 	svc := newFakeClusterService(fix)
 	id := fix[0].id
@@ -1020,7 +1020,7 @@ func TestClusterCachedDataObjectsWatchOpensWithoutError(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	idStr := string(id)
-	q := `subscription { clusterCachedDataObjectsWatch(id: "` + idStr + `", cacheID: "` + idStr +
+	q := `subscription { clusterCachedDataObjectCollectionWatch(id: "` + idStr + `", cacheID: "` + idStr +
 		`", apiVersion: "apps/v1", resource: "deployments") { type object { uid name } } }`
 	resp := openSSESubscription(t, srv.URL, "", q)
 	defer resp.Body.Close()
@@ -1041,7 +1041,7 @@ func TestClusterCachedDataObjectsWatchOpensWithoutError(t *testing.T) {
 // The resolver-gated `object` field carries the full native body as the JSON scalar,
 // marshaled verbatim through gqlgen — a consumer selecting it gets the object JSON back
 // as a nested value (not a string), with the identity fields alongside.
-func TestClusterCachedDataObjectsWatchServesNativeBody(t *testing.T) {
+func TestClusterCachedDataObjectCollectionWatchServesNativeBody(t *testing.T) {
 	fix := clusterFixtures()
 	svc := newFakeClusterService(fix)
 	id := fix[0].id
@@ -1057,7 +1057,7 @@ func TestClusterCachedDataObjectsWatchServesNativeBody(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	idStr := string(id)
-	q := `subscription { clusterCachedDataObjectsWatch(id: "` + idStr + `", cacheID: "` + idStr +
+	q := `subscription { clusterCachedDataObjectCollectionWatch(id: "` + idStr + `", cacheID: "` + idStr +
 		`", apiVersion: "apps/v1", resource: "deployments") { type object { uid name rawJSON } } }`
 	resp := openSSESubscription(t, srv.URL, "", q)
 	defer resp.Body.Close()
@@ -1075,20 +1075,20 @@ func TestClusterCachedDataObjectsWatchServesNativeBody(t *testing.T) {
 			}
 			var frame struct {
 				Data struct {
-					ClusterCachedDataObjectsWatch struct {
+					ClusterCachedDataObjectCollectionWatch struct {
 						Type   string `json:"type"`
 						Object struct {
 							UID     string         `json:"uid"`
 							Name    string         `json:"name"`
 							RawJSON map[string]any `json:"rawJSON"`
 						} `json:"object"`
-					} `json:"clusterCachedDataObjectsWatch"`
+					} `json:"clusterCachedDataObjectCollectionWatch"`
 				} `json:"data"`
 			}
 			if err := json.Unmarshal([]byte(ev.data), &frame); err != nil {
 				t.Fatalf("decode frame %s: %v", ev.data, err)
 			}
-			got := frame.Data.ClusterCachedDataObjectsWatch
+			got := frame.Data.ClusterCachedDataObjectCollectionWatch
 			if got.Object.UID != "d1" || got.Object.Name != "web" {
 				t.Fatalf("identity fields: got %+v", got.Object)
 			}
@@ -1108,7 +1108,7 @@ func TestClusterCachedDataObjectsWatchServesNativeBody(t *testing.T) {
 
 // Each frame names the namespace its counts were taken in: the one subscribed with, and
 // "" for the whole cache when none is.
-func TestClusterCachedDataKindsWatchNamesItsNamespace(t *testing.T) {
+func TestClusterCachedDataKindCollectionWatchNamesItsNamespace(t *testing.T) {
 	svc := newFakeClusterService(clusterFixtures())
 	svc.kinds = map[cluster.ClusterID][]cluster.ClusterCachedDataKind{
 		"1": {{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: "Namespaced"}},
@@ -1122,7 +1122,7 @@ func TestClusterCachedDataKindsWatchNamesItsNamespace(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			resp := openSSESubscription(t, srv.URL, "",
-				`subscription { clusterCachedDataKindsWatch(id: "1", cacheID: "1"`+tc.arg+`) { namespace kind { kind } } }`)
+				`subscription { clusterCachedDataKindCollectionWatch(id: "1", cacheID: "1"`+tc.arg+`) { namespace kind { kind } } }`)
 			defer resp.Body.Close()
 
 			frame := testutil.Recv(t, sseEvents(t, resp), "the first frame")
@@ -1131,11 +1131,11 @@ func TestClusterCachedDataKindsWatchNamesItsNamespace(t *testing.T) {
 	}
 }
 
-// clusterCachedDataKindsWatch streams the kind catalog as a delta watch: the resolver
-// adapts the service's ClusterCachedDataKindWatchFrame stream to the wire 1:1, so the snapshot
+// clusterCachedDataKindCollectionWatch streams the kind catalog as a collection watch: the resolver
+// adapts the service's ClusterCachedDataKindCollectionWatchFrame stream to the wire 1:1, so the snapshot
 // arrives as Added changes carrying the kind's fields (incl. the live count) and the
 // stream stays open for live updates.
-func TestClusterCachedDataKindsWatchEmitsSnapshotAndStaysOpen(t *testing.T) {
+func TestClusterCachedDataKindCollectionWatchEmitsSnapshotAndStaysOpen(t *testing.T) {
 	fix := clusterFixtures()
 	svc := newFakeClusterService(fix)
 	id := fix[0].id
@@ -1150,7 +1150,7 @@ func TestClusterCachedDataKindsWatchEmitsSnapshotAndStaysOpen(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	q := `subscription { clusterCachedDataKindsWatch(id: "` + string(id) +
+	q := `subscription { clusterCachedDataKindCollectionWatch(id: "` + string(id) +
 		`", cacheID: "` + string(id) + `") { type kind { apiVersion kind resource count } } }`
 	resp := openSSESubscription(t, srv.URL, "", q)
 	defer resp.Body.Close()
@@ -1172,19 +1172,19 @@ func TestClusterCachedDataKindsWatchEmitsSnapshotAndStaysOpen(t *testing.T) {
 			}
 			var frame struct {
 				Data struct {
-					ClusterCachedDataKindsWatch struct {
+					ClusterCachedDataKindCollectionWatch struct {
 						Type string `json:"type"`
 						Kind struct {
 							Kind  string `json:"kind"`
 							Count int    `json:"count"`
 						} `json:"kind"`
-					} `json:"clusterCachedDataKindsWatch"`
+					} `json:"clusterCachedDataKindCollectionWatch"`
 				} `json:"data"`
 			}
 			if err := json.Unmarshal([]byte(ev.data), &frame); err != nil {
 				t.Fatalf("decode frame %s: %v", ev.data, err)
 			}
-			seen[frame.Data.ClusterCachedDataKindsWatch.Kind.Kind] = frame.Data.ClusterCachedDataKindsWatch.Kind.Count
+			seen[frame.Data.ClusterCachedDataKindCollectionWatch.Kind.Kind] = frame.Data.ClusterCachedDataKindCollectionWatch.Kind.Count
 		case <-deadline:
 			t.Fatalf("timed out waiting for snapshot; saw %v", seen)
 		}
@@ -1323,7 +1323,7 @@ func TestLoginMutationKicksOffFlow(t *testing.T) {
 	// The auth-state stream is latest-value (current-on-subscribe): the first State
 	// is the signed-out baseline, and the sign-in surfaces as a later Connected
 	// State. The loop skips the baseline and waits for sign-in.
-	states, cancel := svc.Subscribe()
+	states, cancel := svc.WatchState()
 	defer cancel()
 
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
@@ -1367,13 +1367,13 @@ func TestLoginMutationSurfacesSetupError(t *testing.T) {
 	}
 }
 
-// TestClusterCacheSyncStatusWatchServesEveryKind pins the one field on the wire that carries
+// TestClusterCacheSyncStateWatchServesEveryKind pins the one field on the wire that carries
 // a per-kind verdict: nothing else can say which of a cache's hundred kinds is failing.
-func TestClusterCacheSyncStatusWatchServesEveryKind(t *testing.T) {
+func TestClusterCacheSyncStateWatchServesEveryKind(t *testing.T) {
 	srv := newTestServer(t, clusterFixtures())
 
 	resp := openSSESubscription(t, srv.URL, "",
-		`subscription { clusterCacheSyncStatusWatch(id: "1", cacheID: "`+strconv.FormatInt(int64(fixtureCacheID("1")), 10)+`") { cacheID discovery { reason } kinds { apiVersion resource reason restarts objectCount } } }`)
+		`subscription { clusterCacheSyncStateWatch(id: "1", cacheID: "`+strconv.FormatInt(int64(fixtureCacheID("1")), 10)+`") { cacheID discovery { reason } kinds { apiVersion resource reason restarts objectCount } } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 
@@ -1385,7 +1385,7 @@ func TestClusterCacheSyncStatusWatchServesEveryKind(t *testing.T) {
 					CacheID   string           `json:"cacheID"`
 					Discovery map[string]any   `json:"discovery"`
 					Kinds     []map[string]any `json:"kinds"`
-				} `json:"clusterCacheSyncStatusWatch"`
+				} `json:"clusterCacheSyncStateWatch"`
 			} `json:"data"`
 		}
 		select {
@@ -1432,7 +1432,7 @@ func TestPrinterColumnsReachTheWire(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	resp := openSSESubscription(t, srv.URL, "",
-		`subscription { clusterCachedDataKindsWatch(id: "1", cacheID: "1") { kind { printerColumns { name type jsonPath priority } } } }`)
+		`subscription { clusterCachedDataKindCollectionWatch(id: "1", cacheID: "1") { kind { printerColumns { name type jsonPath priority } } } }`)
 	defer resp.Body.Close()
 
 	frame := testutil.Recv(t, sseEvents(t, resp), "the first frame")
@@ -1443,7 +1443,7 @@ func TestPrinterColumnsReachTheWire(t *testing.T) {
 }
 
 // A timestamp the source object never carried serializes as null, not as 0001-01-01. The records
-// keep a value time.Time — the delta-watch diff compares frames with ==, so they must stay
+// keep a value time.Time — the collection watch diff compares frames with ==, so they must stay
 // comparable — and this is the wire's whole answer for "absent".
 func TestAnAbsentTimestampSerializesAsNull(t *testing.T) {
 	seen := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
@@ -1455,7 +1455,7 @@ func TestAnAbsentTimestampSerializesAsNull(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	resp := openSSESubscription(t, srv.URL, "",
-		`subscription { clusterCachedDataEventsWatch(id: "1", cacheID: "1") { event { firstSeen lastSeen } } }`)
+		`subscription { clusterCachedDataEventCollectionWatch(id: "1", cacheID: "1") { event { firstSeen lastSeen } } }`)
 	defer resp.Body.Close()
 
 	frame := testutil.Recv(t, sseEvents(t, resp), "the first frame")
@@ -1523,43 +1523,49 @@ func TestResolverErrorsReachTheCaller(t *testing.T) {
 	// Each case calls one resolver and reports only its error; the values are
 	// asserted by the tests above, on a service that works.
 	calls := map[string]func() error{
-		"Cluster.caches":                     func() error { _, err := r.Cluster().Caches(ctx, cl); return err },
-		"Cluster.events":                     func() error { _, err := r.Cluster().Events(ctx, cl, nil, nil); return err },
-		"ClusterCache.kinds":                 func() error { _, err := r.ClusterCache().Kinds(ctx, cache, ""); return err },
-		"ClusterCache.cachedKinds":           func() error { _, err := r.ClusterCache().CachedKinds(ctx, cache); return err },
-		"ClusterCache.events":                func() error { _, err := r.ClusterCache().Events(ctx, cache, nil, nil); return err },
-		"ClusterCachedKind.events":           func() error { _, err := r.ClusterCachedKind().Events(ctx, kind, nil, nil); return err },
-		"Query.cluster":                      func() error { _, err := r.Query().Cluster(ctx, id); return err },
-		"Query.clusters":                     func() error { _, err := r.Query().Clusters(ctx); return err },
-		"Query.clusterCache":                 func() error { _, err := r.Query().ClusterCache(ctx, objID); return err },
-		"Query.clusterCaches":                func() error { _, err := r.Query().ClusterCaches(ctx, nil); return err },
-		"Query.clusterCaches(scoped)":        func() error { _, err := r.Query().ClusterCaches(ctx, &id); return err },
-		"Query.clusterCachedKind":            func() error { _, err := r.Query().ClusterCachedKind(ctx, objID); return err },
-		"Query.clusterCachedKinds":           func() error { _, err := r.Query().ClusterCachedKinds(ctx, nil); return err },
-		"Query.clusterCachedKinds(scoped)":   func() error { _, err := r.Query().ClusterCachedKinds(ctx, &objID); return err },
-		"Mutation.clusterEnabledSet":         func() error { _, err := r.Mutation().ClusterEnabledSet(ctx, id, true); return err },
-		"Mutation.clusterSyncEnabledSet":     func() error { _, err := r.Mutation().ClusterSyncEnabledSet(ctx, id, true); return err },
-		"Mutation.clusterMonitoringSet":      func() error { _, err := r.Mutation().ClusterMonitoringEnabledSet(ctx, id, true); return err },
-		"Mutation.clusterConnectionRetry":    func() error { _, err := r.Mutation().ClusterConnectionRetry(ctx, id); return err },
-		"Mutation.clusterDelete":             func() error { _, err := r.Mutation().ClusterDelete(ctx, id); return err },
-		"Mutation.clusterCacheClear":         func() error { _, err := r.Mutation().ClusterCacheClear(ctx, objID); return err },
-		"Mutation.clusterCachedKindSyncSet":  func() error { _, err := r.Mutation().ClusterCachedKindSyncEnabledSet(ctx, objID, true); return err },
-		"Mutation.authLogout":                func() error { _, err := r.Mutation().AuthLogout(ctx); return err },
-		"Subscription.eventsWatch":           func() error { _, err := r.Subscription().EventsWatch(ctx, objID, nil); return err },
-		"Subscription.clustersWatch":         func() error { _, err := r.Subscription().ClustersWatch(ctx); return err },
-		"Subscription.clusterEventsWatch":    func() error { _, err := r.Subscription().ClusterEventsWatch(ctx, id, nil); return err },
-		"Subscription.clusterScheduleWatch":  func() error { _, err := r.Subscription().ClusterScheduleWatch(ctx, id); return err },
-		"Subscription.clusterDataRateWatch":  func() error { _, err := r.Subscription().ClusterDataRateWatch(ctx, id); return err },
-		"Subscription.clusterCachesWatch":    func() error { _, err := r.Subscription().ClusterCachesWatch(ctx); return err },
-		"Subscription.cacheHealthWatch":      func() error { _, err := r.Subscription().ClusterCacheHealthWatch(ctx); return err },
-		"Subscription.cachedKindsWatch":      func() error { _, err := r.Subscription().ClusterCachedKindsWatch(ctx, objID); return err },
-		"Subscription.cacheStatsWatch":       func() error { _, err := r.Subscription().ClusterCacheStatsWatch(ctx, id, objID); return err },
-		"Subscription.cacheSyncStatusWatch":  func() error { _, err := r.Subscription().ClusterCacheSyncStatusWatch(ctx, id, objID); return err },
-		"Subscription.cachedDataKindsWatch":  func() error { _, err := r.Subscription().ClusterCachedDataKindsWatch(ctx, id, objID, ""); return err },
-		"Subscription.cachedDataEventsWatch": func() error { _, err := r.Subscription().ClusterCachedDataEventsWatch(ctx, id, objID); return err },
+		"Cluster.caches":                             func() error { _, err := r.Cluster().Caches(ctx, cl); return err },
+		"Cluster.events":                             func() error { _, err := r.Cluster().Events(ctx, cl, nil, nil); return err },
+		"ClusterCache.kinds":                         func() error { _, err := r.ClusterCache().Kinds(ctx, cache, ""); return err },
+		"ClusterCache.cachedKinds":                   func() error { _, err := r.ClusterCache().CachedKinds(ctx, cache); return err },
+		"ClusterCache.events":                        func() error { _, err := r.ClusterCache().Events(ctx, cache, nil, nil); return err },
+		"ClusterCachedKind.events":                   func() error { _, err := r.ClusterCachedKind().Events(ctx, kind, nil, nil); return err },
+		"Query.cluster":                              func() error { _, err := r.Query().Cluster(ctx, id); return err },
+		"Query.clusters":                             func() error { _, err := r.Query().Clusters(ctx); return err },
+		"Query.clusterCache":                         func() error { _, err := r.Query().ClusterCache(ctx, objID); return err },
+		"Query.clusterCaches":                        func() error { _, err := r.Query().ClusterCaches(ctx, nil); return err },
+		"Query.clusterCaches(scoped)":                func() error { _, err := r.Query().ClusterCaches(ctx, &id); return err },
+		"Query.clusterCachedKind":                    func() error { _, err := r.Query().ClusterCachedKind(ctx, objID); return err },
+		"Query.clusterCachedKinds":                   func() error { _, err := r.Query().ClusterCachedKinds(ctx, nil); return err },
+		"Query.clusterCachedKinds(scoped)":           func() error { _, err := r.Query().ClusterCachedKinds(ctx, &objID); return err },
+		"Mutation.clusterEnabledSet":                 func() error { _, err := r.Mutation().ClusterEnabledSet(ctx, id, true); return err },
+		"Mutation.clusterSyncEnabledSet":             func() error { _, err := r.Mutation().ClusterSyncEnabledSet(ctx, id, true); return err },
+		"Mutation.clusterMonitoringSet":              func() error { _, err := r.Mutation().ClusterMonitoringEnabledSet(ctx, id, true); return err },
+		"Mutation.clusterConnectionRetry":            func() error { _, err := r.Mutation().ClusterConnectionRetry(ctx, id); return err },
+		"Mutation.clusterDelete":                     func() error { _, err := r.Mutation().ClusterDelete(ctx, id); return err },
+		"Mutation.clusterCacheClear":                 func() error { _, err := r.Mutation().ClusterCacheClear(ctx, objID); return err },
+		"Mutation.clusterCachedKindSyncSet":          func() error { _, err := r.Mutation().ClusterCachedKindSyncEnabledSet(ctx, objID, true); return err },
+		"Mutation.authLogout":                        func() error { _, err := r.Mutation().AuthLogout(ctx); return err },
+		"Subscription.objectEventFeed":               func() error { _, err := r.Subscription().ObjectEventFeed(ctx, objID, nil); return err },
+		"Subscription.clusterCollectionWatch":        func() error { _, err := r.Subscription().ClusterCollectionWatch(ctx); return err },
+		"Subscription.clusterEventFeed":              func() error { _, err := r.Subscription().ClusterEventFeed(ctx, id, nil); return err },
+		"Subscription.clusterScheduleStateWatch":     func() error { _, err := r.Subscription().ClusterScheduleStateWatch(ctx, id); return err },
+		"Subscription.clusterDataRateTimeSeriesFeed": func() error { _, err := r.Subscription().ClusterDataRateTimeSeriesFeed(ctx, id); return err },
+		"Subscription.clusterCacheCollectionWatch":   func() error { _, err := r.Subscription().ClusterCacheCollectionWatch(ctx); return err },
+		"Subscription.cacheHealthWatch":              func() error { _, err := r.Subscription().ClusterCacheHealthKeyedStateWatch(ctx); return err },
+		"Subscription.cachedKindsWatch":              func() error { _, err := r.Subscription().ClusterCachedKindCollectionWatch(ctx, objID); return err },
+		"Subscription.cacheStatsWatch":               func() error { _, err := r.Subscription().ClusterCacheStatsStateWatch(ctx, id, objID); return err },
+		"Subscription.cacheSyncStatusWatch":          func() error { _, err := r.Subscription().ClusterCacheSyncStateWatch(ctx, id, objID); return err },
+		"Subscription.cachedDataKindsWatch": func() error {
+			_, err := r.Subscription().ClusterCachedDataKindCollectionWatch(ctx, id, objID, "")
+			return err
+		},
+		"Subscription.cachedDataEventsWatch": func() error {
+			_, err := r.Subscription().ClusterCachedDataEventCollectionWatch(ctx, id, objID)
+			return err
+		},
 
 		"Subscription.cachedDataObjectsWatch": func() error {
-			_, err := r.Subscription().ClusterCachedDataObjectsWatch(ctx, id, objID, "apps/v1", "deployments")
+			_, err := r.Subscription().ClusterCachedDataObjectCollectionWatch(ctx, id, objID, "apps/v1", "deployments")
 			return err
 		},
 	}
@@ -1612,41 +1618,41 @@ func TestClusterPrincipalPermissionsIsNotImplemented(t *testing.T) {
 }
 
 // The three watches with no wire test of their own open against a working
-// service and carry their first value: eventsWatch's snapshot boundary, the
-// schedule gauge's current value, and one cache's health verdict. Each also
-// exercises the stream adapter behind it — watchStream for the frame types,
-// ptrStream for the bare gauge.
-func TestGaugeAndTimelineSubscriptionsCarryTheirFirstValue(t *testing.T) {
+// service and carry their first value: objectEventFeed's snapshot boundary, the
+// schedule state watch's current value, and one cache's health verdict. Each also
+// exercises the stream adapter behind it — subscriptionStream for the frame types,
+// ptrSubscription for the bare state watch.
+func TestStateWatchesAndEventFeedsCarryTheirFirstValue(t *testing.T) {
 	ctx := t.Context()
 	r := &graph.Resolver{ClusterSvc: newFakeClusterService(clusterFixtures())}
 
-	events, err := r.Subscription().EventsWatch(ctx, 1, nil)
+	events, err := r.Subscription().ObjectEventFeed(ctx, 1, nil)
 	if err != nil {
-		t.Fatalf("eventsWatch: %v", err)
+		t.Fatalf("objectEventFeed: %v", err)
 	}
 	// The fixture logs no events, so the Bookmark alone closes the snapshot.
-	if frame := testutil.Recv(t, events, "eventsWatch frame"); frame.Type != cluster.EventFrameBookmark {
+	if frame := testutil.Recv(t, events, "objectEventFeed frame"); frame.Type != cluster.EventFeedFrameBookmark {
 		t.Errorf("first frame = %v, want Bookmark", frame.Type)
 	}
-	clusterEvents, err := r.Subscription().ClusterEventsWatch(ctx, "1", nil)
+	clusterEvents, err := r.Subscription().ClusterEventFeed(ctx, "1", nil)
 	if err != nil {
-		t.Fatalf("clusterEventsWatch: %v", err)
+		t.Fatalf("clusterEventFeed: %v", err)
 	}
-	if frame := testutil.Recv(t, clusterEvents, "clusterEventsWatch frame"); frame.Type != cluster.EventFrameBookmark {
+	if frame := testutil.Recv(t, clusterEvents, "clusterEventFeed frame"); frame.Type != cluster.EventFeedFrameBookmark {
 		t.Errorf("first frame = %v, want Bookmark", frame.Type)
 	}
 
-	schedule, err := r.Subscription().ClusterScheduleWatch(ctx, "1")
+	schedule, err := r.Subscription().ClusterScheduleStateWatch(ctx, "1")
 	if err != nil {
-		t.Fatalf("clusterScheduleWatch: %v", err)
+		t.Fatalf("clusterScheduleStateWatch: %v", err)
 	}
-	if s := testutil.Recv(t, schedule, "schedule gauge"); !s.Probing {
+	if s := testutil.Recv(t, schedule, "schedule state watch"); !s.Probing {
 		t.Errorf("schedule = %+v, want the probing value the fake publishes", s)
 	}
 
-	health, err := r.Subscription().ClusterCacheHealthWatch(ctx)
+	health, err := r.Subscription().ClusterCacheHealthKeyedStateWatch(ctx)
 	if err != nil {
-		t.Fatalf("clusterCacheHealthWatch: %v", err)
+		t.Fatalf("clusterCacheHealthKeyedStateWatch: %v", err)
 	}
 	if v := testutil.Recv(t, health, "cache health verdict"); v.CacheID == 0 {
 		t.Errorf("verdict = %+v, want one keyed to a cache", v)
@@ -1654,10 +1660,10 @@ func TestGaugeAndTimelineSubscriptionsCarryTheirFirstValue(t *testing.T) {
 }
 
 // The frame reaches the wire as the service sent it, interval and window included.
-func TestClusterDataRateWatchMapsTheFrame(t *testing.T) {
+func TestClusterDataRateTimeSeriesFeedMapsTheFrame(t *testing.T) {
 	r := &graph.Resolver{ClusterSvc: newFakeClusterService(clusterFixtures())}
 
-	frames, err := r.Subscription().ClusterDataRateWatch(t.Context(), "1")
+	frames, err := r.Subscription().ClusterDataRateTimeSeriesFeed(t.Context(), "1")
 	require.NoError(t, err)
 
 	assert.Equal(t, fakeDataRateFrame, *testutil.Recv(t, frames, "the window"))
@@ -1872,7 +1878,7 @@ func TestChatDeleteTakesTheChatOffTheList(t *testing.T) {
 	assert.Equal(t, map[string]any{"chatDelete": true}, mutate(t, srv, `mutation { chatDelete(id: "`+chatID+`") }`))
 	assert.Equal(t, map[string]any{"chatDelete": true}, mutate(t, srv, `mutation { chatDelete(id: "`+chatID+`") }`))
 
-	resp, events := chatFrames(t, srv, `subscription { chatsWatch { type chat { id } } }`)
+	resp, events := chatFrames(t, srv, `subscription { chatCollectionWatch { type chat { id } } }`)
 	defer resp.Body.Close()
 	assert.Equal(t, "Bookmark", firstChatFrameType(t, events), "the snapshot is empty")
 }
@@ -1905,7 +1911,7 @@ func TestChatSendWithNoChatCreatesOne(t *testing.T) {
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 
-	resp, events := chatFrames(t, srv, `subscription { chatsWatch { type chat { id mode clusterID } } }`)
+	resp, events := chatFrames(t, srv, `subscription { chatCollectionWatch { type chat { id mode clusterID } } }`)
 	defer resp.Body.Close()
 
 	frame := awaitChatFrame(t, events, func(f map[string]any) bool { return f["type"] == "Added" })
@@ -1915,13 +1921,13 @@ func TestChatSendWithNoChatCreatesOne(t *testing.T) {
 // The list watch opens with the chats there are, each an Added, closed by the
 // Bookmark that says the snapshot is whole. The Bookmark carries no chat: the
 // webview detects it by type and drops a change with no entity.
-func TestChatsWatchClosesItsSnapshotWithABookmark(t *testing.T) {
+func TestChatCollectionWatchClosesItsSnapshotWithABookmark(t *testing.T) {
 	srv := newChatServer(t)
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "how many pods?") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 
-	resp, events := chatFrames(t, srv, `subscription { chatsWatch { type chat { id title mode clusterID } } }`)
+	resp, events := chatFrames(t, srv, `subscription { chatCollectionWatch { type chat { id title mode clusterID } } }`)
 	defer resp.Body.Close()
 
 	frame := awaitChatFrame(t, events, func(f map[string]any) bool { return f["type"] == "Added" })
@@ -1934,7 +1940,7 @@ func TestChatsWatchClosesItsSnapshotWithABookmark(t *testing.T) {
 
 // The transcript watch carries the question and the answer, and finishedAt is null
 // while the answer is still streaming and a time once its run has finished.
-func TestChatMessagesWatchCarriesTheAnswerToCompletion(t *testing.T) {
+func TestChatMessageCollectionWatchCarriesTheAnswerToCompletion(t *testing.T) {
 	srv := newChatServer(t)
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID finishedAt } }`)
@@ -1942,7 +1948,7 @@ func TestChatMessagesWatchCarriesTheAnswerToCompletion(t *testing.T) {
 	assert.Nil(t, answer["finishedAt"], "a streaming answer has not finished")
 
 	resp, events := chatFrames(t, srv,
-		`subscription { chatMessagesWatch(chatID: "`+answer["chatID"].(string)+`") { type message { seq status finishedAt } } }`)
+		`subscription { chatMessageCollectionWatch(chatID: "`+answer["chatID"].(string)+`") { type message { seq status finishedAt } } }`)
 	defer resp.Body.Close()
 
 	frame := awaitChatFrame(t, events, func(f map[string]any) bool {
@@ -1954,7 +1960,7 @@ func TestChatMessagesWatchCarriesTheAnswerToCompletion(t *testing.T) {
 
 // A transcript watch serves its own chat's rows alone: the snapshot is the question,
 // the answer as far as it has streamed, and the Bookmark; then the answer's changes.
-func TestChatMessagesWatchIsScopedAndStreamsChanges(t *testing.T) {
+func TestChatMessageCollectionWatchIsScopedAndStreamsChanges(t *testing.T) {
 	srv, _, fake := newChatServerOver(t)
 	mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "first") { chatID } }`)
@@ -1966,7 +1972,7 @@ func TestChatMessagesWatchIsScopedAndStreamsChanges(t *testing.T) {
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "second") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
-	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") { type message { chatID seq role status thinking } } }`
+	query := `subscription { chatMessageCollectionWatch(chatID: "` + chatID + `") { type message { chatID seq role status thinking } } }`
 
 	// Send returns before the turn streams; once the thought is in, the turn is
 	// parked at the gate and the next snapshot is fixed.
@@ -2006,7 +2012,7 @@ func TestAQuestionNamesNoProvider(t *testing.T) {
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
 	resp, events := chatFrames(t, srv,
-		`subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") { message { role provider { id } effort } } }`)
+		`subscription { chatMessageCollectionWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") { message { role provider { id } effort } } }`)
 	defer resp.Body.Close()
 
 	frame := awaitChatFrame(t, events, func(f map[string]any) bool {
@@ -2025,7 +2031,7 @@ func TestAQuestionCarriesTheClusterCardFirst(t *testing.T) {
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
 	resp, events := chatFrames(t, srv,
-		`subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") { message { role content } } }`)
+		`subscription { chatMessageCollectionWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") { message { role content } } }`)
 	defer resp.Body.Close()
 
 	frame := awaitChatFrame(t, events, func(f map[string]any) bool {
@@ -2049,7 +2055,7 @@ func TestAMessageOutlivesItsProvidersRow(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, events := chatFrames(t, srv,
-		`subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") { message { role status provider { id label llmDialect } } } }`)
+		`subscription { chatMessageCollectionWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") { message { role status provider { id label llmDialect } } } }`)
 	defer resp.Body.Close()
 
 	// The settled row, not the live one: while the turn runs the watch serves the
@@ -2168,8 +2174,8 @@ func TestChatReadRefusalsCarryTheirCode(t *testing.T) {
 	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
 
 	for _, query := range []string{
-		`subscription { chatsWatch { type } }`,
-		`subscription { chatMessagesWatch(chatID: "` + appdb.NewID() + `") { type } }`,
+		`subscription { chatCollectionWatch { type } }`,
+		`subscription { chatMessageCollectionWatch(chatID: "` + appdb.NewID() + `") { type } }`,
 	} {
 		resp, events := chatFrames(t, srv, query)
 		assert.Contains(t, testutil.Recv(t, events, "the refusal").data, `"code":"KSTACK_RECORD_NOT_FOUND"`, query)
@@ -2209,20 +2215,20 @@ func TestAFailedChatStoreCarriesNoCode(t *testing.T) {
 	assert.NotContains(t, string(raw), `"code":"KSTACK_`)
 }
 
-// Both chat watches go through watchStream, so a read that fails ends the
-// subscription with the reason under the watchFailed extension rather than leaving the
+// Both chat watches go through subscriptionStream, so a read that fails ends the
+// subscription with the reason under the subscriptionFailed extension rather than leaving the
 // client on a stream that has stopped.
-func TestAChatWatchOverAFailedStoreEndsWithItsReason(t *testing.T) {
+func TestAChatCollectionWatchOverAFailedStoreEndsWithItsReason(t *testing.T) {
 	srv, db, _ := newChatServerOver(t)
 	require.NoError(t, db.Close())
 
 	for _, tc := range []struct{ query, read string }{
-		{`subscription { chatsWatch { type } }`, "list chats"},
-		{`subscription { chatMessagesWatch(chatID: "` + appdb.NewID() + `") { type } }`, "list messages"},
+		{`subscription { chatCollectionWatch { type } }`, "list chats"},
+		{`subscription { chatMessageCollectionWatch(chatID: "` + appdb.NewID() + `") { type } }`, "list messages"},
 	} {
 		resp, events := chatFrames(t, srv, tc.query)
 		ev := testutil.Recv(t, events, "the failure frame")
-		assert.Contains(t, ev.data, `"watchFailed":true`)
+		assert.Contains(t, ev.data, `"subscriptionFailed":true`)
 		assert.Contains(t, ev.data, tc.read)
 		resp.Body.Close()
 	}
@@ -2263,7 +2269,7 @@ func TestAMessageCarriesItsToolCalls(t *testing.T) {
 	answer := sent["chatSend"].(map[string]any)
 	assert.Equal(t, []any{}, answer["toolCalls"], "a new answer has none")
 
-	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+answer["chatID"].(string)+`") {
+	resp, events := chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+answer["chatID"].(string)+`") {
 		message { seq status toolCalls { toolUseID name arguments status
 			action { description command { text cwd background env } } approval { id } output isError } } } }`)
 	defer resp.Body.Close()
@@ -2292,7 +2298,7 @@ func TestToolCallCarriesItsSandboxActions(t *testing.T) {
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
-	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
+	query := `subscription { chatMessageCollectionWatch(chatID: "` + chatID + `") {
 		message { seq status toolCalls { sandboxActions { approval { id status } action { target } request {
 			... on ClusterWrite { method path subresource contentType body dryRun }
 			... on CloudRequest { host method path contentType body unshown details { label value } } } } } } } }`
@@ -2361,7 +2367,7 @@ func TestAMessageCarriesAMemoryCallsScope(t *testing.T) {
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
-	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
+	resp, events := chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
 		message { seq status toolCalls { action { memory { op name body scope } } } } } }`)
 	defer resp.Body.Close()
 
@@ -2388,7 +2394,7 @@ func TestAMessageCarriesItsSearchesAndCitations(t *testing.T) {
 	answer := sent["chatSend"].(map[string]any)
 	assert.Equal(t, []any{}, answer["citations"], "a new answer cites nothing")
 
-	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+answer["chatID"].(string)+`") {
+	resp, events := chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+answer["chatID"].(string)+`") {
 		message { seq status toolCalls { name contract status runsOn action { search { query } } } citations { type url title citedText } } } }`)
 	defer resp.Body.Close()
 
@@ -2428,7 +2434,7 @@ func TestEveryActionKindIsServed(t *testing.T) {
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
-	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
+	resp, events := chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
 		message { seq status toolCalls { actionKind } } } }`)
 	defer resp.Body.Close()
 
@@ -2465,7 +2471,7 @@ func TestASubagentsCallIsServedUnderItsAgentCall(t *testing.T) {
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
-	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
+	resp, events := chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
 		message { seq status toolCalls { id name agentCallID action { delegate { prompt agentType model } } } } } }`)
 	defer resp.Body.Close()
 
@@ -2491,7 +2497,7 @@ func TestAToolCallCarriesItsBackgroundTask(t *testing.T) {
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
-	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+chatID+`") { message { seq status } } }`)
+	resp, events := chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+chatID+`") { message { seq status } } }`)
 	awaitChatFrame(t, events, func(f map[string]any) bool {
 		msg, ok := f["message"].(map[string]any)
 		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
@@ -2506,7 +2512,7 @@ func TestAToolCallCarriesItsBackgroundTask(t *testing.T) {
 		require.NoError(t, err, q)
 	}
 
-	resp, events = chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+chatID+`") {
+	resp, events = chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+chatID+`") {
 		message { seq toolCalls { action { command { background } } approval { status } background { status exitCode } } } } }`)
 	defer resp.Body.Close()
 	frame := awaitChatFrame(t, events, func(f map[string]any) bool {
@@ -2629,7 +2635,7 @@ func TestAFailedMemoryStoreCarriesNoCode(t *testing.T) {
 	assert.NotContains(t, raw, `"code":"KSTACK_`)
 
 	require.NoError(t, stop(t.Context()))
-	body, _ = json.Marshal(map[string]string{"query": `subscription { memoriesWatch(clusterID: "1") { type } }`})
+	body, _ = json.Marshal(map[string]string{"query": `subscription { memoryCollectionWatch(clusterID: "1") { type } }`})
 	assert.Contains(t, string(postGQL(t, srv.URL, string(body))), `"code":"KSTACK_SERVICE_UNAVAILABLE"`)
 }
 
@@ -2688,12 +2694,12 @@ func TestAMemoryRefusalCarriesItsCode(t *testing.T) {
 	t.Fatal("the scope never filled")
 }
 
-func TestMemoriesWatchOpensWithASnapshot(t *testing.T) {
+func TestMemoryCollectionWatchOpensWithASnapshot(t *testing.T) {
 	srv := newMemoryServer(t)
 	mutate(t, srv, memorySave(`clusterID: "1", name: "pages", body: "b"`))
 	mutate(t, srv, memorySave(`clusterID: "2", name: "theirs", body: "b"`))
 
-	resp, events := chatFrames(t, srv, `subscription { memoriesWatch(clusterID: "1") { type memory { name } } }`)
+	resp, events := chatFrames(t, srv, `subscription { memoryCollectionWatch(clusterID: "1") { type memory { name } } }`)
 	defer resp.Body.Close()
 
 	first := awaitChatFrame(t, events, func(map[string]any) bool { return true })
@@ -2711,7 +2717,7 @@ func TestAUsageLimitArrivesWithItsKind(t *testing.T) {
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 
-	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+chatID+`") { message { seq status error failure } } }`)
+	resp, events := chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+chatID+`") { message { seq status error failure } } }`)
 	defer resp.Body.Close()
 	frame := awaitChatFrame(t, events, func(f map[string]any) bool {
 		msg, ok := f["message"].(map[string]any)
@@ -2731,7 +2737,7 @@ func TestAnAgentsTaskAndWaitAreServed(t *testing.T) {
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
-	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+chatID+`") { message { seq status } } }`)
+	resp, events := chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+chatID+`") { message { seq status } } }`)
 	awaitChatFrame(t, events, func(f map[string]any) bool {
 		msg, ok := f["message"].(map[string]any)
 		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
@@ -2749,7 +2755,7 @@ func TestAnAgentsTaskAndWaitAreServed(t *testing.T) {
 		require.NoError(t, err, q)
 	}
 
-	resp, events = chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+chatID+`") {
+	resp, events = chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+chatID+`") {
 		message { seq awaitingApproval toolCalls { background { status report } } } } }`)
 	defer resp.Body.Close()
 	frame := awaitChatFrame(t, events, func(f map[string]any) bool {
@@ -2762,7 +2768,7 @@ func TestAnAgentsTaskAndWaitAreServed(t *testing.T) {
 		"background": map[string]any{"status": "Completed", "report": "Two pods."},
 	}}, msg["toolCalls"])
 
-	list, chats := chatFrames(t, srv, `subscription { chatsWatch { chat { id awaitingApproval } } }`)
+	list, chats := chatFrames(t, srv, `subscription { chatCollectionWatch { chat { id awaitingApproval } } }`)
 	defer list.Body.Close()
 	awaitChatFrame(t, chats, func(f map[string]any) bool {
 		chat, ok := f["chat"].(map[string]any)
@@ -2778,7 +2784,7 @@ func TestAKubeQueryCallServesItsQuery(t *testing.T) {
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
-	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
+	resp, events := chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
 		message { seq status toolCalls { action { description kubeQuery { sql limit } } } } } }`)
 	defer resp.Body.Close()
 
@@ -2798,7 +2804,7 @@ func TestALogsViewCallServesWhenItResolved(t *testing.T) {
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
-	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
+	resp, events := chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
 		message { seq status toolCalls { action { logsView { pinToEnd resolvedAt } } } } } }`)
 	defer resp.Body.Close()
 
@@ -3060,7 +3066,7 @@ func TestAClusterWriteCarriesItsAction(t *testing.T) {
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
-	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
+	query := `subscription { chatMessageCollectionWatch(chatID: "` + chatID + `") {
 		message { seq status toolCalls { sandboxActions { action { summary class context namespace verb group kind grantable commandRule chatRule } } } } } }`
 	settled := func(f map[string]any) bool {
 		msg, ok := f["message"].(map[string]any)
@@ -3136,7 +3142,7 @@ func TestAClusterWriteCarriesItsDurationAndDiff(t *testing.T) {
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
-	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
+	query := `subscription { chatMessageCollectionWatch(chatID: "` + chatID + `") {
 		message { seq status toolCalls { sandboxActions { approval { status duration } request { ... on ClusterWrite { diff diffCut diffError } } } } } } }`
 	settled := func(f map[string]any) bool {
 		msg, ok := f["message"].(map[string]any)
@@ -3193,7 +3199,7 @@ func (f *fakeProber) StartProbe(registered []settings.Executable) {
 	f.hub.Sender().Send(bash.ProbeState{Probing: true, Probes: f.probes, Last: f.last}) //nolint:errcheck // never closed
 }
 
-func (f *fakeProber) WatchProbe() *watch.Receiver[bash.ProbeState] { return f.hub.Receiver() }
+func (f *fakeProber) WatchProbeState() *watch.Receiver[bash.ProbeState] { return f.hub.Receiver() }
 
 // finish runs the probe StartProbe was asked for and publishes its end.
 func (f *fakeProber) finish() {
@@ -3249,16 +3255,16 @@ func sandboxExecutablesServer(t *testing.T, available bool) (*httptest.Server, *
 	return srv, prober, db
 }
 
-// executablesReport is the first sandboxExecutablesWatch frame on events that probing
-// and names describe: a gauge over two receivers can say one thing twice,
+// executablesReport is the first sandboxExecutablesStateWatch frame on events that probing
+// and names describe: a state watch over two receivers can say one thing twice,
 // so a frame is never counted.
 func executablesReport(t *testing.T, events <-chan sseEvent, probing bool, names []string) map[string]any {
 	t.Helper()
 	for {
-		ev := testutil.Recv(t, events, "a sandboxExecutablesWatch frame")
+		ev := testutil.Recv(t, events, "a sandboxExecutablesStateWatch frame")
 		var payload struct {
 			Data struct {
-				Report map[string]any `json:"sandboxExecutablesWatch"`
+				Report map[string]any `json:"sandboxExecutablesStateWatch"`
 			} `json:"data"`
 		}
 		require.NoError(t, json.Unmarshal([]byte(ev.data), &payload), ev.data)
@@ -3295,7 +3301,7 @@ func TestSandboxExecutableMutationsAnswerTheReport(t *testing.T) {
 	assert.Equal(t, false, first["probed"])
 	assert.Equal(t, "not probed yet", first["error"])
 
-	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesWatch { probing probes executables `+sandboxExecutableFields+` } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesStateWatch { probing probes executables `+sandboxExecutableFields+` } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	assert.Equal(t, float64(0), executablesReport(t, events, false, curated)["probes"])
@@ -3347,9 +3353,9 @@ func TestSandboxExecutableMutationsAnswerTheReport(t *testing.T) {
 }
 
 // A prober that shuts its feed down ends the watch, which has nothing left to report.
-func TestSandboxExecutablesWatchEndsWithTheProbersFeed(t *testing.T) {
+func TestSandboxExecutablesStateWatchEndsWithTheProbersFeed(t *testing.T) {
 	srv, prober, _ := sandboxExecutablesServer(t, true)
-	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesWatch { probing executables { name } } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesStateWatch { probing executables { name } } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	executablesReport(t, events, false, []string{"kubectl", "helm", "kustomize", "git", "jq", "yq"})
@@ -3366,7 +3372,7 @@ func TestSandboxExecutablesAreEmptyWithNoSandbox(t *testing.T) {
 
 	data, _ := mutation(t, srv.URL, `{ sandboxExecutables { name } }`)
 	assert.Equal(t, []any{}, data["sandboxExecutables"])
-	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesWatch { probing executables { name } } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesStateWatch { probing executables { name } } }`)
 	defer resp.Body.Close()
 	executablesReport(t, sseEvents(t, resp), false, nil)
 	for _, query := range []string{
@@ -3432,7 +3438,7 @@ func TestARefusedExecutableIsListedWithItsRefusal(t *testing.T) {
 // it with the reason.
 func TestAnExecutablesReadThatFailsIsAnError(t *testing.T) {
 	srv, prober, db := sandboxExecutablesServer(t, true)
-	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesWatch { probing executables { name } } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesStateWatch { probing executables { name } } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	executablesReport(t, events, false, []string{"kubectl", "helm", "kustomize", "git", "jq", "yq"})
@@ -3463,14 +3469,14 @@ func TestAnExecutablesReadThatFailsIsAnError(t *testing.T) {
 	}
 
 	ev := testutil.Recv(t, events, "the failure frame")
-	assert.Contains(t, ev.data, `"watchFailed":true`)
+	assert.Contains(t, ev.data, `"subscriptionFailed":true`)
 	assert.Contains(t, ev.data, "read the executables")
 	testutil.WaitClosed(t, events, "the watch to end")
 
-	resp = openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesWatch { probing executables { name } } }`)
+	resp = openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesStateWatch { probing executables { name } } }`)
 	defer resp.Body.Close()
 	events = sseEvents(t, resp)
-	assert.Contains(t, testutil.Recv(t, events, "the failure frame").data, `"watchFailed":true`, "a watch whose first read fails")
+	assert.Contains(t, testutil.Recv(t, events, "the failure frame").data, `"subscriptionFailed":true`, "a watch whose first read fails")
 	testutil.WaitClosed(t, events, "the second watch to end")
 }
 
@@ -3481,9 +3487,9 @@ func TestAnExecutablesReadThatFailsIsAnError(t *testing.T) {
 type fakeLogs struct {
 	page    logs.FetchResponse
 	refused error
-	stream  *cluster.Stream[logs.FollowFrame]
+	stream  *cluster.Stream[logs.TailFrame]
 	fetched logs.FetchRequest
-	follow  logs.FollowRequest
+	follow  logs.TailRequest
 }
 
 func (f *fakeLogs) Fetch(_ context.Context, _ cluster.ClusterID, q logs.FetchRequest) (logs.FetchResponse, error) {
@@ -3491,12 +3497,12 @@ func (f *fakeLogs) Fetch(_ context.Context, _ cluster.ClusterID, q logs.FetchReq
 	return f.page, f.refused
 }
 
-func (f *fakeLogs) Follow(_ context.Context, _ cluster.ClusterID, q logs.FollowRequest) (logs.FollowResponse, error) {
+func (f *fakeLogs) TailFromCursor(_ context.Context, _ cluster.ClusterID, q logs.TailRequest) (logs.TailResponse, error) {
 	f.follow = q
 	if f.refused != nil {
-		return logs.FollowResponse{}, f.refused
+		return logs.TailResponse{}, f.refused
 	}
-	return logs.FollowResponse{Request: q, Frames: f.stream}, nil
+	return logs.TailResponse{Request: q, Frames: f.stream}, nil
 }
 
 // logsScope is a scope's input as the client sends it.
@@ -3607,64 +3613,64 @@ func TestLogsFetchReadsAnEmptyScopeAsNone(t *testing.T) {
 	}
 }
 
-// logsFollow passes its request through, then streams a line, a notice and the
+// logsTail passes its request through, then streams a line, a notice and the
 // frame that ends it with its code, each bound by its type.
-func TestLogsFollowStreamsUntilItEnds(t *testing.T) {
+func TestLogsTailStreamsUntilItEnds(t *testing.T) {
 	stamp := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
 	release := make(chan struct{})
-	fake := &fakeLogs{stream: cluster.NewStream(t.Context(), func(ctx context.Context, out chan<- logs.FollowFrame) error {
-		out <- logs.FollowFrame{Record: logsLine(stamp)}
-		out <- logs.FollowFrame{Notice: &logs.Notice{Code: logsrefusal.CodeStreamSkipped, Message: "prod/web-2/app: forbidden"}}
+	fake := &fakeLogs{stream: cluster.NewStream(t.Context(), func(ctx context.Context, out chan<- logs.TailFrame) error {
+		out <- logs.TailFrame{Record: logsLine(stamp)}
+		out <- logs.TailFrame{Notice: &logs.Notice{Code: logsrefusal.CodeStreamSkipped, Message: "prod/web-2/app: forbidden"}}
 		<-release
 		ended := logsrefusal.New(logsrefusal.CodeFinished, "every container of this view has stopped")
-		out <- logs.FollowFrame{Ended: &ended}
+		out <- logs.TailFrame{Ended: &ended}
 		return nil
 	})}
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Logs: fake}))
 	defer srv.Close()
 
-	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", request: {cursor: "c", seen: ["line-a"], maxMessageBytes: 100}) {
+	resp, events := chatFrames(t, srv, `subscription { logsTail(id: "7", request: {cursor: "c", seen: ["line-a"], maxMessageBytes: 100}) {
 		type record { message truncatedBytes stream { pod } } notice { code message } ended { code message } } }`)
 	defer resp.Body.Close()
 
 	line := testutil.Recv(t, events, "the line").data
 	assert.Contains(t, line, `"type":"Line","record":{"message":"hello","truncatedBytes":3,"stream":{"pod":"web-1"}},"notice":null,"ended":null`)
 	cursor := "c"
-	assert.Equal(t, logs.FollowRequest{Cursor: &cursor, Seen: []string{"line-a"}, MaxMessageBytes: 100}, fake.follow)
+	assert.Equal(t, logs.TailRequest{Cursor: &cursor, Seen: []string{"line-a"}, MaxMessageBytes: 100}, fake.follow)
 	assert.Contains(t, testutil.Recv(t, events, "the notice").data, `"type":"Notice","record":null,"notice":{"code":"stream-skipped","message":"prod/web-2/app: forbidden"},"ended":null`)
 	close(release)
 	ev := testutil.Recv(t, events, "the end")
 	assert.Contains(t, ev.data, `"type":"Ended","record":null,"notice":null,"ended":{"code":"finished","message":"every container of this view has stopped"}`)
-	assert.NotContains(t, ev.data, `"watchFailed"`)
+	assert.NotContains(t, ev.data, `"subscriptionFailed"`)
 }
 
-// A follow whose Err is set ends with the reason under the watchFailed extension.
-func TestLogsFollowReportsItsFailure(t *testing.T) {
-	fake := &fakeLogs{stream: cluster.NewStream(t.Context(), func(context.Context, chan<- logs.FollowFrame) error {
+// A tail whose Err is set ends with the reason under the subscriptionFailed extension.
+func TestLogsTailReportsItsFailure(t *testing.T) {
+	fake := &fakeLogs{stream: cluster.NewStream(t.Context(), func(context.Context, chan<- logs.TailFrame) error {
 		return errors.New("db closed")
 	})}
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Logs: fake}))
 	defer srv.Close()
 
-	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", request: {scope: `+logsScope+`}) { type } }`)
+	resp, events := chatFrames(t, srv, `subscription { logsTail(id: "7", request: {scope: `+logsScope+`}) { type } }`)
 	defer resp.Body.Close()
 
-	assert.Contains(t, testutil.Recv(t, events, "the failure frame").data, `"watchFailed":true`)
+	assert.Contains(t, testutil.Recv(t, events, "the failure frame").data, `"subscriptionFailed":true`)
 }
 
-// A follow the service refuses at the subscribe carries the refusal's rule, as a
+// A tail the service refuses at the subscribe carries the refusal's rule, as a
 // fetch's does.
-func TestLogsFollowCarriesARefusal(t *testing.T) {
+func TestLogsTailCarriesARefusal(t *testing.T) {
 	fake := &fakeLogs{refused: logsrefusal.New(logsrefusal.CodeCursorInvalid, "read again without the cursor")}
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Logs: fake}))
 	defer srv.Close()
 
-	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", request: {scope: `+logsScope+`}) { type } }`)
+	resp, events := chatFrames(t, srv, `subscription { logsTail(id: "7", request: {scope: `+logsScope+`}) { type } }`)
 	defer resp.Body.Close()
 
 	ev := testutil.Recv(t, events, "the refusal").data
 	assert.Contains(t, ev, `"rule":"cursor-invalid"`)
-	assert.NotContains(t, ev, `"watchFailed"`)
+	assert.NotContains(t, ev, `"subscriptionFailed"`)
 }
 
 // newCloudServer is a resolver over a fresh app.db whose
@@ -3795,11 +3801,11 @@ func TestToolSettingsListsEveryToolWithItsSetting(t *testing.T) {
 	assert.Equal(t, []string{"web_search"}, disabledTools(t, settings))
 }
 
-// toolSettingsWatch sends the current list on subscribe, then the list after
+// toolSettingsStateWatch sends the current list on subscribe, then the list after
 // each change.
-func TestToolSettingsWatchIsAGauge(t *testing.T) {
+func TestToolSettingsStateWatchSendsTheWholeValue(t *testing.T) {
 	srv, _ := newToolServer(t)
-	resp := openSSESubscription(t, srv.URL, "", `subscription { toolSettingsWatch { name enabled } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { toolSettingsStateWatch { name enabled } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	assert.Contains(t, nextSSE(t, events).data, `[{"name":"Bash","enabled":true},{"name":"TaskStop","enabled":true},{"name":"web_search","enabled":true}]`)
@@ -3861,7 +3867,7 @@ func (f *fakeChatGPT) State() connectors.State {
 	return f.state
 }
 
-func (f *fakeChatGPT) Subscribe() (<-chan connectors.State, func()) {
+func (f *fakeChatGPT) WatchState() (<-chan connectors.State, func()) {
 	rx := f.hub.Receiver()
 	return rx.Chan(), rx.Close
 }
@@ -3937,13 +3943,13 @@ func TestChatGPTConnectionProjectsTheState(t *testing.T) {
 	}, data["chatGPTConnection"])
 }
 
-// The watch is a gauge: the current state, then each change.
-func TestChatGPTConnectionWatchIsAGauge(t *testing.T) {
+// A state watch: the current state, then each change.
+func TestChatGPTConnectionStateWatchSendsTheWholeValue(t *testing.T) {
 	f := newFakeChatGPT(connectors.State{Phase: connectors.SignedOut})
 	var opened []string
 	srv := chatGPTServer(t, f, &opened)
 
-	resp := openSSESubscription(t, srv.URL, "", `subscription { chatGPTConnectionWatch { phase } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { chatGPTConnectionStateWatch { phase } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
@@ -4028,12 +4034,12 @@ func TestGoogleConnectionProjectsTheState(t *testing.T) {
 	assert.Equal(t, map[string]any{"project": nil}, data["googleConnection"], "no project is null, never empty")
 }
 
-// The watch is a gauge: the current state, then each change.
-func TestGoogleConnectionWatchIsAGauge(t *testing.T) {
+// A state watch: the current state, then each change.
+func TestGoogleConnectionStateWatchSendsTheWholeValue(t *testing.T) {
 	f := fakeGoogle{newFakeChatGPT(connectors.State{Phase: connectors.SignedOut}), "my-project"}
 	srv := googleServer(t, f)
 
-	resp := openSSESubscription(t, srv.URL, "", `subscription { googleConnectionWatch { phase project } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { googleConnectionStateWatch { phase project } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
@@ -4069,17 +4075,17 @@ func TestGoogleMutations(t *testing.T) {
 	assert.Equal(t, "KSTACK_VALIDATION_ERROR", errs[0].Extensions["code"])
 }
 
-// modelsWatch is a gauge of the catalog: the models now, then the list after a
+// modelsStateWatch is a state watch of the catalog: the models now, then the list after a
 // provider's catalog changes.
-func TestModelsWatchFollowsTheCatalog(t *testing.T) {
+func TestModelsStateWatchFollowsTheCatalog(t *testing.T) {
 	svc := llm.New(llm.Provider{ID: "chatgpt", Label: "ChatGPT plan", Dialect: llm.DialectResponses})
 	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{LLMSvc: svc}))
 	defer srv.Close()
 
-	resp := openSSESubscription(t, srv.URL, "", `subscription { modelsWatch { id provider { id label } } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { modelsStateWatch { id provider { id label } } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
-	assert.Contains(t, nextSSE(t, events).data, `"modelsWatch":[]`)
+	assert.Contains(t, nextSSE(t, events).data, `"modelsStateWatch":[]`)
 
 	svc.SetCatalog("chatgpt", []llm.Model{{ID: "gpt-6.1-sol"}})
 
@@ -4126,7 +4132,7 @@ func (f *fakeOpenRouter) State() connectors.State {
 	return f.state
 }
 
-func (f *fakeOpenRouter) Subscribe() (<-chan connectors.State, func()) {
+func (f *fakeOpenRouter) WatchState() (<-chan connectors.State, func()) {
 	rx := f.hub.Receiver()
 	return rx.Chan(), rx.Close
 }
@@ -4194,12 +4200,12 @@ func TestOpenRouterConnectionProjectsTheState(t *testing.T) {
 	}
 }
 
-// The watch is a gauge: the current state, then each change.
-func TestOpenRouterConnectionWatchIsAGauge(t *testing.T) {
+// A state watch: the current state, then each change.
+func TestOpenRouterConnectionStateWatchSendsTheWholeValue(t *testing.T) {
 	f := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
 	srv := openRouterServer(t, f, func(string) error { return nil })
 
-	resp := openSSESubscription(t, srv.URL, "", `subscription { openRouterConnectionWatch { phase } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { openRouterConnectionStateWatch { phase } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
@@ -4273,12 +4279,12 @@ func TestAWSConnectionProjectsTheState(t *testing.T) {
 	assert.Equal(t, map[string]any{"phase": "Failed", "arn": nil, "failure": "SessionEnded"}, data["awsConnection"])
 }
 
-// The watch is a gauge: the current state, then each change.
-func TestAWSConnectionWatchIsAGauge(t *testing.T) {
+// A state watch: the current state, then each change.
+func TestAWSConnectionStateWatchSendsTheWholeValue(t *testing.T) {
 	f := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
 	srv := awsServer(t, f)
 
-	resp := openSSESubscription(t, srv.URL, "", `subscription { awsConnectionWatch { phase } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { awsConnectionStateWatch { phase } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
@@ -4361,12 +4367,12 @@ func TestGitHubConnectionProjectsTheState(t *testing.T) {
 	}
 }
 
-// The watch is a gauge: the current state, then each change.
-func TestGitHubConnectionWatchIsAGauge(t *testing.T) {
+// A state watch: the current state, then each change.
+func TestGitHubConnectionStateWatchSendsTheWholeValue(t *testing.T) {
 	f := newFakeOpenRouter(connectors.State{Phase: connectors.SignedOut})
 	srv := gitHubServer(t, f, func(string) error { return nil })
 
-	resp := openSSESubscription(t, srv.URL, "", `subscription { gitHubConnectionWatch { phase userCode } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { gitHubConnectionStateWatch { phase userCode } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	assert.Contains(t, nextSSE(t, events).data, `"phase":"SignedOut"`)
@@ -4539,13 +4545,13 @@ func TestProviderCredentialsProjectTheState(t *testing.T) {
 	}, rows[len(rows)-1])
 }
 
-// A save and a delete drive the service; the watch is a gauge that follows
+// A save and a delete drive the service; the state watch sends
 // each change.
 func TestProviderKeyMutationsAndWatch(t *testing.T) {
 	const key = "gsk-wire-0123456789abcdef"
 	k := oskeyringtest.New()
 	srv, keys := providerCredentialsServer(t, k)
-	resp := openSSESubscription(t, srv.URL, "", `subscription { providerCredentialsWatch { id source hasSavedKey failure } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { providerCredentialsStateWatch { id source hasSavedKey failure } }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	assert.Contains(t, nextSSE(t, events).data, `{"id":"groq","source":"None","hasSavedKey":false,"failure":null}`)
@@ -4559,7 +4565,7 @@ func TestProviderKeyMutationsAndWatch(t *testing.T) {
 	_, errs = mutation(t, srv.URL, `mutation { providerKeyDelete(providerID: "groq") }`)
 	require.Len(t, errs, 1)
 	assert.Equal(t, "KSTACK_PROVIDER_KEY_NOT_DELETED", errs[0].Extensions["code"])
-	// The delete publishes the cleared provider, then the failure; the gauge may send either first.
+	// The delete publishes the cleared provider, then the failure; the state watch may send either first.
 	event := nextSSE(t, events)
 	for !strings.Contains(event.data, `"NotDeleted"`) {
 		event = nextSSE(t, events)
@@ -4725,7 +4731,7 @@ func TestEnvVarsOverAFailedStoreIsAnError(t *testing.T) {
 }
 
 // fakeConsole records each command it is asked to start and answers err;
-// its hub is the console's gauge.
+// its hub is the console's state watch.
 type fakeConsole struct {
 	err     error
 	started []bash.ConsoleRequest
@@ -4748,7 +4754,7 @@ func (f *fakeConsole) StartConsoleCommand(req bash.ConsoleRequest) (int, error) 
 
 func (f *fakeConsole) StopConsoleCommand(number int) { f.stopped = append(f.stopped, number) }
 
-func (f *fakeConsole) WatchConsole() *watch.Receiver[*bash.ConsoleRun] { return f.hub.Receiver() }
+func (f *fakeConsole) WatchConsoleState() *watch.Receiver[*bash.ConsoleRun] { return f.hub.Receiver() }
 
 // sandboxConsoleServer is a server over console, nil for a machine with no
 // shell.
@@ -4761,13 +4767,13 @@ func sandboxConsoleServer(t *testing.T, console graph.SandboxConsole) *httptest.
 
 const sandboxConsoleFields = `{ run { number command clusterID network running output discarded exitCode notice durationMs } }`
 
-// consoleFrame is the next sandboxConsoleWatch frame on events.
+// consoleFrame is the next sandboxConsoleStateWatch frame on events.
 func consoleFrame(t *testing.T, events <-chan sseEvent) map[string]any {
 	t.Helper()
-	ev := testutil.Recv(t, events, "a sandboxConsoleWatch frame")
+	ev := testutil.Recv(t, events, "a sandboxConsoleStateWatch frame")
 	var payload struct {
 		Data struct {
-			Console map[string]any `json:"sandboxConsoleWatch"`
+			Console map[string]any `json:"sandboxConsoleStateWatch"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(ev.data), &payload), ev.data)
@@ -4833,17 +4839,17 @@ func TestSandboxConsoleWithNoShell(t *testing.T) {
 	require.Empty(t, errs)
 	assert.Equal(t, true, data["sandboxConsoleStop"])
 
-	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxConsoleWatch `+sandboxConsoleFields+` }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxConsoleStateWatch `+sandboxConsoleFields+` }`)
 	defer resp.Body.Close()
 	assert.Equal(t, map[string]any{"run": nil}, consoleFrame(t, sseEvents(t, resp)))
 }
 
 // The watch sends the console's last command as it stands, first null, and
 // ends with the console's feed.
-func TestSandboxConsoleWatchSendsTheLastCommand(t *testing.T) {
+func TestSandboxConsoleStateWatchSendsTheLastCommand(t *testing.T) {
 	console := newFakeConsole()
 	srv := sandboxConsoleServer(t, console)
-	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxConsoleWatch `+sandboxConsoleFields+` }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxConsoleStateWatch `+sandboxConsoleFields+` }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	assert.Equal(t, map[string]any{"run": nil}, consoleFrame(t, events))

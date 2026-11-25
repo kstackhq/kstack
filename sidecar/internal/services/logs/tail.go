@@ -36,31 +36,31 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
 )
 
-// ===== The follow =====
+// ===== The tail =====
 
-// errStopped ends a follow with no stream left running.
+// errStopped ends a tail with no stream left running.
 var errStopped = refusal.New(refusal.CodeFinished, "every container of this view has stopped")
 
-// followRetry is how long a follow waits to resolve its view again after the
+// tailRetry is how long a tail waits to resolve its view again after the
 // mirror refused it, to open its mirror watches again after a clean end, or to
 // reopen a stream the connection dropped the first time. Each drop in a row doubles
-// the stream's wait, up to followRetryCap.
+// the stream's wait, up to tailRetryCap.
 const (
-	followRetry    = 2 * time.Second
-	followRetryCap = time.Minute
+	tailRetry    = 2 * time.Second
+	tailRetryCap = time.Minute
 )
 
-// followSettle is how long a follow waits after a pod or workload frame before it
+// tailSettle is how long a tail waits after a pod or workload frame before it
 // resolves its view again, so a burst of frames costs one resolve.
-const followSettle = 250 * time.Millisecond
+const tailSettle = 250 * time.Millisecond
 
-// FollowRequest is one follow. It starts from now, or from Since, that moment's
+// TailRequest is one tail. It starts from now, or from Since, that moment's
 // lines included, or from Cursor, a page's Next or Follow: each stream reads past
 // where the page left it, and the scope is the cursor's. Seen, sent with either,
 // is the last line the caller has of each stream: that stream reads past its
 // line, and a stream not in Seen reads from the start. MaxMessageBytes cuts each
 // message, 0 for the service's own cap; ForModel redacts it first, as a page's.
-type FollowRequest struct {
+type TailRequest struct {
 	Scope
 	Since           *time.Time
 	Seen            []string
@@ -69,46 +69,46 @@ type FollowRequest struct {
 	ForModel        bool
 }
 
-// FollowResponse is a follow as it opened: Request as it ran, the scope decoded from
+// TailResponse is a tail as it opened: Request as it ran, the scope decoded from
 // the cursor on a token start; ResolvedAt, the first page's clock the cursor carries,
-// or now; and Frames, the follow itself.
-type FollowResponse struct {
-	Request    FollowRequest
+// or now; and Frames, the tail itself.
+type TailResponse struct {
+	Request    TailRequest
 	ResolvedAt time.Time
-	Frames     *cluster.Stream[FollowFrame]
+	Frames     *cluster.Stream[TailFrame]
 }
 
-// FollowFrame is one frame of a follow, exactly one field set. Record is a line.
-// Notice is something the follow wants the caller to know. Ended is why the
-// follow ended, and is the last frame: following again would end the same way.
-type FollowFrame struct {
+// TailFrame is one frame of a tail, exactly one field set. Record is a line.
+// Notice is something the tail wants the caller to know. Ended is why the
+// tail ended, and is the last frame: tailing again would end the same way.
+type TailFrame struct {
 	Record *logline.Record
 	Notice *Notice
 	Ended  *refusal.Refusal
 }
 
-// followBatch and followBatchBytes are the most lines the follow's walks read, and
+// tailBatch and tailBatchBytes are the most lines the tail's walks read, and
 // the most bytes of lines they keep, across every stream, before it sends them and
 // walks on.
 const (
-	followBatch      = 1000
-	followBatchBytes = 4 << 20
+	tailBatch      = 1000
+	tailBatchBytes = 4 << 20
 )
 
-// Follow is q's scope's lines on cluster id as they are written, from q's start.
+// TailFromCursor is q's scope's lines on cluster id as they are written, from q's start.
 // The lines are read from the cluster cache's log file, which a tailer per stream
-// writes, shared by every follow of it: each stream is walked from its own
+// writes, shared by every tail of it: each stream is walked from its own
 // watermark on every commit to it, and its lines go out in line order, so lines
 // are ordered per container. A scope with no container yet — a Job not
 // scheduled, a Deployment at zero — waits for its pods.
 //
-//  1. A follow starts from now, from Since, a moment whose lines are in, or from
+//  1. A tail starts from now, from Since, a moment whose lines are in, or from
 //     Cursor, a page's Next or Follow, whose scope it reads. Cursor beside Since,
 //     or Seen beside neither, is conflicting-parameters.
 //  2. Seen is the last line the caller has of each stream: that stream reads
 //     past it, never before the start; every other from the start. Beside a
 //     Cursor it merges into the cursor's entries, the newer line standing.
-//  3. A follow from a Cursor reads every line a poll of it would, then goes on
+//  3. A tail from a Cursor reads every line a poll of it would, then goes on
 //     past the window's end: it ignores the cursor's Until and After.
 //  4. The grep applies to every line sent, padding included, and each message
 //     is cut at MaxMessageBytes, saying the bytes cut in TruncatedBytes; with
@@ -116,34 +116,34 @@ const (
 //  5. A stream the server refuses, ends or finds too loud sends a stream-skipped
 //     Notice once, unless the server ends it because its container is waiting to
 //     start.
-//  6. A follow hands out no cursor: what a caller needs to go on is its start
+//  6. A tail hands out no cursor: what a caller needs to go on is its start
 //     and the lines it saw, sent back as Seen.
-//  7. A follow whose start is not now first reads the instances only the file
+//  7. A tail whose start is not now first reads the instances only the file
 //     holds, its Pod sources' and its workloads' pods the mirror no longer holds,
 //     from its start to their ends, then tails. A scope of gone pods alone under
 //     a label filter the mirror has no nodes for then ends no-nodes.
 //
-// A follow that ends for a reason the user can read — the claim revoked, the
+// A tail that ends for a reason the user can read — the claim revoked, the
 // cluster refusing the user's credentials, every container of the scope stopped,
 // every source of it a Pod whose pod was deleted, a label filter with no nodes
 // to apply it over, the scope grown past what
 // Kstack reads at once, a kind the cache no longer mirrors — sends one Ended frame
-// saying so and ends clean, since following again would end the same way. Any
+// saying so and ends clean, since tailing again would end the same way. Any
 // other ending sets Err, the log file closing under it included, and its context
 // ending is a clean end with no frame.
-func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, q FollowRequest) (FollowResponse, error) {
+func (s *Service) TailFromCursor(ctx context.Context, id cluster.ClusterID, q TailRequest) (TailResponse, error) {
 	maxMessage, err := messageCap(q.MaxMessageBytes)
 	if err != nil {
-		return FollowResponse{}, err
+		return TailResponse{}, err
 	}
-	start, err := followStart(q, s.now())
+	start, err := tailStartCursor(q, s.now())
 	if err != nil {
-		return FollowResponse{}, err
+		return TailResponse{}, err
 	}
 	scope := start.Scope
 	grep, err := logline.CompileGrep(scope.Grep)
 	if err != nil {
-		return FollowResponse{}, err
+		return TailResponse{}, err
 	}
 	t, err := resolve(ctx, s.clusters, id, scope, true)
 	if err != nil {
@@ -152,7 +152,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, q FollowRequ
 	// owned ends the mirror watches and every tailer's watch on any ending. The
 	// stream itself runs on ctx: one ended by its own context files no error.
 	owned, stop := context.WithCancel(ctx)
-	f := &follow{
+	f := &cursorTail{
 		s: s, id: id, scope: scope, start: start, maxMessage: maxMessage, forModel: q.ForModel, grep: grep, tails: s.registryFor(id, t), target: t,
 		streams: map[logline.StreamKey]*tracked{}, nodes: map[string]logline.Place{},
 		deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{}, held: map[int64]func(){},
@@ -165,7 +165,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, q FollowRequ
 		return openFailed(ctx, q, err)
 	}
 	q.Scope, q.MaxMessageBytes = scope, maxMessage
-	frames := cluster.NewStream(ctx, func(ctx context.Context, out chan<- FollowFrame) error {
+	frames := cluster.NewStream(ctx, func(ctx context.Context, out chan<- TailFrame) error {
 		defer f.close()
 		// A fill in flight reads over the claim and writes the file: both outlive it.
 		defer f.fills.Wait()
@@ -177,38 +177,38 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, q FollowRequ
 			return nil
 		}
 		if r, ok := refusal.As(err); ok {
-			send(ctx, out, FollowFrame{Ended: &r})
+			send(ctx, out, TailFrame{Ended: &r})
 			return nil
 		}
 		return err
 	})
-	return FollowResponse{Request: q, ResolvedAt: start.ResolvedAt, Frames: frames}, nil
+	return TailResponse{Request: q, ResolvedAt: start.ResolvedAt, Frames: frames}, nil
 }
 
-// openFailed answers a follow that failed to open with err. One whose context
+// openFailed answers a tail that failed to open with err. One whose context
 // ended as it opened ends clean, as it would once open: no error, and frames that
 // end at once.
-func openFailed(ctx context.Context, q FollowRequest, err error) (FollowResponse, error) {
+func openFailed(ctx context.Context, q TailRequest, err error) (TailResponse, error) {
 	if ctx.Err() == nil {
-		return FollowResponse{}, err
+		return TailResponse{}, err
 	}
-	frames := cluster.NewStream(ctx, func(context.Context, chan<- FollowFrame) error { return nil })
-	return FollowResponse{Request: q, Frames: frames}, nil
+	frames := cluster.NewStream(ctx, func(context.Context, chan<- TailFrame) error { return nil })
+	return TailResponse{Request: q, Frames: frames}, nil
 }
 
-// followStart is q's start cursor, which holds its scope and seeds every stream:
+// tailStartCursor is q's start cursor, which holds its scope and seeds every stream:
 // from a moment, a first page from Since, now with none, with q's Seen as its
 // entries; from a page cursor, the cursor with q's Seen merged into its entries.
-func followStart(q FollowRequest, now time.Time) (pageCursor, error) {
+func tailStartCursor(q TailRequest, now time.Time) (pageCursor, error) {
 	switch {
 	case q.Cursor != nil && q.Since != nil:
-		return pageCursor{}, refusal.New(refusal.CodeConflictingParameters, "a follow starts from since or from a page cursor, not both")
+		return pageCursor{}, refusal.New(refusal.CodeConflictingParameters, "a tail starts from since or from a page cursor, not both")
 	case q.Cursor != nil && !q.Scope.empty():
-		return pageCursor{}, refusal.New(refusal.CodeConflictingParameters, "a page cursor holds its scope, so a follow from one sends none")
+		return pageCursor{}, refusal.New(refusal.CodeConflictingParameters, "a page cursor holds its scope, so a tail from one sends none")
 	case q.Cursor != nil:
 		return cursorStart(*q.Cursor, q.Seen)
 	case len(q.Sources) == 0:
-		return pageCursor{}, refusal.New(refusal.CodeConflictingParameters, "a follow sends a scope or a page cursor")
+		return pageCursor{}, refusal.New(refusal.CodeConflictingParameters, "a tail sends a scope or a page cursor")
 	case q.Since == nil && len(q.Seen) > 0:
 		return pageCursor{}, refusal.New(refusal.CodeConflictingParameters, "seen goes with since or a page cursor: a stream it does not name would read from now")
 	}
@@ -219,8 +219,8 @@ func followStart(q FollowRequest, now time.Time) (pageCursor, error) {
 	return firstPage(FetchRequest{Scope: q.Scope, Window: Window{Since: &since}, PageFrom: PageFromFirst, Seen: q.Seen}, now)
 }
 
-// cursorStart is the start cursor a follow from the page cursor s reads from, seen
-// merged into its entries. A follow does not stop, so the window's end goes: its
+// cursorStart is the start cursor a tail from the page cursor s reads from, seen
+// merged into its entries. A tail does not stop, so the window's end goes: its
 // Until, its After and the count past the range.
 func cursorStart(s string, seen []string) (pageCursor, error) {
 	c, err := decodePageCursor(s)
@@ -228,7 +228,7 @@ func cursorStart(s string, seen []string) (pageCursor, error) {
 		return pageCursor{}, err
 	}
 	if !c.newer {
-		return pageCursor{}, refusal.New(refusal.CodeCursorInvalid, "a follow goes on from a page's next or follow, not its prev")
+		return pageCursor{}, refusal.New(refusal.CodeCursorInvalid, "a tail goes on from a page's next or follow, not its prev")
 	}
 	if c.seen, err = mergeSeen(c.seen, seen); err != nil {
 		return pageCursor{}, err
@@ -237,12 +237,12 @@ func cursorStart(s string, seen []string) (pageCursor, error) {
 	return c, nil
 }
 
-// open takes what the follow reads over: a claim on the cluster, the cache's log
+// open takes what the tail reads over: a claim on the cluster, the cache's log
 // file, the rows of the instances only the file holds, which it reads first, and
-// its mirror watches. A follow from now reads no such instance, since nothing of
+// its mirror watches. A tail from now reads no such instance, since nothing of
 // one is stamped after now. A label filter the mirror has no nodes for is refused
 // here only with no such instance to read; with one, run reads it first.
-func (f *follow) open(ctx context.Context, fromNow bool) error {
+func (f *cursorTail) open(ctx context.Context, fromNow bool) error {
 	t := f.target
 	var err error
 	if f.claim, err = kubelet.Open(ctx, f.s.clusters, f.id, t.serverUID, f.s.retry); err != nil {
@@ -267,8 +267,8 @@ func (f *follow) open(ctx context.Context, fromNow bool) error {
 	return f.watch(ctx, t.cacheID)
 }
 
-// close lets go of what open took, as far as it got, and every row the follow holds.
-func (f *follow) close() {
+// close lets go of what open took, as far as it got, and every row the tail holds.
+func (f *cursorTail) close() {
 	for _, release := range f.held {
 		release()
 	}
@@ -283,13 +283,13 @@ func (f *follow) close() {
 	}
 }
 
-// keep is the follow's test of a line: the grep, every line, padding included.
-func (f *follow) keep(_ int64, message string) bool { return logline.Matches(f.grep, message) }
+// keep is the tail's test of a line: the grep, every line, padding included.
+func (f *cursorTail) keep(_ int64, message string) bool { return logline.Matches(f.grep, message) }
 
 // objectWatch is a watch of mirrored objects.
-type objectWatch = *cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame]
+type objectWatch = *cluster.Stream[cluster.ClusterCachedDataObjectCollectionWatchFrame]
 
-// watches is what a follow watches of the mirror besides its streams, and the
+// watches is what a tail watches of the mirror besides its streams, and the
 // cancel that ends them all. workloads carries the watches of the view's workload
 // kinds, each a frame at a time.
 type watches struct {
@@ -305,27 +305,27 @@ type workloadEvent struct {
 	ended bool
 }
 
-// watch opens the follow's mirror watches on cacheID. A node's labels moving sends
+// watch opens the tail's mirror watches on cacheID. A node's labels moving sends
 // no pod frame, so the nodes are watched too, and so is each workload kind the
 // view walks through to its pods, since an object of one arriving late or changing
 // owner sends none either. Only the view's namespaces' objects can move it, and
 // nothing reads a pod's or a workload's body.
-func (f *follow) watch(ctx context.Context, cacheID cluster.ClusterCacheID) error {
+func (f *cursorTail) watch(ctx context.Context, cacheID cluster.ClusterCacheID) error {
 	ctx, stop := context.WithCancel(ctx)
 	data := f.s.clusters.CachedData()
 	namespaces := f.scope.namespaces()
 	w := &watches{workloads: mpsc.New[workloadEvent](0, mpsc.WithKeepOpen()), stop: stop}
 	var err error
-	w.pods, err = data.WatchObjectsIn(ctx, f.id, cacheID, "v1", "pods", namespaces)
+	w.pods, err = data.WatchObjectCollectionByNamespaces(ctx, f.id, cacheID, "v1", "pods", namespaces)
 	if err == nil {
-		w.nodes, err = data.WatchObjects(ctx, f.id, cacheID, "v1", "nodes")
+		w.nodes, err = data.WatchObjectCollection(ctx, f.id, cacheID, "v1", "nodes")
 	}
 	for _, kind := range f.scope.workloadKinds() {
 		if err != nil {
 			break
 		}
 		var kw objectWatch
-		kw, err = data.WatchObjectsIn(ctx, f.id, cacheID, kind.apiVersion, kind.resource, namespaces)
+		kw, err = data.WatchObjectCollectionByNamespaces(ctx, f.id, cacheID, kind.apiVersion, kind.resource, namespaces)
 		if err == nil {
 			w.forward(ctx, kw)
 		}
@@ -346,8 +346,8 @@ func (w *watches) forward(ctx context.Context, kw objectWatch) {
 		defer events.Close()
 		synced := false
 		for frame := range kw.Frames {
-			synced = synced || frame.Type == cluster.DeltaFrameBookmark
-			if synced && events.SendContext(ctx, workloadEvent{w: kw}) != nil { // coverage:ignore only the follow ending while a frame is in flight
+			synced = synced || frame.Type == cluster.CollectionWatchFrameBookmark
+			if synced && events.SendContext(ctx, workloadEvent{w: kw}) != nil { // coverage:ignore only the tail ending while a frame is in flight
 				return
 			}
 		}
@@ -358,7 +358,7 @@ func (w *watches) forward(ctx context.Context, kw objectWatch) {
 // watchEnded takes the end of a mirror watch: its error, or, for a clean end — the
 // cache cleared or torn down — every watch closed, to be opened again by the
 // reconcile after the retry, whose resolve says what became of the cache.
-func (f *follow) watchEnded(w objectWatch) error {
+func (f *cursorTail) watchEnded(w objectWatch) error {
 	if err := w.Err(); err != nil {
 		return err
 	}
@@ -368,24 +368,24 @@ func (f *follow) watchEnded(w objectWatch) error {
 	return nil
 }
 
-// follow is one Follow's state. Its streams are reconciled against the view after
+// cursorTail is one tail's state. Its streams are reconciled against the view after
 // every event — a pod or workload frame, a node's labels moving, a tailer's end, a
 // retry — by one rule: a container the view wants is tailed unless it ended at the
 // generation the view sees now.
-type follow struct {
+type cursorTail struct {
 	s     *Service
 	id    cluster.ClusterID
 	scope Scope
 	grep  *regexp.Regexp
 	claim *kubelet.Claim
-	// start is the follow's start cursor: every stream, at open or joining later,
+	// start is the tail's start cursor: every stream, at open or joining later,
 	// starts at its keyFor. maxMessage is where each message is cut, after
 	// logline.ForModel with forModel.
 	start      pageCursor
 	maxMessage int
 	forModel   bool
-	// file is the follow's claim on the cache's log file, tails its tailers, and
-	// backends and names the cluster's backends over the follow's claim, which fill a
+	// file is the tail's claim on the cache's log file, tails its tailers, and
+	// backends and names the cluster's backends over the tail's claim, which fill a
 	// live gap a walk meets.
 	file     *logstore.Store
 	tails    *registry
@@ -396,17 +396,17 @@ type follow struct {
 	// once before anything is tailed, and releaseOnly lets go of their rows.
 	only        []pageStream
 	releaseOnly func()
-	out         chan<- FollowFrame
-	// w is the follow's mirror watches, nil while they are to be opened again.
+	out         chan<- TailFrame
+	// w is the tail's mirror watches, nil while they are to be opened again.
 	w *watches
-	// streams is what the follow knows of each stream it has wanted, and wanted the
+	// streams is what the tail knows of each stream it has wanted, and wanted the
 	// streams the view wants now, in its order.
 	streams map[logline.StreamKey]*tracked
 	wanted  []logline.StreamKey
 	// pings is the file's bus under pingRows, the rows of the streams the view wants.
 	pings    *conflate.Receiver[int64, struct{}]
 	pingRows []int64
-	// held is the release of each row the follow has filed, which it holds until it
+	// held is the release of each row the tail has filed, which it holds until it
 	// ends so no sweep takes a row it may fill.
 	held map[int64]func()
 	// batch is the lines walked and not yet sent.
@@ -450,9 +450,9 @@ type follow struct {
 	gone map[string]bool
 }
 
-// tracked is one stream as the follow knows it: the stream as the view last wanted
+// tracked is one stream as the tail knows it: the stream as the view last wanted
 // it, its file row, the tailer it holds, nil while it holds none, since when, and
-// unwatch, which stops telling the follow of that tailer's end, and its watermark,
+// unwatch, which stops telling the tail of that tailer's end, and its watermark,
 // past every line it sent of the row. A stream that ended on its own has no tailer,
 // and records the generation it ended at, with the cluster's refusal when that is how
 // it ended. A stream whose tailer dropped is held for its backoff, then the next
@@ -462,10 +462,10 @@ type follow struct {
 // filling is set while a fill of its row's live gap is in flight, which no walk of
 // it waits on: its watermark stays at the gap until the fill ends. crossed and
 // release are what the walk after a fill takes: that the gap at its watermark was
-// read, and the hold on what the fill wrote. looked is set once the follow has sent
+// read, and the hold on what the fill wrote. looked is set once the tail has sent
 // a line of the stream, the first looking back for its holes, and gap is the holes
 // its walks crossed since the last line it sent, which the next carries. skipped is
-// the generation whose failure the follow last sent a notice for, zero for none.
+// the generation whose failure the tail last sent a notice for, zero for none.
 type tracked struct {
 	st        stream
 	row       int64
@@ -516,7 +516,7 @@ func (tr *tracked) pageStream() pageStream {
 	}
 }
 
-// record is l, a line of tr's stream, as the follow sends it.
+// record is l, a line of tr's stream, as the tail sends it.
 func (tr *tracked) record(l logstore.Line) logline.Record {
 	return recordOf(l, tr.st.key, tr.st.place, tr.st.gen.instance)
 }
@@ -524,7 +524,7 @@ func (tr *tracked) record(l logstore.Line) logline.Record {
 // run reads the instances only the file holds, brings the target's streams up,
 // then follows the view's pods and walks its streams on every commit until an
 // ending.
-func (f *follow) run(ctx context.Context) error {
+func (f *cursorTail) run(ctx context.Context) error {
 	defer func() {
 		for _, tr := range f.streams {
 			f.detach(tr)
@@ -554,7 +554,7 @@ func (f *follow) run(ctx context.Context) error {
 // cursor to their ends, then lets their rows go: one newer read through the page
 // engine, a page of MaxPageSize at a time, each going on from the last's edge as
 // a Next does. They never grow, so they are read once, and no backend serves them.
-func (f *follow) readOnly(ctx context.Context) error {
+func (f *cursorTail) readOnly(ctx context.Context) error {
 	if len(f.only) == 0 {
 		return nil
 	}
@@ -571,7 +571,7 @@ func (f *follow) readOnly(ctx context.Context) error {
 		}
 		m := ms[0]
 		for _, line := range m.skipped { // coverage:ignore a stream only the file holds is never filled, so never skipped
-			if !send(ctx, f.out, FollowFrame{Notice: &Notice{refusal.CodeStreamSkipped, line}}) {
+			if !send(ctx, f.out, TailFrame{Notice: &Notice{refusal.CodeStreamSkipped, line}}) {
 				return ctx.Err()
 			}
 		}
@@ -586,7 +586,7 @@ func (f *follow) readOnly(ctx context.Context) error {
 		next, _ := cur.edges(m)
 		// A cut page that moves no stream would be read again forever.
 		if maps.Equal(next.seen, cur.seen) { // coverage:ignore a guard: a cut page moves the stream it cut
-			return errors.New("follow: a page of the instances only the file holds did not move")
+			return errors.New("tail: a page of the instances only the file holds did not move")
 		}
 		cur = next
 	}
@@ -594,7 +594,7 @@ func (f *follow) readOnly(ctx context.Context) error {
 
 // onlyGonePods is whether every source of the scope is a Pod source whose pod the
 // mirror no longer holds.
-func (f *follow) onlyGonePods() bool {
+func (f *cursorTail) onlyGonePods() bool {
 	for _, src := range f.scope.Sources {
 		if _, live := f.target.pods[src.Namespace+"/"+src.Name]; src.Kind != SourcePod || live {
 			return false
@@ -605,12 +605,12 @@ func (f *follow) onlyGonePods() bool {
 
 // relay walks the streams each ping names and reconciles the streams on every event
 // until an ending, which it answers.
-func (f *follow) relay(ctx context.Context) error {
+func (f *cursorTail) relay(ctx context.Context) error {
 	for {
 		var again bool
 		var err error
 		// A nil channel never delivers, so no frame is read while the watches are closed.
-		var pods, nodes <-chan cluster.ClusterCachedDataObjectWatchFrame
+		var pods, nodes <-chan cluster.ClusterCachedDataObjectCollectionWatchFrame
 		var workloads <-chan workloadEvent
 		if f.w != nil {
 			pods, nodes, workloads = f.w.pods.Frames, f.w.nodes.Frames, f.w.workloads.Receiver().Chan()
@@ -622,7 +622,7 @@ func (f *follow) relay(ctx context.Context) error {
 			return kubelet.ErrRevoked
 		case ping, ok := <-f.pings.Chan():
 			if !ok {
-				return fmt.Errorf("follow: %w", logstore.ErrClosed)
+				return fmt.Errorf("tail: %w", logstore.ErrClosed)
 			}
 			err = f.walkRows(ctx, f.pinged(ping.Key))
 		case <-f.again:
@@ -670,7 +670,7 @@ func (f *follow) relay(ctx context.Context) error {
 }
 
 // pinged is row and every row whose ping is already waiting behind it.
-func (f *follow) pinged(row int64) []int64 {
+func (f *cursorTail) pinged(row int64) []int64 {
 	rows := []int64{row}
 	more, _ := f.pings.TryRecvAll() // an error is the bus closed, which the next receive reports
 	for _, ping := range more {
@@ -680,7 +680,7 @@ func (f *follow) pinged(row int64) []int64 {
 }
 
 // askAgain arms the retry, unless it is armed already.
-func (f *follow) askAgain() {
+func (f *cursorTail) askAgain() {
 	if f.again == nil {
 		f.again = time.After(f.s.retry)
 	}
@@ -689,7 +689,7 @@ func (f *follow) askAgain() {
 // settle is whether a pod or workload frame's resolve runs now: with no settle it
 // does, and otherwise it waits for the frames after it, the first frame arming the
 // wait.
-func (f *follow) settle() bool {
+func (f *cursorTail) settle() bool {
 	if f.s.settle == 0 {
 		return true
 	}
@@ -699,15 +699,15 @@ func (f *follow) settle() bool {
 	return false
 }
 
-// sendLine sends rec, its message cut at the follow's cap, and is false once ctx
+// sendLine sends rec, its message cut at the tail's cap, and is false once ctx
 // has ended.
-func (f *follow) sendLine(ctx context.Context, rec logline.Record) bool {
+func (f *cursorTail) sendLine(ctx context.Context, rec logline.Record) bool {
 	rec = capMessage(rec, f.maxMessage, f.forModel)
-	return send(ctx, f.out, FollowFrame{Record: &rec})
+	return send(ctx, f.out, TailFrame{Record: &rec})
 }
 
 // send puts frame on out, and is false once ctx has ended.
-func send(ctx context.Context, out chan<- FollowFrame, frame FollowFrame) bool {
+func send(ctx context.Context, out chan<- TailFrame, frame TailFrame) bool {
 	select {
 	case out <- frame:
 		return true
@@ -716,8 +716,8 @@ func send(ctx context.Context, out chan<- FollowFrame, frame FollowFrame) bool {
 	}
 }
 
-// track is what the follow knows of key's stream, new when nothing yet.
-func (f *follow) track(key logline.StreamKey) *tracked {
+// track is what the tail knows of key's stream, new when nothing yet.
+func (f *cursorTail) track(key logline.StreamKey) *tracked {
 	t := f.streams[key]
 	if t == nil {
 		t = &tracked{}
@@ -727,7 +727,7 @@ func (f *follow) track(key logline.StreamKey) *tracked {
 }
 
 // attach holds st's tailer for tr, its row's, and tells endedHub once it ends.
-func (f *follow) attach(ctx context.Context, tr *tracked) error {
+func (f *cursorTail) attach(ctx context.Context, tr *tracked) error {
 	h, err := f.tails.attach(ctx, tr.st, tr.row, tr.wm)
 	if err != nil {
 		return err
@@ -739,7 +739,7 @@ func (f *follow) attach(ctx context.Context, tr *tracked) error {
 		defer ended.Close()
 		select {
 		case <-h.Done():
-			_ = ended.SendContext(ctx, h) // an error is the follow ending, which no longer reads it
+			_ = ended.SendContext(ctx, h) // an error is the tail ending, which no longer reads it
 		case <-ctx.Done():
 		}
 	}()
@@ -747,7 +747,7 @@ func (f *follow) attach(ctx context.Context, tr *tracked) error {
 }
 
 // detach lets go of tr's tailer, if it holds one.
-func (f *follow) detach(tr *tracked) {
+func (f *cursorTail) detach(tr *tracked) {
 	if tr.h != nil {
 		tr.unwatch()
 		tr.h.Release()
@@ -755,13 +755,13 @@ func (f *follow) detach(tr *tracked) {
 	}
 }
 
-// ended takes the end of the tailer h: an ending of the follow when it was Kstack
+// ended takes the end of the tailer h: an ending of the tail when it was Kstack
 // no longer connecting to the cluster, else the stream walked once more, since the
 // tailer's last lines are in the file, and judged by how the tailer ended. A log
 // that ended with its instance may have lines a page cached past the tailer's last,
 // which the walk under the tailer stops short of: once judged ended, the stream is
 // walked to its end as a finished instance is, filling what the file lacks.
-func (f *follow) ended(ctx context.Context, h *handle) error {
+func (f *cursorTail) ended(ctx context.Context, h *handle) error {
 	var tr *tracked
 	for _, t := range f.streams {
 		if t.h == h {
@@ -787,7 +787,7 @@ func (f *follow) ended(ctx context.Context, h *handle) error {
 }
 
 // failed takes how tr's stream stopped being read, by its tailer's end or a fill
-// that failed, letting its tailer go: an ending of the follow when it was the
+// that failed, letting its tailer go: an ending of the tail when it was the
 // cluster refusing the user's credentials. A stream the connection dropped, or the
 // server failed, is held for its backoff, and so is a clean end on a container the
 // view sees running, since a proxy or the API server can close an idle stream. Any
@@ -795,7 +795,7 @@ func (f *follow) ended(ctx context.Context, h *handle) error {
 // view sees a later generation of it, and the view's end is judged again. One that
 // ended on an error says so in a stream-skipped notice, once a generation, unless
 // the server only answered that its container is waiting to start.
-func (f *follow) failed(ctx context.Context, tr *tracked, err error) error {
+func (f *cursorTail) failed(ctx context.Context, tr *tracked, err error) error {
 	ran := time.Duration(0)
 	if tr.h != nil {
 		ran = f.s.now().Sub(tr.attached)
@@ -821,21 +821,21 @@ func (f *follow) failed(ctx context.Context, tr *tracked, err error) error {
 		return nil
 	}
 	tr.skipped = tr.st.gen
-	send(ctx, f.out, FollowFrame{Notice: &Notice{refusal.CodeStreamSkipped, skippedLine(tr.st.key, err)}}) // false is the follow ending, which the loop sees
+	send(ctx, f.out, TailFrame{Notice: &Notice{refusal.CodeStreamSkipped, skippedLine(tr.st.key, err)}}) // false is the tail ending, which the loop sees
 	return nil
 }
 
 // hold keeps the dropped stream tr, which ran for ran, untailed for its backoff,
 // then sends its key on dueHub. A held stream is read again, so it is not ended,
 // though its tailer's end judged it so while a fill of it was in flight.
-func (f *follow) hold(ctx context.Context, tr *tracked, ran time.Duration) {
+func (f *cursorTail) hold(ctx context.Context, tr *tracked, ran time.Duration) {
 	wait := f.backoff(tr, ran)
 	tr.held, tr.ended = true, false
 	due := f.dueHub.Sender()
-	key := tr.st.key // read here: the follow's goroutine owns tr
+	key := tr.st.key // read here: the tail's goroutine owns tr
 	time.AfterFunc(wait, func() {
 		defer due.Close()
-		_ = due.SendContext(ctx, key) // an error is the follow ending, which no longer reads it
+		_ = due.SendContext(ctx, key) // an error is the tail ending, which no longer reads it
 	})
 }
 
@@ -843,7 +843,7 @@ func (f *follow) hold(ctx context.Context, tr *tracked, ran time.Duration) {
 // the service's retry, doubled for each drop in a row, up to retryCap. A stream
 // that ran for retryCap or longer starts the count again, so an idle stream a proxy
 // closes now and then reopens after the retry alone.
-func (f *follow) backoff(t *tracked, ran time.Duration) time.Duration {
+func (f *cursorTail) backoff(t *tracked, ran time.Duration) time.Duration {
 	if ran >= f.s.retryCap {
 		t.drops = 0
 	}
@@ -863,11 +863,11 @@ const (
 // them, since the view was resolved before the watch opened, or when one is a pod
 // past it, every one of which is in the view's namespaces. A Pod source's pod
 // deleted is kept for that resolve to judge.
-func (f *follow) podsMoved(frame cluster.ClusterCachedDataObjectWatchFrame, more <-chan cluster.ClusterCachedDataObjectWatchFrame) bool {
+func (f *cursorTail) podsMoved(frame cluster.ClusterCachedDataObjectCollectionWatchFrame, more <-chan cluster.ClusterCachedDataObjectCollectionWatchFrame) bool {
 	relevant := false
 	for {
 		switch {
-		case frame.Type == cluster.DeltaFrameBookmark:
+		case frame.Type == cluster.CollectionWatchFrameBookmark:
 			f.synced, f.snapshot, relevant = true, true, true
 		case f.synced:
 			f.noteDeleted(frame)
@@ -889,19 +889,19 @@ func (f *follow) podsMoved(frame cluster.ClusterCachedDataObjectWatchFrame, more
 // the view is to be resolved again: when the watch's opening snapshot closed among
 // them, since the view was resolved before the watch opened, or when a node past
 // it came, went, or moved one of the labels a line carries. A node's other changes
-// are its status, which a follow does not read. With no filter on a label, only a
+// are its status, which a tail does not read. With no filter on a label, only a
 // node a stream runs on can move the view, and no other is read.
-func (f *follow) nodesMoved(frame cluster.ClusterCachedDataObjectWatchFrame, more <-chan cluster.ClusterCachedDataObjectWatchFrame) bool {
+func (f *cursorTail) nodesMoved(frame cluster.ClusterCachedDataObjectCollectionWatchFrame, more <-chan cluster.ClusterCachedDataObjectCollectionWatchFrame) bool {
 	relevant := false
 	labels := filtersLabels(f.scope.Filters)
 	for {
 		switch {
-		case frame.Type == cluster.DeltaFrameBookmark:
+		case frame.Type == cluster.CollectionWatchFrameBookmark:
 			f.nodesSynced, relevant = true, true
 		case frame.Object == nil:
 		case !labels && !f.runsOn(frame.Object.Name):
 			delete(f.nodes, frame.Object.Name)
-		case frame.Type == cluster.DeltaFrameDeleted:
+		case frame.Type == cluster.CollectionWatchFrameDeleted:
 			delete(f.nodes, frame.Object.Name)
 			relevant = relevant || f.nodesSynced
 		default:
@@ -932,8 +932,8 @@ func filtersLabels(filters []ScopeFilter) bool {
 	return false
 }
 
-// runsOn is whether a stream the follow tails runs on node.
-func (f *follow) runsOn(node string) bool {
+// runsOn is whether a stream the tail reads runs on node.
+func (f *cursorTail) runsOn(node string) bool {
 	for _, t := range f.streams {
 		if t.h != nil && t.st.place.Node == node {
 			return true
@@ -961,7 +961,7 @@ func placeOf(name, raw string) (logline.Place, bool) {
 // or still syncing, or holding no node a label filter reads, is asked again after
 // the service's retry, since its recovery sends no pod frame. Closed mirror watches
 // open again on the cache the view resolved against.
-func (f *follow) reconcile(ctx context.Context) error {
+func (f *cursorTail) reconcile(ctx context.Context) error {
 	f.again, f.settled, f.rejudge = nil, nil, false
 	t, ok, err := f.resolve(ctx)
 	if !ok || err != nil {
@@ -980,12 +980,12 @@ func (f *follow) reconcile(ctx context.Context) error {
 // another node replaced, while a restarted container's tailer runs on until its log
 // ends. A stream the view wants is tailed unless it is tailed already, held for its
 // backoff, or ended at the generation the view sees; one that joins starts at the
-// follow's start. An instance that has finished gets no tailer: its log never grows,
+// tail's start. An instance that has finished gets no tailer: its log never grows,
 // so it is walked to its end once. Then each stream just tailed is walked, and every
 // one when the bus's receiver was made anew for the streams the view wants. A view whose every stream has ended, none of them
-// waiting to start or held and no container of it starting, ends the follow; one
+// waiting to start or held and no container of it starting, ends the tail; one
 // with no stream waits for one.
-func (f *follow) bring(ctx context.Context, t target) error {
+func (f *cursorTail) bring(ctx context.Context, t target) error {
 	rows, err := fileStreams(ctx, f.file, t.streams)
 	if err != nil {
 		return err
@@ -1087,13 +1087,13 @@ func (f *follow) bring(ctx context.Context, t target) error {
 }
 
 // subscribe makes the bus's receiver anew for ids, the rows of the streams the view
-// wants and of every tailer the follow holds, sorted, unless it has them already, and
+// wants and of every tailer the tail holds, sorted, unless it has them already, and
 // is whether it did.
-func (f *follow) subscribe(ids []int64) (bool, error) {
+func (f *cursorTail) subscribe(ids []int64) (bool, error) {
 	if f.pings != nil && slices.Equal(ids, f.pingRows) {
 		return false, nil
 	}
-	pings, err := f.file.Subscribe(ids...)
+	pings, err := f.file.ListenForStreamChanges(ids...)
 	if err != nil { // coverage:ignore only the file closing between filing the streams and subscribing
 		return false, err
 	}
@@ -1107,7 +1107,7 @@ func (f *follow) subscribe(ids []int64) (bool, error) {
 // drain walks each of streams, finished instances, to its end, filling what the file
 // lacks of it, and ends each at its generation unless its walk held it or left a
 // fill in flight, whose end finishes the drain.
-func (f *follow) drain(ctx context.Context, streams []*tracked) error {
+func (f *cursorTail) drain(ctx context.Context, streams []*tracked) error {
 	if err := f.walkStreams(ctx, streams); err != nil {
 		return err
 	}
@@ -1119,14 +1119,14 @@ func (f *follow) drain(ctx context.Context, streams []*tracked) error {
 
 // drained ends tr, a finished instance walked to its end, at its generation unless
 // it is held, ended already, or filling.
-func (f *follow) drained(tr *tracked) {
+func (f *cursorTail) drained(tr *tracked) {
 	if !tr.held && !tr.ended && !tr.filling {
 		tr.ended, tr.endedAt = true, tr.st.gen
 	}
 }
 
-// walkRows walks each stream the follow tails whose row is in rows.
-func (f *follow) walkRows(ctx context.Context, rows []int64) error {
+// walkRows walks each stream the tail reads whose row is in rows.
+func (f *cursorTail) walkRows(ctx context.Context, rows []int64) error {
 	var streams []*tracked
 	for _, key := range f.wanted {
 		if tr := f.streams[key]; tr.h != nil && slices.Contains(rows, tr.row) {
@@ -1138,9 +1138,9 @@ func (f *follow) walkRows(ctx context.Context, rows []int64) error {
 
 // walkStreams walks each of streams, one at a time, sends what they read in line
 // order, and walks again at once each that stopped with more to read.
-func (f *follow) walkStreams(ctx context.Context, streams []*tracked) error {
+func (f *cursorTail) walkStreams(ctx context.Context, streams []*tracked) error {
 	for len(streams) > 0 {
-		f.lines, f.bytes = followBatch, followBatchBytes
+		f.lines, f.bytes = tailBatch, tailBatchBytes
 		var again []*tracked
 		for _, tr := range streams {
 			more, err := f.walk(ctx, tr)
@@ -1165,7 +1165,7 @@ func (f *follow) walkStreams(ctx context.Context, streams []*tracked) error {
 // the gap, then stops: the fill's end walks the stream again. A stream already
 // filling is not walked. It answers whether it stopped on the send's allowance of
 // lines or bytes with more to read.
-func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
+func (f *cursorTail) walk(ctx context.Context, tr *tracked) (bool, error) {
 	if tr.filling {
 		return false, nil
 	}
@@ -1217,7 +1217,7 @@ func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
 		if first < 0 {
 			return nil
 		}
-		// The follow may start past a hole no page carried: past the last line a
+		// The tail may start past a hole no page carried: past the last line a
 		// page sent, or a moment past the hole. A look its bytes cut keeps what the
 		// walk crossed.
 		l := looker{
@@ -1245,7 +1245,7 @@ func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
 // page's, written ahead of it, and the lines before it are the tailer's, still to
 // come: the walk stops at the gap and waits for the tailer's ping. committed is what
 // the tailer had written before chunks were read.
-func (f *follow) reach(cov logstore.Coverage, tr *tracked, crossed bool, committed *logstore.Pos) (logstore.Pos, *logstore.Gap) {
+func (f *cursorTail) reach(cov logstore.Coverage, tr *tracked, crossed bool, committed *logstore.Pos) (logstore.Pos, *logstore.Gap) {
 	reach := tr.wm
 	for i, seg := range segmentsFrom(cov, tr.wm, logline.Newer) {
 		switch {
@@ -1278,10 +1278,10 @@ type fillDone struct {
 // fill starts a read of the live gap g of tr's stream from its watermark, as a newer
 // page's fill reads it, under the stream's share of one query's limits, and the write
 // of what it read. It runs on its own, so a slow read holds up no other stream, and
-// its end comes back on filled. What it writes is unstamped, since a follow's lines
+// its end comes back on filled. What it writes is unstamped, since a tail's lines
 // are in the viewer's window, and held until the walk after it has read them.
-func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
-	st := tr.st // the fill's own copy: the follow's goroutine owns tr
+func (f *cursorTail) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
+	st := tr.st // the fill's own copy: the tail's goroutine owns tr
 	ps := tr.pageStream()
 	ps.st = &st
 	fl := &filler{
@@ -1304,7 +1304,7 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
 
 // readGap runs fl's read of g from wm, writing what it read, held. On an error it
 // releases what it held, and the release it answers is a no-op.
-func (f *follow) readGap(ctx context.Context, fl *filler, g logstore.Gap, wm logstore.Pos) fillDone {
+func (f *cursorTail) readGap(ctx context.Context, fl *filler, g logstore.Gap, wm logstore.Pos) fillDone {
 	var releases []func()
 	fl.save = func(ctx context.Context, fills []logstore.Fill) (logstore.Written, error) {
 		w, release, err := f.file.WriteHeld(ctx, fills)
@@ -1327,11 +1327,11 @@ func (f *follow) readGap(ctx context.Context, fl *filler, g logstore.Gap, wm log
 
 // filledGap takes the end of a gap fill. A fill of a row the stream no longer reads
 // is thrown away. One that read nothing lets the stream go, held or ended as its
-// failure says; a failure fatal or of the file ends the follow. Otherwise the stream
+// failure says; a failure fatal or of the file ends the tail. Otherwise the stream
 // is walked on across the gap, unless it has left the view or lost its tailer in the
 // meantime, when the next attach walks it from its watermark; a finished instance's
 // walk to its end finishes its drain.
-func (f *follow) filledGap(ctx context.Context, d fillDone) error {
+func (f *cursorTail) filledGap(ctx context.Context, d fillDone) error {
 	tr := d.tr
 	if tr.row != d.row {
 		d.release()
@@ -1348,8 +1348,8 @@ func (f *follow) filledGap(ctx context.Context, d fillDone) error {
 		f.s.afterFill()
 	}
 	switch {
-	case d.out.gone: // coverage:ignore only a sweep between filing the row and the follow holding it
-		// The row went before the follow held it: its pod is gone.
+	case d.out.gone: // coverage:ignore only a sweep between filing the row and the tail holding it
+		// The row went before the tail held it: its pod is gone.
 		d.release()
 		return f.failed(ctx, tr, errRowGone)
 	case !d.out.fromKey:
@@ -1374,9 +1374,9 @@ func (f *follow) filledGap(ctx context.Context, d fillDone) error {
 	return nil
 }
 
-// flush sends the lines walked in line order. It is false once the follow's
+// flush sends the lines walked in line order. It is false once the tail's
 // context has ended.
-func (f *follow) flush(ctx context.Context) bool {
+func (f *cursorTail) flush(ctx context.Context) bool {
 	slices.SortStableFunc(f.batch, logline.CompareLines)
 	for _, rec := range f.batch {
 		if !f.sendLine(ctx, rec) {
@@ -1388,9 +1388,9 @@ func (f *follow) flush(ctx context.Context) bool {
 	return true
 }
 
-// stopped is the ending of a follow whose every stream ended: the cluster's
-// refusal when that is how one ended, since following again would end the same way.
-func (f *follow) stopped(streams []stream) error {
+// stopped is the ending of a tail whose every stream ended: the cluster's
+// refusal when that is how one ended, since tailing again would end the same way.
+func (f *cursorTail) stopped(streams []stream) error {
 	for _, st := range streams {
 		if tr := f.streams[st.key]; tr.refused != "" {
 			return refusal.New(refusal.CodeUnauthorized, "the cluster refused to show this log: "+tr.refused)
@@ -1400,8 +1400,8 @@ func (f *follow) stopped(streams []stream) error {
 }
 
 // noteDeleted keeps the pod frame deletes when it is a live Pod source's.
-func (f *follow) noteDeleted(frame cluster.ClusterCachedDataObjectWatchFrame) {
-	if frame.Type != cluster.DeltaFrameDeleted || frame.Object == nil {
+func (f *cursorTail) noteDeleted(frame cluster.ClusterCachedDataObjectCollectionWatchFrame) {
+	if frame.Type != cluster.CollectionWatchFrameDeleted || frame.Object == nil {
 		return
 	}
 	for _, src := range f.scope.Sources {
@@ -1416,7 +1416,7 @@ func (f *follow) noteDeleted(frame cluster.ClusterCachedDataObjectWatchFrame) {
 // resolve resolves the view less each Pod source whose pod is gone, and is false
 // when the mirror is to be asked again. A resolve that finds a pod newly gone is
 // run again without its source, since another source may read a pod of its name.
-func (f *follow) resolve(ctx context.Context) (target, bool, error) {
+func (f *cursorTail) resolve(ctx context.Context) (target, bool, error) {
 	for {
 		t, err := resolve(ctx, f.s.clusters, f.id, f.live(), true)
 		switch {
@@ -1437,7 +1437,7 @@ func (f *follow) resolve(ctx context.Context) (target, bool, error) {
 }
 
 // live is the view less each Pod source whose pod is gone.
-func (f *follow) live() Scope {
+func (f *cursorTail) live() Scope {
 	v := f.scope
 	v.Sources = slices.DeleteFunc(slices.Clone(v.Sources), func(src ScopeSource) bool {
 		return src.Kind == SourcePod && f.gone[src.Namespace+"/"+src.Name]
@@ -1446,7 +1446,7 @@ func (f *follow) live() Scope {
 }
 
 // notePods keeps the UID of each Pod source's pod t holds, unless one is kept.
-func (f *follow) notePods(t target) {
+func (f *cursorTail) notePods(t target) {
 	for key, uid := range t.pods {
 		if f.podUIDs[key] == "" {
 			f.podUIDs[key] = uid
@@ -1457,9 +1457,9 @@ func (f *follow) notePods(t target) {
 // podsGone is whether t, resolved over the live view, shows a Pod source's pod
 // newly gone: one deleted that t does not hold again by its UID, one whose name t
 // holds under another UID than the first, or, after a snapshot, one t no longer
-// holds. A view whose every source is a pod gone ends the follow; any other
+// holds. A view whose every source is a pod gone ends the tail; any other
 // follows its other sources.
-func (f *follow) podsGone(t target) (bool, error) {
+func (f *cursorTail) podsGone(t target) (bool, error) {
 	newly := false
 	for _, src := range f.scope.Sources {
 		key := src.Namespace + "/" + src.Name
@@ -1541,7 +1541,7 @@ func (t *tailer) committed() logstore.Pos {
 	return p
 }
 
-// join holds t for one more follow, and keeps it past its grace. It is called with
+// join holds t for one more tail, and keeps it past its grace. It is called with
 // mu held.
 func (t *tailer) join() {
 	t.refs++
@@ -1569,7 +1569,7 @@ func (t *tailer) read(ctx context.Context, backend kubelet.Backend, start logsto
 	return r
 }
 
-// shed ends a tailer that fell behind the writer while no follow holds it: nobody
+// shed ends a tailer that fell behind the writer while no tail holds it: nobody
 // is reading it, so it stops competing for the writer rather than reading again. An
 // attach that lands first keeps it reading; one after waits on done and starts a
 // tailer afresh.
@@ -1590,7 +1590,7 @@ func (t *tailer) stop() {
 }
 
 // run reads the stream until the read ends or the tailer stops, reading again from
-// now whenever the writer falls behind while a follow holds it, and records how the
+// now whenever the writer falls behind while a tail holds it, and records how the
 // read ended. release is the registry's hold on its stream's row, let go as it ends.
 func (t *tailer) run(ctx context.Context, file *logstore.Store, backend kubelet.Backend, read *tailRead, prev *logstore.Pos, release func()) {
 	defer func() {
@@ -1609,7 +1609,7 @@ func (t *tailer) run(ctx context.Context, file *logstore.Store, backend kubelet.
 			return
 		}
 		// The lines it could not hand over are a live gap below the new start, which a
-		// follow or a page that reaches them fills.
+		// tail or a page that reaches them fills.
 		start := logstore.Pos{TS: t.r.s.now().UnixNano(), Ord: -1}
 		t.start.Store(&start)
 		read, prev = t.read(ctx, backend, start), nil
@@ -1675,7 +1675,7 @@ func (t *tailer) tail(ctx context.Context, file *logstore.Store, tr *tailRead, p
 }
 
 // gather is first and whatever else has arrived on ch, up to WriteBatch lines or
-// WriteBatchBytes, and whether ch is still open. A follow's read ends no window.
+// WriteBatchBytes, and whether ch is still open. A tail's read ends no window.
 func gather(ch <-chan kubelet.Item, ret logstore.Retention, first logstore.Line) ([]logstore.Line, bool) {
 	lines, bytes := []logstore.Line{first}, int64(len(first.Message))
 	for len(lines) < ret.WriteBatch && bytes < ret.WriteBatchBytes {
@@ -1714,13 +1714,13 @@ func (t *tailer) close(tail *logstore.Tail, lines []logstore.Line, readErr error
 
 // ===== The registry =====
 
-// registry is one log file's tailers: one per stream, shared by every follow that
+// registry is one log file's tailers: one per stream, shared by every tail that
 // attaches to it and kept the service's grace after the last lets go. Every tailer is
 // unlabelled, since the grep runs where the lines are read. While any runs, the
 // registry holds a claim on the file and one on the cluster, which the tailers read
 // over. It reconciles nothing: a tailer that ends is dropped, and the next attach
-// starts one afresh. A registry lives as long as the service, since a follow holds
-// its registry for its own life: one per cache id ever followed.
+// starts one afresh. A registry lives as long as the service, since a tail holds
+// its registry for its own life: one per cache id ever tailed.
 type registry struct {
 	s       *Service
 	cacheID cluster.ClusterCacheID
@@ -1850,7 +1850,7 @@ func (r *registry) run(ctx context.Context, t *tailer, watermark logstore.Pos) e
 	if newest := newestOf(chunks); newest != nil && newest.Compare(watermark) >= 0 {
 		start, prev = *newest, newest
 	}
-	// A tailer in its grace has no follow to end it, so the file closing does.
+	// A tailer in its grace has no tail to end it, so the file closing does.
 	fileCtx, err := r.file.Context()
 	if err != nil { // coverage:ignore only the file closing between the tailer's read of its chunks and this
 		return err
@@ -1934,7 +1934,7 @@ func (r *registry) ended(t *tailer) {
 	}
 }
 
-// handle is one follow's hold on a tailer.
+// handle is one tail's hold on a tailer.
 type handle struct {
 	t    *tailer
 	once sync.Once

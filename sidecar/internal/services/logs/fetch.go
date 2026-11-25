@@ -357,7 +357,7 @@ func joinReads(pad, rng merge, newer bool, limit int) merge {
 // pageQuery is what one direction's page reads: the scope and its compiled grep,
 // the direction, the page cursor that says where each stream starts and which
 // edge it stops at, nil to read every stream from its start or its end, and the
-// limit. grepAll applies the grep to the padding too, as a follow does.
+// limit. grepAll applies the grep to the padding too, as a tail does.
 type pageQuery struct {
 	scope   Scope
 	grep    *regexp.Regexp
@@ -1842,7 +1842,7 @@ type streamFill struct {
 type filler struct {
 	file *logstore.Store
 	// clusters and id are the mirror each write checks the stream's instance against,
-	// and save writes one batch's fills: a page's stamped, a follow's held.
+	// and save writes one batch's fills: a page's stamped, a tail's held.
 	clusters cluster.Service
 	id       cluster.ClusterID
 	save     func(context.Context, []logstore.Fill) (logstore.Written, error)
@@ -2701,7 +2701,7 @@ func (w walker) record(l logstore.Line) logline.Record {
 }
 
 // recordOf is l, a line of the instance containerID of key's stream running in place,
-// as a page or a follow answers it.
+// as a page or a tail answers it.
 func recordOf(l logstore.Line, key logline.StreamKey, place logline.Place, containerID string) logline.Record {
 	return logline.Record{
 		Timestamp: time.Unix(0, l.TS).UTC(), Message: l.Message, Stream: key, Place: place,

@@ -23,8 +23,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/amorey/gobus/conflate"
-
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 )
 
@@ -189,10 +187,10 @@ func (s *Store) SetPath(ctx context.Context, value string) error {
 	})
 }
 
-// WatchSandboxPath pings after each save of the setting and each read of the
-// login shell. Watch before the first read.
-func (s *Store) WatchSandboxPath() *conflate.Receiver[string, struct{}] {
-	return s.db.Subscribe(appdb.KeySandboxPath)
+// ListenForSandboxPathChanges notifies after each save of the setting and each read of
+// the login shell. Listen before the first read.
+func (s *Store) ListenForSandboxPathChanges() ChangeNotifications {
+	return s.db.ListenForChanges(appdb.KeySandboxPath)
 }
 
 // ErrEmptyShellPath is a login shell that answered no PATH: a broken startup

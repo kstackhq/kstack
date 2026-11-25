@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Per-operation transport-status registry (keyed by urql `operation.key`), from
-// subscribe-exchange to useWatchSubscription. `generation` is a process-wide
+// subscribe-exchange to useFoldedSubscription. `generation` is a process-wide
 // monotonic serial stamped per successful open — global, not per-key, because
 // urql retains accumulators across variable changes and pause/re-execute, where
 // a per-key counter could alias a carried-over tag.

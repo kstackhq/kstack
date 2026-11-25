@@ -15,15 +15,15 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
-const { useWatchSubscriptionMock, useMutationMock, mutations } = vi.hoisted(() => ({
-  useWatchSubscriptionMock: vi.fn(),
+const { useFoldedSubscriptionMock, useMutationMock, mutations } = vi.hoisted(() => ({
+  useFoldedSubscriptionMock: vi.fn(),
   useMutationMock: vi.fn(),
   mutations: {} as Record<string, Mock<(variables: unknown) => Promise<unknown>>>,
 }));
 vi.mock('urql', () => ({ useMutation: useMutationMock }));
-vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
-  useWatchSubscription: useWatchSubscriptionMock,
+vi.mock('@/lib/graphql/use-folded-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-folded-subscription')>()),
+  useFoldedSubscription: useFoldedSubscriptionMock,
 }));
 // Each document is its name, so the mock can tell the mutations apart.
 vi.mock('@/gql', () => ({ graphql: (source: string) => /(?:subscription|mutation) (\w+)/.exec(source)![1] }));
@@ -49,13 +49,13 @@ const listed = [exe('kubectl'), exe('helm')];
 let report: unknown;
 let lastReducer: ((prev: unknown, frames: unknown[]) => unknown) | undefined;
 function pushFrame(probing: boolean, probes: number, executables = listed) {
-  report = lastReducer!(report, [{ sandboxExecutablesWatch: { probing, probes, executables } }]);
+  report = lastReducer!(report, [{ sandboxExecutablesStateWatch: { probing, probes, executables } }]);
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   report = undefined;
-  useWatchSubscriptionMock.mockImplementation((_args, reduce) => {
+  useFoldedSubscriptionMock.mockImplementation((_args, reduce) => {
     lastReducer = reduce;
     return { data: report, connected: true };
   });

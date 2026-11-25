@@ -953,8 +953,8 @@ func TestToClusterCarriesTheDeletionMark(t *testing.T) {
 // tests drive the store directly.
 func serviceOver(t *testing.T, d deps) *service {
 	t.Helper()
-	s := &service{deps: d, now: func() time.Time { return t0.Add(time.Hour) }, gaugeCadence: defaultGaugeCadence}
-	s.health = newSharedGauge(cachesAPI{s}.readAllCacheHealth)
+	s := &service{deps: d, now: func() time.Time { return t0.Add(time.Hour) }, stateWatchCadence: defaultStateWatchCadence}
+	s.health = newSharedStateWatch(cachesAPI{s}.readAllCacheHealth)
 	return s
 }
 
@@ -1091,19 +1091,19 @@ func TestClustersListIsEmptyWithNoRecords(t *testing.T) {
 }
 
 // watchClusters opens a cluster list watch bounded by the test.
-func watchClusters(t *testing.T, d deps) *Stream[ClusterWatchFrame] {
+func watchClusters(t *testing.T, d deps) *Stream[ClusterCollectionWatchFrame] {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	stream, err := serviceOver(t, d).Clusters().WatchList(ctx)
+	stream, err := serviceOver(t, d).Clusters().WatchCollection(ctx)
 	require.NoError(t, err)
 	return stream
 }
 
 // The snapshot arrives as Added frames closed by exactly one Bookmark — the frame a
 // consumer renders its empty state on, and never before.
-func TestClustersWatchListEmitsTheSnapshotThenABookmark(t *testing.T) {
+func TestClustersWatchCollectionEmitsTheSnapshotThenABookmark(t *testing.T) {
 	d := newRunningDeps(t)
 	createCluster(t, d, "prod")
 	createCluster(t, d, "staging")
@@ -1114,37 +1114,37 @@ func TestClustersWatchListEmitsTheSnapshotThenABookmark(t *testing.T) {
 	var contexts []string
 	for range 2 {
 		f := testutil.Recv(t, stream.Frames, "a snapshot frame")
-		require.Equal(t, DeltaFrameAdded, f.Type)
+		require.Equal(t, CollectionWatchFrameAdded, f.Type)
 		require.NotNil(t, f.Cluster)
 		contexts = append(contexts, f.Cluster.Spec.Source.Kubeconfig.Context)
 	}
 	assert.ElementsMatch(t, []string{"prod", "staging"}, contexts)
 
 	bookmark := testutil.Recv(t, stream.Frames, "the bookmark closing the snapshot")
-	assert.Equal(t, DeltaFrameBookmark, bookmark.Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, bookmark.Type)
 	assert.Nil(t, bookmark.Cluster, "the bookmark carries no entity")
 }
 
 // An empty collection is definitively empty rather than pending, so the bookmark
 // still lands: without it a populated table and an empty one look alike.
-func TestClustersWatchListBookmarksAnEmptyCollection(t *testing.T) {
+func TestClustersWatchCollectionBookmarksAnEmptyCollection(t *testing.T) {
 	stream := watchClusters(t, newRunningDeps(t))
 
 	first := testutil.Recv(t, stream.Frames, "the bookmark")
-	assert.Equal(t, DeltaFrameBookmark, first.Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, first.Type)
 }
 
 // awaitBookmark drains the snapshot up to and including the bookmark.
-func awaitBookmark(t *testing.T, stream *Stream[ClusterWatchFrame]) {
+func awaitBookmark(t *testing.T, stream *Stream[ClusterCollectionWatchFrame]) {
 	t.Helper()
 	for {
-		if testutil.Recv(t, stream.Frames, "the bookmark").Type == DeltaFrameBookmark {
+		if testutil.Recv(t, stream.Frames, "the bookmark").Type == CollectionWatchFrameBookmark {
 			return
 		}
 	}
 }
 
-func TestClustersWatchListReportsACreate(t *testing.T) {
+func TestClustersWatchCollectionReportsACreate(t *testing.T) {
 	d := newRunningDeps(t)
 	stream := watchClusters(t, d)
 	awaitBookmark(t, stream)
@@ -1152,13 +1152,13 @@ func TestClustersWatchListReportsACreate(t *testing.T) {
 	createCluster(t, d, "prod")
 
 	f := testutil.Recv(t, stream.Frames, "the create")
-	assert.Equal(t, DeltaFrameAdded, f.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, f.Type)
 	require.NotNil(t, f.Cluster)
 	assert.Equal(t, "prod", f.Cluster.Spec.Source.Kubeconfig.Context)
 }
 
 // A row edit moves the row and no object; the watch reports it off the DB signal.
-func TestClustersWatchListReportsARowEdit(t *testing.T) {
+func TestClustersWatchCollectionReportsARowEdit(t *testing.T) {
 	d := newRunningDeps(t)
 	obj := createCluster(t, d, "prod")
 	stream := watchClusters(t, d)
@@ -1168,13 +1168,13 @@ func TestClustersWatchListReportsARowEdit(t *testing.T) {
 	require.NoError(t, err)
 
 	f := testutil.Recv(t, stream.Frames, "the update")
-	assert.Equal(t, DeltaFrameModified, f.Type)
+	assert.Equal(t, CollectionWatchFrameModified, f.Type)
 	require.NotNil(t, f.Cluster)
 	assert.False(t, f.Cluster.Spec.Enabled)
 }
 
 // A probe moves the object and no row; the watch reports it off the runtime signal.
-func TestClustersWatchListReportsAStatusWrite(t *testing.T) {
+func TestClustersWatchCollectionReportsAStatusWrite(t *testing.T) {
 	d, bh := newRunningDepsAndBeehive(t)
 	status := beehive.NewAdminClient[ClusterStatus](bh, ClusterGroupKind)
 	obj := createCluster(t, d, "prod")
@@ -1185,7 +1185,7 @@ func TestClustersWatchListReportsAStatusWrite(t *testing.T) {
 	require.NoError(t, status.UpdateStatus(context.Background(), obj.ID, ClusterStatus{Server: ClusterServer{UID: &uid}}))
 
 	f := testutil.Recv(t, stream.Frames, "the update")
-	assert.Equal(t, DeltaFrameModified, f.Type)
+	assert.Equal(t, CollectionWatchFrameModified, f.Type)
 	require.NotNil(t, f.Cluster)
 	require.NotNil(t, f.Cluster.Status.Server.UID)
 	assert.Equal(t, uid, *f.Cluster.Status.Server.UID)
@@ -1193,7 +1193,7 @@ func TestClustersWatchListReportsAStatusWrite(t *testing.T) {
 
 // The mark is an ordinary row edit, so a watcher that has seen the row unmarked gets
 // it as Modified carrying the mark; the Deleted is the row's removal alone.
-func TestClustersWatchListReportsTheMarkAsModified(t *testing.T) {
+func TestClustersWatchCollectionReportsTheMarkAsModified(t *testing.T) {
 	d := newRunningDeps(t)
 	obj := createCluster(t, d, "prod")
 	stream := watchClusters(t, d)
@@ -1202,14 +1202,14 @@ func TestClustersWatchListReportsTheMarkAsModified(t *testing.T) {
 	require.NoError(t, serviceOver(t, d).Clusters().Delete(context.Background(), clusterIDOf(obj)))
 
 	f := testutil.Recv(t, stream.Frames, "the deletion mark")
-	assert.Equal(t, DeltaFrameModified, f.Type)
+	assert.Equal(t, CollectionWatchFrameModified, f.Type)
 	require.NotNil(t, f.Cluster)
 	assert.Equal(t, clusterIDOf(obj), f.Cluster.ID)
 	assert.NotNil(t, f.Cluster.DeletionRequestedAt)
 }
 
 // A row already marked when the snapshot is taken is in it, as Added, like any other.
-func TestClustersWatchListSnapshotCarriesADeletingRecord(t *testing.T) {
+func TestClustersWatchCollectionSnapshotCarriesADeletingRecord(t *testing.T) {
 	d := newRunningDeps(t)
 	obj := createCluster(t, d, "prod")
 	_, err := markCluster(context.Background(), d.store.Stmts(), clusterIDOf(obj), t0)
@@ -1218,16 +1218,16 @@ func TestClustersWatchListSnapshotCarriesADeletingRecord(t *testing.T) {
 	stream := watchClusters(t, d)
 
 	f := testutil.Recv(t, stream.Frames, "the marked row")
-	assert.Equal(t, DeltaFrameAdded, f.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, f.Type)
 	require.NotNil(t, f.Cluster)
 	assert.NotNil(t, f.Cluster.DeletionRequestedAt)
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
 // The row's removal is the Deleted, carrying the last-known record. A mark and a
 // removal landing before one reread surface as the Deleted alone: only the
 // departure is promised.
-func TestClustersWatchListReportsTheRemoval(t *testing.T) {
+func TestClustersWatchCollectionReportsTheRemoval(t *testing.T) {
 	d := newRunningDeps(t)
 	obj := createCluster(t, d, "prod")
 	stream := watchClusters(t, d)
@@ -1240,18 +1240,18 @@ func TestClustersWatchListReportsTheRemoval(t *testing.T) {
 	d.db.Notify(appdb.KeyClusters)
 
 	f := testutil.Recv(t, stream.Frames, "the removal")
-	assert.Equal(t, DeltaFrameDeleted, f.Type)
+	assert.Equal(t, CollectionWatchFrameDeleted, f.Type)
 	require.NotNil(t, f.Cluster)
 	assert.Equal(t, clusterIDOf(obj), f.Cluster.ID)
 }
 
 // Cancellation is an ordinary teardown, so Frames closes with nothing to report: a
 // consumer reads Err on close, and a reason there is rendered as a dead watch.
-func TestClustersWatchListCancellationIsQuiet(t *testing.T) {
+func TestClustersWatchCollectionCancellationIsQuiet(t *testing.T) {
 	d := newRunningDeps(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	stream, err := serviceOver(t, d).Clusters().WatchList(ctx)
+	stream, err := serviceOver(t, d).Clusters().WatchCollection(ctx)
 	require.NoError(t, err)
 	awaitBookmark(t, stream)
 
@@ -1261,40 +1261,40 @@ func TestClustersWatchListCancellationIsQuiet(t *testing.T) {
 	assert.NoError(t, stream.Err())
 }
 
-// watchCluster opens a single-record watch bounded by the test.
-func watchCluster(t *testing.T, d deps, id ClusterID) *Stream[ClusterWatchFrame] {
+// watchCluster opens a collection watch of one cluster, bounded by the test.
+func watchCluster(t *testing.T, d deps, id ClusterID) *Stream[ClusterCollectionWatchFrame] {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	stream, err := serviceOver(t, d).Clusters().Watch(ctx, id)
+	stream, err := serviceOver(t, d).Clusters().WatchCollectionByID(ctx, id)
 	require.NoError(t, err)
 	return stream
 }
 
-func TestClustersWatchEmitsTheRecordThenABookmark(t *testing.T) {
+func TestClustersWatchCollectionByIDEmitsTheRecordThenABookmark(t *testing.T) {
 	d := newRunningDeps(t)
 	obj := createCluster(t, d, "prod")
 
 	stream := watchCluster(t, d, clusterIDOf(obj))
 
 	first := testutil.Recv(t, stream.Frames, "the record")
-	assert.Equal(t, DeltaFrameAdded, first.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, first.Type)
 	require.NotNil(t, first.Cluster)
 	assert.Equal(t, clusterIDOf(obj), first.Cluster.ID)
 
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
 // An id naming nothing is bookmark-only rather than an error: the record may not
 // exist yet, and the same subscription reports it arriving.
-func TestClustersWatchBookmarksAnUnknownID(t *testing.T) {
+func TestClustersWatchCollectionByIDBookmarksAnUnknownID(t *testing.T) {
 	stream := watchCluster(t, newRunningDeps(t), ClusterID("404"))
 
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
-func TestClustersWatchReportsChangesToItsRecord(t *testing.T) {
+func TestClustersWatchCollectionByIDReportsChangesToItsRecord(t *testing.T) {
 	d := newRunningDeps(t)
 	obj := createCluster(t, d, "prod")
 	other := createCluster(t, d, "staging")
@@ -1307,22 +1307,22 @@ func TestClustersWatchReportsChangesToItsRecord(t *testing.T) {
 	require.NoError(t, serviceOver(t, d).Clusters().Delete(context.Background(), clusterIDOf(obj)))
 
 	f := testutil.Recv(t, stream.Frames, "the deletion mark")
-	assert.Equal(t, DeltaFrameModified, f.Type)
+	assert.Equal(t, CollectionWatchFrameModified, f.Type)
 	require.NotNil(t, f.Cluster)
 	assert.Equal(t, clusterIDOf(obj), f.Cluster.ID)
 	assert.NotNil(t, f.Cluster.DeletionRequestedAt)
 }
 
-// --- the schedule gauge ---
+// --- the schedule state watch ---
 
-// watchSchedule opens the gauge for id over a cancellable context, handing back the
+// watchSchedule opens the state watch for id over a cancellable context, handing back the
 // cancel so a test can pin what ending the stream does.
 func watchSchedule(t *testing.T, d deps, id ClusterID) (<-chan Schedule, context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	ch, err := serviceOver(t, d).Clusters().WatchSchedule(ctx, id)
+	ch, err := serviceOver(t, d).Clusters().WatchScheduleState(ctx, id)
 	require.NoError(t, err)
 	return ch, cancel
 }
@@ -1334,7 +1334,7 @@ func scheduledAt(at time.Time) kubeconn.Observation[string] {
 
 // The countdown is the connection's own. The other four run on their own clocks, and a
 // countdown to whichever was due next would not be the one a retry acts on.
-func TestClustersWatchScheduleReportsTheConnectionProbe(t *testing.T) {
+func TestClustersWatchScheduleStateReportsTheConnectionProbe(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	dialAt := probedAt.Add(30 * time.Second)
@@ -1352,7 +1352,7 @@ func TestClustersWatchScheduleReportsTheConnectionProbe(t *testing.T) {
 }
 
 // A down connection's countdown comes with how many attempts in a row have failed.
-func TestClustersWatchScheduleCountsTheFailedAttempts(t *testing.T) {
+func TestClustersWatchScheduleStateCountsTheFailedAttempts(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	failing := scheduledAt(probedAt.Add(30 * time.Second))
@@ -1365,8 +1365,8 @@ func TestClustersWatchScheduleCountsTheFailedAttempts(t *testing.T) {
 }
 
 // Every probe but the connection suspends while it is down, so a disconnected cluster's
-// countdown is its retry — the case the gauge exists for.
-func TestClustersWatchScheduleIgnoresTheOtherProbes(t *testing.T) {
+// countdown is its retry — the case the state watch exists for.
+func TestClustersWatchScheduleStateIgnoresTheOtherProbes(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	d.kubeconnSvc = knowing(kubeconn.State{ServerUID: scheduledAt(probedAt.Add(10 * time.Second))})
@@ -1381,7 +1381,7 @@ func TestClustersWatchScheduleIgnoresTheOtherProbes(t *testing.T) {
 	assert.NotNil(t, testutil.Recv(t, ch, "the connection's schedule").NextRequeueAt)
 }
 
-func TestClustersWatchScheduleFollowsThePool(t *testing.T) {
+func TestClustersWatchScheduleStateFollowsThePool(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	d.kubeconnSvc = knowing(kubeconn.State{Connection: scheduledAt(probedAt.Add(30 * time.Second))})
@@ -1399,7 +1399,7 @@ func TestClustersWatchScheduleFollowsThePool(t *testing.T) {
 
 // Probing is asserted from the run, never inferred from a countdown that has run out — and the
 // time the run in flight was scheduled for is the current reconcile, not the next one.
-func TestClustersWatchScheduleReportsARunInFlight(t *testing.T) {
+func TestClustersWatchScheduleStateReportsARunInFlight(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	d.kubeconnSvc = knowing(kubeconn.State{
@@ -1415,10 +1415,10 @@ func TestClustersWatchScheduleReportsARunInFlight(t *testing.T) {
 	assert.Nil(t, got.NextRequeueAt, "the time the in-flight run was scheduled for")
 }
 
-// A gauge says nothing before its first measurement, and a claim whose first pass has
+// A state watch says nothing before its first measurement, and a claim whose first pass has
 // not landed has made none — reporting its zero state would say "nothing is scheduled"
 // about a cluster that is about to be dialed.
-func TestClustersWatchScheduleSaysNothingBeforeTheFirstPass(t *testing.T) {
+func TestClustersWatchScheduleStateSaysNothingBeforeTheFirstPass(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	pool := d.kubeconnSvc.(*fakeKubeconn)
@@ -1434,7 +1434,7 @@ func TestClustersWatchScheduleSaysNothingBeforeTheFirstPass(t *testing.T) {
 
 // Once something has been measured, "nothing is scheduled" is news: a suspended
 // connection is what a context the kubeconfig stopped naming looks like.
-func TestClustersWatchScheduleReportsASuspendedConnection(t *testing.T) {
+func TestClustersWatchScheduleStateReportsASuspendedConnection(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	d.kubeconnSvc = knowing(kubeconn.State{Connection: scheduledAt(probedAt)})
@@ -1447,7 +1447,7 @@ func TestClustersWatchScheduleReportsASuspendedConnection(t *testing.T) {
 	assert.Nil(t, testutil.Recv(t, ch, "the suspended schedule").NextRequeueAt)
 }
 
-func TestClustersWatchScheduleReleasesItsClaimWhenTheStreamEnds(t *testing.T) {
+func TestClustersWatchScheduleStateReleasesItsClaimWhenTheStreamEnds(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	pool := d.kubeconnSvc.(*fakeKubeconn)
@@ -1455,7 +1455,7 @@ func TestClustersWatchScheduleReleasesItsClaimWhenTheStreamEnds(t *testing.T) {
 
 	cancel()
 
-	testutil.WaitClosed(t, ch, "the gauge to close on cancellation")
+	testutil.WaitClosed(t, ch, "the state watch to close on cancellation")
 	assert.Equal(t, []string{"prod"}, pool.released)
 }
 
@@ -1534,7 +1534,7 @@ func TestClustersSetMonitoringEnabled(t *testing.T) {
 func TestClustersSettersNotifyTheWatchers(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
-	sub := d.db.Subscribe(appdb.KeyClusters)
+	sub := d.db.ListenForChanges(appdb.KeyClusters)
 	defer sub.Close()
 
 	_, err := serviceOver(t, d).Clusters().SetSyncEnabled(context.Background(), clusterIDOf(obj), false)
@@ -1549,7 +1549,7 @@ func TestClustersDelete(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	clusters := serviceOver(t, d).Clusters()
-	sub := d.db.Subscribe(appdb.KeyClusters)
+	sub := d.db.ListenForChanges(appdb.KeyClusters)
 	defer sub.Close()
 
 	require.NoError(t, clusters.Delete(context.Background(), clusterIDOf(obj)))
@@ -1723,7 +1723,7 @@ func importContexts(t *testing.T, d deps, cfg *api.Config) error {
 
 func TestImportCreatesOneRowPerContext(t *testing.T) {
 	d := newTestDeps(t)
-	sub := d.db.Subscribe(appdb.KeyClusters)
+	sub := d.db.ListenForChanges(appdb.KeyClusters)
 	defer sub.Close()
 
 	require.NoError(t, importContexts(t, d, cfgWith("prod", "staging")))
@@ -1744,7 +1744,7 @@ func TestImportIsIdempotentAndKeepsTheRow(t *testing.T) {
 	first := rowsByContext(t, d)["prod"]
 	_, err := setClusterToggle(context.Background(), d.store.Stmts(), stmtSetClusterEnabled, first.ID, false, t0)
 	require.NoError(t, err)
-	sub := d.db.Subscribe(appdb.KeyClusters)
+	sub := d.db.ListenForChanges(appdb.KeyClusters)
 	defer sub.Close()
 
 	require.NoError(t, importContexts(t, d, cfgWith("prod")))
@@ -1894,7 +1894,7 @@ func TestSettingAClusterSwitchReportsARecordAlreadyGoing(t *testing.T) {
 // A runtime store that dies under the watch ends it with the reason: the client
 // renders a dead watch rather than a list that stopped moving. Driven through
 // Watch(id), which filters the list watch and forwards its ending.
-func TestClustersWatchReportsAStorageFault(t *testing.T) {
+func TestClustersWatchCollectionByIDReportsAStorageFault(t *testing.T) {
 	d, closeStore := newTestDepsWithABreakableStore(t)
 	obj := createCluster(t, d, "prod")
 	stream := watchCluster(t, d, clusterIDOf(obj))
@@ -1922,12 +1922,12 @@ func TestClustersSettersReportARuntimeReadThatFailed(t *testing.T) {
 // The watch's endings on the database side: one closed before the first read fails
 // the stream with the reason; one closed under the stream ends it cleanly — the
 // subscription ends with the file, which is a teardown, not a fault.
-func TestClustersWatchListEndings(t *testing.T) {
+func TestClustersWatchCollectionEndings(t *testing.T) {
 	t.Run("database closed before the first read", func(t *testing.T) {
 		d := newRunningDeps(t)
 		require.NoError(t, d.db.Close())
 
-		stream, err := serviceOver(t, d).Clusters().WatchList(t.Context())
+		stream, err := serviceOver(t, d).Clusters().WatchCollection(t.Context())
 		require.NoError(t, err)
 
 		testutil.WaitClosed(t, stream.Frames, "the frames to close")
@@ -1962,14 +1962,14 @@ func TestClustersWatchListEndings(t *testing.T) {
 // send blocks on the unread channel and the cancel is what frees it. One frame is
 // read first, so the read behind the snapshot has finished and the cancel lands on a
 // send.
-func TestClustersWatchListStopsForAConsumerThatIsGone(t *testing.T) {
+func TestClustersWatchCollectionStopsForAConsumerThatIsGone(t *testing.T) {
 	d := newRunningDeps(t)
 	for _, name := range []string{"a", "b", "c", "d"} {
 		createCluster(t, d, name)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	stream, err := serviceOver(t, d).Clusters().WatchList(ctx)
+	stream, err := serviceOver(t, d).Clusters().WatchCollection(ctx)
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the first frame")
 	cancel()
@@ -2136,31 +2136,31 @@ func TestReadActiveReturnsAFailedRecordRead(t *testing.T) {
 // A consumer gone mid-diff ends the pump at the frame it left on, without a report. One
 // write renames three rows, so one reread diffs three frames: the test reads the first,
 // the stream's buffer takes the second, and the third waits on a consumer that left.
-func TestClustersWatchListStopsMidDiffForAConsumerThatIsGone(t *testing.T) {
+func TestClustersWatchCollectionStopsMidDiffForAConsumerThatIsGone(t *testing.T) {
 	d := newRunningDeps(t)
 	for _, name := range []string{"a", "b", "c"} {
 		createCluster(t, d, name)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stream, err := serviceOver(t, d).Clusters().WatchList(ctx)
+	stream, err := serviceOver(t, d).Clusters().WatchCollection(ctx)
 	require.NoError(t, err)
 	awaitBookmark(t, stream)
 
 	_, err = d.db.Write.Exec(`UPDATE clusters SET name = 'renamed'`)
 	require.NoError(t, err)
 	d.db.Notify(appdb.KeyClusters)
-	assert.Equal(t, DeltaFrameModified, testutil.Recv(t, stream.Frames, "the first rename").Type)
+	assert.Equal(t, CollectionWatchFrameModified, testutil.Recv(t, stream.Frames, "the first rename").Type)
 	cancel()
 
 	testutil.Wait(t, stream.done, "the pump to end")
 	assert.NoError(t, stream.Err())
 }
 
-// The schedule gauge's consumer can leave before its first reading is taken, and the
-// gauge ends there rather than parking on the send. Nothing reads until the claim is
-// released, which the gauge does only once the send has given up.
-func TestClustersWatchScheduleStopsForAConsumerThatIsGone(t *testing.T) {
+// The schedule state watch's consumer can leave before its first reading is taken, and the
+// state watch ends there rather than parking on the send. Nothing reads until the claim is
+// released, which the state watch does only once the send has given up.
+func TestClustersWatchScheduleStateStopsForAConsumerThatIsGone(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	d.kubeconnSvc = knowing(kubeconn.State{Connection: scheduledAt(probedAt)})
@@ -2175,8 +2175,8 @@ func TestClustersWatchScheduleStopsForAConsumerThatIsGone(t *testing.T) {
 	assert.False(t, open, "the reading nobody took")
 }
 
-// A pool that shuts its feed down ends the gauge, which has nothing left to report.
-func TestClustersWatchScheduleEndsWithThePoolsFeed(t *testing.T) {
+// A pool that shuts its feed down ends the state watch, which has nothing left to report.
+func TestClustersWatchScheduleStateEndsWithThePoolsFeed(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	pool := d.kubeconnSvc.(*fakeKubeconn)
@@ -2184,7 +2184,7 @@ func TestClustersWatchScheduleEndsWithThePoolsFeed(t *testing.T) {
 
 	pool.stateFeed().Close()
 
-	testutil.WaitClosed(t, ch, "the gauge to end with the feed")
+	testutil.WaitClosed(t, ch, "the state watch to end with the feed")
 	assert.Equal(t, []string{"prod"}, pool.released)
 }
 

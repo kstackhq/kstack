@@ -966,7 +966,7 @@ func TestFetchRefusesABadCursor(t *testing.T) {
 	assert.Equal(t, refusal.CodeBadGrep, codeOf(err))
 }
 
-// A grep past MaxGrep is refused by a page and by a follow alike, since the wire
+// A grep past MaxGrep is refused by a page and by a tail alike, since the wire
 // takes any view the webview sends; one at the cap is read.
 func TestAGrepPastMaxGrepIsRefused(t *testing.T) {
 	t.Parallel()
@@ -976,7 +976,7 @@ func TestAGrepPastMaxGrepIsRefused(t *testing.T) {
 
 	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, PageFrom: PageFromFirst, PageSize: 10})
 	assert.EqualError(t, err, "a grep is at most 1000 bytes")
-	_, err = svc.Follow(t.Context(), "7", FollowRequest{Scope: view})
+	_, err = svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: view})
 	assert.EqualError(t, err, "a grep is at most 1000 bytes")
 
 	view.Grep = strings.Repeat("a", logline.MaxGrep)
@@ -2740,11 +2740,11 @@ func TestAPollDeliversSkewedLinesOnce(t *testing.T) {
 	assert.NotNil(t, page.Page.Follow)
 }
 
-// A follow opened from a poll's Follow delivers exactly the lines the poll does,
+// A tail opened from a poll's Follow delivers exactly the lines the poll does,
 // then the lines written since; one reopened from the same Follow with Seen built
 // from every record held delivers the rest, and none again: not web-2's, quiet
-// since before the first follow, nor web-3's, seen on the page alone.
-func TestAFollowFromAPollsFollowDeliversEachLineOnce(t *testing.T) {
+// since before the first tail, nor web-3's, seen on the page alone.
+func TestATailFromAPollsFollowDeliversEachLineOnce(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.LineEvery(3)...)
@@ -2761,7 +2761,7 @@ func TestAFollowFromAPollsFollowDeliversEachLineOnce(t *testing.T) {
 	require.Equal(t, []string{"b15", "20"}, messages(poll.Records))
 
 	ctx, cancel := context.WithCancel(t.Context())
-	first := startFollow(t, ctx, svc, FollowRequest{Cursor: page.Page.Follow})
+	first := startTail(t, ctx, svc, TailRequest{Cursor: page.Page.Follow})
 	held := slices.Concat(page.Records, recvRecords(t, first, 2))
 	assert.ElementsMatch(t, messages(poll.Records), messages(held[len(page.Records):]))
 	s.Add("prod/web-1/app", logstest.Stamped(21*time.Second, "21"))
@@ -2774,7 +2774,7 @@ func TestAFollowFromAPollsFollowDeliversEachLineOnce(t *testing.T) {
 		seen = append(seen, rec.Cursor())
 	}
 	s.Add("prod/web-1/app", logstest.Stamped(22*time.Second, "22"))
-	second := startFollow(t, t.Context(), svc, FollowRequest{Cursor: page.Page.Follow, Seen: seen})
+	second := startTail(t, t.Context(), svc, TailRequest{Cursor: page.Page.Follow, Seen: seen})
 	assert.Equal(t, "22", recvLine(t, second, "the rest").Message)
 	s.Add("prod/web-3/app", logstest.Stamped(23*time.Second, "c23"))
 	assert.Equal(t, "c23", recvLine(t, second, "a line written after").Message, "nothing again before it")
@@ -3725,7 +3725,7 @@ func TestALateRestartIsTrimmedUnderAPlainView(t *testing.T) {
 	assert.Equal(t, []string{b, b}, idsOf(page.Records))
 }
 
-// A page labels a stream as its view reads it, as the follow does: a waiting
+// A page labels a stream as its view reads it, as the tail does: a waiting
 // container's log is the instance before, which a view with no Previous reads as the
 // container's own, and one with Previous as its previous instance.
 func TestAPageLabelsAWaitingContainerAsItsViewReadsIt(t *testing.T) {
@@ -4255,7 +4255,7 @@ func TestARestartOnAFirstPageSkipsTheStreamInBothReads(t *testing.T) {
 	s.Add("prod/web-1/app", logstest.LineEvery(10)...)
 	s.Add("prod/web-2/app", logstest.Stamped(4*time.Second, "web-2"))
 	svc, f := serviceOver(t, webMirror(t), s)
-	// The Head half's read of web-1, from the moment's second, which follows the Tail
+	// The Head half's read of web-1, from the moment's second, which tails the Tail
 	// half's write.
 	s.OnRequest = func(n int) {
 		s.Mu.Lock()

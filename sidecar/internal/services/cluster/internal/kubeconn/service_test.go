@@ -127,7 +127,7 @@ func (f *fakeKubeconfig) RESTConfig(contextName string) (*rest.Config, string, e
 	return &rest.Config{Host: f.host, TLSClientConfig: f.tls}, key, nil
 }
 
-func (f *fakeKubeconfig) Subscribe() kubeconfig.Subscription {
+func (f *fakeKubeconfig) WatchConfigState() kubeconfig.ConfigStateWatch {
 	if f.hub == nil {
 		f.hub = watch.New[*api.Config](nil)
 	}
@@ -486,12 +486,12 @@ func TestDepartureReachesTheHolder(t *testing.T) {
 	defer lease.Release()
 	require.Equal(t, "prod", cfg.reads.Await(t, "the claim's own read"))
 	settled(t, s, "prod")
-	news := s.Subscribe()
+	news := s.ListenForConnectionChanges()
 	defer news.Close()
 	// `settled` returns once the first verdict is recorded, a step before its signal is sent.
 	// That signal, read below, would pass for the departure — and read that early, the state
 	// it asserts on is one the departure has not reached yet.
-	settleNews(t, news)
+	settleNotifications(t, news)
 
 	cfg.rotate("prod", "")
 	cfg.changed()
@@ -537,12 +537,12 @@ func TestDepartureIsAnnouncedOnce(t *testing.T) {
 	defer lease.Release()
 	cfg.reads.Await(t, "the claim's own read")
 	settled(t, s, "prod")
-	news := s.Subscribe()
+	news := s.ListenForConnectionChanges()
 	defer news.Close()
 	// The baseline: `settled` returns once the first verdict is recorded, a step before its
 	// signal is sent. That signal, read below, would pass for the departure, and the
 	// departure's own signal for a second announcement.
-	settleNews(t, news)
+	settleNotifications(t, news)
 
 	cfg.rotate("prod", "")
 	cfg.changed()
@@ -794,7 +794,7 @@ func TestTheKubeconfigWatchEndsWhenItsFeedCloses(t *testing.T) {
 
 	cfg := resolving("prod", "key-1")
 	s := New(cfg)
-	cfgs := cfg.Subscribe()
+	cfgs := cfg.WatchConfigState()
 	cfgs.Close()
 
 	testutil.WaitReturn(t, func() { s.watchKubeconfig(context.Background(), cfgs) }, "the watch to end")
@@ -1200,14 +1200,14 @@ func TestConnForRefusesAConnectionWhoseServerWasReplaced(t *testing.T) {
 // quiesce drains the fleet feed until it stops producing, so a test asserting one signal is
 // not handed a leftover from the fleet coming up. A bounded window because "nothing more" has
 // no event to wait for; the feed coalesces, so what is pending is at most one per landed pass.
-// settleNews drains the signals a startup still has in flight, **without touching the
+// settleNotifications drains the signals a startup still has in flight, **without touching the
 // receiver's channel**: Chan starts a feeder goroutine that owns every later event, so a
 // receiver drained that way stops answering RecvContext. quiesce below is the same wait
 // for a test that reads through Chan throughout.
 //
 // A bounded quiet window, not a wait for an event: what it waits for is the absence of
 // further signals, which has nothing to fire.
-func settleNews(t *testing.T, news Subscription) {
+func settleNotifications(t *testing.T, news ConnectionChangeNotifications) {
 	t.Helper()
 	for {
 		// Drain what is pending, then give the window one whole wait rather than polling
@@ -1226,7 +1226,7 @@ func settleNews(t *testing.T, news Subscription) {
 	}
 }
 
-func quiesce(t *testing.T, moved Subscription) {
+func quiesce(t *testing.T, moved ConnectionChangeNotifications) {
 	t.Helper()
 	for {
 		select {
@@ -1250,7 +1250,7 @@ func TestRotationSignalsTheFleet(t *testing.T) {
 	cfg := serving(cs.Server, "prod", "key-1")
 	s := New(cfg)
 	startService(t, s)
-	moved := s.Subscribe()
+	moved := s.ListenForConnectionChanges()
 	defer moved.Close()
 	lease := s.Acquire("prod")
 	defer lease.Release()

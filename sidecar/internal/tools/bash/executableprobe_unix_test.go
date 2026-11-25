@@ -571,12 +571,12 @@ func TestStartProbeRunsInTheBackground(t *testing.T) {
 	assert.True(t, tl.LastProbe()[0].OK)
 }
 
-// WatchProbe sees a probe start, then end with its report.
-func TestWatchProbeSeesAProbeStartAndEnd(t *testing.T) {
+// WatchProbeState sees a probe start, then end with its report.
+func TestWatchProbeStateSeesAProbeStartAndEnd(t *testing.T) {
 	tl, fake, bin := probingTool(t)
 	writeExecutable(t, bin, "kubectl", "true")
 	fake.entered, fake.gate = make(chan struct{}, 1), make(chan struct{})
-	rx := tl.WatchProbe()
+	rx := tl.WatchProbeState()
 	defer rx.Close()
 	states := rx.Chan()
 	assert.Equal(t, ProbeState{}, testutil.Recv(t, states, "the state before any probe"))

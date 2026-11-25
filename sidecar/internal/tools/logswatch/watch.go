@@ -31,7 +31,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/logsinput"
 )
 
-// Why a watch ended, in its header's words, when the follow did not say.
+// Why a watch ended, in its header's words, when the tail did not say.
 const (
 	byLines  = "it reached its line limit"
 	byBytes  = "it reached its byte limit"
@@ -44,14 +44,14 @@ const (
 
 var _ tools.Watch = (*watch)(nil)
 
-// watch is a tools.Watch over one follow, whose context is the watch's own: its
+// watch is a tools.Watch over one tail, whose context is the watch's own: its
 // deadline is the watch's time limit, and cancel ends it on a fill or a stop. in
-// is the call, scope what the follow reads, since where it started, nil for a
+// is the call, scope what the tail reads, since where it started, nil for a
 // read's token, now the clock the window's end is read off.
 type watch struct {
 	ctx    context.Context
 	cancel context.CancelFunc
-	stream *cluster.Stream[logs.FollowFrame]
+	stream *cluster.Stream[logs.TailFrame]
 	in     input
 	scope  tools.LogsScopeInput
 	since  *time.Time
@@ -59,8 +59,8 @@ type watch struct {
 
 	// Set by Wait alone, read by End after it: the lines held, as the model reads
 	// them, and their size; the notices; full, why the watch filled, "" until it
-	// does; reason, the follow's own end, "" with none; failed, a follow that ended
-	// on an error; endedAt, when the follow let go.
+	// does; reason, the tail's own end, "" with none; failed, a tail that ended
+	// on an error; endedAt, when the tail let go.
 	recs    []logline.Record
 	size    int
 	notices logsinput.Notices
@@ -70,10 +70,10 @@ type watch struct {
 	endedAt time.Time
 }
 
-// Wait reads the follow until it closes, holding each line until the watch is
-// full and each notice while the notices fit their budget. A cancelled follow
+// Wait reads the tail until it closes, holding each line until the watch is
+// full and each notice while the notices fit their budget. A cancelled tail
 // closes with no frame and no error, so a fill, a stop and the deadline all close
-// it the same way: End tells them apart. The follow orders lines per container
+// it the same way: End tells them apart. The tail orders lines per container
 // only, so the lines held are sorted once it is done.
 func (w *watch) Wait() {
 	defer w.cancel()
@@ -82,7 +82,7 @@ func (w *watch) Wait() {
 		case f.Record != nil && w.full == "":
 			w.hold(*f.Record)
 		case f.Notice != nil:
-			// A day-long follow raises a stream-skipped notice each time a stream
+			// A day-long tail raises a stream-skipped notice each time a stream
 			// restarts, and nothing but the notices' budget bounds them.
 			w.notices.Add(*f.Notice)
 		case f.Ended != nil:
@@ -95,7 +95,7 @@ func (w *watch) Wait() {
 }
 
 // hold keeps rec as the service cut it, its message through logline.ForModel, and
-// ends the follow once the lines reach either limit, keeping the line that reached
+// ends the tail once the lines reach either limit, keeping the line that reached
 // it.
 func (w *watch) hold(rec logline.Record) {
 	rec.Message = logline.ForModel(rec.Message)
@@ -112,10 +112,10 @@ func (w *watch) hold(rec logline.Record) {
 	w.cancel()
 }
 
-// Stop ends the follow.
+// Stop ends the tail.
 func (w *watch) Stop() { w.cancel() }
 
-// End is how the watch ended. A fill, the follow's own end and its deadline each
+// End is how the watch ended. A fill, the tail's own end and its deadline each
 // close the stream on their own, so each is read before a stop: one that lands
 // while the stream drains changes nothing. A watch holding lines is matched
 // whatever ended it; failed means it holds none.

@@ -76,17 +76,17 @@ func beginReplace(t *testing.T, s *Store, k Kind) *ReplaceSession {
 	return session
 }
 
-// subscribe opens the store's change feed for the test.
-func subscribe(t *testing.T, s *Store) Subscription {
+// subscribe opens the store's change notifications for the test.
+func subscribe(t *testing.T, s *Store) ChangeNotifications {
 	t.Helper()
-	sub, err := s.Subscribe()
+	sub, err := s.ListenForChanges()
 	require.NoError(t, err)
 	return sub
 }
 
 // recvKey takes the next ping's key, bounded by the failsafe so a bus that never
 // fires fails the test instead of hanging it.
-func recvKey(t *testing.T, sub Subscription) string {
+func recvKey(t *testing.T, sub ChangeNotifications) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), testutil.Timeout)
 	defer cancel()
@@ -507,7 +507,7 @@ func TestClosingTheStoreEndsSubscribers(t *testing.T) {
 	m := NewManager(t.TempDir(), Retention{})
 	store, err := m.OpenOrCreate(1)
 	require.NoError(t, err)
-	sub, err := store.Subscribe()
+	sub, err := store.ListenForChanges()
 	require.NoError(t, err)
 	defer sub.Close()
 
@@ -848,7 +848,7 @@ func TestAStoreWhoseFileIsGoneAnswersErrClosed(t *testing.T) {
 	assert.ErrorIs(t, err, ErrClosed)
 	_, _, err = store.Cookie(ctx, "v1", "pods")
 	assert.ErrorIs(t, err, ErrClosed)
-	_, err = store.Subscribe()
+	_, err = store.ListenForChanges()
 	assert.ErrorIs(t, err, ErrClosed)
 	assert.ErrorIs(t, store.SyncKinds(ctx, nil, true, 1), ErrClosed)
 	_, err = store.Kinds(ctx)
@@ -941,12 +941,12 @@ func TestClearKindKeepsTheCatalogRow(t *testing.T) {
 // A subscription named for one kind must not wake on another's writes, or every object
 // write in the cache re-reads every open watch — which is what the per-kind bus keys exist
 // to prevent. conflate filters at enqueue, so the key belongs on the subscription.
-func TestSubscribeWithAKeyIgnoresOtherKeys(t *testing.T) {
+func TestListenForChangesWithAKeyIgnoresOtherKeys(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	s := newTestStore(t)
-	sub, err := s.Subscribe(ObjectsKey("v1", "pods"))
+	sub, err := s.ListenForChanges(ObjectsKey("v1", "pods"))
 	require.NoError(t, err)
 	defer sub.Close()
 
@@ -960,12 +960,12 @@ func TestSubscribeWithAKeyIgnoresOtherKeys(t *testing.T) {
 
 // No keys is the whole feed, which is what the kinds watch needs: object writes move counts
 // and event writes move the hardcoded ('v1','Event') count, and there is one hub.
-func TestSubscribeWithNoKeysTakesEveryKey(t *testing.T) {
+func TestListenForChangesWithNoKeysTakesEveryKey(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	s := newTestStore(t)
-	sub, err := s.Subscribe()
+	sub, err := s.ListenForChanges()
 	require.NoError(t, err)
 	defer sub.Close()
 

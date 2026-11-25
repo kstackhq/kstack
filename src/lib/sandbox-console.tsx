@@ -14,20 +14,20 @@
 
 // The Sandbox console: the user's commands run in the sandbox, as a chat's
 // would. The one reader of the console's watch and mutations. A run answers
-// once the command starts; the watch carries its output and its end. The
-// watch is a gauge of the last command alone, so the history is folded from
+// once the command starts; the watch carries its output and its end. It is
+// a state watch of the last command alone, so the history is folded from
 // its frames by each command's number, and starts over on a reconnect.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation } from 'urql';
 
 import { graphql } from '@/gql';
-import type { SandboxConsoleWatchSubscription } from '@/gql/graphql';
+import type { SandboxConsoleStateWatchSubscription } from '@/gql/graphql';
 import { refusalOf } from '@/lib/graphql/refusal';
-import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
+import { perFrame, useFoldedSubscription } from '@/lib/graphql/use-folded-subscription';
 
-const SandboxConsoleWatchDocument = graphql(`
-  subscription SandboxConsoleWatch {
-    sandboxConsoleWatch {
+const SandboxConsoleStateWatchDocument = graphql(`
+  subscription SandboxConsoleStateWatch {
+    sandboxConsoleStateWatch {
       run {
         number
         command
@@ -56,14 +56,14 @@ const SandboxConsoleStopMutation = graphql(`
   }
 `);
 
-export type ConsoleRun = NonNullable<SandboxConsoleWatchSubscription['sandboxConsoleWatch']['run']>;
+export type ConsoleRun = NonNullable<SandboxConsoleStateWatchSubscription['sandboxConsoleStateWatch']['run']>;
 
 const NO_RUNS: ConsoleRun[] = [];
 
 // Each frame replaces its command's entry, or adds it at the end.
-const foldRuns = perFrame<SandboxConsoleWatchSubscription, ConsoleRun[]>((prev, data) => {
+const foldRuns = perFrame<SandboxConsoleStateWatchSubscription, ConsoleRun[]>((prev, data) => {
   const runs = prev ?? NO_RUNS;
-  const { run } = data.sandboxConsoleWatch;
+  const { run } = data.sandboxConsoleStateWatch;
   if (!run) return runs;
   const at = runs.findIndex((r) => r.number === run.number);
   return at === -1 ? [...runs, run] : runs.with(at, run);
@@ -83,7 +83,10 @@ export type SandboxConsoleState = {
 
 /** The console, its watch open while `open`. */
 export function useSandboxConsole(open: boolean): SandboxConsoleState {
-  const { data, generation } = useWatchSubscription({ query: SandboxConsoleWatchDocument, pause: !open }, foldRuns);
+  const { data, generation } = useFoldedSubscription(
+    { query: SandboxConsoleStateWatchDocument, pause: !open },
+    foldRuns,
+  );
   const [, runMutation] = useMutation(SandboxConsoleRunMutation);
   const [, stopMutation] = useMutation(SandboxConsoleStopMutation);
   const [error, setError] = useState<string | null>(null);

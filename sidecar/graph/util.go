@@ -30,10 +30,10 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
-// mapStream maps a latest-value source onto the returned channel until ctx ends or sub
+// mapSubscription maps a latest-value source onto the returned channel until ctx ends or sub
 // closes. No separate snapshot: the source is current-on-subscribe, so its first value IS
 // the snapshot. unsub runs once on teardown, where out is also closed.
-func mapStream[S, G any](
+func mapSubscription[S, G any](
 	ctx context.Context,
 	sub <-chan S,
 	unsub func(),
@@ -73,10 +73,10 @@ func ptrSlice[T any](items []T) []*T {
 	return out
 }
 
-// ptrStream is ptrSlice for streams, which nearly every cluster subscription resolver
+// ptrSubscription is ptrSlice for streams, which nearly every cluster subscription resolver
 // needs. The source is current-on-subscribe, so there's nothing to unsubscribe.
-func ptrStream[T any](ctx context.Context, sub <-chan T) <-chan *T {
-	return mapStream(ctx, sub, func() {}, func(v T) *T { return &v })
+func ptrSubscription[T any](ctx context.Context, sub <-chan T) <-chan *T {
+	return mapSubscription(ctx, sub, func() {}, func(v T) *T { return &v })
 }
 
 // nullTime unwraps the sql.NullTime a record holds so a watch can diff it with ==;
@@ -299,7 +299,7 @@ func paddingOut(p logs.Padding) *tools.LogsPadding {
 	return &out
 }
 
-// noticesOf is a page's or a follow's notices on the wire.
+// noticesOf is a page's or a tail's notices on the wire.
 func noticesOf(notices []logs.Notice) []*tools.LogsNotice {
 	out := make([]*tools.LogsNotice, len(notices))
 	for i, n := range notices {
@@ -313,24 +313,24 @@ func noticeOf(n logs.Notice) *tools.LogsNotice {
 	return &tools.LogsNotice{Code: string(n.Code), Message: n.Message}
 }
 
-// followRequestOf is the wire's follow request as the service takes it, the
+// tailRequestOf is the wire's tail request as the service takes it, the
 // cursor passed through unread.
-func followRequestOf(in model.LogsFollowInput) logs.FollowRequest {
-	return logs.FollowRequest{
+func tailRequestOf(in model.LogsTailInput) logs.TailRequest {
+	return logs.TailRequest{
 		Scope: valueOf(in.Scope), Since: in.Since, Seen: in.Seen, Cursor: in.Cursor, MaxMessageBytes: valueOf(in.MaxMessageBytes),
 	}
 }
 
-// frameOf is one follow frame on the wire, its type the field the service set.
-func frameOf(f logs.FollowFrame) *model.LogsFollowFrame {
+// frameOf is one tail frame on the wire, its type the field the service set.
+func frameOf(f logs.TailFrame) *model.LogsTailFrame {
 	switch {
 	case f.Record != nil:
-		return &model.LogsFollowFrame{Type: model.LogsFollowFrameTypeLine, Record: f.Record}
+		return &model.LogsTailFrame{Type: model.LogsTailFrameTypeLine, Record: f.Record}
 	case f.Notice != nil:
-		return &model.LogsFollowFrame{Type: model.LogsFollowFrameTypeNotice, Notice: noticeOf(*f.Notice)}
+		return &model.LogsTailFrame{Type: model.LogsTailFrameTypeNotice, Notice: noticeOf(*f.Notice)}
 	default:
 		ended := &tools.LogsNotice{Code: string(f.Ended.Code), Message: f.Ended.Reason}
-		return &model.LogsFollowFrame{Type: model.LogsFollowFrameTypeEnded, Ended: ended}
+		return &model.LogsTailFrame{Type: model.LogsTailFrameTypeEnded, Ended: ended}
 	}
 }
 

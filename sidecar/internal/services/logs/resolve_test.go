@@ -231,7 +231,7 @@ func TestANodeFilterNeedsNoNodeObject(t *testing.T) {
 }
 
 // A label filter on a mirror with no nodes is refused, naming every label, by a
-// page or a follow once the file holds nothing the filter keeps.
+// page or a tail once the file holds nothing the filter keeps.
 func TestALabelFilterWithNoNodesIsRefused(t *testing.T) {
 	t.Parallel()
 	f := newMirror(t, webObjects()...)
@@ -243,7 +243,7 @@ func TestALabelFilterWithNoNodesIsRefused(t *testing.T) {
 
 	for _, follow := range []bool{false, true} {
 		got, err := resolve(t.Context(), f, "7", view, follow)
-		require.NoError(t, err, "a page and a follow look in the file before they refuse")
+		require.NoError(t, err, "a page and a tail look in the file before they refuse")
 		assert.EqualError(t, got.noNodes, refused)
 		assert.Equal(t, []string{"dep-web"}, got.sourceUIDs, "the file is asked for the workload's gone pods")
 	}
@@ -674,7 +674,7 @@ func TestEveryRefusalCarriesItsCode(t *testing.T) {
 	}
 }
 
-// A resolve of a deployment's view over a real store, as every page and follow
+// A resolve of a deployment's view over a real store, as every page and tail
 // reconcile runs one.
 func BenchmarkResolve(b *testing.B) {
 	f := webMirror(b)

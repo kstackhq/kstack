@@ -362,7 +362,7 @@ func TestEachPermissionWritePublishes(t *testing.T) {
 	t.Parallel()
 	s, _ := storeWithClusters(t)
 	ctx := t.Context()
-	rx := s.WatchPermissions()
+	rx := s.ListenForPermissionChanges()
 	t.Cleanup(rx.Close)
 	published := func(what string, err error) {
 		t.Helper()
@@ -435,7 +435,7 @@ func TestAWriteThatFailsReachesTheCaller(t *testing.T) {
 	} {
 		exec(t, db, q)
 	}
-	rx := s.WatchPermissions()
+	rx := s.ListenForPermissionChanges()
 	t.Cleanup(rx.Close)
 
 	for name, err := range map[string]error{

@@ -333,12 +333,12 @@ one `CheckExecutable` refuses never runs. **Every disk read outside Kstack's dir
 (`onDisk`), so a dead mount fails one probe and holds neither the queue nor `Close`. One probe runs
 at once. Its report reaches the user alone, never a model: `sandboxExecutablesProbe` starts one
 (`StartProbe`) and answers at once, since a probe can outlast the host's request budget, and
-`sandboxExecutablesWatch` is the gauge its end reaches (`ProbeState` folded with the settings into
+`sandboxExecutablesStateWatch` is what its end reaches (`ProbeState` folded with the settings into
 one `SandboxExecutablesReport`).
 
 **The Sandbox console** (`console.go`) runs one typed command at a time as a chat's sandboxed call,
 in a `scratchDir`, as `session.Console`: the always folders (`SetAlwaysFolders`), no asker (so no
-cluster change) and no cloud platform. `sandboxConsoleWatch` is its gauge. →
+cluster change) and no cloud platform. `sandboxConsoleStateWatch` watches it. →
 [record](../../../docs/security/2026-11-21-the-sandbox-console.md).
 
 **A command runs where its request shows** (`resolveWorkdir`): its `workdir`, else the workspace. A

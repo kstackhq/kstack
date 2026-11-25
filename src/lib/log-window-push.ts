@@ -15,7 +15,7 @@
 // A log window's viewport on its way to the app window. The log window pushes it to
 // the host (`log_window_viewport`), which forwards it down the app window's channel
 // into a mirror the composer reads.
-import { scheduleFlush } from '@/lib/graphql/use-watch-subscription';
+import { scheduleFlush } from '@/lib/graphql/use-folded-subscription';
 import { createLogViewportHandle, EMPTY_LOG_VIEWPORT } from '@/lib/log-viewport';
 import type { LogViewport, LogViewportHandle, SelectedLine } from '@/lib/log-viewport';
 import { MAX_SELECTED } from '@/lib/logs-snapshot';

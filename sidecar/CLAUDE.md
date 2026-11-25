@@ -13,9 +13,9 @@ same roots; `layout/testdata/layouts.json` pins both. The host passes only
 a service closes only the statements it prepared. `appdb.Open` gives a one-connection migrated
 writer and a `query_only` reader, plus a janitor. A service's statements are a `sqlstmt.Set` on
 `db.Write, db.Read`. A table change is the next numbered migration (*Persisted formats*). Tests open the
-DB through `appdb/appdbtest`, never `appdb.Open`. **The change bus**: `Notify(key)` after a commit,
-never inside it; `Subscribe` before the first read; pings coalesce, so never count them. The keys
-are all named in `appdb.go`. `NewID()` mints UUIDv7; `ValidateUUID` accepts only canonical v4/v7.
+DB through `appdb/appdbtest`, never `appdb.Open`. **The change bus**: `Notify(key)` after commit,
+never in it; `ListenForChanges` before the first read; never count notices, which coalesce. The keys
+are named in `appdb.go`. `NewID()` mints UUIDv7; `ValidateUUID` accepts only canonical v4/v7.
 → [ADR: the app owns app.db](../docs/adr/2026-09-16-the-app-owns-app-db.md),
 [ADR: a shipped schema changes only by a new migration](../docs/adr/2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md).
 
@@ -226,7 +226,7 @@ may have signed in as someone else. Every failure is `ErrNoToken`. →
 
 **A connector is an account on a service that Kstack signs in to, and whose requests it may then
 sign**, one package each: `chatgpt`, `openrouter`, `aws`, whose credentials nothing uses yet,
-`github`, whose token GitHub's proxy sends, `google`, which signs Vertex AI, and `kstackcloud`, the Kstack Cloud account, which signs nothing. Each has `New`, `State`, `Subscribe`, `Connect`, `Disconnect` and `Close`; a model
+`github`, whose token GitHub's proxy sends, `google`, which signs Vertex AI, and `kstackcloud`, the Kstack Cloud account, which signs nothing. Each has `New`, `State`, `WatchState`, `Connect`, `Disconnect` and `Close`; a model
 provider's connector is also its `providercredentials.Connector`, which signs its rows. **Each `New` is `Restoring` and makes no keyring call**: it
 reads on a goroutine, `Restored()` closes once it has published, a credential asked for meanwhile
 waits, and a change answers `ErrRestoring`. → [ADR](../docs/adr/2026-11-20-a-launch-restores-keyring-credentials-in-the-background.md).
@@ -247,7 +247,7 @@ the last run. Concurrent reads share one run; the exec is a field.
 
 ## Kubeconfig (`internal/services/kubeconfig`)
 
-**The one reader of the user's kubeconfig.** Nothing else watches the file, calls `clientcmd`, or builds a `rest.Config`. `New` reads nothing, not even `KUBECONFIG`; `Start` reads, after `app.New`'s shell import, so a GUI launch sees the login shell's file list. `Get()` returns the last snapshot plus whether a read has happened; `Subscribe()` is current-on-subscribe; `Close()` ends every subscription in the process, so only the app calls it.
+**The one reader of the user's kubeconfig.** Nothing else watches the file, calls `clientcmd`, or builds a `rest.Config`. `New` reads nothing, not even `KUBECONFIG`; `Start` reads, after `app.New`'s shell import, so a GUI launch sees the login shell's file list. `Get()` returns the last snapshot plus whether a read has happened; `WatchConfigState()` is current-on-subscribe; `Close()` ends every subscription in the process, so only the app calls it.
 
 `RESTConfig(contextName)` resolves one context to credentials and the pool's cache key: one snapshot per call; only a config the loading rules produced; the key excludes the context name, covers static exec/auth-provider config and `proxy-url`, and length-prefixes every value. Sentinels: `ErrContextNotFound` (also for an empty name) and `ErrNotRead`. Not memoized.
 
@@ -307,7 +307,7 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 - Fan-in from producers that come and go → `gochan` `mpsc` with `WithKeepOpen`, a sender per producer; without the option the hub closes for good once no sender is open.
 - **Every outgoing request names the app** (`version.UserAgent()`, `kstack-desktop/<version> (<GOOS>/<GOARCH>)`) ahead of its own: a new `http.Client` takes `version.Transport`, a proxy calls `version.Prefix`. Exception: the AWS SDK appends the bare token.
 - Work to do is a queue, not a bus: `internal/lib/workqueue`, one `Queue` per job. `Done` is owed for every key taken.
-- Subscription resolvers emit the current snapshot first, then deltas (`mapStream`), and honor `ctx.Done()`.
+- Subscription resolvers emit the current snapshot first, then deltas (`mapSubscription`), and honor `ctx.Done()`.
 - Unexported functional options for test seams; exported `New` takes production knobs only.
 - **Production code reaches the API server through `kubeconn.Connection`'s `Dynamic` client or raw requests on its `HTTPClient`.** Never import `k8s.io/api/...`, `client-go/discovery` or the typed clientset (`client-go/kubernetes`): `kubernetes/scheme` links every API group, about 16 MB. Tests may use them. `make vet-go` and CI fail on them (`scripts/check-sidecar-deps.sh`).
 

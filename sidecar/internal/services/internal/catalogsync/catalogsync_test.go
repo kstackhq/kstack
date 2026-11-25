@@ -32,7 +32,7 @@ import (
 // sees each catalog set.
 type catalogRig struct {
 	connected chan uint64
-	pokes     chan poke.Signal
+	pokes     chan poke.Notification
 	reads     chan catalogCall
 	waits     chan time.Duration
 	clock     chan time.Time
@@ -54,7 +54,7 @@ type readResult struct {
 func startCatalogLoop(t *testing.T) *catalogRig {
 	t.Helper()
 	r := &catalogRig{
-		connected: make(chan uint64), pokes: make(chan poke.Signal),
+		connected: make(chan uint64), pokes: make(chan poke.Notification),
 		reads: make(chan catalogCall), waits: make(chan time.Duration, 8), clock: make(chan time.Time),
 		sets: make(chan []llm.Model, 8),
 	}
@@ -160,7 +160,7 @@ func TestAPokeReadsTheCatalogAgain(t *testing.T) {
 	testutil.Recv(t, r.sets, "the catalog")
 
 	r.connected <- 1
-	r.pokes <- poke.Signal{}
+	r.pokes <- poke.Notification{}
 
 	testutil.Recv(t, r.reads, "the poke's read").answer <- readResult{models: model}
 	testutil.Recv(t, r.sets, "the catalog again")
@@ -202,7 +202,7 @@ func TestAPokeWhileSignedOutReadsNothing(t *testing.T) {
 	r.connected <- 0
 	testutil.Recv(t, r.sets, "the empty catalog")
 
-	r.pokes <- poke.Signal{}
+	r.pokes <- poke.Notification{}
 	r.connected <- 1
 
 	testutil.Recv(t, r.reads, "the connection's read")
@@ -218,7 +218,7 @@ func TestStartRunsUntilStopped(t *testing.T) {
 	subscribe := func() (<-chan uint64, func()) { return signedOut, func() { close(unsubscribed) } }
 	pokes := poke.New()
 	llmSvc := llm.New(llm.Provider{ID: "chatgpt", Dialect: llm.DialectResponses, Catalog: []llm.Model{{ID: "stale"}}})
-	frames, cancel := llmSvc.Subscribe()
+	frames, cancel := llmSvc.WatchProvidersState()
 	defer cancel()
 	testutil.Recv(t, frames, "the first frame")
 

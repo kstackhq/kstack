@@ -134,28 +134,28 @@ func TestListEventsMapsCategoryAndLimit(t *testing.T) {
 const harnessCategory = "harness"
 
 // awaitRun takes the next frame and requires it to be a run.
-func awaitRun(t *testing.T, stream *Stream[EventWatchFrame], what string) Event {
+func awaitRun(t *testing.T, stream *Stream[EventFeedFrame], what string) Event {
 	t.Helper()
 	f := testutil.Recv(t, stream.Frames, what)
-	require.Equal(t, EventFrameRun, f.Type)
+	require.Equal(t, EventFeedFrameRun, f.Type)
 	require.NotNil(t, f.Event)
 	return *f.Event
 }
 
 // The snapshot arrives as runs, one Bookmark closes it, and what the log grows by
 // follows. The bookmark is what tells an empty timeline from one still arriving.
-func TestWatchEventsSnapshotsThenBookmarksThenTails(t *testing.T) {
+func TestSubscribeObjectEventFeedSnapshotsThenBookmarksThenTails(t *testing.T) {
 	d, bh := newRunningRegisteredDeps(t)
 	ctx := t.Context()
 	cluster := createCluster(t, d, "prod")
 	admin := beehive.NewAdminClient[ClusterStatus](bh, ClusterGroupKind)
 	addEvent(t, admin, cluster.ID, harnessCategory, "Stored")
 
-	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(cluster.ID), new(harnessCategory))
+	stream, err := serviceOver(t, d).SubscribeObjectEventFeed(ctx, ObjectID(cluster.ID), new(harnessCategory))
 
 	require.NoError(t, err)
 	assert.Equal(t, "Stored", awaitRun(t, stream, "the snapshot").Reason)
-	assert.Equal(t, EventFrameBookmark,
+	assert.Equal(t, EventFeedFrameBookmark,
 		testutil.Recv(t, stream.Frames, "the bookmark").Type, "one bookmark closes the snapshot")
 
 	addEvent(t, admin, cluster.ID, harnessCategory, "Grew")
@@ -164,17 +164,17 @@ func TestWatchEventsSnapshotsThenBookmarksThenTails(t *testing.T) {
 
 // An empty timeline bookmarks too: without it a client cannot tell "no events" from a
 // snapshot still on its way.
-func TestWatchEventsBookmarksAnEmptyTimeline(t *testing.T) {
+func TestSubscribeObjectEventFeedBookmarksAnEmptyTimeline(t *testing.T) {
 	d, _ := newRunningRegisteredDeps(t)
 	cluster := createCluster(t, d, "prod")
 
-	stream, err := serviceOver(t, d).WatchEvents(t.Context(), ObjectID(cluster.ID), new(harnessCategory))
+	stream, err := serviceOver(t, d).SubscribeObjectEventFeed(t.Context(), ObjectID(cluster.ID), new(harnessCategory))
 
 	require.NoError(t, err)
-	assert.Equal(t, EventFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, EventFeedFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
-// A record collected while its timeline watch is open ends the stream CLEANLY. beehive
+// A record collected while its event feed is open ends the stream CLEANLY. beehive
 // files the vanished row as ErrNotFound and its reader treats that as terminal, but the
 // deletion is the answer here, not a failure — forwarded, it would put an error in
 // front of a user who cleared a cache, once per open kind timeline.
@@ -182,7 +182,7 @@ func TestWatchEventsBookmarksAnEmptyTimeline(t *testing.T) {
 // Two cadences are shrunk, and both are load-bearing: GC is what actually collects the
 // row, and the watch floor is how the reader notices — only an event WRITE wakes it,
 // and collection is not one.
-func TestWatchEventsEndsCleanlyWhenTheRecordIsCollected(t *testing.T) {
+func TestSubscribeObjectEventFeedEndsCleanlyWhenTheRecordIsCollected(t *testing.T) {
 	d, bh := newRunningRegisteredDeps(t,
 		beehive.WithGCInterval(time.Millisecond),
 		beehive.WithWatchFloorInterval(time.Millisecond))
@@ -193,7 +193,7 @@ func TestWatchEventsEndsCleanlyWhenTheRecordIsCollected(t *testing.T) {
 	addEvent(t, beehive.NewAdminClient[ClusterCachedKindStatus](bh, ClusterCachedKindGroupKind),
 		kind.ID, harnessCategory, "SyncComplete")
 
-	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(kind.ID), new(harnessCategory))
+	stream, err := serviceOver(t, d).SubscribeObjectEventFeed(ctx, ObjectID(kind.ID), new(harnessCategory))
 	require.NoError(t, err)
 	require.Equal(t, "SyncComplete", awaitRun(t, stream, "the snapshot").Reason)
 
@@ -218,7 +218,7 @@ func TestTerminalErrKeepsTheReasonsAConsumerCanActOn(t *testing.T) {
 // stream where it stands rather than blocking on a channel nobody drains. The context is
 // cancelled once the first run fills Frames' one-frame buffer, with nothing reading, so
 // the check is what unblocks the second rather than a race with the buffer.
-func TestWatchEventsStopsForAConsumerThatIsGone(t *testing.T) {
+func TestSubscribeObjectEventFeedStopsForAConsumerThatIsGone(t *testing.T) {
 	d, bh := newTestDepsAndBeehive(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cluster := createCluster(t, d, "prod")
@@ -226,7 +226,7 @@ func TestWatchEventsStopsForAConsumerThatIsGone(t *testing.T) {
 	addEvent(t, admin, cluster.ID, ConnectionEventCategory, "Connecting")
 	addEvent(t, admin, cluster.ID, ConnectionEventCategory, "Connected")
 
-	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(cluster.ID), new(ConnectionEventCategory))
+	stream, err := serviceOver(t, d).SubscribeObjectEventFeed(ctx, ObjectID(cluster.ID), new(ConnectionEventCategory))
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return len(stream.Frames) == 1 }, testutil.Timeout, time.Millisecond, "the first run to fill the buffer")
 	cancel()
@@ -237,14 +237,14 @@ func TestWatchEventsStopsForAConsumerThatIsGone(t *testing.T) {
 
 // The Bookmark is a send like any other: one run fills the buffer, and the bookmark behind
 // it is where a departed consumer ends the stream.
-func TestWatchEventsStopsOnTheBookmarkForAConsumerThatIsGone(t *testing.T) {
+func TestSubscribeObjectEventFeedStopsOnTheBookmarkForAConsumerThatIsGone(t *testing.T) {
 	d, bh := newTestDepsAndBeehive(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cluster := createCluster(t, d, "prod")
 	addEvent(t, beehive.NewAdminClient[ClusterStatus](bh, ClusterGroupKind),
 		cluster.ID, ConnectionEventCategory, "Connecting")
 
-	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(cluster.ID), new(ConnectionEventCategory))
+	stream, err := serviceOver(t, d).SubscribeObjectEventFeed(ctx, ObjectID(cluster.ID), new(ConnectionEventCategory))
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return len(stream.Frames) == 1 }, testutil.Timeout, time.Millisecond, "the first run to fill the buffer")
 	cancel()
@@ -271,14 +271,14 @@ func TestClusterEventsResolveByName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, evs)
 
-	stream, err := clusters.WatchEvents(ctx, clusterIDOf(cluster), new(harnessCategory))
+	stream, err := clusters.SubscribeEventFeed(ctx, clusterIDOf(cluster), new(harnessCategory))
 	require.NoError(t, err)
 	assert.Equal(t, "Stored", awaitRun(t, stream, "the snapshot").Reason)
-	assert.Equal(t, EventFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, EventFeedFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 
-	absent, err := clusters.WatchEvents(ctx, ClusterID("404"), nil)
+	absent, err := clusters.SubscribeEventFeed(ctx, ClusterID("404"), nil)
 	require.NoError(t, err)
-	assert.Equal(t, EventFrameBookmark, testutil.Recv(t, absent.Frames, "the bookmark alone").Type)
+	assert.Equal(t, EventFeedFrameBookmark, testutil.Recv(t, absent.Frames, "the bookmark alone").Type)
 	// The stream has no event to end on, so the claim that it stays open is bounded.
 	testutil.NoRecv(t, absent.Frames, quietWindow, "the stream ending on its own")
 	cancel()
@@ -294,6 +294,6 @@ func TestClusterEventsReportAStorageFault(t *testing.T) {
 
 	_, err := clusters.ListEvents(t.Context(), clusterIDOf(cluster), nil, nil)
 	assert.Error(t, err)
-	_, err = clusters.WatchEvents(t.Context(), clusterIDOf(cluster), nil)
+	_, err = clusters.SubscribeEventFeed(t.Context(), clusterIDOf(cluster), nil)
 	assert.Error(t, err)
 }

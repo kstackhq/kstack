@@ -37,12 +37,12 @@ function model(providerID: string, label: string, id: string): Model {
 }
 
 function serve(models: Model[], state: Partial<Catalog> = {}) {
-  catalog.current = { models, loaded: true, ...state };
+  catalog.current = { models, snapshotComplete: true, ...state };
 }
 
 // Every provider, as the sidecar lists them, each with no credential. The last
 // two take no key: only their connectors sign them.
-const GAUGE: [string, string, string | null][] = [
+const CREDENTIALS: [string, string, string | null][] = [
   ['anthropic', 'Anthropic', 'ANTHROPIC_API_KEY'],
   ['openai', 'OpenAI', 'OPENAI_API_KEY'],
   ['gemini', 'Gemini', 'GEMINI_API_KEY'],
@@ -58,16 +58,16 @@ const GAUGE: [string, string, string | null][] = [
   ['google', 'Vertex AI', null],
 ];
 
-// Serves the gauge: every provider with no credential, but for changes, by id,
+// Serves the state watch: every provider with no credential, but for changes, by id,
 // and less the ids in omit.
 function credentials(
   changes: Record<string, Partial<ProviderCredentialState>> = {},
-  loaded = true,
+  snapshotComplete = true,
   omit: string[] = [],
 ) {
   keys.current = {
-    loaded,
-    credentials: GAUGE.filter(([id]) => !omit.includes(id)).map(([id, label, keyVariable]) => ({
+    snapshotComplete,
+    credentials: CREDENTIALS.filter(([id]) => !omit.includes(id)).map(([id, label, keyVariable]) => ({
       id,
       label,
       keyVariable,
@@ -143,7 +143,7 @@ describe('ProvidersSettings', () => {
     }
   });
 
-  it('draws a label from the gauge through VisibleText', () => {
+  it('draws a label from the state watch through VisibleText', () => {
     credentials({ groq: { label: 'Gro​q' } });
     render(<ProvidersSettings />);
     expect(names()).toContain('Gro\\u{200B}q');
@@ -235,7 +235,7 @@ describe('ProvidersSettings', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
-  it('follows the gauge while a dialog is open', async () => {
+  it('follows the state watch while a dialog is open', async () => {
     const user = userEvent.setup();
     credentials({ openai: { source: 'EnvironmentKey', hasEnvironmentKey: true } });
     const { rerender } = render(<ProvidersSettings />);
@@ -311,7 +311,7 @@ describe('ProvidersSettings', () => {
   it.each([
     ['google', 'Vertex AI', 'Google connector'],
     ['chatgpt', 'ChatGPT plan', 'ChatGPT connector'],
-  ])("draws %s's connected row from the gauge, configured on the Connectors tab", async (id, name, connector) => {
+  ])("draws %s's connected row from the state watch, configured on the Connectors tab", async (id, name, connector) => {
     const user = userEvent.setup();
     const selectTab = vi.fn();
     credentials({ [id]: { source: 'Connector' } });
@@ -384,7 +384,7 @@ describe('ProvidersSettings', () => {
     expect(keyFailureText(plan)).toBeUndefined();
   });
 
-  it('draws no Vertex AI row when the gauge has none', () => {
+  it('draws no Vertex AI row when the state watch has none', () => {
     credentials({}, true, ['google']);
     render(<ProvidersSettings />);
     expect(names()).toEqual(ALL.filter((n) => n !== 'Vertex AI'));
@@ -407,14 +407,14 @@ describe('ProvidersSettings', () => {
     expect(dialog).toHaveTextContent('GEMINI_API_KEY is not set.');
   });
 
-  it('draws nothing before the gauge answers', () => {
+  it('draws nothing before the state watch answers', () => {
     credentials({}, false);
     render(<ProvidersSettings />);
     expect(screen.queryByRole('list')).toBeNull();
   });
 
   it('draws nothing before the catalog answers', () => {
-    serve([], { loaded: false });
+    serve([], { snapshotComplete: false });
     render(<ProvidersSettings />);
     expect(screen.queryByRole('list')).toBeNull();
   });

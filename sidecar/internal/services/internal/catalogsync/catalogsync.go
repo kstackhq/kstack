@@ -51,7 +51,7 @@ type loop struct {
 	id string
 	// connected is the credential's value, 0 while there is none.
 	connected <-chan uint64
-	pokes     <-chan poke.Signal
+	pokes     <-chan poke.Notification
 	read      func(context.Context) ([]llm.Model, error)
 	set       func([]llm.Model)
 	// after paces the next read, a retry or a refresh; time.After in production.
@@ -65,7 +65,7 @@ type loop struct {
 func Start(id string, subscribe func() (<-chan uint64, func()), pokes *poke.Service, models *llm.Service, read Reader) (stop func()) {
 	p, _ := models.Provider(id)
 	connected, unsubscribe := subscribe()
-	signals, unpoke := pokes.Subscribe()
+	signals, unpoke := pokes.ListenForNotifications()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	l := loop{

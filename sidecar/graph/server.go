@@ -40,8 +40,8 @@ func NewServer(streamsCtx context.Context, r *Resolver) *Server {
 	srv.AddTransport(transport.POST{})
 	srv.AddTransport(transport.GET{})
 
-	// Lets a subscription report WHY it ended; see WatchFailureExtension.
-	srv.Use(WatchFailureExtension{})
+	// Lets a subscription report WHY it ended; see SubscriptionFailureExtension.
+	srv.Use(SubscriptionFailureExtension{})
 
 	// Request text, names, aliases and error messages can all contain credentials.
 	// Log only server-selected metadata; return the detailed error over authenticated IPC.

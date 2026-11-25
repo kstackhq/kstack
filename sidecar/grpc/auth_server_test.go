@@ -28,7 +28,7 @@ import (
 
 // fakeAuthSvc is the Kstack Cloud connector as the gRPC server uses it: signed out
 // by default; Connect signs in and publishes, Disconnect signs out and
-// publishes, Subscribe is latest-value (current-on-subscribe, then changes).
+// publishes, WatchState is latest-value (current-on-subscribe, then changes).
 type fakeAuthSvc struct {
 	mu      sync.Mutex
 	loginAs oauth.Identity
@@ -87,7 +87,7 @@ func (f *fakeAuthSvc) Disconnect(context.Context) error {
 	return nil
 }
 
-func (f *fakeAuthSvc) Subscribe() (<-chan connectors.State, func()) {
+func (f *fakeAuthSvc) WatchState() (<-chan connectors.State, func()) {
 	rx := f.hub.Receiver()
 	return rx.Chan(), rx.Close
 }

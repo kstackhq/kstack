@@ -123,7 +123,7 @@ func TestAnUnchangedCatalogIsWrittenOnceAndAnnouncedOnce(t *testing.T) {
 
 	// Subscribed after the first sweep's news, so what arrives is the second sweep's alone.
 	awaitNewsQuiet(t, svc)
-	news := svc.WatchDiscoveryNews()
+	news := svc.ListenForDiscoveryChanges()
 	t.Cleanup(news.Close)
 
 	// A sweep that changed nothing is not news: the reason did not move, and the write is
@@ -146,7 +146,7 @@ func TestACatalogThatMovedIsAnnouncedWithItsReasonUnmoved(t *testing.T) {
 
 	// Subscribed after the first sweep's news, so what arrives is the second sweep's alone.
 	awaitNewsQuiet(t, svc)
-	news := svc.WatchDiscoveryNews()
+	news := svc.ListenForDiscoveryChanges()
 	t.Cleanup(news.Close)
 
 	// Two sweeps both settling on Discovered with a kind appearing between them: a

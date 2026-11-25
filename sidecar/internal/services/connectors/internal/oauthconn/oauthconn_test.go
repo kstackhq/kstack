@@ -276,11 +276,11 @@ func TestAStaleEntryNewCannotDelete(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// WatchSession streams the session's generation while Connected and 0 in every
+// WatchSessionGenerationState streams the session's generation while Connected and 0 in every
 // other phase, current on subscribe.
-func TestWatchSessionStreamsTheConnectedSession(t *testing.T) {
+func TestWatchSessionGenerationStateStreamsTheConnectedSession(t *testing.T) {
 	r := newRig(t)
-	sessions, cancel := r.svc.WatchSession()
+	sessions, cancel := r.svc.WatchSessionGenerationState()
 	defer cancel()
 	assert.Zero(t, testutil.Recv(t, sessions, "the signed-out launch"))
 

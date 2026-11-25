@@ -133,11 +133,11 @@ func TestNewReadsNothing(t *testing.T) {
 	assert.Equal(t, defaultPollInterval, w.interval, "New paces itself; only tests override")
 }
 
-func TestSubscribeIsCurrentOnSubscribe(t *testing.T) {
+func TestWatchConfigStateIsCurrentOnSubscribe(t *testing.T) {
 	// A consumer subscribes at startup and must not wait out a poll interval for
 	// its first snapshot.
 	w := New(filepath.Join(t.TempDir(), "config"), nil)
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 
 	cfg := testutil.Recv(t, sub.Chan(), "seed config")
@@ -150,7 +150,7 @@ func TestChangedConfigIsPublished(t *testing.T) {
 	writeKubeconfig(t, path, "prod")
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Contains(t, testutil.Recv(t, sub.Chan(), "the loaded config").Contexts, "prod")
 
@@ -169,7 +169,7 @@ func TestWriteWakesThePoll(t *testing.T) {
 	writeKubeconfig(t, path, "prod")
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Contains(t, testutil.Recv(t, sub.Chan(), "the loaded config").Contexts, "prod")
 
@@ -187,7 +187,7 @@ func TestAtomicReplaceWakesThePoll(t *testing.T) {
 	writeKubeconfig(t, path, "prod")
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Contains(t, testutil.Recv(t, sub.Chan(), "the loaded config").Contexts, "prod")
 
@@ -216,7 +216,7 @@ func TestKubeconfigCreatedAfterStartWakesThePoll(t *testing.T) {
 	w, path := newTestService(t, time.Hour)
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Empty(t, testutil.Recv(t, sub.Chan(), "the empty seed").Contexts)
 
@@ -249,7 +249,7 @@ func TestSymlinkTargetEditWakesThePoll(t *testing.T) {
 	w, _, target := newSymlinkedService(t, time.Hour)
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Contains(t, testutil.Recv(t, sub.Chan(), "the loaded config").Contexts, "prod")
 
@@ -272,7 +272,7 @@ func TestRepointedSymlinkFollowsToTheNewTarget(t *testing.T) {
 	w, link, target := newSymlinkedService(t, testInterval)
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Contains(t, testutil.Recv(t, sub.Chan(), "the loaded config").Contexts, "prod")
 
@@ -310,7 +310,7 @@ func TestDanglingSymlinkStillSeesItsTargetAppear(t *testing.T) {
 	w := newServiceAt(t, link, time.Hour)
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Empty(t, testutil.Recv(t, sub.Chan(), "the empty seed").Contexts)
 
@@ -327,7 +327,7 @@ func TestPollDoesNotRepublishAnUnchangedConfig(t *testing.T) {
 	w, path := newTestService(t, time.Hour)
 	writeKubeconfig(t, path, "prod")
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Empty(t, testutil.Recv(t, sub.Chan(), "the empty seed").Contexts)
 
@@ -363,7 +363,7 @@ func TestNotificationsUnavailableLeavesThePollWorking(t *testing.T) {
 	w.newFSWatcher = func() (*fsnotify.Watcher, error) { return nil, errors.New("no watchers left") }
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Empty(t, testutil.Recv(t, sub.Chan(), "the empty seed").Contexts)
 
@@ -382,7 +382,7 @@ func TestAWatchErrorDoesNotEndTheLoop(t *testing.T) {
 	w.newFSWatcher = func() (*fsnotify.Watcher, error) { return fsw, nil }
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Empty(t, testutil.Recv(t, sub.Chan(), "the empty seed").Contexts)
 
@@ -414,7 +414,7 @@ func TestKubeconfigEnvChainIsMergedAndWatched(t *testing.T) {
 	w := newServiceAt(t, "", time.Hour)
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	cfg := testutil.Recv(t, sub.Chan(), "the merged config")
 	require.Contains(t, cfg.Contexts, "prod")
@@ -464,7 +464,7 @@ func TestTruncateWindowIsNotPublished(t *testing.T) {
 	writeKubeconfig(t, path, "prod")
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Contains(t, testutil.Recv(t, sub.Chan(), "the loaded config").Contexts, "prod")
 
@@ -556,7 +556,7 @@ func TestUnwatchableDirStillPolls(t *testing.T) {
 	w := newServiceAt(t, path, testInterval)
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	require.Empty(t, testutil.Recv(t, sub.Chan(), "the empty seed").Contexts)
 
@@ -596,7 +596,7 @@ func TestUnparseableConfigKeepsTheLastGoodOne(t *testing.T) {
 	writeKubeconfig(t, path, "prod")
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	testutil.Recv(t, sub.Chan(), "the loaded config")
 
@@ -615,7 +615,7 @@ func TestUnparseableConfigKeepsTheLastGoodOne(t *testing.T) {
 
 func TestUnchangedConfigPublishesNothing(t *testing.T) {
 	w := newStartedService(t)
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 
 	testutil.Recv(t, sub.Chan(), "seed config")
@@ -635,7 +635,7 @@ func TestUnchangedConfigPublishesNothing(t *testing.T) {
 // poll published after the loop is joined.
 func TestStopLeavesSubscriptionsOpen(t *testing.T) {
 	w, _ := newTestService(t, testInterval)
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	stop, err := w.Start(context.Background())
 	require.NoError(t, err)
@@ -700,7 +700,7 @@ func TestPokeWakesThePoll(t *testing.T) {
 	w.pokeSvc = pokeSvc
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	testutil.Recv(t, sub.Chan(), "the seed")
 
@@ -724,7 +724,7 @@ func TestClosedPokeBusLeavesTheLoopServing(t *testing.T) {
 	w.pokeSvc = pokeSvc
 	start(t, w)
 
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	testutil.Recv(t, sub.Chan(), "the seed")
 
@@ -742,7 +742,7 @@ func TestKubeconfigIsReadAtStart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config")
 	w := New("", nil)
 	w.interval, w.settle = time.Hour, testSettle
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	testutil.Recv(t, sub.Chan(), "the seed")
 
@@ -761,7 +761,7 @@ func TestKubeconfigIsReadAtStart(t *testing.T) {
 func TestAFirstReadThatFailsMarksTheServiceRead(t *testing.T) {
 	w, path := newTestService(t, time.Hour)
 	require.NoError(t, os.WriteFile(path, []byte("{{ not yaml"), 0o600))
-	sub := w.Subscribe()
+	sub := w.WatchConfigState()
 	defer sub.Close()
 	testutil.Recv(t, sub.Chan(), "the seed")
 

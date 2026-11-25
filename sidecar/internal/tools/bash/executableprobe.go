@@ -204,16 +204,16 @@ func (t *Tool) ProbeExecutables(ctx context.Context, registered []settings.Execu
 }
 
 // StartProbe asks for a probe as ProbeExecutables does and returns at once; Close
-// ends it, and WatchProbe says when it ends.
+// ends it, and WatchProbeState says when it ends.
 func (t *Tool) StartProbe(registered []settings.Executable) {
 	if t.sandboxer != nil {
 		t.queueProbe(registered)
 	}
 }
 
-// WatchProbe is a current-on-subscribe receiver of the probe's state, one
+// WatchProbeState is a current-on-subscribe receiver of the probe's state, one
 // value per start and per end; close it when done.
-func (t *Tool) WatchProbe() *watch.Receiver[ProbeState] {
+func (t *Tool) WatchProbeState() *watch.Receiver[ProbeState] {
 	return t.probe.hub.Receiver()
 }
 

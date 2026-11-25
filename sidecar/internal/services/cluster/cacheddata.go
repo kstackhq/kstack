@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // What a ClusterCache holds: the discovered kind catalog and the cached Kubernetes
-// objects and Events read back out of it, each paired with its delta-watch frame,
+// objects and Events read back out of it, each paired with its collection watch frame,
 // plus the CachedData implementation. Mirrors the cluster-data section of
 // graph/schema.graphqls.
 package cluster
@@ -69,12 +69,12 @@ type PrinterColumn struct {
 	Priority int `json:"priority"`
 }
 
-// ClusterCachedDataKindWatchFrame is one frame on a cache's kind-catalog watch. Consumers
+// ClusterCachedDataKindCollectionWatchFrame is one frame on a cache's kind-catalog watch. Consumers
 // key on APIVersion + Resource; a kind whose Count changes arrives as Modified.
 // CacheID and Namespace are provenance: a client watching the active cache uses them to
 // reject a late frame from a superseded watch still draining after a switch.
-type ClusterCachedDataKindWatchFrame struct {
-	Type DeltaFrameType
+type ClusterCachedDataKindCollectionWatchFrame struct {
+	Type CollectionWatchFrameType
 	// Kind is nil on a Bookmark.
 	Kind    *ClusterCachedDataKind
 	CacheID ClusterCacheID
@@ -110,12 +110,12 @@ type ClusterCachedDataEvent struct {
 	InvolvedName      string
 }
 
-// ClusterCachedDataEventWatchFrame is one frame on a cache's events watch. Consumers key on
+// ClusterCachedDataEventCollectionWatchFrame is one frame on a cache's events watch. Consumers key on
 // UID; a re-firing event arrives as Modified (its Count/LastSeen move), and one the server
 // dropped arrives as Deleted carrying its last-known row. CacheID is provenance, as on
-// ClusterCachedDataKindWatchFrame.
-type ClusterCachedDataEventWatchFrame struct {
-	Type DeltaFrameType
+// ClusterCachedDataKindCollectionWatchFrame.
+type ClusterCachedDataEventCollectionWatchFrame struct {
+	Type CollectionWatchFrameType
 	// Event is nil on a Bookmark.
 	Event   *ClusterCachedDataEvent
 	CacheID ClusterCacheID
@@ -163,12 +163,12 @@ type ClusterCachedDataObject struct {
 	RawJSON rawjson.RawJSON
 }
 
-// ClusterCachedDataObjectWatchFrame is one frame on a cache's per-kind objects watch.
+// ClusterCachedDataObjectCollectionWatchFrame is one frame on a cache's per-kind objects watch.
 // Consumers key on UID. Provenance is CacheID *plus* (APIVersion, Resource): this
 // watch is keyed by kind as well as cache, so a client switching resources within one
 // cache needs the kind to reject a straggler from the previous subscription.
-type ClusterCachedDataObjectWatchFrame struct {
-	Type DeltaFrameType
+type ClusterCachedDataObjectCollectionWatchFrame struct {
+	Type CollectionWatchFrameType
 	// Object is nil on a Bookmark.
 	Object     *ClusterCachedDataObject
 	CacheID    ClusterCacheID
@@ -236,8 +236,8 @@ func (a cachedDataAPI) ListKinds(ctx context.Context, clusterID ClusterID, cache
 	return kinds, nil
 }
 
-func (a cachedDataAPI) WatchKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, namespace string) (*Stream[ClusterCachedDataKindWatchFrame], error) {
-	bookmark := ClusterCachedDataKindWatchFrame{Type: DeltaFrameBookmark, CacheID: cacheID, Namespace: namespace}
+func (a cachedDataAPI) WatchKindCollection(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, namespace string) (*Stream[ClusterCachedDataKindCollectionWatchFrame], error) {
+	bookmark := ClusterCachedDataKindCollectionWatchFrame{Type: CollectionWatchFrameBookmark, CacheID: cacheID, Namespace: namespace}
 	live, err := a.gate(ctx, clusterID, cacheID)
 	if err != nil {
 		return nil, err
@@ -245,7 +245,7 @@ func (a cachedDataAPI) WatchKinds(ctx context.Context, clusterID ClusterID, cach
 	if !live {
 		return emptyStream(ctx, bookmark), nil
 	}
-	return runCachedDataWatch(ctx, cachedDataWatchSpec[kubestore.KindRow, ClusterCachedDataKindWatchFrame]{
+	return runCachedDataWatch(ctx, cachedDataWatchSpec[kubestore.KindRow, ClusterCachedDataKindCollectionWatchFrame]{
 		stores:  a.s.kubestoreMgr,
 		cacheID: int64(cacheID),
 		// Every key: a kind's count moves on an object write, and the hardcoded
@@ -257,9 +257,9 @@ func (a cachedDataAPI) WatchKinds(ctx context.Context, clusterID ClusterID, cach
 			rows, err := s.KindsIn(ctx, namespace)
 			return rows, kubestore.Cursor{}, err
 		},
-		frame: func(_ context.Context, _ *kubestore.Store, t DeltaFrameType, r kubestore.KindRow) ClusterCachedDataKindWatchFrame {
+		frame: func(_ context.Context, _ *kubestore.Store, t CollectionWatchFrameType, r kubestore.KindRow) ClusterCachedDataKindCollectionWatchFrame {
 			kind := toCachedDataKind(r)
-			return ClusterCachedDataKindWatchFrame{Type: t, Kind: &kind, CacheID: cacheID, Namespace: namespace}
+			return ClusterCachedDataKindCollectionWatchFrame{Type: t, Kind: &kind, CacheID: cacheID, Namespace: namespace}
 		},
 		bookmark: bookmark,
 	}), nil
@@ -297,9 +297,9 @@ func (a cachedDataAPI) ListObjects(ctx context.Context, clusterID ClusterID, cac
 	return objects, true, nil
 }
 
-func (a cachedDataAPI) WatchObjects(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string) (*Stream[ClusterCachedDataObjectWatchFrame], error) {
-	bookmark := ClusterCachedDataObjectWatchFrame{
-		Type: DeltaFrameBookmark, CacheID: cacheID, APIVersion: apiVersion, Resource: resource,
+func (a cachedDataAPI) WatchObjectCollection(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string) (*Stream[ClusterCachedDataObjectCollectionWatchFrame], error) {
+	bookmark := ClusterCachedDataObjectCollectionWatchFrame{
+		Type: CollectionWatchFrameBookmark, CacheID: cacheID, APIVersion: apiVersion, Resource: resource,
 	}
 	live, err := a.gate(ctx, clusterID, cacheID)
 	if err != nil {
@@ -308,7 +308,7 @@ func (a cachedDataAPI) WatchObjects(ctx context.Context, clusterID ClusterID, ca
 	if !live {
 		return emptyStream(ctx, bookmark), nil
 	}
-	return runCachedDataWatch(ctx, cachedDataWatchSpec[kubestore.ObjectRow, ClusterCachedDataObjectWatchFrame]{
+	return runCachedDataWatch(ctx, cachedDataWatchSpec[kubestore.ObjectRow, ClusterCachedDataObjectCollectionWatchFrame]{
 		stores:   a.s.kubestoreMgr,
 		cacheID:  int64(cacheID),
 		busKeys:  []string{kubestore.ObjectsKey(apiVersion, resource)},
@@ -321,9 +321,9 @@ func (a cachedDataAPI) WatchObjects(ctx context.Context, clusterID ClusterID, ca
 		changes: func(ctx context.Context, s *kubestore.Store, since int64) (kubestore.Changes[kubestore.ObjectRow], error) {
 			return s.ObjectChanges(ctx, apiVersion, resource, since)
 		},
-		frame: func(ctx context.Context, s *kubestore.Store, t DeltaFrameType, r kubestore.ObjectRow) ClusterCachedDataObjectWatchFrame {
+		frame: func(ctx context.Context, s *kubestore.Store, t CollectionWatchFrameType, r kubestore.ObjectRow) ClusterCachedDataObjectCollectionWatchFrame {
 			obj := hydrateObject(ctx, s, t, r)
-			return ClusterCachedDataObjectWatchFrame{
+			return ClusterCachedDataObjectCollectionWatchFrame{
 				Type: t, Object: &obj, CacheID: cacheID, APIVersion: apiVersion, Resource: resource,
 			}
 		},
@@ -331,9 +331,9 @@ func (a cachedDataAPI) WatchObjects(ctx context.Context, clusterID ClusterID, ca
 	}), nil
 }
 
-func (a cachedDataAPI) WatchObjectsIn(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string, namespaces []string) (*Stream[ClusterCachedDataObjectWatchFrame], error) {
-	bookmark := ClusterCachedDataObjectWatchFrame{
-		Type: DeltaFrameBookmark, CacheID: cacheID, APIVersion: apiVersion, Resource: resource,
+func (a cachedDataAPI) WatchObjectCollectionByNamespaces(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string, namespaces []string) (*Stream[ClusterCachedDataObjectCollectionWatchFrame], error) {
+	bookmark := ClusterCachedDataObjectCollectionWatchFrame{
+		Type: CollectionWatchFrameBookmark, CacheID: cacheID, APIVersion: apiVersion, Resource: resource,
 	}
 	live, err := a.gate(ctx, clusterID, cacheID)
 	if err != nil {
@@ -346,7 +346,7 @@ func (a cachedDataAPI) WatchObjectsIn(ctx context.Context, clusterID ClusterID, 
 	in := func(rows []kubestore.ObjectRow) []kubestore.ObjectRow {
 		return slices.DeleteFunc(rows, func(r kubestore.ObjectRow) bool { return !slices.Contains(namespaces, r.Namespace) })
 	}
-	return runCachedDataWatch(ctx, cachedDataWatchSpec[kubestore.ObjectRow, ClusterCachedDataObjectWatchFrame]{
+	return runCachedDataWatch(ctx, cachedDataWatchSpec[kubestore.ObjectRow, ClusterCachedDataObjectCollectionWatchFrame]{
 		stores:   a.s.kubestoreMgr,
 		cacheID:  int64(cacheID),
 		busKeys:  []string{kubestore.ObjectsKey(apiVersion, resource)},
@@ -362,12 +362,12 @@ func (a cachedDataAPI) WatchObjectsIn(ctx context.Context, clusterID ClusterID, 
 			c.Written = in(c.Written)
 			return c, err
 		},
-		frame: func(_ context.Context, _ *kubestore.Store, t DeltaFrameType, r kubestore.ObjectRow) ClusterCachedDataObjectWatchFrame {
+		frame: func(_ context.Context, _ *kubestore.Store, t CollectionWatchFrameType, r kubestore.ObjectRow) ClusterCachedDataObjectCollectionWatchFrame {
 			obj := ClusterCachedDataObject{
 				UID: r.UID, APIVersion: r.APIVersion, Kind: r.Kind, Namespace: r.Namespace, Name: r.Name,
 				CreationTimestamp: millisToTime(r.CreatedAt),
 			}
-			return ClusterCachedDataObjectWatchFrame{
+			return ClusterCachedDataObjectCollectionWatchFrame{
 				Type: t, Object: &obj, CacheID: cacheID, APIVersion: apiVersion, Resource: resource,
 			}
 		},
@@ -375,8 +375,8 @@ func (a cachedDataAPI) WatchObjectsIn(ctx context.Context, clusterID ClusterID, 
 	}), nil
 }
 
-func (a cachedDataAPI) WatchEvents(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCachedDataEventWatchFrame], error) {
-	bookmark := ClusterCachedDataEventWatchFrame{Type: DeltaFrameBookmark, CacheID: cacheID}
+func (a cachedDataAPI) WatchEventCollection(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCachedDataEventCollectionWatchFrame], error) {
+	bookmark := ClusterCachedDataEventCollectionWatchFrame{Type: CollectionWatchFrameBookmark, CacheID: cacheID}
 	live, err := a.gate(ctx, clusterID, cacheID)
 	if err != nil {
 		return nil, err
@@ -384,7 +384,7 @@ func (a cachedDataAPI) WatchEvents(ctx context.Context, clusterID ClusterID, cac
 	if !live {
 		return emptyStream(ctx, bookmark), nil
 	}
-	return runCachedDataWatch(ctx, cachedDataWatchSpec[kubestore.EventRow, ClusterCachedDataEventWatchFrame]{
+	return runCachedDataWatch(ctx, cachedDataWatchSpec[kubestore.EventRow, ClusterCachedDataEventCollectionWatchFrame]{
 		stores:   a.s.kubestoreMgr,
 		cacheID:  int64(cacheID),
 		busKeys:  []string{kubestore.EventsKey},
@@ -397,9 +397,9 @@ func (a cachedDataAPI) WatchEvents(ctx context.Context, clusterID ClusterID, cac
 		changes: func(ctx context.Context, s *kubestore.Store, since int64) (kubestore.Changes[kubestore.EventRow], error) {
 			return s.EventChanges(ctx, since)
 		},
-		frame: func(_ context.Context, _ *kubestore.Store, t DeltaFrameType, r kubestore.EventRow) ClusterCachedDataEventWatchFrame {
+		frame: func(_ context.Context, _ *kubestore.Store, t CollectionWatchFrameType, r kubestore.EventRow) ClusterCachedDataEventCollectionWatchFrame {
 			ev := toCachedDataEvent(r)
-			return ClusterCachedDataEventWatchFrame{Type: t, Event: &ev, CacheID: cacheID}
+			return ClusterCachedDataEventCollectionWatchFrame{Type: t, Event: &ev, CacheID: cacheID}
 		},
 		bookmark: bookmark,
 	}), nil
@@ -458,16 +458,16 @@ func toCachedDataEvent(r kubestore.EventRow) ClusterCachedDataEvent {
 
 // hydrateObject projects one object row into the frame that carries it, fetching the body
 // the diff deliberately did not read. **One body read per frame, not per row** — Added and
-// Modified only: a Deleted frame is the uid the client removes by, and applyChange never
-// looks at the entity it was handed.
+// Modified only: a Deleted frame is the uid the client removes by, and the client never
+// looks at the item it was handed.
 //
 // **A body that will not load is a null field, never a failed watch.** It is missing when
 // the row was deleted between the diff read and this fetch — where the next resync's Deleted
 // frame is the real answer — or unreadable when one row is malformed, and neither is worth
 // ending a collection's stream for.
-func hydrateObject(ctx context.Context, s *kubestore.Store, t DeltaFrameType, r kubestore.ObjectRow) ClusterCachedDataObject {
+func hydrateObject(ctx context.Context, s *kubestore.Store, t CollectionWatchFrameType, r kubestore.ObjectRow) ClusterCachedDataObject {
 	var body []byte
-	if t != DeltaFrameDeleted {
+	if t != CollectionWatchFrameDeleted {
 		if b, ok, err := s.ObjectBody(ctx, r.UID); ok && err == nil {
 			body = b
 		}

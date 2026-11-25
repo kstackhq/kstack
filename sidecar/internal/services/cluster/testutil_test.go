@@ -102,7 +102,7 @@ type fakeKubeconn struct {
 	// connErr is what every claim's Conn answers, for a fleet nothing reached.
 	connErr error
 	// conn, when set, is what every claim's Conn hands back. Atomic, since a test replaces it
-	// while a gauge reads it.
+	// while a state watch reads it.
 	conn atomic.Pointer[kubeconn.Connection]
 	// releases, when set, fires each release's context, so a test can wait for one.
 	releases *testutil.Probe[string]
@@ -111,11 +111,11 @@ type fakeKubeconn struct {
 	// data-rate stream has got to.
 	rateReads *testutil.Probe[string]
 	// rates is every claim's data-rate ring, keyed by context and guarded by ratesMu, and
-	// rateHub its nudges, built on demand.
-	ratesMu  sync.Mutex
-	rates    map[string][]kubeconn.DataRateSample
-	rateOnce sync.Once
-	rateHub  *conflate.Hub[string, struct{}]
+	// dataRateChangeHub its nudges, built on demand.
+	ratesMu           sync.Mutex
+	rates             map[string][]kubeconn.DataRateSample
+	rateOnce          sync.Once
+	dataRateChangeHub *conflate.Hub[string, struct{}]
 }
 
 // addRate is a tick landing on contextName's ring: the sample, then the nudge.
@@ -135,8 +135,8 @@ func (f *fakeKubeconn) nudge(contextName string) {
 }
 
 func (f *fakeKubeconn) rateFeed() *conflate.Hub[string, struct{}] {
-	f.rateOnce.Do(func() { f.rateHub = conflate.New[string, struct{}]() })
-	return f.rateHub
+	f.rateOnce.Do(func() { f.dataRateChangeHub = conflate.New[string, struct{}]() })
+	return f.dataRateChangeHub
 }
 
 func (f *fakeKubeconn) Acquire(contextName string) kubeconn.Lease {
@@ -150,8 +150,10 @@ func (f *fakeKubeconn) RetryAndWait(ctx context.Context, contextName string) err
 	return f.retryErr
 }
 
-// Subscribe is the fleet feed the trigger reads. publish is the probe landing on it.
-func (f *fakeKubeconn) Subscribe() kubeconn.Subscription { return f.moved().Receiver() }
+// ListenForConnectionChanges is the fleet's change notifications the trigger reads. publish is the probe landing on it.
+func (f *fakeKubeconn) ListenForConnectionChanges() kubeconn.ConnectionChangeNotifications {
+	return f.moved().Receiver()
+}
 
 func (f *fakeKubeconn) publish(contextName string) {
 	f.moved().Sender().Send(contextName, struct{}{})
@@ -217,7 +219,7 @@ func (l *fakeLease) DataRates() []kubeconn.DataRateSample {
 	return rates
 }
 
-func (l *fakeLease) WatchDataRates() kubeconn.Subscription {
+func (l *fakeLease) ListenForDataRateChanges() kubeconn.ConnectionChangeNotifications {
 	feed := l.svc.rateFeed()
 	return feed.Receiver(feed.WithKey(l.contextName))
 }
@@ -255,7 +257,7 @@ type fakeKubestore struct {
 	onOpen    func(cacheID int64)
 	afterOpen func(cacheID int64)
 
-	// mu guards the measurement, which a test moves while the gauge reads it.
+	// mu guards the measurement, which a test moves while the state watch reads it.
 	mu    sync.Mutex
 	stats kubestore.Stats
 	// onStats runs inside Stats, so a test can tell when a pass has measured — which is
@@ -322,8 +324,8 @@ func (f *fakeKubestore) Clear(cacheID int64) error {
 	return f.mgr.Clear(cacheID)
 }
 
-// Stats is what the gauge measures; setStats moves it under a live subscription, which
-// is what the gauge re-emits on.
+// Stats is what the state watch measures; setStats moves it under a live subscription, which
+// is what the state watch re-emits on.
 func (f *fakeKubestore) Stats(_ context.Context, cacheID int64) (kubestore.Stats, error) {
 	if f.onStats != nil {
 		f.onStats(cacheID)
@@ -333,13 +335,13 @@ func (f *fakeKubestore) Stats(_ context.Context, cacheID int64) (kubestore.Stats
 	return f.stats, f.err
 }
 
-// WatchSizeLimitNews is the size-limit feed the trigger reads; publishSizeLimitNews is one
+// ListenForSizeLimitChanges is the size-limit feed the trigger reads; publishSizeLimitChange is one
 // cache's verdict changing, as the janitor would report it.
-func (f *fakeKubestore) WatchSizeLimitNews() kubestore.SizeLimitNews {
+func (f *fakeKubestore) ListenForSizeLimitChanges() kubestore.SizeLimitChangeNotifications {
 	return f.sizeLimits().Receiver()
 }
 
-func (f *fakeKubestore) publishSizeLimitNews(cacheID int64) {
+func (f *fakeKubestore) publishSizeLimitChange(cacheID int64) {
 	_ = f.sizeLimits().Sender().Send(cacheID, struct{}{})
 }
 
@@ -354,24 +356,25 @@ func (f *fakeKubestore) setStats(s kubestore.Stats) {
 	f.stats = s
 }
 
-// cacheIsOpen asks whether anything holds cacheID's file open — what Manager.Subscribe's
-// ok reports. The receiver is closed straight away: this is a question, not a watch.
+// cacheIsOpen asks whether anything holds cacheID's file open — what
+// Manager.ListenForChanges' ok reports. The receiver is closed straight away: this is a question, not a watch.
 func cacheIsOpen(m *kubestore.Manager, cacheID int64) bool {
-	sub, ok := m.Subscribe(cacheID)
+	sub, ok := m.ListenForChanges(cacheID)
 	if ok {
 		sub.Close()
 	}
 	return ok
 }
 
-// Subscribe and WatchOpen go to the real manager, so a reader sees whatever a test opened
-// through it — and nothing when a test opened nothing, which is the gauge's idle-cache case.
-func (f *fakeKubestore) Subscribe(cacheID int64, keys ...string) (kubestore.Subscription, bool) {
-	return f.mgr.Subscribe(cacheID, keys...)
+// ListenForChanges and ListenForCacheOpenChanges go to the real manager, so a reader sees
+// whatever a test opened through it — and nothing when a test opened nothing, which is the
+// state watch's idle-cache case.
+func (f *fakeKubestore) ListenForChanges(cacheID int64, keys ...string) (kubestore.ChangeNotifications, bool) {
+	return f.mgr.ListenForChanges(cacheID, keys...)
 }
 
-func (f *fakeKubestore) WatchOpen(cacheID int64) kubestore.OpenSubscription {
-	return f.mgr.WatchOpen(cacheID)
+func (f *fakeKubestore) ListenForCacheOpenChanges(cacheID int64) kubestore.CacheOpenChangeNotifications {
+	return f.mgr.ListenForCacheOpenChanges(cacheID)
 }
 
 func (f *fakeKubestore) Remove(cacheID int64) error {
@@ -641,7 +644,9 @@ func newFakeKubeconfigSource(initial *api.Config) *fakeKubeconfigSource {
 	return &fakeKubeconfigSource{hub: watch.New(initial)}
 }
 
-func (f *fakeKubeconfigSource) Subscribe() kubeconfig.Subscription { return f.hub.Receiver() }
+func (f *fakeKubeconfigSource) WatchConfigState() kubeconfig.ConfigStateWatch {
+	return f.hub.Receiver()
+}
 
 // publish pushes a new snapshot to every subscriber.
 func (f *fakeKubeconfigSource) publish(cfg *api.Config) { f.hub.Sender().Send(cfg) }
@@ -769,8 +774,12 @@ func (f *fakeKubesync) GetKindState(cacheID int64, k kubestore.Kind) (kubesync.K
 	return state, ok
 }
 
-func (f *fakeKubesync) WatchDiscoveryNews() kubesync.DiscoveryNews { return f.discoveryHub.Receiver() }
-func (f *fakeKubesync) WatchKindNews() kubesync.KindNews           { return f.kindHub.Receiver() }
+func (f *fakeKubesync) ListenForDiscoveryChanges() kubesync.DiscoveryChangeNotifications {
+	return f.discoveryHub.Receiver()
+}
+func (f *fakeKubesync) ListenForKindChanges() kubesync.KindChangeNotifications {
+	return f.kindHub.Receiver()
+}
 
 func (f *fakeKubesync) RunWithCacheSyncStopped(cacheID int64, fn func() error) error {
 	f.mu.Lock()
@@ -827,13 +836,13 @@ func (f *fakeKubesync) setDiscoveryState(cacheID int64, state kubesync.Discovery
 	f.discoveryStates[cacheID] = state
 }
 
-// publishDiscoveryNews is a sweep having something new to say about one cache.
-func (f *fakeKubesync) publishDiscoveryNews(cacheID int64) {
+// publishDiscoveryChange is a sweep having something new to say about one cache.
+func (f *fakeKubesync) publishDiscoveryChange(cacheID int64) {
 	_ = f.discoveryHub.Sender().Send(cacheID, struct{}{})
 }
 
-// publishKindNews is one kind's worker having something new to say.
-func (f *fakeKubesync) publishKindNews(key kubesync.KindKey) {
+// publishKindChange is one kind's worker having something new to say.
+func (f *fakeKubesync) publishKindChange(key kubesync.KindKey) {
 	_ = f.kindHub.Sender().Send(key, struct{}{})
 }
 

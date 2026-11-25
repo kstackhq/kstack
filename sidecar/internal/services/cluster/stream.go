@@ -27,7 +27,7 @@ import (
 // teardown, and a consumer that ignores it turns a broken watch into a silent one.
 //
 // The rule is the SOURCE, not the shape: a watch over a fallible upstream returns a
-// Stream, gauges included. One that retries forever and has no terminal failure to
+// Stream, state watches included. One that retries forever and has no terminal failure to
 // report may stay a plain channel.
 //
 // **A clean end is a nil Err, and some expected endings are clean.** The cached-data
@@ -65,15 +65,15 @@ func sendFrame[T any](ctx context.Context, out chan<- T, frame T) bool {
 	}
 }
 
-// deltaWatch is what one kind contributes to a record watch: how a stored object
+// collectionWatch is what one kind contributes to a collection watch: how a stored object
 // becomes a frame, how a removal does, and the bookmark that closes a snapshot. The
 // pumps below are the rest, and are the same for every kind — which is the point, since
 // the bookmark discipline is a protocol rule rather than a per-kind choice.
-// See docs/adr/2026-08-09-delta-watch-protocol.md.
-type deltaWatch[Spec, Status, Frame any] struct {
+// See docs/subscriptions.md.
+type collectionWatch[Spec, Status, Frame any] struct {
 	// frame projects one object into a frame of the given type. Fallible because a
 	// projection reads the owner edge, which is a store read.
-	frame func(DeltaFrameType, *beehive.Object[Spec, Status]) (Frame, error)
+	frame func(CollectionWatchFrameType, *beehive.Object[Spec, Status]) (Frame, error)
 	// departed builds the removal frame. Its own function rather than frame's business
 	// because the row is gone: beehive loads no owner edge for it, and beehive reports a
 	// removal whose final row it could not decode with no object at all. The frame must
@@ -81,14 +81,14 @@ type deltaWatch[Spec, Status, Frame any] struct {
 	// consumer drops a change with no entity rather than folding it, so a dropped frame
 	// strands the record in its map for the life of the subscription.
 	departed func(beehive.ObjectChange[Spec, Status]) Frame
-	// bookmark closes the snapshot. A value rather than frame(DeltaFrameBookmark, nil),
+	// bookmark closes the snapshot. A value rather than frame(CollectionWatchFrameBookmark, nil),
 	// which would make every projection handle a nil object it is never otherwise given.
 	bookmark Frame
 }
 
 // streamOne serves a single-object watch. An id holding nothing yet is a snapshot of
 // none rather than a failure: the record may still arrive, and this reports it.
-func (w deltaWatch[Spec, Status, Frame]) streamOne(ctx context.Context, src *beehive.ObjectStream[Spec, Status]) *Stream[Frame] {
+func (w collectionWatch[Spec, Status, Frame]) streamOne(ctx context.Context, src *beehive.ObjectStream[Spec, Status]) *Stream[Frame] {
 	return NewStream(ctx, func(ctx context.Context, out chan<- Frame) error {
 		var snapshot []*beehive.Object[Spec, Status]
 		if src.Object != nil {
@@ -100,7 +100,7 @@ func (w deltaWatch[Spec, Status, Frame]) streamOne(ctx context.Context, src *bee
 
 // streamList serves a list watch — every object of a kind, or every one owned by a
 // given id. The two differ only in what beehive put in the snapshot.
-func (w deltaWatch[Spec, Status, Frame]) streamList(ctx context.Context, src *beehive.ObjectListStream[Spec, Status]) *Stream[Frame] {
+func (w collectionWatch[Spec, Status, Frame]) streamList(ctx context.Context, src *beehive.ObjectListStream[Spec, Status]) *Stream[Frame] {
 	return NewStream(ctx, func(ctx context.Context, out chan<- Frame) error {
 		return w.pump(ctx, out, src.Objects, src.Changes, src.Err)
 	})
@@ -108,7 +108,7 @@ func (w deltaWatch[Spec, Status, Frame]) streamList(ctx context.Context, src *be
 
 // streamListWhere is streamList filtered to the records keep accepts, for a scope
 // beehive cannot express as an owned-object watch. The bookmark always passes.
-func (w deltaWatch[Spec, Status, Frame]) streamListWhere(ctx context.Context, src *beehive.ObjectListStream[Spec, Status], keep func(Frame) bool) *Stream[Frame] {
+func (w collectionWatch[Spec, Status, Frame]) streamListWhere(ctx context.Context, src *beehive.ObjectListStream[Spec, Status], keep func(Frame) bool) *Stream[Frame] {
 	inner := w.streamList(ctx, src)
 	return NewStream(ctx, func(ctx context.Context, out chan<- Frame) error {
 		for frame := range inner.Frames {
@@ -128,7 +128,7 @@ func (w deltaWatch[Spec, Status, Frame]) streamListWhere(ctx context.Context, sr
 // beehive hands the snapshot complete as of a resource version, with changes carrying
 // everything above it, so the bookmark lands between the two without holding any frame
 // back. srcErr is the upstream's terminal reason, read once the changes run out.
-func (w deltaWatch[Spec, Status, Frame]) pump(
+func (w collectionWatch[Spec, Status, Frame]) pump(
 	ctx context.Context,
 	out chan<- Frame,
 	snapshot []*beehive.Object[Spec, Status],
@@ -136,7 +136,7 @@ func (w deltaWatch[Spec, Status, Frame]) pump(
 	srcErr func() error,
 ) error {
 	for _, obj := range snapshot {
-		frame, err := w.frame(DeltaFrameAdded, obj)
+		frame, err := w.frame(CollectionWatchFrameAdded, obj)
 		if err != nil {
 			return err
 		}
@@ -151,7 +151,7 @@ func (w deltaWatch[Spec, Status, Frame]) pump(
 }
 
 // pumpAfterSnapshot streams every change above a snapshot the caller has already sent.
-func (w deltaWatch[Spec, Status, Frame]) pumpAfterSnapshot(
+func (w collectionWatch[Spec, Status, Frame]) pumpAfterSnapshot(
 	ctx context.Context,
 	out chan<- Frame,
 	changes <-chan beehive.ObjectChange[Spec, Status],

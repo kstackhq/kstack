@@ -42,7 +42,7 @@ internal/llm/
   with no efforts takes `""`). The agent never builds a `Request`; `Target.Stream` does.
   `Model.ContextWindow` 0 is unstated, and such a model is never refused ahead.
 - **The provider list is fixed; a provider's catalog is not.** `SetCatalog` replaces one
-  provider's models, and `Subscribe` is a gauge of the list (`modelsWatch`).
+  provider's models, and `WatchProvidersState` is a state watch of the list (`modelsStateWatch`).
 
 ## Credentials: a key or a signer
 

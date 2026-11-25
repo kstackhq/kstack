@@ -22,12 +22,12 @@ const { watch, useMutationMock, setMutation } = vi.hoisted(() => ({
   useMutationMock: vi.fn(),
   setMutation: vi.fn(),
 }));
-vi.mock('@/lib/graphql/use-watch-subscription', () => ({
+vi.mock('@/lib/graphql/use-folded-subscription', () => ({
   perFrame:
     <D, R>(step: (prev: R | undefined, frame: D) => R) =>
     (prev: R | undefined, frames: D[]) =>
       frames.reduce<R | undefined>(step, prev),
-  useWatchSubscription: (_args: unknown, reduce: (prev: unknown, frames: unknown[]) => unknown, options: unknown) => {
+  useFoldedSubscription: (_args: unknown, reduce: (prev: unknown, frames: unknown[]) => unknown, options: unknown) => {
     watch.options = options;
     return { data: watch.frames ? reduce(undefined, watch.frames) : undefined, connected: true };
   },
@@ -67,7 +67,7 @@ describe('useToolSettings', () => {
     const { result, rerender } = renderHook(() => useToolSettings());
     expect(result.current.tools).toBeUndefined();
 
-    watch.frames = [{ toolSettingsWatch: [] }, { toolSettingsWatch: listed }];
+    watch.frames = [{ toolSettingsStateWatch: [] }, { toolSettingsStateWatch: listed }];
     rerender();
     expect(result.current.tools).toEqual(listed);
     expect(watch.options).toEqual({ unshared: true });

@@ -13,7 +13,7 @@ request: the engine is an unexported field, and the provider has no API base.
 - **`Connect` cancels, then starts fresh**, so a second request opens a new tab and a sign-in may
   change accounts. A mutex runs one at a time, so overlapping requests (the avatar's, the tray's)
   run in turn and never answer `ErrSigningIn`. A failure `Start` answers is `Connect`'s error.
-- **`Subscribe` sends only a change of account**: restoring, connected, subject, email, name. The
+- **`WatchState` sends only a change of account**: restoring, connected, subject, email, name. The
   wire draws a sign-in under way, failed or cancelled as signed out. `State` is the engine's whole.
 - Tests fake the engine (`engine`) and the keyring (`testutil_test.go`); the flow itself is
   `oauthconn`'s to test.

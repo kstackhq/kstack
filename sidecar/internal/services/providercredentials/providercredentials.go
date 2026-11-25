@@ -118,11 +118,11 @@ type Route struct {
 // provider knows to bind a key. While Restoring it answers a signer.Pending.
 type Connector interface {
 	llm.SessionSigner
-	// WatchSession is the connected session's generation, 0 while there is
+	// WatchSessionGenerationState is the connected session's generation, 0 while there is
 	// none: current on subscribe, then each change. A token or key rotated
 	// within a session keeps its generation. The restore's session is on it
 	// before Restored closes.
-	WatchSession() (<-chan uint64, func())
+	WatchSessionGenerationState() (<-chan uint64, func())
 	// Restored closes once the connector's restore has published.
 	Restored() <-chan struct{}
 	// RestoredSession is the session the restore published, 0 for none. It
@@ -171,7 +171,7 @@ type provider struct {
 	bases     []*url.URL // Routes' base URLs, parsed
 	env       string
 	connector Connector
-	// credential is WatchCredential's value.
+	// credential is WatchCredentialGenerationState's value.
 	credential *watch.Hub[uint64]
 
 	saved string
@@ -272,7 +272,7 @@ func (s *Service) follow(p *provider) {
 	// The first value is the session now, which may already have moved on from
 	// the restore's.
 	restored := p.connector.RestoredSession()
-	gens, unsubscribe := p.connector.WatchSession()
+	gens, unsubscribe := p.connector.WatchSessionGenerationState()
 	defer unsubscribe()
 	for {
 		select {
@@ -339,29 +339,29 @@ func (s *Service) State(id string) (State, bool) {
 	return p.stateLocked(), true
 }
 
-// Subscribe streams every provider's state: current on subscribe, then each change.
-func (s *Service) Subscribe() (<-chan []State, func()) {
+// WatchCredentialsState streams every provider's state: current on subscribe, then each change.
+func (s *Service) WatchCredentialsState() (<-chan []State, func()) {
 	rx := s.states.Receiver()
 	return rx.Chan(), rx.Close
 }
 
-// WatchCredential is what id's catalog is read under: 0 with no credential, 1
+// WatchCredentialGenerationState is what id's catalog is read under: 0 with no credential, 1
 // for a provider that takes a key, whichever credential signs, and its
 // connector's session's generation for one that takes none. Current on
 // subscribe, then each change. A keyed provider's catalog is the same under
 // every credential; a keyless one's is its account's, so each new session is a
 // new value.
-func (s *Service) WatchCredential(id string) (<-chan uint64, func()) {
-	rx := s.byID[id].credential.Receiver()
+func (s *Service) WatchCredentialGenerationState(providerID string) (<-chan uint64, func()) {
+	rx := s.byID[providerID].credential.Receiver()
 	return rx.Chan(), rx.Close
 }
 
-// SyncCatalogs keeps each provider's catalog listed while WatchCredential is
+// SyncCatalogs keeps each provider's catalog listed while WatchCredentialGenerationState is
 // not 0, read again for each new value, until the stop it returns.
 func (s *Service) SyncCatalogs(pokes *poke.Service, models *llm.Service, read func(context.Context, llm.Provider) ([]llm.Model, error)) (stop func()) {
 	var stops []func()
 	for _, p := range s.providers {
-		stops = append(stops, catalogsync.Start(p.ID, func() (<-chan uint64, func()) { return s.WatchCredential(p.ID) }, pokes, models, read))
+		stops = append(stops, catalogsync.Start(p.ID, func() (<-chan uint64, func()) { return s.WatchCredentialGenerationState(p.ID) }, pokes, models, read))
 	}
 	return func() {
 		for _, stop := range stops {

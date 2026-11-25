@@ -492,10 +492,10 @@ func TestTheLiveTurnShowsItsTask(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	st, err := s.WatchMessages(ctx, msg.ChatID)
+	st, err := s.WatchMessageCollection(ctx, msg.ChatID)
 	require.NoError(t, err)
-	withTask := func(status BackgroundTaskStatus) func(ChatMessageWatchFrame) bool {
-		return func(f ChatMessageWatchFrame) bool {
+	withTask := func(status BackgroundTaskStatus) func(ChatMessageCollectionWatchFrame) bool {
+		return func(f ChatMessageCollectionWatchFrame) bool {
 			if f.Message == nil || f.Message.ID != msg.ID {
 				return false
 			}
@@ -572,9 +572,9 @@ func awaitNoticeTurn(t *testing.T, s *service, chatID ChatID, seen ...MessageID)
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	st, err := s.WatchMessages(ctx, chatID)
+	st, err := s.WatchMessageCollection(ctx, chatID)
 	require.NoError(t, err)
-	f := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	f := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		m := f.Message
 		return m != nil && m.Role == RoleAssistant && !slices.Contains(seen, m.ID) && !m.Status.inFlight()
 	})
@@ -999,10 +999,10 @@ func TestTheStartSweepMarksRunningTasksLost(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	st, err := s.WatchMessages(ctx, c.ID)
+	st, err := s.WatchMessageCollection(ctx, c.ID)
 	require.NoError(t, err)
 	startPrepared(t, s)
-	awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		if f.Message == nil || f.Message.ID != turn.Assistant {
 			return false
 		}

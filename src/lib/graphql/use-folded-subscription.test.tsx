@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { filter, pipe, tap } from 'wonka';
 import type { Source } from 'wonka';
 
-import { flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
+import { flushSubscriptionsSynchronously, mockTauriCore } from '@/test-utils';
 
 // End-to-end wiring: a real urql Client running the real subscribe-exchange over
 // a mocked Tauri channel, so the hook, the exchange, and the transport-status
@@ -35,8 +35,8 @@ vi.mock('../error-bus', () => ({
 }));
 
 const { tauriSubscriptionExchange } = await import('./subscribe-exchange');
-const { scheduleFlush, seriesReducer, seriesSlots, setWatchFlushScheduler, useWatchSubscription, watchPhase } =
-  await import('./use-watch-subscription');
+const { scheduleFlush, setSubscriptionFlushScheduler, useFoldedSubscription, subscriptionPhase } =
+  await import('./use-folded-subscription');
 
 const TICK = gql`
   subscription Tick {
@@ -65,7 +65,7 @@ function makeWrapper() {
 
 function renderWatch(wrapper = makeWrapper(), opts?: { unshared?: boolean }) {
   return renderHook(
-    () => useWatchSubscription<{ tick: number }, number[]>({ query: TICK, variables: {} }, appendTick, opts),
+    () => useFoldedSubscription<{ tick: number }, number[]>({ query: TICK, variables: {} }, appendTick, opts),
     { wrapper },
   );
 }
@@ -78,9 +78,9 @@ const emitOn = (idx: number, raw: string) => act(async () => channels[idx].onmes
 const state = (r: { result: { current: { data?: number[] | undefined; connected: boolean; generation: number } } }) =>
   r.result.current;
 
-describe('useWatchSubscription', () => {
+describe('useFoldedSubscription', () => {
   beforeEach(() => {
-    flushWatchesSynchronously();
+    flushSubscriptionsSynchronously();
     invokeMock.mockReset();
     channels.length = 0;
     let id = 0;
@@ -182,7 +182,7 @@ describe('useWatchSubscription', () => {
   });
 
   // The sidecar ends a subscription whose watch died with one errors-only frame
-  // (WatchFailureExtension) before the transport completes. That is a drop with a
+  // (SubscriptionFailureExtension) before the transport completes. That is a drop with a
   // reason: the rows already sent are still the last thing that was true, so they
   // must survive it exactly as they survive a transport drop, and must not be
   // folded a second time — the reconnect that follows brings a fresh snapshot.
@@ -201,7 +201,7 @@ describe('useWatchSubscription', () => {
         payload: {
           errors: [{ message: 'Cluster watch ended: watch too old' }],
           data: null,
-          extensions: { watchFailed: true },
+          extensions: { subscriptionFailed: true },
         },
       }),
     );
@@ -257,7 +257,7 @@ describe('useWatchSubscription', () => {
   it("does not carry a prior operation's accumulator when variables change (P1)", async () => {
     const r = renderHook(
       ({ n }: { n: number }) =>
-        useWatchSubscription<{ tick: number }, number[]>({ query: TICK, variables: { n } }, appendTick),
+        useFoldedSubscription<{ tick: number }, number[]>({ query: TICK, variables: { n } }, appendTick),
       { wrapper: makeWrapper(), initialProps: { n: 1 } },
     );
     await waitFor(() => expect(channels.length).toBeGreaterThan(0));
@@ -282,7 +282,7 @@ describe('useWatchSubscription', () => {
   it('drops its data as soon as variables change, before the new operation emits', async () => {
     const r = renderHook(
       ({ n }: { n: number }) =>
-        useWatchSubscription<{ tick: number }, number[]>({ query: TICK, variables: { n } }, appendTick),
+        useFoldedSubscription<{ tick: number }, number[]>({ query: TICK, variables: { n } }, appendTick),
       { wrapper: makeWrapper(), initialProps: { n: 1 } },
     );
     await waitFor(() => expect(channels.length).toBeGreaterThan(0));
@@ -297,7 +297,7 @@ describe('useWatchSubscription', () => {
   it('drops its data as soon as it pauses', async () => {
     const r = renderHook(
       ({ paused }: { paused: boolean }) =>
-        useWatchSubscription<{ tick: number }, number[]>({ query: TICK, variables: {}, pause: paused }, appendTick),
+        useFoldedSubscription<{ tick: number }, number[]>({ query: TICK, variables: {}, pause: paused }, appendTick),
       { wrapper: makeWrapper(), initialProps: { paused: false } },
     );
     await waitFor(() => expect(channels.length).toBeGreaterThan(0));
@@ -313,7 +313,7 @@ describe('useWatchSubscription', () => {
   it('does not reuse a retained accumulator when the same operation pauses and reopens (P2)', async () => {
     const r = renderHook(
       ({ paused }: { paused: boolean }) =>
-        useWatchSubscription<{ tick: number }, number[]>({ query: TICK, variables: {}, pause: paused }, appendTick),
+        useFoldedSubscription<{ tick: number }, number[]>({ query: TICK, variables: {}, pause: paused }, appendTick),
       { wrapper: makeWrapper(), initialProps: { paused: false } },
     );
     await waitFor(() => expect(channels.length).toBeGreaterThan(0));
@@ -341,7 +341,7 @@ describe('useWatchSubscription', () => {
     let flush: (() => void) | undefined;
     beforeEach(() => {
       flush = undefined;
-      setWatchFlushScheduler((fn) => {
+      setSubscriptionFlushScheduler((fn) => {
         flush = fn;
         return () => {
           flush = undefined;
@@ -354,7 +354,7 @@ describe('useWatchSubscription', () => {
       const r = renderHook(
         () => {
           renders();
-          return useWatchSubscription<{ tick: number }, number[]>({ query: TICK, variables: {} }, appendTick);
+          return useFoldedSubscription<{ tick: number }, number[]>({ query: TICK, variables: {} }, appendTick);
         },
         { wrapper: makeWrapper() },
       );
@@ -377,7 +377,7 @@ describe('useWatchSubscription', () => {
     it('reduces the batch in one call', async () => {
       const reduce = vi.fn(appendTick);
       const r = renderHook(
-        () => useWatchSubscription<{ tick: number }, number[]>({ query: TICK, variables: {} }, reduce),
+        () => useFoldedSubscription<{ tick: number }, number[]>({ query: TICK, variables: {} }, reduce),
         {
           wrapper: makeWrapper(),
         },
@@ -420,7 +420,7 @@ describe('useWatchSubscription', () => {
     it('cancels the pending flush of the connection it drops', async () => {
       vi.useFakeTimers();
       const queued: (() => void)[] = [];
-      setWatchFlushScheduler((fn) => {
+      setSubscriptionFlushScheduler((fn) => {
         queued.push(fn);
         return () => {
           const i = queued.indexOf(fn);
@@ -429,7 +429,7 @@ describe('useWatchSubscription', () => {
       });
       const reduce = vi.fn(appendTick);
       const r = renderHook(
-        () => useWatchSubscription<{ tick: number }, number[]>({ query: TICK, variables: {} }, reduce),
+        () => useFoldedSubscription<{ tick: number }, number[]>({ query: TICK, variables: {} }, reduce),
         { wrapper: makeWrapper() },
       );
       await vi.waitFor(() => expect(channels.length).toBeGreaterThan(0));
@@ -471,7 +471,7 @@ describe('operation context', () => {
     const client = new Client({ url: 'tauri://graphql', exchanges: [captureExchange(seen)] });
     return renderHook(
       ({ ctx }: { ctx: Partial<OperationContext> }) =>
-        useWatchSubscription<{ tick: number }, number[]>({ query: TICK, variables: {}, context: ctx }, appendTick),
+        useFoldedSubscription<{ tick: number }, number[]>({ query: TICK, variables: {}, context: ctx }, appendTick),
       {
         wrapper: ({ children }: { children: ReactNode }) => createElement(Provider, { value: client }, children),
         initialProps: { ctx: initial },
@@ -552,64 +552,22 @@ describe('scheduleFlush', () => {
   });
 });
 
-describe('watchPhase', () => {
+describe('subscriptionPhase', () => {
   it('reads no-data-yet as connecting when the transport is down', () => {
-    expect(watchPhase(false, false)).toBe('connecting');
+    expect(subscriptionPhase(false, false)).toBe('connecting');
   });
 
   it('reads an incomplete snapshot as connecting even with the transport up', () => {
     // The case the Bookmark exists for: reporting this as an empty collection is
     // what showed "nothing here" over a set the server was still listing.
-    expect(watchPhase(false, true)).toBe('connecting');
+    expect(subscriptionPhase(false, true)).toBe('connecting');
   });
 
   it('reads a synced watch through an outage as reconnecting', () => {
-    expect(watchPhase(true, false)).toBe('reconnecting');
+    expect(subscriptionPhase(true, false)).toBe('reconnecting');
   });
 
   it('reads a synced watch on a live connection as live', () => {
-    expect(watchPhase(true, true)).toBe('live');
-  });
-});
-
-describe('seriesReducer', () => {
-  type Point = { at: string; v: number };
-  type Frame = { series: { intervalSeconds: number; windowSeconds: number; samples: Point[] } };
-  const frame = (...samples: Point[]): Frame => ({ series: { intervalSeconds: 2, windowSeconds: 6, samples } });
-  const reduce = seriesReducer((data: Frame) => data.series);
-  const point = (v: number, at = `t${v}`): Point => ({ at, v });
-
-  it('folds an empty first frame to an empty series, not to nothing', () => {
-    expect(reduce(undefined, [frame()])).toEqual({ intervalSeconds: 2, windowSeconds: 6, samples: [] });
-  });
-
-  it('appends each frame’s points, oldest first', () => {
-    const first = reduce(undefined, [frame(point(1))]);
-    expect(reduce(first, [frame(point(2)), frame(point(3))]).samples).toEqual([point(1), point(2), point(3)]);
-  });
-
-  // Six seconds at two a point: the client keeps what the sidecar's ring keeps.
-  it('keeps the last window ÷ interval points', () => {
-    const series = reduce(undefined, [frame(point(1), point(2)), frame(point(3), point(4))]);
-    expect(series.samples).toEqual([point(2), point(3), point(4)]);
-  });
-
-  // A wall clock that steps back stamps the next point earlier than the last. The fold reads
-  // no times, so it neither drops nor reorders it.
-  it('appends a point whose time goes backwards', () => {
-    const series = reduce(undefined, [frame(point(1, '12:00:02')), frame(point(2, '12:00:00'))]);
-    expect(series.samples.map((p) => p.v)).toEqual([1, 2]);
-  });
-});
-
-describe('seriesSlots', () => {
-  it('rounds the window down to whole intervals', () => {
-    expect(seriesSlots({ intervalSeconds: 2, windowSeconds: 120, samples: [] })).toBe(120 / 2);
-    expect(seriesSlots({ intervalSeconds: 2, windowSeconds: 7, samples: [] })).toBe(3);
-  });
-
-  // slice(-0) would keep every point, so a window shorter than its interval keeps one.
-  it('holds at least one point', () => {
-    expect(seriesSlots({ intervalSeconds: 5, windowSeconds: 2, samples: [] })).toBe(1);
+    expect(subscriptionPhase(true, true)).toBe('live');
   });
 });

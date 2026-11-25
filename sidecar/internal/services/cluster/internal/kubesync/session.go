@@ -26,7 +26,7 @@ import (
 )
 
 // session is one tracked cache. Its two claims are the session's rather than each run's: a
-// tracked cache has a file the moment it is armed, which is what Manager.WatchOpen readers
+// tracked cache has a file the moment it is armed, which is what Manager.ListenForCacheOpenChanges readers
 // are waiting on, and one lease is what everything under it dials over. It takes them in start
 // and gives them back in close — both halves here, so neither can outlive the other.
 type session struct {
@@ -202,7 +202,7 @@ func (sess *session) start() error {
 	//
 	// Promptness alone, so a store that will not subscribe costs a wake rather than the
 	// sweep: a cache is armed below whether or not this attaches.
-	catalogChangeSub, err := sess.store.Subscribe(
+	catalogChangeSub, err := sess.store.ListenForChanges(
 		kubestore.ObjectsKey(crdGVR.GroupVersion().String(), crdGVR.Resource),
 		kubestore.ObjectsKey(apiServiceAPIVersion, apiServiceResource))
 	if err == nil {
@@ -285,7 +285,7 @@ func (sess *session) discoveryReason() Reason {
 // The loop it forms — discovery arms the kinds whose writes wake discovery — bottoms out
 // on the interval, which is also the cold start. It can only ever be a wake: an api server
 // upgrade changes the built-in kinds with no CRD or APIService write at all.
-func (sess *session) wakeDiscoverySweepOnCatalogChange(ctx context.Context, catalogChangeSub kubestore.Subscription) {
+func (sess *session) wakeDiscoverySweepOnCatalogChange(ctx context.Context, catalogChangeSub kubestore.ChangeNotifications) {
 	defer catalogChangeSub.Close()
 	for {
 		select {

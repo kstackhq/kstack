@@ -36,7 +36,7 @@ import (
 // subscribes before the first sweep, so a cluster marked under that sweep is
 // taken on the signal rather than missed.
 func (s *service) startSweeper() error {
-	clusters := s.db.Subscribe(appdb.KeyClusters)
+	clusters := s.db.ListenForChanges(appdb.KeyClusters)
 	if err := s.enter(); err != nil {
 		clusters.Close()
 		return err

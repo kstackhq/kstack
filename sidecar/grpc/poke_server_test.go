@@ -20,7 +20,7 @@ func TestPokeServiceBroadcastsSourceHost(t *testing.T) {
 	// A real broadcaster; we never start its detector, so the only signal is the
 	// one the RPC fires.
 	pk := poke.New()
-	sigs, cancel := pk.Subscribe()
+	sigs, cancel := pk.ListenForNotifications()
 	defer cancel()
 
 	grpcSrv := grpcserver.NewServer(context.Background(), nil, pk)

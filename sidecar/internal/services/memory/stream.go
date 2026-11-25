@@ -23,10 +23,10 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/deltafold"
 )
 
-// MemoryWatchFrame is one frame on a cluster's memory watch. Memory is nil on the
+// MemoryCollectionWatchFrame is one frame on a cluster's memory watch. Memory is nil on the
 // Bookmark.
-type MemoryWatchFrame struct {
-	Type   apimeta.DeltaFrameType
+type MemoryCollectionWatchFrame struct {
+	Type   apimeta.CollectionWatchFrameType
 	Memory *Memory
 }
 
@@ -47,14 +47,14 @@ func (s *Stream[T]) Err() error {
 	return nil
 }
 
-// Watch streams what cluster sees, then every change to it. It re-reads on its own
+// WatchCollectionByCluster streams what cluster sees, then every change to it. It re-reads on its own
 // key and on the clusters key, whose delete cascades to the cluster's memories.
-func (s *service) Watch(ctx context.Context, cluster apimeta.ClusterID) (*Stream[MemoryWatchFrame], error) {
+func (s *service) WatchCollectionByCluster(ctx context.Context, clusterID apimeta.ClusterID) (*Stream[MemoryCollectionWatchFrame], error) {
 	if err := s.enter(); err != nil {
 		return nil, err
 	}
-	ch := make(chan MemoryWatchFrame, 1)
-	st := &Stream[MemoryWatchFrame]{Frames: ch}
+	ch := make(chan MemoryCollectionWatchFrame, 1)
+	st := &Stream[MemoryCollectionWatchFrame]{Frames: ch}
 	ctx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(s.ctx, cancel)
 	go func() {
@@ -62,16 +62,16 @@ func (s *service) Watch(ctx context.Context, cluster apimeta.ClusterID) (*Stream
 		defer close(ch)
 		defer stop()
 		defer cancel()
-		if err := s.pump(ctx, cluster, ch); err != nil && ctx.Err() == nil {
+		if err := s.pump(ctx, clusterID, ch); err != nil && ctx.Err() == nil {
 			st.err.Store(&err)
 		}
 	}()
 	return st, nil
 }
 
-func (s *service) pump(ctx context.Context, cluster apimeta.ClusterID, out chan<- MemoryWatchFrame) error {
-	// Subscribe, then read: a snapshot taken first would miss a commit in between.
-	rx := s.db.Subscribe(appdb.KeyMemories, appdb.KeyClusters)
+func (s *service) pump(ctx context.Context, cluster apimeta.ClusterID, out chan<- MemoryCollectionWatchFrame) error {
+	// Listen, then read: a snapshot taken first would miss a commit in between.
+	rx := s.db.ListenForChanges(appdb.KeyMemories, appdb.KeyClusters)
 	defer rx.Close()
 
 	f := deltafold.New(memoryKey, sameMemory, memoryFrame)
@@ -113,9 +113,9 @@ func same[T comparable](a, b *T) bool {
 	return *a == *b
 }
 
-func memoryFrame(t apimeta.DeltaFrameType, m Memory) MemoryWatchFrame {
-	if t == apimeta.DeltaFrameBookmark {
-		return MemoryWatchFrame{Type: t}
+func memoryFrame(t apimeta.CollectionWatchFrameType, m Memory) MemoryCollectionWatchFrame {
+	if t == apimeta.CollectionWatchFrameBookmark {
+		return MemoryCollectionWatchFrame{Type: t}
 	}
-	return MemoryWatchFrame{Type: t, Memory: &m}
+	return MemoryCollectionWatchFrame{Type: t, Memory: &m}
 }

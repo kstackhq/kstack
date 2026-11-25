@@ -215,7 +215,7 @@ func (f fakeClusters) ReadActive(ctx context.Context, id cluster.ClusterID, read
 	return read(ctx, cluster.ActiveCluster{Cluster: c})
 }
 
-// deltaStream models every delta watch the service exposes: replay the current set as
+// collectionWatchStream models every collection watch the service exposes: replay the current set as
 // Added frames, close the snapshot with bookmark, then hold the stream open until ctx
 // ends (a real watch never completes on its own, and several tests assert exactly
 // that). Each watch differs only in how it wraps an item into its frame.
@@ -225,7 +225,7 @@ func (f fakeClusters) ReadActive(ctx context.Context, id cluster.ClusterID, read
 //
 // A fixture with watchFail set ends every watch with it instead, standing in for a
 // source that died mid-stream.
-func deltaStream[T, C any](ctx context.Context, f *fakeClusterService, items []T, wrap func(*T) C, bookmark C) *cluster.Stream[C] {
+func collectionWatchStream[T, C any](ctx context.Context, f *fakeClusterService, items []T, wrap func(*T) C, bookmark C) *cluster.Stream[C] {
 	snap := make([]C, 0, len(items)+1)
 	for i := range items {
 		item := items[i]
@@ -235,9 +235,9 @@ func deltaStream[T, C any](ctx context.Context, f *fakeClusterService, items []T
 	return streamOf(ctx, f, snap)
 }
 
-// gaugeStream is deltaStream's counterpart for a latest-value gauge: current on
-// subscribe, so no bookmark closes anything. WatchHealth is the only one.
-func gaugeStream[T, C any](ctx context.Context, f *fakeClusterService, items []T, wrap func(*T) C) *cluster.Stream[C] {
+// stateWatchStream is collectionWatchStream's counterpart for a state watch: current on
+// subscribe, so no bookmark closes anything. WatchHealthKeyedState is the only one.
+func stateWatchStream[T, C any](ctx context.Context, f *fakeClusterService, items []T, wrap func(*T) C) *cluster.Stream[C] {
 	snap := make([]C, 0, len(items))
 	for i := range items {
 		item := items[i]
@@ -278,57 +278,57 @@ func copySlice[T any](f *fakeClusterService, src *[]T) []T {
 	return append([]T(nil), *src...)
 }
 
-func (f fakeClusters) WatchList(ctx context.Context) (*cluster.Stream[cluster.ClusterWatchFrame], error) {
-	return deltaStream(ctx, f.s, f.s.snapshot(), func(c **cluster.Cluster) cluster.ClusterWatchFrame {
-		return cluster.ClusterWatchFrame{Type: cluster.DeltaFrameAdded, Cluster: *c}
-	}, cluster.ClusterWatchFrame{Type: cluster.DeltaFrameBookmark}), nil
+func (f fakeClusters) WatchCollection(ctx context.Context) (*cluster.Stream[cluster.ClusterCollectionWatchFrame], error) {
+	return collectionWatchStream(ctx, f.s, f.s.snapshot(), func(c **cluster.Cluster) cluster.ClusterCollectionWatchFrame {
+		return cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Cluster: *c}
+	}, cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}), nil
 }
 
-func (f fakeClusters) Watch(ctx context.Context, id cluster.ClusterID) (*cluster.Stream[cluster.ClusterWatchFrame], error) {
+func (f fakeClusters) WatchCollectionByID(ctx context.Context, id cluster.ClusterID) (*cluster.Stream[cluster.ClusterCollectionWatchFrame], error) {
 	var rows []*cluster.Cluster
 	for _, c := range f.s.snapshot() {
 		if c.ID == id {
 			rows = append(rows, c)
 		}
 	}
-	return deltaStream(ctx, f.s, rows, func(c **cluster.Cluster) cluster.ClusterWatchFrame {
-		return cluster.ClusterWatchFrame{Type: cluster.DeltaFrameAdded, Cluster: *c}
-	}, cluster.ClusterWatchFrame{Type: cluster.DeltaFrameBookmark}), nil
+	return collectionWatchStream(ctx, f.s, rows, func(c **cluster.Cluster) cluster.ClusterCollectionWatchFrame {
+		return cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Cluster: *c}
+	}, cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}), nil
 }
 
-func (f fakeCaches) WatchList(ctx context.Context) (*cluster.Stream[cluster.ClusterCacheWatchFrame], error) {
-	return deltaStream(ctx, f.s, f.s.cacheSnapshot(), func(c *cluster.ClusterCache) cluster.ClusterCacheWatchFrame {
-		return cluster.ClusterCacheWatchFrame{Type: cluster.DeltaFrameAdded, Cache: c}
-	}, cluster.ClusterCacheWatchFrame{Type: cluster.DeltaFrameBookmark}), nil
+func (f fakeCaches) WatchCollection(ctx context.Context) (*cluster.Stream[cluster.ClusterCacheCollectionWatchFrame], error) {
+	return collectionWatchStream(ctx, f.s, f.s.cacheSnapshot(), func(c *cluster.ClusterCache) cluster.ClusterCacheCollectionWatchFrame {
+		return cluster.ClusterCacheCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Cache: c}
+	}, cluster.ClusterCacheCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}), nil
 }
 
-func (f fakeCaches) WatchByCluster(ctx context.Context, clusterID cluster.ClusterID) (*cluster.Stream[cluster.ClusterCacheWatchFrame], error) {
+func (f fakeCaches) WatchCollectionByCluster(ctx context.Context, clusterID cluster.ClusterID) (*cluster.Stream[cluster.ClusterCacheCollectionWatchFrame], error) {
 	var rows []cluster.ClusterCache
 	for _, c := range f.s.cacheSnapshot() {
 		if c.ClusterID == clusterID {
 			rows = append(rows, c)
 		}
 	}
-	return deltaStream(ctx, f.s, rows, func(c *cluster.ClusterCache) cluster.ClusterCacheWatchFrame {
-		return cluster.ClusterCacheWatchFrame{Type: cluster.DeltaFrameAdded, Cache: c}
-	}, cluster.ClusterCacheWatchFrame{Type: cluster.DeltaFrameBookmark}), nil
+	return collectionWatchStream(ctx, f.s, rows, func(c *cluster.ClusterCache) cluster.ClusterCacheCollectionWatchFrame {
+		return cluster.ClusterCacheCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Cache: c}
+	}, cluster.ClusterCacheCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}), nil
 }
 
-func (f fakeCaches) Watch(ctx context.Context, id cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCacheWatchFrame], error) {
+func (f fakeCaches) WatchCollectionByID(ctx context.Context, id cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCacheCollectionWatchFrame], error) {
 	var rows []cluster.ClusterCache
 	for _, c := range f.s.cacheSnapshot() {
 		if c.ID == id {
 			rows = append(rows, c)
 		}
 	}
-	return deltaStream(ctx, f.s, rows, func(c *cluster.ClusterCache) cluster.ClusterCacheWatchFrame {
-		return cluster.ClusterCacheWatchFrame{Type: cluster.DeltaFrameAdded, Cache: c}
-	}, cluster.ClusterCacheWatchFrame{Type: cluster.DeltaFrameBookmark}), nil
+	return collectionWatchStream(ctx, f.s, rows, func(c *cluster.ClusterCache) cluster.ClusterCacheCollectionWatchFrame {
+		return cluster.ClusterCacheCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Cache: c}
+	}, cluster.ClusterCacheCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}), nil
 }
 
-// WatchHealth folds the fixture's per-kind records per cache, the same way the
+// WatchHealthKeyedState folds the fixture's per-kind records per cache, the same way the
 // real service does — enough to prove the wire shape and the join key.
-func (f fakeCaches) WatchHealth(ctx context.Context) (*cluster.Stream[cluster.ClusterCacheHealth], error) {
+func (f fakeCaches) WatchHealthKeyedState(ctx context.Context) (*cluster.Stream[cluster.ClusterCacheHealth], error) {
 	f.s.mu.Lock()
 	byCache := map[cluster.ClusterCacheID]*cluster.ClusterCacheHealth{}
 	for i := range f.s.cachedKinds {
@@ -358,14 +358,14 @@ func (f fakeCaches) WatchHealth(ctx context.Context) (*cluster.Stream[cluster.Cl
 	for _, h := range byCache {
 		verdicts = append(verdicts, *h)
 	}
-	return gaugeStream(ctx, f.s, verdicts, func(h *cluster.ClusterCacheHealth) cluster.ClusterCacheHealth {
+	return stateWatchStream(ctx, f.s, verdicts, func(h *cluster.ClusterCacheHealth) cluster.ClusterCacheHealth {
 		return *h
 	}), nil
 }
 
-// WatchByCache serves only the records the requested cache owns, standing in for the
+// WatchCollectionByCache serves only the records the requested cache owns, standing in for the
 // real service's owner-edge filter.
-func (f fakeCachedKinds) WatchByCache(ctx context.Context, cacheID cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCachedKindWatchFrame], error) {
+func (f fakeCachedKinds) WatchCollectionByCache(ctx context.Context, cacheID cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCachedKindCollectionWatchFrame], error) {
 	f.s.mu.Lock()
 	var scoped []cluster.ClusterCachedKind
 	for i := range f.s.cachedKinds {
@@ -374,18 +374,18 @@ func (f fakeCachedKinds) WatchByCache(ctx context.Context, cacheID cluster.Clust
 		}
 	}
 	f.s.mu.Unlock()
-	return deltaStream(ctx, f.s, scoped, func(gs *cluster.ClusterCachedKind) cluster.ClusterCachedKindWatchFrame {
-		return cluster.ClusterCachedKindWatchFrame{Type: cluster.DeltaFrameAdded, Kind: gs}
-	}, cluster.ClusterCachedKindWatchFrame{Type: cluster.DeltaFrameBookmark}), nil
+	return collectionWatchStream(ctx, f.s, scoped, func(gs *cluster.ClusterCachedKind) cluster.ClusterCachedKindCollectionWatchFrame {
+		return cluster.ClusterCachedKindCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Kind: gs}
+	}, cluster.ClusterCachedKindCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}), nil
 }
 
-func (f fakeCachedKinds) WatchList(ctx context.Context) (*cluster.Stream[cluster.ClusterCachedKindWatchFrame], error) {
-	return deltaStream(ctx, f.s, copySlice(f.s, &f.s.cachedKinds), func(gs *cluster.ClusterCachedKind) cluster.ClusterCachedKindWatchFrame {
-		return cluster.ClusterCachedKindWatchFrame{Type: cluster.DeltaFrameAdded, Kind: gs}
-	}, cluster.ClusterCachedKindWatchFrame{Type: cluster.DeltaFrameBookmark}), nil
+func (f fakeCachedKinds) WatchCollection(ctx context.Context) (*cluster.Stream[cluster.ClusterCachedKindCollectionWatchFrame], error) {
+	return collectionWatchStream(ctx, f.s, copySlice(f.s, &f.s.cachedKinds), func(gs *cluster.ClusterCachedKind) cluster.ClusterCachedKindCollectionWatchFrame {
+		return cluster.ClusterCachedKindCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Kind: gs}
+	}, cluster.ClusterCachedKindCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}), nil
 }
 
-func (f fakeCachedKinds) Watch(ctx context.Context, id cluster.ClusterCachedKindID) (*cluster.Stream[cluster.ClusterCachedKindWatchFrame], error) {
+func (f fakeCachedKinds) WatchCollectionByID(ctx context.Context, id cluster.ClusterCachedKindID) (*cluster.Stream[cluster.ClusterCachedKindCollectionWatchFrame], error) {
 	f.s.mu.Lock()
 	var rows []cluster.ClusterCachedKind
 	for i := range f.s.cachedKinds {
@@ -394,16 +394,16 @@ func (f fakeCachedKinds) Watch(ctx context.Context, id cluster.ClusterCachedKind
 		}
 	}
 	f.s.mu.Unlock()
-	return deltaStream(ctx, f.s, rows, func(gs *cluster.ClusterCachedKind) cluster.ClusterCachedKindWatchFrame {
-		return cluster.ClusterCachedKindWatchFrame{Type: cluster.DeltaFrameAdded, Kind: gs}
-	}, cluster.ClusterCachedKindWatchFrame{Type: cluster.DeltaFrameBookmark}), nil
+	return collectionWatchStream(ctx, f.s, rows, func(gs *cluster.ClusterCachedKind) cluster.ClusterCachedKindCollectionWatchFrame {
+		return cluster.ClusterCachedKindCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Kind: gs}
+	}, cluster.ClusterCachedKindCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}), nil
 }
 
-// WatchSyncStatus expands the fixture's per-kind records for one cache, the counterpart of
-// the fold WatchHealth does — enough to prove the wire shape.
-func (f fakeCaches) WatchSyncStatus(ctx context.Context, _ cluster.ClusterID, cacheID cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCacheSyncStatus], error) {
+// WatchSyncState expands the fixture's per-kind records for one cache, the counterpart of
+// the fold WatchHealthKeyedState does — enough to prove the wire shape.
+func (f fakeCaches) WatchSyncState(ctx context.Context, _ cluster.ClusterID, cacheID cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCacheSyncState], error) {
 	f.s.mu.Lock()
-	status := cluster.ClusterCacheSyncStatus{
+	status := cluster.ClusterCacheSyncState{
 		CacheID:   cacheID,
 		Discovery: cluster.ClusterCacheDiscoveryStatus{Reason: "Discovered"},
 	}
@@ -424,7 +424,7 @@ func (f fakeCaches) WatchSyncStatus(ctx context.Context, _ cluster.ClusterID, ca
 	}
 	f.s.mu.Unlock()
 
-	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCacheSyncStatus) error {
+	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCacheSyncState) error {
 		select {
 		case out <- status:
 		case <-ctx.Done():
@@ -435,9 +435,9 @@ func (f fakeCaches) WatchSyncStatus(ctx context.Context, _ cluster.ClusterID, ca
 	}), nil
 }
 
-// WatchStats emits the fixture's single measurement and then holds the
-// stream open, as a gauge with nothing new to report does.
-func (f fakeCaches) WatchStats(ctx context.Context, _ cluster.ClusterID, cacheID cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCacheStats], error) {
+// WatchStatsState emits the fixture's single measurement and then holds the
+// stream open, as a state watch with nothing new to report does.
+func (f fakeCaches) WatchStatsState(ctx context.Context, _ cluster.ClusterID, cacheID cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCacheStats], error) {
 	f.s.mu.Lock()
 	st := f.s.cacheStats[cacheID]
 	f.s.mu.Unlock()
@@ -457,8 +457,8 @@ func (f fakeCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCa
 	return cluster.ClusterCacheHealth{}, false, nil
 }
 
-func (f fakeCaches) SyncStatus(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncStatus, bool, error) {
-	return cluster.ClusterCacheSyncStatus{}, false, nil
+func (f fakeCaches) SyncState(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncState, bool, error) {
+	return cluster.ClusterCacheSyncState{}, false, nil
 }
 
 func (f fakeCachedData) ListObjects(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, string) ([]cluster.ClusterCachedDataObject, bool, error) {
@@ -488,15 +488,15 @@ func (f fakeCachedData) ListKinds(_ context.Context, clusterID cluster.ClusterID
 	return f.s.kinds[clusterID], nil
 }
 
-// WatchKinds echoes the namespace on each frame, as the service does.
-func (f fakeCachedData) WatchKinds(ctx context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID, namespace string) (*cluster.Stream[cluster.ClusterCachedDataKindWatchFrame], error) {
+// WatchKindCollection echoes the namespace on each frame, as the service does.
+func (f fakeCachedData) WatchKindCollection(ctx context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID, namespace string) (*cluster.Stream[cluster.ClusterCachedDataKindCollectionWatchFrame], error) {
 	f.s.mu.Lock()
 	snap := append([]cluster.ClusterCachedDataKind(nil), f.s.kinds[clusterID]...)
 	f.s.mu.Unlock()
-	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCachedDataKindWatchFrame) error {
+	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCachedDataKindCollectionWatchFrame) error {
 		for _, k := range snap {
 			select {
-			case out <- cluster.ClusterCachedDataKindWatchFrame{Type: cluster.DeltaFrameAdded, Kind: &k, Namespace: namespace}:
+			case out <- cluster.ClusterCachedDataKindCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Kind: &k, Namespace: namespace}:
 			case <-ctx.Done():
 				return nil
 			}
@@ -506,14 +506,14 @@ func (f fakeCachedData) WatchKinds(ctx context.Context, clusterID cluster.Cluste
 	}), nil
 }
 
-func (f fakeCachedData) WatchEvents(ctx context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCachedDataEventWatchFrame], error) {
+func (f fakeCachedData) WatchEventCollection(ctx context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCachedDataEventCollectionWatchFrame], error) {
 	f.s.mu.Lock()
 	snap := append([]cluster.ClusterCachedDataEvent(nil), f.s.dataEvents[clusterID]...)
 	f.s.mu.Unlock()
-	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCachedDataEventWatchFrame) error {
+	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCachedDataEventCollectionWatchFrame) error {
 		for _, e := range snap {
 			select {
-			case out <- cluster.ClusterCachedDataEventWatchFrame{Type: cluster.DeltaFrameAdded, Event: &e}:
+			case out <- cluster.ClusterCachedDataEventCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Event: &e}:
 			case <-ctx.Done():
 				return nil
 			}
@@ -523,18 +523,18 @@ func (f fakeCachedData) WatchEvents(ctx context.Context, clusterID cluster.Clust
 	}), nil
 }
 
-func (f fakeCachedData) WatchObjectsIn(ctx context.Context, clusterID cluster.ClusterID, cacheID cluster.ClusterCacheID, apiVersion, resource string, _ []string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
-	return f.WatchObjects(ctx, clusterID, cacheID, apiVersion, resource)
+func (f fakeCachedData) WatchObjectCollectionByNamespaces(ctx context.Context, clusterID cluster.ClusterID, cacheID cluster.ClusterCacheID, apiVersion, resource string, _ []string) (*cluster.Stream[cluster.ClusterCachedDataObjectCollectionWatchFrame], error) {
+	return f.WatchObjectCollection(ctx, clusterID, cacheID, apiVersion, resource)
 }
 
-func (f fakeCachedData) WatchObjects(ctx context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID, _, _ string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
+func (f fakeCachedData) WatchObjectCollection(ctx context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID, _, _ string) (*cluster.Stream[cluster.ClusterCachedDataObjectCollectionWatchFrame], error) {
 	f.s.mu.Lock()
 	snap := append([]cluster.ClusterCachedDataObject(nil), f.s.dataObjects[clusterID]...)
 	f.s.mu.Unlock()
-	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCachedDataObjectWatchFrame) error {
+	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCachedDataObjectCollectionWatchFrame) error {
 		for _, o := range snap {
 			select {
-			case out <- cluster.ClusterCachedDataObjectWatchFrame{Type: cluster.DeltaFrameAdded, Object: &o}:
+			case out <- cluster.ClusterCachedDataObjectCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Object: &o}:
 			case <-ctx.Done():
 				return nil
 			}
@@ -544,7 +544,7 @@ func (f fakeCachedData) WatchObjects(ctx context.Context, clusterID cluster.Clus
 	}), nil
 }
 
-// ListEvents and WatchEvents serve the cache and kind timelines from one reader, as
+// ListEvents and SubscribeObjectEventFeed serve the cache and kind timelines from one reader, as
 // the real service does; a cluster's is the Clusters() pair. The fixtures' ids are
 // disjoint across kinds (see fixtureCacheID and friends), so the id alone picks the
 // log out.
@@ -557,14 +557,14 @@ func (f *fakeClusterService) ListEvents(_ context.Context, id cluster.ObjectID, 
 	return f.syncEvents[id], nil
 }
 
-func (f *fakeClusterService) WatchEvents(ctx context.Context, _ cluster.ObjectID, _ *string) (*cluster.Stream[cluster.EventWatchFrame], error) {
+func (f *fakeClusterService) SubscribeObjectEventFeed(ctx context.Context, _ cluster.ObjectID, _ *string) (*cluster.Stream[cluster.EventFeedFrame], error) {
 	return f.eventStream(ctx)
 }
 
-func (f *fakeClusterService) eventStream(ctx context.Context) (*cluster.Stream[cluster.EventWatchFrame], error) {
-	return deltaStream(ctx, f, nil, func(e *cluster.Event) cluster.EventWatchFrame {
-		return cluster.EventWatchFrame{Type: cluster.EventFrameRun, Event: e}
-	}, cluster.EventWatchFrame{Type: cluster.EventFrameBookmark}), nil
+func (f *fakeClusterService) eventStream(ctx context.Context) (*cluster.Stream[cluster.EventFeedFrame], error) {
+	return collectionWatchStream(ctx, f, nil, func(e *cluster.Event) cluster.EventFeedFrame {
+		return cluster.EventFeedFrame{Type: cluster.EventFeedFrameRun, Event: e}
+	}, cluster.EventFeedFrame{Type: cluster.EventFeedFrameBookmark}), nil
 }
 
 func (f fakeClusters) ListEvents(_ context.Context, id cluster.ClusterID, _ *string, _ *int) ([]cluster.Event, error) {
@@ -573,7 +573,7 @@ func (f fakeClusters) ListEvents(_ context.Context, id cluster.ClusterID, _ *str
 	return f.s.events[id], nil
 }
 
-func (f fakeClusters) WatchEvents(ctx context.Context, _ cluster.ClusterID, _ *string) (*cluster.Stream[cluster.EventWatchFrame], error) {
+func (f fakeClusters) SubscribeEventFeed(ctx context.Context, _ cluster.ClusterID, _ *string) (*cluster.Stream[cluster.EventFeedFrame], error) {
 	return f.s.eventStream(ctx)
 }
 
@@ -641,9 +641,9 @@ func (f fakeCachedKinds) ListByCache(_ context.Context, cacheID cluster.ClusterC
 	return out, nil
 }
 
-// WatchSchedule is a gauge: one current value on subscribe, then open until ctx
+// WatchScheduleState is a state watch: one current value on subscribe, then open until ctx
 // ends, as a cluster with nothing newly scheduled behaves.
-func (f fakeClusters) WatchSchedule(ctx context.Context, _ cluster.ClusterID) (<-chan cluster.Schedule, error) {
+func (f fakeClusters) WatchScheduleState(ctx context.Context, _ cluster.ClusterID) (<-chan cluster.Schedule, error) {
 	ch := make(chan cluster.Schedule)
 	go func() {
 		defer close(ch)
@@ -657,8 +657,8 @@ func (f fakeClusters) WatchSchedule(ctx context.Context, _ cluster.ClusterID) (<
 	return ch, nil
 }
 
-// fakeDataRateFrame is the window every fake series opens with.
-var fakeDataRateFrame = cluster.ClusterDataRateSeriesFrame{
+// fakeDataRateFrame is the window every fake time series feed opens with.
+var fakeDataRateFrame = cluster.ClusterDataRateTimeSeriesFeedFrame{
 	IntervalSeconds: 2,
 	WindowSeconds:   120,
 	Samples: []cluster.ClusterDataRateSample{
@@ -666,9 +666,9 @@ var fakeDataRateFrame = cluster.ClusterDataRateSeriesFrame{
 	},
 }
 
-// WatchDataRate is a series: the window on subscribe, then open until ctx ends.
-func (f fakeClusters) WatchDataRate(ctx context.Context, _ cluster.ClusterID) (<-chan cluster.ClusterDataRateSeriesFrame, error) {
-	ch := make(chan cluster.ClusterDataRateSeriesFrame)
+// SubscribeDataRateTimeSeriesFeed sends the window on subscribe, then open until ctx ends.
+func (f fakeClusters) SubscribeDataRateTimeSeriesFeed(ctx context.Context, _ cluster.ClusterID) (<-chan cluster.ClusterDataRateTimeSeriesFeedFrame, error) {
+	ch := make(chan cluster.ClusterDataRateTimeSeriesFeedFrame)
 	go func() {
 		defer close(ch)
 		select {
@@ -853,14 +853,14 @@ func clustersQueryData(t *testing.T, query string) map[string]any {
 	return resp.Data
 }
 
-// firstCacheFrame opens clusterCachesWatch and returns the `cache` payload of the
+// firstCacheFrame opens clusterCacheCollectionWatch and returns the `cache` payload of the
 // first Added frame for cluster "1", decoded to a generic map — the cache-side
 // analogue of clustersQueryData, used by the wire-shape tests; cache status is
-// exposed through clusterCachesWatch, not the Cluster query.
+// exposed through clusterCacheCollectionWatch, not the Cluster query.
 func firstCacheFrame(t *testing.T, srvURL string) map[string]any {
 	t.Helper()
 	resp := openSSESubscription(t, srvURL, "",
-		`subscription { clusterCachesWatch { type cache { id clusterID spec { serverUid } `+
+		`subscription { clusterCacheCollectionWatch { type cache { id clusterID spec { serverUid } `+
 			`conditions { type status reason } } } }`)
 	t.Cleanup(func() { resp.Body.Close() })
 	events := sseEvents(t, resp)
@@ -877,17 +877,17 @@ func firstCacheFrame(t *testing.T, srvURL string) map[string]any {
 			}
 			var frame struct {
 				Data struct {
-					ClusterCachesWatch struct {
+					ClusterCacheCollectionWatch struct {
 						Type  string         `json:"type"`
 						Cache map[string]any `json:"cache"`
-					} `json:"clusterCachesWatch"`
+					} `json:"clusterCacheCollectionWatch"`
 				} `json:"data"`
 			}
 			if err := json.Unmarshal([]byte(ev.data), &frame); err != nil {
 				t.Fatalf("decode cache frame %s: %v", ev.data, err)
 			}
-			if frame.Data.ClusterCachesWatch.Cache["clusterID"] == "1" {
-				return frame.Data.ClusterCachesWatch.Cache
+			if frame.Data.ClusterCacheCollectionWatch.Cache["clusterID"] == "1" {
+				return frame.Data.ClusterCacheCollectionWatch.Cache
 			}
 		case <-deadline:
 			t.Fatal("timed out waiting for cluster 1 cache frame")
@@ -936,7 +936,7 @@ func (e errClusterService) ListEvents(context.Context, cluster.ObjectID, *string
 	return nil, e.err
 }
 
-func (e errClusterService) WatchEvents(context.Context, cluster.ObjectID, *string) (*cluster.Stream[cluster.EventWatchFrame], error) {
+func (e errClusterService) SubscribeObjectEventFeed(context.Context, cluster.ObjectID, *string) (*cluster.Stream[cluster.EventFeedFrame], error) {
 	return nil, e.err
 }
 
@@ -952,15 +952,15 @@ func (e errClusters) ReadActive(context.Context, cluster.ClusterID, func(context
 	return e.err
 }
 
-func (e errClusters) WatchList(context.Context) (*cluster.Stream[cluster.ClusterWatchFrame], error) {
+func (e errClusters) WatchCollection(context.Context) (*cluster.Stream[cluster.ClusterCollectionWatchFrame], error) {
 	return nil, e.err
 }
 
-func (e errClusters) WatchSchedule(context.Context, cluster.ClusterID) (<-chan cluster.Schedule, error) {
+func (e errClusters) WatchScheduleState(context.Context, cluster.ClusterID) (<-chan cluster.Schedule, error) {
 	return nil, e.err
 }
 
-func (e errClusters) WatchDataRate(context.Context, cluster.ClusterID) (<-chan cluster.ClusterDataRateSeriesFrame, error) {
+func (e errClusters) SubscribeDataRateTimeSeriesFeed(context.Context, cluster.ClusterID) (<-chan cluster.ClusterDataRateTimeSeriesFeedFrame, error) {
 	return nil, e.err
 }
 
@@ -980,7 +980,7 @@ func (e errClusters) Delete(context.Context, cluster.ClusterID) error { return e
 func (e errClusters) ListEvents(context.Context, cluster.ClusterID, *string, *int) ([]cluster.Event, error) {
 	return nil, e.err
 }
-func (e errClusters) WatchEvents(context.Context, cluster.ClusterID, *string) (*cluster.Stream[cluster.EventWatchFrame], error) {
+func (e errClusters) SubscribeEventFeed(context.Context, cluster.ClusterID, *string) (*cluster.Stream[cluster.EventFeedFrame], error) {
 	return nil, e.err
 }
 
@@ -998,19 +998,19 @@ func (e errCaches) Clear(context.Context, cluster.ClusterCacheID) (*cluster.Clus
 	return nil, e.err
 }
 
-func (e errCaches) WatchList(context.Context) (*cluster.Stream[cluster.ClusterCacheWatchFrame], error) {
+func (e errCaches) WatchCollection(context.Context) (*cluster.Stream[cluster.ClusterCacheCollectionWatchFrame], error) {
 	return nil, e.err
 }
 
-func (e errCaches) WatchHealth(context.Context) (*cluster.Stream[cluster.ClusterCacheHealth], error) {
+func (e errCaches) WatchHealthKeyedState(context.Context) (*cluster.Stream[cluster.ClusterCacheHealth], error) {
 	return nil, e.err
 }
 
-func (e errCaches) WatchStats(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCacheStats], error) {
+func (e errCaches) WatchStatsState(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCacheStats], error) {
 	return nil, e.err
 }
 
-func (e errCaches) WatchSyncStatus(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCacheSyncStatus], error) {
+func (e errCaches) WatchSyncState(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCacheSyncState], error) {
 	return nil, e.err
 }
 
@@ -1018,8 +1018,8 @@ func (e errCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCac
 	return cluster.ClusterCacheHealth{}, false, e.err
 }
 
-func (e errCaches) SyncStatus(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncStatus, bool, error) {
-	return cluster.ClusterCacheSyncStatus{}, false, e.err
+func (e errCaches) SyncState(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncState, bool, error) {
+	return cluster.ClusterCacheSyncState{}, false, e.err
 }
 
 func (e errCachedKinds) Get(context.Context, cluster.ClusterCachedKindID) (*cluster.ClusterCachedKind, error) {
@@ -1038,7 +1038,7 @@ func (e errCachedKinds) SetSyncEnabled(context.Context, cluster.ClusterCachedKin
 	return nil, e.err
 }
 
-func (e errCachedKinds) WatchByCache(context.Context, cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCachedKindWatchFrame], error) {
+func (e errCachedKinds) WatchCollectionByCache(context.Context, cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCachedKindCollectionWatchFrame], error) {
 	return nil, e.err
 }
 
@@ -1046,19 +1046,19 @@ func (e errCachedData) ListKinds(context.Context, cluster.ClusterID, cluster.Clu
 	return nil, e.err
 }
 
-func (e errCachedData) WatchKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string) (*cluster.Stream[cluster.ClusterCachedDataKindWatchFrame], error) {
+func (e errCachedData) WatchKindCollection(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string) (*cluster.Stream[cluster.ClusterCachedDataKindCollectionWatchFrame], error) {
 	return nil, e.err
 }
 
-func (e errCachedData) WatchEvents(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCachedDataEventWatchFrame], error) {
+func (e errCachedData) WatchEventCollection(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (*cluster.Stream[cluster.ClusterCachedDataEventCollectionWatchFrame], error) {
 	return nil, e.err
 }
 
-func (e errCachedData) WatchObjects(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
+func (e errCachedData) WatchObjectCollection(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, string) (*cluster.Stream[cluster.ClusterCachedDataObjectCollectionWatchFrame], error) {
 	return nil, e.err
 }
 
-func (e errCachedData) WatchObjectsIn(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, string, []string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
+func (e errCachedData) WatchObjectCollectionByNamespaces(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, string, []string) (*cluster.Stream[cluster.ClusterCachedDataObjectCollectionWatchFrame], error) {
 	return nil, e.err
 }
 

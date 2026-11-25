@@ -108,17 +108,17 @@ func TestStartTellsAPreStartWatchOfAStrandedRun(t *testing.T) {
 	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
 	require.NoError(t, err)
 
-	w, err := s.WatchMessages(t.Context(), c.ID)
+	w, err := s.WatchMessageCollection(t.Context(), c.ID)
 	require.NoError(t, err)
 	snapshot := collectSnapshot(t, w.Frames)
 	require.Equal(t, StatusStreaming, snapshot[1].Status)
 
 	startPrepared(t, s)
 
-	failed := awaitFrame(t, w.Frames, func(f ChatMessageWatchFrame) bool {
+	failed := awaitFrame(t, w.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == stranded.Assistant
 	})
-	assert.Equal(t, DeltaFrameModified, failed.Type)
+	assert.Equal(t, CollectionWatchFrameModified, failed.Type)
 	assert.Equal(t, StatusFailed, failed.Message.Status)
 }
 
@@ -130,7 +130,7 @@ func TestAFailedStartEndsThePreStartWatches(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t), nil)
 	require.NoError(t, err)
-	w, err := s.WatchList(t.Context())
+	w, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	collectChatSnapshot(t, w.Frames)
 	require.NoError(t, db.Close())
@@ -221,7 +221,7 @@ func TestAWatchBeforeStartIsAnswered(t *testing.T) {
 		require.NoError(t, s.Close())
 	})
 
-	st, err := s.WatchList(t.Context())
+	st, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, collectChatSnapshot(t, st.Frames))
 }
@@ -247,7 +247,7 @@ func TestWorkArrivingAfterStopIsRefused(t *testing.T) {
 	_, err = s.deleteByCluster(t.Context(), "1")
 	assert.ErrorIs(t, err, ErrStopping)
 
-	st, err := s.WatchList(t.Context())
+	st, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	testutil.RecvClosed(t, st.Frames, "the list watch")
 	assert.NoError(t, st.Err())
@@ -436,7 +436,7 @@ func TestDeleteTakesTheChatAndItsMessages(t *testing.T) {
 	c := seedChat(t, s.db, aChat("1", now))
 	seedTurn(t, s.db, c.ID, now)
 
-	w, err := s.WatchMessages(t.Context(), c.ID)
+	w, err := s.WatchMessageCollection(t.Context(), c.ID)
 	require.NoError(t, err)
 	require.Len(t, collectSnapshot(t, w.Frames), 2)
 
@@ -444,7 +444,7 @@ func TestDeleteTakesTheChatAndItsMessages(t *testing.T) {
 
 	for range 2 {
 		f := testutil.Recv(t, w.Frames, "a removal")
-		assert.Equal(t, DeltaFrameDeleted, f.Type)
+		assert.Equal(t, CollectionWatchFrameDeleted, f.Type)
 	}
 	_, ok, err := s.Get(t.Context(), c.ID)
 	require.NoError(t, err)
@@ -470,7 +470,7 @@ func TestDeleteTellsTheClusterMirrorWhenARowWent(t *testing.T) {
 
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
-	sub := s.db.Subscribe(appdb.KeyClusters)
+	sub := s.db.ListenForChanges(appdb.KeyClusters)
 	defer sub.Close()
 
 	require.NoError(t, s.Delete(t.Context(), c.ID))
@@ -502,7 +502,7 @@ func TestDeleteOutlivesItsCallersContext(t *testing.T) {
 
 // The transcript watch opens with the rows in seq order, then its Bookmark, and a
 // change to a row arrives as Modified.
-func TestMessagesWatchOpensWithASnapshotAndItsBookmark(t *testing.T) {
+func TestMessageCollectionWatchOpensWithASnapshotAndItsBookmark(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
@@ -510,30 +510,30 @@ func TestMessagesWatchOpensWithASnapshotAndItsBookmark(t *testing.T) {
 	c := seedChat(t, s.db, aChat("1", now))
 	turn := seedTurn(t, s.db, c.ID, now)
 
-	w, err := s.WatchMessages(t.Context(), c.ID)
+	w, err := s.WatchMessageCollection(t.Context(), c.ID)
 	require.NoError(t, err)
 
 	first := testutil.Recv(t, w.Frames, "the question")
-	assert.Equal(t, DeltaFrameAdded, first.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, first.Type)
 	assert.Equal(t, RoleUser, first.Message.Role)
 	second := testutil.Recv(t, w.Frames, "the empty answer")
-	assert.Equal(t, DeltaFrameAdded, second.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, second.Type)
 	assert.Equal(t, StatusStreaming, second.Message.Status)
 	bookmark := testutil.Recv(t, w.Frames, "the bookmark")
-	assert.Equal(t, DeltaFrameBookmark, bookmark.Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, bookmark.Type)
 	assert.Nil(t, bookmark.Message)
 
 	settleSeededRun(t, s.db, turn.Run, RunSucceeded, time.UnixMilli(2_000).UTC())
 	s.notify(messagesKey(c.ID))
-	settled := awaitFrame(t, w.Frames, func(f ChatMessageWatchFrame) bool {
+	settled := awaitFrame(t, w.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == turn.Assistant && f.Message.Status == StatusComplete
 	})
-	assert.Equal(t, DeltaFrameModified, settled.Type)
+	assert.Equal(t, CollectionWatchFrameModified, settled.Type)
 }
 
 // A watcher of one chat sees nothing of another's rows, and a change to the other
 // chat does not wake it: the keys are per chat.
-func TestMessagesWatchIsScopedToItsChat(t *testing.T) {
+func TestMessageCollectionWatchIsScopedToItsChat(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
@@ -543,7 +543,7 @@ func TestMessagesWatchIsScopedToItsChat(t *testing.T) {
 	seedTurn(t, s.db, mine.ID, now)
 	seedTurn(t, s.db, other.ID, now)
 
-	w, err := s.WatchMessages(t.Context(), mine.ID)
+	w, err := s.WatchMessageCollection(t.Context(), mine.ID)
 	require.NoError(t, err)
 	snapshot := collectSnapshot(t, w.Frames)
 	require.Len(t, snapshot, 2)
@@ -557,7 +557,7 @@ func TestMessagesWatchIsScopedToItsChat(t *testing.T) {
 	// The other chat's delete pinged its own key ahead of this one; the first frame
 	// this watcher sees is its own chat's new row, never a removal.
 	f := testutil.Recv(t, w.Frames, "the next frame")
-	assert.Equal(t, DeltaFrameAdded, f.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, f.Type)
 	assert.Equal(t, mine.ID, f.Message.ChatID)
 }
 
@@ -571,11 +571,11 @@ func TestAStalledWatcherStallsNothingElse(t *testing.T) {
 	c := seedChat(t, s.db, aChat("1", now))
 	seedTurn(t, s.db, c.ID, now)
 
-	stalled, err := s.WatchMessages(t.Context(), c.ID)
+	stalled, err := s.WatchMessageCollection(t.Context(), c.ID)
 	require.NoError(t, err)
 	_ = stalled // never read
 
-	w, err := s.WatchMessages(t.Context(), c.ID)
+	w, err := s.WatchMessageCollection(t.Context(), c.ID)
 	require.NoError(t, err)
 	require.Len(t, collectSnapshot(t, w.Frames), 2)
 	_, err = s.Rename(t.Context(), c.ID, "pods")
@@ -585,42 +585,42 @@ func TestAStalledWatcherStallsNothingElse(t *testing.T) {
 	testutil.Recv(t, w.Frames, "the reading watcher's next frame")
 }
 
-func TestListWatchReportsCreatesAndRenames(t *testing.T) {
+func TestWatchCollectionReportsCreatesAndRenames(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
 
-	w, err := s.WatchList(t.Context())
+	w, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	bookmark := testutil.Recv(t, w.Frames, "the bookmark over an empty list")
-	require.Equal(t, DeltaFrameBookmark, bookmark.Type)
+	require.Equal(t, CollectionWatchFrameBookmark, bookmark.Type)
 
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	s.notify(chatsKey)
-	added := awaitFrame(t, w.Frames, func(f ChatWatchFrame) bool { return f.Type == DeltaFrameAdded })
+	added := awaitFrame(t, w.Frames, func(f ChatCollectionWatchFrame) bool { return f.Type == CollectionWatchFrameAdded })
 	assert.Equal(t, c.ID, added.Chat.ID)
 
 	_, err = s.Rename(t.Context(), c.ID, "pods")
 	require.NoError(t, err)
-	renamed := awaitFrame(t, w.Frames, func(f ChatWatchFrame) bool {
+	renamed := awaitFrame(t, w.Frames, func(f ChatCollectionWatchFrame) bool {
 		return f.Chat != nil && f.Chat.Title == "pods"
 	})
-	assert.Equal(t, DeltaFrameModified, renamed.Type)
+	assert.Equal(t, CollectionWatchFrameModified, renamed.Type)
 }
 
-func TestListWatchReportsADelete(t *testing.T) {
+func TestWatchCollectionReportsADelete(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 
-	w, err := s.WatchList(t.Context())
+	w, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	require.Len(t, collectChatSnapshot(t, w.Frames), 1)
 
 	require.NoError(t, s.Delete(t.Context(), c.ID))
 
-	gone := awaitFrame(t, w.Frames, func(f ChatWatchFrame) bool { return f.Type == DeltaFrameDeleted })
+	gone := awaitFrame(t, w.Frames, func(f ChatCollectionWatchFrame) bool { return f.Type == CollectionWatchFrameDeleted })
 	assert.Equal(t, c.ID, gone.Chat.ID)
 }
 
@@ -632,7 +632,7 @@ func TestAWatchWhoseReadFailsReportsWhy(t *testing.T) {
 	s := newTestService(t)
 	seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 
-	w, err := s.WatchList(t.Context())
+	w, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	collectChatSnapshot(t, w.Frames)
 
@@ -644,7 +644,7 @@ func TestAWatchWhoseReadFailsReportsWhy(t *testing.T) {
 	assert.ErrorContains(t, w.Err(), "list chats")
 }
 
-func TestAMessagesWatchReportsAFailedReRead(t *testing.T) {
+func TestAMessageCollectionWatchReportsAFailedReRead(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
@@ -652,7 +652,7 @@ func TestAMessagesWatchReportsAFailedReRead(t *testing.T) {
 	c := seedChat(t, s.db, aChat("1", now))
 	seedTurn(t, s.db, c.ID, now)
 
-	w, err := s.WatchMessages(t.Context(), c.ID)
+	w, err := s.WatchMessageCollection(t.Context(), c.ID)
 	require.NoError(t, err)
 	require.Len(t, collectSnapshot(t, w.Frames), 2)
 
@@ -670,12 +670,12 @@ func TestAWatchThatCannotReadItsSnapshotFails(t *testing.T) {
 	s := newTestService(t)
 	require.NoError(t, s.store.Close())
 
-	list, err := s.WatchList(t.Context())
+	list, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	testutil.WaitClosed(t, list.Frames, "the failed list watch")
 	assert.ErrorContains(t, list.Err(), "list chats")
 
-	msgs, err := s.WatchMessages(t.Context(), ChatID(appdb.NewID()))
+	msgs, err := s.WatchMessageCollection(t.Context(), ChatID(appdb.NewID()))
 	require.NoError(t, err)
 	testutil.WaitClosed(t, msgs.Frames, "the failed messages watch")
 	assert.ErrorContains(t, msgs.Err(), "list messages")
@@ -694,7 +694,7 @@ func TestAWatchEndsWhereverItsConsumerLeft(t *testing.T) {
 
 	for reads := range 4 {
 		ctx, leave := context.WithCancel(t.Context())
-		w, err := s.WatchMessages(ctx, c.ID)
+		w, err := s.WatchMessageCollection(ctx, c.ID)
 		require.NoError(t, err)
 		for range reads {
 			testutil.Recv(t, w.Frames, "a frame")
@@ -707,7 +707,7 @@ func TestAWatchEndsWhereverItsConsumerLeft(t *testing.T) {
 
 // The same for the list watch. Two chats, so a consumer that reads nothing leaves
 // the pump inside the snapshot rather than at the bookmark.
-func TestListWatchEndsWhereverItsConsumerLeft(t *testing.T) {
+func TestWatchCollectionEndsWhereverItsConsumerLeft(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
@@ -717,7 +717,7 @@ func TestListWatchEndsWhereverItsConsumerLeft(t *testing.T) {
 
 	for reads := range 4 {
 		ctx, leave := context.WithCancel(t.Context())
-		w, err := s.WatchList(ctx)
+		w, err := s.WatchCollection(ctx)
 		require.NoError(t, err)
 		for range reads {
 			testutil.Recv(t, w.Frames, "a frame")
@@ -762,7 +762,7 @@ func TestAChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
 	} {
 		t.Run(change.what, func(t *testing.T) {
 			ctx, leave := context.WithCancel(t.Context())
-			w, err := s.WatchMessages(ctx, c.ID)
+			w, err := s.WatchMessageCollection(ctx, c.ID)
 			require.NoError(t, err)
 			collectSnapshot(t, w.Frames)
 
@@ -808,7 +808,7 @@ func TestAListChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
 	} {
 		t.Run(change.what, func(t *testing.T) {
 			ctx, leave := context.WithCancel(t.Context())
-			w, err := s.WatchList(ctx)
+			w, err := s.WatchCollection(ctx)
 			require.NoError(t, err)
 			require.Len(t, collectChatSnapshot(t, w.Frames), 3)
 
@@ -1118,21 +1118,23 @@ func TestASendStreamsItsAnswerToTheWatch(t *testing.T) {
 	gate := make(chan struct{})
 	fakeOf(s).SetGate(gate)
 	// The watch is on the list first: the chat does not exist until the send.
-	list, err := s.WatchList(t.Context())
+	list, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	collectChatSnapshot(t, list.Frames)
 	msg := send(t, s, nil, "1", "hi")
-	awaitFrame(t, list.Frames, func(f ChatWatchFrame) bool { return f.Type == DeltaFrameAdded && f.Chat.ID == msg.ChatID })
-	st, err := s.WatchMessages(t.Context(), msg.ChatID)
+	awaitFrame(t, list.Frames, func(f ChatCollectionWatchFrame) bool {
+		return f.Type == CollectionWatchFrameAdded && f.Chat.ID == msg.ChatID
+	})
+	st, err := s.WatchMessageCollection(t.Context(), msg.ChatID)
 	require.NoError(t, err)
 	// The first chunk may already be in the snapshot, or arrive as a Modified.
-	partial := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	partial := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == msg.ID && f.Message.Content != emptyContent
 	})
 	assert.Equal(t, StatusStreaming, partial.Message.Status)
 	close(gate)
 
-	done := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	done := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == msg.ID && !f.Message.Status.inFlight()
 	}).Message
 	assert.Equal(t, StatusComplete, done.Status)
@@ -2377,7 +2379,7 @@ func TestATurnOutlivesTheWatcherThatSawItStart(t *testing.T) {
 	fakeOf(s).SetGate(gate)
 	msg := send(t, s, nil, "1", "what is a pod?")
 	watchCtx, closeWatch := context.WithCancel(t.Context())
-	w, err := s.WatchMessages(watchCtx, msg.ChatID)
+	w, err := s.WatchMessageCollection(watchCtx, msg.ChatID)
 	require.NoError(t, err)
 	testutil.Recv(t, w.Frames, "the question")
 
@@ -2386,7 +2388,7 @@ func TestATurnOutlivesTheWatcherThatSawItStart(t *testing.T) {
 	close(gate)
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 
-	fresh, err := s.WatchMessages(t.Context(), msg.ChatID)
+	fresh, err := s.WatchMessageCollection(t.Context(), msg.ChatID)
 	require.NoError(t, err)
 	snapshot := collectSnapshot(t, fresh.Frames)
 	require.Len(t, snapshot, 2)
@@ -2403,15 +2405,15 @@ func TestTwoSubscribersBothSeeTheTurnSettle(t *testing.T) {
 	gate := make(chan struct{})
 	fakeOf(s).SetGate(gate)
 	msg := send(t, s, nil, "1", "what is a pod?")
-	first, err := s.WatchMessages(t.Context(), msg.ChatID)
+	first, err := s.WatchMessageCollection(t.Context(), msg.ChatID)
 	require.NoError(t, err)
-	second, err := s.WatchMessages(t.Context(), msg.ChatID)
+	second, err := s.WatchMessageCollection(t.Context(), msg.ChatID)
 	require.NoError(t, err)
 
 	close(gate)
 
-	for _, w := range []*Stream[ChatMessageWatchFrame]{first, second} {
-		settled := awaitFrame(t, w.Frames, func(f ChatMessageWatchFrame) bool {
+	for _, w := range []*Stream[ChatMessageCollectionWatchFrame]{first, second} {
+		settled := awaitFrame(t, w.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 			return f.Message != nil && f.Message.ID == msg.ID && f.Message.Status == StatusComplete
 		})
 		assert.Equal(t, marshalBlocks(llm.AnswerBlocks(fakeThought, fakeSentence)), settled.Message.Content)
@@ -2429,7 +2431,7 @@ func TestALateSubscriberSeesTheLiveText(t *testing.T) {
 	msg := send(t, s, nil, "1", "what is a pod?")
 	awaitLiveContent(t, s, msg.ChatID)
 
-	w, err := s.WatchMessages(t.Context(), msg.ChatID)
+	w, err := s.WatchMessageCollection(t.Context(), msg.ChatID)
 	require.NoError(t, err)
 	snapshot := collectSnapshot(t, w.Frames)
 
@@ -2449,14 +2451,14 @@ func TestAFinishedAnswerSendsNoStreamingFrameAfterIt(t *testing.T) {
 	gate := make(chan struct{})
 	fakeOf(s).SetGate(gate)
 	msg := send(t, s, nil, "1", "what is a pod?")
-	w, err := s.WatchMessages(t.Context(), msg.ChatID)
+	w, err := s.WatchMessageCollection(t.Context(), msg.ChatID)
 	require.NoError(t, err)
 	// The snapshot lands while the answer is held, so the settled row arrives as
 	// a delta and the Bookmark cannot trail it.
 	collectSnapshot(t, w.Frames)
 
 	close(gate)
-	awaitFrame(t, w.Frames, func(f ChatMessageWatchFrame) bool {
+	awaitFrame(t, w.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == msg.ID && f.Message.Status == StatusComplete
 	})
 
@@ -2634,7 +2636,7 @@ func TestTheSwitchIsWrittenAndWatched(t *testing.T) {
 	s.sandboxStatus = sandbox.Status{Available: true}
 	s.now = func() time.Time { return time.UnixMilli(5_000) }
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
-	w, err := s.WatchList(t.Context())
+	w, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	require.Len(t, collectChatSnapshot(t, w.Frames), 1)
 
@@ -2647,7 +2649,7 @@ func TestTheSwitchIsWrittenAndWatched(t *testing.T) {
 	assert.Equal(t, stored, switched)
 
 	f := testutil.Recv(t, w.Frames, "the switch")
-	assert.Equal(t, DeltaFrameModified, f.Type)
+	assert.Equal(t, CollectionWatchFrameModified, f.Type)
 	assert.True(t, f.Chat.SandboxDisabled)
 
 	back, err := s.SetSandboxDisabled(t.Context(), c.ID, false)
@@ -2733,7 +2735,7 @@ func TestTheNetworkSwitchIsTheChats(t *testing.T) {
 	created, _, err := s.Get(t.Context(), msg.ChatID)
 	require.NoError(t, err)
 	assert.False(t, created.NetworkEnabled)
-	w, err := s.WatchList(t.Context())
+	w, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	require.Len(t, collectChatSnapshot(t, w.Frames), 1)
 
@@ -2746,7 +2748,7 @@ func TestTheNetworkSwitchIsTheChats(t *testing.T) {
 	assert.Equal(t, stored, switched)
 
 	f := testutil.Recv(t, w.Frames, "the switch")
-	assert.Equal(t, DeltaFrameModified, f.Type)
+	assert.Equal(t, CollectionWatchFrameModified, f.Type)
 	assert.True(t, f.Chat.NetworkEnabled)
 
 	back, err := s.SetNetworkEnabled(t.Context(), msg.ChatID, false)
@@ -2798,7 +2800,7 @@ func TestLeavingTheSandboxTurnsNetworkOff(t *testing.T) {
 	first := sendAndSettle(t, s, nil, "1", "1", "hi")
 	_, err := s.SetNetworkEnabled(t.Context(), first.ChatID, true)
 	require.NoError(t, err)
-	w, err := s.WatchList(t.Context())
+	w, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	require.Len(t, collectChatSnapshot(t, w.Frames), 1)
 
@@ -2807,7 +2809,7 @@ func TestLeavingTheSandboxTurnsNetworkOff(t *testing.T) {
 	assert.True(t, outside.SandboxDisabled)
 	assert.False(t, outside.NetworkEnabled)
 	f := testutil.Recv(t, w.Frames, "the switch")
-	assert.Equal(t, DeltaFrameModified, f.Type)
+	assert.Equal(t, CollectionWatchFrameModified, f.Type)
 	assert.False(t, f.Chat.NetworkEnabled, "one frame carries both")
 
 	_, err = s.SetNetworkEnabled(t.Context(), first.ChatID, true)

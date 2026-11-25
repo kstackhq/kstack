@@ -106,9 +106,9 @@ func (s *Service) SetCatalog(id string, models []Model) {
 	s.tx.Send(s.providers) //nolint:errcheck // Send never blocks, and the hub is never closed
 }
 
-// Subscribe is a gauge of the providers: the current list, then the list after
+// WatchProvidersState is a state watch of the providers: the current list, then the list after
 // each SetCatalog.
-func (s *Service) Subscribe() (<-chan []Provider, func()) {
+func (s *Service) WatchProvidersState() (<-chan []Provider, func()) {
 	rx := s.hub.Receiver()
 	return rx.Chan(), rx.Close
 }

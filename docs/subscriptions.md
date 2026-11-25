@@ -70,7 +70,9 @@ Rules that apply to every kind:
 - **Notifications stay inside the sidecar.** Nothing on the wire tells a client to re-read.
 
 In the webview, an operation is named for its field, Pascal-cased (`ClusterCollectionWatch`),
-its document constant adds `Document`, and its hook is `use` plus the operation name.
+its document constant adds `Document`, and a hook that serves the operation alone is `use` plus
+the operation name. A provider's hook that joins, sorts or shapes what it folds is named for what
+it returns (`useClusters`, `useChats`).
 
 ## Choosing a kind
 
@@ -293,7 +295,8 @@ A notice that names something to re-read is a change notification, which cannot 
   starts from nothing. A cursor tail is the exception: it resumes from its cursor.
 - **The only ending that is part of a contract is a tail's `Ended`.**
 
-→ [ADR: delta-watch protocol](adr/2026-08-09-delta-watch-protocol.md),
+→ [ADR: name every subscription for its family and kind](adr/2026-11-25-name-every-subscription-for-its-family-and-kind.md),
+[ADR: delta-watch protocol](adr/2026-08-09-delta-watch-protocol.md),
 [ADR: watch failure reporting](adr/2026-08-14-watch-failure-reporting.md),
 [ADR: a series is a third kind of stream](adr/2026-11-02-a-series-is-a-third-kind-of-stream-and-the-pool-owns-its-clock.md).
 

@@ -148,12 +148,12 @@ func (db *DB) Notify(key string) {
 	_ = db.hub.Sender().Send(key, struct{}{})
 }
 
-// Subscribe returns a receiver of pings on any of keys, coalesced per key. Subscribe
+// ListenForChanges returns a receiver of pings on any of keys, coalesced per key. Listen
 // before the first read, or a commit between the two is missed. Close the receiver
 // when done; DB.Close ends every receiver.
-func (db *DB) Subscribe(keys ...string) *conflate.Receiver[string, struct{}] {
+func (db *DB) ListenForChanges(keys ...string) *conflate.Receiver[string, struct{}] {
 	if len(keys) == 0 {
-		panic("appdb: Subscribe with no keys")
+		panic("appdb: ListenForChanges with no keys")
 	}
 	return db.hub.Receiver(db.hub.WithKeyFilter(func(k string) bool { return slices.Contains(keys, k) }))
 }

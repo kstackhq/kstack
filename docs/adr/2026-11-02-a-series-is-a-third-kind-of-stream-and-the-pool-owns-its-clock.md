@@ -3,6 +3,8 @@ title: A series is a third kind of stream, and the pool owns its clock
 date: 2026-11-02
 scope: cross-cutting
 status: Accepted
+amended_by:
+  - [Name every subscription for its family and kind](2026-11-25-name-every-subscription-for-its-family-and-kind.md)
 ---
 
 # A series is a third kind of stream, and the pool owns its clock

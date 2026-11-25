@@ -127,17 +127,17 @@ func TestCachedKindsList(t *testing.T) {
 }
 
 // watchKinds opens the unscoped stream for the test's life.
-func watchKinds(t *testing.T, d deps) *Stream[ClusterCachedKindWatchFrame] {
+func watchKinds(t *testing.T, d deps) *Stream[ClusterCachedKindCollectionWatchFrame] {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	stream, err := serviceOver(t, d).CachedKinds().WatchList(ctx)
+	stream, err := serviceOver(t, d).CachedKinds().WatchCollection(ctx)
 	require.NoError(t, err)
 	return stream
 }
 
-func TestCachedKindsWatchListEmitsTheSnapshotThenABookmark(t *testing.T) {
+func TestCachedKindsWatchCollectionEmitsTheSnapshotThenABookmark(t *testing.T) {
 	d := newRunningDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
@@ -146,32 +146,32 @@ func TestCachedKindsWatchListEmitsTheSnapshotThenABookmark(t *testing.T) {
 	stream := watchKinds(t, d)
 
 	f := testutil.Recv(t, stream.Frames, "the snapshot frame")
-	require.Equal(t, DeltaFrameAdded, f.Type)
+	require.Equal(t, CollectionWatchFrameAdded, f.Type)
 	require.NotNil(t, f.Kind)
 	assert.Equal(t, "deployments", f.Kind.Spec.Resource)
 	assert.Equal(t, ObjectRef{ID: ObjectID(cache.ID), Kind: "ClusterCache"}, f.Kind.Owner)
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
 // A fleet with nothing discovered yet bookmarks an empty collection rather than holding
 // the snapshot back: the wait is the consumer's to render.
-func TestCachedKindsWatchListBookmarksAnEmptyCollection(t *testing.T) {
+func TestCachedKindsWatchCollectionBookmarksAnEmptyCollection(t *testing.T) {
 	stream := watchKinds(t, newRunningDeps(t))
 
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
 // A departure is a collected row, not the soft delete that precedes it — a prune marks the
 // record and that arrives as an ordinary Modified. The frame carries no owner, because
 // beehive loads no edges for a collected row and a frame that failed over that would kill
 // the stream and strand the record in the client's map.
-func TestCachedKindsWatchListReportsADeparture(t *testing.T) {
+func TestCachedKindsWatchCollectionReportsADeparture(t *testing.T) {
 	frames := pumpFrames(t, kindWatch, nil,
 		beehive.ObjectChange[ClusterCachedKindSpec, ClusterCachedKindStatus]{Type: beehive.Deleted, ID: 7, Object: nil},
 	)
 
 	require.Len(t, frames, 2)
-	assert.Equal(t, DeltaFrameDeleted, frames[1].Type)
+	assert.Equal(t, CollectionWatchFrameDeleted, frames[1].Type)
 	require.NotNil(t, frames[1].Kind)
 	assert.Equal(t, ClusterCachedKindID(7), frames[1].Kind.ID)
 }
@@ -183,7 +183,7 @@ func TestCachedKindsWatchListReportsADeparture(t *testing.T) {
 // The mark is not promised on its own. beehive folds a run of writes to one object into its
 // last op, so a prune collected before the tailer reads the mark arrives as the departure
 // alone. What every shape guarantees is the departure, which is what clears the id.
-func TestCachedKindsWatchListReportsAPruneAsAModifyUntilItIsCollected(t *testing.T) {
+func TestCachedKindsWatchCollectionReportsAPruneAsAModifyUntilItIsCollected(t *testing.T) {
 	// Sweeping far faster than production, because the departure is what ends the loop below
 	// and the default cadence outlasts the test's own failsafe.
 	d := newRunningDeps(t, beehive.WithGCInterval(10*time.Millisecond))
@@ -192,8 +192,8 @@ func TestCachedKindsWatchListReportsAPruneAsAModifyUntilItIsCollected(t *testing
 	obj := createKind(t, d, cache.ID, deploymentsSpec)
 
 	stream := watchKinds(t, d)
-	require.Equal(t, DeltaFrameAdded, testutil.Recv(t, stream.Frames, "the snapshot frame").Type)
-	require.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	require.Equal(t, CollectionWatchFrameAdded, testutil.Recv(t, stream.Frames, "the snapshot frame").Type)
+	require.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 
 	require.NoError(t, d.kindClient.Delete(context.Background(), obj.ID))
 
@@ -201,16 +201,16 @@ func TestCachedKindsWatchListReportsAPruneAsAModifyUntilItIsCollected(t *testing
 		f := testutil.Recv(t, stream.Frames, "the prune")
 		require.NotNil(t, f.Kind, "every frame of a prune names the id it is about")
 		assert.Equal(t, ClusterCachedKindID(obj.ID), f.Kind.ID)
-		if f.Type == DeltaFrameDeleted {
+		if f.Type == CollectionWatchFrameDeleted {
 			return
 		}
-		assert.Equal(t, DeltaFrameModified, f.Type)
+		assert.Equal(t, CollectionWatchFrameModified, f.Type)
 		assert.NotNil(t, f.Kind.DeletionRequestedAt, "the mark is all that tells a prune from a spec write")
 	}
 }
 
 // One record's own stream, for a consumer holding an id from a frame.
-func TestCachedKindsWatchStreamsOneRecord(t *testing.T) {
+func TestCachedKindsWatchCollectionByIDStreamsOneRecord(t *testing.T) {
 	d := newRunningDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
@@ -219,13 +219,13 @@ func TestCachedKindsWatchStreamsOneRecord(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	stream, err := serviceOver(t, d).CachedKinds().Watch(ctx, ClusterCachedKindID(obj.ID))
+	stream, err := serviceOver(t, d).CachedKinds().WatchCollectionByID(ctx, ClusterCachedKindID(obj.ID))
 	require.NoError(t, err)
 
 	f := testutil.Recv(t, stream.Frames, "the snapshot frame")
 	require.NotNil(t, f.Kind)
 	assert.Equal(t, "deployments", f.Kind.Spec.Resource, "the other kind is not this record")
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
 // Scoped to one cache: another cache's kinds must not reach this read.
@@ -252,7 +252,7 @@ func TestCachedKindsListByCacheWithNoKindsIsEmpty(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-func TestCachedKindsWatchByCache(t *testing.T) {
+func TestCachedKindsWatchCollectionByCache(t *testing.T) {
 	d := newRunningDeps(t)
 	cluster := createCluster(t, d, "prod")
 	one := createCache(t, d.cacheClient, cluster, "uid-1")
@@ -262,29 +262,29 @@ func TestCachedKindsWatchByCache(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	stream, err := serviceOver(t, d).CachedKinds().WatchByCache(ctx, ClusterCacheID(one.ID))
+	stream, err := serviceOver(t, d).CachedKinds().WatchCollectionByCache(ctx, ClusterCacheID(one.ID))
 	require.NoError(t, err)
 
 	f := testutil.Recv(t, stream.Frames, "the snapshot frame")
 	require.NotNil(t, f.Kind)
 	assert.Equal(t, "deployments", f.Kind.Spec.Resource, "the other cache's kinds are not on this stream")
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
 // A cache with no kinds yet bookmarks an empty collection: an unsynced cache is
 // definitively empty, not pending, and holding the bookmark back would render a populated
 // table as loading for as long as discovery takes.
-func TestCachedKindsWatchByCacheWithNoKindsBookmarksEmpty(t *testing.T) {
+func TestCachedKindsWatchCollectionByCacheWithNoKindsBookmarksEmpty(t *testing.T) {
 	d := newRunningDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	stream, err := serviceOver(t, d).CachedKinds().WatchByCache(ctx, ClusterCacheID(cache.ID))
+	stream, err := serviceOver(t, d).CachedKinds().WatchCollectionByCache(ctx, ClusterCacheID(cache.ID))
 	require.NoError(t, err)
 
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
 // clearKindRows is what both teardown paths go through, and it must reach exactly the
@@ -328,22 +328,22 @@ func TestClearKindRowsSkipsACacheWithNoFile(t *testing.T) {
 // A client subscribes on the frame announcing the cache, which is before any kind has been
 // discovered for it. That is a wait, not an empty collection: the bookmark closes a
 // snapshot of none, and the kinds are reported as they land.
-func TestCachedKindsWatchByCacheReportsKindsThatArriveLater(t *testing.T) {
+func TestCachedKindsWatchCollectionByCacheReportsKindsThatArriveLater(t *testing.T) {
 	d := newRunningDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	stream, err := serviceOver(t, d).CachedKinds().WatchByCache(ctx, ClusterCacheID(cache.ID))
+	stream, err := serviceOver(t, d).CachedKinds().WatchCollectionByCache(ctx, ClusterCacheID(cache.ID))
 	require.NoError(t, err)
-	require.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	require.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 
 	// Discovery, arriving after the subscription.
 	obj := createKind(t, d, cache.ID, deploymentsSpec)
 
 	got := testutil.Recv(t, stream.Frames, "the kind that landed after the snapshot")
-	assert.Equal(t, DeltaFrameAdded, got.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, got.Type)
 	require.NotNil(t, got.Kind)
 	assert.Equal(t, ClusterCachedKindID(obj.ID), got.Kind.ID)
 }
@@ -527,7 +527,7 @@ func TestKindPassLogsNothingBeforeItsWorkerAnswers(t *testing.T) {
 	assert.Empty(t, client.events)
 }
 
-// The pass writes no condition: the verdict is the gauge's, and a stored one would serve a
+// The pass writes no condition: the verdict is the state watch's, and a stored one would serve a
 // dead process's answer until the passes caught up.
 func TestKindPassWritesNoCondition(t *testing.T) {
 	d, cacheID, kind := oneCachedKind(t)
@@ -712,7 +712,7 @@ func TestProjectingAKindWhoseOwnerWasNotLoadedIsReported(t *testing.T) {
 
 	_, oneErr := toClusterCachedKind(unloaded)
 	_, manyErr := toClusterCachedKinds([]*beehive.Object[ClusterCachedKindSpec, ClusterCachedKindStatus]{unloaded})
-	_, frameErr := kindWatch.frame(DeltaFrameAdded, unloaded)
+	_, frameErr := kindWatch.frame(CollectionWatchFrameAdded, unloaded)
 	_, _, refErr := cachedKindsAPI{serviceOver(t, d)}.cacheIDForKind(unloaded)
 
 	assert.Error(t, oneErr)

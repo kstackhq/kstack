@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // The Cluster kind: a tracked kube-context. The record served to resolvers — its
-// clusters row joined with the runtime object beehive holds for it — its delta-watch
+// clusters row joined with the runtime object beehive holds for it — its collection watch
 // frame, the Clusters implementation, and the controller over the runtime object.
 // Mirrors the Cluster section of graph/schema.graphqls. The importer that inserts the
 // rows is in clustersources.go; the mirror that keeps an object per row is mirror.go.
@@ -222,9 +222,9 @@ func CacheIsActive(clusterObj *beehive.Object[ClusterRuntimeSpec, ClusterStatus]
 // conditions of the runtime object beehive holds for it, which the mirror creates
 // after the row. A row without an object yet has zero status and no conditions.
 // Owned ClusterCache records are not joined in here — they stream standalone via
-// Caches().Watch, so cache churn never re-emits a cluster. Nor is the next-reconcile
-// time: a scheduling change fires no watch, so it is a gauge on
-// Clusters().WatchSchedule instead.
+// Caches().WatchCollection, so cache churn never re-emits a cluster. Nor is the
+// next-reconcile time: a scheduling change fires no watch, so it is a state watch on
+// Clusters().WatchScheduleState instead.
 type Cluster struct {
 	ID                  ClusterID
 	CreatedAt           time.Time
@@ -250,12 +250,12 @@ func clusterIDOf(obj *beehive.Object[ClusterRuntimeSpec, ClusterStatus]) Cluster
 	return ClusterID(obj.Name)
 }
 
-// ClusterWatchFrame is one frame on the cluster list watch: what happened (Type) to
+// ClusterCollectionWatchFrame is one frame on the cluster list watch: what happened (Type) to
 // which cluster (Cluster), or the Bookmark closing the snapshot, which carries no
 // cluster. On a Deleted change Cluster holds the last-known state; consumers key on
-// Cluster.ID. Binds 1:1 to the GraphQL ClusterWatchFrame.
-type ClusterWatchFrame struct {
-	Type    DeltaFrameType
+// Cluster.ID. Binds 1:1 to the GraphQL ClusterCollectionWatchFrame.
+type ClusterCollectionWatchFrame struct {
+	Type    CollectionWatchFrameType
 	Cluster *Cluster
 }
 
@@ -435,14 +435,14 @@ func (a clustersAPI) List(ctx context.Context) ([]*Cluster, error) {
 	return a.s.readClusters(ctx)
 }
 
-// Watch is the list watch filtered to one id: a record that does not exist yet has
+// WatchCollectionByID is the list watch filtered to one id: a record that does not exist yet has
 // nothing to watch on its own, and the same stream reports it arriving.
-func (a clustersAPI) Watch(ctx context.Context, id ClusterID) (*Stream[ClusterWatchFrame], error) {
-	list, err := a.WatchList(ctx)
+func (a clustersAPI) WatchCollectionByID(ctx context.Context, id ClusterID) (*Stream[ClusterCollectionWatchFrame], error) {
+	list, err := a.WatchCollection(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return NewStream(ctx, func(ctx context.Context, out chan<- ClusterWatchFrame) error {
+	return NewStream(ctx, func(ctx context.Context, out chan<- ClusterCollectionWatchFrame) error {
 		for frame := range list.Frames {
 			if frame.Cluster != nil && frame.Cluster.ID != id {
 				continue
@@ -455,7 +455,7 @@ func (a clustersAPI) Watch(ctx context.Context, id ClusterID) (*Stream[ClusterWa
 	}), nil
 }
 
-// WatchList rereads and diffs on two signals, because the record has two sources: a
+// WatchCollection rereads and diffs on two signals, because the record has two sources: a
 // rename moves a row and no object, a probe moves an object and no row, and a watcher
 // needs both. Both subscriptions are taken before the first read, so a change landing
 // between the two is reported rather than dropped. The reread is tens of rows per
@@ -465,20 +465,22 @@ func (a clustersAPI) Watch(ctx context.Context, id ClusterID) (*Stream[ClusterWa
 // Only the Deleted is promised for a record the watcher has seen: a mark and a removal
 // landing before one reread surface as the Deleted alone, and a row created and
 // removed between two reads produces no frame.
-func (a clustersAPI) WatchList(ctx context.Context) (*Stream[ClusterWatchFrame], error) {
-	rows := a.s.db.Subscribe(appdb.KeyClusters)
+func (a clustersAPI) WatchCollection(ctx context.Context) (*Stream[ClusterCollectionWatchFrame], error) {
+	rows := a.s.db.ListenForChanges(appdb.KeyClusters)
 	objs, err := a.s.clusterClient.WatchList(ctx)
 	if err != nil {
 		rows.Close()
 		return nil, fmt.Errorf("watch cluster runtime objects: %w", err)
 	}
 
-	return NewStream(ctx, func(ctx context.Context, out chan<- ClusterWatchFrame) error {
+	return NewStream(ctx, func(ctx context.Context, out chan<- ClusterCollectionWatchFrame) error {
 		defer rows.Close()
 		fold := deltafold.New(
 			func(c *Cluster) ClusterID { return c.ID },
 			clustersEqual,
-			func(t DeltaFrameType, c *Cluster) ClusterWatchFrame { return ClusterWatchFrame{Type: t, Cluster: c} },
+			func(t CollectionWatchFrameType, c *Cluster) ClusterCollectionWatchFrame {
+				return ClusterCollectionWatchFrame{Type: t, Cluster: c}
+			},
 		)
 		clusters, err := a.s.readClusters(ctx)
 		if err != nil {
@@ -520,7 +522,7 @@ func clustersEqual(a, b *Cluster) bool {
 	return errA == nil && errB == nil && bytes.Equal(ab, bb)
 }
 
-// WatchSchedule streams when the cluster's context is next dialed: the current value,
+// WatchScheduleState streams when the cluster's context is next dialed: the current value,
 // then a new one on every pass.
 //
 // The cadence is the pool's, never beehive's. A cluster reconcile is not requeued to
@@ -531,7 +533,7 @@ func clustersEqual(a, b *Cluster) bool {
 // The claim is this stream's own, released when ctx ends. It is refcounted alongside the
 // one clusterController holds, so watching costs no extra dial; a record the connection
 // surface refuses has no cadence to report and errors here.
-func (a clustersAPI) WatchSchedule(ctx context.Context, id ClusterID) (<-chan Schedule, error) {
+func (a clustersAPI) WatchScheduleState(ctx context.Context, id ClusterID) (<-chan Schedule, error) {
 	lease, err := a.s.AcquireConnection(ctx, id)
 	if err != nil {
 		return nil, err
@@ -551,7 +553,7 @@ func (a clustersAPI) WatchSchedule(ctx context.Context, id ClusterID) (<-chan Sc
 		st := lease.State()
 		for {
 			sched := clusterSchedule(st)
-			// A gauge says nothing before its first measurement: the zero schedule of a
+			// A state watch says nothing before its first measurement: the zero schedule of a
 			// claim whose first pass has not landed is not "nothing is scheduled".
 			if sent || sched.NextRequeueAt != nil || sched.Probing {
 				if !sendFrame(ctx, out, sched) {
@@ -574,7 +576,7 @@ func (a clustersAPI) WatchSchedule(ctx context.Context, id ClusterID) (<-chan Sc
 	return out, nil
 }
 
-// clusterSchedule projects the connection probe's cadence into the gauge.
+// clusterSchedule projects the connection probe's cadence into the state watch.
 //
 // The connection alone, of the five: this is what "when do we next try to reach this
 // cluster" means, and it is the only one a caller can act on — a retry re-dials. The

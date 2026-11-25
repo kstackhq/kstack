@@ -307,7 +307,7 @@ pub fn run() {
             tauri::async_runtime::spawn(watch);
 
             #[cfg(any(target_os = "macos", windows))]
-            crate::updater::platform::spawn_watch(app.handle(), rebuild_tray_menu);
+            crate::updater::platform::spawn_update_checker(app.handle(), rebuild_tray_menu);
 
             // Poke the sidecar on OS wake / network-return; see
             // docs/adr/2026-08-09-poke-resync-fanout.md.

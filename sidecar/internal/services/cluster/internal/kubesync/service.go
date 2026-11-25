@@ -77,11 +77,11 @@ type KindKey struct {
 	kubestore.Kind
 }
 
-// DiscoveryNews is keyed by cache id, the whole address of the record it wakes.
-type DiscoveryNews = *conflate.Receiver[int64, struct{}]
+// DiscoveryChangeNotifications is keyed by cache id, the whole address of the record it wakes.
+type DiscoveryChangeNotifications = *conflate.Receiver[int64, struct{}]
 
-// KindNews is keyed by KindKey, which is the whole address of one kind's record.
-type KindNews = *conflate.Receiver[KindKey, struct{}]
+// KindChangeNotifications is keyed by KindKey, which is the whole address of one kind's record.
+type KindChangeNotifications = *conflate.Receiver[KindKey, struct{}]
 
 // kindID is what a kind is looked up by: the pair the server guarantees unique per
 // group-version. The singular is data, not identity — a Kind renamed under an unchanged
@@ -555,12 +555,14 @@ func kindStateOf(snap supervisor.Snapshot, stamps kindStamps) (KindState, bool) 
 	return state, true
 }
 
-// WatchDiscoveryNews carries the caches whose sweep has something new to say. Close it
+// ListenForDiscoveryChanges carries the caches whose sweep has something new to say. Close it
 // when done.
-func (s *Service) WatchDiscoveryNews() DiscoveryNews { return s.discoveryHub.Receiver() }
+func (s *Service) ListenForDiscoveryChanges() DiscoveryChangeNotifications {
+	return s.discoveryHub.Receiver()
+}
 
-// WatchKindNews carries the kinds with something new to say. Close it when done.
-func (s *Service) WatchKindNews() KindNews { return s.kindHub.Receiver() }
+// ListenForKindChanges carries the kinds with something new to say. Close it when done.
+func (s *Service) ListenForKindChanges() KindChangeNotifications { return s.kindHub.Receiver() }
 
 // Start runs the two supervisors, and returns the func that cancels every run and drains
 // everything. No cache is armed here: one is armed when a pass tracks it, which may be before
@@ -699,7 +701,7 @@ func (s *Service) arm(cacheID int64, p Params) {
 const maxStoreFailureMessage = 200
 
 // capStoreFailure bounds a message at birth, as safe.Safe renders it there. Both paths out
-// of here — the gauge and the event run cluster writes from it — carry the message
+// of here — the state watch and the event run cluster writes from it — carry the message
 // unchanged, so doing either at a boundary would fix one and leave the other.
 func capStoreFailure(msg string) string {
 	if len(msg) <= maxStoreFailureMessage {

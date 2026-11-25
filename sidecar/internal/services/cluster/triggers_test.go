@@ -91,7 +91,7 @@ func TestTriggerStopLeavesTheKubeconfigServiceOpen(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, stop(context.Background()))
 
-	sub := d.kubeconfigSvc.Subscribe()
+	sub := d.kubeconfigSvc.WatchConfigState()
 	defer sub.Close()
 	testutil.Recv(t, sub.Chan(), "the current config from a service still open")
 }
@@ -114,7 +114,7 @@ func TestTriggerForwardsTheNameItsMapperBuilds(t *testing.T) {
 	closed := testutil.NewSignal()
 
 	tr := newTrigger(
-		func() feed[string] { return stringFeed{ch: ch, closed: closed} },
+		func() changeSource[string] { return stringFeed{ch: ch, closed: closed} },
 		always(func(v string) string { return "mapped/" + v }),
 	)
 	startTrigger(t, tr)
@@ -127,7 +127,7 @@ func TestTriggerForwardsTheNameItsMapperBuilds(t *testing.T) {
 func TestTriggerSkipsAValueThatNamesNoRecord(t *testing.T) {
 	ch := make(chan string, 2)
 	tr := newTrigger(
-		func() feed[string] { return stringFeed{ch: ch, closed: testutil.NewSignal()} },
+		func() changeSource[string] { return stringFeed{ch: ch, closed: testutil.NewSignal()} },
 		func(v string) (string, bool) { return "mapped/" + v, v != "unknown" },
 	)
 	startTrigger(t, tr)
@@ -141,7 +141,7 @@ func TestTriggerSkipsAValueThatNamesNoRecord(t *testing.T) {
 func TestTriggerStopEndsAnUnreadWake(t *testing.T) {
 	ch := make(chan string)
 	tr := newTrigger(
-		func() feed[string] { return stringFeed{ch: ch, closed: testutil.NewSignal()} },
+		func() changeSource[string] { return stringFeed{ch: ch, closed: testutil.NewSignal()} },
 		always(func(v string) string { return v }),
 	)
 	stop, err := tr.Start(context.Background())
@@ -157,7 +157,7 @@ func TestTriggerStopEndsAnUnreadWake(t *testing.T) {
 func TestTriggerReleasesItsFeedOnExit(t *testing.T) {
 	closed := testutil.NewSignal()
 	tr := newTrigger(
-		func() feed[string] { return stringFeed{ch: make(chan string), closed: closed} },
+		func() changeSource[string] { return stringFeed{ch: make(chan string), closed: closed} },
 		always(func(v string) string { return v }),
 	)
 	stop, err := tr.Start(context.Background())
@@ -231,7 +231,7 @@ func TestKubesyncDiscoveryTriggerWakesTheCacheThatMoved(t *testing.T) {
 	tr := newKubesyncDiscoveryTrigger(sync)
 	startTrigger(t, tr)
 
-	sync.publishDiscoveryNews(7)
+	sync.publishDiscoveryChange(7)
 
 	assert.Equal(t, beehive.ObjectID(7), testutil.Recv(t, tr.Wakes(), "the cache's poke"))
 }
@@ -243,7 +243,7 @@ func TestKubesyncKindTriggerNamesTheKindsRecord(t *testing.T) {
 	tr := newKubesyncKindTrigger(sync)
 	startTrigger(t, tr)
 
-	sync.publishKindNews(kubesync.KindKey{
+	sync.publishKindChange(kubesync.KindKey{
 		CacheID: 7,
 		Kind:    kubestore.Kind{APIVersion: "apps/v1", Kind: "Deployment", Resource: "deployments"},
 	})
@@ -259,7 +259,7 @@ func TestKubestoreSizeLimitTriggerWakesTheCacheThatMoved(t *testing.T) {
 	tr := newKubestoreSizeLimitTrigger(store)
 	startTrigger(t, tr)
 
-	store.publishSizeLimitNews(7)
+	store.publishSizeLimitChange(7)
 
 	assert.Equal(t, beehive.ObjectID(7), testutil.Recv(t, tr.Wakes(), "the cache's poke"))
 }

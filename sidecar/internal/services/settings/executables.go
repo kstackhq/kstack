@@ -22,8 +22,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/amorey/gobus/conflate"
-
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 )
 
@@ -143,8 +141,8 @@ func (s *Store) RemoveExecutable(ctx context.Context, name string) error {
 	})
 }
 
-// WatchExecutables pings after each register or remove commits. Watch before
-// the first read.
-func (s *Store) WatchExecutables() *conflate.Receiver[string, struct{}] {
-	return s.db.Subscribe(appdb.KeyExecutables)
+// ListenForExecutableChanges notifies after each register or remove commits. Listen
+// before the first read.
+func (s *Store) ListenForExecutableChanges() ChangeNotifications {
+	return s.db.ListenForChanges(appdb.KeyExecutables)
 }

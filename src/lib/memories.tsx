@@ -12,21 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// What one cluster's chats remember: its own memories and every cluster's, a delta
+// What one cluster's chats remember: its own memories and every cluster's, a collection
 // watch folded into an id-keyed map. Stored records with no cache behind them, like
 // the chats, so there is no provenance to guard.
 import { useMemo } from 'react';
 
 import { graphql } from '@/gql';
-import type { MemoriesWatchSubscription } from '@/gql/graphql';
-import { fold } from '@/lib/chats';
-import type { Folded } from '@/lib/chats';
-import { useWatchSubscription, watchPhase } from '@/lib/graphql/use-watch-subscription';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { MemoryCollectionWatchSubscription } from '@/gql/graphql';
+import { collectionWatchReducer } from '@/lib/graphql/collection-watch';
+import type { CollectionState } from '@/lib/graphql/collection-watch';
+import { useFoldedSubscription, subscriptionPhase } from '@/lib/graphql/use-folded-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 
-const MemoriesWatchSubscription = graphql(`
-  subscription MemoriesWatch($clusterID: ClusterID!) {
-    memoriesWatch(clusterID: $clusterID) {
+const MemoryCollectionWatchDocument = graphql(`
+  subscription MemoryCollectionWatch($clusterID: ClusterID!) {
+    memoryCollectionWatch(clusterID: $clusterID) {
       type
       memory {
         id
@@ -40,13 +40,17 @@ const MemoriesWatchSubscription = graphql(`
   }
 `);
 
-export type Memory = NonNullable<MemoriesWatchSubscription['memoriesWatch']['memory']>;
+export type Memory = NonNullable<MemoryCollectionWatchSubscription['memoryCollectionWatch']['memory']>;
 
 function clusterFirstByName(a: Memory, b: Memory): number {
   return Number(a.clusterID === null) - Number(b.clusterID === null) || a.name.localeCompare(b.name);
 }
 
-type MemoriesState = Folded<Memory> & { lastSaved?: Memory };
+type MemoriesState = CollectionState<Memory> & { lastSaved?: Memory };
+
+const reduceMemories = collectionWatchReducer(
+  ({ memoryCollectionWatch: { type, memory } }: MemoryCollectionWatchSubscription) => ({ type, item: memory }),
+);
 
 /**
  * What `clusterID`'s chats see: its own memories, then every cluster's, each by
@@ -59,21 +63,20 @@ type MemoriesState = Folded<Memory> & { lastSaved?: Memory };
 export function useMemories(clusterID: string | undefined): {
   memories: Memory[];
   lastSaved: Memory | undefined;
-  phase: WatchPhase;
+  phase: SubscriptionPhase;
 } {
   // `unshared`: the omnibox's button and the dialog both watch, and the dialog
   // mounts into a stream already running.
-  const { data, connected } = useWatchSubscription(
-    { query: MemoriesWatchSubscription, variables: { clusterID: clusterID ?? '' }, pause: !clusterID },
+  const { data, connected } = useFoldedSubscription(
+    { query: MemoryCollectionWatchDocument, variables: { clusterID: clusterID ?? '' }, pause: !clusterID },
     (prev: MemoriesState | undefined, frames) => {
-      const changes = frames.map(({ memoriesWatch: { type, memory } }) => ({ type, entity: memory }));
-      let synced = prev?.synced ?? false;
-      let lastSaved = prev?.lastSaved;
-      changes.forEach(({ type, entity }) => {
-        if (type === 'Bookmark') synced = true;
-        else if (synced && entity && type !== 'Deleted') lastSaved = entity;
+      let { lastSaved } = prev ?? {};
+      let snapshotComplete = prev?.snapshotComplete ?? false;
+      frames.forEach(({ memoryCollectionWatch: { type, memory } }) => {
+        if (type === 'Bookmark') snapshotComplete = true;
+        else if (snapshotComplete && memory && type !== 'Deleted') lastSaved = memory;
       });
-      return { ...fold(prev, changes), lastSaved };
+      return { ...reduceMemories(prev, frames), lastSaved };
     },
     { unshared: true },
   );
@@ -81,5 +84,5 @@ export function useMemories(clusterID: string | undefined): {
   const items = data?.items;
   const memories = useMemo(() => [...(items?.values() ?? [])].toSorted(clusterFirstByName), [items]);
 
-  return { memories, lastSaved: data?.lastSaved, phase: watchPhase(!!data?.synced, connected) };
+  return { memories, lastSaved: data?.lastSaved, phase: subscriptionPhase(!!data?.snapshotComplete, connected) };
 }

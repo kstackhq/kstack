@@ -7,41 +7,41 @@ import (
 	"github.com/99designs/gqlgen/graphql"
 )
 
-// watchFailure is one operation's terminal-reason slot.
-type watchFailure struct{ err atomic.Pointer[error] }
+// subscriptionFailure is one operation's terminal-reason slot.
+type subscriptionFailure struct{ err atomic.Pointer[error] }
 
-type watchFailureKey struct{}
+type subscriptionFailureKey struct{}
 
-// watchFailedExtension marks the terminal frame on the wire. The client keys on it
+// subscriptionFailedExtension marks the terminal frame on the wire. The client keys on it
 // to tell a dead watch from a live frame whose field errored; keep it in step with
 // src/lib/graphql/subscribe-exchange.ts.
-const watchFailedExtension = "watchFailed"
+const subscriptionFailedExtension = "subscriptionFailed"
 
-// watchStream is ptrStream over a failable watch: the same pointer mapping, plus the
+// subscriptionStream is ptrSubscription over a failable watch: the same pointer mapping, plus the
 // source's terminal reason filed where InterceptResponse will find it. Every resolver
-// over a watch with an Err must go through here — a bare ptrStream would drop the
+// over a watch with an Err must go through here — a bare ptrSubscription would drop the
 // reason and the failure would reach the client as a graceful end.
 //
-// The reason is filed from mapStream's teardown hook, which runs before the returned
+// The reason is filed from mapSubscription's teardown hook, which runs before the returned
 // channel closes; that ordering is the contract, since it is the close that sends
 // gqlgen looking for it.
-func watchStream[T any](ctx context.Context, frames <-chan T, err func() error) <-chan *T {
-	return mapStream(ctx, frames, func() { recordWatchFailure(ctx, err()) }, func(v T) *T { return &v })
+func subscriptionStream[T any](ctx context.Context, frames <-chan T, err func() error) <-chan *T {
+	return mapSubscription(ctx, frames, func() { recordSubscriptionFailure(ctx, err()) }, func(v T) *T { return &v })
 }
 
-// recordWatchFailure files err against the running operation, keeping the FIRST one:
+// recordSubscriptionFailure files err against the running operation, keeping the FIRST one:
 // a document may open several watches, and the one that died first explains the rest.
 // A nil err (clean teardown, cancelled ctx) is not a failure and files nothing.
-func recordWatchFailure(ctx context.Context, err error) {
+func recordSubscriptionFailure(ctx context.Context, err error) {
 	if err == nil {
 		return
 	}
-	if f, ok := ctx.Value(watchFailureKey{}).(*watchFailure); ok {
+	if f, ok := ctx.Value(subscriptionFailureKey{}).(*subscriptionFailure); ok {
 		f.err.CompareAndSwap(nil, &err)
 	}
 }
 
-// WatchFailureExtension turns a subscription whose source died into a GraphQL error
+// SubscriptionFailureExtension turns a subscription whose source died into a GraphQL error
 // on the wire. Without it a broken watch is indistinguishable from a graceful end —
 // the stream closes either way and the webview reconnects silently, so a permanently
 // broken watch is an invisible retry loop with nothing shown to the user.
@@ -52,30 +52,30 @@ func recordWatchFailure(ctx context.Context, err error) {
 // hangs the slot on the operation ctx — which gqlgen threads into both the resolvers
 // and every later frame — and InterceptResponse claims it once the stream is spent,
 // emitting one final errors-only response ahead of the transport's completion.
-type WatchFailureExtension struct{}
+type SubscriptionFailureExtension struct{}
 
 // gqlgen dispatches these two by runtime type switch, so a signature drift would
 // silently degrade the extension to a no-op rather than fail the build.
 var (
-	_ graphql.OperationInterceptor = WatchFailureExtension{}
-	_ graphql.ResponseInterceptor  = WatchFailureExtension{}
+	_ graphql.OperationInterceptor = SubscriptionFailureExtension{}
+	_ graphql.ResponseInterceptor  = SubscriptionFailureExtension{}
 )
 
-func (WatchFailureExtension) ExtensionName() string { return "WatchFailure" }
+func (SubscriptionFailureExtension) ExtensionName() string { return "SubscriptionFailure" }
 
-func (WatchFailureExtension) Validate(graphql.ExecutableSchema) error { return nil }
+func (SubscriptionFailureExtension) Validate(graphql.ExecutableSchema) error { return nil }
 
-func (WatchFailureExtension) InterceptOperation(ctx context.Context, next graphql.OperationHandler) graphql.ResponseHandler {
-	return next(context.WithValue(ctx, watchFailureKey{}, &watchFailure{}))
+func (SubscriptionFailureExtension) InterceptOperation(ctx context.Context, next graphql.OperationHandler) graphql.ResponseHandler {
+	return next(context.WithValue(ctx, subscriptionFailureKey{}, &subscriptionFailure{}))
 }
 
-func (WatchFailureExtension) InterceptResponse(ctx context.Context, next graphql.ResponseHandler) *graphql.Response {
+func (SubscriptionFailureExtension) InterceptResponse(ctx context.Context, next graphql.ResponseHandler) *graphql.Response {
 	if resp := next(ctx); resp != nil {
 		return resp
 	}
 	// nil means the stream is over. Queries and mutations reach here too, having
 	// filed nothing, and fall straight through.
-	f, ok := ctx.Value(watchFailureKey{}).(*watchFailure)
+	f, ok := ctx.Value(subscriptionFailureKey{}).(*subscriptionFailure)
 	if !ok {
 		return nil
 	}
@@ -94,6 +94,6 @@ func (WatchFailureExtension) InterceptResponse(ctx context.Context, next graphql
 	// ordinary frame carrying a field error looks identical.
 	return &graphql.Response{
 		Errors:     graphql.GetErrors(ctx),
-		Extensions: map[string]any{watchFailedExtension: true},
+		Extensions: map[string]any{subscriptionFailedExtension: true},
 	}
 }

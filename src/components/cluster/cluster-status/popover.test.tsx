@@ -18,10 +18,10 @@ import { Provider as UrqlProvider } from 'urql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Cluster } from '@/lib/clusters';
-import { clusterRecord, flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
+import { clusterRecord, flushSubscriptionsSynchronously, mockTauriCore } from '@/test-utils';
 
 // Frames pushed here are asserted on immediately.
-flushWatchesSynchronously();
+flushSubscriptionsSynchronously();
 
 const { invokeMock, channels, channelFor, factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
@@ -76,7 +76,7 @@ function push(field: string, data: unknown) {
 }
 
 function pushSchedule(nextRequeueAt: string | null, probing = false, failures = 0) {
-  push('clusterScheduleWatch', { nextRequeueAt, probing, failures });
+  push('clusterScheduleStateWatch', { nextRequeueAt, probing, failures });
 }
 
 const rate = (received: number, sent: number) => ({
@@ -150,7 +150,7 @@ describe('ClusterStatusPopover', () => {
     const queries = invokeMock.mock.calls
       .filter(([cmd]) => cmd === 'graphql_subscribe')
       .map(([, arg]) => (arg as { query: string }).query);
-    expect(queries.some((q) => q.includes('eventsWatch'))).toBe(false);
+    expect(queries.some((q) => q.includes('objectEventFeed'))).toBe(false);
   });
 
   it('marks a stale sync verdict as needing attention', async () => {
@@ -351,7 +351,7 @@ describe('ClusterStatusPopover', () => {
 
     await user.click(within(popup).getByRole('button', { name: 'Reconnect' }));
     expect(retryCalls()).toHaveLength(1);
-    // The probe the press asked for shows on the gauge too; the press's own words win.
+    // The probe the press asked for shows on the state watch too; the press's own words win.
     act(() => pushSchedule(null, true));
     expect(within(popup).getByRole('button', { name: 'Reconnecting…' })).toBeDisabled();
 
@@ -546,7 +546,11 @@ describe('ClusterStatusPopover', () => {
     expect(download()).toHaveTextContent('—');
 
     await act(async () =>
-      push('clusterDataRateWatch', { intervalSeconds: 2, windowSeconds: 120, samples: [rate(512, 64), rate(2048, 0)] }),
+      push('clusterDataRateTimeSeriesFeed', {
+        intervalSeconds: 2,
+        windowSeconds: 120,
+        samples: [rate(512, 64), rate(2048, 0)],
+      }),
     );
     expect(download()).toHaveTextContent('2.0 KB/s');
     // The download alone: the sent rate has no label here to explain a second line.
@@ -558,7 +562,7 @@ describe('ClusterStatusPopover', () => {
     // Past a minute, still in seconds.
     const at = new Date(Date.now() - 95_000).toISOString();
     await act(async () =>
-      push('clusterDataRateWatch', {
+      push('clusterDataRateTimeSeriesFeed', {
         intervalSeconds: 2,
         windowSeconds: 4,
         samples: [{ ...rate(1024, 0), at }, rate(2048, 0)],
@@ -584,7 +588,7 @@ describe('ClusterStatusPopover', () => {
     expect(stat('Last event')).toHaveTextContent(/^\ds ago$/);
 
     await act(async () =>
-      push('clusterCacheStatsWatch', {
+      push('clusterCacheStatsStateWatch', {
         exists: true,
         bytes: 0,
         dbBytes: 0,
@@ -607,7 +611,7 @@ describe('ClusterStatusPopover', () => {
     const queries = invokeMock.mock.calls
       .filter(([cmd]) => cmd === 'graphql_subscribe')
       .map(([, arg]) => (arg as { query: string }).query);
-    expect(queries.some((q) => q.includes('clusterCacheStatsWatch'))).toBe(false);
+    expect(queries.some((q) => q.includes('clusterCacheStatsStateWatch'))).toBe(false);
   });
 
   it('gives a cache with no write yet no last event', async () => {

@@ -14,21 +14,20 @@
 
 // The active cluster's cached Kubernetes Events (the synced `events.k8s.io`/core Event
 // rows, not kstack's own control-plane `Event` timeline) as a live list.
-// `clusterCachedDataEventsWatch` is a per-cache delta watch (a re-firing event bumps
-// count/lastSeen → `Modified`). Reduced via `useCacheDeltaWatch`, keyed by `uid` with
-// cacheID provenance so two caches' events never mix —
-// see docs/adr/2026-08-09-delta-watch-protocol.md
+// `clusterCachedDataEventCollectionWatch` is a per-cache collection watch (a re-firing
+// event bumps count/lastSeen → `Modified`). Reduced via `useCacheCollectionWatch`, keyed
+// by `uid` with cacheID provenance so two caches' events never mix.
 import { useMemo } from 'react';
 
 import { graphql } from '@/gql';
-import type { ClusterCachedDataEventsWatchSubscription as ClusterCachedDataEventsWatchSubscriptionType } from '@/gql/graphql';
+import type { ClusterCachedDataEventCollectionWatchSubscription } from '@/gql/graphql';
 import { useActiveCluster } from '@/lib/active-cluster';
-import { useCacheDeltaWatch, joinProvenance } from '@/lib/graphql/use-cache-delta-watch';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import { useCacheCollectionWatch, joinProvenance } from '@/lib/graphql/use-cache-collection-watch';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 
-const ClusterCachedDataEventsWatchSubscription = graphql(`
-  subscription ClusterCachedDataEventsWatch($id: ClusterID!, $cacheID: ObjectID!) {
-    clusterCachedDataEventsWatch(id: $id, cacheID: $cacheID) {
+const ClusterCachedDataEventCollectionWatchDocument = graphql(`
+  subscription ClusterCachedDataEventCollectionWatch($id: ClusterID!, $cacheID: ObjectID!) {
+    clusterCachedDataEventCollectionWatch(id: $id, cacheID: $cacheID) {
       type
       cacheID
       event {
@@ -49,7 +48,7 @@ const ClusterCachedDataEventsWatchSubscription = graphql(`
 
 // One cached event (the `event` payload of a change), as the table renders it.
 export type ClusterCachedDataEvent = NonNullable<
-  ClusterCachedDataEventsWatchSubscriptionType['clusterCachedDataEventsWatch']['event']
+  ClusterCachedDataEventCollectionWatchSubscription['clusterCachedDataEventCollectionWatch']['event']
 >;
 
 // The active context's cached events, newest first (by lastSeen), live. Paused
@@ -59,20 +58,23 @@ export type ClusterCachedDataEvent = NonNullable<
 export function useClusterCachedDataEvents({ unshared = false }: { unshared?: boolean } = {}): {
   events: ClusterCachedDataEvent[];
   active: boolean;
-  phase: WatchPhase;
+  phase: SubscriptionPhase;
 } {
   const { clusterID, cacheID, active } = useActiveCluster();
 
-  const { items, phase } = useCacheDeltaWatch<ClusterCachedDataEventsWatchSubscriptionType, ClusterCachedDataEvent>(
+  const { items, phase } = useCacheCollectionWatch<
+    ClusterCachedDataEventCollectionWatchSubscription,
+    ClusterCachedDataEvent
+  >(
     {
-      query: ClusterCachedDataEventsWatchSubscription,
+      query: ClusterCachedDataEventCollectionWatchDocument,
       variables: { id: clusterID ?? '', cacheID: cacheID ?? '' },
       pause: !active,
     },
     {
       select: (d) => {
-        const f = d.clusterCachedDataEventsWatch;
-        return { type: f.type, entity: f.event, provenance: joinProvenance(f.cacheID) };
+        const f = d.clusterCachedDataEventCollectionWatch;
+        return { type: f.type, item: f.event, provenance: joinProvenance(f.cacheID) };
       },
       keyOf: (e) => e.uid,
       currentProvenance: joinProvenance(cacheID ?? ''),

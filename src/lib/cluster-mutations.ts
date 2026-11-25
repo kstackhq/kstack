@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // The writes to one cluster that more than one view makes: the Clusters dialog
-// and Settings' Clusters tab. Each answers through `clustersWatch`, which is
+// and Settings' Clusters tab. Each answers through `clusterCollectionWatch`, which is
 // what a view draws; neither reads the mutation's own answer.
 import { graphql } from '@/gql';
 

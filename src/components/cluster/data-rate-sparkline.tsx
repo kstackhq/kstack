@@ -14,8 +14,8 @@
 
 import { type PointerEvent, type ReactNode, useState } from 'react';
 
-import { seriesSlots } from '@/lib/graphql/use-watch-subscription';
-import type { SeriesFrame } from '@/lib/graphql/use-watch-subscription';
+import { timeSeriesFeedSlots } from '@/lib/graphql/time-series-feed';
+import type { TimeSeriesFeedFrame } from '@/lib/graphql/time-series-feed';
 
 // The viewBox. The SVG stretches it to the row, and the strokes keep their width.
 export const SPARK_W = 120;
@@ -81,7 +81,7 @@ export function DataRateSparkline<S extends Rate>({
   tooltip,
   className = 'ml-2 inline-block h-4 w-24 align-middle',
 }: {
-  series: SeriesFrame<S>;
+  series: TimeSeriesFeedFrame<S>;
   receivedOnly?: boolean;
   scale?: 'linear' | 'sqrt';
   tooltip?: (sample: S) => ReactNode;
@@ -95,7 +95,7 @@ export function DataRateSparkline<S extends Rate>({
 
   const received = (s: Rate) => s.receivedBytesPerSecond;
   const sent = (s: Rate) => s.sentBytesPerSecond;
-  const slots = seriesSlots(series);
+  const slots = timeSeriesFeedSlots(series);
   const max = Math.max(0, ...samples.map(received), ...(receivedOnly ? [] : samples.map(sent)));
   const share = (v: number) => (scale === 'sqrt' ? Math.sqrt(v / max) : v / max);
   // Inset by a unit so a stroke on the baseline or the peak is not cut in half.

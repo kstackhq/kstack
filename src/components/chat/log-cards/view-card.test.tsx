@@ -29,7 +29,7 @@ vi.mock('@/lib/logs-client', () => ({
       fetched.push(query);
       return new Promise(() => {});
     },
-    follow: () => () => {},
+    tail: () => () => {},
   }),
 }));
 

@@ -16,9 +16,9 @@
 import { createContext, useContext, useMemo } from 'react';
 
 import { useClusterCachedDataObjects } from '@/lib/cluster-cached-data-objects';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 
-type ClusterNamespaces = { namespaces: string[]; active: boolean; phase: WatchPhase };
+type ClusterNamespaces = { namespaces: string[]; active: boolean; phase: SubscriptionPhase };
 
 const NAMESPACES = { apiVersion: 'v1', resource: 'namespaces' };
 

@@ -21,13 +21,19 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/amorey/gobus/conflate"
+
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
 )
 
+// ChangeNotifications names a setting that changed, one notice per appdb key. Notices for
+// one key coalesce, and none carries a value: the reader re-reads the setting.
+type ChangeNotifications = *conflate.Receiver[string, struct{}]
+
 // Store keeps the approval modes, the always rules, the always folder grants,
 // the sandbox settings, the PATH setting, the login shell's last PATH and the
-// registered executables in app.db. It publishes each write of the
+// registered executables in app.db. It notifies each write of the
 // permissions, the executables and the PATH.
 // Safe for concurrent use.
 type Store struct {

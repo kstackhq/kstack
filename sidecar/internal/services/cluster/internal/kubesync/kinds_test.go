@@ -184,7 +184,7 @@ func TestAStaleStreamWhoseReopenHangsStaysStaleUntilTheReopenLands(t *testing.T)
 		return state.Reason == ReasonStale
 	})
 	stream.parked.Await(t, "the reopen to hang")
-	news := svc.WatchKindNews()
+	news := svc.ListenForKindChanges()
 	t.Cleanup(news.Close)
 	// A bounded wait: the negative assertion, three times the window a slow open announces at.
 	testutil.NoRecv(t, news.Chan(), 3*window, "the hung reopen to move the reason")
@@ -538,7 +538,7 @@ func TestAColdListQueuedBehindTheWorkerCapNeverListsOnceItIsForgotten(t *testing
 	syncKind(t, svc, 1, otherKind)
 	awaitKindReason(t, svc, 1, otherKind, ReasonSyncing)
 
-	news := svc.WatchKindNews()
+	news := svc.ListenForKindChanges()
 	defer news.Close()
 	parked := make(chan struct{}, 1)
 	go func() {
@@ -1068,7 +1068,7 @@ func TestAPassThatMovedNothingWakesNoRecord(t *testing.T) {
 	// record this reason — which is news, and not the news the window below is about.
 	svc.publishKind(subject, snap)
 
-	news := svc.WatchKindNews()
+	news := svc.ListenForKindChanges()
 	t.Cleanup(news.Close)
 	svc.publishKind(subject, snap)
 
@@ -1076,7 +1076,7 @@ func TestAPassThatMovedNothingWakesNoRecord(t *testing.T) {
 }
 
 // A pass for a kind under a cache nobody armed is no news: no record stands behind it to wake.
-func TestAPassUnderAnUnarmedCacheIsNoNews(t *testing.T) {
+func TestAPassUnderAnUnarmedCacheNotifiesNothing(t *testing.T) {
 	svc, _ := newTestService(t)
 	cacheID, id, ok := parseKindSubject(kindSubject(7, podKind))
 	require.True(t, ok)

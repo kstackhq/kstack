@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package logswatch is LogsWatch: a follow of a scope that runs as a background
+// Package logswatch is LogsWatch: a tail of a scope that runs as a background
 // task of the chat and wakes the model once, when it ends. The tool checks the
 // call's scope against the mirror as LogsView does, or takes a read's token, which
-// holds one, opens the log service's follow on a context of the watch's own, and
+// holds one, opens the log service's tail on a context of the watch's own, and
 // hands it to the chat. The call answers at once with a receipt; the watch ends
-// holding its limit of matching lines, at its time, or when the follow ends, and
+// holding its limit of matching lines, at its time, or when the tail ends, and
 // its end is a notice. It asks no one.
 package logswatch
 
@@ -54,15 +54,15 @@ const Name = "LogsWatch"
 // ContractName is the shape of the tool's stored calls, recorded on each row.
 const ContractName tools.ContractName = "logswatch/v1"
 
-// callTimeout bounds a call: a resolve and a follow's start, not the watch.
+// callTimeout bounds a call: a resolve and a tail's start, not the watch.
 const callTimeout = 30 * time.Second
 
 // errNotShown is a call read off its arguments: the watch is the run's.
 var errNotShown = errors.New("logswatch: the watch is the run's")
 
-// Follower opens a follow of a scope: the log service.
-type Follower interface {
-	Follow(ctx context.Context, id cluster.ClusterID, q logs.FollowRequest) (logs.FollowResponse, error)
+// LogTailer opens a tail of a scope: the log service.
+type LogTailer interface {
+	TailFromCursor(ctx context.Context, id cluster.ClusterID, q logs.TailRequest) (logs.TailResponse, error)
 }
 
 var (
@@ -75,12 +75,12 @@ var (
 // time.Now, or a test's.
 type Tool struct {
 	svc  cluster.Service
-	logs Follower
+	logs LogTailer
 	now  func() time.Time
 }
 
 // New is the tool over svc and logs.
-func New(svc cluster.Service, logs Follower) *Tool {
+func New(svc cluster.Service, logs LogTailer) *Tool {
 	return &Tool{svc: svc, logs: logs, now: time.Now}
 }
 
@@ -105,7 +105,7 @@ func (t *Tool) Action(json.RawMessage, string, bool) (tools.Action, error) {
 	return tools.Action{}, errNotShown
 }
 
-// RunShown checks the call's scope, or takes its token, opens its follow and
+// RunShown checks the call's scope, or takes its token, opens its tail and
 // starts the watch, and answers the receipt with what it watches as the action. A
 // refusal names what to change and never the model's text.
 func (t *Tool) RunShown(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (string, bool, *tools.Action) {
@@ -117,7 +117,7 @@ func (t *Tool) RunShown(ctx context.Context, rt tools.Runtime, raw json.RawMessa
 	if rt.Watches == nil {
 		return `{"error":"unavailable","message":"a watch runs only in a chat"}`, true, nil
 	}
-	q := logs.FollowRequest{Cursor: in.cursor, MaxMessageBytes: in.maxMessageBytes, ForModel: true}
+	q := logs.TailRequest{Cursor: in.cursor, MaxMessageBytes: in.maxMessageBytes, ForModel: true}
 	if in.cursor == nil {
 		view, _, err := logsinput.Resolve(ctx, t.svc, now, rt.ClusterID, in.Input)
 		if err != nil {
@@ -125,12 +125,12 @@ func (t *Tool) RunShown(ctx context.Context, rt tools.Runtime, raw json.RawMessa
 		}
 		q.Scope, q.Since = view.LogsScopeInput, &in.since
 	}
-	// A follow lives as long as its context, and the call's ends with the call: the
+	// A tail lives as long as its context, and the call's ends with the call: the
 	// watch's is free of it, ended by its deadline or the task's stop. Until the
-	// follow has opened it is still the call's, so a stalled open ends with the call.
-	followCtx, cancel := context.WithDeadline(context.WithoutCancel(ctx), in.until)
+	// tail has opened it is still the call's, so a stalled open ends with the call.
+	tailCtx, cancel := context.WithDeadline(context.WithoutCancel(ctx), in.until)
 	callEnds := context.AfterFunc(ctx, cancel)
-	resp, err := t.logs.Follow(followCtx, rt.ClusterID, q)
+	resp, err := t.logs.TailFromCursor(tailCtx, rt.ClusterID, q)
 	if !callEnds() {
 		return logsinput.Refusal(ctx.Err()), true, nil
 	}
@@ -138,8 +138,8 @@ func (t *Tool) RunShown(ctx context.Context, rt tools.Runtime, raw json.RawMessa
 		cancel()
 		return logsinput.Refusal(err), true, nil
 	}
-	// The scope is the follow's: on a token start the call named none.
-	w := &watch{ctx: followCtx, cancel: cancel, stream: resp.Frames, in: in, scope: resp.Request.Scope, since: q.Since, now: t.now}
+	// The scope is the tail's: on a token start the call named none.
+	w := &watch{ctx: tailCtx, cancel: cancel, stream: resp.Frames, in: in, scope: resp.Request.Scope, since: q.Since, now: t.now}
 	id, err := rt.Watches.Start(w)
 	if err != nil {
 		cancel()

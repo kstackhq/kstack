@@ -33,7 +33,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
-const clustersWatchQuery = `subscription { clustersWatch { type cluster { id } } }`
+const clustersWatchQuery = `subscription { clusterCollectionWatch { type cluster { id } } }`
 
 // newFailingWatchServer wires a fixture service whose every watch ends with err once
 // its snapshot has been replayed — a source dying mid-stream.
@@ -75,7 +75,7 @@ func collectSSE(t *testing.T, events <-chan sseEvent) []sseEvent {
 // there, so without the extension a broken watch is byte-identical to a graceful end:
 // the webview reconnects silently and a permanently broken watch loops forever with
 // nothing shown to the user.
-func TestFailedWatchEndsTheSubscriptionWithAnError(t *testing.T) {
+func TestFailedSubscriptionEndsTheSubscriptionWithAnError(t *testing.T) {
 	srv := newFailingWatchServer(t, errors.New("Cluster watch ended: watch too old"))
 
 	resp := openSSESubscription(t, srv.URL, "", clustersWatchQuery)
@@ -99,14 +99,14 @@ func TestFailedWatchEndsTheSubscriptionWithAnError(t *testing.T) {
 // A chat watch that dies after its snapshot says so once, in a frame that carries no
 // data: the client routes on the marker, and a failure frame that held data would
 // fold the last frame's data twice.
-func TestChatWatchReportsItsFailure(t *testing.T) {
+func TestChatCollectionWatchReportsItsFailure(t *testing.T) {
 	srv, db, _ := newChatServerOver(t)
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 
 	// The answer settles first, so no turn is left to read the closed reader.
-	transcript, messages := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+chatID+`") { message { seq status } } }`)
+	transcript, messages := chatFrames(t, srv, `subscription { chatMessageCollectionWatch(chatID: "`+chatID+`") { message { seq status } } }`)
 	defer transcript.Body.Close()
 	awaitChatFrame(t, messages, func(f map[string]any) bool {
 		msg, ok := f["message"].(map[string]any)
@@ -114,7 +114,7 @@ func TestChatWatchReportsItsFailure(t *testing.T) {
 	})
 	transcript.Body.Close()
 
-	resp, events := chatFrames(t, srv, `subscription { chatsWatch { type chat { id } } }`)
+	resp, events := chatFrames(t, srv, `subscription { chatCollectionWatch { type chat { id } } }`)
 	defer resp.Body.Close()
 	awaitChatFrame(t, events, func(f map[string]any) bool { return f["type"] == "Bookmark" })
 
@@ -125,7 +125,7 @@ func TestChatWatchReportsItsFailure(t *testing.T) {
 
 	var failed []sseEvent
 	for _, ev := range collectSSE(t, events) {
-		if strings.Contains(ev.data, `"watchFailed":true`) {
+		if strings.Contains(ev.data, `"subscriptionFailed":true`) {
 			failed = append(failed, ev)
 		}
 	}
@@ -136,7 +136,7 @@ func TestChatWatchReportsItsFailure(t *testing.T) {
 
 // The complement: a healthy watch's frames stay clean, so a consumer treating any
 // `errors` key as a dead watch can't be tripped by ordinary traffic.
-func TestHealthyWatchFramesCarryNoError(t *testing.T) {
+func TestHealthySubscriptionFramesCarryNoError(t *testing.T) {
 	srv := newTestServer(t, clusterFixtures())
 
 	resp := openSSESubscription(t, srv.URL, "", clustersWatchQuery)
@@ -152,17 +152,17 @@ func TestHealthyWatchFramesCarryNoError(t *testing.T) {
 
 // The extension names itself for gqlgen's registry; the name is part of the
 // server wiring, not decoration.
-func TestWatchFailureExtensionName(t *testing.T) {
-	if got := (graph.WatchFailureExtension{}).ExtensionName(); got != "WatchFailure" {
-		t.Errorf("ExtensionName() = %q, want %q", got, "WatchFailure")
+func TestSubscriptionFailureExtensionName(t *testing.T) {
+	if got := (graph.SubscriptionFailureExtension{}).ExtensionName(); got != "SubscriptionFailure" {
+		t.Errorf("ExtensionName() = %q, want %q", got, "SubscriptionFailure")
 	}
 }
 
 // A response reaching the interceptor without the operation context it installs
 // falls straight through. Nothing in production skips InterceptOperation, so
 // this is the arm that keeps a misconfigured server serving rather than panicking.
-func TestWatchFailureInterceptResponseIgnoresAnUninstrumentedContext(t *testing.T) {
-	got := (graph.WatchFailureExtension{}).InterceptResponse(
+func TestSubscriptionFailureInterceptResponseIgnoresAnUninstrumentedContext(t *testing.T) {
+	got := (graph.SubscriptionFailureExtension{}).InterceptResponse(
 		context.Background(),
 		func(context.Context) *graphql.Response { return nil },
 	)

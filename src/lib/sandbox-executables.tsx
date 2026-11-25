@@ -22,13 +22,14 @@ import { useCallback, useState } from 'react';
 import { useMutation } from 'urql';
 
 import { graphql } from '@/gql';
-import type { SandboxExecutablesWatchSubscription } from '@/gql/graphql';
+import type { SandboxExecutablesStateWatchSubscription } from '@/gql/graphql';
 import { refusalOf, savedUnread } from '@/lib/graphql/refusal';
-import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
+import { stateWatchReducer } from '@/lib/graphql/state-watch';
+import { useFoldedSubscription } from '@/lib/graphql/use-folded-subscription';
 
-const SandboxExecutablesWatchDocument = graphql(`
-  subscription SandboxExecutablesWatch {
-    sandboxExecutablesWatch {
+const SandboxExecutablesStateWatchDocument = graphql(`
+  subscription SandboxExecutablesStateWatch {
+    sandboxExecutablesStateWatch {
       probing
       probes
       executables {
@@ -72,12 +73,12 @@ const SandboxExecutableRemoveMutation = graphql(`
   }
 `);
 
-type SandboxExecutablesReport = SandboxExecutablesWatchSubscription['sandboxExecutablesWatch'];
+type SandboxExecutablesReport = SandboxExecutablesStateWatchSubscription['sandboxExecutablesStateWatch'];
 export type SandboxExecutable = SandboxExecutablesReport['executables'][number];
 
-// A gauge: the last frame is the whole state.
-const lastReport = perFrame<SandboxExecutablesWatchSubscription, SandboxExecutablesReport>(
-  (_, data) => data.sandboxExecutablesWatch,
+// A state watch: the last frame is the whole state.
+const lastReport = stateWatchReducer(
+  (data: SandboxExecutablesStateWatchSubscription) => data.sandboxExecutablesStateWatch,
 );
 
 export type SandboxExecutables = {
@@ -98,12 +99,12 @@ export type SandboxExecutables = {
 };
 
 export function useSandboxExecutables(): SandboxExecutables {
-  const { data } = useWatchSubscription({ query: SandboxExecutablesWatchDocument }, lastReport);
+  const { data } = useFoldedSubscription({ query: SandboxExecutablesStateWatchDocument }, lastReport);
   const [, probeMutation] = useMutation(SandboxExecutablesProbeMutation);
   const [, registerMutation] = useMutation(SandboxExecutableRegisterMutation);
   const [, removeMutation] = useMutation(SandboxExecutableRemoveMutation);
   // The mutation's answer and the watch's frame arrive in no fixed order, and
-  // the gauge can fold a short probe's start into its end, so from the press
+  // the state watch can fold a short probe's start into its end, so from the press
   // the button is held down until the watch's count of probes moves past the
   // one seen at the press, or the mutation is refused.
   const [startedAt, setStartedAt] = useState<number | null>(null);

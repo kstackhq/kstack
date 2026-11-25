@@ -135,7 +135,7 @@ describe('readInline reading on', () => {
     const fake = log();
     const fetch = vi.fn((query: Parameters<Client['fetch']>[0]) => fake.fetch(query));
     fake.emptyNext();
-    const read = await readInline({ fetch, follow: fake.follow.bind(fake) }, inlinePlan(action(), null));
+    const read = await readInline({ fetch, tail: fake.tail.bind(fake) }, inlinePlan(action(), null));
     expect(indexes(read.lines)).toEqual(range(84, 92));
     const first = (await fetch.mock.results[0].value) as Page;
     expect(fetch.mock.calls[1][0]).toEqual({ kind: 'Continue', cursor: first.edges.prev, seen: null, limit: 8 });
@@ -147,7 +147,7 @@ describe('readInline reading on', () => {
     const fetch = vi.fn((query: Parameters<Client['fetch']>[0]) => fake.fetch(query));
     fake.emptyNext();
     const read = await readInline(
-      { fetch, follow: fake.follow.bind(fake) },
+      { fetch, tail: fake.tail.bind(fake) },
       inlinePlan(action({ anchor: { kind: 'Head', at: null } }), null),
     );
     expect(indexes(read.lines)).toEqual(range(8, 16));
@@ -165,7 +165,7 @@ describe('readInline reading on', () => {
   it('stops four pages past the first, saying there may be more', async () => {
     const fake = log();
     const fetch = vi.fn(async (query: Parameters<Client['fetch']>[0]) => ({ ...(await fake.fetch(query)), lines: [] }));
-    const read = await readInline({ fetch, follow: fake.follow.bind(fake) }, inlinePlan(action(), null));
+    const read = await readInline({ fetch, tail: fake.tail.bind(fake) }, inlinePlan(action(), null));
     expect(fetch).toHaveBeenCalledTimes(5);
     expect(read.lines).toEqual([]);
     expect(read.more).toBe(true);
@@ -270,7 +270,7 @@ describe('InlineLines', () => {
   it('freezing reads the frozen page even when every held line precedes until', async () => {
     const fake = log();
     // A follow that has delivered nothing yet: lines before until are still on their way.
-    const lines = await started({ fetch: fake.fetch.bind(fake), follow: () => () => {} });
+    const lines = await started({ fetch: fake.fetch.bind(fake), tail: () => () => {} });
     write(fake, 3);
     lines.freeze(new Date(Date.now() + 1).toISOString());
     await settle();
@@ -282,7 +282,7 @@ describe('InlineLines', () => {
     const fake = new FakeClient({ lines: 100, spacingMs: 1000, repeat: 0 });
     // Every page comes back empty, as a selective grep's can, so the read stops at its cap.
     const fetch = async (query: Parameters<Client['fetch']>[0]) => ({ ...(await fake.fetch(query)), lines: [] });
-    const lines = await started({ fetch, follow: fake.follow.bind(fake) });
+    const lines = await started({ fetch, tail: fake.tail.bind(fake) });
     // The read is five pages, one after another.
     await vi.runAllTimersAsync();
     expect(lines.getSnapshot()).toMatchObject({ lines: [], more: true });
@@ -373,8 +373,7 @@ describe('useInlineLogLines', () => {
     const fetch = vi.fn((query: Parameters<Client['fetch']>[0]) => fake.fetch(query));
     const view = action({ anchor: { kind: 'Head', at: null } });
     const { rerender } = renderHook(
-      ({ until }: { until: string | null }) =>
-        useInlineLogLines({ fetch, follow: fake.follow.bind(fake) }, view, until),
+      ({ until }: { until: string | null }) => useInlineLogLines({ fetch, tail: fake.tail.bind(fake) }, view, until),
       { initialProps: { until: null as string | null } },
     );
     await settle();
@@ -383,14 +382,14 @@ describe('useInlineLogLines', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('closes its follow when it unmounts', async () => {
+  it('closes its tail when it unmounts', async () => {
     const fake = log();
     const stop = vi.fn();
-    const follow = vi.fn(() => stop);
-    const { unmount } = renderHook(() => useInlineLogLines({ fetch: fake.fetch.bind(fake), follow }, action(), null));
+    const tail = vi.fn(() => stop);
+    const { unmount } = renderHook(() => useInlineLogLines({ fetch: fake.fetch.bind(fake), tail }, action(), null));
     await settle();
-    expect(follow).toHaveBeenCalledTimes(1);
-    expect(follow).toHaveBeenCalledWith(expect.any(String), [], expect.any(Function), expect.any(Function));
+    expect(tail).toHaveBeenCalledTimes(1);
+    expect(tail).toHaveBeenCalledWith(expect.any(String), [], expect.any(Function), expect.any(Function));
     unmount();
     expect(stop).toHaveBeenCalled();
   });

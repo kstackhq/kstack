@@ -99,19 +99,19 @@ models:
   Event:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.Event
 
-  # The event watches' envelope. Its own two-value enum rather than DeltaFrameType: the
+  # The event watches' envelope. Its own two-value enum rather than CollectionWatchFrameType: the
   # log is append-only, so Added/Modified/Deleted would advertise transitions that
   # can never arrive.
-  EventWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.EventWatchFrame
+  EventFeedFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.EventFeedFrame
 
-  EventFrameType:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.EventFrameType
+  EventFeedFrameType:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.EventFeedFrameType
 
   EventType:
     model: github.com/amorey/beehive.EventType
 
-  # The generic reconcile-schedule gauge (next-requeue countdown), decoupled from
+  # The generic reconcile-schedule state watch (next-requeue countdown), decoupled from
   # the cluster/list watch. Binds 1:1 to the Go type.
   Schedule:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.Schedule
@@ -119,24 +119,24 @@ models:
   ConditionStatus:
     model: github.com/amorey/beehive.ConditionStatus
 
-  # The delta watches. DeltaFrameType binds to the shared internal/lib/apimeta type — more
+  # The collection watches. CollectionWatchFrameType binds to the shared internal/lib/apimeta type — more
   # than one service streams delta frames, and gqlgen binds one enum to one Go type, so
   # a per-service definition would make every frame wrapper's `type` field a resolver.
   # The frame wrappers bind 1:1 to the types the watch pumps emit.
-  DeltaFrameType:
-    model: github.com/kstackhq/kstack/sidecar/internal/lib/apimeta.DeltaFrameType
+  CollectionWatchFrameType:
+    model: github.com/kstackhq/kstack/sidecar/internal/lib/apimeta.CollectionWatchFrameType
 
-  ClusterWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterWatchFrame
+  ClusterCollectionWatchFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCollectionWatchFrame
 
-  ClusterDataRateSeriesFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterDataRateSeriesFrame
+  ClusterDataRateTimeSeriesFeedFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterDataRateTimeSeriesFeedFrame
 
   ClusterDataRateSample:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterDataRateSample
 
-  ClusterCacheWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheWatchFrame
+  ClusterCacheCollectionWatchFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheCollectionWatchFrame
 
   ClusterCache:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCache
@@ -165,8 +165,8 @@ models:
       # record written before it decodes as syncing; this resolver is the one negation.
       syncEnabled:
         resolver: true
-  ClusterCachedKindWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedKindWatchFrame
+  ClusterCachedKindCollectionWatchFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedKindCollectionWatchFrame
   ClusterCacheHealth:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheHealth
   UnhealthyKindRef:
@@ -175,8 +175,8 @@ models:
   ClusterCacheStats:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheStats
 
-  ClusterCacheSyncStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheSyncStatus
+  ClusterCacheSyncState:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheSyncState
   ClusterCacheDiscoveryStatus:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheDiscoveryStatus
   ClusterCacheKindSyncStatus:
@@ -185,8 +185,8 @@ models:
   ClusterCachedDataKind:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataKind
 
-  ClusterCachedDataKindWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataKindWatchFrame
+  ClusterCachedDataKindCollectionWatchFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataKindCollectionWatchFrame
 
   # Mapped like every other cached-data type: an unmapped schema type autobinds into
   # graph/model, and cluster would then import it — the layering this block exists to hold.
@@ -198,8 +198,8 @@ models:
   ClusterCachedDataEvent:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataEvent
 
-  ClusterCachedDataEventWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataEventWatchFrame
+  ClusterCachedDataEventCollectionWatchFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataEventCollectionWatchFrame
 
   # creationTimestamp autobinds like the event timestamps above. rawJSON autobinds to the
   # RawJSON field too: the body is already read by the time the record exists — the watch
@@ -208,8 +208,8 @@ models:
   ClusterCachedDataObject:
     model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataObject
 
-  ClusterCachedDataObjectWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataObjectWatchFrame
+  ClusterCachedDataObjectCollectionWatchFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataObjectCollectionWatchFrame
 
   # --- Models ---
   # The dialect a provider speaks, named for the API. Every member binds to its
@@ -275,8 +275,8 @@ models:
   Memory:
     model: github.com/kstackhq/kstack/sidecar/internal/services/memory.Memory
 
-  MemoryWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/memory.MemoryWatchFrame
+  MemoryCollectionWatchFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/memory.MemoryCollectionWatchFrame
 
   MemoryAuthor:
     model: github.com/kstackhq/kstack/sidecar/internal/services/memory.Author
@@ -596,11 +596,11 @@ models:
       Other:
         value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.FailureOther
 
-  ChatWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ChatWatchFrame
+  ChatCollectionWatchFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ChatCollectionWatchFrame
 
-  ChatMessageWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ChatMessageWatchFrame
+  ChatMessageCollectionWatchFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ChatMessageCollectionWatchFrame
 
   ChatMessage:
     model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ChatMessage

@@ -34,21 +34,21 @@ import type { ProviderCredentialState, ProviderCredentialSource } from '@/lib/pr
 const { state } = vi.hoisted(() => {
   const shared: {
     connectors: Connector[];
-    loaded: boolean;
+    snapshotComplete: boolean;
     keysLoaded: boolean;
     openRouterSource: ProviderCredentialSource;
     openRouterFailure: ProviderCredentialState['failure'];
-  } = { connectors: [], loaded: true, keysLoaded: true, openRouterSource: 'None', openRouterFailure: null };
+  } = { connectors: [], snapshotComplete: true, keysLoaded: true, openRouterSource: 'None', openRouterFailure: null };
   return { state: shared };
 });
 vi.mock('@/lib/connectors', () => ({
   GOOGLE_ID: 'google',
   OPENROUTER_ID: 'openrouter',
-  useConnectors: () => ({ connectors: state.connectors, loaded: state.loaded }),
+  useConnectors: () => ({ connectors: state.connectors, snapshotComplete: state.snapshotComplete }),
 }));
 vi.mock('@/lib/provider-credentials', () => ({
   useProviderCredentials: () => ({
-    loaded: state.keysLoaded,
+    snapshotComplete: state.keysLoaded,
     credentials: [
       {
         id: 'openrouter',
@@ -68,7 +68,7 @@ function connector(name: string, connected: boolean, rest: Partial<Connector> = 
 
 beforeEach(() => {
   state.connectors = [connector('GitHub', true), connector('Google', false)];
-  state.loaded = true;
+  state.snapshotComplete = true;
   state.keysLoaded = true;
   state.openRouterSource = 'None';
   state.openRouterFailure = null;
@@ -170,7 +170,7 @@ describe('the ChatGPT row', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('draws nothing before the watch answers', () => {
-    state.loaded = false;
+    state.snapshotComplete = false;
     const { container } = render(<ConnectorsSettings />);
     expect(container).toBeEmptyDOMElement();
   });

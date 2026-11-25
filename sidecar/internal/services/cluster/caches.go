@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // The ClusterCache kind: one mirror of one cluster identity. Its beehive shapes, the
-// record served to resolvers, its delta-watch frame, the whole-cache gauges, the
+// record served to resolvers, its collection watch frame, the whole-cache state watches, the
 // Caches implementation, and its controller. Mirrors the ClusterCache section of
 // graph/schema.graphqls.
 package cluster
@@ -57,7 +57,7 @@ type ClusterCacheSpec struct {
 }
 
 // ClusterCacheStatus is empty — this kind reports through its conditions alone;
-// the rollup a UI wants is served read-side by Caches().WatchHealth.
+// the rollup a UI wants is served read-side by Caches().WatchHealthKeyedState.
 type ClusterCacheStatus struct{}
 
 // ClusterCache is the view of one ClusterCache beehive object, streamed standalone
@@ -75,10 +75,10 @@ type ClusterCache struct {
 	Spec      ClusterCacheSpec
 }
 
-// ClusterCacheWatchFrame is the ClusterCache-kind counterpart of ClusterWatchFrame, carried
-// on the standalone cache watch. Binds 1:1 to the GraphQL ClusterCacheWatchFrame.
-type ClusterCacheWatchFrame struct {
-	Type  DeltaFrameType
+// ClusterCacheCollectionWatchFrame is the ClusterCache-kind counterpart of ClusterCollectionWatchFrame, carried
+// on the standalone cache watch. Binds 1:1 to the GraphQL ClusterCacheCollectionWatchFrame.
+type ClusterCacheCollectionWatchFrame struct {
+	Type  CollectionWatchFrameType
 	Cache *ClusterCache
 }
 
@@ -174,14 +174,14 @@ func RefusedCacheWide(reason string) bool {
 	return reason == kubesync.ReasonStoreFailed || reason == kubesync.ReasonIdentityMismatch
 }
 
-// ClusterCacheSyncStatus is one cache's sync detail: how discovery is doing, and a row per
-// kind actually being mirrored. A gauge, like the health rollup and for the same reason —
+// ClusterCacheSyncState is one cache's sync detail: how discovery is doing, and a row per
+// kind actually being mirrored. A state watch, like the health rollup and for the same reason —
 // nothing in the object graph reacts to it, and its counts and freshness stamps move while
 // every record under it sits still.
 //
 // Where ClusterCacheHealth folds a cache into one verdict for a fleet view, this expands one
 // cache for the panel a user opened.
-type ClusterCacheSyncStatus struct {
+type ClusterCacheSyncState struct {
 	CacheID   ClusterCacheID
 	Discovery ClusterCacheDiscoveryStatus
 	// Kinds is every mirrored kind, sorted by (APIVersion, Resource) so a rendered list is
@@ -300,7 +300,7 @@ func toClusterCaches(objs []*beehive.Object[ClusterCacheSpec, ClusterCacheStatus
 	return caches
 }
 
-func (a cachesAPI) Watch(ctx context.Context, id ClusterCacheID) (*Stream[ClusterCacheWatchFrame], error) {
+func (a cachesAPI) WatchCollectionByID(ctx context.Context, id ClusterCacheID) (*Stream[ClusterCacheCollectionWatchFrame], error) {
 	src, err := a.s.cacheClient.Watch(ctx, beehive.ObjectID(id))
 	if err != nil {
 		return nil, fmt.Errorf("watch cluster cache %d: %w", id, err)
@@ -309,7 +309,7 @@ func (a cachesAPI) Watch(ctx context.Context, id ClusterCacheID) (*Stream[Cluste
 	return cacheWatch.streamOne(ctx, src), nil
 }
 
-func (a cachesAPI) WatchList(ctx context.Context) (*Stream[ClusterCacheWatchFrame], error) {
+func (a cachesAPI) WatchCollection(ctx context.Context) (*Stream[ClusterCacheCollectionWatchFrame], error) {
 	src, err := a.s.cacheClient.WatchList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("watch cluster caches: %w", err)
@@ -321,18 +321,18 @@ func (a cachesAPI) WatchList(ctx context.Context) (*Stream[ClusterCacheWatchFram
 // cacheWatch projects this kind into delta frames. The departure is built by hand:
 // beehive reports a removal whose final row it could not decode with no object at
 // all, and the frame must still carry the id.
-var cacheWatch = deltaWatch[ClusterCacheSpec, ClusterCacheStatus, ClusterCacheWatchFrame]{
-	frame: func(t DeltaFrameType, obj *beehive.Object[ClusterCacheSpec, ClusterCacheStatus]) (ClusterCacheWatchFrame, error) {
-		return ClusterCacheWatchFrame{Type: t, Cache: toClusterCache(obj)}, nil
+var cacheWatch = collectionWatch[ClusterCacheSpec, ClusterCacheStatus, ClusterCacheCollectionWatchFrame]{
+	frame: func(t CollectionWatchFrameType, obj *beehive.Object[ClusterCacheSpec, ClusterCacheStatus]) (ClusterCacheCollectionWatchFrame, error) {
+		return ClusterCacheCollectionWatchFrame{Type: t, Cache: toClusterCache(obj)}, nil
 	},
-	departed: func(change beehive.ObjectChange[ClusterCacheSpec, ClusterCacheStatus]) ClusterCacheWatchFrame {
+	departed: func(change beehive.ObjectChange[ClusterCacheSpec, ClusterCacheStatus]) ClusterCacheCollectionWatchFrame {
 		cache := &ClusterCache{RecordMeta: RecordMeta{ID: ObjectID(change.ID)}}
 		if obj := change.Object; obj != nil {
 			cache = toClusterCache(obj)
 		}
-		return ClusterCacheWatchFrame{Type: DeltaFrameDeleted, Cache: cache}
+		return ClusterCacheCollectionWatchFrame{Type: CollectionWatchFrameDeleted, Cache: cache}
 	},
-	bookmark: ClusterCacheWatchFrame{Type: DeltaFrameBookmark},
+	bookmark: ClusterCacheCollectionWatchFrame{Type: CollectionWatchFrameBookmark},
 }
 
 // The per-cluster reads filter the whole kind by the spec's ClusterID, the same join
@@ -352,22 +352,22 @@ func (a cachesAPI) ListByCluster(ctx context.Context, clusterID ClusterID) ([]*C
 	return caches, nil
 }
 
-func (a cachesAPI) WatchByCluster(ctx context.Context, clusterID ClusterID) (*Stream[ClusterCacheWatchFrame], error) {
+func (a cachesAPI) WatchCollectionByCluster(ctx context.Context, clusterID ClusterID) (*Stream[ClusterCacheCollectionWatchFrame], error) {
 	src, err := a.s.cacheClient.WatchList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("watch cluster %s caches: %w", clusterID, err)
 	}
-	return cacheWatch.streamListWhere(ctx, src, func(f ClusterCacheWatchFrame) bool {
+	return cacheWatch.streamListWhere(ctx, src, func(f ClusterCacheCollectionWatchFrame) bool {
 		return f.Cache == nil || f.Cache.ClusterID == clusterID
 	}), nil
 }
 
-// defaultGaugeCadence is how often a gauge re-measures when nothing has pinged it.
+// defaultStateWatchCadence is how often a state watch re-measures when nothing has pinged it.
 // Human-paced: what it covers is a number drifting under a settled record, not an
 // event, and every watcher pays for each tick.
-const defaultGaugeCadence = 5 * time.Second
+const defaultStateWatchCadence = 5 * time.Second
 
-// WatchStats measures one cache's file and contents. A gauge carries no bookmark and
+// WatchStatsState measures one cache's file and contents. A state watch carries no bookmark and
 // emits nothing before its first measurement, so a pair naming no live cache holds
 // silent rather than claiming an answer — a caller holding a bad id got it from a watch
 // frame, and drops the subscription itself.
@@ -375,7 +375,7 @@ const defaultGaugeCadence = 5 * time.Second
 // It re-measures on the store's own change pings and on a cadence, because the two
 // cover different halves: pings carry the writes, and the file's size moves with
 // checkpoints that ping nothing.
-func (a cachesAPI) WatchStats(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCacheStats], error) {
+func (a cachesAPI) WatchStatsState(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCacheStats], error) {
 	live, err := a.s.cacheBelongsTo(ctx, clusterID, cacheID)
 	if err != nil {
 		return nil, err
@@ -386,11 +386,11 @@ func (a cachesAPI) WatchStats(ctx context.Context, clusterID ClusterID, cacheID 
 			<-ctx.Done()
 			return nil
 		}
-		ticker := time.NewTicker(a.s.gaugeCadence)
+		ticker := time.NewTicker(a.s.stateWatchCadence)
 		defer ticker.Stop()
 
 		var (
-			sub   kubestore.Subscription
+			sub   kubestore.ChangeNotifications
 			pings <-chan gobus.Event[string, struct{}]
 			last  ClusterCacheStats
 			sent  bool
@@ -406,7 +406,7 @@ func (a cachesAPI) WatchStats(ctx context.Context, clusterID ClusterID, cacheID 
 			// clear swaps it for a fresh one whose pings the old subscription never
 			// carries.
 			if sub == nil {
-				if changes, ok := a.s.kubestoreMgr.Subscribe(int64(cacheID)); ok {
+				if changes, ok := a.s.kubestoreMgr.ListenForChanges(int64(cacheID)); ok {
 					sub = changes
 					pings = sub.Chan()
 				}
@@ -458,7 +458,7 @@ func (a cachesAPI) measureCache(ctx context.Context, cacheID ClusterCacheID) (Cl
 	}, nil
 }
 
-// WatchHealth reports each live cache's verdict. A read-side projection of the per-kind
+// WatchHealthKeyedState reports each live cache's verdict. A read-side projection of the per-kind
 // states, which are the workers' own and change constantly: storing those would wake the
 // cache and every watcher each time one moved.
 //
@@ -471,9 +471,9 @@ func (a cachesAPI) measureCache(ctx context.Context, cacheID ClusterCacheID) (Cl
 // the same for every subscriber, so one loop serves them all, reading afresh for a join;
 // each subscriber diffs against its own last frames, so a late one still starts from every
 // cache's verdict.
-func (a cachesAPI) WatchHealth(ctx context.Context) (*Stream[ClusterCacheHealth], error) {
+func (a cachesAPI) WatchHealthKeyedState(ctx context.Context) (*Stream[ClusterCacheHealth], error) {
 	return NewStream(ctx, func(ctx context.Context, out chan<- ClusterCacheHealth) error {
-		readings := a.s.health.subscribe(a.s.gaugeCadence)
+		readings := a.s.health.subscribe(a.s.stateWatchCadence)
 		defer readings.Close()
 
 		// sent is the last frame per cache the latest reading reports: a removed cache
@@ -622,38 +622,38 @@ func compareKindRefs(a, b KindRef) int {
 	return cmp.Or(cmp.Compare(a.APIVersion, b.APIVersion), cmp.Compare(a.Resource, b.Resource))
 }
 
-// WatchSyncStatus streams one cache's sync detail as a live gauge: the discovery verdict and
-// a row per mirrored kind. The only thing on the wire that carries a per-kind verdict.
+// WatchSyncState streams one cache's sync detail as a state watch: the discovery verdict and a
+// row per mirrored kind. The only thing on the wire that carries a per-kind verdict.
 //
 // It re-reads on the cadence and never on a signal, because its counts and freshness stamps
-// move with no reason change — the only thing the sync seam signals on — so a gauge waiting
+// move with no reason change — the only thing the sync seam signals on — so a state watch waiting
 // for one would go quiet exactly while the cache is healthy.
-func (a cachesAPI) WatchSyncStatus(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCacheSyncStatus], error) {
+func (a cachesAPI) WatchSyncState(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCacheSyncState], error) {
 	live, err := a.s.cacheBelongsTo(ctx, clusterID, cacheID)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewStream(ctx, func(ctx context.Context, out chan<- ClusterCacheSyncStatus) error {
+	return NewStream(ctx, func(ctx context.Context, out chan<- ClusterCacheSyncState) error {
 		if !live {
 			<-ctx.Done()
 			return nil
 		}
-		ticker := time.NewTicker(a.s.gaugeCadence)
+		ticker := time.NewTicker(a.s.stateWatchCadence)
 		defer ticker.Stop()
 
 		var (
-			sent    ClusterCacheSyncStatus
+			sent    ClusterCacheSyncState
 			hasSent bool
 		)
 		for {
-			status, err := a.readSyncStatus(ctx, cacheID)
+			status, err := a.readSyncState(ctx, cacheID)
 			if err != nil {
 				return err
 			}
-			// Only when it moved: a gauge is current-on-subscribe, so the first read always
+			// Only when it moved: a state watch is current-on-subscribe, so the first read always
 			// goes out, and an idle cache then says nothing rather than a frame per tick.
-			if !hasSent || !sameSyncStatus(sent, status) {
+			if !hasSent || !sameSyncState(sent, status) {
 				if !sendFrame(ctx, out, status) {
 					return nil
 				}
@@ -669,7 +669,7 @@ func (a cachesAPI) WatchSyncStatus(ctx context.Context, clusterID ClusterID, cac
 	}), nil
 }
 
-// Health is one reading of the cache's verdict, folded the way WatchHealth folds it.
+// Health is one reading of the cache's verdict, folded the way WatchHealthKeyedState folds it.
 func (a cachesAPI) Health(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (ClusterCacheHealth, bool, error) {
 	cacheObj, err := a.s.cacheClient.Get(ctx, beehive.ObjectID(cacheID), beehive.LoadOwner())
 	if errors.Is(err, beehive.ErrNotFound) {
@@ -692,31 +692,31 @@ func (a cachesAPI) Health(ctx context.Context, clusterID ClusterID, cacheID Clus
 	return health, true, nil
 }
 
-// SyncStatus is one reading of the cache's sync detail, as WatchSyncStatus reads it.
-func (a cachesAPI) SyncStatus(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (ClusterCacheSyncStatus, bool, error) {
+// SyncState is one reading of the cache's sync detail, as WatchSyncState reads it.
+func (a cachesAPI) SyncState(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (ClusterCacheSyncState, bool, error) {
 	live, err := a.s.cacheBelongsTo(ctx, clusterID, cacheID)
 	if err != nil || !live {
-		return ClusterCacheSyncStatus{}, false, err
+		return ClusterCacheSyncState{}, false, err
 	}
-	status, err := a.readSyncStatus(ctx, cacheID)
+	status, err := a.readSyncState(ctx, cacheID)
 	if err != nil {
-		return ClusterCacheSyncStatus{}, false, err
+		return ClusterCacheSyncState{}, false, err
 	}
 	return status, true, nil
 }
 
-// readSyncStatus is one reading of a cache's sync detail.
-func (a cachesAPI) readSyncStatus(ctx context.Context, cacheID ClusterCacheID) (ClusterCacheSyncStatus, error) {
+// readSyncState is one reading of a cache's sync detail.
+func (a cachesAPI) readSyncState(ctx context.Context, cacheID ClusterCacheID) (ClusterCacheSyncState, error) {
 	kindObjs, err := a.s.kindClient.ListOwnedObjects(ctx, beehive.ObjectID(cacheID))
 	if err != nil {
-		return ClusterCacheSyncStatus{}, fmt.Errorf("list cluster cache %d cached kinds: %w", cacheID, err)
+		return ClusterCacheSyncState{}, fmt.Errorf("list cluster cache %d cached kinds: %w", cacheID, err)
 	}
 	objectCounts, err := a.readObjectCountsByKind(ctx, cacheID)
 	if err != nil {
-		return ClusterCacheSyncStatus{}, err
+		return ClusterCacheSyncState{}, err
 	}
 
-	status := ClusterCacheSyncStatus{CacheID: cacheID}
+	status := ClusterCacheSyncState{CacheID: cacheID}
 	if discovery, ok := a.s.kubesyncSvc.GetDiscoveryState(int64(cacheID)); ok {
 		status.Discovery = ClusterCacheDiscoveryStatus{Reason: discovery.Reason, Message: discovery.Message}
 	}
@@ -826,7 +826,7 @@ func (a cachesAPI) Clear(ctx context.Context, id ClusterCacheID) (*ClusterCache,
 //
 // It reads them rather than diffing against what a stream has sent, because a subscriber
 // that arrives after a cache went quiet never witnessed the transition and would otherwise
-// hear nothing about that cache at all. The gauge is latest-value with no departure frame,
+// hear nothing about that cache at all. A keyed state watch has no removal frame,
 // so silence reads as the last verdict — or as no verdict ever.
 //
 // A cache whose pause switch (`cacheSyncEnabled`) is off reads Paused outright; one that is
@@ -875,7 +875,7 @@ func (a cachesAPI) readCacheHealthOf(
 }
 
 // clusterFor resolves a cache's cluster, memoised for the fold: caches of one cluster
-// share it, and this runs on the gauge's cadence.
+// share it, and this runs on the state watch's cadence.
 func (a cachesAPI) clusterFor(
 	ctx context.Context,
 	cache *beehive.Object[ClusterCacheSpec, ClusterCacheStatus],
@@ -905,7 +905,7 @@ func (a cachesAPI) clusterFor(
 }
 
 // sameHealth reports whether a cache's verdict moved. The refs are a slice, so the
-// struct is not comparable — and re-emitting an unchanged gauge is exactly what the
+// struct is not comparable — and re-sending an unchanged verdict is exactly what the
 // cadence must not do. UnansweredKindRefs is not on the wire, so it is not compared.
 func sameHealth(a, b ClusterCacheHealth) bool {
 	return a.Status == b.Status && a.Reason == b.Reason && a.Failure == b.Failure &&
@@ -915,9 +915,9 @@ func sameHealth(a, b ClusterCacheHealth) bool {
 		sameTime(a.LastUpdateAt, b.LastUpdateAt) && sameTime(a.LastLiveAt, b.LastLiveAt)
 }
 
-// sameSyncStatus is equality for the gauge's dedupe. Hand-written because the row carries
+// sameSyncState is equality for the state watch's dedupe. Hand-written because the row carries
 // optional times as pointers, which == would compare by address.
-func sameSyncStatus(a, b ClusterCacheSyncStatus) bool {
+func sameSyncState(a, b ClusterCacheSyncState) bool {
 	return a.CacheID == b.CacheID && a.Discovery == b.Discovery &&
 		slices.EqualFunc(a.Kinds, b.Kinds, sameKindSyncStatus)
 }

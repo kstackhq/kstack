@@ -24,7 +24,7 @@ import (
 )
 
 // RawJSON is already-serialized JSON in a string, written verbatim by MarshalGQL. A
-// string (not a map) so the enclosing record stays comparable — the delta watches diff
+// string (not a map) so the enclosing record stays comparable — the collection watches diff
 // frames with ==, which is what makes an in-place edit surface as Modified. Empty value
 // = absent body → null.
 type RawJSON string

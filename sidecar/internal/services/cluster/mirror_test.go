@@ -174,7 +174,7 @@ func TestMirrorRemovalWakesTheWatchers(t *testing.T) {
 	_, err := markCluster(context.Background(), d.store.Stmts(), row.ID, t0)
 	require.NoError(t, err)
 	m := newClusterMirror(d, time.Hour, time.Hour, time.Hour)
-	sub := d.db.Subscribe(appdb.KeyClusters)
+	sub := d.db.ListenForChanges(appdb.KeyClusters)
 	defer sub.Close()
 	pings := sub.Chan()
 

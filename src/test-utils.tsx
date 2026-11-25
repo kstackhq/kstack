@@ -18,7 +18,7 @@ import { act, render } from '@testing-library/react';
 import { expect, vi } from 'vitest';
 
 import type { Cluster } from '@/lib/clusters';
-import { setWatchFlushScheduler } from '@/lib/graphql/use-watch-subscription';
+import { setSubscriptionFlushScheduler } from '@/lib/graphql/use-folded-subscription';
 import type { LogWindow } from '@/lib/log-windows';
 
 export type FakeChannel = { onmessage?: (raw: string) => void };
@@ -62,17 +62,16 @@ export function mockTauriCore() {
 
 // Watches publish once per animation frame. A suite that pushes a frame and asserts on
 // the very next line wants each frame visible at once: call this at module scope.
-export function flushWatchesSynchronously() {
-  setWatchFlushScheduler((flush) => {
+export function flushSubscriptionsSynchronously() {
+  setSubscriptionFlushScheduler((flush) => {
     flush();
     return () => {};
   });
 }
 
-// Cluster-delta test helpers ------------------------------------------
+// Cluster test helpers ------ ------------------------------------------
 //
-// Seed the ClustersProvider by pushing `Added` frames onto the `clustersWatch`
-// delta stream.
+// Seed the ClustersProvider by pushing `Added` frames onto `clusterCollectionWatch`.
 
 // Cluster/user metadata derive from `name` so a resolved context has predictable
 // fields to assert on.
@@ -184,33 +183,36 @@ export function clusterRecord({
   };
 }
 
-// Close a delta watch's snapshot the way the server does: one Bookmark carrying no
-// entity. A consumer treats the stream as still loading until it lands, so a test
+// Close a collection watch's snapshot the way the server does: one Bookmark carrying no
+// item. A consumer treats the stream as still loading until it lands, so a test
 // asserting a loaded state — an empty one especially — has to send it.
 //
-// entityField is the frame's own entity selection (`cluster` on clustersWatch, `cache`
-// on clusterCachesWatch): it is null on this frame alone, and each watch names it
+// itemField is the frame's own item selection (`cluster` on clusterCollectionWatch, `cache`
+// on clusterCacheCollectionWatch): it is null on this frame alone, and each watch names it
 // differently, so the caller says which.
-export function pushWatchBookmark(
+export function pushCollectionWatchBookmark(
   channelFor: (queryPart: string) => FakeChannel,
   watchField: string,
-  entityField: string,
+  itemField: string,
 ) {
   channelFor(watchField).onmessage!(
-    JSON.stringify({ type: 'next', payload: { data: { [watchField]: { type: 'Bookmark', [entityField]: null } } } }),
+    JSON.stringify({ type: 'next', payload: { data: { [watchField]: { type: 'Bookmark', [itemField]: null } } } }),
   );
 }
 
 // Pass the `channelFor` from `mockTauriCore()`. Sends the rows as the snapshot and
 // closes it, so the registry reads as loaded.
 export function pushClusters(channelFor: (queryPart: string) => FakeChannel, rows: ClusterRow[]) {
-  const ch = channelFor('clustersWatch');
+  const ch = channelFor('clusterCollectionWatch');
   rows.forEach((r) => {
     ch.onmessage!(
-      JSON.stringify({ type: 'next', payload: { data: { clustersWatch: { type: 'Added', cluster: clusterOf(r) } } } }),
+      JSON.stringify({
+        type: 'next',
+        payload: { data: { clusterCollectionWatch: { type: 'Added', cluster: clusterOf(r) } } },
+      }),
     );
   });
-  pushWatchBookmark(channelFor, 'clustersWatch', 'cluster');
+  pushCollectionWatchBookmark(channelFor, 'clusterCollectionWatch', 'cluster');
 }
 
 // Shared fake for '@tauri-apps/api/window', reached via `getCurrentWindow`.

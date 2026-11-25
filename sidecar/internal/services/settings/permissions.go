@@ -20,8 +20,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/amorey/gobus/conflate"
-
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
@@ -220,10 +218,10 @@ func (s *Store) RevokeFolder(ctx context.Context, id string) error {
 	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error { return execOne(ctx, st, stmtDeleteFolderGrant, ErrNoGrant, id) })
 }
 
-// WatchPermissions pings after each write of the modes, the always rules or
-// the always folder grants commits. Watch before the first read.
-func (s *Store) WatchPermissions() *conflate.Receiver[string, struct{}] {
-	return s.db.Subscribe(appdb.KeyPermissions)
+// ListenForPermissionChanges notifies after each write of the modes, the always rules or
+// the always folder grants commits. Listen before the first read.
+func (s *Store) ListenForPermissionChanges() ChangeNotifications {
+	return s.db.ListenForChanges(appdb.KeyPermissions)
 }
 
 var validEffects = map[permissions.Effect]bool{permissions.Allow: true, permissions.Deny: true, permissions.AskFor: true}

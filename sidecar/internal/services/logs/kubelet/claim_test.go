@@ -115,7 +115,7 @@ func TestAClaimWhoseWatchCannotOpenIsRefused(t *testing.T) {
 func TestAWatchThatEndsRevokesTheClaim(t *testing.T) {
 	t.Parallel()
 	svc := serving(t, endless(nil))
-	svc.frames = make(chan cluster.ClusterWatchFrame)
+	svc.frames = make(chan cluster.ClusterCollectionWatchFrame)
 	c, err := Open(t.Context(), svc, "7", "uid-1", time.Millisecond)
 	require.NoError(t, err)
 	defer c.Close()
@@ -126,7 +126,7 @@ func TestAWatchThatEndsRevokesTheClaim(t *testing.T) {
 }
 
 // deliver sends frame on frames, failing the test if nothing takes it.
-func deliver(t *testing.T, frames chan<- cluster.ClusterWatchFrame, frame cluster.ClusterWatchFrame, what string) {
+func deliver(t *testing.T, frames chan<- cluster.ClusterCollectionWatchFrame, frame cluster.ClusterCollectionWatchFrame, what string) {
 	t.Helper()
 	select {
 	case frames <- frame:
@@ -136,10 +136,10 @@ func deliver(t *testing.T, frames chan<- cluster.ClusterWatchFrame, frame cluste
 }
 
 // synced sends the record's snapshot on frames: the cluster, then the bookmark.
-func synced(t *testing.T, frames chan<- cluster.ClusterWatchFrame) {
+func synced(t *testing.T, frames chan<- cluster.ClusterCollectionWatchFrame) {
 	t.Helper()
-	deliver(t, frames, cluster.ClusterWatchFrame{Type: cluster.DeltaFrameAdded, Cluster: enabledCluster()}, "the record")
-	deliver(t, frames, cluster.ClusterWatchFrame{Type: cluster.DeltaFrameBookmark}, "the bookmark")
+	deliver(t, frames, cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Cluster: enabledCluster()}, "the record")
+	deliver(t, frames, cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}, "the bookmark")
 }
 
 // A record's watch that ends after its snapshot is opened again, and the claim
@@ -147,7 +147,7 @@ func synced(t *testing.T, frames chan<- cluster.ClusterWatchFrame) {
 func TestAWatchThatEndsIsOpenedAgain(t *testing.T) {
 	t.Parallel()
 	svc := serving(t, endless(nil))
-	first, second := make(chan cluster.ClusterWatchFrame), make(chan cluster.ClusterWatchFrame)
+	first, second := make(chan cluster.ClusterCollectionWatchFrame), make(chan cluster.ClusterCollectionWatchFrame)
 	svc.frames = first
 	c, err := Open(t.Context(), svc, "7", "uid-1", time.Millisecond)
 	require.NoError(t, err)
@@ -161,7 +161,7 @@ func TestAWatchThatEndsIsOpenedAgain(t *testing.T) {
 	assert.False(t, c.IsRevoked())
 	disabled := enabledCluster()
 	disabled.Spec.Enabled = false
-	deliver(t, second, cluster.ClusterWatchFrame{Type: cluster.DeltaFrameModified, Cluster: disabled}, "the record disabled")
+	deliver(t, second, cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameModified, Cluster: disabled}, "the record disabled")
 	testutil.WaitClosed(t, c.Revoked, "the claim to be revoked")
 }
 
@@ -171,15 +171,15 @@ func TestAWatchOpenedAgainOnAGoneRecordRevokes(t *testing.T) {
 	t.Parallel()
 	for name, gone := range map[string]func(svc *fakeService){
 		"no record": func(svc *fakeService) {
-			again := make(chan cluster.ClusterWatchFrame, 1)
-			again <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameBookmark}
+			again := make(chan cluster.ClusterCollectionWatchFrame, 1)
+			again <- cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}
 			svc.frames = again
 		},
 		"no watch": func(svc *fakeService) { svc.watchErr = errors.New("no watch") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			svc := serving(t, endless(nil))
-			first := make(chan cluster.ClusterWatchFrame)
+			first := make(chan cluster.ClusterCollectionWatchFrame)
 			svc.frames = first
 			c, err := Open(t.Context(), svc, "7", "uid-1", time.Millisecond)
 			require.NoError(t, err)
@@ -200,18 +200,18 @@ func TestADisabledClusterEndsTheClaim(t *testing.T) {
 	t.Parallel()
 	lines := make(chan string)
 	svc := serving(t, endless(lines))
-	svc.frames = make(chan cluster.ClusterWatchFrame)
+	svc.frames = make(chan cluster.ClusterCollectionWatchFrame)
 	c, err := Open(t.Context(), svc, "7", "uid-1", time.Millisecond)
 	require.NoError(t, err)
 	defer c.Close()
 	body, err := c.Get(t.Context(), "/api/v1/namespaces/prod/pods/web/log", url.Values{"follow": {"true"}})
 	require.NoError(t, err)
 	defer body.Close()
-	svc.frames <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameAdded, Cluster: enabledCluster()}
+	svc.frames <- cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Cluster: enabledCluster()}
 
 	disabled := enabledCluster()
 	disabled.Spec.Enabled = false
-	svc.frames <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameModified, Cluster: disabled}
+	svc.frames <- cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameModified, Cluster: disabled}
 
 	_, err = bufio.NewReader(body).ReadString('\n')
 	assert.Error(t, err)
@@ -245,11 +245,11 @@ func TestARetiredConnectionEndsTheBody(t *testing.T) {
 // there is not revoked.
 func TestAWatchWaitingToReopenEndsWithItsContext(t *testing.T) {
 	t.Parallel()
-	frames := make(chan cluster.ClusterWatchFrame, 2)
-	frames <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameAdded, Cluster: enabledCluster()}
-	frames <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameBookmark}
+	frames := make(chan cluster.ClusterCollectionWatchFrame, 2)
+	frames <- cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Cluster: enabledCluster()}
+	frames <- cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}
 	close(frames)
-	stream := &cluster.Stream[cluster.ClusterWatchFrame]{Frames: frames}
+	stream := &cluster.Stream[cluster.ClusterCollectionWatchFrame]{Frames: frames}
 
 	// Done is closed while Err is still nil, as a cancel landing after the watch's end
 	// was checked leaves it: the wait for the retry is what sees it.

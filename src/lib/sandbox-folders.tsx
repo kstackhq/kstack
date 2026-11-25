@@ -14,7 +14,7 @@
 
 // The folders sandboxed commands may read, and read and write: the always
 // grants, a chat's own, and what no grant opens. The one reader of the
-// sandboxFoldersWatch gauge and the folderGrant and folderRevoke mutations.
+// sandboxFoldersStateWatch state watch and the folderGrant and folderRevoke mutations.
 // The watch sends the whole list again on each change from any window, so
 // nothing is asked again.
 import { useCallback, useState } from 'react';
@@ -22,13 +22,14 @@ import { useMutation } from 'urql';
 import type { CombinedError } from 'urql';
 
 import { graphql } from '@/gql';
-import type { GrantDuration, SandboxFoldersWatchSubscription } from '@/gql/graphql';
+import type { GrantDuration, SandboxFoldersStateWatchSubscription } from '@/gql/graphql';
 import { savedUnread } from '@/lib/graphql/refusal';
-import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
+import { stateWatchReducer } from '@/lib/graphql/state-watch';
+import { useFoldedSubscription } from '@/lib/graphql/use-folded-subscription';
 
-const SandboxFoldersWatchDocument = graphql(`
-  subscription SandboxFoldersWatch($chatID: ChatID) {
-    sandboxFoldersWatch(chatID: $chatID) {
+const SandboxFoldersStateWatchDocument = graphql(`
+  subscription SandboxFoldersStateWatch($chatID: ChatID) {
+    sandboxFoldersStateWatch(chatID: $chatID) {
       always {
         id
         path
@@ -64,11 +65,11 @@ const FolderRevokeMutation = graphql(`
   }
 `);
 
-type Folders = SandboxFoldersWatchSubscription['sandboxFoldersWatch'];
+type Folders = SandboxFoldersStateWatchSubscription['sandboxFoldersStateWatch'];
 export type SandboxFolder = Folders['always'][number];
 
-// A gauge: the last frame is the whole state.
-const lastFolders = perFrame<SandboxFoldersWatchSubscription, Folders>((_, data) => data.sandboxFoldersWatch);
+// A state watch: the last frame is the whole state.
+const lastFolders = stateWatchReducer((data: SandboxFoldersStateWatchSubscription) => data.sandboxFoldersStateWatch);
 
 /** A refused grant: the sidecar's reason, and the folder to grant instead when it names one (a link's target, or the disk's spelling). */
 export type GrantRefusal = { message: string; target: string | null };
@@ -105,8 +106,8 @@ export function useSandboxFolders(chatID?: string): SandboxFolders {
   const chat = chatID ?? null;
   // Unshared: a form mounting beside a list already open (the transcript's
   // offer under the composer's grants) would otherwise wait for the next change.
-  const { data: folders } = useWatchSubscription(
-    { query: SandboxFoldersWatchDocument, variables: { chatID: chat } },
+  const { data: folders } = useFoldedSubscription(
+    { query: SandboxFoldersStateWatchDocument, variables: { chatID: chat } },
     lastFolders,
     { unshared: true },
   );

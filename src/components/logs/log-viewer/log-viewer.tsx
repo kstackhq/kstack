@@ -86,9 +86,9 @@ function watchClient(client: Client, record: (error: string | null) => void): Cl
           throw error;
         },
       ),
-    follow: (cursor, seen, onFrame, onFailed) => {
+    tail: (cursor, seen, onFrame, onFailed) => {
       try {
-        const stop = client.follow(cursor, seen, onFrame, (error) => {
+        const stop = client.tail(cursor, seen, onFrame, (error) => {
           record(errorText(error));
           onFailed(error);
         });

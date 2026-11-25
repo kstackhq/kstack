@@ -14,7 +14,7 @@
 // limitations under the License.
 
 import { compareTimestamps, containerKey } from './lines';
-import type { Client, Cursor, FetchQuery, FollowFrame, LogLine, Notice, Page } from './types';
+import type { Client, Cursor, FetchQuery, TailFrame, LogLine, Notice, Page } from './types';
 
 // A `Client` over a log it invents, for the tests. It models what that wire does to a viewer — edges and repeats, a follow whose
 // streams interleave, `seen`, latency, failures, a stream it could not read — so a viewer that
@@ -46,7 +46,7 @@ export type FakeClientOptions = {
   truncate?: Record<number, number>;
 };
 
-class Follower {
+class LogTailer {
   /** Whether the replay went out, after which each append sends its own lines. */
   live = false;
 
@@ -56,12 +56,12 @@ class Follower {
   timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
-    private readonly onFrame: (frame: FollowFrame) => void,
+    private readonly onFrame: (frame: TailFrame) => void,
     /** Whether the follow sends the line at an index. */
     readonly wants: (index: number) => boolean,
   ) {}
 
-  send(frame: FollowFrame): void {
+  send(frame: TailFrame): void {
     if (this.open) this.onFrame(frame);
   }
 
@@ -105,7 +105,7 @@ export class FakeClient implements Client {
 
   private lastMs = -Infinity;
 
-  private readonly followers = new Set<Follower>();
+  private readonly followers = new Set<LogTailer>();
 
   private readonly skipped = new Map<string, Notice>();
 
@@ -161,7 +161,7 @@ export class FakeClient implements Client {
     return page;
   }
 
-  follow(cursor: Cursor, seen: Cursor[], onFrame: (frame: FollowFrame) => void): () => void {
+  tail(cursor: Cursor, seen: Cursor[], onFrame: (frame: TailFrame) => void): () => void {
     const parsed = this.writtenPage(cursor);
     if (parsed === null || parsed.kind === 'prev') throw new Error(`fake: not a next or follow it wrote: ${cursor}`);
     const refused = this.refuseSeen(seen);
@@ -171,7 +171,7 @@ export class FakeClient implements Client {
       throw new Error('fake: the follow failed');
     }
     const start = parsed.index;
-    const follower = new Follower(onFrame, this.reader(start, seen));
+    const follower = new LogTailer(onFrame, this.reader(start, seen));
     this.followers.add(follower);
     // What is appended before the replay is held back and sent with it.
     follower.timer = setTimeout(() => {
@@ -369,7 +369,7 @@ export class FakeClient implements Client {
 
   // Sends the lines `from`..`to` the follow wants, one stream's batch after another, as the
   // sidecar's per-stream reads do.
-  private send(follower: Follower, from: number, to: number): void {
+  private send(follower: LogTailer, from: number, to: number): void {
     const lines = indexRange(from, to)
       .filter(follower.wants)
       .map((i) => this.log[i])

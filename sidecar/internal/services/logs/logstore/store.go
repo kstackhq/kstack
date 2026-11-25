@@ -261,10 +261,10 @@ func (s *Store) Close() error {
 	return err
 }
 
-// Subscribe is a receiver of a ping per stream in ids each time a commit writes it
-// lines, coalesced per stream. Subscribe before the first read, or a commit between
+// ListenForStreamChanges is a receiver of a ping per stream in ids each time a commit
+// writes it lines, coalesced per stream. Listen before the first read, or a commit between
 // the two is missed; close the receiver when done. The file closing ends it.
-func (s *Store) Subscribe(ids ...int64) (*conflate.Receiver[int64, struct{}], error) {
+func (s *Store) ListenForStreamChanges(ids ...int64) (*conflate.Receiver[int64, struct{}], error) {
 	f, done, err := s.use()
 	if err != nil {
 		return nil, fmt.Errorf("subscribe: %w", err)

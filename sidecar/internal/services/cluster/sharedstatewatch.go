@@ -22,49 +22,49 @@ import (
 	"github.com/amorey/gochan/watch"
 )
 
-// sharedGauge reads a gauge once per cadence on behalf of every subscriber, for a gauge
-// whose reading is the same for all of them. The first subscriber starts the loop and the
+// sharedStateWatch reads a value once per cadence on behalf of every subscriber of a state
+// watch whose reading is the same for all of them. The first subscriber starts the loop and the
 // last to leave stops it. A join asks for a read, so a subscriber's first reading is one
 // begun after it joined, and joiners share that read. Readings fan out as a latest value,
 // so a slow subscriber skips to the newest. A reading is shared by every subscriber, so
 // none may modify it.
-type sharedGauge[T any] struct {
+type sharedStateWatch[T any] struct {
 	read func(context.Context) (T, error)
 
 	mu  sync.Mutex
-	run *gaugeRun[T]
+	run *stateWatchRun[T]
 }
 
-// newSharedGauge makes a gauge that reads through read while anyone subscribes.
-func newSharedGauge[T any](read func(context.Context) (T, error)) *sharedGauge[T] {
-	return &sharedGauge[T]{read: read}
+// newSharedStateWatch makes a sharedStateWatch that reads through read while anyone subscribes.
+func newSharedStateWatch[T any](read func(context.Context) (T, error)) *sharedStateWatch[T] {
+	return &sharedStateWatch[T]{read: read}
 }
 
-// gaugeRun is one life of the loop, from its first subscriber to its last. A read that
+// stateWatchRun is one life of the loop, from its first subscriber to its last. A read that
 // fails ends the run: every subscriber gets the error, and the next subscriber starts a
 // fresh run.
-type gaugeRun[T any] struct {
-	hub  *watch.Hub[gaugeReading[T]]
+type stateWatchRun[T any] struct {
+	hub  *watch.Hub[stateWatchReading[T]]
 	wake chan struct{}
 	stop context.CancelFunc
-	// Under sharedGauge.mu. begun counts the reads started.
+	// Under sharedStateWatch.mu. begun counts the reads started.
 	subs  int
 	begun uint64
 }
 
-// gaugeReading is one read: a value, or the error that ended the run. seq is the read's
+// stateWatchReading is one read: a value, or the error that ended the run. seq is the read's
 // number, from 1; the hub's seed has 0 and is never returned.
-type gaugeReading[T any] struct {
+type stateWatchReading[T any] struct {
 	seq   uint64
 	value T
 	err   error
 }
 
-// gaugeSubscription is one subscriber's seat on the loop.
-type gaugeSubscription[T any] struct {
-	gauge *sharedGauge[T]
-	run   *gaugeRun[T]
-	rx    *watch.Receiver[gaugeReading[T]]
+// stateWatchSeat is one subscriber's seat on the loop.
+type stateWatchSeat[T any] struct {
+	shared *sharedStateWatch[T]
+	run    *stateWatchRun[T]
+	rx     *watch.Receiver[stateWatchReading[T]]
 	// joinedAt is how many reads the run had begun when the subscriber joined; those
 	// predate it.
 	joinedAt uint64
@@ -73,13 +73,13 @@ type gaugeSubscription[T any] struct {
 
 // subscribe joins the loop, starting it if no one holds it; cadence paces a loop this
 // call starts, so every subscriber passes the same one. Close the subscription when done.
-func (g *sharedGauge[T]) subscribe(cadence time.Duration) *gaugeSubscription[T] {
+func (g *sharedStateWatch[T]) subscribe(cadence time.Duration) *stateWatchSeat[T] {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	if g.run == nil {
 		ctx, stop := context.WithCancel(context.Background())
-		g.run = &gaugeRun[T]{hub: watch.New(gaugeReading[T]{}), wake: make(chan struct{}, 1), stop: stop}
+		g.run = &stateWatchRun[T]{hub: watch.New(stateWatchReading[T]{}), wake: make(chan struct{}, 1), stop: stop}
 		go g.loop(ctx, g.run, cadence)
 	} else {
 		// Ask for a read begun after this join; one pending wake serves every joiner.
@@ -89,10 +89,10 @@ func (g *sharedGauge[T]) subscribe(cadence time.Duration) *gaugeSubscription[T] 
 		}
 	}
 	g.run.subs++
-	return &gaugeSubscription[T]{gauge: g, run: g.run, rx: g.run.hub.Receiver(), joinedAt: g.run.begun}
+	return &stateWatchSeat[T]{shared: g, run: g.run, rx: g.run.hub.Receiver(), joinedAt: g.run.begun}
 }
 
-func (g *sharedGauge[T]) loop(ctx context.Context, run *gaugeRun[T], cadence time.Duration) {
+func (g *sharedStateWatch[T]) loop(ctx context.Context, run *stateWatchRun[T], cadence time.Duration) {
 	// A failed read ends the loop with subscribers still seated, so the loop releases its
 	// own context rather than waiting on the last of them to.
 	defer run.stop()
@@ -100,7 +100,7 @@ func (g *sharedGauge[T]) loop(ctx context.Context, run *gaugeRun[T], cadence tim
 	defer ticker.Stop()
 
 	for {
-		reading := gaugeReading[T]{seq: g.begin(run)}
+		reading := stateWatchReading[T]{seq: g.begin(run)}
 		reading.value, reading.err = g.read(ctx)
 		if reading.err != nil {
 			g.retire(run)
@@ -124,7 +124,7 @@ func (g *sharedGauge[T]) loop(ctx context.Context, run *gaugeRun[T], cadence tim
 
 // begin numbers the read about to start and takes any wake asked before it, since this
 // read answers it.
-func (g *sharedGauge[T]) begin(run *gaugeRun[T]) uint64 {
+func (g *sharedStateWatch[T]) begin(run *stateWatchRun[T]) uint64 {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	run.begun++
@@ -136,7 +136,7 @@ func (g *sharedGauge[T]) begin(run *gaugeRun[T]) uint64 {
 }
 
 // retire makes run no longer the one a new subscriber joins.
-func (g *sharedGauge[T]) retire(run *gaugeRun[T]) {
+func (g *sharedStateWatch[T]) retire(run *stateWatchRun[T]) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.run == run {
@@ -148,7 +148,7 @@ func (g *sharedGauge[T]) retire(run *gaugeRun[T]) {
 // begun before the subscriber joined. It returns the error that ended the run or ctx's,
 // whichever comes first; the run's error is returned even from a read begun before the
 // join, since it is the run's last word.
-func (s *gaugeSubscription[T]) Next(ctx context.Context) (T, error) {
+func (s *stateWatchSeat[T]) Next(ctx context.Context) (T, error) {
 	for {
 		reading, err := s.rx.RecvContext(ctx)
 		if err != nil {
@@ -163,14 +163,14 @@ func (s *gaugeSubscription[T]) Next(ctx context.Context) (T, error) {
 }
 
 // Close leaves the loop, stopping it if no one else holds it. Idempotent.
-func (s *gaugeSubscription[T]) Close() {
+func (s *stateWatchSeat[T]) Close() {
 	s.once.Do(s.leave)
 }
 
-func (s *gaugeSubscription[T]) leave() {
+func (s *stateWatchSeat[T]) leave() {
 	s.rx.Close()
 
-	g := s.gauge
+	g := s.shared
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	s.run.subs--

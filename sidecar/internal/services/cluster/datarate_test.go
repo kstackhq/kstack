@@ -46,13 +46,13 @@ func wireRate(seq uint64, received float64) ClusterDataRateSample {
 }
 
 // seriesOf is a frame carrying samples.
-func seriesOf(samples ...ClusterDataRateSample) ClusterDataRateSeriesFrame {
-	return ClusterDataRateSeriesFrame{IntervalSeconds: 2, WindowSeconds: 120, Samples: samples}
+func seriesOf(samples ...ClusterDataRateSample) ClusterDataRateTimeSeriesFeedFrame {
+	return ClusterDataRateTimeSeriesFeedFrame{IntervalSeconds: 2, WindowSeconds: 120, Samples: samples}
 }
 
-// watchDataRate opens the series for a cluster whose pool already holds samples, over a
+// watchDataRate opens the feed for a cluster whose pool already holds samples, over a
 // cancellable context.
-func watchDataRate(t *testing.T, samples ...kubeconn.DataRateSample) (<-chan ClusterDataRateSeriesFrame, *fakeKubeconn, context.CancelFunc) {
+func watchDataRate(t *testing.T, samples ...kubeconn.DataRateSample) (<-chan ClusterDataRateTimeSeriesFeedFrame, *fakeKubeconn, context.CancelFunc) {
 	t.Helper()
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
@@ -64,19 +64,19 @@ func watchDataRate(t *testing.T, samples ...kubeconn.DataRateSample) (<-chan Clu
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	ch, err := serviceOver(t, d).Clusters().WatchDataRate(ctx, clusterIDOf(obj))
+	ch, err := serviceOver(t, d).Clusters().SubscribeDataRateTimeSeriesFeed(ctx, clusterIDOf(obj))
 	require.NoError(t, err)
 	return ch, pool, cancel
 }
 
-func TestClustersWatchDataRateSendsTheWindowFirst(t *testing.T) {
+func TestClustersSubscribeDataRateTimeSeriesFeedSendsTheWindowFirst(t *testing.T) {
 	ch, _, _ := watchDataRate(t, rateAt(1, 100), rateAt(2, 300))
 
 	assert.Equal(t, seriesOf(wireRate(1, 100), wireRate(2, 300)), testutil.Recv(t, ch, "the window"))
 }
 
-// The first frame is what a delta watch's Bookmark is: after it, empty means empty.
-func TestClustersWatchDataRateSendsAnEmptyWindow(t *testing.T) {
+// The first frame is what a collection watch's Bookmark is: after it, empty means empty.
+func TestClustersSubscribeDataRateTimeSeriesFeedSendsAnEmptyWindow(t *testing.T) {
 	ch, _, _ := watchDataRate(t)
 
 	first := testutil.Recv(t, ch, "the window")
@@ -84,7 +84,7 @@ func TestClustersWatchDataRateSendsAnEmptyWindow(t *testing.T) {
 	assert.Empty(t, first.Samples)
 }
 
-func TestClustersWatchDataRateSendsOnlyTheNewSamples(t *testing.T) {
+func TestClustersSubscribeDataRateTimeSeriesFeedSendsOnlyTheNewSamples(t *testing.T) {
 	ch, pool, _ := watchDataRate(t, rateAt(1, 100))
 	testutil.Recv(t, ch, "the window")
 
@@ -96,7 +96,7 @@ func TestClustersWatchDataRateSendsOnlyTheNewSamples(t *testing.T) {
 // A nudge whose sample the reader already sent, as the one a tick lands between the subscribe
 // and the first read gives, sends nothing. The send is unbuffered, so an empty frame would
 // arrive ahead of the next sample.
-func TestClustersWatchDataRateSendsNothingWithoutANewSample(t *testing.T) {
+func TestClustersSubscribeDataRateTimeSeriesFeedSendsNothingWithoutANewSample(t *testing.T) {
 	ch, pool, _ := watchDataRate(t, rateAt(1, 100))
 	testutil.Recv(t, ch, "the window")
 	pool.rateReads.Await(t, "the window's read")
@@ -110,7 +110,7 @@ func TestClustersWatchDataRateSendsNothingWithoutANewSample(t *testing.T) {
 }
 
 // The nudges coalesce while the reader is away; the ring still holds every sample it missed.
-func TestClustersWatchDataRateCatchesUpAReaderThatFellBehind(t *testing.T) {
+func TestClustersSubscribeDataRateTimeSeriesFeedCatchesUpAReaderThatFellBehind(t *testing.T) {
 	ch, pool, _ := watchDataRate(t)
 	testutil.Recv(t, ch, "the window")
 
@@ -125,46 +125,46 @@ func TestClustersWatchDataRateCatchesUpAReaderThatFellBehind(t *testing.T) {
 	assert.Equal(t, []ClusterDataRateSample{wireRate(1, 1), wireRate(2, 2), wireRate(3, 3)}, got)
 }
 
-func TestClustersWatchDataRateRefusesADisabledCluster(t *testing.T) {
+func TestClustersSubscribeDataRateTimeSeriesFeedRefusesADisabledCluster(t *testing.T) {
 	d := newTestDeps(t)
 	obj := createCluster(t, d, "prod")
 	_, err := serviceOver(t, d).Clusters().SetEnabled(context.Background(), clusterIDOf(obj), false)
 	require.NoError(t, err)
 
-	_, err = serviceOver(t, d).Clusters().WatchDataRate(context.Background(), clusterIDOf(obj))
+	_, err = serviceOver(t, d).Clusters().SubscribeDataRateTimeSeriesFeed(context.Background(), clusterIDOf(obj))
 
 	assert.ErrorIs(t, err, ErrNotConnectable)
 }
 
-func TestClustersWatchDataRateReleasesItsClaimWhenTheStreamEnds(t *testing.T) {
+func TestClustersSubscribeDataRateTimeSeriesFeedReleasesItsClaimWhenTheStreamEnds(t *testing.T) {
 	ch, pool, cancel := watchDataRate(t)
 	testutil.Recv(t, ch, "the window")
 
 	cancel()
 
-	testutil.WaitClosed(t, ch, "the series to close on cancellation")
+	testutil.WaitClosed(t, ch, "the feed to close on cancellation")
 	assert.Equal(t, []string{"prod"}, pool.released)
 }
 
-func TestClustersWatchDataRateStopsForAConsumerThatIsGone(t *testing.T) {
+func TestClustersSubscribeDataRateTimeSeriesFeedStopsForAConsumerThatIsGone(t *testing.T) {
 	ch, _, cancel := watchDataRate(t)
 
 	cancel() // the window waits on a reader that never comes
 
-	testutil.WaitClosed(t, ch, "the series to give up its send")
+	testutil.WaitClosed(t, ch, "the feed to give up its send")
 }
 
-func TestClustersWatchDataRateStopsForAConsumerGoneMidStream(t *testing.T) {
+func TestClustersSubscribeDataRateTimeSeriesFeedStopsForAConsumerGoneMidStream(t *testing.T) {
 	ch, pool, cancel := watchDataRate(t)
 	testutil.Recv(t, ch, "the window")
 	pool.rateReads.Await(t, "the window's read")
 
 	pool.addRate("prod", rateAt(1, 0))
-	pool.rateReads.Await(t, "the new sample's read") // the series now waits on a reader that never comes
+	pool.rateReads.Await(t, "the new sample's read") // the feed now waits on a reader that never comes
 	cancel()
 
 	// The release follows the abandoned send; nothing reads the channel until it lands, so
 	// the send cannot have been taken instead.
-	pool.releases.Await(t, "the series to give up its send")
-	testutil.WaitClosed(t, ch, "the series to close")
+	pool.releases.Await(t, "the feed to give up its send")
+	testutil.WaitClosed(t, ch, "the feed to close")
 }

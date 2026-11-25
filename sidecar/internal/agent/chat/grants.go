@@ -175,9 +175,9 @@ func deleteChatRow(ctx context.Context, st stmts, stmt stmtID, chatID ChatID, id
 	return nil
 }
 
-// WatchGrants is a ping receiver on chatID's rules and folder grants.
-func (s *service) WatchGrants(chatID ChatID) GrantsNews {
-	return s.db.Subscribe(grantsKey(chatID))
+// ListenForGrantChanges notifies of each change to chatID's rules and folder grants.
+func (s *service) ListenForGrantChanges(chatID ChatID) GrantChangeNotifications {
+	return s.db.ListenForChanges(grantsKey(chatID))
 }
 
 // FoldersFor is foldersFor, for a run with no turn of its own.

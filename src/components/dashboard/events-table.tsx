@@ -15,7 +15,7 @@
 // The dashboard's cached Kubernetes Events table (newest first), over the rows its page
 // reads from `useClusterCachedDataEvents`. Gates on `active`/`phase` — the pattern every
 // whole-screen watch view follows.
-// See docs/adr/2026-08-09-delta-watch-protocol.md
+// See docs/subscriptions.md
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import ReactTimeAgo from 'react-timeago';
 
@@ -23,7 +23,7 @@ import { VirtualTable } from '@/components/dashboard/virtual-table';
 import type { VirtualColumn } from '@/components/dashboard/virtual-table';
 import { VisibleText } from '@/components/primitives/visible-text';
 import type { ClusterCachedDataEvent } from '@/lib/cluster-cached-data-events';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 
 // kubectl-style "Kind namespace/name"; any part may be absent (cluster-scoped or
 // name-only reference).
@@ -98,7 +98,7 @@ type EventsTableProps = {
   // The watch's rows, already filtered to `namespace`.
   events: ClusterCachedDataEvent[];
   active: boolean;
-  phase: WatchPhase;
+  phase: SubscriptionPhase;
   // The namespace the rows are filtered to, if any.
   namespace?: string;
 };

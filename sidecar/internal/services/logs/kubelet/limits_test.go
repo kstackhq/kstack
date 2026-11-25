@@ -129,7 +129,7 @@ func TestTheTailLinesWindowIsCappedByItsAllowance(t *testing.T) {
 }
 
 // A follow's fill has an allowance and no pool, and no second stops it.
-func TestAFollowsFillReadsItsShare(t *testing.T) {
+func TestATailsFillReadsItsShare(t *testing.T) {
 	t.Parallel()
 	l := FollowLimits(DefaultQuota, 4)
 	assert.Equal(t, int64(16<<20), l.allowance)

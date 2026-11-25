@@ -134,14 +134,14 @@ caller can act on:
 | `not-mirrored`, `no-cache`, `syncing` | the cluster cache cannot resolve the scope yet |
 | `read-failed` | every container failed to read and the page has nothing |
 
-## Follow
+## Tail
 
-`Service.Follow` is the other verb: it streams lines as they are written. It takes the same scope,
-or a page's `Next` or `Follow` cursor, which holds one. It starts from now, from `Since`, or from
-that cursor, with `Seen` beside either. A follow from a cursor reads every line a poll of it would,
+`Service.TailFromCursor` is the other verb: it streams lines as they are written. It takes the
+same scope, or a page's `Next` or `Follow` cursor, which holds one. It starts from now, from `Since`, or from
+that cursor, with `Seen` beside either. A tail from a cursor reads every line a poll of it would,
 then goes on past the window's end. Each frame carries a record, a notice, or, last, the
 refusal that ended it. `MaxMessageBytes` and `ForModel` cut each message as a page's do. The
 response echoes the request as it ran, the cursor's scope on a cursor start, and `ResolvedAt`, the
-cursor's first page's clock or now, beside the frames. A follow hands out no
+cursor's first page's clock or now, beside the frames. A tail hands out no
 cursor: to reopen one, send the same start and the last line you hold of each container as
 `Seen`. Lines are ordered per container only. See `CLAUDE.md` for how it works.

@@ -29,7 +29,12 @@ import { Countdown } from '@/components/primitives/countdown';
 import { RelativeTime } from '@/components/primitives/relative-time';
 import { RetryButton } from '@/components/primitives/retry-button';
 import { VisibleText } from '@/components/primitives/visible-text';
-import { type NextCheckState, useCacheContents, useDataRate, useNextCheck } from '@/lib/cluster-diagnostics';
+import {
+  type NextCheckState,
+  useClusterCacheStatsStateWatch,
+  useClusterDataRateTimeSeriesFeed,
+  useClusterScheduleStateWatch,
+} from '@/lib/cluster-diagnostics';
 import {
   type Status,
   TONE,
@@ -152,7 +157,7 @@ function ConnectionSection({ cluster }: { cluster: Cluster }) {
     connected && connected.status !== 'Unknown' && !connected.unconfirmed
       ? Date.parse(connected.transitionedAt)
       : Number.NaN;
-  const rates = useDataRate(cluster.id, !cluster.spec.enabled);
+  const rates = useClusterDataRateTimeSeriesFeed(cluster.id, !cluster.spec.enabled);
   const rate = rates?.samples.at(-1);
 
   return (
@@ -215,7 +220,7 @@ function CacheSection({ cluster }: { cluster: Cluster }) {
   const cache = cluster.activeCache;
   const health = cache?.health;
   const reason = syncReason(status, health);
-  const contents = useCacheContents(cluster.id, cache?.id ?? '', !cache);
+  const contents = useClusterCacheStatsStateWatch(cluster.id, cache?.id ?? '', !cache);
   const lastEventMs = Date.parse(health?.lastUpdateAt ?? '');
 
   return (
@@ -352,12 +357,12 @@ function Footer({
   );
 }
 
-// The popup over a record. The schedule gauge is read once here: a second subscriber to the
+// The popup over a record. The schedule state watch is read once here: a second subscriber to the
 // same shared stream, mounting after the first, would miss its current value.
 function ClusterStatus({ context, cluster, onClose }: { context: string; cluster: Cluster; onClose: () => void }) {
   const connection = connectionStatus(cluster, 'active');
   const sync = syncStatus(cluster, 'active');
-  const check = useNextCheck(cluster.id);
+  const check = useClusterScheduleStateWatch(cluster.id);
   const failed = connection.tone === 'error';
   const health = cluster.activeCache?.health;
   const stale = sync.tone === 'attention' && health?.reason === 'Stale' ? health : null;

@@ -24,7 +24,7 @@ import {
   createCoreStore,
   useCoreFields,
 } from './core';
-import type { Anchor, Client, Cursor, FetchQuery, FollowFrame, LogLine, Page } from './types';
+import type { Anchor, Client, Cursor, FetchQuery, TailFrame, LogLine, Page } from './types';
 import { CORE_INITIAL_STATE, type CoreState } from './window';
 
 const HEAD: Anchor = { kind: 'Head', at: null };
@@ -191,7 +191,7 @@ type Fetch = { query: FetchQuery; resolve: (page: Page) => void; reject: (error:
 type Follow = {
   cursor: Cursor;
   seen: Cursor[];
-  onFrame: (frame: FollowFrame) => void;
+  onFrame: (frame: TailFrame) => void;
   onFailed: (error: unknown) => void;
   closed: boolean;
 };
@@ -205,7 +205,7 @@ function scripted() {
       new Promise<Page>((resolve, reject) => {
         fetches.push({ query, resolve, reject });
       }),
-    follow: (cursor, seen, onFrame, onFailed) => {
+    tail: (cursor, seen, onFrame, onFailed) => {
       if (state.refuseFollow) {
         state.refuseFollow = false;
         throw new Error('refused');
@@ -663,9 +663,9 @@ describe('the store under a parent', () => {
   });
 });
 
-const lineFrame = (i: number): FollowFrame => ({ kind: 'Line', line: line(i) });
+const lineFrame = (i: number): TailFrame => ({ kind: 'Line', line: line(i) });
 
-async function send(follow: Follow, frames: FollowFrame[]) {
+async function send(follow: Follow, frames: TailFrame[]) {
   await act(async () => {
     frames.forEach((f) => follow.onFrame(f));
   });
@@ -1341,7 +1341,7 @@ describe('the bound', () => {
     await landTail(s);
     await send(
       s.open()[0],
-      lines(150, 250).map((l): FollowFrame => ({ kind: 'Line', line: l })),
+      lines(150, 250).map((l): TailFrame => ({ kind: 'Line', line: l })),
     );
     await frame(3);
     expect(m.state()).toMatchObject({ length: 200, firstKey: -99, following: true, atEnd: true });
@@ -1354,7 +1354,7 @@ describe('the bound', () => {
     await landTail(s);
     await send(
       s.open()[0],
-      lines(150, 250).map((l): FollowFrame => ({ kind: 'Line', line: l })),
+      lines(150, 250).map((l): TailFrame => ({ kind: 'Line', line: l })),
     );
     await frame(4);
     expect(m.state()).toMatchObject({ length: 20, following: true, atEnd: true });
@@ -1368,7 +1368,7 @@ describe('the bound', () => {
     await landTail(s);
     await send(
       s.open()[0],
-      lines(150, 250).map((l): FollowFrame => ({ kind: 'Line', line: l })),
+      lines(150, 250).map((l): TailFrame => ({ kind: 'Line', line: l })),
     );
     await frame(3);
 
@@ -1419,7 +1419,7 @@ describe('the bound', () => {
     await landTail(s);
     await send(
       s.open()[0],
-      lines(150, 250).map((l): FollowFrame => ({ kind: 'Line', line: l })),
+      lines(150, 250).map((l): TailFrame => ({ kind: 'Line', line: l })),
     );
     await frame(3);
     await input(m.scroller(), () => fireEvent.wheel(m.scroller(), { deltaY: -100 }), 100);

@@ -52,45 +52,45 @@ func TestTheToolIsAShownBoundedWatch(t *testing.T) {
 // tokenScope is the scope a fake cursor holds.
 var tokenScope = tools.LogsScopeInput{Sources: []tools.LogsViewSource{{Namespace: "prod", Kind: tools.LogsSourcePod, Name: "webapp-b", Containers: []string{"app"}}}}
 
-// fakeFollows is the log service as the tool opens a follow: a stream that holds
-// until its context ends, closing ended then, or err; each follow's context and
-// request kept. A cursor's follow echoes tokenScope, and every follow resolvedAt.
+// fakeTails is the log service as the tool opens a tail: a stream that holds
+// until its context ends, closing ended then, or err; each tail's context and
+// request kept. A cursor's tail echoes tokenScope, and every tail resolvedAt.
 // stalled, when set, holds the open itself until its context ends, closing
 // stalled once it has begun.
-type fakeFollows struct {
+type fakeTails struct {
 	err        error
 	stalled    chan struct{}
 	ctx        context.Context
-	q          logs.FollowRequest
+	q          logs.TailRequest
 	ended      chan struct{}
 	opened     bool
 	resolvedAt time.Time
 }
 
-func newFakeFollows() *fakeFollows {
-	return &fakeFollows{ended: make(chan struct{}), resolvedAt: time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)}
+func newFakeTails() *fakeTails {
+	return &fakeTails{ended: make(chan struct{}), resolvedAt: time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)}
 }
 
-func (f *fakeFollows) Follow(ctx context.Context, _ cluster.ClusterID, q logs.FollowRequest) (logs.FollowResponse, error) {
+func (f *fakeTails) TailFromCursor(ctx context.Context, _ cluster.ClusterID, q logs.TailRequest) (logs.TailResponse, error) {
 	if f.stalled != nil {
 		close(f.stalled)
 		<-ctx.Done()
-		return logs.FollowResponse{}, ctx.Err()
+		return logs.TailResponse{}, ctx.Err()
 	}
 	if f.err != nil {
-		return logs.FollowResponse{}, f.err
+		return logs.TailResponse{}, f.err
 	}
 	f.ctx, f.q, f.opened = ctx, q, true
 	echo := q
 	if q.Cursor != nil {
 		echo.Scope = tokenScope
 	}
-	frames := cluster.NewStream(ctx, func(ctx context.Context, _ chan<- logs.FollowFrame) error {
+	frames := cluster.NewStream(ctx, func(ctx context.Context, _ chan<- logs.TailFrame) error {
 		<-ctx.Done()
 		close(f.ended)
 		return nil
 	})
-	return logs.FollowResponse{Request: echo, ResolvedAt: f.resolvedAt, Frames: frames}, nil
+	return logs.TailResponse{Request: echo, ResolvedAt: f.resolvedAt, Frames: frames}, nil
 }
 
 // fakeWatches is the chat's watches: it keeps what it is handed and answers id, or
@@ -115,9 +115,9 @@ const webapp = `{"sources":[{"namespace":"prod","resource":"deployments/webapp",
 // an absolute moment, which a clock fixed in the past would have passed.
 func near() time.Time { return time.Now().UTC().Truncate(time.Second) }
 
-// run calls the tool over the watching cluster, follows and watches with raw on
+// run calls the tool over the watching cluster, tails and watches with raw on
 // ctx at the clock now, and answers what the model reads and the action.
-func run(t *testing.T, ctx context.Context, now time.Time, f *fakeFollows, w *fakeWatches, raw string) (string, bool, *tools.Action) {
+func run(t *testing.T, ctx context.Context, now time.Time, f *fakeTails, w *fakeWatches, raw string) (string, bool, *tools.Action) {
 	t.Helper()
 	tool := New(logsinputtest.Watching(t), f)
 	tool.now = func() time.Time { return now }
@@ -126,7 +126,7 @@ func run(t *testing.T, ctx context.Context, now time.Time, f *fakeFollows, w *fa
 
 // watchOf is the watch a call starts at the clock now, which must start, its
 // receipt and action.
-func watchOf(t *testing.T, now time.Time, f *fakeFollows, raw string) (string, tools.LogsWatchAction) {
+func watchOf(t *testing.T, now time.Time, f *fakeTails, raw string) (string, tools.LogsWatchAction) {
 	t.Helper()
 	w := &fakeWatches{}
 	text, isError, shown := run(t, t.Context(), now, f, w, raw)
@@ -139,13 +139,13 @@ func watchOf(t *testing.T, now time.Time, f *fakeFollows, raw string) (string, t
 }
 
 // The receipt names the sources, the pattern, the start, the limits and the end,
-// then the task; the action carries what the clock made of them; the follow is
+// then the task; the action carries what the clock made of them; the tail is
 // asked for the model from the moment, its deadline the watch's end.
 func TestTheReceiptNamesTheWatch(t *testing.T) {
 	t.Parallel()
 	now := near()
 	since := now.Add(-5 * time.Minute)
-	f := newFakeFollows()
+	f := newFakeTails()
 	text, action := watchOf(t, now, f, webapp+`,"grep":"panic|Exception","since":"`+since.Format(time.RFC3339)+`","until":"PT10M","limit":3,"max_message_bytes":100,"description":"Panics"}`)
 
 	assert.Equal(t, "Watching deployments/webapp in prod for /panic|Exception/ from "+logsinput.Stamp(since)+", up to 3 lines or 16384 bytes, "+
@@ -166,12 +166,12 @@ func TestTheReceiptNamesTheWatch(t *testing.T) {
 	assert.Equal(t, action.Until, deadline)
 }
 
-// A bare call watches from now for any line, up to a day; the follow is told its
+// A bare call watches from now for any line, up to a day; the tail is told its
 // start, now on the tool's clock.
 func TestABareWatchIsForAnyLineFromNow(t *testing.T) {
 	t.Parallel()
 	now := near()
-	f := newFakeFollows()
+	f := newFakeTails()
 	text, action := watchOf(t, now, f, webapp+`}`)
 	assert.Equal(t, "Watching deployments/webapp in prod for any line from now, up to 1 line or 16384 bytes, "+
 		"until "+logsinput.Stamp(now.Add(maxWatch))+" (task t-1). You will be told when it ends.", text)
@@ -181,10 +181,10 @@ func TestABareWatchIsForAnyLineFromNow(t *testing.T) {
 }
 
 // A watch from a read's token sends the token alone, and its receipt, action and
-// view carry the scope the follow echoes, the token's.
+// view carry the scope the tail echoes, the token's.
 func TestACursorWatchCarriesTheTokensScope(t *testing.T) {
 	t.Parallel()
-	f := newFakeFollows()
+	f := newFakeTails()
 	text, action := watchOf(t, near(), f, `{"cursor":"tok","limit":2}`)
 	assert.True(t, strings.HasPrefix(text, "Watching pods/webapp-b in prod for any line from a read's token, up to 2 lines"), text)
 	assert.Equal(t, tokenScope, action.LogsScopeInput)
@@ -200,36 +200,36 @@ func TestACursorWatchCarriesTheTokensScope(t *testing.T) {
 func TestTheReceiptSaysAnUntilWasCut(t *testing.T) {
 	t.Parallel()
 	now := near()
-	text, action := watchOf(t, now, newFakeFollows(), webapp+`,"until":"P2D"}`)
+	text, action := watchOf(t, now, newFakeTails(), webapp+`,"until":"P2D"}`)
 	assert.Equal(t, now.Add(maxWatch), action.Until)
 	assert.Contains(t, text, "until "+logsinput.Stamp(now.Add(maxWatch))+", the longest a watch runs (task t-1)")
 }
 
-// The follow outlives the call: the call's context ending leaves it open, and the
+// The tail outlives the call: the call's context ending leaves it open, and the
 // watch's stop ends it.
-func TestTheFollowOutlivesTheCall(t *testing.T) {
+func TestTheTailOutlivesTheCall(t *testing.T) {
 	t.Parallel()
-	f, w := newFakeFollows(), &fakeWatches{}
+	f, w := newFakeTails(), &fakeWatches{}
 	ctx, cancel := context.WithCancel(t.Context())
 	_, isError, _ := run(t, ctx, near(), f, w, webapp+`}`)
 	require.False(t, isError)
 	cancel()
 
-	// A negative assertion: the follow's own context stays open past the call's.
+	// A negative assertion: the tail's own context stays open past the call's.
 	select {
 	case <-f.ended:
-		t.Fatal("the call's end ended the follow")
+		t.Fatal("the call's end ended the tail")
 	case <-time.After(10 * time.Millisecond):
 	}
 	w.started[0].Stop()
-	testutil.Wait(t, f.ended, "the stop to end the follow")
+	testutil.Wait(t, f.ended, "the stop to end the tail")
 }
 
-// A follow that stalls while it opens is still the call's: the call's end ends
+// A tail that stalls while it opens is still the call's: the call's end ends
 // the open, and nothing starts.
-func TestTheCallBoundsTheFollowsOpen(t *testing.T) {
+func TestTheCallBoundsTheTailsOpen(t *testing.T) {
 	t.Parallel()
-	f, w := &fakeFollows{stalled: make(chan struct{})}, &fakeWatches{}
+	f, w := &fakeTails{stalled: make(chan struct{})}, &fakeWatches{}
 	ctx, cancel := context.WithCancel(t.Context())
 	go func() {
 		<-f.stalled
@@ -241,33 +241,33 @@ func TestTheCallBoundsTheFollowsOpen(t *testing.T) {
 	assert.Empty(t, w.started)
 }
 
-// A start the chat refuses lets the follow go and answers StartRefusal's words.
-func TestARefusedStartLetsTheFollowGo(t *testing.T) {
+// A start the chat refuses lets the tail go and answers StartRefusal's words.
+func TestARefusedStartLetsTheTailGo(t *testing.T) {
 	t.Parallel()
-	f := newFakeFollows()
+	f := newFakeTails()
 	text, isError, shown := run(t, t.Context(), near(), f, &fakeWatches{err: tools.ErrChatTaskLimit}, webapp+`}`)
 	assert.True(t, isError)
 	assert.Nil(t, shown)
 	assert.Equal(t, tools.StartRefusal(tools.ErrChatTaskLimit), text)
-	testutil.Wait(t, f.ended, "the follow to end")
+	testutil.Wait(t, f.ended, "the tail to end")
 }
 
-// A scope the mirror refuses opens nothing; a follow the service refuses answers
+// A scope the mirror refuses opens nothing; a tail the service refuses answers
 // its code and its words, redacted, and any other failure none of its text.
 func TestARefusedWatchOpensNothing(t *testing.T) {
 	t.Parallel()
-	f := newFakeFollows()
+	f := newFakeTails()
 	text, isError, _ := run(t, t.Context(), near(), f, &fakeWatches{}, `{"sources":[{"namespace":"prod","resource":"pods/webapp-a","containers":["nope"]}]}`)
 	assert.True(t, isError)
 	assert.JSONEq(t, `{"error":"no-container","source":0,"containers":["app","istio-proxy","setup"]}`, text)
 	assert.False(t, f.opened)
 
-	f = &fakeFollows{err: refusal.New(refusal.CodeCursorInvalid, "a follow goes on from a page's next or follow, not its prev \x1b[31msk-"+strings.Repeat("A", 30))}
+	f = &fakeTails{err: refusal.New(refusal.CodeCursorInvalid, "a tail goes on from a page's next or follow, not its prev \x1b[31msk-"+strings.Repeat("A", 30))}
 	text, isError, _ = run(t, t.Context(), near(), f, &fakeWatches{}, `{"cursor":"tok"}`)
 	assert.True(t, isError)
-	assert.Equal(t, `{"error":"cursor-invalid","message":"a follow goes on from a page's next or follow, not its prev [redacted]"}`, text)
+	assert.Equal(t, `{"error":"cursor-invalid","message":"a tail goes on from a page's next or follow, not its prev [redacted]"}`, text)
 
-	f = &fakeFollows{err: errors.New("open /home/user/cache: disk I/O error")}
+	f = &fakeTails{err: errors.New("open /home/user/cache: disk I/O error")}
 	text, _, _ = run(t, t.Context(), near(), f, &fakeWatches{}, webapp+`}`)
 	assert.JSONEq(t, `{"error":"read-failed"}`, text)
 }
@@ -275,7 +275,7 @@ func TestARefusedWatchOpensNothing(t *testing.T) {
 // A runtime with no watches, a subagent's or a monitor's, opens nothing.
 func TestARuntimeWithNoWatchesOpensNothing(t *testing.T) {
 	t.Parallel()
-	f := newFakeFollows()
+	f := newFakeTails()
 	tool := New(logsinputtest.Watching(t), f)
 	_, isError, shown := tool.RunShown(t.Context(), tools.Runtime{ClusterID: "7"}, json.RawMessage(webapp+`}`))
 	assert.True(t, isError)
@@ -286,7 +286,7 @@ func TestARuntimeWithNoWatchesOpensNothing(t *testing.T) {
 // Input that is not the tool's is refused before anything opens, through Run too.
 func TestBadInputOpensNothing(t *testing.T) {
 	t.Parallel()
-	f := newFakeFollows()
+	f := newFakeTails()
 	tool := New(nil, f)
 
 	text, isError := tool.Run(t.Context(), tools.Runtime{ClusterID: "7", Watches: &fakeWatches{}}, json.RawMessage(`{"hunter2":1}`))

@@ -170,15 +170,15 @@ func (s *Service) State() connectors.State {
 	return s.state
 }
 
-// Subscribe streams the state: current on subscribe, then each change.
-func (s *Service) Subscribe() (<-chan connectors.State, func()) {
+// WatchState streams the state: current on subscribe, then each change.
+func (s *Service) WatchState() (<-chan connectors.State, func()) {
 	rx := s.hub.Receiver()
 	return rx.Chan(), rx.Close
 }
 
-// WatchSession streams the connected session: its generation while Connected,
+// WatchSessionGenerationState streams the connected session: its generation while Connected,
 // 0 otherwise. Current on subscribe, then each change.
-func (s *Service) WatchSession() (<-chan uint64, func()) {
+func (s *Service) WatchSessionGenerationState() (<-chan uint64, func()) {
 	rx := s.sessions.Receiver()
 	return rx.Chan(), rx.Close
 }

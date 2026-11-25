@@ -59,7 +59,7 @@ import {
 import type { ChatMessage, ChatSandboxAction, ChatToolCall, Source, TaskNotice, TaskNoticeOf } from '@/lib/chats';
 import { CHATGPT_ID, useOpenChatGPTUsage } from '@/lib/connectors';
 import { SMALL_ICON_STROKE } from '@/lib/control-style';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 import { useHeldStill } from '@/lib/held-still';
 import { humanDuration } from '@/lib/human-duration';
 import { modelOf, useModels } from '@/lib/models';
@@ -95,7 +95,7 @@ const BackgroundTaskStopMutation = graphql(`
 
 type ChatTranscriptProps = {
   messages: ChatMessage[];
-  phase: WatchPhase;
+  phase: SubscriptionPhase;
   /** The chat this draws, which is also the outbox entry Ask again sends from. */
   chatID: string;
   mode: AppMode;

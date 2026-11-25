@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The one place the app makes a log `Client`: `logsFetch` and `logsFollow` over the app's urql
+// The one place the app makes a log `Client`: `logsFetch` and `logsTail` over the app's urql
 // client, for one view of one cluster. Cursors pass through as the sidecar wrote them. Operation
 // errors reach the error bus through `errorReportExchange`; a page's also rejects its fetch, and
-// a follow's calls `onFailed`, for the window to see.
+// a tail's calls `onFailed`, for the window to see.
 
 import type { Client as UrqlClient } from 'urql';
 
@@ -23,7 +23,7 @@ import { graphql } from '@/gql';
 import type {
   LogsFetchInput,
   LogsFetchQuery as LogsFetchResult,
-  LogsFollowSubscription as LogsFollowResult,
+  LogsTailSubscription as LogsTailResult,
   LogsScopeInput,
 } from '@/gql/graphql';
 import { refusalOf } from '@/lib/graphql/refusal';
@@ -71,9 +71,9 @@ const LogsFetchQuery = graphql(`
   }
 `);
 
-const LogsFollowSubscription = graphql(`
-  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {
-    logsFollow(id: $id, request: $request) {
+const LogsTailDocument = graphql(`
+  subscription LogsTail($id: ClusterID!, $request: LogsTailInput!) {
+    logsTail(id: $id, request: $request) {
       type
       record {
         timestamp
@@ -127,7 +127,7 @@ function scopeInput({ sources, filters, grep }: LogsViewAction): LogsScopeInput 
 }
 
 // Field by field for the same reason: the library's types are the wire's without `__typename`.
-type LogRecord = NonNullable<LogsFollowResult['logsFollow']['record']>;
+type LogRecord = NonNullable<LogsTailResult['logsTail']['record']>;
 
 function lineOf({ timestamp, message, truncatedBytes, cursor, stream, place, gap }: LogRecord): LogLine {
   return {
@@ -187,7 +187,7 @@ export function createLogsClient(urql: UrqlClient, clusterId: string, action: Lo
       };
     },
 
-    follow: (cursor, seen, onFrame, onFailed) => {
+    tail: (cursor, seen, onFrame, onFailed) => {
       // A reconnect goes on from the same cursor, past the newest line it handed on of each
       // container. The given `seen` is opaque, so it goes too: the sidecar keeps the newer of
       // two lines of one container.
@@ -196,17 +196,17 @@ export function createLogsClient(urql: UrqlClient, clusterId: string, action: Lo
       let ended = false;
       const subscription = urql
         .subscription(
-          LogsFollowSubscription,
+          LogsTailDocument,
           { id: clusterId, request: request() },
           { reconnectVariables: () => ({ id: clusterId, request: request() }) },
         )
         .subscribe(({ data, error }) => {
           if (ended) return;
-          const frame = data?.logsFollow;
+          const frame = data?.logsTail;
           if (!frame) {
-            // A follow the sidecar could not open answers errors and no frame, then completes.
+            // A tail the sidecar could not open answers errors and no frame, then completes.
             // Stop here, before the reconnect the `complete` brings: the window reopens it
-            // from a page. A watch that dies once open is the exchange's to reconnect.
+            // from a page. A tail that dies once open is the exchange's to reconnect.
             if (error) {
               ended = true;
               subscription.unsubscribe();
@@ -224,7 +224,7 @@ export function createLogsClient(urql: UrqlClient, clusterId: string, action: Lo
             if (frame.notice)
               onFrame({ kind: 'Notice', notice: { code: frame.notice.code, message: frame.notice.message } });
           } else {
-            // Following again would end the same way, so the reconnect the server's
+            // Tailing again would end the same way, so the reconnect the server's
             // `complete` brings must not happen.
             ended = true;
             onFrame({ kind: 'Ended', reason: frame.ended?.message ?? '' });

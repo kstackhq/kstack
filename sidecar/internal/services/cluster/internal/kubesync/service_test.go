@@ -159,7 +159,7 @@ func TestDiscoveryNewsIsKeyedByCacheID(t *testing.T) {
 
 	svc, pool := newTestService(t)
 	pool.lease("prod").connect(t, cluster, "uid-1")
-	news := svc.WatchDiscoveryNews()
+	news := svc.ListenForDiscoveryChanges()
 	t.Cleanup(news.Close)
 	start(t, svc)
 
@@ -175,7 +175,7 @@ func TestKindNewsIsKeyedByCacheAndKind(t *testing.T) {
 	pool.lease("prod").vouch(t, "uid-1")
 	start(t, svc)
 
-	news := svc.WatchKindNews()
+	news := svc.ListenForKindChanges()
 	t.Cleanup(news.Close)
 
 	kind := testKind("apps/v1", "Deployment", "deployments")
@@ -607,7 +607,7 @@ func TestArmReportsAStoreThatWillNotOpen(t *testing.T) {
 }
 
 // A driver error is the first discovery message this package does not write itself, and it
-// leaves by two paths — the gauge and an event run — neither of which bounds one. So it is
+// leaves by two paths — the state watch and an event run — neither of which bounds one. So it is
 // bounded where it is recorded rather than at either boundary.
 func TestArmCapsWhatADriverErrorCanSay(t *testing.T) {
 	svc, _ := newTestServiceOverStore(t, refusing(strings.Repeat("x", 5000)))
@@ -642,7 +642,7 @@ func TestArmStopsReportingAFailureItHasRecoveredFrom(t *testing.T) {
 	store.healed.Store(true)
 	svc.TrackDiscovery(1, testParams)
 
-	// The map, not the gauge: an armed session masks a stale entry, so reading the verdict
+	// The map, not the state watch: an armed session masks a stale entry, so reading the verdict
 	// would pass over exactly the leak this clear exists to prevent.
 	assert.NotContains(t, storeFailures(svc), int64(1), "the cache opened; nothing is left to report")
 }

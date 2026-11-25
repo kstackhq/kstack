@@ -625,11 +625,11 @@ func TestSetCatalogReplacesAProvidersModels(t *testing.T) {
 	assert.Equal(t, []string{"plan", "other"}, providerIDs(svc.Providers()))
 }
 
-// Subscribe is a gauge of the providers: the current list on subscribe, then
+// WatchProvidersState is a state watch of the providers: the current list on subscribe, then
 // the list after each SetCatalog.
-func TestSubscribeSendsTheProvidersOnEachCatalogChange(t *testing.T) {
+func TestWatchProvidersStateSendsTheProvidersOnEachCatalogChange(t *testing.T) {
 	svc := planService(&fakeSigner{})
-	frames, cancel := svc.Subscribe()
+	frames, cancel := svc.WatchProvidersState()
 	defer cancel()
 
 	first := testutil.Recv(t, frames, "a providers frame")

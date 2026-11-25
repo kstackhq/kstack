@@ -26,7 +26,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 
-import type { Anchor, Client, FollowFrame, LogLine } from './types';
+import type { Anchor, Client, TailFrame, LogLine } from './types';
 import { CORE_INITIAL_STATE, type CoreState, type Edge, type EdgeState, type Effect, LogWindow } from './window';
 
 // The window behind a scroller. Every rule about lines, edges and the pin is the window's; this
@@ -499,7 +499,7 @@ function useClient({ client, logWindow, anchor, paused, following, perform, onEr
     // StrictMode runs this twice; a refused follow has unpinned the window by the second run.
     if (!following || !logWindow.following()) return undefined;
     logWindow.followOpened();
-    let batch: FollowFrame[] = [];
+    let batch: TailFrame[] = [];
     let cancelFlush: (() => void) | null = null;
     const flush = () => {
       const frames = batch;
@@ -515,7 +515,7 @@ function useClient({ client, logWindow, anchor, paused, following, perform, onEr
     let unsubscribe: () => void;
     try {
       const { cursor, seen } = logWindow.followFrom();
-      unsubscribe = client.follow(
+      unsubscribe = client.tail(
         cursor,
         seen,
         (frame) => {

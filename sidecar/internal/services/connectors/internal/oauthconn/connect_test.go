@@ -307,7 +307,7 @@ func TestASignInThatCannotBeSavedKeepsNothing(t *testing.T) {
 	t.Run("the refresh entry", func(t *testing.T) {
 		r := newRig(t)
 		r.keyring.failSet(refreshAccount, errBoom)
-		states, cancel := r.svc.Subscribe()
+		states, cancel := r.svc.WatchState()
 		defer cancel()
 
 		require.NoError(t, r.svc.Connect(t.Context(), false))
@@ -321,7 +321,7 @@ func TestASignInThatCannotBeSavedKeepsNothing(t *testing.T) {
 		// The writes are the sign-in's first, the client id, then the session.
 		fail, _ := failingWrites(2, errBoom)
 		r := newRig(t, fail)
-		states, cancel := r.svc.Subscribe()
+		states, cancel := r.svc.WatchState()
 		defer cancel()
 
 		require.NoError(t, r.svc.Connect(t.Context(), false))
