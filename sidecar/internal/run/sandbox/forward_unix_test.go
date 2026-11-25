@@ -36,6 +36,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // helpers are what the test binary can be started as for a test that needs a
@@ -46,13 +48,13 @@ var helpers = map[string]func() int{}
 // started as either, as a run starts its own executable.
 func TestMain(m *testing.M) {
 	if code, ok := Main(os.Args); ok {
-		os.Exit(code)
+		testutil.ExitHelper(code)
 	}
 	if h := helpers[os.Getenv("KSTACK_SANDBOX_TEST_HELPER")]; h != nil {
-		os.Exit(h())
+		testutil.ExitHelper(h())
 	}
 	if port := os.Getenv("KSTACK_SANDBOX_TEST_DIAL"); port != "" {
-		os.Exit(dialOnce(port))
+		testutil.ExitHelper(dialOnce(port))
 	}
 	os.Exit(m.Run())
 }

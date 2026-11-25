@@ -150,10 +150,10 @@ cancelled probe closes the pipe; `Close` closes a probed `Sandbox`'s, ending its
 as cleanup** (`closing`, `confining`).
 
 **Tests.** A test binary that starts the chain calls `sandbox.Main` from its `TestMain`, or it
-runs its own suite inside the probe. A test needing a sandbox calls `testutil.RequireSandbox`
-(fails under `KSTACK_REQUIRE_SANDBOX=1`, which CI sets). **No test writes inside the module**
-(Go's test cache keys on it); fixtures go under `testutil.GrantableDir`. `app`'s `startE2E` runs
-a chat through the real sandbox.
+runs its own suite inside the probe; each helper branch exits by `testutil.ExitHelper`. A test
+needing a sandbox calls `testutil.RequireSandbox` (fails under `KSTACK_REQUIRE_SANDBOX=1`, which
+CI sets). **No test writes inside the module** (Go's test cache keys on it); fixtures go under
+`testutil.GrantableDir`. `app`'s `startE2E` runs a chat through the real sandbox.
 
 ## Permissions (`permissions`)
 
