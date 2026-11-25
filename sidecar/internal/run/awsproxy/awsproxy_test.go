@@ -57,8 +57,10 @@ type identity struct {
 	noAccount bool // the credentials carry no account id
 	// laterAccount, when set, is the account every read after the first carries.
 	laterAccount string
-	laterErr     error // what every read after the first fails with
-	calls        int
+	// laterKey, when set, is the access key every read after the first carries.
+	laterKey string
+	laterErr error // what every read after the first fails with
+	calls    int
 }
 
 func (id *identity) Credentials(context.Context) (aws.Credentials, error) {
@@ -71,6 +73,9 @@ func (id *identity) Credentials(context.Context) (aws.Credentials, error) {
 	}
 	if id.laterAccount != "" && id.calls > 1 {
 		creds.AccountID = id.laterAccount
+	}
+	if id.laterKey != "" && id.calls > 1 {
+		creds.AccessKeyID = id.laterKey
 	}
 	if id.laterErr != nil && id.calls > 1 {
 		return aws.Credentials{}, id.laterErr
@@ -131,14 +136,16 @@ type fixture struct {
 	grant    *runproxy.Grant
 	policyMu sync.Mutex
 	policy   permissions.Policy // every account's, ask by default
-	off      atomic.Bool        // the grant's switch, on until a test turns it off
-	id       *identity
-	asker    *asker
-	buckets  *Buckets
-	seen     chan received
-	answer   http.HandlerFunc
-	proxy    *Proxy
-	upstream *httptest.Server
+	// accountModes are the accounts with a mode of their own.
+	accountModes map[string]permissions.Mode
+	off          atomic.Bool // the grant's switch, on until a test turns it off
+	id           *identity
+	asker        *asker
+	buckets      *Buckets
+	seen         chan received
+	answer       http.HandlerFunc
+	proxy        *Proxy
+	upstream     *httptest.Server
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -146,7 +153,7 @@ func newFixture(t *testing.T) *fixture {
 		t: t, id: &identity{}, buckets: NewBuckets(), seen: make(chan received, 32),
 		asker:  &asker{approve: true, asked: make(chan runproxy.Request, 8), recorded: make(chan record, 8)},
 		answer: func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") },
-		policy: permissions.Policy{Mode: permissions.ModeAsk},
+		policy: permissions.Policy{Mode: permissions.ModeAsk}, accountModes: map[string]permissions.Mode{},
 	}
 	f.grant = runproxy.NewGrant(permissions.AWS, func(context.Context) bool { return !f.off.Load() }, f.session(session.Chat), f.asker, "",
 		runproxy.Limits{QPS: 1000, Burst: 1000, Open: 8, Bodies: 8})
@@ -175,11 +182,22 @@ func newFixture(t *testing.T) *fixture {
 
 // session is a session of kind reading the fixture's policy.
 func (f *fixture) session(kind session.Kind) session.Session {
-	return session.Session{Kind: kind, Policy: func(context.Context, permissions.Target, string) permissions.Policy {
+	return session.Session{Kind: kind, Policy: func(_ context.Context, _ permissions.Target, account string) permissions.Policy {
 		f.policyMu.Lock()
 		defer f.policyMu.Unlock()
-		return f.policy
+		p := f.policy
+		if mode, ok := f.accountModes[account]; ok {
+			p.Mode = mode
+		}
+		return p
 	}}
+}
+
+// setAccountMode gives account a mode of its own, over setPolicy's.
+func (f *fixture) setAccountMode(account string, mode permissions.Mode) {
+	f.policyMu.Lock()
+	defer f.policyMu.Unlock()
+	f.accountModes[account] = mode
 }
 
 // setPolicy makes every account's mode mode, under rules.
@@ -258,7 +276,7 @@ func (f *fixture) owns(names ...string) {
 	for _, name := range names {
 		f.buckets.names[name] = true
 	}
-	f.buckets.listedAt = f.buckets.now()
+	f.buckets.login, f.buckets.listedAt = loginOf(testCreds), f.buckets.now()
 }
 
 // answers makes the upstream answer status and body.

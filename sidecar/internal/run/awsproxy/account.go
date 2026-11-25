@@ -15,7 +15,6 @@
 package awsproxy
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/url"
 	"strings"
@@ -40,11 +39,11 @@ func accountOf(creds aws.Credentials) string {
 }
 
 // actionScope is req's scope for the login creds: its account, then its region,
-// or global for a row with one host. A request whose account Kstack cannot
-// trust, or that names another account, has scope "".
+// or global for a row with one host. A login whose account Kstack cannot
+// trust has scope "".
 func actionScope(req *request, creds aws.Credentials) string {
 	account := accountOf(creds)
-	if account == "" || req.foreign || req.op.foreign || namesAnotherAccount(req, account) {
+	if account == "" {
 		return ""
 	}
 	region := strings.ToLower(req.cred.region)
@@ -54,15 +53,26 @@ func actionScope(req *request, creds aws.Credentials) string {
 	return account + "/" + region
 }
 
+// foreignTo is whether req reaches past the login creds' account: a bucket it
+// does not own, or another account it names. Its scope stays the account's, so
+// that account's mode and rules still refuse it, and it asks each time.
+func foreignTo(req *request, creds aws.Credentials) bool {
+	account := accountOf(creds)
+	return req.foreign || req.op.foreign || account != "" && namesAnotherAccount(req, account)
+}
+
 // namesAnotherAccount is whether req names an account other than account: a
 // query or form value, a key, string or number of a JSON body, or the KMS key
-// header holding a run of exactly twelve digits that is not it. Any other
+// or expected bucket owner header holding a run of exactly twelve digits that
+// is not it. Any other
 // body is foreign, but for a plain S3 object PUT's, which S3 reads no account
 // from; an empty one names nothing.
 func namesAnotherAccount(req *request, account string) bool {
 	r := req.r
-	if otherAccount(r.Header.Get("X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id"), account) {
-		return true
+	for _, h := range []string{"X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id", "X-Amz-Expected-Bucket-Owner"} {
+		if otherAccount(r.Header.Get(h), account) {
+			return true
+		}
 	}
 	if valuesName(r.URL.Query(), account) {
 		return true
@@ -91,9 +101,7 @@ func valuesName(values url.Values, account string) bool {
 // jsonNames is whether any key, string or number of a JSON body names an
 // account other than account. A body that is not JSON names one.
 func jsonNames(body []byte, account string) bool {
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
-	return anyToken(dec, func(tok json.Token) bool {
+	return anyToken(body, func(tok json.Token) bool {
 		switch v := tok.(type) {
 		case string:
 			return otherAccount(v, account)
@@ -120,6 +128,6 @@ func (req *request) action(creds aws.Credentials) permissions.Action {
 	return permissions.Action{
 		Scope: actionScope(req, creds), AccountName: creds.AccountID,
 		Service: req.cred.service, Operation: req.op.operation, Resource: req.op.resource, Name: req.op.object,
-		AccessLevel: req.op.level, Once: req.op.once, Summary: req.summary(),
+		AccessLevel: req.op.level, Once: req.op.once || foreignTo(req, creds), Summary: req.summary(),
 	}
 }

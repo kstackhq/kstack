@@ -45,6 +45,10 @@ type operation struct {
 // metadata, not the object's data.
 var s3MetadataQuery = []string{"acl", "attributes", "legal-hold", "retention", "tagging", "uploadId"}
 
+// s3AccessQuery are the subresources of a bucket or key that say who may
+// reach it: a change to one is an access control change, a delete included.
+var s3AccessQuery = []string{"acl", "policy", "publicAccessBlock", "ownershipControls"}
+
 // ordinary are the changes a mode or a rule may allow, by service, beyond
 // S3's object PUT (ordinaryPut). Any other change asks each time. Adding a
 // row is a security change.
@@ -98,11 +102,12 @@ func classify(service string, r *http.Request, body []byte) operation {
 		return op
 	case hasAnyPrefix(op.name, "Delete", "Terminate") || listed(row.destroys, op.name):
 		op.level = permissions.Destructive
-	case op.foreign:
-		// A write though it reads: another account's log would record it.
-		op.once = true
-		return op
 	case hasAnyPrefix(op.name, "Describe", "Get", "List") || listed(row.reads, op.name):
+		if op.foreign {
+			// A write though it reads: another account's log would record it.
+			op.once = true
+			return op
+		}
 		op.level = permissions.Read
 		return op
 	}
@@ -136,6 +141,8 @@ func classifyREST(service string, r *http.Request) operation {
 	case s3 && method == http.MethodGet && key != "" && !slices.ContainsFunc(s3MetadataQuery, query.Has),
 		s3 && method == http.MethodPost && query.Has("select"):
 		op.level = permissions.DataRead
+	case s3 && method != http.MethodGet && method != http.MethodHead && changesS3Access(r):
+		op.level = permissions.AccessControl
 	case method == http.MethodDelete, s3 && method == http.MethodPost && query.Has("delete"):
 		op.level = permissions.Destructive
 	case method == http.MethodGet || method == http.MethodHead:
@@ -146,8 +153,24 @@ func classifyREST(service string, r *http.Request) operation {
 	return op
 }
 
+// changesS3Access is whether an S3 request names who may reach its bucket or
+// key: a subresource of s3AccessQuery, or an ACL or grant header.
+func changesS3Access(r *http.Request) bool {
+	if slices.ContainsFunc(s3AccessQuery, r.URL.Query().Has) {
+		return true
+	}
+	for name := range r.Header {
+		name = http.CanonicalHeaderKey(name)
+		if name == "X-Amz-Acl" || strings.HasPrefix(name, "X-Amz-Grant-") {
+			return true
+		}
+	}
+	return false
+}
+
 // ordinaryPut is S3's ordinary change: a PUT of an object whose query holds no
-// key but x-id, carrying no ACL, grant or copy source.
+// key but x-id, carrying no copy source. One carrying an ACL or a grant is an
+// access control change, classified before it.
 func ordinaryPut(r *http.Request) bool {
 	if r.Method != http.MethodPut {
 		return false
@@ -159,7 +182,7 @@ func ordinaryPut(r *http.Request) bool {
 	}
 	for name := range r.Header {
 		name = http.CanonicalHeaderKey(name)
-		if name == "X-Amz-Acl" || name == "X-Amz-Copy-Source" || strings.HasPrefix(name, "X-Amz-Grant-") {
+		if name == "X-Amz-Copy-Source" {
 			return false
 		}
 	}
@@ -188,8 +211,9 @@ func secretRead(service, op string, params url.Values, body []byte) bool {
 	return false
 }
 
-// foreign is a read that names a resource another account may own, whose log
-// would then record it: an ECR registry, or a template AWS fetches from a URL.
+// foreign is a request that names a resource another account may own: an ECR
+// registry, or a template AWS fetches from a URL. A read of one is a write,
+// since that account's log would record it.
 func foreign(service, op string, params url.Values, body []byte) bool {
 	switch {
 	case service == "ecr":
@@ -201,35 +225,33 @@ func foreign(service, op string, params url.Values, body []byte) bool {
 }
 
 // mentions is whether any key or string in the JSON body holds word, in any
-// case. A body that is not JSON, one cut short included, mentions everything.
+// case. A body that is not one JSON value mentions everything.
 func mentions(body []byte, word string) bool {
-	return anyToken(json.NewDecoder(bytes.NewReader(body)), func(tok json.Token) bool {
+	return anyToken(body, func(tok json.Token) bool {
 		s, ok := tok.(string)
 		return ok && strings.Contains(strings.ToLower(s), word)
 	})
 }
 
-// anyToken is whether hit holds for any key or value dec reads, true for a
-// stream that is not JSON, one cut short included. Every token is read, so a
+// anyToken is whether hit holds for any key or value of body, a number as a
+// json.Number: false for an empty body, true for one that is not one JSON
+// value, whitespace alone or two values included. Every token is read, so a
 // duplicate key or an escape cannot hide one.
-func anyToken(dec *json.Decoder, hit func(json.Token) bool) bool {
-	depth := 0
+func anyToken(body []byte, hit func(json.Token) bool) bool {
+	if len(body) == 0 {
+		return false
+	}
+	if !json.Valid(body) {
+		return true
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
 	for {
 		tok, err := dec.Token()
 		if errors.Is(err, io.EOF) {
-			// A body cut short inside an object or array is no JSON.
-			return depth != 0
+			return false
 		}
-		if err != nil {
-			return true
-		}
-		if d, ok := tok.(json.Delim); ok {
-			if d == '{' || d == '[' {
-				depth++
-			} else {
-				depth--
-			}
-		} else if hit(tok) {
+		if _, ok := tok.(json.Delim); !ok && hit(tok) {
 			return true
 		}
 	}

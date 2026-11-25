@@ -50,11 +50,14 @@ func TestAScopeIsLowerCase(t *testing.T) {
 
 const formType = "application/x-www-form-urlencoded"
 
-// A request naming another account, or whose account Kstack cannot trust, has
-// no scope, so it asks each time.
-func TestAnAliasedOrForeignScopeIsEmpty(t *testing.T) {
+// A request naming another account keeps its login's scope, so that account's
+// mode and rules still decide it, and asks each time. One whose account Kstack
+// cannot trust has no scope.
+func TestAForeignRequestKeepsItsScopeAndAsksOnce(t *testing.T) {
 	kms := classified("s3", "eu-west-1", http.MethodPut, "/bucket/key", "", "")
 	kms.r.Header.Set("X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id", "arn:aws:kms:eu-west-1:210987654321:key/k")
+	owner := classified("s3", "eu-west-1", http.MethodPut, "/bucket/key", "", "")
+	owner.r.Header.Set("X-Amz-Expected-Bucket-Owner", "210987654321")
 	bucket := classified("s3", "eu-west-1", http.MethodGet, "/theirs/key", "", "")
 	bucket.foreign = true
 	for name, req := range map[string]*request{
@@ -71,14 +74,19 @@ func TestAnAliasedOrForeignScopeIsEmpty(t *testing.T) {
 		"a JSON body that is not JSON": classified("eks", "eu-west-1", http.MethodPost, "/clusters", "application/json", `{"a":`),
 		"a form that does not parse":   classified("ec2", "eu-west-1", http.MethodPost, "/", formType, "Action=StartInstances&a=%zz"),
 		"a KMS key of another account": kms,
+		"another expected owner":       owner,
 		"another account's bucket":     bucket,
 		"another account's registry":   classified("ecr", "eu-west-1", http.MethodPost, "/", "application/x-amz-json-1.1", `{"registryId":"x"}`),
+		"whitespace alone":             classified("logs", "eu-west-1", http.MethodPost, "/", "application/x-amz-json-1.1", " "),
+		"two JSON values":              classified("logs", "eu-west-1", http.MethodPost, "/", "application/x-amz-json-1.1", `{}{}`),
 	} {
 		if req.r.Header.Get("Content-Type") == "application/x-amz-json-1.1" {
 			req.r.Header.Set("X-Amz-Target", "X.PutThing")
 			req.op = classify(req.cred.service, req.r, req.body)
 		}
-		assert.Empty(t, actionScope(req, testCreds), name)
+		assert.True(t, strings.HasPrefix(actionScope(req, testCreds), "123456789012/"), name)
+		assert.True(t, foreignTo(req, testCreds), name)
+		assert.True(t, req.action(testCreds).Once, name)
 	}
 	noAccount := testCreds
 	noAccount.AccountID = ""
@@ -88,7 +96,8 @@ func TestAnAliasedOrForeignScopeIsEmpty(t *testing.T) {
 		assert.Empty(t, actionScope(start, aws.Credentials{AccountID: id}), id)
 	}
 
-	// What names the login's own account, or no account, keeps its scope.
+	// What names the login's own account, or no account, keeps its scope and
+	// reaches no further.
 	for name, req := range map[string]*request{
 		"its own id": classified("ec2", "eu-west-1", http.MethodPost, "/", formType,
 			"Action=CreateTags&ResourceId.1=arn:aws:ec2:eu-west-1:123456789012:instance/i-1"),
@@ -99,6 +108,7 @@ func TestAnAliasedOrForeignScopeIsEmpty(t *testing.T) {
 		"an object's payload, unread": classified("s3", "eu-west-1", http.MethodPut, "/bucket/key", "text/plain", "account 210987654321"),
 	} {
 		assert.Equal(t, account+"/eu-west-1", actionScope(req, testCreds), name)
+		assert.False(t, foreignTo(req, testCreds), name)
 	}
 }
 
@@ -207,8 +217,42 @@ func TestARuleAndAModeDecideAnAWSAction(t *testing.T) {
 			assert.Equal(t, http.StatusForbidden, f.serve(r).Code)
 			asked := testutil.Recv(t, f.asker.asked, "the request")
 			assert.False(t, asked.Grantable)
-			assert.Empty(t, asked.Action.Scope)
+			assert.True(t, asked.Action.Once)
+			assert.Equal(t, "123456789012/eu-west-1", asked.Action.Scope)
 		}
+		f.none()
+	})
+	// The account's own mode and rules still refuse a request that names
+	// another account.
+	t.Run("a read-only account refuses a write naming another account", func(t *testing.T) {
+		f := newFixture(t)
+		f.setAccountMode(account, permissions.ModeReadOnly)
+		w := f.serve(f.json("logs", "Logs_20140328.PutSubscriptionFilter", `{"destinationArn":"arn:aws:logs:eu-west-1:210987654321:destination:d"}`))
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, w.Body.String(), "read-only")
+		assert.Empty(t, f.asker.asked)
+		f.none()
+	})
+	t.Run("an access control deny refuses an ECR policy change naming a registry", func(t *testing.T) {
+		f := newFixture(t)
+		deny := allowRule(permissions.AccessControl)
+		deny.Effect = permissions.Deny
+		f.setPolicy(permissions.ModeAuto, deny)
+		w := f.serve(f.json("ecr", "AmazonEC2ContainerRegistry_V20150921.SetRepositoryPolicy", `{"registryId":"123456789012","repositoryName":"r"}`))
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, w.Body.String(), "a rule denies it")
+		assert.Empty(t, f.asker.asked)
+		f.none()
+	})
+	t.Run("a deny rule for the account refuses a write naming another account", func(t *testing.T) {
+		f := newFixture(t)
+		deny := allowRule(permissions.Write)
+		deny.Effect = permissions.Deny
+		f.setPolicy(permissions.ModeAuto, deny)
+		w := f.serve(f.json("logs", "Logs_20140328.PutSubscriptionFilter", `{"destinationArn":"arn:aws:logs:eu-west-1:210987654321:destination:d"}`))
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, w.Body.String(), "a rule denies it")
+		assert.Empty(t, f.asker.asked)
 		f.none()
 	})
 }
@@ -255,6 +299,70 @@ func TestALoginThatChangedAccountSendsNothing(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Contains(t, w.Body.String(), "the AWS login changed")
 	f.none()
+}
+
+// With no account id, a login is its access key: one whose key changed while
+// the request waited sends nothing, approved or not. A key that stays the
+// same sends.
+func TestALoginWithNoAccountWhoseKeyChangedSendsNothing(t *testing.T) {
+	f := newFixture(t)
+	f.id.noAccount = true
+	f.id.laterKey = "AKIAOTHERKEYEXAMPLE"
+
+	w := f.serve(f.query("ec2", "StartInstances&InstanceId.1=i-1"))
+
+	testutil.Recv(t, f.asker.asked, "the request, which asks with no account")
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "the AWS login changed")
+	f.none()
+
+	f = newFixture(t)
+	f.id.noAccount = true
+	w = f.serve(f.query("ec2", "StartInstances&InstanceId.1=i-1"))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	f.sent()
+}
+
+// A request on a bucket the login owns is sent expecting that owner, so S3
+// refuses it if the bucket changed hands since the list; one on another's
+// bucket, or with no account id, adds none, and a caller's own is kept.
+func TestABucketRequestIsSentExpectingItsOwner(t *testing.T) {
+	put := func(f *fixture, header ...string) string {
+		r := f.request(http.MethodPut, "/bucket/key", "s3", "data")
+		if len(header) > 0 {
+			r.Header.Set("X-Amz-Expected-Bucket-Owner", header[0])
+		}
+		w := f.serve(r)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		return f.sent().header.Get("X-Amz-Expected-Bucket-Owner")
+	}
+	f := newFixture(t)
+	f.setPolicy(permissions.ModeAuto)
+	f.owns("bucket")
+	assert.Equal(t, testCreds.AccountID, put(f))
+	assert.Equal(t, testCreds.AccountID, put(f, testCreds.AccountID), "a caller's own value")
+
+	f = newFixture(t)
+	f.setPolicy(permissions.ModeAuto)
+	f.owns()
+	assert.Empty(t, put(f), "another's bucket")
+
+	// A read naming another owner than the list vouches for asks, though the
+	// list holds the bucket.
+	f = newFixture(t)
+	f.owns("bucket")
+	f.asker.approve = false
+	r := f.request(http.MethodHead, "/bucket/key", "s3", "")
+	r.Header.Set("X-Amz-Expected-Bucket-Owner", "210987654321")
+	assert.Equal(t, http.StatusForbidden, f.serve(r).Code)
+	assert.True(t, testutil.Recv(t, f.asker.asked, "the read").Action.Once)
+	f.none()
+
+	f = newFixture(t)
+	f.id.noAccount = true
+	f.owns("bucket")
+	f.buckets.login = loginOf(aws.Credentials{AccessKeyID: testCreds.AccessKeyID})
+	assert.Empty(t, put(f), "a login with no account id")
 }
 
 // A login that is gone by the time the request is allowed sends nothing.

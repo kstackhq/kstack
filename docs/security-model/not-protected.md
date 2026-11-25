@@ -37,6 +37,7 @@ Every row of the model that no test enforces, and every residual an enforced row
 - [CLOUD-61](cloud-platforms.md#cloud-61), By decision. Resolving the user's AWS profile can run its `credential_process` outside the sandbox, with no stdin and no stderr. A role assumed from a source profile's process is no login.
 - [CLOUD-62](cloud-platforms.md#cloud-62), By decision. An AWS read is unasked and the service table is hand-written. Metadata no list names (a tag, a CloudFront origin's header, a log event) reaches the model, a parameter no row names can reach another account's log, and a credential-answering read AWS adds is unasked until a row names it.
 - [CLOUD-63](cloud-platforms.md#cloud-63), By decision. No file is uploaded to S3 from the sandbox, and a login that cannot list its buckets is asked for every bucket read.
+- [CLOUD-69](cloud-platforms.md#cloud-69), residual. A login with no account id sends no owner condition, so a bucket that changes hands within the list's minute is read unasked.
 
 ## Cluster data and the caches
 

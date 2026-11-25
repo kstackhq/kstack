@@ -36,24 +36,18 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 )
 
-// forward sends the request to its row's host, signed as the user, and
+// forward sends the request to its row's host, signed with creds, and
 // writes the answer: streamed, or, for an error, read and checked first.
-func (p *Proxy) forward(w http.ResponseWriter, req *request) {
-	creds, err := p.up.Identity.Credentials(req.r.Context())
-	if err != nil {
-		refuse(w, req, http.StatusForbidden, noLoginRefusal(err))
-		return
-	}
-	p.forwardAs(w, req, creds)
-}
-
-// forwardAs is forward signed with creds.
-func (p *Proxy) forwardAs(w http.ResponseWriter, req *request, creds aws.Credentials) {
+func (p *Proxy) forward(w http.ResponseWriter, req *request, creds aws.Credentials) {
 	ctx := req.r.Context()
+	header := runproxy.Outbound(req.r.Header, forwarded)
+	if req.owner != "" {
+		header.Set("X-Amz-Expected-Bucket-Owner", req.owner)
+	}
 	resp, err := p.send(ctx, creds, outbound{
 		method: req.r.Method, host: req.row.host(req.cred.region), target: req.target(),
 		service: req.cred.service, region: req.row.signingRegion(req.cred.region),
-		body: req.body, header: runproxy.Outbound(req.r.Header, forwarded),
+		body: req.body, header: header,
 	})
 	if err != nil {
 		refuse(w, req, http.StatusBadGateway, upstreamFailed)

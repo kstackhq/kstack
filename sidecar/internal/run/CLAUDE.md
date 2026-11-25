@@ -310,21 +310,21 @@ and the top-level `nextLink` at the door. A `429`, which `az` retries, is answer
 [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-reaches-aws-through-a-re-signing-proxy.md).
 The run's key id is `KSTACK` and its grant's token. The handler reads service and region from the
 SigV4 scope (`scope.go`), refuses a service off `services.go`'s table, drops the sandbox's
-signature, and signs the request it builds for the table's host with the user's credentials
-(`Identity`, `forward.go`); a login that resolves none is answered its `Refusal`'s text, else a fixed sentence. The classifier (`classify.go`) reads the operation only where the
-row's protocol names it, refusing a request that names it elsewhere or twice, then checks refused
-(`reach`), data reads, destructive, `access-control` (`iam`, a policy, permission or grant), then a
-read, and decides the rest; the scope is the credentials' account and the region, `""` for a
-foreign request; a read naming another account's bucket,
-registry or template URL asks, against the login's own buckets (`Buckets`, one list shared by its
-runs, trusted only while fresh). An `x-amz` header
-off `headers.go`'s list, a forwarded header sent twice, a streamed or multipart upload, and a body
-that is not text are refused,
-in the shape its service's clients read an error (`refuse.go`). An error answer is read whole and
-checked for the user's key; a dead credential's code calls `Drop` before that check,
-and forgets the bucket list, since the next login may be another account's (`readError`, which the
-bucket list reads its errors through too). Adding a row or a header is a
-security change.
+signature, and signs for the table's host with the user's credentials (`Identity`, `forward.go`);
+a login resolving none answers its `Refusal`'s text, else a fixed sentence.
+The classifier (`classify.go`) reads the operation only where the row's protocol names it, refusing
+one named elsewhere or twice, then checks refused (`reach`), data reads, destructive,
+`access-control` (`iam`, a policy, permission or grant; S3's `s3AccessQuery` and ACL headers, ahead
+of destructive), then a read, and decides the rest. The scope is the credentials' account and the
+region. A read naming another account's bucket, registry or template
+URL asks; `Buckets` is the login's own, one list shared by its runs, trusted only while fresh and
+for the login listed (its account, else access key). One credential read
+serves the owner, the decision and a read's forward, which on an owned bucket sends
+`X-Amz-Expected-Bucket-Owner`; a change's forward re-reads, sending nothing as another login.
+An `x-amz` header off `headers.go`'s list, a forwarded header sent twice, a streamed or multipart
+upload, and a body that is not text are refused, as its service's clients read errors
+(`refuse.go`). An error answer is read whole and checked for the user's key; a dead credential's
+code calls `Drop` first and forgets the bucket list (`readError`, the list's too). Adding a row or a header is a security change.
 
 ## GitHub's proxy (`githubproxy`)
 

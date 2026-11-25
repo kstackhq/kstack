@@ -924,6 +924,13 @@ A risk we decide to accept is recorded as a **By decision** row in
 [`security-model.md`](security-model.md), each linking the ADR that accepted it — so an accepted
 risk stays distinguishable from an unnoticed one, and is not repeated here.
 
+- **Learn a static-key AWS login's account from STS (medium; sidecar owner).** With static
+  keys the SDK gives no account id, so `awsproxy` decides every change as an unknown account's
+  (each asks) and sends no `X-Amz-Expected-Bucket-Owner`; a bucket changing hands within the
+  bucket list's minute is read unasked. Ask `GetCallerIdentity` once per access key and use its
+  account wherever `accountOf` reads one
+  ([#1224](https://github.com/kstackhq/kstack/issues/1224)).
+
 - **Verify the installer `kstack app` downloads before running it (high; CLI owner).**
   `cli/internal/desktop` fetches the newest desktop release's file from GitHub over HTTPS and
   installs it with no check of the release's `SHA256SUMS.asc`. On Linux the unsigned package

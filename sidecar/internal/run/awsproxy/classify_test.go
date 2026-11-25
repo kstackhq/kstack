@@ -101,7 +101,6 @@ func TestEveryRowsOperationsAreClassed(t *testing.T) {
 			{service: "ec2", form: "Action=DeleteVpc"},
 			{service: "logs", target: "Logs_20140328.DeleteLogGroup", body: `{}`},
 			{service: "s3", method: "DELETE", path: "/bucket/key"},
-			{service: "s3", method: "DELETE", path: "/bucket?policy"},
 			{service: "s3", method: "POST", path: "/bucket?delete"},
 			{service: "eks", method: "DELETE", path: "/clusters/c"},
 		},
@@ -271,7 +270,6 @@ func TestOrdinaryIsExactlyTheTable(t *testing.T) {
 // A change off the table asks each time, under every mode and rule.
 func TestAChangeOffTheOrdinaryTableAsksOnce(t *testing.T) {
 	for _, c := range []call{
-		{service: "s3", method: "PUT", path: "/bucket?policy"},
 		{service: "s3", method: "PUT", path: "/bucket"},
 		{service: "s3", method: "PUT", path: "/bucket/key?tagging"},
 		{service: "s3", method: "POST", path: "/bucket/key?restore"},
@@ -292,16 +290,40 @@ func TestAChangeOffTheOrdinaryTableAsksOnce(t *testing.T) {
 	}
 }
 
-func TestAnS3PutWithAnACLOrACopySourceAsksOnce(t *testing.T) {
-	for _, header := range []string{"X-Amz-Acl", "X-Amz-Grant-Read", "X-Amz-Grant-Full-Control", "X-Amz-Copy-Source"} {
+func TestAnS3PutWithACopySourceAsksOnce(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPut, "/bucket/key", nil)
+	r.Header.Set("X-Amz-Copy-Source", "other/key")
+	op := classify("s3", r, nil)
+	assert.Equal(t, permissions.Write, op.level)
+	assert.True(t, op.once)
+}
+
+// A change to who may reach a bucket or a key is an access control change,
+// by subresource or by header, a delete included, so an access control rule
+// decides it. A read of one stays a read.
+func TestAnS3PolicyOrACLChangeIsAccessControl(t *testing.T) {
+	for _, c := range []call{
+		{service: "s3", method: "PUT", path: "/bucket?policy"},
+		{service: "s3", method: "DELETE", path: "/bucket?policy"},
+		{service: "s3", method: "PUT", path: "/bucket?acl"},
+		{service: "s3", method: "PUT", path: "/bucket/key?acl"},
+		{service: "s3", method: "PUT", path: "/bucket?publicAccessBlock"},
+		{service: "s3", method: "DELETE", path: "/bucket?publicAccessBlock"},
+		{service: "s3", method: "PUT", path: "/bucket?ownershipControls"},
+	} {
+		assert.Equal(t, permissions.AccessControl, c.classify().level, "%+v", c)
+	}
+	for _, header := range []string{"X-Amz-Acl", "X-Amz-Grant-Read", "X-Amz-Grant-Full-Control"} {
 		r := httptest.NewRequest(http.MethodPut, "/bucket/key", nil)
 		r.Header.Set(header, "x")
-		op := classify("s3", r, nil)
-		assert.Equal(t, permissions.Write, op.level, header)
-		assert.True(t, op.once, header)
+		assert.Equal(t, permissions.AccessControl, classify("s3", r, nil).level, header)
 	}
-	op := call{service: "s3", method: "PUT", path: "/bucket/key?acl"}.classify()
-	assert.True(t, op.once, "an ACL put")
+	for _, c := range []call{
+		{service: "s3", method: "GET", path: "/bucket?policy"},
+		{service: "s3", method: "GET", path: "/bucket/key?acl"},
+	} {
+		assert.Equal(t, permissions.Read, c.classify().level, "%+v", c)
+	}
 }
 
 func TestAccessControlChanges(t *testing.T) {
@@ -310,9 +332,16 @@ func TestAccessControlChanges(t *testing.T) {
 		{service: "iam", form: "Action=AttachRolePolicy"},
 		{service: "iam", form: "Action=DeleteRolePolicy"},
 		{service: "cloudformation", form: "Action=SetStackPolicy"},
+		// A registry named in the body, the login's own or another's, leaves the
+		// level as it is: being foreign asks each time on top of it.
+		{service: "ecr", target: "AmazonEC2ContainerRegistry_V20150921.SetRepositoryPolicy", body: `{"registryId":"123456789012"}`},
+		{service: "ecr", target: "AmazonEC2ContainerRegistry_V20150921.SetRepositoryPolicy", body: `{"registryId":"210987654321"}`},
 	} {
 		assert.Equal(t, permissions.AccessControl, c.classify().level, "%+v", c)
 	}
+	read := call{service: "ecr", target: "AmazonEC2ContainerRegistry_V20150921.GetRepositoryPolicy", body: `{"registryId":"210987654321"}`}.classify()
+	assert.Equal(t, permissions.Write, read.level, "a read naming a registry is a write, which another account's log records")
+	assert.True(t, read.once)
 	// The words are read in the operation's name alone.
 	op := call{service: "ec2", form: "Action=ModifyImageAttribute&LaunchPermission.Add.1.UserId=1"}.classify()
 	assert.Equal(t, permissions.Write, op.level)
@@ -320,7 +349,6 @@ func TestAccessControlChanges(t *testing.T) {
 		{service: "iam", form: "Action=GetRolePolicy"},
 		{service: "iam", form: "Action=ListPolicies"},
 		{service: "iam", form: "Action=SimulatePrincipalPolicy"},
-		{service: "s3", method: "PUT", path: "/bucket?policy"},
 	} {
 		assert.NotEqual(t, permissions.AccessControl, c.classify().level, "%+v", c)
 	}
@@ -338,7 +366,7 @@ func TestEveryFieldIsFilled(t *testing.T) {
 		{call{service: "logs", target: "Logs_20140328.PutLogEvents", body: `{}`}, "PutLogEvents", "", "", permissions.Write},
 		{call{service: "s3", method: "PUT", path: "/bucket/a/b"}, "PUT", "object", "bucket/a/b", permissions.Write},
 		{call{service: "s3", method: "GET", path: "/bucket/a/b"}, "GET", "object", "bucket/a/b", permissions.DataRead},
-		{call{service: "s3", method: "PUT", path: "/bucket?policy"}, "PUT", "bucket", "bucket", permissions.Write},
+		{call{service: "s3", method: "PUT", path: "/bucket?policy"}, "PUT", "bucket", "bucket", permissions.AccessControl},
 		{call{service: "s3", method: "DELETE", path: "/bucket"}, "DELETE", "bucket", "bucket", permissions.Destructive},
 		{call{service: "eks", method: "DELETE", path: "/clusters/c"}, "DELETE", "", "", permissions.Destructive},
 		{call{service: "iam", form: "Action=CreateRole"}, "CreateRole", "", "", permissions.AccessControl},
