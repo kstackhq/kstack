@@ -381,8 +381,8 @@ directories; asked for the rest. **File work runs on a goroutine** (`fetch`, `wr
 stat on a dead mount blocks where no context reaches. Refusals are words, never a Go error's text.
 Read redacts the whole file and sets the path's **stamp** (hash, `Whole` when shown unchanged);
 Write needs a matching `Whole` stamp and Edit a matching one, so the model Reads first. Edit refuses
-a `new_string` holding `safe.Redacted`, and `matches` uses `strings.Count` plus one
-`strings.Index` — never a walk of every overlap, which is quadratic. → [security records: read any
+a `new_string` holding `safe.Redacted`, and `matches` uses `strings.Count` plus two
+scans to probe for an overlap, linear in the file's length. → [security records: read any
 approved file](../../../docs/security/2026-09-23-read-any-approved-file.md), [the write
 tool](../../../docs/security/2026-09-24-write-tool.md), [the edit
 tool](../../../docs/security/2026-09-24-edit-tool.md).

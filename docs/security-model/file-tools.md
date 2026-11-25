@@ -51,7 +51,7 @@
 | FILE-41 | An unasked edit's two strings are drawn open under its summary. | **Enforced** | — |
 | FILE-42 | `Edit` changes only a file the chat read, whole or not, and unchanged since. It never makes a new file. An edit needs a matching stamp. | **Enforced** | — |
 | FILE-43 | A match is exact, but for LF against a file that is CRLF throughout. | **Enforced** | The request draws LF strings in a CRLF file. |
-| FILE-44 | Without `replace_all` a match is unique, overlaps included, by a scan that stops at a second match. | **Enforced** | — |
+| FILE-44 | Without `replace_all` a match is unique, overlaps included, by a count and one overlap probe. | **Enforced** | — |
 | FILE-45 | The result's size is bounded before it is built. | **Enforced** | — |
 | FILE-46 | `Edit` changes only a file `Write` could replace. It writes through `Replaceable` and `Replace`, so `Write`'s owner, group, mode and rename guarantees hold. | **Enforced** | `Write`'s residuals (FILE-29, FILE-30, FILE-35). |
 | FILE-47 | `Edit` never changes a file under Kstack's directories but the chat's workspace. The data directory is fenced through a link. | **Enforced** | — |
@@ -352,7 +352,7 @@
 
 - **Where:** `sidecar/internal/tools/edit`, `sidecar/internal/tools/internal/fileguard/write*.go`, `src/components/chat/chat-transcript/transcript.tsx`
 - **Records:** [the edit tool](../security/2026-09-24-edit-tool.md), [the workspace](../security/2026-09-27-the-workspace.md), [Bash runs in a sandbox](../security/2026-09-28-bash-runs-in-a-sandbox.md)
-- `TestEditRefusesAMatchThatIsNotUnique`, `TestEditUniquenessIsLinear` — a match that is not unique is refused, by a scan that stops at a second match.
+- `TestEditRefusesAMatchThatIsNotUnique`, `TestEditUniquenessIsLinear` — a match that is not unique is refused, by a count and one overlap probe.
 
 ### FILE-45
 
