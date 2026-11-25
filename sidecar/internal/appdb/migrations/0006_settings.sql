@@ -12,16 +12,19 @@
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
 
--- approval_modes: the approval mode of one cluster. cluster_id NULL is the
--- default, for every cluster with no row of its own.
-CREATE TABLE approval_modes (
+-- settings: the user's single-value settings, a row per setting and scope the
+-- user has set. A setting with no row, or with a NULL value, has its default.
+-- cluster_id NULL is the setting for every cluster; set, it is that cluster's
+-- alone and goes with the cluster.
+CREATE TABLE settings (
+  key        TEXT    NOT NULL CHECK (key <> ''),
   cluster_id TEXT    REFERENCES clusters(id) ON DELETE CASCADE,
-  mode       TEXT    NOT NULL CHECK (mode IN ('read-only', 'ask', 'auto')),
+  value      ANY     CHECK (typeof(value) IN ('integer', 'text', 'null')),
+  created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 ) STRICT;
 
--- One mode per cluster, and one default.
-CREATE UNIQUE INDEX approval_modes_cluster ON approval_modes (ifnull(cluster_id, ''));
+CREATE UNIQUE INDEX settings_scope_key ON settings (ifnull(cluster_id, ''), key);
 
 -- kube_rules: the user's rules over cluster actions, each a permissions.Rule.
 -- chat_id NULL is an always rule; set, the rule lasts for that chat and goes
@@ -75,5 +78,24 @@ CREATE UNIQUE INDEX folder_grants_folder ON folder_grants (ifnull(chat_id, ''), 
 -- A chat's grants, or the always ones, in the order they are read.
 CREATE INDEX folder_grants_chat_idx ON folder_grants (chat_id, created_at, id);
 
--- chat_grants' rules are not copied, by decision: no install is owed them.
+-- executables: the programs the user asked the probe to check, in the order
+-- added. A row is read ORDER BY created_at, rowid, since two can be added in
+-- the same millisecond.
+CREATE TABLE executables (
+  name       TEXT    PRIMARY KEY,
+  invocation TEXT    NOT NULL,
+  created_at INTEGER NOT NULL
+) STRICT;
+
+-- shell_path: the login shell's PATH as the last read that answered gave it,
+-- joined by ':', for a launch whose own read fails. Written by Kstack alone.
+-- No row before a first read answers.
+CREATE TABLE shell_path (
+  id   INTEGER PRIMARY KEY CHECK (id = 1),
+  path TEXT    NOT NULL
+) STRICT;
+
+-- chat_grants' and tool_settings' rows are not copied, by decision: no install
+-- is owed them.
 DROP TABLE chat_grants;
+DROP TABLE tool_settings;

@@ -23,9 +23,9 @@ the settings into `app.db` would have moved all of it into rows.
 
 ## Decision
 
-The `PATH` is one string, `sandbox_settings.path`, written as in a shell's startup file: folders
-joined by `:`, where `$PATH` stands for the login shell's `PATH`, and `~` or `$HOME` for the home.
-It starts as `$PATH`.
+The `PATH` is one string, the `sandbox.path` row of `settings`, written as in a shell's startup
+file: folders joined by `:`, where `$PATH` stands for the login shell's `PATH`, and `~` or
+`$HOME` for the home. With no row it is `$PATH`.
 
 - **Split first, then expand.** `parsePath` splits the value before anything is expanded. Each
   element is exactly `$PATH` (or `${PATH}`), or a folder the user typed. The shell's answer is

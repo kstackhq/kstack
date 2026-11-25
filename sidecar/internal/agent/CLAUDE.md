@@ -114,7 +114,7 @@ can commit before `Start`.
 
 **Ten tables**, the migrations the only schema authority: `clusters`, `chats`, `messages`,
 `agent_runs`, `llm_calls`, `tool_calls`, `approvals`, `background_tasks` (`0001_init.sql`), and a
-chat's rows of `kube_rules` and `folder_grants` (`0006_permissions.sql`).
+chat's rows of `kube_rules` and `folder_grants` (`0006_settings.sql`).
 
 - `mode` and `cluster_id` are fixed at creation; each mode and cluster lists only its own chats.
 - `sandbox_disabled` and `network_enabled` are the user's switches; leaving the sandbox clears
@@ -225,8 +225,8 @@ re-checking each; a failed read is an error, which fails the run, the file tool 
 wire's. → [ADR: a prompt names the action and offers a
 duration](../../../docs/adr/2026-10-04-a-prompt-names-the-action-and-offers-a-duration.md), [ADR: a folder
 grant is its own row](../../../docs/adr/2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md),
-[security record: path grants](../../../docs/security/2026-10-04-path-grants.md), [the permissions move into
-app.db](../../../docs/security/2026-11-24-permissions-in-app-db.md).
+[security record: path grants](../../../docs/security/2026-10-04-path-grants.md), [the settings move into
+app.db](../../../docs/security/2026-11-25-settings-in-app-db.md).
 
 **A call row records its tool's contract at its first write** (`newToolCall`, from the service's
 box, so a call the turn was not offered records one too), and no later write changes it. A shown

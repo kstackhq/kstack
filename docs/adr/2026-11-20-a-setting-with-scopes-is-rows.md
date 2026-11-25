@@ -3,9 +3,7 @@ title: Keep a setting with a cluster scope as rows in app.db
 date: 2026-11-20
 scope: sidecar
 status: Accepted
-amended_by:
-  - [Keep every setting as rows in app.db](2026-11-24-settings-are-rows-in-app-db.md)
-  - [Keep each single-value setting as a row of one settings table](2026-11-25-a-single-value-setting-is-a-row-of-settings.md)
+amended_by: [Keep every setting as rows in app.db](2026-11-24-settings-are-rows-in-app-db.md)
 ---
 
 # Keep a setting with a cluster scope as rows in app.db

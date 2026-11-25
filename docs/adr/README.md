@@ -295,4 +295,3 @@ usually just documentation in the wrong place.
 | 2026-11-24 | [A folder grant is its own row, and a mode and a rule belong to a cluster](2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md) | sidecar | Accepted |
 | 2026-11-24 | [A sandboxed command's PATH is one setting the user writes](2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md) | sidecar, webview | Accepted |
 | 2026-11-24 | [Keep every setting as rows in app.db](2026-11-24-settings-are-rows-in-app-db.md) | sidecar | Accepted |
-| 2026-11-25 | [Keep each single-value setting as a row of one settings table](2026-11-25-a-single-value-setting-is-a-row-of-settings.md) | sidecar | Accepted |

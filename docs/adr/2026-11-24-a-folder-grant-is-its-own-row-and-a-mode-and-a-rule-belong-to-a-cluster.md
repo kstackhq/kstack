@@ -22,9 +22,10 @@ field in its strictest state ([settings are rows in app.db](2026-11-24-settings-
 
 The modes, the rules and the folder grants are rows in `app.db` (migration `0006`):
 
-- **`approval_modes`**: one mode per cluster, keyed by the cluster's record (`clusters.id`), and a
-  default row with `cluster_id` NULL. A cluster with no row takes the default, else `ask`. The
-  mode goes with the cluster's record.
+- **A mode is a `permissions.approval_mode` row of `settings`**
+  ([settings are rows in app.db](2026-11-24-settings-are-rows-in-app-db.md)): one per cluster,
+  keyed by the cluster's record (`clusters.id`), and a default row with `cluster_id` NULL. A
+  cluster with no row takes the default, else `ask`. The mode goes with the cluster's record.
 - **`kube_rules`**: every Kubernetes rule, an always rule with `chat_id` NULL, a chat's with it
   set. A rule names one cluster's record (`cluster_id`) and goes with it, or names none and
   applies to every cluster. A rule for every cluster may only restrict: no `allow` names none.

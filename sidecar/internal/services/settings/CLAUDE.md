@@ -15,14 +15,14 @@ only with its cluster. A cluster's value is its own row, else every cluster's, e
 reads as the strictest value, else the default, logged by key and reason, never by value; a row no
 entry names is kept and ignored. **Adding a setting** is an entry, its typed methods, its wire
 field and its control: no migration, no statement. `tools.go` exports the tools' read and write,
-for `toolsettings` and `agent/chat`. → [ADR](../../../../docs/adr/2026-11-25-a-single-value-setting-is-a-row-of-settings.md),
-[security record](../../../../docs/security/2026-11-25-single-value-settings.md).
+for `toolsettings` and `agent/chat`. → [ADR](../../../../docs/adr/2026-11-24-settings-are-rows-in-app-db.md),
+[security record](../../../../docs/security/2026-11-25-settings-in-app-db.md).
 
 **The modes are `permissions.approval_mode` settings; the always rules and folder grants are
 `app.db` rows** with `chat_id` NULL (`kube_rules`, `folder_grants`; `agent/chat` writes a chat's), in
 `permissions.go`, `store.go` and `statements.go`. Each write is one
 transaction and then notifies `appdb.KeyPermissions` (`WatchPermissions`). → [ADR](../../../../docs/adr/2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md),
-[security record](../../../../docs/security/2026-11-24-permissions-in-app-db.md).
+[security record](../../../../docs/security/2026-11-25-settings-in-app-db.md).
 
 - `ModeFor(ctx, cluster)` is the cluster's row, else the default row, else `Ask`; a mode Kstack
   cannot use is read-only. `SetMode` refuses a cluster gone or marked (`ErrClusterGone`) or with no
@@ -43,7 +43,7 @@ so nothing it lists is ever typed, and joins a typed folder to the canonical hom
 carries its `Origin` (`OriginShell`, `OriginTyped`). `SetPath` upserts it and notifies
 `appdb.KeySandboxPath` (`WatchSandboxPath`); a stored value the grammar refuses is read with its
 `Refusal`, one that is not text as an empty value with its own. → [ADR](../../../../docs/adr/2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md),
-[security record](../../../../docs/security/2026-11-24-the-path-setting.md).
+[security record](../../../../docs/security/2026-11-25-settings-in-app-db.md).
 
 **`Service` (`service.go`) holds the login shell's last `PATH`** in `shell_path`, a copy no row of
 which is refused, over `Zones` (`Never`, `Open`, `Home`), the refresh's resolver, the launch's
