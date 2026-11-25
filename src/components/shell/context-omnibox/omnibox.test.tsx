@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mocks ---------------------------------------------------------------
@@ -51,45 +52,26 @@ vi.mock('@/lib/dialog', () => ({ useDialog: () => ({ openDialog }), useDialogHos
 const { clearView } = vi.hoisted(() => ({ clearView: vi.fn() }));
 vi.mock('@/lib/logs-view', () => ({ useLogsView: () => ({ clear: clearView }) }));
 
-// What the window's cluster remembers, which lights the memory button. A save
-// notifies like the real watch does, so a memoized button re-renders for it.
-const { memoriesState } = vi.hoisted(() => ({
-  memoriesState: {
-    current: [] as unknown[],
-    lastSaved: undefined as object | undefined,
-    listeners: new Set<() => void>(),
-  },
-}));
-vi.mock('@/lib/active-cluster', () => ({ useActiveCluster: () => ({ clusterID: 'c1' }) }));
 // The cluster records the dot reads its verdict from; the lookups over them are the real ones.
 const { records } = vi.hoisted(() => ({ records: { current: [] as unknown[] } }));
 vi.mock('@/lib/clusters', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/clusters')>()),
   useClusters: () => ({ clusters: records.current }),
 }));
-vi.mock('urql', () => ({ useMutation: () => [{}, vi.fn()] }));
-vi.mock('@/lib/memories', async () => {
-  const { useSyncExternalStore } = await import('react');
-  const subscribe = (listener: () => void) => {
-    memoriesState.listeners.add(listener);
-    return () => memoriesState.listeners.delete(listener);
-  };
-  return {
-    useMemories: () => ({
-      memories: memoriesState.current,
-      lastSaved: useSyncExternalStore(subscribe, () => memoriesState.lastSaved),
-      phase: 'live',
-    }),
-  };
-});
 
 // The picker navigates itself rather than going through `setContext`, so
 // the router is the seam for what it writes — and for where the window is, which
-// decides whether the switch also has a chat route to leave.
+// decides whether the switch also has a chat route to leave. `mode-tabs.test.tsx` runs
+// the tabs on the real router.
 const { navigate, location } = vi.hoisted(() => ({ navigate: vi.fn(), location: { pathname: '/dashboard' } }));
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => navigate,
   useLocation: ({ select }: { select: (loc: { pathname: string }) => unknown }) => select(location),
+  Link: ({ to, children, ...props }: { to: string; children?: ReactNode } & Record<string, unknown>) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 const { ContextOmnibox } = await import('./omnibox');
@@ -121,8 +103,6 @@ const pickerRow = (name: string) =>
 beforeEach(() => {
   vi.clearAllMocks();
   location.pathname = '/dashboard';
-  memoriesState.current = [];
-  memoriesState.lastSaved = undefined;
   records.current = [];
   serveContexts(['prod', 'staging']);
 });
@@ -135,61 +115,68 @@ describe('ContextOmnibox', () => {
     expect(screen.getByTestId('context-omnibox').contains(trigger())).toBe(true);
   });
 
-  it('is a 30px, 8px-radius box, bordered and white with no shadow', () => {
+  it('is a 38px white pill with a shadow', () => {
     render(<ContextOmnibox />);
     const box = screen.getByTestId('context-omnibox');
-    expect(box).toHaveClass('h-7.5', 'w-full', 'max-w-88', 'rounded-lg', 'border', 'border-sidebar-border');
-    expect(box).toHaveClass('bg-white', 'dark:bg-input/30');
-    expect(box.className).not.toMatch(/shadow/);
+    expect(box).toHaveClass('h-9.5', 'w-full', 'rounded-full', 'px-1', 'py-0.75', 'gap-1');
+    expect(box).toHaveClass('bg-white', 'dark:bg-input/30', 'shadow-pill');
   });
 
-  it('draws the status and memory buttons as 28px circles around a 13px name', () => {
+  it('holds the cluster chip, a divider, then the Chat and Dashboard tabs', () => {
     render(<ContextOmnibox />);
-    expect(screen.getByRole('button', { name: 'Memory' })).toHaveClass('size-7', 'rounded-full');
-    expect(screen.getByRole('button', { name: /^Cluster status/ })).toHaveClass('size-7', 'rounded-full');
-    expect(screen.getByTestId('cluster-trigger-name').parentElement).toHaveClass(
-      'text-[13px]',
-      'font-medium',
-      'text-muted-foreground',
+    const [chip, divider, tabs] = Array.from(screen.getByTestId('context-omnibox').children);
+    expect(chip).toBe(screen.getByTestId('cluster-chip'));
+    expect(chip.contains(statusButton())).toBe(true);
+    expect(chip.contains(trigger())).toBe(true);
+    expect(divider).toHaveClass('h-4.5', 'w-px', 'bg-sidebar-border');
+    expect(tabs).toBe(screen.getByRole('navigation', { name: 'View' }));
+    expect(screen.getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '/chat');
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
+  });
+
+  it('draws the chip as the status button and a left-aligned, semibold 13px name', () => {
+    render(<ContextOmnibox />);
+    expect(screen.getByTestId('cluster-chip')).toHaveClass('h-8', 'rounded-full', 'pl-1.5', 'hover:bg-app-bar-hover');
+    expect(statusButton()).toHaveClass('size-7', 'rounded-full', 'text-muted-foreground');
+    const name = screen.getByTestId('cluster-trigger-name');
+    expect(name).toHaveClass('truncate', 'font-semibold', 'text-foreground');
+    expect(name.parentElement).toHaveClass('text-[13px]');
+    expect(trigger()).toHaveClass('pr-2.5');
+  });
+
+  // A strip of the pill outside every control would take a press and open nothing.
+  it('covers the pill’s padding and gaps with its controls’ hit areas', () => {
+    render(<ContextOmnibox />);
+    // From inside the status button's own 1px border: the chip's 6px and the pill's 4px to
+    // its left, and the chip's 2px and the pill's 3px above and below.
+    expect(statusButton()).toHaveClass('border', 'border-transparent', 'after:-left-2.75', 'after:-inset-y-1.5');
+    // The trigger holds the chip's gap and right padding; its hit area reaches the divider
+    // and the pill's top and bottom.
+    expect(trigger()).toHaveClass('h-full', 'after:-right-1', 'after:-inset-y-0.75');
+    // The track's reaches back over the divider and the gap after it, and to the pill's edge.
+    expect(screen.getByRole('navigation', { name: 'View' })).toHaveClass(
+      'flex-1',
+      'after:-left-1.25',
+      'after:-right-1',
+      'after:-inset-y-0.75',
     );
   });
 
-  // A strip of the box outside every control, its border included, would take a press and
-  // open nothing.
-  it('leaves no gap between its controls, their hit areas covering the margins and the border', () => {
-    render(<ContextOmnibox />);
-    expect(screen.getByTestId('context-omnibox').className).not.toMatch(/\b(gap|px|p)-/);
-    for (const name of ['Memory', /^Cluster status/]) {
-      // From inside the button's own 1px border: it, the 4px margin and the box's 1px
-      // border beside it, and both borders above and below.
-      const button = screen.getByRole('button', { name });
-      expect(button).toHaveClass('border', 'border-transparent', 'mx-1', 'after:-inset-x-1.5', 'after:-inset-y-0.5');
-    }
-    expect(trigger()).toHaveClass('h-full', 'after:-inset-px');
-  });
-
   // Over the content, the hit area would take the hover from the TLS badge and the status
-  // dot, and their tooltips with it. `isolate` keeps it above the omnibox's own fill.
+  // dot, and their tooltips with it. `isolate` keeps it above the pill's own fill.
   it('lays each control’s hit area behind its content', () => {
     render(<ContextOmnibox />);
-    for (const control of [
-      screen.getByRole('button', { name: 'Memory' }),
-      screen.getByRole('button', { name: /^Cluster status/ }),
-      trigger(),
-    ]) {
+    for (const control of [statusButton(), trigger(), screen.getByRole('navigation', { name: 'View' })]) {
       expect(control).toHaveClass('relative', 'isolate', 'after:absolute', 'after:-z-10');
     }
   });
 
-  // At the window's 600px minimum the box is about 80px: the two buttons' 56px, and room
-  // for the badge's icon beside a truncated name.
-  it('compacts to a narrow box, keeping every control and the TLS warning', () => {
+  it('compacts to a narrow pill, keeping every control and the TLS warning', () => {
     serveContexts(['prod'], { clusterEntry: { server: 'https://prod:6443', insecureSkipTLSVerify: true } });
     render(<ContextOmnibox />);
     expect(screen.getByTestId('context-omnibox')).toHaveClass('@container');
-    for (const name of ['Memory', /^Cluster status/]) {
-      expect(screen.getByRole('button', { name })).toHaveClass('@max-[14rem]:mx-0', '@max-[14rem]:after:-inset-0.5');
-    }
+    expect(screen.getByTestId('cluster-chip')).toHaveClass('@max-[14rem]:pl-0');
+    expect(statusButton()).toHaveClass('@max-[14rem]:after:-left-1.25');
     expect(screen.getByTestId('cluster-trigger-name')).toHaveClass('truncate');
     expect(screen.getByTestId('cluster-trigger-name').parentElement).toHaveClass('@max-[14rem]:gap-1');
     // The words give way to an icon, the warning's tooltip and spoken name kept.
@@ -212,43 +199,6 @@ describe('ContextOmnibox', () => {
     expect(trigger()).toHaveTextContent('staging');
   });
 
-  it('opens the memory popover from the brain icon', async () => {
-    const user = userEvent.setup();
-    render(<ContextOmnibox />);
-
-    await user.click(screen.getByRole('button', { name: 'Memory' }));
-    expect(screen.getByRole('heading', { name: 'Notes' })).toBeInTheDocument();
-  });
-
-  it('keeps the brain icon gray at rest, primary only while a save pulses', () => {
-    const button = () => screen.getByRole('button', { name: 'Memory' });
-    const pulse = () => screen.queryByTestId('memory-save-pulse');
-    // jsdom has no `AnimationEvent`, so React listens for the webkit-prefixed name there.
-    const end = () => fireEvent(pulse()!, new Event('webkitAnimationEnd', { bubbles: true }));
-    const save = (memory: object) =>
-      act(() => {
-        memoriesState.lastSaved = memory;
-        memoriesState.listeners.forEach((listener) => listener());
-      });
-
-    memoriesState.current = [{ id: 'm0' }];
-    render(<ContextOmnibox />);
-    expect(button()).toHaveClass('text-muted-foreground');
-    expect(button()).not.toHaveClass('text-primary');
-    expect(pulse()).not.toBeInTheDocument();
-
-    save({ id: 'm1' });
-    expect(pulse()).toHaveClass('text-primary');
-    expect(button()).toHaveClass('text-muted-foreground');
-    end();
-    expect(pulse()).not.toBeInTheDocument();
-    expect(button()).not.toHaveClass('text-primary');
-
-    // Another save of the same memory pulses again.
-    save({ id: 'm1' });
-    expect(pulse()).toBeInTheDocument();
-  });
-
   it.each([
     ['name', () => screen.getByText('prod', { selector: '[data-testid="cluster-trigger-name"]' })],
     ['TLS badge', () => screen.getByText('Unverified TLS')],
@@ -261,15 +211,6 @@ describe('ContextOmnibox', () => {
     expect(await pickerOpened()).toBeInTheDocument();
   });
 
-  it('opens the memory popover, and not the picker, from the brain icon', async () => {
-    const user = userEvent.setup();
-    render(<ContextOmnibox />);
-
-    await user.click(screen.getByRole('button', { name: 'Memory' }));
-    expect(await screen.findByTestId('memory-popup')).toBeInTheDocument();
-    expect(screen.queryByText('Clusters', { selector: 'p' })).not.toBeInTheDocument();
-  });
-
   it('opens the cluster’s status, and not the picker, from the server icon', async () => {
     const user = userEvent.setup();
     render(<ContextOmnibox />);
@@ -280,7 +221,7 @@ describe('ContextOmnibox', () => {
   });
 
   // jsdom lays nothing out, so the positioner's alignment stands in for where it hangs.
-  it('centres the status under the omnibox, as the picker and memory are', async () => {
+  it('centres the status under the omnibox, as the picker is', async () => {
     const user = userEvent.setup();
     render(<ContextOmnibox />);
 
@@ -409,6 +350,9 @@ describe('ContextOmnibox', () => {
     // No cluster, no status: the bare icon is the picker's.
     expect(screen.queryByRole('button', { name: /^cluster status/i })).not.toBeInTheDocument();
     expect(within(empty).getByTestId('cluster-glyph')).toBeInTheDocument();
+    // Its hit area takes the status button's reach over the chip's and the pill's padding.
+    expect(empty).toHaveClass('after:-left-2.5', '@max-[14rem]:after:-left-1');
+    expect(empty).not.toHaveClass('pl-1.5');
     await user.click(empty);
     expect(await pickerOpened()).toBeInTheDocument();
   });

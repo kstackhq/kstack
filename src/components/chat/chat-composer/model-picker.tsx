@@ -24,7 +24,7 @@ import { useState } from 'react';
 import { SectionHeading } from '@/components/primitives/section-heading';
 import { type Model, type ModelPick, providersOf } from '@/lib/models';
 
-// The segmented control ModeNav draws, for the provider tabs and the effort levels.
+// A segmented control, for the provider tabs and the effort levels.
 const TRACK = 'flex w-full items-center rounded-lg bg-muted p-[3px] text-muted-foreground';
 const SEGMENT =
   'flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-[13px] font-medium transition-colors hover:text-foreground ' +

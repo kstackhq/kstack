@@ -11,7 +11,7 @@ A memory is a note the model reads in later chats, scoped to one cluster or to e
 | MEM-1 | The `Memory` tool changes a memory for every cluster only once the user approves the call. | **Enforced** | — |
 | MEM-2 | Each model call reaches only the scope it names, so a call for the cluster never reaches a note for every cluster. | **Enforced** | — |
 | MEM-3 | Through the `Memory` tool, the model changes none of the user's memories. Every model save is marked as the model's, and lands only over a note already the model's in the scope it names. | **Enforced** | An approved command is outside it. |
-| MEM-4 | Only a memory the user wrote or adopted is marked as the user's. Every write from the memory popover makes a note the user's, and its editor says so before saving one of the model's. | **Enforced** | — |
+| MEM-4 | Only a memory the user wrote or adopted is marked as the user's. Every write from the memory list makes a note the user's, and its editor says so before saving one of the model's. | **Enforced** | — |
 | MEM-5 | The model follows only the memories marked as the user's, in the newest `<context>` block. | **Held by review** | No test can pin how a model reads the words. |
 | MEM-6 | A chat reaches its own cluster's memories and the global ones alone. The model names neither the cluster nor the chat. | **Enforced** | — |
 | MEM-7 | A forget for one cluster reaches its own notes alone. | **Enforced** | — |
@@ -51,7 +51,7 @@ A memory is a note the model reads in later chats, scoped to one cluster or to e
 
 - **Where:** `sidecar/internal/services/memory`, `src/components/cluster/memory-list.tsx`
 - **Records:** [memory](../security/2026-09-24-memory.md)
-- `TestOnlyTheUserWritesARequest` — every write from the memory popover makes a note the user's.
+- `TestOnlyTheUserWritesARequest` — every write from the memory list makes a note the user's.
 - `says saving one of Kstack's notes makes it yours, and nothing for yours` — the editor says so before saving one of the model's.
 
 ### MEM-5
@@ -103,7 +103,7 @@ A memory is a note the model reads in later chats, scoped to one cluster or to e
 - **Records:** [memory is rows, scoped to a cluster or every cluster](../adr/2026-09-24-memory-is-rows-scoped-to-a-cluster-or-every-cluster.md)
 - Note: it reaches only chats that already read that cluster's data.
 - Note: every command those chats run is still approved on its own.
-- Note: the transcript and the memory popover show every save.
+- Note: the transcript and Settings' Memory tab show every save.
 
 ### MEM-13
 
@@ -111,7 +111,7 @@ A memory is a note the model reads in later chats, scoped to one cluster or to e
 - **Records:** [memory is rows, scoped to a cluster or every cluster](../adr/2026-09-24-memory-is-rows-scoped-to-a-cluster-or-every-cluster.md), [memory](../security/2026-09-24-memory.md)
 - Note: an injection that gets the model to propose a note and the user to approve it lands in every cluster's chats as information, as a note for one cluster does on its cluster.
 - Note: the request shows the name and every character of the body before the click.
-- Note: the memory popover lists the note as Kstack's to edit or delete.
+- Note: Settings' Memory tab lists the note as Kstack's to edit or delete.
 
 ### MEM-14
 
@@ -119,4 +119,4 @@ A memory is a note the model reads in later chats, scoped to one cluster or to e
 - **Records:** [memory is rows, scoped to a cluster or every cluster](../adr/2026-09-24-memory-is-rows-scoped-to-a-cluster-or-every-cluster.md), [memory](../security/2026-09-24-memory.md)
 - Note: a note shaped by an injection lands in the context unasked, up to 500 bytes.
 - Note: the model reads it as information, not an instruction.
-- Note: the transcript and the memory popover show it.
+- Note: the transcript and Settings' Memory tab show it.

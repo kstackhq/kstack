@@ -27,7 +27,6 @@ import { RelativeTime } from '@/components/primitives/relative-time';
 import { Textarea } from '@/components/primitives/text-entry';
 import type { Memory } from '@/lib/memories';
 import { BODY_RULE, bodyFits, nameFor } from '@/lib/memory-writes';
-import { useHoldsUnsaved } from '@/lib/unsaved-drafts';
 
 function Provenance({ memory }: { memory: Memory }) {
   return (
@@ -65,7 +64,6 @@ function NoteEditor({
   const body = draft.trim();
   const fits = bodyFits(body);
   const unchanged = body === opened.trim();
-  useHoldsUnsaved(saving || refusal !== '' || !fits || !unchanged);
 
   useEffect(() => {
     box.current?.select();
@@ -99,7 +97,7 @@ function NoteEditor({
       e.preventDefault();
       void save(true);
     } else if (e.key === 'Escape') {
-      // Closes the editor alone, not the popover around it. A save already
+      // Closes the editor alone, not the dialog around it. A save already
       // sent is not taken back, so Escape waits for it.
       e.stopPropagation();
       if (!saving) close();

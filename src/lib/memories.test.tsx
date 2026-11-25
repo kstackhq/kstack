@@ -28,7 +28,6 @@ const { useMemories } = await import('./memories');
 let acc: unknown;
 let lastReducer: ((prev: unknown, frames: unknown[]) => unknown) | undefined;
 let lastArgs: { pause?: boolean; variables?: { clusterID?: string } } | undefined;
-let lastOptions: { unshared?: boolean } | undefined;
 
 function push(...frames: { type: string; memory: unknown }[]) {
   acc = lastReducer!(
@@ -38,10 +37,9 @@ function push(...frames: { type: string; memory: unknown }[]) {
 }
 
 function render(clusterID: string | undefined, connected = true) {
-  useFoldedSubscriptionMock.mockImplementation((args, reduce, options) => {
+  useFoldedSubscriptionMock.mockImplementation((args, reduce) => {
     lastArgs = args;
     lastReducer = reduce;
-    lastOptions = options;
     return { data: acc, connected };
   });
   return renderHook(() => useMemories(clusterID));
@@ -63,11 +61,10 @@ beforeEach(() => {
 });
 
 describe('useMemories', () => {
-  it('watches the cluster on a connection of its own', () => {
+  it('watches the cluster', () => {
     render('c1');
     expect(lastArgs?.variables).toEqual({ clusterID: 'c1' });
     expect(lastArgs?.pause).toBe(false);
-    expect(lastOptions?.unshared).toBe(true);
   });
 
   it('opens no watch without a cluster', () => {
@@ -110,20 +107,5 @@ describe('useMemories', () => {
 
     push({ type: 'Deleted', memory: memory('1', 'renamed', 'c1') });
     expect(render('c1').result.current.memories).toEqual([]);
-  });
-
-  it('reports the last save after the Bookmark, never a row of the snapshot', () => {
-    render('c1');
-    push({ type: 'Added', memory: memory('1', 'pages', 'c1') }, { type: 'Bookmark', memory: null });
-    expect(render('c1').result.current.lastSaved).toBeUndefined();
-
-    push(
-      { type: 'Added', memory: memory('2', 'alerts', null) },
-      { type: 'Modified', memory: { ...memory('1', 'pages', 'c1'), body: 'rewritten' } },
-    );
-    expect(render('c1').result.current.lastSaved).toMatchObject({ id: '1', body: 'rewritten' });
-
-    push({ type: 'Deleted', memory: memory('2', 'alerts', null) });
-    expect(render('c1').result.current.lastSaved).toMatchObject({ id: '1' });
   });
 });

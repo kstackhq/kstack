@@ -143,13 +143,7 @@
         "node": "9:92",
         "name": "ModeNav",
         "hash": "7437d5b85db6cb46"
-      },
-      "code": [
-        {
-          "path": "src/components/shell/mode-nav.tsx",
-          "blob": "979578f200f85525136212e5f653bc77d9691ad5"
-        }
-      ]
+      }
     },
     {
       "id": "shell/app-bar",
@@ -482,10 +476,6 @@
       },
       "code": [
         {
-          "path": "src/components/cluster/memory/popover.tsx",
-          "blob": "daf498b67f6fb04acf05b0d80fa8badeea4378d3"
-        },
-        {
           "path": "src/components/cluster/memory-instructions.tsx",
           "blob": "afca99ab784e543742881b3d607894537ed35ad7"
         },
@@ -707,7 +697,7 @@
       ],
       "notes": [
         "Figma only: the code has no Segment component. It is one option of the menu's provider tabs and of its effort control.",
-        "Drawn like ModeNav: the active one bg-background shadow-sm on a bg-muted track."
+        "The active one bg-background shadow-sm on a bg-muted track."
       ]
     },
     {
@@ -1036,10 +1026,6 @@
         "hash": "11677f43722aa7c2"
       },
       "code": [
-        {
-          "path": "src/components/cluster/memory/popover.tsx",
-          "blob": "daf498b67f6fb04acf05b0d80fa8badeea4378d3"
-        },
         {
           "path": "src/components/cluster/omnibox-popover.tsx",
           "blob": "70fe1e72dbecc81a66b51a552e801a93f26bf667"

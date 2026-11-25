@@ -26,7 +26,3 @@ const VARIANTS = { variant: 'ghost', size: 'icon-sm' } as const;
 export function AppBarButton({ className, ...props }: ComponentProps<typeof Button>) {
   return <Button {...VARIANTS} className={cn('text-muted-foreground', APP_BAR_HOVER_CLASS, className)} {...props} />;
 }
-
-export function AppBarDivider({ className }: { className?: string }) {
-  return <div className={cn('h-4.5 w-px shrink-0 bg-sidebar-border', className)} aria-hidden />;
-}

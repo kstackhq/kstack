@@ -13,8 +13,8 @@
 // limitations under the License.
 
 // The main window's layout, mounted once by the pathless `_app` route: the app bar
-// over a row holding the left sidebar, the routed page and the right sidebar. Secondary windows
-// get their own sidebar-less layout alongside this one.
+// over an inset box holding the left sidebar, the routed page and the right sidebar.
+// Secondary windows get their own sidebar-less layout alongside this one.
 //
 // Every band is a flex item, so the sidebar and the page start below the chrome by
 // construction. The column's height is definite (`h-`, not `min-h-`) and `main`
@@ -86,15 +86,18 @@ export function AppLayout() {
                       <SidebarProvider
                         open={sidebarOpen}
                         onOpenChange={setSidebarOpen}
-                        className="h-(--app-min-h) min-h-0 flex-col"
+                        className="h-(--app-min-h) min-h-0 flex-col bg-app-bar"
                       >
                         <AppBar />
-                        {/* `relative`: too narrow for the sidebar beside the page, `LeftSidebar`
-                      floats it over this row as a drawer. `overflow-clip`: the three items' minimum
-                      widths can sum past a narrow window, and an absolute element with no
-                      nearer positioned ancestor anchors here, past `main`'s clip. `@container`:
-                      the left sidebar caps its width by the row's (`leftSidebarRoom`). */}
-                        <div className="@container relative flex min-h-0 flex-1 overflow-clip">
+                        {/* The content row, a box inset 8px from the window's left, right and
+                      bottom edges; the column's fill, the bar's colour, shows around it.
+                      `relative`: too narrow for the sidebar beside the page, `LeftSidebar`
+                      floats it over this box as a drawer. `overflow-clip`: the three items'
+                      minimum widths can sum past a narrow window, an absolute element with no
+                      nearer positioned ancestor anchors here, past `main`'s clip, and the
+                      children clip to the rounded corners. `@container`: the left sidebar caps
+                      its width by the box's (`leftSidebarRoom`). */}
+                        <div className="@container relative mx-2 mb-2 flex min-h-0 flex-1 overflow-clip rounded-xl border border-border shadow-[0_1px_1px_rgb(0_0_0/0.1),0_1px_1.5px_rgb(0_0_0/0.1)]">
                           <LeftSidebar nav={onDashboard ? <DashboardResourceNav /> : <ChatNav mode="chat" />} />
                           <main
                             ref={pageRef}

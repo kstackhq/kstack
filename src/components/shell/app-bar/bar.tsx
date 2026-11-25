@@ -23,11 +23,9 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { TrafficLightGutter } from '@/components/primitives/traffic-light-gutter';
 import { WindowControls } from '@/components/primitives/window-controls';
 import { ContextOmnibox } from '@/components/shell/context-omnibox';
-import { ModeNav } from '@/components/shell/mode-nav';
 import { isMacOS } from '@/lib/platform';
 import { dismissPopupsOnWindowDrag } from '@/lib/window-drag';
 
-import { AppBarDivider } from './button';
 import { HistoryNav } from './history-nav';
 import { LeftSidebarToggle } from './left-sidebar-toggle';
 import { AppMenu } from './menu';
@@ -35,9 +33,11 @@ import { NotificationButton } from './notification-button';
 import { RightSidebarToggle } from './right-sidebar-toggle';
 import { SettingsButton } from './settings-button';
 
-// The narrowest the omnibox's column goes before the omnibox leaves the centre line: its
-// two buttons and room for the trigger. Under it the shorter end gives up its spare space.
-const OMNIBOX_MIN_WIDTH = '5rem';
+// The narrowest the omnibox's column goes before the omnibox leaves the centre line: the
+// pill with an empty name and icon-only tabs. Its 133px are the pill's 8px of padding, the
+// chip's 44px (the status button and the trigger's 10px of right padding), 9px of divider
+// and gaps, and the tab track's 72px. Under it the shorter end gives up its spare space.
+const OMNIBOX_MIN_WIDTH = '8.5rem';
 
 // An end's column: at least its own content, and at least the other end's while that
 // leaves the omnibox `OMNIBOX_MIN_WIDTH`, so equal ends centre the omnibox when there is
@@ -62,9 +62,9 @@ export function AppBar() {
     observer.observe(endRef.current!);
     return () => observer.disconnect();
   }, []);
-  const columns = `${endColumn(ends.start, ends.end)} minmax(0, 352px) ${endColumn(ends.end, ends.start)}`;
+  const columns = `${endColumn(ends.start, ends.end)} minmax(0, 420px) ${endColumn(ends.end, ends.start)}`;
   return (
-    // 40px tall; `window_manager.rs` mirrors the number to center the traffic lights
+    // 56px tall; `window_manager.rs` mirrors the number to center the traffic lights
     // in it. No padding of its own: the close button has to reach the window's
     // corner, and the gutter supplies the macOS inset.
     //
@@ -88,7 +88,7 @@ export function AppBar() {
       data-testid="app-bar"
       data-tauri-drag-region="deep"
       onPointerDown={dismissPopupsOnWindowDrag}
-      className="grid h-10 shrink-0 transform-gpu bg-app-bar"
+      className="grid h-14 shrink-0 transform-gpu bg-app-bar"
       style={{ gridTemplateColumns: columns }}
     >
       <div ref={startRef} data-testid="app-bar-start" className="flex items-stretch gap-1.5 justify-self-start">
@@ -96,8 +96,6 @@ export function AppBar() {
         <div data-testid="app-bar-controls" className="flex items-center gap-1.5">
           <HistoryNav />
           <LeftSidebarToggle />
-          <AppBarDivider className="mr-1.75" />
-          <ModeNav />
         </div>
       </div>
       <div className="flex min-w-0 items-center">

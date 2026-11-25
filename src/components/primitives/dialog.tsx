@@ -36,7 +36,7 @@ import { useDialogHost } from '@/lib/dialog';
 // Restores window dragging while a dialog is open: the backdrop covers the
 // shell's title-bar drag band, so this band must be portaled to `document.body`
 // (the backdrop's stacking context) to sit above it. Height must match
-// `app-bar/bar.tsx`'s bar (40px on every platform). A press here does not close
+// `app-bar/bar.tsx`'s bar (56px on every platform). A press here does not close
 // the dialog: base-ui dismisses a modal dialog only on a press whose target is
 // its backdrop.
 // See docs/adr/2026-08-09-per-platform-window-chrome.md
@@ -46,7 +46,7 @@ function WindowDragBand() {
       data-testid="dialog-window-drag-region"
       data-tauri-drag-region
       aria-hidden
-      className="fixed inset-x-0 top-0 z-60 h-10"
+      className="fixed inset-x-0 top-0 z-60 h-14"
     />,
     document.body,
   );

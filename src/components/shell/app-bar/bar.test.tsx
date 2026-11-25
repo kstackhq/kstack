@@ -48,8 +48,7 @@ vi.mock('./notification-button', () => ({
 vi.mock('./settings-button', () => ({
   SettingsButton: () => <div data-testid="settings-button" />,
 }));
-// The toggles read the sidebars' providers and the mode switch the router; their own
-// suites cover them.
+// The toggles read the sidebars' providers; their own suites cover them.
 vi.mock('./left-sidebar-toggle', () => ({
   LeftSidebarToggle: () => <button type="button" aria-label="Toggle sidebar" data-testid="left-sidebar-toggle" />,
 }));
@@ -57,9 +56,6 @@ vi.mock('./right-sidebar-toggle', () => ({
   RightSidebarToggle: () => (
     <button type="button" aria-label="Toggle right sidebar" data-testid="right-sidebar-toggle" />
   ),
-}));
-vi.mock('@/components/shell/mode-nav', () => ({
-  ModeNav: () => <nav data-testid="mode-nav" />,
 }));
 // The omnibox reads the kubeconfig; its own suite covers it.
 vi.mock('@/components/shell/context-omnibox/omnibox', () => ({
@@ -89,8 +85,8 @@ afterEach(() => {
 describe('AppBar', () => {
   it('holds its height as the layout column’s top band', () => {
     render(<AppBar />);
-    // 40px, and never shrunk by the row below it.
-    expect(screen.getByTestId('app-bar')).toHaveClass('h-10', 'shrink-0');
+    // 56px, and never shrunk by the row below it.
+    expect(screen.getByTestId('app-bar')).toHaveClass('h-14', 'shrink-0');
   });
 
   it('drags the window from anywhere it is not a control, on every platform', () => {
@@ -124,11 +120,11 @@ describe('AppBar', () => {
     render(<AppBar />);
     const bar = screen.getByTestId('app-bar');
     // Flexible ends, each at least its own content and the other end's while that leaves
-    // the omnibox 5rem, around a column of at most 352px that gives way first.
+    // the omnibox 8.5rem, around a column of at most 420px that gives way first.
     expect(bar).toHaveClass('grid');
     expect(bar.style.gridTemplateColumns).toBe(
-      'minmax(max(260px, min(112px, 100% - 112px - 5rem)), 1fr) minmax(0px, 352px) ' +
-        'minmax(max(112px, min(260px, 100% - 260px - 5rem)), 1fr)',
+      'minmax(max(260px, min(112px, 100% - 112px - 8.5rem)), 1fr) minmax(0px, 420px) ' +
+        'minmax(max(112px, min(260px, 100% - 260px - 8.5rem)), 1fr)',
     );
     expect(screen.getByTestId('app-bar-start')).toHaveClass('justify-self-start');
     expect(screen.getByTestId('app-bar-end')).toHaveClass('justify-self-end');
@@ -138,15 +134,15 @@ describe('AppBar', () => {
     expect(columns[1].contains(screen.getByTestId('context-omnibox'))).toBe(true);
   });
 
-  it('lays out the left group: history, the sidebar toggle, a divider, then the mode switch', () => {
+  // The Chat/Dashboard switch is the omnibox's.
+  it('lays out the left group: history, then the sidebar toggle', () => {
     render(<AppBar />);
     const controls = screen.getByTestId('app-bar-controls');
     expect(controls).toHaveClass('gap-1.5');
-    const [history, toggle, divider, modes] = Array.from(controls.children);
-    expect(history).toBe(screen.getByTestId('history-nav'));
-    expect(toggle).toBe(screen.getByTestId('left-sidebar-toggle'));
-    expect(divider).toHaveClass('w-px', 'mr-1.75');
-    expect(modes).toBe(screen.getByTestId('mode-nav'));
+    expect(Array.from(controls.children)).toEqual([
+      screen.getByTestId('history-nav'),
+      screen.getByTestId('left-sidebar-toggle'),
+    ]);
   });
 
   it('lays out the right group: notifications, settings, then the right sidebar toggle', () => {
