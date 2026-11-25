@@ -47,7 +47,8 @@ type Resolver struct {
 	// Auth is the Kstack Cloud connector, which backs the authState query and watch and
 	// the login and logout mutations: *kstackcloud.Service, or a test's fake.
 	Auth AuthConnector
-	// Settings is the user's settings file, and the frozen PATH kept in it.
+	// Settings is the user's settings, the approval modes and always grants
+	// among them, and the frozen PATH.
 	Settings *settings.Service
 	// EnvVars is the user's variables for their commands.
 	EnvVars *envvars.Service
@@ -154,7 +155,8 @@ type LogsService interface {
 }
 
 // ExecutableProber is the executable probe: *bash.Tool, or a test's fake. StartProbe
-// and Report take the user's registered executables, the curated ones first, and
+// and Report take the user's registered executables and list the curated ones
+// first; a registered one the shape check refuses is listed and never probed.
 // WatchProbe says when a probe starts and ends.
 type ExecutableProber interface {
 	StartProbe(registered []settings.Executable)
@@ -173,11 +175,6 @@ type SandboxConsole interface {
 // probes reports whether this machine probes executables: a sandbox and a shell.
 func (r *Resolver) probes() bool {
 	return r.SandboxStatus.Available && r.Executables != nil
-}
-
-// registeredExecutables is the user's registered executables, as stored.
-func (r *Resolver) registeredExecutables() []settings.Executable {
-	return r.Settings.Get().Executables
 }
 
 // scopeOf is a variable's scope off the wire: the cluster, or "" for every

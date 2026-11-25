@@ -1936,11 +1936,10 @@ type ToolSetting {
 
 # --- Permissions ---
 
-"How much an action can do, as the permissions engine numbers its classes 1 to 6. A rule may name `UpstreamWrite` or `Destructive`."
+"How much an action can do, as the permissions engine numbers its classes. A rule may name `UpstreamWrite`, `Destructive` or `SecretRead`."
 enum PermissionClass {
   ReadInside
   WriteInside
-  NewHost
   UpstreamWrite
   Destructive
   SecretRead
@@ -1960,26 +1959,23 @@ enum PermissionEffect {
   Ask
 }
 
-"Where a context's mode comes from: `Refused`, read-only while the file's modes cannot be read; `Entry`, a mode entry whose pattern matches; `Default`, the default mode."
+"Where a cluster's mode comes from: `Entry`, the cluster's own; `Default`, the default mode."
 enum PermissionModeSource {
-  Refused
   Entry
   Default
 }
 
-"One rule: over cluster writes, or a folder grant. Every string but `group` and `folder` is a pattern: `*` matches any run of characters, `?` one, `\\` escapes the next. An empty field matches anything. A `namespace` pattern matches objects in a namespace alone; `[cluster]` matches cluster-scoped objects alone. Every string is user text: draw it through VisibleText."
-type PermissionRule {
+"One rule over cluster writes and Secret reads. `clusterID` is the one cluster it applies to, null for every cluster; join it onto `clustersWatch`. Every other string but `group` is a pattern: `*` matches any run of characters, `?` one, `\\` escapes the next, and an empty one matches anything. A `namespace` pattern matches objects in a namespace alone; `[cluster]` matches cluster-scoped objects alone. Every string is user text: draw it through VisibleText."
+type KubeRule {
   id: String!
   effect: PermissionEffect!
   class: PermissionClass!
-  context: String!
+  clusterID: ClusterID
   namespace: String!
   verb: String!
   group: String!
   kind: String!
-  "The folder a class `ReadInside` or `WriteInside` rule grants; empty on every other rule."
-  folder: String!
-  "The rule in the user's words."
+  "The rule in the user's words, naming its cluster by its kube-context."
   line: String!
 }
 
@@ -2018,36 +2014,30 @@ enum PermissionTarget {
   Azure
 }
 
-"A context the clusters watch knows, and the mode its sandboxed commands run under."
-type PermissionContextMode {
-  context: String!
+"A cluster with a kube-context, and the mode its sandboxed commands run under. Join it onto `clustersWatch` by `clusterID`."
+type PermissionClusterMode {
+  clusterID: ClusterID!
   mode: PermissionMode!
   source: PermissionModeSource!
-  "The mode entry that decided the mode, for source `Entry`; empty otherwise."
-  pattern: String!
-  "Whether that entry names this context alone: the one `permissionModeClear` removes."
-  own: Boolean!
 }
 
 "The modes and rules sandboxed commands' cluster writes are decided by."
 type PermissionSettings {
-  "The mode of a context nothing else names."
+  "The mode of a cluster with none of its own."
   defaultMode: PermissionMode!
-  "Each known context's mode, by context."
-  contexts: [PermissionContextMode!]!
+  "The mode of each cluster with a kube-context that is not awaiting deletion."
+  clusters: [PermissionClusterMode!]!
   "The user's always rules."
-  rules: [PermissionRule!]!
+  kubeRules: [KubeRule!]!
   "The writes that always ask, in words."
   destructive: [String!]!
-  "The settings fields the file holds a value of that Kstack cannot read, by key: `permissions.defaultMode`, `permissions.modes`, `permissions.rules`."
-  held: [String!]!
 }
 
-"A rule to add; every string is a pattern but `group`, and empty matches anything. A `namespace` of `[cluster]` is cluster-scoped objects alone."
-input PermissionRuleInput {
+"A rule to add. `clusterID` names a cluster Settings lists, and null is every cluster, which only a `Deny` or `Ask` rule may name. Every string is a pattern but `group`, and empty matches anything. A `namespace` of `[cluster]` is cluster-scoped objects alone."
+input KubeRuleInput {
   effect: PermissionEffect!
   class: PermissionClass!
-  context: String! = ""
+  clusterID: ClusterID
   namespace: String! = ""
   verb: String! = ""
   group: String! = ""
@@ -2188,53 +2178,57 @@ type GoogleConnection {
   revocationUnconfirmed: Boolean!
 }
 
-"What the sandbox does with one folder of the user's PATH."
-enum SandboxPathState {
-  "On the sandbox's PATH and readable in it."
-  Adopted
-  "Listed by the shell and waiting for the user: adopting it would open more to commands, or its group can add programs to it."
-  Pending
-  "Removed by the user, and kept so a launch does not adopt it again."
-  Gone
-}
-
-"Whose decision a PATH entry's state is."
-enum SandboxPathSource {
-  "Kstack's, when it read the login shell's PATH."
+"Where a folder of the PATH setting came from."
+enum SandboxPathOrigin {
+  "The login shell's PATH, spliced in for $PATH. Searched only when every sandboxed command reads it already and no group but an administrators' one can add programs to it."
   Shell
-  "The user's, by Include or Remove."
-  User
+  "A folder the user typed: their read grant, held to a folder grant's checks."
+  Typed
 }
 
-"One folder of the user's PATH, and what the sandbox does with it."
-type SandboxPathEntry {
-  "The folder as the shell gave it."
-  dir: String!
-  "The folder dir resolved to when its state was set; the one the sandbox reads."
-  target: String!
-  state: SandboxPathState!
-  source: SandboxPathSource!
-  "Whether target was writable by a group other than an administrators' one, so others in it can add programs to it."
+"One folder of the PATH setting, as a sandboxed command judges it now."
+type SandboxPathFolder {
+  "The folder as expanded. Shell or user text: draw it through VisibleText."
+  path: String!
+  origin: SandboxPathOrigin!
+  "The folder path resolves to, canonical; null when it does not resolve to one a command may search. Draw it through VisibleText."
+  target: String
+  searched: Boolean!
+  "Why the folder is left out, in the user's words; null when it is searched. Draw it through VisibleText."
+  reason: String
+  "Whether typing target into the setting would include the folder: a shell folder left out only because no command reads it or its group can write it, that the setting does not type already."
+  addable: Boolean!
+  "Whether a group other than an administrators' one can add programs to target."
   shared: Boolean!
+}
+
+"The PATH of every sandboxed command, as the user wrote it, and its folders."
+type SandboxPath {
+  "As written: folders joined by ':', where $PATH stands for the login shell's PATH and ~ or $HOME for the home. User text: draw it through VisibleText."
+  value: String!
+  "Why Kstack cannot use value, in the user's words; null when it can. While it is set, no sandboxed command starts. Draw it through VisibleText."
+  refusal: String
+  "Each folder of value in order, as a command judges it now. Empty while value is refused, and on a machine with no sandbox."
+  folders: [SandboxPathFolder!]!
 }
 
 "How long a folder grant lasts."
 enum GrantDuration {
-  "For one chat: a rule of the chat's, gone with it."
+  "For one chat: a grant of the chat's, gone with it."
   Chat
-  "For every chat: a rule in the settings file."
+  "For every chat."
   Always
 }
 
 "One folder a sandboxed command may read, or read and write."
 type SandboxFolder {
-  "The rule's id."
+  "The grant's id."
   id: String!
   "The folder, absolute and resolved. User text: draw it through VisibleText."
   path: String!
   write: Boolean!
-  "Why the folder fails its check now, so no run takes it; null when it passes."
-  refused: String
+  "Why the folder fails its check now, so no run takes it; null when it passes. User text: draw it through VisibleText."
+  refusal: String
 }
 
 "The folders granted, and what no grant opens."
@@ -2249,8 +2243,6 @@ type SandboxFolders {
   closed: [String!]!
   "The folders a read grant of which draws the wide warning, resolved: the home, each folder over it, and /Volumes on macOS."
   wide: [String!]!
-  "Whether the file's rules cannot be read, which refuses every always grant and revoke until the file is fixed or what Kstack cannot read is discarded."
-  rulesHeld: Boolean!
 }
 
 "One executable the sandbox probe checks, as the last probe found it."
@@ -2273,8 +2265,10 @@ type SandboxExecutable {
   ok: Boolean!
   "The first non-empty line of its output, redacted. The executable's own text: draw it through VisibleText."
   version: String!
-  "Why it did not run or did not pass: Bash's first line, `not found on the sandbox's PATH`, `could not start: …` or `not probed yet`; empty when ok."
+  "Why it did not run or did not pass: Bash's first line, `not found on the sandbox's PATH`, `could not start: …` or `not probed yet`; empty when ok, and for one refused."
   error: String!
+  "Why a registered executable is not probed, in the user's words; null for one Kstack probes. User text: draw it through VisibleText."
+  refusal: String
 }
 
 "The commands a variable reaches."
@@ -2339,16 +2333,6 @@ type SandboxConsole {
   run: SandboxConsoleRun
 }
 
-"One value the settings file held and the sidecar left out."
-type SettingsRefusal {
-  "The setting's key in the file, dotted inside a group: `permissions.rules`."
-  field: String!
-  "What the setting's section names the value by, else its JSON."
-  value: String!
-  "Why it was left out, in the user's words."
-  reason: String!
-}
-
 # --- Root operations ---
 # Every root field, grouped by the noun it belongs to.
 
@@ -2386,22 +2370,16 @@ type Query {
   clusterCachedKinds(cacheID: ObjectID): [ClusterCachedKind!]!
 
   # --- Sandbox ---
-  "Every value the settings file held that the sidecar left out at start, each with its reason. Fixed for the process's life, so this is a query and not a watch."
-  settingsRefused: [SettingsRefusal!]!
-
-  "One row per cloud platform this build has, in a fixed order, each with whether sandboxed commands may reach it as the user. Off by default."
+  "One row per cloud platform this build has, in a fixed order, each with whether sandboxed commands may reach it as the user. On by default. A read of the switches that fails is an error."
   sandboxCloudAccess: [CloudAccess!]!
 
-  "The frozen PATH sandboxed commands search, in the shell's order. Empty on a machine with no sandbox."
-  sandboxPath: [SandboxPathEntry!]!
+  "The PATH of every sandboxed command, and each of its folders. A read that fails is an error, never $PATH."
+  sandboxPath: SandboxPath!
 
   "Why the last read of the login shell's PATH failed, at launch or on refresh; null once one answers, and on a machine with no sandbox."
   sandboxPathFault: String
 
-  "Whether a sync has ever read the login shell's PATH. Until one has, sandboxed commands search the platform's default folders; after it, the list alone, so an empty one searches nothing. False on a machine with no sandbox."
-  sandboxPathResolved: Boolean!
-
-  "Every executable the sandbox probe checks, the curated ones then the user's, as the last probe found each. Empty on a machine with no sandbox."
+  "Every executable the sandbox probe checks, the curated ones then the user's, a refused one with its refusal, as the last probe found each. Empty on a machine with no sandbox. A read of the registered executables that fails is an error."
   sandboxExecutables: [SandboxExecutable!]!
 
   "One scope's variables in the order added, a refused one with its refusal: a cluster's, or with no `clusterID` every cluster's. A command gets every cluster's, its chat's cluster's value in place of one of the same name, of the targets that reach it."
@@ -2413,8 +2391,8 @@ type Query {
   "The folders granted, always and for `chatID`, each with why it fails its check now. Empty lists on a machine with no sandbox."
   sandboxFolders(chatID: ChatID): SandboxFolders!
 
-  "The chat's own rules, each as Settings spells a rule. Empty for a chat with none."
-  chatGrants(chatID: ChatID!): [PermissionRule!]!
+  "The chat's own Kubernetes rules, each as Settings spells a rule. Empty for a chat with none."
+  chatKubeRules(chatID: ChatID!): [KubeRule!]!
 
   # --- Tools ---
   "Every tool a chat can be offered on this machine, in the order Settings draws them, each with its setting; live updates via toolSettingsWatch."
@@ -2490,7 +2468,7 @@ type Mutation {
   "Stop the in-flight turn, keeping the partial answer. Returns true; a no-op when nothing is running."
   chatCancel(chatID: ChatID!): Boolean!
 
-  "Decide a waiting request. Returns true when a turn was waiting on it; that says the decision reached the turn, not that it was recorded, since a cancel landing in the same moment can still win and leave the approval pending. A decision nothing waits on — the turn cancelled, stranded or already decided — returns false and changes nothing. `Command`, `Chat` and `Always` are refused `KSTACK_VALIDATION_ERROR` on a call's own request and on an action no rule may allow, and the request still waits; so is `Always` while the settings hold rules Kstack cannot read."
+  "Decide a waiting request. Returns true when a turn was waiting on it; that says the decision reached the turn, not that it was recorded, since a cancel landing in the same moment can still win and leave the approval pending. A decision nothing waits on — the turn cancelled, stranded or already decided — returns false and changes nothing. `Command`, `Chat` and `Always` are refused `KSTACK_VALIDATION_ERROR` on a call's own request and on an action no rule may allow, and the request still waits; so are `Chat` and `Always` when the rule they would write is one Kstack cannot apply, saying why."
   approvalDecide(id: ApprovalID!, decision: ApprovalDecision!): Boolean!
 
   "The user's stop of the background task a call started: SIGTERM, then SIGKILL after a grace. Returns true when a task of that call was running; false, changing nothing, when none is."
@@ -2509,18 +2487,15 @@ type Mutation {
   chatDelete(id: ChatID!): Boolean!
 
   # --- Sandbox ---
-  "Turns a cloud platform's switch on or off, and answers the list. Refuses `Cluster`, and a cloud platform this build lacks, with `KSTACK_VALIDATION_ERROR`."
+  "Turns a cloud platform's switch on or off, and answers the list. Refuses `Cluster`, and a cloud platform this build lacks, with `KSTACK_VALIDATION_ERROR`. A switch that cannot be written or read back is an error."
   sandboxCloudAccessSet(target: PermissionTarget!, on: Boolean!): [CloudAccess!]!
-  "Include a pending or removed PATH entry, for `target`, the folder the user was shown. Refused KSTACK_VALIDATION_ERROR for a dir not listed or already included, one whose target has moved since, while the settings file holds an entry Kstack cannot read, or on a machine with no sandbox. Returns the whole list."
-  sandboxPathInclude(dir: String!, target: String!): [SandboxPathEntry!]!
+  "Save the PATH of every sandboxed command, and answer it. Refused KSTACK_VALIDATION_ERROR with the refusal of a value that does not parse, naming the element, or on a machine with no sandbox. A save that took but cannot be read back is KSTACK_SAVED_UNREAD."
+  sandboxPathSet(value: String!): SandboxPath!
 
-  "Remove a PATH entry. Refused KSTACK_VALIDATION_ERROR for a dir not listed or already removed, or on a machine with no sandbox. Returns the whole list."
-  sandboxPathRemove(dir: String!): [SandboxPathEntry!]!
+  "Run the login shell again and store its PATH, which $PATH stands for, and answer the setting. Refused KSTACK_VALIDATION_ERROR with the shell's fault, or on a machine with no sandbox; a failed read keeps the last PATH. A refresh that took but cannot be read back is KSTACK_SAVED_UNREAD."
+  sandboxPathRefresh: SandboxPath!
 
-  "Run the login shell again and fold its PATH in. Refused KSTACK_VALIDATION_ERROR with the shell's fault, or on a machine with no sandbox. Returns the whole list."
-  sandboxPathRefresh: [SandboxPathEntry!]!
-
-  "Start a probe of every listed executable in the sandbox, with no cluster and no network, and answer the report as it stands; a probe already running is waited out, then one runs. Its end reaches `sandboxExecutablesWatch`. Refused KSTACK_VALIDATION_ERROR on a machine with no sandbox."
+  "Start a probe of every listed executable in the sandbox, with no cluster and no network, and answer the report as it stands; a probe already running is waited out, then one runs. Its end reaches `sandboxExecutablesWatch`. Refused KSTACK_VALIDATION_ERROR on a machine with no sandbox. A read of the registered executables that fails is an error, and starts no probe."
   sandboxExecutablesProbe: [SandboxExecutable!]!
 
   "Run a command the user typed in the Sandbox console, as a chat's sandboxed command runs: in a workspace of its own, with the folders granted always, `clusterID`'s cluster, read alone, and the internet when `network` is set. Nothing approves it, and it reaches no chat and no model. It answers once the command starts, with its `number`; its output and its end reach `sandboxConsoleWatch`. Refused KSTACK_CONFLICT while a command runs, and KSTACK_VALIDATION_ERROR for an empty or overlong command, the internet where the machine has none, or a machine whose sandbox does not confine a command."
@@ -2529,10 +2504,10 @@ type Mutation {
   "Stop the Sandbox console's running command, as a chat's Cancel stops a call: command `number`'s, or whichever runs when it is null. Does nothing when none runs, or another, so a stop sent late never ends a newer command."
   sandboxConsoleStop(number: Int): Boolean!
 
-  "Register an executable for the probe, with `invocation`, or `<name> --version` when it is null. Refused KSTACK_VALIDATION_ERROR for a name or invocation out of shape, a name already listed, or on a machine with no sandbox. Returns the whole report, the new executable not probed yet."
+  "Register an executable for the probe, with `invocation`, or `<name> --version` when it is null. Refused KSTACK_VALIDATION_ERROR for a name already listed, a refused one's included, a name or invocation out of shape, or on a machine with no sandbox. Returns the whole report, the new executable not probed yet; KSTACK_SAVED_UNREAD when it took but the list could not be read back."
   sandboxExecutableRegister(name: String!, invocation: String): [SandboxExecutable!]!
 
-  "Remove a registered executable. Refused KSTACK_VALIDATION_ERROR for a name not registered. Returns the whole report."
+  "Remove a registered executable, a refused one too. Refused KSTACK_VALIDATION_ERROR for a name not registered. Returns the whole report; KSTACK_SAVED_UNREAD when it took but the list could not be read back."
   sandboxExecutableRemove(name: String!): [SandboxExecutable!]!
 
   "Set a variable in one scope, from the next command that starts: a new name joins the scope's end, a listed one changes in place. Refused KSTACK_VALIDATION_ERROR, with the reason, for a name or value its target's commands may not have or a new name when the scope is full, and KSTACK_RECORD_NOT_FOUND for a missing cluster. Returns the scope's list as it stands now."
@@ -2553,32 +2528,29 @@ type Mutation {
   toolSettingSet(name: String!, enabled: Boolean!): [ToolSetting!]!
 
   # --- Permissions ---
-  "Set the mode of a context nothing else names. Also the fix for a default mode the file holds that Kstack cannot read."
+  "Set the mode of a cluster with none of its own. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
   permissionDefaultModeSet(mode: PermissionMode!): PermissionSettings!
 
-  "Set one context's own mode, ahead of every pattern. Refused `KSTACK_VALIDATION_ERROR` while the file's modes cannot be read."
-  permissionModeSet(context: String!, mode: PermissionMode!): PermissionSettings!
+  "Set one cluster's own mode. Refused `KSTACK_RECORD_NOT_FOUND` for a cluster that is gone or awaiting deletion, and `KSTACK_VALIDATION_ERROR` for one with no kube-context. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
+  permissionModeSet(clusterID: ClusterID!, mode: PermissionMode!): PermissionSettings!
 
-  "Clear one context's own mode. Refused `KSTACK_VALIDATION_ERROR` while the file's modes cannot be read."
-  permissionModeClear(context: String!): PermissionSettings!
+  "Clear one cluster's own mode, so it takes the default. Refused `KSTACK_RECORD_NOT_FOUND` for a cluster that is gone or awaiting deletion. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
+  permissionModeClear(clusterID: ClusterID!): PermissionSettings!
 
-  "Add an always rule. Refused `KSTACK_VALIDATION_ERROR` for a rule Kstack cannot apply, saying why, and while the file's rules cannot be read."
-  permissionRuleAdd(input: PermissionRuleInput!): PermissionSettings!
+  "Add an always rule. Refused `KSTACK_VALIDATION_ERROR` for a rule Kstack cannot apply, saying why. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
+  kubeRuleAdd(input: KubeRuleInput!): PermissionSettings!
 
-  "Remove an always rule. Refused `KSTACK_VALIDATION_ERROR` for an unknown id, and while the file's rules cannot be read."
-  permissionRuleRemove(id: String!): PermissionSettings!
+  "Remove an always rule. Refused `KSTACK_VALIDATION_ERROR` for an unknown id. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
+  kubeRuleRemove(id: String!): PermissionSettings!
 
-  "Removes one of the chat's rules by id, and answers the rules left. Refused `KSTACK_RECORD_NOT_FOUND` for a chat or an id that is gone."
-  chatGrantRemove(chatID: ChatID!, id: String!): [PermissionRule!]!
+  "Removes one of the chat's Kubernetes rules by id, and answers the rules left. Refused `KSTACK_RECORD_NOT_FOUND` for a chat or an id that is gone."
+  chatKubeRuleRemove(chatID: ChatID!, id: String!): [KubeRule!]!
 
-  "Write `permissions.modes` or `permissions.rules` as Kstack read it, dropping what it could not read. Refused `KSTACK_VALIDATION_ERROR` for a field that holds nothing unread."
-  permissionDiscardRefused(field: String!): PermissionSettings!
-
-  "Grant a folder, or change the mode of one granted in the same place. `Chat` writes a rule of the chat's and needs `chatID`; `Always` a rule in the settings file, and ignores it. Refused `KSTACK_VALIDATION_ERROR` with the reason the folder cannot be granted, whose `rule` is `link` and whose `target` extension is the resolved path for a link; also while the file's rules cannot be read, and on a machine with no sandbox. Refused `KSTACK_RECORD_NOT_FOUND` for a chat that is gone."
+  "Grant a folder, or change the access of one granted in the same place. `Chat` writes a grant of the chat's and needs `chatID`; `Always` a grant for every chat, and ignores it. Refused `KSTACK_VALIDATION_ERROR` with the reason the folder cannot be granted, whose `rule` is `link` and whose `target` extension is the resolved path for a link; also on a machine with no sandbox. Refused `KSTACK_RECORD_NOT_FOUND` for a chat that is gone. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
   folderGrant(chatID: ChatID, path: String!, write: Boolean!, duration: GrantDuration!): SandboxFolders!
 
-  "Revoke an always folder grant by id. A chat's grant is removed with `chatGrantRemove`. Refused `KSTACK_RECORD_NOT_FOUND` for an id that is not one, and `KSTACK_VALIDATION_ERROR` while the file's rules cannot be read."
-  folderRevoke(id: String!): SandboxFolders!
+  "Revoke a folder grant by id, as `folderGrant` names it: `Chat` a grant of the chat's, and needs `chatID`; `Always` an always grant. Answers the lists `folderGrant` does. Refused `KSTACK_RECORD_NOT_FOUND` for an id that is not one, or a chat that is gone. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
+  folderRevoke(chatID: ChatID, id: String!, duration: GrantDuration!): SandboxFolders!
 
   # --- Cloud account ---
   "Start the sidecar-owned browser sign-in (OAuth), ending one under way. Returns true once the browser opens, and an error when the sign-in could not start (no issuer, no keyring, no browser); a sign-in while signed in or while Restoring is `KSTACK_VALIDATION_ERROR`. The token exchange completes in the background, with the signed-in state delivered via authStateWatch."
@@ -2724,9 +2696,9 @@ type Subscription {
   logsFollow(id: ClusterID!, request: LogsFollowInput!): LogsFollowFrame!
 
   # --- Sandbox ---
-  "GAUGE. The executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables."
+  "GAUGE. The executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables. A read of the registered executables that fails ends the watch with its reason."
   sandboxExecutablesWatch: SandboxExecutablesReport!
-  "GAUGE. The folders granted, as `sandboxFolders` answers them, a fresh value on each change to the always rules and, with a chat, on each write or revoke of the chat's grants. A folder changing on disk sends nothing."
+  "GAUGE. The folders granted, as `sandboxFolders` answers them, a fresh value on each write of the settings or the always grants and, with a chat, on each write or revoke of the chat's grants. A folder changing on disk sends nothing."
   sandboxFoldersWatch(chatID: ChatID): SandboxFolders!
   "GAUGE. The Sandbox console's last command: a fresh value as it starts, about every quarter second while it writes, and as it ends."
   sandboxConsoleWatch: SandboxConsole!

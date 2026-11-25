@@ -16,15 +16,14 @@
 // grants, a chat's own, and what no grant opens. The one reader of the
 // sandboxFoldersWatch gauge and the folderGrant and folderRevoke mutations.
 // The watch sends the whole list again on each change from any window, so
-// nothing is asked again. A grant runs under `chatGrantsContext`, since a chat
-// grant is a chat rule and the composer's list of them must ask again too.
+// nothing is asked again.
 import { useCallback, useState } from 'react';
 import { useMutation } from 'urql';
 import type { CombinedError } from 'urql';
 
 import { graphql } from '@/gql';
 import type { GrantDuration, SandboxFoldersWatchSubscription } from '@/gql/graphql';
-import { chatGrantsContext } from '@/lib/chat-grants';
+import { savedUnread } from '@/lib/graphql/refusal';
 import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
 
 const SandboxFoldersWatchDocument = graphql(`
@@ -34,18 +33,17 @@ const SandboxFoldersWatchDocument = graphql(`
         id
         path
         write
-        refused
+        refusal
       }
       chat {
         id
         path
         write
-        refused
+        refusal
       }
       never
       closed
       wide
-      rulesHeld
     }
   }
 `);
@@ -59,8 +57,8 @@ const FolderGrantMutation = graphql(`
 `);
 
 const FolderRevokeMutation = graphql(`
-  mutation FolderRevoke($id: String!) {
-    folderRevoke(id: $id) {
+  mutation FolderRevoke($chatID: ChatID, $id: String!, $duration: GrantDuration!) {
+    folderRevoke(chatID: $chatID, id: $id, duration: $duration) {
       wide
     }
   }
@@ -90,8 +88,6 @@ export type SandboxFolders = {
   closed: string[] | undefined;
   /** The folders a read grant of which reads more than a project, resolved. */
   wide: string[] | undefined;
-  /** The file holds a rule Kstack cannot read, so the sidecar refuses every Remove. */
-  rulesHeld: boolean;
   granting: boolean;
   /** The ids whose Remove is in flight. */
   revoking: ReadonlySet<string>;
@@ -101,7 +97,8 @@ export type SandboxFolders = {
   revokeError: string | null;
   /** Grants path; resolves whether the sidecar took it. */
   grant: (path: string, write: boolean, duration: GrantDuration) => Promise<boolean>;
-  revoke: (id: string) => Promise<void>;
+  /** Revokes the grant id: the chat's for `Chat`, else an always one. */
+  revoke: (id: string, duration: GrantDuration) => Promise<void>;
 };
 
 export function useSandboxFolders(chatID?: string): SandboxFolders {
@@ -124,28 +121,28 @@ export function useSandboxFolders(chatID?: string): SandboxFolders {
     async (path: string, write: boolean, duration: GrantDuration) => {
       setGranting(true);
       setGrantError(null);
-      const { error } = await grantMutation({ chatID: chat, path, write, duration }, chatGrantsContext);
+      const { error } = await grantMutation({ chatID: chat, path, write, duration });
       setGranting(false);
       if (error) setGrantError(refusalOf(error));
-      return !error;
+      return !error || savedUnread(error);
     },
     [grantMutation, chat],
   );
 
   const revoke = useCallback(
-    async (id: string) => {
+    async (id: string, duration: GrantDuration) => {
       // Removes of different grants overlap, so each settles its own id.
       setRevoking((prev) => new Set(prev).add(id));
       setRevokeError(null);
-      const { error } = await revokeMutation({ id });
+      const { error } = await revokeMutation({ chatID: chat, id, duration });
       setRevoking((prev) => {
         const next = new Set(prev);
         next.delete(id);
         return next;
       });
-      if (error) setRevokeError(error.graphQLErrors[0]?.message ?? error.message);
+      if (error) setRevokeError(refusalOf(error).message);
     },
-    [revokeMutation],
+    [revokeMutation, chat],
   );
 
   return {
@@ -154,7 +151,6 @@ export function useSandboxFolders(chatID?: string): SandboxFolders {
     never: folders?.never,
     closed: folders?.closed,
     wide: folders?.wide,
-    rulesHeld: folders?.rulesHeld ?? false,
     granting,
     revoking,
     grantError,

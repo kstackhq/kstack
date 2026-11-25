@@ -243,7 +243,9 @@ func clusterRuntime(t *testing.T) tools.Runtime {
 
 // askSession asks for every write, as a fresh Settings does.
 var askSession = session.Session{
-	Policy: func(context.Context, string) permissions.Policy { return permissions.Policy{Mode: permissions.Ask} },
+	Policy: func(context.Context, apimeta.ClusterID) permissions.Policy {
+		return permissions.Policy{Mode: permissions.Ask}
+	},
 }
 
 // watchLine opens a watch in a client that outlives the run's group, waits for
@@ -307,9 +309,9 @@ func TestTheGrantKeepsTheSession(t *testing.T) {
 
 // A door that cannot listen on its socket answers why.
 func TestAProxyThatCannotListenFails(t *testing.T) {
-	p := &runProxy{grant: newClusterGrant(refused{}, session.Session{}, "prod", nil, refusedNoAsker)}
+	p := &runProxy{grant: newClusterGrant(refused{}, session.Session{}, "7", "prod", nil, refusedNoAsker)}
 	t.Cleanup(p.end)
-	assert.Error(t, p.serve(filepath.Join(t.TempDir(), "missing", socketName), Cloud{}.on, nil))
+	assert.Error(t, p.serve(filepath.Join(t.TempDir(), "missing", socketName), nil))
 }
 
 // A run whose directory cannot be made releases its claim, and runs nothing.
@@ -493,7 +495,7 @@ func TestASandboxedRunReadsASecretRedacted(t *testing.T) {
 
 	rt := clusterRuntime(t)
 	allow := permissions.GrantRule(permissions.Action{Class: permissions.SecretRead, Context: "prod", Namespace: "web"})
-	rt.Session.Policy = func(context.Context, string) permissions.Policy {
+	rt.Session.Policy = func(context.Context, apimeta.ClusterID) permissions.Policy {
 		return permissions.Policy{Mode: permissions.Ask, Rules: []permissions.Rule{allow}}
 	}
 	asker := &fakeActionAsker{}
@@ -538,15 +540,16 @@ func (f *fakeActionAsker) Record(_ context.Context, r tools.ActionRequest, _ per
 	return nil
 }
 
-// A run's grant decides its writes in the context of the chat's cluster, as
-// the record names it, whatever the run's kubeconfig calls it.
-func TestTheGrantDecidesInTheRecordsContext(t *testing.T) {
+// A run's grant reads the policy of the chat's cluster, and classifies its
+// writes in the context the record names, whatever the run's kubeconfig calls
+// it.
+func TestTheGrantDecidesByTheRecordsCluster(t *testing.T) {
 	api := newFakeAPI(t)
 	tl := proxyTool(t, &fakeLease{serverUID: "uid-1", conn: api.connection()})
 	rt := clusterRuntime(t)
-	var contexts []string
-	rt.Session.Policy = func(_ context.Context, c string) permissions.Policy {
-		contexts = append(contexts, c)
+	var clusters []apimeta.ClusterID
+	rt.Session.Policy = func(_ context.Context, c apimeta.ClusterID) permissions.Policy {
+		clusters = append(clusters, c)
 		return permissions.Policy{Mode: permissions.Auto}
 	}
 	asker := &fakeActionAsker{}
@@ -555,7 +558,7 @@ func TestTheGrantDecidesInTheRecordsContext(t *testing.T) {
 	text, isError := tl.Run(t.Context(), rt, command(clientLine("delete")))
 
 	require.False(t, isError, text)
-	assert.Equal(t, []string{"prod"}, contexts)
+	assert.Equal(t, []apimeta.ClusterID{"7"}, clusters)
 	assert.Empty(t, asker.asked, "auto mode asks nobody")
 	require.Len(t, asker.recorded, 1)
 	assert.Equal(t, "/api/v1/namespaces/web/pods/x", asker.recorded[0].Path)
@@ -611,8 +614,8 @@ func TestABackgroundGrantRefusesWrites(t *testing.T) {
 // answers 100 Continue, which Go's server sends on the handler's first read.
 func TestTheProxyClosesBeforeItWaits(t *testing.T) {
 	socket := filepath.Join(shortTemp(t), socketName)
-	p := &runProxy{grant: newClusterGrant(refused{}, session.Session{}, "prod", runtimeAsker{&fakeActionAsker{approve: true}}, "")}
-	require.NoError(t, p.serve(socket, Cloud{}.on, nil))
+	p := &runProxy{grant: newClusterGrant(refused{}, session.Session{}, "7", "prod", runtimeAsker{&fakeActionAsker{approve: true}}, "")}
+	require.NoError(t, p.serve(socket, nil))
 	conn, err := net.Dial("unix", socket)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })

@@ -15,13 +15,15 @@
 package bash
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
+	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
 // emptyPath is the PATH of a run that searches no folder. An empty PATH would
@@ -30,39 +32,18 @@ import (
 const emptyPath = "/nonexistent"
 
 // runPath is the folders a run searches, in order, and the Read rules they
-// need: one per folder open does not read already. list is the stored list as
-// the run read it at its start, and only its adopted entries are searched. A
-// list never resolved — before a first launch's shell answered — searches
-// fallback instead, each folder as an entry the shell adopted, so the same
-// checks hold. Each entry left out, or run on a folder other than its Target,
-// gets one log line. It reads the disk.
-func runPath(list settings.RunPath, fallback []string, open sandbox.FilePolicy, never []string, home string) (folders, reads []string) {
-	entries := list.Entries
-	if !list.Resolved {
-		for _, dir := range fallback {
-			entries = append(entries, settings.PathEntry{
-				Dir: dir, Target: dir, State: settings.PathAdopted, Source: settings.SourceShell,
-			})
-		}
-	}
-	check := settings.NewRunCheck(open, never, home)
-	for _, e := range entries {
-		if e.State != settings.PathAdopted {
+// need: one per folder open does not read already. list is the run's PATH as
+// read at its start, each folder checked by its origin (RunCheck). Each
+// folder left out gets one log line. It reads the disk.
+func runPath(list []settings.PathFolder, open sandbox.FilePolicy, never []string, home string) (folders, reads []string) {
+	for _, f := range settings.NewRunCheck(open, never, home).Folders(list) {
+		if !f.Searched {
+			slog.Info("PATH folder left out of a run", "folder", f.Path, "origin", string(f.Origin), "reason", f.Reason)
 			continue
 		}
-		folder, isOpen, ok := check.Folder(e)
-		switch {
-		case !ok:
-			slog.Info("PATH entry left out of a run", "dir", e.Dir, "target", e.Target)
-			continue
-		case slices.Contains(folders, folder):
-			continue
-		case folder != e.Target:
-			slog.Info("PATH entry runs on the folder it resolves to now", "dir", e.Dir, "target", e.Target, "folder", folder)
-		}
-		folders = append(folders, folder)
-		if !isOpen {
-			reads = append(reads, folder)
+		folders = append(folders, f.Target)
+		if !f.Open {
+			reads = append(reads, f.Target)
 		}
 	}
 	return folders, reads
@@ -74,4 +55,20 @@ func joinPath(folders []string) string {
 		return emptyPath
 	}
 	return strings.Join(folders, string(filepath.ListSeparator))
+}
+
+// readPath is the run's PATH, read once at its start: none for a tool with no
+// pathList. A read that fails, or a setting Kstack cannot use, fails the run.
+func (t *Tool) readPath(ctx context.Context) (settings.RunPath, error) {
+	if t.pathList == nil {
+		return settings.RunPath{}, nil
+	}
+	list, err := t.pathList(ctx)
+	if refusal, ok := errors.AsType[settings.PathRefusal](err); ok {
+		return settings.RunPath{}, refusal
+	}
+	if err != nil {
+		return settings.RunPath{}, errors.New(tools.PathUnread(Name, err).Result)
+	}
+	return list, nil
 }

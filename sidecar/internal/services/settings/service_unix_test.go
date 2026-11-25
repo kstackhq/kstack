@@ -18,9 +18,7 @@ package settings
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
@@ -44,8 +43,9 @@ type zoneFixture struct {
 
 func newZones(t *testing.T) *zoneFixture {
 	t.Helper()
-	base, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
+	// Not under /tmp, which a typed folder's check refuses on Linux as a
+	// mount every run has its own of.
+	base := testutil.GrantableDir(t)
 	z := &zoneFixture{
 		base:   base,
 		open:   dirWithMode(t, base, "open", 0o755),
@@ -63,685 +63,158 @@ func (z *zoneFixture) dir(t *testing.T, rel string) string {
 	return dirWithMode(t, z.base, rel, 0o755)
 }
 
-// newTestService is a Service over a fresh file, judging by z.
-// synced syncs resolved into s, which must take it.
-func synced(t *testing.T, s *Service, resolved []string) {
-	t.Helper()
-	_, err := s.SyncPath(t.Context(), resolved)
-	require.NoError(t, err)
-}
-
+// newTestService is a Service over a fresh app.db, judging by z.
 func newTestService(t *testing.T, z *zoneFixture, resolve func(context.Context) ([]string, error)) *Service {
 	t.Helper()
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
-	require.NoError(t, err)
-	return NewService(store, func() Zones { return z.zones }, resolve, "")
+	store := newStore(t)
+	return NewService(store, func() Zones { return z.zones }, resolve, nil, "")
 }
 
-// statesOf is each entry's dir and state, in order.
-func statesOf(entries []PathEntry) []string {
-	var out []string
-	for _, e := range entries {
-		out = append(out, e.Dir+"="+string(e.State)+"/"+string(e.Source))
-	}
-	return out
+// shellDirs is the shell_path row, split; nil with none.
+func shellDirs(t *testing.T, s *Service) []string {
+	t.Helper()
+	var dirs []string
+	require.NoError(t, s.stmts.InTx(t.Context(), func(st stmts) error {
+		var err error
+		dirs, _, err = selectShellPath(t.Context(), st)
+		return err
+	}))
+	return dirs
 }
 
-func TestSyncPathDiffsFourWays(t *testing.T) {
-	fakeGroups(t, "staff")
+// A read of the shell is stored as it answered, and says whether it changed
+// the row.
+func TestSetShellPathAnswersWhetherItChanged(t *testing.T) {
 	z := newZones(t)
 	s := newTestService(t, z, nil)
-	gone1, gone2 := z.dir(t, "open/gone"), z.dir(t, "home/gone")
-	kept := z.dir(t, "open/kept")
-	synced(t, s, []string{gone1, kept})
-	require.NoError(t, s.Update(func(v *Settings) error {
-		v.Sandbox.Path = append(v.Sandbox.Path, PathEntry{Dir: gone2, Target: gone2, State: PathPending, Source: SourceShell})
-		return nil
-	}, FieldPath))
+	a, b := z.dir(t, "open/a"), z.dir(t, "home/b")
 
-	fresh := z.dir(t, "open/fresh")
-	inHome := z.dir(t, "home/bin")
-	inClosed := z.dir(t, "open/closed/bin")
-	outside := z.dir(t, "outside/bin")
-	sharedDir := dirWithMode(t, z.open, "shared", 0o775)
-	synced(t, s, []string{fresh, inHome, kept, inClosed, outside, sharedDir})
+	changed, err := s.SetShellPath(t.Context(), []string{a, b, "bin"})
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.Equal(t, []string{a, b, "bin"}, shellDirs(t, s), "stored unfiltered, as the shell answered")
 
-	assert.Equal(t, []string{
-		fresh + "=adopted/shell", inHome + "=pending/shell", kept + "=adopted/shell",
-		inClosed + "=pending/shell", outside + "=pending/shell", sharedDir + "=pending/shell",
-	}, statesOf(s.Get().Sandbox.Path))
-	assert.True(t, s.Get().Sandbox.Path[5].Shared)
+	changed, err = s.SetShellPath(t.Context(), []string{a, b, "bin"})
+	require.NoError(t, err)
+	assert.False(t, changed)
 
-	// A reorder keeps every state, and a kubectl that moves says so once.
-	require.NoError(t, os.WriteFile(filepath.Join(kept, "kubectl"), nil, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(fresh, "kubectl"), nil, 0o755))
+	_, err = s.SetShellPath(t.Context(), nil)
+	assert.ErrorIs(t, err, ErrEmptyShellPath)
+	assert.Equal(t, []string{a, b, "bin"}, shellDirs(t, s))
+}
+
+// Each read of the shell retakes the zones, so a folder closed since reaches
+// the folder checks, and pings the watchers, though the PATH is the same.
+func TestARefreshRetakesTheZones(t *testing.T) {
+	z := newZones(t)
+	s := newTestService(t, z, nil)
+	dir := z.dir(t, "open/bin")
+	rx := s.WatchSandboxPath()
+	t.Cleanup(rx.Close)
+
+	_, err := s.SetShellPath(t.Context(), []string{dir})
+	require.NoError(t, err)
+	assert.Equal(t, []string{z.closed}, s.ClosedFolders(t.Context()))
+	_, err = rx.TryRecv()
+	require.NoError(t, err)
+
+	later := z.dir(t, "open/later")
+	z.zones.Open.Deny = append(z.zones.Open.Deny, later)
+	changed, err := s.SetShellPath(t.Context(), []string{dir})
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Equal(t, []string{z.closed, later}, s.ClosedFolders(t.Context()))
+	_, err = rx.TryRecv()
+	assert.NoError(t, err, "an unchanged PATH still pings")
+}
+
+// Reads of the shell run one at a time, so an older one never lands after a
+// newer one.
+func TestShellPathWritesRunOneAtATime(t *testing.T) {
+	z := newZones(t)
+	s := newTestService(t, z, nil)
+	first, second := z.dir(t, "open/first"), z.dir(t, "open/second")
+	// Each write retakes the zones before it writes; the first holds there
+	// until released.
+	reading := testutil.NewProbe[struct{}](2)
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+	var once sync.Once
+	zones := s.zones
+	s.zones = func() Zones {
+		reading.Fire(struct{}{})
+		once.Do(func() { <-gate })
+		return zones()
+	}
+
+	firstDone, secondDone := make(chan error, 1), make(chan error, 1)
+	go func() { _, err := s.SetShellPath(t.Context(), []string{first}); firstDone <- err }()
+	reading.Await(t, "the first write's read")
+	go func() { _, err := s.SetShellPath(t.Context(), []string{second}); secondDone <- err }()
+	// A negative assertion: the second reads nothing while the first holds.
+	testutil.NoRecv(t, reading.Chan(), 20*time.Millisecond, "the second write's read before the first wrote")
+	release()
+
+	require.NoError(t, testutil.Recv(t, firstDone, "the first write"))
+	require.NoError(t, testutil.Recv(t, secondDone, "the second write"))
+	assert.Equal(t, []string{second}, shellDirs(t, s))
+}
+
+// A write waiting on the one before it gives up at its bound, and one whose
+// zones run past it writes nothing.
+func TestAShellPathWriteIsBounded(t *testing.T) {
+	z := newZones(t)
+	s := newTestService(t, z, nil)
+	dir := z.dir(t, "open/bin")
+	s.diskTimeout = time.Millisecond
+
+	s.writing <- struct{}{}
+	testutil.WaitReturn(t, func() {
+		_, err := s.SetShellPath(t.Context(), []string{dir})
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	}, "the waiting write")
+	<-s.writing
+
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	s.zones = func() Zones {
+		<-release
+		return z.zones
+	}
+	_, err := s.SetShellPath(t.Context(), []string{dir})
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Nil(t, shellDirs(t, s), "nothing written")
+}
+
+// A tracked tool whose first open folder moves is logged once, after the
+// write, and a probe that hangs never holds it.
+func TestAMovedToolIsLogged(t *testing.T) {
+	z := newZones(t)
+	s := newTestService(t, z, nil)
+	kept, fresh, closed := z.dir(t, "open/kept"), z.dir(t, "open/fresh"), z.dir(t, "home/bin")
+	for _, dir := range []string{kept, fresh, closed} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "kubectl"), nil, 0o755))
+	}
+	_, err := s.SetShellPath(t.Context(), []string{closed, fresh, kept})
+	require.NoError(t, err)
+
 	log := testutil.CaptureLogs(t)
-	synced(t, s, []string{sharedDir, outside, kept, inClosed, inHome, fresh})
-	assert.Equal(t, []string{
-		sharedDir + "=pending/shell", outside + "=pending/shell", kept + "=adopted/shell",
-		inClosed + "=pending/shell", inHome + "=pending/shell", fresh + "=adopted/shell",
-	}, statesOf(s.Get().Sandbox.Path))
+	_, err = s.SetShellPath(t.Context(), []string{closed, kept, fresh})
+	require.NoError(t, err)
 	// The probes run after the write, on a goroutine of their own, and an
-	// earlier sync's may log as well, so the test waits for this move.
+	// earlier write's may log as well, so the test waits for this move.
 	move := `"tool":"kubectl","from":"` + fresh + `","to":"` + kept + `"`
 	require.Eventually(t, func() bool { return strings.Contains(log.String(), move) }, testutil.Timeout, time.Millisecond)
 	assert.Equal(t, 1, strings.Count(log.String(), move), "said once")
+	assert.NotContains(t, log.String(), `"from":"`+closed, "a folder no run reads never runs a tool")
 }
 
-// setEntry writes e over the stored entry of its dir, or appends it.
-func setEntry(t *testing.T, s *Service, e PathEntry) {
-	t.Helper()
-	require.NoError(t, s.Update(func(v *Settings) error {
-		for i := range v.Sandbox.Path {
-			if v.Sandbox.Path[i].Dir == e.Dir {
-				v.Sandbox.Path[i] = e
-				return nil
-			}
-		}
-		v.Sandbox.Path = append(v.Sandbox.Path, e)
-		return nil
-	}, FieldPath))
-}
-
-// entryOf is the stored entry of dir.
-func entryOf(t *testing.T, s *Service, dir string) PathEntry {
-	t.Helper()
-	for _, e := range s.Get().Sandbox.Path {
-		if e.Dir == dir {
-			return e
-		}
-	}
-	t.Fatalf("no entry for %s", dir)
-	return PathEntry{}
-}
-
-func TestAnAdoptedEntryThatBecameSharedWaits(t *testing.T) {
-	fakeGroups(t, "staff")
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	byShell, byUser := z.dir(t, "open/shell"), z.dir(t, "open/user")
-	synced(t, s, []string{byShell, byUser})
-	setEntry(t, s, PathEntry{Dir: byUser, Target: byUser, State: PathAdopted, Source: SourceUser})
-
-	require.NoError(t, os.Chmod(byShell, 0o775))
-	require.NoError(t, os.Chmod(byUser, 0o775))
-	synced(t, s, []string{byShell, byUser})
-
-	assert.Equal(t, PathEntry{Dir: byShell, Target: byShell, State: PathPending, Source: SourceShell, Shared: true}, entryOf(t, s, byShell))
-	assert.Equal(t, PathAdopted, entryOf(t, s, byUser).State)
-}
-
-func TestAnAdoptedEntryNoLongerOpenWaits(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	byShell, byUser := z.dir(t, "open/tools/shell"), z.dir(t, "open/tools/user")
-	synced(t, s, []string{byShell, byUser})
-	setEntry(t, s, PathEntry{Dir: byUser, Target: byUser, State: PathAdopted, Source: SourceUser})
-
-	z.zones.Open.Deny = append(z.zones.Open.Deny, filepath.Join(z.open, "tools"))
-	synced(t, s, []string{byShell, byUser})
-
-	assert.Equal(t, PathPending, entryOf(t, s, byShell).State)
-	assert.Equal(t, PathAdopted, entryOf(t, s, byUser).State)
-}
-
-// The home, and a folder that holds it, never reach the list: one Include
-// would open all of the home. A folder inside it waits as usual.
-func TestSyncPathDropsABroadEntry(t *testing.T) {
-	z := newZones(t)
-	z.zones.Home = z.home
-	s := newTestService(t, z, nil)
-	inHome := z.dir(t, "home/bin")
-	synced(t, s, []string{z.home, z.base, inHome})
-
-	assert.Equal(t, []PathEntry{{Dir: inHome, Target: inHome, State: PathPending, Source: SourceShell}}, s.Get().Sandbox.Path)
-}
-
-func TestARemovalOutlivesTheEntrysAbsence(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, other := z.dir(t, "open/bin"), z.dir(t, "open/other")
-	synced(t, s, []string{dir, other})
-	setEntry(t, s, PathEntry{Dir: dir, Target: dir, State: PathGone, Source: SourceUser})
-
-	synced(t, s, []string{other})
-	assert.Equal(t, []string{other + "=adopted/shell", dir + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
-
-	synced(t, s, []string{dir, other})
-	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathGone, Source: SourceUser}, entryOf(t, s, dir))
-}
-
-func TestARemovalHoldsForEveryDirThatLeadsToItsTarget(t *testing.T) {
+// A probe of a tool that hangs never holds the write.
+func TestAHungToolProbeDoesNotHoldTheWrite(t *testing.T) {
 	z := newZones(t)
 	s := newTestService(t, z, nil)
 	dir := z.dir(t, "open/bin")
-	link := filepath.Join(z.base, "bin")
-	require.NoError(t, os.Symlink(dir, link))
-	synced(t, s, []string{dir})
-	_, err := s.DropPath(dir)
-	require.NoError(t, err)
-
-	// A trailing slash, alone, then a link to the folder ahead of the spelling
-	// removed, which the filter drops as a duplicate.
-	synced(t, s, []string{dir + "/"})
-	assert.Equal(t, []string{dir + "/=gone/user", dir + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
-	synced(t, s, []string{link, dir})
-	assert.Equal(t, []string{link + "=gone/user", dir + "/=gone/user", dir + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
-}
-
-func TestSyncPathRefilesAMovedEntry(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	first, second, inHome := z.dir(t, "open/v1"), z.dir(t, "open/v2"), z.dir(t, "home/v3")
-	removedFirst, removedNow := z.dir(t, "open/w1"), z.dir(t, "home/w2")
-	link, goneLink := filepath.Join(z.base, "current"), filepath.Join(z.base, "removed")
-	repoint := func(link, target string) {
-		_ = os.Remove(link)
-		require.NoError(t, os.Symlink(target, link))
-	}
-	repoint(link, first)
-	repoint(goneLink, removedFirst)
-	synced(t, s, []string{link, goneLink})
-	setEntry(t, s, PathEntry{Dir: goneLink, Target: removedFirst, State: PathGone, Source: SourceUser})
-
-	repoint(link, second)
-	synced(t, s, []string{link, goneLink})
-	assert.Equal(t, PathEntry{Dir: link, Target: second, State: PathAdopted, Source: SourceShell}, entryOf(t, s, link))
-
-	repoint(link, inHome)
-	repoint(goneLink, removedNow)
-	synced(t, s, []string{link, goneLink})
-	assert.Equal(t, PathEntry{Dir: link, Target: inHome, State: PathPending, Source: SourceShell}, entryOf(t, s, link))
-	assert.Equal(t, PathEntry{Dir: goneLink, Target: removedNow, State: PathGone, Source: SourceUser}, entryOf(t, s, goneLink))
-}
-
-func TestAdoptAndDropMoveOneEntry(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	pending, gone, adopted := z.dir(t, "home/pending"), z.dir(t, "home/gone"), z.dir(t, "open/adopted")
-	link := filepath.Join(z.base, "link")
-	require.NoError(t, os.Symlink(pending, link))
-	synced(t, s, []string{link, gone, adopted})
-	setEntry(t, s, PathEntry{Dir: gone, Target: gone, State: PathGone, Source: SourceUser})
-
-	// Include approves the folder the user was shown, not the one the link
-	// leads to now.
-	require.NoError(t, os.Remove(link))
-	require.NoError(t, os.Symlink(z.home, link))
-	entries, err := s.AdoptPath(link, entryOf(t, s, link).Target)
-	require.NoError(t, err)
-	assert.Equal(t, PathEntry{Dir: link, Target: pending, State: PathAdopted, Source: SourceUser}, entryOf(t, s, link))
-	assert.Equal(t, s.Get().Sandbox.Path, entries)
-	_, err = s.AdoptPath(gone, entryOf(t, s, gone).Target)
-	require.NoError(t, err)
-	assert.Equal(t, PathAdopted, entryOf(t, s, gone).State)
-
-	_, err = s.DropPath(adopted)
-	require.NoError(t, err)
-	assert.Equal(t, PathEntry{Dir: adopted, Target: adopted, State: PathGone, Source: SourceUser}, entryOf(t, s, adopted))
-	_, err = s.DropPath(link)
-	require.NoError(t, err)
-	assert.Equal(t, PathGone, entryOf(t, s, link).State)
-
-	for _, tc := range []struct {
-		do   func(string) ([]PathEntry, error)
-		dir  string
-		want error
-	}{
-		{func(dir string) ([]PathEntry, error) { return s.AdoptPath(dir, dir) }, filepath.Join(z.base, "unlisted"), ErrPathNotListed},
-		{func(dir string) ([]PathEntry, error) { return s.AdoptPath(dir, dir) }, gone, ErrPathIncluded},
-		{s.DropPath, filepath.Join(z.base, "unlisted"), ErrPathNotListed},
-		{s.DropPath, adopted, ErrPathRemoved},
-	} {
-		before := s.Get().Sandbox.Path
-		_, err := tc.do(tc.dir)
-		assert.ErrorIs(t, err, tc.want)
-		assert.Equal(t, before, s.Get().Sandbox.Path)
-	}
-
-	// A gone entry survives the next sync.
-	synced(t, s, []string{adopted})
-	assert.Equal(t, PathGone, entryOf(t, s, adopted).State)
-}
-
-// heldService is a Service over a file whose path field holds an entry the
-// store refuses beside kept, adopted.
-func heldService(t *testing.T, z *zoneFixture, kept string) (*Service, string) {
-	t.Helper()
-	file := filepath.Join(t.TempDir(), "settings.json")
-	raw := `{"sandbox": {"path": [{"dir": "` + kept + `", "target": "` + kept + `", "state": "adopted", "source": "shell"},
-		{"dir": "bin", "target": "bin", "state": "gone", "source": "user"}]}, "count": 3}`
-	require.NoError(t, os.WriteFile(file, []byte(raw), 0o600))
-	store, err := Open(file)
-	require.NoError(t, err)
-	require.True(t, store.Held(FieldPath))
-	return NewService(store, func() Zones { return z.zones }, nil, ""), file
-}
-
-func TestARefusedEntryHoldsTheSync(t *testing.T) {
-	z := newZones(t)
-	kept, fresh, later := z.dir(t, "open/kept"), z.dir(t, "open/fresh"), z.dir(t, "open/later")
-	s, file := heldService(t, z, kept)
-
-	_, err := s.AdoptPath(kept, entryOf(t, s, kept).Target)
-	assert.ErrorIs(t, err, ErrPathHeld)
-	data, err := os.ReadFile(file)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), `"dir": "bin"`, "a refused Include writes nothing")
-
-	synced(t, s, []string{kept, fresh})
-	assert.Equal(t, []string{kept + "=adopted/shell", fresh + "=pending/shell"}, statesOf(s.Get().Sandbox.Path))
-	assert.False(t, s.Held(FieldPath), "the sync's write ends the hold")
-	reopened, err := Open(file)
-	require.NoError(t, err)
-	assert.Empty(t, reopened.Refused(), "the file is readable again")
-
-	synced(t, s, []string{kept, fresh, later})
-	assert.Equal(t, PathAdopted, entryOf(t, s, later).State)
-}
-
-func TestARemovalWhileHeldKeepsTheSyncStrict(t *testing.T) {
-	z := newZones(t)
-	kept, fresh := z.dir(t, "open/kept"), z.dir(t, "open/fresh")
-	s, _ := heldService(t, z, kept)
-
-	_, err := s.DropPath(kept)
-	require.NoError(t, err)
-	assert.False(t, s.Held(FieldPath), "Remove writes and ends the store's hold")
-
-	synced(t, s, []string{kept, fresh})
-	assert.Equal(t, PathPending, entryOf(t, s, fresh).State, "the next sync is still strict")
-
-	other := z.dir(t, "open/other")
-	synced(t, s, []string{kept, fresh, other})
-	assert.Equal(t, PathAdopted, entryOf(t, s, other).State, "the one after adopts")
-}
-
-func TestAFailedResolutionKeepsTheList(t *testing.T) {
-	z := newZones(t)
-	dir := z.dir(t, "open/bin")
-	s := newTestService(t, z, func(context.Context) ([]string, error) { return nil, errors.New("timeout") })
-	synced(t, s, []string{dir})
-	before := s.Get().Sandbox.Path
-
-	_, err := s.RefreshPath(t.Context())
-	var refusal PathRefusal
-	require.ErrorAs(t, err, &refusal)
-	assert.Equal(t, "Your shell did not answer: timeout.", err.Error())
-	assert.Equal(t, before, s.Get().Sandbox.Path)
-}
-
-func TestTheLastFaultIsKept(t *testing.T) {
-	z := newZones(t)
-	dir := z.dir(t, "open/bin")
-	answer := errors.New("exit")
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
-	require.NoError(t, err)
-	s := NewService(store, func() Zones { return z.zones }, func(context.Context) ([]string, error) {
-		if answer != nil {
-			return nil, answer
-		}
-		return []string{dir}, nil
-	}, "timeout")
-	assert.Equal(t, "timeout", s.PathFault(), "the launch's fault until a refresh answers")
-
-	_, err = s.RefreshPath(t.Context())
-	require.Error(t, err)
-	assert.Equal(t, "exit", s.PathFault(), "a refresh's fault replaces it")
-
-	answer = nil
-	entries, err := s.RefreshPath(t.Context())
-	require.NoError(t, err)
-	assert.Empty(t, s.PathFault())
-	assert.Equal(t, []string{dir + "=adopted/shell"}, statesOf(entries))
-
-	// A sync whose context ends first changes nothing.
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	_, err = s.SyncPath(ctx, []string{z.dir(t, "open/other")})
-	require.ErrorIs(t, err, context.Canceled)
-	assert.Equal(t, []string{dir + "=adopted/shell"}, statesOf(s.Get().Sandbox.Path))
-}
-
-// What the filter left out is counted on one log line, never by entry.
-func TestASyncLogsWhatItLeftOut(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	log := testutil.CaptureLogs(t)
-
-	synced(t, s, []string{"", "bin", z.dir(t, "open/bin")})
-	assert.Contains(t, log.String(), `"rules":"empty=1,relative=1"`)
-	assert.Equal(t, s.Get().Sandbox.Path, s.Path())
-}
-
-// Include approves the folder the user was shown: one a refresh has moved
-// since is refused, and nothing is written.
-func TestIncludeApprovesTheTargetShown(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	first, second := z.dir(t, "home/v1"), z.dir(t, "home/v2")
-	link := filepath.Join(z.base, "current")
-	require.NoError(t, os.Symlink(first, link))
-	synced(t, s, []string{link})
-	require.NoError(t, os.Remove(link))
-	require.NoError(t, os.Symlink(second, link))
-	synced(t, s, []string{link})
-	before := s.Get().Sandbox.Path
-
-	_, err := s.AdoptPath(link, first)
-	assert.ErrorIs(t, err, ErrPathChanged)
-	assert.Equal(t, before, s.Get().Sandbox.Path)
-
-	_, err = s.AdoptPath(link, second)
-	require.NoError(t, err)
-	assert.Equal(t, PathEntry{Dir: link, Target: second, State: PathAdopted, Source: SourceUser}, entryOf(t, s, link))
-}
-
-// An inclusion is of the folder: the removal kept under the Dir the shell
-// listed before goes with it, so the next sync leaves the entry included.
-func TestAnIncludeOutlivesARemovalKeptUnderAnotherDir(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir := z.dir(t, "open/bin")
-	link := filepath.Join(z.base, "link")
-	require.NoError(t, os.Symlink(dir, link))
-	synced(t, s, []string{link})
-	_, err := s.DropPath(link)
-	require.NoError(t, err)
-	synced(t, s, []string{dir})
-	require.Equal(t, PathGone, entryOf(t, s, dir).State)
-
-	_, err = s.AdoptPath(dir, dir)
-	require.NoError(t, err)
-	synced(t, s, []string{dir})
-	assert.Equal(t, []PathEntry{{Dir: dir, Target: dir, State: PathAdopted, Source: SourceUser}}, s.Get().Sandbox.Path)
-}
-
-// Shared follows the folder on every sync, whatever the entry's state, so a
-// waiting entry warns before Include and stops warning once it is safe.
-func TestSharedFollowsAnUnmovedFolder(t *testing.T) {
-	fakeGroups(t, "staff")
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir := z.dir(t, "home/bin")
-	synced(t, s, []string{dir})
-	require.False(t, entryOf(t, s, dir).Shared)
-
-	require.NoError(t, os.Chmod(dir, 0o775))
-	synced(t, s, []string{dir})
-	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathPending, Source: SourceShell, Shared: true}, entryOf(t, s, dir))
-
-	require.NoError(t, os.Chmod(dir, 0o755))
-	synced(t, s, []string{dir})
-	assert.False(t, entryOf(t, s, dir).Shared)
-}
-
-// A sync's reading of the disk is bounded, so a refresh over a dead network
-// mount answers; it changes nothing.
-func TestARefreshIsBounded(t *testing.T) {
-	z := newZones(t)
-	dir := z.dir(t, "open/bin")
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
-	require.NoError(t, err)
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
-	s := NewService(store, func() Zones {
-		<-release
-		return z.zones
-	}, func(context.Context) ([]string, error) { return []string{dir}, nil }, "")
-	s.syncTimeout = time.Millisecond
-
-	_, err = s.RefreshPath(t.Context())
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
-	assert.Empty(t, s.Get().Sandbox.Path)
-}
-
-// A sync marks the list resolved, even one it leaves empty, so a run never
-// mistakes a filtered-out list for one never read.
-func TestASyncMarksTheListResolved(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	assert.False(t, s.Get().RunPath().Resolved)
-
-	synced(t, s, []string{"", "bin"})
-	assert.Equal(t, RunPath{Resolved: true}, s.Get().RunPath())
-}
-
-// The strictness a removal leaves behind is stored, so a restart before the
-// next sync keeps it: that sync files a new open entry pending.
-func TestARemovalWhileHeldStaysStrictAcrossARestart(t *testing.T) {
-	z := newZones(t)
-	kept, fresh := z.dir(t, "open/kept"), z.dir(t, "open/fresh")
-	s, file := heldService(t, z, kept)
-	_, err := s.DropPath(kept)
-	require.NoError(t, err)
-
-	store, err := Open(file)
-	require.NoError(t, err)
-	s = NewService(store, func() Zones { return z.zones }, nil, "")
-	synced(t, s, []string{kept, fresh})
-	assert.Equal(t, PathPending, entryOf(t, s, fresh).State)
-	assert.False(t, s.Get().Sandbox.PathStrict, "the sync consumes it")
-}
-
-// A hand edit the store refuses leaves both marks at their safe value: the
-// list resolved, so no default stands in, and the next sync strict.
-func TestRefusedPathMarksAnswerTheirSafeValue(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "settings.json")
-	for _, raw := range []string{`{"sandbox": {"pathResolved": "no", "pathStrict": 0}}`, `{"sandbox": {"pathResolved": null, "pathStrict": null}}`} {
-		require.NoError(t, os.WriteFile(file, []byte(raw), 0o600))
-		store, err := Open(file)
-		require.NoError(t, err)
-		assert.True(t, store.Get().Sandbox.PathResolved, raw)
-		assert.True(t, store.Get().Sandbox.PathStrict, raw)
-	}
-}
-
-// pathCase is one combination of the list's state: the one entry's, the
-// folder it leads to now, what the shell lists, and the stored marks.
-type pathCase struct {
-	state        PathState // "" for no stored entry
-	source       Source
-	moved        bool // the entry's link leads elsewhere than its stored Target
-	open, shared bool // of the folder it leads to now
-	listed       bool // the shell lists it
-	held, strict bool
-	action       string
-}
-
-func (c pathCase) String() string {
-	return fmt.Sprintf("%s/%s moved=%t open=%t shared=%t listed=%t held=%t strict=%t %s",
-		c.state, c.source, c.moved, c.open, c.shared, c.listed, c.held, c.strict, c.action)
-}
-
-// pathCases is every combination worth telling apart.
-func pathCases() []pathCase {
-	var cases []pathCase
-	entries := []pathCase{{}}
-	for _, state := range []PathState{PathAdopted, PathPending, PathGone} {
-		for _, source := range []Source{SourceShell, SourceUser} {
-			for _, moved := range []bool{false, true} {
-				entries = append(entries, pathCase{state: state, source: source, moved: moved})
-			}
-		}
-	}
-	for _, e := range entries {
-		for _, open := range []bool{false, true} {
-			for _, shared := range []bool{false, true} {
-				for _, listed := range []bool{false, true} {
-					for _, held := range []bool{false, true} {
-						for _, strict := range []bool{false, true} {
-							for _, action := range []string{"sync", "restart and sync", "include", "include stale", "remove", "failed refresh"} {
-								c := e
-								c.open, c.shared, c.listed, c.held, c.strict, c.action = open, shared, listed, held, strict, action
-								cases = append(cases, c)
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return cases
-}
-
-// Every combination of state and action keeps the list's invariants: nothing
-// is adopted unasked but an open folder no group shares, never while held or
-// strict; a removal only Include undoes, and only for the folder shown; a
-// refused change writes nothing; a sync leaves the marks resolved and not
-// strict; and a run searches no folder but one the sync would adopt unasked or
-// one the user approved itself.
-func TestEveryStateCombinationKeepsTheInvariants(t *testing.T) {
-	fakeGroups(t, "staff")
-	for _, c := range pathCases() {
-		t.Run(c.String(), func(t *testing.T) {
-			base, err := filepath.EvalSymlinks(t.TempDir())
-			require.NoError(t, err)
-			open := filepath.Join(base, "open")
-			zones := Zones{Open: sandbox.FilePolicy{Read: []string{open}}}
-			// now is the folder the entry leads to, in the zone and with the mode
-			// the case names; a moved entry's stored Target is another folder.
-			zone := map[bool]string{true: open, false: filepath.Join(base, "home")}[c.open]
-			mode := map[bool]os.FileMode{true: 0o775, false: 0o755}[c.shared]
-			now := dirWithMode(t, zone, "now", mode)
-			stored := now
-			if c.moved {
-				stored = dirWithMode(t, open, "stored", 0o755)
-			}
-			link := filepath.Join(base, "link")
-			require.NoError(t, os.Symlink(now, link))
-
-			entries := []map[string]any{}
-			if c.state != "" {
-				entries = append(entries, map[string]any{"dir": link, "target": stored, "state": c.state, "source": c.source})
-			}
-			if c.held {
-				entries = append(entries, map[string]any{"dir": "bin", "target": "bin", "state": "gone", "source": "user"})
-			}
-			raw, err := json.Marshal(map[string]any{"sandbox": map[string]any{"path": entries, "pathStrict": c.strict, "pathResolved": true}})
-			require.NoError(t, err)
-			file := filepath.Join(t.TempDir(), "settings.json")
-			require.NoError(t, os.WriteFile(file, raw, 0o600))
-			open1 := func() *Service {
-				store, err := Open(file)
-				require.NoError(t, err)
-				return NewService(store, func() Zones { return zones }, func(context.Context) ([]string, error) {
-					return nil, errors.New("timeout")
-				}, "")
-			}
-			s := open1()
-			require.Equal(t, c.held, s.Held(FieldPath))
-			var shell []string
-			if c.listed {
-				shell = []string{link}
-			}
-			before := s.Get()
-
-			switch c.action {
-			case "sync":
-				synced(t, s, shell)
-			case "restart and sync":
-				s = open1()
-				synced(t, s, shell)
-			case "include":
-				_, err = s.AdoptPath(link, stored)
-			case "include stale":
-				_, err = s.AdoptPath(link, filepath.Join(base, "elsewhere"))
-			case "remove":
-				_, err = s.DropPath(link)
-			case "failed refresh":
-				_, err = s.RefreshPath(t.Context())
-			}
-			after := s.Get()
-			var was, is *PathEntry
-			for i := range before.Sandbox.Path {
-				if before.Sandbox.Path[i].Dir == link {
-					was = &before.Sandbox.Path[i]
-				}
-			}
-			for i := range after.Sandbox.Path {
-				if after.Sandbox.Path[i].Dir == link {
-					is = &after.Sandbox.Path[i]
-				}
-			}
-
-			switch c.action {
-			case "sync", "restart and sync":
-				assert.True(t, after.Sandbox.PathResolved)
-				assert.False(t, after.Sandbox.PathStrict)
-				assert.False(t, s.Held(FieldPath))
-				if was != nil && was.State == PathGone {
-					require.NotNil(t, is, "a removal is kept")
-					assert.Equal(t, PathGone, is.State)
-					assert.Equal(t, was.Source, is.Source)
-				}
-				if !c.listed {
-					assert.Equal(t, was != nil && was.State == PathGone, is != nil, "only a removal outlives the shell's list")
-				}
-				if is != nil && c.listed {
-					assert.Equal(t, c.shared, is.Shared, "shared follows the folder")
-				}
-				if is != nil && is.State == PathAdopted && is.Source == SourceShell {
-					assert.True(t, c.open && !c.shared, "adopted unasked only when open and not shared")
-				}
-				if (was == nil || c.moved) && (c.held || c.strict) && is != nil {
-					assert.NotEqual(t, PathAdopted, is.State, "nothing new adopted while held or strict")
-				}
-				if was != nil && !c.moved && was.State == PathAdopted && was.Source == SourceUser && c.listed {
-					assert.Equal(t, *was, PathEntry{Dir: is.Dir, Target: is.Target, State: is.State, Source: is.Source, Shared: was.Shared}, "the user's adoption stands")
-				}
-			case "include":
-				allowed := !c.held && was != nil && was.State != PathAdopted
-				if allowed {
-					require.NoError(t, err)
-					assert.Equal(t, PathEntry{Dir: link, Target: stored, State: PathAdopted, Source: SourceUser}, *is, "for the folder shown")
-				} else {
-					assert.Error(t, err)
-					assert.Equal(t, before, after)
-				}
-			case "include stale":
-				assert.Error(t, err)
-				assert.Equal(t, before, after, "a stale approval writes nothing")
-			case "remove":
-				if was != nil && was.State != PathGone {
-					require.NoError(t, err)
-					assert.Equal(t, PathGone, is.State)
-					assert.Equal(t, SourceUser, is.Source)
-					assert.Equal(t, c.held || c.strict, after.Sandbox.PathStrict, "a removal that ends a hold leaves the next sync strict")
-				} else {
-					assert.Error(t, err)
-					assert.Equal(t, before, after)
-				}
-			case "failed refresh":
-				assert.Error(t, err)
-				assert.Equal(t, before, after)
-				assert.Equal(t, "timeout", s.PathFault())
-			}
-
-			check := NewRunCheck(zones.Open, nil, "")
-			for _, e := range after.Sandbox.Path {
-				if e.State != PathAdopted || e.Dir != link {
-					continue
-				}
-				if folder, _, ok := check.Folder(e); ok {
-					assert.Equal(t, now, folder)
-					unasked := c.open && !c.shared
-					approved := e.Source == SourceUser && e.Target == now
-					assert.True(t, unasked || approved, "a run searches only what the sync would adopt or the user approved")
-				}
-			}
-		})
-	}
-}
-
-// The tool probes are diagnostics: one that hangs, as a stat on a dead network
-// mount does, never holds the sync's write, and a removed folder is never
-// probed at all.
-func TestAHungToolProbeDoesNotHoldTheSync(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, removed := z.dir(t, "open/bin"), z.dir(t, "open/removed")
-	setEntry(t, s, PathEntry{Dir: removed, Target: removed, State: PathGone, Source: SourceUser})
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	probed := make(chan string, 16)
@@ -752,162 +225,225 @@ func TestAHungToolProbeDoesNotHoldTheSync(t *testing.T) {
 		return nil, os.ErrNotExist
 	}
 
-	synced(t, s, []string{dir})
-	assert.Equal(t, PathAdopted, entryOf(t, s, dir).State, "the write landed while the probe hangs")
-	assert.Equal(t, dir, testutil.Recv(t, probed, "a probe"), "an adopted folder is probed")
-	select {
-	case got := <-probed:
-		assert.NotEqual(t, removed, got, "a removed folder is never probed")
-	default:
-	}
+	_, err := s.SetShellPath(t.Context(), []string{dir})
+	require.NoError(t, err)
+	assert.Equal(t, []string{dir}, shellDirs(t, s), "the write landed while the probe hangs")
+	assert.Equal(t, dir, testutil.Recv(t, probed, "a probe"))
 }
 
-// A sync that adds or drops an entry says it changed the list; one that
-// leaves the list as it was does not.
-func TestSyncPathSaysWhetherItChanged(t *testing.T) {
+// A read of the shell that fails, or answers no PATH, keeps the last PATH
+// and says why; one that answers clears the fault.
+func TestAFailedShellReadKeepsTheLastPath(t *testing.T) {
 	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, other := z.dir(t, "open/bin"), z.dir(t, "open/other")
-
-	changed, err := s.SyncPath(t.Context(), []string{dir})
-	require.NoError(t, err)
-	assert.True(t, changed, "the first sync adds an entry")
-	changed, err = s.SyncPath(t.Context(), []string{dir})
-	require.NoError(t, err)
-	assert.False(t, changed, "the same list")
-	changed, err = s.SyncPath(t.Context(), []string{dir, other})
-	require.NoError(t, err)
-	assert.True(t, changed, "an entry added")
-	changed, err = s.SyncPath(t.Context(), []string{other})
-	require.NoError(t, err)
-	assert.True(t, changed, "an entry dropped")
-}
-
-// A sync whose write the store refuses answers that refusal and changes nothing.
-func TestSyncPathAnswersARefusedWrite(t *testing.T) {
-	z := newZones(t)
-	refusal := Refusal{Field: FieldPath, Reason: "refused by the test"}
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"), WithChecks(func(st *Settings) []Refusal {
-		if st.Sandbox.PathResolved {
-			return []Refusal{refusal}
-		}
-		return nil
-	}))
-	require.NoError(t, err)
-	s := NewService(store, func() Zones { return z.zones }, nil, "")
-
-	changed, err := s.SyncPath(t.Context(), []string{z.dir(t, "open/bin")})
-	require.ErrorIs(t, err, refusal)
-	assert.False(t, changed)
-	assert.Empty(t, s.Get().Sandbox.Path)
-}
-
-// A decision holds for the exact Target it was made for: the folder in
-// another spelling is another folder, filed again, and a removal kept under
-// another Dir in another spelling does not hold for it.
-func TestASyncComparesStoredTargetsAsText(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	approved, removed := z.dir(t, "home/bin"), z.dir(t, "open/tools")
-	old := filepath.Join(z.base, "old")
-	setEntry(t, s, PathEntry{Dir: approved, Target: filepath.Join(z.home, "BIN"), State: PathAdopted, Source: SourceUser})
-	setEntry(t, s, PathEntry{Dir: old, Target: filepath.Join(z.open, "TOOLS"), State: PathGone, Source: SourceUser})
-
-	synced(t, s, []string{approved, removed})
-	assert.Equal(t, PathEntry{Dir: approved, Target: approved, State: PathPending, Source: SourceShell}, entryOf(t, s, approved))
-	assert.Equal(t, PathEntry{Dir: removed, Target: removed, State: PathAdopted, Source: SourceShell}, entryOf(t, s, removed))
-}
-
-// A removal made while the sync reads the disk holds for its folder under
-// the Dir the shell lists now.
-func TestARemovalDuringASyncHoldsUnderAnotherDir(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, old := z.dir(t, "open/bin"), filepath.Join(z.open, "old")
-	setEntry(t, s, PathEntry{Dir: old, Target: dir, State: PathAdopted, Source: SourceUser})
-	zones := s.zones
-	s.zones = func() Zones {
-		_, err := s.DropPath(old)
-		assert.NoError(t, err)
-		return zones()
-	}
-
-	synced(t, s, []string{dir})
-	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathGone, Source: SourceUser}, entryOf(t, s, dir))
-}
-
-// Syncs run one at a time, so a second one reads the disk only once the first
-// has written what it read.
-func TestASyncWaitsForTheOneBeforeIt(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
 	dir := z.dir(t, "open/bin")
-	// Each sync reads the zones as it starts to read the disk; the first
-	// holds there until released.
-	reading := testutil.NewProbe[struct{}](2)
-	gate := make(chan struct{})
-	release := sync.OnceFunc(func() { close(gate) })
-	t.Cleanup(release)
-	var first sync.Once
-	zones := s.zones
-	s.zones = func() Zones {
-		reading.Fire(struct{}{})
-		first.Do(func() { <-gate })
-		return zones()
+	var answer []string
+	var fail error
+	s := newTestService(t, z, func(context.Context) ([]string, error) { return answer, fail })
+	s.fault = "timeout"
+	assert.Equal(t, "timeout", s.PathFault(), "the launch's fault until a refresh answers")
+
+	answer = []string{dir}
+	require.NoError(t, s.RefreshPath(t.Context()))
+	assert.Empty(t, s.PathFault())
+	assert.Equal(t, []string{dir}, shellDirs(t, s))
+
+	answer, fail = nil, errors.New("exit")
+	err := s.RefreshPath(t.Context())
+	assert.EqualError(t, err, "Your shell did not answer: exit.")
+	assert.IsType(t, PathRefusal(""), err)
+	assert.Equal(t, "exit", s.PathFault())
+	assert.Equal(t, []string{dir}, shellDirs(t, s), "a failed read keeps the last PATH")
+
+	fail = nil
+	assert.EqualError(t, s.RefreshPath(t.Context()), "Your shell did not answer: its PATH is empty.")
+	assert.Equal(t, []string{dir}, shellDirs(t, s), "an empty PATH keeps the last PATH")
+
+	// A PATH the shell answered but that could not be stored leaves the
+	// fault standing.
+	answer = []string{z.dir(t, "open/other")}
+	s.writing <- struct{}{}
+	s.diskTimeout = time.Millisecond
+	assert.ErrorIs(t, s.RefreshPath(t.Context()), context.DeadlineExceeded)
+	<-s.writing
+	assert.Equal(t, "its PATH is empty", s.PathFault())
+	assert.Equal(t, []string{dir}, shellDirs(t, s))
+}
+
+// The last PATH read lives in app.db, so a launch whose own read fails finds
+// it.
+func TestTheShellsPathOutlivesARestart(t *testing.T) {
+	z := newZones(t)
+	dir := z.dir(t, "open/bin")
+	db := appdbtest.Open(t)
+	open := func() *Service {
+		store := openStore(t, db)
+		return NewService(store, func() Zones { return z.zones }, nil, nil, "")
 	}
-
-	firstDone, secondDone := make(chan error, 1), make(chan error, 1)
-	go func() { _, err := s.SyncPath(t.Context(), []string{dir}); firstDone <- err }()
-	reading.Await(t, "the first sync's read")
-	go func() { _, err := s.SyncPath(t.Context(), []string{dir}); secondDone <- err }()
-	// A negative assertion: the second sync reads nothing while the first
-	// holds its read.
-	testutil.NoRecv(t, reading.Chan(), 20*time.Millisecond, "the second sync's read before the first wrote")
-	release()
-
-	require.NoError(t, testutil.Recv(t, firstDone, "the first sync"))
-	require.NoError(t, testutil.Recv(t, secondDone, "the second sync"))
-	assert.Equal(t, PathEntry{Dir: dir, Target: dir, State: PathAdopted, Source: SourceShell}, entryOf(t, s, dir))
-}
-
-// A sync waiting for the one before it ends at its bound.
-func TestAWaitingSyncEndsAtItsBound(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	s.syncing <- struct{}{}
-	s.syncTimeout = time.Millisecond
-
-	testutil.WaitReturn(t, func() {
-		_, err := s.SyncPath(t.Context(), nil)
-		assert.ErrorIs(t, err, context.DeadlineExceeded)
-	}, "the waiting sync")
-}
-
-// Include approves the folder the user was shown, so one naming none is
-// refused and drops no removal.
-func TestAnIncludeWithNoTargetIsRefused(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, old := z.dir(t, "home/bin"), filepath.Join(z.base, "old")
-	synced(t, s, []string{dir})
-	setEntry(t, s, PathEntry{Dir: old, Target: dir, State: PathGone, Source: SourceUser})
-
-	_, err := s.AdoptPath(dir, "")
-	assert.ErrorIs(t, err, ErrPathChanged)
-	assert.Equal(t, []string{dir + "=pending/shell", old + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
-}
-
-// Include drops only the removals kept under other Dirs for its exact
-// Target: one stored in another spelling is another folder's, and stays.
-func TestAnIncludeKeepsARemovalStoredInAnotherSpelling(t *testing.T) {
-	z := newZones(t)
-	s := newTestService(t, z, nil)
-	dir, old := z.dir(t, "home/bin"), filepath.Join(z.base, "old")
-	spelled := filepath.Join(z.home, "BIN")
-	synced(t, s, []string{dir})
-	setEntry(t, s, PathEntry{Dir: old, Target: spelled, State: PathGone, Source: SourceUser})
-
-	_, err := s.AdoptPath(dir, dir)
+	_, err := open().SetShellPath(t.Context(), []string{dir})
 	require.NoError(t, err)
-	assert.Equal(t, []string{dir + "=adopted/user", old + "=gone/user"}, statesOf(s.Get().Sandbox.Path))
+	assert.Equal(t, []string{dir}, shellDirs(t, open()))
+}
+
+// A run's PATH is the setting expanded over the shell's last PATH, or over the
+// platform's default folders before a read ever answered. Its NoWrite folders
+// are the shell's and the typed ones, whatever the setting says.
+func TestARunPathExpandsTheSetting(t *testing.T) {
+	z := newZones(t)
+	z.zones.Home = z.home
+	fallback, shell, typed := z.dir(t, "open/default"), z.dir(t, "open/shell"), z.dir(t, "home/bin")
+	store := newStore(t)
+	s := NewService(store, func() Zones { return z.zones }, nil, []string{fallback}, "")
+	ctx := t.Context()
+
+	got, err := s.RunPath(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, RunPath{
+		Search:  []PathFolder{{Path: fallback, Origin: OriginShell}},
+		NoWrite: []string{fallback},
+	}, got, "no read has answered: the default folders")
+
+	_, err = s.SetShellPath(ctx, []string{shell})
+	require.NoError(t, err)
+	require.NoError(t, s.SetPath(ctx, "~/bin:$PATH"))
+	got, err = s.RunPath(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, RunPath{
+		Search:  []PathFolder{{Path: typed, Origin: OriginTyped}, {Path: shell, Origin: OriginShell}},
+		NoWrite: []string{shell, typed},
+	}, got)
+
+	require.NoError(t, s.SetPath(ctx, "~/bin"))
+	got, err = s.RunPath(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []PathFolder{{Path: typed, Origin: OriginTyped}}, got.Search)
+	assert.Equal(t, []string{shell, typed}, got.NoWrite, "the user's terminal still runs what the shell's folders hold")
+	noWrite, err := s.PathNoWrite(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, got.NoWrite, noWrite)
+}
+
+// A refused setting starts no run, and its NoWrite folders are the shell's
+// alone, since no typed folder can be read.
+func TestARefusedPathStartsNoRun(t *testing.T) {
+	z := newZones(t)
+	shell := z.dir(t, "open/shell")
+	db := appdbtest.Open(t)
+	store := openStore(t, db)
+	s := NewService(store, func() Zones { return z.zones }, nil, nil, "")
+	_, err := s.SetShellPath(t.Context(), []string{shell})
+	require.NoError(t, err)
+	exec(t, db, `INSERT INTO settings (key, value, created_at, updated_at) VALUES ('sandbox.path', 'bin:$PATH', 0, 0)`)
+
+	_, err = s.RunPath(t.Context())
+	assert.IsType(t, PathRefusal(""), err)
+	assert.ErrorContains(t, err, `"bin" is not a full path`)
+	assert.ErrorContains(t, err, "Settings")
+	noWrite, err := s.PathNoWrite(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []string{shell}, noWrite)
+}
+
+// A read that fails, of either row, is an error: never the setting over the
+// default folders, never $PATH.
+func TestARunPathReadThatFailsIsAnError(t *testing.T) {
+	for _, table := range []string{"settings", "shell_path"} {
+		z := newZones(t)
+		db := appdbtest.Open(t)
+		store := openStore(t, db)
+		s := NewService(store, func() Zones { return z.zones }, nil, []string{z.open}, "")
+		exec(t, db, `DROP TABLE `+table)
+
+		_, err := s.RunPath(t.Context())
+		assert.Error(t, err, table)
+		_, err = s.PathNoWrite(t.Context())
+		assert.Error(t, err, table)
+	}
+}
+
+// Settings lists the setting and each of its folders as a run would judge
+// them; a refused setting lists none, and with no sandbox only the setting.
+func TestSettingsListsThePathsFolders(t *testing.T) {
+	z := newZones(t)
+	z.zones.Home = z.home
+	open, closed, typed := z.dir(t, "open/bin"), z.dir(t, "home/closed"), z.dir(t, "home/bin")
+	db := appdbtest.Open(t)
+	store := openStore(t, db)
+	s := NewService(store, func() Zones { return z.zones }, nil, nil, "")
+	ctx := t.Context()
+	_, err := s.SetShellPath(ctx, []string{open, closed})
+	require.NoError(t, err)
+	require.NoError(t, s.SetPath(ctx, "$PATH:~/bin"))
+
+	setting, folders, err := s.PathFolders(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, PathSetting{Value: "$PATH:~/bin"}, setting)
+	require.Len(t, folders, 3)
+	assert.Equal(t, []string{open, closed, typed}, []string{folders[0].Path, folders[1].Path, folders[2].Path})
+	assert.Equal(t, []bool{true, false, true}, []bool{folders[0].Searched, folders[1].Searched, folders[2].Searched})
+	assert.True(t, folders[1].Addable)
+
+	exec(t, db, `UPDATE settings SET value = 'bin' WHERE key = 'sandbox.path'`)
+	setting, folders, err = s.PathFolders(ctx)
+	require.NoError(t, err)
+	assert.NotEmpty(t, setting.Refusal)
+	assert.Empty(t, folders)
+
+	none := NewService(store, nil, nil, nil, "")
+	setting, folders, err = none.PathFolders(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "bin", setting.Value)
+	assert.Empty(t, folders)
+
+	exec(t, db, `DROP TABLE shell_path`)
+	_, _, err = s.PathFolders(ctx)
+	assert.Error(t, err, "a read that fails is an error")
+}
+
+// Settings' disk reads are bounded, as a read of the shell's are.
+func TestSettingsListIsBounded(t *testing.T) {
+	z := newZones(t)
+	s := newTestService(t, z, nil)
+	_, err := s.SetShellPath(t.Context(), []string{z.dir(t, "open/bin")})
+	require.NoError(t, err)
+	require.NoError(t, s.SetPath(t.Context(), z.dir(t, "home/bin")+":$PATH"))
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	s.checkFolder = func(string, bool, zones, []string, bool) error {
+		<-release
+		return nil
+	}
+	s.diskTimeout = time.Millisecond
+
+	setting, folders, err := s.PathFolders(t.Context())
+	require.NoError(t, err, "the setting is still there to show and edit")
+	assert.Equal(t, z.dir(t, "home/bin")+":$PATH", setting.Value)
+	require.Len(t, folders, 2)
+	for _, f := range folders {
+		assert.False(t, f.Searched)
+		assert.Equal(t, timeoutRefusal.Reason, f.Reason)
+	}
+}
+
+// A run's PATH and the NoWrite folders need the zones' home: zones that run
+// past the bound refuse both, never expand ~ against nothing. Settings shows
+// the setting with no folder.
+func TestAPathWhoseZonesRunPastTheBoundIsRefused(t *testing.T) {
+	z := newZones(t)
+	s := newTestService(t, z, nil)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	s.zones = func() Zones {
+		<-release
+		return z.zones
+	}
+	s.diskTimeout = time.Millisecond
+
+	_, err := s.RunPath(t.Context())
+	assert.Equal(t, timeoutRefusal, err)
+	setting, folders, err := s.PathFolders(t.Context())
+	require.NoError(t, err, "Settings still shows the setting")
+	assert.Equal(t, "$PATH", setting.Value)
+	assert.Empty(t, folders)
+	_, err = s.PathNoWrite(t.Context())
+	assert.Equal(t, timeoutRefusal, err)
 }

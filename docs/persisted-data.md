@@ -9,7 +9,9 @@ schema changes only by a new migration](adr/2026-11-08-a-shipped-schema-changes-
 **A change to a persisted format updates its row here in the same commit.**
 
 `desktop/v0.0.1` is the first release. Every format it wrote is shipped: a build has to read it
-from now on.
+from now on. Two are the exception, dropped without an import by the maintainer's decision:
+`<data>/settings.json`, left on disk unread, and `app.db`'s `chat_grants` table
+([ADR](adr/2026-11-24-settings-are-rows-in-app-db.md)).
 
 ## Policy
 
@@ -40,7 +42,7 @@ Each kind of change has one shape. The tests named here are what fails when it i
 - **A JSON column**: rides `app.db`'s version, so the change is an `app.db` migration using
   SQLite's JSON functions. A rewrite SQL cannot express has no path yet (below). A new key a
   row may lack, read as its zero value, needs none: no stored row changes.
-- **A preference** (`settings.json`): a field's layout change bumps `schemaVersion` and upgrades
+- **A preference** (`host.json`): a field's layout change bumps `schemaVersion` and upgrades
   in the reader. A file a build cannot parse reads as defaults and its next write replaces it, so
   a new choice for a setting is a new field, never a new value of an old one.
 - **A disposable store**: no migration. A renamed `localStorage` key needs nothing; a renamed
@@ -96,7 +98,7 @@ is the doc comment on `paths` in `sidecar/internal/app/paths.go`.
 
 | Path | Kind | Holds |
 | --- | --- | --- |
-| `~/.local/share/kstack/` | `<data>` | `app.db`, `beehive.db`, `settings.json`, `chats/`, `monitor/`, `sidecar.lock` |
+| `~/.local/share/kstack/` | `<data>` | `app.db`, `beehive.db`, `chats/`, `monitor/`, `sidecar.lock` |
 | `~/.cache/kstack/` | `<cache>` | `kube/`, `logs/` (the log cache), `kubectl/`, `tmp/` |
 | `~/.config/kstack/` | `<config>` | `host.json` |
 | `~/.local/state/kstack/` | `<state>` | `window-state.json` |
@@ -108,7 +110,7 @@ is the doc comment on `paths` in `sidecar/internal/app/paths.go`.
 
 | Path | Kind | Holds |
 | --- | --- | --- |
-| `~/Library/Application Support/Kstack/data/` | `<data>` | `app.db`, `beehive.db`, `settings.json`, `chats/`, `monitor/`, `sidecar.lock` |
+| `~/Library/Application Support/Kstack/data/` | `<data>` | `app.db`, `beehive.db`, `chats/`, `monitor/`, `sidecar.lock` |
 | `~/Library/Application Support/Kstack/config/` | `<config>` | `host.json` |
 | `~/Library/Application Support/Kstack/state/` | `<state>` | `window-state.json` |
 | `~/Library/Caches/Kstack/` | `<cache>` | `kube/`, `logs/` (the log cache), `kubectl/`, `tmp/` |
@@ -120,7 +122,7 @@ is the doc comment on `paths` in `sidecar/internal/app/paths.go`.
 
 | Path | Kind | Holds |
 | --- | --- | --- |
-| `%LOCALAPPDATA%\Kstack\data\` | `<data>` | `app.db`, `beehive.db`, `settings.json`, `chats\`, `monitor\`, `sidecar.lock` |
+| `%LOCALAPPDATA%\Kstack\data\` | `<data>` | `app.db`, `beehive.db`, `chats\`, `monitor\`, `sidecar.lock` |
 | `%LOCALAPPDATA%\Kstack\cache\` | `<cache>` | `kube\`, `logs\` (the log cache), `kubectl\`, `tmp\` |
 | `%LOCALAPPDATA%\Kstack\state\` | `<state>` | `window-state.json` |
 | `%LOCALAPPDATA%\Kstack\state\logs\` | logs | `main.log`, `webview.log`, `sidecar.log` |
@@ -139,13 +141,16 @@ is the doc comment on `paths` in `sidecar/internal/app/paths.go`.
 | Cluster cache | `<cache>/kube/<cache id>.db` | `kubestore` | durable | `sqlitemigrate` | SQL migrations | refused; the cache reports `StoreFailed` with the message and the rest of the app runs | `kubestore` `TestAShippedMigrationIsNeverEdited`, `TestOpenRefusesANewerFile`, `TestMigration0002IndexesTheEventsByInvolvedNamespace` (`0002`); `kubesync` `TestArmReportsAStoreThatWillNotOpen` (any open failure reaches `StoreFailed`) |
 | Cluster cache `raw_json` | `kube/*.db` `objects.raw_json` | `kubestore/rawcodec.go` | durable | first byte (zlib `0x78`, JSON `{`) | a `kube/*.db` migration | with `kube/*.db` | `rawcodec_test.go` |
 | Log cache | `<cache>/logs/<cache id>.db` | `logstore` | durable | `sqlitemigrate` | SQL migrations | refused; `OpenOrCreate` returns the error to the caller | `logstore` `TestAShippedMigrationIsNeverEdited`, `TestOpenOrCreateRefusesANewerFile` |
-| Sidecar settings | `<data>/settings.json` | `lib/jsonsettings`, `services/settings` | preference | `schemaVersion` 1 | upgrade in `Open` (none written yet) | read; a write keeps its unknown keys and its version | `TestAWriteStampsTheVersion`, `TestAWriteKeepsTheKeysNoFieldNames` |
 | Host file | `<config>/host.json` | `src-tauri/src/host_file.rs` | preference | `schemaVersion` 1 | none | read; a write drops unknown fields and stamps 1 (accepted gap, ADR; #824) | `update_stamps_current_version` |
 | Window state | `<state>/window-state.json`: the main window's logical frame and `maximized`, and the log windows' last `width` and `height`; `make clean` and `make clean-data` delete the dev build's | `src-tauri/src/window_state.rs` | disposable (windows open at their default sizes) | `schemaVersion` 2 | version 1 is read as is, with no log size | unknown versions and invalid files are ignored, and the next write replaces them; a write keeps the other entry of a file it can read | `the_file_is_stamped_with_its_schema_version`, `a_version_one_main_frame_survives_a_log_size_write`, `each_entry_survives_a_write_of_the_other` |
 | Kstack sign-in token of `desktop/v0.0.1` | OS keyring, service `<service>`, account `auth-token`: the whole token as JSON | `services/connectors/kstackcloud` | disposable (sign in again) | none | deleted at every launch the keyring opens, never read | — | `TestNewDeletesTheOldEntry`, `TestAFailedDeleteOfTheOldEntryIsRetried`, `TestTheOldEntryIsDeletedOnlyFromAKeyringThatOpened` |
 | OAuth connections | `app.db` `oauth_connections`, a row per provider signed in to with OAuth: issued client id (NULL for a fixed client), subject, email, name, the session id its keyring entry must name; `provider_data` is one provider's own JSON (ChatGPT: `{"hostID"}`); no token | `internal/appdb` (migrations `0002`, `0003`), `services/connectors/internal/oauthconn/registration.go` | durable | rides `app.db`'s | an `app.db` migration | with `app.db` | `TestMigration0002AddsTheOAuthConnections`, `TestMigration0003AddsTheName`, `TestARegistrationRoundTrips`, `TestARegistrationLeavesOtherProvidersAlone` |
 | User's variables | `app.db` `env_vars`, a row per variable: name, value, target (sandbox, outside or both) and an optional cluster, in the order added; `tool_calls.env`, the variables a command outside the sandbox was shown | `internal/appdb` (migration `0004`), `services/envvars`, `agent/chat` | durable | rides `app.db`'s | an `app.db` migration | with `app.db`; a row the check refuses is listed with its reason and given to no command | `TestMigration0004AddsTheUsersVariables`, `TestARefusedRowIsListedWithItsReasonAndGivenToNoCommand` |
-| Tool settings | `app.db` `tool_settings`, a row per tool per scope overriding its default, on: the tool's name, an optional cluster (NULL for every cluster, the only scope written), `enabled` and `updated_at`; turning a tool back on keeps the row | `internal/appdb` (migration `0005`), `services/toolsettings`, `agent/chat` | durable | rides `app.db`'s | an `app.db` migration | with `app.db`; a row naming a tool this build or machine lacks, or turning off an always-on tool (TaskStop), is kept and ignored | `TestMigration0005AddsTheToolSettings`, `TestSetWritesOneRowPerToolAndKeepsIt`, `TestRowsOutsideTheListAreIgnored`, `TestAnAlwaysOnToolStaysOn` |
+| Single-value settings | `app.db` `settings`, a row per setting and scope the user has set: a dotted `key` (`sandbox.<platform>.enabled`, `sandbox.path`, `permissions.approval_mode`, `tools.<name>.enabled`), an optional cluster (NULL for every cluster; a cluster's goes with it), a `value` that is an integer, text, or NULL for the default chosen, and `created_at`, `updated_at`; no row is the default, and a row is never deleted but with its cluster | `internal/appdb` (migration `0006`, which dropped `tool_settings` without copying its rows), `services/settings`, `services/toolsettings`, `agent/chat` | durable | rides `app.db`'s | an `app.db` migration for the table; a new setting is an entry in `services/settings` and needs none | with `app.db`; a value Kstack cannot use reads as its entry's strictest value (a switch or a tool off, the mode read-only) or its default, logged by key alone; a `PATH` it cannot use is listed with its refusal and starts no run; a row whose key no entry has is kept and ignored; a failed read is an error | `TestMigration0006AddsTheSettingsTables`, `TestASettingKstackCannotUseReadsItsStrictestOrDefault`, `TestASettingReadThatFailsIsAnError`, `TestASwitchValueKstackCannotUseIsOff`, `TestAModeKstackCannotUseIsReadOnly`, `TestARowKstackCannotUseTurnsItsToolOff`, `TestARefusedPathSettingIsReadWithItsRefusal`, `TestAPathSettingThatIsNotTextIsReadWithItsRefusal`, `TestSetWritesOneRowPerToolAndKeepsIt`, `TestRowsOutsideTheListAreIgnored`, `TestAnAlwaysOnToolStaysOn`, `TestAClusterWithNoModeOfItsOwnTakesTheDefault` |
+| Kubernetes rules | `app.db` `kube_rules`, a row per rule: effect, class by name, the cluster's record (NULL for every cluster, gone with the cluster), the matching patterns and `inside`; an always rule with `chat_id` NULL, a chat's with it set, gone with the chat | `internal/appdb` (migration `0006`), `services/settings`, `agent/chat` | durable | rides `app.db`'s | an `app.db` migration | with `app.db`; the `CHECK`s refuse a rule Kstack cannot apply, so none is refused on read | `TestMigration0006AddsTheSettingsTables`, `TestTheGoCheckAndTheTableRefuseTheSameRules`, `TestAChatsRuleRoundTripsThroughItsRow` |
+| Folder grants | `app.db` `folder_grants`, a row per granted folder, absolute and resolved, with its access (`read` or `write`); one per folder always (`chat_id` NULL) and one per folder in each chat, gone with the chat | `internal/appdb` (migration `0006`), `services/settings`, `agent/chat` | durable | rides `app.db`'s | an `app.db` migration | with `app.db`; a grant that fails its check on read is listed with its refusal and given to no run | `TestMigration0006AddsTheSettingsTables`, `TestAlwaysFolderGrantsAreGrantedChangedAndRevoked`, `TestAGrantIsListedWithItsRefusal` |
+| The login shell's last `PATH` | `app.db` `shell_path`, one row (`id` 1) once a read of the shell answered: its `PATH`, joined by `:` | `internal/appdb` (migration `0006`), `services/settings` | durable | rides `app.db`'s | an `app.db` migration | with `app.db`; a copy every run checks again, so no row is refused; a failed read is an error | `TestMigration0006AddsTheSettingsTables`, `TestTheShellPathRow`, `TestTheShellsPathOutlivesARestart` |
+| Registered executables | `app.db` `executables`, a row per program the user asked the probe to check: its `name`, `invocation` and `created_at`, read in the order added | `internal/appdb` (migration `0006`), `services/settings` | durable | rides `app.db`'s | an `app.db` migration | with `app.db`; a row `CheckExecutable` refuses is listed with its refusal and never probed, and a failed read is an error | `TestMigration0006AddsTheSettingsTables`, `TestARefusedExecutableIsListedWithItsReason` |
 | OAuth refresh tokens | OS keyring, service `<service>`, account `<provider>-refresh-token` (`chatgpt-refresh-token`, `kstack-cloud-refresh-token`, `google-refresh-token`): `{"v":1,"token","session"}` | `services/connectors/internal/oauthconn/keyring.go` | disposable (sign in again) | `v` 1 | a renamed entry deletes the old one | read as no session and deleted | `TestNewRestoresWhatTheStoresHold` |
 | OpenRouter key | OS keyring, service `<service>`, account `openrouter-api-key`: `{"v":1,"key"}` | `services/connectors/openrouter/keyring.go` | disposable (connect again; the old key stays live on OpenRouter) | `v` 1 | a renamed entry deletes the old one | a newer `v` is left in place; one that does not parse is deleted | `TestNewRestoresWhatTheKeyringHolds`, `TestANewerEntryIsLeft` |
 | Saved provider keys | OS keyring, service `<service>`, account `<id>-api-key` per keyed provider (`openrouter-saved-api-key` for OpenRouter): `{"v":1,"key"}` | `services/providercredentials/keyring.go` | disposable (save again; the key stays live at its vendor) | `v` 1 | a renamed entry deletes the old one | a newer `v` is left in place; one that does not parse is deleted | `TestTheAccountNames`, `TestNewRestoresWhatTheKeyringHolds`, `TestANewerEntryIsLeft` |

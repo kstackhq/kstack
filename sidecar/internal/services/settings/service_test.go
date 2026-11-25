@@ -15,47 +15,21 @@
 package settings
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// On a machine with no sandbox the list is empty and every change is refused.
+// On a machine with no sandbox nothing reads or writes the shell's PATH.
 func TestAServiceWithNoSandboxChangesNothing(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
-	require.NoError(t, err)
-	s := NewService(store, nil, nil, "")
+	store := newStore(t)
+	s := NewService(store, nil, nil, nil, "")
 
-	assert.Nil(t, s.Path())
 	assert.Empty(t, s.PathFault())
-	_, err = s.SyncPath(t.Context(), []string{t.TempDir()})
+	_, err := s.SetShellPath(t.Context(), []string{t.TempDir()})
 	assert.ErrorIs(t, err, ErrNoSandbox)
-	_, err = s.RefreshPath(t.Context())
+	assert.ErrorIs(t, s.RefreshPath(t.Context()), ErrNoSandbox)
+	assert.ErrorIs(t, s.SetPath(t.Context(), "$PATH"), ErrNoSandbox)
+	_, err = s.RunPath(t.Context())
 	assert.ErrorIs(t, err, ErrNoSandbox)
-	_, err = s.AdoptPath(t.TempDir(), t.TempDir())
-	assert.ErrorIs(t, err, ErrNoSandbox)
-	_, err = s.DropPath(t.TempDir())
-	assert.ErrorIs(t, err, ErrNoSandbox)
-	assert.Empty(t, store.Get().Sandbox.Path)
-}
-
-// A stored state holds for its exact Target: an approval or a removal stored
-// in another spelling of a fresh folder does not carry to it.
-func TestDiffPathComparesTargetsAsText(t *testing.T) {
-	stored := []PathEntry{
-		{Dir: "/tools", Target: "/TOOLS", State: PathAdopted, Source: SourceUser},
-		{Dir: "/old", Target: "/BIN", State: PathGone, Source: SourceUser},
-	}
-	fresh := []freshDir{
-		{pathDir: pathDir{Dir: "/tools", Target: "/Tools"}},
-		{pathDir: pathDir{Dir: "/new", Target: "/Bin"}, Open: true},
-	}
-
-	assert.Equal(t, []PathEntry{
-		{Dir: "/tools", Target: "/Tools", State: PathPending, Source: SourceShell},
-		{Dir: "/new", Target: "/Bin", State: PathAdopted, Source: SourceShell},
-		{Dir: "/old", Target: "/BIN", State: PathGone, Source: SourceUser},
-	}, diffPath(stored, fresh, false))
 }

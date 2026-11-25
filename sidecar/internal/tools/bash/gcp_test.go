@@ -42,7 +42,7 @@ func helperAnswering(token, project string) func(context.Context, bool) ([]byte,
 // mountGCP mounts p for a foreground chat run on port 6443.
 func mountGCP(t *testing.T, p CloudPlatform) CloudMount {
 	t.Helper()
-	m, err := p.Mount(t.Context(), CloudRun{Port: 6443, Session: session.Session{Kind: session.Chat}, Refusal: "kstack: no"})
+	m, err := p.Mount(t.Context(), CloudRun{On: switchedOn, Port: 6443, Session: session.Session{Kind: session.Chat}, Refusal: "kstack: no"})
 	require.NoError(t, err)
 	t.Cleanup(m.Grant.End)
 	return m

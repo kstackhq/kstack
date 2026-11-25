@@ -13,32 +13,30 @@
 // limitations under the License.
 
 // The permission modes and rules: the one reader of the `permissionSettings`
-// and `settingsRefused` queries and the six `permission*` mutations, for the
-// Settings section.
-import { useEffect, useMemo, useState } from 'react';
+// query and the five mutations over modes and always rules, for the Settings
+// section.
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery } from 'urql';
 import type { CombinedError } from 'urql';
 
 import { graphql } from '@/gql';
 import type { PermissionClass, PermissionEffect, PermissionMode, PermissionSettingsQuery } from '@/gql/graphql';
-import { refusalOf } from '@/lib/graphql/refusal';
+import { refusalOf, savedUnread } from '@/lib/graphql/refusal';
 
 const PermissionSettingsDocument = graphql(`
   query PermissionSettings {
     permissionSettings {
       defaultMode
-      contexts {
-        context
+      clusters {
+        clusterID
         mode
         source
-        pattern
-        own
       }
-      rules {
+      kubeRules {
         id
         effect
         class
-        context
+        clusterID
         namespace
         verb
         group
@@ -46,17 +44,6 @@ const PermissionSettingsDocument = graphql(`
         line
       }
       destructive
-      held
-    }
-  }
-`);
-
-const SettingsRefusedQuery = graphql(`
-  query SettingsRefused {
-    settingsRefused {
-      field
-      value
-      reason
     }
   }
 `);
@@ -64,136 +51,117 @@ const SettingsRefusedQuery = graphql(`
 const DefaultModeSetMutation = graphql(`
   mutation PermissionDefaultModeSet($mode: PermissionMode!) {
     permissionDefaultModeSet(mode: $mode) {
-      held
+      defaultMode
     }
   }
 `);
 
 const ModeSetMutation = graphql(`
-  mutation PermissionModeSet($context: String!, $mode: PermissionMode!) {
-    permissionModeSet(context: $context, mode: $mode) {
-      held
+  mutation PermissionModeSet($clusterID: ClusterID!, $mode: PermissionMode!) {
+    permissionModeSet(clusterID: $clusterID, mode: $mode) {
+      defaultMode
     }
   }
 `);
 
 const ModeClearMutation = graphql(`
-  mutation PermissionModeClear($context: String!) {
-    permissionModeClear(context: $context) {
-      held
+  mutation PermissionModeClear($clusterID: ClusterID!) {
+    permissionModeClear(clusterID: $clusterID) {
+      defaultMode
     }
   }
 `);
 
-const RuleAddMutation = graphql(`
-  mutation PermissionRuleAdd($input: PermissionRuleInput!) {
-    permissionRuleAdd(input: $input) {
-      held
+const KubeRuleAddMutation = graphql(`
+  mutation KubeRuleAdd($input: KubeRuleInput!) {
+    kubeRuleAdd(input: $input) {
+      defaultMode
     }
   }
 `);
 
-const RuleRemoveMutation = graphql(`
-  mutation PermissionRuleRemove($id: String!) {
-    permissionRuleRemove(id: $id) {
-      held
-    }
-  }
-`);
-
-const DiscardRefusedMutation = graphql(`
-  mutation PermissionDiscardRefused($field: String!) {
-    permissionDiscardRefused(field: $field) {
-      held
+const KubeRuleRemoveMutation = graphql(`
+  mutation KubeRuleRemove($id: String!) {
+    kubeRuleRemove(id: $id) {
+      defaultMode
     }
   }
 `);
 
 export type PermissionSettingsValue = PermissionSettingsQuery['permissionSettings'];
 
-export type Refusal = { field: PermissionField; value: string; reason: string };
+export type ClusterMode = PermissionSettingsValue['clusters'][number];
 
 export type RuleInput = {
   effect: PermissionEffect;
   class: PermissionClass;
-  context: string;
+  /** The one cluster the rule applies to; null is every cluster, which only Deny and Ask may name. */
+  clusterID: string | null;
   namespace: string;
   verb: string;
   group: string;
   kind: string;
 };
 
-/** A field of the permissions group. The wire names it by its dotted key, `permissions.<field>`. */
-export type PermissionField = 'defaultMode' | 'modes' | 'rules';
-
-const PERMISSION_FIELDS: PermissionField[] = ['defaultMode', 'modes', 'rules'];
-
-const keyOf = (field: PermissionField) => `permissions.${field}`;
-
 export type PermissionSettings = {
   /** Undefined until the sidecar has answered. */
   settings: PermissionSettingsValue | undefined;
-  /** The permission values the file holds that Kstack could not read. */
-  refused: Refusal[];
+  /** Why the settings could not be read, while they cannot. */
+  readError: string | null;
+  /** Asks the sidecar for the settings again. */
+  retry: () => void;
   /** The last mutation's refusal, until the next mutation. */
   error: string | null;
-  /** Whether the file holds a value of field Kstack cannot read. */
-  held: (field: PermissionField) => boolean;
   setDefaultMode: (mode: PermissionMode) => void;
-  setMode: (context: string, mode: PermissionMode) => void;
-  clearMode: (context: string) => void;
+  setMode: (clusterID: string, mode: PermissionMode) => void;
+  clearMode: (clusterID: string) => void;
   /** Resolves to whether the sidecar took the rule. */
   addRule: (input: RuleInput) => Promise<boolean>;
   removeRule: (id: string) => void;
-  discardRefused: (field: PermissionField) => void;
 };
 
 export function usePermissionSettings(): PermissionSettings {
   // Asked again on every opening and whenever the window regains focus: another
-  // window can change the settings, and the clusters watch can learn a context,
+  // window can change the settings, and the clusters watch can learn a cluster,
   // and neither reaches this window's cache.
-  const [{ data }, reexecute] = useQuery({ query: PermissionSettingsDocument, requestPolicy: 'cache-and-network' });
+  const [{ data, error: queryError }, reexecute] = useQuery({
+    query: PermissionSettingsDocument,
+    requestPolicy: 'cache-and-network',
+  });
+  const refresh = useCallback(() => reexecute({ requestPolicy: 'network-only' }), [reexecute]);
   useEffect(() => {
-    const refresh = () => reexecute({ requestPolicy: 'network-only' });
     window.addEventListener('focus', refresh);
     return () => window.removeEventListener('focus', refresh);
-  }, [reexecute]);
-  const [{ data: refusedData }] = useQuery({ query: SettingsRefusedQuery });
+  }, [refresh]);
   const [error, setError] = useState<string | null>(null);
   const [, setDefaultMode] = useMutation(DefaultModeSetMutation);
   const [, setMode] = useMutation(ModeSetMutation);
   const [, clearMode] = useMutation(ModeClearMutation);
-  const [, addRule] = useMutation(RuleAddMutation);
-  const [, removeRule] = useMutation(RuleRemoveMutation);
-  const [, discardRefused] = useMutation(DiscardRefusedMutation);
+  const [, addRule] = useMutation(KubeRuleAddMutation);
+  const [, removeRule] = useMutation(KubeRuleRemoveMutation);
 
   const settings = data?.permissionSettings;
-  const refused = refusedData?.settingsRefused;
+  const readError = refusalOf(queryError);
   return useMemo(() => {
     // Every mutation answers the settings it left, so urql's cache asks the
-    // query again; a refusal is drawn until the next mutation.
+    // query again; a refusal is drawn until the next mutation. A change that
+    // took though its answer could not be read is taken, and says so.
     const run = async (mutation: Promise<{ error?: CombinedError }>) => {
-      const refusal = refusalOf((await mutation).error);
+      const answer = await mutation;
+      const refusal = refusalOf(answer.error);
       setError(refusal);
-      return refusal === null;
+      return refusal === null || savedUnread(answer.error);
     };
-    // The query lists every refused value of the file; only the permission
-    // group's are drawn here, each by its field's short name.
-    const permissionRefusals = (refused ?? []).flatMap((r) => {
-      const field = PERMISSION_FIELDS.find((f) => keyOf(f) === r.field);
-      return field ? [{ ...r, field }] : [];
-    });
     return {
       settings,
-      refused: permissionRefusals,
+      readError,
+      retry: refresh,
       error,
-      held: (field) => settings?.held.includes(keyOf(field)) ?? false,
       setDefaultMode: (mode) => run(setDefaultMode({ mode })),
-      setMode: (context, mode) => run(setMode({ context, mode })),
-      clearMode: (context) => run(clearMode({ context })),
+      setMode: (clusterID, mode) => run(setMode({ clusterID, mode })),
+      clearMode: (clusterID) => run(clearMode({ clusterID })),
       addRule: (input) => run(addRule({ input })),
       removeRule: (id) => run(removeRule({ id })),
-      discardRefused: (field) => run(discardRefused({ field: keyOf(field) })),
     };
-  }, [settings, refused, error, setDefaultMode, setMode, clearMode, addRule, removeRule, discardRefused]);
+  }, [settings, readError, refresh, error, setDefaultMode, setMode, clearMode, addRule, removeRule]);
 }

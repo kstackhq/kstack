@@ -524,7 +524,7 @@ func tool(t *testing.T) *Tool {
 	tl.tmpDir = filepath.Join(k.cache, "tmp")
 	tl.kubectlDir = filepath.Join(k.cache, "kubectl")
 	tl.denied = []string{k.data, k.cache, k.runtime}
-	tl.pathList = defaultEntries
+	tl.pathList = typedDefaultPath
 	for _, dir := range []string{tl.runsDir, tl.tmpDir, tl.kubectlDir} {
 		require.NoError(t, os.MkdirAll(dir, 0o700))
 	}
@@ -1364,16 +1364,14 @@ func TestThePromptSaysSudoDoesNotWork(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "cannot create a thread")
 }
 
-// defaultEntries is the platform's default PATH as folders the user included,
+// typedDefaultPath is the platform's default PATH as folders the user typed,
 // so a run over a fake sandbox, which opens no folder, still finds sleep.
-func defaultEntries() settings.RunPath {
-	var entries []settings.PathEntry
-	for _, dir := range filepath.SplitList(defaultPath) {
-		entries = append(entries, settings.PathEntry{
-			Dir: dir, Target: dir, State: settings.PathAdopted, Source: settings.SourceUser,
-		})
+func typedDefaultPath(context.Context) (settings.RunPath, error) {
+	var list settings.RunPath
+	for _, dir := range filepath.SplitList(DefaultPath) {
+		list.Search = append(list.Search, settings.PathFolder{Path: dir, Origin: settings.OriginTyped})
 	}
-	return settings.RunPath{Entries: entries, Resolved: true}
+	return list, nil
 }
 
 // The prompt says what an allow keeps: a change allowed for the chat or always

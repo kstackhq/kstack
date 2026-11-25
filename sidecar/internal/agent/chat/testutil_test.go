@@ -756,44 +756,38 @@ func offered(req llm.Request) []string {
 	return out
 }
 
-// testSettings is a settings store over a file not yet written: every default.
 // grantable makes s a machine with a sandbox whose home is a fresh folder
-// holding a never-readable .ssh and a code/svc, and answers the home.
+// holding a never-readable .ssh and a code/svc, its settings over s's app.db,
+// and answers the home.
 func grantable(t *testing.T, s *service) string {
-	t.Helper()
-	return grantableWith(t, s, "")
-}
-
-// grantableWith is grantable over a settings.json holding settingsJSON, with
-// <home> in it spelled as the home and a / after it as the separator; "" for a
-// file not yet written.
-func grantableWith(t *testing.T, s *service, settingsJSON string) string {
 	t.Helper()
 	home := testutil.GrantableDir(t)
 	for _, d := range []string{".ssh", "code/svc"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(home, d), 0o755))
 	}
-	file := filepath.Join(t.TempDir(), "settings.json")
-	if settingsJSON != "" {
-		// Marshalled, since a Windows path's backslashes are escapes in JSON.
-		inJSON := func(s string) string { b, _ := json.Marshal(s); return string(b[1 : len(b)-1]) }
-		r := strings.NewReplacer("<home>/", inJSON(home+string(filepath.Separator)), "<home>", inJSON(home))
-		require.NoError(t, os.WriteFile(file, []byte(r.Replace(settingsJSON)), 0o600))
-	}
-	store, err := settings.Open(file)
-	require.NoError(t, err)
-	s.settings = settings.NewService(store, func() settings.Zones {
+	s.settings = settings.NewService(settingsStore(t, s.db), func() settings.Zones {
 		return settings.Zones{Never: []string{filepath.Join(home, ".ssh")}, Home: home, NoWrite: sandbox.NoWrite(home)}
-	}, nil, "")
+	}, nil, nil, "")
 	s.sandboxStatus = sandbox.Status{Available: true}
 	return home
 }
 
+// testSettings is a settings service over a file not yet written and an
+// app.db of its own, holding the test clusters: every default.
 func testSettings(t *testing.T) *settings.Service {
 	t.Helper()
-	s, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
+	db := appdbtest.Open(t)
+	seedClusters(t, db, testClusterIDs...)
+	return settings.NewService(settingsStore(t, db), nil, nil, nil, "")
+}
+
+// settingsStore is a settings store over a file not yet written and db.
+func settingsStore(t *testing.T, db *appdb.DB) *settings.Store {
+	t.Helper()
+	store, err := settings.Open(db)
 	require.NoError(t, err)
-	return settings.NewService(s, nil, nil, "")
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	return store
 }
 
 // setToolEnabled turns the tool named name on or off, as Settings does.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"slices"
+	"log/slog"
 	"time"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -344,12 +344,16 @@ func valueOf[T any](p *T) T {
 }
 
 // cloudAccess is the build's cloud platforms, each with its switch.
-func (r *Resolver) cloudAccess() []*model.CloudAccess {
+func (r *Resolver) cloudAccess(ctx context.Context) ([]*model.CloudAccess, error) {
+	sw, err := r.Settings.CloudPlatformSwitches(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]*model.CloudAccess, 0, len(r.CloudTargets))
 	for _, target := range r.CloudTargets {
-		out = append(out, &model.CloudAccess{Target: target, On: r.Settings.CloudOn(target)})
+		out = append(out, &model.CloudAccess{Target: target, On: sw.On(target)})
 	}
-	return out
+	return out, nil
 }
 
 // sandboxPathErr is what every sandbox path resolver returns an error
@@ -362,28 +366,44 @@ func sandboxPathErr(err error) error {
 	return err
 }
 
-// The path entries' states and sources, by their wire spelling.
-var (
-	sandboxPathStates = map[settings.PathState]model.SandboxPathState{
-		settings.PathAdopted: model.SandboxPathStateAdopted,
-		settings.PathPending: model.SandboxPathStatePending,
-		settings.PathGone:    model.SandboxPathStateGone,
-	}
-	sandboxPathSources = map[settings.Source]model.SandboxPathSource{
-		settings.SourceShell: model.SandboxPathSourceShell,
-		settings.SourceUser:  model.SandboxPathSourceUser,
-	}
-)
+// sandboxPathOrigins is each origin by its wire spelling.
+var sandboxPathOrigins = map[settings.PathOrigin]model.SandboxPathOrigin{
+	settings.OriginShell: model.SandboxPathOriginShell,
+	settings.OriginTyped: model.SandboxPathOriginTyped,
+}
 
-// sandboxPathOf is entries on the wire, in order.
-func sandboxPathOf(entries []settings.PathEntry) []*model.SandboxPathEntry {
-	out := make([]*model.SandboxPathEntry, len(entries))
-	for i, e := range entries {
-		out[i] = &model.SandboxPathEntry{
-			Dir: e.Dir, Target: e.Target, State: sandboxPathStates[e.State], Source: sandboxPathSources[e.Source], Shared: e.Shared,
-		}
+// sandboxPath is the PATH setting on the wire, with each of its folders.
+func (r *Resolver) sandboxPath(ctx context.Context) (*model.SandboxPath, error) {
+	setting, folders, err := r.Settings.PathFolders(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	out := &model.SandboxPath{Value: setting.Value, Refusal: optionalString(setting.Refusal), Folders: []*model.SandboxPathFolder{}}
+	for _, f := range folders {
+		out.Folders = append(out.Folders, &model.SandboxPathFolder{
+			Path: f.Path, Origin: sandboxPathOrigins[f.Origin], Target: optionalString(f.Target),
+			Searched: f.Searched, Reason: optionalString(f.Reason), Addable: f.Addable, Shared: f.Shared,
+		})
+	}
+	return out, nil
+}
+
+// optionalString is s, nil when empty.
+func optionalString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// sandboxPathAfter is a save's or a refresh's answer once its write has
+// committed: the setting, else savedUnread.
+func (r *Resolver) sandboxPathAfter(ctx context.Context, done string) (*model.SandboxPath, error) {
+	path, err := r.sandboxPath(ctx)
+	if err != nil {
+		return nil, savedUnread(done, err)
+	}
+	return path, nil
 }
 
 // snapshotOf is the wire's snapshot as the chat service takes it; nil for none.
@@ -418,6 +438,26 @@ func sandboxExecutableErr(err error) error {
 		return gqlerrors.NewValidationError("sandbox-executable", refusal.Error())
 	}
 	return err
+}
+
+// executablesReport is the probe's report over the registered executables,
+// read now.
+func (r *Resolver) executablesReport(ctx context.Context) ([]*model.SandboxExecutable, error) {
+	registered, err := r.Settings.Executables(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return sandboxExecutablesOf(r.Executables.Report(registered)), nil
+}
+
+// executablesAfter is a register's or a remove's answer once its write has
+// committed: the report, else savedUnread.
+func (r *Resolver) executablesAfter(ctx context.Context, done string) ([]*model.SandboxExecutable, error) {
+	report, err := r.executablesReport(ctx)
+	if err != nil {
+		return nil, savedUnread(done, err)
+	}
+	return report, nil
 }
 
 // sandboxConsoleErr is what the console's run resolver returns an error
@@ -474,6 +514,9 @@ func sandboxExecutablesOf(reports []bash.ExecutableReport) []*model.SandboxExecu
 			Resolved: r.Resolved, Shim: r.Shim, Target: r.Target, Ok: r.OK, Version: r.Version,
 			Error: r.Error,
 		}
+		if r.Refusal != "" {
+			out[i].Refusal = &r.Refusal
+		}
 	}
 	return out
 }
@@ -483,38 +526,77 @@ func sandboxExecutablesOf(reports []bash.ExecutableReport) []*model.SandboxExecu
 // refused it, a link's carrying the path it leads to, so the webview can offer
 // that one.
 func folderErr(err error) error {
-	var refusal settings.FolderRefusal
-	var shape settings.Refusal
-	switch {
-	case errors.As(err, &refusal):
+	if refusal, ok := errors.AsType[settings.FolderRefusal](err); ok {
 		e := gqlerrors.NewValidationError(refusal.Rule, refusal.Reason)
 		if refusal.Target != "" {
 			e.Extensions["target"] = refusal.Target
 		}
 		return e
-	case errors.As(err, &shape):
-		return gqlerrors.NewValidationError("folder", shape.Error())
-	case errors.Is(err, settings.ErrHeld):
-		return gqlerrors.NewValidationError("folder", chat.RulesHeldReason)
 	}
 	return chatErr(err)
 }
 
+// sandboxFoldersAfter is a folder grant mutation's answer once its write has
+// committed: the folders, else savedUnread.
+func (r *Resolver) sandboxFoldersAfter(ctx context.Context, chatID apimeta.ChatID, done string) (*model.SandboxFolders, error) {
+	folders, err := r.sandboxFolders(ctx, chatID)
+	if err != nil {
+		return nil, savedUnread(done, err)
+	}
+	return folders, nil
+}
+
+// savedUnread is a mutation's answer when its write committed but what it
+// answers could not be read after: KSTACK_SAVED_UNREAD, saying done, so no one
+// reads it as a refusal and tries again. The reason is logged, not sent.
+func savedUnread(done string, err error) error {
+	slog.Warn("read after a write failed", "write", done, "err", err)
+	e := gqlerrors.Clone(gqlerrors.ErrSavedUnread)
+	e.Message = done + ", but Kstack could not read the settings back. Reopen Settings to see them."
+	return e
+}
+
+// approvalErr is what approvalDecide returns an error through: a rule an
+// answer would write that Kstack cannot apply is a validation error saying
+// why, and anything else is a chat refusal.
+func approvalErr(err error) error {
+	if refusal, ok := errors.AsType[settings.RuleRefusal](err); ok {
+		return gqlerrors.NewValidationError("decision", refusal.Error())
+	}
+	return chatErr(err)
+}
+
+// granteeOf is whose folder grant a grant or revoke of duration names: the
+// chat's for Chat, which must name it, and with no chat an always one. An
+// always grant is never narrowed to a chat, and a chat's never widened to
+// every chat.
+func granteeOf(chatID *apimeta.ChatID, duration model.GrantDuration) (apimeta.ChatID, error) {
+	if duration != model.GrantDurationChat {
+		return "", nil
+	}
+	if chatID == nil || *chatID == "" {
+		return "", gqlerrors.NewValidationError("chatID", "a grant for a chat names the chat")
+	}
+	return *chatID, nil
+}
+
 // sandboxFolders is the folders granted, always and for chatID ("" for no
 // chat), with what no grant opens, as Settings and the composer draw them.
-func (r *Resolver) sandboxFolders(ctx context.Context, chatID apimeta.ChatID) *model.SandboxFolders {
-	always, chat := r.ChatSvc.FolderGrants(ctx, chatID)
+func (r *Resolver) sandboxFolders(ctx context.Context, chatID apimeta.ChatID) (*model.SandboxFolders, error) {
+	always, chat, err := r.ChatSvc.FolderGrants(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
 	out := &model.SandboxFolders{
 		Always: sandboxFoldersOf(always), Chat: sandboxFoldersOf(chat),
 		Never: []string{}, Closed: []string{}, Wide: []string{},
-		RulesHeld: r.Settings.Held(settings.FieldRules),
 	}
 	if r.SandboxStatus.Available {
 		out.Never = append(out.Never, r.Settings.NeverReadable(ctx)...)
 		out.Closed = append(out.Closed, r.Settings.ClosedFolders(ctx)...)
 		out.Wide = append(out.Wide, r.Settings.WideFolders(ctx)...)
 	}
-	return out
+	return out, nil
 }
 
 // sandboxFoldersOf is grants on the wire, in order.
@@ -522,72 +604,80 @@ func sandboxFoldersOf(grants []chat.FolderGrant) []*model.SandboxFolder {
 	out := make([]*model.SandboxFolder, len(grants))
 	for i, g := range grants {
 		out[i] = &model.SandboxFolder{ID: g.ID, Path: g.Path, Write: g.Write}
-		if g.Refused != "" {
-			out[i].Refused = &g.Refused
+		if g.Refusal != "" {
+			out[i].Refusal = &g.Refusal
 		}
 	}
 	return out
 }
 
-// permissionSettings is the permission modes and rules as Settings shows them,
-// each known context's mode among them.
+// permissionSettings is the permission modes and rules as Settings shows them:
+// the mode of each cluster with a kube-context that is not awaiting deletion.
 func (r *Resolver) permissionSettings(ctx context.Context) (*model.PermissionSettings, error) {
 	clusters, err := r.ClusterSvc.Clusters().List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var contexts []string
+	var listed []apimeta.ClusterID
 	for _, c := range clusters {
-		if name := c.KubeContext(); name != "" && c.DeletionRequestedAt == nil {
-			contexts = append(contexts, name)
+		if c.KubeContext() != "" && c.DeletionRequestedAt == nil {
+			listed = append(listed, c.ID)
 		}
 	}
-	slices.Sort(contexts)
-	contexts = slices.Compact(contexts)
-
-	cfg := r.Settings
-	out := &model.PermissionSettings{DefaultMode: cfg.DefaultMode(), Destructive: kubeproxy.Destructive, Held: []string{}}
-	for _, c := range contexts {
-		st := cfg.ModeFor(c)
-		out.Contexts = append(out.Contexts, &st)
+	defaultMode, states, err := r.Settings.ClusterModes(ctx, listed)
+	if err != nil {
+		return nil, err
 	}
-	for _, rule := range cfg.Get().Permissions.Rules {
-		out.Rules = append(out.Rules, &rule)
+	modes := make([]*settings.ClusterModeState, len(states))
+	for i := range states {
+		modes[i] = &states[i]
 	}
-	for _, field := range []string{settings.FieldDefaultMode, settings.FieldModes, settings.FieldRules} {
-		if cfg.Held(field) {
-			out.Held = append(out.Held, field)
-		}
+	rules, err := r.Settings.KubeRules(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return out, nil
-}
-
-// approvalErr is what approvalDecide returns an error through: an Always
-// answer refused while the settings hold rules Kstack cannot read names the
-// file, and anything else is a chat refusal.
-func approvalErr(err error) error {
-	if errors.Is(err, settings.ErrHeld) {
-		return gqlerrors.NewValidationError("decision",
-			"settings.json holds rules Kstack cannot read, so no rule can be added: fix them in Settings, or approve once")
-	}
-	return chatErr(err)
+	return &model.PermissionSettings{DefaultMode: defaultMode, Clusters: modes, KubeRules: rulePointers(rules), Destructive: kubeproxy.Destructive}, nil
 }
 
 // permissionsAfter is a permission mutation's answer: its refusal, else the
 // settings it left.
 func (r *Resolver) permissionsAfter(ctx context.Context, err error) (*model.PermissionSettings, error) {
-	var refusal settings.Refusal
-	switch {
-	case errors.As(err, &refusal):
+	if refusal, ok := errors.AsType[settings.RuleRefusal](err); ok {
 		return nil, gqlerrors.NewValidationError("permission", refusal.Error())
-	case errors.Is(err, settings.ErrHeld):
-		return nil, gqlerrors.NewValidationError("permission", "the settings file holds a value Kstack cannot read: fix it, or discard what Kstack cannot read")
-	case errors.Is(err, settings.ErrNoRule), errors.Is(err, settings.ErrNotHeld):
+	}
+	if refusal, ok := errors.AsType[settings.SettingRefusal](err); ok {
+		return nil, gqlerrors.NewValidationError("permission", refusal.Reason.Error())
+	}
+	switch {
+	case errors.Is(err, settings.ErrClusterGone):
+		return nil, gqlerrors.Clone(gqlerrors.ErrRecordNotFound)
+	case errors.Is(err, settings.ErrNoKubeContext), errors.Is(err, settings.ErrNoRule):
 		return nil, gqlerrors.NewValidationError("permission", err.Error())
 	case err != nil:
 		return nil, err
 	}
-	return r.permissionSettings(ctx)
+	out, err := r.permissionSettings(ctx)
+	if err != nil {
+		return nil, savedUnread("The change was saved", err)
+	}
+	return out, nil
+}
+
+// ruleLine is rule in the user's words, naming its cluster by the record's
+// kube-context, or by its id once the record has none or is gone.
+func (r *Resolver) ruleLine(ctx context.Context, rule permissions.Rule) (string, error) {
+	if rule.ClusterID == "" {
+		return rule.Line(""), nil
+	}
+	c, err := r.ClusterSvc.Clusters().Get(ctx, rule.ClusterID)
+	if err != nil {
+		return "", err
+	}
+	name := string(rule.ClusterID)
+	if c != nil && c.KubeContext() != "" {
+		name = c.KubeContext()
+	}
+	return rule.Line(name), nil
 }
 
 // rulePointers is rules as gqlgen serves a list of them: never null.

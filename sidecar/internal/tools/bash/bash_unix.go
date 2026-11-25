@@ -30,9 +30,9 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
-// defaultPath is what a sandboxed run searches while the user's list was
-// never resolved.
-const defaultPath = loginshell.DefaultPath
+// DefaultPath is what a sandboxed run searches before the login shell was
+// ever read: the PATH a login shell starts from here.
+const DefaultPath = loginshell.DefaultPath
 
 // pipeGrace bounds the wait for the output pipe to close once the group has
 // been killed: a descendant that left the group can still hold it, and the

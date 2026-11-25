@@ -15,13 +15,15 @@
 package settings
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/amorey/gobus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 )
 
 func TestCheckExecutableRefusesEachBadShape(t *testing.T) {
@@ -48,46 +50,136 @@ func TestCheckExecutableRefusesEachBadShape(t *testing.T) {
 	}
 }
 
-// An executable the file holds that fails the check, or repeats a name, is read back
-// without it, and its reason is kept for Settings.
-func TestABadExecutableIsLeftOutWithItsReason(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "settings.json")
-	require.NoError(t, os.WriteFile(file, []byte(`{"executables": [
-		{"name": "k9s", "invocation": "k9s version"},
-		{"name": "bin/tool", "invocation": "bin/tool"},
-		{"name": "helm", "invocation": "helm env"},
-		{"name": "k9s", "invocation": "k9s info"}
-	]}`), 0o600))
-
-	s, err := Open(file)
-	require.NoError(t, err)
-
-	assert.Equal(t, []Executable{{Name: "k9s", Invocation: "k9s version"}}, s.Get().Executables)
-	var refused []string
-	for _, r := range s.Refused() {
-		assert.Equal(t, FieldExecutables, r.Field)
-		refused = append(refused, r.Value)
-	}
-	assert.Equal(t, []string{"bin/tool", "helm", "k9s"}, refused)
+// openWithDB is a store with no file over a fresh app.db, and the db.
+func openWithDB(t *testing.T) (*Store, *appdb.DB) {
+	t.Helper()
+	db := appdbtest.Open(t)
+	return openStore(t, db), db
 }
 
-// An executable is registered with its invocation, or "<name> --version" with none,
-// and removed by name; each refusal is in the user's words and writes nothing.
-func TestRegisterAndRemoveAnExecutable(t *testing.T) {
-	s, err := Open(filepath.Join(t.TempDir(), "settings.json"))
+func executables(t *testing.T, s *Store) []Executable {
+	t.Helper()
+	list, err := s.Executables(t.Context())
 	require.NoError(t, err)
+	return list
+}
 
-	require.NoError(t, s.RegisterExecutable("k9s", ""))
-	require.NoError(t, s.RegisterExecutable("kubectl-foo", "kubectl-foo info"))
-	assert.Equal(t, []Executable{{Name: "k9s", Invocation: "k9s --version"}, {Name: "kubectl-foo", Invocation: "kubectl-foo info"}}, s.Get().Executables)
+// An executable is registered with its invocation, or "<name> --version" with
+// none, listed in the order added, and removed by name; each refusal is in the
+// user's words and writes nothing.
+func TestRegisterAndRemoveAnExecutable(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := t.Context()
+
+	require.NoError(t, s.RegisterExecutable(ctx, "k9s", ""))
+	require.NoError(t, s.RegisterExecutable(ctx, "kubectl-foo", "kubectl-foo info"))
+	assert.Equal(t, []Executable{{Name: "k9s", Invocation: "k9s --version"}, {Name: "kubectl-foo", Invocation: "kubectl-foo info"}}, executables(t, s))
 
 	var refusal ExecutableRefusal
-	assert.ErrorAs(t, s.RegisterExecutable("k9s", "k9s info"), &refusal, "a name already listed")
-	assert.ErrorAs(t, s.RegisterExecutable("kubectl", ""), &refusal, "a curated name")
-	assert.ErrorAs(t, s.RegisterExecutable("bad/name", ""), &refusal, "a bad shape")
-	assert.ErrorAs(t, s.RemoveExecutable("helm"), &refusal, "a name not registered")
-	assert.Len(t, s.Get().Executables, 2)
+	assert.ErrorIs(t, s.RegisterExecutable(ctx, "k9s", "k9s info"), ErrExecutableListed, "a name already listed")
+	assert.ErrorAs(t, s.RegisterExecutable(ctx, "kubectl", ""), &refusal, "a curated name")
+	assert.ErrorAs(t, s.RegisterExecutable(ctx, "bad/name", ""), &refusal, "a bad shape")
+	assert.ErrorIs(t, s.RemoveExecutable(ctx, "helm"), ErrExecutableNotRegistered, "a name not registered")
+	assert.Len(t, executables(t, s), 2)
 
-	require.NoError(t, s.RemoveExecutable("k9s"))
-	assert.Equal(t, []Executable{{Name: "kubectl-foo", Invocation: "kubectl-foo info"}}, s.Get().Executables)
+	require.NoError(t, s.RemoveExecutable(ctx, "k9s"))
+	assert.Equal(t, []Executable{{Name: "kubectl-foo", Invocation: "kubectl-foo info"}}, executables(t, s))
+}
+
+// Two executables added in the same millisecond keep the order they were added.
+func TestExecutablesAreReadInTheOrderAdded(t *testing.T) {
+	t.Parallel()
+	s, db := openWithDB(t)
+	exec(t, db, `INSERT INTO executables (name, invocation, created_at) VALUES ('stern', 'stern --version', 5), ('k9s', 'k9s version', 5), ('argo', 'argo version', 4)`)
+
+	var names []string
+	for _, e := range executables(t, s) {
+		names = append(names, e.Name)
+	}
+	assert.Equal(t, []string{"argo", "stern", "k9s"}, names)
+}
+
+// A row CheckExecutable refuses is listed in its place with its reason, and
+// Remove takes it.
+func TestARefusedExecutableIsListedWithItsReason(t *testing.T) {
+	t.Parallel()
+	s, db := openWithDB(t)
+	exec(t, db, `INSERT INTO executables (name, invocation, created_at) VALUES ('k9s', 'k9s version', 1), ('bin/tool', 'bin/tool', 2), ('stern', 'other --version', 3)`)
+
+	assert.Equal(t, []Executable{
+		{Name: "k9s", Invocation: "k9s version"},
+		{Name: "bin/tool", Invocation: "bin/tool", Refusal: "An executable's name is 1 to 64 letters, digits, ., _, + or -, and does not start with -."},
+		{Name: "stern", Invocation: "other --version", Refusal: "An invocation starts with the executable's name."},
+	}, executables(t, s))
+
+	require.NoError(t, s.RemoveExecutable(t.Context(), "bin/tool"))
+	require.NoError(t, s.RemoveExecutable(t.Context(), "stern"))
+	assert.Equal(t, []Executable{{Name: "k9s", Invocation: "k9s version"}}, executables(t, s))
+}
+
+// A stored name wins over the shape check: a registered name a release made
+// curated answers ErrExecutableListed until the user removes it, and the
+// curated-name refusal after.
+func TestAStoredNameIsListedBeforeItIsChecked(t *testing.T) {
+	t.Parallel()
+	s, db := openWithDB(t)
+	exec(t, db, `INSERT INTO executables (name, invocation, created_at) VALUES ('kubectl', 'kubectl version', 1)`)
+	ctx := t.Context()
+
+	assert.Equal(t, []Executable{{Name: "kubectl", Invocation: "kubectl version", Refusal: "Kstack probes kubectl already."}}, executables(t, s))
+	assert.ErrorIs(t, s.RegisterExecutable(ctx, "kubectl", ""), ErrExecutableListed)
+
+	require.NoError(t, s.RemoveExecutable(ctx, "kubectl"))
+	assert.Equal(t, ExecutableRefusal("Kstack probes kubectl already."), s.RegisterExecutable(ctx, "kubectl", ""))
+	assert.Empty(t, executables(t, s))
+}
+
+// A read that fails is an error, never an empty list, and so is every write.
+func TestAnExecutablesReadThatFailsIsAnError(t *testing.T) {
+	t.Parallel()
+	s, db := openWithDB(t)
+	exec(t, db, `DROP TABLE executables`)
+	ctx := t.Context()
+
+	list, err := s.Executables(ctx)
+	assert.Error(t, err)
+	assert.Nil(t, list)
+	assert.Error(t, s.RegisterExecutable(ctx, "k9s", ""))
+	assert.Error(t, s.RemoveExecutable(ctx, "k9s"))
+}
+
+// A read that fails after some rows were read answers none of them.
+func TestAnExecutablesReadThatFailsPartwayAnswersNone(t *testing.T) {
+	t.Parallel()
+	s, db := openWithDB(t)
+	looseTable(t, db, "executables", `name, invocation, created_at`)
+	exec(t, db, `INSERT INTO executables VALUES ('k9s', 'k9s version', 1), ('stern', NULL, 2)`)
+
+	list, err := s.Executables(t.Context())
+	assert.Error(t, err)
+	assert.Nil(t, list)
+}
+
+// A register or a remove pings once it commits; a refused one pings nothing.
+func TestEachExecutableWritePublishes(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := t.Context()
+	rx := s.WatchExecutables()
+	t.Cleanup(rx.Close)
+	published := func(what string, err error) {
+		t.Helper()
+		require.NoError(t, err, what)
+		_, err = rx.TryRecv()
+		require.NoError(t, err, what)
+	}
+
+	published("a register", s.RegisterExecutable(ctx, "k9s", ""))
+	published("a remove", s.RemoveExecutable(ctx, "k9s"))
+
+	assert.Error(t, s.RegisterExecutable(ctx, "kubectl", ""))
+	assert.Error(t, s.RemoveExecutable(ctx, "k9s"))
+	_, err := rx.TryRecv()
+	assert.ErrorIs(t, err, gobus.ErrEmpty, "a refused write pinged")
 }

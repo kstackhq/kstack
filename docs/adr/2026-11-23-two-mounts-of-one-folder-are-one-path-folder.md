@@ -4,7 +4,7 @@ date: 2026-11-23
 scope: sidecar
 status: Accepted
 amended_by:
-  - [A stored PATH decision holds for its exact path](2026-11-24-a-stored-path-decision-holds-for-its-exact-path.md)
+  - [A sandboxed command's PATH is one setting the user writes](2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md)
 ---
 
 # Treat two mounts of one folder as one PATH folder

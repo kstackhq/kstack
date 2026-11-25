@@ -15,75 +15,240 @@
 package settings
 
 import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
+
+	"github.com/amorey/gobus/conflate"
+
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 )
 
-// The keys of the sandbox group's fields, each of which answers its strictest
-// state while the store holds it.
-const (
-	FieldPath         = "sandbox.path"
-	FieldPathResolved = "sandbox.pathResolved"
-	FieldPathStrict   = "sandbox.pathStrict"
-)
+// A PathRefusal is a PATH the user asked for and cannot have, in their
+// words.
+type PathRefusal string
 
-// PathEntry is one folder of the user's PATH and what the sandbox does with
-// it. An approval holds for its exact Target, the folder the entry resolved
-// to; a removal holds for that Target and for its own Dir, wherever it leads.
-type PathEntry struct {
-	Dir    string    `json:"dir"`              // as the shell gave it
-	Target string    `json:"target"`           // what Dir resolved to when the state was set
-	State  PathState `json:"state"`            // adopted, pending or gone
-	Source Source    `json:"source"`           // whose decision the state is
-	Shared bool      `json:"shared,omitempty"` // Target was writable by a non-admin group at the last sync
+func (r PathRefusal) Error() string { return string(r) }
+
+// pathElement is one element of the PATH setting: the shell's PATH, or a
+// folder the user typed, as typed.
+type pathElement struct {
+	shell bool
+	typed string
 }
 
-// PathState is what the sandbox does with an entry.
-type PathState string
-
-const (
-	// PathAdopted is on the sandbox's PATH and readable in it.
-	PathAdopted PathState = "adopted"
-	// PathPending is listed by the shell and waits for the user: adopting it
-	// would add readable surface, or it is shared.
-	PathPending PathState = "pending"
-	// PathGone is removed by the user, and kept so a sync does not adopt it
-	// again, whether or not the shell lists it.
-	PathGone PathState = "gone"
-)
-
-// Source is whose decision an entry's state is.
-type Source string
-
-const (
-	SourceShell Source = "shell" // the sync's
-	SourceUser  Source = "user"  // Include's or Remove's
-)
-
-// checkPath refuses an entry whose dir or target is not absolute, whose dir
-// an earlier entry has, or whose state or source is not one of the names
-// above.
-func checkPath(v *Settings) []Refusal {
-	var refused []Refusal
-	var kept []PathEntry
-	for _, e := range v.Sandbox.Path {
-		reason := ""
-		switch {
-		case !filepath.IsAbs(e.Dir) || !filepath.IsAbs(e.Target):
-			reason = "is not an absolute folder"
-		case slices.ContainsFunc(kept, func(k PathEntry) bool { return k.Dir == e.Dir }):
-			reason = "is listed twice"
-		case !slices.Contains([]PathState{PathAdopted, PathPending, PathGone}, e.State):
-			reason = "has a state Kstack does not know"
-		case !slices.Contains([]Source{SourceShell, SourceUser}, e.Source):
-			reason = "has a source Kstack does not know"
-		}
-		if reason != "" {
-			refused = append(refused, Refusal{Field: FieldPath, Value: e.Dir, Reason: reason})
+// parsePath splits value into its elements, refusing it whole on the first
+// bad one. It reads no disk.
+func parsePath(value string) ([]pathElement, error) {
+	var elements []pathElement
+	for e := range strings.SplitSeq(value, string(filepath.ListSeparator)) {
+		if e == "$PATH" || e == "${PATH}" {
+			elements = append(elements, pathElement{shell: true})
 			continue
 		}
-		kept = append(kept, e)
+		if reason := typedRefusal(e); reason != "" {
+			return nil, PathRefusal(reason)
+		}
+		elements = append(elements, pathElement{typed: e})
 	}
-	v.Sandbox.Path = kept
-	return refused
+	return elements, nil
+}
+
+// typedRefusal is why e cannot be a typed folder, "" when it can.
+func typedRefusal(e string) string {
+	rest, underHome := homeRelative(e)
+	switch {
+	case e == "":
+		return "The PATH has an empty entry, which a shell searches as the current folder."
+	case strings.ContainsRune(e, 0):
+		return fmt.Sprintf("%q holds a NUL character.", e)
+	case slices.Contains([]string{"~", "$HOME", "${HOME}"}, e) || underHome && filepath.Clean(rest) == ".":
+		return fmt.Sprintf("%q is your home, which sandboxed commands never search.", e)
+	case strings.Contains(e, "$PATH") || strings.Contains(e, "${PATH}"):
+		return fmt.Sprintf("%q mixes $PATH with other text; give $PATH an entry of its own.", e)
+	case strings.Contains(rest, "$"):
+		return fmt.Sprintf("%q names a variable; Kstack expands only $PATH, $HOME and ~.", e)
+	case !underHome && !filepath.IsAbs(e):
+		return fmt.Sprintf("%q is not a full path.", e)
+	case slices.Contains(strings.Split(rest, "/"), ".."):
+		// A shell resolves .. through links, and Kstack would resolve it as
+		// text, so the two would search different folders.
+		return fmt.Sprintf("%q holds \"..\"; name the folder without it.", e)
+	}
+	return ""
+}
+
+// homeRelative is e with a leading ~/, $HOME/ or ${HOME}/ taken off, and
+// whether it had one; else e as it is.
+func homeRelative(e string) (string, bool) {
+	for _, prefix := range []string{"~/", "$HOME/", "${HOME}/"} {
+		if rest, ok := strings.CutPrefix(e, prefix); ok {
+			return rest, true
+		}
+	}
+	return e, false
+}
+
+// CheckPath refuses a PATH setting that does not parse, in the user's words,
+// naming the element.
+func CheckPath(value string) error {
+	_, err := parsePath(value)
+	return err
+}
+
+// PathOrigin is where a folder of the PATH setting came from.
+type PathOrigin string
+
+const (
+	// OriginShell is a folder of the login shell's PATH, spliced in for
+	// $PATH. A run searches it only when every run reads it already.
+	OriginShell PathOrigin = "shell"
+	// OriginTyped is a folder the user typed: their read grant.
+	OriginTyped PathOrigin = "typed"
+)
+
+// PathFolder is one folder of the PATH setting, expanded, and its origin.
+type PathFolder struct {
+	Path   string
+	Origin PathOrigin
+}
+
+// ExpandPath is value's folders in order: each $PATH is shell, already split
+// and never expanded again, and each typed folder is expanded against home,
+// canonical, and cleaned. A value that does not parse is its refusal.
+func ExpandPath(value string, shell []string, home string) ([]PathFolder, error) {
+	elements, err := parsePath(value)
+	if err != nil {
+		return nil, err
+	}
+	var folders []PathFolder
+	for _, e := range elements {
+		if e.shell {
+			for _, dir := range shell {
+				folders = append(folders, PathFolder{Path: dir, Origin: OriginShell})
+			}
+			continue
+		}
+		path := e.typed
+		if rest, ok := homeRelative(path); ok {
+			path = filepath.Join(home, rest)
+		}
+		folders = append(folders, PathFolder{Path: filepath.Clean(path), Origin: OriginTyped})
+	}
+	return folders, nil
+}
+
+// PathSetting is the PATH setting as stored, and why Kstack cannot use it,
+// "" when it can.
+type PathSetting struct {
+	Value   string
+	Refusal string
+}
+
+// pathEntry is the PATH setting. It has no strictest value: a stored value
+// Kstack cannot use is read with its refusal, which starts no run.
+var pathEntry = Entry[string]{Key: "sandbox.path", Default: "$PATH", Check: CheckPath}
+
+// selectPath is the PATH setting, $PATH with no row, a refused one with its
+// refusal. A read that fails is an error, never $PATH.
+func selectPath(ctx context.Context, st stmts) (PathSetting, error) {
+	scopes, err := selectScopedSetting(ctx, st, pathEntry.Key, "")
+	if err != nil {
+		return PathSetting{}, fmt.Errorf("select path setting: %w", err)
+	}
+	switch value := scopes[""].(type) {
+	case nil:
+		return pathSettingOf(pathEntry.Default), nil
+	case string:
+		return pathSettingOf(value), nil
+	}
+	return PathSetting{Refusal: "The stored PATH is not text."}, nil
+}
+
+// pathSettingOf is value with the grammar's refusal of it.
+func pathSettingOf(value string) PathSetting {
+	setting := PathSetting{Value: value}
+	if err := CheckPath(value); err != nil {
+		setting.Refusal = err.Error()
+	}
+	return setting
+}
+
+// SetPath saves the PATH setting, once the grammar passes it: its refusal is
+// a PathRefusal, which the wire maps.
+func (s *Store) SetPath(ctx context.Context, value string) error {
+	if err := CheckPath(value); err != nil {
+		return err
+	}
+	return s.write(ctx, appdb.KeySandboxPath, func(st stmts) error {
+		return writeSetting(ctx, st, pathEntry, "", value, s.now().UnixMilli())
+	})
+}
+
+// WatchSandboxPath pings after each save of the setting and each read of the
+// login shell. Watch before the first read.
+func (s *Store) WatchSandboxPath() *conflate.Receiver[string, struct{}] {
+	return s.db.Subscribe(appdb.KeySandboxPath)
+}
+
+// ErrEmptyShellPath is a login shell that answered no PATH: a broken startup
+// file, never a choice, so it keeps the last one read.
+var ErrEmptyShellPath = PathRefusal("Your shell's PATH is empty.")
+
+// selectShellPath is the login shell's PATH as last read, split, and whether
+// a read has ever answered.
+func selectShellPath(ctx context.Context, st stmts) ([]string, bool, error) {
+	var joined string
+	err := st.QueryRow(ctx, stmtSelectShellPath).Scan(&joined)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("select shell path: %w", err)
+	}
+	return filepath.SplitList(joined), true, nil
+}
+
+// writeShellPath stores dirs as the login shell's PATH, and answers the one it
+// replaced and whether it changed. A folder whose name holds the separator
+// splits differently on read, but no run may search such a folder anyway.
+func (s *Store) writeShellPath(ctx context.Context, dirs []string) (before []string, changed bool, err error) {
+	if len(dirs) == 0 {
+		return nil, false, ErrEmptyShellPath
+	}
+	err = s.stmts.InTx(ctx, func(st stmts) error {
+		before, _, err = selectShellPath(ctx, st)
+		if err != nil {
+			return err
+		}
+		if changed = !slices.Equal(before, dirs); !changed {
+			return nil
+		}
+		if _, err := st.Exec(ctx, stmtUpsertShellPath, strings.Join(dirs, string(filepath.ListSeparator))); err != nil {
+			return fmt.Errorf("write shell path: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return before, changed, nil
+}
+
+// readPath is the PATH setting and the shell's last PATH, from one read
+// transaction, so a run never pairs a new setting with an old shell PATH.
+// found is false before a read of the shell ever answered.
+func (s *Store) readPath(ctx context.Context) (setting PathSetting, shell []string, found bool, err error) {
+	err = s.stmts.InReadTx(ctx, func(st stmts) error {
+		if setting, err = selectPath(ctx, st); err != nil {
+			return err
+		}
+		shell, found, err = selectShellPath(ctx, st)
+		return err
+	})
+	return setting, shell, found, err
 }

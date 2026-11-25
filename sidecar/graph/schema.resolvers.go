@@ -15,9 +15,7 @@ import (
 	gqlerrors "github.com/kstackhq/kstack/sidecar/graph/errors"
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
-	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
@@ -30,6 +28,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/envvars"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/services/toolsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -254,6 +253,19 @@ func (r *googleConnectionResolver) Failure(ctx context.Context, obj *connectors.
 	return &obj.Failure, nil
 }
 
+// ClusterID is the resolver for the clusterID field.
+func (r *kubeRuleResolver) ClusterID(ctx context.Context, obj *permissions.Rule) (*apimeta.ClusterID, error) {
+	if obj.ClusterID == "" {
+		return nil, nil
+	}
+	return &obj.ClusterID, nil
+}
+
+// Line is the resolver for the line field.
+func (r *kubeRuleResolver) Line(ctx context.Context, obj *permissions.Rule) (string, error) {
+	return r.ruleLine(ctx, *obj)
+}
+
 // ProviderKeySave is the resolver for the providerKeySave field.
 func (r *mutationResolver) ProviderKeySave(ctx context.Context, providerID string, key string) (bool, error) {
 	if err := r.ProviderCredentials.Save(providerID, key); err != nil {
@@ -401,28 +413,26 @@ func (r *mutationResolver) SandboxCloudAccessSet(ctx context.Context, target per
 	if !slices.Contains(r.CloudTargets, target) {
 		return nil, gqlerrors.NewValidationError("sandbox-cloud", "This build has no switch for that target.")
 	}
-	if err := r.Settings.SetCloud(target, on); err != nil { // coverage:ignore a listed cloud platform has a switch, so only the file's write fails
+	if err := r.Settings.SetCloudPlatformSwitch(ctx, target, on); err != nil {
 		return nil, err
 	}
-	return r.cloudAccess(), nil
+	return r.cloudAccess(ctx)
 }
 
-// SandboxPathInclude is the resolver for the sandboxPathInclude field.
-func (r *mutationResolver) SandboxPathInclude(ctx context.Context, dir string, target string) ([]*model.SandboxPathEntry, error) {
-	entries, err := r.Settings.AdoptPath(dir, target)
-	return sandboxPathOf(entries), sandboxPathErr(err)
-}
-
-// SandboxPathRemove is the resolver for the sandboxPathRemove field.
-func (r *mutationResolver) SandboxPathRemove(ctx context.Context, dir string) ([]*model.SandboxPathEntry, error) {
-	entries, err := r.Settings.DropPath(dir)
-	return sandboxPathOf(entries), sandboxPathErr(err)
+// SandboxPathSet is the resolver for the sandboxPathSet field.
+func (r *mutationResolver) SandboxPathSet(ctx context.Context, value string) (*model.SandboxPath, error) {
+	if err := r.Settings.SetPath(ctx, value); err != nil {
+		return nil, sandboxPathErr(err)
+	}
+	return r.sandboxPathAfter(ctx, "Your PATH was saved")
 }
 
 // SandboxPathRefresh is the resolver for the sandboxPathRefresh field.
-func (r *mutationResolver) SandboxPathRefresh(ctx context.Context) ([]*model.SandboxPathEntry, error) {
-	entries, err := r.Settings.RefreshPath(ctx)
-	return sandboxPathOf(entries), sandboxPathErr(err)
+func (r *mutationResolver) SandboxPathRefresh(ctx context.Context) (*model.SandboxPath, error) {
+	if err := r.Settings.RefreshPath(ctx); err != nil {
+		return nil, sandboxPathErr(err)
+	}
+	return r.sandboxPathAfter(ctx, "Your shell's PATH was read")
 }
 
 // SandboxExecutablesProbe is the resolver for the sandboxExecutablesProbe field.
@@ -430,8 +440,13 @@ func (r *mutationResolver) SandboxExecutablesProbe(ctx context.Context) ([]*mode
 	if !r.probes() {
 		return nil, noSandboxExecutables()
 	}
-	r.Executables.StartProbe(r.registeredExecutables())
-	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+	// One read, so none fails once the probe has started.
+	registered, err := r.Settings.Executables(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r.Executables.StartProbe(registered)
+	return sandboxExecutablesOf(r.Executables.Report(registered)), nil
 }
 
 // SandboxConsoleRun is the resolver for the sandboxConsoleRun field.
@@ -463,21 +478,21 @@ func (r *mutationResolver) SandboxExecutableRegister(ctx context.Context, name s
 	if invocation != nil {
 		given = *invocation
 	}
-	if err := r.Settings.RegisterExecutable(name, given); err != nil {
+	if err := r.Settings.RegisterExecutable(ctx, name, given); err != nil {
 		return nil, sandboxExecutableErr(err)
 	}
-	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+	return r.executablesAfter(ctx, "The executable was registered")
 }
 
 // SandboxExecutableRemove is the resolver for the sandboxExecutableRemove field.
 func (r *mutationResolver) SandboxExecutableRemove(ctx context.Context, name string) ([]*model.SandboxExecutable, error) {
-	if err := r.Settings.RemoveExecutable(name); err != nil {
+	if err := r.Settings.RemoveExecutable(ctx, name); err != nil {
 		return nil, sandboxExecutableErr(err)
 	}
 	if !r.probes() {
 		return []*model.SandboxExecutable{}, nil
 	}
-	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+	return r.executablesAfter(ctx, "The executable was removed")
 }
 
 // EnvVarSet is the resolver for the envVarSet field. Its answer is read after
@@ -547,69 +562,65 @@ func (r *mutationResolver) ToolSettingSet(ctx context.Context, name string, enab
 
 // PermissionDefaultModeSet is the resolver for the permissionDefaultModeSet field.
 func (r *mutationResolver) PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.SetDefaultMode(mode))
+	return r.permissionsAfter(ctx, r.Settings.SetDefaultMode(ctx, mode))
 }
 
 // PermissionModeSet is the resolver for the permissionModeSet field.
-func (r *mutationResolver) PermissionModeSet(ctx context.Context, context string, mode permissions.Mode) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.SetMode(context, mode))
+func (r *mutationResolver) PermissionModeSet(ctx context.Context, clusterID apimeta.ClusterID, mode permissions.Mode) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.Settings.SetMode(ctx, clusterID, mode))
 }
 
 // PermissionModeClear is the resolver for the permissionModeClear field.
-func (r *mutationResolver) PermissionModeClear(ctx context.Context, context string) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.ClearMode(context))
+func (r *mutationResolver) PermissionModeClear(ctx context.Context, clusterID apimeta.ClusterID) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.Settings.ClearMode(ctx, clusterID))
 }
 
-// PermissionRuleAdd is the resolver for the permissionRuleAdd field.
-func (r *mutationResolver) PermissionRuleAdd(ctx context.Context, input model.PermissionRuleInput) (*model.PermissionSettings, error) {
+// KubeRuleAdd is the resolver for the kubeRuleAdd field.
+func (r *mutationResolver) KubeRuleAdd(ctx context.Context, input model.KubeRuleInput) (*model.PermissionSettings, error) {
 	rule := permissions.Rule{
-		ID: appdb.NewID(), Effect: input.Effect, Class: input.Class,
-		Context: input.Context, Namespace: input.Namespace, Verb: input.Verb, Group: input.Group, Kind: input.Kind,
+		Effect: input.Effect, Class: input.Class, ClusterID: valueOf(input.ClusterID),
+		Namespace: input.Namespace, Verb: input.Verb, Group: input.Group, Kind: input.Kind,
 	}
-	return r.permissionsAfter(ctx, r.Settings.AddRule(rule))
+	_, err := r.Settings.AddKubeRule(ctx, rule)
+	return r.permissionsAfter(ctx, err)
 }
 
-// PermissionRuleRemove is the resolver for the permissionRuleRemove field.
-func (r *mutationResolver) PermissionRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.RemoveRule(id))
+// KubeRuleRemove is the resolver for the kubeRuleRemove field.
+func (r *mutationResolver) KubeRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.Settings.RemoveKubeRule(ctx, id))
 }
 
-// ChatGrantRemove is the resolver for the chatGrantRemove field.
-func (r *mutationResolver) ChatGrantRemove(ctx context.Context, chatID apimeta.ChatID, id string) ([]*permissions.Rule, error) {
-	rules, err := r.ChatSvc.RemoveChatGrant(ctx, chatID, id)
+// ChatKubeRuleRemove is the resolver for the chatKubeRuleRemove field.
+func (r *mutationResolver) ChatKubeRuleRemove(ctx context.Context, chatID apimeta.ChatID, id string) ([]*permissions.Rule, error) {
+	rules, err := r.ChatSvc.RemoveChatKubeRule(ctx, chatID, id)
 	if err != nil {
 		return nil, chatErr(err)
 	}
 	return rulePointers(rules), nil
 }
 
-// PermissionDiscardRefused is the resolver for the permissionDiscardRefused field.
-func (r *mutationResolver) PermissionDiscardRefused(ctx context.Context, field string) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.Settings.DiscardRefused(field))
-}
-
 // FolderGrant is the resolver for the folderGrant field.
 func (r *mutationResolver) FolderGrant(ctx context.Context, chatID *apimeta.ChatID, path string, write bool, duration model.GrantDuration) (*model.SandboxFolders, error) {
-	// An always grant belongs to no chat, and a chat's grant names its chat.
-	var chat apimeta.ChatID
-	if duration == model.GrantDurationChat {
-		if chatID == nil || *chatID == "" {
-			return nil, gqlerrors.NewValidationError("chatID", "a grant for a chat names the chat")
-		}
-		chat = *chatID
+	chat, err := granteeOf(chatID, duration)
+	if err != nil {
+		return nil, err
 	}
 	if err := r.ChatSvc.GrantFolder(ctx, chat, path, write); err != nil {
 		return nil, folderErr(err)
 	}
-	return r.sandboxFolders(ctx, chat), nil
+	return r.sandboxFoldersAfter(ctx, chat, "The folder was granted")
 }
 
 // FolderRevoke is the resolver for the folderRevoke field.
-func (r *mutationResolver) FolderRevoke(ctx context.Context, id string) (*model.SandboxFolders, error) {
-	if err := r.ChatSvc.RevokeFolder(id); err != nil {
+func (r *mutationResolver) FolderRevoke(ctx context.Context, chatID *apimeta.ChatID, id string, duration model.GrantDuration) (*model.SandboxFolders, error) {
+	chat, err := granteeOf(chatID, duration)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.ChatSvc.RevokeFolder(ctx, chat, id); err != nil {
 		return nil, folderErr(err)
 	}
-	return r.sandboxFolders(ctx, ""), nil
+	return r.sandboxFoldersAfter(ctx, chat, "The grant was removed")
 }
 
 // AuthLoginStart is the resolver for the authLoginStart field: it returns once the
@@ -846,24 +857,14 @@ func (r *queryResolver) ClusterCachedKinds(ctx context.Context, cacheID *apimeta
 	return r.ClusterSvc.CachedKinds().List(ctx)
 }
 
-// SettingsRefused is the resolver for the settingsRefused field.
-func (r *queryResolver) SettingsRefused(ctx context.Context) ([]*jsonsettings.Refusal, error) {
-	refused := r.Settings.Refused()
-	out := make([]*jsonsettings.Refusal, len(refused))
-	for i := range refused {
-		out[i] = &refused[i]
-	}
-	return out, nil
-}
-
 // SandboxCloudAccess is the resolver for the sandboxCloudAccess field.
 func (r *queryResolver) SandboxCloudAccess(ctx context.Context) ([]*model.CloudAccess, error) {
-	return r.cloudAccess(), nil
+	return r.cloudAccess(ctx)
 }
 
 // SandboxPath is the resolver for the sandboxPath field.
-func (r *queryResolver) SandboxPath(ctx context.Context) ([]*model.SandboxPathEntry, error) {
-	return sandboxPathOf(r.Settings.Path()), nil
+func (r *queryResolver) SandboxPath(ctx context.Context) (*model.SandboxPath, error) {
+	return r.sandboxPath(ctx)
 }
 
 // SandboxPathFault is the resolver for the sandboxPathFault field.
@@ -874,17 +875,12 @@ func (r *queryResolver) SandboxPathFault(ctx context.Context) (*string, error) {
 	return nil, nil
 }
 
-// SandboxPathResolved is the resolver for the sandboxPathResolved field.
-func (r *queryResolver) SandboxPathResolved(ctx context.Context) (bool, error) {
-	return r.Settings.PathResolved(), nil
-}
-
 // SandboxExecutables is the resolver for the sandboxExecutables field.
 func (r *queryResolver) SandboxExecutables(ctx context.Context) ([]*model.SandboxExecutable, error) {
 	if !r.probes() {
 		return []*model.SandboxExecutable{}, nil
 	}
-	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+	return r.executablesReport(ctx)
 }
 
 // EnvVars is the resolver for the envVars field.
@@ -899,12 +895,12 @@ func (r *queryResolver) PermissionSettings(ctx context.Context) (*model.Permissi
 
 // SandboxFolders is the resolver for the sandboxFolders field.
 func (r *queryResolver) SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error) {
-	return r.sandboxFolders(ctx, valueOf(chatID)), nil
+	return r.sandboxFolders(ctx, valueOf(chatID))
 }
 
-// ChatGrants is the resolver for the chatGrants field.
-func (r *queryResolver) ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error) {
-	rules, err := r.ChatSvc.ChatGrants(ctx, chatID)
+// ChatKubeRules is the resolver for the chatKubeRules field.
+func (r *queryResolver) ChatKubeRules(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error) {
+	rules, err := r.ChatSvc.ChatKubeRules(ctx, chatID)
 	if err != nil {
 		return nil, chatErr(err)
 	}
@@ -1142,9 +1138,10 @@ func (r *subscriptionResolver) LogsFollow(ctx context.Context, id apimeta.Cluste
 }
 
 // SandboxExecutablesWatch is the resolver for the sandboxExecutablesWatch field: the
-// probe's state and the settings' registered tools, each a current-on-subscribe
-// receiver, folded into one report on either's change. A machine with no
-// sandbox answers one empty report.
+// probe's state, a current-on-subscribe receiver, and the registered
+// executables, read once and again on each ping, folded into one report on
+// either's change. A read that fails ends the watch with its reason. A machine
+// with no sandbox answers one empty report.
 func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error) {
 	out := make(chan *model.SandboxExecutablesReport)
 	send := func(report *model.SandboxExecutablesReport) bool {
@@ -1163,14 +1160,25 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 		}()
 		return out, nil
 	}
-	probe, settings := r.Executables.WatchProbe(), r.Settings.Subscribe()
+	// Subscribed before the first read, since a ping is not current-on-subscribe.
+	probe, pings := r.Executables.WatchProbe(), r.Settings.WatchExecutables()
 	go func() {
 		defer close(out)
 		defer probe.Close()
-		defer settings.Close()
+		defer pings.Close()
+		read := func() ([]settings.Executable, error) {
+			registered, err := r.Settings.Executables(ctx)
+			if err != nil {
+				recordWatchFailure(ctx, fmt.Errorf("read the executables: %w", err))
+			}
+			return registered, err
+		}
 		var state bash.ProbeState
-		registered := r.registeredExecutables()
-		probeC, settingsC := probe.Chan(), settings.Chan()
+		registered, err := read()
+		if err != nil {
+			return
+		}
+		probeC, pingsC := probe.Chan(), pings.Chan()
 		for {
 			select {
 			case <-ctx.Done():
@@ -1180,11 +1188,13 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 					return
 				}
 				state = st
-			case s, ok := <-settingsC:
-				if !ok { // coverage:ignore the settings store never closes its hub
+			case _, ok := <-pingsC:
+				if !ok { // coverage:ignore only the database closing under a subscriber
 					return
 				}
-				registered = s.Executables
+				if registered, err = read(); err != nil {
+					return
+				}
 			}
 			report := &model.SandboxExecutablesReport{Probing: state.Probing, Probes: state.Probes, Executables: sandboxExecutablesOf(bash.ReportOver(state.Last, registered))}
 			if !send(report) { // coverage:ignore only the subscriber leaving while a report is in flight
@@ -1196,35 +1206,49 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 }
 
 // SandboxFoldersWatch is the resolver for the sandboxFoldersWatch field: the
-// folders, read again on each settings value and each ping of the chat's
-// grants. The settings receiver is current-on-subscribe, so its first value
-// sends the first frame. With no chat, nothing pings the grants.
+// folders, read once, then again on each save of the PATH or read of the
+// shell, each write of the always grants and each ping of the chat's grants.
+// No ping is current-on-subscribe, so the first frame is read before any.
+// With no chat, nothing pings the grants. A read that fails ends the watch
+// with its reason, so the client reconnects and reads again.
 func (r *subscriptionResolver) SandboxFoldersWatch(ctx context.Context, chatID *apimeta.ChatID) (<-chan *model.SandboxFolders, error) {
 	chat := valueOf(chatID)
-	settings, grants := r.Settings.Subscribe(), r.ChatSvc.WatchGrants(chat)
+	// Subscribed before the first read, so a write between the two is not
+	// missed.
+	path, always, grants := r.Settings.WatchSandboxPath(), r.Settings.WatchPermissions(), r.ChatSvc.WatchGrants(chat)
 	out := make(chan *model.SandboxFolders)
 	go func() {
 		defer close(out)
-		defer settings.Close()
+		defer path.Close()
+		defer always.Close()
 		defer grants.Close()
-		settingsC, grantsC := settings.Chan(), grants.Chan()
+		pathC, alwaysC, grantsC := path.Chan(), always.Chan(), grants.Chan()
 		for {
+			folders, err := r.sandboxFolders(ctx, chat)
+			if err != nil {
+				recordWatchFailure(ctx, fmt.Errorf("read the sandbox folders: %w", err))
+				return
+			}
+			select {
+			case out <- folders:
+			case <-ctx.Done(): // coverage:ignore only the subscriber leaving while a value is in flight
+				return
+			}
 			select {
 			case <-ctx.Done():
 				return
-			case _, ok := <-settingsC:
-				if !ok { // coverage:ignore the settings store never closes its hub
+			case _, ok := <-pathC:
+				if !ok { // coverage:ignore only the database closing under a subscriber
+					return
+				}
+			case _, ok := <-alwaysC:
+				if !ok { // coverage:ignore only the database closing under a subscriber
 					return
 				}
 			case _, ok := <-grantsC:
 				if !ok { // coverage:ignore only the database closing under a subscriber
 					return
 				}
-			}
-			select {
-			case out <- r.sandboxFolders(ctx, chat):
-			case <-ctx.Done(): // coverage:ignore only the subscriber leaving while a value is in flight
-				return
 			}
 		}
 	}()
@@ -1353,6 +1377,9 @@ func (r *Resolver) GitHubConnection() GitHubConnectionResolver { return &gitHubC
 // GoogleConnection returns GoogleConnectionResolver implementation.
 func (r *Resolver) GoogleConnection() GoogleConnectionResolver { return &googleConnectionResolver{r} }
 
+// KubeRule returns KubeRuleResolver implementation.
+func (r *Resolver) KubeRule() KubeRuleResolver { return &kubeRuleResolver{r} }
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
@@ -1388,6 +1415,7 @@ type (
 	envVarResolver                  struct{ *Resolver }
 	gitHubConnectionResolver        struct{ *Resolver }
 	googleConnectionResolver        struct{ *Resolver }
+	kubeRuleResolver                struct{ *Resolver }
 	mutationResolver                struct{ *Resolver }
 	openRouterConnectionResolver    struct{ *Resolver }
 	providerCredentialStateResolver struct{ *Resolver }

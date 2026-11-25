@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Sandbox } from '@/lib/sandbox';
 import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-executables';
-import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
+import type { SandboxPath, SandboxPathFolder } from '@/lib/sandbox-path';
 import { expectCodeText } from '@/test-utils';
 
 const { sandbox, path, executables } = vi.hoisted(() => ({
@@ -32,7 +32,7 @@ vi.mock('@/lib/sandbox-executables', () => ({ useSandboxExecutables: () => execu
 // Each section's own behavior is its test's; here a stub says it is drawn.
 vi.mock('./sandbox-folders', () => ({
   SandboxFolderGroups: ({ path: drawn }: { path: SandboxPath }) => (
-    <p>Folders of {drawn.entries?.length} PATH entries</p>
+    <p>Folders of {drawn.folders?.length} PATH folders</p>
   ),
 }));
 vi.mock('./sandbox-network', () => ({ SandboxNetwork: () => <p>Network</p> }));
@@ -43,30 +43,27 @@ vi.mock('./sandbox-console', () => ({
 
 const { SandboxSettings } = await import('./sandbox');
 
-const entry = (
-  dir: string,
-  state: SandboxPathEntry['state'],
-  extra: Partial<SandboxPathEntry> = {},
-): SandboxPathEntry => ({
-  dir,
+const pathFolder = (dir: string): SandboxPathFolder => ({
+  path: dir,
+  origin: 'Shell',
   target: dir,
-  state,
-  source: 'Shell',
+  searched: true,
+  reason: null,
+  addable: false,
   shared: false,
-  ...extra,
 });
 
 function withPath(over: Partial<SandboxPath>) {
   path.current = {
-    entries: [],
+    value: '$PATH',
+    refusal: null,
+    folders: [],
     fault: null,
-    resolved: true,
-    changing: new Set(),
+    saving: false,
     refreshing: false,
-    changeError: null,
+    saveError: null,
     refreshError: null,
-    include: vi.fn(async () => {}),
-    remove: vi.fn(async () => {}),
+    save: vi.fn(async () => true),
     refresh: vi.fn(async () => true),
     ...over,
   };
@@ -98,8 +95,13 @@ const probed = (name: string, extra: Partial<SandboxExecutable> = {}): SandboxEx
   ok: true,
   version: `${name} v1`,
   error: '',
+  refusal: null,
   ...extra,
 });
+
+// refused is a registered executable the shape check refuses, never probed.
+const refused = (name: string, invocation: string, refusal: string): SandboxExecutable =>
+  probed(name, { invocation, registered: true, probed: false, resolved: '', ok: false, version: '', refusal });
 
 beforeEach(() => {
   sandbox.current = {
@@ -116,11 +118,11 @@ beforeEach(() => {
 
 describe('SandboxSettings', () => {
   it('draws the status, then Folders, Network, PATH, Executables and Environment', () => {
-    withPath({ entries: [entry('/opt/homebrew/bin', 'Adopted')] });
+    withPath({ folders: [pathFolder('/opt/homebrew/bin')] });
     render(<SandboxSettings />);
     expect(screen.getByText('Sandbox is on')).toBeInTheDocument();
     // Folders and PATH share one PATH reader, so a refresh holds both.
-    expect(screen.getByText('Folders of 1 PATH entries')).toBeInTheDocument();
+    expect(screen.getByText('Folders of 1 PATH folders')).toBeInTheDocument();
     const order = ['Network', 'PATH', 'Executables', 'Environment'].map((name) =>
       name === 'PATH' || name === 'Executables' ? screen.getByRole('group', { name }) : screen.getByText(name),
     );
@@ -308,6 +310,37 @@ describe('SandboxSettings: Executables', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add executable' }));
     expect(screen.getByRole('textbox', { name: 'Executable name' })).toHaveValue('kubectl');
     expect(screen.getByText('Kstack probes kubectl already.')).toBeInTheDocument();
+  });
+
+  it("draws a refused executable's reason in place of a probe result, and removes it", async () => {
+    const reason = "An invocation starts with the executable's name.";
+    withExecutables({ report: [probed('kubectl'), refused('stern', 'other --version', reason)] });
+    render(<SandboxSettings />);
+    const stern = executableRows()[1];
+    expect(within(stern).getByText(reason)).toBeInTheDocument();
+    expect(within(stern).queryByText('failed')).not.toBeInTheDocument();
+
+    const registered = within(screen.getByRole('list', { name: 'Registered executables' })).getAllByRole('listitem');
+    await userEvent.click(within(registered[0]).getByRole('button', { name: 'Remove' }));
+    expect(executables.current.remove).toHaveBeenCalledWith('stern');
+  });
+
+  it('draws a registered executable beside the curated one of its name, and removes the registered one', async () => {
+    const duplicateKey = vi.spyOn(console, 'error').mockImplementation(() => {});
+    withExecutables({
+      report: [probed('kubectl'), refused('kubectl', 'kubectl version', 'Kstack probes kubectl already.')],
+    });
+    render(<SandboxSettings />);
+    const [curated, registeredKubectl] = executableRows();
+    expect(within(curated).getByText('ok')).toBeInTheDocument();
+    expect(within(registeredKubectl).getByText('Kstack probes kubectl already.')).toBeInTheDocument();
+
+    const registered = within(screen.getByRole('list', { name: 'Registered executables' })).getAllByRole('listitem');
+    expect(registered).toHaveLength(1);
+    await userEvent.click(within(registered[0]).getByRole('button', { name: 'Remove' }));
+    expect(executables.current.remove).toHaveBeenCalledWith('kubectl');
+    expect(duplicateKey).not.toHaveBeenCalled();
+    duplicateKey.mockRestore();
   });
 
   it('holds Add and Remove while a change is in flight', () => {

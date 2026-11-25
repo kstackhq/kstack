@@ -50,7 +50,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | --- | --- |
 | `internal/services/cluster/CLAUDE.md` | clusters, caches, kinds, cached data; the private leaves `kubeconn`, `kubesync`, `kubestore`; streams and watches |
 | `internal/services/logs/CLAUDE.md` | the log cache (`logstore`), the line vocabulary (`logline`), refusals (`refusal`), the kubelet reader (`kubelet`), pages, follows, tailers |
-| `internal/services/settings/CLAUDE.md` | `settings.json`, `jsonsettings`, the frozen `PATH`, folder grants, executables |
+| `internal/services/settings/CLAUDE.md` | the settings' `app.db` tables: `settings` (the switches, the `PATH`, the modes, the tools), rules, folder grants, executables |
 | `internal/llm/CLAUDE.md` | dialects, providers, the record's blocks, the wires, the fake |
 | `internal/run/CLAUDE.md` | the login shell, the session, the sandbox, permissions, the cluster proxy |
 | `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, LogsWatch, web search), `fileguard`, `logsinput` |
@@ -202,9 +202,9 @@ same name. A sandboxed run reads it at its start; a command outside the sandbox 
 
 ## Tool settings (`internal/services/toolsettings`)
 
-**`tool_settings`, a row per tool per scope overriding on.** Only every cluster's scope is
-written; turning a tool back on keeps its row. A row for a tool the box lacks, or turning off one
-listed `AlwaysOn` (TaskStop), is ignored. The chat
+**A `tools.<name>.enabled` row of `settings` per tool, overriding on.** Only every cluster's
+scope is written; turning a tool back on keeps its row; a value Kstack cannot use is off. A row
+for a tool the box lacks, or turning off one listed `AlwaysOn` (TaskStop), is ignored. The chat
 service reads it where it reserves a turn. → [ADR](../docs/adr/2026-11-21-tool-settings-are-rows-in-app-db.md),
 [security record](../docs/security/2026-11-20-the-user-turns-tools-off.md).
 
@@ -281,7 +281,7 @@ the SDK runs that one with the sidecar's own. The package is built for Unix alon
 
 **The user's Google access token, for `run/gcpproxy`.** `Source` runs `gcloud config config-helper`
 off the sidecar's `PATH`, as `gke-gcloud-auth-plugin` does: no earlier than a run's mount with
-`sandbox.gcp` on. It holds the token until a minute before expiry and a failure for 30 s, shares one
+Google Cloud's switch on. It holds the token until a minute before expiry and a failure for 30 s, shares one
 run among callers, and registers the token with `safe` until it expires. The read after a `Drop`
 forces gcloud to refresh, which otherwise answers its own cached token. Its stderr is never read.
 → [ADR](../docs/adr/2026-11-17-google-cloud-is-reached-with-the-active-gcloud-accounts-token.md).
@@ -328,8 +328,6 @@ same commit.** What the sidecar's side of it looks like:
 - **A JSON column**: rides `app.db`'s version, so the change is an `app.db` migration.
 - **A path under `<data>` or `<cache>`**: never renamed, moved or removed. There is no app-level
   data migration yet, so the layout only grows: a new path is its owner's to create.
-- **`settings.json`**: a field's layout change bumps `schemaVersion` and upgrades in
-  `jsonsettings.Open`; a newer file is read and its keys kept.
 
 A refusal reaches the user. `sqlitemigrate` refuses a newer file with `*NewerSchemaError`, which `build`
 turns into *app.db was written by a newer Kstack (…)*; the error's own text is the reason, logged

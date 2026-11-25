@@ -37,8 +37,9 @@ value, and surfaces as `sandboxPathFault`.
 ## The session (`session`)
 
 **A `session.Session` is one agent run's policy** (`internal/run/session`, a leaf a proxy
-imports, never the reverse): `Kind` (`Console` is the Sandbox console's, which no chat holds), `Outside`, and live readers `Policy`, `Network` (a failed
-read is `NoNetwork`) and `Folders` (read only through `GrantedFolders`). Only the monitor sets
+imports, never the reverse): `Kind` (`Console` is the Sandbox console's, which no chat holds), `Outside`, and live readers `Policy` (by the
+action's cluster id: its mode, and every rule), `Network` (a failed
+read is `NoNetwork`) and `Folders` (read only through `GrantedFolders`; a failed read is an error, never none). Only the monitor sets
 `NoSecretData`, and it and the console `NoPrompts`. **`session.Narrow`** builds a subagent's from its parent's: identity
 copied at spawn, each live field handed on or tightened, never widened. A new field is classed by
 that rule and gets its line in `TestNarrowKeepsTheParentsIdentity`.
@@ -156,13 +157,14 @@ a chat through the real sandbox.
 
 ## Permissions (`permissions`)
 
-**`internal/run/permissions` is the decision** (`permissions.go`, `match.go`): six `Class`es, `Mode`s (`ReadOnly`, `Ask`,
+**`internal/run/permissions` is the decision** (`permissions.go`, `match.go`): five `Class`es (the note's 3 has none), each a
+rule names stored by `Name` (`ClassNamed`), `Mode`s (`ReadOnly`, `Ask`,
 `Auto`), `Rule`s, a classified `Action`, and a `Policy` whose `Decide(act)` is `Authorize` then
 `Outcome`.
 
 - `Authorize` refuses class 6 first under `NoSecretData`, and turns an ask into `Refuse` last under
   `NoPrompts`. Otherwise the verdict is the strongest match: `Refuse` (a matching `Deny`, or a
-  read-only mode on class 3, 4 or 5) > `Forbid` (a matching `AskFor`, or class 5) > `Permit` (class
+  read-only mode on class 4 or 5, *this cluster is read-only*) > `Forbid` (a matching `AskFor`, or class 5) > `Permit` (class
   1 or 2, a matching `Allow`, or `Auto`) > `Unmatched` (the zero value). Class 4 covers class 5;
   class 6 asks under `ReadOnly` and `Ask` and is `Permit` under `Auto`. A grant's `Duration` is
   `once`, `command`, `chat` or `always`. **The verdict is order-independent**; rule order picks the reason
@@ -171,10 +173,13 @@ a chat through the real sandbox.
   is `Forbid` before any rule or mode, and no rule matches it; the two flags still apply.
 - `Match` is the one glob matcher. **Every pattern Kstack writes from a value goes through
   `Literal`.** `ClusterScope` (`[cluster]`) matches cluster-scoped actions alone.
-- `Rule.Line` is the rule in the user's words, shown in Settings, reasons and requests; keep its
-  quoting so ` / ` outside quotes always separates context from namespace.
+- A `Rule` names a cluster by id, or none for every cluster; an `Action` carries the id beside its
+  context. `Rule.Line(cluster)` is the rule in words, the caller naming the cluster; keep its
+  quoting so ` / ` outside quotes separates cluster from namespace.
 - `Grantable`, `GrantRule` and `CommandRule` decide what an answer may write. `Refused` and
-  `RefusedSecrets` stand in for rules Kstack could not read (class 4 does not cover class 6).
+  `RefusedSecrets` stand in for rules Kstack could not read (class 4 does not cover class 6);
+  `Unread()` is both, what a failed read of the rules answers. `Rule.Same` compares two rules but for
+  their ids. A folder grant is no rule (`services/settings`' `FolderGrant`).
 
 **`kubeproxy/classify.go` classifies a request** into a class, verb and one-line `Summary`. A
 `GET` of core `secrets` is class 6. A dry run is class 1 only on a group version in `honorsDryRun`
@@ -194,7 +199,8 @@ policy), `write.go` (write path), `classify.go`, `diff.go` (preview), `secretrea
 and `redact_helm.go` (Secret rewriter), `status.go` (every refusal's `Status`, and `Unauthorized`).
 → [ADR: the proxy reads a request as the API server will](../../../docs/adr/2026-10-17-the-cluster-proxy-reads-a-request-as-the-api-server-does.md).
 
-- **A `Grant`** (`NewGrant`) holds the run's session, the kube-context its writes are decided in, a
+- **A `Grant`** (`NewGrant`) holds the run's session, the cluster whose policy decides its writes and
+  the kube-context they are classified in, a
   256-bit token, an `Upstream` (an `Endpoint` per request, whose `Done` cancels requests still open,
   watches included), a `rate.Limiter`, a cap on open requests, and an `Asker` (or a refusal every
   write answers). `End` makes every later request 401 and cancels those in flight; `Wait` joins
@@ -220,7 +226,7 @@ and `redact_helm.go` (Secret rewriter), `status.go` (every refusal's `Status`, a
   rebuilds a release from the Secrets it read — ahead of `checkBody`, so the refusal says why); then
   `checkBody` (encoding, UTF-8, media type, `decodeBody`, `uniqueKeys`, any `[redacted]` mark or its
   base64, and `checkRelease` inside a release). Then it classifies the request into a `Write` and
-  takes one verdict: `Authorize` over the session's `Policy` for the grant's context plus the
+  takes one verdict: `Authorize` over the session's `Policy` for the grant's cluster plus the
   grant's `commandRules` (no `Policy` is read-only).
 - **Verdicts.** `Allowed` is recorded through `Asker.Record`, then forwarded; a failed record
   forwards nothing. `Denied` is recorded and answered 403. `Prompted` is previewed, then `Ask`ed

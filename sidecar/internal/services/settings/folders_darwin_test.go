@@ -51,9 +51,8 @@ func TestAFolderSpelledInAnotherCaseIsRefused(t *testing.T) {
 
 func TestWideHoldsTheVolumesOnMacOS(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
-	require.NoError(t, err)
-	s := NewService(store, func() Zones { return f.zones }, nil, "")
+	store := newStore(t)
+	s := NewService(store, func() Zones { return f.zones }, nil, nil, "")
 	assert.Contains(t, s.WideFolders(t.Context()), "/Volumes")
 }
 
@@ -65,9 +64,8 @@ func TestWideSpellsTheHomeAsTheDiskDoes(t *testing.T) {
 	if _, err := os.Stat(upper); err != nil {
 		t.Skip("the filesystem is case-sensitive")
 	}
-	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
-	require.NoError(t, err)
-	s := NewService(store, func() Zones { return Zones{Home: upper} }, nil, "")
+	store := newStore(t)
+	s := NewService(store, func() Zones { return Zones{Home: upper} }, nil, nil, "")
 
 	assert.Equal(t, f.home, s.WideFolders(t.Context())[0])
 }

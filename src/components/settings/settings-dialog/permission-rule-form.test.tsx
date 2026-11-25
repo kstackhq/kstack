@@ -24,17 +24,22 @@ import { RuleForm } from './permission-rule-form';
 const rule: RuleInput = {
   effect: 'Allow',
   class: 'UpstreamWrite',
-  context: 'staging',
+  clusterID: 'c2',
   namespace: 'payments-*',
   verb: '',
   group: '',
   kind: '',
 };
 
+const CLUSTERS = [
+  { value: 'c1', label: 'dev-eks' },
+  { value: 'c2', label: 'Staging (staging)' },
+];
+
 function renderForm(props: Partial<Parameters<typeof RuleForm>[0]> = {}) {
   const onSubmit = vi.fn();
   const onCancel = vi.fn();
-  render(<RuleForm disabled={false} onSubmit={onSubmit} onCancel={onCancel} {...props} />);
+  render(<RuleForm clusters={CLUSTERS} onSubmit={onSubmit} onCancel={onCancel} {...props} />);
   return { onSubmit, onCancel, form: screen.getByRole('form') };
 }
 
@@ -44,7 +49,7 @@ describe('RuleForm', () => {
   it("turns off the webview's suggestions in every field, each empty one reading Any", () => {
     const { form } = renderForm();
     const boxes = within(form).getAllByRole('textbox');
-    expect(boxes).toHaveLength(5);
+    expect(boxes).toHaveLength(4);
     boxes.forEach((box) => {
       expectCodeText(box);
       expect(box).toHaveAttribute('placeholder', 'Any');
@@ -57,14 +62,14 @@ describe('RuleForm', () => {
     expect(form).toHaveAccessibleName('Add a rule');
 
     await user.selectOptions(within(form).getByLabelText('Effect'), 'Deny');
-    await user.type(within(form).getByLabelText('Context'), 'prod-*');
+    await user.selectOptions(within(form).getByLabelText('Cluster'), 'Staging (staging)');
     await user.type(within(form).getByLabelText('Group'), 'apps');
     await user.type(within(form).getByLabelText('Resource'), 'deployments');
     await user.click(within(form).getByRole('button', { name: 'Add' }));
     expect(onSubmit).toHaveBeenCalledWith({
       effect: 'Deny',
       class: 'UpstreamWrite',
-      context: 'prod-*',
+      clusterID: 'c2',
       namespace: '',
       verb: '',
       group: 'apps',
@@ -95,9 +100,9 @@ describe('RuleForm', () => {
     expect(within(form).getByLabelText('Namespace')).toHaveValue('');
   });
 
-  // A Secret read rule names a context and a namespace and nothing else, so
+  // A Secret read rule names a cluster and a namespace and nothing else, so
   // the form draws those alone and sends the rest empty, whatever was typed.
-  it('adds a Secret read rule by its context and namespace alone', async () => {
+  it('adds a Secret read rule by its cluster and namespace alone', async () => {
     const user = userEvent.setup();
     const { form, onSubmit } = renderForm();
 
@@ -106,13 +111,12 @@ describe('RuleForm', () => {
     await user.selectOptions(within(form).getByLabelText('Applies to'), 'Secret reads');
     ['Verb', 'Group', 'Resource'].forEach((label) => expect(within(form).queryByLabelText(label)).toBeNull());
     expect(within(form).queryByRole('checkbox')).toBeNull();
-    await user.type(within(form).getByLabelText('Context'), 'dev-*');
     await user.type(within(form).getByLabelText('Namespace'), 'team-a');
     await user.click(within(form).getByRole('button', { name: 'Add' }));
     expect(onSubmit).toHaveBeenCalledWith({
       effect: 'Allow',
       class: 'SecretRead',
-      context: 'dev-*',
+      clusterID: 'c1',
       namespace: 'team-a',
       verb: '',
       group: '',
@@ -156,18 +160,13 @@ describe('RuleForm', () => {
     ['Verb', 'Group', 'Resource'].forEach((label) => expect(within(form).getByLabelText(label)).toHaveValue(''));
   });
 
-  it('holds Add while disabled', () => {
-    const { form } = renderForm({ disabled: true });
-    expect(within(form).getByRole('button', { name: 'Add' })).toBeDisabled();
-  });
-
-  // Adding a rule the file already holds writes nothing, so saving it
+  // Adding a rule the always rules already hold writes nothing, so saving it
   // unchanged would leave the remove to delete the original.
   it('edits a rule from its fields, saving only once the draft differs', async () => {
     const user = userEvent.setup();
     const { form, onSubmit } = renderForm({ initial: rule });
     expect(form).toHaveAccessibleName('Edit rule');
-    expect(within(form).getByLabelText('Context')).toHaveValue('staging');
+    expect(within(form).getByLabelText('Cluster')).toHaveValue('c2');
     expect(within(form).getByLabelText('Namespace')).toHaveValue('payments-*');
     const save = within(form).getByRole('button', { name: 'Save' });
     expect(save).toBeDisabled();
@@ -180,6 +179,30 @@ describe('RuleForm', () => {
     await user.selectOptions(within(form).getByLabelText('Effect'), 'Ask');
     await user.click(save);
     expect(onSubmit).toHaveBeenCalledWith({ ...rule, effect: 'Ask' });
+  });
+
+  // An Allow on every cluster would reach a cluster added later, so only Deny
+  // and Ask offer it, and an Allow falls back to the first cluster.
+  it('offers every cluster to Deny and Ask alone', async () => {
+    const user = userEvent.setup();
+    const { form, onSubmit } = renderForm();
+    const every = () => within(form).queryByRole('option', { name: 'Every cluster' });
+
+    expect(every()).toBeNull();
+    expect(within(form).getByLabelText('Cluster')).toHaveValue('c1');
+    await user.selectOptions(within(form).getByLabelText('Effect'), 'Ask');
+    await user.selectOptions(within(form).getByLabelText('Cluster'), 'Every cluster');
+    await user.click(within(form).getByRole('button', { name: 'Add' }));
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ effect: 'Ask', clusterID: null }));
+
+    await user.selectOptions(within(form).getByLabelText('Effect'), 'Allow');
+    expect(every()).toBeNull();
+    expect(within(form).getByLabelText('Cluster')).toHaveValue('c1');
+  });
+
+  it('adds no Allow while there is no cluster to name', () => {
+    const { form } = renderForm({ clusters: [] });
+    expect(within(form).getByRole('button', { name: 'Add' })).toBeDisabled();
   });
 
   it('opens a cluster-scoped rule with its box checked', () => {

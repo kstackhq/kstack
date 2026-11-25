@@ -127,7 +127,11 @@ func (t *Tool) Approval(ctx context.Context, rt tools.Runtime, raw json.RawMessa
 	if _, ok := fileguard.Under(tools.WorkspacePath(rt.Dir), path); ok {
 		return tools.Approval{Skip: true}, nil
 	}
-	if folder, ok := t.fence.Granted(ctx, rt.Session.GrantedFolders(ctx), path); ok && folder.Write {
+	granted, err := rt.Session.GrantedFolders(ctx)
+	if err != nil {
+		return tools.Approval{}, tools.FoldersUnread(Name, err)
+	}
+	if folder, ok := t.fence.Granted(ctx, granted, path); ok && folder.Write {
 		return tools.Approval{Skip: true, Folder: &folder}, nil
 	}
 	return tools.Approval{}, nil

@@ -2,7 +2,7 @@
 title: PATH is the login shell's, filtered and frozen
 date: 2026-10-02
 scope: sidecar, webview
-status: Accepted
+status: Superseded by [2026-11-24-the-sandbox-path-is-one-setting-the-user-writes](2026-11-24-the-sandbox-path-is-one-setting-the-user-writes.md)
 ---
 
 # PATH is the login shell's, filtered and frozen

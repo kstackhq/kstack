@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -1062,7 +1061,7 @@ func TestAStrandedWaitClearsTheChatsMark(t *testing.T) {
 // deleteX is the action the chat tests' writer asks.
 var deleteX = tools.ActionRequest{
 	Action: permissions.Action{
-		Class: permissions.UpstreamWrite, Context: "dev", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods", Name: "x",
+		Class: permissions.UpstreamWrite, ClusterID: "1", Context: "dev", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods", Name: "x",
 		Summary: "Delete pods/x in web on dev",
 	},
 	Grantable:   true,
@@ -1356,7 +1355,7 @@ type recorderTool struct {
 // allowedPatch is the action a recorderTool records allowed.
 var allowedPatch = tools.ActionRequest{
 	Action: permissions.Action{
-		Class: permissions.UpstreamWrite, Context: "dev", Namespace: "web", Verb: "patch", Group: "core", Kind: "configmaps", Name: "c",
+		Class: permissions.UpstreamWrite, ClusterID: "1", Context: "dev", Namespace: "web", Verb: "patch", Group: "core", Kind: "configmaps", Name: "c",
 		Summary: "Patch configmaps/c in web on dev",
 	},
 	Write: &tools.ClusterWrite{
@@ -1367,7 +1366,7 @@ var allowedPatch = tools.ActionRequest{
 func (r recorderTool) Run(ctx context.Context, rt tools.Runtime, _ json.RawMessage) (string, bool) {
 	err := rt.ActionAsker.Record(ctx, allowedPatch, permissions.Allowed, "auto mode")
 	if err == nil {
-		err = rt.ActionAsker.Record(ctx, deleteX, permissions.Denied, "this context is read-only")
+		err = rt.ActionAsker.Record(ctx, deleteX, permissions.Denied, "this cluster is read-only")
 	}
 	<-r.hold
 	if err != nil {
@@ -1395,7 +1394,7 @@ func TestARecordedWriteNeedsNoWait(t *testing.T) {
 	assert.Equal(t, "auto mode", *writes[0].Reason)
 	assert.Empty(t, writes[0].Write.Body, "a recorded write waits on nobody, so its body is not served")
 	assert.Equal(t, ApprovalRefused, writes[1].Approval.Status)
-	assert.Equal(t, "this context is read-only", *writes[1].Reason)
+	assert.Equal(t, "this cluster is read-only", *writes[1].Reason)
 	assert.Equal(t, []approvalRow{{status: ApprovalAllowed, decided: true}, {status: ApprovalRefused, decided: true}}, approvalRows(t, s.db))
 	assert.Equal(t, RunRunning, runStatusOf(t, s.db, msg.RunID))
 
@@ -1701,8 +1700,8 @@ func TestOnceWritesTheDurationAndNoRule(t *testing.T) {
 
 	assert.Equal(t, "true once", toolCallsOf(t, msg)[0].Output)
 	assert.Equal(t, map[ApprovalStatus][]string{ApprovalApproved: {"once"}}, durations(t, s.db))
-	assert.Empty(t, s.grantsFor(t.Context(), msg.ChatID))
-	assert.Empty(t, s.settings.Get().Permissions.Rules)
+	assert.Empty(t, s.chatRules(t.Context(), msg.ChatID))
+	assert.Empty(t, storedAlwaysRules(t, s))
 }
 
 // A denial is nobody's choice of how long: it records no duration.
@@ -1787,15 +1786,23 @@ func TestCommandWritesNoRule(t *testing.T) {
 
 	assert.Equal(t, "true command", toolCallsOf(t, msg)[0].Output)
 	assert.Equal(t, map[ApprovalStatus][]string{ApprovalApproved: {"command"}}, durations(t, s.db))
-	assert.Empty(t, s.grantsFor(t.Context(), msg.ChatID))
-	assert.Empty(t, s.settings.Get().Permissions.Rules)
+	assert.Empty(t, s.chatRules(t.Context(), msg.ChatID))
+	assert.Empty(t, storedAlwaysRules(t, s))
 }
 
-// grantRows is how many chat_grants rows there are.
-func grantRows(t *testing.T, db *appdb.DB) int {
+// storedAlwaysRules is the always rules as stored.
+func storedAlwaysRules(t *testing.T, s *service) []permissions.Rule {
+	t.Helper()
+	rules, err := s.settings.KubeRules(t.Context())
+	require.NoError(t, err)
+	return rules
+}
+
+// chatRuleRows is how many kube_rules rows are a chat's.
+func chatRuleRows(t *testing.T, db *appdb.DB) int {
 	t.Helper()
 	var n int
-	require.NoError(t, db.Read.QueryRow(`SELECT COUNT(*) FROM chat_grants`).Scan(&n))
+	require.NoError(t, db.Read.QueryRow(`SELECT COUNT(*) FROM kube_rules WHERE chat_id IS NOT NULL`).Scan(&n))
 	return n
 }
 
@@ -1806,13 +1813,13 @@ func TestChatWritesAGrantBeforeTheDecisionLands(t *testing.T) {
 
 	var s *service
 	seen := make(chan int, 1)
-	s = startWriter(t, writerTool{after: func() { seen <- grantRows(t, s.db) }})
+	s = startWriter(t, writerTool{after: func() { seen <- chatRuleRows(t, s.db) }})
 	s, msg := askWith(t, s, DecisionChat)
 
 	assert.Equal(t, 1, testutil.Recv(t, seen, "the rows when the answer arrived"))
 	assert.Equal(t, "true chat", toolCallsOf(t, msg)[0].Output)
 	want := permissions.GrantRule(deleteX.Action)
-	got := s.grantsFor(t.Context(), msg.ChatID)
+	got := s.chatRules(t.Context(), msg.ChatID)
 	require.Len(t, got, 1)
 	want.ID = got[0].ID
 	assert.Equal(t, []permissions.Rule{want}, got)
@@ -1827,13 +1834,13 @@ func TestAlwaysWritesTheRuleIntoTheSettings(t *testing.T) {
 	s, msg := askOnce(t, DecisionAlways)
 
 	assert.Equal(t, "true always", toolCallsOf(t, msg)[0].Output)
-	rules := s.settings.Get().Permissions.Rules
+	rules := storedAlwaysRules(t, s)
 	require.Len(t, rules, 1)
 	assert.NotEmpty(t, rules[0].ID)
 	want := permissions.GrantRule(deleteX.Action)
 	want.ID = rules[0].ID
 	assert.Equal(t, want, rules[0])
-	assert.Zero(t, grantRows(t, s.db))
+	assert.Zero(t, chatRuleRows(t, s.db))
 	assert.Equal(t, map[ApprovalStatus][]string{ApprovalApproved: {"always"}}, durations(t, s.db))
 }
 
@@ -1853,8 +1860,8 @@ func TestARuleAlreadyHeldIsWrittenOnce(t *testing.T) {
 		settled := awaitSettled(t, s, second.ChatID, second.ID)
 
 		assert.Equal(t, "true "+string(d), toolCallsOf(t, settled)[0].Output)
-		assert.Len(t, s.grantsFor(t.Context(), first.ChatID), map[ApprovalDecision]int{DecisionChat: 1, DecisionAlways: 0}[d], d)
-		assert.Len(t, s.settings.Get().Permissions.Rules, map[ApprovalDecision]int{DecisionChat: 0, DecisionAlways: 1}[d], d)
+		assert.Len(t, s.chatRules(t.Context(), first.ChatID), map[ApprovalDecision]int{DecisionChat: 1, DecisionAlways: 0}[d], d)
+		assert.Len(t, storedAlwaysRules(t, s), map[ApprovalDecision]int{DecisionChat: 0, DecisionAlways: 1}[d], d)
 	}
 }
 
@@ -1876,28 +1883,21 @@ func askWith(t *testing.T, s *service, d ApprovalDecision) (*service, ChatMessag
 	return s, awaitSettled(t, s, msg.ChatID, msg.ID)
 }
 
-// While the settings hold rules Kstack cannot read, Always is refused, nothing
-// is written, and the request still waits for Once.
-func TestAlwaysWaitsWhileTheRulesAreHeld(t *testing.T) {
+// An Always answer whose rule cannot be written is refused, and the request
+// still waits for Once.
+func TestAlwaysWaitsWhenItsRuleCannotBeWritten(t *testing.T) {
 	t.Parallel()
 
 	s := startWriter(t, writerTool{})
-	file := filepath.Join(t.TempDir(), "settings.json")
-	require.NoError(t, os.WriteFile(file, []byte(`{"permissions":{"rules":[{"id":"b","effect":"maybe","class":4}]}}`), 0o600))
-	held, err := settings.Open(file)
-	require.NoError(t, err)
-	s.settings = settings.NewService(held, nil, nil, "")
-	before, err := os.ReadFile(file)
-	require.NoError(t, err)
+	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, nil, "")
+	exec(t, s.db, `CREATE TRIGGER refuse_insert BEFORE INSERT ON kube_rules BEGIN SELECT RAISE(ABORT, 'refused'); END`)
 
 	msg := send(t, s, nil, "1", "hi")
 	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
 	ok, err := s.Approve(t.Context(), id, DecisionAlways)
-	assert.ErrorIs(t, err, settings.ErrHeld)
+	assert.ErrorContains(t, err, "refused")
 	assert.False(t, ok)
-	after, err := os.ReadFile(file)
-	require.NoError(t, err)
-	assert.Equal(t, before, after, "nothing is written")
+	assert.Empty(t, storedAlwaysRules(t, s), "nothing is written")
 
 	approve(t, s, id, true)
 	settled := awaitSettled(t, s, msg.ChatID, msg.ID)
@@ -2061,7 +2061,7 @@ func TestTheRecordSaysTheNetworkOnceTheCallRuns(t *testing.T) {
 // readDB is a Secret read's request, as the proxy asks it.
 var readDB = tools.ActionRequest{
 	Action: permissions.Action{
-		Class: permissions.SecretRead, Context: "dev", Namespace: "web", Verb: "get", Group: "core", Kind: "secrets", Name: "db",
+		Class: permissions.SecretRead, ClusterID: "1", Context: "dev", Namespace: "web", Verb: "get", Group: "core", Kind: "secrets", Name: "db",
 		Summary: "Show Secret db in web on dev",
 	},
 	Grantable:   true,
@@ -2076,18 +2076,18 @@ var readDB = tools.ActionRequest{
 func TestAChatAnswerWritesAClassSixGrant(t *testing.T) {
 	t.Parallel()
 
-	want := permissions.Rule{Effect: permissions.Allow, Class: permissions.SecretRead, Context: "dev", Namespace: "web"}
+	want := permissions.Rule{Effect: permissions.Allow, Class: permissions.SecretRead, ClusterID: "1", Namespace: "web"}
 
 	s := startWriter(t, writerTool{request: &readDB})
 	s, msg := askWith(t, s, DecisionChat)
-	got := s.grantsFor(t.Context(), msg.ChatID)
+	got := s.chatRules(t.Context(), msg.ChatID)
 	require.Len(t, got, 1)
 	want.ID = got[0].ID
 	assert.Equal(t, want, got[0])
 
 	s = startWriter(t, writerTool{request: &readDB})
 	_, _ = askWith(t, s, DecisionAlways)
-	rules := s.settings.Get().Permissions.Rules
+	rules := storedAlwaysRules(t, s)
 	require.Len(t, rules, 1)
 	want.ID = rules[0].ID
 	assert.Equal(t, want, rules[0])

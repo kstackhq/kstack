@@ -90,19 +90,6 @@ func TestMapStreamStopsOnContextCancelDuringSend(t *testing.T) {
 	testutil.RecvClosed(t, out, "the output channel")
 }
 
-// A grant the settings refuse by its shape is a validation error under the
-// folder rule, carrying the settings' own reason.
-func TestFolderErrNamesARefusedShape(t *testing.T) {
-	rule := settings.Refusal{Field: "permissions.rules", Value: "x", Reason: "is not a rule"}
-	var e *gqlerror.Error
-	if !errors.As(folderErr(rule), &e) {
-		t.Fatalf("folderErr(%v) is not a GraphQL error", rule)
-	}
-	if e.Extensions["code"] != "KSTACK_VALIDATION_ERROR" || e.Extensions["rule"] != "folder" || e.Message != rule.Error() {
-		t.Errorf("folderErr(%v) = %q %v", rule, e.Message, e.Extensions)
-	}
-}
-
 // A variable the service refuses is a validation error under the env-var rule,
 // carrying the refusal's words; a missing cluster is not found.
 func TestEnvVarErrNamesTheRefusal(t *testing.T) {
@@ -116,10 +103,21 @@ func TestEnvVarErrNamesTheRefusal(t *testing.T) {
 	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", e.Extensions["code"])
 }
 
+// A setting's refusal is a validation error in the user's words, the way
+// every other permission refusal is.
+func TestPermissionsAfterNamesASettingRefusal(t *testing.T) {
+	refusal := settings.SettingRefusal{Key: "permissions.approval_mode", Reason: errors.New(`no approval mode is named "sometimes"`)}
+	_, err := (&Resolver{}).permissionsAfter(context.Background(), refusal)
+	var e *gqlerror.Error
+	require.ErrorAs(t, err, &e)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", e.Extensions["code"])
+	assert.Equal(t, `no approval mode is named "sometimes"`, e.Message, "the reason alone, never the key")
+}
+
 // A failure that is no refusal stays opaque through the executable, variable and
 // permission mappers: a client can do nothing with a store fault but report it.
 func TestAFailureThatIsNoRefusalStaysOpaque(t *testing.T) {
-	boom := errors.New("settings file unreadable")
+	boom := errors.New("disk I/O error")
 
 	assert.Equal(t, boom, sandboxExecutableErr(boom))
 	assert.Equal(t, boom, envVarErr(boom))

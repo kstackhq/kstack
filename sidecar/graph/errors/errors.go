@@ -35,6 +35,9 @@ var (
 	ErrMemoryNameTaken    = NewError("KSTACK_MEMORY_NAME_TAKEN", "Memory name taken")
 	ErrMemoryFull         = NewError("KSTACK_MEMORY_FULL", "Not enough room for this memory")
 	ErrMemorySecret       = NewError("KSTACK_MEMORY_SECRET", "Memory holds a credential")
+	// ErrSavedUnread is a write that committed whose answer could not be read
+	// after: the change took, so the client treats it as taken.
+	ErrSavedUnread = NewError("KSTACK_SAVED_UNREAD", "Saved, but not read back")
 	// ErrProviderKeyNotSaved is a key the keyring refused; nothing changed.
 	ErrProviderKeyNotSaved = NewError("KSTACK_PROVIDER_KEY_NOT_SAVED", "The keyring refused the key")
 	// ErrProviderKeyNotDeleted is a saved key the keyring would not delete. It

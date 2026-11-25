@@ -23,7 +23,7 @@ import { useMutation } from 'urql';
 
 import { graphql } from '@/gql';
 import type { SandboxExecutablesWatchSubscription } from '@/gql/graphql';
-import { refusalOf } from '@/lib/graphql/refusal';
+import { refusalOf, savedUnread } from '@/lib/graphql/refusal';
 import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
 
 const SandboxExecutablesWatchDocument = graphql(`
@@ -42,6 +42,7 @@ const SandboxExecutablesWatchDocument = graphql(`
         ok
         version
         error
+        refusal
       }
     }
   }
@@ -91,7 +92,7 @@ export type SandboxExecutables = {
   registerError: string | null;
   removeError: string | null;
   probe: () => Promise<void>;
-  /** Registers name with invocation, or `<name> --version` when it is empty; true once it is taken. */
+  /** Registers name with invocation, or `<name> --version` when it is empty; true once it is taken, even when its answer could not be read. */
   register: (name: string, invocation: string) => Promise<boolean>;
   remove: (name: string) => Promise<void>;
 };
@@ -126,7 +127,8 @@ export function useSandboxExecutables(): SandboxExecutables {
       const { error } = await registerMutation({ name, invocation: invocation === '' ? null : invocation });
       setChanging(false);
       setRegisterError(refusalOf(error));
-      return !error;
+      // A register that took though its answer could not be read is taken.
+      return !error || savedUnread(error);
     },
     [registerMutation],
   );

@@ -31,6 +31,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -1116,9 +1117,14 @@ func liveClusterIDs(ctx context.Context, st stmts) ([]apimeta.ClusterID, error) 
 	return collectIDs[apimeta.ClusterID](ctx, st, stmtSelectLiveClusterIDs, "live clusters")
 }
 
-// disabledTools is the names of the tools the user turned off.
+// disabledTools is the names of the tools the user turned off, and of those
+// whose stored setting Kstack cannot use.
 func disabledTools(ctx context.Context, st stmts) ([]string, error) {
-	return collectIDs[string](ctx, st, stmtSelectDisabledTools, "disabled tools")
+	rows, err := st.Query(ctx, stmtSelectToolSettings)
+	if err != nil {
+		return nil, fmt.Errorf("disabled tools: %w", err)
+	}
+	return settings.OffTools(rows)
 }
 
 // collectIDs runs a statement whose rows are one id each.

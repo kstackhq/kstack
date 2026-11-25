@@ -15,260 +15,256 @@
 package settings
 
 import (
-	"cmp"
-	"encoding/json"
+	"context"
 	"errors"
-	"path/filepath"
+	"fmt"
 	"slices"
 
+	"github.com/amorey/gobus/conflate"
+
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-// ContextMode is the mode for the contexts a pattern matches.
-type ContextMode struct {
-	Context string           `json:"context"`
-	Mode    permissions.Mode `json:"mode"`
-}
-
-// ModeSource is where a context's mode comes from.
+// ModeSource is where a cluster's mode comes from.
 type ModeSource string
 
 const (
-	// SourceRefused is every context read-only while the file's modes are held.
-	SourceRefused ModeSource = "refused"
-	// SourceEntry is a Modes entry whose pattern matches.
+	// SourceEntry is the cluster's own row.
 	SourceEntry ModeSource = "entry"
-	// SourceDefault is DefaultMode.
+	// SourceDefault is the default mode.
 	SourceDefault ModeSource = "default"
 )
 
-// ContextModeState is one context's effective mode, as Settings shows it.
-// Pattern is the Modes entry that decided it, for SourceEntry, and Own whether
-// that entry names this context alone, which is what ClearMode removes.
-type ContextModeState struct {
-	Context string
-	Mode    permissions.Mode
-	Source  ModeSource
-	Pattern string
-	Own     bool
+// ClusterModeState is one cluster's mode, as Settings shows it.
+type ClusterModeState struct {
+	ClusterID apimeta.ClusterID
+	Mode      permissions.Mode
+	Source    ModeSource
 }
 
-// The keys of the fields that answer their strictest state while the store
-// holds them.
-const (
-	FieldDefaultMode = "permissions.defaultMode"
-	FieldModes       = "permissions.modes"
-	FieldRules       = "permissions.rules"
+var (
+	// ErrClusterGone is a mode or rule for a cluster that is gone or awaiting
+	// deletion.
+	ErrClusterGone = errors.New("settings: the cluster is gone")
+	// ErrNoKubeContext is a mode or rule for a cluster with no kube-context,
+	// which Settings does not list.
+	ErrNoKubeContext = errors.New("settings: only a cluster with a kube-context has a mode or rule of its own")
+	// ErrNoRule is a rule id the always rules do not hold.
+	ErrNoRule = errors.New("settings: no rule has this id")
+	// ErrNoGrant is an id no always folder grant has.
+	ErrNoGrant = errors.New("settings: no folder grant has this id")
 )
 
-// ModeFor is context's mode and where it comes from: read-only while modes is
-// held, else the first Modes entry matching it, else DefaultMode.
-func (s *Store) ModeFor(context string) ContextModeState {
-	st := ContextModeState{Context: context}
-	if s.Held(FieldModes) {
-		st.Mode, st.Source = permissions.ReadOnly, SourceRefused
-		return st
+// RuleRefusal is why a rule cannot be written, in the user's words.
+type RuleRefusal string
+
+func (r RuleRefusal) Error() string { return string(r) }
+
+// FolderGrant is one folder grant as stored: its folder, absolute and
+// resolved, and whether it grants writes.
+type FolderGrant struct {
+	ID    string
+	Path  string
+	Write bool
+}
+
+// modeEntry is the approval mode: the default's row and each cluster's own.
+// Read-only is the strictest: a mode Kstack cannot use refuses every cluster
+// write.
+var modeEntry = Entry[permissions.Mode]{
+	Key:        "permissions.approval_mode",
+	Default:    permissions.Ask,
+	Strictest:  new(permissions.ReadOnly),
+	PerCluster: true,
+	Check:      checkMode,
+}
+
+func checkMode(mode permissions.Mode) error {
+	switch mode {
+	case permissions.ReadOnly, permissions.Ask, permissions.Auto:
+		return nil
 	}
-	v := s.Get()
-	for _, m := range v.Permissions.Modes {
-		if permissions.Match(m.Context, context) {
-			st.Mode, st.Source, st.Pattern = m.Mode, SourceEntry, m.Context
-			st.Own = m.Context == permissions.Literal(context)
-			return st
-		}
+	return fmt.Errorf("no approval mode is named %q", mode)
+}
+
+// ModeFor is cluster's mode and where it comes from: its own row, else the
+// default row, else Ask. A read that fails is an error, which a decision reads
+// as read-only.
+func (s *Store) ModeFor(ctx context.Context, cluster apimeta.ClusterID) (ClusterModeState, error) {
+	mode, scope, err := readSetting(ctx, s.stmts.Stmts(), modeEntry, cluster)
+	if err != nil {
+		return ClusterModeState{}, err
 	}
-	st.Mode, st.Source = defaultMode(v), SourceDefault
+	return modeState(cluster, mode, scope), nil
+}
+
+// modeState is cluster's mode, its own (SourceEntry) only when its own row
+// holds it.
+func modeState(cluster apimeta.ClusterID, mode permissions.Mode, scope settingScope) ClusterModeState {
+	st := ClusterModeState{ClusterID: cluster, Mode: mode, Source: SourceDefault}
+	if scope == scopeOwn {
+		st.Source = SourceEntry
+	}
 	return st
 }
 
-// DefaultMode is the mode of a context nothing else names: Ask when unset.
-func (s *Store) DefaultMode() permissions.Mode {
-	return defaultMode(s.Get())
-}
-
-func defaultMode(v Settings) permissions.Mode {
-	return cmp.Or(v.Permissions.DefaultMode, permissions.Ask)
-}
-
-// Rules is the always rules as a decision reads them. While rules is held,
-// the rules that passed less every Allow, plus permissions.Refused and
-// permissions.RefusedSecrets, which are never written to the file and whose
-// ids the rules check refuses there.
-func (s *Store) Rules() []permissions.Rule {
-	rules := s.Get().Permissions.Rules
-	if !s.Held(FieldRules) {
-		return rules
+// ClusterModes is the default mode, Ask when unset, and each of clusters'
+// modes as ModeFor answers it, from one read of the modes, so every cluster
+// that takes the default shows the same one.
+func (s *Store) ClusterModes(ctx context.Context, clusters []apimeta.ClusterID) (permissions.Mode, []ClusterModeState, error) {
+	stored, err := selectSettingScopes(ctx, s.stmts.Stmts(), modeEntry.Key)
+	if err != nil {
+		return "", nil, err
 	}
-	rules = slices.DeleteFunc(rules, func(r permissions.Rule) bool { return r.Effect == permissions.Allow })
-	return append(rules, permissions.Refused, permissions.RefusedSecrets)
-}
-
-// SetDefaultMode sets the default mode, which also fixes a refused one.
-func (s *Store) SetDefaultMode(mode permissions.Mode) error {
-	return s.Update(func(v *Settings) error {
-		v.Permissions.DefaultMode = mode
-		return nil
-	}, FieldDefaultMode)
-}
-
-// SetMode sets context's own mode: an entry that names it alone, first in
-// Modes so no pattern decides it, in place of one already there.
-func (s *Store) SetMode(context string, mode permissions.Mode) error {
-	entry := ContextMode{Context: permissions.Literal(context), Mode: mode}
-	return s.Update(func(v *Settings) error {
-		v.Permissions.Modes = append([]ContextMode{entry}, withoutEntry(v.Permissions.Modes, entry.Context)...)
-		return nil
-	})
-}
-
-// ClearMode removes context's own mode.
-func (s *Store) ClearMode(context string) error {
-	return s.Update(func(v *Settings) error {
-		v.Permissions.Modes = withoutEntry(v.Permissions.Modes, permissions.Literal(context))
-		return nil
-	})
-}
-
-func withoutEntry(modes []ContextMode, pattern string) []ContextMode {
-	return slices.DeleteFunc(slices.Clone(modes), func(m ContextMode) bool { return m.Context == pattern })
-}
-
-// ErrNoRule is a rule id the settings do not hold.
-var ErrNoRule = errors.New("settings: no rule has this id")
-
-// AddRule adds an always rule, which the rules check reads first.
-func (s *Store) AddRule(r permissions.Rule) error {
-	return s.Update(func(v *Settings) error {
-		v.Permissions.Rules = append(v.Permissions.Rules, r)
-		return nil
-	})
-}
-
-// RemoveRule removes the always rule with id.
-func (s *Store) RemoveRule(id string) error {
-	return s.Update(func(v *Settings) error {
-		i := slices.IndexFunc(v.Permissions.Rules, func(r permissions.Rule) bool { return r.ID == id })
-		if i < 0 {
-			return ErrNoRule
-		}
-		v.Permissions.Rules = slices.Delete(v.Permissions.Rules, i, i+1)
-		return nil
-	})
-}
-
-// PutRule swaps the first always rule replaces passes for r, where it stands
-// and under its id, else appends r. One update, so a lookup and its write
-// cannot interleave with another's.
-func (s *Store) PutRule(r permissions.Rule, replaces func(permissions.Rule) bool) error {
-	return s.Update(func(v *Settings) error {
-		i := slices.IndexFunc(v.Permissions.Rules, replaces)
-		if i < 0 {
-			v.Permissions.Rules = append(v.Permissions.Rules, r)
-			return nil
-		}
-		r.ID = v.Permissions.Rules[i].ID
-		v.Permissions.Rules[i] = r
-		return nil
-	})
-}
-
-// ErrNotHeld is a discard of a field the store does not hold.
-var ErrNotHeld = errors.New("settings: this setting holds nothing Kstack cannot read")
-
-// DiscardRefused writes modes or rules as it stands, the elements that passed,
-// which ends the hold and drops what could not be read.
-func (s *Store) DiscardRefused(field string) error {
-	if (field != FieldModes && field != FieldRules) || !s.Held(field) {
-		return ErrNotHeld
+	defaultMode, _ := modeEntry.valueFor(stored, "")
+	states := make([]ClusterModeState, 0, len(clusters))
+	for _, c := range clusters {
+		mode, scope := modeEntry.valueFor(stored, c)
+		states = append(states, modeState(c, mode, scope))
 	}
-	return s.Update(func(*Settings) error { return nil }, field)
+	return defaultMode, states, nil
 }
 
-var validModes = map[permissions.Mode]bool{permissions.ReadOnly: true, permissions.Ask: true, permissions.Auto: true}
-
-func checkDefaultMode(v *Settings) []Refusal {
-	if v.Permissions.DefaultMode == "" || validModes[v.Permissions.DefaultMode] {
-		return nil
-	}
-	r := Refusal{Field: FieldDefaultMode, Value: jsonOf(v.Permissions.DefaultMode), Reason: "is not read-only, ask or auto"}
-	v.Permissions.DefaultMode = ""
-	return []Refusal{r}
-}
-
-func checkModes(v *Settings) []Refusal {
-	var refused []Refusal
-	v.Permissions.Modes = slices.DeleteFunc(v.Permissions.Modes, func(m ContextMode) bool {
-		reason := ""
-		switch {
-		case m.Context == "":
-			reason = "names no context"
-		case !validModes[m.Mode]:
-			reason = "has a mode other than read-only, ask or auto"
-		default:
-			return false
-		}
-		refused = append(refused, Refusal{Field: FieldModes, Value: jsonOf(m), Reason: reason})
-		return true
+// SetDefaultMode sets the default mode.
+func (s *Store) SetDefaultMode(ctx context.Context, mode permissions.Mode) error {
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
+		return writeSetting(ctx, st, modeEntry, "", mode, s.now().UnixMilli())
 	})
-	return refused
+}
+
+// SetMode sets cluster's own mode: ErrClusterGone for a cluster that is gone
+// or awaiting deletion, ErrNoKubeContext for one with no kube-context.
+func (s *Store) SetMode(ctx context.Context, cluster apimeta.ClusterID, mode permissions.Mode) error {
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
+		if err := requireKubeContext(ctx, st, cluster); err != nil {
+			return err
+		}
+		return writeSetting(ctx, st, modeEntry, cluster, mode, s.now().UnixMilli())
+	})
+}
+
+// ClearMode puts cluster back on the default mode, writing NULL in its own
+// row: ErrClusterGone for a cluster that is gone or awaiting deletion.
+func (s *Store) ClearMode(ctx context.Context, cluster apimeta.ClusterID) error {
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
+		if _, err := clusterHasKubeContext(ctx, st, cluster); err != nil {
+			return err
+		}
+		return resetSetting(ctx, st, modeEntry, cluster, s.now().UnixMilli())
+	})
+}
+
+// KubeRules is the always rules in the order written. A read that fails is an
+// error, which a decision reads as permissions.Unread.
+func (s *Store) KubeRules(ctx context.Context) ([]permissions.Rule, error) {
+	return selectKubeRules(ctx, s.stmts.Stmts())
+}
+
+// AddKubeRule writes r as an always rule, under a fresh id when it has none,
+// and answers it as written: a RuleRefusal for a rule Kstack cannot apply,
+// ErrClusterGone or ErrNoKubeContext for a cluster as SetMode refuses it, and
+// the rule held already, unwritten, when the rules hold the same one.
+func (s *Store) AddKubeRule(ctx context.Context, r permissions.Rule) (permissions.Rule, error) {
+	if err := CheckKubeRule(r); err != nil {
+		return permissions.Rule{}, err
+	}
+	err := s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
+		if r.ClusterID != "" {
+			if err := requireKubeContext(ctx, st, r.ClusterID); err != nil {
+				return err
+			}
+		}
+		held, err := selectKubeRules(ctx, st)
+		if err != nil {
+			return err
+		}
+		if i := slices.IndexFunc(held, r.Same); i >= 0 {
+			r = held[i]
+			return errUnchanged
+		}
+		if r.ID == "" {
+			r.ID = appdb.NewID()
+		}
+		return insertKubeRule(ctx, st, r, s.now().UnixMilli())
+	})
+	if err != nil {
+		return permissions.Rule{}, err
+	}
+	return r, nil
+}
+
+// RemoveKubeRule removes the always rule id: ErrNoRule when none has it.
+func (s *Store) RemoveKubeRule(ctx context.Context, id string) error {
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error { return execOne(ctx, st, stmtDeleteKubeRule, ErrNoRule, id) })
+}
+
+// FolderGrants is the always folder grants in the order written, unchecked: a
+// grant is checked where it is read. A read that fails is an error.
+func (s *Store) FolderGrants(ctx context.Context) ([]FolderGrant, error) {
+	return selectFolderGrants(ctx, s.stmts.Stmts())
+}
+
+// GrantFolder writes an always grant of path, which its caller has checked. A
+// folder granted already keeps its grant's id and changes its access.
+func (s *Store) GrantFolder(ctx context.Context, path string, write bool) error {
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
+		return upsertFolderGrant(ctx, st, appdb.NewID(), path, write, s.now().UnixMilli())
+	})
+}
+
+// RevokeFolder removes the always folder grant id: ErrNoGrant when none has
+// it.
+func (s *Store) RevokeFolder(ctx context.Context, id string) error {
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error { return execOne(ctx, st, stmtDeleteFolderGrant, ErrNoGrant, id) })
+}
+
+// WatchPermissions pings after each write of the modes, the always rules or
+// the always folder grants commits. Watch before the first read.
+func (s *Store) WatchPermissions() *conflate.Receiver[string, struct{}] {
+	return s.db.Subscribe(appdb.KeyPermissions)
 }
 
 var validEffects = map[permissions.Effect]bool{permissions.Allow: true, permissions.Deny: true, permissions.AskFor: true}
 
-// ruleClasses are the classes a rule may name: a folder grant's, the ones a
-// cluster write is classified as, and a Secret read's. Nothing decides a rule
-// of another class.
-var ruleClasses = map[permissions.Class]bool{
-	permissions.ReadInside: true, permissions.WriteInside: true,
-	permissions.UpstreamWrite: true, permissions.Destructive: true,
-	permissions.SecretRead: true,
-}
-
 // secretReadVerbs are the verbs a Secret read is classified with.
 var secretReadVerbs = map[string]bool{"": true, "get": true, "list": true, "watch": true}
 
-func checkRules(v *Settings) []Refusal {
-	var refused []Refusal
-	seen := map[string]bool{}
-	v.Permissions.Rules = slices.DeleteFunc(v.Permissions.Rules, func(r permissions.Rule) bool {
-		reason := ruleRefusal(r, seen)
-		seen[r.ID] = true
-		if reason == "" {
-			return false
-		}
-		refused = append(refused, Refusal{Field: FieldRules, Value: jsonOf(r), Reason: reason})
-		return true
-	})
-	return refused
+// CheckKubeRule is why r cannot be written, as a RuleRefusal, or nil: what
+// kube_rules' CHECKs refuse, in the user's words. Every writer of the table
+// checks a rule here first.
+func CheckKubeRule(r permissions.Rule) error {
+	if reason := ruleRefusal(r); reason != "" {
+		return RuleRefusal(reason)
+	}
+	return nil
 }
 
-// ruleRefusal is why r cannot be read, or "".
-func ruleRefusal(r permissions.Rule, seen map[string]bool) string {
+// ruleRefusal is why r cannot be written, or "".
+func ruleRefusal(r permissions.Rule) string {
 	switch {
-	case r.ID == "":
-		return "has no id"
 	case r.ID == permissions.Refused.ID || r.ID == permissions.RefusedSecrets.ID:
 		return "has the id Kstack keeps for its own rule"
-	case seen[r.ID]:
-		return "repeats another rule's id"
 	case !validEffects[r.Effect]:
 		return "has an effect other than allow, deny or ask"
-	case !ruleClasses[r.Class]:
-		return "names a class no rule decides: only 1 (folder reads), 2 (folder reads and writes), " +
-			"4 (cluster writes), 5 (destructive cluster writes) and 6 (Secret reads)"
-	case r.Class == permissions.ReadInside || r.Class == permissions.WriteInside:
-		return folderRuleRefusal(r)
-	case r.Folder != "":
-		return "names a folder, which only a folder grant does"
-	case r.Class == permissions.SecretRead:
-		return secretRuleRefusal(r)
+	case r.Class.Name() == "": // a class kube_rules stores
+		return "names a class no rule decides: only 4 (cluster writes), 5 (destructive cluster writes) and 6 (Secret reads)"
 	case r.Effect == permissions.Allow && r.Class == permissions.Destructive:
 		return "allows a destructive write, which always asks"
+	}
+	if r.Class == permissions.SecretRead {
+		if reason := secretRuleRefusal(r); reason != "" {
+			return reason
+		}
+	}
+	if r.Effect == permissions.Allow && r.ClusterID == "" {
+		return "allows on every cluster, which only a deny or ask rule may"
 	}
 	return ""
 }
 
-// secretRuleRefusal is why a Secret read rule cannot be read, or "": it may
+// secretRuleRefusal is why a Secret read rule cannot be written, or "": it may
 // name what a Secret read is classified with, and nothing else.
 func secretRuleRefusal(r permissions.Rule) string {
 	switch {
@@ -284,27 +280,4 @@ func secretRuleRefusal(r permissions.Rule) string {
 		return "is a Secret read rule naming a resource other than secrets"
 	}
 	return ""
-}
-
-// folderRuleRefusal is why a folder grant cannot be read, or "", by its value
-// alone: what needs the disk is CheckFolder's, run whenever a grant is read.
-func folderRuleRefusal(r permissions.Rule) string {
-	switch {
-	case r.Effect != permissions.Allow:
-		return "is a folder rule that does not allow, which no folder rule may"
-	case r.Folder == "":
-		return "is a folder rule that names no folder"
-	case !filepath.IsAbs(r.Folder) || filepath.Clean(r.Folder) != r.Folder:
-		return "names a folder that is not an absolute, clean path"
-	case r.Folder == string(filepath.Separator):
-		return "names the root, which cannot be granted"
-	case r.Context != "" || r.Namespace != "" || r.Verb != "" || r.Group != "" || r.Kind != "":
-		return "is a folder rule that names a cluster field"
-	}
-	return ""
-}
-
-func jsonOf(v any) string {
-	b, _ := json.Marshal(v)
-	return string(b)
 }

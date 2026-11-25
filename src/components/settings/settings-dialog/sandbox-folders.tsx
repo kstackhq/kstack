@@ -20,7 +20,6 @@ import { Collapsible } from '@base-ui/react/collapsible';
 import { Button } from '@kubetail/ui/elements/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@kubetail/ui/elements/select';
 import { Switch } from '@kubetail/ui/elements/switch';
-import { cn } from '@kubetail/ui/lib/utils';
 import { ChevronRight } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
@@ -28,8 +27,9 @@ import { VisibleText } from '@/components/primitives/visible-text';
 import { FolderGrantForm } from '@/components/settings/folder-grant-form';
 import { isMacOS } from '@/lib/platform';
 import { type SandboxFolder, useSandboxFolders } from '@/lib/sandbox-folders';
-import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
+import type { SandboxPath } from '@/lib/sandbox-path';
 
+import { FolderRow } from './folder-row';
 import { Group, InfoPopover } from './group';
 
 // The folders macOS's privacy control guards for the app, under the home.
@@ -55,9 +55,11 @@ const SHELL_FOLDERS = ['/opt/homebrew', '/opt/homebrew/Cellar/zsh/5.9'];
 const SYSTEM_FOLDERS = ['/bin', '/sbin', '/usr/bin', '/usr/sbin', '/usr/lib', '/usr/share', '/etc', '/dev'];
 
 export function SandboxFolderGroups({ path }: { path: SandboxPath }) {
-  const { always, never, closed, wide, rulesHeld, revoking, revokeError, grant, revoke } = useSandboxFolders();
+  const { always, never, closed, wide, revoking, revokeError, grant, revoke } = useSandboxFolders();
   const [adding, setAdding] = useState(false);
   const home = wide?.[0];
+  // The folders a command reads through the PATH; the PATH card edits it.
+  const searched = path.folders?.filter((folder) => folder.searched) ?? [];
 
   return (
     <Group
@@ -85,35 +87,33 @@ export function SandboxFolderGroups({ path }: { path: SandboxPath }) {
               key={folder.id}
               folder={folder}
               home={home}
-              busy={rulesHeld || revoking.has(folder.id)}
+              busy={revoking.has(folder.id)}
               onAccess={(write) => grant(folder.path, write, 'Always')}
-              onRemove={() => revoke(folder.id)}
+              onRemove={() => revoke(folder.id, 'Always')}
             />
           ))}
         </FolderGroup>
-        <FolderGroup label="PATH" count={path.entries?.length ?? 0} readOnly footer={path.changeError}>
-          {path.entries?.map((entry) => (
-            <PathFolder
-              key={entry.dir}
-              entry={entry}
-              busy={path.changing.has(entry.dir) || path.refreshing}
-              onSwitch={(on) => (on ? path.include(entry.dir, entry.target) : path.remove(entry.dir))}
-            />
+        <FolderGroup label="PATH" count={searched.length} readOnly>
+          {searched.map((folder) => (
+            // No two searched folders share the folder they lead to.
+            <FolderRow key={folder.target ?? folder.path} dir={folder.target ?? folder.path}>
+              {folder.shared && <p className="text-muted-foreground">shared with its group</p>}
+            </FolderRow>
           ))}
         </FolderGroup>
         <FolderGroup label="Tools" count={TOOL_FOLDERS.length} readOnly placeholder>
           {TOOL_FOLDERS.map(({ path: dir, on }) => (
-            <Row key={dir} dir={dir} muted={!on} control={<Switch aria-label={dir} checked={on} disabled />} />
+            <FolderRow key={dir} dir={dir} muted={!on} control={<Switch aria-label={dir} checked={on} disabled />} />
           ))}
         </FolderGroup>
         <FolderGroup label="Shell" count={SHELL_FOLDERS.length} readOnly placeholder>
           {SHELL_FOLDERS.map((dir) => (
-            <Row key={dir} dir={dir} />
+            <FolderRow key={dir} dir={dir} />
           ))}
         </FolderGroup>
         <FolderGroup label="System" count={SYSTEM_FOLDERS.length} readOnly placeholder defaultOpen={false}>
           {SYSTEM_FOLDERS.map((dir) => (
-            <Row key={dir} dir={dir} />
+            <FolderRow key={dir} dir={dir} />
           ))}
         </FolderGroup>
       </div>
@@ -184,33 +184,6 @@ function FolderGroup({
   );
 }
 
-function Row({
-  dir,
-  muted = false,
-  control,
-  children,
-}: {
-  dir: string;
-  muted?: boolean;
-  control?: ReactNode;
-  children?: ReactNode;
-}) {
-  return (
-    <li className="flex items-center gap-3 px-4 py-2">
-      <div className="min-w-0 flex-1 text-xs">
-        <p
-          className={cn('font-mono text-sm break-all whitespace-pre-wrap', muted && 'text-muted-foreground')}
-          data-testid="folder"
-        >
-          <VisibleText text={dir} trailing="end" />
-        </p>
-        {children}
-      </div>
-      {control}
-    </li>
-  );
-}
-
 function GrantedFolder({
   folder,
   home,
@@ -225,9 +198,9 @@ function GrantedFolder({
   onRemove: () => void;
 }) {
   // Destructured: the HTML-sink lint refuses any `.write`.
-  const { path, write, refused } = folder;
+  const { path, write, refusal } = folder;
   return (
-    <Row
+    <FolderRow
       dir={path}
       control={
         <>
@@ -246,36 +219,14 @@ function GrantedFolder({
         </>
       }
     >
-      {refused && <p className="text-muted-foreground">{refused}</p>}
+      {refusal && (
+        <p className="text-muted-foreground">
+          <VisibleText text={refusal} />
+        </p>
+      )}
       {isMacOS() && guardedByMacOS(path, home) && (
         <p className="text-muted-foreground">macOS may ask you to let Kstack reach this folder.</p>
       )}
-    </Row>
-  );
-}
-
-function PathFolder({
-  entry,
-  busy,
-  onSwitch,
-}: {
-  entry: SandboxPathEntry;
-  busy: boolean;
-  onSwitch: (on: boolean) => void;
-}) {
-  const on = entry.state === 'Adopted';
-  return (
-    <Row
-      dir={entry.dir}
-      muted={!on}
-      control={<Switch aria-label="Include" checked={on} disabled={busy} onCheckedChange={onSwitch} />}
-    >
-      {entry.target !== entry.dir && (
-        <p className="font-mono break-all whitespace-pre-wrap text-muted-foreground" data-testid="target">
-          <VisibleText text={entry.target} trailing="end" />
-        </p>
-      )}
-      {entry.shared && <p className="text-muted-foreground">shared with its group</p>}
-    </Row>
+    </FolderRow>
   );
 }

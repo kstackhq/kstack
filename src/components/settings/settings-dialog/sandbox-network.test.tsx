@@ -17,7 +17,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PermissionTarget } from '@/gql/graphql';
 
-const { cloud } = vi.hoisted(() => ({ cloud: { current: undefined as PermissionTarget[] | undefined } }));
+const { cloud } = vi.hoisted(() => ({
+  cloud: { current: { platforms: undefined as PermissionTarget[] | undefined, readFailed: false } },
+}));
 vi.mock('@/lib/sandbox-cloud-access', () => ({ useSandboxCloudAccess: () => cloud.current }));
 
 const { SandboxNetwork } = await import('./sandbox-network');
@@ -25,7 +27,7 @@ const { SandboxNetwork } = await import('./sandbox-network');
 const row = (label: string) => screen.getByText(label).closest('li')!;
 
 beforeEach(() => {
-  cloud.current = undefined;
+  cloud.current = { platforms: undefined, readFailed: false };
 });
 
 describe('SandboxNetwork', () => {
@@ -36,16 +38,28 @@ describe('SandboxNetwork', () => {
   });
 
   it('names the cloud platforms turned on, or says none is', () => {
-    cloud.current = ['GitHub', 'AWS', 'GCP'];
+    cloud.current = { platforms: ['GitHub', 'AWS', 'GCP'], readFailed: false };
     const { unmount } = render(<SandboxNetwork networkAvailable networkReason="" />);
     expect(row('Cloud platforms')).toHaveTextContent(
       'GitHub, AWS, and Google Cloud, through Kstack. Your sign-in stays outside.',
     );
     unmount();
 
-    cloud.current = [];
+    cloud.current = { platforms: [], readFailed: false };
     render(<SandboxNetwork networkAvailable networkReason="" />);
     expect(row('Cloud platforms')).toHaveTextContent('None. Every cloud platform is off.');
+  });
+
+  it('says when the cloud platforms could not be read, apart from every one being off', () => {
+    cloud.current = { platforms: undefined, readFailed: true };
+    render(<SandboxNetwork networkAvailable networkReason="" />);
+    expect(row('Cloud platforms')).toHaveTextContent("Couldn't load cloud access.");
+    expect(row('Cloud platforms')).not.toHaveTextContent('None.');
+  });
+
+  it('draws nothing in the row until the sidecar answers', () => {
+    render(<SandboxNetwork networkAvailable networkReason="" />);
+    expect(row('Cloud platforms')).toHaveTextContent(/^Cloud platforms$/);
   });
 
   it("says the internet is off by default, or why it can't be given", () => {

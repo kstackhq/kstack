@@ -3,7 +3,9 @@ title: Each persisted format carries its own version stamp, and a downgrade is r
 date: 2026-10-29
 scope: cross-cutting
 status: Accepted
-amended_by: [A shipped schema changes only by a new migration](2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md)
+amended_by:
+  - [A shipped schema changes only by a new migration](2026-11-08-a-shipped-schema-changes-only-by-a-new-migration.md)
+  - [Keep every setting as rows in app.db](2026-11-24-settings-are-rows-in-app-db.md)
 ---
 
 # Each persisted format carries its own version stamp, and a downgrade is refused only where it would break

@@ -12,30 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A chat's own rules: the ones an approval answered "Allow for this chat"
-// wrote, and the folders granted for the chat, which the composer lists and
-// removes. The one reader of the query
-// and the mutation. Another window can add or remove one, so the query is
-// asked again on focus and after a removal; an approval in this window names
-// the rule's type (`chatGrantsContext`), which asks it again too.
+// A chat's own Kubernetes rules: the ones an approval answered "Allow for this
+// chat" wrote, which the composer lists and removes. The one reader of the
+// query and the mutation. Another window can add or remove one, so the query
+// is asked again on focus and after a removal; an approval in this window
+// names the rule's type (`chatGrantsContext`), which asks it again too.
 import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery } from 'urql';
 
 import { graphql } from '@/gql';
-import type { ChatGrantsQuery } from '@/gql/graphql';
+import type { ChatKubeRulesQuery } from '@/gql/graphql';
 
-const ChatGrantsDocument = graphql(`
-  query ChatGrants($chatID: ChatID!) {
-    chatGrants(chatID: $chatID) {
+const ChatKubeRulesDocument = graphql(`
+  query ChatKubeRules($chatID: ChatID!) {
+    chatKubeRules(chatID: $chatID) {
       id
       line
     }
   }
 `);
 
-const ChatGrantRemoveMutation = graphql(`
-  mutation ChatGrantRemove($chatID: ChatID!, $id: String!) {
-    chatGrantRemove(chatID: $chatID, id: $id) {
+const ChatKubeRuleRemoveMutation = graphql(`
+  mutation ChatKubeRuleRemove($chatID: ChatID!, $id: String!) {
+    chatKubeRuleRemove(chatID: $chatID, id: $id) {
       id
     }
   }
@@ -44,12 +43,12 @@ const ChatGrantRemoveMutation = graphql(`
 /**
  * The operation context that ties the chat's rules to urql's cache: the query
  * carries it, and so does a mutation that writes a rule, so the list is asked
- * again. A list holding no rule carries no PermissionRule for the cache to key
- * on, so the type is named.
+ * again. A list holding no rule carries no KubeRule for the cache to key on,
+ * so the type is named.
  */
-export const chatGrantsContext = { additionalTypenames: ['PermissionRule'] };
+export const chatGrantsContext = { additionalTypenames: ['KubeRule'] };
 
-export type ChatGrant = ChatGrantsQuery['chatGrants'][number];
+export type ChatGrant = ChatKubeRulesQuery['chatKubeRules'][number];
 
 export type ChatGrants = {
   /** Undefined until the sidecar has answered. */
@@ -63,12 +62,12 @@ export type ChatGrants = {
 
 export function useChatGrants(chatID: string): ChatGrants {
   const [{ data }, reexecute] = useQuery({
-    query: ChatGrantsDocument,
+    query: ChatKubeRulesDocument,
     variables: { chatID },
     context: chatGrantsContext,
     requestPolicy: 'cache-and-network',
   });
-  const [, removeMutation] = useMutation(ChatGrantRemoveMutation);
+  const [, removeMutation] = useMutation(ChatKubeRuleRemoveMutation);
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,5 +89,5 @@ export function useChatGrants(chatID: string): ChatGrants {
     [askAgain, chatID, removeMutation],
   );
 
-  return { rules: data?.chatGrants, removing, error, remove };
+  return { rules: data?.chatKubeRules, removing, error, remove };
 }

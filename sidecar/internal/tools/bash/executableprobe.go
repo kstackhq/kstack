@@ -45,7 +45,7 @@ type ExecutableReport struct {
 	Target     string // the binary behind a shim; "" when unknown
 	OK         bool   // the invocation exited 0
 	Version    string // the first non-empty line of its output, cut to maxVersion
-	Error      string // why it did not run or did not pass; "" when OK
+	Error      string // why it did not run or did not pass; "" when OK, and for one refused
 }
 
 const (
@@ -74,15 +74,27 @@ var shimDirs = map[string]string{
 	"mise": ".local/share/mise/shims",
 }
 
-// executableList is every tool a probe runs, in the report's order: the curated
-// tools, then the registered ones, each not probed yet.
+// executableList is every tool a probe lists, in the report's order: the
+// curated tools, then the registered ones, each not probed yet. A registered
+// one with no Refusal is checked here, so the probe runs none CheckExecutable
+// refuses, whatever its caller passed. A refused one carries its Refusal and
+// no error.
 func executableList(registered []settings.Executable) []ExecutableReport {
 	var list []ExecutableReport
 	for _, tool := range settings.CuratedExecutables {
 		list = append(list, ExecutableReport{Executable: tool, Error: notProbedYet})
 	}
 	for _, tool := range registered {
-		list = append(list, ExecutableReport{Executable: tool, Registered: true, Error: notProbedYet})
+		if tool.Refusal == "" {
+			if err := settings.CheckExecutable(tool.Name, tool.Invocation); err != nil {
+				tool.Refusal = err.Error()
+			}
+		}
+		report := ExecutableReport{Executable: tool, Registered: true}
+		if tool.Refusal == "" {
+			report.Error = notProbedYet
+		}
+		list = append(list, report)
 	}
 	return list
 }
@@ -288,19 +300,22 @@ func ReportOver(last []ExecutableReport, registered []settings.Executable) []Exe
 // now; once ctx ends, or the disk does not answer, each report is not probed
 // and says why.
 func (t *Tool) runProbe(ctx context.Context, registered []settings.Executable) []ExecutableReport {
-	var list settings.RunPath
-	if t.pathList != nil {
-		list = t.pathList()
-	}
 	reports := executableList(registered)
-	// System stats folders under the home, Never lists the other homes and
-	// runPath stats each entry.
-	path, err := onDisk(ctx, t.probe.diskTimeout, func() []string {
-		sys := t.sandboxer.System(t.home, t.shell)
-		path, _ := runPath(list, t.fallbackPath, sys.Files, slices.Concat(t.sandboxer.Never(t.home), t.denied), t.home)
-		return path
-	})
+	list, err := t.readPath(ctx)
+	var path []string
+	if err == nil {
+		// System stats folders under the home, Never lists the other homes
+		// and runPath stats each folder.
+		path, err = onDisk(ctx, t.probe.diskTimeout, func() []string {
+			sys := t.sandboxer.System(t.home, t.shell)
+			path, _ := runPath(list.Search, sys.Files, slices.Concat(t.sandboxer.Never(t.home), t.denied), t.home)
+			return path
+		})
+	}
 	for i := range reports {
+		if reports[i].Refusal != "" {
+			continue
+		}
 		if err == nil {
 			reports[i] = t.probeExecutable(ctx, reports[i], path)
 		} else {

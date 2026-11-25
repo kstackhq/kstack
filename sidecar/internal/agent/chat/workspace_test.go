@@ -24,10 +24,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -188,9 +190,7 @@ func TestTheContextListsTheGrants(t *testing.T) {
 	home := grantable(t, s)
 	code, svc := filepath.Join(home, "code"), filepath.Join(home, "code", "svc")
 	require.NoError(t, s.GrantFolder(t.Context(), "", code, false))
-	gone := folderRule(filepath.Join(home, "gone"), false)
-	gone.ID = "gone"
-	require.NoError(t, s.settings.AddRule(gone))
+	require.NoError(t, s.settings.GrantFolder(t.Context(), filepath.Join(home, "gone"), false))
 
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
 	context := newestContextOf(t, s, first.ChatID)
@@ -219,12 +219,12 @@ func TestTheSandboxSectionNamesTheCloudPlatformsOn(t *testing.T) {
 		"## Sandbox\n\n```json\n{\"cloud\":[\"aws\",\"gcp\"],\"commands\":\"sandboxed\",\"network\":\"off\"}\n```",
 		"a switch the build has no cloud platform for is not named")
 
-	require.NoError(t, s.settings.SetCloud(permissions.AWS, false))
+	require.NoError(t, s.settings.SetCloudPlatformSwitch(t.Context(), permissions.AWS, false))
 	sendAndSettle(t, s, &first.ChatID, "1", "2", "two")
 	assert.Contains(t, newestContextOf(t, s, first.ChatID),
 		"## Sandbox\n\n```json\n{\"cloud\":[\"gcp\"],\"commands\":\"sandboxed\",\"network\":\"off\"}\n```")
 
-	require.NoError(t, s.settings.SetCloud(permissions.GCP, false))
+	require.NoError(t, s.settings.SetCloudPlatformSwitch(t.Context(), permissions.GCP, false))
 	sendAndSettle(t, s, &first.ChatID, "1", "3", "three")
 	assert.Contains(t, newestContextOf(t, s, first.ChatID), "## Sandbox\n\n```json\n{\"commands\":\"sandboxed\",\"network\":\"off\"}\n```")
 
@@ -232,4 +232,22 @@ func TestTheSandboxSectionNamesTheCloudPlatformsOn(t *testing.T) {
 	on := sandboxState{cloudTargetsOn: []string{"gcp"}}
 	newest := s.withSandbox("## Cluster\n\n```json\n{}\n```", off)
 	assert.NotEqual(t, newest, s.withSandboxReplaced(newest, on), "a switch that moved sends the section again")
+}
+
+// A send whose switches cannot be read names no cloud platform.
+func TestTheSandboxSectionNamesNoCloudPlatformWhenTheSwitchesCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
+	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.cloudTargets = []permissions.Target{permissions.AWS}
+	// The switches read from a file of their own, so the chat's own reads of
+	// settings still answer.
+	unread := appdbtest.Open(t)
+	s.settings = settings.NewService(settingsStore(t, unread), nil, nil, nil, "")
+	_, err := unread.Write.Exec(`DROP TABLE settings`)
+	require.NoError(t, err)
+
+	sent := sendAndSettle(t, s, nil, "1", "1", "one")
+	assert.Contains(t, newestContextOf(t, s, sent.ChatID), "## Sandbox\n\n```json\n{\"commands\":\"sandboxed\",\"network\":\"off\"}\n```")
 }

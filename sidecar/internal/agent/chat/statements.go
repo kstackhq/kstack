@@ -16,7 +16,10 @@
 // (sqlstmt.Set). The text lives here and never at a call site.
 package chat
 
-import "github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
+import (
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
+)
 
 // stmtID indexes statements.
 type stmtID int
@@ -76,11 +79,14 @@ const (
 	stmtSelectClusterMonitoring
 	stmtSelectLiveClusterIDs
 
-	stmtSelectDisabledTools
+	stmtSelectToolSettings
 
-	stmtSelectChatGrants
-	stmtUpsertChatGrant
-	stmtDeleteChatGrant
+	stmtSelectChatKubeRules
+	stmtInsertChatKubeRule
+	stmtDeleteChatKubeRule
+	stmtSelectChatFolderGrants
+	stmtUpsertChatFolderGrant
+	stmtDeleteChatFolderGrant
 	numStmts int = iota
 )
 
@@ -319,17 +325,22 @@ var statements = []sqlstmt.Statement{
 	// The clusters a monitor may be kept under: the sweeper ends every other.
 	stmtSelectLiveClusterIDs: sqlstmt.OnReader(`SELECT id FROM clusters WHERE delete_requested_at IS NULL`),
 
-	// The tools the user turned off for every cluster (services/toolsettings
-	// owns the table). OnBoth, since a send reads them in the transaction that
-	// reserves its turn.
-	stmtSelectDisabledTools: sqlstmt.OnBoth(`SELECT tool_name FROM tool_settings WHERE cluster_id IS NULL AND enabled = 0`),
+	// Every tool's setting for every cluster (services/toolsettings writes
+	// them). OnBoth, since a send reads them in the transaction that reserves
+	// its turn.
+	stmtSelectToolSettings: sqlstmt.OnBoth(settings.SelectToolSettings),
 
-	// OnBoth, since a grant's write reads the chat's rules in its transaction.
-	stmtSelectChatGrants: sqlstmt.OnBoth(`SELECT rule FROM chat_grants WHERE chat_id = ? ORDER BY created_at, id`),
-	// A rule keeps its row's id and created_at when it changes.
-	stmtUpsertChatGrant: sqlstmt.OnWriter(`INSERT INTO chat_grants (id, chat_id, rule, created_at) VALUES (?, ?, ?, ?)
-	ON CONFLICT(id) DO UPDATE SET rule = excluded.rule`),
-	stmtDeleteChatGrant: sqlstmt.OnWriter(`DELETE FROM chat_grants WHERE chat_id = ? AND id = ?`),
+	// OnBoth, since a rule's write reads the chat's rules in its transaction.
+	stmtSelectChatKubeRules: sqlstmt.OnBoth(`SELECT ` + settings.KubeRuleColumns + ` FROM kube_rules WHERE chat_id = ? ORDER BY created_at, id`),
+	stmtInsertChatKubeRule: sqlstmt.OnWriter(`INSERT INTO kube_rules (` + settings.KubeRuleColumns + `, chat_id, created_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+	stmtDeleteChatKubeRule: sqlstmt.OnWriter(`DELETE FROM kube_rules WHERE chat_id = ? AND id = ?`),
+	// OnBoth, since a grant's write reads the chat in its transaction.
+	stmtSelectChatFolderGrants: sqlstmt.OnBoth(`SELECT ` + settings.FolderGrantColumns + ` FROM folder_grants WHERE chat_id = ? ORDER BY created_at, id`),
+	// A folder granted again keeps its row's id and created_at, and changes its access.
+	stmtUpsertChatFolderGrant: sqlstmt.OnWriter(`INSERT INTO folder_grants (id, chat_id, folder, access, created_at) VALUES (?, ?, ?, ?, ?)
+	ON CONFLICT (ifnull(chat_id, ''), folder) DO UPDATE SET access = excluded.access`),
+	stmtDeleteChatFolderGrant: sqlstmt.OnWriter(`DELETE FROM folder_grants WHERE chat_id = ? AND id = ?`),
 }
 
 // stmts issues the set's statements, on the pools or inside a transaction.

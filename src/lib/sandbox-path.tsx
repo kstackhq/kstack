@@ -12,46 +12,42 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The frozen PATH sandboxed commands search, and the user's three changes to
-// it: Include, Remove and Refresh PATH. The one reader of the queries and the
-// mutations. After each change the query is asked again, since it alone
-// carries the fault beside the list. Another window can change the list and
-// each window caches its own, so it is also asked again on opening and
-// whenever the window takes focus.
+// The PATH of every sandboxed command: one string the user writes, where
+// $PATH stands for the login shell's, and Refresh PATH, which reads the shell
+// again. The one reader of the query and the mutations. After each change the
+// query is asked again, since it alone carries the fault beside the setting.
+// Another window can change the setting and each window caches its own, so it
+// is also asked again on opening and whenever the window takes focus.
 import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery } from 'urql';
-import type { CombinedError } from 'urql';
 
 import { graphql } from '@/gql';
 import type { SandboxPathQuery } from '@/gql/graphql';
-import { refusalOf } from '@/lib/graphql/refusal';
+import { refusalOf, savedUnread } from '@/lib/graphql/refusal';
 
 const SandboxPathDocument = graphql(`
   query SandboxPath {
     sandboxPath {
-      dir
-      target
-      state
-      source
-      shared
+      value
+      refusal
+      folders {
+        path
+        origin
+        target
+        searched
+        reason
+        addable
+        shared
+      }
     }
     sandboxPathFault
-    sandboxPathResolved
   }
 `);
 
-const SandboxPathIncludeMutation = graphql(`
-  mutation SandboxPathInclude($dir: String!, $target: String!) {
-    sandboxPathInclude(dir: $dir, target: $target) {
-      dir
-    }
-  }
-`);
-
-const SandboxPathRemoveMutation = graphql(`
-  mutation SandboxPathRemove($dir: String!) {
-    sandboxPathRemove(dir: $dir) {
-      dir
+const SandboxPathSetMutation = graphql(`
+  mutation SandboxPathSet($value: String!) {
+    sandboxPathSet(value: $value) {
+      value
     }
   }
 `);
@@ -59,42 +55,41 @@ const SandboxPathRemoveMutation = graphql(`
 const SandboxPathRefreshMutation = graphql(`
   mutation SandboxPathRefresh {
     sandboxPathRefresh {
-      dir
+      value
     }
   }
 `);
 
-export type SandboxPathEntry = SandboxPathQuery['sandboxPath'][number];
+export type SandboxPathFolder = SandboxPathQuery['sandboxPath']['folders'][number];
 
 export type SandboxPath = {
-  /** Undefined until the sidecar has answered. */
-  entries: SandboxPathEntry[] | undefined;
+  /** The setting as written; undefined until the sidecar has answered. */
+  value: string | undefined;
+  /** Why Kstack cannot use the value; null when it can. */
+  refusal: string | null | undefined;
+  /** Each folder of the value, as a sandboxed command judges it now. */
+  folders: SandboxPathFolder[] | undefined;
   /** Why the last read of the login shell failed, null once one answers. */
   fault: string | null | undefined;
-  /** Whether a sync has read the shell: until one has, commands search the default PATH. */
-  resolved: boolean | undefined;
-  /** The dirs whose Include or Remove is in flight. */
-  changing: ReadonlySet<string>;
+  saving: boolean;
   refreshing: boolean;
-  /** The last refused Include's or Remove's message, until the next one starts. */
-  changeError: string | null;
+  /** The last save's message: its refusal, or that it was taken but not read back. */
+  saveError: string | null;
   /** The last refused refresh's message. */
   refreshError: string | null;
-  /** Includes dir for target, the folder the user was shown. */
-  include: (dir: string, target: string) => Promise<void>;
-  remove: (dir: string) => Promise<void>;
-  /** True once the shell answered and the list was synced. */
+  /** Saves value; true once it was taken. */
+  save: (value: string) => Promise<boolean>;
+  /** True once the shell answered and its PATH was stored. */
   refresh: () => Promise<boolean>;
 };
 
 export function useSandboxPath(): SandboxPath {
   const [{ data }, reexecute] = useQuery({ query: SandboxPathDocument, requestPolicy: 'cache-and-network' });
-  const [, includeMutation] = useMutation(SandboxPathIncludeMutation);
-  const [, removeMutation] = useMutation(SandboxPathRemoveMutation);
+  const [, saveMutation] = useMutation(SandboxPathSetMutation);
   const [, refreshMutation] = useMutation(SandboxPathRefreshMutation);
-  const [changing, setChanging] = useState<ReadonlySet<string>>(new Set());
+  const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [changeError, setChangeError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const askAgain = useCallback(() => reexecute({ requestPolicy: 'network-only' }), [reexecute]);
@@ -103,28 +98,18 @@ export function useSandboxPath(): SandboxPath {
     return () => window.removeEventListener('focus', askAgain);
   }, [askAgain]);
 
-  const change = useCallback(
-    async (dir: string, run: () => Promise<{ error?: CombinedError }>) => {
-      // Changes to different dirs overlap, so each settles only its own dir,
-      // and one that succeeds leaves another's refusal on screen.
-      setChanging((prev) => new Set(prev).add(dir));
-      setChangeError(null);
-      const { error } = await run();
-      setChanging((prev) => {
-        const next = new Set(prev);
-        next.delete(dir);
-        return next;
-      });
-      if (error) setChangeError(refusalOf(error));
+  const save = useCallback(
+    async (value: string) => {
+      setSaving(true);
+      setSaveError(null);
+      const { error } = await saveMutation({ value });
+      setSaving(false);
+      setSaveError(refusalOf(error));
       askAgain();
+      return !error || savedUnread(error);
     },
-    [askAgain],
+    [saveMutation, askAgain],
   );
-  const include = useCallback(
-    (dir: string, target: string) => change(dir, () => includeMutation({ dir, target })),
-    [change, includeMutation],
-  );
-  const remove = useCallback((dir: string) => change(dir, () => removeMutation({ dir })), [change, removeMutation]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -132,19 +117,19 @@ export function useSandboxPath(): SandboxPath {
     setRefreshing(false);
     setRefreshError(refusalOf(error));
     askAgain();
-    return !error;
+    return !error || savedUnread(error);
   }, [refreshMutation, askAgain]);
 
   return {
-    entries: data?.sandboxPath,
+    value: data?.sandboxPath.value,
+    refusal: data?.sandboxPath.refusal,
+    folders: data?.sandboxPath.folders,
     fault: data?.sandboxPathFault,
-    resolved: data?.sandboxPathResolved,
-    changing,
+    saving,
     refreshing,
-    changeError,
+    saveError,
     refreshError,
-    include,
-    remove,
+    save,
     refresh,
   };
 }

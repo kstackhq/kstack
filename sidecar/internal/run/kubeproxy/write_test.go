@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
@@ -103,7 +104,9 @@ func (a *recordingAsker) Record(_ context.Context, r Request, d permissions.Deci
 // sessionIn is a session whose mode is mode in every context, under rules.
 func sessionIn(mode permissions.Mode, rules ...permissions.Rule) session.Session {
 	return session.Session{
-		Policy: func(context.Context, string) permissions.Policy { return permissions.Policy{Mode: mode, Rules: rules} },
+		Policy: func(context.Context, apimeta.ClusterID) permissions.Policy {
+			return permissions.Policy{Mode: mode, Rules: rules}
+		},
 	}
 }
 
@@ -113,7 +116,7 @@ var askSession = sessionIn(permissions.Ask)
 // serveIn is a grant in context dev under sess that puts each write to asker.
 func serveIn(t *testing.T, up Upstream, sess session.Session, asker Asker) *served {
 	t.Helper()
-	return serveGrant(t, NewGrant(up, sess, "dev", asker, noAsker, 1000, 1000, 32))
+	return serveGrant(t, NewGrant(up, sess, "c1", "dev", asker, noAsker, 1000, 1000, 32))
 }
 
 // next is the next write put to a, once it is asked.
@@ -125,7 +128,7 @@ func (a fakeAsker) next(t *testing.T) asked {
 // serveAsking is a grant over up that puts each write to asker.
 func serveAsking(t *testing.T, up Upstream, asker Asker) *served {
 	t.Helper()
-	return serveGrant(t, NewGrant(up, askSession, "dev", asker, noAsker, 1000, 1000, 32))
+	return serveGrant(t, NewGrant(up, askSession, "c1", "dev", asker, noAsker, 1000, 1000, 32))
 }
 
 // writeRequest is method on path with body sent as contentType, as a command
@@ -287,7 +290,7 @@ func serveCountingWaiters(t *testing.T, up Upstream, asker Asker) (*served, *ato
 func serveCountingWaitersIn(t *testing.T, up Upstream, sess session.Session, asker Asker) (*served, *atomic.Int32) {
 	t.Helper()
 	var waiting atomic.Int32
-	g := NewGrant(up, sess, "dev", asker, noAsker, 1000, 1000, 32)
+	g := NewGrant(up, sess, "c1", "dev", asker, noAsker, 1000, 1000, 32)
 	g.waitersMoved = func(delta int) { waiting.Add(int32(delta)) }
 	return serveGrant(t, g), &waiting
 }
@@ -376,7 +379,7 @@ func TestQueuedWritesAreBounded(t *testing.T) {
 func TestAWriteWaitingHoldsNoSlot(t *testing.T) {
 	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
 	asker := make(fakeAsker, 1)
-	s := serveGrant(t, NewGrant(api.upstream(), askSession, "dev", asker, noAsker, 1000, 1000, 1))
+	s := serveGrant(t, NewGrant(api.upstream(), askSession, "c1", "dev", asker, noAsker, 1000, 1000, 1))
 
 	s.sendAsync(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/a", "", ""))
 	asker.next(t)
@@ -867,7 +870,7 @@ func TestABackgroundWriteIsRefused(t *testing.T) {
 	allow := permissions.Rule{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite}
 	for _, sess := range []session.Session{sessionIn(permissions.Auto), sessionIn(permissions.Ask, allow)} {
 		api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
-		s := serveGrant(t, NewGrant(api.upstream(), sess, "dev", nil, noAsker, 1000, 1000, 32))
+		s := serveGrant(t, NewGrant(api.upstream(), sess, "c1", "dev", nil, noAsker, 1000, 1000, 32))
 
 		resp, body := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
 
@@ -895,7 +898,7 @@ func TestAnAllowedWriteForwardsUnasked(t *testing.T) {
 	assert.Equal(t, "/api/v1/namespaces/web/pods/x", r.w.Path)
 	assert.Empty(t, asker.fakeAsker, "nobody was asked")
 
-	allow := permissions.Rule{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite, Context: "dev"}
+	allow := permissions.Rule{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "c1"}
 	s = serveIn(t, api.upstream(), sessionIn(permissions.Ask, allow), asker)
 	resp, body = s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)
@@ -915,13 +918,13 @@ func TestAnAllowedWriteForwardsUnasked(t *testing.T) {
 // record the store refuses changes nothing about the answer. A session with no
 // policy is read-only.
 func TestADeniedWriteIsAForbiddenStatus(t *testing.T) {
-	deny := permissions.Rule{ID: "d", Effect: permissions.Deny, Class: permissions.UpstreamWrite, Context: "dev"}
+	deny := permissions.Rule{ID: "d", Effect: permissions.Deny, Class: permissions.UpstreamWrite, ClusterID: "c1"}
 	for _, c := range []struct {
 		sess session.Session
 		why  string
 	}{
-		{sessionIn(permissions.ReadOnly), "this context is read-only"},
-		{session.Session{}, "this context is read-only"},
+		{sessionIn(permissions.ReadOnly), "this cluster is read-only"},
+		{session.Session{}, "this cluster is read-only"},
 		{sessionIn(permissions.Auto, deny), "a rule denies it: Deny cluster writes in dev"},
 	} {
 		for _, fail := range []bool{false, true} {
@@ -958,7 +961,7 @@ func TestAReadOnlyContextRefusesEveryWrite(t *testing.T) {
 	} {
 		resp, body := s.do(t, s.writeRequest(t, c.method, c.path, c.contentType, c.body))
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode, c.method+" "+c.path)
-		assert.Contains(t, body, "this context is read-only", c.method+" "+c.path)
+		assert.Contains(t, body, "this cluster is read-only", c.method+" "+c.path)
 	}
 	assert.Empty(t, api.requests())
 
@@ -970,23 +973,24 @@ func TestAReadOnlyContextRefusesEveryWrite(t *testing.T) {
 	assert.JSONEq(t, redactedSecretJSON, r.body)
 }
 
-// The proxy asks the session for the mode of the context its grant was made
-// for.
-func TestTheModeIsReadForTheGrantsContext(t *testing.T) {
-	var modes []string
+// The proxy asks the session for the policy of the cluster its grant was made
+// for, and the action carries the grant's context.
+func TestThePolicyIsReadForTheGrantsCluster(t *testing.T) {
+	var clusters []apimeta.ClusterID
 	sess := session.Session{
-		Policy: func(_ context.Context, c string) permissions.Policy {
-			modes = append(modes, c)
+		Policy: func(_ context.Context, c apimeta.ClusterID) permissions.Policy {
+			clusters = append(clusters, c)
 			return permissions.Policy{Mode: permissions.Auto}
 		},
 	}
 	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
-	s := serveGrant(t, NewGrant(api.upstream(), sess, "arn:aws:eks:us-east-1:1:cluster/dev", newRecordingAsker(), noAsker, 1000, 1000, 32))
+	asker := newRecordingAsker()
+	s := serveGrant(t, NewGrant(api.upstream(), sess, "c1", "arn:aws:eks:us-east-1:1:cluster/dev", asker, noAsker, 1000, 1000, 32))
 
 	resp, body := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
 
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)
-	assert.Equal(t, []string{"arn:aws:eks:us-east-1:1:cluster/dev"}, modes)
+	assert.Equal(t, []apimeta.ClusterID{"c1"}, clusters)
 }
 
 // A write is decided under the write lock, so an allowed one behind a pending
@@ -1118,7 +1122,7 @@ func TestARuleWrittenBetweenTwoWritesAllowsTheSecond(t *testing.T) {
 	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
 	var rules atomic.Pointer[[]permissions.Rule]
 	rules.Store(&[]permissions.Rule{})
-	sess := session.Session{Policy: func(context.Context, string) permissions.Policy {
+	sess := session.Session{Policy: func(context.Context, apimeta.ClusterID) permissions.Policy {
 		return permissions.Policy{Mode: permissions.Ask, Rules: *rules.Load()}
 	}}
 	asker := newRecordingAsker()
@@ -1127,7 +1131,7 @@ func TestARuleWrittenBetweenTwoWritesAllowsTheSecond(t *testing.T) {
 	done := s.sendAsync(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/a", "", ""))
 	asker.next(t).answer <- once
 	testutil.Recv(t, done, "the first delete")
-	rules.Store(&[]permissions.Rule{permissions.GrantRule(permissions.Action{Class: permissions.UpstreamWrite, Context: "dev", Namespace: "web"})})
+	rules.Store(&[]permissions.Rule{permissions.GrantRule(permissions.Action{Class: permissions.UpstreamWrite, ClusterID: "c1", Namespace: "web"})})
 
 	resp, body := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/b", "", ""))
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)

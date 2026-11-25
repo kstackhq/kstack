@@ -94,19 +94,19 @@ func probingTool(t *testing.T) (*Tool, *fakeSandboxer, string) {
 	tl := tool(t)
 	fake := &fakeSandboxer{}
 	tl.sandboxer = fake
-	bin, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
+	// Not under /tmp, which a typed folder's check refuses on Linux.
+	bin := testutil.GrantableDir(t)
 	onPath(tl, bin)
 	return tl, fake, bin
 }
 
-// onPath makes dirs tl's PATH, each a folder the user included.
+// onPath makes dirs tl's PATH, each a folder the user typed.
 func onPath(tl *Tool, dirs ...string) {
-	var entries []settings.PathEntry
+	var folders []settings.PathFolder
 	for _, d := range dirs {
-		entries = append(entries, adopted(d, d, settings.SourceUser))
+		folders = append(folders, typed(d))
 	}
-	tl.pathList = func() settings.RunPath { return settings.RunPath{Entries: entries, Resolved: true} }
+	tl.pathList = searching(folders...)
 }
 
 // reportOf is the report of name in reports.
@@ -162,14 +162,43 @@ func TestTheProbeRunsOnlyTheList(t *testing.T) {
 	assert.Equal(t, got, tl.LastProbe())
 }
 
+// A probe runs no registered executable the shape check refuses, however its
+// caller passed it: marked, or malformed and unmarked. The curated kubectl
+// still runs beside a registered kubectl.
+func TestAProbeRunsNoRefusedExecutable(t *testing.T) {
+	tl, fake, bin := probingTool(t)
+	kubectlBin := writeExecutable(t, bin, "kubectl", "echo v1")
+	writeExecutable(t, bin, "other", "true")
+	writeExecutable(t, bin, "k9s", "true")
+	registered := []settings.Executable{
+		{Name: "kubectl", Invocation: "kubectl version"},
+		{Name: "stern", Invocation: "other --version"},
+		{Name: "k9s", Invocation: "k9s info", Refusal: "Its own reason."},
+	}
+
+	got := tl.ProbeExecutables(t.Context(), registered)
+
+	var ran [][]string
+	for _, r := range fake.seen() {
+		ran = append(ran, append([]string{r.Shell}, r.Args...))
+	}
+	assert.Equal(t, [][]string{{kubectlBin, "version", "--client"}}, ran, "the curated kubectl alone")
+	assert.True(t, got[0].OK, "the curated kubectl")
+	for i, r := range got[len(settings.CuratedExecutables):] {
+		assert.NotEmpty(t, r.Refusal, registered[i].Name)
+		assert.False(t, r.Probed, registered[i].Name)
+		assert.Empty(t, r.Error, registered[i].Name)
+	}
+}
+
 // A kubectl under asdf's shims is reported as a shim, with the binary asdf's
 // resolver names, which runs in the sandbox first; a #! script elsewhere is
 // no shim.
 func TestAShimResolvesToItsTarget(t *testing.T) {
 	tl, fake, bin := probingTool(t)
-	home, err := filepath.EvalSymlinks(tl.home)
-	require.NoError(t, err)
-	shims := filepath.Join(home, ".asdf", "shims")
+	// Not under /tmp, which a typed folder's check refuses on Linux.
+	tl.home = testutil.GrantableDir(t)
+	shims := filepath.Join(tl.home, ".asdf", "shims")
 	shim := writeExecutable(t, shims, "kubectl", "echo v1.31.0")
 	asdf := writeExecutable(t, bin, "asdf", `echo "/opt/asdf/installs/kubectl/1.31.0/bin/$2"`)
 	helm := writeExecutable(t, bin, "helm", "echo v3.16.0")
@@ -249,8 +278,8 @@ func TestAProbeReadsTheAlwaysFoldersAlone(t *testing.T) {
 	tl, fake, bin := probingTool(t)
 	writeExecutable(t, bin, "kubectl", "true")
 	granted := testutil.GrantableDir(t)
-	tl.SetAlwaysFolders(func(context.Context) []session.Folder {
-		return []session.Folder{{Path: granted}}
+	tl.SetAlwaysFolders(func(context.Context) ([]session.Folder, error) {
+		return []session.Folder{{Path: granted}}, nil
 	})
 
 	tl.ProbeExecutables(t.Context(), nil)
@@ -588,4 +617,18 @@ func TestACallerThatLeavesGetsNoReport(t *testing.T) {
 
 	close(fake.gate)
 	require.Eventually(t, func() bool { return tl.LastProbe() != nil }, testutil.Timeout, time.Millisecond)
+}
+
+// A PATH that cannot be read starts no probe: each report says why.
+func TestAProbeOverAPathThatCannotBeReadRunsNothing(t *testing.T) {
+	tl, fake, _ := probingTool(t)
+	tl.pathList = func(context.Context) (settings.RunPath, error) {
+		return settings.RunPath{}, settings.PathRefusal("Your PATH setting cannot be used.")
+	}
+
+	got := tl.ProbeExecutables(t.Context(), nil)
+	k := reportOf(t, got, kubectl.Name)
+	assert.False(t, k.Probed)
+	assert.Equal(t, "could not start: Your PATH setting cannot be used.", k.Error)
+	assert.Empty(t, fake.seen())
 }

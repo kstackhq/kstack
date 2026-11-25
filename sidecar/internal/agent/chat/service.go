@@ -195,25 +195,29 @@ type Service interface {
 
 	// FoldersFor is the folders a run of chatID reads, the chat's grants then
 	// the always ones, each checked; with no chat, the always ones alone. None
-	// on a machine where no sandbox confines a run.
-	FoldersFor(ctx context.Context, chatID ChatID) []session.Folder
+	// on a machine where no sandbox confines a run. A read that fails is an
+	// error.
+	FoldersFor(ctx context.Context, chatID ChatID) ([]session.Folder, error)
 	// FolderGrants is the always grants and, with a chat, the chat's, each with
 	// why it fails its check now. Empty on a machine with no sandbox.
-	FolderGrants(ctx context.Context, chatID ChatID) (always, chat []FolderGrant)
+	FolderGrants(ctx context.Context, chatID ChatID) (always, chat []FolderGrant, err error)
 	// GrantFolder grants path, read or with write read and write, for the chat
 	// or with no chat always, once it passes its check, a
 	// settings.FolderRefusal otherwise. A grant of a folder already
 	// granted in the same place changes that grant's mode and keeps its id.
 	GrantFolder(ctx context.Context, chatID ChatID, path string, write bool) error
-	// RevokeFolder removes the always grant with id; ErrGrantGone for an id
-	// that is not one.
-	RevokeFolder(id string) error
-	// ChatGrants is the chat's own rules; none for a chat with none.
-	ChatGrants(ctx context.Context, chatID ChatID) ([]permissions.Rule, error)
-	// RemoveChatGrant removes one of the chat's rules by id and answers the
-	// rules left: ErrChatGone or ErrGrantGone for a chat or an id gone.
-	RemoveChatGrant(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error)
-	// WatchGrants pings on the chat's rules. Watch before the first read.
+	// RevokeFolder removes the folder grant id: the chat's, or with no chat an
+	// always one. ErrGrantGone for an id that is not one.
+	RevokeFolder(ctx context.Context, chatID ChatID, id string) error
+	// ChatKubeRules is the chat's own Kubernetes rules; none for a chat with
+	// none.
+	ChatKubeRules(ctx context.Context, chatID ChatID) ([]permissions.Rule, error)
+	// RemoveChatKubeRule removes one of the chat's Kubernetes rules by id and
+	// answers the rules left: ErrChatGone or ErrGrantGone for a chat or an id
+	// gone.
+	RemoveChatKubeRule(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error)
+	// WatchGrants pings on the chat's rules and folder grants. Watch before
+	// the first read.
 	WatchGrants(chatID ChatID) GrantsNews
 
 	// RunMonitor takes one monitor run on the cluster: a run of target over
@@ -516,12 +520,24 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 	if err != nil {
 		return ChatMessage{}, err
 	}
-	// Read outside the transaction too, since checking each reads the disk.
-	var existing ChatID
-	if chatID != nil {
-		existing = *chatID
+	// Read outside the transaction too, since checking each reads the disk. A
+	// turn outside the sandbox takes none; the transaction refuses a switch
+	// that differs from the row. The cloud platform switches are read here too,
+	// so the transaction never holds the writer while it waits for a reader.
+	var (
+		folders []session.Folder
+		cloudOn []string
+	)
+	if !sandboxDisabled {
+		var existing ChatID
+		if chatID != nil {
+			existing = *chatID
+		}
+		if folders, err = s.foldersFor(ctx, existing); err != nil {
+			return ChatMessage{}, err
+		}
+		cloudOn = s.cloudTargetsOn(ctx)
 	}
-	folders := s.foldersFor(ctx, existing)
 	at := normalizeTime(s.now())
 
 	var (
@@ -590,7 +606,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 			block = withView(block, toolUseID, view, *snap)
 		}
 		question, err := questionBlocks(ctx, st, id, s.withSandbox(block, sandboxState{
-			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn, folders: folders, cloudTargetsOn: s.cloudTargetsOn(),
+			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn, folders: folders, cloudTargetsOn: cloudOn,
 		}), content)
 		if err != nil {
 			return err

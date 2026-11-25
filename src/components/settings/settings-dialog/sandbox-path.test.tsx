@@ -16,44 +16,142 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
+import type { SandboxPath, SandboxPathFolder } from '@/lib/sandbox-path';
 
 import { SandboxPathSection } from './sandbox-path';
 
-const entry = (dir: string, state: SandboxPathEntry['state'] = 'Adopted'): SandboxPathEntry => ({
-  dir,
-  target: dir,
-  state,
-  source: 'Shell',
+const folder = (path: string, over: Partial<SandboxPathFolder> = {}): SandboxPathFolder => ({
+  path,
+  origin: 'Shell',
+  target: path,
+  searched: true,
+  reason: null,
+  addable: false,
   shared: false,
+  ...over,
 });
 
 function pathOf(over: Partial<SandboxPath> = {}): SandboxPath {
   return {
-    entries: [],
+    value: '$PATH',
+    refusal: null,
+    folders: [],
     fault: null,
-    resolved: true,
-    changing: new Set(),
+    saving: false,
     refreshing: false,
-    changeError: null,
+    saveError: null,
     refreshError: null,
-    include: vi.fn(async () => {}),
-    remove: vi.fn(async () => {}),
+    save: vi.fn(async () => true),
     refresh: vi.fn(async () => true),
     ...over,
   };
 }
 
+const field = () => screen.getByRole('textbox', { name: 'PATH' });
+
 describe('SandboxPathSection', () => {
-  it("draws every folder in the shell's order, joined as PATH", () => {
-    render(
+  it('draws the saved value, and each folder with whether it is searched and why', () => {
+    const folders = [
+      folder('/opt/homebrew/bin'),
+      folder('/Users/ren/bin', { origin: 'Typed', shared: true }),
+      folder('/Users/ren/.local/bin', {
+        searched: false,
+        reason: 'No sandboxed command reads this folder; type it into your PATH to include it.',
+        addable: true,
+      }),
+    ];
+    render(<SandboxPathSection path={pathOf({ value: '~/bin:$PATH', folders })} onRefreshed={vi.fn()} />);
+    expect(field()).toHaveValue('~/bin:$PATH');
+    const rows = screen.getAllByRole('listitem');
+    expect(rows[0]).toHaveTextContent('/opt/homebrew/bin');
+    expect(rows[0]).toHaveTextContent('from your shell');
+    expect(rows[1]).toHaveTextContent('typed');
+    expect(rows[1]).toHaveTextContent('shared with its group');
+    expect(rows[2]).toHaveTextContent('not searched');
+    expect(rows[2]).toHaveTextContent('No sandboxed command reads this folder');
+  });
+
+  it('saves the field, then probes the executables, and holds Save while unchanged', async () => {
+    const onRefreshed = vi.fn();
+    const path = pathOf();
+    render(<SandboxPathSection path={path} onRefreshed={onRefreshed} />);
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    await userEvent.type(field(), ':/opt/bin');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(path.save).toHaveBeenCalledWith('$PATH:/opt/bin');
+    expect(onRefreshed).toHaveBeenCalled();
+  });
+
+  it('keeps the typed text and the refusal of a save that was not taken', async () => {
+    const onRefreshed = vi.fn();
+    const { rerender } = render(
+      <SandboxPathSection path={pathOf({ save: vi.fn(async () => false) })} onRefreshed={onRefreshed} />,
+    );
+    await userEvent.clear(field());
+    await userEvent.type(field(), 'bin');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    rerender(
       <SandboxPathSection
-        path={pathOf({ entries: [entry('/opt/homebrew/bin'), entry('/usr/bin', 'Pending'), entry('/bin ', 'Gone')] })}
-        onRefreshed={vi.fn()}
+        path={pathOf({ save: vi.fn(async () => false), saveError: '"bin" is not a full path.' })}
+        onRefreshed={onRefreshed}
       />,
     );
-    expect(screen.getByRole('group', { name: 'PATH' })).toHaveTextContent("Your shell's PATH, as last imported.");
-    expect(screen.getByTestId('path').textContent).toBe('/opt/homebrew/bin:/usr/bin:/bin\\u{20}');
+    expect(field()).toHaveValue('bin');
+    expect(screen.getByText('"bin" is not a full path.')).toBeInTheDocument();
+    expect(onRefreshed).not.toHaveBeenCalled();
+  });
+
+  // A save answered KSTACK_SAVED_UNREAD was taken: the field shows the saved
+  // value again, and the message stays drawn.
+  it('takes a save that was not read back, keeping its message', async () => {
+    const message = 'Your PATH was saved, but Kstack could not read the settings back. Reopen Settings to see them.';
+    const { rerender } = render(<SandboxPathSection path={pathOf()} onRefreshed={vi.fn()} />);
+    await userEvent.type(field(), ':/opt/bin');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    rerender(
+      <SandboxPathSection path={pathOf({ value: '$PATH:/opt/bin', saveError: message })} onRefreshed={vi.fn()} />,
+    );
+    expect(field()).toHaveValue('$PATH:/opt/bin');
+    expect(screen.getByText(message)).toBeInTheDocument();
+  });
+
+  it('shows a refused value with its refusal, editable, and Reset saves $PATH', async () => {
+    const path = pathOf({ value: 'bin', refusal: '"bin" is not a full path.', folders: [] });
+    render(<SandboxPathSection path={path} onRefreshed={vi.fn()} />);
+    expect(screen.getByText(/"bin" is not a full path\./)).toBeInTheDocument();
+    expect(field()).toBeEnabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(path.save).toHaveBeenCalledWith('$PATH');
+  });
+
+  it('offers Add exactly where it would help, appending the folder to the field without saving', async () => {
+    const path = pathOf({
+      folders: [
+        folder('/Users/ren/.local/bin', {
+          searched: false,
+          reason: 'Not read.',
+          addable: true,
+          target: '/Users/ren/real',
+        }),
+        folder('/tmp/world', { searched: false, reason: 'Anyone on this machine can add programs to it.' }),
+      ],
+    });
+    render(<SandboxPathSection path={path} onRefreshed={vi.fn()} />);
+    const adds = screen.getAllByRole('button', { name: 'Add' });
+    expect(adds).toHaveLength(1);
+    await userEvent.click(adds[0]);
+    expect(field()).toHaveValue('$PATH:/Users/ren/real');
+    expect(path.save).not.toHaveBeenCalled();
+  });
+
+  // A text field draws no hidden character, so a draft holding one is drawn
+  // again, each spelled, before it is saved.
+  it('draws a draft that hides a character, spelled', async () => {
+    render(<SandboxPathSection path={pathOf()} onRefreshed={vi.fn()} />);
+    expect(screen.queryByTestId('draft')).toBeNull();
+    await userEvent.type(field(), ':/opt/b\u202Ein');
+    expect(screen.getByTestId('draft')).toHaveTextContent('$PATH:/opt/b\\u{202E}in');
   });
 
   it('imports from the shell, then probes the executables, but not on a refusal', async () => {
@@ -82,29 +180,32 @@ describe('SandboxPathSection', () => {
     expect(screen.getByRole('button', { name: 'Import from shell' })).toBeDisabled();
   });
 
-  it('says when the shell could not be read, the list or the default', () => {
-    const cases: [Partial<SandboxPath>, string][] = [
-      [{ entries: [entry('/bin')] }, 'The list is from the last time it could.'],
-      [{ entries: [], resolved: true }, 'Sandboxed commands search no folder.'],
-      [{ entries: [], resolved: false }, "Sandboxed commands use the system's default PATH."],
-    ];
-    cases.forEach(([over, tail]) => {
-      const { unmount } = render(
-        <SandboxPathSection path={pathOf({ fault: 'zsh exited 1', ...over })} onRefreshed={vi.fn()} />,
-      );
-      expect(screen.getByText(`Kstack could not read your shell's PATH: zsh exited 1. ${tail}`)).toBeInTheDocument();
-      unmount();
-    });
+  it('draws an empty field before the sidecar answers, and holds Save and Reset', () => {
+    render(<SandboxPathSection path={pathOf({ value: undefined, folders: undefined })} onRefreshed={vi.fn()} />);
+    expect(field()).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled();
   });
 
-  it('draws an empty PATH before the sidecar answers, and the default while the shell cannot be read', () => {
-    render(
-      <SandboxPathSection
-        path={pathOf({ entries: undefined, resolved: undefined, fault: 'zsh exited 1' })}
-        onRefreshed={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId('path').textContent).toBe('');
-    expect(screen.getByText(/Sandboxed commands use the system's default PATH\./)).toBeInTheDocument();
+  it('adds a folder as an entry of its own, whatever the field ends in', async () => {
+    const path = pathOf({
+      folders: [folder('/Users/ren/.local/bin', { searched: false, reason: 'Not read.', addable: true })],
+    });
+    render(<SandboxPathSection path={path} onRefreshed={vi.fn()} />);
+    await userEvent.clear(field());
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(field()).toHaveValue('/Users/ren/.local/bin');
+
+    await userEvent.clear(field());
+    await userEvent.type(field(), '$PATH:');
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(field()).toHaveValue('$PATH:/Users/ren/.local/bin');
+  });
+
+  it('says when the shell could not be read', () => {
+    render(<SandboxPathSection path={pathOf({ fault: 'zsh exited 1' })} onRefreshed={vi.fn()} />);
+    expect(
+      screen.getByText("Kstack could not read your shell's PATH: zsh exited 1. $PATH stands for the last one it read."),
+    ).toBeInTheDocument();
   });
 });

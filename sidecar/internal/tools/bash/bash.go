@@ -31,7 +31,6 @@ import (
 	"math"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
@@ -160,11 +159,9 @@ type Tool struct {
 	denied []string
 	// links is each link Kstack followed to them, whose folders no run writes.
 	links []realpath.Link
-	// pathList is the user's stored PATH list, read once at a sandboxed run's
-	// start; nil for none. fallbackPath is what a run searches while the list
-	// was never resolved: the platform's login default, or a test's folders.
-	pathList     func() settings.RunPath
-	fallbackPath []string
+	// pathList is the user's PATH setting expanded, read once at a sandboxed
+	// run's start; nil for none.
+	pathList func(context.Context) (settings.RunPath, error)
 	// userEnv is the user's variables; nil for none. A sandboxed run reads
 	// them at its start, a command outside the sandbox at its approval.
 	userEnv UserEnv
@@ -201,7 +198,7 @@ type Tool struct {
 
 	// alwaysFolders is the folders granted always, which a run that belongs
 	// to no chat reads; nil reads none.
-	alwaysFolders func(context.Context) []session.Folder
+	alwaysFolders func(context.Context) ([]session.Folder, error)
 	// probe is the tool probe's state (executableprobe.go).
 	probe *executableProbe
 	// console is the Sandbox console's state (console.go).
@@ -242,10 +239,9 @@ type Paths struct {
 // clusterSvc no longer holds. hostPID is the host's process, 0 when the sidecar was
 // not told it. boxer is the machine's sandbox, nil for none, and clusterSvc the cluster
 // service, which a sandboxed run reads the chat's cluster through. pathList is the
-// user's stored PATH list, which a sandboxed run reads at its start and searches
-// the adopted entries of, since a sync, Include or Remove changes it while the
-// tool lives; nil for none. userEnv is the user's variables; nil for none.
-func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Service, pathList func() settings.RunPath, userEnv UserEnv, cloud Cloud) (t *Tool, ok bool) {
+// user's PATH setting expanded, which a sandboxed run reads at its start, since
+// a save or a read of the shell changes it while the tool lives; nil for none. userEnv is the user's variables; nil for none.
+func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Service, pathList func(context.Context) (settings.RunPath, error), userEnv UserEnv, cloud Cloud) (t *Tool, ok bool) {
 	shell, kind, found := findShell()
 	if !found {
 		return nil, false
@@ -270,21 +266,20 @@ func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Se
 	}()
 	t = &Tool{
 		shell: shell, kind: kind, home: home, scripts: scripts, platform: runtime.GOOS,
-		env:          kstackEnv(hostPID),
-		clusterSvc:   clusterSvc,
-		cloud:        cloud,
-		runsDir:      paths.RunsDir,
-		tmpDir:       paths.TmpDir,
-		kubectlDir:   paths.KubectlDir,
-		denied:       paths.DeniedDirs,
-		links:        paths.Links,
-		pathList:     pathList,
-		userEnv:      userEnv,
-		fallbackPath: filepath.SplitList(defaultPath),
-		snapTimeout:  snapshotTimeout,
-		snapLimit:    snapshotLimit,
-		probe:        newExecutableProbe(),
-		console:      newConsole(),
+		env:         kstackEnv(hostPID),
+		clusterSvc:  clusterSvc,
+		cloud:       cloud,
+		runsDir:     paths.RunsDir,
+		tmpDir:      paths.TmpDir,
+		kubectlDir:  paths.KubectlDir,
+		denied:      paths.DeniedDirs,
+		links:       paths.Links,
+		pathList:    pathList,
+		userEnv:     userEnv,
+		snapTimeout: snapshotTimeout,
+		snapLimit:   snapshotLimit,
+		probe:       newExecutableProbe(),
+		console:     newConsole(),
 	}
 	// A nil pointer in an interface is not a nil interface.
 	if boxer != nil {
@@ -302,7 +297,7 @@ func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Se
 // belongs to no chat reads at its start, so a folder granted since reaches the
 // next one. It is unguarded: the app calls it once the chat service is built,
 // after the tool and before any run.
-func (t *Tool) SetAlwaysFolders(folders func(context.Context) []session.Folder) {
+func (t *Tool) SetAlwaysFolders(folders func(context.Context) ([]session.Folder, error)) {
 	t.alwaysFolders = folders
 }
 
@@ -836,7 +831,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 	r := &sandboxedRun{boxer: boxer}
 	var cluster *target
 	var port int
-	platforms := t.cloud.platformsFor(rt)
+	platforms := t.cloud.platformsFor(ctx, rt)
 	if rt.ClusterID != "" {
 		tg, err := t.target(ctx, rt.ClusterID)
 		if err != nil {
@@ -884,13 +879,13 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		r.proxy = &runProxy{}
 		if cluster != nil {
 			asker, refusal := writesFor(rt, background)
-			r.proxy.grant = newClusterGrant(r.claim, rt.Session, cluster.scopeContext, asker, refusal)
+			r.proxy.grant = newClusterGrant(r.claim, rt.Session, cluster.id, cluster.scopeContext, asker, refusal)
 		}
 		run := CloudRun{Port: port, Dir: r.dir.path, ToolHome: toolHome, TmpDir: r.dir.tmp, CAFile: r.dir.caFile(), Session: rt.Session}
 		if cluster != nil {
 			run.KubeContext = cluster.scopeContext
 		}
-		if cloudVars, err = r.proxy.mount(ctx, platforms, rt, background, run); err != nil {
+		if cloudVars, err = r.proxy.mount(ctx, t.cloud, platforms, rt, background, run); err != nil {
 			r.end()
 			return nil, err
 		}
@@ -900,7 +895,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 			return nil, err
 		}
 		socket := r.dir.socket()
-		if err := r.proxy.serve(socket, t.cloud.on, cert); err != nil {
+		if err := r.proxy.serve(socket, cert); err != nil {
 			r.end()
 			return nil, err
 		}
@@ -913,31 +908,49 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		}
 		net.Relays = []sandbox.Relay{{Port: port, Socket: socket}}
 	}
-	// Read once, here: nothing the store changes while the run lives reaches it.
-	var list settings.RunPath
-	if t.pathList != nil {
-		list = t.pathList()
-	}
 	// System stats folders under the home, Never lists the other homes,
-	// toolVersions reads a file under the home and runPath stats each entry,
+	// toolVersions reads a file under the home and runPath stats each folder,
 	// any of which can hang on a network mount, so the run is built on a
-	// goroutine abandoned if ctx ends first.
-	built := make(chan sandbox.Run, 1)
+	// goroutine abandoned if ctx ends first. So are the reads of the folders
+	// granted, which checks each on disk, and of the PATH; one that fails
+	// fails the run.
+	type build struct {
+		run sandbox.Run
+		err error
+	}
+	built := make(chan build, 1)
 	go func() {
+		granted, err := rt.Session.GrantedFolders(ctx)
+		if err != nil {
+			built <- build{err: errors.New(tools.FoldersUnread(Name, err).Result)}
+			return
+		}
+		// Read once, here: nothing the store changes while the run lives
+		// reaches it, and its search and its grant check read the same PATH.
+		list, err := t.readPath(ctx)
+		if err != nil {
+			built <- build{err: err}
+			return
+		}
 		sys := boxer.System(t.home, t.shell)
 		never := boxer.Never(t.home)
-		folders, pathReads := runPath(list, t.fallbackPath, sys.Files, slices.Concat(never, t.denied), t.home)
+		folders, pathReads := runPath(list.Search, sys.Files, slices.Concat(never, t.denied), t.home)
 		toolchain := sys.Env
 		if sys.Asdf {
 			toolchain = slices.Concat(sys.Env, toolVersions(t.home))
 		}
 		env := sandboxedRunEnv(os.Environ(), t.env, joinPath(folders), ws, cwd, r.dir, cluster, toolHome, user, toolchain, cloudVars)
 		files := sys.Files.WithSearch(pathReads)
-		grants := t.grantRules(rt.Session.GrantedFolders(ctx), sys.Files, never, list.Entries)
-		built <- sandbox.Run{Env: env, Policy: t.workspacePolicy(files, grants, never, reads, writes, net, limits)}
+		grants := t.grantRules(granted, sys.Files, never, list.NoWrite)
+		built <- build{run: sandbox.Run{Env: env, Policy: t.workspacePolicy(files, grants, never, reads, writes, net, limits)}}
 	}()
 	select {
-	case r.run = <-built:
+	case b := <-built:
+		if b.err != nil {
+			r.end()
+			return nil, b.err
+		}
+		r.run = b.run
 		return r, nil
 	case <-ctx.Done():
 		r.end()

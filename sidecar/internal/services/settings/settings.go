@@ -12,90 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package settings is the sidecar's user settings in <data>/settings.json, and
-// the sandbox state derived from them.
+// Package settings is the sidecar's user settings, rows in app.db, and the
+// sandbox state derived from them.
 package settings
 
 import (
-	"github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings"
-	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
 )
 
-// Settings is the user's settings, one group per area. Each field is added by
-// the step that needs it.
-type Settings struct {
-	Sandbox     SandboxSettings    `json:"sandbox,omitzero"`
-	Permissions PermissionSettings `json:"permissions,omitzero"`
-	Executables []Executable       `json:"executables,omitempty"` // the user's registered tools, in the order added
-}
-
-// SandboxSettings is the sandbox group: the user's PATH as a sandboxed run
-// searches it, and what else a run may reach.
-type SandboxSettings struct {
-	Path []PathEntry `json:"path,omitempty"` // the user's PATH, frozen, in the shell's order
-	// PathResolved is set by the first sync: before it a run searches the
-	// platform's default PATH, after it the list alone.
-	PathResolved bool `json:"pathResolved,omitempty"`
-	// PathStrict is set by a Remove that ends the store's hold on path, and
-	// cleared by the next sync, which it makes file every new entry pending:
-	// the entry the store could not read may have been a removal.
-	PathStrict bool `json:"pathStrict,omitempty"`
-	// AWS, GitHub, GCP and Azure are each cloud platform's switch: on, a
-	// sandboxed command reaches it as the user (cloud.go). Unset is on.
-	AWS    *bool `json:"aws,omitempty"`
-	GitHub *bool `json:"github,omitempty"`
-	GCP    *bool `json:"gcp,omitempty"`
-	Azure  *bool `json:"azure,omitempty"`
-}
-
-// PermissionSettings is the permissions group: the approval modes and the
-// always rules.
-type PermissionSettings struct {
-	DefaultMode permissions.Mode   `json:"defaultMode,omitempty"` // Ask when empty
-	Modes       []ContextMode      `json:"modes,omitempty"`       // first match wins
-	Rules       []permissions.Rule `json:"rules,omitempty"`       // the always rules, the user's
-}
-
-// A Refusal is one value of the file Kstack left out, or an Update a check
-// refused.
-type Refusal = jsonsettings.Refusal
-
-// ErrHeld is an Update that changes a held field without naming it.
-var ErrHeld = jsonsettings.ErrHeld
-
-// Store keeps Settings in one JSON file and publishes each write. Safe for
-// concurrent use. It wraps the generic store so the permission readers in
-// permissions.go can be its methods.
+// Store keeps the approval modes, the always rules, the always folder grants,
+// the sandbox settings, the PATH setting, the login shell's last PATH and the
+// registered executables in app.db. It publishes each write of the
+// permissions, the executables and the PATH.
+// Safe for concurrent use.
 type Store struct {
-	*jsonsettings.Store[Settings]
+	db    *appdb.DB
+	stmts *sqlstmt.Set[stmtID]
+	now   func() time.Time
 }
 
-// An Option changes how Open reads the file.
-type Option func(*options)
-
-type options struct {
-	checks []func(*Settings) []Refusal
-}
-
-// WithChecks runs checks in place of the read-back's own. It is a test seam:
-// production passes none.
-func WithChecks(checks ...func(*Settings) []Refusal) Option {
-	return func(o *options) { o.checks = checks }
-}
-
-// Open reads file. A missing file is empty Settings; one that is not a JSON
-// object, or holds a group that is not one, is an error naming the file, since
-// a sandbox with no settings is one the user cannot see. A value the read-back
-// refuses is logged and listed by Refused, and left out, or for a field that
-// restricts, answered as that field's strictest state.
-func Open(file string, opts ...Option) (*Store, error) {
-	o := options{checks: checks}
-	for _, opt := range opts {
-		opt(&o)
-	}
-	s, err := jsonsettings.Open(file, o.checks, strictest)
+// Open prepares the store's statements over db.
+func Open(db *appdb.DB) (*Store, error) {
+	st, err := sqlstmt.Prepare[stmtID](context.Background(), db.Write.DB, db.Read.DB, statements)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("prepare settings statements: %w", err)
 	}
-	return &Store{s}, nil
+	return &Store{db: db, stmts: st, now: time.Now}, nil
+}
+
+// Close closes the store's statements.
+func (s *Store) Close() error {
+	return s.stmts.Close()
 }

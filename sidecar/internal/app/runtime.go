@@ -143,13 +143,6 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	cfg.googleProject, cfg.vertexBaseURL = findGoogleProject(cfg.Getenv)
 
-	// The settings hold no handle, so a failure leaves the sandbox and the lock to close.
-	settingsStore, err := settings.Open(p.SettingsFile)
-	if err != nil {
-		_ = sb.Close()
-		return fail(err)
-	}
-
 	// The app owns app.db and hands it to every service that writes or watches it.
 	// It closes after every service over it.
 	db, err := appdb.Open(p.AppDBFile, appdb.DefaultSweepInterval)
@@ -166,6 +159,14 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	// Its close ends every sandboxed run still going, after every service
 	// over the sandbox has stopped its own.
 	rt.add("sandbox", lifecycle.CloseFunc(sb.Close))
+
+	// The settings are rows in app.db, so they open after it and
+	// close before it.
+	settingsStore, err := settings.Open(db)
+	if err != nil {
+		return fail(err)
+	}
+	rt.add("settings", lifecycle.CloseFunc(settingsStore.Close))
 
 	// Shared cross-subsystem poke bus (wall-clock gap detector + host pokes via
 	// gRPC PokeService); see docs/adr/2026-08-09-poke-resync-fanout.md.
@@ -281,9 +282,10 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.add("user's variables", lifecycle.CloseFunc(rt.EnvVars.Close))
 
-	pathList := func() settings.RunPath { return settingsStore.Get().RunPath() }
+	// rt.Settings is set below, before any run reads it.
+	pathList := func(ctx context.Context) (settings.RunPath, error) { return rt.Settings.RunPath(ctx) }
 	platforms := cloudPlatformsFor(probed, cfg.cloudPlatforms, rt.Kubeconfig, rt.GitHub)
-	shell, found := bash.New(p.Bash, cfg.HostPID, sb, rt.Cluster, pathList, rt.EnvVars.For, bash.Cloud{Platforms: platforms, On: settingsStore.CloudOn})
+	shell, found := bash.New(p.Bash, cfg.HostPID, sb, rt.Cluster, pathList, rt.EnvVars.For, bash.Cloud{Platforms: platforms, Switches: settingsStore.CloudPlatformSwitches})
 	if found && cfg.callDeadline != nil {
 		shell.SetCallDeadline(cfg.callDeadline)
 	}
@@ -325,18 +327,19 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	// with the edge, so it closes before the service it reads.
 	if shell != nil {
 		// A probe or a console command has no chat, so its run reads the folders granted always alone.
-		shell.SetAlwaysFolders(func(ctx context.Context) []session.Folder { return rt.Chat.FoldersFor(ctx, "") })
+		shell.SetAlwaysFolders(func(ctx context.Context) ([]session.Folder, error) { return rt.Chat.FoldersFor(ctx, "") })
 		// Ends a running probe at Close.
 		rt.add("executable probe", lifecycle.CloseFunc(shell.Close))
 	}
 
-	// Before the snapshot, so the first sandboxed run reads the synced list.
+	// Before the snapshot, so the first sandboxed run reads the shell's PATH
+	// this launch read. A launch whose read failed keeps the last one stored.
 	if login.path != nil && rt.SandboxStatus.Available {
-		rt.add("PATH sync", lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
-			// Only when the list moved, so nothing runs unasked on a machine
+		rt.add("shell PATH", lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
+			// Only when it changed, so nothing runs unasked on a machine
 			// whose tools did not; the executable probe part's Close ends it.
-			if syncPath(ctx, rt.Settings, login.path) {
-				shell.StartProbe(rt.Settings.Get().Executables)
+			if setShellPath(ctx, rt.Settings, login.path) {
+				probeExecutables(ctx, rt.Settings.Executables, shell.StartProbe)
 			}
 			return func(context.Context) error { return nil }, nil
 		}))

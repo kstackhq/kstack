@@ -39,7 +39,6 @@ function withFolders(over: Partial<SandboxFolders>) {
     never: [],
     closed: [],
     wide: ['/Users/ren', '/Users'],
-    rulesHeld: false,
     granting: false,
     revoking: new Set(),
     grantError: null,

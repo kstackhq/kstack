@@ -36,6 +36,7 @@ import (
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
@@ -88,8 +89,10 @@ var (
 type Grant struct {
 	up      Upstream
 	session session.Session
-	// context is the kube-context the grant was made for: the scope every
-	// action is classified, and its mode and rules read, in.
+	// cluster is the cluster the grant was made for, whose policy decides each
+	// write, and context its kube-context: the scope every action is
+	// classified in, which the rules match.
+	cluster apimeta.ClusterID
 	context string
 	// asker puts a write or a Secret read to the user; nil refuses every write
 	// with refusal and reads Secret data redacted.
@@ -128,17 +131,18 @@ type Grant struct {
 	handlers sync.WaitGroup
 }
 
-// NewGrant is a live grant over up for the run of sess in kubeContext: a fresh
+// NewGrant is a live grant over up for the run of sess on cluster, whose
+// kube-context is kubeContext ("" for a record naming none): a fresh
 // 256-bit token, a limiter of qps with burst, and at most maxInFlight requests
 // open at once. Each write is decided and recorded through asker, or, with
 // none, refused with refusal.
-func NewGrant(up Upstream, sess session.Session, kubeContext string, asker Asker, refusal string, qps rate.Limit, burst, maxInFlight int) *Grant {
+func NewGrant(up Upstream, sess session.Session, cluster apimeta.ClusterID, kubeContext string, asker Asker, refusal string, qps rate.Limit, burst, maxInFlight int) *Grant {
 	var b [32]byte
 	_, _ = rand.Read(b[:])
 	token := hex.EncodeToString(b[:])
 	ctx, end := context.WithCancel(context.Background())
 	return &Grant{
-		up: up, session: sess, context: kubeContext, asker: asker, refusal: refusal, token: token,
+		up: up, session: sess, cluster: cluster, context: kubeContext, asker: asker, refusal: refusal, token: token,
 		auth:         []byte("Basic " + base64.StdEncoding.EncodeToString([]byte(ProxyUser+":"+token))),
 		limiter:      rate.NewLimiter(qps, burst),
 		openRequests: semaphore.NewWeighted(int64(maxInFlight)),

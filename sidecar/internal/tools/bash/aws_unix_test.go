@@ -44,7 +44,7 @@ func TestTheAWSConfigFileIsOwnerOnly(t *testing.T) {
 func TestNoRealCredentialIsInTheRun(t *testing.T) {
 	tl := tool(t)
 	tl.sandboxer = sandboxed(t)
-	tl.cloud = Cloud{Platforms: []CloudPlatform{awsAs(fakeAWSLogin{"eu-west-1"}, nil)}, On: switchesOn(permissions.AWS).On}
+	tl.cloud = Cloud{Platforms: []CloudPlatform{awsAs(fakeAWSLogin{"eu-west-1"}, nil)}, Switches: switchesOn(permissions.AWS).read}
 	rt := tools.Runtime{Dir: testChatDir(t), Session: session.Session{Kind: session.Chat}}
 
 	text, isError := tl.Run(t.Context(), rt, command(`env; find "$ZDOTDIR" "$TMPDIR" -type f -exec cat {} + 2>/dev/null`))

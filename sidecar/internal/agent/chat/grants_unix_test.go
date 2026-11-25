@@ -54,8 +54,8 @@ func fileApprovals(t *testing.T, s *service, c ChatID, readPath, writePath strin
 	return readA, writeA
 }
 
-// A rule hand-edited into settings.json passes the store's shape check, which
-// reads no disk; foldersFor's check refuses it.
+// A grant stored unchecked is checked where it is read: foldersFor's check
+// refuses it.
 func TestFoldersForAnswersOnlyCheckedFolders(t *testing.T) {
 	// CaptureLogs swaps the process's default logger, so this test stays serial.
 
@@ -63,14 +63,12 @@ func TestFoldersForAnswersOnlyCheckedFolders(t *testing.T) {
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	logs := testutil.CaptureLogs(t)
-	for id, r := range map[string]bool{home: true, "/proc": false} {
-		rule := folderRule(id, r)
-		rule.ID = id
-		require.NoError(t, s.settings.AddRule(rule))
+	for path, write := range map[string]bool{home: true, "/proc": false} {
+		require.NoError(t, s.settings.GrantFolder(t.Context(), path, write))
 	}
 
-	assert.Empty(t, s.FoldersFor(t.Context(), c.ID))
-	assert.Empty(t, s.sessionFor(c.ID, false, false).GrantedFolders(t.Context()))
+	assert.Empty(t, foldersFor(t, s, c.ID))
+	assert.Empty(t, grantedFolders(t, s.sessionFor(c.ID, false, false)))
 	assert.Contains(t, logs.String(), "Your home can be granted read-only.")
 	readA, writeA := fileApprovals(t, s, c.ID, "/proc/self/environ", filepath.Join(home, ".zshrc"))
 	assert.Equal(t, tools.Approval{}, readA, "Read asks for /proc/self/environ")

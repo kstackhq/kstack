@@ -132,13 +132,8 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else if v, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
 		token = v
 	}
-	if !p.Grant.Holds(token) {
-		p.Grant.Challenge(w)
-		return
-	}
-	r, done, ok := p.Grant.Enter(r)
-	if !ok { // coverage:ignore the grant ended between Holds and Enter, a race no test can pace
-		p.Grant.Challenge(w)
+	r, done, ok := p.Grant.Admit(w, r, token)
+	if !ok {
 		return
 	}
 	defer done()

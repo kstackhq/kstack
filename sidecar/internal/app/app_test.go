@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -21,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"google.golang.org/grpc"
@@ -683,19 +685,6 @@ func TestAFaultSpecTheBuildCannotHonourFailsNew(t *testing.T) {
 	require.ErrorContains(t, err, "KSTACK_FAULTS: ")
 }
 
-// A sandbox file that is not a JSON object fails New naming it, before app.db
-// opens.
-func TestABadSettingsFileFailsNew(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "settings.json")
-	require.NoError(t, os.WriteFile(file, []byte("{"), 0o600))
-
-	_, err := New(t.Context(), withDirs(t, Config{Folders: Folders{Data: dir}}))
-	require.ErrorContains(t, err, file)
-	assert.NoFileExists(t, filepath.Join(dir, "app.db"))
-	requireUnlocked(t, dir)
-}
-
 // The catalog is the config's: each provider at the base URL a debug build
 // moved it to, then the fake when asked for.
 func TestTheCatalogIsTheConfigs(t *testing.T) {
@@ -762,19 +751,34 @@ func TestNoShellOffersNoNetwork(t *testing.T) {
 	assert.Empty(t, got.NetworkReason)
 }
 
-// On a machine with no sandbox the service syncs nothing and keeps no fault,
-// and a sync that fails at Start is a warning, not a startup error.
+// On a machine with no sandbox the service stores no shell PATH and keeps no
+// fault, and a write that fails at Start is a warning, not a startup error.
 func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
-	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
+	store, err := settings.Open(appdbtest.Open(t))
 	require.NoError(t, err)
 	svc := newSettingsService(store, nil, nil, sandbox.Status{}, bash.Paths{}, "timeout")
 	assert.Empty(t, svc.PathFault())
-	assert.False(t, svc.Get().RunPath().Resolved)
 
 	log := testutil.CaptureLogs(t)
-	assert.False(t, syncPath(t.Context(), svc, []string{t.TempDir()}), "nothing changed")
-	assert.Contains(t, log.String(), "PATH not synced")
-	assert.Empty(t, store.Get().Sandbox.Path)
+	assert.False(t, setShellPath(t.Context(), svc, []string{t.TempDir()}), "nothing changed")
+	assert.Contains(t, log.String(), "shell PATH not stored")
+}
+
+// A probe after a read of the shell probes the registered executables as
+// read; a read that fails starts no probe, the curated executables' included,
+// and is a warning.
+func TestAProbeAfterAShellReadReadsTheRegisteredExecutables(t *testing.T) {
+	k9s := []settings.Executable{{Name: "k9s", Invocation: "k9s version"}}
+	var started [][]settings.Executable
+	start := func(registered []settings.Executable) { started = append(started, registered) }
+
+	probeExecutables(t.Context(), func(context.Context) ([]settings.Executable, error) { return k9s, nil }, start)
+	assert.Equal(t, [][]settings.Executable{k9s}, started)
+
+	log := testutil.CaptureLogs(t)
+	probeExecutables(t.Context(), func(context.Context) ([]settings.Executable, error) { return nil, errors.New("boom") }, start)
+	assert.Len(t, started, 1, "no probe started")
+	assert.Contains(t, log.String(), "executables not read")
 }
 
 // A folder under internal/ is a layer: an import between two folders points

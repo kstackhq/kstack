@@ -84,13 +84,11 @@ type request struct {
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	cred, ok := credentialOf(r)
 	token, held := cred.token()
-	if !ok || !held || !p.grant.Holds(token) {
-		p.grant.Challenge(w)
-		return
+	if !ok || !held {
+		token = ""
 	}
-	r, done, ok := p.grant.Enter(r)
-	if !ok { // coverage:ignore the grant ended between Holds and Enter
-		p.grant.Challenge(w)
+	r, done, ok := p.grant.Admit(w, r, token)
+	if !ok {
 		return
 	}
 	defer done()

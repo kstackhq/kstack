@@ -3,6 +3,7 @@ title: A folder grant is a rule, and the file tools walk it by handle
 date: 2026-10-04
 scope: cross-cutting
 status: Accepted
+amended_by: [A folder grant is its own row, and a mode and a rule belong to a cluster](2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md)
 ---
 
 # A folder grant is a rule, and the file tools walk it by handle

@@ -284,7 +284,7 @@ describe('ChatComposer', () => {
   it("draws the chat's rules for an open chat that holds any", () => {
     catalog.current = {
       ...answered,
-      data: { ...answered.data, chatGrants: [{ id: 'r1', line: 'Allow cluster writes in dev / web' }] },
+      data: { ...answered.data, chatKubeRules: [{ id: 'r1', line: 'Allow cluster writes in dev / web' }] },
     };
     const view = renderComposer();
     expect(screen.getByRole('button', { name: /1 allowed/ })).toBeInTheDocument();

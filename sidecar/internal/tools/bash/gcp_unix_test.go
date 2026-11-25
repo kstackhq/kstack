@@ -86,7 +86,7 @@ func TestNoGCPCredentialEntersTheSandbox(t *testing.T) {
 	p := NewGCP(gcpauth.New(helperAnswering(usersToken, "proj-1")), google)
 	tl := confiningTool(t)
 	withTool(t, tl, "curl")
-	tl.cloud = Cloud{Platforms: []CloudPlatform{p}, On: switchesOn(permissions.GCP).On}
+	tl.cloud = Cloud{Platforms: []CloudPlatform{p}, Switches: switchesOn(permissions.GCP).read}
 	rt := chatRuntime(t, session.Chat, nil)
 	home := tools.ToolHomePath(rt.Dir)
 

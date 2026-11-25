@@ -40,6 +40,17 @@ type ClusterPermissions struct {
 	Incomplete bool `json:"incomplete"`
 }
 
+// A rule to add. `clusterID` names a cluster Settings lists, and null is every cluster, which only a `Deny` or `Ask` rule may name. Every string is a pattern but `group`, and empty matches anything. A `namespace` of `[cluster]` is cluster-scoped objects alone.
+type KubeRuleInput struct {
+	Effect    permissions.Effect `json:"effect"`
+	Class     permissions.Class  `json:"class"`
+	ClusterID *apimeta.ClusterID `json:"clusterID,omitempty"`
+	Namespace string             `json:"namespace"`
+	Verb      string             `json:"verb"`
+	Group     string             `json:"group"`
+	Kind      string             `json:"kind"`
+}
+
 type LogRecordsPage struct {
 	Request *LogsFetchRequest `json:"request"`
 	// The first page's clock, which an open `until`'s `after` is measured from on every page.
@@ -197,29 +208,16 @@ type NonResourceRule struct {
 	NonResourceUrls []string `json:"nonResourceUrls"`
 }
 
-// A rule to add; every string is a pattern but `group`, and empty matches anything. A `namespace` of `[cluster]` is cluster-scoped objects alone.
-type PermissionRuleInput struct {
-	Effect    permissions.Effect `json:"effect"`
-	Class     permissions.Class  `json:"class"`
-	Context   string             `json:"context"`
-	Namespace string             `json:"namespace"`
-	Verb      string             `json:"verb"`
-	Group     string             `json:"group"`
-	Kind      string             `json:"kind"`
-}
-
 // The modes and rules sandboxed commands' cluster writes are decided by.
 type PermissionSettings struct {
-	// The mode of a context nothing else names.
+	// The mode of a cluster with none of its own.
 	DefaultMode permissions.Mode `json:"defaultMode"`
-	// Each known context's mode, by context.
-	Contexts []*settings.ContextModeState `json:"contexts"`
+	// The mode of each cluster with a kube-context that is not awaiting deletion.
+	Clusters []*settings.ClusterModeState `json:"clusters"`
 	// The user's always rules.
-	Rules []*permissions.Rule `json:"rules"`
+	KubeRules []*permissions.Rule `json:"kubeRules"`
 	// The writes that always ask, in words.
 	Destructive []string `json:"destructive"`
-	// The settings fields the file holds a value of that Kstack cannot read, by key: `permissions.defaultMode`, `permissions.modes`, `permissions.rules`.
-	Held []string `json:"held"`
 }
 
 // A provider the sidecar can send a turn to.
@@ -294,8 +292,10 @@ type SandboxExecutable struct {
 	Ok bool `json:"ok"`
 	// The first non-empty line of its output, redacted. The executable's own text: draw it through VisibleText.
 	Version string `json:"version"`
-	// Why it did not run or did not pass: Bash's first line, `not found on the sandbox's PATH`, `could not start: …` or `not probed yet`; empty when ok.
+	// Why it did not run or did not pass: Bash's first line, `not found on the sandbox's PATH`, `could not start: …` or `not probed yet`; empty when ok, and for one refused.
 	Error string `json:"error"`
+	// Why a registered executable is not probed, in the user's words; null for one Kstack probes. User text: draw it through VisibleText.
+	Refusal *string `json:"refusal,omitempty"`
 }
 
 // The executable probe as a watcher sees it.
@@ -310,13 +310,13 @@ type SandboxExecutablesReport struct {
 
 // One folder a sandboxed command may read, or read and write.
 type SandboxFolder struct {
-	// The rule's id.
+	// The grant's id.
 	ID string `json:"id"`
 	// The folder, absolute and resolved. User text: draw it through VisibleText.
 	Path  string `json:"path"`
 	Write bool   `json:"write"`
-	// Why the folder fails its check now, so no run takes it; null when it passes.
-	Refused *string `json:"refused,omitempty"`
+	// Why the folder fails its check now, so no run takes it; null when it passes. User text: draw it through VisibleText.
+	Refusal *string `json:"refusal,omitempty"`
 }
 
 // The folders granted, and what no grant opens.
@@ -331,19 +331,31 @@ type SandboxFolders struct {
 	Closed []string `json:"closed"`
 	// The folders a read grant of which draws the wide warning, resolved: the home, each folder over it, and /Volumes on macOS.
 	Wide []string `json:"wide"`
-	// Whether the file's rules cannot be read, which refuses every always grant and revoke until the file is fixed or what Kstack cannot read is discarded.
-	RulesHeld bool `json:"rulesHeld"`
 }
 
-// One folder of the user's PATH, and what the sandbox does with it.
-type SandboxPathEntry struct {
-	// The folder as the shell gave it.
-	Dir string `json:"dir"`
-	// The folder dir resolved to when its state was set; the one the sandbox reads.
-	Target string            `json:"target"`
-	State  SandboxPathState  `json:"state"`
-	Source SandboxPathSource `json:"source"`
-	// Whether target was writable by a group other than an administrators' one, so others in it can add programs to it.
+// The PATH of every sandboxed command, as the user wrote it, and its folders.
+type SandboxPath struct {
+	// As written: folders joined by ':', where $PATH stands for the login shell's PATH and ~ or $HOME for the home. User text: draw it through VisibleText.
+	Value string `json:"value"`
+	// Why Kstack cannot use value, in the user's words; null when it can. While it is set, no sandboxed command starts. Draw it through VisibleText.
+	Refusal *string `json:"refusal,omitempty"`
+	// Each folder of value in order, as a command judges it now. Empty while value is refused, and on a machine with no sandbox.
+	Folders []*SandboxPathFolder `json:"folders"`
+}
+
+// One folder of the PATH setting, as a sandboxed command judges it now.
+type SandboxPathFolder struct {
+	// The folder as expanded. Shell or user text: draw it through VisibleText.
+	Path   string            `json:"path"`
+	Origin SandboxPathOrigin `json:"origin"`
+	// The folder path resolves to, canonical; null when it does not resolve to one a command may search. Draw it through VisibleText.
+	Target   *string `json:"target,omitempty"`
+	Searched bool    `json:"searched"`
+	// Why the folder is left out, in the user's words; null when it is searched. Draw it through VisibleText.
+	Reason *string `json:"reason,omitempty"`
+	// Whether typing target into the setting would include the folder: a shell folder left out only because no command reads it or its group can write it, that the setting does not type already.
+	Addable bool `json:"addable"`
+	// Whether a group other than an administrators' one can add programs to target.
 	Shared bool `json:"shared"`
 }
 
@@ -354,9 +366,9 @@ type Subscription struct {
 type GrantDuration string
 
 const (
-	// For one chat: a rule of the chat's, gone with it.
+	// For one chat: a grant of the chat's, gone with it.
 	GrantDurationChat GrantDuration = "Chat"
-	// For every chat: a rule in the settings file.
+	// For every chat.
 	GrantDurationAlways GrantDuration = "Always"
 )
 
@@ -465,51 +477,51 @@ func (e LogsFollowFrameType) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Whose decision a PATH entry's state is.
-type SandboxPathSource string
+// Where a folder of the PATH setting came from.
+type SandboxPathOrigin string
 
 const (
-	// Kstack's, when it read the login shell's PATH.
-	SandboxPathSourceShell SandboxPathSource = "Shell"
-	// The user's, by Include or Remove.
-	SandboxPathSourceUser SandboxPathSource = "User"
+	// The login shell's PATH, spliced in for $PATH. Searched only when every sandboxed command reads it already and no group but an administrators' one can add programs to it.
+	SandboxPathOriginShell SandboxPathOrigin = "Shell"
+	// A folder the user typed: their read grant, held to a folder grant's checks.
+	SandboxPathOriginTyped SandboxPathOrigin = "Typed"
 )
 
-var AllSandboxPathSource = []SandboxPathSource{
-	SandboxPathSourceShell,
-	SandboxPathSourceUser,
+var AllSandboxPathOrigin = []SandboxPathOrigin{
+	SandboxPathOriginShell,
+	SandboxPathOriginTyped,
 }
 
-func (e SandboxPathSource) IsValid() bool {
+func (e SandboxPathOrigin) IsValid() bool {
 	switch e {
-	case SandboxPathSourceShell, SandboxPathSourceUser:
+	case SandboxPathOriginShell, SandboxPathOriginTyped:
 		return true
 	}
 	return false
 }
 
-func (e SandboxPathSource) String() string {
+func (e SandboxPathOrigin) String() string {
 	return string(e)
 }
 
-func (e *SandboxPathSource) UnmarshalGQL(v any) error {
+func (e *SandboxPathOrigin) UnmarshalGQL(v any) error {
 	str, ok := v.(string)
 	if !ok {
 		return fmt.Errorf("enums must be strings")
 	}
 
-	*e = SandboxPathSource(str)
+	*e = SandboxPathOrigin(str)
 	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid SandboxPathSource", str)
+		return fmt.Errorf("%s is not a valid SandboxPathOrigin", str)
 	}
 	return nil
 }
 
-func (e SandboxPathSource) MarshalGQL(w io.Writer) {
+func (e SandboxPathOrigin) MarshalGQL(w io.Writer) {
 	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
-func (e *SandboxPathSource) UnmarshalJSON(b []byte) error {
+func (e *SandboxPathOrigin) UnmarshalJSON(b []byte) error {
 	s, err := strconv.Unquote(string(b))
 	if err != nil {
 		return err
@@ -517,68 +529,7 @@ func (e *SandboxPathSource) UnmarshalJSON(b []byte) error {
 	return e.UnmarshalGQL(s)
 }
 
-func (e SandboxPathSource) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
-}
-
-// What the sandbox does with one folder of the user's PATH.
-type SandboxPathState string
-
-const (
-	// On the sandbox's PATH and readable in it.
-	SandboxPathStateAdopted SandboxPathState = "Adopted"
-	// Listed by the shell and waiting for the user: adopting it would open more to commands, or its group can add programs to it.
-	SandboxPathStatePending SandboxPathState = "Pending"
-	// Removed by the user, and kept so a launch does not adopt it again.
-	SandboxPathStateGone SandboxPathState = "Gone"
-)
-
-var AllSandboxPathState = []SandboxPathState{
-	SandboxPathStateAdopted,
-	SandboxPathStatePending,
-	SandboxPathStateGone,
-}
-
-func (e SandboxPathState) IsValid() bool {
-	switch e {
-	case SandboxPathStateAdopted, SandboxPathStatePending, SandboxPathStateGone:
-		return true
-	}
-	return false
-}
-
-func (e SandboxPathState) String() string {
-	return string(e)
-}
-
-func (e *SandboxPathState) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = SandboxPathState(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid SandboxPathState", str)
-	}
-	return nil
-}
-
-func (e SandboxPathState) MarshalGQL(w io.Writer) {
-	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *SandboxPathState) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
-		return err
-	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e SandboxPathState) MarshalJSON() ([]byte, error) {
+func (e SandboxPathOrigin) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil
