@@ -41,7 +41,7 @@ This file holds what crosses the webview; each larger subsystem has a guide besi
 - **A component under `src/components/` is a `.tsx` file or a folder exporting one React component, used on a page or inside a higher-level component.** A component in one file is a file in its area folder (`dashboard/status-pill.tsx`). A component with parts is a folder whose `index.ts` exports that component and its prop types alone; nothing outside imports a part, except a test's `vi.mock` of the part's file and a CSS side-effect import. A part's file does not repeat its folder's name (`left-sidebar/panel.tsx`). Code that is not a component (hooks, pure functions, shared types) lives in `src/lib/`. `log-cards/` is the one family: it exports the transcript's three cards.
 - **Each component sits in one of seven area folders:**
   - `primitives/` — components that know no feature concept: text, inputs, dialogs, section headings, Markdown, resize handles, times, the app mark, the window frame and its controls. The test: it would make sense in an app with no clusters or chats.
-  - `cluster/` — the cluster picker, status popover, sync panel, dot, TLS badge, data-rate sparkline and memory popover.
+  - `cluster/` — the cluster picker, status popover, sync panel, dot, TLS badge, data-rate sparkline, memory list and instructions.
   - `logs/` — the log viewer, the log panel, the log window, a view's source line and `AnsiText`.
   - `settings/` — the settings dialog and the folder-grant form.
   - `chat/` — the chat panes, title bar, composer, transcript, nav, the transcript's log cards, and the dashboard's chat.

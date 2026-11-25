@@ -36,7 +36,7 @@ type Resolver struct {
 	// ChatSvc backs the chat mutations and watches. (Named ChatSvc, like ClusterSvc,
 	// to stay clear of the generated resolver methods named after the schema's types.)
 	ChatSvc chat.Service
-	// MemorySvc backs the memory popover's watch and writes.
+	// MemorySvc backs memory's watch and writes.
 	MemorySvc memory.Service
 	// LLMSvc answers the models query, every provider's catalog in picker order, and
 	// labels a message's provider.

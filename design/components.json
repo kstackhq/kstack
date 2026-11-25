@@ -476,10 +476,6 @@
       },
       "code": [
         {
-          "path": "src/components/cluster/memory/popover.tsx",
-          "blob": "daf498b67f6fb04acf05b0d80fa8badeea4378d3"
-        },
-        {
           "path": "src/components/cluster/memory-instructions.tsx",
           "blob": "afca99ab784e543742881b3d607894537ed35ad7"
         },
@@ -1030,10 +1026,6 @@
         "hash": "11677f43722aa7c2"
       },
       "code": [
-        {
-          "path": "src/components/cluster/memory/popover.tsx",
-          "blob": "daf498b67f6fb04acf05b0d80fa8badeea4378d3"
-        },
         {
           "path": "src/components/cluster/omnibox-popover.tsx",
           "blob": "70fe1e72dbecc81a66b51a552e801a93f26bf667"
